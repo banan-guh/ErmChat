@@ -6,25 +6,15 @@ import 'emote_fetcher.dart';
 /// One typed catalog change emitted by [EmoteStore].
 ///
 /// [channel] null means a global change. A non-null [deltaCodes] marks a live
-/// 7TV delta: it must refresh the picker lists but not invalidate rendered
-/// messages (those keep the emote state they were built with). A null
-/// [deltaCodes] on a channel change is a full refetch. [overlay] true marks a
-/// config-only refresh (fetch state, tier) that leaves rendered spans valid.
+/// 7TV delta (typing, picker, and menus read it live; rendered rows keep the
+/// tokens baked at ingest). A null [deltaCodes] on a channel change is a
+/// full refetch.
 class EmoteChange {
-  const EmoteChange({
-    required this.version,
-    this.channel,
-    this.deltaCodes,
-    this.overlay = false,
-  });
+  const EmoteChange({required this.version, this.channel, this.deltaCodes});
 
   final int version;
   final String? channel;
   final Set<String>? deltaCodes;
-
-  /// True for an overlay-only refresh (personal/foreign 7TV sets): cached
-  /// lookups refresh, but rendered spans and the id index stay valid.
-  final bool overlay;
 
   bool get isGlobal => channel == null;
   bool get isDelta => deltaCodes != null;
@@ -44,8 +34,8 @@ class EmoteStore {
   int _version = 0;
   EmoteChange? _lastChange;
 
-  /// Catalog version used by message span caches. Live 7TV deltas do not
-  /// advance it, so already-rendered messages stay frozen.
+  /// Catalog version. Rendered rows ignore it (tokens bake at ingest);
+  /// typing, picker, and menus observe it through [lastChange].
   int get version => _version;
 
   /// Most recent change, or null before the first one.
@@ -62,13 +52,14 @@ class EmoteStore {
     _listeners.clear();
   }
 
-  /// Records a catalog change. [bumpVersion] false keeps rendered spans frozen
-  /// (live 7TV deltas). Drops the affected merged cache and notifies.
+  /// Records a catalog change. [bumpVersion] false is the live 7TV delta
+  /// path: derived lookups drop so new messages and typing see it, while
+  /// rendered rows keep their baked tokens. Drops the affected merged cache
+  /// and notifies.
   void emitChange({
     String? channel,
     Set<String>? deltaCodes,
     bool bumpVersion = true,
-    bool overlay = false,
   }) {
     if (_disposed) return;
     if (bumpVersion) _version++;
@@ -76,10 +67,9 @@ class EmoteStore {
       version: _version,
       channel: channel,
       deltaCodes: deltaCodes,
-      overlay: overlay,
     );
     _lastChange = change;
-    if (!overlay) _emoteIndexDirty = true;
+    _emoteIndexDirty = true;
     if (channel != null) {
       _mergedCache.remove(channel);
       _foreignLookupCache.remove(channel);
@@ -92,35 +82,19 @@ class EmoteStore {
     }
   }
 
-  /// Resolution-affecting refresh: viewer/foreign personal sets. Clears
-  /// derived lookups and bumps the span version so typing, picker, and
-  /// rendered spans recompute from the same mixer. Live 7TV deltas stay
-  /// frozen through their own delta emit instead.
-  void notifyResolutionChanged() {
-    emitChange(channel: null);
-  }
-
-  /// Overlay-only refresh: fetch state or configuration (tier, auto mode).
-  /// Catalog data is unchanged, so this refreshes derived lookups without
-  /// invalidating rendered spans.
-  void notifyOverlayChanged() {
-    _mergedCache.clear();
-    _foreignLookupCache.clear();
-    emitChange(channel: null, bumpVersion: false, overlay: true);
-  }
-
-  /// Emits a global full change (account reset, overlay/personal change).
+  /// Emits a global full change (fetch, personal set, visibility, tier,
+  /// account reset). Rendered rows ignore it; live surfaces re-read.
   void notifyStateCleared() => emitChange(channel: null);
 
-  /// Records a config-only update (tier, auto mode). Catalog data is unchanged,
-  /// so this refreshes derived lookups without invalidating rendered spans.
-  void notifyConfigChanged() => notifyOverlayChanged();
+  /// Records a config-only update (tier, auto mode). Catalog data is
+  /// unchanged; live surfaces re-read.
+  void notifyConfigChanged() => emitChange(channel: null);
 
-  /// Clears derived visibility caches and bumps the span version: disabled
-  /// providers and unlisted 7TV change what typing, picker, and chat resolve.
+  /// Clears derived visibility caches and emits: disabled providers and
+  /// unlisted 7TV change what new messages, typing, and picker resolve.
   void notifyVisibilityChanged() {
     _subsByChannelCache = null;
-    notifyResolutionChanged();
+    emitChange(channel: null);
   }
 
   // ── Catalog state ───────────────────────────────────────────────────

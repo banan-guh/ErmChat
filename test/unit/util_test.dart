@@ -466,7 +466,7 @@ void main() {
     messageId: 'm1',
   );
 
-  test('spans are reused while the emote version is unchanged', () {
+  test('spans are reused across builds', () {
     final em = EmoteManager();
     final msg = makeMsg();
     final builder = makeBuilder(em);
@@ -505,15 +505,15 @@ void main() {
     expect(identical(again, spans), isTrue);
   });
 
-  test('spans recompute after a full refetch notify', () async {
+  test('spans stay frozen after a full refetch notify', () async {
     final em = EmoteManager();
     final msg = makeMsg();
     final builder = makeBuilder(em);
     final spans = builder.buildMessageSpans(msg, 'test', Colors.black);
     expect(spans.any((s) => s is WidgetSpan), isFalse);
 
-    // A non-delta notify with changed data bumps the version and the next
-    // build lazily recomputes against the fresh emote data.
+    // A full refetch bumps the version, but the baked row keeps its spans:
+    // tokens parse once at first render and are never recomputed.
     await em.storeUserTwitchEmotes({
       'test': [
         const Emote(
@@ -528,7 +528,7 @@ void main() {
     expect(em.version, greaterThan(0));
 
     final re = builder.buildMessageSpans(msg, 'test', Colors.black);
-    expect(identical(re, spans), isFalse);
+    expect(identical(re, spans), isTrue);
   });
 
   test('spans recompute when the text scale changes', () {

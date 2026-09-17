@@ -1238,7 +1238,7 @@ void main() {
       },
     );
 
-    test('resolved emotes freeze across a live delta, refresh on a bump', () {
+    test('parsed tokens freeze: delta and bump never change the baked row', () {
       SharedPreferences.setMockInitialValues({});
       final manager = EmoteManager(
         fetchStagger: Duration.zero,
@@ -1247,79 +1247,61 @@ void main() {
       manager.updateSevenTvEmotes('ch', added: [sevenTv('a', 'Alpha')]);
 
       final msg = TwitchMessage(login: 'x', text: 'Alpha', channel: 'ch');
-      final first = manager.resolvedEmotesFor(msg, lookupChannel: 'ch');
-      expect(first, isNotNull);
-      expect(first!.map((t) => t.emote!.code).toList(), ['Alpha']);
+      msg.emoteTokens = manager.parseMessageEmotes(msg, lookupChannel: 'ch');
+      expect(msg.emoteTokens!.map((t) => t.emote!.code).toList(), ['Alpha']);
 
-      // A live delta (rename) leaves the frozen snapshot untouched.
+      // A live delta (rename) leaves the baked row untouched.
       manager.updateSevenTvEmotes(
         'ch',
         renamed: {'a': (newName: 'Beta', oldName: 'Alpha')},
       );
-      expect(manager.resolvedEmotesFor(msg, lookupChannel: 'ch'), same(first));
+      expect(msg.emoteTokens!.map((t) => t.emote!.code).toList(), ['Alpha']);
 
-      // A version bump recomputes: Alpha is gone, so the token disappears.
+      // A version bump does not recompute either: frozen means frozen.
       manager.store.notifyStateCleared();
-      final refreshed = manager.resolvedEmotesFor(msg, lookupChannel: 'ch');
-      expect(refreshed, isNot(same(first)));
-      expect(refreshed, isEmpty);
+      expect(msg.emoteTokens!.map((t) => t.emote!.code).toList(), ['Alpha']);
 
-      // System rows never snapshot; the renderer falls back.
+      // System rows never parse; the renderer falls back.
       final system = TwitchMessage(
         login: '',
         text: 'Alpha',
         isSystem: true,
         channel: 'ch',
       );
-      expect(manager.resolvedEmotesFor(system, lookupChannel: 'ch'), isNull);
+      expect(manager.parseMessageEmotes(system, lookupChannel: 'ch'), isNull);
     });
 
-    test('a row ingested before its emote loads resolves after a bump', () {
-      SharedPreferences.setMockInitialValues({});
-      final manager = EmoteManager(
-        fetchStagger: Duration.zero,
-        removeCachedFile: (url) async {},
-      );
-      final msg = TwitchMessage(login: 'x', text: 'Alpha', channel: 'ch');
-      // Ingested before the channel's emotes are known: frozen as empty.
-      expect(manager.resolvedEmotesFor(msg, lookupChannel: 'ch'), isEmpty);
+    test(
+      'a row parsed before its emote loads stays text (frozen, no heal)',
+      () {
+        SharedPreferences.setMockInitialValues({});
+        final manager = EmoteManager(
+          fetchStagger: Duration.zero,
+          removeCachedFile: (url) async {},
+        );
+        final msg = TwitchMessage(login: 'x', text: 'Alpha', channel: 'ch');
+        // Parsed before the channel's emotes are known: baked as empty.
+        msg.emoteTokens = manager.parseMessageEmotes(msg, lookupChannel: 'ch');
+        expect(msg.emoteTokens, isEmpty);
 
-      // A live delta does not refresh the frozen row.
-      manager.updateSevenTvEmotes('ch', added: [sevenTv('a', 'Alpha')]);
-      expect(manager.resolvedEmotesFor(msg, lookupChannel: 'ch'), isEmpty);
+        // The live mixer moves on, but the baked row keeps its answer.
+        manager.updateSevenTvEmotes('ch', added: [sevenTv('a', 'Alpha')]);
+        expect(msg.emoteTokens, isEmpty);
+        manager.store.notifyStateCleared();
+        expect(msg.emoteTokens, isEmpty);
 
-      // A full refetch bumps the version and the row picks the emote up.
-      manager.store.notifyStateCleared();
-      expect(
-        manager.resolvedEmotesFor(msg, lookupChannel: 'ch')!.single.emote!.code,
-        'Alpha',
-      );
-    });
-
-    test('a row stamped against the wrong channel heals on resolve', () {
-      SharedPreferences.setMockInitialValues({});
-      final manager = EmoteManager(
-        fetchStagger: Duration.zero,
-        removeCachedFile: (url) async {},
-      );
-      manager.updateSevenTvEmotes('src', added: [sevenTv('a', 'Alpha')]);
-
-      final msg = TwitchMessage(login: 'x', text: 'Alpha', channel: 'ch');
-      // Shared-chat fallback: source login unknown at ingest, so the row is
-      // stamped against the current channel and freezes as empty.
-      expect(manager.resolvedEmotesFor(msg, lookupChannel: 'ch'), isEmpty);
-
-      // Source data lands with no version bump, but the lookup channel is now
-      // known: the row recomputes against the source channel.
-      expect(
-        manager
-            .resolvedEmotesFor(msg, lookupChannel: 'src')!
-            .single
-            .emote!
-            .code,
-        'Alpha',
-      );
-    });
+        // Only new parses see the emote.
+        final later = TwitchMessage(login: 'y', text: 'Alpha', channel: 'ch');
+        expect(
+          manager
+              .parseMessageEmotes(later, lookupChannel: 'ch')!
+              .single
+              .emote!
+              .code,
+          'Alpha',
+        );
+      },
+    );
 
     test('removed emotes are evicted only when unused elsewhere', () async {
       SharedPreferences.setMockInitialValues({});
@@ -2806,7 +2788,7 @@ void main() {
       expect(manager.byCode('chanA')?.byCode['PrimePride']?.id, 'u1');
     });
 
-    test('new user-set fetch signals overlay before data lands', () async {
+    test('new user-set fetch signals before data lands', () async {
       final auth = TwitchAuth()..accessToken = 'tok';
       final fetch = Completer<Map<String, List<Emote>>>();
       final manager = EmoteManager(
@@ -2829,8 +2811,8 @@ void main() {
       await pumpEventQueue();
 
       expect(changes, hasLength(1));
-      expect(changes.single.overlay, isTrue);
-      expect(manager.version, 0);
+      expect(changes.single.channel, isNull);
+      expect(manager.version, 1);
 
       fetch.complete(const {});
       await pending;

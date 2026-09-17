@@ -201,7 +201,7 @@ void main() {
     expect(store.emoteById('u1', unlocks: [unlock])?.code, 'PrimePride');
   });
 
-  test('overlay change keeps the version and is flagged', () {
+  test('state-cleared emit bumps the version with a global change', () {
     final store = EmoteStore();
     store.emitChange(channel: 'ch');
     final before = store.lastChange!.version;
@@ -209,36 +209,28 @@ void main() {
     void listener(EmoteChange change) => changes.add(change);
     store.addListener(listener);
 
-    store.notifyOverlayChanged();
+    store.notifyStateCleared();
 
     store.removeListener(listener);
     expect(changes, hasLength(1));
-    expect(changes.single.overlay, isTrue);
     expect(changes.single.channel, isNull);
-    expect(changes.single.version, before);
+    expect(changes.single.version, before + 1);
   });
 
-  test(
-    'personal-set resolution refresh bumps the version for all consumers',
-    () {
-      final store = EmoteStore();
-      final first = store.byCode('ch', personal: [_emote('p1', 'OldPersonal')]);
-      expect(first?.byCode['OldPersonal']?.id, 'p1');
+  test('personal-set refresh clears derived lookups and bumps the version', () {
+    final store = EmoteStore();
+    final first = store.byCode('ch', personal: [_emote('p1', 'OldPersonal')]);
+    expect(first?.byCode['OldPersonal']?.id, 'p1');
 
-      store.notifyResolutionChanged();
+    store.notifyStateCleared();
 
-      final second = store.byCode(
-        'ch',
-        personal: [_emote('p2', 'NewPersonal')],
-      );
-      expect(second?.byCode['NewPersonal']?.id, 'p2');
-      expect(second?.byCode.containsKey('OldPersonal'), isFalse);
-      expect(store.version, 1);
-      expect(store.lastChange?.overlay, isFalse);
-    },
-  );
+    final second = store.byCode('ch', personal: [_emote('p2', 'NewPersonal')]);
+    expect(second?.byCode['NewPersonal']?.id, 'p2');
+    expect(second?.byCode.containsKey('OldPersonal'), isFalse);
+    expect(store.version, 1);
+  });
 
-  test('foreign resolution refresh bumps the version for all consumers', () {
+  test('foreign refresh clears derived lookups and bumps the version', () {
     final store = EmoteStore();
     final foreign = EmoteLookup(
       byCode: {'Foreign': _emote('f1', 'Foreign')},
@@ -247,7 +239,7 @@ void main() {
     final first = store.byCodeForSender('ch', foreign: foreign);
     expect(first?.byCode['Foreign']?.id, 'f1');
 
-    store.notifyResolutionChanged();
+    store.notifyStateCleared();
 
     final updatedForeign = EmoteLookup(
       byCode: {'UpdatedForeign': _emote('f2', 'UpdatedForeign')},
@@ -256,24 +248,21 @@ void main() {
     final second = store.byCodeForSender('ch', foreign: updatedForeign);
     expect(second?.byCode['UpdatedForeign']?.id, 'f2');
     expect(store.version, 1);
-    expect(store.lastChange?.overlay, isFalse);
   });
 
-  test('config refresh stays overlay-only, visibility bumps the version', () {
+  test('config and visibility refreshes bump the version', () {
     final store = EmoteStore();
     final first = store.byCode('ch', personal: [_emote('p1', 'OldPersonal')]);
     expect(first?.byCode['OldPersonal']?.id, 'p1');
 
     store.notifyConfigChanged();
-    expect(store.version, 0);
-    expect(store.lastChange?.overlay, isTrue);
+    expect(store.version, 1);
     final second = store.byCode('ch', personal: [_emote('p2', 'NewPersonal')]);
     expect(second?.byCode['NewPersonal']?.id, 'p2');
     expect(second?.byCode.containsKey('OldPersonal'), isFalse);
 
     store.notifyVisibilityChanged();
-    expect(store.version, 1);
-    expect(store.lastChange?.overlay, isFalse);
+    expect(store.version, 2);
     final third = store.byCode(
       'ch',
       personal: [_emote('p3', 'NewestPersonal')],

@@ -1,5 +1,6 @@
 import 'dart:ui' show Color;
 
+import '../emotes/emote.dart';
 import 'highlight_state.dart';
 import 'twitch_badge.dart';
 
@@ -107,6 +108,11 @@ class TwitchMessage {
   /// Bits cheered (PRIVMSG bits tag), or null for non-cheers.
   final int? bitsAmount;
   final List<EmotePosition>? emotePositions;
+
+  /// Emote tokens parsed once at ingest and frozen: the row keeps the emote
+  /// state it arrived with, never recomputed. Null until first parse;
+  /// restored threads re-parse once on first render. Not persisted.
+  List<EmoteToken>? emoteTokens;
   final List<GifAttachment>? gifAttachments;
   final List<MessageBadge>? badges;
   final String? sourceBroadcasterId;
@@ -164,8 +170,9 @@ class TwitchMessage {
   }) : timestamp = timestamp ?? DateTime.now(),
        displayName = displayName ?? login;
 
-  // Full-log persistence for saved threads. Highlight and span caches are
-  // session state: highlights re-evaluate on load, spans rebuild lazily.
+  // Full-log persistence for saved threads. Highlight and emote tokens are
+  // session state: highlights re-evaluate on load, tokens re-parse once on
+  // first render, spans rebuild from the tokens.
   Map<String, dynamic> toJson() => {
     'login': login,
     'displayName': displayName,

@@ -58,11 +58,11 @@ class MessageBuilder {
   final _bodyCache = Expando<_BodySpans>();
   final _badgeCache = Expando<_BadgeSpans>();
 
-  /// Composite cache key for message spans. Prime multiplier avoids collisions.
-  /// Giphy prefs join the key (prime offset for the toggle, spread factor
-  /// for the height) so changes recompute spans lazily.
+  /// Composite cache key for message spans. Emote tokens bake onto the
+  /// message at ingest, so catalog changes never invalidate spans here;
+  /// only badge data, link prefs, and gif/image prefs join the key.
   int get _spanCacheVersion {
-    var v = emoteSource.version * 1000003 + badgeService.version;
+    var v = badgeService.version;
     v += linkWhitelist.entries.fold<int>(0, (h, e) => h ^ e.hashCode * 31);
     if (linkWhitelist.enabled) v += 30000031;
     if (onEmailTap != null) v += 40000037;
@@ -179,10 +179,11 @@ class MessageBuilder {
     final lookupChannel = msg.sourceBroadcasterId != null
         ? badgeService.resolveChannelLogin(msg.sourceBroadcasterId!) ?? channel
         : channel;
-    // Frozen resolution captured at ingest: it keeps the emote state the
-    // message arrived with, so a later 7TV delta can't change it. System rows
-    // return null and fall back to the live lookup.
-    final resolved = emoteSource.resolvedEmotesFor(
+    // Tokens baked at ingest: the row renders what it arrived with, never
+    // recomputed. Null (restored threads) parses once against the live
+    // mixer here and sticks. System rows parse to null and fall back to the
+    // live lookup below.
+    final resolved = msg.emoteTokens ??= emoteSource.parseMessageEmotes(
       msg,
       lookupChannel: lookupChannel,
     );

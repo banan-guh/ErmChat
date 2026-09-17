@@ -514,16 +514,19 @@ class ChatIngestion {
     onChatMessage?.call(channel, msg);
   }
 
-  /// Freezes [msg]'s emote resolution at insert time, so a later live delta
-  /// cannot change the row when it is first rendered. Shared-chat messages
-  /// resolve against the source channel.
+  /// Parses [msg]'s emotes once at insert time and stores them on the
+  /// message, so the row renders what it arrived with. Never recomputed.
+  /// Shared-chat messages resolve against the source channel.
   void _stampEmoteResolution(TwitchMessage msg, String channel) {
     if (msg.isSystem) return;
     final source = msg.sourceBroadcasterId;
     final lookupChannel = source == null
         ? channel
         : badgeService.resolveChannelLogin(source) ?? channel;
-    emoteManager.resolvedEmotesFor(msg, lookupChannel: lookupChannel);
+    msg.emoteTokens = emoteManager.parseMessageEmotes(
+      msg,
+      lookupChannel: lookupChannel,
+    );
   }
 }
 

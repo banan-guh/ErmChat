@@ -27,25 +27,22 @@ export 'emote_usage_registry.dart' show EmoteUsageRecord;
 
 /// Read-only port over the emote catalog for the render path.
 ///
-/// The message builder needs exactly three things: whether the catalog
-/// changed (to invalidate cached spans), the merged lookup for a
-/// channel+sender, and the image byte owner. [EmoteManager] implements it so
-/// render-path consumers stop depending on the whole manager.
+/// The message builder needs exactly three things: a one-shot parse of a
+/// message against the current mixer, the merged lookup for typing and menus,
+/// and the image byte owner. [EmoteManager] implements it so render-path
+/// consumers stop depending on the whole manager.
 abstract interface class EmoteLookupSource {
-  /// Catalog version used by message span caches. Live 7TV deltas do not
-  /// advance it, so already-rendered messages stay frozen.
-  int get version;
-
   /// Image byte owner consumed by the render path.
   EmoteImages get images;
 
   /// Merged emotes for [channel] plus [senderTwitchId]'s personal 7TV set.
   EmoteLookup? lookup(String channel, String? senderTwitchId);
 
-  /// Frozen emote tokens for [msg], or null when it has no snapshot (system
-  /// rows). Tokens are captured the first time and reused, so live deltas do
-  /// not change them; a catalog version change recomputes them.
-  List<EmoteToken>? resolvedEmotesFor(
+  /// Parses [msg] once against the current mixer. The caller stores the
+  /// result on the message; it is never recomputed, so live deltas do not
+  /// change rendered rows. Null for system rows, which render through the
+  /// live lookup instead.
+  List<EmoteToken>? parseMessageEmotes(
     TwitchMessage msg, {
     required String lookupChannel,
   });
@@ -72,11 +69,6 @@ class EmoteManager implements EmoteLookupSource {
   // it fetches and coordinates the per-account overlays.
   final EmoteStore _store;
   final bool _ownsStore;
-
-  /// Per-message frozen emote resolutions, keyed by the message object. Weak,
-  /// so evicting a message drops its snapshot; stale against [version].
-  final Expando<_ResolvedMessageEmotes> _resolvedMessages =
-      Expando<_ResolvedMessageEmotes>();
 
   /// Image byte black box (disk cache, precache, migrations).
   late final EmoteImages _images;
@@ -199,7 +191,7 @@ class EmoteManager implements EmoteLookupSource {
           metaStore: _metaStore,
           tier: () => tier,
           isProviderEnabled: (type) => _visibility.isProviderEnabled(type),
-          notifyChanged: _store.notifyResolutionChanged,
+          notifyChanged: _store.notifyStateCleared,
           now: _now,
         );
     _twitchSets =
@@ -280,9 +272,8 @@ class EmoteManager implements EmoteLookupSource {
   /// shows a spinner (not the empty text) while true.
   bool get subEmoteFetchInFlight => _twitchSets.subEmoteFetchInFlight;
 
-  /// Current emote-data version. Forwards the store so message span caches
-  /// detect stale spans lazily; live 7TV deltas do not advance it.
-  @override
+  /// Current catalog version for live surfaces (typing, picker, menus).
+  /// Rendered rows ignore it: tokens bake at ingest.
   int get version => _store.version;
 
   // Targets whose emote fetch failed since the last take (channel names, or
@@ -399,42 +390,26 @@ class EmoteManager implements EmoteLookupSource {
   EmoteLookup? lookup(String channel, String? senderTwitchId) =>
       byCodeForSender(channel, senderTwitchId);
 
-  /// Frozen emote tokens for [msg]. Computed once per catalog version and
-  /// lookup channel, then reused, so a live 7TV delta never changes them; a
-  /// version change (full refetch, personal set, visibility) recomputes. A
-  /// changed lookup channel also recomputes, so a shared-chat message stamped
-  /// before its source channel resolved heals once the source data lands.
-  /// Only emote tokens are kept: text stays on the message. System rows
-  /// return null so the renderer falls back.
+  /// Parses [msg] once against the current mixer. The caller stores the
+  /// result on the message; it is never recomputed, so a later live delta
+  /// cannot change the row. Only emote tokens are kept: text stays on the
+  /// message. System rows return null so the renderer falls back.
   @override
-  List<EmoteToken>? resolvedEmotesFor(
+  List<EmoteToken>? parseMessageEmotes(
     TwitchMessage msg, {
     required String lookupChannel,
   }) {
     if (msg.isSystem) return null;
-    final cached = _resolvedMessages[msg];
-    if (cached != null &&
-        cached.version == version &&
-        cached.channel == lookupChannel) {
-      return cached.tokens;
-    }
     final byCode = byCodeForSender(lookupChannel, msg.userId)?.byCode;
-    final tokens = byCode == null
-        ? const <EmoteToken>[]
-        : <EmoteToken>[
-            for (final token in tokenize(
-              text: msg.text,
-              positions: msg.emotePositions,
-              byCode: byCode,
-            ))
-              if (token.isEmote) token,
-          ];
-    _resolvedMessages[msg] = _ResolvedMessageEmotes(
-      version,
-      lookupChannel,
-      tokens,
-    );
-    return tokens;
+    if (byCode == null) return const <EmoteToken>[];
+    return <EmoteToken>[
+      for (final token in tokenize(
+        text: msg.text,
+        positions: msg.emotePositions,
+        byCode: byCode,
+      ))
+        if (token.isEmote) token,
+    ];
   }
 
   /// Maps foreign users to a personal set from a socket entitlement grant.
@@ -1012,14 +987,4 @@ class EmoteManager implements EmoteLookupSource {
     _usage.scheduleFlush();
     unawaited(_discardDominatedScales(fresh));
   }
-}
-
-/// One message's frozen emote resolution, tagged with the catalog version
-/// and lookup channel it was built from.
-class _ResolvedMessageEmotes {
-  const _ResolvedMessageEmotes(this.version, this.channel, this.tokens);
-
-  final int version;
-  final String channel;
-  final List<EmoteToken> tokens;
 }

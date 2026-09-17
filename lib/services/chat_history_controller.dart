@@ -82,15 +82,18 @@ class ChatHistoryController {
     );
   }
 
-  /// Freezes [msg]'s emote resolution at merge time, so scrolling back to it
-  /// renders the emote state history arrived with instead of a later delta's.
+  /// Parses [msg]'s emotes once at merge time and stores them on the
+  /// message, so scrolling back renders what history arrived with.
   void _stampEmoteResolution(TwitchMessage msg, String channel) {
     if (msg.isSystem) return;
     final source = msg.sourceBroadcasterId;
     final lookupChannel = source == null
         ? channel
         : badgeService.resolveChannelLogin(source) ?? channel;
-    emoteManager.resolvedEmotesFor(msg, lookupChannel: lookupChannel);
+    msg.emoteTokens = emoteManager.parseMessageEmotes(
+      msg,
+      lookupChannel: lookupChannel,
+    );
   }
 
   /// Retroactive mention scan, run once on login: evaluates ping rules against

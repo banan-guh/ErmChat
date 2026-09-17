@@ -317,7 +317,7 @@ flowchart TD
   imgprovider --> emimg["EmoteImage"]
   emimg -->|emote cells| builder["MessageBuilder span cache"]
   imgprovider --> menu
-  lookup -->|version / byCodeForSender| builder
+  lookup -->|parse + lookupForSender| builder
   builder -->|buildMessageSpans| tile["ChatMessageTile / ChatView"]
 
   tvclient["SevenTvEventClient"] --> tvconsumer["SevenTvConsumer"]
@@ -328,7 +328,7 @@ flowchart TD
   tpn -->|badge images| builder
 ```
 
-`EmoteManager` is the coordinator and single doorway for the emote area, not a daemon: it holds no catalog caches directly. It feeds fetches into `EmoteStore` (plain Dart catalog state: per-scope provider lists, 7TV identity and live sets, merged lookup caches, id index) and coordinates the owners: `EmoteUsageRegistry` (usage plus image eviction policy), `SevenTvPersonalSets` (viewer and foreign personal sets), `TwitchEmoteSets` (subs plus account unlocks), `EmotePersistence` (global/channel catalog blobs), `EmoteImages` (image bytes), and `EmoteVisibility` (provider toggles). `EmoteFetcher` holds the fetch policy and the per-provider producers. `EmoteStore` emits typed `EmoteChange`s; the `EmoteStoreNotifier` bridges that listener stream to `emoteStateProvider`, so widgets observe with `ref.listen`/`select`. `MessageBuilder` reads only the narrow `EmoteLookupSource` (catalog version, sender lookup, image owner) exposed by `emoteLookupSourceProvider`. Live 7TV deltas update the store through a non-version-bumping `EmoteChange`, so already-rendered spans are not retroactively recomputed; full refetches, personal-set loads, and visibility toggles bump the version and `MessageBuilder` recomputes spans lazily. Render-side code (`EmoteUrlProvider` and its animation completer, `EmoteImage`, `SevenTvPaintService`, and decode) lives in `lib/widgets`, and `EmoteController` reaches it through injected ports.
+`EmoteManager` is the coordinator and single doorway for the emote area, not a daemon: it holds no catalog caches directly. It feeds fetches into `EmoteStore` (plain Dart catalog state: per-scope provider lists, 7TV identity and live sets, merged lookup caches, id index) and coordinates the owners: `EmoteUsageRegistry` (usage plus image eviction policy), `SevenTvPersonalSets` (viewer and foreign personal sets), `TwitchEmoteSets` (subs plus account unlocks), `EmotePersistence` (global/channel catalog blobs), `EmoteImages` (image bytes), and `EmoteVisibility` (provider toggles). `EmoteFetcher` holds the fetch policy and the per-provider producers. `EmoteStore` emits typed `EmoteChange`s; the `EmoteStoreNotifier` bridges that listener stream to `emoteStateProvider`, so widgets observe with `ref.listen`/`select`. `MessageBuilder` reads only the narrow `EmoteLookupSource` (one-shot parse, sender lookup, image owner) exposed by `emoteLookupSourceProvider`. Emote tokens bake onto the message at ingest and are never recomputed; live surfaces (typing, picker, menus) read the current mixer on every change. Render-side code (`EmoteUrlProvider` and its animation completer, `EmoteImage`, `SevenTvPaintService`, and decode) lives in `lib/widgets`, and `EmoteController` reaches it through injected ports.
 
 ## Moderation
 
@@ -552,4 +552,4 @@ Every entry calls a public method on the child; none reaches into private state.
 | `StreamPlayerController` | `lib/services/stream_player_controller.dart` | Stream layout/player state and preferences. |
 | `PipService` | `lib/services/pip_service.dart` | Picture-in-picture lifecycle callbacks. |
 | `ConnectivityService` | `lib/services/connectivity_service.dart` | Connectivity/wifi-vs-mobile state consumed by transports and emote TTL logic. |
-| `MessageBuilder` | `lib/widgets/message_builder.dart` | Builds and caches message spans, keyed on emote/badge/link versions. |
+| `MessageBuilder` | `lib/widgets/message_builder.dart` | Builds and caches message spans from baked tokens, keyed on badge/link/gif prefs. |

@@ -29,20 +29,13 @@ class _TrackedUserStore extends UserStore {
   bool disposed = false;
 }
 
-class _OverlayTrackingStore extends EmoteStore {
-  int resolutionChanges = 0;
-  int overlayChanges = 0;
+class _ChangeTrackingStore extends EmoteStore {
+  int stateCleared = 0;
 
   @override
-  void notifyResolutionChanged() {
-    resolutionChanges++;
-    super.notifyResolutionChanged();
-  }
-
-  @override
-  void notifyOverlayChanged() {
-    overlayChanges++;
-    super.notifyOverlayChanged();
+  void notifyStateCleared() {
+    stateCleared++;
+    super.notifyStateCleared();
   }
 }
 
@@ -177,7 +170,7 @@ void main() {
   });
 
   test('personal-set notifications bump the shared version', () {
-    final store = _OverlayTrackingStore();
+    final store = _ChangeTrackingStore();
     final container = ProviderContainer(
       overrides: [emoteStoreProvider.overrideWithValue(store)],
     );
@@ -186,8 +179,7 @@ void main() {
     final personalSets = container.read(sevenTvPersonalSetsProvider);
     personalSets.viewerTwitchId = 'diagnostic-viewer';
 
-    expect(store.resolutionChanges, 1);
-    expect(store.lastChange?.overlay, isFalse);
+    expect(store.stateCleared, 1);
     expect(store.version, 1);
   });
 

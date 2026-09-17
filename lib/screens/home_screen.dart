@@ -26,7 +26,6 @@ import '../services/link_whitelist.dart';
 import '../services/emote_manager.dart';
 import '../services/emote_controller.dart';
 import '../services/emote_usage_registry.dart';
-import '../services/emote_store.dart';
 import '../util/data_usage.dart';
 import '../services/stream_player_controller.dart';
 import '../services/pip_service.dart';
@@ -1116,36 +1115,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     _emotes.reconcileTier();
   }
 
-  void _onEmotesChanged(EmoteChange change) {
-    // Config-only refresh (tier, fetch state): rendered spans stay valid,
-    // so skip the fan-out. Resolution changes (full refetch, personal set,
-    // visibility) bump the version and fan out below so visible tiles
-    // lazily recompute from the same mixer.
-    if (change.overlay) {
-      return;
-    }
-    // Emote data changed: cached message spans are validated against
-    // EmoteManager.version, so no O(total messages) clear is needed here.
-    // Just bump the affected channels so visible tiles lazily recompute.
-    final channel = change.channel;
-    if (channel != null) {
-      // A live 7TV delta never re-renders existing messages: they keep the
-      // emote state they were built with (no retroactive add/remove in chat),
-      // and the sheet/autocomplete read the updated lists themselves. Only a
-      // full refetch (no delta codes) clears the channel's tile cache.
-      if (change.deltaCodes != null) return;
-      _tileCache.remove(channel);
-      _chat.channelFor(channel)?.info.touch();
-      _onPanelDataChanged(channel);
-    } else {
-      for (final c in List.of(_chat.names)) {
-        _chat.channelFor(c)?.info.touch();
-      }
-      _chat.touchMentions();
-      _onPanelDataChanged();
-    }
-  }
-
   static final _emptyNotifier = ValueNotifier<int>(0);
 
   ValueNotifier<int> _versionNotifier(String channel) {
@@ -1731,10 +1700,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   Widget build(BuildContext context) {
     // Provider-owned shared objects observed as Riverpod state. These replace
     // the manual addListener/removeListener pairs; ref.listen auto-cancels.
-    ref.listen(emoteStateProvider, (_, state) {
-      final change = state.change;
-      if (change != null) _onEmotesChanged(change);
-    });
+    // Rendered rows ignore emote changes (tokens bake at ingest); typing,
+    // picker, and menus read the live mixer themselves, so no fan-out here.
     ref.listen(twitchAuthTickProvider, (_, _) => _onAuthChanged());
     ref.listen(connectivityTickProvider, (_, _) => _onConnectivityChanged());
     ref.listen(connectionStateProvider, (_, _) => _onConnectionChanged());

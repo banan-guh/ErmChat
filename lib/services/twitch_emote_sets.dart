@@ -107,9 +107,9 @@ class TwitchEmoteSets {
       return;
     }
     _inflightEmoteSetIds.addAll(newSetIds);
-    // Subs tab spins (not empty-text) while the fetch below is in flight. This
-    // is an overlay notification: no catalog data has changed yet.
-    _store.notifyOverlayChanged();
+    // Subs tab spins (not empty-text) while the fetch below is in flight.
+    // Rendered rows ignore the emit; live surfaces re-read.
+    _store.notifyStateCleared();
     try {
       final byOwner = await _fetcher.fetchUserEmoteSets(
         newSetIds,
