@@ -3966,12 +3966,33 @@ void main() {
       200,
     );
 
+    const staleLine =
+        '@rm-received-ts=1566417979914;historical=1;id=aaaaaaaa;'
+        'display-name=Alice;color=#9ACD32;user-id=42239452 '
+        ':alice!alice@alice.tmi.twitch.tv PRIVMSG #test :stale message';
+    const freshLine =
+        '@rm-received-ts=1766417979914;historical=1;id=bbbbbbbb;'
+        'display-name=Alice;color=#9ACD32;user-id=42239452 '
+        ':alice!alice@alice.tmi.twitch.tv PRIVMSG #test :fresh message';
+
+    http.Response notJoinedBody(String line) => http.Response(
+      jsonEncode({
+        'messages': [line],
+        'error':
+            'The bot is currently not joined to this channel '
+            '(in progress or failed previously)',
+        'error_code': 'channel_not_joined',
+      }),
+      200,
+    );
+
     group('error handling', () {
       test(
         '200 with channel_not_joined still parses whatever history exists',
         () async {
           final calls = <Uri>[];
           final service = RecentMessagesService(
+            config: RecentMessagesConfig(mode: RecentMessagesMode.robotty),
             client: MockClient((request) async {
               calls.add(request.url);
               return http.Response(
@@ -3989,11 +4010,128 @@ void main() {
 
           final messages = await service.fetchRecent('test');
 
-          expect(calls, hasLength(1), reason: 'informational error: no mirror');
+          expect(
+            calls,
+            hasLength(1),
+            reason: 'single-provider mode: informational error, no mirror',
+          );
           expect(messages, hasLength(1));
           expect(messages.single.text, 'hello world');
         },
       );
+
+      test('falls back to the mirror when the primary is not joined', () async {
+        final calls = <Uri>[];
+        final service = RecentMessagesService(
+          client: MockClient((request) async {
+            calls.add(request.url);
+            if (request.url.host.contains('robotty')) {
+              return notJoinedBody(staleLine);
+            }
+            return http.Response(
+              jsonEncode({
+                'messages': [freshLine],
+                'error': null,
+                'error_code': null,
+              }),
+              200,
+            );
+          }),
+        );
+
+        final messages = await service.fetchRecent('test');
+
+        expect(calls, hasLength(2));
+        expect(calls[0].host, contains('robotty'));
+        expect(calls[1].host, contains('zneix'));
+        expect(messages.single.text, 'fresh message');
+      });
+
+      test(
+        'falls back to the mirror when the primary is not joined and empty',
+        () async {
+          final calls = <Uri>[];
+          final service = RecentMessagesService(
+            client: MockClient((request) async {
+              calls.add(request.url);
+              if (request.url.host.contains('robotty')) {
+                return http.Response(
+                  jsonEncode({
+                    'messages': <String>[],
+                    'error':
+                        'The bot is currently not joined to this channel '
+                        '(in progress or failed previously)',
+                    'error_code': 'channel_not_joined',
+                  }),
+                  200,
+                );
+              }
+              return okBody();
+            }),
+          );
+
+          final messages = await service.fetchRecent('test');
+
+          expect(calls, hasLength(2));
+          expect(calls[0].host, contains('robotty'));
+          expect(calls[1].host, contains('zneix'));
+          expect(messages.single.text, 'hello world');
+        },
+      );
+
+      test(
+        'returns the freshest stale history when no provider is joined',
+        () async {
+          Future<List<TwitchMessage>> fetchWith({
+            required String robottyLine,
+            required String zneixLine,
+          }) async {
+            final service = RecentMessagesService(
+              client: MockClient((request) async {
+                if (request.url.host.contains('robotty')) {
+                  return notJoinedBody(robottyLine);
+                }
+                return notJoinedBody(zneixLine);
+              }),
+            );
+            return service.fetchRecent('test');
+          }
+
+          expect(
+            (await fetchWith(
+              robottyLine: staleLine,
+              zneixLine: freshLine,
+            )).single.text,
+            'fresh message',
+          );
+          expect(
+            (await fetchWith(
+              robottyLine: freshLine,
+              zneixLine: staleLine,
+            )).single.text,
+            'fresh message',
+          );
+        },
+      );
+
+      test('skips the mirror when the primary is joined', () async {
+        final calls = <Uri>[];
+        final service = RecentMessagesService(
+          client: MockClient((request) async {
+            calls.add(request.url);
+            if (request.url.host.contains('zneix')) {
+              fail('zneix should not be queried when robotty is joined');
+            }
+            return okBody();
+          }),
+        );
+
+        final messages = await service.fetchRecent('test');
+
+        expect(calls, hasLength(1));
+        expect(calls.single.host, contains('robotty'));
+        expect(messages.single.text, 'hello world');
+      });
 
       test(
         'maps definitive channel errors without trying the mirror',
@@ -4050,7 +4188,15 @@ void main() {
           final fallback = RecentMessagesService(
             client: MockClient((request) async {
               if (request.url.host.contains('robotty')) {
-                return http.Response('internal error', 500);
+                return http.Response(
+                  jsonEncode({
+                    'status': 500,
+                    'status_message': 'Internal Server Error',
+                    'error': 'Internal Server Error',
+                    'error_code': 'internal_server_error',
+                  }),
+                  500,
+                );
               }
               return okBody();
             }),

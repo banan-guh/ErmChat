@@ -90,7 +90,7 @@ class RecentMessagesConfig {
 class RecentMessagesService {
   static const _baseUrl =
       'https://recent-messages.robotty.de/api/v2/recent-messages';
-  // Mirror of robotty; fallback on 5xx/network error.
+  // Mirror of robotty; fallback on 5xx/network error or stale response.
   static const _mirrorBaseUrl =
       'https://recent-messages.zneix.eu/api/v2/recent-messages';
 
@@ -160,9 +160,22 @@ class RecentMessagesService {
         '?limit=${limit.clamp(1, 800)}';
     final providers = _config.providers;
     Object? lastError;
+    List<TwitchMessage>? staleFallback;
     for (var i = 0; i < providers.length; i++) {
       try {
-        return await _fetchFrom('${providers[i]}$path', channel);
+        final result = await _fetchFrom('${providers[i]}$path', channel);
+        if (result.joined) return result.messages;
+        // Not joined: the bot serves stale history, so a mirror that is
+        // joined may have the correct messages. Keep the freshest stale
+        // batch in case no provider is joined.
+        logDebug(
+          '[RecentMessages] provider ${i + 1} (${providers[i]}) '
+          'not joined (stale) - trying next',
+        );
+        if (staleFallback == null ||
+            _isFresher(result.messages, staleFallback)) {
+          staleFallback = result.messages;
+        }
       } on RecentMessagesException catch (e) {
         // Definitive: same API across providers, no failover.
         if (e.definitive) {
@@ -185,12 +198,28 @@ class RecentMessagesService {
         lastError = e;
       }
     }
+    // No joined provider: serve the freshest stale batch if there is one.
+    if (staleFallback != null) return staleFallback;
     // All providers exhausted: surface last error or wrap.
     if (lastError is RecentMessagesException) throw lastError;
     throw RecentMessagesException('Failed to load chat history');
   }
 
-  Future<List<TwitchMessage>> _fetchFrom(String url, String channel) async {
+  /// True when [candidate] is newer than [current]. Non-empty beats empty,
+  /// otherwise the latest timestamp wins. Both lists are timestamp-sorted.
+  static bool _isFresher(
+    List<TwitchMessage> candidate,
+    List<TwitchMessage> current,
+  ) {
+    if (current.isEmpty) return candidate.isNotEmpty;
+    if (candidate.isEmpty) return false;
+    return candidate.last.timestamp.isAfter(current.last.timestamp);
+  }
+
+  Future<({List<TwitchMessage> messages, bool joined})> _fetchFrom(
+    String url,
+    String channel,
+  ) async {
     final uri = Uri.parse(url);
     final ownClient = _client == null ? http.Client() : null;
     final client = _client ?? ownClient!;
@@ -222,7 +251,8 @@ class RecentMessagesService {
       }
 
       final body = jsonDecode(res.body) as Map<String, dynamic>;
-      // Informational error_code on 200; not surfaced.
+      // Informational error_code on 200; not-joined means stale history.
+      final joined = body['error_code'] != 'channel_not_joined';
       if (body['error_code'] is String) {
         logDebug(
           '[RecentMessages] $channel: ${body['error']} '
@@ -230,7 +260,9 @@ class RecentMessagesService {
         );
       }
       final rawMessages = body['messages'] as List<dynamic>?;
-      if (rawMessages == null || rawMessages.isEmpty) return [];
+      if (rawMessages == null || rawMessages.isEmpty) {
+        return (messages: const <TwitchMessage>[], joined: joined);
+      }
 
       final messages = <TwitchMessage>[];
       final clearMsgTargets = <String>{};
@@ -260,7 +292,7 @@ class RecentMessagesService {
       applyMessageDeletions(messages, clearMsgTargets);
 
       messages.sort((a, b) => a.timestamp.compareTo(b.timestamp));
-      return messages;
+      return (messages: messages, joined: joined);
     } finally {
       ownClient?.close();
     }
