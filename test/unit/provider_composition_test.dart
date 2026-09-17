@@ -30,7 +30,14 @@ class _TrackedUserStore extends UserStore {
 }
 
 class _OverlayTrackingStore extends EmoteStore {
+  int resolutionChanges = 0;
   int overlayChanges = 0;
+
+  @override
+  void notifyResolutionChanged() {
+    resolutionChanges++;
+    super.notifyResolutionChanged();
+  }
 
   @override
   void notifyOverlayChanged() {
@@ -169,7 +176,7 @@ void main() {
     expect(manager.cacheCap, container.read(emoteCacheCapProvider));
   });
 
-  test('personal-set notifications use the overlay path', () {
+  test('personal-set notifications bump the shared version', () {
     final store = _OverlayTrackingStore();
     final container = ProviderContainer(
       overrides: [emoteStoreProvider.overrideWithValue(store)],
@@ -179,9 +186,9 @@ void main() {
     final personalSets = container.read(sevenTvPersonalSetsProvider);
     personalSets.viewerTwitchId = 'diagnostic-viewer';
 
-    expect(store.overlayChanges, 1);
-    expect(store.lastChange?.overlay, isTrue);
-    expect(store.version, 0);
+    expect(store.resolutionChanges, 1);
+    expect(store.lastChange?.overlay, isFalse);
+    expect(store.version, 1);
   });
 
   test('chatUiSignalsProvider is stable across reads', () {

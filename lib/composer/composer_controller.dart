@@ -90,7 +90,6 @@ class ComposerController {
   final cooldownLabel = ValueNotifier<String?>(null);
 
   String? _lastSentText;
-  List<Emote>? _cachedAutocompleteEmotes;
   Timer? _cooldownTickTimer;
 
   String? get selectedChannel => host.selectedChannel;
@@ -128,13 +127,11 @@ class ComposerController {
     if (suggestions.value.isNotEmpty) suggestions.value = [];
   }
 
-  void invalidateEmoteCache() => _cachedAutocompleteEmotes = null;
-
-  // Channel switch: drop stale suggestions and cached emote list.
+  // Channel switch: drop stale suggestions. The emote list itself is read
+  // live from the shared mixer per keystroke, so no cache to invalidate.
   void onChannelChanged() {
     autocompleteRevert.clear();
     clearSuggestions();
-    invalidateEmoteCache();
   }
 
   void onTapClearSuggestions() => suggestions.value = [];
@@ -185,10 +182,12 @@ class ComposerController {
     } else {
       final users = userStore.usersForChannel(channel);
       final isMention = word.text.startsWith('@');
+      // Same base mixer chat renders from, read live per keystroke. The
+      // viewer id keeps personal grants in scope; foreign sets never leak
+      // into typing because foreignFor(viewer) is always null by design.
       final emotes = isMention
           ? <Emote>[]
-          : _cachedAutocompleteEmotes ??=
-                emoteSource.lookup(channel, null)?.suggestions ??
+          : emoteSource.lookup(channel, session.userId)?.suggestions ??
                 const <Emote>[];
       filtered = filterSuggestions(
         word: filterWord,

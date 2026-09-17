@@ -1296,6 +1296,31 @@ void main() {
       );
     });
 
+    test('a row stamped against the wrong channel heals on resolve', () {
+      SharedPreferences.setMockInitialValues({});
+      final manager = EmoteManager(
+        fetchStagger: Duration.zero,
+        removeCachedFile: (url) async {},
+      );
+      manager.updateSevenTvEmotes('src', added: [sevenTv('a', 'Alpha')]);
+
+      final msg = TwitchMessage(login: 'x', text: 'Alpha', channel: 'ch');
+      // Shared-chat fallback: source login unknown at ingest, so the row is
+      // stamped against the current channel and freezes as empty.
+      expect(manager.resolvedEmotesFor(msg, lookupChannel: 'ch'), isEmpty);
+
+      // Source data lands with no version bump, but the lookup channel is now
+      // known: the row recomputes against the source channel.
+      expect(
+        manager
+            .resolvedEmotesFor(msg, lookupChannel: 'src')!
+            .single
+            .emote!
+            .code,
+        'Alpha',
+      );
+    });
+
     test('removed emotes are evicted only when unused elsewhere', () async {
       SharedPreferences.setMockInitialValues({});
       final removed = <String>[];

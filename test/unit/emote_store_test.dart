@@ -19,6 +19,22 @@ Emote _emote(String id, String code, {EmoteType type = EmoteType.bttv}) =>
       scales: {EmoteScale.medium: 'https://example.com/$id.png'},
     );
 
+Emote _channelEmote(String id, String code) => Emote(
+  id: id,
+  code: code,
+  meta: const BttvMeta(),
+  scales: {EmoteScale.medium: 'https://example.com/$id.png'},
+  scope: EmoteScope.channel,
+);
+
+Emote _lockedTwitchSub(String id, String code) => Emote(
+  id: id,
+  code: code,
+  meta: const TwitchMeta(kind: TwitchEmoteKind.sub),
+  scales: {EmoteScale.medium: 'https://example.com/$id.png'},
+  scope: EmoteScope.channel,
+);
+
 void main() {
   test('global commit emits a global full change', () {
     final store = EmoteStore();
@@ -203,13 +219,13 @@ void main() {
   });
 
   test(
-    'personal-set overlay refreshes viewer lookups without a version bump',
+    'personal-set resolution refresh bumps the version for all consumers',
     () {
       final store = EmoteStore();
       final first = store.byCode('ch', personal: [_emote('p1', 'OldPersonal')]);
       expect(first?.byCode['OldPersonal']?.id, 'p1');
 
-      store.notifyOverlayChanged();
+      store.notifyResolutionChanged();
 
       final second = store.byCode(
         'ch',
@@ -217,36 +233,33 @@ void main() {
       );
       expect(second?.byCode['NewPersonal']?.id, 'p2');
       expect(second?.byCode.containsKey('OldPersonal'), isFalse);
-      expect(store.version, 0);
-      expect(store.lastChange?.overlay, isTrue);
+      expect(store.version, 1);
+      expect(store.lastChange?.overlay, isFalse);
     },
   );
 
-  test(
-    'personal-set overlay refreshes foreign lookups without a version bump',
-    () {
-      final store = EmoteStore();
-      final foreign = EmoteLookup(
-        byCode: {'Foreign': _emote('f1', 'Foreign')},
-        suggestions: [_emote('f1', 'Foreign')],
-      );
-      final first = store.byCodeForSender('ch', foreign: foreign);
-      expect(first?.byCode['Foreign']?.id, 'f1');
+  test('foreign resolution refresh bumps the version for all consumers', () {
+    final store = EmoteStore();
+    final foreign = EmoteLookup(
+      byCode: {'Foreign': _emote('f1', 'Foreign')},
+      suggestions: [_emote('f1', 'Foreign')],
+    );
+    final first = store.byCodeForSender('ch', foreign: foreign);
+    expect(first?.byCode['Foreign']?.id, 'f1');
 
-      store.notifyOverlayChanged();
+    store.notifyResolutionChanged();
 
-      final updatedForeign = EmoteLookup(
-        byCode: {'UpdatedForeign': _emote('f2', 'UpdatedForeign')},
-        suggestions: [_emote('f2', 'UpdatedForeign')],
-      );
-      final second = store.byCodeForSender('ch', foreign: updatedForeign);
-      expect(second?.byCode['UpdatedForeign']?.id, 'f2');
-      expect(store.version, 0);
-      expect(store.lastChange?.overlay, isTrue);
-    },
-  );
+    final updatedForeign = EmoteLookup(
+      byCode: {'UpdatedForeign': _emote('f2', 'UpdatedForeign')},
+      suggestions: [_emote('f2', 'UpdatedForeign')],
+    );
+    final second = store.byCodeForSender('ch', foreign: updatedForeign);
+    expect(second?.byCode['UpdatedForeign']?.id, 'f2');
+    expect(store.version, 1);
+    expect(store.lastChange?.overlay, isFalse);
+  });
 
-  test('config and visibility refreshes stay overlay-only', () {
+  test('config refresh stays overlay-only, visibility bumps the version', () {
     final store = EmoteStore();
     final first = store.byCode('ch', personal: [_emote('p1', 'OldPersonal')]);
     expect(first?.byCode['OldPersonal']?.id, 'p1');
@@ -259,8 +272,8 @@ void main() {
     expect(second?.byCode.containsKey('OldPersonal'), isFalse);
 
     store.notifyVisibilityChanged();
-    expect(store.version, 0);
-    expect(store.lastChange?.overlay, isTrue);
+    expect(store.version, 1);
+    expect(store.lastChange?.overlay, isFalse);
     final third = store.byCode(
       'ch',
       personal: [_emote('p3', 'NewestPersonal')],
@@ -321,5 +334,58 @@ void main() {
     expect(evicted, isEmpty);
     expect(changes, isEmpty);
     expect(store.version, version);
+  });
+
+  test('channel tab slices the same base mixer chat renders from', () {
+    final store = EmoteStore();
+    store.commitChannel(
+      'ch',
+      store.channelEpoch('ch'),
+      ChannelEmoteFetch(
+        byProvider: {
+          EmoteType.bttv: [_channelEmote('c1', 'ChanOnly')],
+          EmoteType.twitch: [_lockedTwitchSub('t1', 'LockedSub')],
+        },
+      ),
+    );
+
+    final base = store.byCode('ch')!;
+    final tab = store.channelTabEmotes('ch');
+
+    expect(base.byCode['ChanOnly']?.id, 'c1');
+    expect(tab.map((e) => e.code), contains('ChanOnly'));
+    // Same objects, not copies: one supply for chat, typing, and picker.
+    expect(
+      tab.singleWhere((e) => e.code == 'ChanOnly'),
+      same(base.byCode['ChanOnly']),
+    );
+    expect(
+      tab.map((e) => e.code),
+      isNot(contains('LockedSub')),
+      reason: 'locked Twitch renders by tag only, never as a tab pick',
+    );
+  });
+
+  test('channel tab respects the same visibility as chat', () {
+    final store = EmoteStore();
+    store.commitChannel(
+      'ch',
+      store.channelEpoch('ch'),
+      ChannelEmoteFetch(
+        byProvider: {
+          EmoteType.bttv: [_channelEmote('c1', 'ChanBttv')],
+        },
+      ),
+    );
+    expect(
+      store.channelTabEmotes('ch').map((e) => e.code),
+      contains('ChanBttv'),
+    );
+
+    store.setProviderVisibility({EmoteType.bttv}, false);
+    store.notifyVisibilityChanged();
+
+    expect(store.byCode('ch')?.byCode.containsKey('ChanBttv'), isFalse);
+    expect(store.channelTabEmotes('ch'), isEmpty);
   });
 }

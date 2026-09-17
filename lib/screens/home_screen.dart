@@ -1093,9 +1093,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   }
 
   void _onEmotesChanged(EmoteChange change) {
-    _composer.invalidateEmoteCache();
-    // Overlay refresh (personal/foreign 7TV sets): cached lookups refresh, but
-    // rendered spans and channel infos stay valid, so skip the fan-out.
+    // Config-only refresh (tier, fetch state): rendered spans stay valid,
+    // so skip the fan-out. Resolution changes (full refetch, personal set,
+    // visibility) bump the version and fan out below so visible tiles
+    // lazily recompute from the same mixer.
     if (change.overlay) {
       return;
     }

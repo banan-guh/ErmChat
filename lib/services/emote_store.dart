@@ -8,7 +8,8 @@ import 'emote_fetcher.dart';
 /// [channel] null means a global change. A non-null [deltaCodes] marks a live
 /// 7TV delta: it must refresh the picker lists but not invalidate rendered
 /// messages (those keep the emote state they were built with). A null
-/// [deltaCodes] on a channel change is a full refetch.
+/// [deltaCodes] on a channel change is a full refetch. [overlay] true marks a
+/// config-only refresh (fetch state, tier) that leaves rendered spans valid.
 class EmoteChange {
   const EmoteChange({
     required this.version,
@@ -91,10 +92,17 @@ class EmoteStore {
     }
   }
 
-  /// Overlay-only refresh: personal sets, fetch state, configuration, or
-  /// visibility. Refreshes derived lookups so new messages resolve updates,
-  /// but does not bump the span version or dirty the id index, so visible
-  /// messages keep their spans and no cross-channel re-render storm happens.
+  /// Resolution-affecting refresh: viewer/foreign personal sets. Clears
+  /// derived lookups and bumps the span version so typing, picker, and
+  /// rendered spans recompute from the same mixer. Live 7TV deltas stay
+  /// frozen through their own delta emit instead.
+  void notifyResolutionChanged() {
+    emitChange(channel: null);
+  }
+
+  /// Overlay-only refresh: fetch state or configuration (tier, auto mode).
+  /// Catalog data is unchanged, so this refreshes derived lookups without
+  /// invalidating rendered spans.
   void notifyOverlayChanged() {
     _mergedCache.clear();
     _foreignLookupCache.clear();
@@ -108,11 +116,11 @@ class EmoteStore {
   /// so this refreshes derived lookups without invalidating rendered spans.
   void notifyConfigChanged() => notifyOverlayChanged();
 
-  /// Clears derived visibility caches and refreshes lookups without
-  /// invalidating rendered spans.
+  /// Clears derived visibility caches and bumps the span version: disabled
+  /// providers and unlisted 7TV change what typing, picker, and chat resolve.
   void notifyVisibilityChanged() {
     _subsByChannelCache = null;
-    notifyOverlayChanged();
+    notifyResolutionChanged();
   }
 
   // ── Catalog state ───────────────────────────────────────────────────
@@ -384,14 +392,21 @@ class EmoteStore {
     return {channel: pinned, ...grouped};
   }
 
-  /// Channel picker tab: third-party channel emotes plus unlocked Twitch
-  /// channel emotes, sorted by code. Status-gated Twitch emotes (subs,
-  /// followers, bitstier) live in the subs tab instead: they only render
-  /// from the IRC tag, so listing them here implies anyone can use them.
-  List<Emote> channelTabEmotes(String channel) {
-    final cached = _filterVisible(_channelLookup(channel));
-    if (cached == null) return [];
-    return cached.suggestions.where((e) => !isTwitchLocked(e)).toList();
+  /// Channel picker tab: slice of the same base mixer chat renders from,
+  /// filtered to channel scope. Status-gated Twitch emotes (subs, followers,
+  /// bitstier) live in the subs tab instead: they only render from the IRC
+  /// tag, so listing them here implies anyone can use them. Visibility
+  /// matches chat: disabled providers and hidden unlisted 7TV stay out.
+  List<Emote> channelTabEmotes(
+    String channel, {
+    Iterable<Emote> personal = const [],
+    Iterable<Emote> unlocks = const [],
+  }) {
+    final base = byCode(channel, personal: personal, unlocks: unlocks);
+    if (base == null) return [];
+    return base.suggestions
+        .where((e) => e.scope == EmoteScope.channel && !isTwitchLocked(e))
+        .toList();
   }
 
   /// Emotes found in [text] for precache: tag emotes by id plus word
@@ -546,8 +561,9 @@ class EmoteStore {
     );
   }
 
-  // Channel-only merged view, matching the old per-channel cache (no global,
-  // no personal, unlisted included).
+  // Channel-only merged view for live 7TV delta diffs (no global, no
+  // personal, unlisted included). The picker channel tab no longer uses
+  // this: it slices the same base mixer chat renders from instead.
   EmoteLookup _channelLookup(String channel) => mergeEmoteLookup(
     global: EmoteCatalog(),
     channel: _channelCatalogs[channel],

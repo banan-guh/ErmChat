@@ -199,7 +199,7 @@ class EmoteManager implements EmoteLookupSource {
           metaStore: _metaStore,
           tier: () => tier,
           isProviderEnabled: (type) => _visibility.isProviderEnabled(type),
-          notifyChanged: _store.notifyOverlayChanged,
+          notifyChanged: _store.notifyResolutionChanged,
           now: _now,
         );
     _twitchSets =
@@ -346,12 +346,14 @@ class EmoteManager implements EmoteLookupSource {
   Map<String, List<Emote>> subsGrouped({String? pinnedChannel}) =>
       _store.subsGrouped(pinnedChannel: pinnedChannel);
 
-  /// Channel picker tab: third-party channel emotes plus unlocked Twitch
-  /// channel emotes, sorted by code. Status-gated Twitch emotes (subs,
-  /// followers, bitstier) live in the subs tab instead: they only render
-  /// from the IRC tag, so listing them here implies anyone can use them.
-  List<Emote> channelTabEmotes(String channel) =>
-      _store.channelTabEmotes(channel);
+  /// Channel picker tab: slice of the same base mixer chat renders from.
+  /// Status-gated Twitch emotes (subs, followers, bitstier) live in the subs
+  /// tab instead: they only render from the IRC tag.
+  List<Emote> channelTabEmotes(String channel) => _store.channelTabEmotes(
+    channel,
+    personal: _personalSets.viewerEmotes,
+    unlocks: _twitchSets.unlockedEmotes,
+  );
 
   /// Emotes found in [text] for precache: tag emotes by id plus word
   /// matches under the sender-proof rule, deduped by id.
@@ -397,10 +399,13 @@ class EmoteManager implements EmoteLookupSource {
   EmoteLookup? lookup(String channel, String? senderTwitchId) =>
       byCodeForSender(channel, senderTwitchId);
 
-  /// Frozen emote tokens for [msg]. Computed once at the current catalog
-  /// version and reused, so a live 7TV delta never changes them; a version
-  /// change (full refetch) recomputes. Only emote tokens are kept: text stays
-  /// on the message. System rows return null so the renderer falls back.
+  /// Frozen emote tokens for [msg]. Computed once per catalog version and
+  /// lookup channel, then reused, so a live 7TV delta never changes them; a
+  /// version change (full refetch, personal set, visibility) recomputes. A
+  /// changed lookup channel also recomputes, so a shared-chat message stamped
+  /// before its source channel resolved heals once the source data lands.
+  /// Only emote tokens are kept: text stays on the message. System rows
+  /// return null so the renderer falls back.
   @override
   List<EmoteToken>? resolvedEmotesFor(
     TwitchMessage msg, {
@@ -408,7 +413,11 @@ class EmoteManager implements EmoteLookupSource {
   }) {
     if (msg.isSystem) return null;
     final cached = _resolvedMessages[msg];
-    if (cached != null && cached.version == version) return cached.tokens;
+    if (cached != null &&
+        cached.version == version &&
+        cached.channel == lookupChannel) {
+      return cached.tokens;
+    }
     final byCode = byCodeForSender(lookupChannel, msg.userId)?.byCode;
     final tokens = byCode == null
         ? const <EmoteToken>[]
@@ -420,7 +429,11 @@ class EmoteManager implements EmoteLookupSource {
             ))
               if (token.isEmote) token,
           ];
-    _resolvedMessages[msg] = _ResolvedMessageEmotes(version, tokens);
+    _resolvedMessages[msg] = _ResolvedMessageEmotes(
+      version,
+      lookupChannel,
+      tokens,
+    );
     return tokens;
   }
 
@@ -1001,11 +1014,12 @@ class EmoteManager implements EmoteLookupSource {
   }
 }
 
-/// One message's frozen emote resolution, tagged with the catalog version it
-/// was built from.
+/// One message's frozen emote resolution, tagged with the catalog version
+/// and lookup channel it was built from.
 class _ResolvedMessageEmotes {
-  const _ResolvedMessageEmotes(this.version, this.tokens);
+  const _ResolvedMessageEmotes(this.version, this.channel, this.tokens);
 
   final int version;
+  final String channel;
   final List<EmoteToken> tokens;
 }
