@@ -40,9 +40,9 @@ String replaceCurrentWord(
   final text = controller.text;
   final cursor = controller.selection.baseOffset.clamp(0, text.length);
   final word = getCurrentWord(text, cursor, extendRight: extendRight);
-  final trailingSpace = word.end >= text.length
-      ? ' '
-      : (text[word.end] == ' ' ? '' : (extendRight ? ' ' : ''));
+  final trailingSpace = word.end < text.length && text[word.end] == ' '
+      ? ''
+      : ' ';
   final newText =
       '${text.substring(0, word.start)}$replacement$trailingSpace${text.substring(word.end)}';
   controller.text = newText;

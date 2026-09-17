@@ -175,6 +175,44 @@ void main() {
         }
       },
     );
+
+    test('autocomplete appends a trailing space at the end of the text', () {
+      const cases = [
+        ('Kapp', 4, 'Kappa', 'Kappa ', 6),
+        ('', 0, 'Kappa', 'Kappa ', 6),
+        ('hello wor', 9, 'world', 'hello world ', 12),
+      ];
+      for (final c in cases) {
+        final controller = TextEditingController(text: c.$1);
+        controller.selection = TextSelection.collapsed(offset: c.$2);
+        replaceCurrentWord(controller, c.$3, extendRight: false);
+        expect(controller.text, c.$4, reason: 'text for "${c.$1}" at ${c.$2}');
+        expect(
+          controller.selection.baseOffset,
+          c.$5,
+          reason: 'caret for "${c.$1}" at ${c.$2}',
+        );
+        controller.dispose();
+      }
+    });
+
+    test('autocomplete keeps an existing following space', () {
+      final controller = TextEditingController(text: 'hello Kapp world');
+      controller.selection = const TextSelection.collapsed(offset: 10);
+      replaceCurrentWord(controller, 'Kappa', extendRight: false);
+      expect(controller.text, 'hello Kappa world');
+      expect(controller.selection.baseOffset, 11);
+      controller.dispose();
+    });
+
+    test('autocomplete adds a space before following text', () {
+      final controller = TextEditingController(text: 'hello Kappworld');
+      controller.selection = const TextSelection.collapsed(offset: 10);
+      replaceCurrentWord(controller, 'Kappa', extendRight: false);
+      expect(controller.text, 'hello Kappa world');
+      expect(controller.selection.baseOffset, 12);
+      controller.dispose();
+    });
   });
 
   group('isMention', () {
