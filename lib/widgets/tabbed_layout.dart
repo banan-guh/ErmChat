@@ -534,6 +534,7 @@ class TabbedLayoutState extends State<TabbedLayout>
             left: -kGlassEdgeBleed,
             right: -kGlassEdgeBleed,
             child: glassBar(
+              dark: Theme.of(context).brightness == Brightness.dark,
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [

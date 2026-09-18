@@ -35,11 +35,15 @@ bool glassEnabled(BuildContext context, bool flag) =>
 // warps at the edges, fresnel plus specular draws the bright rim.
 // Premium is the fidelity tier; both surfaces are fixed overlays (never
 // list children), which is its sanctioned use.
-const _barSettings = LiquidGlassSettings(
+/// Header glass, brightness-aware: a neutral tint whose alpha is the
+/// opacity lever on the premium path. (standardOpacityMultiplier is
+/// standard-path only and does nothing here, so it stays unset.)
+LiquidGlassSettings _barSettings(bool dark) => LiquidGlassSettings(
   thickness: 28,
-  blur: 8,
+  blur: 12,
   lightIntensity: 0.7,
   fresnelStrength: 1.5,
+  glassColor: dark ? const Color(0x59000000) : const Color(0x59FFFFFF),
 );
 
 const _pillSettings = LiquidGlassSettings(
@@ -52,9 +56,9 @@ const _pillSettings = LiquidGlassSettings(
 // Full-bleed header fusing the app bar and the tab strip. The container
 // extends past the screen on the top and sides (content is counter-padded
 // by the same amount) so only the bottom rim draws across the chat.
-Widget glassBar({required Widget child}) => GlassContainer(
+Widget glassBar({required Widget child, required bool dark}) => GlassContainer(
   quality: GlassQuality.premium,
-  settings: _barSettings,
+  settings: _barSettings(dark),
   useOwnLayer: true,
   shape: const LiquidRoundedSuperellipse(borderRadius: 0),
   child: Padding(
