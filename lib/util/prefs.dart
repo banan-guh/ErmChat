@@ -221,7 +221,7 @@ class Prefs {
   // ── Emotes ──────────────────────────────────────────────────────────
   static const _kEmoteFetchTier = 'emote_fetch_tier';
   static const _kEmoteFetchAuto = 'emote_fetch_auto';
-  static const _kEmoteCacheMax = 'emote_cache_max';
+  static const _kEmoteCacheMb = 'emote_cache_mb';
   static const _kEmoteProvidersDisabled = 'emote_providers_disabled';
   static const _kEmoteAllowUnlisted7tv = 'emote_7tv_allow_unlisted';
   static const _kRecentEmotes = 'recent_emotes';
@@ -241,9 +241,9 @@ class Prefs {
   Future<void> setEmoteFetchAuto(int value) =>
       _p.setInt(_kEmoteFetchAuto, value);
 
-  int get emoteCacheMax => _p.getInt(_kEmoteCacheMax) ?? defaultEmoteCacheMax;
+  int get emoteCacheMb => _p.getInt(_kEmoteCacheMb) ?? defaultEmoteCacheMb;
 
-  Future<void> setEmoteCacheMax(int value) => _p.setInt(_kEmoteCacheMax, value);
+  Future<void> setEmoteCacheMb(int value) => _p.setInt(_kEmoteCacheMb, value);
 
   List<String>? get emoteProvidersDisabled =>
       _p.getStringList(_kEmoteProvidersDisabled);

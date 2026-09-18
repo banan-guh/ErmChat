@@ -288,7 +288,7 @@ flowchart TD
 flowchart TD
   setup["ChatChannelSetup"] -->|resolveEmotes| em["EmoteManager coordinator"]
   ingestion["ChatIngestion"] -->|markEmoteViewed / matchEmotes| em
-  applier["EmoteController"] -->|tier / cacheCap / reload| em
+  applier["EmoteController"] -->|tier / cacheCapMb / reload| em
   applier -->|applyAnimationsEnabled / clearImageCache| render["widgets render ports"]
   home["HomeScreen"] -->|preloadGlobalEmotes / user emote sets| em
 

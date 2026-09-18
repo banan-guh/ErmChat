@@ -80,14 +80,14 @@ final emoteFetchTierProvider =
       EmoteFetchTierNotifier.new,
     );
 
-/// Disk-cache cap for emote images. Written by the settings path, read by the
-/// image owner and the usage registry.
+/// Disk-cache cap for emote images in MB. Written by the settings path,
+/// read by the image owner; the usage registry tracks it in entry units.
 class EmoteCacheCapNotifier extends Notifier<int> {
   @override
-  int build() => defaultEmoteCacheMax;
+  int build() => defaultEmoteCacheMb;
 
   void set(int value) {
-    final clamped = value.clamp(minEmoteCacheMax, maxEmoteCacheMax).toInt();
+    final clamped = value.clamp(minEmoteCacheMb, maxEmoteCacheMb).toInt();
     if (state == clamped) return;
     state = clamped;
   }
@@ -114,7 +114,8 @@ final emoteFetcherProvider = Provider<EmoteFetcher>((ref) {
 /// Usage history plus recents; also the image eviction policy.
 final emoteUsageRegistryProvider = Provider<EmoteUsageRegistry>((ref) {
   final usage = EmoteUsageRegistry(
-    capacity: () => ref.read(emoteCacheCapProvider),
+    capacity: () =>
+        emoteEntriesForCap(ref.read(emoteCacheCapProvider) * bytesPerMb),
   );
   ref.onDispose(usage.dispose);
   return usage;
@@ -159,11 +160,11 @@ final emotePersistenceProvider = Provider<EmotePersistence>((ref) {
 /// and follows the provider-owned cache cap.
 final emoteImagesProvider = Provider<EmoteImages>((ref) {
   final images = EmoteImages(policy: ref.watch(emoteUsageRegistryProvider));
-  images.cacheCap = ref.read(emoteCacheCapProvider);
+  images.cacheCapMb = ref.read(emoteCacheCapProvider);
   images.setTier(ref.read(emoteFetchTierProvider));
   final capSub = ref.listen(
     emoteCacheCapProvider,
-    (_, next) => images.cacheCap = next,
+    (_, next) => images.cacheCapMb = next,
   );
   final tierSub = ref.listen(
     emoteFetchTierProvider,

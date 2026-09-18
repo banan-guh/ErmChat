@@ -119,7 +119,7 @@ class EmoteController {
       autoMode = autoIndex >= 0 && autoIndex < EmoteFetchAutoMode.values.length
           ? EmoteFetchAutoMode.values[autoIndex]
           : defaultEmoteFetchAutoMode;
-      applyCacheCap(prefs.emoteCacheMax);
+      applyCacheCap(prefs.emoteCacheMb);
       applyAnimationsEnabled(prefs.animateGifs);
       await _applyConnectivityContext();
       reconcileTier();
@@ -170,8 +170,8 @@ class EmoteController {
     }
   }
 
-  void applyCacheCap(int cap) {
-    emoteManager.cacheCap = cap;
+  void applyCacheCap(int capMb) {
+    emoteManager.cacheCapMb = capMb;
   }
 
   Future<bool> refreshAfterAuth({bool force = false}) async {

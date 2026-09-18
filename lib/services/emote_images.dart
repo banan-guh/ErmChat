@@ -129,20 +129,20 @@ class EmoteImages {
   }
 
   // ── Cap config ──────────────────────────────────────────────────────
-  int _cacheCap = defaultEmoteCacheMax;
+  int _cacheCapMb = defaultEmoteCacheMb;
 
-  int get cacheCap => _cacheCap;
+  int get cacheCapMb => _cacheCapMb;
 
-  set cacheCap(int value) {
-    _cacheCap = value.clamp(minEmoteCacheMax, maxEmoteCacheMax).toInt();
-    _cache.maxObjects = _cacheCap;
+  set cacheCapMb(int value) {
+    _cacheCapMb = value.clamp(minEmoteCacheMb, maxEmoteCacheMb).toInt();
+    _cache.maxBytes = _cacheCapMb * bytesPerMb;
   }
 
   /// Runs cache migrations, wires the cap, and enforces it once. One-time
   /// cache GC; usage loading happens in the coordinator before this.
   Future<void> startCacheGc() async {
     _started = true;
-    _cache.maxObjects = _cacheCap;
+    _cache.maxBytes = _cacheCapMb * bytesPerMb;
     final prefs = await Prefs.load();
     if (!_migrationRan) {
       if (prefs.emoteGcMigratedV1) {
@@ -235,7 +235,7 @@ class EmoteImages {
       _seenEmoteIds.remove(it.current);
     }
     // Zero cap: skip precache (eviction would delete immediately).
-    if (_cacheCap <= 0) return fresh;
+    if (_cacheCapMb <= 0) return fresh;
     _precacheQueue.addAll(fresh);
     // Bound queue: drop oldest pending when outpacing drain.
     if (_precacheQueue.length > _maxPrecacheQueue) {

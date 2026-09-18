@@ -114,7 +114,7 @@ class EmoteManager implements EmoteLookupSource {
     EmoteFetchTier tier = EmoteFetchTier.high,
     EmoteFetchTier Function()? readTier,
     void Function(EmoteFetchTier)? writeTier,
-    int cacheCap = defaultEmoteCacheMax,
+    int cacheCapMb = defaultEmoteCacheMb,
     void Function(int)? writeCacheCap,
     Duration usageFlushDelay = const Duration(milliseconds: 250),
     Future<SevenTvChannelResponse> Function(String channelId)?
@@ -150,7 +150,8 @@ class EmoteManager implements EmoteLookupSource {
     _usage =
         usage ??
         EmoteUsageRegistry(
-          capacity: () => _images.cacheCap,
+          // Registry bound tracks the disk cap in entry units.
+          capacity: () => emoteEntriesForCap(_images.cacheCapMb * bytesPerMb),
           now: _now,
           flushDelay: usageFlushDelay,
         );
@@ -211,7 +212,7 @@ class EmoteManager implements EmoteLookupSource {
               _twitchSets.isCatalogUnlocked(id),
           metaStore: _metaStore,
         );
-    _images.cacheCap = cacheCap;
+    _images.cacheCapMb = cacheCapMb;
     // A landed precache download can make a lower scale redundant.
     _images.onStored = (emote) => unawaited(_discardDominatedScales([emote]));
   }
@@ -251,17 +252,17 @@ class EmoteManager implements EmoteLookupSource {
     // the tier and its dependents have settled.
   }
 
-  /// Max emote image files the disk cache keeps (default [defaultEmoteCacheMax],
-  /// clamped to [minEmoteCacheMax]..[maxEmoteCacheMax]).
-  int get cacheCap => _images.cacheCap;
+  /// Disk-cache cap in MB (default [defaultEmoteCacheMb],
+  /// clamped to [minEmoteCacheMb]..[maxEmoteCacheMb]).
+  int get cacheCapMb => _images.cacheCapMb;
 
-  set cacheCap(int value) {
+  set cacheCapMb(int value) {
     final writer = _cacheCapWriter;
     if (writer != null) {
       writer(value);
       return;
     }
-    _images.cacheCap = value;
+    _images.cacheCapMb = value;
   }
 
   /// Live open-channel -> broadcaster-id source, injected by the app layer and

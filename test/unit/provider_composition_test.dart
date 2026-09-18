@@ -166,7 +166,7 @@ void main() {
       isTrue,
     );
     expect(manager.tier, container.read(emoteFetchTierProvider));
-    expect(manager.cacheCap, container.read(emoteCacheCapProvider));
+    expect(manager.cacheCapMb, container.read(emoteCacheCapProvider));
   });
 
   test('personal-set notifications bump the shared version', () {

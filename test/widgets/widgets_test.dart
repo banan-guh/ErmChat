@@ -3783,20 +3783,25 @@ void main() {
         final slider = tester.widget<Slider>(
           find.byKey(const Key('emote_cache_slider')),
         );
-        slider.onChanged!(1000.0);
+        slider.onChanged!(100.0);
         await tester.pump();
 
         expect(applied, isNull);
         var prefs = await SharedPreferences.getInstance();
-        expect(prefs.getInt('emote_cache_max'), isNull);
+        expect(prefs.getInt('emote_cache_mb'), isNull);
+        // Rough estimate extrapolates from the fallback average when empty.
+        expect(
+          find.text('100 MB (~2560 emotes)', skipOffstage: false),
+          findsOneWidget,
+        );
 
         await tester.tap(find.byKey(const Key('emote_cache_apply')));
         await tester.pump();
         await tester.pump();
 
-        expect(applied, 1000);
+        expect(applied, 100);
         prefs = await SharedPreferences.getInstance();
-        expect(prefs.getInt('emote_cache_max'), 1000);
+        expect(prefs.getInt('emote_cache_mb'), 100);
       }
       {
         SharedPreferences.setMockInitialValues({

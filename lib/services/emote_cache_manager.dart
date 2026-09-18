@@ -34,8 +34,8 @@ class EmoteCacheStats {
 /// through `EmoteImages.bytes`, stock cells via [CachedNetworkImageProvider]
 /// with this manager. Chat Giphy GIFs are the exception (memory-only).
 ///
-/// The cache never exceeds [maxObjects]: a write is only accepted while the
-/// repo count (plus in-flight writes) is below the cap, so a burst of new
+/// The cache never exceeds [maxBytes]: a write is only accepted while the
+/// byte total (plus in-flight estimates) is below the cap, so a burst of new
 /// emotes can't overshoot it. When the cache is full, new emotes are served
 /// from an OS temp file without ever entering the repo, so renders keep
 /// working but the disk cache stays put (temp files are evicted once older
@@ -43,15 +43,13 @@ class EmoteCacheStats {
 /// [isFull] backs the precacher's skip decision, and [enforceNow] (settings
 /// Apply / startup) evicts down to a newly reduced cap by priority
 /// ([lastUsedAt] registry lookup, falling back to the file's touched time).
-/// The 2000-file manager cap is a safety net only. Capping is by object
-/// count, deliberately not by bytes: the bound keeps the repo scan cheap.
-/// A byte cap is a possible future refinement, not a missing fix.
 class EmoteCacheManager extends CacheManager {
   EmoteCacheManager([Config? config]) : super(config ?? _defaultConfig());
 
   static Config _defaultConfig() => Config(
     'emoteImageCacheV3',
-    maxNrOfCacheObjects: 2000,
+    // Byte cap below binds first; this stays non-binding for large libraries.
+    maxNrOfCacheObjects: 20000,
     stalePeriod: const Duration(days: 30),
   );
 
@@ -68,23 +66,23 @@ class EmoteCacheManager extends CacheManager {
   /// Sequence disambiguating temp files created within the same microsecond.
   static int _overflowSeq = 0;
 
-  /// How long a repo object-count read is trusted. Bursts of fetches (e.g. an
-  /// emote menu opening with dozens of cells) share one count within the TTL
+  /// How long a repo byte-total read is trusted. Bursts of fetches (e.g. an
+  /// emote menu opening with dozens of cells) share one total within the TTL
   /// instead of re-scanning the repo per emote; [isFull] only gates soft
   /// decisions (persist vs. temp-file serve), so slight staleness is fine.
-  static const _countTtl = Duration(milliseconds: 1500);
+  static const _bytesTtl = Duration(milliseconds: 1500);
 
-  int _maxObjects = defaultEmoteCacheMax;
+  int _maxBytes = defaultEmoteCacheMb * bytesPerMb;
 
   /// Writes currently in flight through the parent [CacheManager]. They will
   /// land in the repo shortly, so they count toward the cap while pending.
   int _pendingWrites = 0;
 
-  /// Serialized read of the repo object count, coalesced across simultaneous
-  /// callers and reused within [_countTtl] for sequential ones.
-  Future<int>? _countRead;
-  int? _cachedCount;
-  DateTime? _cachedCountAt;
+  /// Serialized read of the repo byte total, coalesced across simultaneous
+  /// callers and reused within [_bytesTtl] for sequential ones.
+  Future<int>? _bytesRead;
+  int? _cachedBytes;
+  DateTime? _cachedBytesAt;
 
   /// Serializes check-and-reserve so concurrent writers cannot all pass on
   /// the same stale count before any increments [_pendingWrites].
@@ -122,19 +120,21 @@ class EmoteCacheManager extends CacheManager {
   /// eviction skips them so a render mid-read never hits a deleted file.
   final Map<String, DateTime> _readProtected = {};
 
-  /// Hard cap on cached emote files. Once reached, new emotes are served from
+  /// Hard cap on cached emote bytes. Once reached, new emotes are served from
   /// temp files instead of being written to the cache.
-  int get maxObjects => _maxObjects;
+  int get maxBytes => _maxBytes;
 
-  set maxObjects(int value) {
-    _maxObjects = value.clamp(minEmoteCacheMax, maxEmoteCacheMax).toInt();
+  set maxBytes(int value) {
+    _maxBytes = value.clamp(0, maxEmoteCacheMb * bytesPerMb).toInt();
   }
 
-  /// True when the cache is at/over [maxObjects] (counting writes in flight).
-  /// New emotes should then be served without persisting.
+  /// True when the cache is at/over [maxBytes] (counting writes in flight at
+  /// the fallback average size). New emotes should then be served without
+  /// persisting.
   Future<bool> isFull() async {
-    final count = await _objectCount();
-    return count + _pendingWrites >= _maxObjects;
+    if (_maxBytes <= 0) return true;
+    final total = await _totalBytes();
+    return total + _pendingWrites * fallbackEmoteAvgBytes >= _maxBytes;
   }
 
   /// Runs an enforcement pass immediately (used by the settings Apply path and
@@ -170,15 +170,15 @@ class EmoteCacheManager extends CacheManager {
     _pruneStale(DateTime.now());
     if (await _tryReserve()) return true;
     if (!await _evictLowest(policy?.score(url))) return false;
-    // The eviction freed a slot; the cached "full" count is now stale.
-    _invalidateCount();
+    // The eviction freed bytes; the cached total is now stale.
+    _invalidateBytes();
     _pendingWrites++;
     return true;
   }
 
-  void _invalidateCount() {
-    _cachedCount = null;
-    _cachedCountAt = null;
+  void _invalidateBytes() {
+    _cachedBytes = null;
+    _cachedBytesAt = null;
   }
 
   /// Reserves a write slot, or returns false when the cache is full. Callers
@@ -200,14 +200,14 @@ class EmoteCacheManager extends CacheManager {
     });
   }
 
-  /// Accounts a landed disk write against the cached count. The cached count
-  /// is otherwise stale until [_countTtl] expires, so a burst of successful
-  /// writes would keep admitting against the pre-burst count and overshoot
-  /// the cap. Overcounts on row updates (safe: briefly serves temp files).
-  void _noteWriteInserted() {
-    if (_cachedCount != null) {
-      _cachedCount = _cachedCount! + 1;
-      _cachedCountAt = DateTime.now();
+  /// Accounts a landed disk write against the cached byte total. The cached
+  /// total is otherwise stale until [_bytesTtl] expires, so a burst of
+  /// successful writes would keep admitting against the pre-burst total and
+  /// overshoot the cap.
+  void _noteBytesInserted(int bytes) {
+    if (_cachedBytes != null) {
+      _cachedBytes = _cachedBytes! + bytes;
+      _cachedBytesAt = DateTime.now();
     }
   }
 
@@ -232,7 +232,11 @@ class EmoteCacheManager extends CacheManager {
     }
     try {
       final file = await super.getSingleFile(url, key: key, headers: headers);
-      _noteWriteInserted();
+      try {
+        _noteBytesInserted(await file.length());
+      } catch (_) {
+        _invalidateBytes();
+      }
       return file;
     } finally {
       _pendingWrites--;
@@ -257,46 +261,73 @@ class EmoteCacheManager extends CacheManager {
       return;
     }
     try {
+      File? landed;
       await for (final response in super.getFileStream(
         url,
         key: key,
         headers: mergedHeaders,
         withProgress: withProgress,
       )) {
+        if (response is FileInfo) landed = response.file;
         yield response;
       }
-      _noteWriteInserted();
+      if (landed != null) {
+        try {
+          _noteBytesInserted(await landed.length());
+        } catch (_) {
+          _invalidateBytes();
+        }
+      }
     } finally {
       _pendingWrites--;
     }
   }
 
-  Future<int> _objectCount() {
-    final inFlight = _countRead;
+  Future<int> _totalBytes() {
+    final inFlight = _bytesRead;
     if (inFlight != null) return inFlight;
-    final cached = _cachedCount;
-    final cachedAt = _cachedCountAt;
+    final cached = _cachedBytes;
+    final cachedAt = _cachedBytesAt;
     if (cached != null &&
         cachedAt != null &&
-        DateTime.now().difference(cachedAt) < _countTtl) {
+        DateTime.now().difference(cachedAt) < _bytesTtl) {
       return Future.value(cached);
     }
-    final read = _readObjectCount()..whenComplete(() => _countRead = null);
-    _countRead = read;
-    read.then((count) {
-      _cachedCount = count;
-      _cachedCountAt = DateTime.now();
+    final read = _readTotalBytes()..whenComplete(() => _bytesRead = null);
+    _bytesRead = read;
+    read.then((total) {
+      _cachedBytes = total;
+      _cachedBytesAt = DateTime.now();
     });
     return read;
   }
 
-  Future<int> _readObjectCount() async {
+  Future<int> _readTotalBytes() async {
     try {
-      return (await config.repo.getAllObjects()).length;
+      final objects = await config.repo.getAllObjects();
+      var total = 0;
+      for (final object in objects) {
+        total += await _objectBytes(object);
+      }
+      return total;
     } catch (_) {
       // Can't enumerate the repo; treat it as full so we never overfill.
-      return _maxObjects;
+      return _maxBytes;
     }
+  }
+
+  /// Recorded length when present, else the file's real length. Missing files
+  /// count nothing.
+  Future<int> _objectBytes(CacheObject object) async {
+    final recorded = object.length;
+    if (recorded != null) return recorded;
+    try {
+      final file = await config.fileSystem.createFile(object.relativePath);
+      if (await file.exists()) return await file.length();
+    } catch (_) {
+      // Fall through to zero below.
+    }
+    return 0;
   }
 
   Future<File> _nextOverflowFile() async {
@@ -450,6 +481,7 @@ class EmoteCacheManager extends CacheManager {
           return false;
         }
         await removeFile(victim.url);
+        _invalidateBytes();
         DataUsageStats.I.recordEviction();
         logDebug(
           '[EmoteCacheManager] evicted url=${victim.url} '
@@ -479,17 +511,37 @@ class EmoteCacheManager extends CacheManager {
   Future<void> _enforceCap() async {
     try {
       final objects = await config.repo.getAllObjects();
-      if (objects.length <= _maxObjects) return;
-      final overflow = objects.length - _maxObjects;
+      if (objects.isEmpty) return;
+      if (_maxBytes <= 0) {
+        for (final object in objects) {
+          try {
+            await removeFile(object.url);
+          } catch (_) {
+            // A missing file or a racing removal is fine - it's already gone.
+          }
+        }
+        _invalidateBytes();
+        return;
+      }
+      final sizes = <CacheObject, int>{};
+      var total = 0;
+      for (final object in objects) {
+        final bytes = await _objectBytes(object);
+        sizes[object] = bytes;
+        total += bytes;
+      }
+      if (total <= _maxBytes) return;
       objects.sort((a, b) => _score(a).compareTo(_score(b)));
-      for (final object in objects.take(overflow)) {
+      for (final object in objects) {
+        if (total <= _maxBytes) break;
         try {
           await removeFile(object.url);
+          total -= sizes[object] ?? 0;
         } catch (_) {
           // A missing file or a racing removal is fine - it's already gone.
         }
       }
-      _invalidateCount();
+      _invalidateBytes();
     } catch (_) {
       // Enumeration can fail (e.g. db closed); the next pass retries.
     }

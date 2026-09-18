@@ -51,8 +51,8 @@ class EmotesSettingsScreen extends StatefulWidget {
 class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
   int _tier = EmoteFetchTier.high.index;
   EmoteFetchAutoMode _autoMode = defaultEmoteFetchAutoMode;
-  int _appliedCacheMax = defaultEmoteCacheMax;
-  int _draftCacheMax = defaultEmoteCacheMax;
+  int _appliedCacheMb = defaultEmoteCacheMb;
+  int _draftCacheMb = defaultEmoteCacheMb;
   EmoteCacheStats? _stats;
   final _providerEnabled = <EmoteType, bool>{};
   bool _allowUnlisted = false;
@@ -137,8 +137,8 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
             autoIndex >= 0 && autoIndex < EmoteFetchAutoMode.values.length
             ? EmoteFetchAutoMode.values[autoIndex]
             : defaultEmoteFetchAutoMode;
-        _appliedCacheMax = prefs.emoteCacheMax;
-        _draftCacheMax = _appliedCacheMax;
+        _appliedCacheMb = prefs.emoteCacheMb;
+        _draftCacheMb = _appliedCacheMb;
         _animateGifs = prefs.animateGifs;
       });
     }
@@ -165,19 +165,19 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
     widget.onEmoteAutoModeChanged?.call(mode);
   }
 
-  Future<void> _applyCacheMax() async {
+  Future<void> _applyCacheMb() async {
     final prefs = await Prefs.load();
-    await prefs.setEmoteCacheMax(_draftCacheMax);
-    widget.onEmoteCacheMaxChanged?.call(_draftCacheMax);
+    await prefs.setEmoteCacheMb(_draftCacheMb);
+    widget.onEmoteCacheMaxChanged?.call(_draftCacheMb);
     // Evict now so the footer reflects the new cap immediately, not just on
     // the next emote fetch.
     final images = widget.images ?? widget.emoteManager?.images;
     if (images != null) {
-      images.cacheCap = _draftCacheMax;
+      images.cacheCapMb = _draftCacheMb;
       await images.cache.enforceNow();
     }
     if (!mounted) return;
-    setState(() => _appliedCacheMax = _draftCacheMax);
+    setState(() => _appliedCacheMb = _draftCacheMb);
     _loadStats();
   }
 
@@ -309,18 +309,20 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
         const SettingsSectionHeader('Emote image cache'),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          child: Text('$_draftCacheMax emotes kept in cache'),
+          child: Text(
+            '$_draftCacheMb MB (~${estimatedEmoteCount(capBytes: _draftCacheMb * bytesPerMb, fileCount: _stats?.fileCount ?? 0, totalBytes: _stats?.totalBytes ?? 0)} emotes)',
+          ),
         ),
         Slider(
           key: const Key('emote_cache_slider'),
-          value: _draftCacheMax.toDouble(),
-          min: minEmoteCacheMax.toDouble(),
-          max: maxEmoteCacheMax.toDouble(),
-          divisions: 40,
-          label: '$_draftCacheMax',
-          onChanged: (value) => setState(() => _draftCacheMax = value.toInt()),
+          value: _draftCacheMb.toDouble(),
+          min: minEmoteCacheMb.toDouble(),
+          max: maxEmoteCacheMb.toDouble(),
+          divisions: 30,
+          label: '$_draftCacheMb MB',
+          onChanged: (value) => setState(() => _draftCacheMb = value.toInt()),
         ),
-        if (_draftCacheMax == 0)
+        if (_draftCacheMb == 0)
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
             child: Text(
@@ -337,8 +339,8 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
               Expanded(
                 child: FilledButton(
                   key: const Key('emote_cache_apply'),
-                  onPressed: _draftCacheMax != _appliedCacheMax
-                      ? _applyCacheMax
+                  onPressed: _draftCacheMb != _appliedCacheMb
+                      ? _applyCacheMb
                       : null,
                   child: const Text('Apply'),
                 ),
@@ -487,7 +489,8 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
               stats == null
                   ? 'Emote cache...'
                   : '${stats.fileCount} emotes stored · '
-                        '${_formatBytes(stats.totalBytes)}',
+                        '${_formatBytes(stats.totalBytes)} of '
+                        '$_appliedCacheMb MB',
               style: textStyle,
             ),
           ),

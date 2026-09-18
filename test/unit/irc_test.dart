@@ -343,7 +343,7 @@ class _TestIrcRead extends IrcReadService {
 /// a fake channel cache, so precache behavior is observable without fetching.
 class _SpyEmoteManager extends EmoteManager {
   _SpyEmoteManager({required super.tier})
-    : super(fetchStagger: Duration.zero, cacheCap: 0);
+    : super(fetchStagger: Duration.zero, cacheCapMb: 0);
 
   static const _emote = Emote(
     id: 'e1',

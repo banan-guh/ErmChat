@@ -43,9 +43,32 @@ extension EmoteFetchTierX on EmoteFetchTier {
   bool get allowsLargeDownload => this == EmoteFetchTier.high;
 }
 
-const defaultEmoteCacheMax = 500;
-const minEmoteCacheMax = 0;
-const maxEmoteCacheMax = 2000;
+const bytesPerMb = 1024 * 1024;
+
+/// Disk-cache cap in MB.
+const defaultEmoteCacheMb = 50;
+const minEmoteCacheMb = 0;
+const maxEmoteCacheMb = 300;
+
+/// Mean emote file size used when the cache is empty.
+const fallbackEmoteAvgBytes = 40 * 1024;
+
+/// Entry bound for a byte cap when no live stats exist.
+int emoteEntriesForCap(int capBytes) => capBytes ~/ fallbackEmoteAvgBytes;
+
+/// Rough emote count for [capBytes], extrapolated from live [stats].
+int estimatedEmoteCount({
+  required int capBytes,
+  required int fileCount,
+  required int totalBytes,
+  int fallbackAvgBytes = fallbackEmoteAvgBytes,
+}) {
+  final avg = fileCount > 0 && totalBytes > 0
+      ? totalBytes / fileCount
+      : fallbackAvgBytes.toDouble();
+  if (avg <= 0) return 0;
+  return capBytes ~/ avg;
+}
 
 /// Default auto mode: pick tier by connectivity.
 const defaultEmoteFetchAutoMode = EmoteFetchAutoMode.balanced;

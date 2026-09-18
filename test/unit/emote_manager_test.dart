@@ -36,13 +36,15 @@ import 'package:ermchat/services/emote_images.dart';
 
 final _testImages = EmoteImages();
 
-CacheObject _obj(String url, DateTime touched, {int? id}) => CacheObject(
-  url,
-  id: id,
-  relativePath: 'file_${url.hashCode}.png',
-  validTill: DateTime(2030),
-  touched: touched,
-);
+CacheObject _obj(String url, DateTime touched, {int? id, int? length}) =>
+    CacheObject(
+      url,
+      id: id,
+      relativePath: 'file_${url.hashCode}.png',
+      validTill: DateTime(2030),
+      touched: touched,
+      length: length,
+    );
 
 /// Toggles a second [EmoteImage] into its own subtree on demand, so it mounts
 /// during a narrow rebuild of that subtree only (other widgets in the tree are
@@ -189,33 +191,37 @@ void main() {
   });
 
   test(
-    'evicts down to maxObjects and makes room for writes by priority',
+    'evicts down to maxBytes and makes room for writes by priority',
     () async {
       final t = DateTime(2026, 1, 1, 12);
       repo.seed([
-        _obj('https://example.com/a.png', t, id: 1),
+        _obj('https://example.com/a.png', t, id: 1, length: 1000),
         _obj(
           'https://example.com/b.png',
           t.add(const Duration(hours: 1)),
           id: 2,
+          length: 1000,
         ),
         _obj(
           'https://example.com/c.png',
           t.add(const Duration(hours: 2)),
           id: 3,
+          length: 1000,
         ),
         _obj(
           'https://example.com/d.png',
           t.add(const Duration(hours: 3)),
           id: 4,
+          length: 1000,
         ),
         _obj(
           'https://example.com/e.png',
           t.add(const Duration(hours: 4)),
           id: 5,
+          length: 1000,
         ),
       ]);
-      manager.maxObjects = 3;
+      manager.maxBytes = 3000;
 
       await manager.enforceNow();
 
@@ -246,11 +252,16 @@ void main() {
     final t = DateTime(2026, 1, 1, 12);
     repo.seed([
       // a: recently touched on disk, but long-unused per the registry.
-      _obj('https://example.com/a.png', t.add(const Duration(hours: 5)), id: 1),
+      _obj(
+        'https://example.com/a.png',
+        t.add(const Duration(hours: 5)),
+        id: 1,
+        length: 1000,
+      ),
       // b: long untouched on disk, but recently used per the registry.
-      _obj('https://example.com/b.png', t, id: 2),
+      _obj('https://example.com/b.png', t, id: 2, length: 1000),
     ]);
-    manager.maxObjects = 1;
+    manager.maxBytes = 1000;
     manager.policy = _FixedPolicy(
       scoreOf: (url) => url.contains('b.png') ? 1.0 : 0.0,
     );
@@ -267,11 +278,11 @@ void main() {
     // covered by the 30s temp-file policy, not repo eviction).
     final t = DateTime.now();
     repo.seed([
-      _obj('https://example.com/a.png', t, id: 1),
-      _obj('https://example.com/b.png', t, id: 2),
-      _obj('https://example.com/c.png', t, id: 3),
+      _obj('https://example.com/a.png', t, id: 1, length: 1000),
+      _obj('https://example.com/b.png', t, id: 2, length: 1000),
+      _obj('https://example.com/c.png', t, id: 3, length: 1000),
     ]);
-    manager.maxObjects = 3;
+    manager.maxBytes = 3000;
 
     await expectLater(
       manager.getFileStream('https://example.com/new1.png'),
@@ -288,11 +299,11 @@ void main() {
   test('write-time eviction picks the lowest-scored entry', () async {
     final t = DateTime(2026, 1, 1, 12);
     repo.seed([
-      _obj('https://example.com/a.png', t, id: 1),
-      _obj('https://example.com/b.png', t, id: 2),
-      _obj('https://example.com/c.png', t, id: 3),
+      _obj('https://example.com/a.png', t, id: 1, length: 1000),
+      _obj('https://example.com/b.png', t, id: 2, length: 1000),
+      _obj('https://example.com/c.png', t, id: 3, length: 1000),
     ]);
-    manager.maxObjects = 3;
+    manager.maxBytes = 3000;
     // b is the lowest-scored emote even though it is not the oldest on disk.
     manager.policy = _FixedPolicy(
       scoreOf: (url) => switch (url) {
@@ -317,10 +328,10 @@ void main() {
   test('repeated isFull within the TTL reuses one repo scan', () async {
     final t = DateTime(2026, 1, 1, 12);
     repo.seed([
-      _obj('https://example.com/a.png', t, id: 1),
-      _obj('https://example.com/b.png', t, id: 2),
+      _obj('https://example.com/a.png', t, id: 1, length: 1000),
+      _obj('https://example.com/b.png', t, id: 2, length: 1000),
     ]);
-    manager.maxObjects = 3;
+    manager.maxBytes = 1024 * 1024;
 
     // A burst of sequential fetches: each isFull must not re-scan the repo.
     expect(await manager.isFull(), isFalse);
@@ -3151,7 +3162,7 @@ void main() {
   group('cache cap + usage registry', () {
     Future<EmoteManager> makeManager({
       required DateTime Function() clock,
-      int cacheCap = defaultEmoteCacheMax,
+      int cacheCapMb = defaultEmoteCacheMb,
       EmoteFetchTier tier = EmoteFetchTier.high,
       EmoteCacheManager? cache,
     }) async {
@@ -3161,7 +3172,7 @@ void main() {
       final manager = EmoteManager(
         fetchStagger: Duration.zero,
         now: clock,
-        cacheCap: cacheCap,
+        cacheCapMb: cacheCapMb,
         tier: tier,
         usageFlushDelay: Duration.zero,
         cacheManager: cache ?? testCacheManager(),
@@ -3181,21 +3192,24 @@ void main() {
         ),
     ];
 
-    test('cacheCap setter forwards and clamps to the allowed range', () async {
-      SharedPreferences.setMockInitialValues({});
-      final cache = testCacheManager();
-      final manager = EmoteManager(
-        fetchStagger: Duration.zero,
-        cacheManager: cache,
-      );
-      manager.cacheCap = 123;
-      expect(manager.cacheCap, 123);
-      expect(cache.maxObjects, 123);
-      manager.cacheCap = 999999;
-      expect(manager.cacheCap, maxEmoteCacheMax);
-      manager.cacheCap = -5;
-      expect(manager.cacheCap, minEmoteCacheMax);
-    });
+    test(
+      'cacheCapMb setter forwards and clamps to the allowed range',
+      () async {
+        SharedPreferences.setMockInitialValues({});
+        final cache = testCacheManager();
+        final manager = EmoteManager(
+          fetchStagger: Duration.zero,
+          cacheManager: cache,
+        );
+        manager.cacheCapMb = 123;
+        expect(manager.cacheCapMb, 123);
+        expect(cache.maxBytes, 123 * bytesPerMb);
+        manager.cacheCapMb = 999999;
+        expect(manager.cacheCapMb, maxEmoteCacheMb);
+        manager.cacheCapMb = -5;
+        expect(manager.cacheCapMb, minEmoteCacheMb);
+      },
+    );
 
     test(
       'usage registry records views and persists across instances',
@@ -3256,7 +3270,7 @@ void main() {
       SharedPreferences.setMockInitialValues({});
       final capped = EmoteManager(
         fetchStagger: Duration.zero,
-        cacheCap: 0,
+        cacheCapMb: 0,
         usageFlushDelay: Duration.zero,
         now: () => DateTime(2026, 1, 1, 12),
         cacheManager: testCacheManager(),
