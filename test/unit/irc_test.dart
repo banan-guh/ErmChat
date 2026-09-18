@@ -375,6 +375,58 @@ class _SpyEmoteManager extends EmoteManager {
       EmoteLookup(byCode: const {'E1': _emote}, suggestions: const [_emote]);
 }
 
+/// SevenTvEventClient that counts subscribe calls, so channel-setup dedup
+/// is observable without a socket.
+class _RecordingSevenTvClient extends SevenTvEventClient {
+  int emoteSetSubscribes = 0;
+  int userSubscribes = 0;
+  int channelSubscribes = 0;
+
+  @override
+  void subscribeEmoteSet(String emoteSetId) {
+    emoteSetSubscribes++;
+    super.subscribeEmoteSet(emoteSetId);
+  }
+
+  @override
+  void subscribeUser(String userId) {
+    userSubscribes++;
+    super.subscribeUser(userId);
+  }
+
+  @override
+  void subscribeTwitchChannel(String channelId) {
+    channelSubscribes++;
+    super.subscribeTwitchChannel(channelId);
+  }
+}
+
+/// EmoteManager with canned 7TV ids and no network, so channel setup
+/// reaches the subscribe step without fetching.
+class _CachedEmoteManager extends EmoteManager {
+  @override
+  String? getSevenTvEmoteSetId(String channel) => 'set1';
+
+  @override
+  String? getSevenTvUserId(String channel) => 'user1';
+
+  @override
+  Future<void> loadUserEmoteSets(
+    List<String> emoteSetIds,
+    TwitchAuth auth,
+    Map<String, String> openChannelUserIds,
+  ) async {}
+}
+
+class _NoopBadgeService extends TwitchBadgeService {
+  @override
+  Future<void> fetchChannelBadges(
+    TwitchAuth auth,
+    String broadcasterId,
+    String channel,
+  ) async {}
+}
+
 ChatConnectionManager _makeConn({
   required Map<String, List<TwitchMessage>> channelMessages,
   required int maxMessages,
@@ -1908,6 +1960,36 @@ void main() {
         expect(statusEvents.first, SevenTvEventStatus.connected);
       },
     );
+
+    test('repeat subscribes send once after handshake', () {
+      client.handleRawMessage(_hello());
+      client.subscribeEmoteSet('set1');
+      client.subscribeEmoteSet('set1');
+      client.subscribeUser('user1');
+      client.subscribeUser('user1');
+      client.subscribeTwitchChannel('123');
+      client.subscribeTwitchChannel('123');
+      // One emote-set frame, one user frame, four channel frames.
+      expect(client.subscriptionSends, 6);
+    });
+
+    test('unsubscribe then subscribe sends again', () {
+      client.handleRawMessage(_hello());
+      client.subscribeEmoteSet('set1');
+      client.unsubscribeEmoteSet('set1');
+      client.subscribeEmoteSet('set1');
+      expect(client.subscriptionSends, 3);
+    });
+
+    test('pre-handshake subscribes flush once on hello', () {
+      client.subscribeEmoteSet('set1');
+      client.subscribeEmoteSet('set1');
+      client.subscribeTwitchChannel('123');
+      client.subscribeTwitchChannel('123');
+      client.handleRawMessage(_hello());
+      // One emote-set frame plus four channel frames.
+      expect(client.subscriptionSends, 5);
+    });
   });
 
   group('dispatch events', () {
@@ -3145,6 +3227,116 @@ void main() {
       );
 
       conn.dispose();
+    });
+  });
+
+  group('7TV subscribe dedup', () {
+    late ChatChannelSetup setup;
+    late _RecordingSevenTvClient sevenTv;
+    late Chat chat;
+    late Session session;
+    late ValueNotifier<int> notifier;
+    late IrcChatDecoder readDecoder;
+    late EventSubService eventSub;
+    late IrcService irc;
+    late IrcReadService ircRead;
+    late _CachedEmoteManager emoteManager;
+    late TwitchApi api;
+    late TwitchBadgeService badges;
+
+    setUp(() {
+      chat = Chat();
+      chat.ensure('test');
+      session = Session();
+      final auth = TwitchAuth();
+      auth.setUser('alice', '111');
+      auth.setCredentials(accessToken: 'token_a');
+      sevenTv = _RecordingSevenTvClient();
+      emoteManager = _CachedEmoteManager();
+      emoteManager.markEmotesResolved('test');
+      irc = IrcService();
+      ircRead = _NoopIrcRead();
+      readDecoder = IrcChatDecoder(ircRead.onIrcMessage);
+      api = TwitchApi(
+        client: http_testing.MockClient(
+          (request) async => http.Response(
+            '{"data":[{"id":"999","login":"test","display_name":"Test"}]}',
+            200,
+          ),
+        ),
+      );
+      eventSub = EventSubService();
+      badges = _NoopBadgeService();
+      notifier = ValueNotifier(0);
+      setup = ChatChannelSetup(
+        twitchApi: api,
+        eventSubDecoder: EventSubDecoder(Stream<Map<String, dynamic>>.empty()),
+        eventSubTopics: EventSubTopics(
+          twitchApi: api,
+          twitchAuth: auth,
+          session: session,
+          chat: chat,
+          eventSub: eventSub,
+        ),
+        irc: irc,
+        ircRead: ircRead,
+        readDecoder: readDecoder,
+        sevenTvClient: sevenTv,
+        badgeService: badges,
+        emoteManager: emoteManager,
+        twitchAuth: auth,
+        userStore: UserStore(),
+        chat: chat,
+        session: session,
+        onSystemMessage: (c, t, {accent, messageId}) {},
+        connectionStateNotifier: notifier,
+        ensureCurrentUser: (_) async => null,
+      );
+    });
+
+    tearDown(() {
+      setup.dispose();
+      sevenTv.dispose();
+      readDecoder.dispose();
+      emoteManager.dispose();
+      chat.dispose();
+      session.dispose();
+      eventSub.dispose();
+      irc.dispose();
+      ircRead.dispose();
+      api.close();
+      badges.close();
+      notifier.dispose();
+    });
+
+    test('concurrent subscribes send once', () async {
+      await Future.wait([
+        setup.subscribeChannel('test'),
+        setup.subscribeChannel('test'),
+      ]);
+      await Future<void>.delayed(Duration.zero);
+      expect(sevenTv.emoteSetSubscribes, 1);
+      expect(sevenTv.userSubscribes, 1);
+      expect(sevenTv.channelSubscribes, 1);
+    });
+
+    test('sequential subscribes send once', () async {
+      await setup.subscribeChannel('test');
+      await setup.subscribeChannel('test');
+      await Future<void>.delayed(Duration.zero);
+      expect(sevenTv.emoteSetSubscribes, 1);
+      expect(sevenTv.userSubscribes, 1);
+      expect(sevenTv.channelSubscribes, 1);
+    });
+
+    test('forgetChannel allows resubscribe', () async {
+      await setup.subscribeChannel('test');
+      setup.forgetChannel('test');
+      await setup.subscribeChannel('test');
+      await Future<void>.delayed(Duration.zero);
+      expect(sevenTv.emoteSetSubscribes, 2);
+      expect(sevenTv.userSubscribes, 2);
+      expect(sevenTv.channelSubscribes, 2);
     });
   });
 

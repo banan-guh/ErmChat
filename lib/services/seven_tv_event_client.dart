@@ -172,6 +172,13 @@ class SevenTvEventClient {
 
   bool get isConnected => _channel != null;
 
+  int _subscriptionSends = 0;
+
+  /// Subscription frames handed to the socket. Test hook for dedup
+  /// assertions; frames drop when no socket is connected.
+  @visibleForTesting
+  int get subscriptionSends => _subscriptionSends;
+
   /// True when socket exists but no heartbeat arrived for >3x the interval
   /// (zombie, e.g. OS-frozen while backgrounded).
   bool get isStale {
@@ -259,6 +266,8 @@ class SevenTvEventClient {
       _setSubscribed(_pendingUsers, 'user.update', userId, subscribe: false);
 
   // Subscribers wait for the handshake; unsubscribes send immediately.
+  // Repeat subscribes are no-ops: the pending set already holds the id and
+  // the handshake flush covers the pre-handshake case.
   void _setSubscribed(
     Set<String> pending,
     String type,
@@ -266,7 +275,7 @@ class SevenTvEventClient {
     required bool subscribe,
   }) {
     if (subscribe) {
-      pending.add(objectId);
+      if (!pending.add(objectId)) return;
       if (_handshakeComplete) {
         _sendSubscription(type, objectId, subscribe: true);
       }
@@ -277,7 +286,7 @@ class SevenTvEventClient {
   }
 
   void subscribeTwitchChannel(String channelId) {
-    _pendingChannels.add(channelId);
+    if (!_pendingChannels.add(channelId)) return;
     if (_handshakeComplete) {
       _sendChannelSubscription(channelId, subscribe: true);
     }
@@ -582,6 +591,7 @@ class SevenTvEventClient {
   }
 
   void _send(String message) {
+    _subscriptionSends++;
     _channel?.sink.add(message);
   }
 
