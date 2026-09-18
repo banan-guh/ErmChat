@@ -203,10 +203,17 @@ class _LeafEmoteBox extends LeafRenderObjectWidget {
 
 /// Render box for one emote frame. Owns its [ImageInfo]. Paints the shared
 /// static placeholder gray while frameless: no clock, no per-tick repaints.
+///
+/// Repaint boundary: each GIF frame would otherwise invalidate up to the
+/// tile boundary and repaint the whole row (text included). The extra
+/// layers are tiny and standard for animated content.
 class RenderInlineEmote extends RenderBox {
   RenderInlineEmote(this._width, this._height, {ImageInfo? image}) {
     _image = image;
   }
+
+  @override
+  bool get isRepaintBoundary => true;
 
   double _width;
   double _height;

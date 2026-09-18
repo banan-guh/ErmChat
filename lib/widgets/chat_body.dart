@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../composer/composer_bar.dart';
 import '../util/prefs.dart';
+import 'emote_url_provider.dart';
 
 /// Builds the chat content above the composer for the available box.
 typedef ChatBodyBuilder =
@@ -148,6 +149,7 @@ class _ChatBodyState extends State<ChatBody> {
   @override
   void dispose() {
     _settleTimer?.cancel();
+    EmoteUrlProvider.motionSerialize = false;
     super.dispose();
   }
 
@@ -155,6 +157,9 @@ class _ChatBodyState extends State<ChatBody> {
     if ((raw - _lastRawH).abs() < 0.5) return;
     final wasClosed = _lastRawH <= 0.5;
     _lastRawH = raw;
+    // Motion starts: serialize emote flips to one per vsync so coincident
+    // flips cannot stack into the same tick frame. Settle below releases.
+    EmoteUrlProvider.motionSerialize = true;
     if (raw <= 0.5) {
       if (_liftH != 0) setState(() => _liftH = 0);
       // Unfocus only once the close settles: stillness, not a fixed delay,
@@ -164,6 +169,7 @@ class _ChatBodyState extends State<ChatBody> {
       _settleTimer?.cancel();
       _settleTimer = Timer(const Duration(milliseconds: 120), () {
         if (!mounted || _lastRawH > 0.5) return;
+        EmoteUrlProvider.motionSerialize = false;
         widget.onKeyboardDismissed?.call();
       });
       return;
@@ -177,6 +183,7 @@ class _ChatBodyState extends State<ChatBody> {
     _settleTimer?.cancel();
     _settleTimer = Timer(const Duration(milliseconds: 120), () {
       if (!mounted) return;
+      EmoteUrlProvider.motionSerialize = false;
       final stable = _lastRawH;
       if (stable <= 0.5) return;
       _settledKeyboardH = stable;

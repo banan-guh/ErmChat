@@ -83,6 +83,13 @@ class EmoteUrlProvider extends ImageProvider<EmoteUrlProvider> {
     }
   }
 
+  /// Motion gate for the array emit serializer. ChatBody sets it on
+  /// keyboard ticks and clears it on settle.
+  static bool get motionSerialize => _EmoteImageCompleter.motionSerialize;
+  static set motionSerialize(bool value) {
+    _EmoteImageCompleter.motionSerialize = value;
+  }
+
   /// Live custom-loop completers by URL (animated WebP, playing GIFs,
   /// frozen stills). Engine-routable bytes never enter: they resolve through
   /// the stock provider at call sites, so this map no longer decides
@@ -298,6 +305,24 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
   /// Guards one engine frame decode; cancelled on detach or dispose so a
   /// stalled engine never holds a live timer.
   Timer? _streamTimeoutTimer;
+
+  /// Vsync of the last array emission across all completers. Used only
+  /// while the keyboard is moving (see [motionSerialize]): at most
+  /// [motionMaxFlipsPerFrame] emotes flip per frame so coincident flips
+  /// never stack clone plus draw cost into the same tick frame. A deferred
+  /// flip drops one frame timing (up to one vsync late), invisible at
+  /// emote frame rates.
+  static Duration _lastEmitStamp = const Duration(microseconds: -1);
+  static int _emitsThisStamp = 0;
+
+  /// True while the keyboard is moving. Narrows the emit gate to gestures
+  /// so steady chat animates freely and only motion pays the per-frame
+  /// flip budget. Driven by ChatBody tick versus settle.
+  static bool motionSerialize = false;
+
+  /// Flip budget per vsync while [motionSerialize] holds. Experimental:
+  /// raise to find the device ceiling, lower to kill spikes.
+  static int motionMaxFlipsPerFrame = 2;
 
   /// Ideal wall time (microseconds, wall clock) the next streamed frame is
   /// due. Each window extends the previous due instead of the emit time, so
@@ -662,6 +687,20 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
       _cyclePosition = Duration(microseconds: posUs);
       final index = _frameForOffset(frames, posUs);
       if (index != _frameIndex) {
+        if (motionSerialize) {
+          if (_lastEmitStamp != timeStamp) {
+            _lastEmitStamp = timeStamp;
+            _emitsThisStamp = 0;
+          }
+          if (_emitsThisStamp >= motionMaxFlipsPerFrame) {
+            // Flip budget spent this vsync: defer to the next frame
+            // instead of stacking into the same tick frame.
+            _shownTimestamp = timeStamp;
+            _scheduleAppFrame();
+            return;
+          }
+          _emitsThisStamp++;
+        }
         _emitFrame(index);
       }
     }

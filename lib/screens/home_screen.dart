@@ -1684,9 +1684,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       reconnectedTickProvider,
       (_, _) => unawaited(_emotes.refreshSubEmoteOwners()),
     );
-    // TEMPORARY stock-mode experiment: plain system insets, no governor.
-    final mq = MediaQuery.of(context);
-    final keyboardH = mq.viewInsets.bottom;
+    // Plain system insets drive the Scaffold resize directly.
+    final keyboardH = MediaQuery.viewInsetsOf(context).bottom;
     return PopScope(
       canPop:
           !_isFullscreen &&

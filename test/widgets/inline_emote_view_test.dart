@@ -60,6 +60,25 @@ void main() {
     EmoteUrlProvider.debugFetchOverride = null;
   });
 
+  testWidgets('emote frame is a repaint boundary', (tester) async {
+    // Each GIF frame must repaint emote pixels only, never the whole
+    // tile: without the boundary, animated rows repaint fully on every
+    // frame flip and collide with keyboard tick frames.
+    EmoteUrlProvider.debugFetchOverride = (_) async => _pngBytes();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: InlineEmoteView(
+          url: 'https://inline.test/boundary.png',
+          width: 28,
+          height: 28,
+          images: _images,
+        ),
+      ),
+    );
+    await _pumpUntilLoaded(tester);
+    expect(_renderOf(tester).isRepaintBoundary, isTrue);
+  });
+
   testWidgets('shows the band while loading, frame after', (tester) async {
     final gate = Completer<Uint8List>();
     EmoteUrlProvider.debugFetchOverride = (_) => gate.future;
