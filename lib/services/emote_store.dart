@@ -430,13 +430,50 @@ class EmoteStore {
       const [];
 
   /// Subscriber emotes grouped by owner, with [pinnedChannel] first.
+  /// Follower emotes are home-channel only: only the focused channel keeps
+  /// its followers, so swiping away hides them. Subs and bits stay global.
+  /// A null or empty [pinnedChannel] hides all followers.
   Map<String, List<Emote>> subsGrouped({String? pinnedChannel}) {
     final grouped = Map<String, List<Emote>>.of(subscriberEmotesByChannel());
     final channel = pinnedChannel;
-    if (channel == null) return grouped;
-    final pinned = grouped.remove(channel);
-    if (pinned == null) return grouped;
-    return {channel: pinned, ...grouped};
+    if (channel == null || channel.isEmpty) {
+      return _withoutFollowers(grouped);
+    }
+    final lower = channel.toLowerCase();
+    final filtered = <String, List<Emote>>{};
+    for (final entry in grouped.entries) {
+      final list = entry.value
+          .where(
+            (e) =>
+                !_isFollower(e) ||
+                _followerOwner(e, entry.key).toLowerCase() == lower,
+          )
+          .toList();
+      if (list.isNotEmpty) filtered[entry.key] = list;
+    }
+    final pinned = filtered.remove(channel);
+    if (pinned == null) return filtered;
+    return {channel: pinned, ...filtered};
+  }
+
+  static bool _isFollower(Emote e) =>
+      e.meta is TwitchMeta &&
+      (e.meta as TwitchMeta).kind == TwitchEmoteKind.follower;
+
+  static String _followerOwner(Emote e, String groupKey) {
+    final meta = e.meta as TwitchMeta;
+    return meta.ownerChannel ?? meta.ownerId ?? groupKey;
+  }
+
+  static Map<String, List<Emote>> _withoutFollowers(
+    Map<String, List<Emote>> grouped,
+  ) {
+    final result = <String, List<Emote>>{};
+    for (final entry in grouped.entries) {
+      final list = entry.value.where((e) => !_isFollower(e)).toList();
+      if (list.isNotEmpty) result[entry.key] = list;
+    }
+    return result;
   }
 
   /// Channel picker tab: slice of the same base mixer chat renders from,

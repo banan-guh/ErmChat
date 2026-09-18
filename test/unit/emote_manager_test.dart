@@ -2775,6 +2775,63 @@ void main() {
       expect(subs.map((e) => e.code), isNot(contains('PrimePride')));
     });
 
+    test(
+      'loadUserEmoteSets routes owned standard grants to global unlocks',
+      () async {
+        final auth = TwitchAuth()..accessToken = 'tok';
+        final manager = EmoteManager(
+          fetchStagger: Duration.zero,
+          fetchUserEmoteSets: (ids, {accessToken}) async => {
+            'ownerE': [
+              makeTestEmote(
+                id: 'ev1',
+                code: 'BlackCatLuck',
+                type: EmoteType.twitch,
+                scope: EmoteScope.channel,
+                ownerId: 'ownerE',
+              ),
+            ],
+          },
+          resolveOwnerLogins: (a, ids) async => {},
+        );
+
+        await manager.loadUserEmoteSets(
+          ['s1'],
+          auth,
+          {'chanA': 'idA', 'chanB': 'idB'},
+        );
+
+        // Account-wide grant lives in Global, in no channel tab or sub group.
+        expect(
+          manager.globalEmotesByProvider()['Twitch']!.map((e) => e.code),
+          contains('BlackCatLuck'),
+        );
+        expect(
+          manager.channelTabEmotes('chanA').map((e) => e.code),
+          isNot(contains('BlackCatLuck')),
+        );
+        expect(
+          manager.channelTabEmotes('chanB').map((e) => e.code),
+          isNot(contains('BlackCatLuck')),
+        );
+        expect(
+          manager
+              .subscriberEmotesByChannel()
+              .values
+              .expand((e) => e)
+              .map((e) => e.code),
+          isNot(contains('BlackCatLuck')),
+        );
+        // Still renders everywhere through the unlock overlay.
+        expect(manager.byCode('chanA')?.byCode['BlackCatLuck']?.id, 'ev1');
+        expect(manager.byCode('chanB')?.byCode['BlackCatLuck']?.id, 'ev1');
+        expect(
+          manager.byCode('chanA')?.byCode['BlackCatLuck']?.scope,
+          EmoteScope.global,
+        );
+      },
+    );
+
     test('unlockable-only sets are marked fetched', () async {
       var fetchCalls = 0;
       final auth = TwitchAuth()..accessToken = 'tok';

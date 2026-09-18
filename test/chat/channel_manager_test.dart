@@ -8,6 +8,7 @@ import 'package:ermchat/services/analytics_service.dart';
 import 'package:ermchat/services/chat_connection_manager.dart';
 import 'package:ermchat/services/chat_history_controller.dart';
 import 'package:ermchat/services/emote_manager.dart';
+import 'package:ermchat/services/emote_store.dart';
 import 'package:ermchat/services/ignore_manager.dart';
 import 'package:ermchat/services/notification_service.dart';
 import 'package:ermchat/services/ping_manager.dart';
@@ -69,7 +70,10 @@ mixin _Unimplemented {
 
 class _FakeConn with _Unimplemented implements ChatConnectionManager {}
 
-class _FakeEmotes with _Unimplemented implements EmoteManager {}
+class _FakeEmotes with _Unimplemented implements EmoteManager {
+  @override
+  final EmoteStore store = EmoteStore();
+}
 
 class _FakeAnalytics with _Unimplemented implements AnalyticsService {}
 

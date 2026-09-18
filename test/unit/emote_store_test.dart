@@ -36,6 +36,14 @@ Emote _lockedTwitchSub(String id, String code) => Emote(
   scope: EmoteScope.channel,
 );
 
+Emote _followerEmote(String id, String code, String owner) => Emote(
+  id: id,
+  code: code,
+  meta: TwitchMeta(kind: TwitchEmoteKind.follower, ownerChannel: owner),
+  scales: {EmoteScale.medium: 'https://example.com/$id.png'},
+  scope: EmoteScope.channel,
+);
+
 void main() {
   test('global commit emits a global full change', () {
     final store = EmoteStore();
@@ -377,6 +385,73 @@ void main() {
 
     expect(store.byCode('ch')?.byCode.containsKey('ChanBttv'), isFalse);
     expect(store.channelTabEmotes('ch'), isEmpty);
+  });
+
+  test('subsGrouped keeps only the focused channel followers', () {
+    final store = EmoteStore();
+    store.storeUserTwitchEmotes({
+      'chanA': [
+        _followerEmote('fA', 'FolA', 'chanA'),
+        _lockedTwitchSub('sA', 'SubA'),
+      ],
+      'chanB': [
+        _followerEmote('fB', 'FolB', 'chanB'),
+        _lockedTwitchSub('sB', 'SubB'),
+      ],
+    });
+
+    final focusedA = store.subsGrouped(pinnedChannel: 'chanA');
+    expect(
+      focusedA['chanA']!.map((e) => e.code),
+      containsAll(['FolA', 'SubA']),
+    );
+    expect(focusedA['chanB']!.map((e) => e.code), contains('SubB'));
+    expect(focusedA['chanB']!.map((e) => e.code), isNot(contains('FolB')));
+
+    final focusedB = store.subsGrouped(pinnedChannel: 'chanB');
+    expect(
+      focusedB['chanB']!.map((e) => e.code),
+      containsAll(['FolB', 'SubB']),
+    );
+    expect(focusedB['chanA']!.map((e) => e.code), contains('SubA'));
+    expect(focusedB['chanA']!.map((e) => e.code), isNot(contains('FolA')));
+  });
+
+  test('subsGrouped without focus hides all followers', () {
+    final store = EmoteStore();
+    store.storeUserTwitchEmotes({
+      'chanA': [
+        _followerEmote('fA', 'FolA', 'chanA'),
+        _lockedTwitchSub('sA', 'SubA'),
+      ],
+    });
+
+    for (final grouped in [
+      store.subsGrouped(),
+      store.subsGrouped(pinnedChannel: ''),
+    ]) {
+      expect(
+        grouped.values.expand((e) => e).map((e) => e.code),
+        contains('SubA'),
+      );
+      expect(
+        grouped.values.expand((e) => e).map((e) => e.code),
+        isNot(contains('FolA')),
+      );
+    }
+  });
+
+  test('subsGrouped matches follower owners case-insensitively', () {
+    final store = EmoteStore();
+    store.storeUserTwitchEmotes({
+      'chanA': [_followerEmote('fA', 'FolA', 'chanA')],
+    });
+
+    final grouped = store.subsGrouped(pinnedChannel: 'CHANA');
+    expect(
+      grouped.values.expand((e) => e).map((e) => e.code),
+      contains('FolA'),
+    );
   });
 
   group('canonical pool', () {

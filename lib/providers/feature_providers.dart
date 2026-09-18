@@ -73,9 +73,10 @@ final broadcastWidgetsProvider = Provider<BroadcastWidgets>((ref) {
 });
 
 /// History backfill owner. Wired from providers and consumed by the pipeline
-/// (reconnect refetch) and the shell (boot/join merge); owns no resources.
+/// (reconnect refetch) and the shell (boot/join merge); reheals history rows
+/// baked before their catalog landed via the emote store listener.
 final chatHistoryControllerProvider = Provider<ChatHistoryController>((ref) {
-  return ChatHistoryController(
+  final controller = ChatHistoryController(
     chat: ref.read(chatProvider),
     session: ref.read(sessionProvider),
     recentMessages: ref.read(recentMessagesServiceProvider),
@@ -89,6 +90,8 @@ final chatHistoryControllerProvider = Provider<ChatHistoryController>((ref) {
     isBlocked: (login) =>
         ref.read(blockedLoginsProvider).contains(login.toLowerCase()),
   );
+  ref.onDispose(controller.dispose);
+  return controller;
 });
 
 /// Slash-command handler. It owns no resources; whisper routing emits

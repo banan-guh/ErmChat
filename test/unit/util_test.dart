@@ -531,6 +531,33 @@ void main() {
     expect(identical(re, spans), isTrue);
   });
 
+  test('spans rebuild when a restamp reassigns the tokens', () {
+    final em = EmoteManager();
+    final msg = makeMsg()..emoteTokens = const [];
+    final builder = makeBuilder(em);
+    final spans = builder.buildMessageSpans(msg, 'test', Colors.black);
+    expect(spans.any((s) => s is WidgetSpan), isFalse);
+
+    // A history restamp assigns a new token list: same catalog version,
+    // new identity, so the memo drops and the emote renders.
+    em.updateSevenTvEmotes(
+      'test',
+      added: [
+        const Emote(
+          id: 'e1',
+          code: 'Pog',
+          meta: SevenTvMeta(),
+          scales: {EmoteScale.medium: 'https://example.com/pog.png'},
+        ),
+      ],
+    );
+    msg.emoteTokens = em.parseMessageEmotes(msg, lookupChannel: 'test');
+
+    final re = builder.buildMessageSpans(msg, 'test', Colors.black);
+    expect(identical(re, spans), isFalse);
+    expect(re.any((s) => s is WidgetSpan), isTrue);
+  });
+
   test('spans recompute when the text scale changes', () {
     final em = EmoteManager();
     final msg = makeMsg();

@@ -2,9 +2,11 @@ import 'dart:async';
 
 import '../chat/chat.dart';
 import '../client/session.dart';
+import '../emotes/emote.dart';
 import '../models/twitch_message.dart';
 import '../util/log.dart';
 import 'emote_manager.dart';
+import 'emote_store.dart';
 import 'ignore_manager.dart';
 import 'message_policy.dart';
 import 'ping_manager.dart';
@@ -34,7 +36,9 @@ class ChatHistoryController {
          userStore: userStore,
          session: session,
          isBlocked: isBlocked,
-       );
+       ) {
+    emoteManager.store.addListener(_onCatalogChanged);
+  }
 
   final Chat chat;
   final Session session;
@@ -50,6 +54,11 @@ class ChatHistoryController {
 
   final ChatMessagePolicy _policy;
   final _refetchingChannels = <String>{};
+
+  /// Catalog version already restamped. Version bumps mark full data
+  /// changes; live 7TV deltas and config-only updates skip the bump, so
+  /// comparing here keeps those off the restamp path by construction.
+  int _restampedVersion = 0;
 
   /// Merges robotty history into the channel buffer (newest-first). Single
   /// owner for the history checklist: ignore and block filters, user learning,
@@ -86,14 +95,54 @@ class ChatHistoryController {
   /// message, so scrolling back renders what history arrived with.
   void _stampEmoteResolution(TwitchMessage msg, String channel) {
     if (msg.isSystem) return;
+    msg.emoteTokens = _parseForChannel(msg, channel);
+  }
+
+  /// Shared lookup: shared-chat rows resolve against the source channel.
+  List<EmoteToken>? _parseForChannel(TwitchMessage msg, String channel) {
+    if (msg.isSystem) return null;
     final source = msg.sourceBroadcasterId;
     final lookupChannel = source == null
         ? channel
         : badgeService.resolveChannelLogin(source) ?? channel;
-    msg.emoteTokens = emoteManager.parseMessageEmotes(
-      msg,
-      lookupChannel: lookupChannel,
+    return emoteManager.parseMessageEmotes(msg, lookupChannel: lookupChannel);
+  }
+
+  /// Restamps one channel after its catalog landed. Only history rows baked
+  /// as empty are candidates; live rows stay frozen. Returns healed rows.
+  int restampChannelEmotes(String channel) {
+    final channelState = chat.channelFor(channel);
+    if (channelState == null) return 0;
+    return channelState.restampHistoryEmotes(
+      (msg) => _parseForChannel(msg, channel),
     );
+  }
+
+  /// Restamps every joined channel after a global catalog change.
+  void restampAllChannels() {
+    for (final name in List.of(chat.names)) {
+      restampChannelEmotes(name);
+    }
+  }
+
+  /// Heals history baked before its catalog arrived: a full channel commit
+  /// restamps that channel, a full global commit restamps all. Version
+  /// comparison skips live deltas and config-only updates, which never
+  /// bump, so rendered rows keep their freeze outside real data changes.
+  void _onCatalogChanged(EmoteChange change) {
+    if (change.version == _restampedVersion) return;
+    _restampedVersion = change.version;
+    final channel = change.channel;
+    if (channel != null) {
+      restampChannelEmotes(channel);
+    } else {
+      restampAllChannels();
+    }
+  }
+
+  /// Detaches the catalog listener. The provider owns teardown.
+  void dispose() {
+    emoteManager.store.removeListener(_onCatalogChanged);
   }
 
   /// Retroactive mention scan, run once on login: evaluates ping rules against

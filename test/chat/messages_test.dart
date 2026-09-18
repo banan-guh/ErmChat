@@ -1,5 +1,6 @@
 import 'package:ermchat/chat/channel/messages.dart';
 import 'package:ermchat/chat/chat.dart';
+import 'package:ermchat/emotes/emote.dart';
 import 'package:ermchat/models/twitch_message.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -510,6 +511,109 @@ void main() {
       channel.messages.items.first.text = 'Renamed';
       expect(channel.removeLoadingHistory(), isTrue);
       expect(channel.messages.items, isEmpty);
+    });
+  });
+
+  group('Messages.restampHistoryEmotes', () {
+    TwitchMessage history(
+      String id,
+      String text, {
+      List<EmoteToken>? tokens = const [],
+    }) => TwitchMessage(
+      login: 'alice',
+      text: text,
+      messageId: id,
+      channel: 'test',
+      isHistory: true,
+    )..emoteTokens = tokens;
+
+    List<EmoteToken> resolved(String code) => [
+      EmoteToken(
+        emote: Emote(
+          id: 'e1',
+          code: code,
+          meta: const SevenTvMeta(),
+          scales: const {EmoteScale.medium: 'https://example.com/e1.png'},
+        ),
+        text: code,
+        start: 0,
+        end: code.length,
+      ),
+    ];
+
+    test('heals only empty history rows and emits their ids', () {
+      final messages = Messages(channel: 'test');
+      addTearDown(messages.dispose);
+      final healed = history('h1', 'Alpha');
+      final already = history('h2', 'Alpha', tokens: resolved('Alpha'));
+      final live = TwitchMessage(
+        login: 'alice',
+        text: 'Alpha',
+        messageId: 'live',
+        channel: 'test',
+      )..emoteTokens = const [];
+      final system = TwitchMessage(
+        login: '',
+        text: 'Alpha',
+        messageId: 'sys',
+        channel: 'test',
+        isSystem: true,
+        isHistory: true,
+      )..emoteTokens = const [];
+      final pure = history('h3', 'just words');
+      for (final m in [healed, already, live, system, pure]) {
+        messages.add(m, maxMessages: 100);
+      }
+      final emitted = <String?>[];
+      var allCount = 0;
+      messages.mutations.addListener(emitted.add);
+      messages.mutations.addAllListener(() => allCount++);
+      final before = messages.version.value;
+
+      final count = messages.restampHistoryEmotes(
+        (msg) => msg.text == 'Alpha' ? resolved('Alpha') : const [],
+      );
+
+      expect(count, 1);
+      expect(healed.emoteTokens, hasLength(1));
+      expect(already.emoteTokens, hasLength(1));
+      expect(live.emoteTokens, isEmpty);
+      expect(system.emoteTokens, isEmpty);
+      expect(pure.emoteTokens, isEmpty);
+      expect(messages.version.value, before + 1);
+      expect(allCount, 0);
+      expect(emitted, ['h1']);
+    });
+
+    test('no candidates means no bump and no emissions', () {
+      final messages = Messages(channel: 'test');
+      addTearDown(messages.dispose);
+      messages.add(_live('m1'), maxMessages: 100);
+      final emitted = <String?>[];
+      messages.mutations.addListener(emitted.add);
+      final before = messages.version.value;
+
+      expect(messages.restampHistoryEmotes((_) => resolved('X')), 0);
+      expect(messages.version.value, before);
+      expect(emitted, isEmpty);
+    });
+
+    test('an id-less healed row evicts the whole channel', () {
+      final messages = Messages(channel: 'test');
+      addTearDown(messages.dispose);
+      final row = TwitchMessage(
+        login: 'alice',
+        text: 'Alpha',
+        channel: 'test',
+        isHistory: true,
+      )..emoteTokens = const [];
+      messages.add(row, maxMessages: 100);
+      var allCount = 0;
+      messages.mutations.addAllListener(() => allCount++);
+
+      expect(messages.restampHistoryEmotes((_) => resolved('Alpha')), 1);
+      expect(row.emoteTokens, hasLength(1));
+      expect(allCount, 1);
     });
   });
 }

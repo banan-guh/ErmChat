@@ -60,7 +60,9 @@ class MessageBuilder {
 
   /// Composite cache key for message spans. Emote tokens bake onto the
   /// message at ingest, so catalog changes never invalidate spans here;
-  /// only badge data, link prefs, and gif/image prefs join the key.
+  /// only badge data, link prefs, and gif/image prefs join the key. A token
+  /// reassignment (history restamp after a late catalog) invalidates through
+  /// the stored token identity instead.
   int get _spanCacheVersion {
     var v = badgeService.version;
     v += linkWhitelist.entries.fold<int>(0, (h, e) => h ^ e.hashCode * 31);
@@ -97,7 +99,8 @@ class MessageBuilder {
     final stale =
         cached == null ||
         cached.version != spanVersion ||
-        cached.scale != textScale;
+        cached.scale != textScale ||
+        !identical(cached.tokens, msg.emoteTokens);
     if (!stale) {
       return colored
           ? _recolor(cached.spans, msg, surface, textScale)
@@ -109,7 +112,12 @@ class MessageBuilder {
     // hook on message eviction, so never cache them. Link-heavy messages
     // rebuild per tile instead of leaking recognizers per message.
     if (!_containsRecognizer(fresh)) {
-      _bodyCache[msg] = _BodySpans(fresh, spanVersion, textScale);
+      _bodyCache[msg] = _BodySpans(
+        fresh,
+        spanVersion,
+        textScale,
+        msg.emoteTokens,
+      );
     }
     if (colored) return _recolor(fresh, msg, surface, textScale);
     return fresh;
@@ -418,11 +426,16 @@ class MessageBuilder {
 }
 
 class _BodySpans {
-  _BodySpans(this.spans, this.version, this.scale);
+  _BodySpans(this.spans, this.version, this.scale, this.tokens);
 
   final List<InlineSpan> spans;
   final int version;
   final double scale;
+
+  /// Token list the spans were built from. A restamp assigns a new list,
+  /// which is the only emote-driven invalidation; catalog changes alone
+  /// keep the identity and the freeze.
+  final List<EmoteToken>? tokens;
 }
 
 class _BadgeSpans {

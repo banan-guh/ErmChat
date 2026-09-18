@@ -4,6 +4,7 @@ import 'dart:ui' show Color;
 import 'package:clock/clock.dart';
 import 'package:flutter/foundation.dart' show ValueNotifier;
 
+import '../../emotes/emote.dart';
 import '../../models/twitch_message.dart';
 import '../../util/thread_utils.dart';
 
@@ -236,6 +237,46 @@ class Messages {
     ];
     _bump();
     return MergeOutcome(inserted: resident, evicted: evicted);
+  }
+
+  /// Re-resolves history rows baked before their catalog landed. Only
+  /// history rows holding empty tokens are candidates; live rows and
+  /// resolved rows keep their tokens, so later catalog deltas never rewrite
+  /// the visible buffer. Empty reparse results are not assigned, so
+  /// pure-text rows rescan without churning. Bumps [version] and emits one
+  /// mutation per touched id (a whole-channel evict when an id-less row
+  /// changed). Returns how many rows healed.
+  int restampHistoryEmotes(
+    List<EmoteToken>? Function(TwitchMessage msg) resolve,
+  ) {
+    final touchedIds = <String>[];
+    var touchedIdless = false;
+    var healed = 0;
+    for (final msg in _items) {
+      if (msg.isSystem || !msg.isHistory) continue;
+      final tokens = msg.emoteTokens;
+      if (tokens == null || tokens.isNotEmpty) continue;
+      final resolved = resolve(msg);
+      if (resolved == null || resolved.isEmpty) continue;
+      msg.emoteTokens = resolved;
+      healed++;
+      final id = msg.messageId;
+      if (id != null) {
+        touchedIds.add(id);
+      } else {
+        touchedIdless = true;
+      }
+    }
+    if (healed == 0) return 0;
+    _bump();
+    if (touchedIdless) {
+      mutations.emitAll();
+    } else {
+      for (final id in touchedIds) {
+        mutations.emit(id);
+      }
+    }
+    return healed;
   }
 
   /// Merges mention-tier rows into this (the @mentions pseudo) buffer: dedup by

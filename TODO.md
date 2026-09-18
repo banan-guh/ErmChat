@@ -104,3 +104,5 @@
 - optimize mod view eventually (currently sweeping it under the rug)
 - add #channel in mentions
 - liquid glass?
+- change emote panel UI to have # emotes where emote slider is
+- channel edit name

@@ -1,5 +1,6 @@
 import 'dart:ui' show Color;
 
+import '../../emotes/emote.dart';
 import '../../models/twitch_message.dart';
 import 'info.dart';
 import 'messages.dart';
@@ -127,6 +128,12 @@ class Channel {
   }
 
   bool moveConnectedToTop() => messages.moveConnectedToTop();
+
+  /// Heals history rows baked before their emote catalog landed. Delegates
+  /// to the buffer verb; no order, count, or index changes, so no decay run.
+  int restampHistoryEmotes(
+    List<EmoteToken>? Function(TwitchMessage msg) resolve,
+  ) => messages.restampHistoryEmotes(resolve);
 
   /// Retro-inserts a redemption header above an already-buffered chat line.
   /// System rows skip unread counting; truncation decay runs in the same

@@ -36,8 +36,10 @@ class TwitchEmoteSets {
   final Set<String> _inflightEmoteSetIds = {};
   // owner id -> login, built up across resolves and reused between reconnects.
   final Map<String, String> _emoteOwnerLogins = {};
-  // Last fetched user sub-emote sets keyed by owner id. Kept in memory so a
-  // reconnect can re-stamp resolved logins and re-store without re-fetching.
+  // Last fetched locked user emote sets keyed by owner id. Kept in memory
+  // so a reconnect can re-stamp resolved logins and re-store without
+  // re-fetching. Word-matchable grants bypass this cache for the global
+  // unlock overlay instead.
   final Map<String, List<Emote>> _fetchedSubEmotesByOwner = {};
   // Owner-less Twitch unlocks from the IRC emote-sets path (per-account
   // Prime/Turbo/2FA/Hype Train emotes). Merged into the global lookup.
@@ -122,8 +124,25 @@ class TwitchEmoteSets {
           // Owner-less sets are global unlocks, not channel subs.
           unlocked.addAll(entry.value);
         } else {
-          perOwner[entry.key] = entry.value;
-          _fetchedSubEmotesByOwner[entry.key] = entry.value;
+          // Status-gated emotes fan out per channel; word-matchable grants
+          // are account unlocks usable everywhere and join the global
+          // overlay instead, stamped global so no channel tab claims them.
+          final owned = <Emote>[];
+          for (final e in entry.value) {
+            if (EmoteStore.isTwitchLocked(e)) {
+              owned.add(e);
+            } else {
+              unlocked.add(
+                e.scope == EmoteScope.channel
+                    ? e.copyWith(scope: EmoteScope.global)
+                    : e,
+              );
+            }
+          }
+          if (owned.isNotEmpty) {
+            perOwner[entry.key] = owned;
+            _fetchedSubEmotesByOwner[entry.key] = owned;
+          }
         }
       }
       if (unlocked.isNotEmpty) _storeUnlockedGlobalEmotes(unlocked);
@@ -259,8 +278,8 @@ class TwitchEmoteSets {
           final meta = e.meta is TwitchMeta
               ? e.meta as TwitchMeta
               : const TwitchMeta(kind: TwitchEmoteKind.standard);
-          // Follower emotes only work in their home channel; subs, bits, and
-          // unlocks are usable everywhere.
+          // Follower emotes only work in their home channel; subs and bits
+          // are usable everywhere.
           if (meta.kind == TwitchEmoteKind.follower &&
               ownerLogin?.toLowerCase() != target.toLowerCase()) {
             continue;
