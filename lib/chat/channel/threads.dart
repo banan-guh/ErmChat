@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart';
+
 import '../../models/twitch_message.dart';
 import 'messages.dart' show TruncateExemptions;
 
@@ -68,6 +70,11 @@ class Threads {
   final Set<String> _savedRootIds = {};
   final Set<String> _pinnedMessageIds = {};
 
+  /// Bumped when the index gains, merges, or drops a thread row. The channel
+  /// verb bumps `Messages.version` before the index runs, so thread views
+  /// observe this instead of reading the index too early.
+  final ValueNotifier<int> version = ValueNotifier(0);
+
   int get length => _threads.length;
 
   TruncateExemptions get exemptions => TruncateExemptions(
@@ -107,9 +114,13 @@ class Threads {
     Iterable<TwitchMessage> msgs, {
     TwitchMessage? Function(String rootId)? lookupRoot,
   }) {
+    var changed = false;
     for (final msg in msgs) {
-      _indexOne(msg, lookupRoot);
+      if (_indexOne(msg, lookupRoot)) changed = true;
     }
+    if (!changed) return;
+    _enforceCap();
+    _bump();
   }
 
   bool _indexOne(
@@ -135,7 +146,6 @@ class Threads {
       return false;
     }
 
-    final isNewEntry = !_threads.containsKey(rootId);
     final entry = _threads.putIfAbsent(
       rootId,
       () => ThreadEntry()..lastActivity = now(),
@@ -144,11 +154,13 @@ class Threads {
     entry.lastActivity = now();
     entry.root ??= lookupRoot?.call(rootId);
     entry.addReply(msg);
-    if (isNewEntry) _enforceCap();
     return true;
   }
 
-  void _enforceCap() {
+  /// Drops the oldest unheld threads over the cap. Returns true when any
+  /// entry went.
+  bool _enforceCap() {
+    var dropped = false;
     while (true) {
       final unsaved = _threads.entries
           .where((e) => !_savedRootIds.contains(e.key) && !_isHeld(e.key))
@@ -158,7 +170,9 @@ class Threads {
         (a, b) => a.value.lastActivity.compareTo(b.value.lastActivity),
       );
       _threads.remove(unsaved.first.key);
+      dropped = true;
     }
+    return dropped;
   }
 
   bool _isHeld(String rootId) {
@@ -200,6 +214,7 @@ class Threads {
 
   void decay(Iterable<TwitchMessage> evicted) {
     if (_threads.isEmpty) return;
+    var changed = false;
     final heldCache = <String, bool>{};
     for (final msg in evicted) {
       final id = msg.messageId;
@@ -211,14 +226,21 @@ class Threads {
       if (held) continue;
       final entry = _threads[rootId];
       if (entry == null) continue;
+      final before = entry.replies.length;
       entry.removeReply(msg);
+      if (entry.replies.length != before) changed = true;
       if (entry.replies.isEmpty && entry.root == null) {
         _threads.remove(rootId);
+        changed = true;
       }
     }
+    if (changed) _bump();
   }
 
+  void _bump() => version.value++;
+
   void dispose() {
+    version.dispose();
     _threads.clear();
     _savedRootIds.clear();
     _pinnedMessageIds.clear();

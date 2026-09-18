@@ -311,5 +311,88 @@ void main() {
       );
       expect(channel.threads.threadFor('r1'), isNull);
     });
+
+    test(
+      'thread index is visible in threads.version, not messages.version',
+      () {
+        final chat = _tickingChat(DateTime(2026, 1, 1));
+        addTearDown(chat.dispose);
+        final channel = chat.channelFor('test')!;
+        channel.receive(
+          _root('r1'),
+          maxMessages: 100,
+          isSelected: true,
+          ownLogin: null,
+        );
+        channel.receive(
+          _reply('c1', 'r1'),
+          maxMessages: 100,
+          isSelected: true,
+          ownLogin: null,
+        );
+
+        // Messages.version fires before the index runs, so a thread read there
+        // misses the new reply. Threads.version fires after, so it sees it.
+        List<String?> seenInMessages = const [];
+        List<String?> seenInThreads = const [];
+        channel.messages.version.addListener(() {
+          seenInMessages = [
+            for (final m in channel.threads.threadFor('r1') ?? const [])
+              m.messageId,
+          ];
+        });
+        channel.threads.version.addListener(() {
+          seenInThreads = [
+            for (final m in channel.threads.threadFor('r1') ?? const [])
+              m.messageId,
+          ];
+        });
+        channel.receive(
+          _reply('c2', 'r1'),
+          maxMessages: 100,
+          isSelected: true,
+          ownLogin: null,
+        );
+        expect(seenInMessages, isNot(contains('c2')));
+        expect(seenInThreads, contains('c2'));
+      },
+    );
+
+    test('threads.version bumps on index and decay only', () {
+      final chat = _tickingChat(DateTime(2026, 1, 1));
+      addTearDown(chat.dispose);
+      final channel = chat.channelFor('test')!;
+      var bumps = 0;
+      channel.threads.version.addListener(() => bumps++);
+
+      channel.receive(
+        _root('r1'),
+        maxMessages: 100,
+        isSelected: true,
+        ownLogin: null,
+      );
+      expect(bumps, 0);
+
+      final reply = _reply('c1', 'r1');
+      channel.receive(
+        reply,
+        maxMessages: 100,
+        isSelected: true,
+        ownLogin: null,
+      );
+      expect(bumps, 1);
+
+      channel.receive(
+        _reply('c1', 'r1'),
+        maxMessages: 100,
+        isSelected: true,
+        ownLogin: null,
+      );
+      expect(bumps, 1);
+
+      channel.threads.decay([reply]);
+      expect(bumps, 2);
+      expect(channel.threads.threadFor('r1'), hasLength(1));
+    });
   });
 }

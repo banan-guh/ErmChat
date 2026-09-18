@@ -1108,6 +1108,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   final _contentListeners = <String, VoidCallback>{};
   final _infoListeners = <String, VoidCallback>{};
   final _modListeners = <String, VoidCallback>{};
+  final _threadListeners = <String, VoidCallback>{};
   final _mutationListeners = <String, void Function(String?)?>{};
   final _mutationAllListeners = <String, VoidCallback>{};
 
@@ -1178,6 +1179,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       // Subscription wakeups mutate no rows, so they refresh panels only:
       // never the tile cache.
       void onModSub() => _onPanelDataChanged(name);
+      // Thread index runs after Messages.version fires, so thread panels
+      // observe the index itself and never read it too early.
+      void onThread() => _onPanelDataChanged(name);
       void onMutation(String? id) {
         if (id != null) _tileCache[name]?.remove(id);
       }
@@ -1186,11 +1190,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       channel.messages.version.addListener(onContent);
       channel.info.version.addListener(onInfo);
       channel.moderation.version.addListener(onModSub);
+      channel.threads.version.addListener(onThread);
       channel.messages.mutations.addListener(onMutation);
       channel.messages.mutations.addAllListener(onMutateAll);
       _contentListeners[name] = onContent;
       _infoListeners[name] = onInfo;
       _modListeners[name] = onModSub;
+      _threadListeners[name] = onThread;
       _mutationListeners[name] = onMutation;
       _mutationAllListeners[name] = onMutateAll;
     }
@@ -1200,6 +1206,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       channel?.messages.version.removeListener(_contentListeners[name]!);
       channel?.info.version.removeListener(_infoListeners[name]!);
       channel?.moderation.version.removeListener(_modListeners[name]!);
+      channel?.threads.version.removeListener(_threadListeners[name]!);
       channel?.messages.mutations.removeListener(_mutationListeners[name]!);
       channel?.messages.mutations.removeAllListener(
         _mutationAllListeners[name]!,
@@ -1207,6 +1214,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       _contentListeners.remove(name);
       _infoListeners.remove(name);
       _modListeners.remove(name);
+      _threadListeners.remove(name);
       _mutationListeners.remove(name);
       _mutationAllListeners.remove(name);
     }
@@ -1226,6 +1234,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
           .version
           .removeListener(entry.value);
     }
+    for (final entry in _threadListeners.entries) {
+      _chat.channelFor(entry.key)?.threads.version.removeListener(entry.value);
+    }
     for (final entry in _mutationListeners.entries) {
       _chat
           .channelFor(entry.key)
@@ -1243,6 +1254,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     _contentListeners.clear();
     _infoListeners.clear();
     _modListeners.clear();
+    _threadListeners.clear();
     _mutationListeners.clear();
     _mutationAllListeners.clear();
   }
