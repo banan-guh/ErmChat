@@ -9,6 +9,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:ermchat/widgets/emote_image.dart';
+import 'package:ermchat/widgets/inline_emote_view.dart';
 import 'package:ermchat/widgets/emote_url_provider.dart';
 import 'dart:convert';
 import 'package:connectivity_plus/connectivity_plus.dart';
@@ -1006,6 +1007,11 @@ void main() {
       await pumpEmote(tester);
       expect(fetches, 2);
       expect(find.byType(RawImage), findsOneWidget);
+    });
+
+    test('emote frame is a repaint boundary', () {
+      // Each GIF frame repaints emote pixels only, never the whole tile.
+      expect(RenderInlineEmote(28, 28).isRepaintBoundary, isTrue);
     });
   });
 

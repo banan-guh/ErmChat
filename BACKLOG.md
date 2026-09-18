@@ -18,8 +18,8 @@ PLAN.md).
 
 ## Near future
 
-- Widget test prune. 84 candidates cataloged across widgets_test plus the five
-  smaller widget files. Keep reconnect dedup, tombstone, thread truncation,
+- Widget test prune. 84 candidates cataloged across the widget suites
+  (chat, settings, sheets plus the smaller widget files). Keep reconnect dedup, tombstone, thread truncation,
   pause hold, swipe hysteresis, JOIN gate. Only prune when tests churn or CI
   gets slow.
 - Notification double-init plus stale map, player and sheet controller swaps,
