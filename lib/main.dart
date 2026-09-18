@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/misc.dart';
+import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 import 'providers/app_providers.dart';
 import 'providers/feature_providers.dart';
@@ -53,8 +54,24 @@ void main() async {
   if (Platform.isAndroid) {
     FlutterForegroundTask.initCommunicationPort();
   }
+  // Liquid glass shaders warm up with disk I/O only, so the first frame
+  // still presents immediately. Premium shaders preload for the bars.
+  await LiquidGlassWidgets.initialize();
   unawaited(_warmHistory());
-  runZonedGuarded(() => runApp(const TwitchChatApp()), reportError);
+  runZonedGuarded(
+    () => runApp(
+      LiquidGlassWidgets.wrap(
+        child: const TwitchChatApp(),
+        brightnessResolver: Theme.maybeBrightnessOf,
+        theme: GlassThemeData.simple(
+          blur: 10,
+          thickness: 30,
+          quality: GlassQuality.premium,
+        ),
+      ),
+    ),
+    reportError,
+  );
 }
 
 /// Pre-warms chat history during boot, concurrent with storage and first frame.
@@ -119,7 +136,8 @@ Widget _edgeExclusionWrapper(BuildContext context, Widget? child) {
     value: overlay,
     child: Stack(
       children: [
-        child!,
+        // Transparency ancestor so glass widgets render text correctly.
+        Material(type: MaterialType.transparency, child: child!),
         if (left > 0)
           Positioned(
             left: 0,

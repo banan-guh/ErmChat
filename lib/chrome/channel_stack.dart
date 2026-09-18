@@ -137,11 +137,19 @@ class ChannelPanels {
     _cachedChannels = List.of(chat.names);
   }
 
-  Widget _cachedPage(BuildContext context, String channel) {
-    final token = _pageToken();
+  Widget _cachedPage(
+    BuildContext context,
+    String channel,
+    double topPadding,
+    double bottomPadding,
+  ) {
+    // Glass overlay clearance joins the token so toggling glass or
+    // resizing the composer evicts stale pages with stale spacers.
+    final token =
+        '${_pageToken()}|${topPadding.round()}|${bottomPadding.round()}';
     final cached = _pageCache[channel];
     if (cached != null && cached.token == token) return cached.widget;
-    final page = _buildPage(context, channel);
+    final page = _buildPage(context, channel, topPadding, bottomPadding);
     _pageCache[channel] = _CachedPage(page, token);
     return page;
   }
@@ -158,7 +166,12 @@ class ChannelPanels {
   /// Everything live inside is listenable-driven, so a cached instance
   /// still shows fresh rows, edits and search filtering. The captured
   /// [context] is channelStack's own long-lived build context.
-  Widget _buildPage(BuildContext context, String channel) {
+  Widget _buildPage(
+    BuildContext context,
+    String channel, [
+    double topPadding = 0,
+    double bottomPadding = 0,
+  ]) {
     final infoVersion =
         chat.channelFor(channel)?.info.version ?? _emptyNotifier;
     final messageVersion =
@@ -190,6 +203,8 @@ class ChannelPanels {
         lineSeparator: host.lineSeparator,
         sharedChatMode: host.sharedChatMode,
         paintService: host.showNamePaints ? paintService : null,
+        topOverlayPadding: topPadding,
+        bottomOverlayPadding: bottomPadding,
         onShowUserProfile: (login, userId, {displayName}) => userSheets
             .showUserProfile(context, login, userId, displayName: displayName),
         onShowMessageMenu: (msg) => menus.showMessageMenu(context, msg),
@@ -264,6 +279,11 @@ class ChannelPanels {
     required bool hideChrome,
     double overlayTop = 50,
     Widget? belowTabBar,
+    bool glassOverlay = false,
+    Widget? glassHeader,
+    double glassHeaderHeight = 0,
+    double glassTopPadding = 0,
+    double glassBottomPadding = 0,
   }) {
     return Expanded(
       child: channelStack(
@@ -271,6 +291,11 @@ class ChannelPanels {
         hideChrome: hideChrome,
         overlayTop: overlayTop,
         belowTabBar: belowTabBar,
+        glassOverlay: glassOverlay,
+        glassHeader: glassHeader,
+        glassHeaderHeight: glassHeaderHeight,
+        glassTopPadding: glassTopPadding,
+        glassBottomPadding: glassBottomPadding,
       ),
     );
   }
@@ -280,6 +305,11 @@ class ChannelPanels {
     required bool hideChrome,
     required double overlayTop,
     Widget? belowTabBar,
+    bool glassOverlay = false,
+    Widget? glassHeader,
+    double glassHeaderHeight = 0,
+    double glassTopPadding = 0,
+    double glassBottomPadding = 0,
   }) {
     _dropStaleCaches();
     return Stack(
@@ -305,11 +335,19 @@ class ChannelPanels {
                   tabBarAnimationDuration: hideChrome
                       ? Duration.zero
                       : const Duration(milliseconds: 200),
-                  chromeMenu: homeAppBar.chromeMenu(),
+                  chromeMenu: homeAppBar.chromeMenu(glass: glassOverlay),
                   belowTabBar: belowTabBar,
+                  glassOverlay: glassOverlay,
+                  headerOverlay: glassHeader,
+                  overlayHeaderHeight: glassHeaderHeight,
                   pageBuilder: (_, i) {
                     final channel = chat.names[i];
-                    return _cachedPage(context, channel);
+                    return _cachedPage(
+                      context,
+                      channel,
+                      glassTopPadding,
+                      glassBottomPadding,
+                    );
                   },
                   focusOnHalfDrag: true,
                   fastSnap: host.fastSnap,

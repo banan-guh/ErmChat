@@ -193,6 +193,12 @@ class Prefs {
   Future<void> setFastChannelSnap(bool value) =>
       _p.setBool(_kFastChannelSnap, value);
 
+  static const _kLiquidGlass = 'liquid_glass';
+
+  bool get liquidGlass => _p.getBool(_kLiquidGlass) ?? true;
+
+  Future<void> setLiquidGlass(bool value) => _p.setBool(_kLiquidGlass, value);
+
   // ── Inline embeds ───────────────────────────────────────────────────
   bool get giphyInlineEnabled =>
       _p.getBool(kGiphyInlineEnabledPrefKey) ?? kGiphyInlineEnabledDefault;

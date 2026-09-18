@@ -262,6 +262,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   bool _lineSeparator = false;
   bool _fastSnap = true;
 
+  /// Liquid glass spike (default on; toggled in Customization).
+  bool _liquidGlass = true;
+
   /// 7TV name paints (default off; toggled in Chat settings).
   bool _showNamePaints = false;
 
@@ -939,6 +942,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   void _setFastSnap(bool value) =>
       _setPref(() => _fastSnap, (v) => _fastSnap = v, value);
 
+  void _setLiquidGlass(bool value) {
+    if (_liquidGlass == value) return;
+    setState(() => _liquidGlass = value);
+    unawaited(Prefs.load().then((prefs) => prefs.setLiquidGlass(value)));
+  }
+
   void _setNamePaints(bool value) {
     if (_showNamePaints == value) return;
     setState(() => _showNamePaints = value);
@@ -1375,6 +1384,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       _checkeredMessages = prefs.checkeredMessages;
       _lineSeparator = prefs.lineSeparator;
       _fastSnap = prefs.fastChannelSnap;
+      _liquidGlass = prefs.liquidGlass;
       ref.read(sharedChatModeProvider.notifier).set(prefs.sharedChatMode);
       _showNamePaints = prefs.seventvNamePaints;
       _showGifs = prefs.giphyInlineEnabled;
@@ -1581,6 +1591,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
           onHighlightOpacityChanged: _setHighlightOpacity,
           onLineSeparatorChanged: _setLineSeparator,
           onFastSnapChanged: _setFastSnap,
+          onLiquidGlassChanged: _setLiquidGlass,
           onNamePaintsChanged: _setNamePaints,
           onShowGifsChanged: _setShowGifs,
           onGifHeightChanged: _setGifHeight,
@@ -1760,6 +1771,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                     maxHeight: maxHeight,
                     keyboardH: keyboardH,
                     composerH: composerH,
+                    liquidGlass: _liquidGlass,
                   );
                 },
             threadPanel: _threads.threadPanel(
@@ -1797,9 +1809,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                     search: _search,
                     mod: _mod,
                     dragTick: _panelDragTick,
+                    transparent:
+                        _liquidGlass && !MediaQuery.highContrastOf(context),
                   )
                 : null,
             notice: ChatNoticeBar(controller: _chatNotice),
+            liquidGlass: _liquidGlass,
           ),
         ),
       ),

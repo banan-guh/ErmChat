@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../composer/composer_bar.dart';
 import '../util/prefs.dart';
 import 'emote_url_provider.dart';
+import 'glass_chrome.dart';
 
 /// Builds the chat content above the composer for the available box.
 typedef ChatBodyBuilder =
@@ -53,6 +54,7 @@ class ChatBody extends StatefulWidget {
     required this.autocomplete,
     required this.emoteMaxFraction,
     required this.keyboardH,
+    this.liquidGlass = false,
     this.onKeyboardDismissed,
     this.composer,
     this.notice,
@@ -67,6 +69,10 @@ class ChatBody extends StatefulWidget {
   final Widget autocomplete;
   final double emoteMaxFraction;
   final Widget? composer;
+
+  /// Glass spike: floats the composer as a pill above the chat instead of
+  /// docking it in flow. Rows slide underneath the blur.
+  final bool liquidGlass;
 
   /// Fired once when the keyboard transitions open to closed, so the host
   /// can drop input focus instead of leaving the field focused silently.
@@ -97,6 +103,10 @@ class _ChatBodyState extends State<ChatBody> {
   // Settled composer height for keyboard-room math downstream. Measured
   // post-layout: reading inputBarKey.size during build throws every frame.
   double _composerH = 56.0;
+
+  // Exit-animation mount gate: the pill stays in the tree while fading
+  // out, then unmounts in AnimatedOpacity.onEnd.
+  bool _pillShown = false;
 
   // Debounced lift for decisions only. Raw ticks are smooth on their own;
   // replaying each one into chrome/video/sheet rules makes those flip
@@ -214,6 +224,23 @@ class _ChatBodyState extends State<ChatBody> {
       WidgetsBinding.instance.addPostFrameCallback((_) => _cacheComposerH());
     }
     final composerH = composer == null ? 0.0 : _composerH;
+    // Glass pill footprint, shared with the list bottom padding upstream.
+    // collapseChromeForKeyboard needs the box height, which only exists
+    // inside the LayoutBuilder below; the learned full height estimates it
+    // here so the pill and the in-flow composer stay mutually exclusive.
+    final pillBase =
+        widget.liquidGlass &&
+        composer != null &&
+        !widget.isInPip &&
+        !MediaQuery.highContrastOf(context);
+    final pill =
+        pillBase &&
+        !collapseChromeForKeyboard(
+          keyboardH: keyboardH,
+          maxHeight: _fullBoxHeight ?? MediaQuery.sizeOf(context).height,
+        );
+    final pillH = glassComposerOverlayHeight(composerH);
+    if (pill) _pillShown = true;
     // No manual lift: the Scaffold shrank the body, so the composer sits
     // above the keyboard at settled constraints with no second animator
     // to cross the system motion. The key stays for post-layout measuring.
@@ -273,7 +300,7 @@ class _ChatBodyState extends State<ChatBody> {
                   // Autocomplete dropdown - floats above chat, anchored just
                   // above the message input, 60% width like DankChat's popup.
                   Positioned(
-                    bottom: 0,
+                    bottom: pill ? pillH : 0,
                     left: 0,
                     child: SizedBox(
                       width: (MediaQuery.sizeOf(context).width * 0.6).clamp(
@@ -293,10 +320,66 @@ class _ChatBodyState extends State<ChatBody> {
                   // never resizes the chat.
                   if (widget.notice != null)
                     Positioned(
-                      bottom: 0,
+                      bottom: pill ? pillH : 0,
                       left: 0,
                       right: 0,
                       child: widget.notice!,
+                    ),
+                  // Glass spike: floating composer pill. The list pads by
+                  // pillH upstream so the newest rows clear it and slide
+                  // underneath while scrolling. The size notifier keeps the
+                  // measurement fresh when inner listenables resize the pill
+                  // without a ChatBody rebuild (status text, reply banner,
+                  // extra input lines). Show/hide fades and slides; the pill
+                  // stays mounted through the exit fade via [_pillShown].
+                  if (pill || _pillShown)
+                    Positioned(
+                      left: kGlassComposerMargin,
+                      right: kGlassComposerMargin,
+                      bottom: 0,
+                      child: IgnorePointer(
+                        ignoring: !pill,
+                        child: AnimatedOpacity(
+                          duration: const Duration(milliseconds: 180),
+                          opacity: pill ? 1.0 : 0.0,
+                          onEnd: () {
+                            if (!pill && mounted) {
+                              setState(() => _pillShown = false);
+                            }
+                          },
+                          child: AnimatedSlide(
+                            duration: const Duration(milliseconds: 220),
+                            curve: Curves.easeOutCubic,
+                            offset: pill ? Offset.zero : const Offset(0, 0.4),
+                            child: Padding(
+                              key: inputBarKey,
+                              padding: EdgeInsets.only(
+                                bottom: bottomPad + kGlassComposerMargin,
+                              ),
+                              child:
+                                  NotificationListener<
+                                    SizeChangedLayoutNotification
+                                  >(
+                                    onNotification: (_) {
+                                      WidgetsBinding.instance
+                                          .addPostFrameCallback(
+                                            (_) => _cacheComposerH(),
+                                          );
+                                      return true;
+                                    },
+                                    child: SizeChangedLayoutNotifier(
+                                      // Toggle-off nulls the composer while
+                                      // the exit fade still runs it out.
+                                      child: glassPill(
+                                        child:
+                                            composer ?? const SizedBox.shrink(),
+                                      ),
+                                    ),
+                                  ),
+                            ),
+                          ),
+                        ),
+                      ),
                     ),
                 ],
               );
@@ -304,13 +387,22 @@ class _ChatBodyState extends State<ChatBody> {
           ),
         ),
         if (!widget.isInPip)
-          composer == null
-              ? const SizedBox.shrink()
-              : Padding(
-                  key: inputBarKey,
-                  padding: EdgeInsets.only(bottom: bottomPad),
-                  child: composer,
-                ),
+          AnimatedSize(
+            duration: const Duration(milliseconds: 220),
+            curve: Curves.easeInOut,
+            alignment: Alignment.bottomCenter,
+            child: AnimatedOpacity(
+              duration: const Duration(milliseconds: 160),
+              opacity: !pill && composer != null ? 1.0 : 0.0,
+              child: pill || composer == null
+                  ? const SizedBox.shrink()
+                  : Padding(
+                      key: inputBarKey,
+                      padding: EdgeInsets.only(bottom: bottomPad),
+                      child: composer,
+                    ),
+            ),
+          ),
       ],
     );
   }

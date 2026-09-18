@@ -13,6 +13,7 @@ class CustomizationScreen extends StatefulWidget {
   final ValueChanged<bool>? onCheckeredMessagesChanged;
   final ValueChanged<bool>? onLineSeparatorChanged;
   final ValueChanged<bool>? onFastSnapChanged;
+  final ValueChanged<bool>? onLiquidGlassChanged;
 
   const CustomizationScreen({
     super.key,
@@ -25,6 +26,7 @@ class CustomizationScreen extends StatefulWidget {
     this.onCheckeredMessagesChanged,
     this.onLineSeparatorChanged,
     this.onFastSnapChanged,
+    this.onLiquidGlassChanged,
   });
 
   @override
@@ -41,6 +43,7 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
   bool _checkeredMessages = false;
   bool _lineSeparator = false;
   bool _fastSnap = true;
+  bool _liquidGlass = true;
 
   @override
   void initState() {
@@ -61,6 +64,7 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
         _checkeredMessages = prefs.checkeredMessages;
         _lineSeparator = prefs.lineSeparator;
         _fastSnap = prefs.fastChannelSnap;
+        _liquidGlass = prefs.liquidGlass;
       });
     }
   }
@@ -118,6 +122,12 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
     widget.onFastSnapChanged?.call(value);
   }
 
+  void _setLiquidGlass(bool value) {
+    setState(() => _liquidGlass = value);
+    Prefs.load().then((prefs) => prefs.setLiquidGlass(value));
+    widget.onLiquidGlassChanged?.call(value);
+  }
+
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
@@ -140,6 +150,14 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
             title: const Text('True dark mode'),
             value: _trueDark,
             onChanged: isDark ? _setTrueDark : null,
+          ),
+          SwitchListTile(
+            title: const Text('Liquid glass (experimental)'),
+            subtitle: const Text(
+              'Floating glass header and composer with chat underneath',
+            ),
+            value: _liquidGlass,
+            onChanged: _setLiquidGlass,
           ),
           const Padding(
             padding: EdgeInsets.fromLTRB(16, 16, 16, 8),

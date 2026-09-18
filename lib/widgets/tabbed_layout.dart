@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/scheduler.dart';
 
+import 'glass_chrome.dart';
+
 // TEMP: M3 Expressive fastSpatial stiffness (800), no-bouncy.
 class _SnapPhysics extends PageScrollPhysics {
   const _SnapPhysics({super.parent});
@@ -112,6 +114,15 @@ class TabbedLayout extends StatefulWidget {
   /// Slot between the tab strip and the pages (stream player dock).
   final Widget? belowTabBar;
 
+  /// Glass spike: transparent app bar content fused above the tab strip.
+  final Widget? headerOverlay;
+
+  /// Glass spike: floats the header block above full-height pages.
+  final bool glassOverlay;
+
+  /// Glass spike: full header height, offsets the chrome menu below it.
+  final double overlayHeaderHeight;
+
   static const double minEdgeExclusion = 20.0;
 
   const TabbedLayout({
@@ -131,6 +142,9 @@ class TabbedLayout extends StatefulWidget {
     this.showTabBar = true,
     this.chromeMenu,
     this.belowTabBar,
+    this.headerOverlay,
+    this.glassOverlay = false,
+    this.overlayHeaderHeight = 0,
     this.tabBarAnimationDuration = const Duration(milliseconds: 200),
   });
 
@@ -410,6 +424,129 @@ class TabbedLayoutState extends State<TabbedLayout>
         ? edgeInset.right
         : TabbedLayout.minEdgeExclusion;
 
+    // Tab strip content shared by the docked and glass branches.
+    final tabStrip = SizedBox(
+      height: 40,
+      // TabBar disables the behavior-built overscroll indicator
+      // for scrollable tabs, so install the stretch directly.
+      child: StretchingOverscrollIndicator(
+        axisDirection: Directionality.of(context) == TextDirection.rtl
+            ? AxisDirection.left
+            : AxisDirection.right,
+        child: ScrollConfiguration(
+          behavior: const _SwipeScrollBehavior(),
+          child: TabBar(
+            controller: _tabController,
+            onTap: _onTabTap,
+            isScrollable: true,
+            tabAlignment: _resolveTabAlignment(),
+            labelPadding: const EdgeInsets.symmetric(
+              horizontal: 12,
+              vertical: 0,
+            ),
+            indicator: BoxDecoration(
+              border: Border(
+                bottom: BorderSide(color: theme.colorScheme.primary, width: 2),
+              ),
+            ),
+            indicatorSize: TabBarIndicatorSize.label,
+            tabs: List.generate(tabs.length, (i) {
+              return Tab(
+                child: widget.tabBuilder?.call(context, i) ?? Text(tabs[i]),
+              );
+            }),
+          ),
+        ),
+      ),
+    );
+
+    // Pages stack shared by both branches. In glass mode it runs
+    // full-height behind the floating header block.
+    final overlay =
+        widget.glassOverlay &&
+        widget.showTabBar &&
+        widget.belowTabBar == null &&
+        !MediaQuery.highContrastOf(context);
+    final pages = Stack(
+      children: [
+        NotificationListener<ScrollNotification>(
+          onNotification: _onPageNotification,
+          child: ScrollConfiguration(
+            behavior: _SwipeScrollBehavior().copyWith(
+              dragDevices: {
+                PointerDeviceKind.touch,
+                PointerDeviceKind.mouse,
+                PointerDeviceKind.stylus,
+                PointerDeviceKind.unknown,
+              },
+            ),
+            child: PageView.builder(
+              controller: _pageController,
+              physics: widget.fastSnap
+                  ? const _SnapPhysics()
+                  : const PageScrollPhysics(),
+              // Keep adjacent pages built so manual swipes stay smooth;
+              // background pages pause through the disabled TickerMode.
+              allowImplicitScrolling: widget.preloadAdjacentPages,
+              itemCount: tabs.length,
+              itemBuilder: (context, i) => TickerMode(
+                enabled: i == _activeIndex,
+                child: widget.pageBuilder(context, i),
+              ),
+            ),
+          ),
+        ),
+        Positioned(
+          left: 0,
+          top: 0,
+          bottom: 0,
+          width: leftExclude,
+          child: const EdgeExclusionZone(),
+        ),
+        Positioned(
+          right: 0,
+          top: 0,
+          bottom: 0,
+          width: rightExclude,
+          child: const EdgeExclusionZone(),
+        ),
+        if (widget.chromeMenu != null)
+          Positioned(
+            top: overlay
+                ? widget.overlayHeaderHeight + 8
+                : widget.showTabBar
+                ? 8.0
+                : MediaQuery.of(context).padding.top + 8,
+            right: 8,
+            child: widget.chromeMenu!,
+          ),
+      ],
+    );
+
+    // Glass spike: app bar plus tab strip fuse into one floating card
+    // above the full-height pages; rows slide underneath the blur.
+    if (overlay) {
+      return Stack(
+        children: [
+          Positioned.fill(child: pages),
+          Positioned(
+            top: -kGlassEdgeBleed,
+            left: -kGlassEdgeBleed,
+            right: -kGlassEdgeBleed,
+            child: glassBar(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (widget.headerOverlay != null) widget.headerOverlay!,
+                  tabStrip,
+                ],
+              ),
+            ),
+          ),
+        ],
+      );
+    }
+
     return Column(
       children: [
         AnimatedSize(
@@ -425,105 +562,12 @@ class TabbedLayoutState extends State<TabbedLayout>
                       bottom: BorderSide(color: theme.dividerColor),
                     ),
                   ),
-                  child: SizedBox(
-                    height: 40,
-                    // TabBar disables the behavior-built overscroll indicator
-                    // for scrollable tabs, so install the stretch directly.
-                    child: StretchingOverscrollIndicator(
-                      axisDirection:
-                          Directionality.of(context) == TextDirection.rtl
-                          ? AxisDirection.left
-                          : AxisDirection.right,
-                      child: ScrollConfiguration(
-                        behavior: const _SwipeScrollBehavior(),
-                        child: TabBar(
-                          controller: _tabController,
-                          onTap: _onTabTap,
-                          isScrollable: true,
-                          tabAlignment: _resolveTabAlignment(),
-                          labelPadding: const EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 0,
-                          ),
-                          indicator: BoxDecoration(
-                            border: Border(
-                              bottom: BorderSide(
-                                color: theme.colorScheme.primary,
-                                width: 2,
-                              ),
-                            ),
-                          ),
-                          indicatorSize: TabBarIndicatorSize.label,
-                          tabs: List.generate(tabs.length, (i) {
-                            return Tab(
-                              child:
-                                  widget.tabBuilder?.call(context, i) ??
-                                  Text(tabs[i]),
-                            );
-                          }),
-                        ),
-                      ),
-                    ),
-                  ),
+                  child: tabStrip,
                 )
               : const SizedBox.shrink(),
         ),
         if (widget.belowTabBar != null) widget.belowTabBar!,
-        Expanded(
-          child: Stack(
-            children: [
-              NotificationListener<ScrollNotification>(
-                onNotification: _onPageNotification,
-                child: ScrollConfiguration(
-                  behavior: _SwipeScrollBehavior().copyWith(
-                    dragDevices: {
-                      PointerDeviceKind.touch,
-                      PointerDeviceKind.mouse,
-                      PointerDeviceKind.stylus,
-                      PointerDeviceKind.unknown,
-                    },
-                  ),
-                  child: PageView.builder(
-                    controller: _pageController,
-                    physics: widget.fastSnap
-                        ? const _SnapPhysics()
-                        : const PageScrollPhysics(),
-                    // Keep adjacent pages built so manual swipes stay smooth;
-                    // background pages pause through the disabled TickerMode.
-                    allowImplicitScrolling: widget.preloadAdjacentPages,
-                    itemCount: tabs.length,
-                    itemBuilder: (context, i) => TickerMode(
-                      enabled: i == _activeIndex,
-                      child: widget.pageBuilder(context, i),
-                    ),
-                  ),
-                ),
-              ),
-              Positioned(
-                left: 0,
-                top: 0,
-                bottom: 0,
-                width: leftExclude,
-                child: const EdgeExclusionZone(),
-              ),
-              Positioned(
-                right: 0,
-                top: 0,
-                bottom: 0,
-                width: rightExclude,
-                child: const EdgeExclusionZone(),
-              ),
-              if (widget.chromeMenu != null)
-                Positioned(
-                  top: widget.showTabBar
-                      ? 8.0
-                      : MediaQuery.of(context).padding.top + 8,
-                  right: 8,
-                  child: widget.chromeMenu!,
-                ),
-            ],
-          ),
-        ),
+        Expanded(child: pages),
       ],
     );
   }

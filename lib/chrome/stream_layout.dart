@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../chat/chat.dart';
 import '../services/pip_service.dart';
 import '../services/stream_player_controller.dart';
+import '../widgets/glass_chrome.dart';
 import '../widgets/stream_player_view.dart';
 import 'channel_stack.dart';
 import 'home_app_bar.dart';
@@ -298,6 +299,7 @@ class StreamPanels {
     required double maxHeight,
     required double keyboardH,
     required double composerH,
+    bool liquidGlass = false,
   }) {
     final channel = streamPlayer.currentChannel;
     final landscape =
@@ -332,6 +334,33 @@ class StreamPanels {
           keyboardH: keyboardH,
           inputH: composerH,
         );
+    // Glass spike: chat-only portrait floats one glass block (app bar plus
+    // tab strip) above full-height pages. Stream, theater, split,
+    // fullscreen, and keyboard-collapse states keep the docked layout.
+    if (liquidGlass &&
+        !MediaQuery.highContrastOf(context) &&
+        !host.isFullscreen &&
+        !hideChromeForKeyboard &&
+        channel == null &&
+        chat.names.isNotEmpty) {
+      final headerH = glassHeaderHeight(context);
+      final bottomOverlayH = glassComposerOverlayHeight(composerH);
+      return Column(
+        children: [
+          channels.channelTabs(
+            context,
+            hideChrome: false,
+            overlayTop: headerH + 8,
+            belowTabBar: null,
+            glassOverlay: true,
+            glassHeader: homeAppBar.appBar(context, transparent: true),
+            glassHeaderHeight: headerH,
+            glassTopPadding: headerH,
+            glassBottomPadding: bottomOverlayH,
+          ),
+        ],
+      );
+    }
     final showPlayerVideo =
         showVideo && channel != null && !streamPlayer.isAudioOnly;
     final aboveTabsH = channel == null

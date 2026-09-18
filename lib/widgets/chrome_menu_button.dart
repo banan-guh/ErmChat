@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 
 // Dropdown for search, mod view, and fullscreen, input, stream toggles.
 class ChromeMenuButton extends StatefulWidget {
@@ -11,6 +12,9 @@ class ChromeMenuButton extends StatefulWidget {
   final bool Function()? showModView;
   final VoidCallback? onToggleSearch;
 
+  /// Glass spike: glass tile trigger to match the floating glass header.
+  final bool glass;
+
   const ChromeMenuButton({
     super.key,
     required this.onToggleFullscreen,
@@ -21,6 +25,7 @@ class ChromeMenuButton extends StatefulWidget {
     this.onShowModView,
     this.showModView,
     this.onToggleSearch,
+    this.glass = false,
   });
 
   @override
@@ -33,6 +38,15 @@ class ChromeMenuButtonState extends State<ChromeMenuButton> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final arrow = AnimatedRotation(
+      turns: _open ? 0.5 : 0.0,
+      duration: const Duration(milliseconds: 175),
+      child: Icon(
+        Icons.expand_more,
+        size: 20,
+        color: theme.colorScheme.onSurfaceVariant,
+      ),
+    );
     return PopupMenuButton<String>(
       position: PopupMenuPosition.under,
       popUpAnimationStyle: const AnimationStyle(
@@ -80,22 +94,22 @@ class ChromeMenuButtonState extends State<ChromeMenuButton> {
             ),
         ];
       },
-      child: Container(
-        decoration: BoxDecoration(
-          color: theme.colorScheme.surfaceContainerHighest,
-          borderRadius: BorderRadius.circular(8),
-        ),
-        padding: const EdgeInsets.all(4),
-        child: AnimatedRotation(
-          turns: _open ? 0.5 : 0.0,
-          duration: const Duration(milliseconds: 175),
-          child: Icon(
-            Icons.expand_more,
-            size: 20,
-            color: theme.colorScheme.onSurfaceVariant,
-          ),
-        ),
-      ),
+      child: widget.glass
+          ? GlassContainer(
+              quality: GlassQuality.premium,
+              useOwnLayer: true,
+              shape: const LiquidRoundedSuperellipse(borderRadius: 8),
+              child: Padding(padding: const EdgeInsets.all(4), child: arrow),
+            )
+          : Container(
+              decoration: BoxDecoration(
+                color: theme.colorScheme.surfaceContainerHighest,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: theme.colorScheme.outlineVariant),
+              ),
+              padding: const EdgeInsets.all(4),
+              child: arrow,
+            ),
     );
   }
 }

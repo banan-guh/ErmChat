@@ -38,6 +38,7 @@ class SettingsScreen extends StatelessWidget {
   final ValueChanged<bool>? onCheckeredMessagesChanged;
   final ValueChanged<bool>? onLineSeparatorChanged;
   final ValueChanged<bool>? onFastSnapChanged;
+  final ValueChanged<bool>? onLiquidGlassChanged;
   final ValueChanged<bool>? onNamePaintsChanged;
   final ValueChanged<bool>? onShowGifsChanged;
   final ValueChanged<double>? onGifHeightChanged;
@@ -88,6 +89,7 @@ class SettingsScreen extends StatelessWidget {
     this.onCheckeredMessagesChanged,
     this.onLineSeparatorChanged,
     this.onFastSnapChanged,
+    this.onLiquidGlassChanged,
     this.onNamePaintsChanged,
     this.onShowGifsChanged,
     this.onGifHeightChanged,
@@ -151,6 +153,7 @@ class SettingsScreen extends StatelessWidget {
                   onCheckeredMessagesChanged: onCheckeredMessagesChanged,
                   onLineSeparatorChanged: onLineSeparatorChanged,
                   onFastSnapChanged: onFastSnapChanged,
+                  onLiquidGlassChanged: onLiquidGlassChanged,
                 ),
               ),
             ),

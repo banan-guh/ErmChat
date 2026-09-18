@@ -78,8 +78,9 @@ class HomeAppBar {
   /// Tiny arrow anchored top-right just below the channel tab strip (see
   /// TabbedLayout). Always visible so the top bar / input can be toggled back
   /// even in fullscreen.
-  Widget chromeMenu() {
+  Widget chromeMenu({bool glass = false}) {
     return ChromeMenuButton(
+      glass: glass,
       onToggleFullscreen: host.toggleFullscreen,
       onToggleInput: host.toggleInput,
       onToggleStream: host.toggleStream,
@@ -100,136 +101,135 @@ class HomeAppBar {
     );
   }
 
-  Widget appBar(BuildContext context) {
+  Widget appBar(BuildContext context, {bool transparent = false}) {
     final theme = Theme.of(context);
-    return ColoredBox(
-      color: theme.colorScheme.surfaceContainer,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          SafeArea(
-            bottom: false,
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 4),
-              child: Row(
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.only(left: 8),
-                    child: Text(
-                      'ErmChat',
-                      style: TextStyle(
-                        fontSize: 22,
-                        fontWeight: FontWeight.w400,
+    final content = Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        SafeArea(
+          bottom: false,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 4),
+            child: Row(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.only(left: 8),
+                  child: Text(
+                    'ErmChat',
+                    style: TextStyle(fontSize: 22, fontWeight: FontWeight.w400),
+                  ),
+                ),
+                const Spacer(),
+                ListenableBuilder(
+                  listenable: Listenable.merge([
+                    chatConn.connectionStateNotifier,
+                    networkBusy,
+                  ]),
+                  builder: (context, _) {
+                    final busy =
+                        !host.disableJoinSpinner &&
+                        (host.chatLoading || networkBusy.value);
+                    return IconButton(
+                      icon: busy
+                          ? SizedBox(
+                              width: 24,
+                              height: 24,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: IconTheme.of(context).color,
+                              ),
+                            )
+                          : const Icon(Icons.add),
+                      tooltip: busy ? 'Loading...' : 'Join channel',
+                      onPressed: busy || chat.length >= kMaxChannels
+                          ? null
+                          : host.addChannelDialog,
+                    );
+                  },
+                ),
+                ListenableBuilder(
+                  listenable: chat.mentionsBump,
+                  builder: (context, _) => IconButton(
+                    icon: Icon(
+                      Icons.notifications_active,
+                      color: chat.unreadMentions > 0
+                          ? theme.colorScheme.error
+                          : null,
+                    ),
+                    tooltip: 'Mentions',
+                    onPressed: _onBellPressed,
+                  ),
+                ),
+                PopupMenuButton<String>(
+                  popUpAnimationStyle: const AnimationStyle(
+                    duration: Duration(milliseconds: 175),
+                  ),
+                  onSelected: (value) {
+                    switch (value) {
+                      case 'threads':
+                        threads.showThreadsDashboard(tab: 1);
+                        break;
+                      case 'upload':
+                        uploadController.pickAndUpload(context);
+                        break;
+                      case 'reload_emotes':
+                        host.reloadEmotes();
+                        break;
+                      case 'reconnect':
+                        host.reconnect();
+                        break;
+                      case 'settings':
+                        host.openSettings();
+                        break;
+                    }
+                  },
+                  itemBuilder: (_) => [
+                    const PopupMenuItem(
+                      value: 'settings',
+                      child: Row(
+                        children: [
+                          Icon(Icons.settings, size: 20),
+                          SizedBox(width: 12),
+                          Text('Settings'),
+                        ],
                       ),
                     ),
-                  ),
-                  const Spacer(),
-                  ListenableBuilder(
-                    listenable: Listenable.merge([
-                      chatConn.connectionStateNotifier,
-                      networkBusy,
-                    ]),
-                    builder: (context, _) {
-                      final busy =
-                          !host.disableJoinSpinner &&
-                          (host.chatLoading || networkBusy.value);
-                      return IconButton(
-                        icon: busy
-                            ? SizedBox(
-                                width: 24,
-                                height: 24,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: IconTheme.of(context).color,
-                                ),
-                              )
-                            : const Icon(Icons.add),
-                        tooltip: busy ? 'Loading...' : 'Join channel',
-                        onPressed: busy || chat.length >= kMaxChannels
-                            ? null
-                            : host.addChannelDialog,
-                      );
-                    },
-                  ),
-                  ListenableBuilder(
-                    listenable: chat.mentionsBump,
-                    builder: (context, _) => IconButton(
-                      icon: Icon(
-                        Icons.notifications_active,
-                        color: chat.unreadMentions > 0
-                            ? theme.colorScheme.error
-                            : null,
-                      ),
-                      tooltip: 'Mentions',
-                      onPressed: _onBellPressed,
+                    const PopupMenuDivider(),
+                    const PopupMenuItem(
+                      value: 'threads',
+                      child: Text('Threads'),
+                    ),
+                    const PopupMenuItem(
+                      value: 'upload',
+                      child: Text('Upload media'),
+                    ),
+                    const PopupMenuItem(
+                      value: 'reload_emotes',
+                      child: Text('Reload emotes'),
+                    ),
+                    const PopupMenuItem(
+                      value: 'reconnect',
+                      child: Text('Reconnect'),
+                    ),
+                  ],
+                  child: GestureDetector(
+                    onLongPress: host.openSettings,
+                    child: const Padding(
+                      padding: EdgeInsets.all(12),
+                      child: Icon(Icons.more_vert),
                     ),
                   ),
-                  PopupMenuButton<String>(
-                    popUpAnimationStyle: const AnimationStyle(
-                      duration: Duration(milliseconds: 175),
-                    ),
-                    onSelected: (value) {
-                      switch (value) {
-                        case 'threads':
-                          threads.showThreadsDashboard(tab: 1);
-                          break;
-                        case 'upload':
-                          uploadController.pickAndUpload(context);
-                          break;
-                        case 'reload_emotes':
-                          host.reloadEmotes();
-                          break;
-                        case 'reconnect':
-                          host.reconnect();
-                          break;
-                        case 'settings':
-                          host.openSettings();
-                          break;
-                      }
-                    },
-                    itemBuilder: (_) => [
-                      const PopupMenuItem(
-                        value: 'settings',
-                        child: Row(
-                          children: [
-                            Icon(Icons.settings, size: 20),
-                            SizedBox(width: 12),
-                            Text('Settings'),
-                          ],
-                        ),
-                      ),
-                      const PopupMenuDivider(),
-                      const PopupMenuItem(
-                        value: 'threads',
-                        child: Text('Threads'),
-                      ),
-                      const PopupMenuItem(
-                        value: 'upload',
-                        child: Text('Upload media'),
-                      ),
-                      const PopupMenuItem(
-                        value: 'reload_emotes',
-                        child: Text('Reload emotes'),
-                      ),
-                      const PopupMenuItem(
-                        value: 'reconnect',
-                        child: Text('Reconnect'),
-                      ),
-                    ],
-                    child: GestureDetector(
-                      onLongPress: host.openSettings,
-                      child: const Padding(
-                        padding: EdgeInsets.all(12),
-                        child: Icon(Icons.more_vert),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
+                ),
+              ],
             ),
           ),
-        ],
-      ),
+        ),
+      ],
+    );
+    if (transparent) return content;
+    return ColoredBox(
+      color: theme.colorScheme.surfaceContainer,
+      child: content,
     );
   }
 }

@@ -21,6 +21,10 @@ class MessageInput extends StatelessWidget {
   // Search mode: hides the reply banner. Prefix/suffix slots take over.
   final bool searchMode;
 
+  // Inside a glass pill the container draws the rim, so the field drops
+  // its own outline to avoid a double border.
+  final bool borderless;
+
   // slot replacements for search mode (close + filter buttons).
   final Widget? prefixOverride;
   final Widget? suffixOverride;
@@ -41,6 +45,7 @@ class MessageInput extends StatelessWidget {
     this.hintText,
     this.inputFormatters,
     this.searchMode = false,
+    this.borderless = false,
     this.prefixOverride,
     this.suffixOverride,
   });
@@ -55,7 +60,11 @@ class MessageInput extends StatelessWidget {
     final theme = Theme.of(context);
     final effectiveHint = hintText ?? 'Type a message...';
     return Padding(
-      padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
+      // In-flow the field sits flush under the list (top 0). In a glass
+      // pill it must breathe evenly or the text reads high in the pill.
+      padding: borderless
+          ? const EdgeInsets.fromLTRB(8, 4, 8, 4)
+          : const EdgeInsets.fromLTRB(8, 0, 8, 8),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -118,8 +127,21 @@ class MessageInput extends StatelessWidget {
             minLines: 1,
             maxLines: searchMode ? 1 : 6,
             decoration: InputDecoration(
-              labelText: effectiveHint,
-              border: const OutlineInputBorder(),
+              // Borderless glass mode uses a hint (always centered) instead
+              // of a label (which sits high with no outline to notch into).
+              labelText: borderless ? null : effectiveHint,
+              hintText: borderless ? effectiveHint : null,
+              border: borderless
+                  ? InputBorder.none
+                  : const OutlineInputBorder(),
+              // Null keeps the stock Material3 outline colors. An explicit
+              // OutlineInputBorder here overrides them, so toggling glass
+              // off would not restore the normal border.
+              enabledBorder: borderless ? InputBorder.none : null,
+              focusedBorder: borderless ? InputBorder.none : null,
+              contentPadding: borderless
+                  ? const EdgeInsets.symmetric(horizontal: 16, vertical: 12)
+                  : null,
               prefixIcon:
                   prefixOverride ??
                   SizedBox(

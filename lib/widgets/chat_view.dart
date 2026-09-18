@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show HapticFeedback;
 import 'package:flutter_list_view/flutter_list_view.dart';
+import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 import '../models/twitch_message.dart';
 import '../util/thread_utils.dart';
 import 'seven_tv_paint_service.dart';
@@ -74,6 +75,12 @@ class ChatView extends StatefulWidget {
   /// Null = no dimming; true fades the row (search dim mode).
   final bool Function(TwitchMessage)? isDimmed;
 
+  /// Glass overlay clearance above the oldest row, below the floating header.
+  final double topOverlayPadding;
+
+  /// Glass overlay clearance below the newest row, above the composer pill.
+  final double bottomOverlayPadding;
+
   const ChatView({
     super.key,
     required this.channel,
@@ -106,6 +113,8 @@ class ChatView extends StatefulWidget {
     this.keyboardDismissBehavior = ScrollViewKeyboardDismissBehavior.manual,
     this.linkWhitelist,
     this.isDimmed,
+    this.topOverlayPadding = 0,
+    this.bottomOverlayPadding = 0,
   });
 
   @override
@@ -197,6 +206,40 @@ class _ChatViewState extends State<ChatView>
                     isSystem: true,
                     channel: widget.channel,
                   );
+                  // Glass spacers keep the empty state clear of the overlays.
+                  final hasEmptyBottom = widget.bottomOverlayPadding > 0.5;
+                  final hasEmptyTop = widget.topOverlayPadding > 0.5;
+                  final emptyCount =
+                      1 + (hasEmptyBottom ? 1 : 0) + (hasEmptyTop ? 1 : 0);
+                  Widget emptyAt(BuildContext _, int i) {
+                    if (hasEmptyBottom && i == 0) {
+                      return SizedBox(height: widget.bottomOverlayPadding);
+                    }
+                    final pos = i - (hasEmptyBottom ? 1 : 0);
+                    if (pos >= 1) {
+                      return SizedBox(height: widget.topOverlayPadding);
+                    }
+                    return _buildTile(
+                      [emptyMsg],
+                      null,
+                      const {},
+                      0,
+                      surface,
+                      s,
+                      context,
+                      widget.checkeredMessages,
+                    );
+                  }
+
+                  String emptyKeyAt(int i) {
+                    if (hasEmptyBottom && i == 0) {
+                      return 'glass-bottom-spacer';
+                    }
+                    final pos = i - (hasEmptyBottom ? 1 : 0);
+                    if (pos >= 1) return 'glass-top-spacer';
+                    return 'empty';
+                  }
+
                   return Padding(
                     padding: const EdgeInsets.only(bottom: 8),
                     child: FlutterListView(
@@ -210,18 +253,9 @@ class _ChatViewState extends State<ChatView>
                       physics: widget.physics,
                       keyboardDismissBehavior: widget.keyboardDismissBehavior,
                       delegate: FlutterListViewDelegate(
-                        (_, i) => _buildTile(
-                          [emptyMsg],
-                          null,
-                          const {},
-                          i,
-                          surface,
-                          s,
-                          context,
-                          widget.checkeredMessages,
-                        ),
-                        childCount: 1,
-                        onItemKey: (_) => 'empty',
+                        emptyAt,
+                        childCount: emptyCount,
+                        onItemKey: emptyKeyAt,
                         keepPosition: true,
                         keepPositionOffset: 0.5,
                         addAutomaticKeepAlives: false,
@@ -281,15 +315,31 @@ class _ChatViewState extends State<ChatView>
         ValueListenableBuilder<bool>(
           valueListenable: widget.atBottomNotifier,
           builder: (_, atBottom, _) {
+            // Glass pill floats over the list bottom, so lift the button
+            // above it by the same clearance the newest rows use.
             return Positioned(
               right: 16,
-              bottom: 16,
+              bottom: 16 + widget.bottomOverlayPadding,
               child: AnimatedSwitcher(
                 duration: const Duration(milliseconds: 100),
                 transitionBuilder: (child, animation) =>
                     FadeTransition(opacity: animation, child: child),
                 child: atBottom
                     ? const SizedBox.shrink()
+                    : widget.bottomOverlayPadding > 0.5
+                    ? GlassIconButton(
+                        key: const ValueKey('scroll_down'),
+                        icon: const Icon(Icons.keyboard_arrow_down),
+                        shape: GlassIconButtonShape.roundedSquare,
+                        onPressed: () {
+                          iosHaptic(HapticFeedback.lightImpact);
+                          widget.atBottomNotifier.value = true;
+                          widget.scrollController.jumpTo(0);
+                          widget.onScrollActivity?.call(widget.channel);
+                        },
+                        useOwnLayer: true,
+                        quality: GlassQuality.premium,
+                      )
                     : FloatingActionButton(
                         key: const ValueKey('scroll_down'),
                         heroTag:
@@ -312,12 +362,16 @@ class _ChatViewState extends State<ChatView>
   }
 
   FlutterListViewDelegate _effectiveDelegate(List<TwitchMessage> msgs) {
+    final total =
+        msgs.length +
+        (widget.bottomOverlayPadding > 0.5 ? 1 : 0) +
+        (widget.topOverlayPadding > 0.5 ? 1 : 0);
     if (_delegate == null ||
         _delegateChannel != widget.channel ||
-        _delegateLen != msgs.length) {
+        _delegateLen != total) {
       _delegate = FlutterListViewDelegate(
         _buildTileAt,
-        childCount: msgs.length,
+        childCount: total,
         onItemKey: _itemKeyAt,
         keepPosition: true,
         keepPositionOffset: 0.5,
@@ -326,14 +380,25 @@ class _ChatViewState extends State<ChatView>
         addSemanticIndexes: false,
       );
       _delegateChannel = widget.channel;
-      _delegateLen = msgs.length;
+      _delegateLen = total;
     }
     return _delegate!;
   }
 
+  // Glass spacer rows sit outside the message window: index 0 pads below
+  // the newest row, the last index pads above the oldest row.
+  bool get _hasBottomSpacer => widget.bottomOverlayPadding > 0.5;
+
   Widget _buildTileAt(BuildContext ctx, int i) {
+    if (_hasBottomSpacer && i == 0) {
+      return SizedBox(height: widget.bottomOverlayPadding);
+    }
+    final idx = i - (_hasBottomSpacer ? 1 : 0);
     final msgs = widget.messages;
-    if (i < 0 || i >= msgs.length) return const SizedBox.shrink();
+    if (idx >= msgs.length) {
+      return SizedBox(height: widget.topOverlayPadding);
+    }
+    if (idx < 0 || idx >= msgs.length) return const SizedBox.shrink();
     final cache = widget.tileCache?.putIfAbsent(
       widget.channel,
       () => <String?, Widget>{},
@@ -342,7 +407,7 @@ class _ChatViewState extends State<ChatView>
       msgs,
       cache,
       _idToIndex,
-      i,
+      idx,
       Theme.of(ctx).scaffoldBackgroundColor,
       widget.chatFontScale * _cachedSystemScale,
       ctx,
@@ -351,9 +416,12 @@ class _ChatViewState extends State<ChatView>
   }
 
   String _itemKeyAt(int i) {
+    if (_hasBottomSpacer && i == 0) return 'glass-bottom-spacer';
+    final idx = i - (_hasBottomSpacer ? 1 : 0);
     final msgs = widget.messages;
-    if (i < 0 || i >= msgs.length) return 'oob-$i';
-    return _rowKey(msgs[i]);
+    if (idx >= msgs.length) return 'glass-top-spacer';
+    if (idx < 0 || idx >= msgs.length) return 'oob-$i';
+    return _rowKey(msgs[idx]);
   }
 
   Widget _buildTile(

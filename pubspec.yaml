@@ -60,6 +60,7 @@ dependencies:
   webview_flutter_wkwebview: ^3.26.1
   flutter_riverpod: ^3.4.3
   flutter_list_view: 1.1.29
+  liquid_glass_widgets: ^1.6.1
 dev_dependencies:
   flutter_test:
     sdk: flutter
