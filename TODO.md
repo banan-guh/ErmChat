@@ -94,8 +94,8 @@
 - emotes don't pick max quality after low -> high X
 - test emotes on low / high X
 - user panel janky with msgs X
-- chat msg delta doesn't work with unrendered msgs
-- emote images: same URL fetches aren't coalesced on the normal cache path (only the overflow path is); defer to a fetch-path refactor
+- chat msg delta doesn't work with unrendered msgs X
+- emote images: same URL fetches aren't coalesced on the normal cache path (only the overflow path is); defer to a fetch-path refactor X
 - nothing-tier: emotes render from cache only, no eviction; audit that raising the tier invalidates emotes cached under the wrong config X
 - emote disk cache caps by object count, not bytes X
 - in-memory per-channel emote metadata has no cap; freed only when leaving a channel
@@ -106,3 +106,4 @@
 - liquid glass?
 - change emote panel UI to have # emotes where emote slider is X
 - channel edit name
+- review to see if emote mb cap is robust

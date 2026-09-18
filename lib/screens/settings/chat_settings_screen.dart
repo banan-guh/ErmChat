@@ -248,15 +248,15 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
                 value: _recentMessagesCount.toDouble(),
                 min: 0,
                 max: 800,
-                divisions: 10,
+                divisions: 8,
                 label: '$_recentMessagesCount',
                 onChanged: (value) {
-                  final v = value.toInt();
+                  final v = value.round();
                   setState(() => _recentMessagesCount = v);
                   widget.onRecentMessagesChanged?.call(v);
                 },
                 onChangeEnd: (value) {
-                  final v = value.toInt();
+                  final v = value.round();
                   Prefs.load().then((prefs) => prefs.setRecentMessagesLimit(v));
                 },
               ),
