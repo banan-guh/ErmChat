@@ -156,9 +156,16 @@ class _ChatBodyState extends State<ChatBody> {
     final wasClosed = _lastRawH <= 0.5;
     _lastRawH = raw;
     if (raw <= 0.5) {
-      _settleTimer?.cancel();
-      widget.onKeyboardDismissed?.call();
       if (_liftH != 0) setState(() => _liftH = 0);
+      // Unfocus only once the close settles: stillness, not a fixed delay,
+      // so it adapts to animation length. Firing the hide mid-animation
+      // races the IME state machine and the next open pays with an
+      // overshoot; a reopen first cancels this silently.
+      _settleTimer?.cancel();
+      _settleTimer = Timer(const Duration(milliseconds: 120), () {
+        if (!mounted || _lastRawH > 0.5) return;
+        widget.onKeyboardDismissed?.call();
+      });
       return;
     }
     if (wasClosed) {
