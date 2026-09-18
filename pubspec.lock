@@ -265,10 +265,11 @@ packages:
   flutter_list_view:
     dependency: "direct main"
     description:
-      name: flutter_list_view
-      sha256: "7fb70adb9ef41393bc65a26fc2e3e3a498f808063bb9242bf63fd492624bf319"
-      url: "https://pub.dev"
-    source: hosted
+      path: "."
+      ref: "8b5e7ae928a62c8cca0ae97acf255abe03d6bca3"
+      resolved-ref: "8b5e7ae928a62c8cca0ae97acf255abe03d6bca3"
+      url: "https://github.com/banan-guh/flutter_list_view"
+    source: git
     version: "1.1.29"
   flutter_local_notifications:
     dependency: "direct main"
