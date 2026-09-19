@@ -1708,7 +1708,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       (_, _) => unawaited(_emotes.refreshSubEmoteOwners()),
     );
     // Plain system insets drive the Scaffold resize directly.
-    final keyboardH = MediaQuery.viewInsetsOf(context).bottom;
+    // DIAG WALKBACK 2: shell stays unsubscribed. ChatBody watches insets
+    // itself via didChangeDependencies, so ticks never rebuild the shell.
+    const keyboardH = 0.0;
     return PopScope(
       canPop:
           !_isFullscreen &&
@@ -1735,11 +1737,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
         }
       },
       child: Scaffold(
-        // Stock resize path: the Scaffold shrinks the body with the
-        // keyboard, replaying the system ticks directly. No manual lift and
-        // no second animator: Dart curves of a different duration only cross
-        // the system motion (behind-ahead-behind). Discrete rules read the
-        // debounced lift in ChatBody so they flip once per gesture.
+        // DIAG STRIP: stock resize like the testapp. The in-flow input
+        // below positions inside the same layout traversal that consumes
+        // the inset: zero lag by construction, no inset subscription.
         resizeToAvoidBottomInset: true,
         body: ListenableBuilder(
           listenable: _streamPlayer,
@@ -1748,10 +1748,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
             // Read above the Scaffold: the body subtree sees viewInsets
             // stripped to zero once the Scaffold consumes them resizing.
             keyboardH: keyboardH,
-            // A dismissed keyboard leaves the field focused, which keeps
-            // the back guard and focus styling stuck; drop it once the
-            // close settles (ChatBody delays the call past the animation).
-            onKeyboardDismissed: _composer.unfocus,
+            // DIAG: unfocus detached to isolate close lag (burst vs focus).
+            onKeyboardDismissed: null,
             // System PiP collapses the whole body to video-only; ChatBody
             // drops composer/panels/notice so the window shows the stream.
             isInPip: _streamPlayer.isInPip,
