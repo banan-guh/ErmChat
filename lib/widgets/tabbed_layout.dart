@@ -175,6 +175,9 @@ class TabbedLayoutState extends State<TabbedLayout>
   // True only inside the pre-jump of a long _goTo; swallows the transient
   // scroll-end so the landing still owns the commit.
   bool _preJumping = false;
+  // Branch last built with; null before the first build. The overlay and
+  // docked branches return different roots, so a flip remounts the pages.
+  bool? _overlayBuilt;
 
   static const _jumpDuration = Duration(milliseconds: 300);
   // Longest span animated in one go. Longer jumps land within this distance
@@ -370,6 +373,40 @@ class TabbedLayoutState extends State<TabbedLayout>
     _goTo(pending);
   }
 
+  // Mirrors the branch choice in build.
+  bool _overlayBranch(BuildContext context) =>
+      widget.glassOverlay &&
+      widget.showTabBar &&
+      widget.belowTabBar == null &&
+      !MediaQuery.highContrastOf(context);
+
+  // A branch flip remounts the PageView: its fresh position starts on the
+  // PageController's stale initialPage while the tab controller keeps its
+  // index, so content lands on channel 1 with the strip unchanged.
+  void _syncBranchFlip() {
+    if (_overlayBuilt == null || _overlayBranch(context) == _overlayBuilt) {
+      return;
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _tabLength == 0) return;
+      // The flip supersedes any in-flight jump from before it.
+      _programmaticTarget = null;
+      final pc = _pageController;
+      if (pc != null &&
+          pc.hasClients &&
+          pc.page?.round() != _lastReportedIndex) {
+        pc.jumpToPage(_lastReportedIndex.clamp(0, _tabLength - 1));
+      }
+      final ctrl = _tabController;
+      if (ctrl != null && !ctrl.indexIsChanging && ctrl.offset == 0) {
+        // Same-index animateTo is a no-op; a null offset nudge fires
+        // TabBar's reveal tick so the remounted strip shows the tab.
+        ctrl.offset = 0.0001;
+        ctrl.offset = 0;
+      }
+    });
+  }
+
   @override
   void initState() {
     super.initState();
@@ -393,6 +430,14 @@ class TabbedLayoutState extends State<TabbedLayout>
         }
       }
     }
+    _syncBranchFlip();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // High contrast can flip the branch without touching any prop.
+    _syncBranchFlip();
   }
 
   @override
@@ -462,11 +507,8 @@ class TabbedLayoutState extends State<TabbedLayout>
 
     // Pages stack shared by both branches. In glass mode it runs
     // full-height behind the floating header block.
-    final overlay =
-        widget.glassOverlay &&
-        widget.showTabBar &&
-        widget.belowTabBar == null &&
-        !MediaQuery.highContrastOf(context);
+    final overlay = _overlayBranch(context);
+    _overlayBuilt = overlay;
     final pages = Stack(
       children: [
         NotificationListener<ScrollNotification>(
