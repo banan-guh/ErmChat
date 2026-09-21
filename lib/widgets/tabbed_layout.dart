@@ -416,7 +416,7 @@ class TabbedLayoutState extends State<TabbedLayout>
 
     final theme = Theme.of(context);
 
-    final edgeInset = MediaQuery.of(context).systemGestureInsets;
+    final edgeInset = MediaQuery.systemGestureInsetsOf(context);
     final leftExclude = edgeInset.left > 0
         ? edgeInset.left
         : TabbedLayout.minEdgeExclusion;
@@ -516,7 +516,7 @@ class TabbedLayoutState extends State<TabbedLayout>
                 ? widget.overlayHeaderHeight + 8
                 : widget.showTabBar
                 ? 8.0
-                : MediaQuery.of(context).padding.top + 8,
+                : MediaQuery.paddingOf(context).top + 8,
             right: 8,
             child: widget.chromeMenu!,
           ),

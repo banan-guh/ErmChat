@@ -16,6 +16,12 @@ import 'emote_decode.dart';
 /// falls back to the pure-Dart compositor instead of sitting for seconds.
 const Duration _streamFrameTimeout = Duration(seconds: 1);
 
+/// Deterministic start stagger per URL, 0 to 50ms. Survives restarts
+/// because it derives from the URL, not the restart time, so bulk
+/// restarts spread stream grids instead of decoding in lockstep.
+int _emotesStartStaggerUs(String url) =>
+    (url.hashCode & 0x7fffffff) % 50000;
+
 /// Whether [emote] renders through the custom completer loop. True for
 /// animated non-Twitch emotes (animated WebP streams from the engine, and
 /// frozen animated emotes render a first-frame still). Everything else
@@ -83,20 +89,11 @@ class EmoteUrlProvider extends ImageProvider<EmoteUrlProvider> {
     }
   }
 
-  /// Motion gate for the animation hold. ChatBody sets it on keyboard
-  /// ticks and clears it on settle, then calls [resumeMotionHeld].
+  /// Motion gate for the array emit serializer. ChatBody sets it on
+  /// keyboard ticks and clears it on settle.
   static bool get motionSerialize => _EmoteImageCompleter.motionSerialize;
   static set motionSerialize(bool value) {
     _EmoteImageCompleter.motionSerialize = value;
-  }
-
-  /// Re-arms every live animated completer after a motion hold. Loops die
-  /// on their first held tick by design, so the settle release restarts
-  /// them here instead of leaving frozen emotes behind.
-  static void resumeMotionHeld() {
-    for (final completer in List.of(_liveByUrl.values)) {
-      completer.resumeIfLive();
-    }
   }
 
   /// Live custom-loop completers by URL (animated WebP, playing GIFs,
@@ -255,12 +252,6 @@ class EmoteUrlProvider extends ImageProvider<EmoteUrlProvider> {
   String toString() => 'EmoteUrlProvider($url)';
 }
 
-/// Deterministic start stagger per URL, 0 to 50ms. Survives restarts
-/// because it derives from the URL, not the restart time, so bulk
-/// restarts spread stream grids instead of decoding in lockstep.
-int _emotesStartStaggerUs(String url) =>
-    (url.hashCode & 0x7fffffff) % 50000;
-
 /// Streams emote frames to listeners (one completer per URL, shared via ImageCache). Custom loop only: animated WebP, playing GIFs, frozen GIFs (still), and stray statics (still). Animated WebP streams from the engine codec; frames the engine stalls or throws on swap to the pure-Dart compositor mid-loop. Engine-routable bytes (Twitch PNG/GIF, static WebP) resolve through the stock provider at call sites and never reach this completer; if they do (probe alts, tests), they render as a single static frame with no loop, no wrapper, no extra completer.
 class _EmoteImageCompleter extends ImageStreamCompleter {
   _EmoteImageCompleter({
@@ -321,11 +312,23 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
   /// stalled engine never holds a live timer.
   Timer? _streamTimeoutTimer;
 
-  /// True while the keyboard is moving. Holds all animation emission
-  /// for the gesture so secondary frames never interleave with the
-  /// Scaffold's vsync-locked traversal frames. Driven by ChatBody tick
-  /// versus settle; the settle release re-arms loops explicitly.
+  /// Vsync of the last array emission across all completers. Used only
+  /// while the keyboard is moving (see [motionSerialize]): at most
+  /// [motionMaxFlipsPerFrame] emotes flip per frame so coincident flips
+  /// never stack clone plus draw cost into the same tick frame. A deferred
+  /// flip drops one frame timing (up to one vsync late), invisible at
+  /// emote frame rates.
+  static Duration _lastEmitStamp = const Duration(microseconds: -1);
+  static int _emitsThisStamp = 0;
+
+  /// True while the keyboard is moving. Narrows the emit gate to gestures
+  /// so steady chat animates freely and only motion pays the per-frame
+  /// flip budget. Driven by ChatBody tick versus settle.
   static bool motionSerialize = false;
+
+  /// Flip budget per vsync while [motionSerialize] holds. Experimental:
+  /// raise to find the device ceiling, lower to kill spikes.
+  static int motionMaxFlipsPerFrame = 2;
 
   /// Ideal wall time (microseconds, wall clock) the next streamed frame is
   /// due. Each window extends the previous due instead of the emit time, so
@@ -405,9 +408,7 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
     frame.image.dispose();
     codec.dispose();
     _frames = EmoteFrameData(frames: [image], durations: [frame.duration]);
-    _emitOnVsync(
-      ImageInfo(image: image.clone(), scale: 1.0, debugLabel: 'emote-$url'),
-    );
+    _emitFrame(0);
   }
 
   /// Opens a codec and streams its frames one at a time. [durations] overrides
@@ -509,50 +510,6 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
 
   /// Whether a listener is attached. Visibility proxy for capture eviction.
   bool get _visible => hasListeners;
-
-  /// Restarts the loop if still attached to a live view. Settle release
-  /// calls this per completer because held loops die on purpose.
-  void resumeIfLive() {
-    if (_disposed || !hasListeners) return;
-    _startPlayback();
-  }
-
-  /// Pending vsync-quantized emission. Decodes complete mid-interval;
-  /// emitting there would mark dirty off phase and present late,
-  /// interleaved with the vsync-locked frames. Holding the clone for the
-  /// next frame callback keeps every present on phase for one frame of
-  /// extra latency, invisible at emote rates.
-  ImageInfo? _pendingEmit;
-  int? _pendingEmitCallback;
-
-  void _emitOnVsync(ImageInfo info) {
-    _pendingEmit?.image.dispose();
-    _pendingEmit = info;
-    if (_pendingEmitCallback != null) return;
-    _pendingEmitCallback = SchedulerBinding.instance.scheduleFrameCallback((
-      _,
-    ) {
-      _pendingEmitCallback = null;
-      final pending = _pendingEmit;
-      _pendingEmit = null;
-      if (pending == null) return;
-      if (_disposed || !hasListeners) {
-        pending.image.dispose();
-        return;
-      }
-      setImage(pending);
-    });
-  }
-
-  void _cancelVsyncEmit() {
-    final id = _pendingEmitCallback;
-    if (id != null) {
-      SchedulerBinding.instance.cancelFrameCallbackWithId(id);
-      _pendingEmitCallback = null;
-    }
-    _pendingEmit?.image.dispose();
-    _pendingEmit = null;
-  }
 
   /// Whether the playback loop is running or a pending timer will restart it.
   bool get _isPlaying =>
@@ -698,7 +655,6 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
 
   /// Pauses playback. Clears timestamp for re-anchor on resume; keeps cycle position.
   void _stopPlayback() {
-    _cancelVsyncEmit();
     _frameTimer?.cancel();
     _frameTimer = null;
     final id = _frameCallbackId;
@@ -735,16 +691,22 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
       // Apply full elapsed gap in one step (handles VM freeze jumps).
       posUs = (posUs + (timeStamp - shown).inMicroseconds) % totalUs;
       _cyclePosition = Duration(microseconds: posUs);
-      if (motionSerialize) {
-        // Keyboard moving: hold the clock without emitting. Any flip here
-        // would mark dirty mid-interval and present late, interleaved
-        // with the Scaffold's vsync-locked frames. Resume continues from
-        // the held clock with no burst.
-        _shownTimestamp = timeStamp;
-        return;
-      }
       final index = _frameForOffset(frames, posUs);
       if (index != _frameIndex) {
+        if (motionSerialize) {
+          if (_lastEmitStamp != timeStamp) {
+            _lastEmitStamp = timeStamp;
+            _emitsThisStamp = 0;
+          }
+          if (_emitsThisStamp >= motionMaxFlipsPerFrame) {
+            // Flip budget spent this vsync: defer to the next frame
+            // instead of stacking into the same tick frame.
+            _shownTimestamp = timeStamp;
+            _scheduleAppFrame();
+            return;
+          }
+          _emitsThisStamp++;
+        }
         _emitFrame(index);
       }
     }
@@ -850,7 +812,7 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
         _engineSeed?.dispose();
         _engineSeed = frame.image;
       }
-      _emitOnVsync(
+      setImage(
         ImageInfo(
           image: frame.image.clone(),
           scale: 1.0,
@@ -882,8 +844,6 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
     if (!EmoteUrlProvider.gifsEnabled) return;
     final windowUs = _safeStreamDuration(window).inMicroseconds;
     final nowUs = DateTime.now().microsecondsSinceEpoch;
-    // Unanchored starts stagger by URL hash; anchored grids extend the
-    // previous due time, preserving each emote's phase across restarts.
     var dueUs = _streamDueUs < 0
         ? nowUs + _emotesStartStaggerUs(url)
         : _streamDueUs;
@@ -906,13 +866,6 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
     _frameTimer = null;
     if (_disposed || !hasListeners) return;
     if (!EmoteUrlProvider.gifsEnabled || _streamDecoding) return;
-    if (motionSerialize) {
-      // Keyboard moving: hold the grid without decoding, recheck next
-      // frames. Due extends off the previous due on resume, so nothing
-      // bursts and phases survive the gesture.
-      _frameTimer = Timer(const Duration(milliseconds: 32), _onStreamTick);
-      return;
-    }
     if (!SchedulerBinding.instance.framesEnabled) {
       _scheduleStreamAppFrame();
       return;
@@ -1079,7 +1032,7 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
       _frameIndex = i;
       _hasStreamFrame = true;
       _captureFrame(i, out, Duration(milliseconds: frameMeta.durationMs));
-      _emitOnVsync(
+      setImage(
         ImageInfo(image: out.clone(), scale: 1.0, debugLabel: 'emote-$url'),
       );
     } on Object catch (error, stack) {

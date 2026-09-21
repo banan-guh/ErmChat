@@ -26,12 +26,34 @@ class AutocompleteDropdown extends StatefulWidget {
 class _AutocompleteDropdownState extends State<AutocompleteDropdown> {
   static const _fontSize = 16.0;
 
+  // Deduped per emote: rebuild on every keystroke would re-record.
+  final _viewedEmotes = <String>{};
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    // DIAG STRIP: no switcher, no size animation.
-    if (widget.suggestions.isEmpty) return const SizedBox.shrink();
-    return _buildChild(theme);
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 150),
+      switchInCurve: Curves.decelerate,
+      switchOutCurve: Curves.easeIn,
+      transitionBuilder: (child, animation) => FadeTransition(
+        opacity: animation,
+        child: SizeTransition(
+          sizeFactor: animation,
+          axis: Axis.vertical,
+          alignment: Alignment.topCenter,
+          child: child,
+        ),
+      ),
+      child: widget.suggestions.isEmpty
+          ? const SizedBox.shrink()
+          : AnimatedSize(
+              duration: const Duration(milliseconds: 300),
+              curve: Curves.ease,
+              alignment: Alignment.topCenter,
+              child: _buildChild(theme),
+            ),
+    );
   }
 
   static const _emoteSize = 36.0;
@@ -62,7 +84,17 @@ class _AutocompleteDropdownState extends State<AutocompleteDropdown> {
   }
 
   Widget _buildRow(ThemeData theme, Suggestion suggestion) {
-    // DIAG STRIP: no viewed tracking, no post-frame callbacks.
+    if (suggestion is EmoteSuggestion) {
+      final emote = suggestion.emote;
+      if (_viewedEmotes.add(emote.id)) {
+        final cb = widget.onEmoteViewed;
+        if (cb != null) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) cb(emote);
+          });
+        }
+      }
+    }
     return Material(
       type: MaterialType.transparency,
       child: InkWell(

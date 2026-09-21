@@ -2,8 +2,10 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../composer/composer_bar.dart';
 import '../util/prefs.dart';
 import 'emote_url_provider.dart';
+import 'glass_chrome.dart';
 
 /// Builds the chat content above the composer for the available box.
 typedef ChatBodyBuilder =
@@ -95,12 +97,16 @@ class ChatBody extends StatefulWidget {
   State<ChatBody> createState() => _ChatBodyState();
 }
 
-class _ChatBodyState extends State<ChatBody> with WidgetsBindingObserver {
+class _ChatBodyState extends State<ChatBody> {
   double? _fullBoxHeight;
 
-  // DIAG STRIP: frozen chat subtree. Built once, reused across ticks.
-  Widget? _frozenList;
-  String? _frozenKey;
+  // Settled composer height for keyboard-room math downstream. Measured
+  // post-layout: reading inputBarKey.size during build throws every frame.
+  double _composerH = 56.0;
+
+  // Exit-animation mount gate: the pill stays in the tree while fading
+  // out, then unmounts in AnimatedOpacity.onEnd.
+  bool _pillShown = false;
 
   // Debounced lift for decisions only. Raw ticks are smooth on their own;
   // replaying each one into chrome/video/sheet rules makes those flip
@@ -137,27 +143,21 @@ class _ChatBodyState extends State<ChatBody> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     _loadSettledHeight();
-    WidgetsBinding.instance.addObserver(this);
+    _lastRawH = widget.keyboardH;
+    if (widget.keyboardH > 0) {
+      _liftH = widget.keyboardH;
+      _settledKeyboardH = widget.keyboardH;
+    }
   }
 
   @override
-  void didChangeMetrics() {
-    // Tick feed with zero rebuilds: platform insets read directly, no
-    // MediaQuery subscription, so motion schedules no Dart builds at all.
-    // Decisions apply once on stillness. Scaffold layout positions the
-    // input synchronously, same as apps that never subscribe.
-    final views = WidgetsBinding.instance.platformDispatcher.views;
-    if (views.isEmpty) return;
-    final view = views.first;
-    final raw = view.viewInsets.bottom / view.devicePixelRatio;
-    // DIAG: tick log for rate analysis. Revert after.
-    debugPrint('INSETTICK inset=${raw.toStringAsFixed(1)}');
-    _handleRawKeyboardH(raw);
+  void didUpdateWidget(ChatBody oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    _handleRawKeyboardH(widget.keyboardH);
   }
 
   @override
   void dispose() {
-    WidgetsBinding.instance.removeObserver(this);
     _settleTimer?.cancel();
     EmoteUrlProvider.motionSerialize = false;
     super.dispose();
@@ -165,100 +165,243 @@ class _ChatBodyState extends State<ChatBody> with WidgetsBindingObserver {
 
   void _handleRawKeyboardH(double raw) {
     if ((raw - _lastRawH).abs() < 0.5) return;
+    final wasClosed = _lastRawH <= 0.5;
     _lastRawH = raw;
-    // Motion starts: serialize emote flips to one per vsync plus hold
-    // stream decodes. Static flags only, no build.
+    // Motion starts: serialize emote flips to one per vsync so coincident
+    // flips cannot stack into the same tick frame. Settle below releases.
     EmoteUrlProvider.motionSerialize = true;
-    // No setState during motion. Decisions apply once on stillness below.
-    _settleTimer?.cancel();
-    _settleTimer = Timer(
-      const Duration(milliseconds: 120),
-      _onKeyboardSettled,
-    );
-  }
-
-  void _onKeyboardSettled() {
-    if (!mounted) return;
-    EmoteUrlProvider.motionSerialize = false;
-    EmoteUrlProvider.resumeMotionHeld();
-    final stable = _lastRawH;
-    if (stable <= 0.5) {
+    if (raw <= 0.5) {
       if (_liftH != 0) setState(() => _liftH = 0);
       // Unfocus only once the close settles: stillness, not a fixed delay,
       // so it adapts to animation length. Firing the hide mid-animation
       // races the IME state machine and the next open pays with an
       // overshoot; a reopen first cancels this silently.
-      widget.onKeyboardDismissed?.call();
+      _settleTimer?.cancel();
+      _settleTimer = Timer(const Duration(milliseconds: 120), () {
+        if (!mounted || _lastRawH > 0.5) return;
+        EmoteUrlProvider.motionSerialize = false;
+        widget.onKeyboardDismissed?.call();
+      });
       return;
     }
-    _settledKeyboardH = stable;
-    _saveSettledHeight(stable);
-    if ((_liftH - stable).abs() > 0.5) setState(() => _liftH = stable);
+    if (wasClosed) {
+      // Opening: commit the learned height at once so rules decide on the
+      // final geometry from the first frame instead of flapping mid-gesture.
+      final target = _settledKeyboardH > 0 ? _settledKeyboardH : raw;
+      if ((_liftH - target).abs() > 0.5) setState(() => _liftH = target);
+    }
+    _settleTimer?.cancel();
+    _settleTimer = Timer(const Duration(milliseconds: 120), () {
+      if (!mounted) return;
+      EmoteUrlProvider.motionSerialize = false;
+      final stable = _lastRawH;
+      if (stable <= 0.5) return;
+      _settledKeyboardH = stable;
+      _saveSettledHeight(stable);
+      if ((_liftH - stable).abs() > 0.5) setState(() => _liftH = stable);
+    });
   }
 
-  // DIAG STRIP: no composer measuring.
+  void _cacheComposerH() {
+    if (!mounted || widget.composer == null) return;
+    final h = inputBarKey.currentContext?.size?.height;
+    if (h != null && (h - _composerH).abs() > 0.5) {
+      setState(() => _composerH = h);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
+    // Decisions read the debounced lift; geometry comes from the resized
+    // constraints below, which already track the keyboard tick by tick.
+    final keyboardH = _liftH;
+    final rawH = widget.keyboardH;
+    final bottomPad = MediaQuery.paddingOf(context).bottom;
     final composer = widget.composer;
-    // DIAG STRIP: fixed composer height, no measuring, body frozen.
-    const composerH = 56.0;
-    final frozenKey = '${widget.isInPip}:${composer != null}';
-    if (_frozenKey != frozenKey) {
-      _frozenKey = frozenKey;
-      _frozenList = null;
+    // Cache the settled composer height after layout for keyboard-room
+    // math; converges after one extra frame on height changes.
+    if (composer != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _cacheComposerH());
     }
-    _frozenList ??= Expanded(
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          if (widget.isInPip) {
-            return widget.bodyBuilder(
-              context,
-              hideChromeForKeyboard: false,
-              maxWidth: constraints.maxWidth,
-              maxHeight: constraints.maxHeight,
-              keyboardH: 0,
-              composerH: 0,
-            );
-          }
-          final statusBarH = MediaQuery.paddingOf(context).top;
-          final fullBoxH = constraints.maxHeight - statusBarH;
-          final maxFitBoxH =
-              (constraints.maxHeight - statusBarH) / widget.emoteMaxFraction;
-          final sheetBoxHeight = fullBoxH < maxFitBoxH ? fullBoxH : maxFitBoxH;
-          return Stack(
-            clipBehavior: Clip.hardEdge,
-            children: [
-              widget.bodyBuilder(
-                context,
-                hideChromeForKeyboard: false,
-                maxWidth: constraints.maxWidth,
-                maxHeight: constraints.maxHeight,
-                keyboardH: 0,
-                composerH: composerH,
-              ),
-              widget.threadPanel,
-              widget.mentionsPanel,
-              widget.modViewPanel,
-              widget.emotePickerBuilder(
-                context,
-                sheetBoxHeight: sheetBoxHeight,
-              ),
-            ],
-          );
-        },
-      ),
-    );
+    final composerH = composer == null ? 0.0 : _composerH;
+    // Glass pill footprint, shared with the list bottom padding upstream.
+    // collapseChromeForKeyboard needs the box height, which only exists
+    // inside the LayoutBuilder below; the learned full height estimates it
+    // here so the pill and the in-flow composer stay mutually exclusive.
+    final pillBase =
+        widget.liquidGlass &&
+        composer != null &&
+        !widget.isInPip &&
+        !MediaQuery.highContrastOf(context);
+    final pill =
+        pillBase &&
+        !collapseChromeForKeyboard(
+          keyboardH: keyboardH,
+          maxHeight: _fullBoxHeight ?? MediaQuery.sizeOf(context).height,
+        );
+    final pillH = glassComposerOverlayHeight(composerH);
+    if (pill) _pillShown = true;
+    // No manual lift: the Scaffold shrank the body, so the composer sits
+    // above the keyboard at settled constraints with no second animator
+    // to cross the system motion. The key stays for post-layout measuring.
     return Column(
       children: [
-        _frozenList!,
-        if (!widget.isInPip && composer != null)
-          // DIAG STRIP: in-flow input, positioned by layout like testapp.
-          Padding(
-            padding: EdgeInsets.only(
-              bottom: MediaQuery.paddingOf(context).bottom,
+        Expanded(
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              if (widget.isInPip) {
+                return widget.bodyBuilder(
+                  context,
+                  hideChromeForKeyboard: false,
+                  maxWidth: constraints.maxWidth,
+                  maxHeight: constraints.maxHeight,
+                  keyboardH: 0,
+                  composerH: 0,
+                );
+              }
+              final statusBarH = MediaQuery.paddingOf(context).top;
+              if (rawH <= 0.5) {
+                _fullBoxHeight = constraints.maxHeight;
+              }
+              final fullBoxH =
+                  (_fullBoxHeight ?? constraints.maxHeight) - statusBarH;
+              // Full-box canvas for the sheet: the Positioned box may run
+              // past the top of the shrunk Stack (clipped, harmless) so the
+              // Draggable fractions keep measuring against the full box and
+              // the sheet anchors to the bottom, above the keyboard.
+              final maxFitBoxH =
+                  (constraints.maxHeight - statusBarH) /
+                  widget.emoteMaxFraction;
+              final sheetBoxHeight = fullBoxH < maxFitBoxH
+                  ? fullBoxH
+                  : maxFitBoxH;
+              final hideChromeForKeyboard = collapseChromeForKeyboard(
+                keyboardH: keyboardH,
+                maxHeight: constraints.maxHeight,
+              );
+              return Stack(
+                clipBehavior: Clip.hardEdge,
+                children: [
+                  widget.bodyBuilder(
+                    context,
+                    hideChromeForKeyboard: hideChromeForKeyboard,
+                    maxWidth: constraints.maxWidth,
+                    maxHeight: constraints.maxHeight,
+                    keyboardH: keyboardH,
+                    composerH: composerH,
+                  ),
+                  widget.threadPanel,
+                  widget.mentionsPanel,
+                  widget.modViewPanel,
+                  widget.emotePickerBuilder(
+                    context,
+                    sheetBoxHeight: sheetBoxHeight,
+                  ),
+                  // Autocomplete dropdown - floats above chat, anchored just
+                  // above the message input, 60% width like DankChat's popup.
+                  Positioned(
+                    bottom: pill ? pillH : 0,
+                    left: 0,
+                    child: SizedBox(
+                      width: (MediaQuery.sizeOf(context).width * 0.6).clamp(
+                        0.0,
+                        340.0,
+                      ),
+                      child: ConstrainedBox(
+                        constraints: BoxConstraints(
+                          maxHeight: MediaQuery.sizeOf(context).height * 0.25,
+                        ),
+                        child: widget.autocomplete,
+                      ),
+                    ),
+                  ),
+                  // Chat notice - floats over the chat, anchored just above
+                  // the composer. Overlay, not column content, so showing it
+                  // never resizes the chat.
+                  if (widget.notice != null)
+                    Positioned(
+                      bottom: pill ? pillH : 0,
+                      left: 0,
+                      right: 0,
+                      child: widget.notice!,
+                    ),
+                  // Glass spike: floating composer pill. The list pads by
+                  // pillH upstream so the newest rows clear it and slide
+                  // underneath while scrolling. The size notifier keeps the
+                  // measurement fresh when inner listenables resize the pill
+                  // without a ChatBody rebuild (status text, reply banner,
+                  // extra input lines). Show/hide fades and slides; the pill
+                  // stays mounted through the exit fade via [_pillShown].
+                  if (pill || _pillShown)
+                    Positioned(
+                      left: kGlassComposerMargin,
+                      right: kGlassComposerMargin,
+                      bottom: 0,
+                      child: IgnorePointer(
+                        ignoring: !pill,
+                        child: AnimatedOpacity(
+                          duration: const Duration(milliseconds: 180),
+                          opacity: pill ? 1.0 : 0.0,
+                          onEnd: () {
+                            if (!pill && mounted) {
+                              setState(() => _pillShown = false);
+                            }
+                          },
+                          child: AnimatedSlide(
+                            duration: const Duration(milliseconds: 220),
+                            curve: Curves.easeOutCubic,
+                            offset: pill ? Offset.zero : const Offset(0, 0.4),
+                            child: Padding(
+                              key: inputBarKey,
+                              padding: EdgeInsets.only(
+                                bottom: bottomPad + kGlassComposerMargin,
+                              ),
+                              child:
+                                  NotificationListener<
+                                    SizeChangedLayoutNotification
+                                  >(
+                                    onNotification: (_) {
+                                      WidgetsBinding.instance
+                                          .addPostFrameCallback(
+                                            (_) => _cacheComposerH(),
+                                          );
+                                      return true;
+                                    },
+                                    child: SizeChangedLayoutNotifier(
+                                      // Toggle-off nulls the composer while
+                                      // the exit fade still runs it out.
+                                      child: glassPill(
+                                        child:
+                                            composer ?? const SizedBox.shrink(),
+                                      ),
+                                    ),
+                                  ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              );
+            },
+          ),
+        ),
+        if (!widget.isInPip)
+          AnimatedSize(
+            duration: const Duration(milliseconds: 220),
+            curve: Curves.easeInOut,
+            alignment: Alignment.bottomCenter,
+            child: AnimatedOpacity(
+              duration: const Duration(milliseconds: 160),
+              opacity: !pill && composer != null ? 1.0 : 0.0,
+              child: pill || composer == null
+                  ? const SizedBox.shrink()
+                  : Padding(
+                      key: inputBarKey,
+                      padding: EdgeInsets.only(bottom: bottomPad),
+                      child: composer,
+                    ),
             ),
-            child: composer,
           ),
       ],
     );

@@ -117,9 +117,11 @@ ThemeData buildDarkTheme({
 }
 
 Widget _edgeExclusionWrapper(BuildContext context, Widget? child) {
-  final mq = MediaQuery.of(context);
-  final left = mq.systemGestureInsets.left;
-  final right = mq.systemGestureInsets.right;
+  // Granular subscription: gesture insets never move with the keyboard,
+  // so this app-root wrapper stops rebuilding on every inset tick.
+  final insets = MediaQuery.systemGestureInsetsOf(context);
+  final left = insets.left;
+  final right = insets.right;
   // Bar icon contrast follows the resolved theme; transparent bars let
   // content show through underneath. Rebuilt with the app on theme change.
   final dark = Theme.of(context).brightness == Brightness.dark;

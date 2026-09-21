@@ -6,7 +6,14 @@ import '../panels/search.dart';
 import '../widgets/message_input.dart';
 import 'composer_controller.dart';
 
-// DIAG STRIP: bare input bar, no subscriptions, no status row.
+// Single key for measuring the composer (snackbar margin, video sizing).
+final inputBarKey = GlobalKey();
+
+// Fallback when the channel is gone; never bumps.
+final _emptyVersion = ValueNotifier<int>(0);
+
+// Message input plus connection status row. Bottom padding comes from
+// ChatBody, which owns the layout's single inset subscription.
 class ComposerBar extends StatelessWidget {
   const ComposerBar({
     super.key,
@@ -22,25 +29,176 @@ class ComposerBar extends StatelessWidget {
   final ValueListenable<int> selectedTabIndex;
   final SearchPanels search;
   final ModPanels mod;
+
+  /// Glass pill mode: drops the opaque shell so the blur shows through.
   final bool transparent;
+
+  /// Panel tab drag crossings. The morph tracks 50% through this alone,
+  /// without a full HomeScreen rebuild per crossing (main chat's focus
+  /// path skips setState the same way); settle still marks dirty.
   final Listenable dragTick;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final content = Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        MessageInput(
-          controller: controller.messageController,
-          focusNode: controller.focusNode,
-          onSend: controller.send,
-          enabled: true,
-          hintText: 'Type a message...',
-        ),
-      ],
+    final content = ListenableBuilder(
+      listenable: Listenable.merge([
+        controller.cooldownLabel,
+        controller.chatConn.connectionStateNotifier,
+        // Auth switches must re-render immediately (anon to user and
+        // back), not wait for the next connection-state bump.
+        controller.twitchAuth,
+        mod.termsAdding,
+        dragTick,
+      ]),
+      builder: (context, _) {
+        // Search borrows the input box: same field, own controllers.
+        // Reads the live channel per event so tab flips never leak.
+        final searchBorrowed =
+            search.open && search.host.selectedChannel != null;
+        // Terms borrows the input box while its tab is open; every
+        // other mod tab keeps the greyed-out chat box below.
+        final termsBorrowed = !searchBorrowed && mod.termsInputActive;
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (searchBorrowed)
+              MessageInput(
+                controller: search.field,
+                focusNode: search.focusNode,
+                onSend: () {},
+                onChanged: (q) {
+                  final channel = search.host.selectedChannel;
+                  if (channel != null) search.setQuery(channel, q);
+                },
+                onSubmitted: (_) => search.focusNode.unfocus(),
+                enabled: true,
+                hintText: 'Search...',
+                searchMode: true,
+                borderless: transparent,
+                prefixOverride: search.closeButton(),
+                suffixOverride: search.filterButton(),
+              )
+            else if (termsBorrowed)
+              MessageInput(
+                controller: mod.termsField,
+                focusNode: mod.composer.focusNode,
+                onSend: mod.submitTerms,
+                onSubmitted: (_) => mod.submitTerms(),
+                enabled: true,
+                hintText: 'Block a word or phrase...',
+                searchMode: true,
+                borderless: transparent,
+                prefixOverride: mod.termsPrefixSlot(),
+                suffixOverride: mod.termsSubmitSlot(),
+              )
+            else
+              MessageInput(
+                controller: controller.messageController,
+                focusNode: controller.focusNode,
+                onSend: controller.send,
+                onSendLongPress: controller.recallLastSent,
+                onTap: controller.onTapClearSuggestions,
+                onEmoteToggle: controller.toggleEmoteMenu,
+                replyToMsg: controller.replyToMsg,
+                onCancelReply: controller.clearReply,
+                enabled: controller.enabled,
+                hintText: controller.hintText,
+                inputFormatters: [controller.autocompleteRevert],
+                borderless: transparent,
+              ),
+            if (searchBorrowed || mod.termsChromeHidden)
+              const SizedBox.shrink()
+            else
+              _StatusRow(
+                controller: controller,
+                selectedTabIndex: selectedTabIndex,
+              ),
+          ],
+        );
+      },
     );
     if (transparent) return content;
     return ColoredBox(color: theme.scaffoldBackgroundColor, child: content);
+  }
+}
+
+class _StatusRow extends StatelessWidget {
+  const _StatusRow({required this.controller, required this.selectedTabIndex});
+
+  final ComposerController controller;
+  final ValueListenable<int> selectedTabIndex;
+
+  @override
+  Widget build(BuildContext context) {
+    // The selected channel can change without a parent rebuild (the swipe
+    // path skips setState), so re-read it inside the builder and bind the
+    // status notifier to whatever channel is current.
+    return ListenableBuilder(
+      listenable: selectedTabIndex,
+      builder: (context, _) {
+        final channel = controller.selectedChannel;
+        return ListenableBuilder(
+          listenable: Listenable.merge([
+            controller.chat.channelFor(channel ?? '')?.info.version ??
+                _emptyVersion,
+            controller.chat.channelFor(channel ?? '')?.info.statusVersion ??
+                _emptyVersion,
+            controller.chat.loadFailedChannels,
+          ]),
+          builder: (context, _) {
+            final status = channel == null
+                ? ''
+                : (controller.chat.channelFor(channel)?.info.status ?? '');
+            final hasStatus = status.isNotEmpty;
+            final hasLoadFailure =
+                channel != null &&
+                controller.chat.loadFailedChannels.value.contains(channel);
+            return AnimatedSize(
+              duration: const Duration(milliseconds: 300),
+              curve: Curves.easeInOut,
+              alignment: Alignment.topCenter,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (hasStatus)
+                    Padding(
+                      padding: const EdgeInsets.only(
+                        left: 12,
+                        right: 12,
+                        bottom: 4,
+                      ),
+                      child: Text(
+                        status,
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                  if (hasLoadFailure)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 4),
+                      child: InkWell(
+                        onTap: () =>
+                            controller.chatConn.retryChannelData(channel),
+                        child: Text(
+                          'Retry failed emotes/badges',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Theme.of(context).colorScheme.primary,
+                            decoration: TextDecoration.underline,
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
   }
 }
