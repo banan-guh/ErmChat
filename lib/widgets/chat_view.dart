@@ -4,6 +4,7 @@ import 'package:flutter_list_view/flutter_list_view.dart';
 import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 import '../models/twitch_message.dart';
 import '../util/thread_utils.dart';
+import 'glass_chrome.dart';
 import 'seven_tv_paint_service.dart';
 import '../util/timestamp_formatter.dart';
 import '../util/haptics.dart';
@@ -79,6 +80,8 @@ class ChatView extends StatefulWidget {
   final double topOverlayPadding;
 
   /// Glass overlay clearance below the newest row, above the composer pill.
+  /// Zero falls back to the GlassChromeScope clearance, so panel and welcome
+  /// lists clear the floating pill without threaded params.
   final double bottomOverlayPadding;
 
   const ChatView({
@@ -139,6 +142,11 @@ class _ChatViewState extends State<ChatView>
   int? _delegateLen;
   String? _delegateChannel;
 
+  // Effective pill clearance for this frame: the explicit prop wins, zero
+  // falls back to the scope so surfaces without threaded params (welcome,
+  // panels) still clear the floating pill. Set at the top of every build.
+  double _effBottom = 0;
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -163,6 +171,9 @@ class _ChatViewState extends State<ChatView>
     super.build(context);
     final surface = Theme.of(context).scaffoldBackgroundColor;
     final s = widget.chatFontScale * _cachedSystemScale;
+    _effBottom = widget.bottomOverlayPadding > 0.5
+        ? widget.bottomOverlayPadding
+        : (GlassChromeScope.maybeOf(context)?.bottomClearance ?? 0);
     return Stack(
       clipBehavior: Clip.hardEdge,
       children: [
@@ -207,13 +218,13 @@ class _ChatViewState extends State<ChatView>
                     channel: widget.channel,
                   );
                   // Glass spacers keep the empty state clear of the overlays.
-                  final hasEmptyBottom = widget.bottomOverlayPadding > 0.5;
+                  final hasEmptyBottom = _effBottom > 0.5;
                   final hasEmptyTop = widget.topOverlayPadding > 0.5;
                   final emptyCount =
                       1 + (hasEmptyBottom ? 1 : 0) + (hasEmptyTop ? 1 : 0);
                   Widget emptyAt(BuildContext _, int i) {
                     if (hasEmptyBottom && i == 0) {
-                      return SizedBox(height: widget.bottomOverlayPadding);
+                      return SizedBox(height: _effBottom);
                     }
                     final pos = i - (hasEmptyBottom ? 1 : 0);
                     if (pos >= 1) {
@@ -319,14 +330,14 @@ class _ChatViewState extends State<ChatView>
             // above it by the same clearance the newest rows use.
             return Positioned(
               right: 16,
-              bottom: 16 + widget.bottomOverlayPadding,
+              bottom: 16 + _effBottom,
               child: AnimatedSwitcher(
                 duration: const Duration(milliseconds: 100),
                 transitionBuilder: (child, animation) =>
                     FadeTransition(opacity: animation, child: child),
                 child: atBottom
                     ? const SizedBox.shrink()
-                    : widget.bottomOverlayPadding > 0.5
+                    : _effBottom > 0.5
                     ? GlassIconButton(
                         key: const ValueKey('scroll_down'),
                         icon: const Icon(Icons.keyboard_arrow_down),
@@ -364,7 +375,7 @@ class _ChatViewState extends State<ChatView>
   FlutterListViewDelegate _effectiveDelegate(List<TwitchMessage> msgs) {
     final total =
         msgs.length +
-        (widget.bottomOverlayPadding > 0.5 ? 1 : 0) +
+        (_effBottom > 0.5 ? 1 : 0) +
         (widget.topOverlayPadding > 0.5 ? 1 : 0);
     if (_delegate == null ||
         _delegateChannel != widget.channel ||
@@ -387,11 +398,11 @@ class _ChatViewState extends State<ChatView>
 
   // Glass spacer rows sit outside the message window: index 0 pads below
   // the newest row, the last index pads above the oldest row.
-  bool get _hasBottomSpacer => widget.bottomOverlayPadding > 0.5;
+  bool get _hasBottomSpacer => _effBottom > 0.5;
 
   Widget _buildTileAt(BuildContext ctx, int i) {
     if (_hasBottomSpacer && i == 0) {
-      return SizedBox(height: widget.bottomOverlayPadding);
+      return SizedBox(height: _effBottom);
     }
     final idx = i - (_hasBottomSpacer ? 1 : 0);
     final msgs = widget.messages;

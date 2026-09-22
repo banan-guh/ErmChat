@@ -279,109 +279,115 @@ class _ChatBodyState extends State<ChatBody> {
                 keyboardH: keyboardH,
                 maxHeight: constraints.maxHeight,
               );
-              return Stack(
-                clipBehavior: Clip.hardEdge,
-                children: [
-                  widget.bodyBuilder(
-                    context,
-                    hideChromeForKeyboard: hideChromeForKeyboard,
-                    maxWidth: constraints.maxWidth,
-                    maxHeight: constraints.maxHeight,
-                    keyboardH: keyboardH,
-                    composerH: composerH,
-                  ),
-                  widget.threadPanel,
-                  widget.mentionsPanel,
-                  widget.modViewPanel,
-                  widget.emotePickerBuilder(
-                    context,
-                    sheetBoxHeight: sheetBoxHeight,
-                  ),
-                  // Autocomplete dropdown - floats above chat, anchored just
-                  // above the message input, 60% width like DankChat's popup.
-                  Positioned(
-                    bottom: pill ? pillH : 0,
-                    left: 0,
-                    child: SizedBox(
-                      width: (MediaQuery.sizeOf(context).width * 0.6).clamp(
-                        0.0,
-                        340.0,
-                      ),
-                      child: ConstrainedBox(
-                        constraints: BoxConstraints(
-                          maxHeight: MediaQuery.sizeOf(context).height * 0.25,
-                        ),
-                        child: widget.autocomplete,
-                      ),
+              return GlassChromeScope(
+                bottomClearance: pill ? pillH : 0,
+                child: Stack(
+                  clipBehavior: Clip.hardEdge,
+                  children: [
+                    widget.bodyBuilder(
+                      context,
+                      hideChromeForKeyboard: hideChromeForKeyboard,
+                      maxWidth: constraints.maxWidth,
+                      maxHeight: constraints.maxHeight,
+                      keyboardH: keyboardH,
+                      composerH: composerH,
                     ),
-                  ),
-                  // Chat notice - floats over the chat, anchored just above
-                  // the composer. Overlay, not column content, so showing it
-                  // never resizes the chat.
-                  if (widget.notice != null)
+                    widget.threadPanel,
+                    widget.mentionsPanel,
+                    widget.modViewPanel,
+                    widget.emotePickerBuilder(
+                      context,
+                      sheetBoxHeight: sheetBoxHeight,
+                    ),
+                    // Autocomplete dropdown - floats above chat, anchored just
+                    // above the message input, 60% width like DankChat's popup.
                     Positioned(
                       bottom: pill ? pillH : 0,
                       left: 0,
-                      right: 0,
-                      child: widget.notice!,
+                      child: SizedBox(
+                        width: (MediaQuery.sizeOf(context).width * 0.6).clamp(
+                          0.0,
+                          340.0,
+                        ),
+                        child: ConstrainedBox(
+                          constraints: BoxConstraints(
+                            maxHeight: MediaQuery.sizeOf(context).height * 0.25,
+                          ),
+                          child: widget.autocomplete,
+                        ),
+                      ),
                     ),
-                  // Glass spike: floating composer pill. The list pads by
-                  // pillH upstream so the newest rows clear it and slide
-                  // underneath while scrolling. The size notifier keeps the
-                  // measurement fresh when inner listenables resize the pill
-                  // without a ChatBody rebuild (status text, reply banner,
-                  // extra input lines). Show/hide fades and slides; the pill
-                  // stays mounted through the exit fade via [_pillShown].
-                  if (pill || _pillShown)
-                    Positioned(
-                      left: kGlassComposerMargin,
-                      right: kGlassComposerMargin,
-                      bottom: 0,
-                      child: IgnorePointer(
-                        ignoring: !pill,
-                        child: AnimatedOpacity(
-                          duration: const Duration(milliseconds: 180),
-                          opacity: pill ? 1.0 : 0.0,
-                          onEnd: () {
-                            if (!pill && mounted) {
-                              setState(() => _pillShown = false);
-                            }
-                          },
-                          child: AnimatedSlide(
-                            duration: const Duration(milliseconds: 220),
-                            curve: Curves.easeOutCubic,
-                            offset: pill ? Offset.zero : const Offset(0, 0.4),
-                            child: Padding(
-                              key: inputBarKey,
-                              padding: EdgeInsets.only(
-                                bottom: bottomPad + kGlassComposerMargin,
-                              ),
-                              child:
-                                  NotificationListener<
-                                    SizeChangedLayoutNotification
-                                  >(
-                                    onNotification: (_) {
-                                      WidgetsBinding.instance
-                                          .addPostFrameCallback(
-                                            (_) => _cacheComposerH(),
-                                          );
-                                      return true;
-                                    },
-                                    child: SizeChangedLayoutNotifier(
-                                      // Toggle-off nulls the composer while
-                                      // the exit fade still runs it out.
-                                      child: glassPill(
-                                        child:
-                                            composer ?? const SizedBox.shrink(),
+                    // Chat notice - floats over the chat, anchored just above
+                    // the composer. Overlay, not column content, so showing it
+                    // never resizes the chat.
+                    if (widget.notice != null)
+                      Positioned(
+                        bottom: pill ? pillH : 0,
+                        left: 0,
+                        right: 0,
+                        child: widget.notice!,
+                      ),
+                    // Glass spike: floating composer pill. The list pads by
+                    // pillH upstream so the newest rows clear it and slide
+                    // underneath while scrolling. The size notifier keeps the
+                    // measurement fresh when inner listenables resize the pill
+                    // without a ChatBody rebuild (status text, reply banner,
+                    // extra input lines). Show/hide fades and slides; the pill
+                    // stays mounted through the exit fade via [_pillShown].
+                    if (pill || _pillShown)
+                      Positioned(
+                        left: kGlassComposerMargin,
+                        right: kGlassComposerMargin,
+                        bottom: 0,
+                        child: IgnorePointer(
+                          ignoring: !pill,
+                          child: AnimatedOpacity(
+                            duration: const Duration(milliseconds: 180),
+                            opacity: pill ? 1.0 : 0.0,
+                            onEnd: () {
+                              if (!pill && mounted) {
+                                setState(() => _pillShown = false);
+                              }
+                            },
+                            child: AnimatedSlide(
+                              duration: const Duration(milliseconds: 220),
+                              curve: Curves.easeOutCubic,
+                              offset: pill ? Offset.zero : const Offset(0, 0.4),
+                              child: Padding(
+                                key: inputBarKey,
+                                padding: EdgeInsets.only(
+                                  bottom: bottomPad + kGlassComposerMargin,
+                                ),
+                                child:
+                                    NotificationListener<
+                                      SizeChangedLayoutNotification
+                                    >(
+                                      onNotification: (_) {
+                                        WidgetsBinding.instance
+                                            .addPostFrameCallback(
+                                              (_) => _cacheComposerH(),
+                                            );
+                                        return true;
+                                      },
+                                      child: SizeChangedLayoutNotifier(
+                                        // Toggle-off nulls the composer while
+                                        // the exit fade still runs it out.
+                                        child: PillFocusGlow(
+                                          child: glassPill(
+                                            child:
+                                                composer ??
+                                                const SizedBox.shrink(),
+                                          ),
+                                        ),
                                       ),
                                     ),
-                                  ),
+                              ),
                             ),
                           ),
                         ),
                       ),
-                    ),
-                ],
+                  ],
+                ),
               );
             },
           ),

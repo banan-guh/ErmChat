@@ -16,6 +16,7 @@ import '../sheets/message_menu.dart';
 import '../sheets/user_sheet.dart';
 import '../widgets/broadcast_widgets.dart';
 import '../widgets/chat_view.dart';
+import '../widgets/glass_chrome.dart';
 import '../widgets/message_builder.dart';
 import '../widgets/tabbed_layout.dart';
 import 'home_app_bar.dart';
@@ -361,6 +362,27 @@ class ChannelPanels {
                     return tab;
                   },
                 )
+              : glassOverlay && glassHeader != null
+              ? Stack(
+                  children: [
+                    Positioned.fill(
+                      child: welcomeChatView(
+                        context,
+                        topPadding: glassTopPadding,
+                        bottomPadding: glassBottomPadding,
+                      ),
+                    ),
+                    Positioned(
+                      top: -kGlassEdgeBleed,
+                      left: -kGlassEdgeBleed,
+                      right: -kGlassEdgeBleed,
+                      child: glassBar(
+                        dark: Theme.of(context).brightness == Brightness.dark,
+                        child: glassHeader,
+                      ),
+                    ),
+                  ],
+                )
               : welcomeChatView(context),
         ),
         if (host.selectedChannel != null)
@@ -384,7 +406,11 @@ class ChannelPanels {
     );
   }
 
-  Widget welcomeChatView(BuildContext context) {
+  Widget welcomeChatView(
+    BuildContext context, {
+    double topPadding = 0,
+    double bottomPadding = 0,
+  }) {
     final configured = twitchAuth.isConfigured;
     final login = twitchAuth.login;
     final key = '$configured:$login';
@@ -435,6 +461,8 @@ class ChannelPanels {
       lineSeparator: host.lineSeparator,
       sharedChatMode: host.sharedChatMode,
       paintService: host.showNamePaints ? paintService : null,
+      topOverlayPadding: topPadding,
+      bottomOverlayPadding: bottomPadding,
       onShowUserProfile: (login, userId, {displayName}) => userSheets
           .showUserProfile(context, login, userId, displayName: displayName),
       keyboardDismissBehavior: (!kIsWeb && Platform.isIOS)

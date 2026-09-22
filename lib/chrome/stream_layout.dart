@@ -334,16 +334,18 @@ class StreamPanels {
           keyboardH: keyboardH,
           inputH: composerH,
         );
-    // Glass spike: chat-only portrait floats one glass block (app bar plus
-    // tab strip) above full-height pages. Stream, theater, split,
-    // fullscreen, and keyboard-collapse states keep the docked layout.
+    // Glass spike: chat-only portrait floats one glass block above
+    // full-height pages. Stream, theater, split, fullscreen, and
+    // keyboard-collapse states keep the docked layout. With no channels the
+    // card holds the app bar only (no tab strip) over the welcome view.
     if (liquidGlass &&
         !MediaQuery.highContrastOf(context) &&
         !host.isFullscreen &&
         !hideChromeForKeyboard &&
-        channel == null &&
-        chat.names.isNotEmpty) {
-      final headerH = glassHeaderHeight(context);
+        channel == null) {
+      final headerH = chat.names.isNotEmpty
+          ? glassHeaderHeight(context)
+          : glassWelcomeHeaderHeight(context);
       final bottomOverlayH = glassComposerOverlayHeight(composerH);
       return Column(
         children: [
