@@ -17,7 +17,6 @@ import '../services/chat_channel_setup.dart';
 import '../services/chat_liveness.dart';
 import '../services/chat_readiness.dart';
 import '../services/chat_sender.dart';
-import '../services/join_progress_tracker.dart';
 import '../services/seven_tv_event_client.dart';
 import '../services/twitch_api.dart';
 import '../services/twitch_auth.dart';
@@ -39,7 +38,6 @@ class ChatLifecycle {
     required this.session,
     required this.chat,
     required this.readiness,
-    required this.joinProgress,
     required this.eventSubTopics,
     required this.sender,
     required this.channelSetup,
@@ -64,7 +62,6 @@ class ChatLifecycle {
   final Session session;
   final Chat chat;
   final ChatReadiness readiness;
-  final JoinProgressTracker joinProgress;
   final EventSubTopics eventSubTopics;
   final ChatSender sender;
   final ChatChannelSetup channelSetup;
@@ -187,7 +184,6 @@ class ChatLifecycle {
         // Stop the perpetual "still joining" marker; the channel is not ready
         // and the failure was already surfaced as a system message.
         readiness.noteJoinFailed(event.channel);
-        joinProgress.clearWait(event.channel);
       });
 
       // The read socket is the sole JOINer: its ROOMSTATE resolves room status
@@ -200,7 +196,6 @@ class ChatLifecycle {
           final isNew = readiness.noteReadRoomState(event.channel);
           if (isNew) {
             PerfLog.I.record('JOINQ', 'read-confirm ${event.channel}');
-            joinProgress.clearWait(event.channel);
             if (readiness.isChannelReady(event.channel)) {
               _announceConnected(event.channel);
               connectionStateNotifier.value++;
@@ -225,7 +220,6 @@ class ChatLifecycle {
         }
       });
 
-      joinProgress.ensureTicker();
       liveness.startWatchdog();
 
       sevenTvClient?.connect();
@@ -291,7 +285,6 @@ class ChatLifecycle {
           _wasConnected = false;
           readiness.resetForWriteDisconnect();
           _lastSubscribeAll = null;
-          joinProgress.clearAllWaits();
           // Failure state is per socket lifetime: the fresh socket runs its
           // own fast sweep, so it may legitimately fail (and re-announce)
           // again.

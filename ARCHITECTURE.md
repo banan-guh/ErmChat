@@ -42,7 +42,6 @@ flowchart TD
     setup["ChatChannelSetup"]
     sender["ChatSender"]
     readiness["ChatReadiness"]
-    joinprog["JoinProgressTracker"]
     statuscomp["ChatStatusComposer"]
     topics["EventSubTopics"]
     esconsumer["EventSubConsumer"]
@@ -119,7 +118,6 @@ flowchart TD
   ccm --> setup
   ccm --> sender
   ccm --> readiness
-  ccm --> joinprog
   ccm --> topics
   ccm --> esconsumer
   ccm --> tvconsumer
@@ -128,7 +126,6 @@ flowchart TD
   lifecycle --> eventsub
   lifecycle --> tvclient
   lifecycle --> readiness
-  lifecycle --> joinprog
   lifecycle --> topics
   lifecycle --> sender
   irc --> ircdec
@@ -252,7 +249,6 @@ flowchart TD
   lifecycle -->|connect| es
   lifecycle -->|ensureCurrentUser| api
   lifecycle --> readiness["ChatReadiness"]
-  lifecycle --> joinprog["JoinProgressTracker"]
   lifecycle --> sender
   sender -->|PRIVMSG| write
 
@@ -261,13 +257,11 @@ flowchart TD
   ccm --> setup
   ccm --> sender
   ccm --> readiness
-  ccm --> joinprog
   ccm --> topics
   ccm --> esconsumer
   ccm --> tvconsumer
   ccm -->|connectionStateNotifier| home["HomeScreen / composer"]
   ccm -->|connectPhase / remainingSelfTimeout / remainingSlowCooldown| composer["ComposerController"]
-  joinprog -->|onJoinProgress| channelmgr["ChannelManager"]
   channelmgr -->|upsertSystem| channel
 
   channel -->|messages.version| home
@@ -279,7 +273,7 @@ flowchart TD
   body --> tile
 ```
 
-`ChatReadiness` is a pure state holder answering `pipeUp`, `isChannelReady`, and join-failure queries from injected connection predicates. `ChatSender` owns macros, slash dispatch, the duplicate-text bypass, and the self-timeout/slow-mode gates. `JoinProgressTracker` reads the shared `JoinRateLimiter` and emits `JoinProgress` once per second. `ChatStatusComposer` merges ROOMSTATE tags with periodic Helix stream info into `ChannelInfo.status`.
+`ChatReadiness` is a pure state holder answering `pipeUp`, `isChannelReady`, and join-failure queries from injected connection predicates. `ChatSender` owns macros, slash dispatch, the duplicate-text bypass, and the self-timeout/slow-mode gates. `ChatStatusComposer` merges ROOMSTATE tags with periodic Helix stream info into `ChannelInfo.status`.
 
 ## Emotes
 
@@ -509,8 +503,7 @@ Every entry calls a public method on the child; none reaches into private state.
 | `ChatSender` | `lib/services/chat_sender.dart` | Outbound send path: macros, slash dispatch, duplicate-text bypass, self-timeout and slow-mode gates. |
 | `ChatReadiness` | `lib/services/chat_readiness.dart` | Join-confirmation and read-socket-health state behind readiness queries. |
 | `ChatStatusComposer` | `lib/services/chat_status_composer.dart` | Merges ROOMSTATE mode tags and periodic Helix stream info into `ChannelInfo.status`. |
-| `JoinProgressTracker` | `lib/services/join_progress_tracker.dart` | Emits per-channel JOIN-queue position/ETA from the shared `JoinRateLimiter`. |
-| `JoinRateLimiter` | `lib/services/join_rate_limiter.dart` | Token bucket pacing the combined JOIN rate of both IRC sockets. |
+| `JoinRateLimiter` | `lib/irc/join_rate_limiter.dart` | Token bucket pacing the combined JOIN rate of both IRC sockets; fires up to 3 batched lines (18 channels) per tick while the bucket affords it. |
 | `EventSubTopics` | `lib/eventsub/topics.dart` | Owns EventSub topic families, active/skip sets, and Helix subscription creation. |
 | `EventSubConsumer` | `lib/services/eventsub_consumer.dart` | Applies typed EventSub events to `Moderation`, `Messages`, `Points`, and system lines. |
 | `SevenTvConsumer` | `lib/services/seven_tv_consumer.dart` | Applies 7TV socket emote-set/user events to `EmoteManager`. |

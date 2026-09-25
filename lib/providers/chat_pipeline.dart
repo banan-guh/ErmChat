@@ -61,21 +61,6 @@ final chatPipelineProvider = Provider<ChatConnectionManager>((ref) {
         getMaxMessagesPerChannel: () => ref.read(maxMessagesPerChannelProvider),
         onSystemMessage: (channel, text, {accent, messageId}) =>
             writeSystem(channel, text, accent: accent, messageId: messageId),
-        onJoinProgress: (channel, info) {
-          final text = info == null
-              ? null
-              : info.position <= 0
-              ? 'Joining #$channel...'
-              : info.etaSeconds <= 0
-              ? 'Joining: position ${info.position}'
-              : 'Joining: position ${info.position}, ~${info.etaSeconds}s';
-          chat
-              .channelFor(channel)
-              ?.setJoinWait(
-                text,
-                maxMessages: ref.read(maxMessagesPerChannelProvider),
-              );
-        },
         onBanner: signals.banner.emit,
         onFocusComposer: signals.focusComposer.emit,
       ),

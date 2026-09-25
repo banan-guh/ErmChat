@@ -36,6 +36,12 @@ class JoinRateLimiter {
   /// (inside Twitch's 20/10s ceiling) while collapsing frames.
   static const _batchSize = 6;
 
+  /// Batched JOIN lines per pump tick while the bucket affords it. A fresh
+  /// bucket fires 3 lines (18 channels) at once; the bucket then paces the
+  /// rest as tokens refill. Direct-Twitch only: bypassed roles drain
+  /// everything on microtasks regardless.
+  static const _burstsPerTick = 3;
+
   /// Channels per batched JOIN line.
   final int batchSize;
 
@@ -152,37 +158,6 @@ class JoinRateLimiter {
     if (_queue.isEmpty) _stop();
   }
 
-  /// 1-based FIFO position, or null.
-  int? positionOf(String channel) {
-    final index = _queue.indexWhere((unit) => unit.channel == channel);
-    return index < 0 ? null : index + 1;
-  }
-
-  /// Pending units with positions (drives queue countdowns).
-  List<({String channel, int position})> pending() {
-    return [
-      for (var i = 0; i < _queue.length; i++)
-        (channel: _queue[i].channel, position: i + 1),
-    ];
-  }
-
-  /// ETA seconds for [channel]'s JOIN (respects token + per-pump batch cap).
-  int etaSecondsForChannel(String channel) {
-    final index = _queue.indexWhere((unit) => unit.channel == channel);
-    if (index < 0) return 0;
-    // Channels in the leading batch go out this pump.
-    if (index < batchSize && availableTokens >= index + 1) return 0;
-    // Each batched line covers [batchSize] channels and is one pump tick.
-    final position = index + 1;
-    final batches = ((position + batchSize - 1) ~/ batchSize);
-    final tokenSeconds = math.max(
-      0,
-      (position - availableTokens) * window.inMilliseconds / capacity / 1000,
-    );
-    final capSeconds = batches * pumpInterval.inMilliseconds / 1000;
-    return math.max(tokenSeconds, capSeconds).ceil();
-  }
-
   void _start() {
     _pumpTimer ??= Timer.periodic(pumpInterval, (_) => _pump());
   }
@@ -226,45 +201,55 @@ class JoinRateLimiter {
     if (_tokens < 1 && !_bypassRoles.contains(head.role)) {
       return; // wait for the bucket to refill
     }
-    // One batched JOIN line per pump tick, up to [batchSize] channels.
-    // Bypassed roles skip the token check: their traffic costs no budget.
+    // Up to [_burstsPerTick] batched JOIN lines per tick while the bucket
+    // affords them. Bypassed roles skip the token check: their traffic
+    // costs no budget.
     final bypass = _bypassRoles.contains(head.role);
-    final batch = <String>[];
-    final taken = <({String channel, IrcSocketRole role})>[];
-    while (batch.length < batchSize &&
+    var batches = 0;
+    while (batches < _burstsPerTick &&
         _queue.isNotEmpty &&
         _queue.first.role == head.role &&
         (_tokens >= 1 || bypass)) {
-      final unit = _queue.removeAt(0);
-      taken.add(unit);
-      batch.add(unit.channel);
-      if (!bypass) _tokens -= 1;
-    }
-    final sent = handler(batch);
-    if (sent) {
-      for (final unit in taken) {
-        _completed[unit.channel] = _now();
+      final batch = <String>[];
+      final taken = <({String channel, IrcSocketRole role})>[];
+      while (batch.length < batchSize &&
+          _queue.isNotEmpty &&
+          _queue.first.role == head.role &&
+          (_tokens >= 1 || bypass)) {
+        final unit = _queue.removeAt(0);
+        taken.add(unit);
+        batch.add(unit.channel);
+        if (!bypass) _tokens -= 1;
       }
-      PerfLog.I.record(
-        'JOINQ',
-        'dispatch batch(${batch.length}) ${head.role.name}:ok '
-            'tokens=${_tokens.toStringAsFixed(2)}',
-      );
-    } else {
-      // Socket down: put the units back at the front, untouched, so a later
-      // pump retries them; refund the tentatively spent tokens.
-      for (var k = taken.length - 1; k >= 0; k--) {
-        _queue.insert(0, taken[k]);
+      if (batch.isEmpty) break;
+      final sent = handler(batch);
+      if (sent) {
+        for (final unit in taken) {
+          _completed[unit.channel] = _now();
+        }
+        PerfLog.I.record(
+          'JOINQ',
+          'dispatch batch(${batch.length}) ${head.role.name}:ok '
+              'tokens=${_tokens.toStringAsFixed(2)}',
+        );
+        batches++;
+      } else {
+        // Socket down: put the units back at the front, untouched, so a later
+        // pump retries them; refund the tentatively spent tokens.
+        for (var k = taken.length - 1; k >= 0; k--) {
+          _queue.insert(0, taken[k]);
+        }
+        if (!bypass) _tokens += taken.length;
+        PerfLog.I.record(
+          'JOINQ',
+          'dispatch batch ${head.role.name}:dead (stays queued)',
+        );
+        break;
       }
-      if (!bypass) _tokens += taken.length;
-      PerfLog.I.record(
-        'JOINQ',
-        'dispatch batch ${head.role.name}:dead (stays queued)',
-      );
     }
     if (_queue.isEmpty) {
       _stop();
-    } else if (bypass && sent && _queue.first.role == head.role) {
+    } else if (bypass && batches > 0 && _queue.first.role == head.role) {
       // Bypassed remainder drains on microtasks, not pump ticks.
       _schedulePump();
     }

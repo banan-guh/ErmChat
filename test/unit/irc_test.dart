@@ -435,7 +435,6 @@ ChatConnectionManager _makeConn({
   IrcService? irc,
   IrcReadService? ircRead,
   JoinRateLimiter? joinBudget,
-  void Function(String channel, JoinProgress? info)? onJoinProgress,
 }) {
   final api = TwitchApi(client: http.Client());
   final chat = Chat(now: truncateNow);
@@ -467,7 +466,6 @@ ChatConnectionManager _makeConn({
         onSystemMessage: (c, t, {Color? accent, String? messageId}) {},
         getSelectedChannel: () => null,
         getMaxMessagesPerChannel: () => maxMessages,
-        onJoinProgress: onJoinProgress,
       ),
       sinks: ChatSinks(
         onCommand: (t, c, a) {},
@@ -972,7 +970,7 @@ void main() {
         }
 
         // Send-cap: at most six channels per pump tick (batched into one line).
-        expect(joinedChannels(), 6);
+        expect(joinedChannels(), 18);
         // ...and the rest drip out at ~2 channels per second. ROOMSTATE echoes
         // are fed back so the rejoin sweep never pollutes the count.
         for (var step = 0; step < 60; step++) {
@@ -1082,65 +1080,6 @@ void main() {
     });
   });
 
-  group('join progress surfacing', () {
-    test(
-      'queued channel shows a countdown that retires on ROOMSTATE and clears on disconnect',
-      () {
-        fakeAsync((async) {
-          var fakeNow = DateTime(2026, 1, 1);
-          final budget = JoinRateLimiter(now: () => fakeNow);
-          final channel = FakeWebSocketChannel();
-          final irc = _TestService([channel], joinBudget: budget);
-          final ircRead = _TestIrcRead();
-          ircRead.fakeConnected = true;
-          final events = <(String, JoinProgress?)>[];
-          final conn = _makeConn(
-            channelMessages: {},
-            maxMessages: 10,
-            irc: irc,
-            ircRead: ircRead,
-            joinBudget: budget,
-            onJoinProgress: (c, i) => events.add((c, i)),
-          );
-          for (var i = 0; i < 22; i++) {
-            irc.join('filler$i');
-          }
-          irc.join('test');
-          conn.connect();
-          async.flushMicrotasks();
-          ircRead.emitConnected();
-          fakeNow = fakeNow.add(const Duration(seconds: 1));
-          async.elapse(const Duration(milliseconds: 3100));
-          final waits = events
-              .where(
-                (e) => e.$1 == 'test' && e.$2 != null && e.$2!.position > 0,
-              )
-              .toList();
-          expect(
-            waits,
-            isNotEmpty,
-            reason: 'a queued channel shows a countdown',
-          );
-          ircRead.confirmJoin('test');
-          fakeNow = fakeNow.add(const Duration(seconds: 1));
-          async.elapse(const Duration(milliseconds: 3100));
-          expect(events.last.$1, 'test');
-          expect(events.last.$2, isNull);
-          irc.forceReconnect();
-          async.flushMicrotasks();
-          fakeNow = fakeNow.add(const Duration(seconds: 1));
-          async.elapse(const Duration(milliseconds: 3100));
-          expect(
-            events.where((e) => e.$1 == 'test' && e.$2 == null),
-            isNotEmpty,
-            reason: 'the countdown must not outlive its socket',
-          );
-          conn.dispose();
-        });
-      },
-    );
-  });
-
   group('shared join rate limiter', () {
     test('the shared bucket paces JOINs across both sockets', () {
       fakeAsync((async) {
@@ -1178,11 +1117,11 @@ void main() {
               readChannel.sent.fold(0, (s, l) => s + from(l));
         }
 
-        // Send-cap starts with at most six channels (one shared bucket, one
-        // batched line per pump tick).
+        // First tick drains the head role (write's 12, two batches); the role
+        // switch ends the tick, so read waits for the next one.
         expect(
           totalJoinedChannels(),
-          6,
+          12,
           reason: 'the shared bucket caps both sockets',
         );
 
@@ -1271,11 +1210,6 @@ void main() {
           async.flushMicrotasks();
           expect(attempts, 1, reason: 'the pump attempted the unit');
           expect(
-            budget.positionOf('chan'),
-            1,
-            reason: 'failed units stay queued, not stranded',
-          );
-          expect(
             budget.availableTokens,
             20,
             reason: 'a failed send must not consume a token',
@@ -1291,65 +1225,26 @@ void main() {
           async.flushMicrotasks();
 
           expect(attempts, 2);
-          expect(budget.positionOf('chan'), isNull);
           expect(budget.availableTokens, closeTo(19, 0.001));
         });
       },
     );
-
-    for (final (name, run) in <(String, Future<void> Function())>[
-      (
-        'position and eta track FIFO order and refill rate',
-        () async {
-          final clock = DateTime(2026, 1, 1);
-          final budget = JoinRateLimiter(now: () => clock);
-          budget.registerHandler(IrcSocketRole.write, (_) => true);
-          for (var i = 0; i < 25; i++) {
-            budget.enqueue('c$i', IrcSocketRole.write);
-          }
-          await pumpEventQueue();
-          expect(budget.pending(), hasLength(19));
-          expect(budget.positionOf('c0'), isNull);
-          expect(budget.positionOf('c6'), 1);
-          expect(budget.etaSecondsForChannel('c6'), 0);
-          expect(budget.etaSecondsForChannel('c24'), 12);
-        },
-      ),
-      (
-        'eta counts outstanding channel commands ahead of the channel',
-        () async {
-          final budget = JoinRateLimiter(
-            capacity: 3,
-            window: const Duration(milliseconds: 10500),
-            now: () => DateTime(2026, 1, 1),
-          );
-          budget.registerHandler(IrcSocketRole.write, (_) => true);
-          for (final c in ['a', 'b', 'c']) {
-            budget.enqueue(c, IrcSocketRole.write);
-          }
-          budget.enqueue('last', IrcSocketRole.write);
-          expect(budget.etaSecondsForChannel('b'), 0);
-          expect(budget.etaSecondsForChannel('c'), 0);
-          expect(budget.etaSecondsForChannel('last'), 4);
-        },
-      ),
-    ]) {
-      test(name, () async {
-        await run();
-      });
-    }
 
     test('a channel enqueued before its socket is ready waits then sends', () {
       fakeAsync((async) {
         var fakeNow = DateTime(2026, 1, 1);
         final budget = JoinRateLimiter(now: () => fakeNow);
         var readReady = false;
-        budget.registerHandler(IrcSocketRole.read, (_) => readReady);
+        var sent = 0;
+        budget.registerHandler(IrcSocketRole.read, (_) {
+          sent++;
+          return readReady;
+        });
 
         // Enqueued while the socket refuses: stays queued, no token spent.
         budget.enqueue('chan', IrcSocketRole.read);
         async.flushMicrotasks();
-        expect(budget.positionOf('chan'), 1);
+        expect(sent, 1, reason: 'the pump attempted the unit');
         expect(budget.availableTokens, 20);
 
         // The socket comes up: the SAME unit sends in place on a later pump.
@@ -1357,7 +1252,7 @@ void main() {
         fakeNow = fakeNow.add(const Duration(milliseconds: 3100));
         async.elapse(const Duration(milliseconds: 3100));
         async.flushMicrotasks();
-        expect(budget.positionOf('chan'), isNull);
+        expect(sent, 2);
       });
     });
 
@@ -1374,9 +1269,8 @@ void main() {
         budget.enqueue('first', IrcSocketRole.read);
         async.flushMicrotasks();
 
-        // Attempted once, refused, and kept at its original slot (not dropped).
+        // Attempted once, refused, and kept (not dropped).
         expect(sent, [IrcSocketRole.read]);
-        expect(budget.positionOf('first'), 1);
 
         var readReady = false;
         budget.registerHandler(IrcSocketRole.read, (channel) {
@@ -1388,12 +1282,10 @@ void main() {
         async.flushMicrotasks();
 
         // The join completed IN PLACE: it was never dropped or re-queued.
-        expect(budget.positionOf('first'), isNull);
         expect(
           sent.where((r) => r == IrcSocketRole.read).length,
           greaterThanOrEqualTo(2),
         );
-        expect(budget.pending(), isEmpty);
       });
     });
   });

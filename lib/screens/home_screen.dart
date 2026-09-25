@@ -1510,10 +1510,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     unawaited(Prefs.load().then((prefs) => prefs.setShowInput(value)));
   }
 
-  /// Translates join-queue progress into a live countdown system line
-  /// ("Joining: position 12, ~14s"); position 0 means numbers are over
-  /// (sent, awaiting echo) and the line degrades to a plain marker; a null
-  /// [info] retires the line.
   void _copyMessageToClipboard(TwitchMessage msg) {
     Clipboard.setData(ClipboardData(text: msg.text));
     _chatNotice.show(

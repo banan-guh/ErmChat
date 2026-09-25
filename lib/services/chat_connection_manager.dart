@@ -27,14 +27,11 @@ import '../services/moderation_hub.dart';
 import '../services/pubsub_points_consumer.dart';
 import '../services/pubsub_points_service.dart';
 import '../services/seven_tv_consumer.dart';
-import '../services/join_progress_tracker.dart';
 import '../services/chat_readiness.dart';
 import '../services/chat_lifecycle.dart';
 import '../services/chat_liveness.dart';
 import '../chat/chat.dart';
 import '../client/session.dart';
-
-export '../services/join_progress_tracker.dart' show JoinProgress;
 
 /// App-scope services the chat pipeline depends on, built by
 /// `chatPipelineProvider` and injectable for tests.
@@ -89,7 +86,6 @@ class ChatViewBridge {
     required this.onSystemMessage,
     required this.getSelectedChannel,
     required this.getMaxMessagesPerChannel,
-    this.onJoinProgress,
     this.onBanner,
     this.onFocusComposer,
   });
@@ -99,7 +95,6 @@ class ChatViewBridge {
   onSystemMessage;
   final String? Function() getSelectedChannel;
   final int Function() getMaxMessagesPerChannel;
-  final void Function(String channel, JoinProgress? info)? onJoinProgress;
   final void Function(String message)? onBanner;
   final void Function()? onFocusComposer;
 }
@@ -268,16 +263,6 @@ class ChatConnectionManager {
     readExpected: () => _lifecycle.readExpected,
   );
 
-  // Join-queue progress surfaced to the UI while channels wait in the budget.
-  late final JoinProgressTracker _joinProgress = JoinProgressTracker(
-    joinBudget: config.services.joinBudget,
-    channelNames: () => config.chat.names,
-    isReady: isChannelChatReady,
-    isFailed: (channel) => _readiness.isJoinFailed(channel),
-    onProgress: (channel, info) =>
-        config.bridge.onJoinProgress?.call(channel, info),
-  );
-
   // Socket liveness: the foreground watchdog plus manual and automatic
   // reconnect paths.
   late final ChatLiveness _liveness = ChatLiveness(
@@ -304,7 +289,6 @@ class ChatConnectionManager {
     session: config.session,
     chat: config.chat,
     readiness: _readiness,
-    joinProgress: _joinProgress,
     eventSubTopics: eventSubTopics,
     sender: _sender,
     channelSetup: _channelSetup,
@@ -375,7 +359,6 @@ class ChatConnectionManager {
   final _ingestionSubs = <StreamSubscription<void>>[];
 
   void dispose() {
-    _joinProgress.dispose();
     _lifecycle.dispose();
     _liveness.dispose();
     // This manager owned the session's join demand; drop its queued units so
