@@ -10,6 +10,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:ermchat/irc/proxy_config.dart';
+import 'package:ermchat/util/prefs.dart';
 
 /// Counts how many times the pipeline's construction reached the API provider.
 /// Reset per test to prove laziness.
@@ -208,5 +210,30 @@ void main() {
     expect(store.disposed, isTrue);
     expect(api.closed, isTrue);
     expect(() => container.read(chatProvider), throwsStateError);
+  });
+
+  test('proxy config is disabled by default, no override URL', () async {
+    SharedPreferences.setMockInitialValues({});
+    final config = ProxyConfig.fromPrefs(await Prefs.load());
+    expect(config.enabled, isFalse);
+    expect(config.readWsUrl, isNull);
+  });
+
+  test('proxy config enabled with URL overrides the read socket', () async {
+    SharedPreferences.setMockInitialValues({});
+    final prefs = await Prefs.load();
+    await const ProxyConfig(
+      enabled: true,
+      url: 'ws://192.168.1.10:8080/ws',
+    ).toPrefs(prefs);
+    final config = ProxyConfig.fromPrefs(await Prefs.load());
+    expect(config.readWsUrl, 'ws://192.168.1.10:8080/ws');
+  });
+
+  test('proxy config enabled without URL keeps direct connection', () async {
+    SharedPreferences.setMockInitialValues({});
+    final prefs = await Prefs.load();
+    await const ProxyConfig(enabled: true).toPrefs(prefs);
+    expect(ProxyConfig.fromPrefs(await Prefs.load()).readWsUrl, isNull);
   });
 }

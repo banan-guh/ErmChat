@@ -20,6 +20,7 @@ import 'package:ermchat/irc/transport/read.dart';
 import 'package:ermchat/irc/transport/write.dart';
 import 'package:ermchat/services/user_store.dart';
 import 'package:ermchat/widgets/broadcast_widgets.dart';
+import 'package:ermchat/chat/channel/info.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -130,6 +131,13 @@ ChannelManager _channelManager(Chat chat) {
   );
 }
 
+TwitchMessage _live(String id) => TwitchMessage(
+  login: 'alice',
+  text: 'hello $id',
+  messageId: id,
+  channel: 'test',
+);
+
 void main() {
   group('ChannelManager.history mergeHistory', () {
     const noticeText = 'This room is now in slow mode.';
@@ -185,6 +193,98 @@ void main() {
         historyNotice(t0.millisecondsSinceEpoch),
       ]);
       expect(sysRows(chat, noticeText), 1);
+    });
+  });
+
+  test('status text bumps only the status version, never tiles', () {
+    final info = ChannelInfo();
+    addTearDown(info.dispose);
+    var structural = 0;
+    var status = 0;
+    info.version.addListener(() => structural++);
+    info.statusVersion.addListener(() => status++);
+
+    info.setStatus('Live with 10 viewers');
+    expect(info.status, 'Live with 10 viewers');
+    expect(structural, 0);
+    expect(status, 1);
+
+    // Same text is a no-op on both notifiers.
+    info.setStatus('Live with 10 viewers');
+    expect(structural, 0);
+    expect(status, 1);
+
+    // The 30s poll ticking viewer counts must not invalidate tiles.
+    info.setStatus('Live with 11 viewers');
+    expect(structural, 0);
+    expect(status, 2);
+  });
+
+  test('structural writes still bump the tile-dropping version', () {
+    final info = ChannelInfo();
+    addTearDown(info.dispose);
+    var structural = 0;
+    var status = 0;
+    info.version.addListener(() => structural++);
+    info.statusVersion.addListener(() => status++);
+    info.setBroadcasterId('123');
+    info.setHistoryLoaded(true);
+    info.touch();
+    expect(structural, 3);
+    expect(status, 0);
+
+    // Guarded setters stay silent on identical values.
+    info.setBroadcasterId('123');
+    info.setHistoryLoaded(true);
+    expect(structural, 3);
+  });
+
+  group('Channel.addSystemMessage', () {
+    test('inserts the row and truncates to the cap', () {
+      final chat = Chat();
+      addTearDown(chat.dispose);
+      final channel = chat.ensure('test');
+      for (var i = 0; i < 4; i++) {
+        channel.receive(
+          _live('m$i'),
+          maxMessages: 10,
+          isSelected: true,
+          ownLogin: null,
+        );
+      }
+      expect(channel.messages.length, 4);
+
+      expect(channel.addSystemMessage('Connected', maxMessages: 3), isTrue);
+
+      expect(channel.messages.length, 3);
+      expect(channel.messages.items.first.text, 'Connected');
+      expect(channel.messages.items.first.isSystem, isTrue);
+    });
+
+    test('a duplicate id returns false and does not truncate', () {
+      final chat = Chat();
+      addTearDown(chat.dispose);
+      final channel = chat.ensure('test');
+      expect(
+        channel.addSystemMessage('hello', messageId: 'dup', maxMessages: 10),
+        isTrue,
+      );
+      for (var i = 0; i < 4; i++) {
+        channel.receive(
+          _live('m$i'),
+          maxMessages: 10,
+          isSelected: true,
+          ownLogin: null,
+        );
+      }
+      final before = channel.messages.length;
+
+      expect(
+        channel.addSystemMessage('hello', messageId: 'dup', maxMessages: 1),
+        isFalse,
+      );
+
+      expect(channel.messages.length, before);
     });
   });
 }

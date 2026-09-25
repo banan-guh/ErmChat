@@ -1050,6 +1050,38 @@ void main() {
     });
   });
 
+  group('JOIN bypass roles', () {
+    test('bypass role dispatches everything without token waits', () async {
+      final limiter = JoinRateLimiter(capacity: 1, batchSize: 2);
+      final sent = <List<String>>[];
+      limiter.registerHandler(IrcSocketRole.read, (batch) {
+        sent.add(batch);
+        return true;
+      });
+      limiter.setBypass(IrcSocketRole.read, true);
+      limiter.enqueue('a', IrcSocketRole.read);
+      limiter.enqueue('b', IrcSocketRole.read);
+      limiter.enqueue('c', IrcSocketRole.read);
+      await Future.delayed(Duration.zero);
+      expect(sent.expand((batch) => batch), ['a', 'b', 'c']);
+      limiter.clear();
+    });
+
+    test('non-bypass role still waits for tokens', () async {
+      final limiter = JoinRateLimiter(capacity: 1, batchSize: 2);
+      final sent = <List<String>>[];
+      limiter.registerHandler(IrcSocketRole.read, (batch) {
+        sent.add(batch);
+        return true;
+      });
+      limiter.enqueue('a', IrcSocketRole.read);
+      limiter.enqueue('b', IrcSocketRole.read);
+      await Future.delayed(Duration.zero);
+      expect(sent.expand((batch) => batch), ['a']);
+      limiter.clear();
+    });
+  });
+
   group('join progress surfacing', () {
     test(
       'queued channel shows a countdown that retires on ROOMSTATE and clears on disconnect',

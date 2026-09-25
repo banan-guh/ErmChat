@@ -13,6 +13,9 @@ import 'package:http/testing.dart';
 import 'package:ermchat/services/command_handler.dart';
 import 'package:ermchat/services/mod_actions.dart';
 import 'package:ermchat/services/twitch_api.dart';
+import 'package:ermchat/services/twitch_badge_service.dart';
+import 'package:ermchat/services/media_uploader.dart';
+import 'package:ermchat/client/session.dart';
 import 'package:ermchat/irc/transport/write.dart';
 
 TwitchMessage msg(
@@ -52,6 +55,18 @@ class _RecordingIrcService extends IrcService {
   }) {
     sent.add(text);
   }
+}
+
+class _RecordingClient extends http.BaseClient {
+  bool closed = false;
+
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) {
+    throw UnimplementedError();
+  }
+
+  @override
+  void close() => closed = true;
 }
 
 void main() {
@@ -2634,5 +2649,51 @@ void main() {
         service.dispose();
       }
     });
+  });
+
+  group('service disposal', () {
+    test('TwitchApi.close closes the injected client', () {
+      final client = _RecordingClient();
+      TwitchApi(client: client).close();
+      expect(client.closed, isTrue);
+    });
+
+    test('TwitchBadgeService.close closes the injected client', () {
+      final client = _RecordingClient();
+      TwitchBadgeService(client: client).close();
+      expect(client.closed, isTrue);
+    });
+
+    test('MediaUploader.close closes the injected client', () {
+      final client = _RecordingClient();
+      MediaUploader(client: client).close();
+      expect(client.closed, isTrue);
+    });
+  });
+
+  test('session apply announces, seed and clear stay silent', () {
+    final session = Session();
+    addTearDown(session.dispose);
+    var ticks = 0;
+    session.version.addListener(() => ticks++);
+
+    session.seed('alice', userId: '1');
+    expect(session.login, 'alice');
+    expect(session.userId, '1');
+    expect(ticks, 0, reason: 'seed must not announce');
+
+    session.apply('bob', userId: '2');
+    expect(session.login, 'bob');
+    expect(session.userId, '2');
+    expect(ticks, 1);
+
+    session.apply('bob', keepUserId: true);
+    expect(session.userId, '2', reason: 'keepUserId preserves the id');
+    expect(ticks, 2);
+
+    session.clear();
+    expect(session.login, isNull);
+    expect(session.userId, isNull);
+    expect(ticks, 2, reason: 'clear stays silent');
   });
 }
