@@ -54,6 +54,10 @@ abstract class IrcConnection {
   final ConnectivityService? connectivityService;
   final IrcSocketRole role;
 
+  /// Proxy URL override for the read socket. Null keeps the direct Twitch
+  /// connection. The write socket never sets this.
+  final String? wsUrlOverride;
+
   /// Shared JOIN pacing. When the app wires both sockets to one limiter,
   /// their combined JOIN rate stays inside Twitch's command budget; a null
   /// injection falls back to a private bucket with identical semantics.
@@ -162,6 +166,7 @@ abstract class IrcConnection {
     this.connectivityService,
     this.role = IrcSocketRole.write,
     JoinRateLimiter? joinBudget,
+    this.wsUrlOverride,
   }) : _injectedJoinBudget = joinBudget {
     // Register eagerly: units must know about BOTH sockets from birth, so a
     // write-side dispatch that wins the handshake race leaves the unit
@@ -196,6 +201,8 @@ abstract class IrcConnection {
     }
     this.username = username.toLowerCase();
     token = accessToken;
+    // Proxied sockets cost no Twitch budget: their JOINs bypass pacing.
+    _joinBudget.setBypass(role, wsUrlOverride != null);
     _fatalAuth = false;
     _runGeneration++;
     final firstSettled = Completer<void>();
@@ -374,7 +381,7 @@ abstract class IrcConnection {
   /// Opens the socket; overridable in tests.
   @visibleForTesting
   Future<WebSocketChannel> openChannel() async =>
-      WebSocketChannel.connect(Uri.parse(_wsUrl));
+      WebSocketChannel.connect(Uri.parse(wsUrlOverride ?? _wsUrl));
 
   /// Waits for the WebSocket handshake with an upper bound. The timeout timer
   /// is tracked and cancelled on disconnect/dispose so a torn-down connect

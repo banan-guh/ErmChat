@@ -47,6 +47,10 @@ class JoinRateLimiter {
   bool _pumpScheduled = false;
   final _handlers = <IrcSocketRole, bool Function(List<String> channels)>{};
   final _queue = <({String channel, IrcSocketRole role})>[];
+  // Roles whose units dispatch immediately without token or tick waits.
+  // The proxied read socket sets this: proxy traffic costs no Twitch
+  // budget, so app-side pacing would only add dead delay.
+  final _bypassRoles = <IrcSocketRole>{};
   // Completed units: prevents re-joining on socket bounce.
   final _completed = <String, DateTime>{};
   static const _completionMemory = Duration(seconds: 90);
@@ -101,6 +105,17 @@ class JoinRateLimiter {
       _pumpScheduled = false;
       _pump();
     });
+  }
+
+  /// Marks [role] as unpaced: queued units dispatch back-to-back on
+  /// microtasks instead of waiting for tokens or pump ticks.
+  void setBypass(IrcSocketRole role, bool value) {
+    if (value) {
+      _bypassRoles.add(role);
+    } else {
+      _bypassRoles.remove(role);
+    }
+    _schedulePump();
   }
 
   /// Drops pending unit (e.g. channel parted).
@@ -208,18 +223,22 @@ class JoinRateLimiter {
       );
       return;
     }
-    if (_tokens < 1) return; // wait for the bucket to refill
+    if (_tokens < 1 && !_bypassRoles.contains(head.role)) {
+      return; // wait for the bucket to refill
+    }
     // One batched JOIN line per pump tick, up to [batchSize] channels.
+    // Bypassed roles skip the token check: their traffic costs no budget.
+    final bypass = _bypassRoles.contains(head.role);
     final batch = <String>[];
     final taken = <({String channel, IrcSocketRole role})>[];
     while (batch.length < batchSize &&
         _queue.isNotEmpty &&
         _queue.first.role == head.role &&
-        _tokens >= 1) {
+        (_tokens >= 1 || bypass)) {
       final unit = _queue.removeAt(0);
       taken.add(unit);
       batch.add(unit.channel);
-      _tokens -= 1;
+      if (!bypass) _tokens -= 1;
     }
     final sent = handler(batch);
     if (sent) {
@@ -237,12 +256,17 @@ class JoinRateLimiter {
       for (var k = taken.length - 1; k >= 0; k--) {
         _queue.insert(0, taken[k]);
       }
-      _tokens += taken.length;
+      if (!bypass) _tokens += taken.length;
       PerfLog.I.record(
         'JOINQ',
         'dispatch batch ${head.role.name}:dead (stays queued)',
       );
     }
-    if (_queue.isEmpty) _stop();
+    if (_queue.isEmpty) {
+      _stop();
+    } else if (bypass && sent && _queue.first.role == head.role) {
+      // Bypassed remainder drains on microtasks, not pump ticks.
+      _schedulePump();
+    }
   }
 }

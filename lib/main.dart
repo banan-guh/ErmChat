@@ -11,6 +11,7 @@ import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 import 'providers/app_providers.dart';
 import 'providers/feature_providers.dart';
+import 'irc/proxy_config.dart';
 import 'screens/home_screen.dart';
 import 'services/twitch_auth.dart';
 import 'eventsub/transport/connection.dart';
@@ -192,6 +193,7 @@ class _TwitchChatAppState extends State<TwitchChatApp> {
       kAccentPresets[_accentKey] ?? kAccentPresets[kDefaultAccent]!;
   final _twitchAuth = TwitchAuth();
   bool _loaded = false;
+  ProxyConfig _proxyConfig = const ProxyConfig();
   final _snackPopObserver = SnackPopObserver();
 
   @override
@@ -208,6 +210,7 @@ class _TwitchChatAppState extends State<TwitchChatApp> {
       WakelockPlus.toggle(enable: _keepScreenOn).ignore();
       _trueDark = prefs.trueDark;
       _accentKey = prefs.accentColor;
+      _proxyConfig = ProxyConfig.fromPrefs(prefs);
     } catch (e) {
       logDebug('Failed to load preferences: $e');
     }
@@ -245,6 +248,7 @@ class _TwitchChatAppState extends State<TwitchChatApp> {
   /// supplied fake so widget tests wire the app without real sockets.
   List<Override> get _providerOverrides => [
     twitchAuthProvider.overrideWithValue(_twitchAuth),
+    proxyConfigProvider.overrideWithValue(_proxyConfig),
     if (widget.eventSubService != null)
       eventSubServiceProvider.overrideWithValue(widget.eventSubService!),
     if (widget.ircService != null)

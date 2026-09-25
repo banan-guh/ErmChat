@@ -5,6 +5,7 @@ import '../../services/recent_messages.dart';
 import '../../services/tts_controller.dart';
 import 'analytics_screen.dart';
 import 'link_whitelist_screen.dart';
+import 'proxy_settings_screen.dart';
 import 'recent_messages_settings_screen.dart';
 import 'recent_uploads_screen.dart';
 import 'settings_page.dart';
@@ -95,6 +96,15 @@ class ToolsSettingsScreen extends StatelessWidget {
               MaterialPageRoute(
                 builder: (_) => const LinkWhitelistSettingsScreen(),
               ),
+            ),
+          ),
+          SettingsNavTile(
+            icon: Icons.cloud,
+            title: 'Chat proxy',
+            subtitle: 'Optional ermchat-server relay',
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const ProxySettingsScreen()),
             ),
           ),
         ],

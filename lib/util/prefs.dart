@@ -382,6 +382,18 @@ class Prefs {
   Future<void> removeRecentMessagesCustomUrl() =>
       _p.remove(_kRecentMessagesCustomUrl);
 
+  // ── Chat proxy (ermchat-server) ─────────────────────────────────────
+  static const _kProxyEnabled = 'proxy_enabled';
+  static const _kProxyUrl = 'proxy_url';
+
+  bool get proxyEnabled => _p.getBool(_kProxyEnabled) ?? false;
+
+  Future<void> setProxyEnabled(bool value) => _p.setBool(_kProxyEnabled, value);
+
+  String get proxyUrl => _p.getString(_kProxyUrl) ?? '';
+
+  Future<void> setProxyUrl(String value) => _p.setString(_kProxyUrl, value);
+
   // ── Local stores ────────────────────────────────────────────────────
   static const _kLocalIgnores = 'local_ignores_v1';
   static const _kKeywordReplacements = 'keyword_replacements_v1';

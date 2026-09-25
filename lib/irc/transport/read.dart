@@ -5,8 +5,11 @@ import 'events.dart';
 /// socket JOINs channels; the write socket ([IrcService]) stays join-free so
 /// Twitch counts one JOIN per channel against the rate limit.
 class IrcReadService extends IrcConnection {
-  IrcReadService({super.connectivityService, super.joinBudget})
-    : super(role: IrcSocketRole.read);
+  IrcReadService({
+    super.connectivityService,
+    super.joinBudget,
+    super.wsUrlOverride,
+  }) : super(role: IrcSocketRole.read);
 
   @override
   String get debugPrefix => 'IRC read';

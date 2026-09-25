@@ -4,6 +4,7 @@ import '../chat/chat.dart';
 import '../client/session.dart';
 import '../eventsub/transport/connection.dart';
 import '../irc/join_rate_limiter.dart';
+import '../irc/proxy_config.dart';
 import '../irc/transport/read.dart';
 import '../irc/transport/write.dart';
 import '../services/emote_manager.dart';
@@ -78,10 +79,15 @@ final ircReadServiceProvider = Provider<IrcReadService>((ref) {
   final service = IrcReadService(
     connectivityService: ref.watch(connectivityServiceProvider),
     joinBudget: ref.watch(joinBudgetProvider),
+    wsUrlOverride: ref.watch(proxyConfigProvider).readWsUrl,
   );
   ref.onDispose(service.dispose);
   return service;
 });
+
+/// Chat proxy opt-in. Seeded from prefs before first build in main.dart;
+/// the settings screen persists changes, which apply on app restart.
+final proxyConfigProvider = Provider<ProxyConfig>((ref) => const ProxyConfig());
 
 final sevenTvClientProvider = Provider<SevenTvEventClient>((ref) {
   final client = SevenTvEventClient(
