@@ -379,7 +379,10 @@ class _ChatViewState extends State<ChatView>
           findChildIndexCallback: _findChildIndex,
           addAutomaticKeepAlives: false,
           addRepaintBoundaries: false,
-          addSemanticIndexes: false,
+          // The chat observer walks the sliver's children via
+          // RenderIndexedSemantics; without it standby cannot find the
+          // reference row and the hold silently no-ops.
+          addSemanticIndexes: true,
           itemBuilder: (ctx, i) => _buildTile(
             msgs,
             cache,
@@ -489,10 +492,15 @@ class _ChatViewState extends State<ChatView>
       _hasSnapshot = true;
       return;
     }
-    if (widget.keepPosition && len > _prevLen && _prevHead != null) {
+    if (widget.keepPosition && _prevHead != null) {
+      // Key off where the old head moved to, not on length growth: a buffer at
+      // its cap inserts one row and evicts one, so the length never changes
+      // while every arrival still shifts the reader.
       final shifted = _headShift(msgs);
       if (shifted > 0 && shifted <= _maxHoldBatch) {
         unawaited(observer.standby(changeCount: shifted));
+      } else if (len < _prevLen) {
+        unawaited(observer.standby(isRemove: true));
       }
     } else if (len < _prevLen) {
       unawaited(observer.standby(isRemove: true));

@@ -3254,16 +3254,22 @@ void main() {
         expect(find.byIcon(Icons.keyboard_arrow_down), findsOneWidget);
 
         // Global y of each rendered chat row, so we can assert the rows the
-        // reader is on do not move when a newer row arrives.
+        // reader is on do not move when a newer row arrives. Message bodies
+        // render via Text.rich, and the body text follows the timestamp and
+        // username, so match on the message substring.
+        final rowText = RegExp(r'message number \d+');
         Map<String, double> visibleRowTops() {
           final rows = <String, double>{};
-          final finder = find.byWidgetPredicate(
-            (w) => w is Text && (w.data?.startsWith('message number') ?? false),
-          );
+          final finder = find.byWidgetPredicate((w) {
+            if (w is! Text) return false;
+            final text = w.data ?? w.textSpan?.toPlainText() ?? '';
+            return rowText.hasMatch(text);
+          });
           for (final element in finder.evaluate()) {
-            final box = element.renderObject! as RenderBox;
-            if (!box.attached) continue;
-            rows[(element.widget as Text).data!] = box
+            final box = element.renderObject;
+            if (box is! RenderBox || !box.attached) continue;
+            final text = (element.widget as Text).textSpan!.toPlainText();
+            rows[rowText.firstMatch(text)!.group(0)!] = box
                 .localToGlobal(Offset.zero)
                 .dy;
           }
@@ -3271,6 +3277,11 @@ void main() {
         }
 
         final rowsBeforeArrival = visibleRowTops();
+        expect(
+          rowsBeforeArrival,
+          isNotEmpty,
+          reason: 'row finder must match the rendered Text.rich rows',
+        );
 
         // Emit a new message while scrolled up
         fakeIrcRead.emitMessage(
