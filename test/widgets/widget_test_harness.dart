@@ -7,7 +7,6 @@ export 'package:flutter/material.dart';
 export 'package:flutter/services.dart';
 export 'package:flutter_riverpod/flutter_riverpod.dart' hide AsyncError;
 export 'package:ermchat/color_utils.dart';
-export 'package:flutter_list_view/flutter_list_view.dart';
 export 'package:flutter_test/flutter_test.dart';
 export 'package:http/http.dart';
 export 'package:http/testing.dart';

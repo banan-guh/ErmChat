@@ -3019,8 +3019,11 @@ void main() {
           findsOneWidget,
         );
 
-        // Emit new messages that push the thread past the limit.
-        for (int i = 1; i <= 3; i++) {
+        // Emit new messages that push the thread past the limit. Truncation
+        // coalesces inside a 250ms wall-clock window, but crossing the 2x hard
+        // cap forces the thread-aware pass on the same insert, so the pass is
+        // deterministic without depending on real elapsed time.
+        for (int i = 1; i <= 10; i++) {
           ircRead.emitMessage(
             TwitchMessage(
               login: 'newuser',
@@ -3032,22 +3035,6 @@ void main() {
           );
           await tester.pump();
         }
-        await tester.pump();
-
-        // Truncation is coalesced (250ms window), so the full pass is
-        // deferred: advance the clock and emit one more message so the
-        // thread-aware pass runs and drops the thread.
-        await tester.pump(const Duration(milliseconds: 300));
-        ircRead.emitMessage(
-          TwitchMessage(
-            login: 'newuser',
-            text: 'new message 4',
-            messageId: 'new4',
-            timestamp: DateTime.now(),
-            channel: channel,
-          ),
-        );
-        await tester.pump();
         await tester.pump();
 
         // Thread should now be removed - pushed past maxMessages=10.
@@ -3097,10 +3084,7 @@ void main() {
         expect(find.byIcon(Icons.keyboard_arrow_down), findsNothing);
 
         // Scroll up to trigger pause (with reverse:true, drag DOWN = scroll UP)
-        await tester.drag(
-          find.byType(FlutterListView).first,
-          const Offset(0, 500),
-        );
+        await tester.drag(find.byType(ListView).first, const Offset(0, 500));
         await tester.pump();
         await tester.pump();
 
@@ -3158,18 +3142,29 @@ void main() {
         await tester.pump();
 
         // Scroll up - FAB appears (with reverse:true, drag DOWN = scroll UP)
-        await tester.drag(
-          find.byType(FlutterListView).first,
-          const Offset(0, 500),
-        );
+        await tester.drag(find.byType(ListView).first, const Offset(0, 500));
         await tester.pump();
         await tester.pump();
         expect(find.byIcon(Icons.keyboard_arrow_down), findsOneWidget);
 
-        final position = tester
-            .state<ScrollableState>(find.byType(Scrollable).first)
-            .position;
-        final offsetBeforeArrival = position.pixels;
+        // Global y of each rendered chat row, so we can assert the rows the
+        // reader is on do not move when a newer row arrives.
+        Map<String, double> visibleRowTops() {
+          final rows = <String, double>{};
+          final finder = find.byWidgetPredicate(
+            (w) => w is Text && (w.data?.startsWith('message number') ?? false),
+          );
+          for (final element in finder.evaluate()) {
+            final box = element.renderObject! as RenderBox;
+            if (!box.attached) continue;
+            rows[(element.widget as Text).data!] = box
+                .localToGlobal(Offset.zero)
+                .dy;
+          }
+          return rows;
+        }
+
+        final rowsBeforeArrival = visibleRowTops();
 
         // Emit a new message while scrolled up
         fakeIrcRead.emitMessage(
@@ -3187,11 +3182,18 @@ void main() {
         // FAB still visible - did not auto-scroll
         expect(find.byIcon(Icons.keyboard_arrow_down), findsOneWidget);
 
-        // Reading position held steady by keepPosition
-        expect(
-          position.pixels,
-          moreOrLessEquals(offsetBeforeArrival, epsilon: 2),
-        );
+        // The offset shifts to cancel the new row; what must hold is that the
+        // rows the reader is on stay put on screen.
+        final rowsAfterArrival = visibleRowTops();
+        for (final entry in rowsBeforeArrival.entries) {
+          final after = rowsAfterArrival[entry.key];
+          if (after == null) continue;
+          expect(
+            after,
+            moreOrLessEquals(entry.value, epsilon: 1.5),
+            reason: '${entry.key} moved when a new row arrived',
+          );
+        }
 
         // Tap FAB to resume (jump to newest)
         await tester.tap(find.byIcon(Icons.keyboard_arrow_down));
@@ -4047,9 +4049,8 @@ void main() {
   );
 
   // Regression: the chat list must hug the bottom edge when its content is
-  // shorter than the viewport. Plain reverse:true provides this naturally;
-  // FirstItemAlign.end actively BREAKS it (pins content to the top), so this
-  // test guards against reintroducing it.
+  // shorter than the viewport. Plain reverse:true provides this naturally, so
+  // this guards against any future change that pins short content to the top.
   testWidgets('short chat list hugs the bottom edge', (tester) async {
     tester.view.physicalSize = const Size(400, 600);
     tester.view.devicePixelRatio = 1.0;
@@ -4059,14 +4060,12 @@ void main() {
       MaterialApp(
         key: UniqueKey(),
         home: Scaffold(
-          body: FlutterListView(
+          body: ListView(
             reverse: true,
-            delegate: FlutterListViewDelegate(
-              (_, i) => SizedBox(height: 50, child: Text('row $i')),
-              childCount: 3,
-              keepPosition: true,
-              keepPositionOffset: 120,
-            ),
+            children: [
+              for (var i = 0; i < 3; i++)
+                SizedBox(height: 50, child: Text('row $i')),
+            ],
           ),
         ),
       ),

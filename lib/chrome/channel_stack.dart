@@ -2,7 +2,6 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_list_view/flutter_list_view.dart';
 
 import '../composer/composer_controller.dart';
 import '../models/twitch_message.dart';
@@ -39,7 +38,7 @@ abstract class ChannelPanelsHost extends ShellState {
   ValueNotifier<int> versionNotifier(String channel);
   ValueNotifier<int> messageNotifier(String channel);
   ValueNotifier<bool> atBottomNotifier(String channel);
-  FlutterListViewController scrollCtrl(String channel);
+  ScrollController scrollCtrl(String channel);
 }
 
 // Channel tabs, ChatView stack, welcome view, and selection verbs.
@@ -216,6 +215,7 @@ class ChannelPanels {
         onFindThreadRoot: threads.findThreadRoot,
         onShowThreadView: (msg) => threads.showThreadView(msg),
         keepAlive: false,
+        keepPosition: !search.open,
         keyboardDismissBehavior: (!kIsWeb && Platform.isIOS)
             ? ScrollViewKeyboardDismissBehavior.onDrag
             : ScrollViewKeyboardDismissBehavior.manual,

@@ -3,7 +3,6 @@ import 'dart:io' show Platform;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_list_view/flutter_list_view.dart';
 import '../providers/app_providers.dart';
 import '../providers/chat_pipeline.dart';
 import '../providers/emote_providers.dart';
@@ -229,7 +228,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   final _channelNotifier = ValueNotifier<List<String>>([]);
   final _tileCache = <String, Map<String?, Widget>>{};
   bool _blocksFetched = false;
-  final _scrollControllers = <String, FlutterListViewController>{};
+  final _scrollControllers = <String, ScrollController>{};
   final _atBottomNotifiers = <String, ValueNotifier<bool>>{};
   ChatNoticeController get _chatNotice => ref.read(chatNoticeProvider);
 
@@ -640,7 +639,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   ValueNotifier<bool> atBottomNotifier(String channel) =>
       _atBottomNotifier(channel);
   @override
-  FlutterListViewController scrollCtrl(String channel) => _scrollCtrl(channel);
+  ScrollController scrollCtrl(String channel) => _scrollCtrl(channel);
 
   // ChannelManagerHost.
   @override
@@ -1623,11 +1622,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     }
   }
 
-  FlutterListViewController _scrollCtrl(String channel) {
-    return _scrollControllers.putIfAbsent(
-      channel,
-      () => FlutterListViewController(),
-    );
+  ScrollController _scrollCtrl(String channel) {
+    return _scrollControllers.putIfAbsent(channel, () => ScrollController());
   }
 
   // Walk the reply-parent chain to the root with cycle detection (visited set).

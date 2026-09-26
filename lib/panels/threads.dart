@@ -2,7 +2,6 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_list_view/flutter_list_view.dart';
 
 import '../chat/channel/threads.dart';
 import '../chat/chat.dart';
@@ -69,7 +68,7 @@ class ThreadPanels {
   final threadsListVersion = ValueNotifier(0);
   final threadMsgCount = ValueNotifier(0);
   final threadAtBottom = ValueNotifier(true);
-  final threadPanelScrollCtrl = FlutterListViewController();
+  final threadPanelScrollCtrl = ScrollController();
 
   /// Half-drag focus: crossings report at 50% via [_onThreadsFocus],
   /// settle syncs through [onThreadsTabChanged].

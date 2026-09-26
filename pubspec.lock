@@ -262,15 +262,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "6.0.0"
-  flutter_list_view:
-    dependency: "direct main"
-    description:
-      path: "."
-      ref: "8b5e7ae928a62c8cca0ae97acf255abe03d6bca3"
-      resolved-ref: "8b5e7ae928a62c8cca0ae97acf255abe03d6bca3"
-      url: "https://github.com/banan-guh/flutter_list_view"
-    source: git
-    version: "1.1.29"
   flutter_local_notifications:
     dependency: "direct main"
     description:
@@ -785,6 +776,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "0.28.0"
+  scrollview_observer:
+    dependency: "direct main"
+    description:
+      name: scrollview_observer
+      sha256: "1d55007704444eb39c73c7097fc9d3ff8364266ed5d80e2694b8cb770a7897ab"
+      url: "https://pub.dev"
+    source: hosted
+    version: "1.27.3"
   shared_preferences:
     dependency: "direct main"
     description:

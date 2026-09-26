@@ -5,7 +5,6 @@ import 'package:ermchat/services/twitch_badge_service.dart';
 import 'package:ermchat/widgets/chat_view.dart';
 import 'package:ermchat/widgets/message_builder.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_list_view/flutter_list_view.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 TwitchMessage _msg(int i) => TwitchMessage(
@@ -34,7 +33,7 @@ void main() {
     final messages = [for (var i = 20; i > 0; i--) _msg(i)];
     final messageNotifier = ValueNotifier(0);
     final atBottom = ValueNotifier(true);
-    final controller = FlutterListViewController();
+    final controller = ScrollController();
     final tileCache = <String, Map<String?, Widget>>{};
     addTearDown(em.dispose);
     addTearDown(controller.dispose);
@@ -97,7 +96,7 @@ void main() {
     final messages = <TwitchMessage>[for (var i = 20; i > 0; i--) _msg(i)];
     final messageNotifier = ValueNotifier(0);
     final atBottom = ValueNotifier(true);
-    final controller = FlutterListViewController();
+    final controller = ScrollController();
     final tileCache = <String, Map<String?, Widget>>{};
     addTearDown(em.dispose);
     addTearDown(controller.dispose);
@@ -166,7 +165,7 @@ void main() {
     final messages = [for (var i = 60; i > 0; i--) _msg(i)];
     final messageNotifier = ValueNotifier(0);
     final atBottom = ValueNotifier(true);
-    final controller = FlutterListViewController();
+    final controller = ScrollController();
     final tileCache = <String, Map<String?, Widget>>{};
     // Toggles the page in and out of the same route, like the channel pager.
     final shown = ValueNotifier(true);

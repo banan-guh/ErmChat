@@ -2,7 +2,6 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_list_view/flutter_list_view.dart';
 
 import '../chat/chat.dart';
 import '../client/session.dart';
@@ -75,8 +74,8 @@ class MentionsPanels {
   final mentionsMsgCount = ValueNotifier(0);
   final whispersAtBottom = ValueNotifier(true);
   final whispersMsgCount = ValueNotifier(0);
-  final mentionsPanelScrollCtrl = FlutterListViewController();
-  final whispersPanelScrollCtrl = FlutterListViewController();
+  final mentionsPanelScrollCtrl = ScrollController();
+  final whispersPanelScrollCtrl = ScrollController();
 
   /// Half-drag focus: crossings report at 50% via [_onMentionsFocus],
   /// settle syncs through [onMentionsTabChanged].

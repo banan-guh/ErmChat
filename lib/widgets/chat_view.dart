@@ -1,6 +1,9 @@
+import 'dart:async';
+
+import 'package:flutter/foundation.dart' show defaultTargetPlatform;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show HapticFeedback;
-import 'package:flutter_list_view/flutter_list_view.dart';
+import 'package:scrollview_observer/scrollview_observer.dart';
 import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 import '../models/twitch_message.dart';
 import '../util/thread_utils.dart';
@@ -27,7 +30,7 @@ class ChatView extends StatefulWidget {
   final Map<String, Map<String?, Widget>>? tileCache;
   final ValueNotifier<bool> atBottomNotifier;
   final ValueNotifier<int> messageNotifier;
-  final FlutterListViewController scrollController;
+  final ScrollController scrollController;
   final MessageBuilder messageBuilder;
 
   /// Opens the user profile sheet.
@@ -57,6 +60,10 @@ class ChatView extends StatefulWidget {
   /// pass false so background channels unmount; their scroll offset is
   /// restored through PageStorage.
   final bool keepAlive;
+
+  /// Holds the reading position when rows arrive while scrolled up. Off for
+  /// filtered views (search) where head changes are not arrivals.
+  final bool keepPosition;
 
   /// Hero tag for the scroll-down FAB. Defaults to [channel]-keyed.
   final String? scrollFabHeroTag;
@@ -104,6 +111,7 @@ class ChatView extends StatefulWidget {
     this.physics,
     this.fadeDeleted = true,
     this.keepAlive = true,
+    this.keepPosition = true,
     this.scrollFabHeroTag,
     this.showTimestamp = true,
     this.timestampFormat = kDefaultTimestampFormat,
@@ -124,8 +132,56 @@ class ChatView extends StatefulWidget {
   State<ChatView> createState() => _ChatViewState();
 }
 
+/// Restores the framework default for [ScrollPhysics.shouldAcceptUserOffset].
+///
+/// The upstream chat physics forces `true`, which keeps the list's drag
+/// recognizer registered even when it cannot scroll. On a short channel that
+/// recognizer swallows horizontal pager swipes, so channel switching breaks.
+/// Re-applying the default lets the pager win when the list has nothing to
+/// scroll.
+mixin _FrameworkUserOffset on ScrollPhysics {
+  @override
+  bool shouldAcceptUserOffset(ScrollMetrics position) {
+    if (!allowUserScrolling) return false;
+    final p = parent;
+    if (p == null) {
+      return position.pixels != 0.0 ||
+          position.minScrollExtent != position.maxScrollExtent;
+    }
+    return p.shouldAcceptUserOffset(position);
+  }
+}
+
+class _ChatAnchorClampingPhysics extends ChatObserverClampingScrollPhysics
+    with _FrameworkUserOffset {
+  _ChatAnchorClampingPhysics({super.parent, required super.observer});
+
+  @override
+  _ChatAnchorClampingPhysics applyTo(ScrollPhysics? ancestor) =>
+      _ChatAnchorClampingPhysics(
+        parent: buildParent(ancestor),
+        observer: observer,
+      );
+}
+
+class _ChatAnchorBouncingPhysics extends ChatObserverBouncingScrollPhysics
+    with _FrameworkUserOffset {
+  _ChatAnchorBouncingPhysics({super.parent, required super.observer});
+
+  @override
+  _ChatAnchorBouncingPhysics applyTo(ScrollPhysics? ancestor) =>
+      _ChatAnchorBouncingPhysics(
+        parent: buildParent(ancestor),
+        observer: observer,
+      );
+}
+
 class _ChatViewState extends State<ChatView>
     with AutomaticKeepAliveClientMixin {
+  /// Above this many rows prepended in one tick the anchor can fall outside the
+  /// cache area, so hold is skipped and the list is left to settle.
+  static const int _maxHoldBatch = 64;
+
   @override
   bool get wantKeepAlive => widget.keepAlive;
   double _cachedSystemScale = 1.0;
@@ -134,18 +190,48 @@ class _ChatViewState extends State<ChatView>
   String? _endsFirst;
   String? _endsLast;
 
-  // Stable row builders: plain methods, so the list delegate below keeps
-  // its identity across ticks and the fork skips its O(buffered messages)
-  // invalidation. All data is read live from widget.messages at call time,
-  // so freshness never depends on rebuilds.
-  FlutterListViewDelegate? _delegate;
-  int? _delegateLen;
-  String? _delegateChannel;
+  // Anchoring bridge: ListViewObserver feeds ChatScrollObserver, whose physics
+  // keeps the row under the reader pinned when earlier rows are inserted.
+  ListObserverController? _observerController;
+  ChatScrollObserver? _chatObserver;
+  ScrollController? _observerScrollController;
+
+  // Snapshot of the previous tick used to measure head shifts.
+  int _prevLen = -1;
+  String? _prevHead;
+  bool _hasSnapshot = false;
 
   // Effective pill clearance for this frame: the explicit prop wins, zero
   // falls back to the scope so surfaces without threaded params (welcome,
   // panels) still clear the floating pill. Set at the top of every build.
   double _effBottom = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _ensureObservers();
+  }
+
+  @override
+  void didUpdateWidget(covariant ChatView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.chatFontScale != oldWidget.chatFontScale) {
+      setState(() {});
+    }
+    if (widget.scrollController != oldWidget.scrollController) {
+      _ensureObservers();
+    }
+  }
+
+  void _ensureObservers() {
+    if (identical(_observerScrollController, widget.scrollController)) return;
+    _observerScrollController = widget.scrollController;
+    _observerController = ListObserverController(
+      controller: widget.scrollController,
+    )..cacheJumpIndexOffset = false;
+    _chatObserver = ChatScrollObserver(_observerController!)
+      ..fixedPositionOffset = 8;
+  }
 
   @override
   void didChangeDependencies() {
@@ -155,14 +241,6 @@ class _ChatViewState extends State<ChatView>
       _cachedSystemScale = newScale;
       // Pixel-sized tiles would otherwise survive the scale change.
       widget.tileCache?.clear();
-    }
-  }
-
-  @override
-  void didUpdateWidget(covariant ChatView oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (widget.chatFontScale != oldWidget.chatFontScale) {
-      setState(() {});
     }
   }
 
@@ -206,119 +284,8 @@ class _ChatViewState extends State<ChatView>
               valueListenable: widget.messageNotifier,
               builder: (_, _, _) {
                 final msgs = widget.messages;
-                if (msgs.isEmpty) {
-                  _lastMsgLen = 0;
-                  _idToIndex = {};
-                  _endsFirst = null;
-                  _endsLast = null;
-                  final emptyMsg = TwitchMessage(
-                    login: '',
-                    text: widget.emptyText,
-                    isSystem: true,
-                    channel: widget.channel,
-                  );
-                  // Glass spacers keep the empty state clear of the overlays.
-                  final hasEmptyBottom = _effBottom > 0.5;
-                  final hasEmptyTop = widget.topOverlayPadding > 0.5;
-                  final emptyCount =
-                      1 + (hasEmptyBottom ? 1 : 0) + (hasEmptyTop ? 1 : 0);
-                  Widget emptyAt(BuildContext _, int i) {
-                    if (hasEmptyBottom && i == 0) {
-                      return SizedBox(height: _effBottom);
-                    }
-                    final pos = i - (hasEmptyBottom ? 1 : 0);
-                    if (pos >= 1) {
-                      return SizedBox(height: widget.topOverlayPadding);
-                    }
-                    return _buildTile(
-                      [emptyMsg],
-                      null,
-                      const {},
-                      0,
-                      surface,
-                      s,
-                      context,
-                      widget.checkeredMessages,
-                    );
-                  }
-
-                  String emptyKeyAt(int i) {
-                    if (hasEmptyBottom && i == 0) {
-                      return 'glass-bottom-spacer';
-                    }
-                    final pos = i - (hasEmptyBottom ? 1 : 0);
-                    if (pos >= 1) return 'glass-top-spacer';
-                    return 'empty';
-                  }
-
-                  return Padding(
-                    padding: const EdgeInsets.only(bottom: 8),
-                    child: FlutterListView(
-                      // Distinct key from the content list below: the fork
-                      // reuses row elements across delegate swaps with the
-                      // same list key, which grafts the last content tile
-                      // onto the empty state (search hide-to-empty).
-                      key: ValueKey('${widget.channel}:empty'),
-                      controller: widget.scrollController,
-                      reverse: true,
-                      physics: widget.physics,
-                      keyboardDismissBehavior: widget.keyboardDismissBehavior,
-                      delegate: FlutterListViewDelegate(
-                        emptyAt,
-                        childCount: emptyCount,
-                        onItemKey: emptyKeyAt,
-                        keepPosition: true,
-                        keepPositionOffset: 0.5,
-                        addAutomaticKeepAlives: false,
-                        addRepaintBoundaries: false,
-                      ),
-                    ),
-                  );
-                }
-
-                final cache = widget.tileCache?.putIfAbsent(
-                  widget.channel,
-                  () => <String?, Widget>{},
-                );
-
-                if (msgs.length != _lastMsgLen ||
-                    _rowKey(msgs.first) != _endsFirst ||
-                    _rowKey(msgs.last) != _endsLast) {
-                  _lastMsgLen = msgs.length;
-                  _endsFirst = _rowKey(msgs.first);
-                  _endsLast = _rowKey(msgs.last);
-                  final idToIndex = <String, int>{};
-                  if (cache != null) {
-                    final pending = cache.keys.whereType<String>().toSet();
-                    for (
-                      var i = 0;
-                      i < msgs.length && pending.isNotEmpty;
-                      i++
-                    ) {
-                      final id = msgs[i].messageId;
-                      if (id != null && pending.remove(id)) {
-                        idToIndex[id] = i;
-                      }
-                    }
-                  }
-                  _idToIndex = idToIndex;
-                }
-
-                return Padding(
-                  padding: const EdgeInsets.only(bottom: 8),
-                  child: FlutterListView(
-                    // PageStorage key restores the offset after the channel
-                    // page unmounts off screen; kept-alive lists need no key.
-                    key: widget.keepAlive
-                        ? ValueKey(widget.channel)
-                        : PageStorageKey<String>('${widget.channel}:chat'),
-                    controller: widget.scrollController,
-                    reverse: true,
-                    physics: widget.physics,
-                    keyboardDismissBehavior: widget.keyboardDismissBehavior,
-                    delegate: _effectiveDelegate(msgs),
-                  ),
-                );
+                _syncHold(msgs);
+                return _buildList(context, msgs, surface, s);
               },
             ),
           ),
@@ -372,67 +339,171 @@ class _ChatViewState extends State<ChatView>
     );
   }
 
-  FlutterListViewDelegate _effectiveDelegate(List<TwitchMessage> msgs) {
-    final total =
-        msgs.length +
-        (_effBottom > 0.5 ? 1 : 0) +
-        (widget.topOverlayPadding > 0.5 ? 1 : 0);
-    if (_delegate == null ||
-        _delegateChannel != widget.channel ||
-        _delegateLen != total) {
-      _delegate = FlutterListViewDelegate(
-        _buildTileAt,
-        childCount: total,
-        onItemKey: _itemKeyAt,
-        keepPosition: true,
-        keepPositionOffset: 0.5,
+  Widget _buildList(
+    BuildContext context,
+    List<TwitchMessage> msgs,
+    Color surface,
+    double s,
+  ) {
+    final empty = msgs.isEmpty;
+    if (!empty) {
+      final cache = widget.tileCache?.putIfAbsent(
+        widget.channel,
+        () => <String?, Widget>{},
+      );
+      _refreshIndexMap(msgs, cache);
+      return ListViewObserver(
+        controller: _observerController!,
+        child: ListView.builder(
+          // PageStorage key restores the offset after the channel page
+          // unmounts off screen; kept-alive lists need no key.
+          key: widget.keepAlive
+              ? ValueKey<String>(widget.channel)
+              : PageStorageKey<String>('${widget.channel}:chat'),
+          controller: widget.scrollController,
+          reverse: true,
+          physics: _scrollPhysics(),
+          padding: EdgeInsets.only(
+            top: widget.topOverlayPadding,
+            bottom: _effBottom,
+          ),
+          keyboardDismissBehavior: widget.keyboardDismissBehavior,
+          itemCount: msgs.length,
+          findChildIndexCallback: _findChildIndex,
+          addAutomaticKeepAlives: false,
+          addRepaintBoundaries: false,
+          addSemanticIndexes: false,
+          itemBuilder: (ctx, i) => _buildTile(
+            msgs,
+            cache,
+            _idToIndex,
+            i,
+            surface,
+            s,
+            ctx,
+            widget.checkeredMessages,
+          ),
+        ),
+      );
+    }
+    // Distinct key from the content list: swapping the item set under one key
+    // lets the sliver graft a stale row onto the empty state.
+    final emptyMsg = TwitchMessage(
+      login: '',
+      text: widget.emptyText,
+      isSystem: true,
+      channel: widget.channel,
+    );
+    _refreshIndexMap(const [], null);
+    return ListViewObserver(
+      controller: _observerController!,
+      child: ListView.builder(
+        key: ValueKey<String>('${widget.channel}:empty'),
+        controller: widget.scrollController,
+        reverse: true,
+        physics: _scrollPhysics(),
+        padding: EdgeInsets.only(
+          top: widget.topOverlayPadding,
+          bottom: _effBottom,
+        ),
+        keyboardDismissBehavior: widget.keyboardDismissBehavior,
+        itemCount: 1,
         addAutomaticKeepAlives: false,
         addRepaintBoundaries: false,
         addSemanticIndexes: false,
-      );
-      _delegateChannel = widget.channel;
-      _delegateLen = total;
-    }
-    return _delegate!;
-  }
-
-  // Glass spacer rows sit outside the message window: index 0 pads below
-  // the newest row, the last index pads above the oldest row.
-  bool get _hasBottomSpacer => _effBottom > 0.5;
-
-  Widget _buildTileAt(BuildContext ctx, int i) {
-    if (_hasBottomSpacer && i == 0) {
-      return SizedBox(height: _effBottom);
-    }
-    final idx = i - (_hasBottomSpacer ? 1 : 0);
-    final msgs = widget.messages;
-    if (idx >= msgs.length) {
-      return SizedBox(height: widget.topOverlayPadding);
-    }
-    if (idx < 0 || idx >= msgs.length) return const SizedBox.shrink();
-    final cache = widget.tileCache?.putIfAbsent(
-      widget.channel,
-      () => <String?, Widget>{},
-    );
-    return _buildTile(
-      msgs,
-      cache,
-      _idToIndex,
-      idx,
-      Theme.of(ctx).scaffoldBackgroundColor,
-      widget.chatFontScale * _cachedSystemScale,
-      ctx,
-      widget.checkeredMessages,
+        itemBuilder: (ctx, i) => _buildTile(
+          [emptyMsg],
+          null,
+          const {},
+          0,
+          surface,
+          s,
+          ctx,
+          widget.checkeredMessages,
+        ),
+      ),
     );
   }
 
-  String _itemKeyAt(int i) {
-    if (_hasBottomSpacer && i == 0) return 'glass-bottom-spacer';
-    final idx = i - (_hasBottomSpacer ? 1 : 0);
-    final msgs = widget.messages;
-    if (idx >= msgs.length) return 'glass-top-spacer';
-    if (idx < 0 || idx >= msgs.length) return 'oob-$i';
-    return _rowKey(msgs[idx]);
+  ScrollPhysics _scrollPhysics() {
+    final observer = _chatObserver!;
+    final anchor = defaultTargetPlatform == TargetPlatform.iOS
+        ? _ChatAnchorBouncingPhysics(observer: observer)
+        : _ChatAnchorClampingPhysics(observer: observer);
+    return anchor.applyTo(widget.physics);
+  }
+
+  /// Rebuilds the cached-id to index map so element reuse follows shifted rows.
+  void _refreshIndexMap(List<TwitchMessage> msgs, Map<String?, Widget>? cache) {
+    if (msgs.isEmpty) {
+      _lastMsgLen = 0;
+      _idToIndex = {};
+      _endsFirst = null;
+      _endsLast = null;
+      return;
+    }
+    if (msgs.length == _lastMsgLen &&
+        _rowKey(msgs.first) == _endsFirst &&
+        _rowKey(msgs.last) == _endsLast) {
+      return;
+    }
+    _lastMsgLen = msgs.length;
+    _endsFirst = _rowKey(msgs.first);
+    _endsLast = _rowKey(msgs.last);
+    final idToIndex = <String, int>{};
+    if (cache != null) {
+      final pending = cache.keys.whereType<String>().toSet();
+      for (var i = 0; i < msgs.length && pending.isNotEmpty; i++) {
+        final id = msgs[i].messageId;
+        if (id != null && pending.remove(id)) {
+          idToIndex[id] = i;
+        }
+      }
+    }
+    _idToIndex = idToIndex;
+  }
+
+  int? _findChildIndex(Key key) {
+    if (key is ValueKey<String>) return _idToIndex[key.value];
+    return null;
+  }
+
+  /// Measures head arrivals since the last tick and hands the count to the
+  /// chat observer so it can hold the reader's row. History merges land at the
+  /// tail and leave the head alone, so they need no hold.
+  void _syncHold(List<TwitchMessage> msgs) {
+    final observer = _chatObserver;
+    if (observer == null) return;
+    final len = msgs.length;
+    final head = len == 0 ? null : _rowKey(msgs.first);
+    if (!_hasSnapshot) {
+      _prevLen = len;
+      _prevHead = head;
+      _hasSnapshot = true;
+      return;
+    }
+    if (widget.keepPosition && len > _prevLen && _prevHead != null) {
+      final shifted = _headShift(msgs);
+      if (shifted > 0 && shifted <= _maxHoldBatch) {
+        unawaited(observer.standby(changeCount: shifted));
+      }
+    } else if (len < _prevLen) {
+      unawaited(observer.standby(isRemove: true));
+    }
+    _prevLen = len;
+    _prevHead = head;
+  }
+
+  /// Index the previous head moved to, or -1 when it left the window.
+  int _headShift(List<TwitchMessage> msgs) {
+    final prev = _prevHead!;
+    final limit = msgs.length < _maxHoldBatch + 1
+        ? msgs.length
+        : _maxHoldBatch + 1;
+    for (var i = 0; i < limit; i++) {
+      if (_rowKey(msgs[i]) == prev) return i;
+    }
+    return -1;
   }
 
   Widget _buildTile(
