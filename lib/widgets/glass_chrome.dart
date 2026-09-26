@@ -21,10 +21,7 @@ double glassHeaderHeight(BuildContext context) =>
 double glassWelcomeHeaderHeight(BuildContext context) =>
     MediaQuery.paddingOf(context).top + kGlassAppBarHeight;
 
-// Pill footprint the chat list must clear. The measured composer height
-// already includes the pill outer padding (inputBarKey sits on it), so
-// only a small breathing gap is added. Adding bottomPad again here double
-// counts it and leaves a dead gap above the pill.
+// Pill footprint the list clears; the caller includes the safe area, so this is just the gap.
 double glassComposerOverlayHeight(double composerH) =>
     composerH + kGlassComposerMargin;
 

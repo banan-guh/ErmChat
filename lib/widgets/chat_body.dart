@@ -100,7 +100,7 @@ class ChatBody extends StatefulWidget {
 class _ChatBodyState extends State<ChatBody> {
   double? _fullBoxHeight;
 
-  // Settled composer height for keyboard-room math downstream. Measured
+  // Settled composer content height, safe area excluded. Measured
   // post-layout: reading inputBarKey.size during build throws every frame.
   double _composerH = 56.0;
 
@@ -205,8 +205,17 @@ class _ChatBodyState extends State<ChatBody> {
   void _cacheComposerH() {
     if (!mounted || widget.composer == null) return;
     final h = inputBarKey.currentContext?.size?.height;
-    if (h != null && (h - _composerH).abs() > 0.5) {
-      setState(() => _composerH = h);
+    if (h == null) return;
+    // inputBarKey sits on the padded wrapper, so subtract its bottom inset to
+    // cache the content height alone. The safe area is re-added from live
+    // MediaQuery at build, so the list clearance cannot lag the keyboard.
+    final wrapper = inputBarKey.currentWidget;
+    final padBottom = wrapper is Padding
+        ? wrapper.padding.resolve(TextDirection.ltr).bottom
+        : 0.0;
+    final contentH = h - padBottom;
+    if ((contentH - _composerH).abs() > 0.5) {
+      setState(() => _composerH = contentH);
     }
   }
 
@@ -223,7 +232,6 @@ class _ChatBodyState extends State<ChatBody> {
     if (composer != null) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _cacheComposerH());
     }
-    final composerH = composer == null ? 0.0 : _composerH;
     // Glass pill footprint, shared with the list bottom padding upstream.
     // collapseChromeForKeyboard needs the box height, which only exists
     // inside the LayoutBuilder below; the learned full height estimates it
@@ -239,6 +247,12 @@ class _ChatBodyState extends State<ChatBody> {
           keyboardH: keyboardH,
           maxHeight: _fullBoxHeight ?? MediaQuery.sizeOf(context).height,
         );
+    // Composer footprint: content plus the live safe area, and the pill
+    // margin only while floating. Composed at build so the clearance tracks
+    // the keyboard inset on the same frame instead of lagging one frame.
+    final composerH = composer == null
+        ? 0.0
+        : _composerH + bottomPad + (pill ? kGlassComposerMargin : 0.0);
     final pillH = glassComposerOverlayHeight(composerH);
     if (pill) _pillShown = true;
     // No manual lift: the Scaffold shrank the body, so the composer sits

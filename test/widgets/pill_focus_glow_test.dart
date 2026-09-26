@@ -1,7 +1,5 @@
 import 'widget_test_harness.dart';
 
-import 'package:ermchat/widgets/glass_chrome.dart';
-
 void main() {
   testWidgets('PillFocusGlow stays flat until an inner field focuses', (
     WidgetTester tester,

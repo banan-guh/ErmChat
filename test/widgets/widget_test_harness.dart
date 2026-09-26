@@ -40,6 +40,7 @@ export 'package:ermchat/composer/suggestion.dart';
 export 'package:ermchat/widgets/app_snack.dart';
 export 'package:ermchat/widgets/autocomplete_dropdown.dart';
 export 'package:ermchat/widgets/chat_body.dart';
+export 'package:ermchat/widgets/glass_chrome.dart';
 export 'package:ermchat/widgets/chat_message_tile.dart';
 export 'package:ermchat/widgets/chat_notice_bar.dart';
 export 'package:ermchat/chrome/stream_layout.dart';
