@@ -107,3 +107,7 @@
 - change emote panel UI to have # emotes where emote slider is X
 - channel edit name
 - review to see if emote mb cap is robust
+- liquid glass is NOT default
+- fix sub emotes
+- emotes too eager to diff
+- integrate ermchat-server better (retry)

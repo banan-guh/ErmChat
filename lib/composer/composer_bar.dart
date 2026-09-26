@@ -7,6 +7,10 @@ import '../widgets/message_input.dart';
 import 'composer_controller.dart';
 
 // Single key for measuring the composer (snackbar margin, video sizing).
+// Shared by the pill and the in-flow wrapper: keeping it on both lets the
+// composer subtree reparent (preserving its FocusNode) when the glass pill
+// hands off to the opaque in-flow path. The two are mutually exclusive in
+// ChatBody, so the key is never mounted twice.
 final inputBarKey = GlobalKey();
 
 // Fallback when the channel is gone; never bumps.

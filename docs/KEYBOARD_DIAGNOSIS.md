@@ -30,7 +30,9 @@ field switches. Hide, do not unfocus.
 ## Exonerated with evidence
 
 - Emotes/animation: empty channel plus animations-off still lags.
-- Glass: non-glass layout still lags.
+- Glass: non-glass layout still lags (post-unfocus lag). Also exonerated for
+  the rare snap (it happens in opaque too). It remains the dominant raster
+  cost during the animation, but that is a separate, unmeasured claim.
 - `flutter_list_view` remount: list-only detach is a no-op; per-list
   layouts are 1/frame smooth and laggy alike (`DIAGLAYOUT`).
 - Shell rebuilds, `LayoutBuilder` replays, delegate churn: real waste,
@@ -64,6 +66,71 @@ field switches. Hide, do not unfocus.
   correct direction, but unfocus is core UX; revisit as a product decision.
 - All diag instruments (FABs, counters, prints, probe bar, testapp probe).
 
+## Composer sync: the 1-vsync offset and the rare snap (addendum)
+
+The verdict above is the post-unfocus cold-restart lag. This addendum is a
+different symptom: the composer's motion *during* a keyboard gesture.
+
+### The 1-vsync offset (measured, imperceptible)
+
+- A minimal repro (Scaffold + Column + TextField, no glass) with a native
+  per-frame `WindowInsetsAnimation` sampler and vsync-stamped Dart frames
+  measured `sample lag (median): 1 vsync`: the composer's laid-out inset on
+  frame N equals the platform `onProgress` from N-1, at both 1x and 5x
+  animator scale. It looks pixel-perfect to the eye.
+- Structural: the frame built in Choreographer frame `k` consumes the
+  `onProgress` from frame `k`. iOS fixes this with forward projection
+  (`FlutterKeyboardInsetManager`); Android has no equivalent. Fixing it is an
+  engine change, not app code, and the visible payoff is ~nil.
+
+### The rare snap (reproduced in a widget test, NOT confirmed on device)
+
+- Symptom: "smoothly goes, suddenly snaps, snaps back, keeps going"; rare;
+  happens in BOTH glass and opaque, so it is mode-independent.
+- Candidate cause: the engine defers only `WindowInsets.Type.ime()`
+  (`ImeSyncDeferringInsetsCallback.java`), so a nav-bar (`systemBars`) hide is
+  delivered un-animated while the IME is still inside the safe-area dead
+  zone. The composer parks at `screenH - max(viewInsets, viewPadding)`, so
+  `max(...)` drops and the composer falls, then the rising IME lifts it back.
+  A one-frame `viewInsets = 0` (TextInput client reset) does the same.
+  Reproduced frame-by-frame in `test/widgets/composer_keyboard_snap_test.dart`.
+- An app-side monotonic hold ("composerPad") made that widget test pass but
+  did NOT change the symptom on the SM S721W. Cause still open.
+
+### Composer geometry and history
+
+- Composer bottom = `screenH - max(viewInsets, viewPadding)`; pinned for the
+  first ~`viewPadding` (~45dp) of travel (safe-area dead zone), then follows.
+- v0.2.2-v0.7.0 used `resizeToAvoidBottomInset: false` + a direct
+  `Padding(bottom: viewInsets + padding)` (no animator, no size animation).
+  `b505e07 "optimize keyboard"` switched to `resizeToAvoidBottomInset: true`
+  because the direct path stuttered horribly (and a 30fps regression). Do not
+  revert that blindly; the direct path is not a free win.
+- The minimal repro uses the Scaffold-resize path and is smooth.
+
+### Kept fixes (composer, test green)
+
+- Safe-area `Padding` moved outside the composer `AnimatedSize` so the nav-bar
+  collapse is not animated (`lib/widgets/chat_body.dart`).
+- Pill double-count guard: the outer padding is 0 while the pill floats; the
+  pill keeps its own `bottomPad + kGlassComposerMargin`.
+- `_pillShown` 240ms backstop so a missed `AnimatedOpacity.onEnd` cannot leave
+  the pill mounted.
+- One shared `inputBarKey` on both the pill and the in-flow wrapper, so the
+  composer's `FocusNode` reparents instead of being recreated, with the two
+  paths gated mutually exclusive. Fixes the opaque field being unselectable.
+
+### Ruled out for the snap
+
+- Glass: mode-independent.
+- `MultipleCallsToSecondaryVsyncInFrameInterval`
+  (`shell/common/vsync_waiter.cc`) is a benign dedup trace, not an error.
+- `_liftH` value: only its 0-crossing is read (`keyboardH > 0`), never the
+  magnitude.
+- `showStreamVideo`: for 384x832 @ 300dp keyboard / 14pt it never crosses.
+- Pill relocation / chrome collapse: does not fire in portrait (open height
+  476 > the 300 threshold).
+
 ## Open questions
 
 - Why the very first cold open is smooth while later restarts lag (likely
@@ -71,3 +138,10 @@ field switches. Hide, do not unfocus.
 - Whether `layouts=4` aggregate (2 pages x rebuild+layout) can drop to 2.
 - Focus restore on settings pop: `DIAGFOCUS` trail was added but never
   graded; it decides whether refocus-on-return is a viable warm path.
+- Rare mid-gesture snap: cause unconfirmed. Nav-bar (`systemBars`)
+  non-deferral is the leading candidate and is reproduced in a widget test,
+  but an app-side monotonic hold did not change it on device. Needs the
+  per-frame trace (composer bottom vs `viewInsets`/`viewPadding`) to catch it
+  live.
+- The old "regresses to 30fps" bug: still unsolved, and not the same as the
+  snap.

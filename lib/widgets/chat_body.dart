@@ -111,6 +111,8 @@ class _ChatBodyState extends State<ChatBody> {
   // Exit-animation mount gate: the pill stays in the tree while fading
   // out, then unmounts in AnimatedOpacity.onEnd.
   bool _pillShown = false;
+  // Backstop so a missed onEnd cannot leave the pill mounted for the session.
+  Timer? _pillHideTimer;
 
   // Measured reply header height. Added to the list clearance so rows clear
   // the floating card without the composer resizing.
@@ -131,6 +133,15 @@ class _ChatBodyState extends State<ChatBody> {
   double _persistedKeyboardH = 0;
   double _lastRawH = 0;
   Timer? _settleTimer;
+
+  // Distance the composer's content bottom rides above the physical screen
+  // bottom (keyboard inset plus the safe area it does not cover), held
+  // monotonic across a keyboard gesture. The platform can report the final
+  // system-bar inset on the first animated frame, and a nav-bar hide or a
+  // one-frame TextInput reset would otherwise drop the composer before the
+  // rising keyboard lifts it again. Held so it only travels with the keyboard.
+  double _heldBottomOffset = 0;
+  double _prevRawH = 0;
 
   // Last learned open height, persisted so decisions start right even on a
   // cold start. Re-learned every session, so a stale value self-corrects.
@@ -174,6 +185,7 @@ class _ChatBodyState extends State<ChatBody> {
   @override
   void dispose() {
     _settleTimer?.cancel();
+    _pillHideTimer?.cancel();
     EmoteUrlProvider.motionSerialize = false;
     super.dispose();
   }
@@ -241,6 +253,22 @@ class _ChatBodyState extends State<ChatBody> {
     final keyboardH = _liftH;
     final rawH = widget.keyboardH;
     final bottomPad = MediaQuery.paddingOf(context).bottom;
+    // See [_heldBottomOffset]: compose the live safe area, then keep the
+    // composer's distance from the screen bottom from reversing mid-gesture.
+    final liveOffset = rawH + bottomPad;
+    if (rawH <= 0.5) {
+      // Zero for two straight frames is rest: adopt the live safe area. A
+      // single zero frame mid-gesture is the engine clearing the TextInput
+      // client (focus/edit churn), so hold and let composerPad compensate
+      // instead of dropping the composer to the bottom for a frame.
+      if (_prevRawH <= 0.5) _heldBottomOffset = liveOffset;
+    } else if (rawH > _prevRawH) {
+      if (liveOffset > _heldBottomOffset) _heldBottomOffset = liveOffset;
+    } else if (rawH < _prevRawH) {
+      if (liveOffset < _heldBottomOffset) _heldBottomOffset = liveOffset;
+    }
+    _prevRawH = rawH;
+    final composerPad = (_heldBottomOffset - rawH).clamp(0.0, double.infinity);
     final composer = widget.composer;
     // Cache the settled composer height after layout for keyboard-room
     // math; converges after one extra frame on height changes.
@@ -270,9 +298,20 @@ class _ChatBodyState extends State<ChatBody> {
     // the keyboard inset on the same frame instead of lagging one frame.
     final composerH = composer == null
         ? 0.0
-        : _composerH + bottomPad + (pill ? kGlassComposerMargin : 0.0);
+        : _composerH + composerPad + (pill ? kGlassComposerMargin : 0.0);
     final pillH = glassComposerOverlayHeight(composerH);
-    if (pill) _pillShown = true;
+    if (pill) {
+      _pillShown = true;
+      _pillHideTimer?.cancel();
+      _pillHideTimer = null;
+    } else if (_pillShown && _pillHideTimer == null) {
+      // Backstop for a missed AnimatedOpacity.onEnd: otherwise the pill can
+      // stay mounted with its IgnorePointer copy sitting over the composer.
+      _pillHideTimer = Timer(const Duration(milliseconds: 240), () {
+        _pillHideTimer = null;
+        if (mounted) setState(() => _pillShown = false);
+      });
+    }
     // No manual lift: the Scaffold shrank the body, so the composer sits
     // above the keyboard at settled constraints with no second animator
     // to cross the system motion. The key stays for post-layout measuring.
@@ -415,7 +454,7 @@ class _ChatBodyState extends State<ChatBody> {
                               child: Padding(
                                 key: inputBarKey,
                                 padding: EdgeInsets.only(
-                                  bottom: bottomPad + kGlassComposerMargin,
+                                  bottom: composerPad + kGlassComposerMargin,
                                 ),
                                 child:
                                     NotificationListener<
@@ -452,20 +491,27 @@ class _ChatBodyState extends State<ChatBody> {
           ),
         ),
         if (!widget.isInPip)
-          AnimatedSize(
-            duration: const Duration(milliseconds: 220),
-            curve: Curves.easeInOut,
-            alignment: Alignment.bottomCenter,
-            child: AnimatedOpacity(
-              duration: const Duration(milliseconds: 160),
-              opacity: !pill && composer != null ? 1.0 : 0.0,
-              child: pill || composer == null
-                  ? const SizedBox.shrink()
-                  : Padding(
-                      key: inputBarKey,
-                      padding: EdgeInsets.only(bottom: bottomPad),
-                      child: composer,
-                    ),
+          // Safe area stays outside AnimatedSize so the nav-bar collapse is
+          // not animated. The in-flow composer is gated on !_pillShown so the
+          // pill and the in-flow never mount together: one shared inputBarKey
+          // keeps the composer's FocusNode alive across the hand-off.
+          Padding(
+            padding: EdgeInsets.only(bottom: pill ? 0.0 : composerPad),
+            child: AnimatedSize(
+              duration: const Duration(milliseconds: 220),
+              curve: Curves.easeInOut,
+              alignment: Alignment.bottomCenter,
+              child: AnimatedOpacity(
+                duration: const Duration(milliseconds: 160),
+                opacity: !pill && composer != null ? 1.0 : 0.0,
+                child: pill || _pillShown || composer == null
+                    ? const SizedBox.shrink()
+                    : Padding(
+                        key: inputBarKey,
+                        padding: EdgeInsets.zero,
+                        child: composer,
+                      ),
+              ),
             ),
           ),
       ],
