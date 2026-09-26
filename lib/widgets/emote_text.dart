@@ -332,17 +332,16 @@ class EmoteText {
     // No per-emote Semantics: tile already wraps with excludeSemantics.
     Widget emoteWidget;
     if (data.overlays.isEmpty) {
-      emoteWidget = SizedBox(
-        width: baseSize.width,
-        height: baseSize.height,
-        child: _emoteImage(
-          data.base,
-          baseSize.width,
-          baseSize.height,
-          animateGifs: animateGifs,
-          emoteImages: emoteImages,
-          scale: scale,
-        ),
+      // Unconstrained resolver: images and placeholders size to the emote
+      // box, but the text fallback (nothing cached at the nothing tier)
+      // flows as normal inline text instead of wrapping inside that box.
+      emoteWidget = _emoteImage(
+        data.base,
+        baseSize.width,
+        baseSize.height,
+        animateGifs: animateGifs,
+        emoteImages: emoteImages,
+        scale: scale,
       );
     } else {
       emoteWidget = SizedBox(

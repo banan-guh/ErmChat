@@ -9,6 +9,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:ermchat/widgets/emote_image.dart';
+import 'package:ermchat/widgets/emote_scale_resolver.dart';
 import 'package:ermchat/widgets/inline_emote_view.dart';
 import 'package:ermchat/widgets/emote_url_provider.dart';
 import 'dart:convert';
@@ -4050,9 +4051,9 @@ void main() {
       expect(spans, hasLength(1));
       expect(spans[0], isA<WidgetSpan>());
       var pad = (spans[0] as WidgetSpan).child as Padding;
-      var box = pad.child as SizedBox;
-      expect(box.width, 28.0 * 0.625);
-      expect(box.height, 28.0 * 0.625);
+      var resolver = pad.child as EmoteScaleResolver;
+      expect(resolver.width, 28.0 * 0.625);
+      expect(resolver.height, 28.0 * 0.625);
 
       emotes = _makeEmotes({
         'SmallBase': makeTestEmote(
@@ -4076,7 +4077,7 @@ void main() {
       expect(spans, hasLength(1));
       expect(spans[0], isA<WidgetSpan>());
       pad = (spans[0] as WidgetSpan).child as Padding;
-      box = pad.child as SizedBox;
+      final box = pad.child as SizedBox;
       expect(box.width, 28.0);
       expect(box.height, 28.0);
     });

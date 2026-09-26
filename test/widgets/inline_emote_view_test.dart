@@ -29,6 +29,16 @@ class _ResolvingEmoteImages extends EmoteImages {
   }
 }
 
+/// Resolves every emote to nothing, standing in for the nothing tier with an
+/// uncached emote so the resolver takes its text fallback.
+class _UnresolvingEmoteImages extends EmoteImages {
+  @override
+  Future<({String url, String? placeholder})?> resolve(
+    Emote emote,
+    EmoteSurface surface,
+  ) async => null;
+}
+
 Uint8List _pngBytes([int width = 2, int height = 2]) {
   final image = img.Image(width: width, height: height);
   img.fillRect(
@@ -159,6 +169,38 @@ void main() {
     await tester.tap(find.byType(InlineEmoteView));
     expect(tapped, hasLength(1));
     expect(tapped.single.map((e) => e.code), [code]);
+  });
+
+  testWidgets('an unresolvable emote renders its code as normal text', (
+    tester,
+  ) async {
+    const code = 'FRICK';
+    final emote = Emote(
+      id: 'frick',
+      code: code,
+      meta: const SevenTvMeta(),
+      scales: const {EmoteScale.medium: 'https://inline.test/frick.png'},
+    );
+    final channelEmotes = EmoteLookup(byCode: {code: emote}, suggestions: []);
+    final spans = EmoteText.build(
+      text: code,
+      twitchPositions: null,
+      channelEmotes: channelEmotes,
+      emoteImages: _UnresolvingEmoteImages(),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(body: Text.rich(TextSpan(children: spans))),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+
+    // The code flows at its natural width instead of wrapping inside a 28px
+    // emote box. A boxed fallback would be 28 wide with two lines.
+    expect(find.text(code), findsOneWidget);
+    expect(tester.getSize(find.text(code)).width, greaterThan(28));
   });
 
   testWidgets('an oversized frame is contain-fit into the slot', (
