@@ -346,6 +346,9 @@ class _ChatViewState extends State<ChatView>
     double s,
   ) {
     final empty = msgs.isEmpty;
+    // Opaque in-flow composer sits flush under the list, so keep a small
+    // fixed gap above it. Glass mode clears the measured pill instead.
+    final listBottom = _effBottom > 0.5 ? _effBottom : kOpaqueComposerGap;
     if (!empty) {
       final cache = widget.tileCache?.putIfAbsent(
         widget.channel,
@@ -365,7 +368,7 @@ class _ChatViewState extends State<ChatView>
           physics: _scrollPhysics(),
           padding: EdgeInsets.only(
             top: widget.topOverlayPadding,
-            bottom: _effBottom,
+            bottom: listBottom,
           ),
           keyboardDismissBehavior: widget.keyboardDismissBehavior,
           itemCount: msgs.length,
@@ -587,7 +590,7 @@ class _ChatViewState extends State<ChatView>
                 widget.onFindThreadRoot != null &&
                 widget.onShowThreadView != null &&
                 msg.replyToUser != null
-            ? _buildReplyIndicator(context, msg)
+            ? _buildReplyIndicator(context, msg, s)
             : null,
         checkeredMessages: widget.checkeredMessages,
         highlightOpacity: widget.highlightOpacity,
@@ -654,7 +657,11 @@ class _ChatViewState extends State<ChatView>
     return 'anon-${msg.timestamp.microsecondsSinceEpoch}-${msg.login}-${msg.text.hashCode}';
   }
 
-  Widget _buildReplyIndicator(BuildContext context, TwitchMessage msg) {
+  Widget _buildReplyIndicator(
+    BuildContext context,
+    TwitchMessage msg,
+    double scale,
+  ) {
     final preview = formatReplyPreview(msg.replyToText ?? '');
     final variant = Theme.of(context).colorScheme.onSurfaceVariant;
     return Padding(
@@ -667,12 +674,12 @@ class _ChatViewState extends State<ChatView>
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.subdirectory_arrow_right, size: 14, color: variant),
-            const SizedBox(width: 4),
+            Icon(Icons.reply, size: 16 * scale, color: variant),
+            SizedBox(width: 4 * scale),
             Flexible(
               child: Text(
-                'replying to ${msg.replyToUser ?? 'unknown'}: $preview',
-                style: TextStyle(fontSize: 11, color: variant),
+                'Replying to @${msg.replyToUser ?? 'unknown'}: $preview',
+                style: TextStyle(fontSize: 12 * scale, color: variant),
                 overflow: TextOverflow.ellipsis,
               ),
             ),

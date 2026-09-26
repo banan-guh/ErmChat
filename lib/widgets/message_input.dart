@@ -57,7 +57,6 @@ class MessageInput extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     final effectiveHint = hintText ?? 'Type a message...';
     return Padding(
       // In-flow the field sits flush under the list (top 0). In a glass
@@ -69,52 +68,7 @@ class MessageInput extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           if (replyToMsg != null && enabled && !searchMode)
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-              decoration: BoxDecoration(
-                color: theme.colorScheme.surfaceContainerHighest,
-                borderRadius: const BorderRadius.vertical(
-                  top: Radius.circular(8),
-                ),
-              ),
-              child: Row(
-                children: [
-                  Icon(Icons.reply, size: 16, color: theme.colorScheme.primary),
-                  const SizedBox(width: 6),
-                  Expanded(
-                    child: Text.rich(
-                      TextSpan(
-                        children: [
-                          TextSpan(
-                            text:
-                                'Replying to ${replyToMsg!.formattedUsername}',
-                            style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w600,
-                              color: theme.colorScheme.primary,
-                            ),
-                          ),
-                          TextSpan(
-                            text: ': ${formatReplyPreview(replyToMsg!.text)}',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: theme.colorScheme.onSurfaceVariant,
-                            ),
-                          ),
-                        ],
-                      ),
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                  IconButton(
-                    icon: Icon(Icons.close, size: 16),
-                    tooltip: 'Cancel reply',
-                    onPressed: onCancelReply,
-                    visualDensity: VisualDensity.compact,
-                  ),
-                ],
-              ),
-            ),
+            _ReplyHeader(message: replyToMsg!, onDismiss: onCancelReply),
           TextField(
             key: const Key('message_input'),
             controller: controller,
@@ -196,4 +150,169 @@ class MessageInput extends StatelessWidget {
       ),
     );
   }
+}
+
+// Reply target as a small card above the input, styled like the other sheets.
+// The framework BottomSheet owns the drag; the card slides out of its fixed
+// slot, so the composer only resizes when the reply opens or closes.
+class _ReplyHeader extends StatefulWidget {
+  const _ReplyHeader({required this.message, this.onDismiss});
+
+  final TwitchMessage message;
+  final VoidCallback? onDismiss;
+
+  @override
+  State<_ReplyHeader> createState() => _ReplyHeaderState();
+}
+
+class _ReplyHeaderState extends State<_ReplyHeader>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 220),
+  )..forward();
+
+  // The framework flings the controller to 0 on a dismiss drag; clear the
+  // reply once that settles so the collapse animation finishes first.
+  bool _closing = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller.addStatusListener(_onStatus);
+  }
+
+  void _onStatus(AnimationStatus status) {
+    if (_closing && status == AnimationStatus.dismissed) {
+      widget.onDismiss?.call();
+    }
+  }
+
+  // A short sheet reaches 0 during the drag itself, so the status listener
+  // never sees a fresh transition; dismiss now in that case.
+  void _handleClosing() {
+    if (_controller.status == AnimationStatus.dismissed) {
+      widget.onDismiss?.call();
+    } else {
+      _closing = true;
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    // FractionalTranslation, not SizeTransition: the layout slot stays a fixed
+    // height while dragging, so the chat viewport never resizes mid-gesture.
+    // The clip cuts only the bottom edge, so the card slides away behind the
+    // input bar while its shadow can still spill above and to the sides.
+    return ClipRect(
+      clipper: const _BottomClipper(),
+      child: AnimatedBuilder(
+        animation: _controller,
+        builder: (context, child) => FractionalTranslation(
+          translation: Offset(0, 1 - _controller.value),
+          child: child,
+        ),
+        child: BottomSheet(
+          animationController: _controller,
+          enableDrag: true,
+          showDragHandle: false,
+          onClosing: _handleClosing,
+          backgroundColor: Colors.transparent,
+          elevation: 0,
+          builder: (ctx) => Container(
+            margin: const EdgeInsets.all(4),
+            decoration: BoxDecoration(
+              color: theme.colorScheme.surfaceContainerLow,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: theme.colorScheme.outlineVariant),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.12),
+                  blurRadius: 12,
+                  offset: const Offset(0, -2),
+                ),
+              ],
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.only(top: 8, bottom: 8),
+                  child: SizedBox(
+                    width: 32,
+                    height: 4,
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade400,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.reply,
+                        size: 16,
+                        color: theme.colorScheme.primary,
+                      ),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text.rich(
+                          TextSpan(
+                            children: [
+                              TextSpan(
+                                text:
+                                    'Replying to @${widget.message.formattedUsername}',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                  color: theme.colorScheme.primary,
+                                ),
+                              ),
+                              TextSpan(
+                                text:
+                                    ': ${formatReplyPreview(widget.message.text)}',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: theme.colorScheme.onSurfaceVariant,
+                                ),
+                              ),
+                            ],
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// Clips only the bottom edge, so the card can slide behind the input bar
+// while its shadow still spills above and to the sides.
+class _BottomClipper extends CustomClipper<Rect> {
+  const _BottomClipper();
+
+  @override
+  Rect getClip(Size size) =>
+      Rect.fromLTRB(-1000, -1000, size.width + 1000, size.height);
+
+  @override
+  bool shouldReclip(_BottomClipper oldClipper) => false;
 }

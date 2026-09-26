@@ -59,6 +59,7 @@ class ChatBody extends StatefulWidget {
     this.composer,
     this.notice,
     this.isInPip = false,
+    this.replyActive = false,
   });
 
   final ChatBodyBuilder bodyBuilder;
@@ -82,6 +83,11 @@ class ChatBody extends StatefulWidget {
   /// panels, picker, autocomplete, and notice stay out of the tree so the
   /// OS window shows just the video (the activity is what shrinks).
   final bool isInPip;
+
+  /// Whether a reply target is set. The composer grows to hold the reply
+  /// header; when this flips false the composer snaps back instead of
+  /// animating, so dismissing a reply never smooth-resizes the chat.
+  final bool replyActive;
 
   /// Inline notice bar floating over the chat, anchored above the composer.
   /// In the body stack (not the Scaffold overlay), so it tracks keyboard
@@ -107,6 +113,9 @@ class _ChatBodyState extends State<ChatBody> {
   // Exit-animation mount gate: the pill stays in the tree while fading
   // out, then unmounts in AnimatedOpacity.onEnd.
   bool _pillShown = false;
+
+  // Previous reply state, so the composer can snap on the dismiss frame.
+  bool _prevReplyActive = false;
 
   // Debounced lift for decisions only. Raw ticks are smooth on their own;
   // replaying each one into chrome/video/sheet rules makes those flip
@@ -153,6 +162,7 @@ class _ChatBodyState extends State<ChatBody> {
   @override
   void didUpdateWidget(ChatBody oldWidget) {
     super.didUpdateWidget(oldWidget);
+    _prevReplyActive = oldWidget.replyActive;
     _handleRawKeyboardH(widget.keyboardH);
   }
 
@@ -408,7 +418,11 @@ class _ChatBodyState extends State<ChatBody> {
         ),
         if (!widget.isInPip)
           AnimatedSize(
-            duration: const Duration(milliseconds: 220),
+            // Reply dismissal snaps the composer back instead of animating;
+            // every other size change keeps the normal transition.
+            duration: !widget.replyActive && _prevReplyActive
+                ? Duration.zero
+                : const Duration(milliseconds: 220),
             curve: Curves.easeInOut,
             alignment: Alignment.bottomCenter,
             child: AnimatedOpacity(

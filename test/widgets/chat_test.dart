@@ -2168,7 +2168,7 @@ void main() {
 
           await tester.tap(
             find.textContaining(
-              'replying to alice: parent msg',
+              'Replying to @alice: parent msg',
               skipOffstage: false,
             ),
           );
@@ -2327,7 +2327,7 @@ void main() {
 
           await tester.tap(
             find.textContaining(
-              'replying to bob: mid level',
+              'Replying to @bob: mid level',
               skipOffstage: false,
             ),
           );
@@ -2388,7 +2388,7 @@ void main() {
         await tester.pump();
 
         await tester.tap(
-          find.textContaining('replying to alice', skipOffstage: false),
+          find.textContaining('Replying to @alice', skipOffstage: false),
         );
         await tester.pumpAndSettle();
         expect(find.text('Threads', skipOffstage: false), findsOneWidget);
@@ -2469,7 +2469,7 @@ void main() {
 
           await tester.tap(
             find.textContaining(
-              'replying to unknown_user: missing text',
+              'Replying to @unknown_user: missing text',
               skipOffstage: false,
             ),
           );
@@ -2526,7 +2526,7 @@ void main() {
 
       await tester.tap(
         find.textContaining(
-          'replying to alice: parent msg',
+          'Replying to @alice: parent msg',
           skipOffstage: false,
         ),
       );
@@ -2588,7 +2588,7 @@ void main() {
         await tester.pump();
         await tester.tap(
           find.textContaining(
-            'replying to alice: parent msg',
+            'Replying to @alice: parent msg',
             skipOffstage: false,
           ),
         );

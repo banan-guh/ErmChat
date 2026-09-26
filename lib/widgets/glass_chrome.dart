@@ -9,6 +9,9 @@ const double kGlassTabStripHeight = 40.0;
 const double kGlassComposerMargin = 6.0;
 const double kGlassComposerRadius = 20.0;
 
+// Gap the list keeps above the in-flow composer when the glass pill is off.
+const double kOpaqueComposerGap = 4.0;
+
 // Full overlay header height: status bar plus app bar row plus tab strip.
 double glassHeaderHeight(BuildContext context) =>
     MediaQuery.paddingOf(context).top +

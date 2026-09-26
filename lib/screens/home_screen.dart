@@ -1806,6 +1806,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                   )
                 : null,
             notice: ChatNoticeBar(controller: _chatNotice),
+            replyActive: _composer.replyToMsg != null,
             liquidGlass: _liquidGlass,
           ),
         ),
