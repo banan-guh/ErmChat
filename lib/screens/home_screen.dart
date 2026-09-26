@@ -50,6 +50,7 @@ import '../widgets/app_snack.dart';
 import '../widgets/broadcast_widgets.dart';
 import '../widgets/chat_body.dart';
 import '../widgets/chat_notice_bar.dart';
+import '../widgets/message_input.dart';
 import '../composer/composer_bar.dart';
 import '../composer/composer_controller.dart';
 import '../sheets/message_menu.dart';
@@ -1701,6 +1702,17 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     );
     // Plain system insets drive the Scaffold resize directly.
     final keyboardH = MediaQuery.viewInsetsOf(context).bottom;
+    // Reply card floats above the composer. Hidden while search or the terms
+    // box borrows the input, and while the composer is disabled.
+    final replyMsg = _composer.replyToMsg;
+    final replyHeader =
+        _showInput &&
+            replyMsg != null &&
+            _composer.enabled &&
+            !_search.open &&
+            !_mod.termsInputActive
+        ? ReplyHeader(message: replyMsg, onDismiss: _composer.clearReply)
+        : null;
     return PopScope(
       canPop:
           !_isFullscreen &&
@@ -1806,7 +1818,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                   )
                 : null,
             notice: ChatNoticeBar(controller: _chatNotice),
-            replyActive: _composer.replyToMsg != null,
+            replyHeader: replyHeader,
             liquidGlass: _liquidGlass,
           ),
         ),
@@ -1826,6 +1838,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   /// then wide split, else the stacked portrait player above chat.
   Widget _buildEmotePicker({required double sheetBoxHeight}) {
     return Positioned(
+      key: const ValueKey('emote_picker'),
       bottom: 0,
       left: 0,
       right: 0,

@@ -45,17 +45,24 @@ class GlassChromeScope extends InheritedWidget {
   const GlassChromeScope({
     super.key,
     required this.bottomClearance,
+    this.listExtra = 0,
     required super.child,
   });
 
   final double bottomClearance;
+
+  /// Extra bottom padding the scrolling lists add on top of [bottomClearance]
+  /// without moving the scroll-down button. Used for overlays that float above
+  /// the composer, like the reply header.
+  final double listExtra;
 
   static GlassChromeScope? maybeOf(BuildContext context) =>
       context.dependOnInheritedWidgetOfExactType<GlassChromeScope>();
 
   @override
   bool updateShouldNotify(GlassChromeScope oldWidget) =>
-      bottomClearance != oldWidget.bottomClearance;
+      bottomClearance != oldWidget.bottomClearance ||
+      listExtra != oldWidget.listExtra;
 }
 
 // Styled glass: thickness refracts rows scrolling underneath so light

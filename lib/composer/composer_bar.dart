@@ -100,8 +100,6 @@ class ComposerBar extends StatelessWidget {
                 onSendLongPress: controller.recallLastSent,
                 onTap: controller.onTapClearSuggestions,
                 onEmoteToggle: controller.toggleEmoteMenu,
-                replyToMsg: controller.replyToMsg,
-                onCancelReply: controller.clearReply,
                 enabled: controller.enabled,
                 hintText: controller.hintText,
                 inputFormatters: [controller.autocompleteRevert],

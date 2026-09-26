@@ -58,8 +58,8 @@ class ChatBody extends StatefulWidget {
     this.onKeyboardDismissed,
     this.composer,
     this.notice,
+    this.replyHeader,
     this.isInPip = false,
-    this.replyActive = false,
   });
 
   final ChatBodyBuilder bodyBuilder;
@@ -84,10 +84,8 @@ class ChatBody extends StatefulWidget {
   /// OS window shows just the video (the activity is what shrinks).
   final bool isInPip;
 
-  /// Whether a reply target is set. The composer grows to hold the reply
-  /// header; when this flips false the composer snaps back instead of
-  /// animating, so dismissing a reply never smooth-resizes the chat.
-  final bool replyActive;
+  /// Reply target card floated above the composer. Null when not replying.
+  final Widget? replyHeader;
 
   /// Inline notice bar floating over the chat, anchored above the composer.
   /// In the body stack (not the Scaffold overlay), so it tracks keyboard
@@ -114,8 +112,16 @@ class _ChatBodyState extends State<ChatBody> {
   // out, then unmounts in AnimatedOpacity.onEnd.
   bool _pillShown = false;
 
-  // Previous reply state, so the composer can snap on the dismiss frame.
-  bool _prevReplyActive = false;
+  // Measured reply header height. Added to the list clearance so rows clear
+  // the floating card without the composer resizing.
+  double _replyH = 0;
+  final _replyKey = GlobalKey();
+
+  void _cacheReplyH() {
+    if (!mounted) return;
+    final h = _replyKey.currentContext?.size?.height ?? 0;
+    if ((h - _replyH).abs() > 0.5) setState(() => _replyH = h);
+  }
 
   // Debounced lift for decisions only. Raw ticks are smooth on their own;
   // replaying each one into chrome/video/sheet rules makes those flip
@@ -162,7 +168,6 @@ class _ChatBodyState extends State<ChatBody> {
   @override
   void didUpdateWidget(ChatBody oldWidget) {
     super.didUpdateWidget(oldWidget);
-    _prevReplyActive = oldWidget.replyActive;
     _handleRawKeyboardH(widget.keyboardH);
   }
 
@@ -242,6 +247,9 @@ class _ChatBodyState extends State<ChatBody> {
     if (composer != null) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _cacheComposerH());
     }
+    if (widget.replyHeader != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _cacheReplyH());
+    }
     // Glass pill footprint, shared with the list bottom padding upstream.
     // collapseChromeForKeyboard needs the box height, which only exists
     // inside the LayoutBuilder below; the learned full height estimates it
@@ -305,6 +313,7 @@ class _ChatBodyState extends State<ChatBody> {
               );
               return GlassChromeScope(
                 bottomClearance: pill ? pillH : 0,
+                listExtra: widget.replyHeader != null ? _replyH : 0,
                 child: Stack(
                   clipBehavior: Clip.hardEdge,
                   children: [
@@ -316,6 +325,29 @@ class _ChatBodyState extends State<ChatBody> {
                       keyboardH: keyboardH,
                       composerH: composerH,
                     ),
+                    Positioned(
+                      key: const ValueKey('reply_header'),
+                      left: (pill ? kGlassComposerMargin : 8.0) - 4,
+                      right: (pill ? kGlassComposerMargin : 8.0) - 4,
+                      bottom: pill ? pillH : 0,
+                      child:
+                          NotificationListener<SizeChangedLayoutNotification>(
+                            onNotification: (_) {
+                              WidgetsBinding.instance.addPostFrameCallback(
+                                (_) => _cacheReplyH(),
+                              );
+                              return true;
+                            },
+                            child: SizeChangedLayoutNotifier(
+                              child: KeyedSubtree(
+                                key: _replyKey,
+                                child:
+                                    widget.replyHeader ??
+                                    const SizedBox.shrink(),
+                              ),
+                            ),
+                          ),
+                    ),
                     widget.threadPanel,
                     widget.mentionsPanel,
                     widget.modViewPanel,
@@ -326,6 +358,7 @@ class _ChatBodyState extends State<ChatBody> {
                     // Autocomplete dropdown - floats above chat, anchored just
                     // above the message input, 60% width like DankChat's popup.
                     Positioned(
+                      key: const ValueKey('autocomplete'),
                       bottom: pill ? pillH : 0,
                       left: 0,
                       child: SizedBox(
@@ -346,6 +379,7 @@ class _ChatBodyState extends State<ChatBody> {
                     // never resizes the chat.
                     if (widget.notice != null)
                       Positioned(
+                        key: const ValueKey('chat_notice'),
                         bottom: pill ? pillH : 0,
                         left: 0,
                         right: 0,
@@ -360,6 +394,7 @@ class _ChatBodyState extends State<ChatBody> {
                     // stays mounted through the exit fade via [_pillShown].
                     if (pill || _pillShown)
                       Positioned(
+                        key: const ValueKey('composer_pill'),
                         left: kGlassComposerMargin,
                         right: kGlassComposerMargin,
                         bottom: 0,
@@ -418,11 +453,7 @@ class _ChatBodyState extends State<ChatBody> {
         ),
         if (!widget.isInPip)
           AnimatedSize(
-            // Reply dismissal snaps the composer back instead of animating;
-            // every other size change keeps the normal transition.
-            duration: !widget.replyActive && _prevReplyActive
-                ? Duration.zero
-                : const Duration(milliseconds: 220),
+            duration: const Duration(milliseconds: 220),
             curve: Curves.easeInOut,
             alignment: Alignment.bottomCenter,
             child: AnimatedOpacity(

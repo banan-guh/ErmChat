@@ -205,6 +205,7 @@ class _ChatViewState extends State<ChatView>
   // falls back to the scope so surfaces without threaded params (welcome,
   // panels) still clear the floating pill. Set at the top of every build.
   double _effBottom = 0;
+  double _listExtra = 0;
 
   @override
   void initState() {
@@ -249,9 +250,11 @@ class _ChatViewState extends State<ChatView>
     super.build(context);
     final surface = Theme.of(context).scaffoldBackgroundColor;
     final s = widget.chatFontScale * _cachedSystemScale;
+    final glassScope = GlassChromeScope.maybeOf(context);
     _effBottom = widget.bottomOverlayPadding > 0.5
         ? widget.bottomOverlayPadding
-        : (GlassChromeScope.maybeOf(context)?.bottomClearance ?? 0);
+        : (glassScope?.bottomClearance ?? 0);
+    _listExtra = glassScope?.listExtra ?? 0;
     return Stack(
       clipBehavior: Clip.hardEdge,
       children: [
@@ -348,7 +351,8 @@ class _ChatViewState extends State<ChatView>
     final empty = msgs.isEmpty;
     // Opaque in-flow composer sits flush under the list, so keep a small
     // fixed gap above it. Glass mode clears the measured pill instead.
-    final listBottom = _effBottom > 0.5 ? _effBottom : kOpaqueComposerGap;
+    final listBottom =
+        (_effBottom > 0.5 ? _effBottom : kOpaqueComposerGap) + _listExtra;
     if (!empty) {
       final cache = widget.tileCache?.putIfAbsent(
         widget.channel,

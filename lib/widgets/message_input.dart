@@ -9,8 +9,6 @@ class MessageInput extends StatelessWidget {
   final VoidCallback onSend;
   final VoidCallback? onSendLongPress;
   final VoidCallback? onEmoteToggle;
-  final TwitchMessage? replyToMsg;
-  final VoidCallback? onCancelReply;
   final VoidCallback? onTap;
   final ValueChanged<String>? onChanged;
   final ValueChanged<String>? onSubmitted;
@@ -18,7 +16,7 @@ class MessageInput extends StatelessWidget {
   final String? hintText;
   final List<TextInputFormatter>? inputFormatters;
 
-  // Search mode: hides the reply banner. Prefix/suffix slots take over.
+  // Search mode: single-line field; prefix/suffix slots take over.
   final bool searchMode;
 
   // Inside a glass pill the container draws the rim, so the field drops
@@ -39,8 +37,6 @@ class MessageInput extends StatelessWidget {
     this.onSubmitted,
     this.onSendLongPress,
     this.onEmoteToggle,
-    this.replyToMsg,
-    this.onCancelReply,
     this.enabled = true,
     this.hintText,
     this.inputFormatters,
@@ -67,8 +63,6 @@ class MessageInput extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          if (replyToMsg != null && enabled && !searchMode)
-            _ReplyHeader(message: replyToMsg!, onDismiss: onCancelReply),
           TextField(
             key: const Key('message_input'),
             controller: controller,
@@ -152,20 +146,20 @@ class MessageInput extends StatelessWidget {
   }
 }
 
-// Reply target as a small card above the input, styled like the other sheets.
-// The framework BottomSheet owns the drag; the card slides out of its fixed
-// slot, so the composer only resizes when the reply opens or closes.
-class _ReplyHeader extends StatefulWidget {
-  const _ReplyHeader({required this.message, this.onDismiss});
+// Reply target card floated above the composer. The framework BottomSheet
+// owns the drag; the card slides out of its fixed slot, so the composer never
+// resizes and the chat only moves when the reply opens or closes.
+class ReplyHeader extends StatefulWidget {
+  const ReplyHeader({super.key, required this.message, this.onDismiss});
 
   final TwitchMessage message;
   final VoidCallback? onDismiss;
 
   @override
-  State<_ReplyHeader> createState() => _ReplyHeaderState();
+  State<ReplyHeader> createState() => _ReplyHeaderState();
 }
 
-class _ReplyHeaderState extends State<_ReplyHeader>
+class _ReplyHeaderState extends State<ReplyHeader>
     with SingleTickerProviderStateMixin {
   late final AnimationController _controller = AnimationController(
     vsync: this,
@@ -227,7 +221,7 @@ class _ReplyHeaderState extends State<_ReplyHeader>
           backgroundColor: Colors.transparent,
           elevation: 0,
           builder: (ctx) => Container(
-            margin: const EdgeInsets.all(4),
+            margin: const EdgeInsets.fromLTRB(4, 4, 4, 6),
             decoration: BoxDecoration(
               color: theme.colorScheme.surfaceContainerLow,
               borderRadius: BorderRadius.circular(16),
@@ -262,8 +256,8 @@ class _ReplyHeaderState extends State<_ReplyHeader>
                     children: [
                       Icon(
                         Icons.reply,
-                        size: 16,
-                        color: theme.colorScheme.primary,
+                        size: 20,
+                        color: theme.colorScheme.onSurfaceVariant,
                       ),
                       const SizedBox(width: 6),
                       Expanded(
@@ -274,16 +268,16 @@ class _ReplyHeaderState extends State<_ReplyHeader>
                                 text:
                                     'Replying to @${widget.message.formattedUsername}',
                                 style: TextStyle(
-                                  fontSize: 12,
+                                  fontSize: 16,
                                   fontWeight: FontWeight.w600,
-                                  color: theme.colorScheme.primary,
+                                  color: theme.colorScheme.onSurfaceVariant,
                                 ),
                               ),
                               TextSpan(
                                 text:
                                     ': ${formatReplyPreview(widget.message.text)}',
                                 style: TextStyle(
-                                  fontSize: 12,
+                                  fontSize: 16,
                                   color: theme.colorScheme.onSurfaceVariant,
                                 ),
                               ),
