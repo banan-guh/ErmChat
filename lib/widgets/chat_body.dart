@@ -134,15 +134,6 @@ class _ChatBodyState extends State<ChatBody> {
   double _lastRawH = 0;
   Timer? _settleTimer;
 
-  // Distance the composer's content bottom rides above the physical screen
-  // bottom (keyboard inset plus the safe area it does not cover), held
-  // monotonic across a keyboard gesture. The platform can report the final
-  // system-bar inset on the first animated frame, and a nav-bar hide or a
-  // one-frame TextInput reset would otherwise drop the composer before the
-  // rising keyboard lifts it again. Held so it only travels with the keyboard.
-  double _heldBottomOffset = 0;
-  double _prevRawH = 0;
-
   // Last learned open height, persisted so decisions start right even on a
   // cold start. Re-learned every session, so a stale value self-corrects.
   void _loadSettledHeight() async {
@@ -253,22 +244,6 @@ class _ChatBodyState extends State<ChatBody> {
     final keyboardH = _liftH;
     final rawH = widget.keyboardH;
     final bottomPad = MediaQuery.paddingOf(context).bottom;
-    // See [_heldBottomOffset]: compose the live safe area, then keep the
-    // composer's distance from the screen bottom from reversing mid-gesture.
-    final liveOffset = rawH + bottomPad;
-    if (rawH <= 0.5) {
-      // Zero for two straight frames is rest: adopt the live safe area. A
-      // single zero frame mid-gesture is the engine clearing the TextInput
-      // client (focus/edit churn), so hold and let composerPad compensate
-      // instead of dropping the composer to the bottom for a frame.
-      if (_prevRawH <= 0.5) _heldBottomOffset = liveOffset;
-    } else if (rawH > _prevRawH) {
-      if (liveOffset > _heldBottomOffset) _heldBottomOffset = liveOffset;
-    } else if (rawH < _prevRawH) {
-      if (liveOffset < _heldBottomOffset) _heldBottomOffset = liveOffset;
-    }
-    _prevRawH = rawH;
-    final composerPad = (_heldBottomOffset - rawH).clamp(0.0, double.infinity);
     final composer = widget.composer;
     // Cache the settled composer height after layout for keyboard-room
     // math; converges after one extra frame on height changes.
@@ -298,7 +273,7 @@ class _ChatBodyState extends State<ChatBody> {
     // the keyboard inset on the same frame instead of lagging one frame.
     final composerH = composer == null
         ? 0.0
-        : _composerH + composerPad + (pill ? kGlassComposerMargin : 0.0);
+        : _composerH + bottomPad + (pill ? kGlassComposerMargin : 0.0);
     final pillH = glassComposerOverlayHeight(composerH);
     if (pill) {
       _pillShown = true;
@@ -454,7 +429,7 @@ class _ChatBodyState extends State<ChatBody> {
                               child: Padding(
                                 key: inputBarKey,
                                 padding: EdgeInsets.only(
-                                  bottom: composerPad + kGlassComposerMargin,
+                                  bottom: bottomPad + kGlassComposerMargin,
                                 ),
                                 child:
                                     NotificationListener<
@@ -496,7 +471,7 @@ class _ChatBodyState extends State<ChatBody> {
           // pill and the in-flow never mount together: one shared inputBarKey
           // keeps the composer's FocusNode alive across the hand-off.
           Padding(
-            padding: EdgeInsets.only(bottom: pill ? 0.0 : composerPad),
+            padding: EdgeInsets.only(bottom: pill ? 0.0 : bottomPad),
             child: AnimatedSize(
               duration: const Duration(milliseconds: 220),
               curve: Curves.easeInOut,

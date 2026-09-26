@@ -93,9 +93,11 @@ different symptom: the composer's motion *during* a keyboard gesture.
   zone. The composer parks at `screenH - max(viewInsets, viewPadding)`, so
   `max(...)` drops and the composer falls, then the rising IME lifts it back.
   A one-frame `viewInsets = 0` (TextInput client reset) does the same.
-  Reproduced frame-by-frame in `test/widgets/composer_keyboard_snap_test.dart`.
+  Reproduced frame-by-frame in a widget test (commit `9146742`; reverted with
+  the hold below).
 - An app-side monotonic hold ("composerPad") made that widget test pass but
-  did NOT change the symptom on the SM S721W. Cause still open.
+  did NOT change the symptom on the SM S721W. Tried and reverted; cause still
+  open.
 
 ### Composer geometry and history
 
