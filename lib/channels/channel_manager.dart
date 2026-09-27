@@ -27,26 +27,6 @@ import '../util/log.dart';
 import '../util/prefs.dart';
 import '../widgets/broadcast_widgets.dart';
 
-// Shell-owned state the channel manager reads but does not own.
-abstract class ChannelManagerHost extends ShellState {
-  @override
-  String? get selectedChannel;
-  set selectedChannel(String? value);
-  bool isMounted();
-  void markDirty();
-  void mutate(void Function() fn);
-  Future<void> closePanel();
-  void addSystemMessage(String channel, String text);
-  int get maxMessages;
-  int get recentMessagesLimit;
-  bool get mentionPush;
-  ValueNotifier<bool> atBottomNotifier(String channel);
-  void disposeChannelNotifiers(String channel);
-  void forgetAtBottomNotifier(String channel);
-  void forgetSearch(String channel);
-  void invalidateCaches();
-}
-
 // Channel membership, history backfill, and selection: the join/leave
 // plumbing, robotty history merge, join-queue progress lines, and the
 // single selection commit behind swipe-tick focus and settle/tab-tap.
@@ -75,7 +55,21 @@ class ChannelManager {
     required this.recentMessagesService,
     required this.mentionsChannel,
     required this.history,
-    required this.host,
+    required this.selectedChannel,
+    required this.setSelectedChannel,
+    required this.isMounted,
+    required this.markDirty,
+    required this.mutate,
+    required this.closePanel,
+    required this.addSystemMessage,
+    required this.maxMessages,
+    required this.recentMessagesLimit,
+    required this.mentionPush,
+    required this.atBottomNotifier,
+    required this.disposeChannelNotifiers,
+    required this.forgetAtBottomNotifier,
+    required this.forgetSearch,
+    required this.invalidateCaches,
   });
 
   final Session session;
@@ -101,7 +95,21 @@ class ChannelManager {
   final RecentMessagesService? recentMessagesService;
   final String mentionsChannel;
   final ChatHistoryController history;
-  final ChannelManagerHost host;
+  final String? Function() selectedChannel;
+  final void Function(String? channel) setSelectedChannel;
+  final bool Function() isMounted;
+  final VoidCallback markDirty;
+  final void Function(void Function() fn) mutate;
+  final Future<void> Function() closePanel;
+  final void Function(String channel, String text) addSystemMessage;
+  final int Function() maxMessages;
+  final int Function() recentMessagesLimit;
+  final bool Function() mentionPush;
+  final ValueNotifier<bool> Function(String channel) atBottomNotifier;
+  final void Function(String channel) disposeChannelNotifiers;
+  final void Function(String channel) forgetAtBottomNotifier;
+  final void Function(String channel) forgetSearch;
+  final VoidCallback invalidateCaches;
 
   bool _channelsLoaded = false;
   final _generations = <String, int>{};
@@ -113,7 +121,7 @@ class ChannelManager {
   RecentMessagesConfig recentMessagesConfig = RecentMessagesConfig();
 
   void truncateChannel(String channel) {
-    chat.channelFor(channel)?.truncate(host.maxMessages);
+    chat.channelFor(channel)?.truncate(maxMessages());
   }
 
   Future<void> saveChannels([List<String>? names]) async {
@@ -124,11 +132,11 @@ class ChannelManager {
   void reorderChannels(List<String> reordered) {
     chat.reorder(reordered);
     channelNotifier.value = List.of(chat.names);
-    if (host.selectedChannel != null) {
-      final newIdx = chat.names.indexOf(host.selectedChannel!);
+    if (selectedChannel() != null) {
+      final newIdx = chat.names.indexOf(selectedChannel()!);
       if (newIdx >= 0) selectedTabIndex.value = newIdx;
     }
-    if (host.isMounted()) host.markDirty();
+    if (isMounted()) markDirty();
     saveChannels();
   }
 
@@ -143,22 +151,22 @@ class ChannelManager {
     for (final name in saved) {
       if (chat.contains(name)) continue;
       chat.ensure(name);
-      host.atBottomNotifier(name).value = true;
+      atBottomNotifier(name).value = true;
     }
     channelNotifier.value = List.of(chat.names);
-    host.selectedChannel = chat.names.first;
+    setSelectedChannel(chat.names.first);
     selectedTabIndex.value = 0;
-    if (host.isMounted()) host.markDirty();
+    if (isMounted()) markDirty();
     for (final name in saved) {
       subscribeChannel(name);
       recentMessages
-          .fetchRecentPreferWarm(name, limit: host.recentMessagesLimit)
+          .fetchRecentPreferWarm(name, limit: recentMessagesLimit())
           .then((rows) {
-            if (!host.isMounted() || !chat.contains(name)) return;
+            if (!isMounted() || !chat.contains(name)) return;
             chat.channelFor(name)?.setHistoryLoaded(true);
-            host.mutate(() {
+            mutate(() {
               if (rows.isEmpty) {
-                host.addSystemMessage(name, 'No chat history available');
+                addSystemMessage(name, 'No chat history available');
               } else {
                 history.mergeHistory(name, rows);
               }
@@ -166,9 +174,9 @@ class ChannelManager {
             maybeAddConnected(name);
           })
           .catchError((e) {
-            if (!host.isMounted() || !chat.contains(name)) return;
+            if (!isMounted() || !chat.contains(name)) return;
             chat.channelFor(name)?.setHistoryLoaded(true);
-            host.addSystemMessage(
+            addSystemMessage(
               name,
               e is RecentMessagesException
                   ? e.message
@@ -206,11 +214,11 @@ class ChannelManager {
     if (chat.length >= kMaxChannels) return;
 
     _generations[name] = (_generations[name] ?? 0) + 1;
-    host.mutate(() {
+    mutate(() {
       chat.ensure(name);
       channelNotifier.value = List.of(chat.names);
-      host.atBottomNotifier(name).value = true;
-      host.selectedChannel = name;
+      atBottomNotifier(name).value = true;
+      setSelectedChannel(name);
       selectedTabIndex.value = chat.names.length - 1;
     });
     saveChannels();
@@ -219,14 +227,14 @@ class ChannelManager {
     chat.channelFor(name)?.addLoadingHistory();
 
     recentMessages
-        .fetchRecentPreferWarm(name, limit: host.recentMessagesLimit)
+        .fetchRecentPreferWarm(name, limit: recentMessagesLimit())
         .then((rows) {
-          if (!host.isMounted() || !chat.contains(name)) return;
+          if (!isMounted() || !chat.contains(name)) return;
           chat.channelFor(name)?.setHistoryLoaded(true);
-          host.mutate(() {
+          mutate(() {
             removeLoadingHistoryMessage(name);
             if (rows.isEmpty) {
-              host.addSystemMessage(name, 'No chat history available');
+              addSystemMessage(name, 'No chat history available');
             } else {
               history.mergeHistory(name, rows);
             }
@@ -234,11 +242,11 @@ class ChannelManager {
           maybeAddConnected(name);
         })
         .catchError((e) {
-          if (!host.isMounted() || !chat.contains(name)) return;
+          if (!isMounted() || !chat.contains(name)) return;
           chat.channelFor(name)?.setHistoryLoaded(true);
-          host.mutate(() {
+          mutate(() {
             removeLoadingHistoryMessage(name);
-            host.addSystemMessage(
+            addSystemMessage(
               name,
               e is RecentMessagesException
                   ? e.message
@@ -252,7 +260,7 @@ class ChannelManager {
     await subscribeChannel(name);
     chatConn.focusChannel(name);
 
-    if (host.isMounted()) host.markDirty();
+    if (isMounted()) markDirty();
   }
 
   void removeChannel(String channel) {
@@ -268,33 +276,33 @@ class ChannelManager {
     broadcastWidgets.clearChannel(channel);
     // Same-frame cache clears first so no stale tile survives the unmount.
     tileCache.remove(channel);
-    host.invalidateCaches();
+    invalidateCaches();
     final generation = (_generations[channel] ?? 0) + 1;
     _generations[channel] = generation;
-    host.mutate(() {
+    mutate(() {
       channelNotifier.value = List.of(chat.names.where((c) => c != channel));
       userStore.removeChannel(channel);
       threads.forgetChannel(channel);
-      if (host.selectedChannel == channel) {
+      if (selectedChannel() == channel) {
         final remaining = chat.names.where((c) => c != channel).toList();
-        host.selectedChannel = remaining.isNotEmpty ? remaining.last : null;
+        setSelectedChannel(remaining.isNotEmpty ? remaining.last : null);
         if (remaining.isNotEmpty) {
           selectedTabIndex.value = remaining.length - 1;
         }
       }
       // After reselect so the search field syncs to the new channel.
-      host.forgetSearch(channel);
+      forgetSearch(channel);
     });
     // Channel disposal lands after the widgets listening to its notifiers
     // have unmounted. The generation guard skips disposal when a rejoin
     // recreated the channel before this callback ran.
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!host.isMounted()) return;
+      if (!isMounted()) return;
       if (_generations[channel] != generation) return;
       if (!chat.contains(channel)) return;
       chat.remove(channel);
-      host.disposeChannelNotifiers(channel);
-      host.forgetAtBottomNotifier(channel);
+      disposeChannelNotifiers(channel);
+      forgetAtBottomNotifier(channel);
     });
     saveChannels(chat.names.where((c) => c != channel).toList());
   }
@@ -307,12 +315,12 @@ class ChannelManager {
     final names = chat.names;
     if (index < 0 || index >= names.length) return;
     final channel = names[index];
-    if (host.selectedChannel == channel) return;
-    unawaited(host.closePanel());
+    if (selectedChannel() == channel) return;
+    unawaited(closePanel());
     var clearedUnread = 0;
     void mutate() {
       iosHaptic(HapticFeedback.selectionClick);
-      host.selectedChannel = channel;
+      setSelectedChannel(channel);
       composer.refreshCooldown();
       clearedUnread = chat.clearUnread(channel);
       threads.clearOpenThread();
@@ -320,14 +328,14 @@ class ChannelManager {
     }
 
     if (rebuild) {
-      host.mutate(mutate);
+      this.mutate(mutate);
     } else {
       mutate();
       // Focus changes (swipes) skip the setState path, so bump the bell's
       // notifier directly to refresh the badge color.
       if (clearedUnread > 0) chat.touchMentions();
     }
-    if (clearedUnread > 0 && host.mentionPush) {
+    if (clearedUnread > 0 && mentionPush()) {
       unawaited(notificationService.clearMentionNotifications(channel));
     }
     broadcastWidgets.resetPage();
@@ -360,7 +368,7 @@ class ChannelManager {
   void setRecentMessagesMode(RecentMessagesConfig config) {
     if (recentMessagesService != null) return;
     recentMessagesConfig = config;
-    host.markDirty();
+    markDirty();
     recentMessages = RecentMessagesService(config: config);
     unawaited(Prefs.load().then((prefs) => config.toPrefs(prefs)));
   }

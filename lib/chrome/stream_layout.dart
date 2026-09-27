@@ -10,20 +10,6 @@ import '../widgets/stream_player_view.dart';
 import 'channel_stack.dart';
 import 'home_app_bar.dart';
 
-// Shell-owned state the stream layouts read but do not own.
-abstract class StreamPanelsHost {
-  String? get selectedChannel;
-  bool isMounted();
-  void markDirty();
-  void setStreamState(void Function() fn);
-  bool get showInput;
-  double get chatFontSize;
-  bool get isFullscreen;
-  bool get theaterChatVisible;
-  void toggleTheaterChat();
-  void onChannelChanged(int index);
-}
-
 // Pure rule for the stacked player: hide video when the keyboard leaves
 // under 9 chat lines; audio keeps playing. Extracted so unit tests cover
 // the threshold without a widget tree.
@@ -91,7 +77,15 @@ class StreamPanels {
     required this.chat,
     required this.channels,
     required this.homeAppBar,
-    required this.host,
+    required this.selectedChannel,
+    required this.isMounted,
+    required this.markDirty,
+    required this.setStreamState,
+    required this.chatFontSize,
+    required this.isFullscreen,
+    required this.theaterChatVisible,
+    required this.toggleTheaterChat,
+    required this.onChannelChanged,
   });
 
   static const audioBarHeight = 56.0;
@@ -104,7 +98,15 @@ class StreamPanels {
   final Chat chat;
   final ChannelPanels channels;
   final HomeAppBar homeAppBar;
-  final StreamPanelsHost host;
+  final String? Function() selectedChannel;
+  final bool Function() isMounted;
+  final VoidCallback markDirty;
+  final void Function(void Function() fn) setStreamState;
+  final double Function() chatFontSize;
+  final bool Function() isFullscreen;
+  final bool Function() theaterChatVisible;
+  final VoidCallback toggleTheaterChat;
+  final void Function(int index) onChannelChanged;
 
   bool _wasTheaterMode = false;
   bool? _lastAutoEnter;
@@ -112,19 +114,19 @@ class StreamPanels {
 
   void toggleStreamForSelected() {
     if (streamPlayer.isActive) {
-      host.setStreamState(() => streamPlayer.closeStream());
+      setStreamState(() => streamPlayer.closeStream());
       return;
     }
-    final channel = host.selectedChannel;
+    final channel = selectedChannel();
     if (channel == null) return;
-    host.setStreamState(() => streamPlayer.toggleStream(channel));
+    setStreamState(() => streamPlayer.toggleStream(channel));
   }
 
   void onStreamPlayerChanged() {
-    if (!host.isMounted()) return;
+    if (!isMounted()) return;
     final enteringTheater = streamPlayer.isTheaterMode && !_wasTheaterMode;
     _wasTheaterMode = streamPlayer.isTheaterMode;
-    host.markDirty();
+    markDirty();
     // OS auto-enter follows eligibility (active video + opted in), sent
     // only on flips to avoid channel spam. Mirrors DankChat's
     // shouldEnablePictureInPictureAutoMode flow.
@@ -143,9 +145,9 @@ class StreamPanels {
     if (!enteringTheater) return;
     final channel = streamPlayer.currentChannel;
     if (channel == null) return;
-    if (host.selectedChannel == channel) return;
+    if (selectedChannel() == channel) return;
     if (!chat.contains(channel)) return;
-    host.onChannelChanged(chat.names.indexOf(channel));
+    onChannelChanged(chat.names.indexOf(channel));
   }
 
   // DankChat shouldShowStream: hide video when the keyboard leaves under
@@ -164,7 +166,7 @@ class StreamPanels {
       maxHeight: maxHeight,
       keyboardH: keyboardH,
       inputH: inputH,
-      chatFontSize: host.chatFontSize,
+      chatFontSize: chatFontSize(),
     );
   }
 
@@ -209,7 +211,7 @@ class StreamPanels {
     return Stack(
       children: [
         Positioned.fill(child: playerView(channel, fillPane: true)),
-        if (host.theaterChatVisible)
+        if (theaterChatVisible())
           Positioned(
             top: 0,
             bottom: 0,
@@ -229,13 +231,13 @@ class StreamPanels {
           ),
         Positioned(
           bottom: 16,
-          right: host.theaterChatVisible ? panelW + 8 : 8,
+          right: theaterChatVisible() ? panelW + 8 : 8,
           child: FloatingActionButton.small(
             heroTag: 'theater_chat_toggle',
-            tooltip: host.theaterChatVisible ? 'Hide chat' : 'Show chat',
-            onPressed: host.toggleTheaterChat,
+            tooltip: theaterChatVisible() ? 'Hide chat' : 'Show chat',
+            onPressed: toggleTheaterChat,
             child: Icon(
-              host.theaterChatVisible ? Icons.visibility_off : Icons.visibility,
+              theaterChatVisible() ? Icons.visibility_off : Icons.visibility,
             ),
           ),
         ),
@@ -340,7 +342,7 @@ class StreamPanels {
     // card holds the app bar only (no tab strip) over the welcome view.
     if (liquidGlass &&
         !MediaQuery.highContrastOf(context) &&
-        !host.isFullscreen &&
+        !isFullscreen() &&
         !hideChromeForKeyboard &&
         channel == null) {
       final headerH = chat.names.isNotEmpty
@@ -377,7 +379,7 @@ class StreamPanels {
               ? Duration.zero
               : const Duration(milliseconds: 200),
           curve: Curves.easeInOut,
-          child: !host.isFullscreen && !hideChromeForKeyboard
+          child: !isFullscreen() && !hideChromeForKeyboard
               ? homeAppBar.appBar(context)
               : const SizedBox.shrink(),
         ),

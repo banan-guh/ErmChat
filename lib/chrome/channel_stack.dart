@@ -23,24 +23,6 @@ import 'home_app_bar.dart';
 // Fallback when the channel is gone; never bumps.
 final _emptyNotifier = ValueNotifier<int>(0);
 
-// Shell-owned state the channel stack reads but does not own.
-abstract class ChannelPanelsHost extends ShellState {
-  void commitChannelSelection(int index, {required bool rebuild});
-  void copyMessage(TwitchMessage msg);
-  double get chatFontSize;
-  bool get checkeredMessages;
-  double get highlightOpacity;
-  bool get lineSeparator;
-  String get sharedChatMode;
-  bool get showNamePaints;
-  bool get isFullscreen;
-  bool get fastSnap;
-  ValueNotifier<int> versionNotifier(String channel);
-  ValueNotifier<int> messageNotifier(String channel);
-  ValueNotifier<bool> atBottomNotifier(String channel);
-  ScrollController scrollCtrl(String channel);
-}
-
 // Channel tabs, ChatView stack, welcome view, and selection verbs.
 class ChannelPanels {
   ChannelPanels({
@@ -58,7 +40,22 @@ class ChannelPanels {
     required this.composer,
     required this.broadcastWidgets,
     required this.homeAppBar,
-    required this.host,
+    required this.selectedChannel,
+    required this.showTimestamps,
+    required this.timestampFormat,
+    required this.chatFontSize,
+    required this.checkeredMessages,
+    required this.highlightOpacity,
+    required this.lineSeparator,
+    required this.sharedChatMode,
+    required this.showNamePaints,
+    required this.isFullscreen,
+    required this.fastSnap,
+    required this.commitChannelSelection,
+    required this.copyMessage,
+    required this.messageNotifier,
+    required this.atBottomNotifier,
+    required this.scrollCtrl,
   });
 
   static const welcomeChannel = '__welcome__';
@@ -77,7 +74,23 @@ class ChannelPanels {
   final ComposerController composer;
   final BroadcastWidgets broadcastWidgets;
   final HomeAppBar homeAppBar;
-  final ChannelPanelsHost host;
+  final String? Function() selectedChannel;
+  final bool Function() showTimestamps;
+  final String Function() timestampFormat;
+  final double Function() chatFontSize;
+  final bool Function() checkeredMessages;
+  final double Function() highlightOpacity;
+  final bool Function() lineSeparator;
+  final String Function() sharedChatMode;
+  final bool Function() showNamePaints;
+  final bool Function() isFullscreen;
+  final bool Function() fastSnap;
+  final void Function(int index, {required bool rebuild})
+  commitChannelSelection;
+  final void Function(TwitchMessage msg) copyMessage;
+  final ValueNotifier<int> Function(String channel) messageNotifier;
+  final ValueNotifier<bool> Function(String channel) atBottomNotifier;
+  final ScrollController Function(String channel) scrollCtrl;
 
   late final Listenable _tabSharedMerge = Listenable.merge([
     selectedTabIndex,
@@ -124,9 +137,9 @@ class ChannelPanels {
   // tiles through inherited widgets, and late paints self-update inside
   // their own ListenableBuilder, so they need no token entry.
   String _pageToken() =>
-      '${search.open}|${host.showTimestamps}|${host.timestampFormat}|'
-      '${host.chatFontSize}|${host.checkeredMessages}|${host.highlightOpacity}|'
-      '${host.lineSeparator}|${host.sharedChatMode}|${host.showNamePaints}';
+      '${search.open}|${showTimestamps()}|${timestampFormat()}|'
+      '${chatFontSize()}|${checkeredMessages()}|${highlightOpacity()}|'
+      '${lineSeparator()}|${sharedChatMode()}|${showNamePaints()}';
 
   /// Drop cached pages and tabs, forcing rebuild on next channelStack.
   /// Use for future settings that change tile content without a channel
@@ -155,11 +168,11 @@ class ChannelPanels {
   }
 
   void onChannelFocusChanged(int index) {
-    host.commitChannelSelection(index, rebuild: false);
+    commitChannelSelection(index, rebuild: false);
   }
 
   void onChannelChanged(int index) {
-    host.commitChannelSelection(index, rebuild: true);
+    commitChannelSelection(index, rebuild: true);
   }
 
   /// Page for [channel], stable across rebuilds (see [_pageCache]).
@@ -190,25 +203,25 @@ class ChannelPanels {
         tileCache: tileCache,
         isDimmed: search.dimPredicate(channel),
         emptyText: search.emptyText(channel) ?? 'No messages yet',
-        atBottomNotifier: host.atBottomNotifier(channel),
+        atBottomNotifier: atBottomNotifier(channel),
         messageNotifier: active ? messageVersion : _emptyNotifier,
-        scrollController: host.scrollCtrl(channel),
+        scrollController: scrollCtrl(channel),
         messageBuilder: messageBuilder,
         linkWhitelist: linkWhitelist,
-        showTimestamp: host.showTimestamps,
-        timestampFormat: host.timestampFormat,
-        chatFontScale: host.chatFontSize / 14.0,
-        checkeredMessages: host.checkeredMessages,
-        highlightOpacity: host.highlightOpacity,
-        lineSeparator: host.lineSeparator,
-        sharedChatMode: host.sharedChatMode,
-        paintService: host.showNamePaints ? paintService : null,
+        showTimestamp: showTimestamps(),
+        timestampFormat: timestampFormat(),
+        chatFontScale: chatFontSize() / 14.0,
+        checkeredMessages: checkeredMessages(),
+        highlightOpacity: highlightOpacity(),
+        lineSeparator: lineSeparator(),
+        sharedChatMode: sharedChatMode(),
+        paintService: showNamePaints() ? paintService : null,
         topOverlayPadding: topPadding,
         bottomOverlayPadding: bottomPadding,
         onShowUserProfile: (login, userId, {displayName}) => userSheets
             .showUserProfile(context, login, userId, displayName: displayName),
         onShowMessageMenu: (msg) => menus.showMessageMenu(context, msg),
-        onCopyMessage: host.copyMessage,
+        onCopyMessage: copyMessage,
         onScrollActivity: (c) {
           chat.clearUnread(c);
         },
@@ -232,7 +245,7 @@ class ChannelPanels {
       listenable: _tabSharedMerge,
       builder: (ctx, _) {
         final focused = chat.names.indexOf(channel) == selectedTabIndex.value;
-        final selected = focused || channel == host.selectedChannel;
+        final selected = focused || channel == selectedChannel();
         final hasUnreadMention =
             chat.channelFor(channel)?.unread.hasMention ?? false;
         final theme = Theme.of(ctx);
@@ -323,16 +336,16 @@ class ChannelPanels {
           child: chat.names.isNotEmpty
               ? TabbedLayout(
                   tabs: chat.names,
-                  selectedIndex: chat.names.indexOf(host.selectedChannel ?? ''),
+                  selectedIndex: chat.names.indexOf(selectedChannel() ?? ''),
                   onSelectedIndexChanged: onChannelChanged,
                   onFocusChanged: onChannelFocusChanged,
                   onTabTapped: (index) {
                     final channel = chat.names[index];
-                    final ctrl = host.scrollCtrl(channel);
+                    final ctrl = scrollCtrl(channel);
                     if (ctrl.hasClients) ctrl.jumpTo(0);
-                    host.atBottomNotifier(channel).value = true;
+                    atBottomNotifier(channel).value = true;
                   },
-                  showTabBar: !host.isFullscreen && !hideChrome,
+                  showTabBar: !isFullscreen() && !hideChrome,
                   tabBarAnimationDuration: hideChrome
                       ? Duration.zero
                       : const Duration(milliseconds: 200),
@@ -351,7 +364,7 @@ class ChannelPanels {
                     );
                   },
                   focusOnHalfDrag: true,
-                  fastSnap: host.fastSnap,
+                  fastSnap: fastSnap(),
                   preloadAdjacentPages: true,
                   tabBuilder: (_, i) {
                     final channel = chat.names[i];
@@ -385,7 +398,7 @@ class ChannelPanels {
                 )
               : welcomeChatView(context),
         ),
-        if (host.selectedChannel != null)
+        if (selectedChannel() != null)
           Positioned(
             top: overlayTop,
             left: 0,
@@ -394,7 +407,7 @@ class ChannelPanels {
               valueListenable: broadcastWidgets.notifier,
               builder: (_, _, _) =>
                   broadcastWidgets.buildOverlay(
-                    host.selectedChannel!,
+                    selectedChannel()!,
                     onMinimizeChanged: (ch, minimized) {
                       broadcastWidgets.setMinimized(ch, minimized);
                     },
@@ -448,19 +461,19 @@ class ChannelPanels {
       channel: welcomeChannel,
       messages: _welcomeMessages!,
       tileCache: tileCache,
-      atBottomNotifier: host.atBottomNotifier(welcomeChannel),
-      messageNotifier: host.messageNotifier(welcomeChannel),
-      scrollController: host.scrollCtrl(welcomeChannel),
+      atBottomNotifier: atBottomNotifier(welcomeChannel),
+      messageNotifier: messageNotifier(welcomeChannel),
+      scrollController: scrollCtrl(welcomeChannel),
       messageBuilder: messageBuilder,
       linkWhitelist: linkWhitelist,
-      showTimestamp: host.showTimestamps,
-      timestampFormat: host.timestampFormat,
-      chatFontScale: host.chatFontSize / 14.0,
-      checkeredMessages: host.checkeredMessages,
-      highlightOpacity: host.highlightOpacity,
-      lineSeparator: host.lineSeparator,
-      sharedChatMode: host.sharedChatMode,
-      paintService: host.showNamePaints ? paintService : null,
+      showTimestamp: showTimestamps(),
+      timestampFormat: timestampFormat(),
+      chatFontScale: chatFontSize() / 14.0,
+      checkeredMessages: checkeredMessages(),
+      highlightOpacity: highlightOpacity(),
+      lineSeparator: lineSeparator(),
+      sharedChatMode: sharedChatMode(),
+      paintService: showNamePaints() ? paintService : null,
       topOverlayPadding: topPadding,
       bottomOverlayPadding: bottomPadding,
       onShowUserProfile: (login, userId, {displayName}) => userSheets

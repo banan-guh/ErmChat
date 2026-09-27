@@ -90,12 +90,7 @@ class HomeScreen extends ConsumerStatefulWidget {
 
 class _HomeScreenState extends ConsumerState<HomeScreen>
     with WidgetsBindingObserver, TickerProviderStateMixin
-    implements
-        ComposerHost,
-        HomeAppBarHost,
-        ChannelPanelsHost,
-        StreamPanelsHost,
-        ChannelManagerHost {
+    implements ComposerHost {
   static const _mentionsChannel = '@mentions';
 
   ConnectivityService? _connectivityServiceCache;
@@ -384,25 +379,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     prefs: ref.read(prefsProvider),
   );
 
-  // ShellState and appearance members other hosts still read.
+  // ShellState members the composer host still requires.
   @override
   bool get showTimestamps => _showTimestamps;
   @override
   String get timestampFormat => _timestampFormat;
   @override
   String? get sessionLogin => _session.login;
-  @override
-  double get chatFontSize => _chatFontSize;
-  @override
-  bool get checkeredMessages => _checkeredMessages;
-  @override
-  double get highlightOpacity => _highlightOpacity;
-  @override
-  bool get lineSeparator => _lineSeparator;
-  @override
-  String get sharedChatMode => ref.read(sharedChatModeProvider);
-  @override
-  void copyMessage(TwitchMessage msg) => _copyMessageToClipboard(msg);
 
   late final ThreadPanels _threads = ThreadPanels(
     panelManager: _panelManager,
@@ -427,9 +410,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     namePaintService: () => _showNamePaints ? _sevenTvPaintService : null,
     copyMessage: _copyMessageToClipboard,
   );
-
-  @override
-  bool isMounted() => mounted;
 
   late final _mentions = MentionsPanels(
     panelManager: _panelManager,
@@ -499,7 +479,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     _threads.tabDragFocus.dragFocus,
   ]);
 
-  late final _chrome = HomeAppBar(
+  late final HomeAppBar _chrome = HomeAppBar(
     chat: _chat,
     chatConn: _chatConn,
     networkBusy: _networkBusy,
@@ -509,10 +489,24 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     mentions: _mentions,
     mod: _mod,
     threads: _threads,
-    host: this,
+    activePanel: () => _activePanel,
+    closePanel: _closePanel,
+    chatLoading: () => _chatLoading,
+    disableJoinSpinner: () => HomeScreen.disableJoinSpinner,
+    selectedChannel: () => ref.read(selectedChannelProvider),
+    isMounted: () => mounted,
+    markDirty: markDirty,
+    addChannelDialog: _addChannelDialog,
+    toggleFullscreen: _toggleFullscreen,
+    toggleInput: _toggleInputVisibility,
+    toggleStream: () => _stream.toggleStreamForSelected(),
+    toggleSearch: _toggleSearch,
+    reloadEmotes: _emotes.reload,
+    reconnect: _reconnect,
+    openSettings: _openSettings,
   );
 
-  late final _channels = ChannelPanels(
+  late final ChannelPanels _channels = ChannelPanels(
     chat: _chat,
     tileCache: _tileCache,
     messageBuilder: _messageBuilder,
@@ -527,16 +521,39 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     composer: _composer,
     broadcastWidgets: _broadcastWidgets,
     homeAppBar: _chrome,
-    host: this,
+    selectedChannel: () => ref.read(selectedChannelProvider),
+    showTimestamps: () => _showTimestamps,
+    timestampFormat: () => _timestampFormat,
+    chatFontSize: () => _chatFontSize,
+    checkeredMessages: () => _checkeredMessages,
+    highlightOpacity: () => _highlightOpacity,
+    lineSeparator: () => _lineSeparator,
+    sharedChatMode: () => ref.read(sharedChatModeProvider),
+    showNamePaints: () => _showNamePaints,
+    isFullscreen: () => _isFullscreen,
+    fastSnap: () => _fastSnap,
+    commitChannelSelection: _commitChannelSelection,
+    copyMessage: _copyMessageToClipboard,
+    messageNotifier: _messageNotifier,
+    atBottomNotifier: _atBottomNotifier,
+    scrollCtrl: _scrollCtrl,
   );
 
-  late final _stream = StreamPanels(
+  late final StreamPanels _stream = StreamPanels(
     streamPlayer: _streamPlayer,
     pipService: _pipService,
     chat: _chat,
     channels: _channels,
     homeAppBar: _chrome,
-    host: this,
+    selectedChannel: () => ref.read(selectedChannelProvider),
+    isMounted: () => mounted,
+    markDirty: markDirty,
+    setStreamState: _setStreamState,
+    chatFontSize: () => _chatFontSize,
+    isFullscreen: () => _isFullscreen,
+    theaterChatVisible: () => _theaterChatVisible,
+    toggleTheaterChat: _toggleTheaterChat,
+    onChannelChanged: _channels.onChannelChanged,
   );
 
   late final _channelManager = ChannelManager(
@@ -563,7 +580,22 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     recentMessagesService: ref.read(recentMessagesServiceProvider),
     mentionsChannel: _mentionsChannel,
     history: ref.read(chatHistoryControllerProvider),
-    host: this,
+    selectedChannel: () => ref.read(selectedChannelProvider),
+    setSelectedChannel: (value) =>
+        ref.read(selectedChannelProvider.notifier).set(value),
+    isMounted: () => mounted,
+    markDirty: markDirty,
+    mutate: _mutate,
+    closePanel: _closePanel,
+    addSystemMessage: _addSystemMessage,
+    maxMessages: () => ref.read(maxMessagesPerChannelProvider),
+    recentMessagesLimit: () => _recentMessagesLimit,
+    mentionPush: () => ref.read(mentionPushProvider),
+    atBottomNotifier: _atBottomNotifier,
+    disposeChannelNotifiers: _disposeChannelNotifiers,
+    forgetAtBottomNotifier: _forgetAtBottomNotifier,
+    forgetSearch: _forgetSearch,
+    invalidateCaches: _channels.invalidateCaches,
   );
 
   EmoteController? _emoteControllerCache;
@@ -572,41 +604,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     return _emoteControllerCache!;
   }
 
-  @override
-  int get maxMessages => ref.read(maxMessagesPerChannelProvider);
+  // Verb adapters the owners hold as lazy callbacks, reading live shell state.
+  void _setStreamState(void Function() fn) => setState(fn);
 
-  // HomeAppBarHost / ChannelPanelsHost / StreamPanelsHost.
-  @override
-  Future<void> closePanel() => _closePanel();
-  @override
-  bool get chatLoading => _chatLoading;
-  @override
-  bool get disableJoinSpinner => HomeScreen.disableJoinSpinner;
-  @override
-  bool get isFullscreen => _isFullscreen;
-  @override
-  bool get showInput => _showInput;
-  @override
-  bool get showNamePaints => _showNamePaints;
-  @override
-  bool get fastSnap => _fastSnap;
-  @override
-  bool get theaterChatVisible => _theaterChatVisible;
-  @override
-  void toggleTheaterChat() =>
+  void _toggleTheaterChat() =>
       setState(() => _theaterChatVisible = !_theaterChatVisible);
-  @override
-  void setStreamState(void Function() fn) => setState(fn);
-  @override
-  void addChannelDialog() => _addChannelDialog();
-  @override
-  void toggleFullscreen() => _toggleFullscreen();
-  @override
-  void toggleInput() => _toggleInputVisibility();
-  @override
-  void toggleStream() => _stream.toggleStreamForSelected();
-  @override
-  void toggleSearch() {
+
+  void _toggleSearch() {
     if (_activePanel == OverlayPanel.modView) return;
     _search.toggleSearch();
   }
@@ -617,60 +621,24 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     unawaited(Prefs.load().then((prefs) => prefs.setShowInput(value)));
   }
 
-  @override
-  void forgetSearch(String channel) {
+  void _forgetSearch(String channel) {
     _search.forget(channel);
     _search.syncFieldTo(selectedChannel);
     _mod.syncTermsToSelected();
   }
 
-  @override
-  void reloadEmotes() => _emotes.reload();
-  @override
-  void reconnect() => _reconnect();
-  @override
-  void openSettings() => _openSettings();
-  @override
-  void commitChannelSelection(int index, {required bool rebuild}) {
+  void _commitChannelSelection(int index, {required bool rebuild}) {
     _channelManager.commitChannelSelection(index, rebuild: rebuild);
     _search.syncFieldTo(selectedChannel);
     _mod.syncTermsToSelected();
   }
 
-  @override
-  void onChannelChanged(int index) => _channels.onChannelChanged(index);
-  @override
-  ValueNotifier<int> versionNotifier(String channel) =>
-      _versionNotifier(channel);
-  @override
-  ValueNotifier<int> messageNotifier(String channel) =>
-      _messageNotifier(channel);
-  @override
-  ValueNotifier<bool> atBottomNotifier(String channel) =>
-      _atBottomNotifier(channel);
-  @override
-  ScrollController scrollCtrl(String channel) => _scrollCtrl(channel);
+  void _mutate(void Function() fn) => setState(fn);
 
-  // ChannelManagerHost.
-  @override
-  set selectedChannel(String? value) =>
-      ref.read(selectedChannelProvider.notifier).set(value);
-  @override
-  void mutate(void Function() fn) => setState(fn);
-  @override
-  void addSystemMessage(String channel, String text) =>
-      _addSystemMessage(channel, text);
-  @override
-  int get recentMessagesLimit => _recentMessagesLimit;
-  @override
-  bool get mentionPush => ref.read(mentionPushProvider);
-  @override
-  void disposeChannelNotifiers(String channel) =>
+  void _disposeChannelNotifiers(String channel) =>
       _scrollControllers.remove(channel)?.dispose();
-  @override
-  void invalidateCaches() => _channels.invalidateCaches();
-  @override
-  void forgetAtBottomNotifier(String channel) =>
+
+  void _forgetAtBottomNotifier(String channel) =>
       _atBottomNotifiers.remove(channel)?.dispose();
 
   @override
@@ -950,10 +918,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   }
 
   static final _emptyNotifier = ValueNotifier<int>(0);
-
-  ValueNotifier<int> _versionNotifier(String channel) {
-    return _chat.channelFor(channel)?.info.version ?? _emptyNotifier;
-  }
 
   ValueNotifier<int> _messageNotifier(String channel) {
     return _chat.channelFor(channel)?.messages.version ?? _emptyNotifier;

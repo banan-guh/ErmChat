@@ -3,7 +3,6 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
-import '../composer/composer_controller.dart';
 import '../panels/mentions.dart';
 import '../panels/mod_panel.dart';
 import '../panels/threads.dart';
@@ -15,25 +14,6 @@ import '../util/constants.dart';
 import '../widgets/chrome_menu_button.dart';
 import '../widgets/media_upload_controller.dart';
 import '../widgets/panel_manager.dart';
-
-// Shell-owned state the home app bar reads but does not own.
-abstract class HomeAppBarHost extends ShellState {
-  bool isMounted();
-  void markDirty();
-  OverlayPanel get activePanel;
-  Future<void> closePanel();
-  bool get chatLoading;
-  bool get disableJoinSpinner;
-  bool get isFullscreen;
-  void addChannelDialog();
-  void toggleFullscreen();
-  void toggleInput();
-  void toggleStream();
-  void toggleSearch();
-  void reloadEmotes();
-  void reconnect();
-  void openSettings();
-}
 
 // Top app bar, chrome menu arrow, and their toggle/menu verbs.
 class HomeAppBar {
@@ -47,7 +27,21 @@ class HomeAppBar {
     required this.mentions,
     required this.mod,
     required this.threads,
-    required this.host,
+    required this.activePanel,
+    required this.closePanel,
+    required this.chatLoading,
+    required this.disableJoinSpinner,
+    required this.selectedChannel,
+    required this.isMounted,
+    required this.markDirty,
+    required this.addChannelDialog,
+    required this.toggleFullscreen,
+    required this.toggleInput,
+    required this.toggleStream,
+    required this.toggleSearch,
+    required this.reloadEmotes,
+    required this.reconnect,
+    required this.openSettings,
   });
 
   final Chat chat;
@@ -59,7 +53,21 @@ class HomeAppBar {
   final MentionsPanels mentions;
   final ModPanels mod;
   final ThreadPanels threads;
-  final HomeAppBarHost host;
+  final OverlayPanel Function() activePanel;
+  final Future<void> Function() closePanel;
+  final bool Function() chatLoading;
+  final bool Function() disableJoinSpinner;
+  final String? Function() selectedChannel;
+  final bool Function() isMounted;
+  final VoidCallback markDirty;
+  final VoidCallback addChannelDialog;
+  final VoidCallback toggleFullscreen;
+  final VoidCallback toggleInput;
+  final VoidCallback toggleStream;
+  final VoidCallback toggleSearch;
+  final VoidCallback reloadEmotes;
+  final VoidCallback reconnect;
+  final VoidCallback openSettings;
 
   bool _isChannelLive(String channel) =>
       (chat.channelFor(channel)?.info.status ?? '').contains('Live');
@@ -67,9 +75,9 @@ class HomeAppBar {
   void _onBellPressed() {
     chat.clearAllUnread();
     mentions.clearUnreadWhispers();
-    if (host.isMounted()) host.markDirty();
-    if (host.activePanel == OverlayPanel.mentions) {
-      unawaited(host.closePanel());
+    if (isMounted()) markDirty();
+    if (activePanel() == OverlayPanel.mentions) {
+      unawaited(closePanel());
     } else {
       mentions.showMentionsView();
     }
@@ -81,23 +89,22 @@ class HomeAppBar {
   Widget chromeMenu({bool glass = false}) {
     return ChromeMenuButton(
       glass: glass,
-      onToggleFullscreen: host.toggleFullscreen,
-      onToggleInput: host.toggleInput,
-      onToggleStream: host.toggleStream,
+      onToggleFullscreen: toggleFullscreen,
+      onToggleInput: toggleInput,
+      onToggleStream: toggleStream,
       showStreamToggle: () =>
           streamPlayer.isActive ||
           !twitchAuth.isConfigured ||
-          (host.selectedChannel != null &&
-              _isChannelLive(host.selectedChannel!)),
+          (selectedChannel() != null && _isChannelLive(selectedChannel()!)),
       streamActive: () => streamPlayer.isActive,
       onShowModView: mod.showModView,
       showModView: () {
-        final channel = host.selectedChannel;
+        final channel = selectedChannel();
         if (channel == null) return false;
         return chatConn.isModerationActive(channel) ||
             chatConn.isAutomodActive(channel);
       },
-      onToggleSearch: host.toggleSearch,
+      onToggleSearch: toggleSearch,
     );
   }
 
@@ -127,8 +134,8 @@ class HomeAppBar {
                   ]),
                   builder: (context, _) {
                     final busy =
-                        !host.disableJoinSpinner &&
-                        (host.chatLoading || networkBusy.value);
+                        !disableJoinSpinner() &&
+                        (chatLoading() || networkBusy.value);
                     return IconButton(
                       icon: busy
                           ? SizedBox(
@@ -143,7 +150,7 @@ class HomeAppBar {
                       tooltip: busy ? 'Loading...' : 'Join channel',
                       onPressed: busy || chat.length >= kMaxChannels
                           ? null
-                          : host.addChannelDialog,
+                          : addChannelDialog,
                     );
                   },
                 ),
@@ -173,13 +180,13 @@ class HomeAppBar {
                         uploadController.pickAndUpload(context);
                         break;
                       case 'reload_emotes':
-                        host.reloadEmotes();
+                        reloadEmotes();
                         break;
                       case 'reconnect':
-                        host.reconnect();
+                        reconnect();
                         break;
                       case 'settings':
-                        host.openSettings();
+                        openSettings();
                         break;
                     }
                   },
@@ -213,7 +220,7 @@ class HomeAppBar {
                     ),
                   ],
                   child: GestureDetector(
-                    onLongPress: host.openSettings,
+                    onLongPress: openSettings,
                     child: const Padding(
                       padding: EdgeInsets.all(12),
                       child: Icon(Icons.more_vert),

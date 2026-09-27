@@ -24,43 +24,6 @@ import 'package:ermchat/chat/channel/info.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-class _ChannelManagerHost implements ChannelManagerHost {
-  @override
-  String? selectedChannel = 'test';
-  @override
-  String? get sessionLogin => null;
-  @override
-  bool get showTimestamps => false;
-  @override
-  String get timestampFormat => 'HH:mm';
-  @override
-  bool isMounted() => true;
-  @override
-  void markDirty() {}
-  @override
-  void mutate(void Function() fn) => fn();
-  @override
-  Future<void> closePanel() async {}
-  @override
-  void addSystemMessage(String channel, String text) {}
-  @override
-  int get maxMessages => 500;
-  @override
-  int get recentMessagesLimit => 100;
-  @override
-  bool get mentionPush => false;
-  @override
-  ValueNotifier<bool> atBottomNotifier(String channel) => ValueNotifier(true);
-  @override
-  void disposeChannelNotifiers(String channel) {}
-  @override
-  void forgetAtBottomNotifier(String channel) {}
-  @override
-  void forgetSearch(String channel) {}
-  @override
-  void invalidateCaches() {}
-}
-
 // Interface fakes for deps mergeHistory never touches. Calls throw so a new
 // dependency call fails loudly instead of silently returning null.
 mixin _Unimplemented {
@@ -103,6 +66,7 @@ ChannelManager _channelManager(Chat chat) {
     maxMessages: () => 500,
     recentMessagesLimit: () => 100,
   );
+  String? selected = 'test';
   return ChannelManager(
     chat: chat,
     session: session,
@@ -127,7 +91,21 @@ ChannelManager _channelManager(Chat chat) {
     recentMessagesService: null,
     mentionsChannel: '@mentions',
     history: history,
-    host: _ChannelManagerHost(),
+    selectedChannel: () => selected,
+    setSelectedChannel: (value) => selected = value,
+    isMounted: () => true,
+    markDirty: () {},
+    mutate: (fn) => fn(),
+    closePanel: () async {},
+    addSystemMessage: (channel, text) {},
+    maxMessages: () => 500,
+    recentMessagesLimit: () => 100,
+    mentionPush: () => false,
+    atBottomNotifier: (channel) => ValueNotifier(true),
+    disposeChannelNotifiers: (channel) {},
+    forgetAtBottomNotifier: (channel) {},
+    forgetSearch: (channel) {},
+    invalidateCaches: () {},
   );
 }
 
