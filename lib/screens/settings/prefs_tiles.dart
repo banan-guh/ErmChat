@@ -1,14 +1,16 @@
 import 'package:flutter/material.dart';
 
 import '../../util/prefs.dart';
+import '../../util/prefs_store.dart';
 
 /// Settings rows bound directly to one [Prefs] value.
 ///
 /// Each tile loads [Prefs] once, shows its default until the store arrives,
-/// then rebuilds from the persisted value. A change writes through and
-/// forwards to [onChanged] so the owning screen can mirror the value. This
-/// removes the per-setting field, load line, and setter method a screen would
-/// otherwise keep.
+/// then rebuilds from the persisted value. A change writes through, announces
+/// it on [PrefsStore] so owners re-read, then optionally forwards to
+/// [onChanged] for callers that need an inline action. This removes the
+/// per-setting field, load line, and setter method a screen would otherwise
+/// keep.
 
 class PrefsSwitchTile extends StatefulWidget {
   const PrefsSwitchTile({
@@ -59,6 +61,7 @@ class _PrefsSwitchTileState extends State<PrefsSwitchTile> {
     setState(() => _value = value);
     final prefs = _prefs ?? await Prefs.load();
     await widget.write(prefs, value);
+    PrefsStore.instance.notifyChanged();
     widget.onChanged?.call(value);
   }
 
@@ -133,6 +136,7 @@ class _PrefsSliderTileState extends State<PrefsSliderTile> {
   Future<void> _commit(double value) async {
     final prefs = _prefs ?? await Prefs.load();
     await widget.write(prefs, value);
+    PrefsStore.instance.notifyChanged();
   }
 
   @override

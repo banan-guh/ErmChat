@@ -1,34 +1,12 @@
 import 'package:flutter/material.dart';
 import '../../theme_colors.dart';
 import '../../util/prefs.dart';
+import '../../util/prefs_store.dart';
 import 'prefs_tiles.dart';
 import 'settings_page.dart';
 
 class CustomizationScreen extends StatefulWidget {
-  final ValueChanged<ThemeMode> onThemeChanged;
-  final ValueChanged<bool>? onKeepScreenOnChanged;
-  final ValueChanged<bool>? onTrueDarkChanged;
-  final ValueChanged<String>? onAccentColorChanged;
-  final ValueChanged<double>? onChatFontScaleChanged;
-  final ValueChanged<double>? onHighlightOpacityChanged;
-  final ValueChanged<bool>? onCheckeredMessagesChanged;
-  final ValueChanged<bool>? onLineSeparatorChanged;
-  final ValueChanged<bool>? onFastSnapChanged;
-  final ValueChanged<bool>? onLiquidGlassChanged;
-
-  const CustomizationScreen({
-    super.key,
-    required this.onThemeChanged,
-    this.onKeepScreenOnChanged,
-    this.onTrueDarkChanged,
-    this.onAccentColorChanged,
-    this.onChatFontScaleChanged,
-    this.onHighlightOpacityChanged,
-    this.onCheckeredMessagesChanged,
-    this.onLineSeparatorChanged,
-    this.onFastSnapChanged,
-    this.onLiquidGlassChanged,
-  });
+  const CustomizationScreen({super.key});
 
   @override
   State<CustomizationScreen> createState() => _CustomizationScreenState();
@@ -66,18 +44,18 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
     if (mode == null || !mounted || mode == _themeMode) return;
     final prefs = _prefs ?? await Prefs.load();
     await prefs.setThemeMode(mode);
+    PrefsStore.instance.notifyChanged();
     if (!mounted) return;
     setState(() {});
-    widget.onThemeChanged(mode);
   }
 
   Future<void> _setAccentColor(String key) async {
     if (key == _accentKey) return;
     final prefs = _prefs ?? await Prefs.load();
     await prefs.setAccentColor(key);
+    PrefsStore.instance.notifyChanged();
     if (!mounted) return;
     setState(() {});
-    widget.onAccentColorChanged?.call(key);
   }
 
   @override
@@ -104,7 +82,6 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
             enabled: isDark,
             read: (p) => p.trueDark,
             write: (p, v) => p.setTrueDark(v),
-            onChanged: widget.onTrueDarkChanged,
           ),
           PrefsSwitchTile(
             title: 'Liquid glass (experimental)',
@@ -112,7 +89,6 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
             defaultValue: true,
             read: (p) => p.liquidGlass,
             write: (p, v) => p.setLiquidGlass(v),
-            onChanged: widget.onLiquidGlassChanged,
           ),
           const Padding(
             padding: EdgeInsets.fromLTRB(16, 16, 16, 8),
@@ -145,7 +121,6 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
             defaultValue: 14,
             read: (p) => p.chatFontSize,
             write: (p, v) => p.setChatFontSize(v),
-            onChanged: widget.onChatFontScaleChanged,
           ),
           PrefsSliderTile(
             label: (v) => 'Highlight opacity: ${(v * 100).round()}%',
@@ -155,7 +130,6 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
             defaultValue: 0.6,
             read: (p) => p.highlightOpacity,
             write: (p, v) => p.setHighlightOpacity(v),
-            onChanged: widget.onHighlightOpacityChanged,
           ),
           PrefsSwitchTile(
             title: 'Checkered messages',
@@ -164,14 +138,12 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
             defaultValue: false,
             read: (p) => p.checkeredMessages,
             write: (p, v) => p.setCheckeredMessages(v),
-            onChanged: widget.onCheckeredMessagesChanged,
           ),
           PrefsSwitchTile(
             title: 'Separate messages with lines',
             defaultValue: false,
             read: (p) => p.lineSeparator,
             write: (p, v) => p.setLineSeparator(v),
-            onChanged: widget.onLineSeparatorChanged,
           ),
           PrefsSwitchTile(
             title: 'Fast channel swipe',
@@ -179,14 +151,12 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
             defaultValue: true,
             read: (p) => p.fastChannelSnap,
             write: (p, v) => p.setFastChannelSnap(v),
-            onChanged: widget.onFastSnapChanged,
           ),
           PrefsSwitchTile(
             title: 'Keep screen on',
             defaultValue: true,
             read: (p) => p.keepScreenOn,
             write: (p, v) => p.setKeepScreenOn(v),
-            onChanged: widget.onKeepScreenOnChanged,
           ),
         ],
       ),

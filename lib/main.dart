@@ -22,6 +22,7 @@ import 'services/twitch_badge_service.dart';
 import 'theme_colors.dart';
 import 'util/log.dart';
 import 'util/prefs.dart';
+import 'util/prefs_store.dart';
 import 'util/crash_report.dart';
 import 'widgets/app_snack.dart';
 import 'widgets/tabbed_layout.dart';
@@ -199,10 +200,24 @@ class _TwitchChatAppState extends State<TwitchChatApp> {
   @override
   void initState() {
     super.initState();
+    PrefsStore.instance.addListener(_onPrefsChanged);
     _loadPreferences();
   }
 
   Future<void> _loadPreferences() async {
+    await _applyThemePrefs();
+    try {
+      await _twitchAuth.load();
+    } catch (e) {
+      // Fall back to anonymous so storage failure doesn't block startup.
+      logDebug('Failed to load accounts: $e');
+    }
+    if (mounted) setState(() => _loaded = true);
+  }
+
+  /// Re-reads theme, wakelock, accent, and proxy settings. Runs at startup
+  /// and whenever settings write through [PrefsStore].
+  Future<void> _applyThemePrefs() async {
     try {
       final prefs = await Prefs.load();
       _themeMode = prefs.themeMode;
@@ -214,34 +229,20 @@ class _TwitchChatAppState extends State<TwitchChatApp> {
     } catch (e) {
       logDebug('Failed to load preferences: $e');
     }
-    try {
-      await _twitchAuth.load();
-    } catch (e) {
-      // Fall back to anonymous so storage failure doesn't block startup.
-      logDebug('Failed to load accounts: $e');
-    }
-    if (mounted) setState(() => _loaded = true);
   }
 
-  void _setThemeMode(ThemeMode mode) {
-    setState(() => _themeMode = mode);
-    Prefs.load().then((prefs) => prefs.setThemeMode(mode));
+  void _onPrefsChanged() {
+    unawaited(
+      _applyThemePrefs().then((_) {
+        if (mounted) setState(() {});
+      }),
+    );
   }
 
-  void _setKeepScreenOn(bool value) {
-    setState(() => _keepScreenOn = value);
-    WakelockPlus.toggle(enable: value).ignore();
-    Prefs.load().then((prefs) => prefs.setKeepScreenOn(value));
-  }
-
-  void _setTrueDark(bool value) {
-    setState(() => _trueDark = value);
-    Prefs.load().then((prefs) => prefs.setTrueDark(value));
-  }
-
-  void _setAccentColor(String key) {
-    setState(() => _accentKey = key);
-    Prefs.load().then((prefs) => prefs.setAccentColor(key));
+  @override
+  void dispose() {
+    PrefsStore.instance.removeListener(_onPrefsChanged);
+    super.dispose();
   }
 
   /// Test seams: a non-null widget field swaps the matching provider for the
@@ -293,10 +294,6 @@ class _TwitchChatAppState extends State<TwitchChatApp> {
         scaffoldMessengerKey: rootScaffoldMessengerKey,
         navigatorObservers: [_snackPopObserver],
         home: HomeScreen(
-          onThemeChanged: _setThemeMode,
-          onKeepScreenOnChanged: _setKeepScreenOn,
-          onTrueDarkChanged: _setTrueDark,
-          onAccentColorChanged: _setAccentColor,
           initialCurrentUserLogin: widget.initialCurrentUserLogin,
         ),
       ),

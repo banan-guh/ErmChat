@@ -18,37 +18,14 @@ import '../../services/recent_messages.dart';
 
 class SettingsScreen extends StatelessWidget {
   final TwitchAuth twitchAuth;
-  final ValueChanged<ThemeMode> onThemeChanged;
-  final ValueChanged<bool>? onKeepScreenOnChanged;
-  final ValueChanged<bool>? onTrueDarkChanged;
-  final ValueChanged<String>? onAccentColorChanged;
   final ValueChanged<bool>? onBackgroundServiceChanged;
   final ValueChanged<bool>? onMentionPushChanged;
   final ValueChanged<bool>? onWhisperNotifyChanged;
-  final ValueChanged<int>? onMaxMessagesPerChannelChanged;
-  final ValueChanged<int>? onRecentMessagesChanged;
   final ValueChanged<RecentMessagesConfig>? onRecentMessagesModeChanged;
-  final ValueChanged<bool>? onReplyToRootChanged;
-  final ValueChanged<bool>? onPreferEmotesFirstChanged;
-  final ValueChanged<bool>? onShowTimestampsChanged;
-  final ValueChanged<String>? onTimestampFormatChanged;
-  final ValueChanged<double>? onChatFontScaleChanged;
-  final ValueChanged<double>? onHighlightOpacityChanged;
-  final ValueChanged<bool>? onAnimateGifsChanged;
-  final ValueChanged<bool>? onCheckeredMessagesChanged;
-  final ValueChanged<bool>? onLineSeparatorChanged;
-  final ValueChanged<bool>? onFastSnapChanged;
-  final ValueChanged<bool>? onLiquidGlassChanged;
-  final ValueChanged<bool>? onNamePaintsChanged;
-  final ValueChanged<bool>? onShowGifsChanged;
-  final ValueChanged<double>? onGifHeightChanged;
-  final ValueChanged<bool>? onShowImagesChanged;
-  final ValueChanged<double>? onImageHeightChanged;
   final ValueChanged<int>? onEmoteTierChanged;
   final ValueChanged<int>? onEmoteCacheMaxChanged;
   final ValueChanged<EmoteFetchAutoMode>? onEmoteAutoModeChanged;
   final VoidCallback? onNukeEmotes;
-  final ValueChanged<String>? onSharedChatModeChanged;
   final ValueNotifier<bool>? mobileNotifier;
   final ValueNotifier<List<String>>? channelNotifier;
   final ValueChanged<String>? onLeaveChannel;
@@ -69,37 +46,14 @@ class SettingsScreen extends StatelessWidget {
   const SettingsScreen({
     super.key,
     required this.twitchAuth,
-    required this.onThemeChanged,
-    this.onKeepScreenOnChanged,
-    this.onTrueDarkChanged,
-    this.onAccentColorChanged,
     this.onBackgroundServiceChanged,
     this.onMentionPushChanged,
     this.onWhisperNotifyChanged,
-    this.onMaxMessagesPerChannelChanged,
-    this.onRecentMessagesChanged,
     this.onRecentMessagesModeChanged,
-    this.onReplyToRootChanged,
-    this.onPreferEmotesFirstChanged,
-    this.onShowTimestampsChanged,
-    this.onTimestampFormatChanged,
-    this.onChatFontScaleChanged,
-    this.onHighlightOpacityChanged,
-    this.onAnimateGifsChanged,
-    this.onCheckeredMessagesChanged,
-    this.onLineSeparatorChanged,
-    this.onFastSnapChanged,
-    this.onLiquidGlassChanged,
-    this.onNamePaintsChanged,
-    this.onShowGifsChanged,
-    this.onGifHeightChanged,
-    this.onShowImagesChanged,
-    this.onImageHeightChanged,
     this.onEmoteTierChanged,
     this.onEmoteCacheMaxChanged,
     this.onEmoteAutoModeChanged,
     this.onNukeEmotes,
-    this.onSharedChatModeChanged,
     this.mobileNotifier,
     this.channelNotifier,
     this.onLeaveChannel,
@@ -142,20 +96,7 @@ class SettingsScreen extends StatelessWidget {
             title: 'Customization',
             onTap: () => Navigator.push(
               context,
-              MaterialPageRoute(
-                builder: (_) => CustomizationScreen(
-                  onThemeChanged: onThemeChanged,
-                  onKeepScreenOnChanged: onKeepScreenOnChanged,
-                  onTrueDarkChanged: onTrueDarkChanged,
-                  onAccentColorChanged: onAccentColorChanged,
-                  onChatFontScaleChanged: onChatFontScaleChanged,
-                  onHighlightOpacityChanged: onHighlightOpacityChanged,
-                  onCheckeredMessagesChanged: onCheckeredMessagesChanged,
-                  onLineSeparatorChanged: onLineSeparatorChanged,
-                  onFastSnapChanged: onFastSnapChanged,
-                  onLiquidGlassChanged: onLiquidGlassChanged,
-                ),
-              ),
+              MaterialPageRoute(builder: (_) => const CustomizationScreen()),
             ),
           ),
           SettingsNavTile(
@@ -169,19 +110,6 @@ class SettingsScreen extends StatelessWidget {
                   onBackgroundServiceChanged: onBackgroundServiceChanged,
                   onMentionPushChanged: onMentionPushChanged,
                   onWhisperNotifyChanged: onWhisperNotifyChanged,
-                  onMaxMessagesPerChannelChanged:
-                      onMaxMessagesPerChannelChanged,
-                  onRecentMessagesChanged: onRecentMessagesChanged,
-                  onReplyToRootChanged: onReplyToRootChanged,
-                  onPreferEmotesFirstChanged: onPreferEmotesFirstChanged,
-                  onShowTimestampsChanged: onShowTimestampsChanged,
-                  onTimestampFormatChanged: onTimestampFormatChanged,
-                  onSharedChatModeChanged: onSharedChatModeChanged,
-                  onNamePaintsChanged: onNamePaintsChanged,
-                  onShowGifsChanged: onShowGifsChanged,
-                  onGifHeightChanged: onGifHeightChanged,
-                  onShowImagesChanged: onShowImagesChanged,
-                  onImageHeightChanged: onImageHeightChanged,
                 ),
               ),
             ),
@@ -197,7 +125,6 @@ class SettingsScreen extends StatelessWidget {
                   onEmoteCacheMaxChanged: onEmoteCacheMaxChanged,
                   onEmoteAutoModeChanged: onEmoteAutoModeChanged,
                   onNukeEmotes: onNukeEmotes,
-                  onAnimateGifsChanged: onAnimateGifsChanged,
                   mobileNotifier: mobileNotifier,
                   emoteManager: emoteManager,
                 ),

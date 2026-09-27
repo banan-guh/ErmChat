@@ -103,16 +103,9 @@ void main() {
       WidgetTester tester,
     ) async {
       SharedPreferences.setMockInitialValues({});
-      bool? changed;
 
       await tester.pumpWidget(
-        MaterialApp(
-          key: UniqueKey(),
-          home: CustomizationScreen(
-            onThemeChanged: (_) {},
-            onTrueDarkChanged: (value) => changed = value,
-          ),
-        ),
+        MaterialApp(key: UniqueKey(), home: const CustomizationScreen()),
       );
       await tester.pump();
 
@@ -130,13 +123,14 @@ void main() {
       await tester.tap(find.widgetWithText(SwitchListTile, 'True dark mode'));
       await tester.pumpAndSettle();
 
-      expect(changed, isNull);
+      final prefs = await SharedPreferences.getInstance();
+      expect(prefs.getBool('true_dark'), isNull);
     });
 
-    testWidgets('Customization true dark toggle persists and calls '
-        'onTrueDarkChanged', (WidgetTester tester) async {
+    testWidgets('Customization true dark toggle persists and flips', (
+      WidgetTester tester,
+    ) async {
       SharedPreferences.setMockInitialValues({});
-      bool? changed;
 
       await tester.pumpWidget(
         MaterialApp(
@@ -144,10 +138,7 @@ void main() {
           theme: ThemeData(brightness: Brightness.light),
           darkTheme: ThemeData(brightness: Brightness.dark),
           themeMode: ThemeMode.dark,
-          home: CustomizationScreen(
-            onThemeChanged: (_) {},
-            onTrueDarkChanged: (value) => changed = value,
-          ),
+          home: const CustomizationScreen(),
         ),
       );
       await tester.pump();
@@ -166,7 +157,10 @@ void main() {
       await tester.tap(find.widgetWithText(SwitchListTile, 'True dark mode'));
       await tester.pumpAndSettle();
 
-      expect(changed, isTrue);
+      final flipped = tester.widget<SwitchListTile>(
+        find.widgetWithText(SwitchListTile, 'True dark mode'),
+      );
+      expect(flipped.value, isTrue);
       final prefs = await SharedPreferences.getInstance();
       expect(prefs.getBool('true_dark'), isTrue);
     });

@@ -35,6 +35,7 @@ import '../widgets/seven_tv_paint_service.dart';
 import '../util/log.dart';
 import '../util/constants.dart';
 import '../util/prefs.dart';
+import '../util/prefs_store.dart';
 import '../util/timestamp_formatter.dart';
 import '../screens/settings/settings_screen.dart';
 import '../widgets/panel_manager.dart';
@@ -79,20 +80,9 @@ class HomeScreen extends ConsumerStatefulWidget {
   // "connecting" state instead of hitting the gated spinner.
   static bool disableJoinSpinner = false;
 
-  final ValueChanged<ThemeMode> onThemeChanged;
-  final ValueChanged<bool>? onKeepScreenOnChanged;
-  final ValueChanged<bool>? onTrueDarkChanged;
-  final ValueChanged<String>? onAccentColorChanged;
   final String? initialCurrentUserLogin;
 
-  const HomeScreen({
-    super.key,
-    required this.onThemeChanged,
-    this.onKeepScreenOnChanged,
-    this.onTrueDarkChanged,
-    this.onAccentColorChanged,
-    this.initialCurrentUserLogin,
-  });
+  const HomeScreen({super.key, this.initialCurrentUserLogin});
 
   @override
   ConsumerState<HomeScreen> createState() => _HomeScreenState();
@@ -603,7 +593,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   }
 
   @override
-  void setShowInput(bool value) => _setShowInput(value);
+  void setShowInput(bool value) {
+    if (_showInput == value) return;
+    setState(() => _showInput = value);
+    unawaited(Prefs.load().then((prefs) => prefs.setShowInput(value)));
+  }
+
   @override
   void clearComposerSuggestions() => _composer.clearSuggestions();
   @override
@@ -692,7 +687,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
           break;
       }
     };
-    _loadMaxMessages();
+    _applyPrefs();
     unawaited(_threads.loadSaved());
     unawaited(
       _channelManager.loadRecentMessagesConfig().then((_) {
@@ -717,6 +712,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     _streamPlayer.addListener(_stream.onStreamPlayerChanged);
     _streamPlayer.addListener(_syncSystemUiMode);
     _linkWhitelist.addListener(_onLinkWhitelistChanged);
+    PrefsStore.instance.addListener(_onPrefsChanged);
     _loadNotificationSettings();
     _broadcastWidgets.loadTestWidgets();
     _channelNotifier.addListener(_syncChannelSubs);
@@ -848,167 +844,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
         message: msg.text,
       ),
     );
-  }
-
-  void _setMaxMessagesPerChannel(int value) {
-    if (ref.read(maxMessagesPerChannelProvider) == value) return;
-    setState(() => ref.read(maxMessagesPerChannelProvider.notifier).set(value));
-    // Apply a lower cap immediately instead of waiting for the next incoming
-    // message to hit the truncation path.
-    for (final channel in List.of(_chat.names)) {
-      _channelManager.truncateChannel(channel);
-      _chat.channelFor(channel)?.info.touch();
-    }
-  }
-
-  /// Generic preference setter: guard, setState, optionally rerender channels.
-  void _setPref<T>(
-    T Function() get,
-    void Function(T) set,
-    T value, {
-    bool rerenderChannels = false,
-  }) {
-    if (get() == value) return;
-    setState(() => set(value));
-    if (rerenderChannels) {
-      _tileCache.clear();
-      for (final channel in List.of(_chat.names)) {
-        _chat.channelFor(channel)?.info.touch();
-      }
-    }
-  }
-
-  void _setRecentMessagesLimit(int value) =>
-      _setPref(() => _recentMessagesLimit, (v) {
-        _recentMessagesLimit = v;
-        ref.read(recentMessagesLimitProvider.notifier).set(v);
-      }, value);
-
-  void _setReplyToRoot(bool value) =>
-      _setPref(() => _replyToRoot, (v) => _replyToRoot = v, value);
-
-  void _setPreferEmotesFirst(bool value) =>
-      _setPref(() => _preferEmotesFirst, (v) => _preferEmotesFirst = v, value);
-
-  void _setShowTimestamps(bool value) => _setPref(
-    () => _showTimestamps,
-    (v) => _showTimestamps = v,
-    value,
-    rerenderChannels: true,
-  );
-
-  void _setTimestampFormat(String value) => _setPref(
-    () => _timestampFormat,
-    (v) => _timestampFormat = v,
-    value,
-    rerenderChannels: true,
-  );
-
-  void _setSharedChatMode(String value) => _setPref(
-    () => ref.read(sharedChatModeProvider),
-    (v) => ref.read(sharedChatModeProvider.notifier).set(v),
-    value,
-    rerenderChannels: true,
-  );
-
-  void _setChatFontScale(double value) => _setPref(
-    () => _chatFontSize,
-    (v) => _chatFontSize = v,
-    value,
-    rerenderChannels: true,
-  );
-
-  void _setCheckeredMessages(bool value) => _setPref(
-    () => _checkeredMessages,
-    (v) => _checkeredMessages = v,
-    value,
-    rerenderChannels: true,
-  );
-
-  void _setHighlightOpacity(double value) => _setPref(
-    () => _highlightOpacity,
-    (v) => _highlightOpacity = v,
-    value,
-    rerenderChannels: true,
-  );
-
-  void _setLineSeparator(bool value) => _setPref(
-    () => _lineSeparator,
-    (v) => _lineSeparator = v,
-    value,
-    rerenderChannels: true,
-  );
-
-  void _setFastSnap(bool value) =>
-      _setPref(() => _fastSnap, (v) => _fastSnap = v, value);
-
-  void _setLiquidGlass(bool value) {
-    if (_liquidGlass == value) return;
-    setState(() => _liquidGlass = value);
-    unawaited(Prefs.load().then((prefs) => prefs.setLiquidGlass(value)));
-  }
-
-  void _setNamePaints(bool value) {
-    if (_showNamePaints == value) return;
-    setState(() => _showNamePaints = value);
-    _sevenTvPaintService.enabled = value;
-    _tileCache.clear();
-    for (final channel in List.of(_chat.names)) {
-      _chat.channelFor(channel)?.info.touch();
-    }
-  }
-
-  void _setShowGifs(bool value) {
-    if (_showGifs == value) return;
-    setState(() => _showGifs = value);
-    _messageBuilder.showGifs = value;
-    _tileCache.clear();
-    for (final channel in List.of(_chat.names)) {
-      _chat.channelFor(channel)?.info.touch();
-    }
-  }
-
-  void _setAnimateGifs(bool value) {
-    EmoteUrlProvider.applyGifsEnabled(value);
-    if (_animateGifs == value) return;
-    setState(() => _animateGifs = value);
-    _messageBuilder.animateGifs = value;
-    _tileCache.clear();
-    for (final channel in List.of(_chat.names)) {
-      _chat.channelFor(channel)?.info.touch();
-    }
-  }
-
-  void _setGifHeight(double value) {
-    final clamped = value.clamp(kGiphyInlineHeightMin, kGiphyInlineHeightMax);
-    if (_gifHeight == clamped) return;
-    setState(() => _gifHeight = clamped);
-    _messageBuilder.gifHeight = clamped;
-    _tileCache.clear();
-    for (final channel in List.of(_chat.names)) {
-      _chat.channelFor(channel)?.info.touch();
-    }
-  }
-
-  void _setShowImages(bool value) {
-    if (_showImages == value) return;
-    setState(() => _showImages = value);
-    _messageBuilder.showImages = value;
-    _tileCache.clear();
-    for (final channel in List.of(_chat.names)) {
-      _chat.channelFor(channel)?.info.touch();
-    }
-  }
-
-  void _setImageHeight(double value) {
-    final clamped = value.clamp(kImageEmbedHeightMin, kImageEmbedHeightMax);
-    if (_imageHeight == clamped) return;
-    setState(() => _imageHeight = clamped);
-    _messageBuilder.imageHeight = clamped;
-    _tileCache.clear();
-    for (final channel in List.of(_chat.names)) {
-      _chat.channelFor(channel)?.info.touch();
-    }
   }
 
   Future<void> _initForegroundService() async {
@@ -1357,16 +1192,42 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     if (_activePanel == OverlayPanel.modView) _mod.refreshOnData(null);
   }
 
-  // Loads the account's subscriber emotes from the IRC emote-sets tag
-  // (GLOBALUSERSTATE/USERSTATE), the authoritative source of which emote sets
-  // the account can use (the Helix /chat/emotes/user endpoint omits certain
-  // grants, e.g. bot accounts). USERSTATE is channel-scoped; GLOBALUSERSTATE
-  // (null channel) is the account-wide union. The actual fetch, owner-login
-  // resolution, and per-channel storage all live in EmoteManager (the emote
-  // daemon); this is a thin forwarder so HomeScreen stays out of emote state.
-  void _loadMaxMessages() async {
+  /// Re-reads every persisted chat preference into its mirror field and
+  /// applies the matching side effects. Runs at startup and whenever settings
+  /// write through [PrefsStore].
+  Future<void> _applyPrefs() async {
     final prefs = await Prefs.load();
     if (!mounted) return;
+
+    final gifHeight = prefs.giphyInlineHeight.clamp(
+      kGiphyInlineHeightMin,
+      kGiphyInlineHeightMax,
+    );
+    final imageHeight = prefs.imageEmbedHeight.clamp(
+      kImageEmbedHeightMin,
+      kImageEmbedHeightMax,
+    );
+    final maxCapChanged =
+        ref.read(maxMessagesPerChannelProvider) != prefs.maxMessagesPerChannel;
+    final sharedChatChanged =
+        ref.read(sharedChatModeProvider) != prefs.sharedChatMode;
+    final animateChanged = _animateGifs != prefs.animateGifs;
+    // Only appearance prefs rebuild frozen spans; unchanged ones skip the
+    // churn so unrelated settings writes stay cheap.
+    final appearanceChanged =
+        _showTimestamps != prefs.showTimestamps ||
+        _timestampFormat != prefs.timestampFormat ||
+        _chatFontSize != prefs.chatFontSize ||
+        _highlightOpacity != prefs.highlightOpacity ||
+        _checkeredMessages != prefs.checkeredMessages ||
+        _lineSeparator != prefs.lineSeparator ||
+        _showNamePaints != prefs.seventvNamePaints ||
+        _showGifs != prefs.giphyInlineEnabled ||
+        _gifHeight != gifHeight ||
+        animateChanged ||
+        _showImages != prefs.imageEmbedEnabled ||
+        _imageHeight != imageHeight;
+
     setState(() {
       ref
           .read(maxMessagesPerChannelProvider.notifier)
@@ -1374,6 +1235,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       ref
           .read(recentMessagesLimitProvider.notifier)
           .set(prefs.recentMessagesLimit);
+      ref.read(sharedChatModeProvider.notifier).set(prefs.sharedChatMode);
       _recentMessagesLimit = prefs.recentMessagesLimit;
       _replyToRoot = prefs.replyToThreadRoot;
       _preferEmotesFirst = prefs.preferEmotesFirst;
@@ -1385,18 +1247,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       _lineSeparator = prefs.lineSeparator;
       _fastSnap = prefs.fastChannelSnap;
       _liquidGlass = prefs.liquidGlass;
-      ref.read(sharedChatModeProvider.notifier).set(prefs.sharedChatMode);
       _showNamePaints = prefs.seventvNamePaints;
       _showGifs = prefs.giphyInlineEnabled;
-      _gifHeight = prefs.giphyInlineHeight.clamp(
-        kGiphyInlineHeightMin,
-        kGiphyInlineHeightMax,
-      );
+      _gifHeight = gifHeight;
       _showImages = prefs.imageEmbedEnabled;
-      _imageHeight = prefs.imageEmbedHeight.clamp(
-        kImageEmbedHeightMin,
-        kImageEmbedHeightMax,
-      );
+      _imageHeight = imageHeight;
       _showInput = prefs.showInput;
       _animateGifs = prefs.animateGifs;
       _messageBuilder.showGifs = _showGifs;
@@ -1404,20 +1259,25 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       _messageBuilder.showImages = _showImages;
       _messageBuilder.imageHeight = _imageHeight;
       _messageBuilder.animateGifs = _animateGifs;
-      // Prefs load async; tiles built with defaults before this returns
-      // would keep stale spans, so evict them like the live setters do.
-      _tileCache.clear();
+    });
+    _sevenTvPaintService.enabled = _showNamePaints;
+    if (animateChanged) EmoteUrlProvider.applyGifsEnabled(_animateGifs);
+    if (maxCapChanged) {
+      // Drop a lowering cap without waiting for the next incoming message.
       for (final channel in List.of(_chat.names)) {
+        _channelManager.truncateChannel(channel);
         _chat.channelFor(channel)?.info.touch();
       }
-    });
-    if (_showNamePaints) {
-      _sevenTvPaintService.enabled = true;
+    }
+    if (appearanceChanged || sharedChatChanged) {
+      _tileCache.clear();
       for (final channel in List.of(_chat.names)) {
         _chat.channelFor(channel)?.info.touch();
       }
     }
   }
+
+  void _onPrefsChanged() => unawaited(_applyPrefs());
 
   @override
   void dispose() {
@@ -1434,6 +1294,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     _uploadController.dispose();
     _networkBusy.dispose();
     _linkWhitelist.removeListener(_onLinkWhitelistChanged);
+    PrefsStore.instance.removeListener(_onPrefsChanged);
     _streamPlayer.removeListener(_stream.onStreamPlayerChanged);
     _streamPlayer.removeListener(_syncSystemUiMode);
     _streamPlayer.dispose();
@@ -1502,13 +1363,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     );
   }
 
-  void _toggleInputVisibility() => _setShowInput(!_showInput);
-
-  void _setShowInput(bool value) {
-    if (_showInput == value) return;
-    setState(() => _showInput = value);
-    unawaited(Prefs.load().then((prefs) => prefs.setShowInput(value)));
-  }
+  void _toggleInputVisibility() => setShowInput(!_showInput);
 
   void _copyMessageToClipboard(TwitchMessage msg) {
     Clipboard.setData(ClipboardData(text: msg.text));
@@ -1558,44 +1413,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       MaterialPageRoute(
         builder: (_) => SettingsScreen(
           twitchAuth: _twitchAuth,
-          onThemeChanged: (mode) {
-            _tileCache.clear();
-            widget.onThemeChanged(mode);
-          },
-          onKeepScreenOnChanged: widget.onKeepScreenOnChanged,
-          onTrueDarkChanged: (value) {
-            _tileCache.clear();
-            widget.onTrueDarkChanged?.call(value);
-          },
-          onAccentColorChanged: (name) {
-            _tileCache.clear();
-            widget.onAccentColorChanged?.call(name);
-          },
           onBackgroundServiceChanged: _setBackgroundService,
           onMentionPushChanged: _setMentionPush,
           onWhisperNotifyChanged: _setWhisperNotify,
-          onMaxMessagesPerChannelChanged: _setMaxMessagesPerChannel,
-          onRecentMessagesChanged: _setRecentMessagesLimit,
           onRecentMessagesModeChanged: _channelManager.setRecentMessagesMode,
-          onReplyToRootChanged: _setReplyToRoot,
-          onPreferEmotesFirstChanged: _setPreferEmotesFirst,
-          onShowTimestampsChanged: _setShowTimestamps,
-          onTimestampFormatChanged: _setTimestampFormat,
-          onChatFontScaleChanged: _setChatFontScale,
-          onAnimateGifsChanged: _setAnimateGifs,
-          onCheckeredMessagesChanged: _setCheckeredMessages,
-          onHighlightOpacityChanged: _setHighlightOpacity,
-          onLineSeparatorChanged: _setLineSeparator,
-          onFastSnapChanged: _setFastSnap,
-          onLiquidGlassChanged: _setLiquidGlass,
-          onNamePaintsChanged: _setNamePaints,
-          onShowGifsChanged: _setShowGifs,
-          onGifHeightChanged: _setGifHeight,
-          onShowImagesChanged: _setShowImages,
-          onImageHeightChanged: _setImageHeight,
           onEmoteTierChanged: _emotes.setManualTier,
           onEmoteCacheMaxChanged: _emotes.applyCacheCap,
-          onSharedChatModeChanged: _setSharedChatMode,
           onEmoteAutoModeChanged: _emotes.applyAutoMode,
           onNukeEmotes: _nukeEmotes,
           mobileNotifier: _isMobile,

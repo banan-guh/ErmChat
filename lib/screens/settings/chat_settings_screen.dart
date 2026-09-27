@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../../services/twitch_auth.dart';
 import '../../util/constants.dart';
 import '../../util/prefs.dart';
+import '../../util/prefs_store.dart';
 import '../../util/timestamp_formatter.dart';
 import '../../widgets/dialogs.dart';
 import 'macros_screen.dart';
@@ -16,21 +17,13 @@ import 'settings_page.dart';
 
 class ChatSettingsScreen extends StatefulWidget {
   final TwitchAuth? twitchAuth;
+
+  /// Foreground-service and notification side effects: starting/stopping the
+  /// service and requesting permissions cannot be re-applied from a prefs
+  /// re-read, so these stay callbacks.
   final ValueChanged<bool>? onBackgroundServiceChanged;
   final ValueChanged<bool>? onMentionPushChanged;
   final ValueChanged<bool>? onWhisperNotifyChanged;
-  final ValueChanged<int>? onMaxMessagesPerChannelChanged;
-  final ValueChanged<int>? onRecentMessagesChanged;
-  final ValueChanged<bool>? onReplyToRootChanged;
-  final ValueChanged<bool>? onPreferEmotesFirstChanged;
-  final ValueChanged<bool>? onShowTimestampsChanged;
-  final ValueChanged<String>? onTimestampFormatChanged;
-  final ValueChanged<String>? onSharedChatModeChanged;
-  final ValueChanged<bool>? onNamePaintsChanged;
-  final ValueChanged<bool>? onShowGifsChanged;
-  final ValueChanged<double>? onGifHeightChanged;
-  final ValueChanged<bool>? onShowImagesChanged;
-  final ValueChanged<double>? onImageHeightChanged;
 
   const ChatSettingsScreen({
     super.key,
@@ -38,18 +31,6 @@ class ChatSettingsScreen extends StatefulWidget {
     this.onBackgroundServiceChanged,
     this.onMentionPushChanged,
     this.onWhisperNotifyChanged,
-    this.onMaxMessagesPerChannelChanged,
-    this.onRecentMessagesChanged,
-    this.onReplyToRootChanged,
-    this.onPreferEmotesFirstChanged,
-    this.onShowTimestampsChanged,
-    this.onTimestampFormatChanged,
-    this.onSharedChatModeChanged,
-    this.onNamePaintsChanged,
-    this.onShowGifsChanged,
-    this.onGifHeightChanged,
-    this.onShowImagesChanged,
-    this.onImageHeightChanged,
   });
 
   @override
@@ -63,6 +44,13 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
   void initState() {
     super.initState();
     _loadPrefs();
+    PrefsStore.instance.addListener(_loadPrefs);
+  }
+
+  @override
+  void dispose() {
+    PrefsStore.instance.removeListener(_loadPrefs);
+    super.dispose();
   }
 
   Future<void> _loadPrefs() async {
@@ -109,9 +97,9 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
     if (selected == null || selected == _timestampFormat) return;
     final prefs = _prefs ?? await Prefs.load();
     await prefs.setTimestampFormat(selected);
+    PrefsStore.instance.notifyChanged();
     if (!mounted) return;
     setState(() {});
-    widget.onTimestampFormatChanged?.call(selected);
   }
 
   String get _sharedChatModeLabel => switch (_sharedChatMode) {
@@ -156,9 +144,9 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
     if (selected == null || selected == _sharedChatMode) return;
     final prefs = _prefs ?? await Prefs.load();
     await prefs.setSharedChatMode(selected);
+    PrefsStore.instance.notifyChanged();
     if (!mounted) return;
     setState(() {});
-    widget.onSharedChatModeChanged?.call(selected);
   }
 
   String get _inlineEmbedsSubtitle {
@@ -195,9 +183,6 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
             write: (p, v) => p.setMaxMessagesPerChannel(
               kMaxMessagesPerChannelValues[v.round()],
             ),
-            onChanged: (v) => widget.onMaxMessagesPerChannelChanged?.call(
-              kMaxMessagesPerChannelValues[v.round()],
-            ),
           ),
           PrefsSliderTile(
             label: (v) => 'Recent messages to load: ${v.round()}',
@@ -208,7 +193,6 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
             defaultValue: kRecentMessagesLimitDefault.toDouble(),
             read: (p) => p.recentMessagesLimit.clamp(0, 800).toDouble(),
             write: (p, v) => p.setRecentMessagesLimit(v.round()),
-            onChanged: (v) => widget.onRecentMessagesChanged?.call(v.round()),
           ),
           PrefsSwitchTile(
             secondary: const Icon(Icons.reply),
@@ -218,7 +202,6 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
             defaultValue: false,
             read: (p) => p.replyToThreadRoot,
             write: (p, v) => p.setReplyToThreadRoot(v),
-            onChanged: widget.onReplyToRootChanged,
           ),
           SettingsNavTile(
             icon: Icons.merge_type,
@@ -243,26 +226,7 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
             onTap: () {
               Navigator.push(
                 context,
-                MaterialPageRoute(
-                  builder: (_) => InlineEmbedsScreen(
-                    onShowGifsChanged: (v) {
-                      if (mounted) setState(() {});
-                      widget.onShowGifsChanged?.call(v);
-                    },
-                    onGifHeightChanged: (v) {
-                      if (mounted) setState(() {});
-                      widget.onGifHeightChanged?.call(v);
-                    },
-                    onShowImagesChanged: (v) {
-                      if (mounted) setState(() {});
-                      widget.onShowImagesChanged?.call(v);
-                    },
-                    onImageHeightChanged: (v) {
-                      if (mounted) setState(() {});
-                      widget.onImageHeightChanged?.call(v);
-                    },
-                  ),
-                ),
+                MaterialPageRoute(builder: (_) => const InlineEmbedsScreen()),
               );
             },
           ),
@@ -288,7 +252,6 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
             defaultValue: true,
             read: (p) => p.showTimestamps,
             write: (p, v) => p.setShowTimestamps(v),
-            onChanged: widget.onShowTimestampsChanged,
           ),
           SettingsNavTile(
             icon: Icons.access_time,
@@ -303,7 +266,6 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
             defaultValue: false,
             read: (p) => p.seventvNamePaints,
             write: (p, v) => p.setSeventvNamePaints(v),
-            onChanged: widget.onNamePaintsChanged,
           ),
           PrefsSwitchTile(
             secondary: const Icon(Icons.sentiment_very_satisfied),
@@ -312,7 +274,6 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
             defaultValue: false,
             read: (p) => p.preferEmotesFirst,
             write: (p, v) => p.setPreferEmotesFirst(v),
-            onChanged: widget.onPreferEmotesFirstChanged,
           ),
           const SettingsSectionHeader('Notifications'),
           SettingsNavTile(

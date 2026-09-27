@@ -1,22 +1,12 @@
 import 'package:flutter/material.dart';
 import '../../util/constants.dart';
 import '../../util/prefs.dart';
+import '../../util/prefs_store.dart';
 import 'prefs_tiles.dart';
 import 'settings_page.dart';
 
 class InlineEmbedsScreen extends StatefulWidget {
-  final ValueChanged<bool>? onShowGifsChanged;
-  final ValueChanged<double>? onGifHeightChanged;
-  final ValueChanged<bool>? onShowImagesChanged;
-  final ValueChanged<double>? onImageHeightChanged;
-
-  const InlineEmbedsScreen({
-    super.key,
-    this.onShowGifsChanged,
-    this.onGifHeightChanged,
-    this.onShowImagesChanged,
-    this.onImageHeightChanged,
-  });
+  const InlineEmbedsScreen({super.key});
 
   @override
   State<InlineEmbedsScreen> createState() => _InlineEmbedsScreenState();
@@ -29,6 +19,14 @@ class _InlineEmbedsScreenState extends State<InlineEmbedsScreen> {
   void initState() {
     super.initState();
     _loadPrefs();
+    // Re-reads prefs so the height sliders enable/disable with the toggles.
+    PrefsStore.instance.addListener(_loadPrefs);
+  }
+
+  @override
+  void dispose() {
+    PrefsStore.instance.removeListener(_loadPrefs);
+    super.dispose();
   }
 
   Future<void> _loadPrefs() async {
@@ -56,10 +54,6 @@ class _InlineEmbedsScreenState extends State<InlineEmbedsScreen> {
             defaultValue: kGiphyInlineEnabledDefault,
             read: (p) => p.giphyInlineEnabled,
             write: (p, v) => p.setGiphyInlineEnabled(v),
-            onChanged: (v) {
-              setState(() {});
-              widget.onShowGifsChanged?.call(v);
-            },
           ),
           PrefsSliderTile(
             label: (v) => 'Giphy height: ${v.round()}dp',
@@ -74,7 +68,6 @@ class _InlineEmbedsScreenState extends State<InlineEmbedsScreen> {
               kGiphyInlineHeightMax,
             ),
             write: (p, v) => p.setGiphyInlineHeight(v),
-            onChanged: widget.onGifHeightChanged,
           ),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
@@ -93,10 +86,6 @@ class _InlineEmbedsScreenState extends State<InlineEmbedsScreen> {
             defaultValue: kImageEmbedEnabledDefault,
             read: (p) => p.imageEmbedEnabled,
             write: (p, v) => p.setImageEmbedEnabled(v),
-            onChanged: (v) {
-              setState(() {});
-              widget.onShowImagesChanged?.call(v);
-            },
           ),
           PrefsSliderTile(
             label: (v) => 'Image height: ${v.round()}dp',
@@ -111,7 +100,6 @@ class _InlineEmbedsScreenState extends State<InlineEmbedsScreen> {
               kImageEmbedHeightMax,
             ),
             write: (p, v) => p.setImageEmbedHeight(v),
-            onChanged: widget.onImageHeightChanged,
           ),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),

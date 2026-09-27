@@ -7,6 +7,7 @@ import '../../services/emote_cache_manager.dart';
 import '../../services/emote_images.dart';
 import '../../services/emote_manager.dart';
 import '../../util/prefs.dart';
+import '../../util/prefs_store.dart';
 import '../../widgets/dialogs.dart';
 import 'settings_page.dart';
 
@@ -18,7 +19,6 @@ class EmotesSettingsScreen extends StatefulWidget {
   /// Nuke action (kills all in-memory emote state, then refetches
   /// everything). Null hides the section (tests, standalone previews).
   final VoidCallback? onNukeEmotes;
-  final ValueChanged<bool>? onAnimateGifsChanged;
 
   /// Live connectivity (true = cellular data) so the tier slider reflects the
   /// effective tier while auto mode is picking. Null falls back to Wi-Fi.
@@ -38,7 +38,6 @@ class EmotesSettingsScreen extends StatefulWidget {
     this.onEmoteCacheMaxChanged,
     this.onEmoteAutoModeChanged,
     this.onNukeEmotes,
-    this.onAnimateGifsChanged,
     this.mobileNotifier,
     this.images,
     this.emoteManager,
@@ -374,8 +373,8 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
           onChanged: (value) async {
             final prefs = await Prefs.load();
             await prefs.setAnimateGifs(value);
+            PrefsStore.instance.notifyChanged();
             if (mounted) setState(() => _animateGifs = value);
-            widget.onAnimateGifsChanged?.call(value);
           },
         ),
         if (widget.emoteManager != null) ...[
