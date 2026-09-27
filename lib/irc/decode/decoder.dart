@@ -113,9 +113,7 @@ class IrcChatDecoder {
   }
 
   void _handleClearChat(IrcMessage msg) {
-    final channelName = msg.params.isNotEmpty
-        ? msg.params[0].substring(1)
-        : null;
+    final channelName = _channelNameOf(msg);
     if (channelName == null) return;
 
     final targetUser = msg.trailing;
@@ -141,9 +139,7 @@ class IrcChatDecoder {
   }
 
   void _handleClearMsg(IrcMessage msg) {
-    final channelName = msg.params.isNotEmpty
-        ? msg.params[0].substring(1)
-        : null;
+    final channelName = _channelNameOf(msg);
     if (channelName == null) return;
 
     final messageId = msg.tags['target-msg-id'];
@@ -196,9 +192,7 @@ class IrcChatDecoder {
 
   void _handleJtvMessage(IrcMessage msg) {
     if (msg.trailing == null) return;
-    final channelName = msg.params.isNotEmpty
-        ? msg.params[0].substring(1)
-        : null;
+    final channelName = _channelNameOf(msg);
     if (channelName == null) return;
 
     _jtvController.add(
@@ -210,9 +204,7 @@ class IrcChatDecoder {
     final emoteSets = msg.tags['emote-sets'];
     final badges = parseIrcBadges(msg.tags['badges']);
     if ((emoteSets == null || emoteSets.isEmpty) && badges == null) return;
-    final channel = msg.command == 'USERSTATE' && msg.params.isNotEmpty
-        ? msg.params[0].substring(1)
-        : null;
+    final channel = msg.command == 'USERSTATE' ? _channelNameOf(msg) : null;
     if (emoteSets != null && emoteSets.isNotEmpty) {
       final ids = emoteSets
           .split(',')
@@ -228,9 +220,7 @@ class IrcChatDecoder {
   }
 
   void _handleRoomState(IrcMessage msg) {
-    final channelName = msg.params.isNotEmpty
-        ? msg.params[0].substring(1)
-        : null;
+    final channelName = _channelNameOf(msg);
     if (channelName == null) return;
     if (_isReadSocket) {
       PerfLog.I.record('JOINQ', '[$_debugPrefix] confirm #$channelName');
@@ -242,9 +232,7 @@ class IrcChatDecoder {
   }
 
   void _handleUserNotice(IrcMessage msg) {
-    final channelName = msg.params.isNotEmpty
-        ? msg.params[0].substring(1)
-        : null;
+    final channelName = _channelNameOf(msg);
     if (channelName == null) return;
 
     var msgId = msg.tags['msg-id'] ?? '';
@@ -254,9 +242,7 @@ class IrcChatDecoder {
       msgId = 'announcement';
     }
 
-    final ircPrefLogin = msg.prefix != null && msg.prefix!.contains('!')
-        ? msg.prefix!.substring(0, msg.prefix!.indexOf('!'))
-        : null;
+    final ircPrefLogin = _prefixLoginOf(msg);
     final login = (msg.tags['login'] ?? ircPrefLogin ?? '').toLowerCase();
     final displayName = msg.tags['display-name'] ?? login;
     final systemMsg = msg.tags['system-msg'];
@@ -288,9 +274,7 @@ class IrcChatDecoder {
 
   void _handleChatMessage(IrcMessage msg) {
     if (msg.trailing == null) return;
-    final channelName = msg.params.isNotEmpty
-        ? msg.params[0].substring(1)
-        : null;
+    final channelName = _channelNameOf(msg);
     if (channelName == null) return;
 
     _messageController.add(parseIrcChatMessage(msg, channel: channelName));
@@ -298,9 +282,7 @@ class IrcChatDecoder {
     // Own messages arrive on the read socket too. Emit on both controllers:
     // onMessage for regular chat, onOwnMessage for self-timeout heal and
     // reply-highlight tracking. Read-side only: no nick, no echo.
-    final sender = msg.prefix != null && msg.prefix!.contains('!')
-        ? msg.prefix!.substring(0, msg.prefix!.indexOf('!')).toLowerCase()
-        : null;
+    final sender = _prefixLoginOf(msg)?.toLowerCase();
     if (sender == _nickProvider?.call()) {
       _ownMessageController.add(msg);
     }
@@ -309,6 +291,17 @@ class IrcChatDecoder {
   void _handleWhisper(IrcMessage msg) {
     if (msg.trailing == null) return;
     _whisperController.add(parseIrcChatMessage(msg, channel: null));
+  }
+
+  /// Channel name from a `#channel` param, or null when the frame has none.
+  String? _channelNameOf(IrcMessage msg) =>
+      msg.params.isEmpty ? null : msg.params[0].substring(1);
+
+  /// Login from the prefix before `!`, or null when the prefix is absent.
+  String? _prefixLoginOf(IrcMessage msg) {
+    final prefix = msg.prefix;
+    if (prefix == null || !prefix.contains('!')) return null;
+    return prefix.substring(0, prefix.indexOf('!'));
   }
 
   void dispose() {

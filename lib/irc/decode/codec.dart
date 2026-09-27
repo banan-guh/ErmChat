@@ -16,10 +16,7 @@ List<EmotePosition>? parseIrcEmotePositions(
   if (emotesTag == null || emotesTag.isEmpty) return null;
   // ACTION wrapper: Twitch sends emote positions relative to the message
   // body (after "\x01ACTION "), so use the body as the position base.
-  final baseText =
-      originalText.startsWith('\x01ACTION ') && originalText.endsWith('\x01')
-      ? originalText.substring(8)
-      : originalText;
+  final baseText = _actionBody(originalText);
   final raw = <({String id, int startCp, int endCp})>[];
   for (final emoteEntry in emotesTag.split('/')) {
     final colonIdx = emoteEntry.indexOf(':');
@@ -73,10 +70,7 @@ List<GifAttachment>? parseIrcGifPositions(
   int prefixLen = 0,
 }) {
   if (gifsTag == null || gifsTag.isEmpty) return null;
-  final baseText =
-      originalText.startsWith('\x01ACTION ') && originalText.endsWith('\x01')
-      ? originalText.substring(8)
-      : originalText;
+  final baseText = _actionBody(originalText);
   // Regex scan instead of comma-split: URLs could legally contain commas.
   final entryRe = RegExp(r'(\d+)-(\d+)\|([^|]+)\|(.+?)(?=,\d+-\d+\||$)');
   final matches = entryRe.allMatches(gifsTag).toList();
@@ -113,6 +107,12 @@ List<GifAttachment>? parseIrcGifPositions(
   }
   return attachments.isEmpty ? null : attachments;
 }
+
+/// ACTION body when [text] is `\x01ACTION ...\x01`, else [text] unchanged.
+String _actionBody(String text) =>
+    text.startsWith('\x01ACTION ') && text.endsWith('\x01')
+    ? text.substring(8)
+    : text;
 
 /// One-pass table of UTF-16 indices by codepoint offset. Index `cp` holds
 /// the UTF-16 index after `cp` code points, so `table[0] == 0` and lookups
