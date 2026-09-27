@@ -39,7 +39,6 @@ class ChannelSession extends ChangeNotifier {
     required this.recentMessagesService,
     required this.selectedChannel,
     required this.setSelectedChannel,
-    required this.isMounted,
     required this.maxMessages,
     required this.recentMessagesLimit,
   });
@@ -58,10 +57,10 @@ class ChannelSession extends ChangeNotifier {
   final RecentMessagesService? recentMessagesService;
   final String? Function() selectedChannel;
   final void Function(String? channel) setSelectedChannel;
-  final bool Function() isMounted;
   final int Function() maxMessages;
   final int Function() recentMessagesLimit;
 
+  bool _disposed = false;
   bool _channelsLoaded = false;
   final _generations = <String, int>{};
   final _leaving = <String>{};
@@ -79,6 +78,14 @@ class ChannelSession extends ChangeNotifier {
 
   /// Re-arm the once-per-login mention scan after an account switch.
   void rearmMentionScan() => _mentionScanDone = false;
+
+  /// Marks the session disposed so async history continuations skip their
+  /// post-await writes. The provider owns the lifecycle.
+  @override
+  void dispose() {
+    _disposed = true;
+    super.dispose();
+  }
 
   void truncateChannel(String channel) {
     chat.channelFor(channel)?.truncate(maxMessages());
@@ -116,7 +123,7 @@ class ChannelSession extends ChangeNotifier {
       recentMessages
           .fetchRecentPreferWarm(name, limit: recentMessagesLimit())
           .then((rows) {
-            if (!isMounted() || !chat.contains(name)) return;
+            if (_disposed || !chat.contains(name)) return;
             chat.channelFor(name)?.setHistoryLoaded(true);
             if (rows.isEmpty) {
               _addSystemMessage(name, 'No chat history available');
@@ -127,7 +134,7 @@ class ChannelSession extends ChangeNotifier {
             maybeAddConnected(name);
           })
           .catchError((e) {
-            if (!isMounted() || !chat.contains(name)) return;
+            if (_disposed || !chat.contains(name)) return;
             chat.channelFor(name)?.setHistoryLoaded(true);
             _addSystemMessage(
               name,
@@ -181,7 +188,7 @@ class ChannelSession extends ChangeNotifier {
     recentMessages
         .fetchRecentPreferWarm(name, limit: recentMessagesLimit())
         .then((rows) {
-          if (!isMounted() || !chat.contains(name)) return;
+          if (_disposed || !chat.contains(name)) return;
           chat.channelFor(name)?.setHistoryLoaded(true);
           removeLoadingHistoryMessage(name);
           if (rows.isEmpty) {
@@ -193,7 +200,7 @@ class ChannelSession extends ChangeNotifier {
           maybeAddConnected(name);
         })
         .catchError((e) {
-          if (!isMounted() || !chat.contains(name)) return;
+          if (_disposed || !chat.contains(name)) return;
           chat.channelFor(name)?.setHistoryLoaded(true);
           removeLoadingHistoryMessage(name);
           _addSystemMessage(
@@ -209,7 +216,7 @@ class ChannelSession extends ChangeNotifier {
     logDebug('[HomeScreen] joining channel: $name');
     await subscribeChannel(name);
     chatConn.focusChannel(name);
-    if (isMounted()) notifyListeners();
+    if (!_disposed) notifyListeners();
     return true;
   }
 

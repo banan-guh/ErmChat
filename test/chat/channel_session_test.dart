@@ -70,7 +70,6 @@ ChannelSession _channelSession(Chat chat) {
     recentMessagesService: null,
     selectedChannel: () => selected,
     setSelectedChannel: (value) => selected = value,
-    isMounted: () => true,
     maxMessages: () => 500,
     recentMessagesLimit: () => 100,
   );

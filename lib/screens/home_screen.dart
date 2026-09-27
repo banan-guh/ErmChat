@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/app_providers.dart';
+import '../providers/channel_providers.dart';
 import '../providers/chat_pipeline.dart';
 import '../providers/emote_providers.dart';
 import '../providers/feature_providers.dart';
@@ -57,7 +58,6 @@ import '../composer/composer_controller.dart';
 import '../sheets/message_menu.dart';
 import '../sheets/user_sheet.dart';
 import '../channels/channel_manager.dart';
-import '../channels/channel_session.dart';
 import '../chrome/channel_stack.dart';
 import '../chrome/home_app_bar.dart';
 import '../chrome/stream_layout.dart';
@@ -231,7 +231,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   // [_chatLoading] (driven by ChatConnectionManager.connectionStateNotifier),
   // so this only covers emote work that doesn't move the connection phase.
   final ValueNotifier<bool> _networkBusy = ValueNotifier(false);
-  int _recentMessagesLimit = 100;
   bool _showTimestamps = true;
   String _timestampFormat = kDefaultTimestampFormat;
   double _chatFontSize = 14.0;
@@ -269,7 +268,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   /// Whether the chat input box + status row is shown. Persisted.
   bool _showInput = true;
 
-  final _streamPlayer = StreamPlayerController();
+  // Provider-owned stream player, read once and cached. The provider owns
+  // teardown; the shell only binds PiP and observes its notifier.
+  StreamPlayerController? _streamPlayerCache;
+  StreamPlayerController get _streamPlayer {
+    _streamPlayerCache ??= ref.read(streamPlayerProvider);
+    return _streamPlayerCache!;
+  }
+
   bool _theaterChatVisible = true;
 
   final _selectedTabIndex = ValueNotifier<int>(0);
@@ -534,29 +540,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     onChannelChanged: _channels.onChannelChanged,
   );
 
-  late final _channelSession = ChannelSession(
-    chat: _chat,
-    session: _session,
-    chatConn: _chatConn,
-    irc: ref.read(ircServiceProvider),
-    ircRead: ref.read(ircReadServiceProvider),
-    emoteManager: _emoteManager,
-    badgeService: _badgeService,
-    analytics: _analytics,
-    streamPlayer: _streamPlayer,
-    userStore: _userStore,
-    history: ref.read(chatHistoryControllerProvider),
-    recentMessagesService: ref.read(recentMessagesServiceProvider),
-    selectedChannel: () => ref.read(selectedChannelProvider),
-    setSelectedChannel: (value) =>
-        ref.read(selectedChannelProvider.notifier).set(value),
-    isMounted: () => mounted,
-    maxMessages: () => ref.read(maxMessagesPerChannelProvider),
-    recentMessagesLimit: () => _recentMessagesLimit,
-  );
-
   late final _channelManager = ChannelManager(
-    session: _channelSession,
+    session: ref.read(channelSessionProvider),
     composer: _composer,
     threads: _threads,
     broadcastWidgets: _broadcastWidgets,
@@ -1192,7 +1177,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
           .read(recentMessagesLimitProvider.notifier)
           .set(prefs.recentMessagesLimit);
       ref.read(sharedChatModeProvider.notifier).set(prefs.sharedChatMode);
-      _recentMessagesLimit = prefs.recentMessagesLimit;
       _replyToRoot = prefs.replyToThreadRoot;
       _preferEmotesFirst = prefs.preferEmotesFirst;
       _showTimestamps = prefs.showTimestamps;
@@ -1253,7 +1237,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     PrefsStore.instance.removeListener(_onPrefsChanged);
     _streamPlayer.removeListener(_stream.onStreamPlayerChanged);
     _streamPlayer.removeListener(_syncSystemUiMode);
-    _streamPlayer.dispose();
     _mentionsTabCtrl.removeListener(_mentions.onMentionsTabChanged);
     _mentionsTabCtrl.dispose();
     _threadsTabCtrl.removeListener(_threads.onThreadsTabChanged);

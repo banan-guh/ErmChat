@@ -14,6 +14,7 @@ import '../services/pip_service.dart';
 import '../services/pubsub_points_service.dart';
 import '../services/recent_messages.dart';
 import '../services/seven_tv_event_client.dart';
+import '../services/stream_player_controller.dart';
 import '../widgets/seven_tv_paint_service.dart';
 import '../services/third_party_badge_service.dart';
 import '../services/twitch_api.dart';
@@ -166,6 +167,14 @@ final pipServiceProvider = Provider<PipService>((ref) {
   final service = PipService();
   ref.onDispose(service.dispose);
   return service;
+});
+
+/// Per-channel stream player state. App-scope so the session and the shell
+/// share one instance; the shell still binds its [PipService] and listeners.
+final streamPlayerProvider = Provider<StreamPlayerController>((ref) {
+  final controller = StreamPlayerController();
+  ref.onDispose(controller.dispose);
+  return controller;
 });
 
 final pingManagerProvider = Provider<PingManager>(

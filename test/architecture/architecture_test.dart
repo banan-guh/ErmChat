@@ -375,6 +375,7 @@ const _providerOwnedTypes = <String>[
   'JoinRateLimiter',
   'RecentMessagesService',
   'PipService',
+  'StreamPlayerController',
   'BroadcastWidgets',
   'CommandHandler',
 ];
