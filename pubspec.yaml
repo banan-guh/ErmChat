@@ -59,7 +59,6 @@ dependencies:
   webview_flutter_android: ^4.14.1
   webview_flutter_wkwebview: ^3.26.1
   flutter_riverpod: ^3.4.3
-  scrollview_observer: ^1.27.3
   liquid_glass_widgets: ^1.6.1
 dev_dependencies:
   flutter_test:

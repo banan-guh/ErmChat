@@ -32,7 +32,7 @@ class _Harness {
   late final ScrollController controller;
   final _em = EmoteManager();
 
-  Future<void> pump({bool keepAlive = true}) async {
+  Future<void> pump({bool keepAlive = true, bool keepPosition = true}) async {
     final builder = MessageBuilder(
       emoteSource: _em,
       badgeService: TwitchBadgeService(),
@@ -57,6 +57,7 @@ class _Harness {
             scrollController: controller,
             messageBuilder: builder,
             keepAlive: keepAlive,
+            keepPosition: keepPosition,
             onShowUserProfile: (_, _, {displayName}) {},
           ),
         ),
@@ -255,5 +256,177 @@ void main() {
       );
     }
     expect(h.controller.offset, greaterThan(offsetBefore));
+  });
+
+  testWidgets('hold keeps reading position when a newer row is removed', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1080, 2400);
+    tester.view.devicePixelRatio = 3.0;
+    addTearDown(tester.view.reset);
+
+    final notifier = ValueNotifier(0);
+    addTearDown(notifier.dispose);
+    final messages = <TwitchMessage>[for (var i = 80; i >= 1; i--) _msg(i)];
+    final h = _Harness(tester: tester, messages: messages, notifier: notifier);
+    await h.pump();
+
+    await tester.fling(find.byType(ListView), const Offset(0, 900), 2000);
+    await tester.pumpAndSettle();
+
+    final tracked = h.visibleRows().keys.take(6).toList();
+    expect(tracked, isNotEmpty);
+    final before = h.visibleRows();
+
+    // Drop the newest row, which sits off screen ahead of the reader. The rows
+    // on screen lose its height in content space and must be held in place.
+    messages.removeAt(0);
+    notifier.value++;
+    await tester.pump();
+    await tester.pump();
+
+    final after = h.visibleRows();
+    for (final key in tracked) {
+      expect(after[key], isNotNull);
+      expect(
+        after[key],
+        moreOrLessEquals(before[key]!, epsilon: 0.5),
+        reason: '$key moved when a newer row was removed',
+      );
+    }
+  });
+
+  testWidgets('FAB returns to the bottom from deep in history', (tester) async {
+    tester.view.physicalSize = const Size(1080, 2400);
+    tester.view.devicePixelRatio = 3.0;
+    addTearDown(tester.view.reset);
+
+    final notifier = ValueNotifier(0);
+    addTearDown(notifier.dispose);
+    final messages = <TwitchMessage>[for (var i = 400; i >= 1; i--) _msg(i)];
+    final h = _Harness(tester: tester, messages: messages, notifier: notifier);
+    await h.pump();
+
+    await tester.fling(find.byType(ListView), const Offset(0, 3000), 4000);
+    await tester.pumpAndSettle();
+    expect(h.controller.offset, greaterThan(1000));
+
+    final fab = find.byKey(const ValueKey('scroll_down'));
+    expect(fab, findsOneWidget);
+    await tester.tap(fab);
+    await tester.pump();
+    await tester.pump();
+
+    expect(h.controller.offset, lessThanOrEqualTo(0.5));
+  });
+
+  testWidgets('FAB lands at bottom when a row lands on the tap frame', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1080, 2400);
+    tester.view.devicePixelRatio = 3.0;
+    addTearDown(tester.view.reset);
+
+    final notifier = ValueNotifier(0);
+    addTearDown(notifier.dispose);
+    final messages = <TwitchMessage>[for (var i = 400; i >= 1; i--) _msg(i)];
+    final h = _Harness(tester: tester, messages: messages, notifier: notifier);
+    await h.pump();
+
+    await tester.fling(find.byType(ListView), const Offset(0, 3000), 4000);
+    await tester.pumpAndSettle();
+    expect(h.controller.offset, greaterThan(1000));
+
+    await tester.tap(find.byKey(const ValueKey('scroll_down')));
+    messages.insert(0, _msg(999));
+    notifier.value++;
+    await tester.pump();
+    await tester.pump();
+
+    expect(h.controller.offset, lessThanOrEqualTo(0.5));
+  });
+
+  testWidgets('FAB lands at bottom when a row is pending before the tap', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1080, 2400);
+    tester.view.devicePixelRatio = 3.0;
+    addTearDown(tester.view.reset);
+
+    final notifier = ValueNotifier(0);
+    addTearDown(notifier.dispose);
+    final messages = <TwitchMessage>[for (var i = 400; i >= 1; i--) _msg(i)];
+    final h = _Harness(tester: tester, messages: messages, notifier: notifier);
+    await h.pump();
+
+    await tester.fling(find.byType(ListView), const Offset(0, 3000), 4000);
+    await tester.pumpAndSettle();
+    expect(h.controller.offset, greaterThan(1000));
+
+    messages.insert(0, _msg(999));
+    notifier.value++;
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('scroll_down')));
+    await tester.pump();
+    await tester.pump();
+
+    expect(h.controller.offset, lessThanOrEqualTo(0.5));
+  });
+
+  testWidgets('FAB returns to bottom from the oldest end', (tester) async {
+    tester.view.physicalSize = const Size(1080, 2400);
+    tester.view.devicePixelRatio = 3.0;
+    addTearDown(tester.view.reset);
+
+    final notifier = ValueNotifier(0);
+    addTearDown(notifier.dispose);
+    final messages = <TwitchMessage>[for (var i = 500; i >= 1; i--) _msg(i)];
+    final h = _Harness(tester: tester, messages: messages, notifier: notifier);
+    await h.pump();
+
+    h.controller.jumpTo(h.controller.position.maxScrollExtent);
+    await tester.pumpAndSettle();
+    expect(h.controller.offset, greaterThan(1000));
+
+    await tester.tap(find.byKey(const ValueKey('scroll_down')));
+    await tester.pump();
+    await tester.pump();
+
+    expect(h.controller.offset, lessThanOrEqualTo(0.5));
+  });
+
+  testWidgets('FAB reaches the bottom on an active chat', (tester) async {
+    tester.view.physicalSize = const Size(1080, 2400);
+    tester.view.devicePixelRatio = 3.0;
+    addTearDown(tester.view.reset);
+
+    final notifier = ValueNotifier(0);
+    addTearDown(notifier.dispose);
+    final messages = <TwitchMessage>[for (var i = 500; i >= 1; i--) _msg(i)];
+    final h = _Harness(tester: tester, messages: messages, notifier: notifier);
+    await h.pump();
+
+    h.controller.jumpTo(h.controller.position.maxScrollExtent);
+    await tester.pumpAndSettle();
+    expect(h.controller.offset, greaterThan(1000));
+
+    // Active chat: arrivals keep landing while the reader is deep in history.
+    for (var k = 0; k < 3; k++) {
+      messages.insert(0, _msg(600 + k));
+      notifier.value++;
+      await tester.pump();
+    }
+
+    await tester.tap(find.byKey(const ValueKey('scroll_down')));
+
+    // More arrivals over the frames after the tap.
+    for (var k = 0; k < 6; k++) {
+      messages.insert(0, _msg(700 + k));
+      notifier.value++;
+      await tester.pump();
+    }
+    await tester.pump();
+
+    expect(h.controller.offset, lessThanOrEqualTo(0.5));
   });
 }

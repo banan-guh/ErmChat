@@ -66,9 +66,6 @@ class _Harness {
     await tester.pump();
   }
 
-  Element elementFor(String id) =>
-      tester.element(find.byKey(ValueKey<String>(id)));
-
   // Ids of the message rows currently built (kept off the far edge).
   List<String> builtIds() {
     final finder = find.byWidgetPredicate(
@@ -84,7 +81,7 @@ class _Harness {
 }
 
 void main() {
-  testWidgets('a growing insert moves built rows instead of rebuilding them', (
+  testWidgets('a growing insert keeps built rows in order without a crash', (
     tester,
   ) async {
     tester.view.physicalSize = const Size(1080, 2400);
@@ -97,27 +94,26 @@ void main() {
     final h = _Harness(tester: tester, messages: messages, notifier: notifier);
     await h.pump();
 
-    // Interior rows near the bottom of the reverse list, away from the edge
-    // that is about to be rebuilt.
-    final built = h.builtIds();
-    expect(built.length, greaterThan(4), reason: 'need built rows to track');
-    final tracked = built.sublist(1, 5);
-    final before = {for (final id in tracked) id: h.elementFor(id)};
+    expect(
+      h.builtIds().length,
+      greaterThan(4),
+      reason: 'need built rows to track',
+    );
 
-    // A message arrives at the head: every built row shifts one slot. The slot
-    // each tracked row lands in already existed, so it must be a move, not a
-    // rebuild.
+    // A message arrives at the head: every built row shifts one slot. The list
+    // rebuilds them in place instead of asking the framework to move a keyed
+    // child, which used to park a row in a slot with no layout offset.
     messages.insert(0, _msg(100));
     notifier.value++;
     await tester.pump();
 
-    for (final id in tracked) {
-      expect(
-        h.elementFor(id),
-        same(before[id]),
-        reason: '$id was rebuilt instead of moved on a growing insert',
-      );
-    }
+    final after = h.builtIds();
+    expect(after, contains('msg-100'));
+    expect(
+      after.toSet().length,
+      after.length,
+      reason: 'a row was built twice after the insert',
+    );
     expect(tester.takeException(), isNull);
   });
 

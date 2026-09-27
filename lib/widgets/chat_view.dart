@@ -1,9 +1,7 @@
-import 'dart:async';
-
 import 'package:flutter/foundation.dart' show defaultTargetPlatform;
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart' show HapticFeedback;
-import 'package:scrollview_observer/scrollview_observer.dart';
 import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 import '../models/twitch_message.dart';
 import '../util/thread_utils.dart';
@@ -132,55 +130,81 @@ class ChatView extends StatefulWidget {
   State<ChatView> createState() => _ChatViewState();
 }
 
-/// Restores the framework default for [ScrollPhysics.shouldAcceptUserOffset].
+/// Reading position held while the reader is scrolled away from the newest row.
 ///
-/// The upstream chat physics forces `true`, which keeps the list's drag
-/// recognizer registered even when it cannot scroll. On a short channel that
-/// recognizer swallows horizontal pager swipes, so channel switching breaks.
-/// Re-applying the default lets the pager win when the list has nothing to
-/// scroll.
-mixin _FrameworkUserOffset on ScrollPhysics {
+/// The view fills in [resolve]; the physics calls it during layout, after the
+/// sliver has laid out its children, so the correction lands in the same frame
+/// as the content change.
+class _ChatHold {
+  bool paused = false;
+
+  /// True from a content build until the correction layout consumes it.
+  bool pending = false;
+
+  /// Key of the row the reader is anchored on.
+  String? anchorId;
+
+  /// The anchor's content-space layout offset at the last settled layout.
+  double anchorOffset = 0;
+
+  /// The message list the current build is rendering.
+  List<TwitchMessage>? msgs;
+
+  /// New pixels that keep the anchor on screen, or null to leave it alone.
+  double? Function(ScrollMetrics) resolve = (_) => null;
+}
+
+/// Applies [_ChatHold.resolve] on top of the platform physics. Everything else
+/// delegates to the parent, so fling, overscroll and gesture routing are stock.
+mixin _ChatHoldPhysicsMixin on ScrollPhysics {
+  _ChatHold get hold;
+
   @override
-  bool shouldAcceptUserOffset(ScrollMetrics position) {
-    if (!allowUserScrolling) return false;
-    final p = parent;
-    if (p == null) {
-      return position.pixels != 0.0 ||
-          position.minScrollExtent != position.maxScrollExtent;
-    }
-    return p.shouldAcceptUserOffset(position);
+  double adjustPositionForNewDimensions({
+    required ScrollMetrics oldPosition,
+    required ScrollMetrics newPosition,
+    required bool isScrolling,
+    required double velocity,
+  }) {
+    final target = hold.resolve(newPosition);
+    if (target != null) return target;
+    return super.adjustPositionForNewDimensions(
+      oldPosition: oldPosition,
+      newPosition: newPosition,
+      isScrolling: isScrolling,
+      velocity: velocity,
+    );
   }
 }
 
-class _ChatAnchorClampingPhysics extends ChatObserverClampingScrollPhysics
-    with _FrameworkUserOffset {
-  _ChatAnchorClampingPhysics({super.parent, required super.observer});
+class _ChatHoldClampingPhysics extends ClampingScrollPhysics
+    with _ChatHoldPhysicsMixin {
+  _ChatHoldClampingPhysics({super.parent, required this.hold});
 
   @override
-  _ChatAnchorClampingPhysics applyTo(ScrollPhysics? ancestor) =>
-      _ChatAnchorClampingPhysics(
-        parent: buildParent(ancestor),
-        observer: observer,
-      );
+  final _ChatHold hold;
+
+  @override
+  _ChatHoldClampingPhysics applyTo(ScrollPhysics? ancestor) =>
+      _ChatHoldClampingPhysics(parent: buildParent(ancestor), hold: hold);
 }
 
-class _ChatAnchorBouncingPhysics extends ChatObserverBouncingScrollPhysics
-    with _FrameworkUserOffset {
-  _ChatAnchorBouncingPhysics({super.parent, required super.observer});
+class _ChatHoldBouncingPhysics extends BouncingScrollPhysics
+    with _ChatHoldPhysicsMixin {
+  _ChatHoldBouncingPhysics({super.parent, required this.hold});
 
   @override
-  _ChatAnchorBouncingPhysics applyTo(ScrollPhysics? ancestor) =>
-      _ChatAnchorBouncingPhysics(
-        parent: buildParent(ancestor),
-        observer: observer,
-      );
+  final _ChatHold hold;
+
+  @override
+  _ChatHoldBouncingPhysics applyTo(ScrollPhysics? ancestor) =>
+      _ChatHoldBouncingPhysics(parent: buildParent(ancestor), hold: hold);
 }
 
 class _ChatViewState extends State<ChatView>
     with AutomaticKeepAliveClientMixin {
-  /// Above this many rows prepended in one tick the anchor can fall outside the
-  /// cache area, so hold is skipped and the list is left to settle.
-  static const int _maxHoldBatch = 64;
+  /// Pixels from the newest row above which the reader counts as scrolled up.
+  static const double _followEps = 0.5;
 
   @override
   bool get wantKeepAlive => widget.keepAlive;
@@ -190,24 +214,17 @@ class _ChatViewState extends State<ChatView>
   String? _endsFirst;
   String? _endsLast;
 
-  // Materialized row-index range from the previous layout, plus the range the
-  // current build is filling. [_findChildIndex] uses the previous range to keep
-  // a moved row out of a slot that did not exist yet.
-  int? _prevBuiltMin;
-  int? _prevBuiltMax;
-  int? _builtMin;
-  int? _builtMax;
+  // Hold state shared with the physics; the physics corrects during layout so
+  // a prepended row never shows in the wrong place, not even for one frame.
+  final _ChatHold _hold = _ChatHold();
+  bool _refreshScheduled = false;
 
-  // Anchoring bridge: ListViewObserver feeds ChatScrollObserver, whose physics
-  // keeps the row under the reader pinned when earlier rows are inserted.
-  ListObserverController? _observerController;
-  ChatScrollObserver? _chatObserver;
-  ScrollController? _observerScrollController;
-
-  // Snapshot of the previous tick used to measure head shifts.
-  int _prevLen = -1;
-  String? _prevHead;
-  bool _hasSnapshot = false;
+  // Follow intent, separate from the raw offset. A far jump can leave a
+  // transient offset for a frame while the sliver rebuilds; only a user drag
+  // leaves follow, so those transients cannot re-arm the hold.
+  bool _follow = true;
+  bool _followSnapScheduled = false;
+  int _followSnapTries = 0;
 
   // Effective pill clearance for this frame: the explicit prop wins, zero
   // falls back to the scope so surfaces without threaded params (welcome,
@@ -218,7 +235,7 @@ class _ChatViewState extends State<ChatView>
   @override
   void initState() {
     super.initState();
-    _ensureObservers();
+    _hold.resolve = _resolveCorrection;
   }
 
   @override
@@ -227,19 +244,6 @@ class _ChatViewState extends State<ChatView>
     if (widget.chatFontScale != oldWidget.chatFontScale) {
       setState(() {});
     }
-    if (widget.scrollController != oldWidget.scrollController) {
-      _ensureObservers();
-    }
-  }
-
-  void _ensureObservers() {
-    if (identical(_observerScrollController, widget.scrollController)) return;
-    _observerScrollController = widget.scrollController;
-    _observerController = ListObserverController(
-      controller: widget.scrollController,
-    )..cacheJumpIndexOffset = false;
-    _chatObserver = ChatScrollObserver(_observerController!)
-      ..fixedPositionOffset = 8;
   }
 
   @override
@@ -268,22 +272,15 @@ class _ChatViewState extends State<ChatView>
       children: [
         NotificationListener<ScrollNotification>(
           onNotification: (notification) {
-            if (notification is ScrollUpdateNotification) {
-              final scrolledUp = notification.metrics.pixels > 0.5;
-              final atBottom = widget.atBottomNotifier.value;
-              if (scrolledUp && atBottom) {
-                widget.atBottomNotifier.value = false;
-                widget.onScrollActivity?.call(widget.channel);
-              } else if (!scrolledUp && !atBottom) {
-                widget.atBottomNotifier.value = true;
-                widget.onScrollActivity?.call(widget.channel);
-              }
+            if (notification is ScrollStartNotification) {
+              if (notification.dragDetails != null) _follow = false;
+              _applyScrollState(notification.metrics);
+            } else if (notification is ScrollUpdateNotification) {
+              if (notification.dragDetails != null) _follow = false;
+              _applyScrollState(notification.metrics);
             } else if (notification is ScrollEndNotification) {
-              if (notification.metrics.pixels <= 0.5 &&
-                  !widget.atBottomNotifier.value) {
-                widget.atBottomNotifier.value = true;
-                widget.onScrollActivity?.call(widget.channel);
-              }
+              if (notification.metrics.pixels <= _followEps) _follow = true;
+              _applyScrollState(notification.metrics);
             }
             return false;
           },
@@ -322,9 +319,7 @@ class _ChatViewState extends State<ChatView>
                         shape: GlassIconButtonShape.roundedSquare,
                         onPressed: () {
                           iosHaptic(HapticFeedback.lightImpact);
-                          widget.atBottomNotifier.value = true;
-                          widget.scrollController.jumpTo(0);
-                          widget.onScrollActivity?.call(widget.channel);
+                          _jumpToBottom();
                         },
                         useOwnLayer: true,
                         quality: GlassQuality.premium,
@@ -336,9 +331,7 @@ class _ChatViewState extends State<ChatView>
                             'scroll_down_${widget.channel}',
                         onPressed: () {
                           iosHaptic(HapticFeedback.lightImpact);
-                          widget.atBottomNotifier.value = true;
-                          widget.scrollController.jumpTo(0);
-                          widget.onScrollActivity?.call(widget.channel);
+                          _jumpToBottom();
                         },
                         child: const Icon(Icons.keyboard_arrow_down),
                       ),
@@ -356,7 +349,6 @@ class _ChatViewState extends State<ChatView>
     Color surface,
     double s,
   ) {
-    _beginBuiltRange();
     final empty = msgs.isEmpty;
     // Opaque in-flow composer sits flush under the list, so keep a small
     // fixed gap above it. Glass mode clears the measured pill instead.
@@ -368,43 +360,33 @@ class _ChatViewState extends State<ChatView>
         () => <String?, Widget>{},
       );
       _refreshIndexMap(msgs, cache);
-      return ListViewObserver(
-        controller: _observerController!,
-        child: ListView.builder(
-          // PageStorage key restores the offset after the channel page
-          // unmounts off screen; kept-alive lists need no key.
-          key: widget.keepAlive
-              ? ValueKey<String>(widget.channel)
-              : PageStorageKey<String>('${widget.channel}:chat'),
-          controller: widget.scrollController,
-          reverse: true,
-          physics: _scrollPhysics(),
-          padding: EdgeInsets.only(
-            top: widget.topOverlayPadding,
-            bottom: listBottom,
-          ),
-          keyboardDismissBehavior: widget.keyboardDismissBehavior,
-          itemCount: msgs.length,
-          findChildIndexCallback: _findChildIndex,
-          addAutomaticKeepAlives: false,
-          addRepaintBoundaries: false,
-          // The chat observer walks the sliver's children via
-          // RenderIndexedSemantics; without it standby cannot find the
-          // reference row and the hold silently no-ops.
-          addSemanticIndexes: true,
-          itemBuilder: (ctx, i) {
-            _noteBuiltIndex(i);
-            return _buildTile(
-              msgs,
-              cache,
-              _idToIndex,
-              i,
-              surface,
-              s,
-              ctx,
-              widget.checkeredMessages,
-            );
-          },
+      return ListView.builder(
+        // PageStorage key restores the offset after the channel page
+        // unmounts off screen; kept-alive lists need no key.
+        key: widget.keepAlive
+            ? ValueKey<String>(widget.channel)
+            : PageStorageKey<String>('${widget.channel}:chat'),
+        controller: widget.scrollController,
+        reverse: true,
+        physics: _scrollPhysics(),
+        padding: EdgeInsets.only(
+          top: widget.topOverlayPadding,
+          bottom: listBottom,
+        ),
+        keyboardDismissBehavior: widget.keyboardDismissBehavior,
+        itemCount: msgs.length,
+        addAutomaticKeepAlives: false,
+        addRepaintBoundaries: false,
+        addSemanticIndexes: true,
+        itemBuilder: (ctx, i) => _buildTile(
+          msgs,
+          cache,
+          _idToIndex,
+          i,
+          surface,
+          s,
+          ctx,
+          widget.checkeredMessages,
         ),
       );
     }
@@ -417,45 +399,54 @@ class _ChatViewState extends State<ChatView>
       channel: widget.channel,
     );
     _refreshIndexMap(const [], null);
-    return ListViewObserver(
-      controller: _observerController!,
-      child: ListView.builder(
-        key: ValueKey<String>('${widget.channel}:empty'),
-        controller: widget.scrollController,
-        reverse: true,
-        physics: _scrollPhysics(),
-        padding: EdgeInsets.only(
-          top: widget.topOverlayPadding,
-          bottom: _effBottom,
-        ),
-        keyboardDismissBehavior: widget.keyboardDismissBehavior,
-        itemCount: 1,
-        addAutomaticKeepAlives: false,
-        addRepaintBoundaries: false,
-        addSemanticIndexes: false,
-        itemBuilder: (ctx, i) => _buildTile(
-          [emptyMsg],
-          null,
-          const {},
-          0,
-          surface,
-          s,
-          ctx,
-          widget.checkeredMessages,
-        ),
+    return ListView.builder(
+      key: ValueKey<String>('${widget.channel}:empty'),
+      controller: widget.scrollController,
+      reverse: true,
+      physics: _scrollPhysics(),
+      padding: EdgeInsets.only(
+        top: widget.topOverlayPadding,
+        bottom: _effBottom,
+      ),
+      keyboardDismissBehavior: widget.keyboardDismissBehavior,
+      itemCount: 1,
+      addAutomaticKeepAlives: false,
+      addRepaintBoundaries: false,
+      addSemanticIndexes: false,
+      itemBuilder: (ctx, i) => _buildTile(
+        [emptyMsg],
+        null,
+        const {},
+        0,
+        surface,
+        s,
+        ctx,
+        widget.checkeredMessages,
       ),
     );
   }
 
   ScrollPhysics _scrollPhysics() {
-    final observer = _chatObserver!;
-    final anchor = defaultTargetPlatform == TargetPlatform.iOS
-        ? _ChatAnchorBouncingPhysics(observer: observer)
-        : _ChatAnchorClampingPhysics(observer: observer);
-    return anchor.applyTo(widget.physics);
+    return defaultTargetPlatform == TargetPlatform.iOS
+        ? _ChatHoldBouncingPhysics(parent: widget.physics, hold: _hold)
+        : _ChatHoldClampingPhysics(parent: widget.physics, hold: _hold);
   }
 
-  /// Rebuilds the cached-id to index map so element reuse follows shifted rows.
+  /// Jumps to the newest row. Follow is claimed before the jump so a transient
+  /// offset from the far move cannot re-arm the hold, and re-asserted after so
+  /// the list actually settles on the newest row.
+  void _jumpToBottom() {
+    _follow = true;
+    _followSnapTries = 0;
+    final pos = _position;
+    if (pos != null && pos.hasPixels) pos.jumpTo(0);
+    widget.atBottomNotifier.value = true;
+    widget.onScrollActivity?.call(widget.channel);
+    _scheduleFollowSnap();
+  }
+
+  /// Rebuilds the live-id to index map used to evict tiles that left the
+  /// buffer before the least recently used ones.
   void _refreshIndexMap(List<TwitchMessage> msgs, Map<String?, Widget>? cache) {
     if (msgs.isEmpty) {
       _lastMsgLen = 0;
@@ -485,78 +476,184 @@ class _ChatViewState extends State<ChatView>
     _idToIndex = idToIndex;
   }
 
-  /// Opens a build frame: the range just built becomes the reference range for
-  /// [_findChildIndex], which runs before this frame's rows are built.
-  void _beginBuiltRange() {
-    _prevBuiltMin = _builtMin;
-    _prevBuiltMax = _builtMax;
-    _builtMin = null;
-    _builtMax = null;
+  /// Applies the scroll state for a user or ballistic update and mirrors it to
+  /// [atBottomNotifier]. Only a user drag clears [_follow].
+  void _applyScrollState(ScrollMetrics metrics) {
+    final atBottom = metrics.pixels <= _followEps;
+    if (atBottom && !widget.atBottomNotifier.value) {
+      widget.atBottomNotifier.value = true;
+      widget.onScrollActivity?.call(widget.channel);
+    } else if (!atBottom && widget.atBottomNotifier.value) {
+      widget.atBottomNotifier.value = false;
+      widget.onScrollActivity?.call(widget.channel);
+    }
+    final paused = !_follow && metrics.pixels > _followEps;
+    _hold.paused = paused;
+    if (paused && widget.keepPosition) {
+      _scheduleAnchorRefresh();
+    } else if (!paused) {
+      _hold.pending = false;
+      if (atBottom) _followSnapTries = 0;
+    }
   }
 
-  void _noteBuiltIndex(int index) {
-    if (_builtMin == null || index < _builtMin!) _builtMin = index;
-    if (_builtMax == null || index > _builtMax!) _builtMax = index;
+  /// Re-asserts the bottom while following. A far jump can leave a transient
+  /// offset for a frame while the sliver rebuilds, and without the snap the
+  /// hold would read that offset as a pause and never resume following.
+  void _scheduleFollowSnap() {
+    if (_followSnapScheduled) return;
+    _followSnapScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _followSnapScheduled = false;
+      if (!mounted || !_follow) return;
+      final pos = _position;
+      if (pos == null || !pos.hasPixels || pos.pixels <= _followEps) return;
+      pos.jumpTo(0);
+      if (_followSnapTries++ < 4) _scheduleFollowSnap();
+    });
   }
 
-  /// Maps a row's key to its index so the sliver can move the row instead of
-  /// rebuilding it. A move is only allowed into a slot that existed in the last
-  /// layout: the sliver restores the moved row's offset from that slot's
-  /// previous occupant, and a slot with no occupant leaves the offset null,
-  /// which crashes hit testing (flutter#153922). Returning null rebuilds that
-  /// one row in place instead.
-  int? _findChildIndex(Key key) {
-    if (key is! ValueKey<String>) return null;
-    final index = _idToIndex[key.value];
-    if (index == null) return null;
-    final min = _prevBuiltMin;
-    final max = _prevBuiltMax;
-    if (min == null || max == null) return null;
-    if (index < min || index > max) return null;
-    return index;
-  }
+  ScrollPosition? get _position => widget.scrollController.hasClients
+      ? widget.scrollController.position
+      : null;
 
-  /// Measures head arrivals since the last tick and hands the count to the
-  /// chat observer so it can hold the reader's row. History merges land at the
-  /// tail and leave the head alone, so they need no hold.
+  /// Flags a content build so the physics can hold the reader's row this frame.
+  ///
+  /// The anchor was captured at the last settled layout. The physics re-reads
+  /// its offset once the new rows are laid out and shifts the scroll by the
+  /// difference, so any number of inserts, evicts or middle deletes in one
+  /// frame is handled without counting them.
   void _syncHold(List<TwitchMessage> msgs) {
-    final observer = _chatObserver;
-    if (observer == null) return;
-    final len = msgs.length;
-    final head = len == 0 ? null : _rowKey(msgs.first);
-    if (!_hasSnapshot) {
-      _prevLen = len;
-      _prevHead = head;
-      _hasSnapshot = true;
+    _hold.msgs = msgs;
+    final pos = _position;
+    if (pos == null || !pos.hasPixels) {
+      _hold.paused = false;
+      _hold.pending = false;
       return;
     }
-    if (widget.keepPosition && _prevHead != null) {
-      // Key off where the old head moved to, not on length growth: a buffer at
-      // its cap inserts one row and evicts one, so the length never changes
-      // while every arrival still shifts the reader.
-      final shifted = _headShift(msgs);
-      if (shifted > 0 && shifted <= _maxHoldBatch) {
-        unawaited(observer.standby(changeCount: shifted));
-      } else if (len < _prevLen) {
-        unawaited(observer.standby(isRemove: true));
-      }
-    } else if (len < _prevLen) {
-      unawaited(observer.standby(isRemove: true));
+    if (_follow) {
+      // Following: a far jump or a sliver rebuild can leave a transient
+      // offset. Snap back instead of treating it as a pause.
+      if (pos.pixels > _followEps) _scheduleFollowSnap();
+      _hold.paused = false;
+      _hold.pending = false;
+      return;
     }
-    _prevLen = len;
-    _prevHead = head;
+    final paused = pos.pixels > _followEps;
+    _hold.paused = paused;
+    if (!paused) {
+      _hold.pending = false;
+      return;
+    }
+    if (widget.keepPosition && _hold.anchorId != null) {
+      _hold.pending = true;
+      // Equal-height churn leaves the extents unchanged, so force the viewport
+      // to evaluate the physics even when min/max did not move.
+      pos.correctBy(0);
+    }
+    if (widget.keepPosition) _scheduleAnchorRefresh();
   }
 
-  /// Index the previous head moved to, or -1 when it left the window.
-  int _headShift(List<TwitchMessage> msgs) {
-    final prev = _prevHead!;
-    final limit = msgs.length < _maxHoldBatch + 1
-        ? msgs.length
-        : _maxHoldBatch + 1;
-    for (var i = 0; i < limit; i++) {
-      if (_rowKey(msgs[i]) == prev) return i;
+  /// Physics hook: the pixels that keep the anchor at its captured position,
+  /// or null when there is nothing to hold.
+  double? _resolveCorrection(ScrollMetrics newPosition) {
+    if (!_hold.paused || !_hold.pending || _hold.anchorId == null) return null;
+    _hold.pending = false;
+    final sliver = _findSliver();
+    final msgs = _hold.msgs;
+    if (sliver == null || msgs == null) return null;
+    double? newOffset;
+    for (
+      RenderBox? child = sliver.firstChild;
+      child != null;
+      child = sliver.childAfter(child)
+    ) {
+      final pd = child.parentData as SliverMultiBoxAdaptorParentData?;
+      final index = pd?.index;
+      final offset = pd?.layoutOffset;
+      if (index == null ||
+          offset == null ||
+          index < 0 ||
+          index >= msgs.length) {
+        continue;
+      }
+      if (_rowKey(msgs[index]) == _hold.anchorId) {
+        newOffset = offset;
+        break;
+      }
     }
-    return -1;
+    if (newOffset == null) return null;
+    final target = newPosition.pixels + (newOffset - _hold.anchorOffset);
+    return target.clamp(
+      newPosition.minScrollExtent,
+      newPosition.maxScrollExtent,
+    );
+  }
+
+  /// The list's sliver, so child offsets can be read during layout.
+  RenderSliverMultiBoxAdaptor? _findSliver() {
+    final root = _position?.context.notificationContext?.findRenderObject();
+    if (root == null) return null;
+    final viewport = _findDescendant<RenderViewport>(root);
+    final firstSliver = viewport?.firstChild;
+    if (firstSliver == null) return null;
+    return _findDescendant<RenderSliverMultiBoxAdaptor>(firstSliver);
+  }
+
+  T? _findDescendant<T extends RenderObject>(RenderObject node) {
+    if (node is T) return node;
+    T? found;
+    node.visitChildren((child) {
+      found ??= _findDescendant<T>(child);
+    });
+    return found;
+  }
+
+  /// Captures the reader's anchor once the frame settles, so the next content
+  /// change has a stable id and offset to hold.
+  void _scheduleAnchorRefresh() {
+    if (_refreshScheduled) return;
+    _refreshScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _refreshScheduled = false;
+      if (!mounted || !_hold.paused || !widget.keepPosition) return;
+      _refreshAnchor();
+    });
+  }
+
+  void _refreshAnchor() {
+    final sliver = _findSliver();
+    final msgs = _hold.msgs;
+    final pos = _position;
+    if (sliver == null || msgs == null || pos == null || !pos.hasPixels) return;
+    final pixels = pos.pixels;
+    RenderBox? first;
+    for (
+      RenderBox? child = sliver.firstChild;
+      child != null;
+      child = sliver.childAfter(child)
+    ) {
+      final pd = child.parentData as SliverMultiBoxAdaptorParentData?;
+      final offset = pd?.layoutOffset;
+      final index = pd?.index;
+      if (offset == null ||
+          index == null ||
+          index < 0 ||
+          index >= msgs.length) {
+        continue;
+      }
+      if (offset + child.size.height > pixels) {
+        first = child;
+        break;
+      }
+    }
+    if (first == null) {
+      _hold.anchorId = null;
+      return;
+    }
+    final pd = first.parentData! as SliverMultiBoxAdaptorParentData;
+    _hold.anchorId = _rowKey(msgs[pd.index!]);
+    _hold.anchorOffset = pd.layoutOffset!;
   }
 
   Widget _buildTile(
