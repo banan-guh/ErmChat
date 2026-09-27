@@ -57,6 +57,7 @@ import '../composer/composer_controller.dart';
 import '../sheets/message_menu.dart';
 import '../sheets/user_sheet.dart';
 import '../channels/channel_manager.dart';
+import '../channels/channel_session.dart';
 import '../chrome/channel_stack.dart';
 import '../chrome/home_app_bar.dart';
 import '../chrome/stream_layout.dart';
@@ -533,46 +534,46 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     onChannelChanged: _channels.onChannelChanged,
   );
 
-  late final _channelManager = ChannelManager(
+  late final _channelSession = ChannelSession(
     chat: _chat,
     session: _session,
     chatConn: _chatConn,
     irc: ref.read(ircServiceProvider),
     ircRead: ref.read(ircReadServiceProvider),
-    twitchAuth: _twitchAuth,
     emoteManager: _emoteManager,
     badgeService: _badgeService,
     analytics: _analytics,
     streamPlayer: _streamPlayer,
     userStore: _userStore,
-    pingManager: _pingManager,
-    ignoreManager: _ignoreManager,
-    notificationService: _notificationService,
-    threads: _threads,
-    composer: _composer,
-    broadcastWidgets: _broadcastWidgets,
-    tileCache: _tileCache,
-    channelNotifier: _channelNotifier,
-    selectedTabIndex: _selectedTabIndex,
-    recentMessagesService: ref.read(recentMessagesServiceProvider),
-    mentionsChannel: _mentionsChannel,
     history: ref.read(chatHistoryControllerProvider),
+    recentMessagesService: ref.read(recentMessagesServiceProvider),
     selectedChannel: () => ref.read(selectedChannelProvider),
     setSelectedChannel: (value) =>
         ref.read(selectedChannelProvider.notifier).set(value),
     isMounted: () => mounted,
+    maxMessages: () => ref.read(maxMessagesPerChannelProvider),
+    recentMessagesLimit: () => _recentMessagesLimit,
+  );
+
+  late final _channelManager = ChannelManager(
+    session: _channelSession,
+    composer: _composer,
+    threads: _threads,
+    broadcastWidgets: _broadcastWidgets,
+    tileCache: _tileCache,
+    channelNotifier: _channelNotifier,
+    selectedTabIndex: _selectedTabIndex,
+    isMounted: () => mounted,
     markDirty: markDirty,
     mutate: _mutate,
     closePanel: _closePanel,
-    addSystemMessage: _addSystemMessage,
-    maxMessages: () => ref.read(maxMessagesPerChannelProvider),
-    recentMessagesLimit: () => _recentMessagesLimit,
-    mentionPush: () => ref.read(mentionPushProvider),
     atBottomNotifier: _atBottomNotifier,
     disposeChannelNotifiers: _disposeChannelNotifiers,
     forgetAtBottomNotifier: _forgetAtBottomNotifier,
     forgetSearch: _forgetSearch,
     invalidateCaches: _channels.invalidateCaches,
+    notificationService: _notificationService,
+    mentionPush: () => ref.read(mentionPushProvider),
   );
 
   EmoteController? _emoteControllerCache;
@@ -1273,28 +1274,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     _channelNotifier.removeListener(_syncChannelSubs);
     _chat.mentions.version.removeListener(_onMentionsContent);
     _dropChannelSubs();
+    _channelManager.dispose();
     _session.version.removeListener(_onSessionApplied);
     _notificationTapSub?.cancel();
     if (_immersive) {
       SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     }
     super.dispose();
-  }
-
-  void _addSystemMessage(
-    String channel,
-    String text, {
-    Color? accent,
-    String? messageId,
-  }) {
-    _chat
-        .channelFor(channel)
-        ?.addSystemMessage(
-          text,
-          accent: accent,
-          messageId: messageId,
-          maxMessages: ref.read(maxMessagesPerChannelProvider),
-        );
   }
 
   void _toggleFullscreen() {

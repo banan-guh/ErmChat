@@ -1,27 +1,21 @@
-import 'package:ermchat/channels/channel_manager.dart';
+import 'package:ermchat/channels/channel_session.dart';
 import 'package:ermchat/chat/chat.dart';
 import 'package:ermchat/client/session.dart';
-import 'package:ermchat/composer/composer_controller.dart';
 import 'package:ermchat/models/twitch_message.dart';
-import 'package:ermchat/panels/threads.dart';
 import 'package:ermchat/services/analytics_service.dart';
 import 'package:ermchat/services/chat_connection_manager.dart';
 import 'package:ermchat/services/chat_history_controller.dart';
 import 'package:ermchat/services/emote_manager.dart';
 import 'package:ermchat/services/emote_store.dart';
 import 'package:ermchat/services/ignore_manager.dart';
-import 'package:ermchat/services/notification_service.dart';
 import 'package:ermchat/services/ping_manager.dart';
 import 'package:ermchat/services/recent_messages.dart';
 import 'package:ermchat/services/stream_player_controller.dart';
-import 'package:ermchat/services/twitch_auth.dart';
 import 'package:ermchat/services/twitch_badge_service.dart';
 import 'package:ermchat/irc/transport/read.dart';
 import 'package:ermchat/irc/transport/write.dart';
 import 'package:ermchat/services/user_store.dart';
-import 'package:ermchat/widgets/broadcast_widgets.dart';
 import 'package:ermchat/chat/channel/info.dart';
-import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 // Interface fakes for deps mergeHistory never touches. Calls throw so a new
@@ -43,13 +37,7 @@ class _FakeAnalytics with _Unimplemented implements AnalyticsService {}
 
 class _FakePlayer with _Unimplemented implements StreamPlayerController {}
 
-class _FakeNotifs with _Unimplemented implements NotificationService {}
-
-class _FakeThreads with _Unimplemented implements ThreadPanels {}
-
-class _FakeComposer with _Unimplemented implements ComposerController {}
-
-ChannelManager _channelManager(Chat chat) {
+ChannelSession _channelSession(Chat chat) {
   final session = Session();
   final userStore = UserStore();
   final pingManager = PingManager();
@@ -67,45 +55,24 @@ ChannelManager _channelManager(Chat chat) {
     recentMessagesLimit: () => 100,
   );
   String? selected = 'test';
-  return ChannelManager(
+  return ChannelSession(
     chat: chat,
     session: session,
     chatConn: _FakeConn(),
     irc: IrcService(),
     ircRead: IrcReadService(),
-    twitchAuth: TwitchAuth(),
     emoteManager: _FakeEmotes(),
     badgeService: TwitchBadgeService(),
     analytics: _FakeAnalytics(),
     streamPlayer: _FakePlayer(),
     userStore: userStore,
-    pingManager: pingManager,
-    ignoreManager: ignoreManager,
-    notificationService: _FakeNotifs(),
-    threads: _FakeThreads(),
-    composer: _FakeComposer(),
-    broadcastWidgets: BroadcastWidgets(selectedChannel: () => null),
-    tileCache: {},
-    channelNotifier: ValueNotifier(const ['test']),
-    selectedTabIndex: ValueNotifier(0),
-    recentMessagesService: null,
-    mentionsChannel: '@mentions',
     history: history,
+    recentMessagesService: null,
     selectedChannel: () => selected,
     setSelectedChannel: (value) => selected = value,
     isMounted: () => true,
-    markDirty: () {},
-    mutate: (fn) => fn(),
-    closePanel: () async {},
-    addSystemMessage: (channel, text) {},
     maxMessages: () => 500,
     recentMessagesLimit: () => 100,
-    mentionPush: () => false,
-    atBottomNotifier: (channel) => ValueNotifier(true),
-    disposeChannelNotifiers: (channel) {},
-    forgetAtBottomNotifier: (channel) {},
-    forgetSearch: (channel) {},
-    invalidateCaches: () {},
   );
 }
 
@@ -117,7 +84,7 @@ TwitchMessage _live(String id) => TwitchMessage(
 );
 
 void main() {
-  group('ChannelManager.history mergeHistory', () {
+  group('ChannelSession.history mergeHistory', () {
     const noticeText = 'This room is now in slow mode.';
 
     TwitchMessage historyNotice(int tsMs) => RecentMessagesService.parseIrcLine(
@@ -141,17 +108,17 @@ void main() {
     test('refetch overlap with identical text and timestamp folds', () {
       final chat = mergeChat();
       addTearDown(chat.dispose);
-      final manager = _channelManager(chat);
+      final session = _channelSession(chat);
       const t0 = 1767225600000;
-      manager.history.mergeHistory('test', [historyNotice(t0)]);
-      manager.history.mergeHistory('test', [historyNotice(t0)]);
+      session.history.mergeHistory('test', [historyNotice(t0)]);
+      session.history.mergeHistory('test', [historyNotice(t0)]);
       expect(sysRows(chat, noticeText), 1);
     });
 
     test('live row plus refetch overlap folds', () {
       final chat = mergeChat();
       addTearDown(chat.dispose);
-      final manager = _channelManager(chat);
+      final session = _channelSession(chat);
       final t0 = DateTime.now();
       chat
           .channelFor('test')!
@@ -167,7 +134,7 @@ void main() {
             isSelected: true,
             ownLogin: null,
           );
-      manager.history.mergeHistory('test', [
+      session.history.mergeHistory('test', [
         historyNotice(t0.millisecondsSinceEpoch),
       ]);
       expect(sysRows(chat, noticeText), 1);
