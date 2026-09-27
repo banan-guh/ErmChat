@@ -18,9 +18,20 @@ class Prefs {
 
   final SharedPreferences _p;
 
+  /// The most recent instance returned by [load], for synchronous reads.
+  ///
+  /// Every wrapper shares the same underlying SharedPreferences singleton, so
+  /// a captured instance reads current values. Tests that swap
+  /// `setMockInitialValues` refresh this on the next [load].
+  static Prefs? get loaded => _loaded;
+  static Prefs? _loaded;
+
   /// Loads the shared preferences store.
-  static Future<Prefs> load() async =>
-      Prefs._(await SharedPreferences.getInstance());
+  static Future<Prefs> load() async {
+    final prefs = Prefs._(await SharedPreferences.getInstance());
+    _loaded = prefs;
+    return prefs;
+  }
 
   /// Escape hatch for APIs that must take the raw store (dynamic keys, key
   /// iteration). Prefer the typed accessors.

@@ -20,6 +20,7 @@ import '../services/twitch_api.dart';
 import '../services/twitch_badge_service.dart';
 import '../services/user_store.dart';
 import '../util/connectivity.dart';
+import '../util/prefs.dart';
 import 'emote_providers.dart';
 
 /// App-scope shared objects: transports, managers, and the mutable kernel.
@@ -28,6 +29,19 @@ import 'emote_providers.dart';
 /// constructing. The kernel ([Chat]) and [Session] are provider-owned but
 /// observed through their leaf `Listenable`s, the one sanctioned non-Riverpod
 /// observation path.
+/// The loaded preferences store, for synchronous reads.
+///
+/// Reads are synchronous: SharedPreferences loads from disk once and then
+/// serves from memory, so owners read prefs without an await. Throws if read
+/// before [Prefs.load] has run, which startup does before any UI builds.
+final prefsProvider = Provider<Prefs>((ref) {
+  final prefs = Prefs.loaded;
+  if (prefs == null) {
+    throw StateError('prefsProvider read before Prefs.load()');
+  }
+  return prefs;
+});
+
 final connectivityServiceProvider = Provider<ConnectivityService>((ref) {
   final service = ConnectivityService();
   ref.onDispose(service.dispose);

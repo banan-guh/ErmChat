@@ -360,6 +360,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   }
 
   late final MessageMenus _menus = MessageMenus(
+    prefs: ref.read(prefsProvider),
     findThreadRoot: (msg) => _threads.findThreadRoot(msg),
     showThreadView: (root) =>
         _threads.showThreadView(root, switchChannel: true),
@@ -384,6 +385,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
         _commandHandler.notifyUserBlockChanged(login, blocked: true),
     showWhispersForUser: (login) => _mentions.showWhispersForUser(login),
     copyMessage: _copyMessageToClipboard,
+    prefs: ref.read(prefsProvider),
   );
 
   // ShellState and appearance members other hosts still read.

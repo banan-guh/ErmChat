@@ -86,6 +86,7 @@ class UserSheets {
     required this.onUserBlocked,
     required this.showWhispersForUser,
     required this.copyMessage,
+    required this.prefs,
   });
 
   final Chat chat;
@@ -104,6 +105,7 @@ class UserSheets {
   final void Function(String login) onUserBlocked;
   final void Function(String login) showWhispersForUser;
   final void Function(TwitchMessage msg) copyMessage;
+  final Prefs prefs;
 
   // Card detent in sheet fractions, derived from the measured card height.
   double _cardExtent = 0.0;
@@ -114,8 +116,7 @@ class UserSheets {
     String? userId, {
     String? displayName,
   }) async {
-    final prefs = await Prefs.load();
-    if (!context.mounted) return;
+    final prefs = this.prefs;
     final channel = selectedChannel();
     // Buffer snapshot oldest-first like chat; short-lived, no subscription.
     // The sheet opens pinned to the latest message.

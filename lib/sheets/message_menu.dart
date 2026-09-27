@@ -11,11 +11,13 @@ import '../util/timestamp_formatter.dart';
 // Long-press menus for chat messages.
 class MessageMenus {
   const MessageMenus({
+    required this.prefs,
     required this.findThreadRoot,
     required this.showThreadView,
     required this.startReply,
   });
 
+  final Prefs prefs;
   final TwitchMessage? Function(TwitchMessage msg) findThreadRoot;
   final Future<void> Function(TwitchMessage root) showThreadView;
   final void Function(TwitchMessage msg) startReply;
@@ -114,9 +116,7 @@ class MessageMenus {
             ListTile(
               leading: const Icon(Icons.copy_all),
               title: const Text('Copy full message'),
-              onTap: () async {
-                final prefs = await Prefs.load();
-                if (!ctx.mounted) return;
+              onTap: () {
                 final ts = prefs.showTimestamps
                     ? formatTimestamp(msg.timestamp, prefs.timestampFormat)
                     : '';
