@@ -190,6 +190,14 @@ class _ChatViewState extends State<ChatView>
   String? _endsFirst;
   String? _endsLast;
 
+  // Materialized row-index range from the previous layout, plus the range the
+  // current build is filling. [_findChildIndex] uses the previous range to keep
+  // a moved row out of a slot that did not exist yet.
+  int? _prevBuiltMin;
+  int? _prevBuiltMax;
+  int? _builtMin;
+  int? _builtMax;
+
   // Anchoring bridge: ListViewObserver feeds ChatScrollObserver, whose physics
   // keeps the row under the reader pinned when earlier rows are inserted.
   ListObserverController? _observerController;
@@ -348,6 +356,7 @@ class _ChatViewState extends State<ChatView>
     Color surface,
     double s,
   ) {
+    _beginBuiltRange();
     final empty = msgs.isEmpty;
     // Opaque in-flow composer sits flush under the list, so keep a small
     // fixed gap above it. Glass mode clears the measured pill instead.
@@ -383,16 +392,19 @@ class _ChatViewState extends State<ChatView>
           // RenderIndexedSemantics; without it standby cannot find the
           // reference row and the hold silently no-ops.
           addSemanticIndexes: true,
-          itemBuilder: (ctx, i) => _buildTile(
-            msgs,
-            cache,
-            _idToIndex,
-            i,
-            surface,
-            s,
-            ctx,
-            widget.checkeredMessages,
-          ),
+          itemBuilder: (ctx, i) {
+            _noteBuiltIndex(i);
+            return _buildTile(
+              msgs,
+              cache,
+              _idToIndex,
+              i,
+              surface,
+              s,
+              ctx,
+              widget.checkeredMessages,
+            );
+          },
         ),
       );
     }
@@ -473,9 +485,35 @@ class _ChatViewState extends State<ChatView>
     _idToIndex = idToIndex;
   }
 
+  /// Opens a build frame: the range just built becomes the reference range for
+  /// [_findChildIndex], which runs before this frame's rows are built.
+  void _beginBuiltRange() {
+    _prevBuiltMin = _builtMin;
+    _prevBuiltMax = _builtMax;
+    _builtMin = null;
+    _builtMax = null;
+  }
+
+  void _noteBuiltIndex(int index) {
+    if (_builtMin == null || index < _builtMin!) _builtMin = index;
+    if (_builtMax == null || index > _builtMax!) _builtMax = index;
+  }
+
+  /// Maps a row's key to its index so the sliver can move the row instead of
+  /// rebuilding it. A move is only allowed into a slot that existed in the last
+  /// layout: the sliver restores the moved row's offset from that slot's
+  /// previous occupant, and a slot with no occupant leaves the offset null,
+  /// which crashes hit testing (flutter#153922). Returning null rebuilds that
+  /// one row in place instead.
   int? _findChildIndex(Key key) {
-    if (key is ValueKey<String>) return _idToIndex[key.value];
-    return null;
+    if (key is! ValueKey<String>) return null;
+    final index = _idToIndex[key.value];
+    if (index == null) return null;
+    final min = _prevBuiltMin;
+    final max = _prevBuiltMax;
+    if (min == null || max == null) return null;
+    if (index < min || index > max) return null;
+    return index;
   }
 
   /// Measures head arrivals since the last tick and hands the count to the
