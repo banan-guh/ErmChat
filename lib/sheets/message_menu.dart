@@ -4,29 +4,25 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../models/twitch_message.dart';
-import '../composer/composer_controller.dart';
 import '../util/haptics.dart';
+import '../util/prefs.dart';
 import '../util/timestamp_formatter.dart';
-
-// Shell-owned state the menus read but do not own.
-abstract class MessageMenuHost extends ShellState {
-  TwitchMessage? findThreadRoot(TwitchMessage msg);
-  bool isThreadSaved(TwitchMessage msg);
-  void startReply(TwitchMessage msg);
-  Future<void> showThreadView(TwitchMessage root);
-  void toggleSaveThread(TwitchMessage root);
-  void showNotice(String text);
-}
 
 // Long-press menus for chat messages.
 class MessageMenus {
-  const MessageMenus({required this.host});
+  const MessageMenus({
+    required this.findThreadRoot,
+    required this.showThreadView,
+    required this.startReply,
+  });
 
-  final MessageMenuHost host;
+  final TwitchMessage? Function(TwitchMessage msg) findThreadRoot;
+  final Future<void> Function(TwitchMessage root) showThreadView;
+  final void Function(TwitchMessage msg) startReply;
 
   void showMessageMenu(BuildContext context, TwitchMessage msg) {
     iosHaptic(HapticFeedback.mediumImpact);
-    final threadRoot = host.findThreadRoot(msg);
+    final threadRoot = findThreadRoot(msg);
     final hasThread = threadRoot != null;
     showModalBottomSheet(
       context: context,
@@ -40,7 +36,7 @@ class MessageMenus {
                 title: const Text('Reply to message'),
                 onTap: () {
                   Navigator.pop(ctx);
-                  host.startReply(msg);
+                  startReply(msg);
                 },
               ),
               if (hasThread)
@@ -49,7 +45,7 @@ class MessageMenus {
                   title: const Text('View thread'),
                   onTap: () {
                     Navigator.pop(ctx);
-                    unawaited(host.showThreadView(threadRoot));
+                    unawaited(showThreadView(threadRoot));
                   },
                 ),
               ListTile(
@@ -118,9 +114,11 @@ class MessageMenus {
             ListTile(
               leading: const Icon(Icons.copy_all),
               title: const Text('Copy full message'),
-              onTap: () {
-                final ts = host.showTimestamps
-                    ? formatTimestamp(msg.timestamp, host.timestampFormat)
+              onTap: () async {
+                final prefs = await Prefs.load();
+                if (!ctx.mounted) return;
+                final ts = prefs.showTimestamps
+                    ? formatTimestamp(msg.timestamp, prefs.timestampFormat)
                     : '';
                 Clipboard.setData(
                   ClipboardData(

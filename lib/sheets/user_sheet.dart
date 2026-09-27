@@ -2,10 +2,12 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
 import '../chat/chat.dart';
+import '../client/session.dart';
 import '../emotes/emote.dart';
 import '../models/twitch_badge.dart';
 import '../models/twitch_message.dart';
 import '../composer/composer_controller.dart';
+import '../util/prefs.dart';
 import '../services/chat_connection_manager.dart';
 import '../services/emote_manager.dart';
 import '../services/emote_usage_registry.dart';
@@ -65,19 +67,6 @@ double userSheetTargetDetent(
   );
 }
 
-// Shell-owned state the user sheet reads but does not own.
-abstract class UserSheetHost extends ShellState {
-  double get chatFontSize;
-  bool get checkeredMessages;
-  double get highlightOpacity;
-  bool get lineSeparator;
-  String get sharedChatMode;
-  SevenTvPaintService? get namePaintService;
-  void onUserBlocked(String login);
-  void showWhispersForUser(String login);
-  void copyMessage(TwitchMessage msg);
-}
-
 // User card modal with history, plus the per-message emote list sheet.
 class UserSheets {
   UserSheets({
@@ -91,7 +80,12 @@ class UserSheets {
     required this.messageBuilder,
     required this.composer,
     required this.menus,
-    required this.host,
+    required this.selectedChannel,
+    required this.session,
+    required this.paintService,
+    required this.onUserBlocked,
+    required this.showWhispersForUser,
+    required this.copyMessage,
   });
 
   final Chat chat;
@@ -104,18 +98,25 @@ class UserSheets {
   final MessageBuilder messageBuilder;
   final ComposerController composer;
   final MessageMenus menus;
-  final UserSheetHost host;
+  final String? Function() selectedChannel;
+  final Session session;
+  final SevenTvPaintService paintService;
+  final void Function(String login) onUserBlocked;
+  final void Function(String login) showWhispersForUser;
+  final void Function(TwitchMessage msg) copyMessage;
 
   // Card detent in sheet fractions, derived from the measured card height.
   double _cardExtent = 0.0;
 
-  void showUserProfile(
+  Future<void> showUserProfile(
     BuildContext context,
     String username,
     String? userId, {
     String? displayName,
-  }) {
-    final channel = host.selectedChannel;
+  }) async {
+    final prefs = await Prefs.load();
+    if (!context.mounted) return;
+    final channel = selectedChannel();
     // Buffer snapshot oldest-first like chat; short-lived, no subscription.
     // The sheet opens pinned to the latest message.
     final history = channel == null
@@ -149,7 +150,7 @@ class UserSheets {
         channel != null &&
         chatConn.isModerationActive(channel) &&
         (chat.channelFor(channel)?.info.status ?? '').contains('Live');
-    final login = host.sessionLogin;
+    final login = session.login;
     final isSelf =
         login != null && username.toLowerCase() == login.toLowerCase();
     final screenH = MediaQuery.sizeOf(context).height;
@@ -349,8 +350,8 @@ class UserSheets {
                       messageController: composer.messageController,
                       focusNode: composer.focusNode,
                       onClose: () => Navigator.pop(ctx),
-                      onUserBlocked: host.onUserBlocked,
-                      onWhisperUser: () => host.showWhispersForUser(username),
+                      onUserBlocked: onUserBlocked,
+                      onWhisperUser: () => showWhispersForUser(username),
                       scrollController: historyController,
                       anchor: scrollController,
                       sheetController: sheetController,
@@ -359,7 +360,8 @@ class UserSheets {
                       onCardMeasured: onCardMeasured,
                       cardBadges: cardBadges,
                       userMessages: history,
-                      messageRowBuilder: (ctx, msg) => userHistoryRow(ctx, msg),
+                      messageRowBuilder: (ctx, msg) =>
+                          userHistoryRow(ctx, msg, prefs),
                       // Disposing on the route future would run before the
                       // sheet's exit animation and crash its controllers.
                       onDispose: () {
@@ -400,7 +402,7 @@ class UserSheets {
   // Read-only history row for the user card: full chat styling, but no
   // profile recursion or reply affordances. Long-press shows the panel
   // menu (copy + mod actions + more); double-tap copies.
-  Widget userHistoryRow(BuildContext context, TwitchMessage msg) {
+  Widget userHistoryRow(BuildContext context, TwitchMessage msg, Prefs prefs) {
     final theme = Theme.of(context);
     // Same background the modal sheet paints, so rows blend into the card.
     final surface =
@@ -410,28 +412,28 @@ class UserSheets {
     return RepaintBoundary(
       child: ChatMessageTile(
         message: msg,
-        channel: msg.channel ?? host.selectedChannel ?? '',
+        channel: msg.channel ?? selectedChannel() ?? '',
         surface: surface,
         textScale:
             MediaQuery.textScalerOf(context).scale(1.0) *
-            host.chatFontSize /
+            prefs.chatFontSize /
             14.0,
         buildBadgeSpans: messageBuilder.buildBadgeSpans,
         buildMessageSpans: messageBuilder.buildMessageSpans,
         bodyIsCached: messageBuilder.bodyIsCached,
-        onDoubleTap: () => host.copyMessage(msg),
+        onDoubleTap: () => copyMessage(msg),
         onLongPress: () => menus.showPanelMessageMenu(context, msg),
-        showTimestamp: host.showTimestamps,
+        showTimestamp: prefs.showTimestamps,
         showImages: messageBuilder.showImages,
         imageHeight: messageBuilder.imageHeight,
         linkWhitelist: messageBuilder.linkWhitelist.entries,
-        timestampFormat: host.timestampFormat,
-        checkeredMessages: host.checkeredMessages,
-        highlightOpacity: host.highlightOpacity,
-        lineSeparator: host.lineSeparator,
-        sharedChatMode: host.sharedChatMode,
+        timestampFormat: prefs.timestampFormat,
+        checkeredMessages: prefs.checkeredMessages,
+        highlightOpacity: prefs.highlightOpacity,
+        lineSeparator: prefs.lineSeparator,
+        sharedChatMode: prefs.sharedChatMode,
         fadeDeleted: false,
-        paintService: host.namePaintService,
+        paintService: prefs.seventvNamePaints ? paintService : null,
       ),
     );
   }

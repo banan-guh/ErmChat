@@ -92,8 +92,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     with WidgetsBindingObserver, TickerProviderStateMixin
     implements
         ComposerHost,
-        MessageMenuHost,
-        UserSheetHost,
         ThreadPanelsHost,
         MentionsPanelsHost,
         ModPanelsHost,
@@ -361,29 +359,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     if (mounted) setState(() {});
   }
 
-  late final _menus = MessageMenus(host: this);
+  late final MessageMenus _menus = MessageMenus(
+    findThreadRoot: (msg) => _threads.findThreadRoot(msg),
+    showThreadView: (root) =>
+        _threads.showThreadView(root, switchChannel: true),
+    startReply: _composer.startReply,
+  );
 
-  // MessageMenuHost: shell-owned state the menus read but do not own.
-  @override
-  bool get showTimestamps => _showTimestamps;
-  @override
-  String get timestampFormat => _timestampFormat;
-  @override
-  String? get sessionLogin => _session.login;
-  @override
-  TwitchMessage? findThreadRoot(TwitchMessage msg) =>
-      _threads.findThreadRoot(msg);
-  @override
-  bool isThreadSaved(TwitchMessage msg) => _threads.isThreadSaved(msg);
-  @override
-  void startReply(TwitchMessage msg) => _composer.startReply(msg);
-  @override
-  Future<void> showThreadView(TwitchMessage root) =>
-      _threads.showThreadView(root, switchChannel: true);
-  @override
-  void toggleSaveThread(TwitchMessage root) => _threads.toggleSaveThread(root);
-
-  late final _userSheets = UserSheets(
+  late final UserSheets _userSheets = UserSheets(
     chat: _chat,
     chatConn: _chatConn,
     twitchApi: _twitchApi,
@@ -394,12 +377,22 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     messageBuilder: _messageBuilder,
     composer: _composer,
     menus: _menus,
-    host: this,
+    selectedChannel: () => ref.read(selectedChannelProvider),
+    session: _session,
+    paintService: _sevenTvPaintService,
+    onUserBlocked: (login) =>
+        _commandHandler.notifyUserBlockChanged(login, blocked: true),
+    showWhispersForUser: (login) => _mentions.showWhispersForUser(login),
+    copyMessage: _copyMessageToClipboard,
   );
 
-  // UserSheetHost: shell-owned state the user sheet reads but does not own.
-  // selectedChannel, sessionLogin, showTimestamps, timestampFormat come
-  // from the shared ShellState implementation above.
+  // ShellState and appearance members other hosts still read.
+  @override
+  bool get showTimestamps => _showTimestamps;
+  @override
+  String get timestampFormat => _timestampFormat;
+  @override
+  String? get sessionLogin => _session.login;
   @override
   double get chatFontSize => _chatFontSize;
   @override
@@ -414,15 +407,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   SevenTvPaintService? get namePaintService =>
       _showNamePaints ? _sevenTvPaintService : null;
   @override
-  void onUserBlocked(String login) =>
-      _commandHandler.notifyUserBlockChanged(login, blocked: true);
-  @override
-  void showWhispersForUser(String login) =>
-      _mentions.showWhispersForUser(login);
-  @override
   void copyMessage(TwitchMessage msg) => _copyMessageToClipboard(msg);
 
-  late final _threads = ThreadPanels(
+  late final ThreadPanels _threads = ThreadPanels(
     panelManager: _panelManager,
     chat: _chat,
     threadsTab: () => _threadsTabCtrl,
@@ -434,7 +421,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   );
 
   // ThreadPanelsHost: shell-owned state the thread panels read but do not own.
-  // Appearance getters come from the UserSheetHost implementation above.
   @override
   bool isMounted() => mounted;
   @override
