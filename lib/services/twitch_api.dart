@@ -183,19 +183,91 @@ class TwitchApi {
     return res;
   }
 
-  /// Runs one request and reports whether it succeeded.
-  Future<bool> _sendOk(
+  Future<http.Response?> _get(
     String label,
-    Future<http.Response> Function() request, {
+    TwitchAuth auth,
+    Uri uri, {
     Set<int> ok = const {200},
-  }) async => (await _send(label, request, ok: ok)) != null;
+  }) => _send(label, () => _client.get(uri, headers: _headers(auth)), ok: ok);
+
+  Future<http.Response?> _post(
+    String label,
+    TwitchAuth auth,
+    Uri uri, {
+    String? body,
+    Set<int> ok = const {200},
+  }) => _send(
+    label,
+    () => _client.post(uri, headers: _headers(auth), body: body),
+    ok: ok,
+  );
+
+  Future<http.Response?> _put(
+    String label,
+    TwitchAuth auth,
+    Uri uri, {
+    String? body,
+    Set<int> ok = const {200},
+  }) => _send(
+    label,
+    () => _client.put(uri, headers: _headers(auth), body: body),
+    ok: ok,
+  );
+
+  Future<http.Response?> _patch(
+    String label,
+    TwitchAuth auth,
+    Uri uri, {
+    String? body,
+    Set<int> ok = const {200},
+  }) => _send(
+    label,
+    () => _client.patch(uri, headers: _headers(auth), body: body),
+    ok: ok,
+  );
+
+  Future<http.Response?> _delete(
+    String label,
+    TwitchAuth auth,
+    Uri uri, {
+    Set<int> ok = const {200},
+  }) =>
+      _send(label, () => _client.delete(uri, headers: _headers(auth)), ok: ok);
+
+  Future<bool> _postOk(
+    String label,
+    TwitchAuth auth,
+    Uri uri, {
+    String? body,
+    Set<int> ok = const {200},
+  }) async => (await _post(label, auth, uri, body: body, ok: ok)) != null;
+
+  Future<bool> _putOk(
+    String label,
+    TwitchAuth auth,
+    Uri uri, {
+    String? body,
+    Set<int> ok = const {200},
+  }) async => (await _put(label, auth, uri, body: body, ok: ok)) != null;
+
+  Future<bool> _patchOk(
+    String label,
+    TwitchAuth auth,
+    Uri uri, {
+    String? body,
+    Set<int> ok = const {200},
+  }) async => (await _patch(label, auth, uri, body: body, ok: ok)) != null;
+
+  Future<bool> _deleteOk(
+    String label,
+    TwitchAuth auth,
+    Uri uri, {
+    Set<int> ok = const {200},
+  }) async => (await _delete(label, auth, uri, ok: ok)) != null;
 
   Future<String?> getUserId(TwitchAuth auth, String login) async {
     final uri = Uri.parse('$_base/users?login=$login');
-    final res = await _send(
-      'getUserId',
-      () => _client.get(uri, headers: _headers(auth)),
-    );
+    final res = await _get('getUserId', auth, uri);
     if (res == null) return null;
     try {
       final data = jsonDecode(res.body) as Map;
@@ -213,10 +285,7 @@ class TwitchApi {
 
   Future<Map<String, String?>?> getCurrentUser(TwitchAuth auth) async {
     final uri = Uri.parse('$_base/users');
-    final res = await _send(
-      'getCurrentUser',
-      () => _client.get(uri, headers: _headers(auth)),
-    );
+    final res = await _get('getCurrentUser', auth, uri);
     if (res == null) return null;
     try {
       final data = jsonDecode(res.body) as Map;
@@ -290,9 +359,11 @@ class TwitchApi {
       'condition': condition,
       'transport': {'method': 'websocket', 'session_id': sessionId},
     });
-    final res = await _send(
+    final res = await _post(
       'createEventSubSubscription',
-      () => _client.post(uri, headers: _headers(auth), body: body),
+      auth,
+      uri,
+      body: body,
       ok: const {202, 409},
     );
     return res != null;
@@ -303,10 +374,7 @@ class TwitchApi {
     String broadcasterId,
   ) async {
     final uri = Uri.parse('$_base/streams?user_id=$broadcasterId');
-    final res = await _send(
-      'getStreamInfo',
-      () => _client.get(uri, headers: _headers(auth)),
-    );
+    final res = await _get('getStreamInfo', auth, uri);
     if (res == null) return null;
     try {
       final data = jsonDecode(res.body) as Map;
@@ -329,10 +397,7 @@ class TwitchApi {
     }
     final query = broadcasterIds.map((id) => 'user_id=$id').join('&');
     final uri = Uri.parse('$_base/streams?$query');
-    final res = await _send(
-      'getStreams',
-      () => _client.get(uri, headers: _headers(auth)),
-    );
+    final res = await _get('getStreams', auth, uri);
     if (res == null) return {};
     try {
       final data = jsonDecode(res.body) as Map;
@@ -355,10 +420,7 @@ class TwitchApi {
     String login,
   ) async {
     final uri = Uri.parse('$_base/users?login=$login');
-    final res = await _send(
-      'getUserProfile',
-      () => _client.get(uri, headers: _headers(auth)),
-    );
+    final res = await _get('getUserProfile', auth, uri);
     if (res == null) return null;
     try {
       final data = jsonDecode(res.body) as Map;
@@ -384,10 +446,7 @@ class TwitchApi {
     final uri = Uri.parse(
       '$_base/channels/followers?broadcaster_id=$broadcasterId&user_id=$userId',
     );
-    final res = await _send(
-      'getFollowDate',
-      () => _client.get(uri, headers: _headers(auth)),
-    );
+    final res = await _get('getFollowDate', auth, uri);
     if (res == null) return null;
     try {
       final data = jsonDecode(res.body) as Map;
@@ -402,11 +461,7 @@ class TwitchApi {
 
   Future<bool> blockUser(TwitchAuth auth, String targetUserId) async {
     final uri = Uri.parse('$_base/users/blocks?target_user_id=$targetUserId');
-    return _sendOk(
-      'blockUser',
-      () => _client.put(uri, headers: _headers(auth)),
-      ok: const {204},
-    );
+    return _putOk('blockUser', auth, uri, ok: const {204});
   }
 
   /// Full paginated block list. Lowercased logins; empty on failure.
@@ -460,9 +515,11 @@ class TwitchApi {
     if (replyParentMessageId != null) {
       body['reply_parent_message_id'] = replyParentMessageId;
     }
-    final res = await _send(
+    final res = await _post(
       'sendChatMessage',
-      () => _client.post(uri, headers: _headers(auth), body: jsonEncode(body)),
+      auth,
+      uri,
+      body: jsonEncode(body),
     );
     if (res == null) return null;
     try {
@@ -492,11 +549,7 @@ class TwitchApi {
     final uri = Uri.parse(
       '$_base/chat/color?user_id=$userId&color=${Uri.encodeComponent(color)}',
     );
-    return _sendOk(
-      'updateUserChatColor',
-      () => _client.put(uri, headers: _headers(auth)),
-      ok: const {204},
-    );
+    return _putOk('updateUserChatColor', auth, uri, ok: const {204});
   }
 
   Future<bool> banUser(
@@ -514,10 +567,7 @@ class TwitchApi {
     if (duration != null) data['duration'] = duration;
     if (reason != null && reason.isNotEmpty) data['reason'] = reason;
     final body = jsonEncode({'data': data});
-    return _sendOk(
-      'banUser',
-      () => _client.post(uri, headers: _headers(auth), body: body),
-    );
+    return _postOk('banUser', auth, uri, body: body);
   }
 
   Future<bool> unbanUser(
@@ -529,11 +579,7 @@ class TwitchApi {
     final uri = Uri.parse(
       '$_base/moderation/bans?broadcaster_id=$broadcasterId&moderator_id=$moderatorId&user_id=$userId',
     );
-    return _sendOk(
-      'unbanUser',
-      () => _client.delete(uri, headers: _headers(auth)),
-      ok: const {204},
-    );
+    return _deleteOk('unbanUser', auth, uri, ok: const {204});
   }
 
   /// Broadcaster-only banned/timeout list (broadcaster_id must match the
@@ -589,10 +635,7 @@ class TwitchApi {
     final uri = Uri.parse(
       '$_base/moderation/unban_requests',
     ).replace(queryParameters: query);
-    final res = await _send(
-      'getUnbanRequests',
-      () => _client.get(uri, headers: _headers(auth)),
-    );
+    final res = await _get('getUnbanRequests', auth, uri);
     if (res == null) return const [];
     try {
       final data = jsonDecode(res.body) as Map;
@@ -628,10 +671,7 @@ class TwitchApi {
     final uri = Uri.parse(
       '$_base/moderation/unban_requests',
     ).replace(queryParameters: query);
-    return _sendOk(
-      'resolveUnbanRequest',
-      () => _client.patch(uri, headers: _headers(auth)),
-    );
+    return _patchOk('resolveUnbanRequest', auth, uri);
   }
 
   /// Public blocked terms for a channel. Empty on failure. Private terms
@@ -644,10 +684,7 @@ class TwitchApi {
     final uri = Uri.parse(
       '$_base/moderation/blocked_terms?broadcaster_id=$broadcasterId&moderator_id=$moderatorId',
     );
-    final res = await _send(
-      'getBlockedTerms',
-      () => _client.get(uri, headers: _headers(auth)),
-    );
+    final res = await _get('getBlockedTerms', auth, uri);
     if (res == null) return const [];
     try {
       final data = jsonDecode(res.body) as Map;
@@ -672,13 +709,11 @@ class TwitchApi {
     final uri = Uri.parse(
       '$_base/moderation/blocked_terms?broadcaster_id=$broadcasterId&moderator_id=$moderatorId',
     );
-    final res = await _send(
+    final res = await _post(
       'addBlockedTerm',
-      () => _client.post(
-        uri,
-        headers: _headers(auth),
-        body: jsonEncode({'text': text}),
-      ),
+      auth,
+      uri,
+      body: jsonEncode({'text': text}),
     );
     if (res == null) return null;
     try {
@@ -702,11 +737,7 @@ class TwitchApi {
     final uri = Uri.parse(
       '$_base/moderation/blocked_terms?broadcaster_id=$broadcasterId&moderator_id=$moderatorId&id=$termId',
     );
-    return _sendOk(
-      'removeBlockedTerm',
-      () => _client.delete(uri, headers: _headers(auth)),
-      ok: const {204},
-    );
+    return _deleteOk('removeBlockedTerm', auth, uri, ok: const {204});
   }
 
   /// Broadcaster AutoMod settings, or null on failure.
@@ -718,10 +749,7 @@ class TwitchApi {
     final uri = Uri.parse(
       '$_base/moderation/automod/settings?broadcaster_id=$broadcasterId&moderator_id=$moderatorId',
     );
-    final res = await _send(
-      'getAutoModSettings',
-      () => _client.get(uri, headers: _headers(auth)),
-    );
+    final res = await _get('getAutoModSettings', auth, uri);
     if (res == null) return null;
     try {
       final data = jsonDecode(res.body) as Map;
@@ -746,9 +774,11 @@ class TwitchApi {
     final uri = Uri.parse(
       '$_base/moderation/automod/settings?broadcaster_id=$broadcasterId&moderator_id=$moderatorId',
     );
-    final res = await _send(
+    final res = await _put(
       'updateAutoModSettings',
-      () => _client.put(uri, headers: _headers(auth), body: jsonEncode(levels)),
+      auth,
+      uri,
+      body: jsonEncode(levels),
     );
     if (res == null) return null;
     try {
@@ -773,16 +803,14 @@ class TwitchApi {
     final uri = Uri.parse(
       '$_base/moderation/suspicious_users?broadcaster_id=$broadcasterId&moderator_id=$moderatorId',
     );
-    return _sendOk(
+    return _postOk(
       'addSuspiciousStatus',
-      () => _client.post(
-        uri,
-        headers: _headers(auth),
-        body: jsonEncode({
-          'user_id': userId,
-          'status': restricted ? 'RESTRICTED' : 'ACTIVE_MONITORING',
-        }),
-      ),
+      auth,
+      uri,
+      body: jsonEncode({
+        'user_id': userId,
+        'status': restricted ? 'RESTRICTED' : 'ACTIVE_MONITORING',
+      }),
     );
   }
 
@@ -796,11 +824,7 @@ class TwitchApi {
     final uri = Uri.parse(
       '$_base/moderation/suspicious_users?broadcaster_id=$broadcasterId&moderator_id=$moderatorId&user_id=$userId',
     );
-    return _sendOk(
-      'removeSuspiciousStatus',
-      () => _client.delete(uri, headers: _headers(auth)),
-      ok: const {200, 204},
-    );
+    return _deleteOk('removeSuspiciousStatus', auth, uri, ok: const {200, 204});
   }
 
   /// Custom rewards for a broadcaster's channel. Rewards created by other
@@ -812,10 +836,7 @@ class TwitchApi {
     final uri = Uri.parse(
       '$_base/channel_points/custom_rewards?broadcaster_id=$broadcasterId',
     );
-    final res = await _send(
-      'getCustomRewards',
-      () => _client.get(uri, headers: _headers(auth)),
-    );
+    final res = await _get('getCustomRewards', auth, uri);
     if (res == null) return const [];
     try {
       final data = jsonDecode(res.body) as Map;
@@ -840,13 +861,11 @@ class TwitchApi {
     final uri = Uri.parse(
       '$_base/channel_points/custom_rewards?broadcaster_id=$broadcasterId&id=$rewardId',
     );
-    return _sendOk(
+    return _patchOk(
       'setRewardPaused',
-      () => _client.patch(
-        uri,
-        headers: _headers(auth),
-        body: jsonEncode({'is_paused': paused}),
-      ),
+      auth,
+      uri,
+      body: jsonEncode({'is_paused': paused}),
     );
   }
 
@@ -861,10 +880,7 @@ class TwitchApi {
       '$_base/channel_points/custom_rewards/redemptions'
       '?broadcaster_id=$broadcasterId&reward_id=$rewardId&status=UNFULFILLED',
     );
-    final res = await _send(
-      'getRedemptions',
-      () => _client.get(uri, headers: _headers(auth)),
-    );
+    final res = await _get('getRedemptions', auth, uri);
     if (res == null) return const [];
     try {
       final data = jsonDecode(res.body) as Map;
@@ -891,13 +907,11 @@ class TwitchApi {
       '$_base/channel_points/custom_rewards/redemptions'
       '?broadcaster_id=$broadcasterId&reward_id=$rewardId&id=$redemptionId',
     );
-    return _sendOk(
+    return _patchOk(
       'updateRedemptionStatus',
-      () => _client.patch(
-        uri,
-        headers: _headers(auth),
-        body: jsonEncode({'status': fulfilled ? 'FULFILLED' : 'CANCELED'}),
-      ),
+      auth,
+      uri,
+      body: jsonEncode({'status': fulfilled ? 'FULFILLED' : 'CANCELED'}),
     );
   }
 
@@ -915,10 +929,7 @@ class TwitchApi {
     final data = <String, String>{'user_id': userId};
     if (reason != null && reason.isNotEmpty) data['reason'] = reason;
     final body = jsonEncode({'data': data});
-    return _sendOk(
-      'warnUser',
-      () => _client.post(uri, headers: _headers(auth), body: body),
-    );
+    return _postOk('warnUser', auth, uri, body: body);
   }
 
   /// Allows or denies an AutoMod-held message. [moderatorId] is the acting
@@ -936,9 +947,11 @@ class TwitchApi {
       'msg_id': messageId,
       'action': allow ? 'ALLOW' : 'DENY',
     });
-    return _sendOk(
+    return _postOk(
       'manageHeldAutoModMessages',
-      () => _client.post(uri, headers: _headers(auth), body: body),
+      auth,
+      uri,
+      body: body,
       ok: const {204},
     );
   }
@@ -953,11 +966,7 @@ class TwitchApi {
         '$_base/moderation/chat?broadcaster_id=$broadcasterId&moderator_id=$moderatorId';
     if (messageId != null) url += '&message_id=$messageId';
     final uri = Uri.parse(url);
-    return _sendOk(
-      'deleteChatMessage',
-      () => _client.delete(uri, headers: _headers(auth)),
-      ok: const {204},
-    );
+    return _deleteOk('deleteChatMessage', auth, uri, ok: const {204});
   }
 
   Future<bool> sendChatAnnouncement(
@@ -971,9 +980,11 @@ class TwitchApi {
       '$_base/chat/announcements?broadcaster_id=$broadcasterId&moderator_id=$moderatorId',
     );
     final body = jsonEncode({'message': message, 'color': color});
-    return _sendOk(
+    return _postOk(
       'sendChatAnnouncement',
-      () => _client.post(uri, headers: _headers(auth), body: body),
+      auth,
+      uri,
+      body: body,
       ok: const {204},
     );
   }
@@ -988,20 +999,12 @@ class TwitchApi {
     final uri = Uri.parse(
       '$_base/chat/shoutouts?from_broadcaster_id=$broadcasterId&to_broadcaster_id=$targetUserId&moderator_id=$moderatorId',
     );
-    return _sendOk(
-      'sendShoutout',
-      () => _client.post(uri, headers: _headers(auth)),
-      ok: const {204},
-    );
+    return _postOk('sendShoutout', auth, uri, ok: const {204});
   }
 
   Future<bool> unblockUser(TwitchAuth auth, String targetUserId) async {
     final uri = Uri.parse('$_base/users/blocks?target_user_id=$targetUserId');
-    return _sendOk(
-      'unblockUser',
-      () => _client.delete(uri, headers: _headers(auth)),
-      ok: const {204},
-    );
+    return _deleteOk('unblockUser', auth, uri, ok: const {204});
   }
 
   /// Paginated moderator logins; empty on failure.
@@ -1049,11 +1052,7 @@ class TwitchApi {
     final uri = Uri.parse(
       '$_base/moderation/moderators?broadcaster_id=$broadcasterId&user_id=$userId',
     );
-    return _sendOk(
-      'addModerator',
-      () => _client.post(uri, headers: _headers(auth)),
-      ok: const {204},
-    );
+    return _postOk('addModerator', auth, uri, ok: const {204});
   }
 
   Future<bool> removeModerator(
@@ -1064,11 +1063,7 @@ class TwitchApi {
     final uri = Uri.parse(
       '$_base/moderation/moderators?broadcaster_id=$broadcasterId&user_id=$userId',
     );
-    return _sendOk(
-      'removeModerator',
-      () => _client.delete(uri, headers: _headers(auth)),
-      ok: const {204},
-    );
+    return _deleteOk('removeModerator', auth, uri, ok: const {204});
   }
 
   /// Paginated VIP logins; empty on failure.
@@ -1113,11 +1108,7 @@ class TwitchApi {
     final uri = Uri.parse(
       '$_base/channels/vips?broadcaster_id=$broadcasterId&user_id=$userId',
     );
-    return _sendOk(
-      'addVip',
-      () => _client.post(uri, headers: _headers(auth)),
-      ok: const {204},
-    );
+    return _postOk('addVip', auth, uri, ok: const {204});
   }
 
   Future<bool> removeVip(
@@ -1128,11 +1119,7 @@ class TwitchApi {
     final uri = Uri.parse(
       '$_base/channels/vips?broadcaster_id=$broadcasterId&user_id=$userId',
     );
-    return _sendOk(
-      'removeVip',
-      () => _client.delete(uri, headers: _headers(auth)),
-      ok: const {204},
-    );
+    return _deleteOk('removeVip', auth, uri, ok: const {204});
   }
 
   /// PATCHes chat settings (slow, follower, emote, subscriber, unique mode).
@@ -1145,10 +1132,7 @@ class TwitchApi {
     final uri = Uri.parse(
       '$_base/chat/settings?broadcaster_id=$broadcasterId&moderator_id=$moderatorId',
     );
-    return _sendOk(
-      'updateChatSettings',
-      () => _client.patch(uri, headers: _headers(auth), body: jsonEncode(body)),
-    );
+    return _patchOk('updateChatSettings', auth, uri, body: jsonEncode(body));
   }
 
   Future<bool> startCommercial(
@@ -1161,10 +1145,7 @@ class TwitchApi {
       'broadcaster_id': broadcasterId,
       'length': length,
     });
-    return _sendOk(
-      'startCommercial',
-      () => _client.post(uri, headers: _headers(auth), body: body),
-    );
+    return _postOk('startCommercial', auth, uri, body: body);
   }
 
   Future<bool> startRaid(
@@ -1175,10 +1156,7 @@ class TwitchApi {
     final uri = Uri.parse(
       '$_base/raids?from_broadcaster_id=$fromBroadcasterId&to_broadcaster_id=$toBroadcasterId',
     );
-    return _sendOk(
-      'startRaid',
-      () => _client.post(uri, headers: _headers(auth)),
-    );
+    return _postOk('startRaid', auth, uri);
   }
 
   Future<bool> cancelRaid(
@@ -1186,11 +1164,7 @@ class TwitchApi {
     required String broadcasterId,
   }) async {
     final uri = Uri.parse('$_base/raids?broadcaster_id=$broadcasterId');
-    return _sendOk(
-      'cancelRaid',
-      () => _client.delete(uri, headers: _headers(auth)),
-      ok: const {204},
-    );
+    return _deleteOk('cancelRaid', auth, uri, ok: const {204});
   }
 
   Future<bool> updateShieldMode(
@@ -1203,10 +1177,7 @@ class TwitchApi {
       '$_base/moderation/shield_mode?broadcaster_id=$broadcasterId&moderator_id=$moderatorId',
     );
     final body = jsonEncode({'is_active': active});
-    return _sendOk(
-      'updateShieldMode',
-      () => _client.put(uri, headers: _headers(auth), body: body),
-    );
+    return _putOk('updateShieldMode', auth, uri, body: body);
   }
 
   /// Shield Mode flag; null on failure (check [lastErrorStatus]).
@@ -1218,10 +1189,7 @@ class TwitchApi {
     final uri = Uri.parse(
       '$_base/moderation/shield_mode?broadcaster_id=$broadcasterId&moderator_id=$moderatorId',
     );
-    final res = await _send(
-      'getShieldModeStatus',
-      () => _client.get(uri, headers: _headers(auth)),
-    );
+    final res = await _get('getShieldModeStatus', auth, uri);
     if (res == null) return null;
     try {
       final data = jsonDecode(res.body) as Map;
@@ -1244,10 +1212,7 @@ class TwitchApi {
     if (description != null && description.isNotEmpty) {
       body['description'] = description;
     }
-    return _sendOk(
-      'createMarker',
-      () => _client.post(uri, headers: _headers(auth), body: jsonEncode(body)),
-    );
+    return _postOk('createMarker', auth, uri, body: jsonEncode(body));
   }
 
   // Broadcaster-only; 403s surface via the shared failure-notice path.
@@ -1269,10 +1234,7 @@ class TwitchApi {
       ],
       'duration': durationSeconds,
     });
-    return _sendOk(
-      'createPoll',
-      () => _client.post(uri, headers: _headers(auth), body: body),
-    );
+    return _postOk('createPoll', auth, uri, body: body);
   }
 
   /// Ends a poll. TERMINATED shows results; ARCHIVED does not.
@@ -1283,17 +1245,15 @@ class TwitchApi {
     required bool archive,
   }) async {
     final uri = Uri.parse('$_base/polls');
-    return _sendOk(
+    return _patchOk(
       'endPoll',
-      () => _client.patch(
-        uri,
-        headers: _headers(auth),
-        body: jsonEncode({
-          'broadcaster_id': broadcasterId,
-          'id': pollId,
-          'status': archive ? 'ARCHIVED' : 'TERMINATED',
-        }),
-      ),
+      auth,
+      uri,
+      body: jsonEncode({
+        'broadcaster_id': broadcasterId,
+        'id': pollId,
+        'status': archive ? 'ARCHIVED' : 'TERMINATED',
+      }),
     );
   }
 
@@ -1303,10 +1263,7 @@ class TwitchApi {
     String broadcasterId,
   ) async {
     final uri = Uri.parse('$_base/polls?broadcaster_id=$broadcasterId');
-    final res = await _send(
-      'getPolls',
-      () => _client.get(uri, headers: _headers(auth)),
-    );
+    final res = await _get('getPolls', auth, uri);
     if (res == null) return const [];
     try {
       final data = jsonDecode(res.body)['data'] as List<dynamic>;
@@ -1334,10 +1291,7 @@ class TwitchApi {
       ],
       'prediction_window': windowSeconds,
     });
-    return _sendOk(
-      'createPrediction',
-      () => _client.post(uri, headers: _headers(auth), body: body),
-    );
+    return _postOk('createPrediction', auth, uri, body: body);
   }
 
   /// Ends a prediction. LOCKED/CANCELED/RESOLVED; RESOLVED needs
@@ -1356,10 +1310,7 @@ class TwitchApi {
       'status': status,
       'winning_outcome_id': ?winningOutcomeId,
     };
-    return _sendOk(
-      'endPrediction',
-      () => _client.patch(uri, headers: _headers(auth), body: jsonEncode(body)),
-    );
+    return _patchOk('endPrediction', auth, uri, body: jsonEncode(body));
   }
 
   /// Channel predictions, newest first.
@@ -1368,10 +1319,7 @@ class TwitchApi {
     String broadcasterId,
   ) async {
     final uri = Uri.parse('$_base/predictions?broadcaster_id=$broadcasterId');
-    final res = await _send(
-      'getPredictions',
-      () => _client.get(uri, headers: _headers(auth)),
-    );
+    final res = await _get('getPredictions', auth, uri);
     if (res == null) return const [];
     try {
       final data = jsonDecode(res.body)['data'] as List<dynamic>;
@@ -1392,11 +1340,7 @@ class TwitchApi {
       '$_base/whispers?from_user_id=$fromUserId&to_user_id=$toUserId',
     );
     final body = jsonEncode({'message': message});
-    return _sendOk(
-      'sendWhisper',
-      () => _client.post(uri, headers: _headers(auth), body: body),
-      ok: const {204},
-    );
+    return _postOk('sendWhisper', auth, uri, body: body, ok: const {204});
   }
 
   Map<String, String> _headers(TwitchAuth auth) => {
