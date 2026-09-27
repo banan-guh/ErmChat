@@ -3,7 +3,6 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../chat/chat.dart';
-import '../composer/composer_controller.dart';
 import '../models/twitch_message.dart';
 
 // Which fields the query matches against.
@@ -69,25 +68,32 @@ bool searchMatchesLower(
   };
 }
 
-// Shell-owned state the search filter reads but does not own.
-abstract class SearchPanelsHost extends ShellState {
-  bool isMounted();
-  void markDirty();
-  bool get showInput;
-  void setShowInput(bool value);
-  bool get emoteSheetOpen;
-  Future<void> closeEmoteSheet();
-  void clearComposerSuggestions();
-  FocusNode get composerFocusNode;
-}
-
 // Per-channel view-only search. Kernel lists are never touched;
 // ChatView gets a filtered copy and the tile cache stays valid.
 class SearchPanels {
-  SearchPanels({required this.chat, required this.host});
+  SearchPanels({
+    required this.chat,
+    required this.selectedChannel,
+    required this.isMounted,
+    required this.markDirty,
+    required this.showInput,
+    required this.setShowInput,
+    required this.emoteSheetOpen,
+    required this.closeEmoteSheet,
+    required this.clearComposerSuggestions,
+    required this.composerFocusNode,
+  });
 
   final Chat chat;
-  final SearchPanelsHost host;
+  final String? Function() selectedChannel;
+  final bool Function() isMounted;
+  final VoidCallback markDirty;
+  final bool Function() showInput;
+  final void Function(bool value) setShowInput;
+  final bool Function() emoteSheetOpen;
+  final Future<void> Function() closeEmoteSheet;
+  final VoidCallback clearComposerSuggestions;
+  final FocusNode composerFocusNode;
 
   // Per-channel ticks so keystrokes rebuild one page, not every tab.
   // Notifiers outlive forget (same deferred-disposal rule as the at-bottom
@@ -99,7 +105,7 @@ class SearchPanels {
   final field = TextEditingController();
 
   // Shared with the composer: mode swaps keep focus, keyboard stays up.
-  FocusNode get focusNode => host.composerFocusNode;
+  FocusNode get focusNode => composerFocusNode;
 
   void dispose() {
     for (final v in _versions.values) {
@@ -163,18 +169,19 @@ class SearchPanels {
     if (open) {
       closeSearch();
     } else {
-      if (host.selectedChannel == null) return;
-      if (!host.showInput) {
-        host.setShowInput(true);
+      final channel = selectedChannel();
+      if (channel == null) return;
+      if (!showInput()) {
+        setShowInput(true);
         _restoredInput = true;
       }
-      if (host.emoteSheetOpen) unawaited(host.closeEmoteSheet());
-      host.clearComposerSuggestions();
+      if (emoteSheetOpen()) unawaited(closeEmoteSheet());
+      clearComposerSuggestions();
       open = true;
-      syncFieldTo(host.selectedChannel);
-      host.markDirty();
+      syncFieldTo(channel);
+      markDirty();
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (open && host.isMounted()) focusNode.requestFocus();
+        if (open && isMounted()) focusNode.requestFocus();
       });
     }
   }
@@ -189,13 +196,13 @@ class SearchPanels {
     open = false;
     if (_restoredInput) {
       _restoredInput = false;
-      host.setShowInput(false);
+      setShowInput(false);
     }
     _filters.clear();
     _frozen.clear();
     field.clear();
     if (!focusComposer) focusNode.unfocus();
-    host.markDirty();
+    markDirty();
   }
 
   void setQuery(String channel, String query) {
@@ -318,11 +325,11 @@ class SearchPanels {
           duration: Duration(milliseconds: 175),
         ),
         onSelected: (value) {
-          final channel = host.selectedChannel;
+          final channel = selectedChannel();
           if (channel != null) _select(channel, value);
         },
         itemBuilder: (_) {
-          final filter = stateFor(host.selectedChannel ?? '');
+          final filter = stateFor(selectedChannel() ?? '');
           return [
             _menuHeader('Filter'),
             _menuRow(

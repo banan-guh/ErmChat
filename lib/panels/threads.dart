@@ -19,25 +19,6 @@ import '../widgets/message_builder.dart';
 import '../widgets/panel_manager.dart';
 import '../widgets/tab_drag_focus.dart';
 
-// Shell-owned state the thread panels read but do not own.
-abstract class ThreadPanelsHost extends ShellState {
-  bool isMounted();
-  void markDirty();
-  void switchChannelTo(int index);
-  void showNotice(String text);
-  @override
-  bool get showTimestamps;
-  @override
-  String get timestampFormat;
-  double get chatFontSize;
-  bool get checkeredMessages;
-  double get highlightOpacity;
-  bool get lineSeparator;
-  String get sharedChatMode;
-  SevenTvPaintService? get namePaintService;
-  void copyMessage(TwitchMessage msg);
-}
-
 // Thread view, dashboard, and saved threads: data, open/show verbs,
 // and the thread panel builders.
 class ThreadPanels {
@@ -49,7 +30,20 @@ class ThreadPanels {
     required this.messageBuilder,
     required this.userSheets,
     required this.menus,
-    required this.host,
+    required this.selectedChannel,
+    required this.isMounted,
+    required this.markDirty,
+    required this.switchChannelTo,
+    required this.showNotice,
+    required this.showTimestamps,
+    required this.timestampFormat,
+    required this.chatFontSize,
+    required this.checkeredMessages,
+    required this.highlightOpacity,
+    required this.lineSeparator,
+    required this.sharedChatMode,
+    required this.namePaintService,
+    required this.copyMessage,
   }) {
     panelManager.onOpenThreadChanged = syncPinnedThread;
   }
@@ -61,7 +55,20 @@ class ThreadPanels {
   final MessageBuilder messageBuilder;
   final UserSheets userSheets;
   final MessageMenus menus;
-  final ThreadPanelsHost host;
+  final String? Function() selectedChannel;
+  final bool Function() isMounted;
+  final VoidCallback markDirty;
+  final void Function(int index) switchChannelTo;
+  final void Function(String text) showNotice;
+  final bool Function() showTimestamps;
+  final String Function() timestampFormat;
+  final double Function() chatFontSize;
+  final bool Function() checkeredMessages;
+  final double Function() highlightOpacity;
+  final bool Function() lineSeparator;
+  final String Function() sharedChatMode;
+  final SevenTvPaintService? Function() namePaintService;
+  final void Function(TwitchMessage msg) copyMessage;
 
   final savedThreads = SavedThreadsStore();
   final threadLastSeen = <String, DateTime>{};
@@ -141,18 +148,18 @@ class ThreadPanels {
     final channel = rootMsg.channel;
     if (channel == null) return;
     await panelManager.closePanel();
-    if (!host.isMounted()) {
+    if (!isMounted()) {
       return;
     }
     tabDragFocus.reset();
-    if (switchChannel && host.selectedChannel != channel) {
+    if (switchChannel && selectedChannel() != channel) {
       final idx = chat.names.indexOf(channel);
-      if (idx >= 0) host.switchChannelTo(idx);
+      if (idx >= 0) switchChannelTo(idx);
     }
-    if (!host.isMounted()) return;
+    if (!isMounted()) return;
     panelManager.activePanel = OverlayPanel.thread;
     panelManager.openThreadRoot = rootMsg;
-    host.markDirty();
+    markDirty();
     panelManager.threadChannel = channel;
     panelManager.threadMessages = computeThreadMessages();
     threadMsgCount.value++;
@@ -166,7 +173,7 @@ class ThreadPanels {
     // jumpTo (not a bare index set) so the warp swallows travel updates.
     tabDragFocus.jumpTo(0);
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (host.isMounted()) {
+      if (isMounted()) {
         panelManager.animateRatio(
           panelManager.threadSheetRatio,
           0.0,
@@ -185,25 +192,25 @@ class ThreadPanels {
     final prevMsgs = List.of(panelManager.threadMessages);
     final prevChannel = panelManager.threadChannel;
     await panelManager.closePanel();
-    if (!host.isMounted()) return;
+    if (!isMounted()) return;
     tabDragFocus.reset();
     composer.unfocus();
     panelManager.activePanel = OverlayPanel.thread;
-    host.markDirty();
+    markDirty();
     // closePanel clears the manager's root; restore the open thread so the
     // Thread tab survives dashboard browsing. Active stays per selected
     // channel; the Thread tab may show another channel's thread.
     panelManager.openThreadRoot = prevRoot;
     panelManager.threadMessages = prevMsgs;
     panelManager.threadChannel =
-        prevRoot?.channel ?? prevChannel ?? host.selectedChannel;
+        prevRoot?.channel ?? prevChannel ?? selectedChannel();
     // Same no-flash jump as showThreadView: the sheet opens already on the
     // requested tab. jumpTo (not a bare index set) so the warp swallows
     // travel updates.
     tabDragFocus.jumpTo(tab.clamp(0, 2));
     threadsListVersion.value++;
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (host.isMounted()) {
+      if (isMounted()) {
         panelManager.animateRatio(
           panelManager.threadSheetRatio,
           0.0,
@@ -218,7 +225,7 @@ class ThreadPanels {
     try {
       await savedThreads.load();
       syncSavedKeys();
-      if (host.isMounted()) threadsListVersion.value++;
+      if (isMounted()) threadsListVersion.value++;
     } catch (_) {
       // Corrupt storage never blocks startup; dashboard just starts empty.
     }
@@ -289,7 +296,7 @@ class ThreadPanels {
     } else {
       // Dashboard open without a thread selected: Active still moves.
       if (changedChannel != null &&
-          changedChannel != host.selectedChannel &&
+          changedChannel != selectedChannel() &&
           changedChannel != panelManager.threadChannel) {
         return;
       }
@@ -356,9 +363,9 @@ class ThreadPanels {
     syncSavedKeys();
     unawaited(persistSaved());
     threadsListVersion.value++;
-    if (host.isMounted()) {
-      host.markDirty();
-      host.showNotice(
+    if (isMounted()) {
+      markDirty();
+      showNotice(
         saved
             ? (willEvict ? 'Thread saved (oldest removed)' : 'Thread saved')
             : 'Thread unsaved',
@@ -414,7 +421,7 @@ class ThreadPanels {
     target ??= msgs?.firstOrNull;
     target ??= resolveThreadRootMessage(channel, summary.rootId);
     if (target == null) {
-      host.showNotice('Thread no longer available');
+      showNotice('Thread no longer available');
       return;
     }
     unawaited(showThreadView(target));
@@ -492,7 +499,7 @@ class ThreadPanels {
     }
     // Live crossings rebuild through notifiers alone (list, composer);
     // settle keeps the full rebuild for tab-tap parity.
-    if (tabDragFocus.dragFocus.value == null) host.markDirty();
+    if (tabDragFocus.dragFocus.value == null) markDirty();
   }
 
   bool isThreadUnread(String channel, ThreadSummary summary) {
@@ -570,14 +577,14 @@ class ThreadPanels {
               messageNotifier: threadMsgCount,
               scrollController: threadPanelScrollCtrl,
               messageBuilder: messageBuilder,
-              showTimestamp: host.showTimestamps,
-              timestampFormat: host.timestampFormat,
-              chatFontScale: host.chatFontSize / 14.0,
-              checkeredMessages: host.checkeredMessages,
-              highlightOpacity: host.highlightOpacity,
-              lineSeparator: host.lineSeparator,
-              sharedChatMode: host.sharedChatMode,
-              paintService: host.namePaintService,
+              showTimestamp: showTimestamps(),
+              timestampFormat: timestampFormat(),
+              chatFontScale: chatFontSize() / 14.0,
+              checkeredMessages: checkeredMessages(),
+              highlightOpacity: highlightOpacity(),
+              lineSeparator: lineSeparator(),
+              sharedChatMode: sharedChatMode(),
+              paintService: namePaintService(),
               onShowUserProfile: (login, userId, {displayName}) =>
                   userSheets.showUserProfile(
                     context,
@@ -587,7 +594,7 @@ class ThreadPanels {
                   ),
               onShowMessageMenu: (msg) =>
                   menus.showPanelMessageMenu(context, msg),
-              onCopyMessage: host.copyMessage,
+              onCopyMessage: copyMessage,
               showReplyIndicators: false,
               emptyText: 'No messages found',
             ),
@@ -603,7 +610,7 @@ class ThreadPanels {
     return ValueListenableBuilder<int>(
       valueListenable: threadsListVersion,
       builder: (context, _, _) {
-        final channel = host.selectedChannel ?? panelManager.threadChannel;
+        final channel = selectedChannel() ?? panelManager.threadChannel;
         if (channel == null) {
           return const Center(child: Text('Join a channel to see threads'));
         }
@@ -648,7 +655,7 @@ class ThreadPanels {
               subtitle: Text(
                 '${summary.replyCount} '
                 '${summary.replyCount == 1 ? 'reply' : 'replies'}'
-                ' · ${formatTimestamp(summary.lastActivity, host.timestampFormat)}',
+                ' · ${formatTimestamp(summary.lastActivity, timestampFormat())}',
               ),
               trailing: display == null
                   ? null
@@ -707,9 +714,9 @@ class ThreadPanels {
     syncSavedKeys();
     unawaited(persistSaved());
     threadsListVersion.value++;
-    if (host.isMounted()) {
-      host.markDirty();
-      host.showNotice('Thread unsaved');
+    if (isMounted()) {
+      markDirty();
+      showNotice('Thread unsaved');
     }
   }
 }

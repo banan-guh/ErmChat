@@ -19,24 +19,6 @@ import '../widgets/message_builder.dart';
 import '../widgets/panel_manager.dart';
 import '../widgets/tab_drag_focus.dart';
 
-// Shell-owned state the mentions/whispers inbox reads but does not own.
-abstract class MentionsPanelsHost extends ShellState {
-  bool isMounted();
-  void markDirty();
-  int get maxMessages;
-  void notifyWhisper(TwitchMessage msg);
-  @override
-  bool get showTimestamps;
-  @override
-  String get timestampFormat;
-  double get chatFontSize;
-  bool get checkeredMessages;
-  double get highlightOpacity;
-  bool get lineSeparator;
-  String get sharedChatMode;
-  void copyMessage(TwitchMessage msg);
-}
-
 // Mentions/whispers inbox and its open/show verbs.
 class MentionsPanels {
   MentionsPanels({
@@ -51,7 +33,18 @@ class MentionsPanels {
     required this.userSheets,
     required this.menus,
     required this.mentionsChannel,
-    required this.host,
+    required this.isMounted,
+    required this.markDirty,
+    required this.maxMessages,
+    required this.notifyWhisper,
+    required this.showTimestamps,
+    required this.timestampFormat,
+    required this.chatFontSize,
+    required this.checkeredMessages,
+    required this.highlightOpacity,
+    required this.lineSeparator,
+    required this.sharedChatMode,
+    required this.copyMessage,
   });
 
   final PanelManager panelManager;
@@ -65,7 +58,18 @@ class MentionsPanels {
   final UserSheets userSheets;
   final MessageMenus menus;
   final String mentionsChannel;
-  final MentionsPanelsHost host;
+  final bool Function() isMounted;
+  final VoidCallback markDirty;
+  final int Function() maxMessages;
+  final void Function(TwitchMessage msg) notifyWhisper;
+  final bool Function() showTimestamps;
+  final String Function() timestampFormat;
+  final double Function() chatFontSize;
+  final bool Function() checkeredMessages;
+  final double Function() highlightOpacity;
+  final bool Function() lineSeparator;
+  final String Function() sharedChatMode;
+  final void Function(TwitchMessage msg) copyMessage;
 
   final whispers = <TwitchMessage>[];
   int unreadWhispers = 0;
@@ -123,17 +127,17 @@ class MentionsPanels {
 
   Future<void> showMentionsView() async {
     await panelManager.closePanel();
-    if (!host.isMounted()) return;
+    if (!isMounted()) return;
     tabDragFocus.reset();
     composer.unfocus();
     panelManager.activePanel = OverlayPanel.mentions;
     panelManager.openThreadRoot = null;
-    host.markDirty();
+    markDirty();
     // The mentions buffer always exists on Chat; no pre-create needed.
     mentionsMsgCount.value++;
     whispersMsgCount.value++;
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (host.isMounted()) {
+      if (isMounted()) {
         panelManager.animateRatio(
           panelManager.mentionsSheetRatio,
           0.0,
@@ -145,11 +149,11 @@ class MentionsPanels {
   }
 
   void onWhisper(TwitchMessage msg) {
-    if (!host.isMounted()) return;
-    host.notifyWhisper(msg);
+    if (!isMounted()) return;
+    notifyWhisper(msg);
     whispers.insert(0, msg);
-    if (whispers.length > host.maxMessages) {
-      whispers.removeRange(host.maxMessages, whispers.length);
+    if (whispers.length > maxMessages()) {
+      whispers.removeRange(maxMessages(), whispers.length);
     }
     whisperTarget = msg.login;
     whispersMsgCount.value++;
@@ -166,8 +170,8 @@ class MentionsPanels {
       0,
       TwitchMessage(login: '', text: text, isSystem: true, channel: null),
     );
-    if (whispers.length > host.maxMessages) {
-      whispers.removeRange(host.maxMessages, whispers.length);
+    if (whispers.length > maxMessages()) {
+      whispers.removeRange(maxMessages(), whispers.length);
     }
     whispersMsgCount.value++;
     chat.touchMentions();
@@ -186,8 +190,8 @@ class MentionsPanels {
         channel: null,
       ),
     );
-    if (whispers.length > host.maxMessages) {
-      whispers.removeRange(host.maxMessages, whispers.length);
+    if (whispers.length > maxMessages()) {
+      whispers.removeRange(maxMessages(), whispers.length);
     }
     whispersMsgCount.value++;
     chat.touchMentions();
@@ -208,7 +212,7 @@ class MentionsPanels {
     }
     // Live crossings rebuild through notifiers alone (badge, composer);
     // settle keeps the full rebuild for tab-tap parity.
-    if (tabDragFocus.dragFocus.value == null) host.markDirty();
+    if (tabDragFocus.dragFocus.value == null) markDirty();
   }
 
   void showWhispersForUser(String login) {
@@ -286,13 +290,13 @@ class MentionsPanels {
               scrollController: mentionsPanelScrollCtrl,
               messageBuilder: messageBuilder,
               linkWhitelist: LinkWhitelist.instance,
-              showTimestamp: host.showTimestamps,
-              timestampFormat: host.timestampFormat,
-              chatFontScale: host.chatFontSize / 14.0,
-              checkeredMessages: host.checkeredMessages,
-              highlightOpacity: host.highlightOpacity,
-              lineSeparator: host.lineSeparator,
-              sharedChatMode: host.sharedChatMode,
+              showTimestamp: showTimestamps(),
+              timestampFormat: timestampFormat(),
+              chatFontScale: chatFontSize() / 14.0,
+              checkeredMessages: checkeredMessages(),
+              highlightOpacity: highlightOpacity(),
+              lineSeparator: lineSeparator(),
+              sharedChatMode: sharedChatMode(),
               physics: const ClampingScrollPhysics(),
               onShowUserProfile: (login, userId, {displayName}) =>
                   userSheets.showUserProfile(
@@ -303,7 +307,7 @@ class MentionsPanels {
                   ),
               onShowMessageMenu: (msg) =>
                   menus.showPanelMessageMenu(context, msg),
-              onCopyMessage: host.copyMessage,
+              onCopyMessage: copyMessage,
               showReplyIndicators: false,
               fadeDeleted: false,
               emptyText: 'No mentions or whispers',
@@ -317,13 +321,13 @@ class MentionsPanels {
               scrollController: whispersPanelScrollCtrl,
               messageBuilder: messageBuilder,
               linkWhitelist: LinkWhitelist.instance,
-              showTimestamp: host.showTimestamps,
-              timestampFormat: host.timestampFormat,
-              chatFontScale: host.chatFontSize / 14.0,
-              checkeredMessages: host.checkeredMessages,
-              highlightOpacity: host.highlightOpacity,
-              lineSeparator: host.lineSeparator,
-              sharedChatMode: host.sharedChatMode,
+              showTimestamp: showTimestamps(),
+              timestampFormat: timestampFormat(),
+              chatFontScale: chatFontSize() / 14.0,
+              checkeredMessages: checkeredMessages(),
+              highlightOpacity: highlightOpacity(),
+              lineSeparator: lineSeparator(),
+              sharedChatMode: sharedChatMode(),
               physics: const ClampingScrollPhysics(),
               onShowUserProfile: (login, userId, {displayName}) =>
                   userSheets.showUserProfile(
@@ -334,7 +338,7 @@ class MentionsPanels {
                   ),
               onShowMessageMenu: (msg) =>
                   menus.showPanelMessageMenu(context, msg),
-              onCopyMessage: host.copyMessage,
+              onCopyMessage: copyMessage,
               showReplyIndicators: false,
               emptyText: 'No whispers',
             ),

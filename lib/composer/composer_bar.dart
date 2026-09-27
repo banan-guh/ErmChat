@@ -58,8 +58,7 @@ class ComposerBar extends StatelessWidget {
       builder: (context, _) {
         // Search borrows the input box: same field, own controllers.
         // Reads the live channel per event so tab flips never leak.
-        final searchBorrowed =
-            search.open && search.host.selectedChannel != null;
+        final searchBorrowed = search.open && search.selectedChannel() != null;
         // Terms borrows the input box while its tab is open; every
         // other mod tab keeps the greyed-out chat box below.
         final termsBorrowed = !searchBorrowed && mod.termsInputActive;
@@ -72,7 +71,7 @@ class ComposerBar extends StatelessWidget {
                 focusNode: search.focusNode,
                 onSend: () {},
                 onChanged: (q) {
-                  final channel = search.host.selectedChannel;
+                  final channel = search.selectedChannel();
                   if (channel != null) search.setQuery(channel, q);
                 },
                 onSubmitted: (_) => search.focusNode.unfocus(),

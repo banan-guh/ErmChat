@@ -92,10 +92,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     with WidgetsBindingObserver, TickerProviderStateMixin
     implements
         ComposerHost,
-        ThreadPanelsHost,
-        MentionsPanelsHost,
-        ModPanelsHost,
-        SearchPanelsHost,
         HomeAppBarHost,
         ChannelPanelsHost,
         StreamPanelsHost,
@@ -406,9 +402,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   @override
   String get sharedChatMode => ref.read(sharedChatModeProvider);
   @override
-  SevenTvPaintService? get namePaintService =>
-      _showNamePaints ? _sevenTvPaintService : null;
-  @override
   void copyMessage(TwitchMessage msg) => _copyMessageToClipboard(msg);
 
   late final ThreadPanels _threads = ThreadPanels(
@@ -419,14 +412,24 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     messageBuilder: _messageBuilder,
     userSheets: _userSheets,
     menus: _menus,
-    host: this,
+    selectedChannel: () => ref.read(selectedChannelProvider),
+    isMounted: () => mounted,
+    markDirty: markDirty,
+    switchChannelTo: (index) => _channels.onChannelChanged(index),
+    showNotice: showNotice,
+    showTimestamps: () => _showTimestamps,
+    timestampFormat: () => _timestampFormat,
+    chatFontSize: () => _chatFontSize,
+    checkeredMessages: () => _checkeredMessages,
+    highlightOpacity: () => _highlightOpacity,
+    lineSeparator: () => _lineSeparator,
+    sharedChatMode: () => ref.read(sharedChatModeProvider),
+    namePaintService: () => _showNamePaints ? _sevenTvPaintService : null,
+    copyMessage: _copyMessageToClipboard,
   );
 
-  // ThreadPanelsHost: shell-owned state the thread panels read but do not own.
   @override
   bool isMounted() => mounted;
-  @override
-  void switchChannelTo(int index) => _channels.onChannelChanged(index);
 
   late final _mentions = MentionsPanels(
     panelManager: _panelManager,
@@ -440,10 +443,32 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     userSheets: _userSheets,
     menus: _menus,
     mentionsChannel: _mentionsChannel,
-    host: this,
+    isMounted: () => mounted,
+    markDirty: markDirty,
+    maxMessages: () => ref.read(maxMessagesPerChannelProvider),
+    notifyWhisper: _maybeNotifyWhisper,
+    showTimestamps: () => _showTimestamps,
+    timestampFormat: () => _timestampFormat,
+    chatFontSize: () => _chatFontSize,
+    checkeredMessages: () => _checkeredMessages,
+    highlightOpacity: () => _highlightOpacity,
+    lineSeparator: () => _lineSeparator,
+    sharedChatMode: () => ref.read(sharedChatModeProvider),
+    copyMessage: _copyMessageToClipboard,
   );
 
-  late final _search = SearchPanels(chat: _chat, host: this);
+  late final _search = SearchPanels(
+    chat: _chat,
+    selectedChannel: () => ref.read(selectedChannelProvider),
+    isMounted: () => mounted,
+    markDirty: markDirty,
+    showInput: () => _showInput,
+    setShowInput: setShowInput,
+    emoteSheetOpen: () => _emoteSheetOpen,
+    closeEmoteSheet: _closeEmoteSheet,
+    clearComposerSuggestions: _composer.clearSuggestions,
+    composerFocusNode: _composer.focusNode,
+  );
 
   late final _mod = ModPanels(
     panelManager: _panelManager,
@@ -454,7 +479,16 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     modTab: () => _modTabCtrl,
     composer: _composer,
     closeSearch: () => _search.closeSearch(),
-    host: this,
+    selectedChannel: () => ref.read(selectedChannelProvider),
+    isMounted: () => mounted,
+    markDirty: markDirty,
+    showNotice: showNotice,
+    showInput: () => _showInput,
+    setShowInput: setShowInput,
+    emoteSheetOpen: () => _emoteSheetOpen,
+    closeEmoteSheet: _closeEmoteSheet,
+    clearComposerSuggestions: _composer.clearSuggestions,
+    composerFocusNode: _composer.focusNode,
   );
 
   /// Panel tab drag crossings, merged for ComposerBar so the morph tracks
@@ -538,11 +572,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     return _emoteControllerCache!;
   }
 
-  // MentionsPanelsHost: shell-owned state the inbox reads but does not own.
   @override
   int get maxMessages => ref.read(maxMessagesPerChannelProvider);
-  @override
-  void notifyWhisper(TwitchMessage msg) => _maybeNotifyWhisper(msg);
 
   // HomeAppBarHost / ChannelPanelsHost / StreamPanelsHost.
   @override
@@ -580,17 +611,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     _search.toggleSearch();
   }
 
-  @override
   void setShowInput(bool value) {
     if (_showInput == value) return;
     setState(() => _showInput = value);
     unawaited(Prefs.load().then((prefs) => prefs.setShowInput(value)));
   }
 
-  @override
-  void clearComposerSuggestions() => _composer.clearSuggestions();
-  @override
-  FocusNode get composerFocusNode => _composer.focusNode;
   @override
   void forgetSearch(String channel) {
     _search.forget(channel);

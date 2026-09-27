@@ -11,19 +11,6 @@ import '../widgets/mod_view.dart';
 import '../widgets/panel_manager.dart';
 import '../widgets/tab_drag_focus.dart';
 
-// Shell-owned state the mod view panel reads but does not own.
-abstract class ModPanelsHost extends ShellState {
-  bool isMounted();
-  void markDirty();
-  void showNotice(String text);
-  bool get showInput;
-  void setShowInput(bool value);
-  bool get emoteSheetOpen;
-  Future<void> closeEmoteSheet();
-  void clearComposerSuggestions();
-  FocusNode get composerFocusNode;
-}
-
 // Moderation panel and its show verb.
 class ModPanels {
   static const tabCount = 8;
@@ -39,7 +26,16 @@ class ModPanels {
     required this.modTab,
     required this.composer,
     required this.closeSearch,
-    required this.host,
+    required this.selectedChannel,
+    required this.isMounted,
+    required this.markDirty,
+    required this.showNotice,
+    required this.showInput,
+    required this.setShowInput,
+    required this.emoteSheetOpen,
+    required this.closeEmoteSheet,
+    required this.clearComposerSuggestions,
+    required this.composerFocusNode,
   });
 
   final PanelManager panelManager;
@@ -50,7 +46,16 @@ class ModPanels {
   final TabController Function() modTab;
   final ComposerController composer;
   final VoidCallback closeSearch;
-  final ModPanelsHost host;
+  final String? Function() selectedChannel;
+  final bool Function() isMounted;
+  final VoidCallback markDirty;
+  final void Function(String text) showNotice;
+  final bool Function() showInput;
+  final void Function(bool value) setShowInput;
+  final bool Function() emoteSheetOpen;
+  final Future<void> Function() closeEmoteSheet;
+  final VoidCallback clearComposerSuggestions;
+  final FocusNode composerFocusNode;
 
   final modPanelVersion = ValueNotifier(0);
 
@@ -92,7 +97,7 @@ class ModPanels {
   void refreshOnData(String? changedChannel) {
     if (panelManager.activePanel != OverlayPanel.modView) return;
     // Modes are per selected channel; background channels need no work.
-    if (changedChannel != null && changedChannel != host.selectedChannel) {
+    if (changedChannel != null && changedChannel != selectedChannel()) {
       return;
     }
     modPanelVersion.value++;
@@ -101,7 +106,7 @@ class ModPanels {
   Future<void> showModView() async {
     closeSearch();
     await panelManager.closePanel();
-    if (!host.isMounted()) return;
+    if (!isMounted()) return;
     composer.unfocus();
     // Always enter on Queue so a reorder never lands on the wrong tab.
     // jumpTo (not a bare index set) so the warp swallows travel updates.
@@ -110,9 +115,9 @@ class ModPanels {
     } catch (_) {}
     panelManager.activePanel = OverlayPanel.modView;
     panelManager.openThreadRoot = null;
-    host.markDirty();
+    markDirty();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (host.isMounted()) {
+      if (isMounted()) {
         panelManager.animateRatio(
           panelManager.modSheetRatio,
           0.0,
@@ -128,13 +133,13 @@ class ModPanels {
   /// unlocks at the 50% crossing instead of on settle.
   bool get termsInputActive =>
       panelManager.activePanel == OverlayPanel.modView &&
-      host.selectedChannel != null &&
+      selectedChannel() != null &&
       tabDragFocus.effectiveIndex == termsTabIndex;
 
   /// Composer chrome follows only on settle; the input swap is live.
   bool get termsChromeHidden =>
       panelManager.activePanel == OverlayPanel.modView &&
-      host.selectedChannel != null &&
+      selectedChannel() != null &&
       _termsChromeActive;
 
   /// Settle path for the tab-controller listener. Crossings report live
@@ -146,10 +151,10 @@ class ModPanels {
   }
 
   void _onModFocus(int index) {
-    if (!host.isMounted()) return;
+    if (!isMounted()) return;
     final active =
         panelManager.activePanel == OverlayPanel.modView &&
-        host.selectedChannel != null &&
+        selectedChannel() != null &&
         index == termsTabIndex;
     if (tabDragFocus.dragFocus.value != null) {
       // Live drag: the morph follows the finger through ComposerBar's
@@ -171,31 +176,31 @@ class ModPanels {
     }
     _termsChromeActive = active;
     if (active) {
-      final channel = host.selectedChannel;
+      final channel = selectedChannel();
       if (_termsChannel != channel) {
         _termsChannel = channel;
         termsField.clear();
       }
-      if (!host.showInput) {
-        host.setShowInput(true);
+      if (!showInput()) {
+        setShowInput(true);
         _termsRestoredInput = true;
       }
-      if (host.emoteSheetOpen) unawaited(host.closeEmoteSheet());
-      host.clearComposerSuggestions();
-      host.markDirty();
+      if (emoteSheetOpen()) unawaited(closeEmoteSheet());
+      clearComposerSuggestions();
+      markDirty();
     } else {
       if (_termsRestoredInput) {
         _termsRestoredInput = false;
-        host.setShowInput(false);
+        setShowInput(false);
       }
-      host.composerFocusNode.unfocus();
-      host.markDirty();
+      composerFocusNode.unfocus();
+      markDirty();
     }
   }
 
   /// Channel switch: drafts belong to one channel, so drop them.
   void syncTermsToSelected() {
-    final channel = host.selectedChannel;
+    final channel = selectedChannel();
     if (_termsChannel == channel) return;
     _termsChannel = channel;
     termsField.clear();
@@ -210,32 +215,32 @@ class ModPanels {
     _termsWasActive = false;
     if (_termsRestoredInput) {
       _termsRestoredInput = false;
-      host.setShowInput(false);
+      setShowInput(false);
     }
     if (termsField.text.isNotEmpty) termsField.clear();
     _termsChannel = null;
-    if (wasTerms) host.composerFocusNode.unfocus();
+    if (wasTerms) composerFocusNode.unfocus();
   }
 
   Future<void> submitTerms() async {
-    final channel = host.selectedChannel;
+    final channel = selectedChannel();
     if (channel == null) return;
     final text = termsField.text.trim();
     if (text.isEmpty || termsAdding.value) return;
     if (text.length < 2 || text.length > 500) {
-      host.showNotice('Terms must be 2-500 characters.');
+      showNotice('Terms must be 2-500 characters.');
       return;
     }
     termsAdding.value = true;
     try {
       final result = await modActions.addBlockedTerm(twitchAuth, channel, text);
-      if (!host.isMounted()) return;
+      if (!isMounted()) return;
       if (result.ok) {
         termsField.clear();
-        host.showNotice('Blocked term added.');
+        showNotice('Blocked term added.');
         termsVersion.value++;
       } else {
-        host.showNotice(modErrorText(result));
+        showNotice(modErrorText(result));
       }
     } finally {
       termsAdding.value = false;
@@ -244,7 +249,7 @@ class ModPanels {
 
   Color _termsAccent(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    return host.composerFocusNode.hasFocus
+    return composerFocusNode.hasFocus
         ? scheme.primary
         : scheme.onSurfaceVariant;
   }
@@ -256,7 +261,7 @@ class ModPanels {
         width: 48,
         height: 48,
         child: ListenableBuilder(
-          listenable: host.composerFocusNode,
+          listenable: composerFocusNode,
           builder: (_, _) =>
               Icon(Icons.block_outlined, color: _termsAccent(context)),
         ),
@@ -276,10 +281,7 @@ class ModPanels {
             borderRadius: BorderRadius.circular(24),
             onTap: submitTerms,
             child: ListenableBuilder(
-              listenable: Listenable.merge([
-                termsAdding,
-                host.composerFocusNode,
-              ]),
+              listenable: Listenable.merge([termsAdding, composerFocusNode]),
               builder: (_, _) {
                 if (termsAdding.value) {
                   return const Padding(
@@ -319,7 +321,7 @@ class ModPanels {
         body: const SizedBox.shrink(),
       );
     }
-    final channel = host.selectedChannel ?? '';
+    final channel = selectedChannel() ?? '';
     return overlaySheet(
       offstage: false,
       ratio: panelManager.modSheetRatio,
@@ -401,7 +403,7 @@ class ModPanels {
         refresh: modPanelVersion,
         termsVersion: termsVersion,
         dragFocus: tabDragFocus,
-        onNotice: host.showNotice,
+        onNotice: showNotice,
         onShowUser: onShowUser,
         isBroadcaster: channel.isNotEmpty && chatConn.isBroadcaster(channel),
         isModerationActive: (c) =>
