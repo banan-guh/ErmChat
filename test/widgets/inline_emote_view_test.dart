@@ -446,4 +446,44 @@ void main() {
 
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('a cache evict does not spawn a second decoder for a live url', (
+    tester,
+  ) async {
+    EmoteUrlProvider.debugFetchOverride = (_) async => _pngBytes();
+    const url = 'https://inline.test/shared-evict.png';
+
+    Widget column(int count) => MaterialApp(
+      home: Column(
+        children: [
+          for (var i = 0; i < count; i++)
+            InlineEmoteView(url: url, width: 28, height: 28, images: _images),
+        ],
+      ),
+    );
+
+    await tester.pumpWidget(column(1));
+    await _pumpUntilLoaded(tester);
+    final buildsAfterFirst = EmoteUrlProvider.debugCompleterBuilds;
+
+    // Drop the cache bookmark while the row still holds the playing completer,
+    // mimicking the capture cleanup and the load-error eviction.
+    PaintingBinding.instance.imageCache.evict(
+      EmoteUrlProvider(url, images: _images),
+    );
+    await tester.pump();
+
+    // A second row for the same url must attach to the same completer instead
+    // of building a fresh playback clock.
+    await tester.pumpWidget(column(2));
+    await _pumpUntilLoaded(tester);
+
+    expect(EmoteUrlProvider.debugCompleterBuilds, buildsAfterFirst);
+    expect(
+      tester
+          .renderObject<RenderInlineEmote>(find.byType(InlineEmoteView).first)
+          .debugFrame,
+      isNotNull,
+    );
+  });
 }

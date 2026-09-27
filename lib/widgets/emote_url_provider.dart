@@ -57,6 +57,15 @@ class EmoteUrlProvider extends ImageProvider<EmoteUrlProvider> {
     EmoteUrlProvider key,
     ImageDecoderCallback decode,
   ) {
+    // A cache miss must not start a second playback for a URL that still has
+    // rows attached: hand back the playing completer so they share one clock.
+    final live = _liveByUrl[key.url];
+    if (live != null &&
+        !live._disposed &&
+        live._visible &&
+        identical(live.images, key.images)) {
+      return live;
+    }
     return _EmoteImageCompleter(
       url: key.url,
       images: key.images,
@@ -104,6 +113,11 @@ class EmoteUrlProvider extends ImageProvider<EmoteUrlProvider> {
 
   /// Live completer count, for the growth probe.
   static int get liveCount => _liveByUrl.length;
+
+  /// Fresh completers built this session. A shared URL keeps this at one;
+  /// growth means a second playback clock was created. Exposed for tests.
+  @visibleForTesting
+  static int debugCompleterBuilds = 0;
 
   // ── Chat-surfaced frame capture ─────────────────────────────────────
   /// URLs rendered by the chat surface this session. Only these are eligible
@@ -259,6 +273,7 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
     required this.images,
     required this._engineDecode,
   }) {
+    EmoteUrlProvider.debugCompleterBuilds++;
     // Pick up seed queued before this completer existed.
     final queued = EmoteUrlProvider._pendingSeeds[url];
     if (queued != null && queued != url) _seedFromUrl = queued;
@@ -382,7 +397,12 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
       }
     } on Object catch (error, stack) {
       _reportQuietly(error, stack);
-      // Evict on error: ImageCache keeps stale errors forever otherwise.
+      // Evict on error: ImageCache keeps stale errors forever otherwise, and
+      // drop the live entry so a retry builds a fresh completer instead of
+      // reusing this failed one.
+      if (EmoteUrlProvider._liveByUrl[url] == this) {
+        EmoteUrlProvider._liveByUrl.remove(url);
+      }
       PaintingBinding.instance.imageCache.evict(
         EmoteUrlProvider(url, images: images),
       );
