@@ -89,8 +89,7 @@ class HomeScreen extends ConsumerStatefulWidget {
 }
 
 class _HomeScreenState extends ConsumerState<HomeScreen>
-    with WidgetsBindingObserver, TickerProviderStateMixin
-    implements ComposerHost {
+    with WidgetsBindingObserver, TickerProviderStateMixin {
   static const _mentionsChannel = '@mentions';
 
   ConnectivityService? _connectivityServiceCache;
@@ -309,43 +308,29 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     session: _session,
     getReplyTo: () => ref.read(replyToProvider),
     setReplyTo: (value) => ref.read(replyToProvider.notifier).set(value),
-    host: this,
+    getSelectedChannel: () => ref.read(selectedChannelProvider),
+    isWhispersTabActive: () => _mentions.isWhispersTabActive,
+    whisperTarget: () => _mentions.whisperTarget,
+    activePanel: () => _activePanel,
+    threadsTabIndex: () => _threads.effectiveThreadsTab,
+    openThreadRoot: () => _panelManager.openThreadRoot,
+    replyToRoot: () => _replyToRoot,
+    preferEmotesFirst: () => _preferEmotesFirst,
+    computeThreadMessages: () => _threads.computeThreadMessages(),
+    channelChatReady: () => _channelChatReady,
+    showNotice: showNotice,
+    emoteSheetOpen: () => _emoteSheetOpen,
+    closeEmoteSheet: _closeEmoteSheet,
+    showEmoteMenu: _showEmoteMenu,
+    markDirty: markDirty,
   );
 
-  // ComposerHost: shell-owned UI state the composer reads but does not own.
-  @override
   String? get selectedChannel => ref.read(selectedChannelProvider);
-  @override
-  bool get isWhispersTabActive => _mentions.isWhispersTabActive;
-  @override
-  String? get whisperTarget => _mentions.whisperTarget;
-  @override
-  OverlayPanel get activePanel => _activePanel;
-  @override
-  int get threadsTabIndex => _threads.effectiveThreadsTab;
-  @override
-  TwitchMessage? get openThreadRoot => _panelManager.openThreadRoot;
-  @override
-  bool get replyToRoot => _replyToRoot;
-  @override
-  bool get preferEmotesFirst => _preferEmotesFirst;
-  @override
-  List<TwitchMessage> computeThreadMessages() =>
-      _threads.computeThreadMessages();
-  @override
-  bool get channelChatReady => _channelChatReady;
-  @override
+
   void showNotice(String text) {
     _chatNotice.show(text);
   }
 
-  @override
-  bool get emoteSheetOpen => _emoteSheetOpen;
-  @override
-  Future<void> closeEmoteSheet() => _closeEmoteSheet();
-  @override
-  void showEmoteMenu() => _showEmoteMenu();
-  @override
   void markDirty() {
     if (mounted) setState(() {});
   }
@@ -378,14 +363,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     copyMessage: _copyMessageToClipboard,
     prefs: ref.read(prefsProvider),
   );
-
-  // ShellState members the composer host still requires.
-  @override
-  bool get showTimestamps => _showTimestamps;
-  @override
-  String get timestampFormat => _timestampFormat;
-  @override
-  String? get sessionLogin => _session.login;
 
   late final ThreadPanels _threads = ThreadPanels(
     panelManager: _panelManager,

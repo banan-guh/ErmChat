@@ -20,33 +20,6 @@ import '../util/log.dart';
 import '../widgets/panel_manager.dart';
 import 'autocomplete_revert.dart';
 
-// Minimal shell state shared by feature hosts. One shell implementation
-// satisfies every host interface, so the getters are declared once here.
-abstract class ShellState {
-  String? get selectedChannel;
-  String? get sessionLogin;
-  bool get showTimestamps;
-  String get timestampFormat;
-}
-
-// Shell-owned UI state the composer reads but does not own.
-abstract class ComposerHost extends ShellState {
-  bool get isWhispersTabActive;
-  String? get whisperTarget;
-  OverlayPanel get activePanel;
-  int get threadsTabIndex;
-  TwitchMessage? get openThreadRoot;
-  bool get replyToRoot;
-  bool get preferEmotesFirst;
-  List<TwitchMessage> computeThreadMessages();
-  bool get channelChatReady;
-  void showNotice(String text);
-  bool get emoteSheetOpen;
-  Future<void> closeEmoteSheet();
-  void showEmoteMenu();
-  void markDirty();
-}
-
 // Input box state and send gating. Owns the text/focus controllers,
 // autocomplete, reply target, and cooldown countdown.
 class ComposerController {
@@ -61,7 +34,21 @@ class ComposerController {
     required this.session,
     required this.getReplyTo,
     required this.setReplyTo,
-    required this.host,
+    required this.getSelectedChannel,
+    required this.isWhispersTabActive,
+    required this.whisperTarget,
+    required this.activePanel,
+    required this.threadsTabIndex,
+    required this.openThreadRoot,
+    required this.replyToRoot,
+    required this.preferEmotesFirst,
+    required this.computeThreadMessages,
+    required this.channelChatReady,
+    required this.showNotice,
+    required this.emoteSheetOpen,
+    required this.closeEmoteSheet,
+    required this.showEmoteMenu,
+    required this.markDirty,
   }) {
     focusNode.addListener(_onInputFocusChanged);
     messageController.addListener(_onInputChanged);
@@ -81,7 +68,21 @@ class ComposerController {
   final Chat chat;
   final TwitchMessage? Function() getReplyTo;
   final void Function(TwitchMessage?) setReplyTo;
-  final ComposerHost host;
+  final String? Function() getSelectedChannel;
+  final bool Function() isWhispersTabActive;
+  final String? Function() whisperTarget;
+  final OverlayPanel Function() activePanel;
+  final int Function() threadsTabIndex;
+  final TwitchMessage? Function() openThreadRoot;
+  final bool Function() replyToRoot;
+  final bool Function() preferEmotesFirst;
+  final List<TwitchMessage> Function() computeThreadMessages;
+  final bool Function() channelChatReady;
+  final void Function(String text) showNotice;
+  final bool Function() emoteSheetOpen;
+  final Future<void> Function() closeEmoteSheet;
+  final void Function() showEmoteMenu;
+  final void Function() markDirty;
 
   final messageController = TextEditingController();
   final autocompleteRevert = AutocompleteRevertFormatter();
@@ -92,7 +93,7 @@ class ComposerController {
   String? _lastSentText;
   Timer? _cooldownTickTimer;
 
-  String? get selectedChannel => host.selectedChannel;
+  String? get selectedChannel => getSelectedChannel();
 
   void dispose() {
     _cooldownTickTimer?.cancel();
@@ -114,13 +115,13 @@ class ComposerController {
 
   void startReply(TwitchMessage msg) {
     setReplyTo(msg);
-    host.markDirty();
+    markDirty();
     focusNode.requestFocus();
   }
 
   void clearReply() {
     setReplyTo(null);
-    host.markDirty();
+    markDirty();
   }
 
   void clearSuggestions() {
@@ -137,16 +138,16 @@ class ComposerController {
   void onTapClearSuggestions() => suggestions.value = [];
 
   void toggleEmoteMenu() {
-    PerfLog.I.record('EmoteSheet', 'toggle: open=${host.emoteSheetOpen}');
-    if (host.emoteSheetOpen) {
-      unawaited(host.closeEmoteSheet());
+    PerfLog.I.record('EmoteSheet', 'toggle: open=${emoteSheetOpen()}');
+    if (emoteSheetOpen()) {
+      unawaited(closeEmoteSheet());
     } else {
-      host.showEmoteMenu();
+      showEmoteMenu();
     }
   }
 
   void _onInputFocusChanged() {
-    if (host.emoteSheetOpen) unawaited(host.closeEmoteSheet());
+    if (emoteSheetOpen()) unawaited(closeEmoteSheet());
   }
 
   void _onInputChanged() {
@@ -164,7 +165,7 @@ class ComposerController {
       clearSuggestions();
       return;
     }
-    final channel = host.selectedChannel;
+    final channel = getSelectedChannel();
     if (channel == null) {
       return;
     }
@@ -193,7 +194,7 @@ class ComposerController {
         word: filterWord,
         emotes: emotes,
         users: users,
-        preferEmotesFirst: host.preferEmotesFirst,
+        preferEmotesFirst: preferEmotesFirst(),
         recentEmoteIds: emoteUsage.recentEmoteIds,
       );
     }
@@ -242,35 +243,35 @@ class ComposerController {
     clearSuggestions();
 
     final text = messageController.text.trim();
-    final channel = host.selectedChannel;
+    final channel = getSelectedChannel();
     if (text.isEmpty || channel == null) return;
 
     if (!twitchAuth.isConfigured) {
-      host.showNotice('Connect an account to chat');
+      showNotice('Connect an account to chat');
       return;
     }
 
     // Whispers tab composes whispers: slash commands go through the
     // handler, plain text replies to the latest whisper partner.
-    if (host.isWhispersTabActive) {
+    if (isWhispersTabActive()) {
       if (text.startsWith('/')) {
         _lastSentText = text;
         autocompleteRevert.clear();
         messageController.clear();
         chatConn.doSendMessage(text, channel);
-      } else if (host.whisperTarget != null) {
+      } else if (whisperTarget() != null) {
         _lastSentText = text;
         autocompleteRevert.clear();
         messageController.clear();
         unawaited(
           commandHandler.handle(
-            '/w ${host.whisperTarget} $text',
+            '/w ${whisperTarget()} $text',
             channel,
             twitchAuth,
           ),
         );
       } else {
-        host.showNotice('Type /w <username> <message> to whisper');
+        showNotice('Type /w <username> <message> to whisper');
       }
       return;
     }
@@ -278,9 +279,9 @@ class ComposerController {
     // Mentions tab stays read-only, as do the threads dashboard lists:
     // replies are composed from the Thread tab only. Mod view greys out
     // the global box, except the Terms tab which borrows it for new terms.
-    if (host.activePanel == OverlayPanel.mentions) return;
-    if (host.activePanel == OverlayPanel.modView) return;
-    if (host.activePanel == OverlayPanel.thread && host.threadsTabIndex != 0) {
+    if (activePanel() == OverlayPanel.mentions) return;
+    if (activePanel() == OverlayPanel.modView) return;
+    if (activePanel() == OverlayPanel.thread && threadsTabIndex() != 0) {
       return;
     }
 
@@ -291,14 +292,14 @@ class ComposerController {
     autocompleteRevert.clear();
     messageController.clear();
 
-    final threadRoot = host.openThreadRoot;
+    final threadRoot = openThreadRoot();
     if (threadRoot != null) {
       // The reply lands in the thread's channel, which can differ from the
       // selected channel when a saved thread from another channel is open.
       final targetChannel = threadRoot.channel ?? channel;
-      final threadMsgs = host.computeThreadMessages();
+      final threadMsgs = computeThreadMessages();
       final TwitchMessage? replyTo;
-      if (host.replyToRoot) {
+      if (replyToRoot()) {
         final rootId = threadRoot.replyThreadRootId ?? threadRoot.messageId;
         replyTo = threadMsgs.firstWhere(
           (m) => m.messageId == rootId,
@@ -348,7 +349,7 @@ class ComposerController {
   // Input-box send gate ("Slow mode: 12s" / "Timed out: 5s"). Your own
   // timeout wins over the slow-mode window.
   String? cooldownText() {
-    final channel = host.selectedChannel;
+    final channel = getSelectedChannel();
     if (channel == null || !chat.contains(channel)) return null;
     final timeout = chatConn.remainingSelfTimeout(channel);
     if (timeout != null) return 'Timed out: ${formatSeconds(timeout)}';
@@ -360,15 +361,15 @@ class ComposerController {
   void refreshCooldown() => cooldownLabel.value = cooldownText();
 
   bool get enabled =>
-      host.activePanel != OverlayPanel.modView &&
-      (host.activePanel != OverlayPanel.mentions || host.isWhispersTabActive) &&
-      (host.activePanel != OverlayPanel.thread || host.threadsTabIndex == 0) &&
+      activePanel() != OverlayPanel.modView &&
+      (activePanel() != OverlayPanel.mentions || isWhispersTabActive()) &&
+      (activePanel() != OverlayPanel.thread || threadsTabIndex() == 0) &&
       twitchAuth.isConfigured &&
       // Token without a session user means the identity is still resolving
       // (account switch, fresh login): the pipeline would drop the send.
       session.login != null &&
       chatConn.isChatPipeConnected &&
-      (host.isWhispersTabActive || host.channelChatReady);
+      (isWhispersTabActive() || channelChatReady());
 
   String? get hintText =>
       cooldownLabel.value ??
@@ -376,22 +377,22 @@ class ComposerController {
           ? 'Connect an account to chat'
           : switch ((
               chatConn.connectPhase,
-              host.activePanel,
-              host.isWhispersTabActive,
-              host.channelChatReady,
+              activePanel(),
+              isWhispersTabActive(),
+              channelChatReady(),
             )) {
               (ChatPhase.connecting, _, _, _) => 'Connecting...',
               (ChatPhase.reconnecting, _, _, _) => 'Reconnecting...',
               (ChatPhase.online, _, false, false)
-                  when host.selectedChannel != null =>
+                  when getSelectedChannel() != null =>
                 'Disconnected',
-              (_, OverlayPanel.thread, _, _) when host.threadsTabIndex == 0 =>
+              (_, OverlayPanel.thread, _, _) when threadsTabIndex() == 0 =>
                 'Reply to thread...',
               (_, OverlayPanel.thread, _, _) => 'Select a thread to reply...',
               (_, OverlayPanel.modView, _, _) => 'Mod view open',
               (_, _, true, _) =>
-                host.whisperTarget != null
-                    ? 'Whisper to ${host.whisperTarget}...'
+                whisperTarget() != null
+                    ? 'Whisper to ${whisperTarget()}...'
                     : 'Type /w <username> <message>',
               (_, OverlayPanel.mentions, _, _) => 'Type a message...',
               _ => null,
