@@ -11,6 +11,7 @@ import 'macros_screen.dart';
 import 'pings_screen.dart';
 import 'ignores_screen.dart';
 import 'inline_embeds_screen.dart';
+import 'prefs_tiles.dart';
 import 'settings_page.dart';
 
 class ChatSettingsScreen extends StatefulWidget {
@@ -56,21 +57,7 @@ class ChatSettingsScreen extends StatefulWidget {
 }
 
 class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
-  int _maxMessagesPerChannel = kMaxMessagesPerChannelDefault;
-  int _recentMessagesCount = kRecentMessagesLimitDefault;
-  bool _replyToRoot = false;
-  bool _backgroundService = false;
-  bool _mentionPush = false;
-  bool _whisperNotify = false;
-  bool _preferEmotesFirst = false;
-  bool _showTimestamps = true;
-  String _timestampFormat = kDefaultTimestampFormat;
-  String _sharedChatMode = 'spotlight';
-  bool _namePaints = false;
-  bool _showGifs = kGiphyInlineEnabledDefault;
-  double _gifHeight = kGiphyInlineHeightDefault;
-  bool _showImages = kImageEmbedEnabledDefault;
-  double _imageHeight = kImageEmbedHeightDefault;
+  Prefs? _prefs;
 
   @override
   void initState() {
@@ -80,33 +67,7 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
 
   Future<void> _loadPrefs() async {
     final prefs = await Prefs.load();
-    if (mounted) {
-      setState(() {
-        _maxMessagesPerChannel = snapToMaxMessagesStep(
-          prefs.maxMessagesPerChannel,
-        );
-        _recentMessagesCount = prefs.recentMessagesLimit;
-        _replyToRoot = prefs.replyToThreadRoot;
-        _backgroundService = prefs.backgroundService;
-        _mentionPush = prefs.mentionPush;
-        _whisperNotify = prefs.whisperNotifications;
-        _preferEmotesFirst = prefs.preferEmotesFirst;
-        _showTimestamps = prefs.showTimestamps;
-        _timestampFormat = prefs.timestampFormat;
-        _sharedChatMode = prefs.sharedChatMode;
-        _namePaints = prefs.seventvNamePaints;
-        _showGifs = prefs.giphyInlineEnabled;
-        _gifHeight = prefs.giphyInlineHeight.clamp(
-          kGiphyInlineHeightMin,
-          kGiphyInlineHeightMax,
-        );
-        _showImages = prefs.imageEmbedEnabled;
-        _imageHeight = prefs.imageEmbedHeight.clamp(
-          kImageEmbedHeightMin,
-          kImageEmbedHeightMax,
-        );
-      });
-    }
+    if (mounted) setState(() => _prefs = prefs);
   }
 
   int _stepIndexFor(int value) {
@@ -122,6 +83,17 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
     return best;
   }
 
+  String get _timestampFormat =>
+      _prefs?.timestampFormat ?? kDefaultTimestampFormat;
+
+  String get _sharedChatMode => _prefs?.sharedChatMode ?? 'spotlight';
+
+  bool get _showGifs =>
+      _prefs?.giphyInlineEnabled ?? kGiphyInlineEnabledDefault;
+
+  bool get _showImages =>
+      _prefs?.imageEmbedEnabled ?? kImageEmbedEnabledDefault;
+
   Future<void> _pickTimestampFormat() async {
     final now = DateTime.now();
     final selected = await showChoiceDialog<String>(
@@ -135,9 +107,10 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
       ],
     );
     if (selected == null || selected == _timestampFormat) return;
-    final prefs = await Prefs.load();
+    final prefs = _prefs ?? await Prefs.load();
     await prefs.setTimestampFormat(selected);
-    if (mounted) setState(() => _timestampFormat = selected);
+    if (!mounted) return;
+    setState(() {});
     widget.onTimestampFormatChanged?.call(selected);
   }
 
@@ -181,16 +154,21 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
       ),
     );
     if (selected == null || selected == _sharedChatMode) return;
-    final prefs = await Prefs.load();
+    final prefs = _prefs ?? await Prefs.load();
     await prefs.setSharedChatMode(selected);
-    if (mounted) setState(() => _sharedChatMode = selected);
+    if (!mounted) return;
+    setState(() {});
     widget.onSharedChatModeChanged?.call(selected);
   }
 
   String get _inlineEmbedsSubtitle {
     final parts = <String>[];
-    if (_showGifs) parts.add('Giphy on (${_gifHeight.round()}dp)');
-    if (_showImages) parts.add('Images on (${_imageHeight.round()}dp)');
+    if (_showGifs) {
+      parts.add('Giphy on (${(_prefs?.giphyInlineHeight ?? 0).round()}dp)');
+    }
+    if (_showImages) {
+      parts.add('Images on (${(_prefs?.imageEmbedHeight ?? 0).round()}dp)');
+    }
     if (parts.isEmpty) return 'Off';
     return parts.join(', ');
   }
@@ -202,79 +180,45 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
       body: ListView(
         children: [
           const SettingsSectionHeader('Messages'),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 8,
-                ),
-                child: Text(
-                  'Max messages per channel: $_maxMessagesPerChannel',
-                ),
-              ),
-              Slider(
-                value: _stepIndexFor(_maxMessagesPerChannel).toDouble(),
-                min: 0,
-                max: (kMaxMessagesPerChannelValues.length - 1).toDouble(),
-                divisions: kMaxMessagesPerChannelValues.length - 1,
-                label: '$_maxMessagesPerChannel',
-                onChanged: (value) {
-                  final v = kMaxMessagesPerChannelValues[value.round()];
-                  setState(() => _maxMessagesPerChannel = v);
-                  widget.onMaxMessagesPerChannelChanged?.call(v);
-                },
-                onChangeEnd: (value) {
-                  final v = kMaxMessagesPerChannelValues[value.round()];
-                  Prefs.load().then(
-                    (prefs) => prefs.setMaxMessagesPerChannel(v),
-                  );
-                },
-              ),
-            ],
-          ),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 8,
-                ),
-                child: Text('Recent messages to load: $_recentMessagesCount'),
-              ),
-              Slider(
-                value: _recentMessagesCount.toDouble(),
-                min: 0,
-                max: 800,
-                divisions: 8,
-                label: '$_recentMessagesCount',
-                onChanged: (value) {
-                  final v = value.round();
-                  setState(() => _recentMessagesCount = v);
-                  widget.onRecentMessagesChanged?.call(v);
-                },
-                onChangeEnd: (value) {
-                  final v = value.round();
-                  Prefs.load().then((prefs) => prefs.setRecentMessagesLimit(v));
-                },
-              ),
-            ],
-          ),
-          SwitchListTile(
-            secondary: const Icon(Icons.reply),
-            title: const Text('Reply to thread root'),
-            subtitle: const Text(
-              'Always reply to the first message in a thread instead of the latest',
+          PrefsSliderTile(
+            label: (v) =>
+                'Max messages per channel: '
+                '${kMaxMessagesPerChannelValues[v.round()]}',
+            sliderLabel: (v) => '${kMaxMessagesPerChannelValues[v.round()]}',
+            min: 0,
+            max: (kMaxMessagesPerChannelValues.length - 1).toDouble(),
+            divisions: kMaxMessagesPerChannelValues.length - 1,
+            defaultValue: _stepIndexFor(
+              kMaxMessagesPerChannelDefault,
+            ).toDouble(),
+            read: (p) => _stepIndexFor(p.maxMessagesPerChannel).toDouble(),
+            write: (p, v) => p.setMaxMessagesPerChannel(
+              kMaxMessagesPerChannelValues[v.round()],
             ),
-            value: _replyToRoot,
-            onChanged: (value) async {
-              final prefs = await Prefs.load();
-              await prefs.setReplyToThreadRoot(value);
-              if (mounted) setState(() => _replyToRoot = value);
-              widget.onReplyToRootChanged?.call(value);
-            },
+            onChanged: (v) => widget.onMaxMessagesPerChannelChanged?.call(
+              kMaxMessagesPerChannelValues[v.round()],
+            ),
+          ),
+          PrefsSliderTile(
+            label: (v) => 'Recent messages to load: ${v.round()}',
+            sliderLabel: (v) => '${v.round()}',
+            min: 0,
+            max: 800,
+            divisions: 8,
+            defaultValue: kRecentMessagesLimitDefault.toDouble(),
+            read: (p) => p.recentMessagesLimit.clamp(0, 800).toDouble(),
+            write: (p, v) => p.setRecentMessagesLimit(v.round()),
+            onChanged: (v) => widget.onRecentMessagesChanged?.call(v.round()),
+          ),
+          PrefsSwitchTile(
+            secondary: const Icon(Icons.reply),
+            title: 'Reply to thread root',
+            subtitle:
+                'Always reply to the first message in a thread instead of the latest',
+            defaultValue: false,
+            read: (p) => p.replyToThreadRoot,
+            write: (p, v) => p.setReplyToThreadRoot(v),
+            onChanged: widget.onReplyToRootChanged,
           ),
           SettingsNavTile(
             icon: Icons.merge_type,
@@ -302,19 +246,19 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
                 MaterialPageRoute(
                   builder: (_) => InlineEmbedsScreen(
                     onShowGifsChanged: (v) {
-                      if (mounted) setState(() => _showGifs = v);
+                      if (mounted) setState(() {});
                       widget.onShowGifsChanged?.call(v);
                     },
                     onGifHeightChanged: (v) {
-                      if (mounted) setState(() => _gifHeight = v);
+                      if (mounted) setState(() {});
                       widget.onGifHeightChanged?.call(v);
                     },
                     onShowImagesChanged: (v) {
-                      if (mounted) setState(() => _showImages = v);
+                      if (mounted) setState(() {});
                       widget.onShowImagesChanged?.call(v);
                     },
                     onImageHeightChanged: (v) {
-                      if (mounted) setState(() => _imageHeight = v);
+                      if (mounted) setState(() {});
                       widget.onImageHeightChanged?.call(v);
                     },
                   ),
@@ -338,16 +282,13 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
               },
             ),
           const SettingsSectionHeader('UI'),
-          SwitchListTile(
+          PrefsSwitchTile(
             secondary: const Icon(Icons.schedule),
-            title: const Text('Show timestamps'),
-            value: _showTimestamps,
-            onChanged: (value) async {
-              final prefs = await Prefs.load();
-              await prefs.setShowTimestamps(value);
-              if (mounted) setState(() => _showTimestamps = value);
-              widget.onShowTimestampsChanged?.call(value);
-            },
+            title: 'Show timestamps',
+            defaultValue: true,
+            read: (p) => p.showTimestamps,
+            write: (p, v) => p.setShowTimestamps(v),
+            onChanged: widget.onShowTimestampsChanged,
           ),
           SettingsNavTile(
             icon: Icons.access_time,
@@ -355,33 +296,23 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
             subtitle: _timestampFormat,
             onTap: _pickTimestampFormat,
           ),
-          SwitchListTile(
+          PrefsSwitchTile(
             secondary: const Icon(Icons.format_paint),
-            title: const Text('7TV name paints'),
-            subtitle: const Text(
-              'Gradient username colors for 7TV subscribers',
-            ),
-            value: _namePaints,
-            onChanged: (value) async {
-              final prefs = await Prefs.load();
-              await prefs.setSeventvNamePaints(value);
-              if (mounted) setState(() => _namePaints = value);
-              widget.onNamePaintsChanged?.call(value);
-            },
+            title: '7TV name paints',
+            subtitle: 'Gradient username colors for 7TV subscribers',
+            defaultValue: false,
+            read: (p) => p.seventvNamePaints,
+            write: (p, v) => p.setSeventvNamePaints(v),
+            onChanged: widget.onNamePaintsChanged,
           ),
-          SwitchListTile(
+          PrefsSwitchTile(
             secondary: const Icon(Icons.sentiment_very_satisfied),
-            title: const Text('Prefer emote suggestions'),
-            subtitle: const Text(
-              'Emote priority over usernames in autocomplete',
-            ),
-            value: _preferEmotesFirst,
-            onChanged: (value) async {
-              final prefs = await Prefs.load();
-              await prefs.setPreferEmotesFirst(value);
-              if (mounted) setState(() => _preferEmotesFirst = value);
-              widget.onPreferEmotesFirstChanged?.call(value);
-            },
+            title: 'Prefer emote suggestions',
+            subtitle: 'Emote priority over usernames in autocomplete',
+            defaultValue: false,
+            read: (p) => p.preferEmotesFirst,
+            write: (p, v) => p.setPreferEmotesFirst(v),
+            onChanged: widget.onPreferEmotesFirstChanged,
           ),
           const SettingsSectionHeader('Notifications'),
           SettingsNavTile(
@@ -397,43 +328,32 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
           // Mention push is Android-only (the foreground service path); the
           // iOS toggle would silently do nothing, so hide it there.
           if (!kIsWeb && !Platform.isIOS) ...[
-            SwitchListTile(
+            PrefsSwitchTile(
               secondary: const Icon(Icons.notifications_active),
-              title: const Text('Mention notifications'),
-              value: _mentionPush,
-              onChanged: (value) async {
-                final prefs = await Prefs.load();
-                await prefs.setMentionPush(value);
-                if (mounted) setState(() => _mentionPush = value);
-                widget.onMentionPushChanged?.call(value);
-              },
+              title: 'Mention notifications',
+              defaultValue: false,
+              read: (p) => p.mentionPush,
+              write: (p, v) => p.setMentionPush(v),
+              onChanged: widget.onMentionPushChanged,
             ),
-            SwitchListTile(
+            PrefsSwitchTile(
               secondary: const Icon(Icons.chat_bubble),
-              title: const Text('Whisper notifications'),
-              value: _whisperNotify,
-              onChanged: (value) async {
-                final prefs = await Prefs.load();
-                await prefs.setWhisperNotifications(value);
-                if (mounted) setState(() => _whisperNotify = value);
-                widget.onWhisperNotifyChanged?.call(value);
-              },
+              title: 'Whisper notifications',
+              defaultValue: false,
+              read: (p) => p.whisperNotifications,
+              write: (p, v) => p.setWhisperNotifications(v),
+              onChanged: widget.onWhisperNotifyChanged,
             ),
           ],
           const SettingsSectionHeader('Connection'),
-          SwitchListTile(
+          PrefsSwitchTile(
             secondary: const Icon(Icons.wifi_tethering),
-            title: const Text('Keep chat alive in background'),
-            subtitle: const Text(
-              'Foreground notification to not reconnect every time',
-            ),
-            value: _backgroundService,
-            onChanged: (value) async {
-              final prefs = await Prefs.load();
-              await prefs.setBackgroundService(value);
-              if (mounted) setState(() => _backgroundService = value);
-              widget.onBackgroundServiceChanged?.call(value);
-            },
+            title: 'Keep chat alive in background',
+            subtitle: 'Foreground notification to not reconnect every time',
+            defaultValue: false,
+            read: (p) => p.backgroundService,
+            write: (p, v) => p.setBackgroundService(v),
+            onChanged: widget.onBackgroundServiceChanged,
           ),
         ],
       ),

@@ -8,6 +8,7 @@ import '../../models/emote_fetch_tier.dart';
 import '../../util/data_usage.dart';
 import '../../widgets/app_snack.dart';
 import '../../widgets/welcome_dialog.dart';
+import 'prefs_tiles.dart';
 import 'settings_page.dart';
 
 class DevSettingsScreen extends StatefulWidget {
@@ -20,41 +21,6 @@ class DevSettingsScreen extends StatefulWidget {
 }
 
 class _DevSettingsScreenState extends State<DevSettingsScreen> {
-  bool _testWidgets = false;
-  bool _useBrowserOAuth = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _loadTestWidgetsPref();
-    _loadOAuthMode();
-  }
-
-  Future<void> _loadTestWidgetsPref() async {
-    final prefs = await Prefs.load();
-    if (!mounted) return;
-    setState(() => _testWidgets = prefs.testChatWidgets);
-  }
-
-  Future<void> _setTestWidgets(bool value) async {
-    final prefs = await Prefs.load();
-    await prefs.setTestChatWidgets(value);
-    if (mounted) setState(() => _testWidgets = value);
-    widget.onTestWidgetsChanged?.call(value);
-  }
-
-  Future<void> _loadOAuthMode() async {
-    final prefs = await Prefs.load();
-    if (!mounted) return;
-    setState(() => _useBrowserOAuth = prefs.useBrowserOAuth);
-  }
-
-  Future<void> _setOAuthMode(bool value) async {
-    final prefs = await Prefs.load();
-    await prefs.setUseBrowserOAuth(value);
-    if (mounted) setState(() => _useBrowserOAuth = value);
-  }
-
   Future<void> _replayWelcomeScreen(BuildContext context) async {
     if (kIsWeb) return;
     final prefs = await Prefs.load();
@@ -69,24 +35,25 @@ class _DevSettingsScreenState extends State<DevSettingsScreen> {
       title: const Text('Dev settings'),
       body: ListView(
         children: [
-          SwitchListTile(
+          PrefsSwitchTile(
             secondary: const Icon(Icons.bug_report_outlined),
-            title: const Text('Test chat widgets'),
-            subtitle: const Text(
-              'Show poll, prediction and hype train cards with updating fake data',
-            ),
-            value: _testWidgets,
-            onChanged: _setTestWidgets,
+            title: 'Test chat widgets',
+            subtitle:
+                'Show poll, prediction and hype train cards with updating fake data',
+            defaultValue: false,
+            read: (p) => p.testChatWidgets,
+            write: (p, v) => p.setTestChatWidgets(v),
+            onChanged: widget.onTestWidgetsChanged,
           ),
           const Divider(),
-          SwitchListTile(
+          PrefsSwitchTile(
             secondary: const Icon(Icons.language),
-            title: const Text('Use browser for OAuth'),
-            subtitle: const Text(
-              'Opens Twitch login in external browser instead of in-app WebView',
-            ),
-            value: _useBrowserOAuth,
-            onChanged: _setOAuthMode,
+            title: 'Use browser for OAuth',
+            subtitle:
+                'Opens Twitch login in external browser instead of in-app WebView',
+            defaultValue: false,
+            read: (p) => p.useBrowserOAuth,
+            write: (p, v) => p.setUseBrowserOAuth(v),
           ),
           const Divider(),
           ListTile(

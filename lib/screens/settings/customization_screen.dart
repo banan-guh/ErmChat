@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../theme_colors.dart';
 import '../../util/prefs.dart';
+import 'prefs_tiles.dart';
 import 'settings_page.dart';
 
 class CustomizationScreen extends StatefulWidget {
@@ -34,16 +35,7 @@ class CustomizationScreen extends StatefulWidget {
 }
 
 class _CustomizationScreenState extends State<CustomizationScreen> {
-  ThemeMode _themeMode = ThemeMode.system;
-  bool _keepScreenOn = true;
-  bool _trueDark = false;
-  String _accentKey = kDefaultAccent;
-  double _chatFontSize = 14.0;
-  double _highlightOpacity = 0.6;
-  bool _checkeredMessages = false;
-  bool _lineSeparator = false;
-  bool _fastSnap = true;
-  bool _liquidGlass = true;
+  Prefs? _prefs;
 
   @override
   void initState() {
@@ -53,21 +45,12 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
 
   Future<void> _loadPrefs() async {
     final prefs = await Prefs.load();
-    if (mounted) {
-      setState(() {
-        _themeMode = prefs.themeMode;
-        _keepScreenOn = prefs.keepScreenOn;
-        _trueDark = prefs.trueDark;
-        _accentKey = prefs.accentColor;
-        _chatFontSize = prefs.chatFontSize;
-        _highlightOpacity = prefs.highlightOpacity;
-        _checkeredMessages = prefs.checkeredMessages;
-        _lineSeparator = prefs.lineSeparator;
-        _fastSnap = prefs.fastChannelSnap;
-        _liquidGlass = prefs.liquidGlass;
-      });
-    }
+    if (mounted) setState(() => _prefs = prefs);
   }
+
+  ThemeMode get _themeMode => _prefs?.themeMode ?? ThemeMode.system;
+
+  String get _accentKey => _prefs?.accentColor ?? kDefaultAccent;
 
   Future<void> _pickTheme(BuildContext context) async {
     final mode = await showModalBottomSheet<ThemeMode>(
@@ -81,51 +64,20 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
       ),
     );
     if (mode == null || !mounted || mode == _themeMode) return;
-    setState(() => _themeMode = mode);
-    Prefs.load().then((prefs) => prefs.setThemeMode(mode));
+    final prefs = _prefs ?? await Prefs.load();
+    await prefs.setThemeMode(mode);
+    if (!mounted) return;
+    setState(() {});
     widget.onThemeChanged(mode);
   }
 
-  void _setKeepScreenOn(bool value) {
-    setState(() => _keepScreenOn = value);
-    Prefs.load().then((prefs) => prefs.setKeepScreenOn(value));
-    widget.onKeepScreenOnChanged?.call(value);
-  }
-
-  void _setTrueDark(bool value) {
-    setState(() => _trueDark = value);
-    Prefs.load().then((prefs) => prefs.setTrueDark(value));
-    widget.onTrueDarkChanged?.call(value);
-  }
-
-  void _setAccentColor(String key) {
-    setState(() => _accentKey = key);
-    Prefs.load().then((prefs) => prefs.setAccentColor(key));
+  Future<void> _setAccentColor(String key) async {
+    if (key == _accentKey) return;
+    final prefs = _prefs ?? await Prefs.load();
+    await prefs.setAccentColor(key);
+    if (!mounted) return;
+    setState(() {});
     widget.onAccentColorChanged?.call(key);
-  }
-
-  void _setCheckeredMessages(bool value) {
-    setState(() => _checkeredMessages = value);
-    Prefs.load().then((prefs) => prefs.setCheckeredMessages(value));
-    widget.onCheckeredMessagesChanged?.call(value);
-  }
-
-  void _setLineSeparator(bool value) {
-    setState(() => _lineSeparator = value);
-    Prefs.load().then((prefs) => prefs.setLineSeparator(value));
-    widget.onLineSeparatorChanged?.call(value);
-  }
-
-  void _setFastSnap(bool value) {
-    setState(() => _fastSnap = value);
-    Prefs.load().then((prefs) => prefs.setFastChannelSnap(value));
-    widget.onFastSnapChanged?.call(value);
-  }
-
-  void _setLiquidGlass(bool value) {
-    setState(() => _liquidGlass = value);
-    Prefs.load().then((prefs) => prefs.setLiquidGlass(value));
-    widget.onLiquidGlassChanged?.call(value);
   }
 
   @override
@@ -146,18 +98,21 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
             trailing: const Icon(Icons.chevron_right),
             onTap: () => _pickTheme(context),
           ),
-          SwitchListTile(
-            title: const Text('True dark mode'),
-            value: _trueDark,
-            onChanged: isDark ? _setTrueDark : null,
+          PrefsSwitchTile(
+            title: 'True dark mode',
+            defaultValue: false,
+            enabled: isDark,
+            read: (p) => p.trueDark,
+            write: (p, v) => p.setTrueDark(v),
+            onChanged: widget.onTrueDarkChanged,
           ),
-          SwitchListTile(
-            title: const Text('Liquid glass (experimental)'),
-            subtitle: const Text(
-              'Floating glass header and composer with chat underneath',
-            ),
-            value: _liquidGlass,
-            onChanged: _setLiquidGlass,
+          PrefsSwitchTile(
+            title: 'Liquid glass (experimental)',
+            subtitle: 'Floating glass header and composer with chat underneath',
+            defaultValue: true,
+            read: (p) => p.liquidGlass,
+            write: (p, v) => p.setLiquidGlass(v),
+            onChanged: widget.onLiquidGlassChanged,
           ),
           const Padding(
             padding: EdgeInsets.fromLTRB(16, 16, 16, 8),
@@ -182,85 +137,56 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
               ],
             ),
           ),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 8,
-                ),
-                child: Text('Chat font size: ${_chatFontSize.round()}'),
-              ),
-              Slider(
-                value: _chatFontSize,
-                min: 8,
-                max: 24,
-                divisions: 16,
-                label: '${_chatFontSize.round()}',
-                onChanged: (value) {
-                  setState(() => _chatFontSize = value);
-                  widget.onChatFontScaleChanged?.call(value);
-                },
-                onChangeEnd: (value) {
-                  Prefs.load().then((prefs) => prefs.setChatFontSize(value));
-                },
-              ),
-            ],
+          PrefsSliderTile(
+            label: (v) => 'Chat font size: ${v.round()}',
+            min: 8,
+            max: 24,
+            divisions: 16,
+            defaultValue: 14,
+            read: (p) => p.chatFontSize,
+            write: (p, v) => p.setChatFontSize(v),
+            onChanged: widget.onChatFontScaleChanged,
           ),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 8,
-                ),
-                child: Text(
-                  'Highlight opacity: ${(_highlightOpacity * 100).round()}%',
-                ),
-              ),
-              Slider(
-                value: _highlightOpacity,
-                min: 0,
-                max: 1,
-                divisions: 5,
-                label: '${(_highlightOpacity * 100).round()}%',
-                onChanged: (value) {
-                  setState(() => _highlightOpacity = value);
-                  widget.onHighlightOpacityChanged?.call(value);
-                },
-                onChangeEnd: (value) {
-                  Prefs.load().then(
-                    (prefs) => prefs.setHighlightOpacity(value),
-                  );
-                },
-              ),
-            ],
+          PrefsSliderTile(
+            label: (v) => 'Highlight opacity: ${(v * 100).round()}%',
+            min: 0,
+            max: 1,
+            divisions: 5,
+            defaultValue: 0.6,
+            read: (p) => p.highlightOpacity,
+            write: (p, v) => p.setHighlightOpacity(v),
+            onChanged: widget.onHighlightOpacityChanged,
           ),
-          SwitchListTile(
-            title: const Text('Checkered messages'),
-            subtitle: const Text(
-              'Separate each line with a different background brightness',
-            ),
-            value: _checkeredMessages,
-            onChanged: _setCheckeredMessages,
+          PrefsSwitchTile(
+            title: 'Checkered messages',
+            subtitle:
+                'Separate each line with a different background brightness',
+            defaultValue: false,
+            read: (p) => p.checkeredMessages,
+            write: (p, v) => p.setCheckeredMessages(v),
+            onChanged: widget.onCheckeredMessagesChanged,
           ),
-          SwitchListTile(
-            title: const Text('Separate messages with lines'),
-            value: _lineSeparator,
-            onChanged: _setLineSeparator,
+          PrefsSwitchTile(
+            title: 'Separate messages with lines',
+            defaultValue: false,
+            read: (p) => p.lineSeparator,
+            write: (p, v) => p.setLineSeparator(v),
+            onChanged: widget.onLineSeparatorChanged,
           ),
-          SwitchListTile(
-            title: const Text('Fast channel swipe'),
-            subtitle: const Text('Snap to the next channel more quickly'),
-            value: _fastSnap,
-            onChanged: _setFastSnap,
+          PrefsSwitchTile(
+            title: 'Fast channel swipe',
+            subtitle: 'Snap to the next channel more quickly',
+            defaultValue: true,
+            read: (p) => p.fastChannelSnap,
+            write: (p, v) => p.setFastChannelSnap(v),
+            onChanged: widget.onFastSnapChanged,
           ),
-          SwitchListTile(
-            title: const Text('Keep screen on'),
-            value: _keepScreenOn,
-            onChanged: _setKeepScreenOn,
+          PrefsSwitchTile(
+            title: 'Keep screen on',
+            defaultValue: true,
+            read: (p) => p.keepScreenOn,
+            write: (p, v) => p.setKeepScreenOn(v),
+            onChanged: widget.onKeepScreenOnChanged,
           ),
         ],
       ),
