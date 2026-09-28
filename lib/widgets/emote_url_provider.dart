@@ -19,8 +19,7 @@ const Duration _streamFrameTimeout = Duration(seconds: 1);
 /// Deterministic start stagger per URL, 0 to 50ms. Survives restarts
 /// because it derives from the URL, not the restart time, so bulk
 /// restarts spread stream grids instead of decoding in lockstep.
-int _emotesStartStaggerUs(String url) =>
-    (url.hashCode & 0x7fffffff) % 50000;
+int _emotesStartStaggerUs(String url) => (url.hashCode & 0x7fffffff) % 50000;
 
 /// Whether [emote] renders through the custom completer loop. True for
 /// animated non-Twitch emotes (animated WebP streams from the engine, and
@@ -145,8 +144,9 @@ class EmoteUrlProvider extends ImageProvider<EmoteUrlProvider> {
   static const maxCapturedEmotes = 20;
 
   /// Records that [url] holds captured frames and trims the oldest evictable
-  /// entries. Visible emotes are never evicted; if every entry is active the
-  /// cache is allowed to overflow until something scrolls away.
+  /// entries back to streaming. Visible emotes are never trimmed; if every
+  /// entry is active the cache is allowed to overflow until something scrolls
+  /// away.
   static void _touchCaptured(String url) {
     _capturedOrder.remove(url);
     _capturedOrder[url] = ++_capturedSeq;
@@ -162,7 +162,7 @@ class EmoteUrlProvider extends ImageProvider<EmoteUrlProvider> {
       if (victim == null) break;
       final live = _liveByUrl[victim];
       _capturedOrder.remove(victim);
-      if (live != null && !live._disposed) {
+      if (live != null && !live._disposed && !live._dropCapture()) {
         PaintingBinding.instance.imageCache.evict(
           EmoteUrlProvider(victim, images: live.images),
         );
@@ -290,8 +290,8 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
   int _frameIndex = 0;
 
   /// Frames retained while streaming, indexed by engine frame index. Once all
-  /// are present, playback hands over to [_frames] and the codec is released,
-  /// so a replay costs no decode.
+  /// are present, playback hands over to [_frames] so a replay costs no
+  /// decode. The codec stays open so a trim can resume streaming from it.
   List<ui.Image?> _captured = [];
   List<Duration> _capturedDurations = [];
   int _capturedCount = 0;
@@ -487,7 +487,8 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
   /// if already playing or streaming (a sequential codec cannot seek).
   void seedFrom(String? sourceUrl) {
     if (_disposed || sourceUrl == null || sourceUrl == url) return;
-    if (_isPlaying || _codec != null || _compositor != null) return;
+    if (_isPlaying) return;
+    if (_frames == null && (_codec != null || _compositor != null)) return;
     _seedFromUrl = sourceUrl;
     if (_frames != null) _applySeed();
   }
@@ -604,20 +605,12 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
     _capturedDurations.clear();
     _capturedCount = 0;
     _expectedFrameCount = 0;
-    // Release the stream and hand the elapsed-time clock the materialized set.
+    // Pause the stream and hand the elapsed-time clock the materialized set.
     _frameTimer?.cancel();
     _frameTimer = null;
-    final codec = _codec;
-    _codec = null;
-    codec?.dispose();
-    final compositor = _compositor;
-    _compositor = null;
-    _webpMeta = null;
-    compositor?.resetStream();
     final seed = _engineSeed;
     _engineSeed = null;
     seed?.dispose();
-    _streamDurations = null;
     _streamDueUs = -1;
     _seedFromUrl = null;
     EmoteUrlProvider._pendingSeeds.remove(url);
@@ -638,11 +631,34 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
     return true;
   }
 
+  /// Drops the captured cycle and resumes streaming from the open codec, so
+  /// an LRU trim frees decoded frames without making [url] cold. Returns
+  /// false when there is no stream to fall back to.
+  bool _dropCapture() {
+    if (_codec == null && _compositor == null) return false;
+    _stopPlayback();
+    final frames = _frames;
+    _frames = null;
+    if (frames != null) {
+      for (final frame in frames.frames) {
+        frame.dispose();
+      }
+    }
+    for (final frame in _captured) {
+      frame?.dispose();
+    }
+    _captured = [];
+    _capturedDurations = [];
+    _capturedCount = 0;
+    _expectedFrameCount = _codec?.frameCount ?? _webpMeta?.frames.length ?? 0;
+    return true;
+  }
+
   /// Starts the playback loop. App frames drive emission; timer requests next frame.
   void _startPlayback() {
     if (_disposed || !hasListeners) return;
     if (_isPlaying) return;
-    if (_codec != null || _compositor != null) {
+    if (_frames == null && (_codec != null || _compositor != null)) {
       // Animations off: still emit the first frame, then hold it. The tick
       // scheduler below schedules nothing while off, so playback freezes.
       if (!EmoteUrlProvider.gifsEnabled && _hasStreamFrame) return;
@@ -749,7 +765,7 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
   void _scheduleStreamAppFrame() {
     if (_disposed || !hasListeners) return;
     if (_frameCallbackId != null || _streamDecoding) return;
-    if (_codec == null && _compositor == null) return;
+    if (_frames != null || (_codec == null && _compositor == null)) return;
     _frameCallbackId = SchedulerBinding.instance.scheduleFrameCallback(
       _onStreamAppFrame,
     );

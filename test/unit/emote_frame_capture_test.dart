@@ -213,6 +213,47 @@ void main() {
     stream.removeListener(listener);
   });
 
+  testWidgets('capture trim drops frames but keeps the stream warm', (
+    tester,
+  ) async {
+    final webp = File('test/fixtures/7tv_kiss_2x.webp').readAsBytesSync();
+    EmoteUrlProvider.debugFetchOverride = (url) async => webp;
+
+    const url = 'https://capture.test/trimmed.webp';
+    final (stream, listener) = await startStreamUntilCaptured(tester, url);
+    expect(EmoteUrlProvider.isFullyCaptured(url), isTrue);
+    stream.removeListener(listener);
+    final builds = EmoteUrlProvider.debugCompleterBuilds;
+
+    // Push the idle emote out of the capture LRU.
+    for (var i = 0; i < EmoteUrlProvider.maxCapturedEmotes; i++) {
+      EmoteUrlProvider.debugSeedCaptured('https://capture.test/filler$i');
+    }
+    expect(EmoteUrlProvider.debugCapturedEmotes, isNot(contains(url)));
+    expect(EmoteUrlProvider.isFullyCaptured(url), isFalse);
+    expect(
+      PaintingBinding.instance.imageCache.containsKey(
+        EmoteUrlProvider(url, images: images),
+      ),
+      isTrue,
+    );
+
+    // Reattaching streams from the same completer with no new load.
+    stream.addListener(listener);
+    final start = EmoteUrlProvider.currentFrame(url);
+    var advanced = false;
+    for (var i = 0; i < 20 && !advanced; i++) {
+      await tester.pump(const Duration(milliseconds: 70));
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 35)),
+      );
+      advanced = EmoteUrlProvider.currentFrame(url) != start;
+    }
+    expect(advanced, isTrue);
+    expect(EmoteUrlProvider.debugCompleterBuilds, builds);
+    stream.removeListener(listener);
+  });
+
   testWidgets('capture LRU keeps the newest 20 and drops the oldest', (
     tester,
   ) async {
