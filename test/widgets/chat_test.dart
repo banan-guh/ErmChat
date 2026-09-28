@@ -1,4 +1,5 @@
 import 'widget_test_harness.dart';
+import '../helpers.dart';
 
 void main() {
   setUp(() {
@@ -4182,6 +4183,54 @@ void main() {
 
       // Ensure the text ends with a trailing space.
       expect(controller.text, endsWith(' '));
+    });
+
+    testWidgets('autocomplete emote tap records a recent', (
+      WidgetTester tester,
+    ) async {
+      SharedPreferences.setMockInitialValues({'access_token': 'test_token'});
+      FlutterSecureStorage.setMockInitialValues({
+        'accounts':
+            '[{"login":"me","user_id":"42","access_token":"test_token"}]',
+        'active_login': 'me',
+      });
+      await tester.pumpWidget(
+        TwitchChatApp(
+          key: UniqueKey(),
+          eventSubService: FakeEventSubService(),
+          ircService: FakeIrcService(),
+          ircReadService: FakeIrcReadService(),
+          recentMessagesService: FakeRecentMessagesService(),
+        ),
+      );
+      await tester.pump();
+
+      // Join a channel so the composer and its autocomplete are mounted.
+      await tester.tap(find.byIcon(Icons.add));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField).last, 'xqc');
+      await tester.tap(find.text('Join', skipOffstage: false));
+      await tester.pump();
+
+      final autocomplete = tester.widget<AutocompleteDropdown>(
+        find.byType(AutocompleteDropdown),
+      );
+      autocomplete.onSelect(
+        EmoteSuggestion(
+          emote: makeTestEmote(id: 'recent-e1', code: 'RecentEmote'),
+        ),
+      );
+      // The tap marks the emote used fire-and-forget; a couple of pumps flush
+      // the prefs write's microtasks.
+      await tester.pump();
+      await tester.pump();
+
+      final container = ProviderScope.containerOf(
+        tester.element(find.byType(HomeScreen)),
+      );
+      final registry = container.read(emoteUsageRegistryProvider);
+      expect(registry.recentEmoteIds, contains('recent-e1'));
+      await tester.pumpAndSettle();
     });
 
     testWidgets('dropdown hides when text fewer than 2 characters', (
