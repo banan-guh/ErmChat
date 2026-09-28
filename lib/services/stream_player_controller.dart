@@ -37,9 +37,7 @@ class StreamPlayerController extends ChangeNotifier {
   bool get isActive => _currentChannel != null;
   bool get isAudioOnly => _isAudioOnly;
   bool get isTheaterMode => _isTheaterMode;
-  bool get showExtensions => _showExtensions;
   bool get retainWebview => _retainWebview;
-  bool get pipEnabled => _pipEnabled;
   bool get isInPip => _isInPip;
   double get splitFraction => _splitFraction;
   int get generation => _generation;

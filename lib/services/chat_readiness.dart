@@ -23,7 +23,6 @@ class ChatReadiness {
   // fresh or reconnected read socket may not have processed its JOINs yet,
   // and the local echo of our own messages rides it.
   final _readJoinedChannels = <String>{};
-  final _joinFailed = <String>{};
   bool _readEverConnected = false;
   bool _wasReadDisconnected = false;
   bool _everConnected = false;
@@ -42,8 +41,6 @@ class ChatReadiness {
     return _readJoinedChannels.contains(channel);
   }
 
-  bool isJoinFailed(String channel) => _joinFailed.contains(channel);
-
   void noteWriteSocketConnected() => _everConnected = true;
 
   void noteReadSocketEverConnected() => _readEverConnected = true;
@@ -61,7 +58,6 @@ class ChatReadiness {
     _wasReadDisconnected = true;
     _connectedAcked.clear();
     _readJoinedChannels.clear();
-    _joinFailed.clear();
     return true;
   }
 
@@ -72,17 +68,11 @@ class ChatReadiness {
 
   bool acknowledgeConnected(String channel) => _connectedAcked.add(channel);
 
-  /// Records a read ROOMSTATE: confirms the JOIN and clears any join failure,
-  /// returning whether the channel was newly confirmed.
-  bool noteReadRoomState(String channel) {
-    final isNew = _readJoinedChannels.add(channel);
-    if (isNew) _joinFailed.remove(channel);
-    return isNew;
-  }
+  /// Records a read ROOMSTATE: confirms the JOIN, returning whether the
+  /// channel was newly confirmed.
+  bool noteReadRoomState(String channel) => _readJoinedChannels.add(channel);
 
   bool noteWriteRoomState(String channel) => _joinedChannels.add(channel);
-
-  void noteJoinFailed(String channel) => _joinFailed.add(channel);
 
   void resetForAccountSwitch() {
     _joinedChannels.clear();

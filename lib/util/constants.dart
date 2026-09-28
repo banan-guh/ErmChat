@@ -96,20 +96,6 @@ bool isImageEmbedCandidate(String url) {
   return _kImageExtensions.contains(ext);
 }
 
-/// Snaps a raw (possibly legacy) value to the nearest log-scale step.
-int snapToMaxMessagesStep(int value) {
-  var best = kMaxMessagesPerChannelValues.first;
-  var bestDistance = (value - best).abs();
-  for (final step in kMaxMessagesPerChannelValues) {
-    final distance = (value - step).abs();
-    if (distance < bestDistance) {
-      best = step;
-      bestDistance = distance;
-    }
-  }
-  return best;
-}
-
 /// Throws on transient HTTP errors (429/5xx) so callers can retry and keep stale cache.
 void throwOnTransientHttpError(int statusCode, Uri uri) {
   if (statusCode == 429 || statusCode >= 500) {

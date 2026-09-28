@@ -5,7 +5,7 @@ import 'package:flutter/scheduler.dart';
 import '../util/insets.dart';
 import 'glass_chrome.dart';
 
-// TEMP: M3 Expressive fastSpatial stiffness (800), no-bouncy.
+// M3 Expressive fastSpatial spring (stiffness 800), critically damped.
 class _SnapPhysics extends PageScrollPhysics {
   const _SnapPhysics({super.parent});
 
@@ -115,13 +115,13 @@ class TabbedLayout extends StatefulWidget {
   /// Slot between the tab strip and the pages (stream player dock).
   final Widget? belowTabBar;
 
-  /// Glass spike: transparent app bar content fused above the tab strip.
+  /// Transparent app bar content fused above the tab strip.
   final Widget? headerOverlay;
 
-  /// Glass spike: floats the header block above full-height pages.
+  /// Floats the header block above full-height pages.
   final bool glassOverlay;
 
-  /// Glass spike: full header height, offsets the chrome menu below it.
+  /// Full header height, offsets the chrome menu below it.
   final double overlayHeaderHeight;
 
   static const double minEdgeExclusion = 20.0;
@@ -566,7 +566,7 @@ class TabbedLayoutState extends State<TabbedLayout>
       ],
     );
 
-    // Glass spike: app bar plus tab strip fuse into one floating card
+    // App bar plus tab strip fuse into one floating card
     // above the full-height pages; rows slide underneath the blur.
     if (overlay) {
       return Stack(

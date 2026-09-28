@@ -303,13 +303,8 @@ class UserProfileSheetState extends State<UserProfileSheet> {
   }
 
   String _formatDate(String iso) {
-    try {
-      final dt = DateTime.parse(iso);
-      return formatYmd(dt);
-    } catch (_) {
-      logDebug('[UserProfileSheet] failed to parse date: $iso');
-      return iso;
-    }
+    final dt = DateTime.tryParse(iso);
+    return dt == null ? iso : formatYmd(dt);
   }
 
   // Top rounding follows the sheet theme; falls back to the M3 default.

@@ -40,6 +40,7 @@ import '../util/prefs_store.dart';
 import '../util/timestamp_formatter.dart';
 import '../screens/settings/settings_screen.dart';
 import '../widgets/panel_manager.dart';
+import '../widgets/glass_chrome.dart';
 import '../widgets/welcome_dialog.dart';
 import '../services/user_store.dart';
 import '../chat/chat.dart';
@@ -93,11 +94,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     with WidgetsBindingObserver, TickerProviderStateMixin {
   static const _mentionsChannel = '@mentions';
 
-  ConnectivityService? _connectivityServiceCache;
-  ConnectivityService get _connectivityService {
-    _connectivityServiceCache ??= ref.read(connectivityServiceProvider);
-    return _connectivityServiceCache!;
-  }
+  late final ConnectivityService _connectivityService = ref.read(
+    connectivityServiceProvider,
+  );
 
   SevenTvEventClient get _sevenTvClient => ref.read(sevenTvClientProvider);
   TwitchApi get _twitchApi => ref.read(twitchApiProvider);
@@ -109,23 +108,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   AnalyticsService get _analytics => ref.read(analyticsServiceProvider);
   TtsController get _ttsController => ref.read(ttsControllerProvider);
 
-  Chat? _chatCache;
-  Chat get _chat {
-    _chatCache ??= ref.read(chatProvider);
-    return _chatCache!;
-  }
+  late final Chat _chat = ref.read(chatProvider);
 
-  Session? _sessionCache;
-  Session get _session {
-    _sessionCache ??= ref.read(sessionProvider);
-    return _sessionCache!;
-  }
+  late final Session _session = ref.read(sessionProvider);
 
-  TwitchAuth? _twitchAuthCache;
-  TwitchAuth get _twitchAuth {
-    _twitchAuthCache ??= ref.read(twitchAuthProvider);
-    return _twitchAuthCache!;
-  }
+  late final TwitchAuth _twitchAuth = ref.read(twitchAuthProvider);
 
   // Session announces pipeline-resolved identity; the app refreshes the
   // account-scoped data it owns.
@@ -144,13 +131,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     }
   }
 
-  // Provider-owned pipeline, read once and cached. The provider owns
-  // teardown, so the screen only observes its notifiers.
-  ChatConnectionManager? _chatConnCache;
-  ChatConnectionManager get _chatConn {
-    _chatConnCache ??= ref.read(chatPipelineProvider);
-    return _chatConnCache!;
-  }
+  // The provider owns teardown, so the screen only observes its notifiers.
+  late final ChatConnectionManager _chatConn = ref.read(chatPipelineProvider);
 
   late final MessageBuilder _messageBuilder = MessageBuilder(
     emoteSource: _emoteLookupSource,
@@ -180,23 +162,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 
   final _isMobile = ValueNotifier<bool>(false);
 
-  EmoteManager? _emoteManagerCache;
-  EmoteManager get _emoteManager {
-    _emoteManagerCache ??= ref.read(emoteManagerProvider);
-    return _emoteManagerCache!;
-  }
+  late final EmoteManager _emoteManager = ref.read(emoteManagerProvider);
 
-  EmoteLookupSource? _emoteLookupSourceCache;
-  EmoteLookupSource get _emoteLookupSource {
-    _emoteLookupSourceCache ??= ref.read(emoteLookupSourceProvider);
-    return _emoteLookupSourceCache!;
-  }
+  late final EmoteLookupSource _emoteLookupSource = ref.read(
+    emoteLookupSourceProvider,
+  );
 
-  EmoteUsageRegistry? _emoteUsageCache;
-  EmoteUsageRegistry get _emoteUsage {
-    _emoteUsageCache ??= ref.read(emoteUsageRegistryProvider);
-    return _emoteUsageCache!;
-  }
+  late final EmoteUsageRegistry _emoteUsage = ref.read(
+    emoteUsageRegistryProvider,
+  );
 
   TwitchBadgeService get _badgeService => ref.read(badgeServiceProvider);
   PipService get _pipService => ref.read(pipServiceProvider);
@@ -212,11 +186,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   final _atBottomNotifiers = <String, ValueNotifier<bool>>{};
   ChatNoticeController get _chatNotice => ref.read(chatNoticeProvider);
 
-  ChatUiSignals? _signalsCache;
-  ChatUiSignals get _signals {
-    _signalsCache ??= ref.read(chatUiSignalsProvider);
-    return _signalsCache!;
-  }
+  late final ChatUiSignals _signals = ref.read(chatUiSignalsProvider);
 
   final _signalUnsubs = <void Function()>[];
 
@@ -240,7 +210,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   bool _lineSeparator = false;
   bool _fastSnap = true;
 
-  /// Liquid glass spike (default on; toggled in Customization).
+  /// Liquid glass chrome (default on; toggled in Customization).
   bool _liquidGlass = true;
 
   /// 7TV name paints (default off; toggled in Chat settings).
@@ -268,13 +238,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   /// Whether the chat input box + status row is shown. Persisted.
   bool _showInput = true;
 
-  // Provider-owned stream player, read once and cached. The provider owns
-  // teardown; the shell only binds PiP and observes its notifier.
-  StreamPlayerController? _streamPlayerCache;
-  StreamPlayerController get _streamPlayer {
-    _streamPlayerCache ??= ref.read(streamPlayerProvider);
-    return _streamPlayerCache!;
-  }
+  // The provider owns teardown; the shell only binds PiP and observes it.
+  late final StreamPlayerController _streamPlayer = ref.read(
+    streamPlayerProvider,
+  );
 
   bool _theaterChatVisible = true;
 
@@ -288,7 +255,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     isMounted: () => mounted,
   );
 
-  // Delegating accessors for state that moved to PanelManager.
   OverlayPanel get _activePanel => _panelManager.activePanel;
   bool get _emoteSheetOpen => _panelManager.emoteSheetOpen;
 
@@ -561,11 +527,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     mentionPush: () => ref.read(mentionPushProvider),
   );
 
-  EmoteController? _emoteControllerCache;
-  EmoteController get _emotes {
-    _emoteControllerCache ??= ref.read(emoteControllerProvider);
-    return _emoteControllerCache!;
-  }
+  late final EmoteController _emotes = ref.read(emoteControllerProvider);
 
   // Verb adapters the owners hold as lazy callbacks, reading live shell state.
   void _setStreamState(void Function() fn) => setState(fn);
@@ -1449,6 +1411,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     );
     // Reply card floats above the composer. Hidden while search or the terms
     // box borrows the input, and while the composer is disabled.
+    final glass = glassEnabled(context, _liquidGlass);
     final replyMsg = _composer.replyToMsg;
     final replyHeader =
         _showInput &&
@@ -1517,7 +1480,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                     maxHeight: maxHeight,
                     keyboardH: keyboardH,
                     composerH: composerH,
-                    liquidGlass: _liquidGlass,
+                    liquidGlass: glass,
                   );
                 },
             threadPanel: _threads.threadPanel(
@@ -1555,13 +1518,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                     search: _search,
                     mod: _mod,
                     dragTick: _panelDragTick,
-                    transparent:
-                        _liquidGlass && !MediaQuery.highContrastOf(context),
+                    transparent: glass,
                   )
                 : null,
             notice: ChatNoticeBar(controller: _chatNotice),
             replyHeader: replyHeader,
-            liquidGlass: _liquidGlass,
+            liquidGlass: glass,
           ),
         ),
       ),

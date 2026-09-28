@@ -17,7 +17,6 @@ class EmoteChange {
   final Set<String>? deltaCodes;
 
   bool get isGlobal => channel == null;
-  bool get isDelta => deltaCodes != null;
 }
 
 /// Owns the emote catalog state: provider lists per scope, 7TV identity and
@@ -174,10 +173,6 @@ class EmoteStore {
   bool isProviderEnabled(EmoteType type) => !_disabledProviders.contains(type);
 
   bool get allowUnlisted7tv => _allowUnlisted7tv;
-
-  /// Toggles [type]; true when the enabled set actually changed.
-  bool enableProvider(EmoteType type, bool enabled) =>
-      enabled ? _disabledProviders.remove(type) : _disabledProviders.add(type);
 
   /// Sets unlisted 7TV rendering; true when the value actually changed.
   bool setAllowUnlisted(bool allowed) {

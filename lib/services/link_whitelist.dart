@@ -18,9 +18,6 @@ class LinkWhitelist extends ChangeNotifier {
     'youtu.be',
   ];
 
-  /// Default entries for "restore defaults" UI.
-  static List<String> get defaultEntries => List.of(_defaults);
-
   List<String> _entries = const [];
   bool _loaded = false;
   bool enabled = false;

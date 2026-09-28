@@ -155,15 +155,6 @@ class ChannelSession extends ChangeNotifier {
     chat.channelFor(channel)?.removeLoadingHistory();
   }
 
-  // "Connected" is emitted as soon as IRC is up, which is usually before
-  // the robotty history fetch completes. History messages are then inserted
-  // above it, so move the newest connect-state line ("Reconnected" on a
-  // reconnect, otherwise "Connected") back to the most recent position to
-  // stay visible. No extra bump: the merge already ticked info.version.
-  void moveConnectedMessageToTop(String channel) {
-    chat.channelFor(channel)?.moveConnectedToTop();
-  }
-
   Future<void> subscribeChannel(String channelName) async {
     chatConn.subscribeChannel(channelName);
   }

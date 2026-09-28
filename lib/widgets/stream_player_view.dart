@@ -60,13 +60,10 @@ class _StreamPlayerViewState extends State<StreamPlayerView> {
         WebViewController.fromPlatformCreationParams(_creationParams())
           ..setJavaScriptMode(JavaScriptMode.unrestricted)
           ..setBackgroundColor(Colors.transparent)
-          // TEMP DIAG (buffering hunt): reports video stall lifecycle to
-          // logcat. The playing/pause events below double as the PiP
-          // window's play-state source; keep those when this goes away.
+          // The PiP window's play/pause button mirrors the video element.
           ..addJavaScriptChannel(
-            'StreamStall',
+            'PlayState',
             onMessageReceived: (message) {
-              logDebug('[StreamPlayer] video event: ${message.message}');
               switch (message.message) {
                 case 'playing':
                   widget.controller.setPipPlaying(true);
@@ -83,7 +80,7 @@ class _StreamPlayerViewState extends State<StreamPlayerView> {
                 if (mounted) {
                   setState(() => _pageLoaded = true);
                   _revealOverlay();
-                  _hookStallEvents();
+                  _hookPlayState();
                 }
               },
               onWebResourceError: (error) {
@@ -168,23 +165,23 @@ class _StreamPlayerViewState extends State<StreamPlayerView> {
     unawaited(_webController.loadRequest(Uri.parse(_lastUrl!)));
   }
 
-  // TEMP DIAG (buffering hunt): hooks video stall events. Idempotent per
-  // page load; remove with the StreamStall channel above.
-  void _hookStallEvents() {
+  // Polls for the video element, then forwards its play state. Idempotent
+  // per page load.
+  void _hookPlayState() {
     unawaited(
       _webController
           .runJavaScript('''
 {
-  if (!window._ermStallHook) {
-    window._ermStallHook = true;
+  if (!window._ermPlayHook) {
+    window._ermPlayHook = true;
     let tries = 0;
     const hook = setInterval(() => {
       const v = document.querySelector('video');
       if (v && !v._ermHooked) {
         v._ermHooked = true;
         clearInterval(hook);
-        for (const e of ['waiting', 'playing', 'pause', 'stalled', 'suspend']) {
-          v.addEventListener(e, () => StreamStall.postMessage(e));
+        for (const e of ['playing', 'pause']) {
+          v.addEventListener(e, () => PlayState.postMessage(e));
         }
       } else if (++tries > 40) {
         clearInterval(hook);
@@ -230,11 +227,15 @@ class _StreamPlayerViewState extends State<StreamPlayerView> {
     if (_allowedPrefixes.any(request.url.startsWith)) {
       return NavigationDecision.navigate;
     }
-    try {
+    final uri = Uri.tryParse(request.url);
+    if (uri != null) {
       unawaited(
-        launchUrl(Uri.parse(request.url), mode: LaunchMode.externalApplication),
+        launchUrl(
+          uri,
+          mode: LaunchMode.externalApplication,
+        ).catchError((Object _) => false),
       );
-    } catch (_) {}
+    }
     return NavigationDecision.prevent;
   }
 

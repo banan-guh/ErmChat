@@ -86,11 +86,6 @@ class EmoteImages {
     }
   }
 
-  void invalidateCached(String url) {
-    _probe.invalidate(url);
-    scaleRevision.value++;
-  }
-
   /// Resolves the URL to render for [surface], probing every known scale.
   Future<({String url, String? placeholder})?> resolve(
     Emote emote,

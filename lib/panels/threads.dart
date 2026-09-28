@@ -307,13 +307,6 @@ class ThreadPanels {
   String? threadRootIdOf(TwitchMessage msg) =>
       msg.replyThreadRootId ?? msg.messageId;
 
-  bool isThreadSaved(TwitchMessage rootMsg) {
-    final channel = rootMsg.channel;
-    final rootId = threadRootIdOf(rootMsg);
-    if (channel == null || rootId == null) return false;
-    return savedThreads.isSaved(channel, rootId);
-  }
-
   // Resolves the actual root message for a thread key, so bookmarks snapshot
   // the root's author/text instead of whichever reply got long-pressed.
   TwitchMessage? resolveThreadRootMessage(String channel, String rootId) {

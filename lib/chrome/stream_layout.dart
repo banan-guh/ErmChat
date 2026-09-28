@@ -336,7 +336,7 @@ class StreamPanels {
           keyboardH: keyboardH,
           inputH: composerH,
         );
-    // Glass spike: chat-only portrait floats one glass block above
+    // Chat-only portrait floats one glass block above
     // full-height pages. Stream, theater, split, fullscreen, and
     // keyboard-collapse states keep the docked layout. With no channels the
     // card holds the app bar only (no tab strip) over the welcome view.

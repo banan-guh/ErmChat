@@ -14,7 +14,7 @@ class ChromeMenuButton extends StatefulWidget {
   final bool Function()? showModView;
   final VoidCallback? onToggleSearch;
 
-  /// Glass spike: glass tile trigger to match the floating glass header.
+  /// Glass tile trigger to match the floating glass header.
   final bool glass;
 
   const ChromeMenuButton({

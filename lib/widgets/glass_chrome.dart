@@ -6,7 +6,7 @@ import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 
 import '../util/insets.dart';
 
-// Shared metrics and builders for the liquid glass spike. The header block
+// Shared metrics and builders for the liquid glass chrome. The header block
 // fuses the app bar and the channel tab strip, so both layers derive its
 // height from the same formula and the chat list pads by the same amount.
 const double kGlassAppBarHeight = 48.0;

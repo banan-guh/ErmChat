@@ -181,9 +181,6 @@ class ChatLifecycle {
       _ircJoinFailedSub = ircRead.onJoinFailed.listen((event) {
         if (_disposed) return;
         channelSetup.handleJoinFailed(event);
-        // Stop the perpetual "still joining" marker; the channel is not ready
-        // and the failure was already surfaced as a system message.
-        readiness.noteJoinFailed(event.channel);
       });
 
       // The read socket is the sole JOINer: its ROOMSTATE resolves room status

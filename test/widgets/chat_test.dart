@@ -724,6 +724,64 @@ void main() {
     // Glass mode pads the list by the measured pill footprint. That footprint
     // must be composed from live insets, not a cached measurement, or the
     // newest row dips under the pill for a frame as the keyboard retracts.
+    testWidgets('glass collapses the chrome where opaque does', (
+      tester,
+    ) async {
+      SharedPreferences.setMockInitialValues({});
+      // 700dp tall with a 360dp keyboard: the docked composer leaves 284dp,
+      // under the 300dp collapse threshold.
+      tester.view.physicalSize = const Size(1080, 2100);
+      tester.view.devicePixelRatio = 3.0;
+      addTearDown(tester.view.reset);
+
+      Future<bool> hidesChrome({required bool glass}) async {
+        tester.view.viewInsets = FakeViewPadding(bottom: 0);
+        var hide = false;
+        await tester.pumpWidget(
+          MaterialApp(
+            key: ValueKey(glass),
+            home: Scaffold(
+              resizeToAvoidBottomInset: true,
+              body: ChatBody(
+                liquidGlass: glass,
+                emoteMaxFraction: 0.5,
+                composer: const SizedBox(height: 56),
+                bodyBuilder:
+                    (
+                      context, {
+                      required hideChromeForKeyboard,
+                      required maxWidth,
+                      required maxHeight,
+                      required keyboardH,
+                      required composerH,
+                    }) {
+                      hide = hideChromeForKeyboard;
+                      return const SizedBox.expand();
+                    },
+                threadPanel: const SizedBox.shrink(),
+                mentionsPanel: const SizedBox.shrink(),
+                modViewPanel: const SizedBox.shrink(),
+                emotePickerBuilder: (_, {required sheetBoxHeight}) =>
+                    const SizedBox.shrink(),
+                autocomplete: const SizedBox.shrink(),
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        for (final h in [120.0, 240.0, 360.0]) {
+          tester.view.viewInsets = FakeViewPadding(bottom: h * 3.0);
+          await tester.pump(const Duration(milliseconds: 16));
+        }
+        await tester.pump(const Duration(milliseconds: 300));
+        await tester.pumpAndSettle();
+        return hide;
+      }
+
+      expect(await hidesChrome(glass: false), isTrue);
+      expect(await hidesChrome(glass: true), isTrue);
+    });
+
     testWidgets('a settled keyboard close drops focus once', (tester) async {
       SharedPreferences.setMockInitialValues({});
       tester.view.physicalSize = const Size(1080, 2340);

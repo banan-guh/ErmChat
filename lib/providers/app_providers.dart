@@ -24,12 +24,11 @@ import '../util/connectivity.dart';
 import '../util/prefs.dart';
 import 'emote_providers.dart';
 
-/// App-scope shared objects: transports, managers, and the mutable kernel.
-///
-/// Providers own construction and teardown; consumers read them instead of
-/// constructing. The kernel ([Chat]) and [Session] are provider-owned but
-/// observed through their leaf `Listenable`s, the one sanctioned non-Riverpod
-/// observation path.
+// App-scope shared objects: transports, managers, and the mutable kernel.
+// Providers own construction and teardown; consumers read them instead of
+// constructing. The kernel ([Chat]) and [Session] are observed through their
+// leaf `Listenable`s, the one sanctioned non-Riverpod observation path.
+
 /// The loaded preferences store, for synchronous reads.
 ///
 /// Reads are synchronous: SharedPreferences loads from disk once and then

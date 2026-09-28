@@ -34,12 +34,6 @@ class EmoteProbeMemo {
     return null;
   }
 
-  /// Drops the memoized and in-flight result for [url].
-  void invalidate(String url) {
-    _entries.remove(url);
-    _inflight.remove(url);
-  }
-
   Future<bool> _run(String url, Future<bool> Function(String) check) async {
     try {
       final cached = await check(url);

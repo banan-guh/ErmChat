@@ -428,10 +428,6 @@ class EmoteManager implements EmoteLookupSource {
     String setId,
   ) => _personalSets.trackForeignGrant(userTwitchIds, setId);
 
-  /// Drops a foreign user's personal-set grant (entitlement.delete).
-  void dropForeignPersonalGrant(Iterable<String> userTwitchIds, String setId) =>
-      _personalSets.dropForeignGrant(userTwitchIds, setId);
-
   /// Placeholder for a personal set announced over the socket.
   void trackForeignPersonalSet(String setId) => _personalSets.trackSet(setId);
 

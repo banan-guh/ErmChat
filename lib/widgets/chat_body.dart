@@ -1,10 +1,8 @@
 import 'dart:async';
 import 'dart:ui' as ui;
-import 'dart:ui' show FlutterView;
-
-import 'package:flutter/rendering.dart';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 
 import '../composer/composer_bar.dart';
 import '../util/insets.dart';
@@ -13,7 +11,8 @@ import 'glass_chrome.dart';
 
 /// Builds the chat content above the composer. [maxHeight] and [keyboardH]
 /// feed keyboard decisions only: while the keyboard is up they describe the
-/// settled open geometry, so the decisions never flip mid-animation.
+/// settled room above the composer, whether it docks or floats, so the
+/// decisions never flip mid-animation.
 /// [composerH] is the composer's content height, without the safe area.
 typedef ChatBodyBuilder =
     Widget Function(
@@ -36,8 +35,7 @@ typedef EmotePickerBuilder =
 const double kKeyboardChromeCollapseBelowHeight = 300.0;
 
 /// Collapse the top chrome when the keyboard eats so much vertical space
-/// that the chat would overflow. Pure so the rule stays unit-testable and
-/// deletable in one place when the keyboard layout changes again.
+/// that the chat would overflow.
 bool collapseChromeForKeyboard({
   required double keyboardH,
   required double maxHeight,
@@ -78,7 +76,7 @@ class ChatBody extends StatefulWidget {
   final double emoteMaxFraction;
   final Widget? composer;
 
-  /// Glass spike: floats the composer as a pill above the chat instead of
+  /// Floats the composer as a pill above the chat instead of
   /// docking it in flow. Rows slide underneath the blur.
   final bool liquidGlass;
 
@@ -107,9 +105,10 @@ class _ChatBodyState extends State<ChatBody> with WidgetsBindingObserver {
   // Stack box height with the keyboard closed, learned during layout.
   double? _fullBoxHeight;
 
-  // Bottom padding under the composer with the keyboard closed. It drops to
-  // zero once the keyboard covers the safe area, which the box then gains.
-  double _closedPad = 0;
+  // Whole ChatBody height with the keyboard closed, learned during layout.
+  // It is the same whether the composer docks or floats, so both layouts
+  // make the keyboard decisions from one geometry.
+  double? _closedBodyH;
 
   // Settled composer content height, safe area excluded. Measured
   // post-layout: reading inputBarKey.size during build throws every frame.
@@ -139,7 +138,7 @@ class _ChatBodyState extends State<ChatBody> with WidgetsBindingObserver {
   // Keyboard overlap in dp. The Scaffold strips viewInsets from its body,
   // so this reads the view directly on metrics changes; nothing above
   // ChatBody has to rebuild per keyboard tick.
-  late FlutterView _view;
+  late ui.FlutterView _view;
   double _rawH = 0;
 
   // Keyboard height the decisions read: the learned open height from the
@@ -175,9 +174,11 @@ class _ChatBodyState extends State<ChatBody> with WidgetsBindingObserver {
     if (v <= 50 || v >= 1500) return;
     if ((v - _persistedH).abs() < 10) return;
     _persistedH = v;
-    try {
-      Prefs.load().then((prefs) => prefs.setKeyboardSettledHeight(v));
-    } catch (_) {}
+    unawaited(
+      Prefs.load()
+          .then((prefs) => prefs.setKeyboardSettledHeight(v))
+          .catchError((Object _) {}),
+    );
   }
 
   @override
@@ -272,12 +273,12 @@ class _ChatBodyState extends State<ChatBody> with WidgetsBindingObserver {
     }
   }
 
-  /// Stack box height the keyboard decisions read: the settled open height
-  /// while the keyboard is up, [closed] otherwise.
-  double _decisionHeight(double closed) {
-    final full = _fullBoxHeight;
+  /// Room above the composer the keyboard decisions read: the settled open
+  /// room while the keyboard is up, [closed] otherwise.
+  double _decisionHeight(double closed, double composerH) {
+    final full = _closedBodyH;
     if (_liftH <= 0 || full == null) return closed;
-    return full + _closedPad - _liftH;
+    return full - _liftH - composerH;
   }
 
   void _cacheComposerH() {
@@ -311,7 +312,10 @@ class _ChatBodyState extends State<ChatBody> with WidgetsBindingObserver {
     if (widget.replyHeader != null) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _cacheReplyH());
     }
-    final decisionH = _decisionHeight(_fullBoxHeight ?? size.height);
+    final decisionH = _decisionHeight(
+      _fullBoxHeight ?? size.height,
+      composer == null ? 0 : _composerH,
+    );
     final hideChromeForKeyboard = collapseChromeForKeyboard(
       keyboardH: keyboardH,
       maxHeight: decisionH,
@@ -323,7 +327,6 @@ class _ChatBodyState extends State<ChatBody> with WidgetsBindingObserver {
         !widget.isInPip &&
         !MediaQuery.highContrastOf(context) &&
         !hideChromeForKeyboard;
-    if (_rawH <= 0.5) _closedPad = pill ? 0.0 : bottomPad;
     // Composer footprint: content plus the live safe area, and the pill
     // margin only while floating. Composed at build so the clearance tracks
     // the keyboard inset on the same frame instead of lagging one frame.
@@ -418,7 +421,7 @@ class _ChatBodyState extends State<ChatBody> with WidgetsBindingObserver {
             right: 0,
             child: widget.notice!,
           );
-    // Glass spike: floating composer pill. The list pads by pillH upstream
+    // Floating composer pill. The list pads by pillH upstream
     // so the newest rows clear it and slide underneath while scrolling. The
     // size notifier keeps the measurement fresh when inner listenables
     // resize the pill without a ChatBody rebuild (status text, reply banner,
@@ -475,7 +478,7 @@ class _ChatBodyState extends State<ChatBody> with WidgetsBindingObserver {
     // No manual lift: the Scaffold shrank the body, so the composer sits
     // above the keyboard at settled constraints with no second animator
     // to cross the system motion. The key stays for post-layout measuring.
-    return Column(
+    final column = Column(
       children: [
         Expanded(
           child: widget.isInPip
@@ -560,6 +563,13 @@ class _ChatBodyState extends State<ChatBody> with WidgetsBindingObserver {
             ),
           ),
       ],
+    );
+    // Per keyboard tick this reruns and returns the same prebuilt column.
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        if (_rawH <= 0.5) _closedBodyH = constraints.maxHeight;
+        return column;
+      },
     );
   }
 }
