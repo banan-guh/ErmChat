@@ -146,16 +146,37 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
     }
   }
 
+  /// The sender's paint notifier while paints are on. The tile rebuilds when
+  /// a paint lands late, so unpainted names stay plain TextSpans.
+  ValueNotifier<SevenTvPaint?>? _paintNotifier;
+
   @override
   void initState() {
     super.initState();
     _updateRecognizer();
+    _updatePaintNotifier();
   }
 
   @override
   void didUpdateWidget(ChatMessageTile oldWidget) {
     super.didUpdateWidget(oldWidget);
     _updateRecognizer();
+    _updatePaintNotifier();
+  }
+
+  void _updatePaintNotifier() {
+    final service = widget.paintService;
+    final userId = widget.message.userId;
+    final next = service == null || userId == null || widget.message.isSystem
+        ? null
+        : service.lookupNotifier(userId);
+    if (identical(next, _paintNotifier)) return;
+    _paintNotifier?.removeListener(_onPaintChanged);
+    _paintNotifier = next?..addListener(_onPaintChanged);
+  }
+
+  void _onPaintChanged() {
+    if (mounted) setState(() {});
   }
 
   void _updateRecognizer() {
@@ -169,6 +190,17 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
       _usernameRecognizer?.dispose();
       _usernameRecognizer = null;
     }
+  }
+
+  /// The sender's resolved paint, or null when paints are off or it has no
+  /// layers. The lookup also queues a batched fetch for unknown users.
+  SevenTvPaint? _currentPaint() {
+    final notifier = _paintNotifier;
+    if (notifier == null) return null;
+    final paint =
+        notifier.value ?? widget.paintService!.lookup(widget.message.userId);
+    if (paint == null || paint.layers.isEmpty) return null;
+    return paint;
   }
 
   void _toggleEmbed(String url) {
@@ -210,6 +242,8 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
 
   @override
   void dispose() {
+    _paintNotifier?.removeListener(_onPaintChanged);
+    _paintNotifier = null;
     _disposeSpans(_ownedBodySpans);
     _ownedBodySpans = null;
     _usernameRecognizer?.dispose();
@@ -292,32 +326,50 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
       final usernameText = msg.isAction
           ? '${msg.formattedUsername} '
           : '${msg.formattedUsername}: ';
-      final usernameStyle = TextStyle(
+      final nameStyle = TextStyle(
         fontSize: 14 * s,
         fontWeight: FontWeight.w500,
-        color: parseColor(msg.color, background: widget.surface),
         decoration: TextDecoration.none,
       );
+      final usernameColor = parseColor(msg.color, background: widget.surface);
+      final recognizer = widget.onTapUser != null ? _usernameRecognizer : null;
+      final paint = _currentPaint();
+      final solid = paint?.solidColor;
+      final shadows = paint == null
+          ? null
+          : [
+              for (final shadow in paint.shadows)
+                Shadow(
+                  color: shadow.color,
+                  offset: Offset(shadow.offsetX, shadow.offsetY),
+                  blurRadius: shadow.blur * 3,
+                ),
+            ];
       final InlineSpan usernameSpan;
-      if (widget.paintService != null && msg.userId != null) {
+      if (paint == null || solid != null) {
+        // Unpainted and solid names stay in the row's own paragraph.
+        usernameSpan = TextSpan(
+          text: usernameText,
+          style: nameStyle.copyWith(
+            color: solid ?? usernameColor,
+            shadows: shadows == null || shadows.isEmpty ? null : shadows,
+          ),
+          recognizer: recognizer,
+        );
+      } else {
         usernameSpan = WidgetSpan(
           alignment: PlaceholderAlignment.middle,
           child: PaintedUsernameText(
             service: widget.paintService!,
-            userId: msg.userId,
+            paint: paint,
             text: usernameText,
-            baseStyle: usernameStyle,
-            recognizer: _usernameRecognizer,
+            baseStyle: nameStyle,
+            fallbackColor:
+                paint.fallbackColor ?? usernameColor ?? const Color(0xFF808080),
+            shadows: shadows!.isEmpty ? null : shadows,
+            recognizer: recognizer,
           ),
         );
-      } else if (widget.onTapUser != null) {
-        usernameSpan = TextSpan(
-          text: usernameText,
-          style: usernameStyle,
-          recognizer: _usernameRecognizer,
-        );
-      } else {
-        usernameSpan = TextSpan(text: usernameText, style: usernameStyle);
       }
 
       final bodySpans = msg.isAction
