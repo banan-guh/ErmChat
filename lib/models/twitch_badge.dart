@@ -1,7 +1,10 @@
 class BadgeVersion {
   final String imageUrl;
 
-  const BadgeVersion({required this.imageUrl});
+  /// Display name from Helix, like "6-Month Subscriber".
+  final String? title;
+
+  const BadgeVersion({required this.imageUrl, this.title});
 }
 
 class BadgeSet {

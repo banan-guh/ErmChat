@@ -77,7 +77,7 @@
 - [ ] **Configurable user-card history limit** - setting for how many recent messages the user card shows (currently fixed at 50).
 - [ ] **Stream player battery saver** - currently streams drink battery like no other
 - [ ] **Extra search feats** - words to filter search
-- [ ] **Badge info**
+- [x] **Badge info**
 - [x] **Gboard autocorrect overridden** - single-backspace undo is now a TextInputFormatter port of Android's mark-as-replaced DEL undo (safe mode), so it no longer clobbers Gboard's composing region.
 - [x] **Keyboard should lose focus on dismiss**
 

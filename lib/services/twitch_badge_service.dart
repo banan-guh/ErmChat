@@ -85,24 +85,13 @@ class TwitchBadgeService {
     }
   }
 
-  String? resolveBadgeUrl(String channel, String setId, String versionId) {
-    // Check channel badges first (override global for same setId)
-    final channelSets = _channelBadges[channel];
-    if (channelSets != null) {
-      final set = channelSets[setId];
-      if (set != null) {
-        final version = set.versions[versionId];
-        if (version != null) return version.imageUrl;
-      }
-    }
-    // Fall back to global
-    final globalSet = _globalBadges[setId];
-    if (globalSet != null) {
-      final version = globalSet.versions[versionId];
-      if (version != null) return version.imageUrl;
-    }
-    return null;
-  }
+  /// Channel badges override global ones with the same set id.
+  BadgeVersion? resolveBadge(String channel, String setId, String versionId) =>
+      _channelBadges[channel]?[setId]?.versions[versionId] ??
+      _globalBadges[setId]?.versions[versionId];
+
+  String? resolveBadgeUrl(String channel, String setId, String versionId) =>
+      resolveBadge(channel, setId, versionId)?.imageUrl;
 
   void clearChannel(String channel) {
     _channelBadges.remove(channel);
@@ -211,7 +200,10 @@ class TwitchBadgeService {
                       vMap['image_url_1x'])
                   as String?;
           if (id == null || imageUrl == null) continue;
-          versions[id] = BadgeVersion(imageUrl: imageUrl);
+          versions[id] = BadgeVersion(
+            imageUrl: imageUrl,
+            title: vMap['title'] as String?,
+          );
         }
         if (versions.isNotEmpty) {
           sets[setId] = BadgeSet(versions: versions);

@@ -366,22 +366,29 @@ class MessageBuilder {
     final badges = msg.badges;
     if (badges != null) {
       for (final badge in badges) {
-        final url = badgeService.resolveBadgeUrl(
+        final version = badgeService.resolveBadge(
           channel,
           badge.setId,
           badge.versionId,
         );
-        if (url == null) continue;
-        out.add(CardBadge(url: url, label: badge.setId));
+        if (version == null) continue;
+        out.add(
+          CardBadge(
+            url: version.imageUrl,
+            label: version.title ?? _humanizeSetId(badge.setId),
+          ),
+        );
       }
     }
     if (msg.userId != null) {
-      final tpBadgeUrl =
-          thirdPartyBadgeService.resolveFfzBadgeUrl(msg.userId!) ??
-          thirdPartyBadgeService.resolveBttvBadgeUrl(msg.userId!) ??
-          thirdPartyBadgeService.resolveSevenTvBadgeUrl(msg.userId!);
-      if (tpBadgeUrl != null) {
-        out.add(CardBadge(url: tpBadgeUrl, label: 'third-party badge'));
+      final tp = thirdPartyBadgeService.resolveBadge(msg.userId!);
+      if (tp != null) {
+        out.add(
+          CardBadge(
+            url: tp.url,
+            label: tp.name.isEmpty ? 'Third-party badge' : tp.name,
+          ),
+        );
       }
     }
     return out;
@@ -423,6 +430,13 @@ class MessageBuilder {
 
     return spans;
   }
+}
+
+/// "sub-gifter" -> "Sub gifter", for badges Helix sent without a title.
+String _humanizeSetId(String setId) {
+  final words = setId.replaceAll(RegExp(r'[-_]'), ' ').trim();
+  if (words.isEmpty) return setId;
+  return '${words[0].toUpperCase()}${words.substring(1)}';
 }
 
 class _BodySpans {

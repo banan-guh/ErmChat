@@ -647,8 +647,38 @@ void main() {
     final resolved = builder.resolveCardBadges('test', msg);
     expect(resolved, hasLength(1));
     expect(resolved.single.url, 'https://example.com/mod.png');
-    expect(resolved.single.label, 'moderator');
+    expect(resolved.single.label, 'Moderator');
     expect(resolved.single.circular, isFalse);
+  });
+
+  test('card badges prefer the Helix title for the label', () async {
+    final badgeService = TwitchBadgeService(
+      client: MockClient(
+        (_) async => http.Response(
+          '{"data": [{"set_id": "subscriber", "versions": [{"id": "6", "title": "6-Month Subscriber", "image_url_4x": "https://example.com/sub.png"}]}, {"set_id": "sub-gifter", "versions": [{"id": "1", "image_url_4x": "https://example.com/gift.png"}]}]}',
+          200,
+        ),
+      ),
+    );
+    await badgeService.fetchGlobalBadges(TwitchAuth()..accessToken = 't');
+    final builder = MessageBuilder(
+      emoteSource: EmoteManager(),
+      badgeService: badgeService,
+      thirdPartyBadgeService: ThirdPartyBadgeService(),
+      onShowEmoteSheet: (_) {},
+    );
+    final msg = TwitchMessage(
+      login: 'user',
+      text: 'hi',
+      badges: const [
+        MessageBadge(setId: 'subscriber', versionId: '6'),
+        MessageBadge(setId: 'sub-gifter', versionId: '1'),
+      ],
+    );
+    expect(builder.resolveCardBadges('test', msg).map((b) => b.label), [
+      '6-Month Subscriber',
+      'Sub gifter',
+    ]);
   });
 
   test('giphy toggle off falls back to plain text', () {

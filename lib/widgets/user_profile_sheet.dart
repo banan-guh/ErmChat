@@ -16,6 +16,7 @@ import '../util/haptics.dart';
 import '../util/log.dart';
 import '../util/prefs.dart';
 import 'app_snack.dart';
+import 'badge_chip.dart';
 import 'mod_view.dart';
 
 class UserProfileSheet extends StatefulWidget {
@@ -622,7 +623,7 @@ class UserProfileSheetState extends State<UserProfileSheet> {
                       runSpacing: 4,
                       children: [
                         for (final badge in widget.cardBadges)
-                          Semantics(
+                          BadgeChip(
                             label: badge.label,
                             child: _cardBadgeImage(badge),
                           ),

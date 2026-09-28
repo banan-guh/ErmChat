@@ -10,10 +10,10 @@ class ThirdPartyBadgeService {
   final _ffzBadges = <String, _FfzBadge>{};
   // FFZ: twitchUserId -> badgeId
   final _ffzUsers = <String, String>{};
-  // BTTV: twitchUserId -> badgeSvgUrl
-  final _bttvUsers = <String, String>{};
-  // 7TV: cosmeticId -> imageUrl
-  final _sevenTvBadges = <String, String>{};
+  // BTTV: twitchUserId -> badge
+  final _bttvUsers = <String, ThirdPartyBadge>{};
+  // 7TV: cosmeticId -> badge
+  final _sevenTvBadges = <String, ThirdPartyBadge>{};
   // 7TV: twitchUserId -> cosmeticId
   final _sevenTvUsers = <String, String>{};
 
@@ -33,7 +33,10 @@ class ThirdPartyBadgeService {
     _cosmeticSub?.cancel();
     _entitlementSub?.cancel();
     _cosmeticSub = client.onCosmeticCreate.listen((event) {
-      _sevenTvBadges[event.cosmeticId] = event.imageUrl;
+      _sevenTvBadges[event.cosmeticId] = (
+        url: event.imageUrl,
+        name: event.tooltip ?? event.name,
+      );
       _version++;
     });
     _entitlementSub = client.onEntitlement.listen((event) {
@@ -105,7 +108,10 @@ class ThirdPartyBadgeService {
         final badge = item['badge'] as Map<String, dynamic>?;
         final svg = badge?['svg'] as String? ?? '';
         if (providerId.isNotEmpty && svg.isNotEmpty) {
-          _bttvUsers[providerId] = svg;
+          _bttvUsers[providerId] = (
+            url: svg,
+            name: badge?['description'] as String? ?? '',
+          );
         }
       }
       _bttvFetched = true;
@@ -117,18 +123,11 @@ class ThirdPartyBadgeService {
     }
   }
 
-  String? resolveFfzBadgeUrl(String userId) {
-    final badgeId = _ffzUsers[userId];
-    if (badgeId == null) return null;
-    return _ffzBadges[badgeId]?.imageUrl;
-  }
-
-  String? resolveBttvBadgeUrl(String userId) => _bttvUsers[userId];
-
-  String? resolveSevenTvBadgeUrl(String userId) {
-    final cosmeticId = _sevenTvUsers[userId];
-    if (cosmeticId == null) return null;
-    return _sevenTvBadges[cosmeticId];
+  /// The user's one third-party badge: FFZ, then BTTV, then 7TV.
+  ThirdPartyBadge? resolveBadge(String userId) {
+    final ffz = _ffzBadges[_ffzUsers[userId]];
+    if (ffz != null) return (url: ffz.imageUrl, name: ffz.name);
+    return _bttvUsers[userId] ?? _sevenTvBadges[_sevenTvUsers[userId]];
   }
 
   void dispose() {
@@ -141,6 +140,9 @@ class ThirdPartyBadgeService {
     _sevenTvUsers.clear();
   }
 }
+
+/// A third-party badge image and its display name (may be empty).
+typedef ThirdPartyBadge = ({String url, String name});
 
 class _FfzBadge {
   final String id;
