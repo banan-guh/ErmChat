@@ -396,31 +396,7 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
       );
     }
 
-    if (deleted) {
-      if (widget.fadeDeleted) {
-        child = Opacity(opacity: 0.35, child: child);
-      }
-    } else if (msg.isBackfill) {
-      // Backfill: less faded than deletion so catch-up messages stay distinct.
-      child = Opacity(opacity: 0.5, child: child);
-    }
-
-    // Shared-chat fade mode: dim foreign messages.
-    if (widget.sharedChatMode == 'fade' &&
-        msg.sourceBroadcasterId != null &&
-        !msg.isSystem) {
-      child = Opacity(opacity: 0.55, child: child);
-    }
-
-    if (widget.replyIndicator != null) {
-      child = Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [widget.replyIndicator!, child],
-      );
-    }
-
-    // Compose all tints into one color on Material (keeps InkWell ripples above).
+    // Compose all tints into one opaque row color (ripples draw above it).
     var rowColor = widget.surface;
     final tintAnchor = highlightAnchor(widget.surface);
     if (msg.systemAccent != null) {
@@ -464,6 +440,29 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
       );
     }
 
+    var fade = 1.0;
+    if (deleted) {
+      if (widget.fadeDeleted) fade = 0.35;
+    } else if (msg.isBackfill) {
+      // Backfill: less faded than deletion so catch-up messages stay distinct.
+      fade = 0.5;
+    }
+    // Shared-chat fade mode: dim foreign messages.
+    if (widget.sharedChatMode == 'fade' &&
+        msg.sourceBroadcasterId != null &&
+        !msg.isSystem) {
+      fade *= 0.55;
+    }
+    if (fade < 1) child = fadeOver(child, rowColor, fade);
+
+    if (widget.replyIndicator != null) {
+      child = Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [widget.replyIndicator!, child],
+      );
+    }
+
     if (widget.lineSeparator) {
       child = Container(
         decoration: BoxDecoration(
@@ -486,7 +485,12 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
       );
     }
 
-    child = Material(color: rowColor, child: child);
+    // Transparency skips the canvas Material's implicit animations; the
+    // ColoredBox paints the row and ripples still draw above it.
+    child = ColoredBox(
+      color: rowColor,
+      child: Material(type: MaterialType.transparency, child: child),
+    );
 
     // Semantics are only built when a screen reader is active: the per-row
     // node is pure cost otherwise, and the label is still there when needed.
@@ -500,4 +504,16 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
 
     return child;
   }
+}
+
+/// Fades [child] toward the opaque [background] beneath it. Over an opaque
+/// backdrop this matches `Opacity(opacity: opacity)` pixel for pixel, but
+/// draws one rect instead of an offscreen layer per frame (text blocks the
+/// engine's opacity peephole).
+Widget fadeOver(Widget child, Color background, double opacity) {
+  return DecoratedBox(
+    position: DecorationPosition.foreground,
+    decoration: BoxDecoration(color: background.withValues(alpha: 1 - opacity)),
+    child: child,
+  );
 }

@@ -680,7 +680,7 @@ class _ChatViewState extends State<ChatView>
         cache.remove(id);
         cache[id] = cached;
       }
-      return _maybeDim(cached, msg);
+      return _maybeDim(cached, msg, surface);
     }
     final parity = doCheckered ? (++ChatView._checkerSeq).isEven : i.isEven;
 
@@ -775,13 +775,13 @@ class _ChatViewState extends State<ChatView>
         cache.remove(stale ?? cache.keys.first);
       }
     }
-    return _maybeDim(tile, msg);
+    return _maybeDim(tile, msg, surface);
   }
 
   // Search dim mode only; same alpha as the shared-chat fade.
-  Widget _maybeDim(Widget tile, TwitchMessage msg) {
+  Widget _maybeDim(Widget tile, TwitchMessage msg, Color surface) {
     if (widget.isDimmed?.call(msg) ?? false) {
-      return Opacity(opacity: 0.55, child: tile);
+      return fadeOver(tile, surface, 0.55);
     }
     return tile;
   }
