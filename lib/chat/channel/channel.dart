@@ -18,6 +18,7 @@ class ReceiveResult {
     required this.mentioned,
     required this.countMention,
     required this.countUnread,
+    this.unreadFlipped = false,
   });
 
   final bool inserted;
@@ -30,6 +31,9 @@ class ReceiveResult {
 
   /// Bulk unread rule: not selected, not history, not system.
   final bool countUnread;
+
+  /// Whether this row turned the channel's unread dot on.
+  final bool unreadFlipped;
 }
 
 /// One joined channel: composition root for its single-concern owners.
@@ -89,7 +93,7 @@ class Channel {
         countUnread: false,
       );
     }
-    unread.note(
+    final flipped = unread.note(
       isMention: mention,
       isHistory: msg.isHistory,
       isSystem: msg.isSystem,
@@ -101,6 +105,7 @@ class Channel {
       mentioned: mention,
       countMention: mention && !msg.isHistory && !isSelected,
       countUnread: !isSelected && !msg.isHistory && !msg.isSystem,
+      unreadFlipped: flipped,
     );
   }
 

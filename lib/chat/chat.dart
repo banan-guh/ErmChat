@@ -83,7 +83,8 @@ class Chat {
     }
     if (result.countMention) {
       noteMention();
-    } else if (result.countUnread) {
+    } else if (result.unreadFlipped) {
+      // A dot already on renders the same, so repeat rows skip the tab rebuild.
       noteUnread();
     }
     return result;

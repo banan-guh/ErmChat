@@ -9,8 +9,9 @@ class Unread {
   bool get hasMention => _hasMention;
   int get mentionCount => _mentionCount;
 
-  /// Live ingest bookkeeping.
-  void note({
+  /// Live ingest bookkeeping. Returns whether the unread dot turned on, so
+  /// the root only notifies tab labels when one actually changes.
+  bool note({
     required bool isMention,
     required bool isHistory,
     required bool isSystem,
@@ -21,9 +22,11 @@ class Unread {
       _hasMention = true;
       _mentionCount++;
     }
-    if (!isSelected && !isHistory && !isSystem) {
+    if (!isSelected && !isHistory && !isSystem && !_hasUnread) {
       _hasUnread = true;
+      return true;
     }
+    return false;
   }
 
   /// Selecting the channel clears dots and mention counts.
