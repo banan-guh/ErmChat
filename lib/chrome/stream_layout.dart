@@ -348,7 +348,8 @@ class StreamPanels {
       final headerH = chat.names.isNotEmpty
           ? glassHeaderHeight(context)
           : glassWelcomeHeaderHeight(context);
-      final bottomOverlayH = glassComposerOverlayHeight(composerH);
+      // The pill clearance reaches the lists through GlassChromeScope, not
+      // this call, so pages stay cached while the safe area animates.
       return Column(
         children: [
           channels.channelTabs(
@@ -360,7 +361,6 @@ class StreamPanels {
             glassHeader: homeAppBar.appBar(context, transparent: true),
             glassHeaderHeight: headerH,
             glassTopPadding: headerH,
-            glassBottomPadding: bottomOverlayH,
           ),
         ],
       );

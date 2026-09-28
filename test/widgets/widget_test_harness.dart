@@ -480,7 +480,6 @@ Widget noticeHarness(ChatNoticeController controller) {
             const SizedBox.shrink(),
         autocomplete: const SizedBox.shrink(),
         emoteMaxFraction: 0.5,
-        keyboardH: 0,
         composer: const SizedBox(key: Key('notice-composer'), height: 56),
         notice: ChatNoticeBar(controller: controller),
       ),
@@ -516,10 +515,7 @@ Widget stackedStubVideo() => const SizedBox(
 Widget stackedStubAudio() => const SizedBox(key: stackedAudioKey, height: 56);
 
 // Mimics the stacked portrait slot: tab strip, player dock, chat page.
-Widget stackedPlayerHarness({
-  required bool showVideo,
-  required double keyboardH,
-}) {
+Widget stackedPlayerHarness({required bool showVideo}) {
   return MaterialApp(
     home: Scaffold(
       resizeToAvoidBottomInset: true,
@@ -563,7 +559,6 @@ Widget stackedPlayerHarness({
             const SizedBox.shrink(),
         autocomplete: const SizedBox.shrink(),
         emoteMaxFraction: 0.6,
-        keyboardH: keyboardH,
         composer: const SizedBox(height: 56),
       ),
     ),
@@ -590,7 +585,6 @@ Widget pipCollapseHarness({required bool isInPip}) {
             const SizedBox.shrink(),
         autocomplete: const SizedBox.shrink(),
         emoteMaxFraction: 0.5,
-        keyboardH: 0,
         isInPip: isInPip,
         composer: const SizedBox(key: Key('pip-composer'), height: 56),
       ),

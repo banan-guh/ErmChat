@@ -150,19 +150,14 @@ class ChannelPanels {
     _cachedChannels = List.of(chat.names);
   }
 
-  Widget _cachedPage(
-    BuildContext context,
-    String channel,
-    double topPadding,
-    double bottomPadding,
-  ) {
-    // Glass overlay clearance joins the token so toggling glass or
-    // resizing the composer evicts stale pages with stale spacers.
-    final token =
-        '${_pageToken()}|${topPadding.round()}|${bottomPadding.round()}';
+  Widget _cachedPage(BuildContext context, String channel, double topPadding) {
+    // Glass header clearance joins the token so toggling glass evicts stale
+    // pages with stale spacers. The pill clearance arrives through
+    // GlassChromeScope instead, so it never evicts a page.
+    final token = '${_pageToken()}|${topPadding.round()}';
     final cached = _pageCache[channel];
     if (cached != null && cached.token == token) return cached.widget;
-    final page = _buildPage(context, channel, topPadding, bottomPadding);
+    final page = _buildPage(context, channel, topPadding);
     _pageCache[channel] = _CachedPage(page, token);
     return page;
   }
@@ -183,7 +178,6 @@ class ChannelPanels {
     BuildContext context,
     String channel, [
     double topPadding = 0,
-    double bottomPadding = 0,
   ]) {
     final infoVersion =
         chat.channelFor(channel)?.info.version ?? _emptyNotifier;
@@ -217,7 +211,6 @@ class ChannelPanels {
         sharedChatMode: sharedChatMode(),
         paintService: showNamePaints() ? paintService : null,
         topOverlayPadding: topPadding,
-        bottomOverlayPadding: bottomPadding,
         onShowUserProfile: (login, userId, {displayName}) => userSheets
             .showUserProfile(context, login, userId, displayName: displayName),
         onShowMessageMenu: (msg) => menus.showMessageMenu(context, msg),
@@ -297,7 +290,6 @@ class ChannelPanels {
     Widget? glassHeader,
     double glassHeaderHeight = 0,
     double glassTopPadding = 0,
-    double glassBottomPadding = 0,
   }) {
     return Expanded(
       child: channelStack(
@@ -309,7 +301,6 @@ class ChannelPanels {
         glassHeader: glassHeader,
         glassHeaderHeight: glassHeaderHeight,
         glassTopPadding: glassTopPadding,
-        glassBottomPadding: glassBottomPadding,
       ),
     );
   }
@@ -323,7 +314,6 @@ class ChannelPanels {
     Widget? glassHeader,
     double glassHeaderHeight = 0,
     double glassTopPadding = 0,
-    double glassBottomPadding = 0,
   }) {
     _dropStaleCaches();
     return Stack(
@@ -356,12 +346,7 @@ class ChannelPanels {
                   overlayHeaderHeight: glassHeaderHeight,
                   pageBuilder: (_, i) {
                     final channel = chat.names[i];
-                    return _cachedPage(
-                      context,
-                      channel,
-                      glassTopPadding,
-                      glassBottomPadding,
-                    );
+                    return _cachedPage(context, channel, glassTopPadding);
                   },
                   focusOnHalfDrag: true,
                   fastSnap: fastSnap(),
@@ -382,7 +367,6 @@ class ChannelPanels {
                       child: welcomeChatView(
                         context,
                         topPadding: glassTopPadding,
-                        bottomPadding: glassBottomPadding,
                       ),
                     ),
                     Positioned(
@@ -419,11 +403,7 @@ class ChannelPanels {
     );
   }
 
-  Widget welcomeChatView(
-    BuildContext context, {
-    double topPadding = 0,
-    double bottomPadding = 0,
-  }) {
+  Widget welcomeChatView(BuildContext context, {double topPadding = 0}) {
     final configured = twitchAuth.isConfigured;
     final login = twitchAuth.login;
     final key = '$configured:$login';
@@ -475,7 +455,6 @@ class ChannelPanels {
       sharedChatMode: sharedChatMode(),
       paintService: showNamePaints() ? paintService : null,
       topOverlayPadding: topPadding,
-      bottomOverlayPadding: bottomPadding,
       onShowUserProfile: (login, userId, {displayName}) => userSheets
           .showUserProfile(context, login, userId, displayName: displayName),
       keyboardDismissBehavior: (!kIsWeb && Platform.isIOS)

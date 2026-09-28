@@ -87,11 +87,6 @@ class ChatView extends StatefulWidget {
   /// Glass overlay clearance above the oldest row, below the floating header.
   final double topOverlayPadding;
 
-  /// Glass overlay clearance below the newest row, above the composer pill.
-  /// Zero falls back to the GlassChromeScope clearance, so panel and welcome
-  /// lists clear the floating pill without threaded params.
-  final double bottomOverlayPadding;
-
   const ChatView({
     super.key,
     required this.channel,
@@ -127,7 +122,6 @@ class ChatView extends StatefulWidget {
     this.linkWhitelist,
     this.isDimmed,
     this.topOverlayPadding = 0,
-    this.bottomOverlayPadding = 0,
   });
 
   @override
@@ -267,9 +261,9 @@ class _ChatViewState extends State<ChatView>
     final surface = Theme.of(context).scaffoldBackgroundColor;
     final s = widget.chatFontScale * _cachedSystemScale;
     final glassScope = GlassChromeScope.maybeOf(context);
-    _effBottom = widget.bottomOverlayPadding > 0.5
-        ? widget.bottomOverlayPadding
-        : (glassScope?.bottomClearance ?? 0);
+    // The pill clearance arrives through the scope, so every list (pages,
+    // panels, welcome) clears the floating pill without threaded params.
+    _effBottom = glassScope?.bottomClearance ?? 0;
     _listExtra = glassScope?.listExtra ?? 0;
     return Stack(
       clipBehavior: Clip.hardEdge,

@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import '../models/twitch_message.dart';
 import '../services/emote_manager.dart';
 import '../util/haptics.dart';
+import '../util/insets.dart';
 import '../util/log.dart';
 import '../util/sheet_drag.dart';
 import '../util/thread_utils.dart';
@@ -215,16 +216,24 @@ class PanelManager {
     required Widget body,
     required BuildContext context,
   }) {
+    final screen = MediaQuery.sizeOf(context);
     return Positioned(
-      top: MediaQuery.paddingOf(context).top,
+      top: statusBarHeight(context),
       bottom: 0,
       left: 0,
       right: 0,
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          return Offstage(
-            offstage: offstage,
-            child: ScaleTransition(
+      // Offstage still lays out its child. A hidden panel gets a fixed size
+      // instead, so keyboard ticks that shrink the stack skip its layout
+      // rather than rebuilding it every frame.
+      child: Offstage(
+        offstage: offstage,
+        child: OverflowBox(
+          minWidth: offstage ? screen.width : null,
+          maxWidth: offstage ? screen.width : null,
+          minHeight: offstage ? screen.height : null,
+          maxHeight: offstage ? screen.height : null,
+          child: LayoutBuilder(
+            builder: (context, constraints) => ScaleTransition(
               scale: panelScaleCtrl,
               alignment: Alignment.bottomCenter,
               child: buildSheetPanel(
@@ -258,8 +267,8 @@ class PanelManager {
                 ),
               ),
             ),
-          );
-        },
+          ),
+        ),
       ),
     );
   }

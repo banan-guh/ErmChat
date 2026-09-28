@@ -152,8 +152,8 @@ void main() {
     testWidgets('emote sheet keeps full-box canvas with keyboard open', (
       WidgetTester tester,
     ) async {
-      // The Scaffold strips viewInsets from its body subtree, so the true
-      // keyboard height arrives as a param (like HomeScreen passes it).
+      // The Scaffold strips viewInsets from its body subtree, so ChatBody
+      // reads the true keyboard height from the view.
       tester.view.physicalSize = const Size(1080, 2340);
       tester.view.devicePixelRatio = 2.8125;
       tester.view.viewInsets = FakeViewPadding(bottom: 0);
@@ -163,8 +163,6 @@ void main() {
       double? seenKbH;
       final ctrl = DraggableScrollableController();
       Widget body() {
-        final keyboardH =
-            tester.view.viewInsets.bottom / tester.view.devicePixelRatio;
         return MaterialApp(
           home: Scaffold(
             resizeToAvoidBottomInset: true,
@@ -207,7 +205,6 @@ void main() {
               },
               autocomplete: const SizedBox.shrink(),
               emoteMaxFraction: 0.6,
-              keyboardH: keyboardH,
               composer: const SizedBox(height: 56),
             ),
           ),

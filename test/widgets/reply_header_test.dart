@@ -74,7 +74,6 @@ void main() {
                     const SizedBox.shrink(),
                 autocomplete: const SizedBox.shrink(),
                 emoteMaxFraction: 0.5,
-                keyboardH: 0,
                 replyHeader: replyActive
                     ? ReplyHeader(
                         message: TwitchMessage(
@@ -163,7 +162,6 @@ void main() {
                     ),
                 autocomplete: const SizedBox.shrink(),
                 emoteMaxFraction: 0.5,
-                keyboardH: 0,
                 replyHeader: replyActive
                     ? ReplyHeader(
                         message: TwitchMessage(

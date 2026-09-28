@@ -1447,8 +1447,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       reconnectedTickProvider,
       (_, _) => unawaited(_emotes.refreshSubEmoteOwners()),
     );
-    // Plain system insets drive the Scaffold resize directly.
-    final keyboardH = MediaQuery.viewInsetsOf(context).bottom;
     // Reply card floats above the composer. Hidden while search or the terms
     // box borrows the input, and while the composer is disabled.
     final replyMsg = _composer.replyToMsg;
@@ -1489,16 +1487,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
         // Stock resize path: the Scaffold shrinks the body with the
         // keyboard, replaying the system ticks directly. No manual lift and
         // no second animator: Dart curves of a different duration only cross
-        // the system motion (behind-ahead-behind). Discrete rules read the
-        // debounced lift in ChatBody so they flip once per gesture.
+        // the system motion (behind-ahead-behind). ChatBody reads the
+        // keyboard itself, so this screen never rebuilds per keyboard tick.
         resizeToAvoidBottomInset: true,
         body: ListenableBuilder(
           listenable: _streamPlayer,
           builder: (_, _) => ChatBody(
             emoteMaxFraction: _emoteMaxFraction,
-            // Read above the Scaffold: the body subtree sees viewInsets
-            // stripped to zero once the Scaffold consumes them resizing.
-            keyboardH: keyboardH,
             // A dismissed keyboard leaves the field focused, which keeps
             // the back guard and focus styling stuck; drop it once the
             // close settles (ChatBody delays the call past the animation).

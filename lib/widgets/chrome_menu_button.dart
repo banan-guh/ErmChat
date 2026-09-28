@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 
+import 'glass_chrome.dart';
+
 // Dropdown for search, mod view, and fullscreen, input, stream toggles.
 class ChromeMenuButton extends StatefulWidget {
   final VoidCallback onToggleFullscreen;
@@ -95,9 +97,7 @@ class ChromeMenuButtonState extends State<ChromeMenuButton> {
         ];
       },
       child: widget.glass
-          ? GlassContainer(
-              quality: GlassQuality.premium,
-              useOwnLayer: true,
+          ? GlassSurface(
               shape: const LiquidRoundedSuperellipse(borderRadius: 8),
               child: Padding(padding: const EdgeInsets.all(4), child: arrow),
             )

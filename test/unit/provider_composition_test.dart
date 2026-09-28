@@ -236,4 +236,28 @@ void main() {
     await const ProxyConfig(enabled: true).toPrefs(prefs);
     expect(ProxyConfig.fromPrefs(await Prefs.load()).readWsUrl, isNull);
   });
+
+  // The app root rebuilds on every settings write with a fresh config. The
+  // read socket must survive it: the pipeline holds this exact instance.
+  test('settings writes never replace the live read socket', () {
+    final container = ProviderContainer(
+      overrides: [proxyConfigProvider.overrideWithValue(const ProxyConfig())],
+    );
+    addTearDown(container.dispose);
+    final read = container.read(ircReadServiceProvider);
+
+    container.updateOverrides([
+      // A new but equal instance, as ProxyConfig.fromPrefs builds.
+      // ignore: prefer_const_constructors
+      proxyConfigProvider.overrideWithValue(ProxyConfig()),
+    ]);
+    expect(container.read(ircReadServiceProvider), same(read));
+
+    container.updateOverrides([
+      proxyConfigProvider.overrideWithValue(
+        const ProxyConfig(enabled: true, url: 'ws://proxy/ws'),
+      ),
+    ]);
+    expect(container.read(ircReadServiceProvider), same(read));
+  });
 }

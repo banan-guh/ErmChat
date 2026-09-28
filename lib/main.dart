@@ -20,6 +20,7 @@ import 'irc/transport/write.dart';
 import 'services/recent_messages.dart';
 import 'services/twitch_badge_service.dart';
 import 'theme_colors.dart';
+import 'util/insets.dart';
 import 'util/log.dart';
 import 'util/prefs.dart';
 import 'util/prefs_store.dart';
@@ -136,29 +137,32 @@ Widget _edgeExclusionWrapper(BuildContext context, Widget? child) {
         ? Brightness.light
         : Brightness.dark,
   );
-  return AnnotatedRegion<SystemUiOverlayStyle>(
-    value: overlay,
-    child: Stack(
-      children: [
-        // Transparency ancestor so glass widgets render text correctly.
-        Material(type: MaterialType.transparency, child: child!),
-        if (left > 0)
-          Positioned(
-            left: 0,
-            top: 0,
-            bottom: 0,
-            width: left,
-            child: const EdgeExclusionZone(),
-          ),
-        if (right > 0)
-          Positioned(
-            right: 0,
-            top: 0,
-            bottom: 0,
-            width: right,
-            child: const EdgeExclusionZone(),
-          ),
-      ],
+  return StatusBarScope(
+    top: MediaQuery.viewPaddingOf(context).top,
+    child: AnnotatedRegion<SystemUiOverlayStyle>(
+      value: overlay,
+      child: Stack(
+        children: [
+          // Transparency ancestor so glass widgets render text correctly.
+          Material(type: MaterialType.transparency, child: child!),
+          if (left > 0)
+            Positioned(
+              left: 0,
+              top: 0,
+              bottom: 0,
+              width: left,
+              child: const EdgeExclusionZone(),
+            ),
+          if (right > 0)
+            Positioned(
+              right: 0,
+              top: 0,
+              bottom: 0,
+              width: right,
+              child: const EdgeExclusionZone(),
+            ),
+        ],
+      ),
     ),
   );
 }

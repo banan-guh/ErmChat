@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/scheduler.dart';
 
+import '../util/insets.dart';
 import 'glass_chrome.dart';
 
 // TEMP: M3 Expressive fastSpatial stiffness (800), no-bouncy.
@@ -558,7 +559,7 @@ class TabbedLayoutState extends State<TabbedLayout>
                 ? widget.overlayHeaderHeight + 8
                 : widget.showTabBar
                 ? 8.0
-                : MediaQuery.paddingOf(context).top + 8,
+                : statusBarHeight(context) + 8,
             right: 8,
             child: widget.chromeMenu!,
           ),

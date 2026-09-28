@@ -94,7 +94,9 @@ final ircReadServiceProvider = Provider<IrcReadService>((ref) {
   final service = IrcReadService(
     connectivityService: ref.watch(connectivityServiceProvider),
     joinBudget: ref.watch(joinBudgetProvider),
-    wsUrlOverride: ref.watch(proxyConfigProvider).readWsUrl,
+    // Read once: a proxy change applies on restart. Watching would dispose
+    // the live socket under the pipeline, which holds this instance.
+    wsUrlOverride: ref.read(proxyConfigProvider).readWsUrl,
   );
   ref.onDispose(service.dispose);
   return service;

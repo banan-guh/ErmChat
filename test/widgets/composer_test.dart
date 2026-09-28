@@ -25,7 +25,6 @@ void main() {
           body: ChatBody(
             liquidGlass: liquidGlass,
             emoteMaxFraction: 0.5,
-            keyboardH: 0,
             composer: TextField(
               key: const Key('message_input'),
               focusNode: focus,
@@ -79,7 +78,9 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('toggling glass off leaves the composer tappable', (tester) async {
+  testWidgets('toggling glass off leaves the composer tappable', (
+    tester,
+  ) async {
     final focus = FocusNode();
     addTearDown(focus.dispose);
     await pumpBody(tester, liquidGlass: true, focus: focus);

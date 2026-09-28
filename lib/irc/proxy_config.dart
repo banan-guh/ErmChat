@@ -22,4 +22,11 @@ class ProxyConfig {
     await prefs.setProxyEnabled(enabled);
     await prefs.setProxyUrl(url);
   }
+
+  @override
+  bool operator ==(Object other) =>
+      other is ProxyConfig && other.enabled == enabled && other.url == url;
+
+  @override
+  int get hashCode => Object.hash(enabled, url);
 }

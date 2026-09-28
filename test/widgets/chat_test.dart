@@ -271,9 +271,7 @@ void main() {
       tester.view.viewInsets = FakeViewPadding(bottom: 0);
       addTearDown(tester.view.reset);
 
-      await tester.pumpWidget(
-        stackedPlayerHarness(showVideo: true, keyboardH: 0),
-      );
+      await tester.pumpWidget(stackedPlayerHarness(showVideo: true));
       await tester.pumpAndSettle();
 
       expect(tester.takeException(), isNull);
@@ -295,17 +293,13 @@ void main() {
       tester.view.viewInsets = FakeViewPadding(bottom: 0);
       addTearDown(tester.view.reset);
 
-      await tester.pumpWidget(
-        stackedPlayerHarness(showVideo: true, keyboardH: 0),
-      );
+      await tester.pumpWidget(stackedPlayerHarness(showVideo: true));
       await tester.pumpAndSettle();
       final before = tester.element(find.byKey(stackedVideoKey));
 
       // Stream enabled + keyboard opening in the same frame.
       tester.view.viewInsets = FakeViewPadding(bottom: 300 * 3.0);
-      await tester.pumpWidget(
-        stackedPlayerHarness(showVideo: false, keyboardH: 300),
-      );
+      await tester.pumpWidget(stackedPlayerHarness(showVideo: false));
       await tester.pumpAndSettle();
 
       expect(tester.takeException(), isNull);
@@ -331,21 +325,13 @@ void main() {
       tester.view.viewInsets = FakeViewPadding(bottom: 0);
       addTearDown(tester.view.reset);
 
-      await tester.pumpWidget(
-        stackedPlayerHarness(showVideo: true, keyboardH: 0),
-      );
+      await tester.pumpWidget(stackedPlayerHarness(showVideo: true));
       await tester.pump();
-      await tester.pumpWidget(
-        stackedPlayerHarness(showVideo: false, keyboardH: 300),
-      );
+      await tester.pumpWidget(stackedPlayerHarness(showVideo: false));
       await tester.pump();
-      await tester.pumpWidget(
-        stackedPlayerHarness(showVideo: true, keyboardH: 300),
-      );
+      await tester.pumpWidget(stackedPlayerHarness(showVideo: true));
       await tester.pump();
-      await tester.pumpWidget(
-        stackedPlayerHarness(showVideo: false, keyboardH: 300),
-      );
+      await tester.pumpWidget(stackedPlayerHarness(showVideo: false));
       await tester.pumpAndSettle();
 
       expect(tester.takeException(), isNull);
@@ -412,7 +398,6 @@ void main() {
                   const SizedBox.shrink(),
               autocomplete: const SizedBox.shrink(),
               emoteMaxFraction: 0.6,
-              keyboardH: 0,
               composer: const SizedBox(height: 56),
             ),
           ),
@@ -424,6 +409,143 @@ void main() {
       expect(find.byType(ErrorWidget), findsNothing);
       expect(seenComposerH, moreOrLessEquals(56.0, epsilon: 1.0));
       expect(find.byKey(stackedVideoKey), findsOneWidget);
+    });
+
+    // The safe area animates as the keyboard crosses the gesture bar. Those
+    // ticks rebuild ChatBody but must reuse the body, or every one rebuilds
+    // the whole channel view.
+    testWidgets('safe-area ticks reuse the chat body', (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      tester.view.physicalSize = const Size(1080, 2340);
+      tester.view.devicePixelRatio = 3.0;
+      tester.view.viewInsets = FakeViewPadding(bottom: 0);
+      tester.view.padding = FakeViewPadding(bottom: 45 * 3.0);
+      addTearDown(tester.view.reset);
+
+      var builds = 0;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            resizeToAvoidBottomInset: true,
+            body: ChatBody(
+              liquidGlass: true,
+              bodyBuilder:
+                  (
+                    context, {
+                    required hideChromeForKeyboard,
+                    required maxWidth,
+                    required maxHeight,
+                    required keyboardH,
+                    required composerH,
+                  }) {
+                    builds++;
+                    return const SizedBox.expand();
+                  },
+              threadPanel: const SizedBox.shrink(),
+              mentionsPanel: const SizedBox.shrink(),
+              modViewPanel: const SizedBox.shrink(),
+              emotePickerBuilder: (_, {required sheetBoxHeight}) =>
+                  const SizedBox.shrink(),
+              autocomplete: const SizedBox.shrink(),
+              emoteMaxFraction: 0.6,
+              composer: const SizedBox(height: 56),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // Open past the safe area, then close back through it.
+      for (final h in [10.0, 20.0, 30.0, 40.0, 300.0]) {
+        tester.view.viewInsets = FakeViewPadding(bottom: h * 3.0);
+        tester.view.padding = FakeViewPadding(
+          bottom: (45 - h).clamp(0.0, 45.0) * 3.0,
+        );
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+      await tester.pump(const Duration(milliseconds: 300));
+      final opened = builds;
+      for (final h in [200.0, 40.0, 30.0, 20.0, 10.0]) {
+        tester.view.viewInsets = FakeViewPadding(bottom: h * 3.0);
+        tester.view.padding = FakeViewPadding(
+          bottom: (45 - h).clamp(0.0, 45.0) * 3.0,
+        );
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+      // Still open: no decision flipped, so no tick rebuilt the body.
+      expect(builds, opened);
+    });
+
+    // Decisions read the learned open height, so a reopen flips the video
+    // on its first tick and holds, instead of flipping when the live box
+    // crosses the threshold mid-animation.
+    testWidgets('video decision flips once on the first keyboard tick', (
+      tester,
+    ) async {
+      SharedPreferences.setMockInitialValues({});
+      tester.view.physicalSize = const Size(1080, 2340);
+      tester.view.devicePixelRatio = 3.0;
+      tester.view.viewInsets = FakeViewPadding(bottom: 0);
+      addTearDown(tester.view.reset);
+
+      final seen = <bool>[];
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            resizeToAvoidBottomInset: true,
+            body: ChatBody(
+              bodyBuilder:
+                  (
+                    context, {
+                    required hideChromeForKeyboard,
+                    required maxWidth,
+                    required maxHeight,
+                    required keyboardH,
+                    required composerH,
+                  }) {
+                    seen.add(
+                      shouldShowStreamVideo(
+                        maxWidth: maxWidth,
+                        maxHeight: maxHeight,
+                        keyboardH: keyboardH,
+                        inputH: composerH,
+                        chatFontSize: 14,
+                      ),
+                    );
+                    return const SizedBox.expand();
+                  },
+              threadPanel: const SizedBox.shrink(),
+              mentionsPanel: const SizedBox.shrink(),
+              modViewPanel: const SizedBox.shrink(),
+              emotePickerBuilder: (_, {required sheetBoxHeight}) =>
+                  const SizedBox.shrink(),
+              autocomplete: const SizedBox.shrink(),
+              emoteMaxFraction: 0.6,
+              composer: const SizedBox(height: 56),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      Future<void> gesture(List<double> heights) async {
+        for (final h in heights) {
+          tester.view.viewInsets = FakeViewPadding(bottom: h * 3.0);
+          await tester.pump(const Duration(milliseconds: 16));
+        }
+        await tester.pump(const Duration(milliseconds: 300));
+      }
+
+      // First open learns the 400dp keyboard, which leaves under 9 lines.
+      await gesture([100, 250, 400]);
+      await gesture([250, 100, 0]);
+      expect(seen.last, isTrue);
+
+      seen.clear();
+      await gesture([100, 250, 400]);
+      // At 100dp the live box still fits the video; the decision does not.
+      expect(seen, isNotEmpty);
+      expect(seen.every((show) => !show), isTrue);
     });
   });
 
@@ -602,6 +724,139 @@ void main() {
     // Glass mode pads the list by the measured pill footprint. That footprint
     // must be composed from live insets, not a cached measurement, or the
     // newest row dips under the pill for a frame as the keyboard retracts.
+    testWidgets('a settled keyboard close drops focus once', (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      tester.view.physicalSize = const Size(1080, 2340);
+      tester.view.devicePixelRatio = 3.0;
+      tester.view.viewInsets = FakeViewPadding(bottom: 0);
+      addTearDown(tester.view.reset);
+
+      var dismissed = 0;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            resizeToAvoidBottomInset: true,
+            body: ChatBody(
+              emoteMaxFraction: 0.5,
+              onKeyboardDismissed: () => dismissed++,
+              composer: const SizedBox(height: 56),
+              bodyBuilder:
+                  (
+                    context, {
+                    required hideChromeForKeyboard,
+                    required maxWidth,
+                    required maxHeight,
+                    required keyboardH,
+                    required composerH,
+                  }) => const SizedBox.expand(),
+              threadPanel: const SizedBox.shrink(),
+              mentionsPanel: const SizedBox.shrink(),
+              modViewPanel: const SizedBox.shrink(),
+              emotePickerBuilder: (_, {required sheetBoxHeight}) =>
+                  const SizedBox.shrink(),
+              autocomplete: const SizedBox.shrink(),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      Future<void> ticks(List<double> heights) async {
+        for (final h in heights) {
+          tester.view.viewInsets = FakeViewPadding(bottom: h * 3.0);
+          await tester.pump(const Duration(milliseconds: 16));
+        }
+      }
+
+      await ticks([100, 250, 400]);
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(dismissed, 0);
+
+      // Reopening before the close settles cancels the unfocus.
+      await ticks([250, 0]);
+      await ticks([250, 400]);
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(dismissed, 0);
+
+      await ticks([250, 100, 0]);
+      expect(dismissed, 0);
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(dismissed, 1);
+    });
+
+    testWidgets('glass freezes while the keyboard moves, then goes live', (
+      tester,
+    ) async {
+      SharedPreferences.setMockInitialValues({});
+      tester.view.physicalSize = const Size(1080, 2340);
+      tester.view.devicePixelRatio = 3.0;
+      tester.view.viewInsets = FakeViewPadding(bottom: 0);
+      addTearDown(tester.view.reset);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            resizeToAvoidBottomInset: true,
+            body: ChatBody(
+              liquidGlass: true,
+              emoteMaxFraction: 0.5,
+              composer: const SizedBox(height: 56),
+              bodyBuilder:
+                  (
+                    context, {
+                    required hideChromeForKeyboard,
+                    required maxWidth,
+                    required maxHeight,
+                    required keyboardH,
+                    required composerH,
+                  }) => const SizedBox.expand(),
+              threadPanel: const SizedBox.shrink(),
+              mentionsPanel: const SizedBox.shrink(),
+              modViewPanel: const SizedBox.shrink(),
+              emotePickerBuilder: (_, {required sheetBoxHeight}) =>
+                  const SizedBox.shrink(),
+              autocomplete: const SizedBox.shrink(),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      Offstage liveGlass() => tester.widget<Offstage>(
+        find
+            .descendant(
+              of: find.byType(GlassSurface),
+              matching: find.byType(Offstage),
+            )
+            .first,
+      );
+      bool snapshotShown() => tester
+          .widgetList<CustomPaint>(
+            find.descendant(
+              of: find.byType(GlassSurface),
+              matching: find.byType(CustomPaint),
+            ),
+          )
+          .any((p) => p.painter != null);
+
+      expect(liveGlass().offstage, isFalse);
+      expect(snapshotShown(), isFalse);
+
+      for (final h in [100.0, 250.0, 400.0]) {
+        tester.view.viewInsets = FakeViewPadding(bottom: h * 3.0);
+        await tester.pump(const Duration(milliseconds: 16));
+        expect(liveGlass().offstage, isTrue);
+        expect(snapshotShown(), isTrue);
+      }
+
+      // Settled: live glass returns under the snapshot, which fades out.
+      await tester.pump(const Duration(milliseconds: 150));
+      expect(liveGlass().offstage, isFalse);
+      expect(snapshotShown(), isTrue);
+      await tester.pumpAndSettle();
+      expect(snapshotShown(), isFalse);
+    });
+
     testWidgets('glass clearance tracks the keyboard on retract', (
       WidgetTester tester,
     ) async {
@@ -615,17 +870,13 @@ void main() {
 
       await tester.pumpWidget(
         MaterialApp(
-          // Builder above the Scaffold: the body subtree sees viewInsets
-          // stripped to zero, exactly like HomeScreen reads them.
           home: Builder(
-            builder: (outer) {
-              final keyboardH = MediaQuery.viewInsetsOf(outer).bottom;
+            builder: (_) {
               return Scaffold(
                 resizeToAvoidBottomInset: true,
                 body: ChatBody(
                   liquidGlass: true,
                   emoteMaxFraction: 0.5,
-                  keyboardH: keyboardH,
                   composer: const SizedBox(
                     key: Key('glass_composer'),
                     height: 56,
