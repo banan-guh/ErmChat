@@ -599,6 +599,10 @@ class EmoteManager implements EmoteLookupSource {
 
   Future<void> markEmoteUsed(Emote emote) => _usage.markEmoteUsed(emote);
 
+  /// Records several emotes from one sent message as recents in a single batch.
+  Future<void> markEmotesUsed(Iterable<Emote> emotes) =>
+      _usage.markEmotesUsed(emotes);
+
   /// Records emote display for cache eviction scoring.
   void markEmoteViewed(Emote emote) {
     if (tier == EmoteFetchTier.nothing) return;

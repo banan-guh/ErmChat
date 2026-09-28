@@ -396,18 +396,34 @@ class EmoteUsageRegistry implements EmoteImagePolicy {
   }
 
   /// Records [emote] as most recently used, then flushes immediately.
-  /// Empty ids are unresolvable and would all collide on one recents slot.
-  Future<void> markEmoteUsed(Emote emote) async {
-    if (emote.id.isEmpty) return;
+  Future<void> markEmoteUsed(Emote emote) => markEmotesUsed([emote]);
+
+  /// Records [emotes] as most recently used in one pass: deduped, listed most
+  /// recent first in iteration order, capped, then saved and flushed once. A
+  /// sent message can carry many emotes, so batching keeps it to a single
+  /// prefs write. Empty ids are unresolvable and would all collide on one
+  /// recents slot.
+  Future<void> markEmotesUsed(Iterable<Emote> emotes) async {
+    final unique = <Emote>[];
+    final seen = <String>{};
+    for (final emote in emotes) {
+      if (emote.id.isEmpty || !seen.add(emote.id)) continue;
+      unique.add(emote);
+    }
+    if (unique.isEmpty) return;
     await _ensureRecentLoaded();
-    _recentIds.remove(emote.id);
-    _recentIds.insert(0, emote.id);
+    for (final emote in unique) {
+      _recentIds.remove(emote.id);
+    }
+    _recentIds.insertAll(0, unique.map((e) => e.id));
     if (_recentIds.length > _maxRecent) {
       _recentIds = _recentIds.sublist(0, _maxRecent);
     }
     await _saveRecent();
-    final url = EmotePicker.chatPreferredUrl(emote);
-    if (url != null) _touchUsage(url);
+    for (final emote in unique) {
+      final url = EmotePicker.chatPreferredUrl(emote);
+      if (url != null) _touchUsage(url);
+    }
     await _flushUsage();
   }
 

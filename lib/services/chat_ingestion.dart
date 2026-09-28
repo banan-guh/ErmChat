@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import '../color_utils.dart' show Color;
+import '../emotes/emote.dart';
 import '../models/emote_fetch_tier.dart';
 import '../models/twitch_message.dart';
 import '../util/constants.dart' show kWhispersChannel;
@@ -502,6 +503,7 @@ class ChatIngestion {
 
     _policy.learnUser(channel, msg);
     _stampEmoteResolution(msg, channel);
+    _markOwnEmotesUsed(msg);
 
     final result = chat.receive(
       channel,
@@ -536,6 +538,23 @@ class ChatIngestion {
       msg,
       lookupChannel: lookupChannel,
     );
+  }
+
+  // Own echo: the emotes actually sent become the recents that fill the emote
+  // menu's Recent tab and boost autocomplete. Reads the frozen tokens stamped
+  // above, so word-typed third-party emotes count too. Rejected sends never
+  // reach this path.
+  void _markOwnEmotesUsed(TwitchMessage msg) {
+    final tokens = msg.emoteTokens;
+    if (tokens == null || tokens.isEmpty) return;
+    final emotes = <Emote>[];
+    final seen = <String>{};
+    for (final token in tokens) {
+      final emote = token.emote;
+      if (emote == null || !seen.add(emote.id)) continue;
+      emotes.add(emote);
+    }
+    if (emotes.isNotEmpty) unawaited(emoteManager.markEmotesUsed(emotes));
   }
 }
 

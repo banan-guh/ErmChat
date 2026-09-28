@@ -4871,6 +4871,24 @@ void main() {
       final resolved = await manager.recentsForChannel('chB');
       expect(resolved.single.code, 'ThisEmote');
     });
+
+    test('batch recents dedup and keep iteration order', () async {
+      SharedPreferences.setMockInitialValues({});
+      final manager = EmoteManager(fetchStagger: Duration.zero);
+      await manager.storeUserTwitchEmotes({
+        'ch': [twitchEmote('a', 'Alpha'), twitchEmote('b', 'Bravo')],
+      });
+
+      await manager.markEmotesUsed([
+        twitchEmote('a', 'Alpha'),
+        twitchEmote('b', 'Bravo'),
+        twitchEmote('a', 'Alpha'),
+      ]);
+
+      final recents = await manager.recentEmotes();
+      expect(recents.map((e) => e.id).toList(), ['a', 'b']);
+      expect(manager.recentEmoteIds, containsAll(['a', 'b']));
+    });
   });
 
   group('personal 7TV emotes', () {

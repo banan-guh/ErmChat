@@ -1,8 +1,10 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:ermchat/emotes/emote.dart';
 import 'package:ermchat/models/twitch_message.dart';
 import 'package:ermchat/chat/chat.dart';
 import 'package:ermchat/client/session.dart';
+import 'package:ermchat/irc/message.dart';
 import 'package:ermchat/services/chat_ingestion.dart';
 import 'package:ermchat/services/chat_sender.dart';
 import 'package:ermchat/services/emote_manager.dart';
@@ -13,6 +15,8 @@ import 'package:ermchat/irc/decode/decoder.dart';
 import 'package:ermchat/irc/transport/read.dart';
 import 'package:ermchat/irc/transport/write.dart';
 import 'package:ermchat/services/user_store.dart';
+
+import '../helpers.dart';
 
 void main() {
   ChatIngestion makeIngestion(EmoteManager emoteManager) {
@@ -100,5 +104,54 @@ void main() {
     await Future.delayed(const Duration(milliseconds: 100));
 
     expect(sevenTvHttp, 0);
+  });
+
+  test('own echo records sent emotes as recents, others do not', () async {
+    SharedPreferences.setMockInitialValues({});
+    final manager = EmoteManager(fetchStagger: Duration.zero);
+    manager.updateSevenTvEmotes(
+      'ch',
+      added: [
+        makeTestEmote(
+          id: 'e1',
+          code: 'Alpha',
+          type: EmoteType.sevenTv,
+          scope: EmoteScope.channel,
+        ),
+        makeTestEmote(
+          id: 'e2',
+          code: 'Bravo',
+          type: EmoteType.sevenTv,
+          scope: EmoteScope.channel,
+        ),
+      ],
+    );
+    final ingestion = makeIngestion(manager);
+
+    ingestion.onOwnIrcMessage(
+      IrcMessage(
+        tags: const {},
+        prefix: ':viewer!viewer@viewer.tmi.twitch.tv',
+        command: 'PRIVMSG',
+        params: const ['#ch'],
+        trailing: 'Alpha',
+      ),
+    );
+    await pumpEventQueue();
+    expect(manager.recentEmoteIds, contains('e1'));
+
+    // Another viewer's message never feeds recents, even when it carries an
+    // emote the viewer can send.
+    ingestion.onMessage(
+      TwitchMessage(
+        login: 'someone',
+        text: 'Bravo',
+        channel: 'ch',
+        userId: 'other-1',
+      ),
+    );
+    await pumpEventQueue();
+    expect(manager.recentEmoteIds, contains('e1'));
+    expect(manager.recentEmoteIds, isNot(contains('e2')));
   });
 }
