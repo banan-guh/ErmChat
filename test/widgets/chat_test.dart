@@ -1748,6 +1748,89 @@ void main() {
     expect(find.textContaining('Replying to @alice'), findsNothing);
   });
 
+  testWidgets('Thread tab reopened from the dashboard replies to its thread', (
+    WidgetTester tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({'access_token': 'test_token'});
+    FlutterSecureStorage.setMockInitialValues({
+      'access_token': 'test_token',
+      'user_login': 'me',
+      'user_id': '42',
+    });
+    final irc = _RecordingIrcService();
+    final ircRead = FakeIrcReadService();
+    await tester.pumpWidget(
+      TwitchChatApp(
+        key: UniqueKey(),
+        eventSubService: FakeEventSubService(),
+        ircService: irc,
+        ircReadService: ircRead,
+        recentMessagesService: ConfigurableRecentMessagesService(const []),
+      ),
+    );
+    await tester.pump();
+    await tester.tap(find.byIcon(Icons.add));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).last, 'a');
+    await tester.tap(find.text('Join', skipOffstage: false));
+    await tester.pump();
+    irc.triggerConnect();
+    ircRead.triggerConnect();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 600));
+    irc.triggerJoin('a');
+    ircRead.triggerJoin('a');
+    await tester.pump();
+
+    ircRead.emitMessage(
+      TwitchMessage(
+        login: 'alice',
+        text: 'parent msg',
+        messageId: 'p1',
+        channel: 'a',
+      ),
+    );
+    ircRead.emitMessage(
+      TwitchMessage(
+        login: 'bob',
+        text: 'child msg',
+        messageId: 'c1',
+        replyToParentId: 'p1',
+        replyToUser: 'alice',
+        replyToText: 'parent msg',
+        channel: 'a',
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // Open the thread, then close the panel: the close drops the open root.
+    await tester.tap(
+      find.textContaining(
+        'Replying to @alice: parent msg',
+        skipOffstage: false,
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byIcon(Icons.close));
+    await tester.pumpAndSettle();
+
+    // Reopen through the dashboard and go straight to the Thread tab.
+    await tester.tap(find.byIcon(Icons.more_vert));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Threads').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Thread', skipOffstage: false).first);
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byKey(const Key('message_input')), 'hi');
+    await tester.tap(find.byIcon(Icons.send));
+    await tester.pumpAndSettle();
+
+    expect(irc.sent, isNotEmpty);
+    expect(irc.sent.last.text, 'hi');
+    expect(irc.sent.last.replyParent, isNotNull);
+  });
+
   testWidgets(
     'Message timestamps render in default and custom formats and hide when disabled',
     (WidgetTester tester) async {
@@ -5002,4 +5085,22 @@ void main() {
       );
     });
   });
+}
+
+/// Records outgoing chat lines; the base write socket drops them unconnected.
+class _RecordingIrcService extends FakeIrcService {
+  final sent = <({String channel, String text, String? replyParent})>[];
+
+  @override
+  void sendMessage(
+    String channelName,
+    String text, {
+    String? replyParentMessageId,
+  }) {
+    sent.add((
+      channel: channelName,
+      text: text,
+      replyParent: replyParentMessageId,
+    ));
+  }
 }

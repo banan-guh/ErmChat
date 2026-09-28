@@ -77,6 +77,12 @@ class ThreadPanels {
   final threadAtBottom = ValueNotifier(true);
   final threadPanelScrollCtrl = ScrollController();
 
+  /// Root of the thread the Thread tab rows belong to. Outlives
+  /// [PanelManager.openThreadRoot], which panel closes and channel switches
+  /// clear so main-chat sends never reply into a thread; the dashboard
+  /// restores it so the tab replies to the thread it shows.
+  TwitchMessage? _lastThreadRoot;
+
   /// Half-drag focus: crossings report at 50% via [_onThreadsFocus],
   /// settle syncs through [onThreadsTabChanged].
   late final tabDragFocus = TabDragFocus(
@@ -133,7 +139,8 @@ class ThreadPanels {
     if (panelManager.openThreadRoot?.channel == channel) {
       panelManager.openThreadRoot = null;
     }
-    if (panelManager.openThreadRoot == null) {
+    if (_lastThreadRoot?.channel == channel) _lastThreadRoot = null;
+    if (_lastThreadRoot == null) {
       panelManager.threadMessages = [];
     }
     if (panelManager.threadChannel == channel) {
@@ -159,6 +166,7 @@ class ThreadPanels {
     if (!isMounted()) return;
     panelManager.activePanel = OverlayPanel.thread;
     panelManager.openThreadRoot = rootMsg;
+    _lastThreadRoot = rootMsg;
     markDirty();
     panelManager.threadChannel = channel;
     panelManager.threadMessages = computeThreadMessages();
@@ -188,7 +196,10 @@ class ThreadPanels {
   // dropping a currently open thread: the Thread tab keeps its rows so the
   // dashboard can be browsed and returned from.
   Future<void> showThreadsDashboard({int tab = 1}) async {
-    final prevRoot = panelManager.openThreadRoot;
+    // A closed panel already dropped its root; the last thread still owns
+    // the rows the Thread tab shows.
+    final wasOpen = panelManager.openThreadRoot != null;
+    final prevRoot = panelManager.openThreadRoot ?? _lastThreadRoot;
     final prevMsgs = List.of(panelManager.threadMessages);
     final prevChannel = panelManager.threadChannel;
     await panelManager.closePanel();
@@ -202,6 +213,12 @@ class ThreadPanels {
     // channel; the Thread tab may show another channel's thread.
     panelManager.openThreadRoot = prevRoot;
     panelManager.threadMessages = prevMsgs;
+    if (!wasOpen && prevRoot != null) {
+      // Rows froze while the panel was closed; catch up on missed replies,
+      // keeping the old rows if the buffer already forgot the thread.
+      final fresh = computeThreadMessages();
+      if (fresh.isNotEmpty) panelManager.threadMessages = fresh;
+    }
     panelManager.threadChannel =
         prevRoot?.channel ?? prevChannel ?? selectedChannel();
     // Same no-flash jump as showThreadView: the sheet opens already on the
