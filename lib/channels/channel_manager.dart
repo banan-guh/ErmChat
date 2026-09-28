@@ -104,6 +104,24 @@ class ChannelManager {
     if (!added) _focusAfterAdd = false;
   }
 
+  /// Swaps [from] for [to] at the same tab position. False when [to] is
+  /// empty, unchanged, or already joined.
+  Future<bool> renameChannel(String from, String to) async {
+    final name = to.trim().toLowerCase();
+    final names = session.channelNames;
+    final index = names.indexOf(from);
+    if (index < 0 || name.isEmpty || names.contains(name)) return false;
+    removeChannel(from);
+    // The join registers the channel before its first await, so the reorder
+    // lands in the same frame and the tab never shows at the end.
+    final joined = session.addChannel(name);
+    final reordered = List.of(session.channelNames)
+      ..remove(name)
+      ..insert(index, name);
+    session.reorderChannels(reordered);
+    return joined;
+  }
+
   void removeChannel(String channel) {
     _suppressSelectionSync = session.selectedChannel() != channel;
     final generation = session.beginRemove(channel);

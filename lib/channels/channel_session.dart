@@ -93,9 +93,10 @@ class ChannelSession extends ChangeNotifier {
 
   void touchMentions() => chat.touchMentions();
 
-  Future<void> saveChannels([List<String>? names]) async {
+  Future<void> saveChannels() async {
     final prefs = await Prefs.load();
-    await prefs.setChannels(List.of(names ?? chat.names));
+    // channelNames skips channels mid-leave, which the kernel still holds.
+    await prefs.setChannels(List.of(channelNames));
   }
 
   void reorderChannels(List<String> reordered) {
@@ -166,7 +167,8 @@ class ChannelSession extends ChangeNotifier {
   Future<bool> addChannel(String channelName) async {
     final name = channelName.trim().toLowerCase();
     if (name.isEmpty || chat.contains(name)) return false;
-    if (chat.length >= kMaxChannels) return false;
+    // A channel mid-leave still sits in the kernel until its finalize.
+    if (channelNames.length >= kMaxChannels) return false;
 
     _generations[name] = (_generations[name] ?? 0) + 1;
     chat.ensure(name);
@@ -235,7 +237,7 @@ class ChannelSession extends ChangeNotifier {
       setSelectedChannel(remaining.isNotEmpty ? remaining.last : null);
     }
     notifyListeners();
-    saveChannels(chat.names.where((c) => c != channel).toList());
+    saveChannels();
     return generation;
   }
 

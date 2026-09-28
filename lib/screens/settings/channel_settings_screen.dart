@@ -9,6 +9,7 @@ class ChannelSettingsScreen extends StatefulWidget {
   final ValueChanged<String>? onAddChannel;
   final ValueChanged<String>? onLeaveChannel;
   final ValueChanged<List<String>>? onReorderChannels;
+  final void Function(String from, String to)? onRenameChannel;
 
   const ChannelSettingsScreen({
     super.key,
@@ -16,6 +17,7 @@ class ChannelSettingsScreen extends StatefulWidget {
     this.onAddChannel,
     this.onLeaveChannel,
     this.onReorderChannels,
+    this.onRenameChannel,
   });
 
   @override
@@ -74,6 +76,13 @@ class _ChannelSettingsScreenState extends State<ChannelSettingsScreen> {
                 index: i,
                 channel: channels[i],
                 onLeave: (c) => widget.onLeaveChannel?.call(c),
+                onEdit: widget.onRenameChannel == null
+                    ? null
+                    : (c) => showJoinChannelDialog(
+                        context,
+                        initial: c,
+                        onJoin: (to) => widget.onRenameChannel!(c, to),
+                      ),
               ),
             ),
           Padding(
@@ -111,12 +120,14 @@ class _ReorderableChannelTile extends StatefulWidget {
   final int index;
   final String channel;
   final ValueChanged<String>? onLeave;
+  final ValueChanged<String>? onEdit;
 
   const _ReorderableChannelTile({
     super.key,
     required this.index,
     required this.channel,
     this.onLeave,
+    this.onEdit,
   });
 
   @override
@@ -161,9 +172,20 @@ class _ReorderableChannelTileState extends State<_ReorderableChannelTile>
               leading: const Icon(Icons.drag_handle),
               title: Text(widget.channel),
               onTap: () {},
-              trailing: IconButton(
-                icon: const Icon(Icons.remove_circle_outline),
-                onPressed: () => widget.onLeave?.call(widget.channel),
+              trailing: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (widget.onEdit != null)
+                    IconButton(
+                      icon: const Icon(Icons.edit_outlined),
+                      tooltip: 'Edit channel',
+                      onPressed: () => widget.onEdit!(widget.channel),
+                    ),
+                  IconButton(
+                    icon: const Icon(Icons.remove_circle_outline),
+                    onPressed: () => widget.onLeave?.call(widget.channel),
+                  ),
+                ],
               ),
             ),
             Positioned.fill(

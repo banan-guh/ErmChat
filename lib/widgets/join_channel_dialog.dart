@@ -1,26 +1,35 @@
 import 'package:flutter/material.dart';
 
+/// Asks for a channel name. [initial] prefills the field for an edit.
 void showJoinChannelDialog(
   BuildContext context, {
   required void Function(String channel) onJoin,
+  String? initial,
 }) {
   showDialog(
     context: context,
-    builder: (ctx) => _JoinChannelDialog(onJoin: onJoin),
+    builder: (ctx) => _JoinChannelDialog(onJoin: onJoin, initial: initial),
   );
 }
 
 class _JoinChannelDialog extends StatefulWidget {
   final void Function(String channel) onJoin;
+  final String? initial;
 
-  const _JoinChannelDialog({required this.onJoin});
+  const _JoinChannelDialog({required this.onJoin, this.initial});
 
   @override
   State<_JoinChannelDialog> createState() => _JoinChannelDialogState();
 }
 
 class _JoinChannelDialogState extends State<_JoinChannelDialog> {
-  final _controller = TextEditingController();
+  late final _controller = TextEditingController(text: widget.initial)
+    ..selection = TextSelection(
+      baseOffset: 0,
+      extentOffset: widget.initial?.length ?? 0,
+    );
+
+  bool get _editing => widget.initial != null;
 
   @override
   void dispose() {
@@ -37,7 +46,7 @@ class _JoinChannelDialogState extends State<_JoinChannelDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: const Text('Join channel'),
+      title: Text(_editing ? 'Edit channel' : 'Join channel'),
       content: TextField(
         controller: _controller,
         decoration: const InputDecoration(
@@ -54,7 +63,7 @@ class _JoinChannelDialogState extends State<_JoinChannelDialog> {
         ),
         FilledButton(
           onPressed: () => _submit(context),
-          child: const Text('Join'),
+          child: Text(_editing ? 'Save' : 'Join'),
         ),
       ],
     );

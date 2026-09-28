@@ -724,9 +724,7 @@ void main() {
     // Glass mode pads the list by the measured pill footprint. That footprint
     // must be composed from live insets, not a cached measurement, or the
     // newest row dips under the pill for a frame as the keyboard retracts.
-    testWidgets('glass collapses the chrome where opaque does', (
-      tester,
-    ) async {
+    testWidgets('glass collapses the chrome where opaque does', (tester) async {
       SharedPreferences.setMockInitialValues({});
       // 700dp tall with a 360dp keyboard: the docked composer leaves 284dp,
       // under the 300dp collapse threshold.
@@ -1944,6 +1942,47 @@ void main() {
         findsOneWidget,
       );
     }
+  });
+
+  testWidgets('editing a channel swaps it in place', (tester) async {
+    SharedPreferences.setMockInitialValues({
+      'access_token': 'test_token',
+      'channels': ['a', 'b', 'c'],
+    });
+    FlutterSecureStorage.setMockInitialValues({'access_token': 'test_token'});
+
+    await tester.pumpWidget(
+      TwitchChatApp(
+        key: UniqueKey(),
+        eventSubService: FakeEventSubService(),
+        ircService: FakeIrcService(),
+        recentMessagesService: ScriptedRecentMessagesService([]),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byType(PopupMenuButton<String>).first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Settings'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Channels'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(
+      find.descendant(
+        of: find.widgetWithText(ListTile, 'b'),
+        matching: find.byIcon(Icons.edit_outlined),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Edit channel'), findsOneWidget);
+    await tester.enterText(find.byType(TextField).last, 'Z ');
+    await tester.tap(find.text('Save'));
+    await tester.pumpAndSettle();
+
+    expect(find.widgetWithText(ListTile, 'b'), findsNothing);
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getStringList('channels'), ['a', 'z', 'c']);
   });
 
   testWidgets('Reconnect refetch dedups and shows gaps and merges in order', (

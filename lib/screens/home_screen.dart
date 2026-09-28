@@ -1312,6 +1312,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
           onLeaveChannel: _channelManager.removeChannel,
           onAddChannel: _channelManager.addChannel,
           onReorderChannels: _channelManager.reorderChannels,
+          onRenameChannel: (from, to) =>
+              unawaited(_channelManager.renameChannel(from, to)),
           analyticsService: _analytics,
           channels: _chat.names,
           ttsController: _ttsController,

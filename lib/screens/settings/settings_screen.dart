@@ -31,6 +31,7 @@ class SettingsScreen extends StatelessWidget {
   final ValueChanged<String>? onLeaveChannel;
   final ValueChanged<String>? onAddChannel;
   final ValueChanged<List<String>>? onReorderChannels;
+  final void Function(String from, String to)? onRenameChannel;
   final AnalyticsService? analyticsService;
   final List<String>? channels;
   final OAuthStarter? oAuthStarter;
@@ -59,6 +60,7 @@ class SettingsScreen extends StatelessWidget {
     this.onLeaveChannel,
     this.onAddChannel,
     this.onReorderChannels,
+    this.onRenameChannel,
     this.analyticsService,
     this.channels,
     this.oAuthStarter,
@@ -87,6 +89,7 @@ class SettingsScreen extends StatelessWidget {
                   onAddChannel: onAddChannel,
                   onLeaveChannel: onLeaveChannel,
                   onReorderChannels: onReorderChannels,
+                  onRenameChannel: onRenameChannel,
                 ),
               ),
             ),
