@@ -1125,13 +1125,19 @@ void main() {
     testWidgets('Deleted rows fade only when fading is enabled', (
       tester,
     ) async {
+      // Fading is a background-colored foreground overlay, not Opacity.
+      final fade = find.byWidgetPredicate(
+        (w) =>
+            w is DecoratedBox &&
+            w.position == DecorationPosition.foreground &&
+            (w.decoration as BoxDecoration).color?.a != 0,
+      );
       await tester.pumpWidget(buildTile(fadeDeleted: true));
-      final opacity = tester.widget<Opacity>(find.byType(Opacity));
-      expect(opacity.opacity, lessThan(1.0));
+      expect(fade, findsOneWidget);
 
       await tester.pumpWidget(buildTile(fadeDeleted: false));
       await tester.pump();
-      expect(find.byType(Opacity), findsNothing);
+      expect(fade, findsNothing);
       // The body is a Text.rich, so match on the rendered rich text.
       expect(
         find.byWidgetPredicate(
@@ -3780,18 +3786,18 @@ void main() {
           strength: strength,
         );
         final blended = Color.alphaBlend(tint.withValues(alpha: 0.6), surface);
-        // The row tint is painted as the tile Material's color (so ink ripples
-        // stay visible above it) rather than a ColoredBox over the content.
+        // The row tint is a ColoredBox under the tile's transparency
+        // Material, so ink ripples stay visible above it.
         final rows = find
             .ancestor(
               of: find.textContaining(
                 'Test announcement text',
                 skipOffstage: false,
               ),
-              matching: find.byType(Material, skipOffstage: false),
+              matching: find.byType(ColoredBox, skipOffstage: false),
             )
             .evaluate()
-            .where((el) => (el.widget as Material).color == blended);
+            .where((el) => (el.widget as ColoredBox).color == blended);
         expect(
           rows,
           isNotEmpty,

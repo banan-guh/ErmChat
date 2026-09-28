@@ -144,6 +144,8 @@ class UserProfileSheetState extends State<UserProfileSheet> {
   // text-scale changes.
   double? _naturalCardH;
   bool _measureDirty = true;
+  // Set once the sheet first rises past the card detent; see sheetBody.
+  bool _historyBuilt = false;
   final _cardMeasureKey = GlobalKey();
   ScrollController get _scrollController =>
       widget.scrollController ?? (_fallbackController ??= ScrollController());
@@ -333,6 +335,39 @@ class UserProfileSheetState extends State<UserProfileSheet> {
         theme.bottomSheetTheme.modalBackgroundColor ??
         theme.bottomSheetTheme.backgroundColor ??
         theme.colorScheme.surfaceContainerLow;
+    // Built once per state build, outside the sheet ticker: identical
+    // instances let drag ticks relayout without rebuilding card or rows.
+    final card = Material(
+      color: surface,
+      borderRadius: _topRadius(theme),
+      clipBehavior: Clip.antiAlias,
+      child: KeyedSubtree(
+        key: _cardMeasureKey,
+        child: _buildCard(theme, actions),
+      ),
+    );
+    final Widget? history = widget.messageRowBuilder == null
+        ? null
+        // Hidden while loading so no row flashes before the card.
+        : _loading
+        ? const SizedBox.shrink()
+        : widget.userMessages.isEmpty
+        ? _buildHistoryEmpty(theme)
+        : NotificationListener<ScrollUpdateNotification>(
+            onNotification: (notification) {
+              _onScrollPixels(notification.metrics.pixels);
+              return false;
+            },
+            child: ListView.builder(
+              controller: _scrollController,
+              reverse: true,
+              itemCount: widget.userMessages.length,
+              itemBuilder: (context, i) => widget.messageRowBuilder!(
+                context,
+                widget.userMessages[widget.userMessages.length - 1 - i],
+              ),
+            ),
+          );
     // Card takes its natural height first; the history gets whatever is
     // left (possibly nothing at the card detent) and is revealed by
     // expanding the sheet. The list is reversed (latest at offset 0), so
@@ -343,6 +378,14 @@ class UserProfileSheetState extends State<UserProfileSheet> {
       if (avail <= 0) return const SizedBox.shrink();
       final natural = _naturalCardH;
       final cardH = (seeking || natural == null) ? avail : min(natural, avail);
+      // The list builds the first time the sheet rises past the card
+      // detent, then stays built; opening at the card never builds rows.
+      // Without an anchor the list's controller is what attaches the sheet,
+      // so it must build at once.
+      if (!_historyBuilt &&
+          (widget.anchor == null || (!seeking && avail - cardH > 1))) {
+        _historyBuilt = true;
+      }
       return Column(
         children: [
           SizedBox(
@@ -356,45 +399,13 @@ class UserProfileSheetState extends State<UserProfileSheet> {
                   minHeight: 0,
                   maxHeight: double.infinity,
                   alignment: Alignment.topCenter,
-                  child: Material(
-                    color: surface,
-                    borderRadius: _topRadius(theme),
-                    clipBehavior: Clip.antiAlias,
-                    child: KeyedSubtree(
-                      key: _cardMeasureKey,
-                      child: _buildCard(theme, actions),
-                    ),
-                  ),
+                  child: card,
                 ),
               ),
             ),
           ),
-          if (widget.messageRowBuilder != null) ...[
-            Expanded(
-              // Hidden while loading so no row flashes before the card.
-              child: _loading
-                  ? const SizedBox.shrink()
-                  : widget.userMessages.isEmpty
-                  ? _buildHistoryEmpty(theme)
-                  : NotificationListener<ScrollUpdateNotification>(
-                      onNotification: (notification) {
-                        _onScrollPixels(notification.metrics.pixels);
-                        return false;
-                      },
-                      child: ListView.builder(
-                        controller: _scrollController,
-                        reverse: true,
-                        itemCount: widget.userMessages.length,
-                        itemBuilder: (context, i) => widget.messageRowBuilder!(
-                          context,
-                          widget.userMessages[widget.userMessages.length -
-                              1 -
-                              i],
-                        ),
-                      ),
-                    ),
-            ),
-          ],
+          if (history != null)
+            Expanded(child: _historyBuilt ? history : const SizedBox.shrink()),
         ],
       );
     }

@@ -380,7 +380,8 @@ void main() {
       // Let the queued batch flush timer fire so teardown has no pending
       // timers.
       await tester.pump(const Duration(milliseconds: 300));
-      expect(find.byType(PaintedUsernameText), findsOneWidget);
+      // Unpainted names stay in the row paragraph.
+      expect(find.byType(PaintedUsernameText), findsNothing);
 
       await tester.pumpWidget(
         MaterialApp(home: Scaffold(body: tile(message('888'), service))),
@@ -388,7 +389,8 @@ void main() {
       await tester.pump();
 
       expect(find.byType(PaintedUsernameText), findsOneWidget);
-      expect(find.byType(ShaderMask), findsOneWidget);
+      // The gradient rides the text foreground, not a ShaderMask layer.
+      expect(find.byType(ShaderMask), findsNothing);
       service.dispose();
     });
   });
