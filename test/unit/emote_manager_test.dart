@@ -5197,6 +5197,18 @@ void main() {
       expect(manager.foreignPersonalSetCountForTesting(), 50);
     });
 
+    test('grants whose set never fills stay capped', () async {
+      SharedPreferences.setMockInitialValues({});
+      final manager = socketManager();
+      for (var i = 0; i < 60; i++) {
+        await manager.applySevenTvEntitlement(
+          grant('set-$i', twitchUserIds: ['sender-$i']),
+        );
+      }
+      expect(manager.foreignPersonalSetCountForTesting(), 50);
+      expect(manager.foreignPersonalUserCountForTesting(), 50);
+    });
+
     test('grant delete drops only that sender mapping', () async {
       SharedPreferences.setMockInitialValues({});
       final manager = socketManager(

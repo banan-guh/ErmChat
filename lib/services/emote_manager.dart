@@ -933,6 +933,9 @@ class EmoteManager implements EmoteLookupSource {
   int foreignPersonalSetCountForTesting() => _personalSets.foreignSetCount;
 
   @visibleForTesting
+  int foreignPersonalUserCountForTesting() => _personalSets.foreignUserCount;
+
+  @visibleForTesting
   Future<GlobalEmoteFetch> fetchAllGlobalForTesting() async {
     await _visibility.ensureLoaded();
     return _fetcher.fetchAllGlobal();

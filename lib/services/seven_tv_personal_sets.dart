@@ -209,6 +209,9 @@ class SevenTvPersonalSets {
       return;
     }
     if (mappingChanged) _rebuildForeignUsers(setId);
+    // The placeholder ties the mapping to a capped entry, so a fill that
+    // fails, comes back empty, or never runs still evicts with the set.
+    trackSet(setId);
     await _fillForeignSet(setId);
     unawaited(_save());
   }
@@ -398,6 +401,8 @@ class SevenTvPersonalSets {
   Future<void> flushForTest() => _save();
 
   int get foreignSetCount => _foreignPersonalSetContents.length;
+
+  int get foreignUserCount => _foreignPersonalUserSets.length;
 
   /// Clears viewer and foreign personal state (account switch) and emits,
   /// so no caller can serve a stale merge built from dropped sets.
