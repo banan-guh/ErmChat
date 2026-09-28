@@ -310,6 +310,7 @@ class MentionsPanels {
               onCopyMessage: copyMessage,
               showReplyIndicators: false,
               fadeDeleted: false,
+              showChannel: true,
               emptyText: 'No mentions or whispers',
             ),
             ChatView(

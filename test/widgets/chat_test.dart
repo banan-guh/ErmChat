@@ -879,6 +879,54 @@ void main() {
     );
   });
 
+  group('ChatMessageTile channel prefix', () {
+    Widget buildTile({required bool showChannel}) => MaterialApp(
+      key: UniqueKey(),
+      home: Scaffold(
+        body: ChatMessageTile(
+          message: TwitchMessage(
+            login: 'alice',
+            text: 'hi there',
+            channel: 'somechannel',
+            messageId: 'c1',
+          ),
+          channel: 'somechannel',
+          surface: Colors.white,
+          textScale: 1.0,
+          showChannel: showChannel,
+          buildBadgeSpans: (_, _, {double badgeScale = 1.0}) => const [],
+          buildMessageSpans:
+              (_, _, _, {colored = false, textScale = 1.0, onImageTap}) =>
+                  <InlineSpan>[const TextSpan(text: 'hi there')],
+          bodyIsCached: (_, _) => false,
+        ),
+      ),
+    );
+
+    testWidgets('channel prefix renders before the username when enabled', (
+      tester,
+    ) async {
+      await tester.pumpWidget(buildTile(showChannel: true));
+      expect(
+        find.byWidgetPredicate(
+          (w) =>
+              w is RichText &&
+              w.text.toPlainText().contains('#somechannel alice: hi there'),
+        ),
+        findsOneWidget,
+      );
+
+      await tester.pumpWidget(buildTile(showChannel: false));
+      await tester.pump();
+      expect(
+        find.byWidgetPredicate(
+          (w) => w is RichText && w.text.toPlainText().contains('#somechannel'),
+        ),
+        findsNothing,
+      );
+    });
+  });
+
   testWidgets('Notification bell opens mentions modal', (
     WidgetTester tester,
   ) async {

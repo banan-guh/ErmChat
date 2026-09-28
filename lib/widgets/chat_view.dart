@@ -54,6 +54,9 @@ class ChatView extends StatefulWidget {
   /// Off in the mentions tab so deleted rows stay readable.
   final bool fadeDeleted;
 
+  /// Prefixes rows with their source channel (mentions inbox).
+  final bool showChannel;
+
   /// True keeps the list alive when it scrolls out of a pager. Channel pages
   /// pass false so background channels unmount; their scroll offset is
   /// restored through PageStorage.
@@ -108,6 +111,7 @@ class ChatView extends StatefulWidget {
     this.emptyText = 'No messages yet',
     this.physics,
     this.fadeDeleted = true,
+    this.showChannel = false,
     this.keepAlive = true,
     this.keepPosition = true,
     this.scrollFabHeroTag,
@@ -709,6 +713,7 @@ class _ChatViewState extends State<ChatView>
         isAlternateBackground: parity,
         fadeDeleted: widget.fadeDeleted,
         sharedChatMode: widget.sharedChatMode,
+        showChannel: widget.showChannel,
       );
     } else {
       body = ChatMessageTile(
@@ -745,6 +750,7 @@ class _ChatViewState extends State<ChatView>
         isAlternateBackground: parity,
         fadeDeleted: widget.fadeDeleted,
         sharedChatMode: widget.sharedChatMode,
+        showChannel: widget.showChannel,
         paintService: widget.paintService,
         showImages: widget.messageBuilder.showImages,
         imageHeight: widget.messageBuilder.imageHeight,

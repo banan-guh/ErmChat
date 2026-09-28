@@ -52,6 +52,9 @@ class ChatMessageTile extends StatefulWidget {
   final bool isAlternateBackground;
   final String sharedChatMode;
 
+  /// Prefixes each row with its source channel (mentions inbox).
+  final bool showChannel;
+
   /// Off in the mentions tab so deleted rows stay readable.
   final bool fadeDeleted;
 
@@ -90,6 +93,7 @@ class ChatMessageTile extends StatefulWidget {
     this.isAlternateBackground = false,
     this.fadeDeleted = true,
     this.sharedChatMode = 'spotlight',
+    this.showChannel = false,
     this.paintService,
     this.showImages = kImageEmbedEnabledDefault,
     this.imageHeight = kImageEmbedHeightDefault,
@@ -274,6 +278,17 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
       deleted = false;
     } else {
       final badges = widget.buildBadgeSpans(widget.channel, msg, badgeScale: s);
+      final InlineSpan? channelSpan = widget.showChannel
+          ? TextSpan(
+              text: '#${widget.channel} ',
+              style: TextStyle(
+                fontSize: 14 * s,
+                fontWeight: FontWeight.w500,
+                color: theme.colorScheme.onSurfaceVariant,
+                decoration: TextDecoration.none,
+              ),
+            )
+          : null;
       final usernameText = msg.isAction
           ? '${msg.formattedUsername} '
           : '${msg.formattedUsername}: ';
@@ -329,10 +344,11 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
         ).take(kMaxImageEmbedsPerMessage).toList();
       }
       _trackBodySpans(bodySpans, widget.bodyIsCached(msg, bodySpans));
-      children = [...badges, usernameSpan, ...bodySpans];
+      children = [?channelSpan, ...badges, usernameSpan, ...bodySpans];
+      final channelLabel = widget.showChannel ? '#${widget.channel} ' : '';
       semanticsLabel = msg.isHighlighted
-          ? 'Mention: $ts ${msg.formattedUsername}: ${msg.text}'
-          : '$ts ${msg.formattedUsername}: ${msg.text}';
+          ? 'Mention: $ts $channelLabel${msg.formattedUsername}: ${msg.text}'
+          : '$ts $channelLabel${msg.formattedUsername}: ${msg.text}';
       deleted = msg.deleted;
     }
 
