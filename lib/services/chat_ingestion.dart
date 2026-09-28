@@ -481,6 +481,9 @@ class ChatIngestion {
     // A successful echo means Twitch accepted the send - any self-timeout
     // gate still armed was for a timeout Twitch has since lifted. Clear it.
     sender.clearTimeout(channel);
+    // Anchor the slow-mode countdown here too: rejected attempts must not
+    // reset it, so only an accepted echo moves the window.
+    sender.noteOwnMessageSent(channel);
 
     final msg = parseIrcChatMessage(
       ircMsg,

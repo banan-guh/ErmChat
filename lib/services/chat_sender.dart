@@ -53,7 +53,8 @@ class ChatSender {
   final void Function()? onSendStateChanged;
 
   // Self send-gates per channel: when your latest timeout there expires and
-  // when you last sent a message (the slow-mode cooldown anchor).
+  // when Twitch last accepted one of your messages (the slow-mode cooldown
+  // anchor).
   final _selfTimeoutUntil = <String, DateTime>{};
   final _lastOwnMessageAt = <String, DateTime>{};
 
@@ -98,18 +99,15 @@ class ChatSender {
   }
 
   /// Seconds left before you may send again in [channel] under slow mode,
-  /// measured from your own last message. Null when slow mode is off, your
-  /// badges bypass it, or the window has elapsed. Ceil-rounded like
-  /// [remainingSelfTimeout].
+  /// measured from your own last accepted message. Null when slow mode is off,
+  /// your badges bypass it, or the window has elapsed. Ceil-rounded without
+  /// the send grace: the hint should read the channel's exact delay.
   int? remainingSlowCooldown(String channel) {
     final slow = slowModeSeconds(channel);
     if (slow <= 0 || _bypassesSlowMode(channel)) return null;
     final sentAt = _lastOwnMessageAt[channel];
     if (sentAt == null) return null;
-    final left = sentAt
-        .add(Duration(seconds: slow))
-        .add(_sendGrace)
-        .difference(DateTime.now());
+    final left = sentAt.add(Duration(seconds: slow)).difference(DateTime.now());
     if (left <= Duration.zero) return null;
     return (left.inMilliseconds / 1000).ceil();
   }
@@ -124,6 +122,12 @@ class ChatSender {
 
   /// Clears the self-timeout gate (unban/untimeout, or an accepted echo).
   void clearTimeout(String channel) => _selfTimeoutUntil.remove(channel);
+
+  /// Anchors the slow-mode window to a message Twitch actually accepted. The
+  /// echo is the only signal a send went through, so rejected attempts never
+  /// reset the countdown. Called from the ingestion own-echo path.
+  void noteOwnMessageSent(String channel) =>
+      _lastOwnMessageAt[channel] = DateTime.now();
 
   // ---- Send ----------------------------------------------------------------
 
@@ -176,7 +180,6 @@ class ChatSender {
     // sends on. The echo of our own message arrives on the read socket, not
     // here. No Helix fallback: if the write socket is down the message cannot
     // be sent, so we surface a notice instead of silently dropping it.
-    _lastOwnMessageAt[channel] = DateTime.now();
     if (irc.isConnected) {
       irc.sendMessage(
         channel,

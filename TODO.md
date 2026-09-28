@@ -77,30 +77,14 @@
 - [ ] **Configurable user-card history limit** - setting for how many recent messages the user card shows (currently fixed at 50).
 - [ ] **Stream player battery saver** - currently streams drink battery like no other
 - [ ] **Extra search feats** - words to filter search
-- [x] **Badge info**
+- [ ] **Badge info**
 - [x] **Gboard autocorrect overridden** - single-backspace undo is now a TextInputFormatter port of Android's mark-as-replaced DEL undo (safe mode), so it no longer clobbers Gboard's composing region.
 - [x] **Keyboard should lose focus on dismiss**
 
 ## SMALL bugs
 
 - borders flicker white when tabbing in -
-- dedup spaces in reply string X
-- style bug, add stretch for tab bar channels X
 - notifs don't matter if no foreground in android (ios push notifs, change if server) - DO NOT do, adding server soon
-- fast swipe default X
-- double connected msg ios X
-- anon -> acc = nothing to show it's connecting + check weirdly long connect time? X
-- still duping sys msgs in robotty msgs (I think maybe, idk if it's true anymore) X
-- emotes don't pick max quality after low -> high X
-- test emotes on low / high X
-- user panel janky with msgs X
-- chat msg delta doesn't work with unrendered msgs X
-- emote images: same URL fetches aren't coalesced on the normal cache path (only the overflow path is); defer to a fetch-path refactor X
-- nothing-tier: emotes render from cache only, no eviction; audit that raising the tier invalidates emotes cached under the wrong config X
-- emote disk cache caps by object count, not bytes X
-- in-memory per-channel emote metadata has no cap; freed only when leaving a channel
-- foreign personal 7TV set placeholders can exceed the 50-entry cap via the socket insert path (metadata only) X
-- possible change: don't pause neighbor panels so you can almost half-scroll and still see channel moving (just do later, not now. more urgent things)
 - optimize mod view eventually (currently sweeping it under the rug)
 - add #channel in mentions X
 - liquid glass?
@@ -111,3 +95,6 @@
 - fix sub emotes
 - emotes too eager to diff
 - integrate ermchat-server better (retry)
+
+- add /bug and /feat cmds X
+- troubleshoot lag on copy

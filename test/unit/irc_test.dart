@@ -3665,7 +3665,11 @@ void main() {
     }
 
     for (final (name, badge, expectCooldown) in [
-      ('slow mode arms a countdown after your own message', null, true),
+      (
+        'slow mode arms a countdown after your own accepted message',
+        null,
+        true,
+      ),
       ('slow-exempt badges skip the slow-mode countdown', 'moderator', false),
     ]) {
       test(name, () async {
@@ -3674,7 +3678,16 @@ void main() {
         if (badge != null) {
           conn.readDecoder.selfBadges['test'] = {badge};
         }
+        // The send alone must not arm: only Twitch's echo proves it landed, so
+        // a rejected attempt cannot reset the window.
         await conn.doSendMessage('hi', 'test');
+        expect(conn.remainingSlowCooldown('test'), isNull, reason: name);
+
+        ircRead.username = 'viewer';
+        ircRead.handleLine(
+          ':viewer!viewer@viewer.tmi.twitch.tv PRIVMSG #test :hi',
+        );
+        await Future<void>.delayed(Duration.zero);
         if (expectCooldown) {
           expect(
             conn.remainingSlowCooldown('test'),
@@ -3687,6 +3700,35 @@ void main() {
         conn.dispose();
       });
     }
+
+    test('a 3s slow counts exactly 3, without the send grace', () async {
+      final (conn, ircRead) = await makeConn();
+      ircRead.handleLine('@room-id=1;slow=3 :tmi.twitch.tv ROOMSTATE #test');
+      ircRead.username = 'viewer';
+      ircRead.handleLine(
+        ':viewer!viewer@viewer.tmi.twitch.tv PRIVMSG #test :hi',
+      );
+      await Future<void>.delayed(Duration.zero);
+      expect(conn.remainingSlowCooldown('test'), 3);
+      conn.dispose();
+    });
+
+    test('a rejected send does not reset the slow cooldown', () async {
+      final (conn, ircRead) = await makeConn();
+      ircRead.handleLine('@room-id=1;slow=30 :tmi.twitch.tv ROOMSTATE #test');
+      ircRead.username = 'viewer';
+      ircRead.handleLine(
+        ':viewer!viewer@viewer.tmi.twitch.tv PRIVMSG #test :hi',
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 1100));
+      final before = conn.remainingSlowCooldown('test');
+
+      // A follow-up that never echoes, as if slow-rejected, must not push the
+      // window back up.
+      await conn.doSendMessage('again', 'test');
+      expect(conn.remainingSlowCooldown('test'), lessThanOrEqualTo(before!));
+      conn.dispose();
+    });
 
     test('own timeout arms the countdown, other timeouts do not', () async {
       final (conn, ircRead) = await makeConn();
