@@ -101,6 +101,12 @@ class _EmoteScaleResolverState extends State<EmoteScaleResolver> {
     _token = token;
     final result = await widget.images.resolve(widget.emote, widget.surface);
     if (!mounted || !identical(_token, token)) return;
+    // A warm emote already painted this answer through _applySync.
+    if (_resolved &&
+        _url == result?.url &&
+        _placeholder == result?.placeholder) {
+      return;
+    }
     setState(() {
       _url = result?.url;
       _placeholder = result?.placeholder;
