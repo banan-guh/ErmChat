@@ -79,11 +79,11 @@
 - [ ] **Extra search feats** - words to filter search
 - [ ] **Badge info**
 - [x] **Gboard autocorrect overridden** - single-backspace undo is now a TextInputFormatter port of Android's mark-as-replaced DEL undo (safe mode), so it no longer clobbers Gboard's composing region.
-- [ ] **Keyboard should lose focus on dismiss**
+- [x] **Keyboard should lose focus on dismiss**
 
 ## SMALL bugs
 
-- borders flicker white when tabbing in
+- borders flicker white when tabbing in -
 - dedup spaces in reply string X
 - style bug, add stretch for tab bar channels X
 - notifs don't matter if no foreground in android (ios push notifs, change if server) - DO NOT do, adding server soon
@@ -102,12 +102,12 @@
 - foreign personal 7TV set placeholders can exceed the 50-entry cap via the socket insert path (metadata only)
 - possible change: don't pause neighbor panels so you can almost half-scroll and still see channel moving (just do later, not now. more urgent things)
 - optimize mod view eventually (currently sweeping it under the rug)
-- add #channel in mentions
+- add #channel in mentions X
 - liquid glass?
 - change emote panel UI to have # emotes where emote slider is X
 - channel edit name
 - review to see if emote mb cap is robust
-- liquid glass is NOT default
+- liquid glass is NOT default X
 - fix sub emotes
 - emotes too eager to diff
 - integrate ermchat-server better (retry)

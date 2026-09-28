@@ -206,7 +206,7 @@ class Prefs {
 
   static const _kLiquidGlass = 'liquid_glass';
 
-  bool get liquidGlass => _p.getBool(_kLiquidGlass) ?? true;
+  bool get liquidGlass => _p.getBool(_kLiquidGlass) ?? false;
 
   Future<void> setLiquidGlass(bool value) => _p.setBool(_kLiquidGlass, value);
 

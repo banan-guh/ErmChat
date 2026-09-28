@@ -210,8 +210,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   bool _lineSeparator = false;
   bool _fastSnap = true;
 
-  /// Liquid glass chrome (default on; toggled in Customization).
-  bool _liquidGlass = true;
+  /// Liquid glass chrome (default off; toggled in Customization).
+  bool _liquidGlass = false;
 
   /// 7TV name paints (default off; toggled in Chat settings).
   bool _showNamePaints = false;
