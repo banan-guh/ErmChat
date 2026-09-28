@@ -38,7 +38,8 @@ class MainActivity : FlutterActivity() {
     private val ttsChannelName = "ermchat/tts"
     private var ttsMethodChannel: MethodChannel? = null
 
-    // Device facts Dart sizes memory budgets from (image cache, frame capture).
+    // Device facts: memory budgets (image cache, frame capture) and bug report
+    // diagnostics.
     private val deviceChannelName = "ermchat/device"
 
     // System Picture-in-Picture for the stream player (DankChat pattern, no
@@ -104,6 +105,7 @@ class MainActivity : FlutterActivity() {
                         am.getMemoryInfo(info)
                         result.success(info.totalMem)
                     }
+                    "deviceModel" -> result.success("${Build.MANUFACTURER} ${Build.MODEL}")
                     else -> result.notImplemented()
                 }
             }

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../models/emote_fetch_tier.dart';
+import '../../report_config.dart';
 import '../../services/analytics_service.dart';
 import '../../services/emote_manager.dart';
 import '../../services/twitch_auth.dart';
@@ -11,6 +12,7 @@ import 'channel_settings_screen.dart';
 import 'chat_settings_screen.dart';
 import 'customization_screen.dart';
 import 'emotes_settings_screen.dart';
+import 'report_bug_screen.dart';
 import 'settings_page.dart';
 import 'stream_settings_screen.dart';
 import 'tools_settings_screen.dart';
@@ -178,6 +180,17 @@ class SettingsScreen extends StatelessWidget {
               ),
             ),
           ),
+          // Reports carry the signed-in Twitch identity, so the entry only
+          // shows for a real account with the report server configured.
+          if (twitchAuth.isConfigured && ReportConfig.isConfigured)
+            SettingsNavTile(
+              icon: Icons.bug_report,
+              title: 'Report a bug',
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const ReportBugScreen()),
+              ),
+            ),
           SettingsNavTile(
             icon: Icons.info,
             title: 'About',

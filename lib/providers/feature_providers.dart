@@ -1,7 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/twitch_message.dart';
+import '../report_config.dart';
+import '../services/bug_report_outbox.dart';
 import '../services/analytics_service.dart';
 import '../services/chat_history_controller.dart';
 import '../services/command_handler.dart';
@@ -210,4 +214,28 @@ class ReconnectedTick extends Notifier<int> {
 
 final reconnectedTickProvider = NotifierProvider<ReconnectedTick, int>(
   ReconnectedTick.new,
+);
+
+/// In-app bug report outbox. Loads on first read and resends queued reports
+/// whenever the network returns or the signed-in account changes.
+final bugReportOutboxProvider = Provider<BugReportOutbox>((ref) {
+  final auth = ref.read(twitchAuthProvider);
+  final outbox = BugReportOutbox(
+    endpoint: ReportConfig.endpoint,
+    secret: ReportConfig.secret,
+    accessToken: () => auth.accessToken,
+  );
+  unawaited(outbox.load().then((_) => outbox.flush()));
+  final connectivity = ref.read(connectivityServiceProvider);
+  ref.listen(connectivityTickProvider, (_, _) {
+    if (connectivity.isOnline) unawaited(outbox.flush());
+  });
+  ref.listen(twitchAuthTickProvider, (_, _) => unawaited(outbox.flush()));
+  ref.onDispose(outbox.dispose);
+  return outbox;
+});
+
+/// Rebuild tick for screens rendering the outbox.
+final bugReportOutboxTickProvider = NotifierProvider<ChangeNotifierTick, int>(
+  () => ChangeNotifierTick((ref) => ref.watch(bugReportOutboxProvider)),
 );
