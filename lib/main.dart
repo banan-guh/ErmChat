@@ -26,6 +26,7 @@ import 'util/prefs.dart';
 import 'util/prefs_store.dart';
 import 'util/crash_report.dart';
 import 'widgets/app_snack.dart';
+import 'widgets/emote_url_provider.dart';
 import 'widgets/tabbed_layout.dart';
 
 void main() async {
@@ -37,6 +38,7 @@ void main() async {
   final imageCache = PaintingBinding.instance.imageCache;
   imageCache.maximumSize = 1000;
   imageCache.maximumSizeBytes = 100 << 20;
+  if (Platform.isAndroid) unawaited(_shrinkForLowRam(imageCache));
   // Edge-to-edge: draw behind the system bars and take manual ownership
   // of insets (bars via viewPadding, keyboard via viewInsets). The engine
   // flips the window flags; themes declare transparent bars + icon style.
@@ -75,6 +77,23 @@ void main() async {
     ),
     reportError,
   );
+}
+
+/// Halves the decoded-image budgets on phones under 4GB of RAM, where 100MB
+/// of frames invites GC stalls and background kills. A 4GB phone reports
+/// about 3.7GiB total, hence the 3.5GiB cut. Runs off the boot path; the
+/// defaults hold until the answer lands.
+Future<void> _shrinkForLowRam(ImageCache imageCache) async {
+  try {
+    final total = await const MethodChannel(
+      'ermchat/device',
+    ).invokeMethod<int>('totalMemBytes');
+    if (total == null || total >= 7 << 29) return;
+    imageCache.maximumSizeBytes = 48 << 20;
+    EmoteUrlProvider.maxCapturedEmotes = 10;
+  } catch (_) {
+    // Unknown device: keep the defaults.
+  }
 }
 
 /// Pre-warms chat history during boot, concurrent with storage and first frame.

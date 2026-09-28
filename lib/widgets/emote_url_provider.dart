@@ -131,10 +131,11 @@ class EmoteUrlProvider extends ImageProvider<EmoteUrlProvider> {
   static bool _isChatUrl(String url) => _chatTouched.containsKey(url);
 
   /// Captured animated emotes ordered by last touch, oldest first. Bounded so
-  /// the decoded-frame cache cannot grow without limit.
+  /// the decoded-frame cache cannot grow without limit; low-RAM devices lower
+  /// the bound at startup.
   static final Map<String, int> _capturedOrder = <String, int>{};
   static int _capturedSeq = 0;
-  static const maxCapturedEmotes = 20;
+  static int maxCapturedEmotes = 20;
 
   /// Records that [url] holds captured frames and trims the oldest evictable
   /// entries back to streaming. Visible emotes are never trimmed; if every

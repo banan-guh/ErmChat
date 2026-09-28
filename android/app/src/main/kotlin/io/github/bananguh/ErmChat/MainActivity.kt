@@ -1,5 +1,6 @@
 package io.github.bananguh.ErmChat
 
+import android.app.ActivityManager
 import android.app.PendingIntent
 import android.app.PictureInPictureParams
 import android.app.RemoteAction
@@ -36,6 +37,9 @@ class MainActivity : FlutterActivity() {
     // an intent to open it.
     private val ttsChannelName = "ermchat/tts"
     private var ttsMethodChannel: MethodChannel? = null
+
+    // Device facts Dart sizes memory budgets from (image cache, frame capture).
+    private val deviceChannelName = "ermchat/device"
 
     // System Picture-in-Picture for the stream player (DankChat pattern, no
     // plugin): Dart drives `setAutoEnter` from player state and calls
@@ -91,6 +95,18 @@ class MainActivity : FlutterActivity() {
             methodChannel?.invokeMethod("onRedirect", it)
             pendingRedirect = null
         }
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, deviceChannelName)
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "totalMemBytes" -> {
+                        val am = getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+                        val info = ActivityManager.MemoryInfo()
+                        am.getMemoryInfo(info)
+                        result.success(info.totalMem)
+                    }
+                    else -> result.notImplemented()
+                }
+            }
         ttsMethodChannel =
             MethodChannel(flutterEngine.dartExecutor.binaryMessenger, ttsChannelName)
         ttsMethodChannel?.setMethodCallHandler { call, result ->
