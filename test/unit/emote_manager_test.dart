@@ -192,63 +192,27 @@ void main() {
     );
   });
 
-  test(
-    'evicts down to maxBytes and makes room for writes by priority',
-    () async {
-      final t = DateTime(2026, 1, 1, 12);
-      repo.seed([
-        _obj('https://example.com/a.png', t, id: 1, length: 1000),
+  test('enforceNow trims to maxBytes by priority', () async {
+    final t = DateTime(2026, 1, 1, 12);
+    repo.seed([
+      for (var i = 0; i < 5; i++)
         _obj(
-          'https://example.com/b.png',
-          t.add(const Duration(hours: 1)),
-          id: 2,
+          'https://example.com/${'abcde'[i]}.png',
+          t.add(Duration(hours: i)),
+          id: i + 1,
           length: 1000,
         ),
-        _obj(
-          'https://example.com/c.png',
-          t.add(const Duration(hours: 2)),
-          id: 3,
-          length: 1000,
-        ),
-        _obj(
-          'https://example.com/d.png',
-          t.add(const Duration(hours: 3)),
-          id: 4,
-          length: 1000,
-        ),
-        _obj(
-          'https://example.com/e.png',
-          t.add(const Duration(hours: 4)),
-          id: 5,
-          length: 1000,
-        ),
-      ]);
-      manager.maxBytes = 3000;
+    ]);
+    manager.maxBytes = 3000;
 
-      await manager.enforceNow();
+    await manager.enforceNow();
 
-      expect(repo.keys, [
-        'https://example.com/c.png',
-        'https://example.com/d.png',
-        'https://example.com/e.png',
-      ]);
-
-      expect(await manager.isFull(), isTrue);
-
-      // The write evicts the lowest-priority file (c, oldest by far) before
-      // attempting the download. The mocked 400 download then fails, so the
-      // repo keeps the two higher-priority files and gains nothing.
-      await expectLater(
-        manager.getFileStream('https://example.com/new.png'),
-        emitsError(anything),
-      );
-
-      expect(repo.keys, [
-        'https://example.com/d.png',
-        'https://example.com/e.png',
-      ]);
-    },
-  );
+    expect(repo.keys, [
+      'https://example.com/c.png',
+      'https://example.com/d.png',
+      'https://example.com/e.png',
+    ]);
+  });
 
   test('registry priority overrides the file touched time', () async {
     final t = DateTime(2026, 1, 1, 12);
@@ -273,74 +237,58 @@ void main() {
     expect(repo.keys, ['https://example.com/b.png']);
   });
 
-  test('write-time eviction skips candidates within the read grace', () async {
-    // All candidates were used/stored within the grace window, so nothing is
-    // evictable and the write falls back to the temp-file path: the mocked
-    // download fails but the repo stays untouched (the overflow grace is
-    // covered by the 30s temp-file policy, not repo eviction).
-    final t = DateTime.now();
-    repo.seed([
-      _obj('https://example.com/a.png', t, id: 1, length: 1000),
-      _obj('https://example.com/b.png', t, id: 2, length: 1000),
-      _obj('https://example.com/c.png', t, id: 3, length: 1000),
-    ]);
-    manager.maxBytes = 3000;
+  group('EmoteCacheRepository', () {
+    late EmoteCacheBudget budget;
+    late EmoteCacheRepository budgetRepo;
 
-    await expectLater(
-      manager.getFileStream('https://example.com/new1.png'),
-      emitsError(anything),
-    );
-    await expectLater(
-      manager.getFileStream('https://example.com/new2.png'),
-      emitsError(anything),
-    );
+    setUp(() {
+      budget = EmoteCacheBudget(maxBytes: 3000);
+      budgetRepo = EmoteCacheRepository(repo, budget);
+    });
 
-    expect(repo.keys, hasLength(3));
-  });
+    test('reports nothing while within the byte budget', () async {
+      final t = DateTime(2026, 1, 1, 12);
+      repo.seed([
+        _obj('https://example.com/a.png', t, id: 1, length: 1000),
+        _obj('https://example.com/b.png', t, id: 2, length: 1000),
+      ]);
 
-  test('write-time eviction picks the lowest-scored entry', () async {
-    final t = DateTime(2026, 1, 1, 12);
-    repo.seed([
-      _obj('https://example.com/a.png', t, id: 1, length: 1000),
-      _obj('https://example.com/b.png', t, id: 2, length: 1000),
-      _obj('https://example.com/c.png', t, id: 3, length: 1000),
-    ]);
-    manager.maxBytes = 3000;
-    // b is the lowest-scored emote even though it is not the oldest on disk.
-    manager.policy = _FixedPolicy(
-      scoreOf: (url) => switch (url) {
-        'https://example.com/a.png' => 1.0,
-        'https://example.com/b.png' => 0.2,
-        _ => 0.9,
-      },
-      lastUsedOf: (url) => t.add(const Duration(days: 1)),
-    );
+      expect(await budgetRepo.totalBytes(), 2000);
+      // The package's entry-count capacity is ignored.
+      expect(await budgetRepo.getObjectsOverCapacity(0), isEmpty);
+    });
 
-    await expectLater(
-      manager.getFileStream('https://example.com/new.png'),
-      emitsError(anything),
-    );
+    test('trims the lowest-scored rows until the budget fits', () async {
+      final t = DateTime(2026, 1, 1, 12);
+      repo.seed([
+        _obj('https://example.com/a.png', t, id: 1, length: 1000),
+        _obj('https://example.com/b.png', t, id: 2, length: 1000),
+        _obj('https://example.com/c.png', t, id: 3, length: 1000),
+        _obj('https://example.com/d.png', t, id: 4, length: 1000),
+      ]);
+      // b is the lowest-scored emote even though it is not the oldest on disk.
+      budget.policy = _FixedPolicy(
+        scoreOf: (url) => switch (url) {
+          'https://example.com/b.png' => 0.2,
+          _ => 0.9,
+        },
+        lastUsedOf: (url) => t,
+      );
 
-    expect(repo.keys, [
-      'https://example.com/a.png',
-      'https://example.com/c.png',
-    ]);
-  });
+      final victims = await budgetRepo.getObjectsOverCapacity(20000);
 
-  test('repeated isFull within the TTL reuses one repo scan', () async {
-    final t = DateTime(2026, 1, 1, 12);
-    repo.seed([
-      _obj('https://example.com/a.png', t, id: 1, length: 1000),
-      _obj('https://example.com/b.png', t, id: 2, length: 1000),
-    ]);
-    manager.maxBytes = 1024 * 1024;
+      expect(victims.map((o) => o.url), ['https://example.com/b.png']);
+    });
 
-    // A burst of sequential fetches: each isFull must not re-scan the repo.
-    expect(await manager.isFull(), isFalse);
-    expect(await manager.isFull(), isFalse);
-    expect(await manager.isFull(), isFalse);
+    test('never trims rows used within the read grace', () async {
+      final now = DateTime.now();
+      repo.seed([
+        _obj('https://example.com/a.png', now, id: 1, length: 2000),
+        _obj('https://example.com/b.png', now, id: 2, length: 2000),
+      ]);
 
-    expect(repo.getAllObjectsCalls, 1);
+      expect(await budgetRepo.getObjectsOverCapacity(20000), isEmpty);
+    });
   });
 
   TestWidgetsFlutterBinding.ensureInitialized();

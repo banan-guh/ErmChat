@@ -14,8 +14,8 @@ import 'emote_usage_registry.dart';
 
 /// The image black box: owns every emote image byte on disk and in flight.
 ///
-/// Wraps the capped [EmoteCacheManager] (disk repo, eviction, overflow temp
-/// files), the [EmoteProbeMemo] existence cache, the seen-emote precache
+/// Wraps the capped [EmoteCacheManager] (disk repo and byte-budget trim),
+/// the [EmoteProbeMemo] existence cache, the seen-emote precache
 /// queue, and the cache-GC migrations. Priority scoring arrives through an
 /// [EmoteImagePolicy], so bytes depend on policy and policy depends on
 /// nothing here.
@@ -79,7 +79,7 @@ class EmoteImages {
     try {
       return await _probe.probe(
         url,
-        (u) async => (await _cache.getCachedFile(u)) != null,
+        (u) async => (await _cache.getFileFromCache(u)) != null,
       );
     } catch (_) {
       return false;
@@ -179,24 +179,14 @@ class EmoteImages {
   bool _migrationRanV2 = false;
 
   // ── Bytes ───────────────────────────────────────────────────────────
-  /// Fetches emote bytes, streaming through the disk cache when there is room.
+  /// Fetches emote bytes through the disk cache, downloading on a miss.
   Future<Uint8List> bytes(String url) async {
-    // Stream through disk cache when room; skip to memory when full (the
-    // overflow path is racy).
-    if (!await _cache.isFull()) {
-      await for (final response in _cache.getFileStream(url)) {
-        if (response is FileInfo) {
-          return response.file.readAsBytes();
-        }
+    await for (final response in _cache.getFileStream(url)) {
+      if (response is FileInfo) {
+        return response.file.readAsBytes();
       }
-      throw StateError('no emote bytes for $url');
     }
-    // Full cache: try disk cache, then one shared network download.
-    final cached = await _cache.getCachedFile(url);
-    if (cached != null) {
-      return cached.readAsBytes();
-    }
-    return _cache.getOverflowBytes(url, const {'User-Agent': 'ermchat'});
+    throw StateError('no emote bytes for $url');
   }
 
   /// Removes [url] from the disk cache (live 7TV eviction).
@@ -266,7 +256,6 @@ class EmoteImages {
   }
 
   Future<void> _precacheEmote(Emote emote) async {
-    if (await _cache.isFull()) return;
     final target = EmotePicker.downloadTarget(emote, EmoteSurface.chat, _tier);
     if (target == null) return;
     final targetScale = EmotePicker.scaleOf(emote, target);

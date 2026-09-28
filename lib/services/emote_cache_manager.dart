@@ -1,21 +1,17 @@
 import 'dart:async';
 import 'dart:math' as math;
 
-import 'package:file/file.dart';
-import 'package:file/local.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'package:http/http.dart' as http;
-import 'package:path_provider/path_provider.dart';
 
 import '../models/emote_fetch_tier.dart';
-import '../util/log.dart';
 import '../util/data_usage.dart';
+import '../util/log.dart';
 import 'emote_usage_registry.dart';
 
-/// Shared HTTP client for the cache-full fallback path plus the emote image
-/// loader's full-cache direct fetch, reused across a burst of overflow
-/// downloads. Process lifetime by design: one client serves the whole app.
+/// Shared HTTP client for every emote image download. Process lifetime by
+/// design: one client serves the whole app.
 final http.Client emoteFetchClient = http.Client();
 
 /// Snapshot of the emote image disk cache.
@@ -29,542 +25,301 @@ class EmoteCacheStats {
   final int totalBytes;
 }
 
+/// Byte budget and keep-priority for the emote disk cache. [maxBytes] and
+/// [policy] are live settings the manager updates in place.
+class EmoteCacheBudget {
+  EmoteCacheBudget({this.maxBytes = defaultEmoteCacheMb * bytesPerMb});
+
+  int maxBytes;
+
+  /// Keep-priority policy for cached URLs, or null when there is no usage
+  /// data (a file then falls back to a recency decay from its touched time).
+  EmoteImagePolicy? policy;
+
+  /// Recency half-life for the no-registry fallback score.
+  static const _fallbackHalfLife = Duration(days: 3);
+
+  /// Files used within this window are never trimmed, so a render mid-read
+  /// cannot lose its file.
+  static const readGrace = Duration(minutes: 1);
+
+  /// Whether [totalBytes] fits. A zero budget fits nothing, so it clears
+  /// rows with no recorded length too.
+  bool fits(int totalBytes) => maxBytes > 0 && totalBytes <= maxBytes;
+
+  /// Rows to delete, lowest priority first, until [objects] fit the budget.
+  /// Rows inside [readGrace] are skipped, so the result can leave the cache
+  /// over budget until they age out.
+  List<CacheObject> overBudget(List<CacheObject> objects, DateTime now) {
+    var total = 0;
+    for (final object in objects) {
+      total += object.length ?? 0;
+    }
+    if (fits(total)) return const [];
+    final candidates = [
+      for (final object in objects)
+        if (!_withinGrace(object, now)) object,
+    ]..sort((a, b) => score(a, now).compareTo(score(b, now)));
+    final victims = <CacheObject>[];
+    for (final object in candidates) {
+      if (fits(total)) break;
+      victims.add(object);
+      total -= object.length ?? 0;
+    }
+    return victims;
+  }
+
+  /// Keep-priority: the registry score when it has usage data, else a recency
+  /// decay from the file's touched time.
+  double score(CacheObject object, DateTime now) {
+    final scored = policy?.score(object.url);
+    if (scored != null) return scored;
+    final stored =
+        object.touched ?? DateTime.fromMillisecondsSinceEpoch(object.id ?? 0);
+    final hours = now.difference(stored).inHours;
+    return math.exp(-hours / _fallbackHalfLife.inHours.toDouble());
+  }
+
+  bool _withinGrace(CacheObject object, DateTime now) {
+    final used = policy?.lastUsedAt(object.url);
+    if (used != null && now.difference(used) < readGrace) return true;
+    final touched = object.touched;
+    return touched != null && now.difference(touched) < readGrace;
+  }
+}
+
+/// Repository decorator that makes flutter_cache_manager's own cleanup
+/// byte-aware. The store asks [getObjectsOverCapacity] after cache activity
+/// (at most every 10s); this answers from [budget] instead of an entry count,
+/// so every download lands on disk and the cache trims itself in the
+/// background.
+class EmoteCacheRepository implements CacheInfoRepository {
+  EmoteCacheRepository(this._inner, this.budget);
+
+  final CacheInfoRepository _inner;
+  final EmoteCacheBudget budget;
+
+  /// Sum of cached file sizes: one SQL aggregate on the default sqflite
+  /// repository, a full row read on any other.
+  Future<int> totalBytes() async {
+    final inner = _inner;
+    final db = inner is CacheObjectProvider ? inner.db : null;
+    if (db != null) {
+      try {
+        // Table name mirrors the package's private constant.
+        final rows = await db.rawQuery(
+          'SELECT COALESCE(SUM(${CacheObject.columnLength}), 0) AS total '
+          'FROM cacheObject',
+        );
+        return (rows.first['total'] as num).toInt();
+      } catch (e) {
+        // Schema drift in the package: fall back to summing rows.
+        logDebug('[EmoteCacheManager] SUM query failed, summing rows: $e');
+      }
+    }
+    var total = 0;
+    for (final object in await _inner.getAllObjects()) {
+      total += object.length ?? 0;
+    }
+    return total;
+  }
+
+  @override
+  Future<List<CacheObject>> getObjectsOverCapacity(int capacity) async {
+    if (budget.fits(await totalBytes())) return const [];
+    final victims = budget.overBudget(
+      await _inner.getAllObjects(),
+      DateTime.now(),
+    );
+    for (final _ in victims) {
+      DataUsageStats.I.recordEviction();
+    }
+    return victims;
+  }
+
+  @override
+  Future<bool> exists() => _inner.exists();
+
+  @override
+  Future<bool> open() => _inner.open();
+
+  @override
+  Future<dynamic> updateOrInsert(CacheObject cacheObject) =>
+      _inner.updateOrInsert(cacheObject);
+
+  @override
+  Future<CacheObject> insert(
+    CacheObject cacheObject, {
+    bool setTouchedToNow = true,
+  }) => _inner.insert(cacheObject, setTouchedToNow: setTouchedToNow);
+
+  @override
+  Future<CacheObject?> get(String key) => _inner.get(key);
+
+  @override
+  Future<int> delete(int id) => _inner.delete(id);
+
+  @override
+  Future<int> deleteAll(Iterable<int> ids) => _inner.deleteAll(ids);
+
+  @override
+  Future<int> update(CacheObject cacheObject, {bool setTouchedToNow = true}) =>
+      _inner.update(cacheObject, setTouchedToNow: setTouchedToNow);
+
+  @override
+  Future<List<CacheObject>> getAllObjects() => _inner.getAllObjects();
+
+  @override
+  Future<List<CacheObject>> getOldObjects(Duration maxAge) =>
+      _inner.getOldObjects(maxAge);
+
+  @override
+  Future<bool> close() => _inner.close();
+
+  @override
+  Future<void> deleteDataFile() => _inner.deleteDataFile();
+}
+
+/// Emote downloads: adds the User-Agent some CDNs require and counts the
+/// bytes toward data usage.
+class _EmoteFileService extends FileService {
+  _EmoteFileService(this._inner);
+
+  final FileService _inner;
+
+  @override
+  int get concurrentFetches => _inner.concurrentFetches;
+
+  @override
+  set concurrentFetches(int value) => _inner.concurrentFetches = value;
+
+  @override
+  Future<FileServiceResponse> get(
+    String url, {
+    Map<String, String>? headers,
+  }) async {
+    final response = await _inner.get(
+      url,
+      headers: {'User-Agent': 'ermchat', ...?headers},
+    );
+    return _CountedResponse(response);
+  }
+}
+
+class _CountedResponse implements FileServiceResponse {
+  _CountedResponse(this._inner);
+
+  final FileServiceResponse _inner;
+
+  @override
+  Stream<List<int>> get content => _inner.content.map((chunk) {
+    DataUsageStats.I.recordEmoteDownload(chunk.length);
+    return chunk;
+  });
+
+  @override
+  int? get contentLength => _inner.contentLength;
+
+  @override
+  int get statusCode => _inner.statusCode;
+
+  @override
+  DateTime get validTill => _inner.validTill;
+
+  @override
+  String? get eTag => _inner.eTag;
+
+  @override
+  String get fileExtension => _inner.fileExtension;
+}
+
 /// Dedicated disk cache for emote images. Every emote render (chat, emote
 /// menu, sheet, autocomplete, analytics) shares this store: the custom loop
 /// through `EmoteImages.bytes`, stock cells via [CachedNetworkImageProvider]
 /// with this manager. Chat Giphy GIFs are the exception (memory-only).
 ///
-/// The cache never exceeds [maxBytes]: a write is only accepted while the
-/// byte total (plus in-flight estimates) is below the cap, so a burst of new
-/// emotes can't overshoot it. When the cache is full, new emotes are served
-/// from an OS temp file without ever entering the repo, so renders keep
-/// working but the disk cache stays put (temp files are evicted once older
-/// than [_overflowGrace], so a consumer can never race a deletion mid-read).
-/// [isFull] backs the precacher's skip decision, and [enforceNow] (settings
-/// Apply / startup) evicts down to a newly reduced cap by priority
-/// ([lastUsedAt] registry lookup, falling back to the file's touched time).
+/// Every download is written to disk. The cap is enforced by the package's
+/// own cleanup through [EmoteCacheRepository], which trims to [maxBytes] by
+/// usage priority in the background, so the cap is soft for up to one
+/// cleanup interval. [enforceNow] (settings Apply / startup) trims at once.
 class EmoteCacheManager extends CacheManager {
-  EmoteCacheManager([Config? config]) : super(config ?? _defaultConfig());
+  factory EmoteCacheManager([Config? config]) =>
+      EmoteCacheManager._build(config ?? _defaultConfig());
+
+  @visibleForTesting
+  factory EmoteCacheManager.forTesting(Config config) =>
+      EmoteCacheManager._build(config);
+
+  factory EmoteCacheManager._build(Config config) {
+    final repo = EmoteCacheRepository(config.repo, EmoteCacheBudget());
+    return EmoteCacheManager._(
+      repo,
+      Config(
+        config.cacheKey,
+        stalePeriod: config.stalePeriod,
+        maxNrOfCacheObjects: config.maxNrOfCacheObjects,
+        repo: repo,
+        fileSystem: config.fileSystem,
+        fileService: _EmoteFileService(config.fileService),
+      ),
+    );
+  }
+
+  EmoteCacheManager._(this._repo, super.config);
 
   static Config _defaultConfig() => Config(
     'emoteImageCacheV3',
-    // Byte cap below binds first; this stays non-binding for large libraries.
+    // The byte budget binds first; this stays non-binding for large libraries.
     maxNrOfCacheObjects: 20000,
     stalePeriod: const Duration(days: 30),
+    fileService: HttpFileService(httpClient: emoteFetchClient),
   );
 
-  @visibleForTesting
-  EmoteCacheManager.forTesting(super.config);
+  final EmoteCacheRepository _repo;
 
-  static const _downloadTimeout = Duration(seconds: 10);
+  EmoteCacheBudget get _budget => _repo.budget;
 
-  /// Overflow temp files younger than this are never deleted: a consumer may
-  /// still be reading them. Reads complete in milliseconds, so the grace is
-  /// generous; only files that have certainly been consumed are evicted.
-  static const _overflowGrace = Duration(seconds: 30);
-
-  /// Sequence disambiguating temp files created within the same microsecond.
-  static int _overflowSeq = 0;
-
-  /// How long a repo byte-total read is trusted. Bursts of fetches (e.g. an
-  /// emote menu opening with dozens of cells) share one total within the TTL
-  /// instead of re-scanning the repo per emote; [isFull] only gates soft
-  /// decisions (persist vs. temp-file serve), so slight staleness is fine.
-  static const _bytesTtl = Duration(milliseconds: 1500);
-
-  int _maxBytes = defaultEmoteCacheMb * bytesPerMb;
-
-  /// Writes currently in flight through the parent [CacheManager]. They will
-  /// land in the repo shortly, so they count toward the cap while pending.
-  int _pendingWrites = 0;
-
-  /// Serialized read of the repo byte total, coalesced across simultaneous
-  /// callers and reused within [_bytesTtl] for sequential ones.
-  Future<int>? _bytesRead;
-  int? _cachedBytes;
-  DateTime? _cachedBytesAt;
-
-  /// Serializes check-and-reserve so concurrent writers cannot all pass on
-  /// the same stale count before any increments [_pendingWrites].
-  Future<void> _reserveTail = Future.value();
-
-  /// In-flight overflow downloads by URL. Concurrent renders of the same
-  /// uncached emote await one GET instead of starting their own. No cached
-  /// bytes are kept: completed downloads live on in shared image memory
-  /// (Flutter ImageCache plus the live completers), so there is no second
-  /// eviction policy to get wrong.
-  final Map<String, Future<Uint8List>> _overflowInflight = {};
-
-  /// Temp files served while the cache was full. Evicted only once they're
-  /// older than [_overflowGrace] (the consumer has certainly read them by
-  /// then); fresh files are never deleted, so a concurrent fetch can't hit a
-  /// PathNotFoundException mid-read.
-  final List<({File file, DateTime createdAt})> _overflowFiles = [];
-
-  /// Keep-priority policy for cached URLs, or null when there is no usage
-  /// data (a file then falls back to a recency decay from its stored time).
-  /// Set by the image owner from its usage policy.
-  EmoteImagePolicy? policy;
-
-  /// Recency half-life for the no-registry fallback. A long, lax window so
-  /// cached files age out slowly: combined with the admission check in
-  /// [_evictLowest] this keeps churn (and the rebuild storms it causes) down.
-  static const _fallbackHalfLife = Duration(days: 3);
-
-  /// Eviction candidates used/stored within this window are skipped: a
-  /// render may still be reading the file (the same reason overflow temp
-  /// files get a grace period).
-  static const _evictionGrace = Duration(seconds: 2);
-
-  /// URLs handed out by [getCachedFile] within [_evictionGrace]. A concurrent
-  /// eviction skips them so a render mid-read never hits a deleted file.
-  final Map<String, DateTime> _readProtected = {};
-
-  /// Hard cap on cached emote bytes. Once reached, new emotes are served from
-  /// temp files instead of being written to the cache.
-  int get maxBytes => _maxBytes;
+  /// Byte budget for cached emote files.
+  int get maxBytes => _budget.maxBytes;
 
   set maxBytes(int value) {
-    _maxBytes = value.clamp(0, maxEmoteCacheMb * bytesPerMb).toInt();
+    _budget.maxBytes = value.clamp(0, maxEmoteCacheMb * bytesPerMb).toInt();
   }
 
-  /// True when the cache is at/over [maxBytes] (counting writes in flight at
-  /// the fallback average size). New emotes should then be served without
-  /// persisting.
-  Future<bool> isFull() async {
-    if (_maxBytes <= 0) return true;
-    final total = await _totalBytes();
-    return total + _pendingWrites * fallbackEmoteAvgBytes >= _maxBytes;
-  }
+  /// Keep-priority policy for trimming. Set by the image owner from its usage
+  /// registry.
+  EmoteImagePolicy? get policy => _budget.policy;
 
-  /// Runs an enforcement pass immediately (used by the settings Apply path and
-  /// at startup). Normally a no-op since writes are already capped; it only
-  /// does work after the cap was reduced.
-  Future<void> enforceNow() => _enforceCap();
+  set policy(EmoteImagePolicy? value) => _budget.policy = value;
 
-  /// The cached file for [url] when the repo still has it, else null. Read
-  /// path for the cache-full branch: an emote that was persisted before the
-  /// cache filled up must be served from disk instead of re-downloaded. Marks
-  /// the URL read-protected so a concurrent eviction can't delete it mid-read.
-  Future<File?> getCachedFile(String url) async {
-    _pruneStale(DateTime.now());
+  /// Trims to [maxBytes] now instead of on the next cleanup (settings Apply
+  /// and startup, after the cap may have dropped).
+  Future<void> enforceNow() async {
     try {
-      final info = await getFileFromCache(url);
-      if (info?.file != null) {
-        _readProtected[url] = DateTime.now();
-      }
-      return info?.file;
-    } catch (_) {
-      // DB or file gone; the caller falls back to the network.
-      return null;
-    }
-  }
-
-  /// Reserves a write slot for [url]: accepts while under the cap, or evicts the
-  /// lowest-priority cached file to free one. Returns false when the cache is
-  /// full and nothing is evictable (repo empty, every candidate within the read
-  /// grace, or the incoming emote is no more valuable than the lowest cached
-  /// file, in which case we serve it from a temp file instead of churning the
-  /// disk cache); callers then serve from a temp file instead.
-  Future<bool> _acquireWriteSlot(String url) async {
-    _pruneStale(DateTime.now());
-    if (await _tryReserve()) return true;
-    if (!await _evictLowest(policy?.score(url))) return false;
-    // The eviction freed bytes; the cached total is now stale.
-    _invalidateBytes();
-    _pendingWrites++;
-    return true;
-  }
-
-  void _invalidateBytes() {
-    _cachedBytes = null;
-    _cachedBytesAt = null;
-  }
-
-  /// Reserves a write slot, or returns false when the cache is full. Callers
-  /// must release the slot (via [_pendingWrites]-- ) after the write lands.
-  /// Serialized: concurrent callers queue so each sees the prior caller's
-  /// pending increment instead of all passing on one stale count.
-  Future<bool> _tryReserve() {
-    final prev = _reserveTail;
-    final done = Completer<void>();
-    _reserveTail = done.future;
-    return prev.then((_) async {
-      try {
-        if (await isFull()) return false;
-        _pendingWrites++;
-        return true;
-      } finally {
-        done.complete();
-      }
-    });
-  }
-
-  /// Accounts a landed disk write against the cached byte total. The cached
-  /// total is otherwise stale until [_bytesTtl] expires, so a burst of
-  /// successful writes would keep admitting against the pre-burst total and
-  /// overshoot the cap.
-  void _noteBytesInserted(int bytes) {
-    if (_cachedBytes != null) {
-      _cachedBytes = _cachedBytes! + bytes;
-      _cachedBytesAt = DateTime.now();
-    }
-  }
-
-  @override
-  Future<File> getSingleFile(
-    String url, {
-    String? key,
-    Map<String, String>? headers,
-  }) async {
-    if (!await _acquireWriteSlot(url)) {
-      // Full: serve the already-cached copy if there is one; otherwise the
-      // precacher skips this emote (it only wants files the cache keeps).
-      try {
-        final object = await config.repo.get(url);
-        if (object != null) {
-          return await super.getSingleFile(url, key: key, headers: headers);
-        }
-      } catch (_) {
-        // Fall through to the throw below; the caller handles it.
-      }
-      throw StateError('emote cache full: $url');
-    }
-    try {
-      final file = await super.getSingleFile(url, key: key, headers: headers);
-      try {
-        _noteBytesInserted(await file.length());
-      } catch (_) {
-        _invalidateBytes();
-      }
-      return file;
-    } finally {
-      _pendingWrites--;
-    }
-  }
-
-  @override
-  Stream<FileResponse> getFileStream(
-    String url, {
-    String? key,
-    Map<String, String>? headers,
-    bool withProgress = false,
-  }) async* {
-    // Ensure User-Agent is present (some CDNs 403 without it).
-    final mergedHeaders = <String, String>{
-      'User-Agent': 'ermchat',
-      ...?headers,
-    };
-
-    if (!await _acquireWriteSlot(url)) {
-      yield* _serveFromMemory(url, mergedHeaders, withProgress);
-      return;
-    }
-    try {
-      File? landed;
-      await for (final response in super.getFileStream(
-        url,
-        key: key,
-        headers: mergedHeaders,
-        withProgress: withProgress,
-      )) {
-        if (response is FileInfo) landed = response.file;
-        yield response;
-      }
-      if (landed != null) {
-        try {
-          _noteBytesInserted(await landed.length());
-        } catch (_) {
-          _invalidateBytes();
-        }
-      }
-    } finally {
-      _pendingWrites--;
-    }
-  }
-
-  Future<int> _totalBytes() {
-    final inFlight = _bytesRead;
-    if (inFlight != null) return inFlight;
-    final cached = _cachedBytes;
-    final cachedAt = _cachedBytesAt;
-    if (cached != null &&
-        cachedAt != null &&
-        DateTime.now().difference(cachedAt) < _bytesTtl) {
-      return Future.value(cached);
-    }
-    final read = _readTotalBytes()..whenComplete(() => _bytesRead = null);
-    _bytesRead = read;
-    read.then((total) {
-      _cachedBytes = total;
-      _cachedBytesAt = DateTime.now();
-    });
-    return read;
-  }
-
-  Future<int> _readTotalBytes() async {
-    try {
-      final objects = await config.repo.getAllObjects();
-      var total = 0;
-      for (final object in objects) {
-        total += await _objectBytes(object);
-      }
-      return total;
-    } catch (_) {
-      // Can't enumerate the repo; treat it as full so we never overfill.
-      return _maxBytes;
-    }
-  }
-
-  /// Recorded length when present, else the file's real length. Missing files
-  /// count nothing.
-  Future<int> _objectBytes(CacheObject object) async {
-    final recorded = object.length;
-    if (recorded != null) return recorded;
-    try {
-      final file = await config.fileSystem.createFile(object.relativePath);
-      if (await file.exists()) return await file.length();
-    } catch (_) {
-      // Fall through to zero below.
-    }
-    return 0;
-  }
-
-  Future<File> _nextOverflowFile() async {
-    final dir = await getTemporaryDirectory();
-    final file = const LocalFileSystem().file(
-      '${dir.path}/emote_overflow_${DateTime.now().microsecondsSinceEpoch}_${_overflowSeq++}',
-    );
-    await file.create();
-    _overflowFiles.add((file: file, createdAt: DateTime.now()));
-    _pruneStale(DateTime.now());
-    return file;
-  }
-
-  /// Drops expired read-protection entries and best-effort deletes overflow
-  /// temp files past their grace. Fresh files stay: a concurrent fetch may
-  /// still be reading them.
-  void _pruneStale(DateTime now) {
-    _readProtected.removeWhere(
-      (url, at) => now.difference(at) > _evictionGrace,
-    );
-    if (_overflowFiles.isEmpty) return;
-    final evictBefore = now.subtract(_overflowGrace);
-    for (final entry in _overflowFiles.toList()) {
-      if (entry.createdAt.isAfter(evictBefore)) continue;
-      _overflowFiles.remove(entry);
-      unawaited(entry.file.delete().then((_) {}, onError: (Object _) {}));
-    }
-  }
-
-  /// Bytes for [url] served while the disk cache is full. Concurrent callers
-  /// share one GET; the bytes are not retained after all callers finish
-  /// (decoded frames stay shared in image memory). Usage is recorded once
-  /// per actual download, not per caller.
-  Future<Uint8List> getOverflowBytes(
-    String url, [
-    Map<String, String>? headers,
-  ]) {
-    final existing = _overflowInflight[url];
-    if (existing != null) return existing;
-    final future = _downloadOverflowBytes(url, headers);
-    _overflowInflight[url] = future;
-    // The whenComplete copy must not report unhandled errors: callers handle
-    // the original future themselves.
-    future.whenComplete(() => _overflowInflight.remove(url)).ignore();
-    return future;
-  }
-
-  Future<Uint8List> _downloadOverflowBytes(
-    String url,
-    Map<String, String>? headers,
-  ) async {
-    final request = http.Request('GET', Uri.parse(url));
-    if (headers != null) request.headers.addAll(headers);
-    // Some CDNs 403 bare requests; match what the main fetch path sends.
-    request.headers.putIfAbsent('User-Agent', () => 'ermchat');
-    final response = await emoteFetchClient
-        .send(request)
-        .timeout(_downloadTimeout);
-    if (response.statusCode != 200) {
-      throw HttpExceptionWithStatus(
-        response.statusCode,
-        'Failed to download $url: ${response.statusCode}',
-        uri: Uri.parse(url),
+      final victims = _budget.overBudget(
+        await _repo.getAllObjects(),
+        DateTime.now(),
       );
-    }
-    final bytes = await response.stream.toBytes().timeout(_downloadTimeout);
-    DataUsageStats.I.recordEmoteDownload(bytes.length);
-    return bytes;
-  }
-
-  /// Downloads the emote to a temp file outside the cache repo and streams it
-  /// back as a [FileInfo], so renders work without growing the disk cache.
-  /// The network GET is shared across concurrent callers for the same URL;
-  /// each caller still gets its own temp file (existing lifecycle). No
-  /// per-chunk progress is emitted on the shared path.
-  Stream<FileResponse> _serveFromMemory(
-    String url,
-    Map<String, String>? headers,
-    bool withProgress,
-  ) async* {
-    File? file;
-    try {
-      // Write slots are busy (or the cache is full): if the repo still has
-      // the file, serve it instead of downloading a duplicate.
-      final cached = await getCachedFile(url);
-      if (cached != null) {
-        yield FileInfo(
-          cached,
-          FileSource.Cache,
-          DateTime.now().add(const Duration(hours: 1)),
-          url,
-        );
-        return;
-      }
-      final bytes = await getOverflowBytes(url, headers);
-      file = await _nextOverflowFile();
-      await file.writeAsBytes(bytes);
-      yield FileInfo(
-        file,
-        FileSource.Online,
-        DateTime.now().add(const Duration(hours: 1)),
-        url,
-      );
-    } catch (e) {
-      if (file != null) {
+      for (final object in victims) {
         try {
-          await file.delete();
+          await removeFile(object.key);
         } catch (_) {
-          // Best-effort cleanup; the OS temp dir handles leftovers.
+          // A missing file or a racing removal is fine; it's already gone.
         }
       }
-      rethrow;
-    }
-  }
-
-  /// Serializes evictions so concurrent full-cache writes never race a
-  /// removal against another eviction's scan.
-  Future<bool> _evictionTail = Future.value(true);
-
-  /// Evicts the lowest-priority cached file to make room for an incoming emote,
-  /// returning false when nothing is evictable. Admission control: if the
-  /// incoming emote's own score is no better than the lowest cached file, we
-  /// refuse to churn the disk cache and the caller serves it from a temp file
-  /// instead. This stops a flood of one-off emotes from evicting long-lived
-  /// favorites just to re-download them next time.
-  Future<bool> _evictLowest(double? incomingScore) {
-    final tail = _evictionTail.then((_) async {
-      try {
-        final objects = await config.repo.getAllObjects();
-        if (objects.isEmpty) return false;
-        final now = DateTime.now();
-        _readProtected.removeWhere(
-          (url, at) => now.difference(at) > _evictionGrace,
-        );
-        CacheObject? victim;
-        double? bestScore;
-        for (final object in objects) {
-          if (_withinGrace(object, now)) continue;
-          // Never delete a file a render is still reading.
-          if (_readProtected.containsKey(object.url)) continue;
-          final score = _score(object);
-          if (victim == null || score < bestScore!) {
-            victim = object;
-            bestScore = score;
-          }
-        }
-        if (victim == null) return false;
-        // Admission: an incoming emote no more valuable than the weakest cached
-        // file does not earn an eviction. Serve it from temp/network instead.
-        if (incomingScore != null && bestScore! >= incomingScore) {
-          return false;
-        }
-        await removeFile(victim.url);
-        _invalidateBytes();
-        DataUsageStats.I.recordEviction();
-        logDebug(
-          '[EmoteCacheManager] evicted url=${victim.url} '
-          'score=${bestScore!.toStringAsFixed(3)} '
-          'incoming=${incomingScore?.toStringAsFixed(3)}',
-        );
-        return true;
-      } catch (_) {
-        // Enumeration or removal failed; the caller falls back to temp files.
-        return false;
+      if (victims.isNotEmpty) {
+        logDebug('[EmoteCacheManager] trimmed ${victims.length} files');
       }
-    });
-    _evictionTail = tail;
-    return tail;
-  }
-
-  bool _withinGrace(CacheObject object, DateTime now) {
-    final used = policy?.lastUsedAt(object.url);
-    if (used != null && now.difference(used).compareTo(_evictionGrace) < 0) {
-      return true;
-    }
-    final touched = object.touched;
-    return touched != null &&
-        now.difference(touched).compareTo(_evictionGrace) < 0;
-  }
-
-  Future<void> _enforceCap() async {
-    try {
-      final objects = await config.repo.getAllObjects();
-      if (objects.isEmpty) return;
-      if (_maxBytes <= 0) {
-        for (final object in objects) {
-          try {
-            await removeFile(object.url);
-          } catch (_) {
-            // A missing file or a racing removal is fine - it's already gone.
-          }
-        }
-        _invalidateBytes();
-        return;
-      }
-      final sizes = <CacheObject, int>{};
-      var total = 0;
-      for (final object in objects) {
-        final bytes = await _objectBytes(object);
-        sizes[object] = bytes;
-        total += bytes;
-      }
-      if (total <= _maxBytes) return;
-      objects.sort((a, b) => _score(a).compareTo(_score(b)));
-      for (final object in objects) {
-        if (total <= _maxBytes) break;
-        try {
-          await removeFile(object.url);
-          total -= sizes[object] ?? 0;
-        } catch (_) {
-          // A missing file or a racing removal is fine - it's already gone.
-        }
-      }
-      _invalidateBytes();
     } catch (_) {
-      // Enumeration can fail (e.g. db closed); the next pass retries.
+      // Enumeration can fail (e.g. db closed); the next cleanup retries.
     }
   }
 
-  /// Keep-priority score: the registry's score when it has usage data,
-  /// otherwise a recency decay from the file's stored time (unviewed files
-  /// age out like unused registry entries).
-  double _score(CacheObject object) {
-    final scored = policy?.score(object.url);
-    if (scored != null) return scored;
-    final stored =
-        object.touched ?? DateTime.fromMillisecondsSinceEpoch(object.id ?? 0);
-    final hours = DateTime.now().difference(stored).inHours;
-    return math.exp(-hours / (_fallbackHalfLife.inHours.toDouble()));
-  }
-
-  /// Counts the cached emote files still present on disk and their total size
-  /// (the recorded length is used when available, otherwise the file's real
-  /// length). Returns an empty snapshot if the cache can't be inspected.
+  /// Counts the cached emote files still present on disk and their total size.
+  /// Returns an empty snapshot if the cache can't be inspected.
   Future<EmoteCacheStats> stats() async {
     try {
-      final objects = await config.repo.getAllObjects();
+      final objects = await _repo.getAllObjects();
       var count = 0;
       var bytes = 0;
       for (final object in objects) {
