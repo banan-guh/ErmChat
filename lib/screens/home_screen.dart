@@ -1414,7 +1414,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     // Reply card floats above the composer. Hidden while search or the terms
     // box borrows the input, and while the composer is disabled.
     final glass = glassEnabled(context, _liquidGlass);
-    final replyMsg = _composer.replyToMsg;
+    // Watched, not read: the send path clears the reply without a setState.
+    final replyMsg = ref.watch(replyToProvider);
     final replyHeader =
         _showInput &&
             replyMsg != null &&
