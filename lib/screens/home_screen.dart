@@ -900,7 +900,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 
   void _onChannelContent(String channel) {
     _composer.refreshCooldown();
-    _threads.syncSavedWithChannel(channel);
+    _threads.syncSavedWithChannel(channel, newOnly: true);
     _onPanelDataChanged(channel);
   }
 

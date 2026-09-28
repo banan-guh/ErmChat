@@ -222,6 +222,15 @@ class AnalyticsService extends ChangeNotifier {
   }
 
   void _countTokens(_ChannelStats stats, String channel, TwitchMessage msg) {
+    final stamped = msg.emoteTokens;
+    final positions = msg.emotePositions;
+    // Ingest already stamped the emote tokens; an empty stamp with Twitch
+    // positions means the catalog was missing, so tokenize for those.
+    if (stamped != null &&
+        (stamped.isNotEmpty || positions == null || positions.isEmpty)) {
+      _countStamped(stats, msg.text, stamped);
+      return;
+    }
     final byCode = _emoteLookup?.call(channel, msg.userId)?.byCode ?? const {};
     final tokens = EmoteManager.tokenize(
       text: msg.text,
@@ -237,6 +246,31 @@ class AnalyticsService extends ChangeNotifier {
       }
     }
   }
+
+  /// Counts [tokens] as emotes and the text between them as words.
+  void _countStamped(
+    _ChannelStats stats,
+    String text,
+    List<EmoteToken> tokens,
+  ) {
+    var cursor = 0;
+    for (final token in tokens) {
+      final start = token.start.clamp(cursor, text.length);
+      _countGapWords(stats, text.substring(cursor, start));
+      final emote = token.emote;
+      if (emote != null) _countEmote(stats, emote);
+      cursor = token.end.clamp(start, text.length);
+    }
+    _countGapWords(stats, text.substring(cursor));
+  }
+
+  void _countGapWords(_ChannelStats stats, String gap) {
+    for (final word in gap.split(_whitespace)) {
+      if (word.isNotEmpty) _countWord(stats, word);
+    }
+  }
+
+  static final _whitespace = RegExp(r'\s+');
 
   void _countEmote(_ChannelStats stats, Emote emote) {
     final entry = stats.emoteCounts.putIfAbsent(

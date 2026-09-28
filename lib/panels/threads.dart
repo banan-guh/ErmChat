@@ -246,8 +246,14 @@ class ThreadPanels {
     }
   }
 
-  // Mirror fresh channel history into saved threads carrying that channel.
-  void syncSavedWithChannel(String channel) {
+  /// Newest buffer row already mirrored per channel, so live bumps walk only
+  /// the rows above it.
+  final Map<String, TwitchMessage> _syncedHead = {};
+
+  // Mirror fresh channel rows into saved threads carrying that channel.
+  // [newOnly] stops at the last mirrored head (live inserts land on top);
+  // history merges insert mid-buffer, so they pass false for a full pass.
+  void syncSavedWithChannel(String channel, {bool newOnly = false}) {
     var hasSaved = false;
     for (final t in savedThreads.threads) {
       if (t.channel == channel) {
@@ -255,11 +261,17 @@ class ThreadPanels {
         break;
       }
     }
-    if (!hasSaved) return;
+    if (!hasSaved) {
+      _syncedHead.remove(channel);
+      return;
+    }
     final msgs = chat.channelFor(channel)?.messages.items;
     if (msgs == null || msgs.isEmpty) return;
+    final head = newOnly ? _syncedHead[channel] : null;
+    _syncedHead[channel] = msgs.first;
     var appended = false;
     for (final m in msgs) {
+      if (identical(m, head)) break;
       if (m.isSystem) continue;
       if (savedThreads.appendMessage(m)) appended = true;
     }
