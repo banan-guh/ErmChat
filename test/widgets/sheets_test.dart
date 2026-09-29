@@ -120,7 +120,7 @@ void main() {
         await tester.pump();
         await tester.pump();
 
-        await tester.tap(find.text('Open emote link', skipOffstage: false));
+        await tester.tap(find.text('Open link', skipOffstage: false));
         await tester.pump();
         await tester.pump();
 
@@ -136,7 +136,7 @@ void main() {
         await tester.pump();
         await tester.pump();
 
-        await tester.tap(find.text('Open emote link', skipOffstage: false));
+        await tester.tap(find.text('Open link', skipOffstage: false));
         await tester.pump();
         await tester.pump();
 
@@ -691,7 +691,7 @@ void main() {
       // the fold like a garage door (zero-height region), jump arrow hidden.
       await openSheet();
       final settled = sheetController.size;
-      expect(settled, greaterThan(0.5));
+      expect(settled, greaterThan(0.25));
       expect(find.text('TestUser'), findsOneWidget);
       expect(find.text('Report'), findsOneWidget);
       expect(tester.getSize(find.byType(ListView)).height, closeTo(0, 1));
@@ -735,7 +735,7 @@ void main() {
       expect(arrowOpacity(tester), 0);
 
       // Slow downward drag on the card eases back to the measured card.
-      await tester.dragFrom(const Offset(400, 200), const Offset(0, 150));
+      await tester.dragFrom(const Offset(400, 100), const Offset(0, 300));
       await tester.pumpAndSettle();
       expect(sheetController.size, closeTo(settled, 0.03));
 

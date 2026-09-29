@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'app_snack.dart';
 import 'emote_scale_resolver.dart';
+import 'sheet_action_row.dart';
 import '../emotes/emote.dart';
 import '../emotes/emote_picker.dart';
 import '../services/emote_images.dart';
@@ -128,7 +129,7 @@ class _EmoteSheetState extends State<EmoteSheet>
             children: [
               // 128x128 emote preview.
               Padding(
-                padding: const EdgeInsets.only(bottom: 16),
+                padding: const EdgeInsets.only(bottom: 8),
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(8),
                   child: SizedBox(
@@ -156,7 +157,7 @@ class _EmoteSheetState extends State<EmoteSheet>
               const SizedBox(width: 8),
               Expanded(
                 child: Padding(
-                  padding: const EdgeInsets.only(top: 8, right: 8),
+                  padding: const EdgeInsets.only(top: 4, right: 8),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.center,
                     children: [
@@ -170,14 +171,14 @@ class _EmoteSheetState extends State<EmoteSheet>
                           color: theme.colorScheme.onSurface,
                         ),
                       ),
-                      const SizedBox(height: 8),
+                      const SizedBox(height: 4),
                       Text(
                         _typeLabel(emote),
                         textAlign: TextAlign.center,
                         style: subtitleStyle,
                       ),
                       if (emote.baseName != null) ...[
-                        const SizedBox(height: 8),
+                        const SizedBox(height: 4),
                         Text(
                           'Alias of ${emote.baseName}',
                           textAlign: TextAlign.center,
@@ -185,7 +186,7 @@ class _EmoteSheetState extends State<EmoteSheet>
                         ),
                       ],
                       if (owner != null) ...[
-                        const SizedBox(height: 8),
+                        const SizedBox(height: 4),
                         Text(
                           owner,
                           textAlign: TextAlign.center,
@@ -198,36 +199,39 @@ class _EmoteSheetState extends State<EmoteSheet>
               ),
             ],
           ),
-          ListTile(
-            dense: true,
-            leading: const Icon(Icons.send),
-            title: const Text('Use emote'),
-            onTap: () {
-              widget.onClose();
-              widget.onUseEmote?.call(emote);
-              final text = widget.messageController.text;
-              final sep = text.isEmpty || text.endsWith(' ') ? '' : ' ';
-              widget.messageController.text = '$text$sep${emote.code} ';
-              widget.messageController.selection = TextSelection.fromPosition(
-                TextPosition(offset: widget.messageController.text.length),
-              );
-              widget.focusNode.requestFocus();
-            },
-          ),
-          ListTile(
-            dense: true,
-            leading: const Icon(Icons.copy),
-            title: const Text('Copy'),
-            onTap: () {
-              Clipboard.setData(ClipboardData(text: emote.code));
-              widget.onClose();
-            },
-          ),
-          ListTile(
-            dense: true,
-            leading: const Icon(Icons.open_in_new),
-            title: const Text('Open emote link'),
-            onTap: () => _openUrl(_providerUrl(emote)),
+          SheetActionRow(
+            actions: [
+              SheetAction(
+                icon: Icons.send,
+                label: 'Use emote',
+                onTap: () {
+                  widget.onClose();
+                  widget.onUseEmote?.call(emote);
+                  final text = widget.messageController.text;
+                  final sep = text.isEmpty || text.endsWith(' ') ? '' : ' ';
+                  widget.messageController.text = '$text$sep${emote.code} ';
+                  widget
+                      .messageController
+                      .selection = TextSelection.fromPosition(
+                    TextPosition(offset: widget.messageController.text.length),
+                  );
+                  widget.focusNode.requestFocus();
+                },
+              ),
+              SheetAction(
+                icon: Icons.copy,
+                label: 'Copy',
+                onTap: () {
+                  Clipboard.setData(ClipboardData(text: emote.code));
+                  widget.onClose();
+                },
+              ),
+              SheetAction(
+                icon: Icons.open_in_new,
+                label: 'Open link',
+                onTap: () => _openUrl(_providerUrl(emote)),
+              ),
+            ],
           ),
         ],
       ),
@@ -245,11 +249,12 @@ class _EmoteSheetState extends State<EmoteSheet>
     }
     final nameH = 22.0 * 1.3 * scale;
     final rowH = 16.0 * 1.2 * scale;
-    final textColumn = 8 + nameH + 8 + rowH * (1 + subRows) + 8 * subRows;
-    final imageBlock = 128.0 + 16;
+    final textColumn = 4 + nameH + 4 + rowH * (1 + subRows) + 4 * subRows;
+    final imageBlock = 128.0 + 8;
     final header = textColumn > imageBlock ? textColumn : imageBlock;
-    final tiles = 3 * 48.0 * scale;
-    return header + tiles + 16;
+    final actions = SheetActionRow.heightFor(MediaQuery.textScalerOf(context));
+    // Page padding: 4 top, 8 bottom.
+    return header + actions + 12;
   }
 
   Widget _buildEmotePages() {
@@ -288,7 +293,7 @@ class _EmoteSheetState extends State<EmoteSheet>
             ),
           ),
           if (hasMultiple) ...[
-            const SizedBox(height: 8),
+            const SizedBox(height: 4),
             TabBar(
               controller: _tabCtrl,
               isScrollable: true,

@@ -20,6 +20,7 @@ import '../util/prefs.dart';
 import 'app_snack.dart';
 import 'badge_chip.dart';
 import 'mod_view.dart';
+import 'sheet_action_row.dart';
 
 class UserProfileSheet extends StatefulWidget {
   final String username;
@@ -474,7 +475,7 @@ class UserProfileSheetState extends State<UserProfileSheet> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Padding(
-          padding: const EdgeInsets.only(top: 16),
+          padding: const EdgeInsets.only(top: 10),
           child: Center(
             child: Container(
               width: 32,
@@ -486,7 +487,7 @@ class UserProfileSheetState extends State<UserProfileSheet> {
             ),
           ),
         ),
-        const SizedBox(height: 16),
+        const SizedBox(height: 10),
         if (_loading)
           const Center(
             child: Padding(
@@ -512,7 +513,7 @@ class UserProfileSheetState extends State<UserProfileSheet> {
         ],
         // Pins with the card, separating it from the scrolling history.
         const Padding(
-          padding: EdgeInsets.only(bottom: 12),
+          padding: EdgeInsets.only(bottom: 8),
           child: Divider(height: 1),
         ),
       ],
@@ -662,7 +663,7 @@ class UserProfileSheetState extends State<UserProfileSheet> {
             ),
           ],
         ),
-        const SizedBox(height: 12),
+        const SizedBox(height: 8),
       ],
     );
   }
@@ -802,6 +803,7 @@ class UserProfileSheetState extends State<UserProfileSheet> {
       if (ban != null)
         ListTile(
           dense: true,
+          visualDensity: VisualDensity.compact,
           leading: const Icon(Icons.gavel_outlined),
           title: Text(ban.expiresAt == null ? 'Banned' : 'Timed out'),
           subtitle: Text(_recordSubtitle(ban.reason, ban.moderator)),
@@ -809,6 +811,7 @@ class UserProfileSheetState extends State<UserProfileSheet> {
       if (warnings.isNotEmpty)
         ListTile(
           dense: true,
+          visualDensity: VisualDensity.compact,
           leading: const Icon(Icons.warning_amber_outlined),
           title: Text(
             warnings.length == 1 ? '1 warning' : '${warnings.length} warnings',
@@ -820,6 +823,7 @@ class UserProfileSheetState extends State<UserProfileSheet> {
       if (suspicious != null)
         ListTile(
           dense: true,
+          visualDensity: VisualDensity.compact,
           leading: const Icon(Icons.shield_outlined),
           title: Text(_suspiciousTitle(suspicious.status)),
           subtitle: Text(_suspiciousSubtitle(suspicious)),
@@ -827,6 +831,7 @@ class UserProfileSheetState extends State<UserProfileSheet> {
       if (_followDate != null)
         ListTile(
           dense: true,
+          visualDensity: VisualDensity.compact,
           leading: const Icon(Icons.favorite_outline),
           title: const Text('Following'),
           subtitle: Text('Since ${_formatDate(_followDate!)}'),
@@ -860,6 +865,66 @@ class UserProfileSheetState extends State<UserProfileSheet> {
     return parts.join(' · ');
   }
 
+  Future<void> _mentionUser() async {
+    widget.onClose();
+    final prefs = await Prefs.load();
+    final username = widget.username;
+    // Mention format preference: how name is inserted into compose box.
+    final prefix = formatMention(prefs.mentionFormat, username);
+    final text = widget.messageController.text;
+    widget.messageController.text = '$prefix$text';
+    widget.messageController.selection = TextSelection.fromPosition(
+      TextPosition(offset: widget.messageController.text.length),
+    );
+    widget.focusNode.requestFocus();
+  }
+
+  Future<void> _blockUser() async {
+    final userId = widget.userId ?? _profile?['id'] as String?;
+    if (userId == null) {
+      AppSnack.show(context, 'Cannot block: user ID unknown');
+      return;
+    }
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Block user'),
+        content: Text(
+          'Block ${widget.displayName}? They will not be able to whisper you or host your channel.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Block'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    final ok = await widget.twitchApi.blockUser(widget.twitchAuth, userId);
+    if (!mounted) return;
+    AppSnack.show(
+      context,
+      ok
+          ? '${widget.displayName} blocked'
+          : 'Block failed: ${widget.twitchApi.lastError ?? "unknown"}',
+    );
+    if (ok) widget.onUserBlocked?.call(widget.username);
+    widget.onClose();
+  }
+
+  Future<void> _reportUser() async {
+    final url = Uri.parse('https://twitch.tv/${widget.username}/report');
+    final ok = await launchUrl(url, mode: LaunchMode.externalApplication);
+    if (!ok && mounted) {
+      AppSnack.show(context, 'Could not open the report page');
+    }
+  }
+
   List<Widget> _buildActionTiles() {
     final showMod =
         widget.canModerate &&
@@ -869,122 +934,60 @@ class UserProfileSheetState extends State<UserProfileSheet> {
     return [
       if (showMod) ...[
         ..._recordTiles(),
-        ListTile(
-          dense: true,
-          leading: const Icon(Icons.timer_outlined),
-          title: const Text('Timeout'),
-          onTap: _modTimeout,
+        SheetActionRow(
+          actions: [
+            SheetAction(
+              icon: Icons.timer_outlined,
+              label: 'Timeout',
+              onTap: _modTimeout,
+            ),
+            SheetAction(
+              icon: Icons.gavel_outlined,
+              label: 'Ban',
+              onTap: () => _modBan(ban: true),
+            ),
+            SheetAction(
+              icon: Icons.undo_outlined,
+              label: 'Unban',
+              onTap: () => _modBan(ban: false),
+            ),
+            SheetAction(
+              icon: Icons.warning_amber_outlined,
+              label: 'Warn',
+              onTap: _modWarn,
+            ),
+            if (widget.suspiciousInfo != null)
+              SheetAction(
+                icon: Icons.visibility_off_outlined,
+                label: 'Clear flag',
+                onTap: _clearSuspicious,
+              ),
+          ],
         ),
-        ListTile(
-          dense: true,
-          leading: const Icon(Icons.gavel_outlined),
-          title: const Text('Ban'),
-          onTap: () => _modBan(ban: true),
-        ),
-        ListTile(
-          dense: true,
-          leading: const Icon(Icons.undo_outlined),
-          title: const Text('Unban'),
-          onTap: () => _modBan(ban: false),
-        ),
-        ListTile(
-          dense: true,
-          leading: const Icon(Icons.warning_amber_outlined),
-          title: const Text('Warn'),
-          onTap: _modWarn,
-        ),
-        if (widget.suspiciousInfo != null)
-          ListTile(
-            dense: true,
-            leading: const Icon(Icons.visibility_off_outlined),
-            title: const Text('Clear flag'),
-            onTap: _clearSuspicious,
-          ),
         const Divider(height: 1),
       ],
-      ListTile(
-        dense: true,
-        leading: const Icon(Icons.alternate_email),
-        title: const Text('Mention user'),
-        onTap: () async {
-          widget.onClose();
-          final prefs = await Prefs.load();
-          final username = widget.username;
-          // Mention format preference: how name is inserted into compose box.
-          final prefix = formatMention(prefs.mentionFormat, username);
-          final text = widget.messageController.text;
-          widget.messageController.text = '$prefix$text';
-          widget.messageController.selection = TextSelection.fromPosition(
-            TextPosition(offset: widget.messageController.text.length),
-          );
-          widget.focusNode.requestFocus();
-        },
-      ),
-      ListTile(
-        dense: true,
-        leading: const Icon(Icons.chat_bubble_outline),
-        title: const Text('Whisper user'),
-        onTap: () {
-          widget.onClose();
-          widget.onWhisperUser?.call();
-        },
-      ),
-      ListTile(
-        dense: true,
-        leading: const Icon(Icons.block),
-        title: const Text('Block'),
-        onTap: () async {
-          final userId = widget.userId ?? _profile?['id'] as String?;
-          if (userId == null) {
-            AppSnack.show(context, 'Cannot block: user ID unknown');
-            return;
-          }
-          final confirmed = await showDialog<bool>(
-            context: context,
-            builder: (ctx) => AlertDialog(
-              title: const Text('Block user'),
-              content: Text(
-                'Block ${widget.displayName}? They will not be able to whisper you or host your channel.',
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(ctx, false),
-                  child: const Text('Cancel'),
-                ),
-                FilledButton(
-                  onPressed: () => Navigator.pop(ctx, true),
-                  child: const Text('Block'),
-                ),
-              ],
-            ),
-          );
-          if (confirmed != true || !mounted) return;
-          final ok = await widget.twitchApi.blockUser(
-            widget.twitchAuth,
-            userId,
-          );
-          if (!mounted) return;
-          AppSnack.show(
-            context,
-            ok
-                ? '${widget.displayName} blocked'
-                : 'Block failed: ${widget.twitchApi.lastError ?? "unknown"}',
-          );
-          if (ok) widget.onUserBlocked?.call(widget.username);
-          widget.onClose();
-        },
-      ),
-      ListTile(
-        dense: true,
-        leading: const Icon(Icons.flag_outlined),
-        title: const Text('Report'),
-        onTap: () async {
-          final url = Uri.parse('https://twitch.tv/${widget.username}/report');
-          final ok = await launchUrl(url, mode: LaunchMode.externalApplication);
-          if (!ok && mounted) {
-            AppSnack.show(context, 'Could not open the report page');
-          }
-        },
+      SheetActionRow(
+        actions: [
+          SheetAction(
+            icon: Icons.alternate_email,
+            label: 'Mention',
+            onTap: _mentionUser,
+          ),
+          SheetAction(
+            icon: Icons.chat_bubble_outline,
+            label: 'Whisper',
+            onTap: () {
+              widget.onClose();
+              widget.onWhisperUser?.call();
+            },
+          ),
+          SheetAction(icon: Icons.block, label: 'Block', onTap: _blockUser),
+          SheetAction(
+            icon: Icons.flag_outlined,
+            label: 'Report',
+            onTap: _reportUser,
+          ),
+        ],
       ),
     ];
   }
