@@ -9,11 +9,13 @@ class _Host extends StatefulWidget {
     required this.height,
     required this.offstage,
     required this.body,
+    this.open = false,
   });
 
   final double height;
   final bool offstage;
   final Widget body;
+  final bool open;
 
   @override
   State<_Host> createState() => _HostState();
@@ -25,6 +27,14 @@ class _HostState extends State<_Host> with TickerProviderStateMixin {
     markDirty: () {},
     isMounted: () => mounted,
   );
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.open) {
+      _panels.threadSheetRatio.value = PanelManager.fullHeightFraction;
+    }
+  }
 
   @override
   void dispose() {
@@ -105,5 +115,27 @@ void main() {
       await tester.pump();
     }
     expect(hostBuilds, settled);
+  });
+
+  // The glass header sits under the panel; a strip left above the sheet let
+  // it show through behind the status bar.
+  testWidgets('an open sheet covers the status bar strip', (tester) async {
+    tester.view.padding = FakeViewPadding(top: 40);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    const bodyKey = Key('panel_body');
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: _Host(
+          height: 700,
+          offstage: false,
+          open: true,
+          body: SizedBox.expand(key: bodyKey),
+        ),
+      ),
+    );
+    final sheet = find.byType(Material).last;
+    expect(tester.getTopLeft(sheet).dy, 0);
+    expect(tester.getTopLeft(find.byKey(bodyKey)).dy, greaterThan(40));
   });
 }

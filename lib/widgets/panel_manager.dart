@@ -221,8 +221,11 @@ class PanelManager {
     required BuildContext context,
   }) {
     final screen = MediaQuery.sizeOf(context);
+    // Full bleed: the handle strip fills in behind the status bar, so the
+    // header underneath (glass or opaque) never peeks out above the panel.
+    final statusBarH = statusBarHeight(context);
     return Positioned(
-      top: statusBarHeight(context),
+      top: 0,
       bottom: 0,
       left: 0,
       right: 0,
@@ -248,8 +251,9 @@ class PanelManager {
                     clipBehavior: Clip.hardEdge,
                     child: Column(
                       children: [
-                        ColoredBox(
+                        Container(
                           color: Theme.of(context).colorScheme.surfaceContainer,
+                          padding: EdgeInsets.only(top: statusBarH),
                           child: buildPanelDragHandle(
                             ratio: ratio,
                             maxSize: fullHeightFraction,
