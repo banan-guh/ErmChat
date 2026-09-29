@@ -76,6 +76,64 @@ void main() {
     await tester.pumpAndSettle();
   }
 
+  Future<void> settlePrefs(WidgetTester tester) async {
+    PrefsStore.instance.notifyChanged();
+    await tester.pump();
+    await tester.pump();
+    await tester.pumpAndSettle();
+  }
+
+  testWidgets('custom off keeps the layout default', (tester) async {
+    await pumpJoined(tester, glass: false, density: LayoutDensity.compact);
+    expect(find.text('ErmChat'), findsNothing);
+
+    // Switch off, master off: ignored, compact still merges.
+    await (await Prefs.load()).setOverrideMergeAppBar(false);
+    await settlePrefs(tester);
+    expect(find.text('ErmChat'), findsNothing);
+  });
+
+  testWidgets('override off keeps the separate app bar in compact', (
+    tester,
+  ) async {
+    await pumpJoined(tester, glass: false, density: LayoutDensity.compact);
+    expect(find.text('ErmChat'), findsNothing);
+
+    final prefs = await Prefs.load();
+    await prefs.setCustomLayoutEnabled(true);
+    await prefs.setOverrideMergeAppBar(false);
+    await settlePrefs(tester);
+
+    expect(find.text('ErmChat'), findsOneWidget);
+    expect(inStrip(find.byIcon(Icons.add)), findsNothing);
+    expect(inStrip(find.byIcon(Icons.notifications_active)), findsNothing);
+  });
+
+  testWidgets('override off shows the panel title in compact', (tester) async {
+    await pumpJoined(tester, glass: false, density: LayoutDensity.compact);
+    final prefs = await Prefs.load();
+    await prefs.setCustomLayoutEnabled(true);
+    await prefs.setOverrideFoldPanelHeaders(false);
+    await settlePrefs(tester);
+
+    await tester.tap(find.byIcon(Icons.notifications_active));
+    await tester.pumpAndSettle();
+    expect(find.text('Mentions / Whispers'), findsOneWidget);
+  });
+
+  testWidgets('override on merges the app bar in full', (tester) async {
+    await pumpJoined(tester, glass: false, density: LayoutDensity.full);
+    expect(find.text('ErmChat'), findsOneWidget);
+
+    final prefs = await Prefs.load();
+    await prefs.setCustomLayoutEnabled(true);
+    await prefs.setOverrideMergeAppBar(true);
+    await settlePrefs(tester);
+
+    expect(find.text('ErmChat'), findsNothing);
+    expect(inStrip(find.byIcon(Icons.add)), findsOneWidget);
+  });
+
   for (final glass in [false, true]) {
     testWidgets('compact merges the app bar into the strip (glass=$glass)', (
       tester,

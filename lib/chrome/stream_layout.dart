@@ -332,7 +332,11 @@ class StreamPanels {
     }
     // Compact folds the app bar into the tab strip. With no channels there
     // is no strip, so the welcome view keeps the app bar.
-    final merged = isCompactLayout(context) && chat.names.isNotEmpty;
+    final overrides = layoutOverridesOf(context);
+    final compact = isCompactLayout(context);
+    final merged =
+        overrides.resolve(overrides.mergeAppBar, compact) &&
+        chat.names.isNotEmpty;
     final showVideo =
         channel == null ||
         showStreamVideo(

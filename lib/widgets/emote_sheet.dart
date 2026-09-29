@@ -7,6 +7,7 @@ import 'sheet_action_row.dart';
 import '../emotes/emote.dart';
 import '../emotes/emote_picker.dart';
 import '../services/emote_images.dart';
+import '../util/layout_density.dart';
 
 class EmoteSheet extends StatefulWidget {
   final List<Emote> emotes;
@@ -113,12 +114,44 @@ class _EmoteSheetState extends State<EmoteSheet>
   Widget _buildEmotePage(Emote emote) {
     final theme = Theme.of(context);
     final owner = _ownerLabel(emote);
+    final compact = resolveLayoutOverride(context, (o) => o.sheetActionRow);
 
     final subtitleStyle = TextStyle(
       fontSize: 16,
       color: theme.colorScheme.onSurfaceVariant,
       height: 1.2,
     );
+
+    final actions = <SheetAction>[
+      SheetAction(
+        icon: Icons.send,
+        label: 'Use emote',
+        onTap: () {
+          widget.onClose();
+          widget.onUseEmote?.call(emote);
+          final text = widget.messageController.text;
+          final sep = text.isEmpty || text.endsWith(' ') ? '' : ' ';
+          widget.messageController.text = '$text$sep${emote.code} ';
+          widget.messageController.selection = TextSelection.fromPosition(
+            TextPosition(offset: widget.messageController.text.length),
+          );
+          widget.focusNode.requestFocus();
+        },
+      ),
+      SheetAction(
+        icon: Icons.copy,
+        label: 'Copy',
+        onTap: () {
+          Clipboard.setData(ClipboardData(text: emote.code));
+          widget.onClose();
+        },
+      ),
+      SheetAction(
+        icon: Icons.open_in_new,
+        label: compact ? 'Open link' : 'Open emote link',
+        onTap: () => _openUrl(_providerUrl(emote)),
+      ),
+    ];
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(4, 4, 4, 8),
@@ -200,40 +233,16 @@ class _EmoteSheetState extends State<EmoteSheet>
               ),
             ],
           ),
-          SheetActionRow(
-            actions: [
-              SheetAction(
-                icon: Icons.send,
-                label: 'Use emote',
-                onTap: () {
-                  widget.onClose();
-                  widget.onUseEmote?.call(emote);
-                  final text = widget.messageController.text;
-                  final sep = text.isEmpty || text.endsWith(' ') ? '' : ' ';
-                  widget.messageController.text = '$text$sep${emote.code} ';
-                  widget
-                      .messageController
-                      .selection = TextSelection.fromPosition(
-                    TextPosition(offset: widget.messageController.text.length),
-                  );
-                  widget.focusNode.requestFocus();
-                },
+          if (compact)
+            SheetActionRow(actions: actions)
+          else
+            for (final action in actions)
+              ListTile(
+                dense: true,
+                leading: Icon(action.icon),
+                title: Text(action.label),
+                onTap: action.onTap,
               ),
-              SheetAction(
-                icon: Icons.copy,
-                label: 'Copy',
-                onTap: () {
-                  Clipboard.setData(ClipboardData(text: emote.code));
-                  widget.onClose();
-                },
-              ),
-              SheetAction(
-                icon: Icons.open_in_new,
-                label: 'Open link',
-                onTap: () => _openUrl(_providerUrl(emote)),
-              ),
-            ],
-          ),
         ],
       ),
     );
@@ -241,7 +250,8 @@ class _EmoteSheetState extends State<EmoteSheet>
 
   // Uniform TabBarView height: tallest page across all emotes.
   double _pageHeight() {
-    final scale = MediaQuery.textScalerOf(context).scale(1.0);
+    final scaler = MediaQuery.textScalerOf(context);
+    final scale = scaler.scale(1.0);
     var subRows = 0;
     for (final e in widget.emotes) {
       final rows =
@@ -253,7 +263,10 @@ class _EmoteSheetState extends State<EmoteSheet>
     final textColumn = 4 + nameH + 4 + rowH * (1 + subRows) + 4 * subRows;
     final imageBlock = 128.0 + 8;
     final header = textColumn > imageBlock ? textColumn : imageBlock;
-    final actions = SheetActionRow.heightFor(MediaQuery.textScalerOf(context));
+    // Compact folds the actions into an icon row; full keeps three tiles.
+    final actions = resolveLayoutOverride(context, (o) => o.sheetActionRow)
+        ? SheetActionRow.heightFor(scaler)
+        : 3 * 48.0 * scale;
     // Page padding: 4 top, 8 bottom.
     return header + actions + 12;
   }

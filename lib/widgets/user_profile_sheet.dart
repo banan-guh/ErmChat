@@ -14,6 +14,7 @@ import '../services/twitch_api.dart';
 import '../services/twitch_auth.dart';
 import '../util/date_format.dart';
 import '../util/haptics.dart';
+import '../util/layout_density.dart';
 import '../util/log.dart';
 import '../util/mention.dart';
 import '../util/prefs.dart';
@@ -926,71 +927,87 @@ class UserProfileSheetState extends State<UserProfileSheet> {
   }
 
   List<Widget> _buildActionTiles() {
+    final compact = resolveLayoutOverride(context, (o) => o.sheetActionRow);
     final showMod =
         widget.canModerate &&
         !widget.isSelf &&
         widget.modActions != null &&
         widget.channel != null;
+    final modActions = <SheetAction>[
+      SheetAction(
+        icon: Icons.timer_outlined,
+        label: 'Timeout',
+        onTap: _modTimeout,
+      ),
+      SheetAction(
+        icon: Icons.gavel_outlined,
+        label: 'Ban',
+        onTap: () => _modBan(ban: true),
+      ),
+      SheetAction(
+        icon: Icons.undo_outlined,
+        label: 'Unban',
+        onTap: () => _modBan(ban: false),
+      ),
+      SheetAction(
+        icon: Icons.warning_amber_outlined,
+        label: 'Warn',
+        onTap: _modWarn,
+      ),
+      if (widget.suspiciousInfo != null)
+        SheetAction(
+          icon: Icons.visibility_off_outlined,
+          label: 'Clear flag',
+          onTap: _clearSuspicious,
+        ),
+    ];
+    final userActions = <SheetAction>[
+      SheetAction(
+        icon: Icons.alternate_email,
+        label: compact ? 'Mention' : 'Mention user',
+        onTap: _mentionUser,
+      ),
+      SheetAction(
+        icon: Icons.chat_bubble_outline,
+        label: compact ? 'Whisper' : 'Whisper user',
+        onTap: () {
+          widget.onClose();
+          widget.onWhisperUser?.call();
+        },
+      ),
+      SheetAction(icon: Icons.block, label: 'Block', onTap: _blockUser),
+      SheetAction(
+        icon: Icons.flag_outlined,
+        label: 'Report',
+        onTap: _reportUser,
+      ),
+    ];
     return [
       if (showMod) ...[
         ..._recordTiles(),
-        SheetActionRow(
-          actions: [
-            SheetAction(
-              icon: Icons.timer_outlined,
-              label: 'Timeout',
-              onTap: _modTimeout,
-            ),
-            SheetAction(
-              icon: Icons.gavel_outlined,
-              label: 'Ban',
-              onTap: () => _modBan(ban: true),
-            ),
-            SheetAction(
-              icon: Icons.undo_outlined,
-              label: 'Unban',
-              onTap: () => _modBan(ban: false),
-            ),
-            SheetAction(
-              icon: Icons.warning_amber_outlined,
-              label: 'Warn',
-              onTap: _modWarn,
-            ),
-            if (widget.suspiciousInfo != null)
-              SheetAction(
-                icon: Icons.visibility_off_outlined,
-                label: 'Clear flag',
-                onTap: _clearSuspicious,
-              ),
-          ],
-        ),
+        if (compact)
+          SheetActionRow(actions: modActions)
+        else
+          ..._actionTiles(modActions),
         const Divider(height: 1),
       ],
-      SheetActionRow(
-        actions: [
-          SheetAction(
-            icon: Icons.alternate_email,
-            label: 'Mention',
-            onTap: _mentionUser,
-          ),
-          SheetAction(
-            icon: Icons.chat_bubble_outline,
-            label: 'Whisper',
-            onTap: () {
-              widget.onClose();
-              widget.onWhisperUser?.call();
-            },
-          ),
-          SheetAction(icon: Icons.block, label: 'Block', onTap: _blockUser),
-          SheetAction(
-            icon: Icons.flag_outlined,
-            label: 'Report',
-            onTap: _reportUser,
-          ),
-        ],
-      ),
+      if (compact)
+        SheetActionRow(actions: userActions)
+      else
+        ..._actionTiles(userActions),
     ];
   }
+
+  // Full layout keeps the vertical stack of dense list tiles.
+  List<Widget> _actionTiles(List<SheetAction> actions) => [
+    for (final action in actions)
+      ListTile(
+        dense: true,
+        leading: Icon(action.icon),
+        title: Text(action.label),
+        onTap: action.onTap,
+      ),
+  ];
 }
 
 // Clips paint and hit testing to the box, so clipped-away card buttons can

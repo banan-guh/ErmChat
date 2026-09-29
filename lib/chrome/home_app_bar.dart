@@ -228,7 +228,11 @@ class HomeAppBar {
         onLongPress: openSettings,
         child: Padding(
           // 40pt in compact, matching the density-shrunk icon buttons.
-          padding: EdgeInsets.all(isCompactLayout(context) ? 8 : 12),
+          padding: EdgeInsets.all(
+            resolveLayoutOverride(context, (o) => o.tightChromeMargins)
+                ? 8
+                : 12,
+          ),
           child: const Icon(Icons.more_vert),
         ),
       ),

@@ -58,7 +58,7 @@ class MessageInput extends StatelessWidget {
     // Compact trims the field height and padding. The emote and send
     // buttons keep the full 48pt circle: their slot is only as tall as the
     // field, and the circle spills into the padding around it.
-    final compact = isCompactLayout(context);
+    final compact = resolveLayoutOverride(context, (o) => o.tightComposer);
     const iconBox = 48.0;
     final slotH = compact ? 40.0 : iconBox;
     final iconConstraints = BoxConstraints(minWidth: iconBox, minHeight: slotH);

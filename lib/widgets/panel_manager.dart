@@ -266,7 +266,10 @@ class PanelManager {
                             ),
                             sheetH: constraints.maxHeight,
                             header: header,
-                            compact: isCompactLayout(context),
+                            compact: resolveLayoutOverride(
+                              context,
+                              (o) => o.foldPanelHeaders,
+                            ),
                           ),
                         ),
                         Expanded(child: body),
@@ -535,7 +538,7 @@ Widget panelHeader(
   required String title,
   required Widget Function(bool compact) tabs,
 }) {
-  final compact = isCompactLayout(context);
+  final compact = resolveLayoutOverride(context, (o) => o.foldPanelHeaders);
   final theme = Theme.of(context);
   return Column(
     mainAxisSize: MainAxisSize.min,

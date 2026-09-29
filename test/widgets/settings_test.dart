@@ -165,6 +165,55 @@ void main() {
       expect(prefs.getBool('true_dark'), isTrue);
     });
 
+    testWidgets('Customization layout sheet picks density and opens custom', (
+      WidgetTester tester,
+    ) async {
+      SharedPreferences.setMockInitialValues({});
+
+      await tester.pumpWidget(
+        MaterialApp(key: UniqueKey(), home: const CustomizationScreen()),
+      );
+      await tester.pumpAndSettle();
+
+      // Layout opens a bottom sheet with the density rows plus Custom.
+      await tester.tap(find.text('Layout'));
+      await tester.pumpAndSettle();
+      expect(find.text('Custom'), findsOneWidget);
+
+      await tester.tap(find.text('Full'));
+      await tester.pumpAndSettle();
+      final prefs = await SharedPreferences.getInstance();
+      expect(prefs.getString('layout_density'), 'full');
+
+      // Custom opens the override screen, greyed out until the master is on.
+      await tester.tap(find.text('Layout'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Custom'));
+      await tester.pumpAndSettle();
+      expect(find.text('Enable custom layout'), findsOneWidget);
+      expect(find.text('Merge app bar into tabs'), findsOneWidget);
+      final merge = tester.widget<SwitchListTile>(
+        find.widgetWithText(SwitchListTile, 'Merge app bar into tabs'),
+      );
+      expect(merge.onChanged, isNull);
+
+      await tester.tap(find.text('Enable custom layout'));
+      await tester.pumpAndSettle();
+      final enabled = tester.widget<SwitchListTile>(
+        find.widgetWithText(SwitchListTile, 'Merge app bar into tabs'),
+      );
+      expect(enabled.onChanged, isNotNull);
+
+      // Custom on disables the Layout density row back on Customization.
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+      final layoutTile = tester.widget<ListTile>(
+        find.widgetWithText(ListTile, 'Layout'),
+      );
+      expect(layoutTile.enabled, isFalse);
+      expect(find.text('Overridden by custom layout'), findsOneWidget);
+    });
+
     testWidgets('Channel settings drag handle reorders channels', (
       WidgetTester tester,
     ) async {

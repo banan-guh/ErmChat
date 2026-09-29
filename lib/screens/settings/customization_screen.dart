@@ -3,7 +3,7 @@ import '../../theme_colors.dart';
 import '../../util/layout_density.dart';
 import '../../util/prefs.dart';
 import '../../util/prefs_store.dart';
-import '../../widgets/dialogs.dart';
+import 'custom_layout_screen.dart';
 import 'prefs_tiles.dart';
 import 'settings_page.dart';
 
@@ -21,6 +21,13 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
   void initState() {
     super.initState();
     _loadPrefs();
+    PrefsStore.instance.addListener(_loadPrefs);
+  }
+
+  @override
+  void dispose() {
+    PrefsStore.instance.removeListener(_loadPrefs);
+    super.dispose();
   }
 
   Future<void> _loadPrefs() async {
@@ -31,6 +38,8 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
   ThemeMode get _themeMode => _prefs?.themeMode ?? ThemeMode.system;
 
   String get _accentKey => _prefs?.accentColor ?? kDefaultAccent;
+
+  bool get _customLayoutEnabled => _prefs?.customLayoutEnabled ?? false;
 
   Future<void> _pickTheme(BuildContext context) async {
     final mode = await showModalBottomSheet<ThemeMode>(
@@ -55,15 +64,22 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
       _prefs?.layoutDensity ?? LayoutDensity.auto;
 
   Future<void> _pickLayoutDensity(BuildContext context) async {
-    final picked = await showChoiceDialog<LayoutDensity>(
-      context,
-      title: 'Layout',
-      value: _layoutDensity,
-      options: const [
-        (LayoutDensity.auto, 'Auto', 'Compact on small phones'),
-        (LayoutDensity.compact, 'Compact', 'Merged top row, tighter spacing'),
-        (LayoutDensity.full, 'Full', 'Separate top bar and tabs'),
-      ],
+    final picked = await showModalBottomSheet<LayoutDensity>(
+      context: context,
+      showDragHandle: false,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (_) => SafeArea(
+        top: false,
+        bottom: true,
+        child: _LayoutPickerSheet(
+          current: _layoutDensity,
+          onCustom: () => Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => const CustomLayoutScreen()),
+          ),
+        ),
+      ),
     );
     if (picked == null || !mounted || picked == _layoutDensity) return;
     final prefs = _prefs ?? await Prefs.load();
@@ -101,15 +117,22 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
             onTap: () => _pickTheme(context),
           ),
           ListTile(
+            enabled: !_customLayoutEnabled,
             title: const Text('Layout'),
-            subtitle: Text(switch (_layoutDensity) {
-              LayoutDensity.auto =>
-                'Auto (${isCompactLayout(context) ? 'compact' : 'full'})',
-              LayoutDensity.compact => 'Compact',
-              LayoutDensity.full => 'Full',
-            }),
+            subtitle: Text(
+              _customLayoutEnabled
+                  ? 'Overridden by custom layout'
+                  : switch (_layoutDensity) {
+                      LayoutDensity.auto =>
+                        'Auto (${isCompactLayout(context) ? 'compact' : 'full'})',
+                      LayoutDensity.compact => 'Compact',
+                      LayoutDensity.full => 'Full',
+                    },
+            ),
             trailing: const Icon(Icons.chevron_right),
-            onTap: () => _pickLayoutDensity(context),
+            onTap: _customLayoutEnabled
+                ? null
+                : () => _pickLayoutDensity(context),
           ),
           PrefsSwitchTile(
             title: 'True dark mode',
@@ -278,6 +301,77 @@ class _ThemePickerSheet extends StatelessWidget {
                   : null,
               onTap: () => Navigator.pop(context, entry.key),
             ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Layout picker sheet. Mirrors the theme picker, plus an Other row that
+/// opens the custom layout screen.
+class _LayoutPickerSheet extends StatelessWidget {
+  final LayoutDensity current;
+  final VoidCallback onCustom;
+
+  const _LayoutPickerSheet({required this.current, required this.onCustom});
+
+  static const _options = <LayoutDensity, (IconData, String, String)>{
+    LayoutDensity.auto: (
+      Icons.brightness_auto,
+      'Auto',
+      'Compact on small phones',
+    ),
+    LayoutDensity.compact: (
+      Icons.smartphone,
+      'Compact',
+      'Merged top row, tighter spacing',
+    ),
+    LayoutDensity.full: (Icons.tablet, 'Full', 'Separate top bar and tabs'),
+  };
+
+  @override
+  Widget build(BuildContext context) {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Center(
+            child: Container(
+              width: 32,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.grey[400],
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          for (final entry in _options.entries)
+            ListTile(
+              leading: Icon(entry.value.$1),
+              title: Text(entry.value.$2),
+              subtitle: Text(entry.value.$3),
+              trailing: entry.key == current
+                  ? Icon(
+                      Icons.check,
+                      color: Theme.of(context).colorScheme.primary,
+                    )
+                  : null,
+              onTap: () => Navigator.pop(context, entry.key),
+            ),
+          const Divider(),
+          ListTile(
+            leading: const Icon(Icons.tune),
+            title: const Text('Custom'),
+            subtitle: const Text('Override layout behaviors'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () {
+              Navigator.pop(context);
+              onCustom();
+            },
+          ),
         ],
       ),
     );

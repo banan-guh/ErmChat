@@ -216,6 +216,7 @@ class _TwitchChatAppState extends State<TwitchChatApp> {
   bool _trueDark = false;
   String _accentKey = kDefaultAccent;
   LayoutDensity _layoutDensity = LayoutDensity.auto;
+  LayoutOverrides _layoutOverrides = const LayoutOverrides();
   Color get _seedColor =>
       kAccentPresets[_accentKey] ?? kAccentPresets[kDefaultAccent]!;
   final _twitchAuth = TwitchAuth();
@@ -255,6 +256,15 @@ class _TwitchChatAppState extends State<TwitchChatApp> {
       _trueDark = prefs.trueDark;
       _accentKey = prefs.accentColor;
       _layoutDensity = prefs.layoutDensity;
+      _layoutOverrides = LayoutOverrides(
+        enabled: prefs.customLayoutEnabled,
+        mergeAppBar: prefs.overrideMergeAppBar,
+        foldPanelHeaders: prefs.overrideFoldPanelHeaders,
+        tightComposer: prefs.overrideTightComposer,
+        sheetActionRow: prefs.overrideSheetActionRow,
+        compactDensity: prefs.overrideCompactDensity,
+        tightChromeMargins: prefs.overrideTightChromeMargins,
+      );
       _proxyConfig = ProxyConfig.fromPrefs(prefs);
     } catch (e) {
       logDebug('Failed to load preferences: $e');
@@ -272,6 +282,7 @@ class _TwitchChatAppState extends State<TwitchChatApp> {
   Widget _appRoot(BuildContext context, Widget? child) => compactLayoutRoot(
     context,
     density: _layoutDensity,
+    overrides: _layoutOverrides,
     child: _edgeExclusionWrapper(context, child),
   );
 

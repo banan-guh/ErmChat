@@ -221,6 +221,54 @@ class Prefs {
   Future<void> setLayoutDensity(LayoutDensity value) =>
       _p.setString(_kLayoutDensity, value.name);
 
+  // ── Custom layout overrides ─────────────────────────────────────────
+  static const _kCustomLayoutEnabled = 'custom_layout_enabled';
+  static const _kOverrideMergeAppBar = 'override_merge_app_bar';
+  static const _kOverrideFoldPanelHeaders = 'override_fold_panel_headers';
+  static const _kOverrideTightComposer = 'override_tight_composer';
+  static const _kOverrideSheetActionRow = 'override_sheet_action_row';
+  static const _kOverrideCompactDensity = 'override_compact_density';
+  static const _kOverrideTightChromeMargins = 'override_tight_chrome_margins';
+
+  bool get customLayoutEnabled => _p.getBool(_kCustomLayoutEnabled) ?? false;
+
+  Future<void> setCustomLayoutEnabled(bool value) =>
+      _p.setBool(_kCustomLayoutEnabled, value);
+
+  bool get overrideMergeAppBar => _p.getBool(_kOverrideMergeAppBar) ?? true;
+
+  Future<void> setOverrideMergeAppBar(bool value) =>
+      _p.setBool(_kOverrideMergeAppBar, value);
+
+  bool get overrideFoldPanelHeaders =>
+      _p.getBool(_kOverrideFoldPanelHeaders) ?? true;
+
+  Future<void> setOverrideFoldPanelHeaders(bool value) =>
+      _p.setBool(_kOverrideFoldPanelHeaders, value);
+
+  bool get overrideTightComposer => _p.getBool(_kOverrideTightComposer) ?? true;
+
+  Future<void> setOverrideTightComposer(bool value) =>
+      _p.setBool(_kOverrideTightComposer, value);
+
+  bool get overrideSheetActionRow =>
+      _p.getBool(_kOverrideSheetActionRow) ?? true;
+
+  Future<void> setOverrideSheetActionRow(bool value) =>
+      _p.setBool(_kOverrideSheetActionRow, value);
+
+  bool get overrideCompactDensity =>
+      _p.getBool(_kOverrideCompactDensity) ?? true;
+
+  Future<void> setOverrideCompactDensity(bool value) =>
+      _p.setBool(_kOverrideCompactDensity, value);
+
+  bool get overrideTightChromeMargins =>
+      _p.getBool(_kOverrideTightChromeMargins) ?? true;
+
+  Future<void> setOverrideTightChromeMargins(bool value) =>
+      _p.setBool(_kOverrideTightChromeMargins, value);
+
   static const _kLiquidGlass = 'liquid_glass';
 
   bool get liquidGlass => _p.getBool(_kLiquidGlass) ?? false;

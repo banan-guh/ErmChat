@@ -1,5 +1,7 @@
 import 'package:http/http.dart' as http;
 
+import 'package:ermchat/util/layout_density.dart';
+import 'package:ermchat/widgets/sheet_action_row.dart';
 import 'widget_test_harness.dart';
 
 void main() {
@@ -141,7 +143,7 @@ void main() {
         await tester.pump();
         await tester.pump();
 
-        await tester.tap(find.text('Open link', skipOffstage: false));
+        await tester.tap(find.text('Open emote link', skipOffstage: false));
         await tester.pump();
         await tester.pump();
 
@@ -157,7 +159,7 @@ void main() {
         await tester.pump();
         await tester.pump();
 
-        await tester.tap(find.text('Open link', skipOffstage: false));
+        await tester.tap(find.text('Open emote link', skipOffstage: false));
         await tester.pump();
         await tester.pump();
 
@@ -258,6 +260,34 @@ void main() {
       expect(sheetSize.height, moreOrLessEquals(465.6, epsilon: 1.0));
       expect(sheetBottomDy, moreOrLessEquals(stackBottom.dy, epsilon: 1.0));
     });
+
+    testWidgets('emote sheet uses the compact action row when compact', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          key: UniqueKey(),
+          home: CompactLayoutScope(
+            compact: true,
+            child: Scaffold(
+              body: EmoteSheet(
+                emotes: [sevenTvEmote()],
+                messageController: TextEditingController(),
+                focusNode: FocusNode(),
+                onClose: () {},
+                images: EmoteImages(),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump();
+
+      expect(find.byType(SheetActionRow), findsOneWidget);
+      expect(find.text('Open link', skipOffstage: false), findsOneWidget);
+      expect(find.text('Open emote link', skipOffstage: false), findsNothing);
+    });
   });
 
   group('user profile sheet', () {
@@ -296,6 +326,69 @@ void main() {
         ),
       );
     }
+
+    testWidgets('user profile uses the compact action row when compact', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          key: UniqueKey(),
+          home: CompactLayoutScope(
+            compact: true,
+            child: Scaffold(
+              body: UserProfileSheet(
+                username: 'testuser',
+                userId: '123',
+                displayName: 'TestUser',
+                twitchApi: createApi(),
+                twitchAuth: TwitchAuth()..accessToken = 'test-token',
+                messageController: TextEditingController(),
+                focusNode: FocusNode(),
+                onClose: () {},
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byType(SheetActionRow), findsOneWidget);
+      expect(find.text('Mention'), findsOneWidget);
+      expect(find.text('Mention user'), findsNothing);
+    });
+
+    testWidgets('user profile keeps the vertical list when the row is off', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          key: UniqueKey(),
+          home: CompactLayoutScope(
+            compact: true,
+            overrides: const LayoutOverrides(
+              enabled: true,
+              sheetActionRow: false,
+            ),
+            child: Scaffold(
+              body: UserProfileSheet(
+                username: 'testuser',
+                userId: '123',
+                displayName: 'TestUser',
+                twitchApi: createApi(),
+                twitchAuth: TwitchAuth()..accessToken = 'test-token',
+                messageController: TextEditingController(),
+                focusNode: FocusNode(),
+                onClose: () {},
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byType(SheetActionRow), findsNothing);
+      expect(find.text('Mention user'), findsOneWidget);
+    });
 
     testWidgets('User profile report opens the page and reports failures', (
       WidgetTester tester,
