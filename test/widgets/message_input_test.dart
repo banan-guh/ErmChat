@@ -54,5 +54,18 @@ void main() {
       debugPrint('borderless=$borderless full=$full compact=$compact');
       expect(compact, lessThan(full));
     });
+
+    testWidgets('compact keeps full-size buttons (borderless $borderless)', (
+      tester,
+    ) async {
+      await pumpInput(tester, compact: true, borderless: borderless);
+      for (final icon in [Icons.send, Icons.emoji_emotions_outlined]) {
+        final ink = find.ancestor(
+          of: find.byIcon(icon),
+          matching: find.byType(InkWell),
+        );
+        expect(tester.getSize(ink), const Size(48, 48));
+      }
+    });
   }
 }

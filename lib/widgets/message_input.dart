@@ -55,14 +55,13 @@ class MessageInput extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final effectiveHint = hintText ?? 'Type a message...';
-    // Compact trims the icon boxes and the padding together, so the text
-    // stays centered on the icons.
+    // Compact trims the field height and padding. The emote and send
+    // buttons keep the full 48pt circle: their slot is only as tall as the
+    // field, and the circle spills into the padding around it.
     final compact = isCompactLayout(context);
-    final iconBox = compact ? 40.0 : 48.0;
-    final iconConstraints = BoxConstraints(
-      minWidth: iconBox,
-      minHeight: iconBox,
-    );
+    const iconBox = 48.0;
+    final slotH = compact ? 40.0 : iconBox;
+    final iconConstraints = BoxConstraints(minWidth: iconBox, minHeight: slotH);
     final gap = compact ? 2.0 : 4.0;
     return Padding(
       // In-flow the field sits flush under the list (top 0). In a glass
@@ -112,9 +111,8 @@ class MessageInput extends StatelessWidget {
                   : null,
               prefixIcon:
                   prefixOverride ??
-                  SizedBox(
-                    width: iconBox,
-                    height: iconBox,
+                  _IconSlot(
+                    height: slotH,
                     child: Material(
                       type: MaterialType.transparency,
                       child: InkWell(
@@ -132,9 +130,8 @@ class MessageInput extends StatelessWidget {
                   ),
               suffixIcon:
                   suffixOverride ??
-                  SizedBox(
-                    width: iconBox,
-                    height: iconBox,
+                  _IconSlot(
+                    height: slotH,
                     child: Material(
                       type: MaterialType.transparency,
                       child: InkWell(
@@ -164,6 +161,28 @@ class MessageInput extends StatelessWidget {
       ),
     );
   }
+}
+
+/// A [height]-tall slot holding a 48pt button centered on it, spilling
+/// out evenly when the slot is shorter.
+class _IconSlot extends StatelessWidget {
+  const _IconSlot({required this.height, required this.child});
+
+  final double height;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => SizedBox(
+    width: 48,
+    height: height,
+    child: OverflowBox(
+      minWidth: 48,
+      maxWidth: 48,
+      minHeight: 48,
+      maxHeight: 48,
+      child: child,
+    ),
+  );
 }
 
 // Reply target card floated above the composer. The framework BottomSheet
