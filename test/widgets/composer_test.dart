@@ -132,6 +132,44 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  // A short screen collapses chrome once the keyboard opens, handing the
+  // pill off to the in-flow path. The field must move intact: a rebuilt
+  // EditableText closes the input connection and iOS drops the keyboard.
+  testWidgets('pill hand-off keeps the input connection', (tester) async {
+    final focus = FocusNode();
+    addTearDown(focus.dispose);
+    tester.view.physicalSize = const Size(400, 550);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+
+    await pumpBody(tester, liquidGlass: true, focus: focus);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('message_input')));
+    await tester.pump();
+    expect(find.byKey(const ValueKey('composer_pill')), findsOneWidget);
+
+    for (var kb = 50.0; kb <= 350; kb += 50) {
+      tester.view.viewInsets = FakeViewPadding(bottom: kb);
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    // Past the pill fade and its hide backstop.
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('composer_pill')), findsNothing);
+    expect(focus.hasFocus, isTrue);
+    expect(tester.testTextInput.isVisible, isTrue);
+    // The glow rides with the field, so the docked bar still shows it.
+    final glow = tester.widget<AnimatedContainer>(
+      find.descendant(
+        of: find.byType(ComposerFocusGlow),
+        matching: find.byType(AnimatedContainer),
+      ),
+    );
+    final outline = glow.foregroundDecoration! as BoxDecoration;
+    expect((outline.border! as Border).top.color.a, greaterThan(0));
+  });
+
   // Full-app harness: the real HomeScreen wiring, joined and connected, so the
   // field is enabled and a plain tap can be checked in both chrome modes. The
   // glass pref defaults to true in code and is read async, so the app always

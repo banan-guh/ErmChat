@@ -273,25 +273,34 @@ Widget glassPill({required Widget child}) => GlassSurface(
   child: child,
 );
 
-// Focus glow for the floating composer pill. The opaque field gets the
-// framework focus ring, but the borderless glass field has no outline to
-// tint, so the pill itself shows a soft primary halo while any inner field
-// holds focus. Opaque chrome never builds this.
-class PillFocusGlow extends StatefulWidget {
-  const PillFocusGlow({super.key, required this.child});
+// Focus glow for the composer. The opaque field gets the framework focus
+// ring, but the borderless glass field has no outline to tint, so this
+// paints a primary outline while any inner field holds focus. It rides with
+// the composer across the pill and docked paths, and paints as a foreground
+// so it never changes the composer's size.
+class ComposerFocusGlow extends StatefulWidget {
+  const ComposerFocusGlow({
+    super.key,
+    required this.enabled,
+    required this.radius,
+    required this.child,
+  });
 
+  final bool enabled;
+  final double radius;
   final Widget child;
 
   @override
-  State<PillFocusGlow> createState() => _PillFocusGlowState();
+  State<ComposerFocusGlow> createState() => _ComposerFocusGlowState();
 }
 
-class _PillFocusGlowState extends State<PillFocusGlow> {
+class _ComposerFocusGlowState extends State<ComposerFocusGlow> {
   bool _focused = false;
 
   @override
   Widget build(BuildContext context) {
     final primary = Theme.of(context).colorScheme.primary;
+    final lit = widget.enabled && _focused;
     return Focus(
       // Observes the inner fields only; never a traversal stop itself.
       skipTraversal: true,
@@ -301,20 +310,9 @@ class _PillFocusGlowState extends State<PillFocusGlow> {
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
         curve: Curves.easeOut,
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(kGlassComposerRadius),
-          border: Border.all(
-            color: primary.withValues(alpha: _focused ? 0.45 : 0),
-          ),
-          boxShadow: _focused
-              ? [
-                  BoxShadow(
-                    color: primary.withValues(alpha: 0.04),
-                    blurRadius: 8,
-                    spreadRadius: 1,
-                  ),
-                ]
-              : const [],
+        foregroundDecoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(widget.radius),
+          border: Border.all(color: primary.withValues(alpha: lit ? 0.45 : 0)),
         ),
         child: widget.child,
       ),

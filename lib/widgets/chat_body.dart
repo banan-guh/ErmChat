@@ -149,6 +149,7 @@ class _ChatBodyState extends State<ChatBody> with WidgetsBindingObserver {
   // paint a snapshot instead of a live backdrop while the chat moves.
   final _glassFreeze = ValueNotifier<GlassFreeze?>(null);
   final _chromeKey = GlobalKey();
+  final _composerKey = GlobalKey();
   ui.Image? _frozenImage;
   Timer? _releaseTimer;
   double _learnedH = 0;
@@ -421,6 +422,19 @@ class _ChatBodyState extends State<ChatBody> with WidgetsBindingObserver {
             right: 0,
             child: widget.notice!,
           );
+    // The composer and its focus glow, shared by the pill and the in-flow
+    // path. The key moves the field intact across the hand-off: a rebuilt
+    // EditableText closes the input connection and iOS drops the keyboard.
+    Widget composerSlot(double radius) => composer == null
+        ? const SizedBox.shrink()
+        : KeyedSubtree(
+            key: _composerKey,
+            child: ComposerFocusGlow(
+              enabled: widget.liquidGlass,
+              radius: radius,
+              child: composer,
+            ),
+          );
     // Floating composer pill. The list pads by pillH upstream
     // so the newest rows clear it and slide underneath while scrolling. The
     // size notifier keeps the measurement fresh when inner listenables
@@ -463,10 +477,8 @@ class _ChatBodyState extends State<ChatBody> with WidgetsBindingObserver {
                       child: SizeChangedLayoutNotifier(
                         // Toggle-off nulls the composer while the exit fade
                         // still runs it out.
-                        child: PillFocusGlow(
-                          child: glassPill(
-                            child: composer ?? const SizedBox.shrink(),
-                          ),
+                        child: glassPill(
+                          child: composerSlot(kGlassComposerRadius),
                         ),
                       ),
                     ),
@@ -557,7 +569,7 @@ class _ChatBodyState extends State<ChatBody> with WidgetsBindingObserver {
                     : Padding(
                         key: inputBarKey,
                         padding: EdgeInsets.zero,
-                        child: composer,
+                        child: composerSlot(0),
                       ),
               ),
             ),
