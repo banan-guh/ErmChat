@@ -224,7 +224,9 @@ class _StreamPlayerViewState extends State<StreamPlayerView> {
   Future<NavigationDecision> _onNavigationRequest(
     NavigationRequest request,
   ) async {
-    if (_allowedPrefixes.any(request.url.startsWith)) {
+    // WebKit also asks for subframes (the player's ad and tracking iframes);
+    // punting those to the browser opens Safari on every stream load.
+    if (!request.isMainFrame || _allowedPrefixes.any(request.url.startsWith)) {
       return NavigationDecision.navigate;
     }
     final uri = Uri.tryParse(request.url);
