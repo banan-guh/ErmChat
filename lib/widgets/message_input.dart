@@ -78,7 +78,14 @@ class MessageInput extends StatelessWidget {
             focusNode: focusNode,
             onTap: onTap,
             onChanged: onChanged,
-            onSubmitted: onSubmitted,
+            // Return sends instead of inserting a newline; the field still
+            // wraps up to maxLines. The no-op keeps the keyboard up.
+            keyboardType: TextInputType.text,
+            textInputAction: searchMode
+                ? TextInputAction.search
+                : TextInputAction.send,
+            onEditingComplete: () {},
+            onSubmitted: onSubmitted ?? (enabled ? (_) => onSend() : null),
             inputFormatters: inputFormatters,
             enabled: enabled,
             minLines: 1,

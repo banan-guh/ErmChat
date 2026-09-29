@@ -55,6 +55,31 @@ void main() {
       expect(compact, lessThan(full));
     });
 
+    testWidgets('the keyboard send action sends and keeps focus '
+        '(borderless $borderless)', (tester) async {
+      var sent = 0;
+      final focusNode = FocusNode();
+      addTearDown(focusNode.dispose);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: MessageInput(
+              controller: TextEditingController(text: 'hi'),
+              focusNode: focusNode,
+              onSend: () => sent++,
+              borderless: borderless,
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.byType(EditableText));
+      await tester.pump();
+      await tester.testTextInput.receiveAction(TextInputAction.send);
+      await tester.pump();
+      expect(sent, 1);
+      expect(focusNode.hasFocus, isTrue);
+    });
+
     testWidgets('compact keeps full-size buttons (borderless $borderless)', (
       tester,
     ) async {
