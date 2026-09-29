@@ -1311,6 +1311,29 @@ void main() {
     });
   });
 
+  // A sheet left between detents (list fling into the sheet, cancelled
+  // pointer) eases to the nearer of card and max once it rests.
+  group('userSheetRestTarget', () {
+    double? rest(double size) => userSheetRestTarget(
+      size,
+      minExtent: 0,
+      cardExtent: 0.4,
+      maxExtent: 1.0,
+    );
+
+    test('between detents picks the nearer one', () {
+      expect(rest(0.55), 0.4);
+      expect(rest(0.8), 1.0);
+      expect(rest(0.2), 0.4);
+    });
+
+    test('on a detent or closing stays put', () {
+      expect(rest(0.4), isNull);
+      expect(rest(1.0), isNull);
+      expect(rest(0.0), isNull);
+    });
+  });
+
   group('userSheetTargetDetent', () {
     const minExtent = 0.25;
     const cardExtent = 0.4;

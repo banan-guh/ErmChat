@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
@@ -44,6 +46,21 @@ double userSheetNearestDetent(
     }
   }
   return target;
+}
+
+// Detent a sheet resting with no finger down eases to: the nearer of card and
+// max. Null when it already sits on one, or is closing at min.
+double? userSheetRestTarget(
+  double size, {
+  required double minExtent,
+  required double cardExtent,
+  required double maxExtent,
+}) {
+  if (size <= minExtent + 0.001) return null;
+  final target = (size - cardExtent).abs() <= (size - maxExtent).abs()
+      ? cardExtent
+      : maxExtent;
+  return (target - size).abs() <= 0.001 ? null : target;
 }
 
 // Velocity-directed detent: fast flings move one detent, slow ones use nearest.
@@ -231,6 +248,32 @@ class UserSheets {
     // is always the measurement, never this.
     final initialChildSize = _cardExtent > 0.02 ? _cardExtent : 0.001;
     _cardExtent = initialChildSize;
+    // Safety net for motion no release handler sees (a list fling that runs
+    // into the sheet, a cancelled pointer): once the sheet rests between
+    // detents with no finger down, it eases to the nearest one.
+    Timer? restTimer;
+    void settleIfStranded() {
+      if (sheetDragging || !sheetController.isAttached) return;
+      if (autoSeek.value != null) return;
+      final target = userSheetRestTarget(
+        sheetController.size,
+        minExtent: minExtent,
+        cardExtent: _cardExtent,
+        maxExtent: maxChildSize,
+      );
+      if (target == null) return;
+      sheetController.animateTo(
+        target,
+        duration: PanelManager.sheetAnimDuration,
+        curve: Curves.easeOutCubic,
+      );
+    }
+
+    sheetController.addListener(() {
+      restTimer?.cancel();
+      if (sheetDragging) return;
+      restTimer = Timer(const Duration(milliseconds: 150), settleIfStranded);
+    });
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -264,6 +307,10 @@ class UserSheets {
               }
             },
             onPointerMove: (e) => tracker.addPosition(e.timeStamp, e.position),
+            onPointerCancel: (_) {
+              sheetDragging = false;
+              settleIfStranded();
+            },
             onPointerUp: (_) {
               sheetDragging = false;
               if (!sheetController.isAttached) return;
@@ -271,11 +318,11 @@ class UserSheets {
                 listMoved =
                     (listController!.offset - listOffsetAtDown).abs() > 4;
               }
-              // A gesture that scrolled the list never resizes or dismisses
-              // the sheet.
-              if (listMoved) return;
               final size = sheetController.size;
               final sizeMoved = (size - sizeAtDown).abs() > 0.001;
+              // A gesture that only scrolled the list never resizes or
+              // dismisses the sheet; one that also moved it still settles.
+              if (listMoved && !sizeMoved) return;
               final velocityDy = tracker.getVelocity().pixelsPerSecond.dy;
               final target = userSheetTargetDetent(
                 size,
@@ -295,7 +342,7 @@ class UserSheets {
                 return;
               }
               if (!sizeMoved) return;
-              if ((target - size).abs() <= 0.02) return;
+              if ((target - size).abs() <= 0.001) return;
               sheetController.animateTo(
                 target,
                 duration: PanelManager.sheetAnimDuration,
@@ -368,6 +415,7 @@ class UserSheets {
                       // Disposing on the route future would run before the
                       // sheet's exit animation and crash its controllers.
                       onDispose: () {
+                        restTimer?.cancel();
                         sheetController.dispose();
                         historyController.dispose();
                         autoSeek.dispose();
