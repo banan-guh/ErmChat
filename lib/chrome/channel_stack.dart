@@ -13,6 +13,7 @@ import '../widgets/seven_tv_paint_service.dart';
 import '../services/twitch_auth.dart';
 import '../sheets/message_menu.dart';
 import '../sheets/user_sheet.dart';
+import '../util/insets.dart';
 import '../widgets/broadcast_widgets.dart';
 import '../widgets/chat_view.dart';
 import '../widgets/glass_chrome.dart';
@@ -284,6 +285,7 @@ class ChannelPanels {
   Widget channelTabs(
     BuildContext context, {
     required bool hideChrome,
+    bool merged = false,
     double overlayTop = 50,
     Widget? belowTabBar,
     bool glassOverlay = false,
@@ -295,6 +297,7 @@ class ChannelPanels {
       child: channelStack(
         context,
         hideChrome: hideChrome,
+        merged: merged,
         overlayTop: overlayTop,
         belowTabBar: belowTabBar,
         glassOverlay: glassOverlay,
@@ -308,6 +311,7 @@ class ChannelPanels {
   Widget channelStack(
     BuildContext context, {
     required bool hideChrome,
+    bool merged = false,
     required double overlayTop,
     Widget? belowTabBar,
     bool glassOverlay = false,
@@ -337,6 +341,20 @@ class ChannelPanels {
                   },
                   showTabBar: !isFullscreen() && !hideChrome,
                   chromeMenu: homeAppBar.chromeMenu(glass: glassOverlay),
+                  // Compact merges the app bar into the strip: join as the
+                  // last tab, the other actions pinned on the right.
+                  addTab: merged ? homeAppBar.joinTab() : null,
+                  onAddTab: homeAppBar.onJoinTab,
+                  stripTrailing: merged
+                      ? Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            homeAppBar.mentionsButton(context),
+                            homeAppBar.overflowMenu(context),
+                          ],
+                        )
+                      : null,
+                  stripTopInset: merged ? statusBarHeight(context) : 0,
                   belowTabBar: belowTabBar,
                   glassOverlay: glassOverlay,
                   headerOverlay: glassHeader,

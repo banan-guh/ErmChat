@@ -11,6 +11,7 @@ import '../chat/chat.dart';
 import '../services/stream_player_controller.dart';
 import '../services/twitch_auth.dart';
 import '../util/constants.dart';
+import '../util/layout_density.dart';
 import '../widgets/chrome_menu_button.dart';
 import '../widgets/media_upload_controller.dart';
 import '../widgets/panel_manager.dart';
@@ -108,6 +109,132 @@ class HomeAppBar {
     );
   }
 
+  bool _joinBusy() =>
+      !disableJoinSpinner() && (chatLoading() || networkBusy.value);
+
+  Listenable get _joinBusyListenable =>
+      Listenable.merge([chatConn.connectionStateNotifier, networkBusy]);
+
+  Widget _joinButton() {
+    return ListenableBuilder(
+      listenable: _joinBusyListenable,
+      builder: (context, _) {
+        final busy = _joinBusy();
+        return IconButton(
+          icon: busy ? _joinSpinner(context) : const Icon(Icons.add),
+          tooltip: busy ? 'Loading...' : 'Join channel',
+          onPressed: busy || chat.length >= kMaxChannels
+              ? null
+              : addChannelDialog,
+        );
+      },
+    );
+  }
+
+  Widget _joinSpinner(BuildContext context) => SizedBox(
+    width: 24,
+    height: 24,
+    child: CircularProgressIndicator(
+      strokeWidth: 2,
+      color: IconTheme.of(context).color,
+    ),
+  );
+
+  /// Label for the compact layout's trailing join tab.
+  Widget joinTab() {
+    return ListenableBuilder(
+      listenable: _joinBusyListenable,
+      builder: (context, _) {
+        if (_joinBusy()) return _joinSpinner(context);
+        return Tooltip(
+          message: 'Join channel',
+          child: Icon(
+            Icons.add,
+            color: chat.length >= kMaxChannels
+                ? Theme.of(context).disabledColor
+                : null,
+          ),
+        );
+      },
+    );
+  }
+
+  /// Join tab tap: same gating as the top bar button.
+  void onJoinTab() {
+    if (_joinBusy() || chat.length >= kMaxChannels) return;
+    addChannelDialog();
+  }
+
+  Widget mentionsButton(BuildContext context) {
+    final theme = Theme.of(context);
+    return ListenableBuilder(
+      listenable: chat.mentionsBump,
+      builder: (context, _) => IconButton(
+        icon: Icon(
+          Icons.notifications_active,
+          color: chat.unreadMentions > 0 ? theme.colorScheme.error : null,
+        ),
+        tooltip: 'Mentions',
+        onPressed: _onBellPressed,
+      ),
+    );
+  }
+
+  Widget overflowMenu(BuildContext context) {
+    return PopupMenuButton<String>(
+      popUpAnimationStyle: const AnimationStyle(
+        duration: Duration(milliseconds: 175),
+      ),
+      onSelected: (value) {
+        switch (value) {
+          case 'threads':
+            threads.showThreadsDashboard(tab: 1);
+            break;
+          case 'upload':
+            uploadController.pickAndUpload(context);
+            break;
+          case 'reload_emotes':
+            reloadEmotes();
+            break;
+          case 'reconnect':
+            reconnect();
+            break;
+          case 'settings':
+            openSettings();
+            break;
+        }
+      },
+      itemBuilder: (_) => [
+        const PopupMenuItem(
+          value: 'settings',
+          child: Row(
+            children: [
+              Icon(Icons.settings, size: 20),
+              SizedBox(width: 12),
+              Text('Settings'),
+            ],
+          ),
+        ),
+        const PopupMenuDivider(),
+        const PopupMenuItem(value: 'threads', child: Text('Threads')),
+        const PopupMenuItem(value: 'upload', child: Text('Upload media')),
+        const PopupMenuItem(
+          value: 'reload_emotes',
+          child: Text('Reload emotes'),
+        ),
+        const PopupMenuItem(value: 'reconnect', child: Text('Reconnect')),
+      ],
+      child: GestureDetector(
+        onLongPress: openSettings,
+        child: Padding(
+          // 40pt in compact, matching the density-shrunk icon buttons.
+          padding: EdgeInsets.all(isCompactLayout(context) ? 8 : 12),
+          child: const Icon(Icons.more_vert),
+        ),
+      ),
+    );
+  }
+
   Widget appBar(BuildContext context, {bool transparent = false}) {
     final theme = Theme.of(context);
     final content = Column(
@@ -127,106 +254,9 @@ class HomeAppBar {
                   ),
                 ),
                 const Spacer(),
-                ListenableBuilder(
-                  listenable: Listenable.merge([
-                    chatConn.connectionStateNotifier,
-                    networkBusy,
-                  ]),
-                  builder: (context, _) {
-                    final busy =
-                        !disableJoinSpinner() &&
-                        (chatLoading() || networkBusy.value);
-                    return IconButton(
-                      icon: busy
-                          ? SizedBox(
-                              width: 24,
-                              height: 24,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: IconTheme.of(context).color,
-                              ),
-                            )
-                          : const Icon(Icons.add),
-                      tooltip: busy ? 'Loading...' : 'Join channel',
-                      onPressed: busy || chat.length >= kMaxChannels
-                          ? null
-                          : addChannelDialog,
-                    );
-                  },
-                ),
-                ListenableBuilder(
-                  listenable: chat.mentionsBump,
-                  builder: (context, _) => IconButton(
-                    icon: Icon(
-                      Icons.notifications_active,
-                      color: chat.unreadMentions > 0
-                          ? theme.colorScheme.error
-                          : null,
-                    ),
-                    tooltip: 'Mentions',
-                    onPressed: _onBellPressed,
-                  ),
-                ),
-                PopupMenuButton<String>(
-                  popUpAnimationStyle: const AnimationStyle(
-                    duration: Duration(milliseconds: 175),
-                  ),
-                  onSelected: (value) {
-                    switch (value) {
-                      case 'threads':
-                        threads.showThreadsDashboard(tab: 1);
-                        break;
-                      case 'upload':
-                        uploadController.pickAndUpload(context);
-                        break;
-                      case 'reload_emotes':
-                        reloadEmotes();
-                        break;
-                      case 'reconnect':
-                        reconnect();
-                        break;
-                      case 'settings':
-                        openSettings();
-                        break;
-                    }
-                  },
-                  itemBuilder: (_) => [
-                    const PopupMenuItem(
-                      value: 'settings',
-                      child: Row(
-                        children: [
-                          Icon(Icons.settings, size: 20),
-                          SizedBox(width: 12),
-                          Text('Settings'),
-                        ],
-                      ),
-                    ),
-                    const PopupMenuDivider(),
-                    const PopupMenuItem(
-                      value: 'threads',
-                      child: Text('Threads'),
-                    ),
-                    const PopupMenuItem(
-                      value: 'upload',
-                      child: Text('Upload media'),
-                    ),
-                    const PopupMenuItem(
-                      value: 'reload_emotes',
-                      child: Text('Reload emotes'),
-                    ),
-                    const PopupMenuItem(
-                      value: 'reconnect',
-                      child: Text('Reconnect'),
-                    ),
-                  ],
-                  child: GestureDetector(
-                    onLongPress: openSettings,
-                    child: const Padding(
-                      padding: EdgeInsets.all(12),
-                      child: Icon(Icons.more_vert),
-                    ),
-                  ),
-                ),
+                _joinButton(),
+                mentionsButton(context),
+                overflowMenu(context),
               ],
             ),
           ),

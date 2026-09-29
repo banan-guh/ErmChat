@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../models/twitch_message.dart';
+import '../util/layout_density.dart';
 import '../util/thread_utils.dart';
 
 class MessageInput extends StatelessWidget {
@@ -54,12 +55,21 @@ class MessageInput extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final effectiveHint = hintText ?? 'Type a message...';
+    // Compact trims the icon boxes and the padding together, so the text
+    // stays centered on the icons.
+    final compact = isCompactLayout(context);
+    final iconBox = compact ? 40.0 : 48.0;
+    final iconConstraints = BoxConstraints(
+      minWidth: iconBox,
+      minHeight: iconBox,
+    );
+    final gap = compact ? 2.0 : 4.0;
     return Padding(
       // In-flow the field sits flush under the list (top 0). In a glass
       // pill it must breathe evenly or the text reads high in the pill.
       padding: borderless
-          ? const EdgeInsets.fromLTRB(8, 4, 8, 4)
-          : const EdgeInsets.fromLTRB(8, 0, 8, 8),
+          ? EdgeInsets.fromLTRB(8, gap, 8, gap)
+          : EdgeInsets.fromLTRB(8, 0, 8, gap * 2),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -75,9 +85,13 @@ class MessageInput extends StatelessWidget {
             minLines: 1,
             maxLines: searchMode ? 1 : 6,
             decoration: InputDecoration(
-              // The 48pt icons ignore density, so a compact theme would lift
-              // the text above their centerline.
+              // Theme density would shift the text off the icon boxes'
+              // centerline. Compact drops the 48pt field minimum via isDense
+              // instead, so padding and the 40pt icons set the height.
               visualDensity: VisualDensity.standard,
+              isDense: compact,
+              prefixIconConstraints: iconConstraints,
+              suffixIconConstraints: iconConstraints,
               // Borderless glass mode uses a hint (always centered) instead
               // of a label (which sits high with no outline to notch into).
               labelText: borderless ? null : effectiveHint,
@@ -91,17 +105,20 @@ class MessageInput extends StatelessWidget {
               enabledBorder: borderless ? InputBorder.none : null,
               focusedBorder: borderless ? InputBorder.none : null,
               contentPadding: borderless
-                  ? const EdgeInsets.symmetric(horizontal: 16, vertical: 12)
+                  ? EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: compact ? 8 : 12,
+                    )
                   : null,
               prefixIcon:
                   prefixOverride ??
                   SizedBox(
-                    width: 48,
-                    height: 48,
+                    width: iconBox,
+                    height: iconBox,
                     child: Material(
                       type: MaterialType.transparency,
                       child: InkWell(
-                        borderRadius: BorderRadius.circular(24),
+                        borderRadius: BorderRadius.circular(iconBox / 2),
                         onTap: onEmoteToggle,
                         child: ListenableBuilder(
                           listenable: focusNode,
@@ -116,12 +133,12 @@ class MessageInput extends StatelessWidget {
               suffixIcon:
                   suffixOverride ??
                   SizedBox(
-                    width: 48,
-                    height: 48,
+                    width: iconBox,
+                    height: iconBox,
                     child: Material(
                       type: MaterialType.transparency,
                       child: InkWell(
-                        borderRadius: BorderRadius.circular(24),
+                        borderRadius: BorderRadius.circular(iconBox / 2),
                         onTap: enabled ? onSend : null,
                         onLongPress: enabled ? onSendLongPress : null,
                         child: ListenableBuilder(

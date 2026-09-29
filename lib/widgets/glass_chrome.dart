@@ -21,6 +21,11 @@ const double kOpaqueComposerGap = 4.0;
 double glassHeaderHeight(BuildContext context) =>
     statusBarHeight(context) + kGlassAppBarHeight + kGlassTabStripHeight;
 
+// Compact header height: status bar plus the merged tab strip, which
+// carries the app bar actions, so there is no app bar row.
+double glassCompactHeaderHeight(BuildContext context) =>
+    statusBarHeight(context) + kGlassTabStripHeight;
+
 // Welcome overlay header height: status bar plus app bar row only. With no
 // channels there is no tab strip, so the glass card holds the app bar alone
 // and the welcome list pads by this shorter amount.

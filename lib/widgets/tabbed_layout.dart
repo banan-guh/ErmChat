@@ -115,6 +115,12 @@ class TabbedLayout extends StatefulWidget {
   final Widget? addTab;
   final VoidCallback? onAddTab;
 
+  /// Pinned after the scrolling tabs (compact layout's top bar actions).
+  final Widget? stripTrailing;
+
+  /// Status bar clearance above the strip when nothing sits over it.
+  final double stripTopInset;
+
   /// Slot between the tab strip and the pages (stream player dock).
   final Widget? belowTabBar;
 
@@ -147,6 +153,8 @@ class TabbedLayout extends StatefulWidget {
     this.chromeMenu,
     this.addTab,
     this.onAddTab,
+    this.stripTrailing,
+    this.stripTopInset = 0,
     this.belowTabBar,
     this.headerOverlay,
     this.glassOverlay = false,
@@ -487,40 +495,57 @@ class TabbedLayoutState extends State<TabbedLayout>
         ? edgeInset.right
         : TabbedLayout.minEdgeExclusion;
 
-    // Tab strip content shared by the docked and glass branches.
-    final tabStrip = SizedBox(
-      height: 40,
-      // TabBar disables the behavior-built overscroll indicator
-      // for scrollable tabs, so install the stretch directly.
-      child: StretchingOverscrollIndicator(
-        axisDirection: Directionality.of(context) == TextDirection.rtl
-            ? AxisDirection.left
-            : AxisDirection.right,
-        child: ScrollConfiguration(
-          behavior: const _SwipeScrollBehavior(),
-          child: TabBar(
-            controller: _tabController,
-            onTap: _onTabTap,
-            isScrollable: true,
-            tabAlignment: _resolveTabAlignment(),
-            labelPadding: const EdgeInsets.symmetric(
-              horizontal: 12,
-              vertical: 0,
-            ),
-            indicator: BoxDecoration(
-              border: Border(
-                bottom: BorderSide(color: theme.colorScheme.primary, width: 2),
+    // Tab strip content shared by the docked and glass branches. The Row
+    // stays put with or without trailing actions, so a layout flip never
+    // remounts the TabBar.
+    final tabStrip = Padding(
+      padding: EdgeInsets.only(top: widget.stripTopInset),
+      child: SizedBox(
+        height: 40,
+        child: Row(
+          children: [
+            Expanded(
+              // TabBar disables the behavior-built overscroll indicator
+              // for scrollable tabs, so install the stretch directly.
+              child: StretchingOverscrollIndicator(
+                axisDirection: Directionality.of(context) == TextDirection.rtl
+                    ? AxisDirection.left
+                    : AxisDirection.right,
+                child: ScrollConfiguration(
+                  behavior: const _SwipeScrollBehavior(),
+                  child: TabBar(
+                    controller: _tabController,
+                    onTap: _onTabTap,
+                    isScrollable: true,
+                    tabAlignment: _resolveTabAlignment(),
+                    labelPadding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 0,
+                    ),
+                    indicator: BoxDecoration(
+                      border: Border(
+                        bottom: BorderSide(
+                          color: theme.colorScheme.primary,
+                          width: 2,
+                        ),
+                      ),
+                    ),
+                    indicatorSize: TabBarIndicatorSize.label,
+                    tabs: [
+                      for (var i = 0; i < tabs.length; i++)
+                        Tab(
+                          child:
+                              widget.tabBuilder?.call(context, i) ??
+                              Text(tabs[i]),
+                        ),
+                      if (_hasAddTab) Tab(child: widget.addTab),
+                    ],
+                  ),
+                ),
               ),
             ),
-            indicatorSize: TabBarIndicatorSize.label,
-            tabs: [
-              for (var i = 0; i < tabs.length; i++)
-                Tab(
-                  child: widget.tabBuilder?.call(context, i) ?? Text(tabs[i]),
-                ),
-              if (_hasAddTab) Tab(child: widget.addTab),
-            ],
-          ),
+            ?widget.stripTrailing,
+          ],
         ),
       ),
     );

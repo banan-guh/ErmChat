@@ -5,6 +5,8 @@ import 'package:flutter/material.dart';
 import '../chat/chat.dart';
 import '../services/pip_service.dart';
 import '../services/stream_player_controller.dart';
+import '../util/insets.dart';
+import '../util/layout_density.dart';
 import '../widgets/glass_chrome.dart';
 import '../widgets/stream_player_view.dart';
 import 'channel_stack.dart';
@@ -328,6 +330,9 @@ class StreamPanels {
         children: [Expanded(child: split(context, channel, maxWidth))],
       );
     }
+    // Compact folds the app bar into the tab strip. With no channels there
+    // is no strip, so the welcome view keeps the app bar.
+    final merged = isCompactLayout(context) && chat.names.isNotEmpty;
     final showVideo =
         channel == null ||
         showStreamVideo(
@@ -345,7 +350,9 @@ class StreamPanels {
         !isFullscreen() &&
         !hideChromeForKeyboard &&
         channel == null) {
-      final headerH = chat.names.isNotEmpty
+      final headerH = merged
+          ? glassCompactHeaderHeight(context)
+          : chat.names.isNotEmpty
           ? glassHeaderHeight(context)
           : glassWelcomeHeaderHeight(context);
       // The pill clearance reaches the lists through GlassChromeScope, not
@@ -355,10 +362,13 @@ class StreamPanels {
           channels.channelTabs(
             context,
             hideChrome: false,
+            merged: merged,
             overlayTop: headerH + 8,
             belowTabBar: null,
             glassOverlay: true,
-            glassHeader: homeAppBar.appBar(context, transparent: true),
+            glassHeader: merged
+                ? null
+                : homeAppBar.appBar(context, transparent: true),
             glassHeaderHeight: headerH,
             glassTopPadding: headerH,
           ),
@@ -377,14 +387,16 @@ class StreamPanels {
         AnimatedSize(
           duration: const Duration(milliseconds: 200),
           curve: Curves.easeInOut,
-          child: !isFullscreen() && !hideChromeForKeyboard
+          child: !isFullscreen() && !hideChromeForKeyboard && !merged
               ? homeAppBar.appBar(context)
               : const SizedBox.shrink(),
         ),
         channels.channelTabs(
           context,
           hideChrome: hideChromeForKeyboard,
-          overlayTop: 50 + aboveTabsH,
+          merged: merged,
+          // Merged, the strip starts under the status bar, not the app bar.
+          overlayTop: (merged ? statusBarHeight(context) : 0) + 50 + aboveTabsH,
           belowTabBar: channel == null
               ? null
               : stackedPlayer(channel, showVideo),
