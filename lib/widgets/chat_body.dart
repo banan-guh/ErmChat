@@ -119,6 +119,9 @@ class _ChatBodyState extends State<ChatBody> with WidgetsBindingObserver {
   bool _pillShown = false;
   // Backstop so a missed onEnd cannot leave the pill mounted for the session.
   Timer? _pillHideTimer;
+  // Composer the pill last showed. Input toggle-off nulls the composer, so
+  // this keeps the field in the pill through its exit fade.
+  Widget? _pillComposer;
 
   // Cached chat body and the inputs it was built from.
   Widget? _body;
@@ -337,6 +340,7 @@ class _ChatBodyState extends State<ChatBody> with WidgetsBindingObserver {
     final pillH = glassComposerOverlayHeight(composerH);
     if (pill) {
       _pillShown = true;
+      _pillComposer = composer;
       _pillHideTimer?.cancel();
       _pillHideTimer = null;
     } else if (_pillShown && _pillHideTimer == null) {
@@ -347,6 +351,7 @@ class _ChatBodyState extends State<ChatBody> with WidgetsBindingObserver {
         if (mounted) setState(() => _pillShown = false);
       });
     }
+    if (!_pillShown) _pillComposer = null;
     // Rebuilt only when its inputs change, so keyboard ticks (including the
     // safe-area ticks that rebuild ChatBody) reuse the same instance and
     // the body subtree skips rebuilding. The body reads the content height
@@ -425,14 +430,14 @@ class _ChatBodyState extends State<ChatBody> with WidgetsBindingObserver {
     // The composer and its focus glow, shared by the pill and the in-flow
     // path. The key moves the field intact across the hand-off: a rebuilt
     // EditableText closes the input connection and iOS drops the keyboard.
-    Widget composerSlot(double radius) => composer == null
+    Widget composerSlot(Widget? field, double radius) => field == null
         ? const SizedBox.shrink()
         : KeyedSubtree(
             key: _composerKey,
             child: ComposerFocusGlow(
               enabled: widget.liquidGlass,
               radius: radius,
-              child: composer,
+              child: field,
             ),
           );
     // Floating composer pill. The list pads by pillH upstream
@@ -475,10 +480,11 @@ class _ChatBodyState extends State<ChatBody> with WidgetsBindingObserver {
                         return true;
                       },
                       child: SizeChangedLayoutNotifier(
-                        // Toggle-off nulls the composer while the exit fade
-                        // still runs it out.
                         child: glassPill(
-                          child: composerSlot(kGlassComposerRadius),
+                          child: composerSlot(
+                            _pillComposer,
+                            kGlassComposerRadius,
+                          ),
                         ),
                       ),
                     ),
@@ -569,7 +575,7 @@ class _ChatBodyState extends State<ChatBody> with WidgetsBindingObserver {
                     : Padding(
                         key: inputBarKey,
                         padding: EdgeInsets.zero,
-                        child: composerSlot(0),
+                        child: composerSlot(composer, 0),
                       ),
               ),
             ),

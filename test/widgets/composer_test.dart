@@ -18,6 +18,7 @@ void main() {
     WidgetTester tester, {
     required bool liquidGlass,
     required FocusNode focus,
+    bool showComposer = true,
   }) {
     return tester.pumpWidget(
       MaterialApp(
@@ -25,10 +26,9 @@ void main() {
           body: ChatBody(
             liquidGlass: liquidGlass,
             emoteMaxFraction: 0.5,
-            composer: TextField(
-              key: const Key('message_input'),
-              focusNode: focus,
-            ),
+            composer: showComposer
+                ? TextField(key: const Key('message_input'), focusNode: focus)
+                : null,
             bodyBuilder:
                 (
                   context, {
@@ -168,6 +168,29 @@ void main() {
     );
     final outline = glow.foregroundDecoration! as BoxDecoration;
     expect((outline.border! as Border).top.color.a, greaterThan(0));
+  });
+
+  testWidgets('input toggle-off fades the field out with the pill', (
+    tester,
+  ) async {
+    final focus = FocusNode();
+    addTearDown(focus.dispose);
+    await pumpBody(tester, liquidGlass: true, focus: focus);
+    await tester.pumpAndSettle();
+
+    await pumpBody(
+      tester,
+      liquidGlass: true,
+      focus: focus,
+      showComposer: false,
+    );
+    await tester.pump(const Duration(milliseconds: 60));
+    expect(find.byKey(const Key('message_input')), findsOneWidget);
+
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('message_input')), findsNothing);
+    expect(find.byKey(const ValueKey('composer_pill')), findsNothing);
   });
 
   // Full-app harness: the real HomeScreen wiring, joined and connected, so the
