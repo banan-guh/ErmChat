@@ -223,10 +223,7 @@ void main() {
   });
 
   // Full-app harness: the real HomeScreen wiring, joined and connected, so the
-  // field is enabled and a plain tap can be checked in both chrome modes. The
-  // glass pref defaults to true in code and is read async, so the app always
-  // starts on the pill and hands off to the in-flow path: that hand-off is
-  // exactly where the focus node used to be dropped.
+  // field is enabled and a plain tap can be checked in both chrome modes.
   Future<void> pumpJoined(WidgetTester tester, {required bool glass}) async {
     tester.view.physicalSize = const Size(1080, 2340);
     tester.view.devicePixelRatio = 3.0;
@@ -271,6 +268,30 @@ void main() {
     await tester.pump(const Duration(milliseconds: 600));
     await tester.pump();
   }
+
+  // Saved prefs apply before HomeScreen's first frame. Read async, the
+  // first frames ran on defaults and the chrome animated over on start.
+  testWidgets('full app: the first home frame uses the saved glass pref', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({'liquid_glass': true});
+    await tester.pumpWidget(
+      TwitchChatApp(
+        key: UniqueKey(),
+        eventSubService: FakeEventSubService(),
+        recentMessagesService: FakeRecentMessagesService(),
+        ircService: FakeIrcService(),
+        ircReadService: FakeIrcReadService(),
+      ),
+    );
+    for (var i = 0; i < 20 && find.byType(HomeScreen).evaluate().isEmpty; i++) {
+      await tester.pump();
+    }
+    expect(find.byType(HomeScreen), findsOneWidget);
+    expect(find.byKey(const ValueKey('composer_pill')), findsOneWidget);
+    // Let startup's socket lookups time out under fake time.
+    await tester.pump(const Duration(milliseconds: 600));
+  });
 
   for (final glass in <bool>[false, true]) {
     testWidgets('full app: composer focuses on a plain tap (glass=$glass)', (

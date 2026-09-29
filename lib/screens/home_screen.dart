@@ -598,6 +598,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
           break;
       }
     };
+    // Main loaded prefs before the home screen, so the first frame can use
+    // them; the async pass then only picks up later writes.
+    final loaded = Prefs.loaded;
+    if (loaded != null) _applyPrefsFrom(loaded, initial: true);
     _applyPrefs();
     unawaited(_threads.loadSaved());
     unawaited(
@@ -1106,7 +1110,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   Future<void> _applyPrefs() async {
     final prefs = await Prefs.load();
     if (!mounted) return;
+    _applyPrefsFrom(prefs);
+  }
 
+  /// [initial] runs from initState, before the first frame: fields only, no
+  /// setState and no cache churn, so the first frame already has the saved
+  /// chrome instead of animating over from defaults.
+  void _applyPrefsFrom(Prefs prefs, {bool initial = false}) {
     final gifHeight = prefs.giphyInlineHeight.clamp(
       kGiphyInlineHeightMin,
       kGiphyInlineHeightMax,
@@ -1136,14 +1146,18 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
         _showImages != prefs.imageEmbedEnabled ||
         _imageHeight != imageHeight;
 
-    setState(() {
-      ref
-          .read(maxMessagesPerChannelProvider.notifier)
-          .set(prefs.maxMessagesPerChannel);
-      ref
-          .read(recentMessagesLimitProvider.notifier)
-          .set(prefs.recentMessagesLimit);
-      ref.read(sharedChatModeProvider.notifier).set(prefs.sharedChatMode);
+    void apply() {
+      // Providers cannot change during initState; none of these touch the
+      // chrome, so the async pass sets them a beat later.
+      if (!initial) {
+        ref
+            .read(maxMessagesPerChannelProvider.notifier)
+            .set(prefs.maxMessagesPerChannel);
+        ref
+            .read(recentMessagesLimitProvider.notifier)
+            .set(prefs.recentMessagesLimit);
+        ref.read(sharedChatModeProvider.notifier).set(prefs.sharedChatMode);
+      }
       _replyToRoot = prefs.replyToThreadRoot;
       _preferEmotesFirst = prefs.preferEmotesFirst;
       _showTimestamps = prefs.showTimestamps;
@@ -1166,9 +1180,16 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       _messageBuilder.showImages = _showImages;
       _messageBuilder.imageHeight = _imageHeight;
       _messageBuilder.animateGifs = _animateGifs;
-    });
+    }
+
+    if (initial) {
+      apply();
+    } else {
+      setState(apply);
+    }
     _sevenTvPaintService.enabled = _showNamePaints;
     if (animateChanged) EmoteUrlProvider.applyGifsEnabled(_animateGifs);
+    if (initial) return;
     if (maxCapChanged) {
       // Drop a lowering cap without waiting for the next incoming message.
       for (final channel in List.of(_chat.names)) {
