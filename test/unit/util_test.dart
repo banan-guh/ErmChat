@@ -12,7 +12,7 @@ import 'package:ermchat/panels/search.dart';
 import 'package:ermchat/services/twitch_auth.dart';
 import 'package:ermchat/util/mention.dart';
 import 'package:ermchat/util/duration_format.dart';
-import 'package:ermchat/util/text_bypass.dart';
+import 'package:ermchat/util/chat_text.dart';
 import 'package:ermchat/main.dart';
 import 'package:ermchat/sheets/user_sheet.dart';
 import 'package:ermchat/util/timestamp_formatter.dart';
@@ -1240,6 +1240,17 @@ void main() {
       expect(emails, hasLength(1));
       expect(emails.single.emailAddress, 'foo@gmail.com');
       expect(elements.whereType<UrlElement>(), isEmpty);
+    });
+
+    test('drops duplicate-bypass marks so they cannot wrap alone', () {
+      String plain(List<InlineSpan> spans) =>
+          spans.map((s) => (s as TextSpan).text).join();
+      // Real message: two spaces then a CGJ from a 7TV dedupe suffix.
+      expect(plain(parseTextWithLinks('Bussin eat  \u034F')), 'Bussin eat ');
+      expect(plain(parseTextWithLinks('hi \u{E0000}')), 'hi ');
+      // Emoji ZWJ sequences keep their joiners.
+      const family = '\u{1F468}\u200D\u{1F469}\u200D\u{1F467}';
+      expect(plain(parseTextWithLinks('hey $family')), 'hey $family');
     });
 
     test('email spans are tappable and report the address', () {

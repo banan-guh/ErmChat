@@ -12,6 +12,7 @@ import '../providers/ui_state_providers.dart';
 import '../report_config.dart';
 import '../emotes/emote.dart';
 import '../models/twitch_message.dart';
+import '../util/chat_text.dart';
 import '../util/haptics.dart';
 import '../services/twitch_api.dart';
 import '../services/twitch_auth.dart';
@@ -1255,7 +1256,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   void _toggleInputVisibility() => setShowInput(!_showInput);
 
   void _copyMessageToClipboard(TwitchMessage msg) {
-    Clipboard.setData(ClipboardData(text: msg.text));
+    Clipboard.setData(ClipboardData(text: copyableChatText(msg.text)));
     _chatNotice.show(
       'Message copied',
       actionLabel: 'Paste',

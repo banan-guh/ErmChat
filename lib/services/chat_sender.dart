@@ -5,7 +5,7 @@ import '../irc/transport/write.dart' show IrcService;
 import '../models/twitch_message.dart';
 import 'command_macros.dart';
 import 'twitch_auth.dart';
-import '../util/text_bypass.dart';
+import '../util/chat_text.dart';
 
 /// Owns the outbound send path and its send gates: macro expansion, slash
 /// dispatch, the duplicate-message bypass, and the self-timeout / slow-mode

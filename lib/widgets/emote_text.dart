@@ -9,6 +9,7 @@ import '../services/emote_images.dart';
 import '../emotes/emote_picker.dart';
 import '../util/constants.dart';
 import '../util/log.dart';
+import '../util/chat_text.dart';
 import 'emote_scale_resolver.dart';
 import '../services/link_whitelist.dart';
 import 'link_whitelist.dart';
@@ -386,8 +387,6 @@ class EmoteSegment implements _Segment {
   });
 }
 
-final _collapseSpace = RegExp(r' {2,}');
-
 /// Same linkifier stack as [parseTextWithLinks].
 List<LinkifyElement> _linkifyChat(
   String collapsed,
@@ -426,7 +425,7 @@ List<LinkifyElement> _linkifyChat(
 List<String> collectImageEmbedUrls(String text, {List<String>? linkWhitelist}) {
   if (!text.contains('.')) return const [];
   try {
-    final collapsed = text.replaceAll(_collapseSpace, ' ');
+    final collapsed = cleanChatText(text);
     if (!collapsed.contains('.')) return const [];
     final urls = <String>[];
     for (final element in _linkifyChat(collapsed, linkWhitelist)) {
@@ -452,11 +451,7 @@ List<InlineSpan> parseTextWithLinks(
   void Function(String url)? onImageTap,
   double scale = 1.0,
 }) {
-  // Fast path: no dots and no runs means no links and nothing to collapse.
-  if (!text.contains('.') && !text.contains('  ')) {
-    return [TextSpan(text: text)];
-  }
-  final collapsed = text.replaceAll(_collapseSpace, ' ');
+  final collapsed = cleanChatText(text);
   // Quick guard: ~99% of chat text has no URLs.
   if (!collapsed.contains('.')) return [TextSpan(text: collapsed)];
   try {
