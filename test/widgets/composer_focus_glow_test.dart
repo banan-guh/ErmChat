@@ -26,8 +26,8 @@ void main() {
         matching: find.byType(AnimatedContainer),
       ),
     );
-    final decoration = box.foregroundDecoration! as BoxDecoration;
-    return (decoration.border! as Border).top.color.a;
+    final decoration = box.decoration as BoxDecoration?;
+    return (decoration?.border as Border?)?.top.color.a ?? 0;
   }
 
   testWidgets('glows while an inner field holds focus', (tester) async {
@@ -44,7 +44,7 @@ void main() {
     expect(
       tester.getSize(find.byType(TextField)),
       size,
-      reason: 'the glow paints as a foreground and never resizes the field',
+      reason: 'focus only tints the ring and never resizes the field',
     );
 
     focusNode.unfocus();

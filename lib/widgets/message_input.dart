@@ -75,6 +75,9 @@ class MessageInput extends StatelessWidget {
             minLines: 1,
             maxLines: searchMode ? 1 : 6,
             decoration: InputDecoration(
+              // The 48pt icons ignore density, so a compact theme would lift
+              // the text above their centerline.
+              visualDensity: VisualDensity.standard,
               // Borderless glass mode uses a hint (always centered) instead
               // of a label (which sits high with no outline to notch into).
               labelText: borderless ? null : effectiveHint,

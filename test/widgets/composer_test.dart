@@ -166,7 +166,7 @@ void main() {
         matching: find.byType(AnimatedContainer),
       ),
     );
-    final outline = glow.foregroundDecoration! as BoxDecoration;
+    final outline = glow.decoration! as BoxDecoration;
     expect((outline.border! as Border).top.color.a, greaterThan(0));
   });
 

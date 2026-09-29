@@ -427,19 +427,12 @@ class _ChatBodyState extends State<ChatBody> with WidgetsBindingObserver {
             right: 0,
             child: widget.notice!,
           );
-    // The composer and its focus glow, shared by the pill and the in-flow
-    // path. The key moves the field intact across the hand-off: a rebuilt
-    // EditableText closes the input connection and iOS drops the keyboard.
-    Widget composerSlot(Widget? field, double radius) => field == null
+    // The composer, keyed so the field moves intact across the pill and
+    // in-flow paths: a rebuilt EditableText closes the input connection and
+    // iOS drops the keyboard. Each path rings its own shell with the glow.
+    Widget composerSlot(Widget? field) => field == null
         ? const SizedBox.shrink()
-        : KeyedSubtree(
-            key: _composerKey,
-            child: ComposerFocusGlow(
-              enabled: widget.liquidGlass,
-              radius: radius,
-              child: field,
-            ),
-          );
+        : KeyedSubtree(key: _composerKey, child: field);
     // Floating composer pill. The list pads by pillH upstream
     // so the newest rows clear it and slide underneath while scrolling. The
     // size notifier keeps the measurement fresh when inner listenables
@@ -480,11 +473,10 @@ class _ChatBodyState extends State<ChatBody> with WidgetsBindingObserver {
                         return true;
                       },
                       child: SizeChangedLayoutNotifier(
-                        child: glassPill(
-                          child: composerSlot(
-                            _pillComposer,
-                            kGlassComposerRadius,
-                          ),
+                        child: ComposerFocusGlow(
+                          enabled: true,
+                          radius: kGlassComposerRadius,
+                          child: glassPill(child: composerSlot(_pillComposer)),
                         ),
                       ),
                     ),
@@ -575,7 +567,11 @@ class _ChatBodyState extends State<ChatBody> with WidgetsBindingObserver {
                     : Padding(
                         key: inputBarKey,
                         padding: EdgeInsets.zero,
-                        child: composerSlot(composer, 0),
+                        child: ComposerFocusGlow(
+                          enabled: widget.liquidGlass,
+                          radius: 0,
+                          child: composerSlot(composer),
+                        ),
                       ),
               ),
             ),

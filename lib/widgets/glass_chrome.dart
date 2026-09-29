@@ -275,10 +275,9 @@ Widget glassPill({required Widget child}) => GlassSurface(
 
 // Focus glow for the composer. The opaque field gets the framework focus
 // ring, but the borderless glass field has no outline to tint, so this
-// paints a primary outline while any inner field holds focus. It rides with
-// the composer across the pill and docked paths, and paints as a foreground
-// so it never changes the composer's size.
-class ComposerFocusGlow extends StatefulWidget {
+// rings the shell (the pill, or the docked bar) in primary with a soft halo
+// while any inner field holds focus. Disabled, it adds nothing to layout.
+class ComposerFocusGlow extends StatelessWidget {
   const ComposerFocusGlow({
     super.key,
     required this.enabled,
@@ -291,30 +290,40 @@ class ComposerFocusGlow extends StatefulWidget {
   final Widget child;
 
   @override
-  State<ComposerFocusGlow> createState() => _ComposerFocusGlowState();
-}
-
-class _ComposerFocusGlowState extends State<ComposerFocusGlow> {
-  bool _focused = false;
-
-  @override
   Widget build(BuildContext context) {
     final primary = Theme.of(context).colorScheme.primary;
-    final lit = widget.enabled && _focused;
     return Focus(
       // Observes the inner fields only; never a traversal stop itself.
       skipTraversal: true,
-      onFocusChange: (v) {
-        if (v != _focused) setState(() => _focused = v);
-      },
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        curve: Curves.easeOut,
-        foregroundDecoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(widget.radius),
-          border: Border.all(color: primary.withValues(alpha: lit ? 0.45 : 0)),
-        ),
-        child: widget.child,
+      // Reads focus on build rather than on change, so a field that arrives
+      // already focused (the pill hand-off) lights the new shell at once.
+      child: Builder(
+        builder: (context) {
+          final lit = enabled && Focus.of(context).hasFocus;
+          return AnimatedContainer(
+            duration: const Duration(milliseconds: 200),
+            curve: Curves.easeOut,
+            // The border stays while enabled so focus never shifts layout.
+            decoration: enabled
+                ? BoxDecoration(
+                    borderRadius: BorderRadius.circular(radius),
+                    border: Border.all(
+                      color: primary.withValues(alpha: lit ? 0.45 : 0),
+                    ),
+                    boxShadow: lit
+                        ? [
+                            BoxShadow(
+                              color: primary.withValues(alpha: 0.04),
+                              blurRadius: 8,
+                              spreadRadius: 1,
+                            ),
+                          ]
+                        : const [],
+                  )
+                : null,
+            child: child,
+          );
+        },
       ),
     );
   }
