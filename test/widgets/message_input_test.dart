@@ -90,6 +90,12 @@ void main() {
           matching: find.byType(InkWell),
         );
         expect(tester.getSize(ink), const Size(48, 48));
+        // A dense field shrinks its icons to 18pt unless they set a size.
+        final glyph = find.byIcon(icon);
+        final size =
+            tester.widget<Icon>(glyph).size ??
+            IconTheme.of(tester.element(glyph)).size;
+        expect(size, 24);
       }
     });
   }

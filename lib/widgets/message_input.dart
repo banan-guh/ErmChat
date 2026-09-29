@@ -127,8 +127,11 @@ class MessageInput extends StatelessWidget {
                         onTap: onEmoteToggle,
                         child: ListenableBuilder(
                           listenable: focusNode,
+                          // Explicit size: a dense field shrinks its icons
+                          // to 18pt, and compact is dense.
                           builder: (_, _) => Icon(
                             Icons.emoji_emotions_outlined,
+                            size: 24,
                             color: _inputAccent(context),
                           ),
                         ),
@@ -151,6 +154,7 @@ class MessageInput extends StatelessWidget {
                             final theme = Theme.of(context);
                             return Icon(
                               Icons.send,
+                              size: 24,
                               color: !enabled
                                   ? theme.colorScheme.onSurface.withValues(
                                       alpha: 0.38,
