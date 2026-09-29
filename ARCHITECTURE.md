@@ -6,196 +6,84 @@ Everything below is based on imports, provider wiring in `lib/providers/`, and t
 
 ## Top-level overview
 
+`lib/` holds 206 files (58.8k lines) in six layers, grouped by folder. Edge labels count `import` lines between layers. Every layer also imports Base, so those edges are left out, as are pairs under 10 imports that point the right way. Dashed red edges point the wrong way.
+
 ```mermaid
-%%{init: {"flowchart": {"useMaxWidth": true, "nodeSpacing": 20, "rankSpacing": 30, "padding": 6}, "themeVariables": {"fontSize": "14px"}}}%%
+%%{init: {"flowchart": {"nodeSpacing": 50, "rankSpacing": 60, "padding": 12}, "themeVariables": {"fontSize": "16px"}}}%%
 flowchart TD
-  subgraph entry["Entry and app shell"]
-    main["main.dart"]
-    app["TwitchChatApp"]
-    home["HomeScreen"]
-  end
+  shell["<b>Shell</b><br/>main, screens, providers<br/>34 files, 8.8k lines"]
+  ui["<b>UI</b><br/>chrome, panels, composer, sheets, widgets<br/>50 files, 20.8k lines"]
+  app["<b>App services</b><br/>services, channels<br/>57 files, 19.9k lines"]
+  kernel["<b>Chat kernel</b><br/>chat, client<br/>10 files, 2.0k lines"]
+  transport["<b>Transports</b><br/>irc, eventsub<br/>16 files, 3.7k lines"]
+  base["<b>Base</b><br/>models, emotes, util, config<br/>39 files, 3.6k lines"]
 
-  subgraph screens["Settings screens"]
-    settings["SettingsScreen"]
-    account["AccountScreen"]
-  end
+  shell -->|53| ui
+  shell -->|89| app
+  shell -->|10| transport
+  ui -->|52| app
+  ui -->|15| kernel
+  app -->|24| kernel
+  app -->|46| transport
+  kernel ~~~ base
+  transport ~~~ base
 
-  subgraph present["Presentation"]
-    chrome["chrome/ HomeAppBar, ChannelStack, StreamLayout"]
-    panels["panels/ Mentions, Threads, Mod, Search"]
-    composer["composer/ ComposerBar, ComposerController"]
-    sheets["sheets/ MessageMenu, UserSheet"]
-    widgets["widgets/ ChatBody, ChatView, MessageBuilder, ModView, tiles"]
-  end
+  ui -.->|3| shell
+  app -.->|3| ui
+  transport -.->|2| app
+  transport -.->|2| kernel
 
-  subgraph kernel["Chat kernel"]
-    chat["Chat"]
-    channel["Channel"]
-    children["Messages / Threads / Unread / Moderation / Points / ChannelInfo"]
-    mentions["Mentions"]
-  end
-
-  subgraph pipeline["Chat pipeline"]
-    ccm["ChatConnectionManager"]
-    lifecycle["ChatLifecycle"]
-    ingestion["ChatIngestion"]
-    setup["ChatChannelSetup"]
-    sender["ChatSender"]
-    readiness["ChatReadiness"]
-    statuscomp["ChatStatusComposer"]
-    topics["EventSubTopics"]
-    esconsumer["EventSubConsumer"]
-    tvconsumer["SevenTvConsumer"]
-    channelmgr["ChannelManager"]
-  end
-
-  subgraph transport["Transports and decoders"]
-    irc["IrcService + IrcReadService"]
-    ircdec["IrcChatDecoder"]
-    eventsub["EventSubService"]
-    esdec["EventSubDecoder"]
-    tvclient["SevenTvEventClient"]
-  end
-
-  subgraph emotes["Emotes"]
-    emoteman["EmoteManager coordinator"]
-    emotestore["EmoteStore"]
-    emoteapplier["EmoteController"]
-    fetcher["EmoteFetcher"]
-    cache["EmoteCacheManager disk repo"]
-    providers["Twitch / BTTV / FFZ / 7TV providers"]
-    paint["SevenTvPaintService (widgets)"]
-  end
-
-  subgraph mod["Moderation"]
-    modactions["ModActions"]
-    cmdhandler["CommandHandler"]
-    modview["ModView"]
-  end
-
-  subgraph auth["Auth and identity"]
-    twitchauth["TwitchAuth"]
-    session["Session"]
-    oauth["TwitchOAuth"]
-  end
-
-  subgraph platform["Platform and persistence"]
-    prefs["SharedPreferences"]
-    secure["FlutterSecureStorage"]
-    metastore["EmoteMetaStore"]
-    savedthreads["SavedThreadsStore"]
-    appfiles["App documents files"]
-    notif["NotificationService"]
-    foreground["foreground_task"]
-    connectivity["ConnectivityService"]
-    api["TwitchApi"]
-  end
-
-  main --> app
-  app --> home
-  app --> twitchauth
-  home --> ccm
-  home --> channelmgr
-  home --> chat
-  home --> session
-  home --> emoteman
-  home --> chrome
-  home --> panels
-  home --> composer
-  home --> sheets
-  home --> widgets
-  home --> settings
-  home --> notif
-  home --> foreground
-  home --> prefs
-  settings --> account
-  account --> oauth
-  account --> twitchauth
-  oauth -->|token| twitchauth
-
-  ccm --> lifecycle
-  ccm --> ingestion
-  ccm --> setup
-  ccm --> sender
-  ccm --> readiness
-  ccm --> topics
-  ccm --> esconsumer
-  ccm --> tvconsumer
-
-  lifecycle --> irc
-  lifecycle --> eventsub
-  lifecycle --> tvclient
-  lifecycle --> readiness
-  lifecycle --> topics
-  lifecycle --> sender
-  irc --> ircdec
-  eventsub --> esdec
-  ircdec --> ingestion
-  ircdec --> setup
-  ircdec --> lifecycle
-  esdec --> esconsumer
-  esdec --> topics
-  tvclient --> tvconsumer
-
-  ingestion --> channel
-  ingestion --> chat
-  ingestion --> sender
-  setup --> channel
-  setup --> statuscomp
-  setup --> emoteman
-  setup --> topics
-  esconsumer --> channel
-  esconsumer --> sender
-  tvconsumer --> emoteman
-  channelmgr --> chat
-  channelmgr --> ccm
-  channelmgr -->|host.markDirty| home
-
-  chat --> channel
-  channel --> children
-  chat --> mentions
-  channelmgr --> channel
-  widgets --> channel
-  widgets --> emoteman
-  composer --> ccm
-  composer --> emoteman
-  panels --> channel
-  panels --> ccm
-  chrome --> channel
-  chrome --> ccm
-  modview --> channel
-  modview --> modactions
-
-  emoteman --> emotestore
-  emoteman --> fetcher
-  emoteman --> cache
-  fetcher --> providers
-  emoteman --> metastore
-  metastore --> appfiles
-  savedthreads --> appfiles
-  emoteman --> prefs
-  emoteapplier --> emoteman
-  tvclient --> paint
-  paint --> widgets
-  cache --> widgets
-  modactions --> api
-  cmdhandler --> modactions
-  cmdhandler --> irc
-  esconsumer --> children
-  topics --> api
-  api --> twitchauth
-  twitchauth --> secure
-  lifecycle --> session
-  session --> home
-  lifecycle --> api
-  irc --> connectivity
-  eventsub --> connectivity
-  tvclient --> connectivity
-  emoteman --> connectivity
-  panels --> savedthreads
+  linkStyle 9,10,11,12 stroke:#c0392b,stroke-width:2px
 ```
 
-The `home -->` edges into `ccm`, `chat`, `session`, `twitchauth`, `emoteman`, `notif`, and `foreground` are now reads through `lib/providers`; construction and teardown live in the provider graph.
+Out of 659 imports between layers, 10 point the wrong way. The folders involved, plus the two import cycles inside UI (orange):
+
+```mermaid
+%%{init: {"flowchart": {"nodeSpacing": 50, "rankSpacing": 60, "padding": 12}, "themeVariables": {"fontSize": "16px"}}}%%
+flowchart TD
+  subgraph shellL["Shell"]
+    providers
+  end
+  subgraph uiL["UI"]
+    panels
+    composer
+    widgets
+  end
+  subgraph appL["App services"]
+    channels
+    services
+  end
+  subgraph lowL["Kernel and transports"]
+    chat
+    client
+    eventsub
+  end
+
+  widgets -->|3| providers
+  channels -->|1| composer
+  channels -->|1| panels
+  channels -->|1| widgets
+  eventsub -->|2| services
+  eventsub -->|1| chat
+  eventsub -->|1| client
+  panels -->|3| composer
+  composer -->|2| panels
+  widgets -->|2| composer
+  composer -->|2| widgets
+
+  linkStyle 0,1,2,3,4,5,6 stroke:#c0392b,stroke-width:2px
+  linkStyle 7,8,9,10 stroke:#d68910,stroke-width:2px
+```
+
+| Edge | Where | Why |
+|---|---|---|
+| widgets -> providers | `emote_menu_panel.dart`, `chat_view.dart` | The emote menu reads the emote and app providers; `ChatView` reads `chatNoticeProvider` for the copy notice. |
+| channels -> UI | `channel_manager.dart` | `ChannelManager` takes `ComposerController`, `ThreadPanels`, and `BroadcastWidgets` as constructor deps. |
+| eventsub -> services, kernel | `eventsub/topics.dart` | `EventSubTopics` holds `TwitchApi`, `TwitchAuth`, `Chat`, and `Session` to create subscriptions. |
+| panels <-> composer | `composer_bar.dart`, `mentions.dart`, `threads.dart`, `mod_panel.dart` | `ComposerBar` opens the mod and search panels; the panels write into `ComposerController`. |
+| widgets <-> composer | `chat_body.dart`, `autocomplete_dropdown.dart`, `composer_bar.dart`, `composer_controller.dart` | `ChatBody` hosts `ComposerBar`; the composer builds on `MessageInput` and `PanelManager`. |
+
+Size is the other pressure point. `services` is a third of the code (55 files, 19.4k lines) and `widgets` a quarter (37 files, 16.3k lines). The largest files are `widgets/mod_view.dart` (4.1k lines), `screens/home_screen.dart` (1.6k), `services/twitch_api.dart` (1.4k), `widgets/emote_url_provider.dart`, `services/command_handler.dart`, and `services/emote_store.dart` (1.1k each).
 
 ## Chat data pipeline
 
