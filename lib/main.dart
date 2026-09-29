@@ -27,6 +27,7 @@ import 'util/prefs.dart';
 import 'util/prefs_store.dart';
 import 'util/crash_report.dart';
 import 'widgets/app_snack.dart';
+import 'widgets/emote_frame_rate.dart';
 import 'widgets/emote_url_provider.dart';
 import 'widgets/tabbed_layout.dart';
 
@@ -221,11 +222,13 @@ class _TwitchChatAppState extends State<TwitchChatApp> {
   bool _loaded = false;
   ProxyConfig _proxyConfig = const ProxyConfig();
   final _snackPopObserver = SnackPopObserver();
+  final _emoteFrameRate = EmoteFrameRatePolicy();
 
   @override
   void initState() {
     super.initState();
     PrefsStore.instance.addListener(_onPrefsChanged);
+    _emoteFrameRate.start();
     _loadPreferences();
   }
 
@@ -248,6 +251,7 @@ class _TwitchChatAppState extends State<TwitchChatApp> {
       _themeMode = prefs.themeMode;
       _keepScreenOn = prefs.keepScreenOn;
       WakelockPlus.toggle(enable: _keepScreenOn).ignore();
+      _emoteFrameRate.adaptive = prefs.adaptiveEmoteFps;
       _trueDark = prefs.trueDark;
       _accentKey = prefs.accentColor;
       _layoutDensity = prefs.layoutDensity;
@@ -274,6 +278,7 @@ class _TwitchChatAppState extends State<TwitchChatApp> {
   @override
   void dispose() {
     PrefsStore.instance.removeListener(_onPrefsChanged);
+    _emoteFrameRate.dispose();
     super.dispose();
   }
 

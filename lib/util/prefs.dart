@@ -93,6 +93,7 @@ class Prefs {
   static const _kPingSimpleMode = 'ping_simple_mode';
   static const _kWelcomeSeen = 'welcome_seen';
   static const _kAnimateGifs = 'animate_gifs';
+  static const _kAdaptiveEmoteFps = 'adaptive_emote_fps';
 
   int get maxMessagesPerChannel =>
       _p.getInt(_kMaxMessagesPerChannel) ?? kMaxMessagesPerChannelDefault;
@@ -172,6 +173,11 @@ class Prefs {
   bool get animateGifs => _p.getBool(_kAnimateGifs) ?? true;
 
   Future<void> setAnimateGifs(bool value) => _p.setBool(_kAnimateGifs, value);
+
+  bool get adaptiveEmoteFps => _p.getBool(_kAdaptiveEmoteFps) ?? true;
+
+  Future<void> setAdaptiveEmoteFps(bool value) =>
+      _p.setBool(_kAdaptiveEmoteFps, value);
 
   // ── Customization ───────────────────────────────────────────────────
   static const _kChatFontSize = 'chat_font_size';

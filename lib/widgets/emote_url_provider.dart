@@ -97,6 +97,19 @@ class EmoteUrlProvider extends ImageProvider<EmoteUrlProvider> {
     }
   }
 
+  /// Emote frame rate cap. Every animated emote wakes on the same tick grid,
+  /// so any number of them costs at most this many frames a second.
+  static int frameRate = 60;
+
+  /// Stretches [waitUs] to end on the next shared tick at [frameRate].
+  @visibleForTesting
+  static int alignWaitUs(int waitUs, {int? nowUs}) {
+    final now = nowUs ?? DateTime.now().microsecondsSinceEpoch;
+    final periodUs = 1000000 ~/ frameRate;
+    final due = now + waitUs;
+    return (due + periodUs - 1) ~/ periodUs * periodUs - now;
+  }
+
   /// Live custom-loop completers by URL (animated WebP, playing GIFs,
   /// frozen stills). Engine-routable bytes never enter: they resolve through
   /// the stock provider at call sites, so this map no longer decides
@@ -716,6 +729,7 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
     if (remainingUs <= 0) {
       remainingUs = 16000; // Zero-duration guard: next vsync.
     }
+    remainingUs = EmoteUrlProvider.alignWaitUs(remainingUs);
     _frameTimer = Timer(Duration(microseconds: remainingUs), () {
       _frameTimer = null;
       _scheduleAppFrame();
@@ -852,6 +866,8 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
     _streamDueUs = dueUs + windowUs;
     var waitUs = _streamDueUs - DateTime.now().microsecondsSinceEpoch;
     if (waitUs < 0) waitUs = 0;
+    // Late frames past their window are skipped at decode, not slowed.
+    waitUs = EmoteUrlProvider.alignWaitUs(waitUs);
     _frameTimer = Timer(Duration(microseconds: waitUs), _onStreamTick);
   }
 

@@ -56,6 +56,7 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
   final _providerEnabled = <EmoteType, bool>{};
   bool _allowUnlisted = false;
   bool _animateGifs = true;
+  bool _adaptiveFps = true;
 
   /// Enabled-provider snapshot from when the screen opened, so closing it
   /// can diff which providers were newly enabled.
@@ -139,6 +140,7 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
         _appliedCacheMb = prefs.emoteCacheMb;
         _draftCacheMb = _appliedCacheMb;
         _animateGifs = prefs.animateGifs;
+        _adaptiveFps = prefs.adaptiveEmoteFps;
       });
     }
   }
@@ -376,6 +378,23 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
             PrefsStore.instance.notifyChanged();
             if (mounted) setState(() => _animateGifs = value);
           },
+        ),
+        SwitchListTile(
+          secondary: const Icon(Icons.battery_saver_outlined),
+          title: const Text('Adaptive frame rate'),
+          subtitle: const Text(
+            'Animate at 30 fps after 30s without a touch or in battery saver, '
+            'otherwise 60 fps',
+          ),
+          value: _adaptiveFps,
+          onChanged: _animateGifs
+              ? (value) async {
+                  final prefs = await Prefs.load();
+                  await prefs.setAdaptiveEmoteFps(value);
+                  PrefsStore.instance.notifyChanged();
+                  if (mounted) setState(() => _adaptiveFps = value);
+                }
+              : null,
         ),
         if (widget.emoteManager != null) ...[
           SettingsNavTile(
