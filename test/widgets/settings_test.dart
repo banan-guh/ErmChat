@@ -493,6 +493,23 @@ void main() {
       },
     );
 
+    testWidgets('cache stats sit right under the cache buttons', (
+      tester,
+    ) async {
+      SharedPreferences.setMockInitialValues({});
+      await tester.pumpWidget(const MaterialApp(home: EmotesSettingsScreen()));
+      await tester.pump();
+      final apply = find.byKey(const Key('emote_cache_apply'));
+      final footer = find.byKey(
+        const Key('emote_cache_footer'),
+        skipOffstage: false,
+      );
+      final animation = find.text('Animation', skipOffstage: false);
+      final footerTop = tester.getTopLeft(footer).dy;
+      expect(footerTop, greaterThan(tester.getBottomLeft(apply).dy));
+      expect(footerTop, lessThan(tester.getTopLeft(animation).dy));
+    });
+
     testWidgets('provider toggles flip the manager and persist', (
       WidgetTester tester,
     ) async {

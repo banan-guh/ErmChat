@@ -366,6 +366,7 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
             ],
           ),
         ),
+        _buildCacheFooter(context),
         const SettingsSectionHeader('Animation'),
         SwitchListTile(
           secondary: const Icon(Icons.gif_box),
@@ -414,7 +415,6 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
           ),
         ],
         SizedBox(height: 16),
-        _buildCacheFooter(context),
       ],
     );
   }
