@@ -199,6 +199,42 @@ void main() {
     });
   }
 
+  // Keyboard close with the nav bar coming back must snap the nav pad. The
+  // Scaffold already moves the body with the keyboard, so easing the pad on
+  // top would read as a bounce up to the limit.
+  for (final glass in [false, true]) {
+    testWidgets('keyboard close snaps the nav pad (glass: $glass)', (
+      tester,
+    ) async {
+      final focus = FocusNode();
+      addTearDown(focus.dispose);
+      tester.view.physicalSize = const Size(400, 800);
+      tester.view.devicePixelRatio = 1;
+      // Keyboard up with the nav bar hidden.
+      tester.view.viewInsets = const FakeViewPadding(bottom: 300);
+      tester.view.viewPadding = FakeViewPadding.zero;
+      tester.view.padding = FakeViewPadding.zero;
+      addTearDown(tester.view.reset);
+      await pumpBody(tester, liquidGlass: glass, focus: focus);
+      await tester.pumpAndSettle();
+      final field = find.byKey(const Key('message_input'));
+
+      // Keyboard closes and the nav bar reappears in the same tick.
+      tester.view.viewInsets = FakeViewPadding.zero;
+      tester.view.viewPadding = const FakeViewPadding(bottom: 48);
+      tester.view.padding = const FakeViewPadding(bottom: 48);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 16));
+      final early = tester.getBottomLeft(field).dy;
+      await tester.pumpAndSettle();
+      final settled = tester.getBottomLeft(field).dy;
+
+      // Snapped: already at the limit right after the close, not easing up.
+      expect(settled, lessThan(800 - 40));
+      expect(early, closeTo(settled, 1));
+    });
+  }
+
   testWidgets('input toggle-off fades the field out with the pill', (
     tester,
   ) async {

@@ -157,6 +157,12 @@ class _ChatBodyState extends State<ChatBody>
   late ui.FlutterView _view;
   double _rawH = 0;
 
+  // True from the first keyboard tick until it settles closed. A system-bar
+  // change during a keyboard transition snaps the nav pad instead of easing:
+  // the Scaffold already moves the body with the keyboard, so an ease on top
+  // reads as a bounce.
+  bool _keyboardEngaged = false;
+
   // Keyboard height the decisions read: the learned open height from the
   // first tick of an open, the real one once it settles, zero once closed.
   double _liftH = 0;
@@ -210,6 +216,7 @@ class _ChatBodyState extends State<ChatBody>
     super.didChangeDependencies();
     _view = View.of(context);
     _rawH = _readRawH();
+    if (_rawH > 0.5) _keyboardEngaged = true;
     if (_rawH > 0.5 && _liftH == 0) {
       _liftH = _rawH;
       _learnedH = _rawH;
@@ -235,6 +242,7 @@ class _ChatBodyState extends State<ChatBody>
     if ((raw - _rawH).abs() < 0.5) return;
     final wasClosed = _rawH <= 0.5;
     _rawH = raw;
+    if (raw > 0.5) _keyboardEngaged = true;
     _settleTimer?.cancel();
     _freezeGlass();
     if (raw <= 0.5) {
@@ -253,6 +261,7 @@ class _ChatBodyState extends State<ChatBody>
       // Unfocusing mid-animation races the IME and the next open overshoots,
       // so it waits for the close to settle; a reopen cancels it.
       if (_rawH <= 0.5) {
+        _keyboardEngaged = false;
         widget.onKeyboardDismissed?.call();
         return;
       }
@@ -322,9 +331,13 @@ class _ChatBodyState extends State<ChatBody>
     final keyboardH = _liftH;
     // The keyboard shrinks padding but never viewPadding, so a viewPadding
     // change means the system bars moved: ease that, follow the keyboard.
+    // While a keyboard transition is in flight, snap instead: the Scaffold
+    // is already moving the body, and easing the pad on top bounces.
     final viewPadBottom = MediaQuery.viewPaddingOf(context).bottom;
     final barsMoved =
-        _lastViewPadBottom != null && viewPadBottom != _lastViewPadBottom;
+        !_keyboardEngaged &&
+        _lastViewPadBottom != null &&
+        viewPadBottom != _lastViewPadBottom;
     _lastViewPadBottom = viewPadBottom;
     final bottomPad = _bottomPad.resolve(
       MediaQuery.paddingOf(context).bottom,
