@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 import '../twitch_config.dart';
 import '../util/constants.dart';
 import '../models/point_rewards.dart';
+import '../models/polls.dart';
 import 'twitch_auth.dart';
 
 /// Applies [httpTimeout] to every Helix call. A stalled request throws
@@ -1279,16 +1280,15 @@ class TwitchApi {
   }
 
   /// Channel polls, newest first. Empty on failure.
-  Future<List<Map<String, dynamic>>> getPolls(
-    TwitchAuth auth,
-    String broadcasterId,
-  ) async {
+  Future<List<Poll>> getPolls(TwitchAuth auth, String broadcasterId) async {
     final uri = Uri.parse('$_base/polls?broadcaster_id=$broadcasterId');
     final res = await _get('getPolls', auth, uri);
     if (res == null) return const [];
     try {
       final data = jsonDecode(res.body)['data'] as List<dynamic>;
-      return data.cast<Map<String, dynamic>>();
+      return [
+        for (final p in data.cast<Map<String, dynamic>>()) Poll.fromJson(p),
+      ];
     } catch (_) {
       _setError('getPolls: bad response');
       return const [];
@@ -1335,7 +1335,7 @@ class TwitchApi {
   }
 
   /// Channel predictions, newest first.
-  Future<List<Map<String, dynamic>>> getPredictions(
+  Future<List<Prediction>> getPredictions(
     TwitchAuth auth,
     String broadcasterId,
   ) async {
@@ -1344,7 +1344,10 @@ class TwitchApi {
     if (res == null) return const [];
     try {
       final data = jsonDecode(res.body)['data'] as List<dynamic>;
-      return data.cast<Map<String, dynamic>>();
+      return [
+        for (final p in data.cast<Map<String, dynamic>>())
+          Prediction.fromJson(p),
+      ];
     } catch (_) {
       _setError('getPredictions: bad response');
       return const [];

@@ -1,79 +1,36 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
-import '../../services/mod_actions.dart';
-import '../../services/twitch_auth.dart';
+
+import '../../models/polls.dart';
+import '../../util/date_format.dart';
 import '../dialogs.dart';
-import 'common.dart';
+import 'dialogs.dart';
+import 'scope.dart';
+import 'widgets.dart';
 
-class PollsSection extends StatefulWidget {
-  const PollsSection({
-    super.key,
-    required this.channel,
-    required this.modActions,
-    required this.auth,
-    required this.onNotice,
-  });
-
-  final String channel;
-  final ModActions modActions;
-  final TwitchAuth auth;
-  final ValueChanged<String> onNotice;
+/// The running poll with end and archive, or a form to start one.
+class PollsSection extends ModTabWidget {
+  const PollsSection({super.key, required super.mod});
 
   @override
   State<PollsSection> createState() => _PollsSectionState();
 }
 
 class _PollsSectionState extends State<PollsSection>
-    with ModTabLoad<PollsSection> {
-  @override
-  ModActions get modActions => widget.modActions;
-  @override
-  ValueChanged<String> get onNotice => widget.onNotice;
-
-  List<Map<String, dynamic>>? _polls;
-  String? _error;
-  int _loadGen = 0;
-  String? _busyKey;
+    with ModTabState<PollsSection> {
+  late final ModLoader<List<Poll>> _polls;
 
   @override
   void initState() {
     super.initState();
-    _load();
-  }
-
-  @override
-  void didUpdateWidget(covariant PollsSection oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.channel != widget.channel) {
-      setState(() {
-        _polls = null;
-        _error = null;
-      });
-      _load();
-    }
-  }
-
-  Future<void> _load() async {
-    final gen = ++_loadGen;
-    final outcome = await guardedLoad<List<Map<String, dynamic>>>(
-      gen: gen,
-      currentGen: () => _loadGen,
-      background: _polls != null,
-      request: () => widget.modActions.getPolls(widget.auth, widget.channel),
-      fallbackError: 'Could not load polls.',
+    _polls = loader(
+      (mod) => mod.actions.getPolls(mod.auth, mod.channel),
+      failure: 'Could not load polls.',
     );
-    if (outcome == null) return;
-    setState(() {
-      _error = outcome.error;
-      if (outcome.error == null) _polls = outcome.value;
-    });
   }
 
-  Future<void> _end(String pollId, bool archive) async {
-    final key = archive ? 'cancel' : 'end';
-    if (_busyKey != null) return;
-    final confirm = await confirmDialog(
+  Future<void> _end(Poll poll, {required bool archive}) async {
+    if (anyBusy) return;
+    final confirmed = await confirmDialog(
       context,
       title: archive ? 'Cancel poll?' : 'End poll now?',
       message: archive
@@ -83,168 +40,125 @@ class _PollsSectionState extends State<PollsSection>
       cancelLabel: 'Back',
       destructive: true,
     );
-    if (!confirm || !mounted) return;
-    if (pollId.isEmpty) {
-      widget.onNotice('Poll id is missing; reload and try again.');
-      return;
-    }
-    setState(() => _busyKey = key);
-    try {
-      final result = await widget.modActions.endPoll(
-        widget.auth,
-        widget.channel,
-        pollId: pollId,
-        archive: archive,
+    if (!confirmed || !mounted) return;
+    await busy('end', () async {
+      final ok = await mod.report(
+        mod.actions.endPoll(
+          mod.auth,
+          mod.channel,
+          pollId: poll.id,
+          archive: archive,
+        ),
+        done: archive ? 'Poll cancelled.' : 'Poll ended.',
       );
-      if (!mounted) return;
-      if (result.ok) {
-        widget.onNotice(archive ? 'Poll cancelled.' : 'Poll ended.');
-        _load();
-      } else {
-        widget.onNotice(modErrorText(result));
-      }
-    } finally {
-      if (mounted) setState(() => _busyKey = null);
-    }
+      if (ok) await _polls.load();
+    });
   }
 
   @override
   Widget build(BuildContext context) {
-    final polls = _polls;
-    if (_error != null && polls == null) {
-      return ModError(message: _error!, onRetry: _load);
-    }
-    if (polls == null) {
-      return const Padding(
-        padding: EdgeInsets.all(24),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [CircularProgressIndicator()],
-        ),
-      );
-    }
-    Map<String, dynamic>? active;
-    for (final poll in polls) {
-      if (poll['status'] == 'ACTIVE') {
-        active = poll;
-        break;
-      }
-    }
-    if (active == null) {
-      return _PollCreateForm(
-        channel: widget.channel,
-        modActions: widget.modActions,
-        auth: widget.auth,
-        onNotice: widget.onNotice,
-        onCreated: _load,
-      );
-    }
-    final pollId = active['id'] as String? ?? '';
-    final busy = _busyKey != null;
-    final choices = (active['choices'] as List? ?? const []).cast<Map>();
-    var totalVotes = 0;
-    for (final c in choices) {
-      totalVotes += (c['votes'] as num?)?.toInt() ?? 0;
-    }
-    final endsAt = active['ends_at'] as String?;
-    final ends = endsAt == null || endsAt.isEmpty
-        ? null
-        : modRelativeShortDate(endsAt);
-    return ListTile(
-      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-      title: Text(active['title'] as String? ?? 'Poll'),
-      subtitle: Text(
-        [
-          '${choices.length} choices',
-          '$totalVotes votes',
-          if (ends != null) 'ends $ends',
-        ].join(' · '),
-      ),
-      trailing: busy
-          ? const SizedBox(
-              width: 24,
-              height: 24,
-              child: CircularProgressIndicator(strokeWidth: 2),
-            )
-          : Wrap(
-              spacing: 8,
-              children: [
-                OutlinedButton(
-                  onPressed: _busyKey != null
-                      ? null
-                      : () => _end(pollId, false),
-                  child: const Text('End'),
+    return ModLoadView(
+      loader: _polls,
+      inline: true,
+      builder: (context, polls) {
+        final active = polls.where((p) => p.isActive).firstOrNull;
+        if (active == null) {
+          return _PollForm(mod: mod, onCreated: _polls.load);
+        }
+        final endsAt = active.endsAt;
+        return ListTile(
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 16,
+            vertical: 4,
+          ),
+          title: Text(active.title.isEmpty ? 'Poll' : active.title),
+          subtitle: Text(
+            [
+              '${active.choices.length} choices',
+              '${active.totalVotes} votes',
+              if (endsAt != null) 'ends ${formatIn(endsAt)}',
+            ].join(' · '),
+          ),
+          trailing: anyBusy
+              ? const ModSpinner()
+              : Wrap(
+                  spacing: 8,
+                  children: [
+                    OutlinedButton(
+                      onPressed: () => _end(active, archive: false),
+                      child: const Text('End'),
+                    ),
+                    TextButton(
+                      onPressed: () => _end(active, archive: true),
+                      child: const Text('Archive'),
+                    ),
+                  ],
                 ),
-                TextButton(
-                  onPressed: _busyKey != null ? null : () => _end(pollId, true),
-                  child: const Text('Archive'),
-                ),
-              ],
-            ),
+        );
+      },
     );
   }
 }
 
-class _PollCreateForm extends StatefulWidget {
-  const _PollCreateForm({
-    required this.channel,
-    required this.modActions,
-    required this.auth,
-    required this.onNotice,
-    required this.onCreated,
-  });
+class _PollForm extends StatefulWidget {
+  const _PollForm({required this.mod, required this.onCreated});
 
-  final String channel;
-  final ModActions modActions;
-  final TwitchAuth auth;
-  final ValueChanged<String> onNotice;
+  final ModContext mod;
   final VoidCallback onCreated;
 
   @override
-  State<_PollCreateForm> createState() => _PollCreateFormState();
+  State<_PollForm> createState() => _PollFormState();
 }
 
-class _PollCreateFormState extends State<_PollCreateForm> {
-  final _titleCtrl = TextEditingController();
-  final _choiceCtrls = [TextEditingController(), TextEditingController()];
+class _PollFormState extends State<_PollForm> {
+  static const _durations = [
+    ('15s', 15),
+    ('1m', 60),
+    ('2m', 120),
+    ('5m', 300),
+    ('10m', 600),
+    ('30m', 1800),
+  ];
+
+  final _title = TextEditingController();
+  final _choices = [TextEditingController(), TextEditingController()];
   int _duration = 60;
   bool _creating = false;
 
   @override
   void dispose() {
-    _titleCtrl.dispose();
-    for (final c in _choiceCtrls) {
+    _title.dispose();
+    for (final c in _choices) {
       c.dispose();
     }
     super.dispose();
   }
 
   Future<void> _create() async {
-    final title = _titleCtrl.text.trim();
+    final mod = widget.mod;
+    final title = _title.text.trim();
     final choices = [
-      for (final c in _choiceCtrls) c.text.trim(),
-    ].where((c) => c.isNotEmpty).toList();
+      for (final c in _choices)
+        if (c.text.trim().isNotEmpty) c.text.trim(),
+    ];
     if (title.isEmpty || choices.length < 2) {
-      widget.onNotice('Enter a title and at least 2 choices.');
+      mod.notify('Enter a title and at least 2 choices.');
       return;
     }
     if (_creating) return;
     setState(() => _creating = true);
     try {
-      final result = await widget.modActions.createPoll(
-        widget.auth,
-        widget.channel,
-        title: title,
-        choices: choices,
-        durationSeconds: _duration,
+      final ok = await mod.report(
+        mod.actions.createPoll(
+          mod.auth,
+          mod.channel,
+          title: title,
+          choices: choices,
+          durationSeconds: _duration,
+        ),
+        done: 'Poll started.',
       );
-      if (!mounted) return;
-      if (result.ok) {
-        widget.onNotice('Poll started.');
-        widget.onCreated();
-      } else {
-        widget.onNotice(modErrorText(result));
-      }
+      if (ok) widget.onCreated();
     } finally {
       if (mounted) setState(() => _creating = false);
     }
@@ -259,12 +173,12 @@ class _PollCreateFormState extends State<_PollCreateForm> {
         children: [
           const Text('No active poll.'),
           TextField(
-            controller: _titleCtrl,
+            controller: _title,
             decoration: const InputDecoration(labelText: 'Poll title'),
           ),
-          for (var i = 0; i < _choiceCtrls.length; i++)
+          for (final (i, choice) in _choices.indexed)
             TextField(
-              controller: _choiceCtrls[i],
+              controller: choice,
               decoration: InputDecoration(labelText: 'Choice ${i + 1}'),
             ),
           Row(
@@ -273,25 +187,22 @@ class _PollCreateFormState extends State<_PollCreateForm> {
               const SizedBox(width: 8),
               DropdownButton<int>(
                 value: _duration,
-                items: const [
-                  DropdownMenuItem(value: 15, child: Text('15s')),
-                  DropdownMenuItem(value: 60, child: Text('1m')),
-                  DropdownMenuItem(value: 120, child: Text('2m')),
-                  DropdownMenuItem(value: 300, child: Text('5m')),
-                  DropdownMenuItem(value: 600, child: Text('10m')),
-                  DropdownMenuItem(value: 1800, child: Text('30m')),
+                items: [
+                  for (final (label, seconds) in _durations)
+                    DropdownMenuItem(value: seconds, child: Text(label)),
                 ],
                 onChanged: _creating
                     ? null
                     : (v) => setState(() => _duration = v ?? 60),
               ),
               const Spacer(),
-              if (_choiceCtrls.length < 5)
+              // Twitch allows 2-5 choices.
+              if (_choices.length < 5)
                 TextButton(
                   onPressed: _creating
                       ? null
                       : () => setState(
-                          () => _choiceCtrls.add(TextEditingController()),
+                          () => _choices.add(TextEditingController()),
                         ),
                   child: const Text('Add choice'),
                 ),
@@ -300,11 +211,7 @@ class _PollCreateFormState extends State<_PollCreateForm> {
           FilledButton(
             onPressed: _creating ? null : _create,
             child: _creating
-                ? const SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
+                ? const ModSpinner(size: 18)
                 : const Text('Start poll'),
           ),
         ],
@@ -313,210 +220,131 @@ class _PollCreateFormState extends State<_PollCreateForm> {
   }
 }
 
-class PredictionsSection extends StatefulWidget {
-  const PredictionsSection({
-    super.key,
-    required this.channel,
-    required this.modActions,
-    required this.auth,
-    required this.onNotice,
-  });
-
-  final String channel;
-  final ModActions modActions;
-  final TwitchAuth auth;
-  final ValueChanged<String> onNotice;
+/// The open prediction with lock, resolve, and cancel.
+class PredictionsSection extends ModTabWidget {
+  const PredictionsSection({super.key, required super.mod});
 
   @override
   State<PredictionsSection> createState() => _PredictionsSectionState();
 }
 
 class _PredictionsSectionState extends State<PredictionsSection>
-    with ModTabLoad<PredictionsSection> {
-  @override
-  ModActions get modActions => widget.modActions;
-  @override
-  ValueChanged<String> get onNotice => widget.onNotice;
-
-  List<Map<String, dynamic>>? _predictions;
-  String? _error;
-  int _loadGen = 0;
-  bool _busy = false;
+    with ModTabState<PredictionsSection> {
+  late final ModLoader<List<Prediction>> _predictions;
 
   @override
   void initState() {
     super.initState();
-    _load();
-  }
-
-  @override
-  void didUpdateWidget(covariant PredictionsSection oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.channel != widget.channel) {
-      setState(() {
-        _predictions = null;
-        _error = null;
-      });
-      _load();
-    }
-  }
-
-  Future<void> _load() async {
-    final gen = ++_loadGen;
-    final outcome = await guardedLoad<List<Map<String, dynamic>>>(
-      gen: gen,
-      currentGen: () => _loadGen,
-      background: _predictions != null,
-      request: () =>
-          widget.modActions.getPredictions(widget.auth, widget.channel),
-      fallbackError: 'Could not load predictions.',
+    _predictions = loader(
+      (mod) => mod.actions.getPredictions(mod.auth, mod.channel),
+      failure: 'Could not load predictions.',
     );
-    if (outcome == null) return;
-    setState(() {
-      _error = outcome.error;
-      if (outcome.error == null) _predictions = outcome.value;
-    });
   }
 
   Future<void> _end(
-    String predictionId,
-    String status, [
+    Prediction prediction,
+    String status, {
     String? winningOutcomeId,
-  ]) async {
-    if (_busy) return;
-    if (status == 'CANCELED') {
-      final confirm = await confirmDialog(
-        context,
-        title: 'Cancel prediction?',
-        message: 'Points are refunded to predictors.',
-        confirmLabel: 'Cancel prediction',
-        cancelLabel: 'Back',
-        destructive: true,
-      );
-      if (!confirm || !mounted) return;
-    }
-    if (predictionId.isEmpty) {
-      widget.onNotice('Prediction id is missing; reload and try again.');
-      return;
-    }
-    setState(() => _busy = true);
-    try {
-      final result = await widget.modActions.endPrediction(
-        widget.auth,
-        widget.channel,
-        predictionId: predictionId,
+    required String done,
+  }) => busy('end', () async {
+    final ok = await mod.report(
+      mod.actions.endPrediction(
+        mod.auth,
+        mod.channel,
+        predictionId: prediction.id,
         status: status,
         winningOutcomeId: winningOutcomeId,
-      );
-      if (!mounted) return;
-      if (result.ok) {
-        widget.onNotice(
-          status == 'LOCKED'
-              ? 'Prediction locked.'
-              : status == 'CANCELED'
-              ? 'Prediction cancelled.'
-              : 'Prediction resolved.',
-        );
-        _load();
-      } else {
-        widget.onNotice(modErrorText(result));
-      }
-    } finally {
-      if (mounted) setState(() => _busy = false);
-    }
-  }
-
-  String _outcomeLabel(Map outcome) {
-    final title = '${outcome['title'] ?? 'Outcome'}';
-    final points = outcome['channel_points'];
-    final users = outcome['users'];
-    final detail = [
-      if (points != null) '$points pts',
-      if (users != null) '$users predictors',
-    ].join(' · ');
-    return detail.isEmpty ? title : '$title ($detail)';
-  }
-
-  Future<void> _resolve(Map<String, dynamic> prediction) async {
-    final outcomes = (prediction['outcomes'] as List? ?? const []).cast<Map>();
-    final winningId = await showDialog<String>(
-      context: context,
-      builder: (ctx) => SimpleDialog(
-        title: const Text('Winning outcome'),
-        children: [
-          for (final outcome in outcomes)
-            SimpleDialogOption(
-              onPressed: () => Navigator.pop(ctx, outcome['id'] as String?),
-              child: Text(_outcomeLabel(outcome)),
-            ),
-        ],
       ),
+      done: done,
     );
-    if (winningId == null || winningId.isEmpty || !mounted) return;
-    await _end(prediction['id'] as String? ?? '', 'RESOLVED', winningId);
+    if (ok) await _predictions.load();
+  });
+
+  Future<void> _cancel(Prediction prediction) async {
+    final confirmed = await confirmDialog(
+      context,
+      title: 'Cancel prediction?',
+      message: 'Points are refunded to predictors.',
+      confirmLabel: 'Cancel prediction',
+      cancelLabel: 'Back',
+      destructive: true,
+    );
+    if (!confirmed || !mounted) return;
+    await _end(prediction, 'CANCELED', done: 'Prediction cancelled.');
+  }
+
+  Future<void> _resolve(Prediction prediction) async {
+    final winner = await showModChoiceDialog(
+      context,
+      title: 'Winning outcome',
+      options: [
+        for (final outcome in prediction.outcomes)
+          (_outcomeLabel(outcome), outcome.id),
+      ],
+    );
+    if (winner == null || winner.isEmpty || !mounted) return;
+    await _end(
+      prediction,
+      'RESOLVED',
+      winningOutcomeId: winner,
+      done: 'Prediction resolved.',
+    );
   }
 
   @override
   Widget build(BuildContext context) {
-    final predictions = _predictions;
-    if (_error != null && predictions == null) {
-      return ModError(message: _error!, onRetry: _load);
-    }
-    if (predictions == null) {
-      return const Padding(
-        padding: EdgeInsets.all(24),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [CircularProgressIndicator()],
-        ),
-      );
-    }
-    Map<String, dynamic>? open;
-    for (final prediction in predictions) {
-      if (prediction['status'] == 'ACTIVE' ||
-          prediction['status'] == 'LOCKED') {
-        open = prediction;
-        break;
-      }
-    }
-    if (open == null) {
-      return const ListTile(
-        title: Text('No open prediction. Create one with /prediction.'),
-      );
-    }
-    final predictionId = open['id'] as String? ?? '';
-    final locked = open['status'] == 'LOCKED';
-    return ListTile(
-      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-      title: Text(open['title'] as String? ?? 'Prediction'),
-      subtitle: Text(
-        '${(open['outcomes'] as List? ?? const []).length} outcomes'
-        '${locked ? ' · locked' : ''}',
-      ),
-      trailing: _busy
-          ? const SizedBox(
-              width: 24,
-              height: 24,
-              child: CircularProgressIndicator(strokeWidth: 2),
-            )
-          : Wrap(
-              spacing: 8,
-              children: [
-                if (!locked)
-                  OutlinedButton(
-                    onPressed: () => _end(predictionId, 'LOCKED'),
-                    child: const Text('Lock'),
-                  ),
-                FilledButton(
-                  onPressed: () => _resolve(open!),
-                  child: const Text('Resolve'),
+    return ModLoadView(
+      loader: _predictions,
+      inline: true,
+      builder: (context, predictions) {
+        final open = predictions.where((p) => p.isOpen).firstOrNull;
+        if (open == null) {
+          return const ListTile(
+            title: Text('No open prediction. Create one with /prediction.'),
+          );
+        }
+        return ListTile(
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 16,
+            vertical: 4,
+          ),
+          title: Text(open.title.isEmpty ? 'Prediction' : open.title),
+          subtitle: Text(
+            '${open.outcomes.length} outcomes'
+            '${open.isLocked ? ' · locked' : ''}',
+          ),
+          trailing: anyBusy
+              ? const ModSpinner()
+              : Wrap(
+                  spacing: 8,
+                  children: [
+                    if (!open.isLocked)
+                      OutlinedButton(
+                        onPressed: () =>
+                            _end(open, 'LOCKED', done: 'Prediction locked.'),
+                        child: const Text('Lock'),
+                      ),
+                    FilledButton(
+                      onPressed: () => _resolve(open),
+                      child: const Text('Resolve'),
+                    ),
+                    TextButton(
+                      onPressed: () => _cancel(open),
+                      child: const Text('Cancel'),
+                    ),
+                  ],
                 ),
-                TextButton(
-                  onPressed: () => _end(predictionId, 'CANCELED'),
-                  child: const Text('Cancel'),
-                ),
-              ],
-            ),
+        );
+      },
     );
   }
+}
+
+String _outcomeLabel(PredictionOutcome outcome) {
+  final detail = [
+    if (outcome.channelPoints != null) '${outcome.channelPoints} pts',
+    if (outcome.users != null) '${outcome.users} predictors',
+  ].join(' · ');
+  final title = outcome.title.isEmpty ? 'Outcome' : outcome.title;
+  return detail.isEmpty ? title : '$title ($detail)';
 }

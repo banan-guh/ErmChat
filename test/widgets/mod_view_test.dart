@@ -744,4 +744,81 @@ void main() {
     );
     expect(jsonDecode(put.body), {'overall_level': 4});
   });
+
+  testWidgets('a channel switch reloads and rebinds the tab', (tester) async {
+    final chat = _chat()..ensure('otherchannel');
+    Future<http.Response> handler(http.Request request) async {
+      recordedRequests.add(request);
+      if (request.url.path.endsWith('moderation/blocked_terms')) {
+        final term = request.url.queryParameters['broadcaster_id'] == 'broad2'
+            ? 'otherterm'
+            : 'firstterm';
+        return http.Response(
+          '{"data":[{"id":"$term","text":"$term",'
+          '"created_at":"2026-01-01T00:00:00Z"}],"pagination":{}}',
+          200,
+        );
+      }
+      return _handler(request);
+    }
+
+    final auth = TwitchAuth()..accessToken = 'tok';
+    final actions = ModActions(
+      twitchApi: TwitchApi(client: MockClient(handler)),
+      getChannelUserIds: () => {
+        'testchannel': 'broad1',
+        'otherchannel': 'broad2',
+      },
+      getCurrentUserId: () => 'mod1',
+    );
+    final tab = TabController(
+      length: ModPanels.tabCount,
+      vsync: const TestVSync(),
+      initialIndex: 6,
+    );
+    addTearDown(tab.dispose);
+    final channel = ValueNotifier('testchannel');
+    recordedRequests.clear();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: ValueListenableBuilder<String>(
+            valueListenable: channel,
+            builder: (_, name, _) => ModViewPanel(
+              channel: name,
+              chat: chat,
+              modActions: actions,
+              auth: auth,
+              tabController: tab,
+              refresh: ValueNotifier(0),
+              termsVersion: ValueNotifier(0),
+              dragFocus: TabDragFocus(tab: () => tab, onFocusChanged: (_) {}),
+              isModerationActive: (_) => true,
+              isAutomodActive: (_) => true,
+              getRoomModes: (_) => const {},
+              onNotice: (_) {},
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('firstterm'), findsOneWidget);
+
+    channel.value = 'otherchannel';
+    await tester.pumpAndSettle();
+    expect(find.text('otherterm'), findsOneWidget);
+    expect(find.text('firstterm'), findsNothing);
+
+    int termLoads() => recordedRequests
+        .where((r) => r.url.path.endsWith('moderation/blocked_terms'))
+        .length;
+    final before = termLoads();
+    chat.channelFor('testchannel')!.moderation.touchTerms();
+    await tester.pumpAndSettle();
+    expect(termLoads(), before, reason: 'old channel is unbound');
+    chat.channelFor('otherchannel')!.moderation.touchTerms();
+    await tester.pumpAndSettle();
+    expect(termLoads(), before + 1);
+  });
 }

@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../chat/channel/moderation.dart';
 import '../chat/chat.dart';
 import '../composer/composer_controller.dart';
 import '../services/chat_connection_manager.dart';
@@ -308,6 +309,17 @@ class ModPanels {
     );
   }
 
+  Widget _queueTab(Moderation? moderation) {
+    if (moderation == null) return const Tab(text: 'Queue');
+    return ValueListenableBuilder<int>(
+      valueListenable: moderation.heldVersion,
+      builder: (_, _, _) {
+        final pending = moderation.held.length;
+        return Tab(text: pending > 0 ? 'Queue ($pending)' : 'Queue');
+      },
+    );
+  }
+
   Widget modViewPanel(
     BuildContext context, {
     required Widget Function({
@@ -361,16 +373,7 @@ class ModPanels {
             ),
             indicatorSize: TabBarIndicatorSize.label,
             tabs: [
-              ValueListenableBuilder<int>(
-                valueListenable:
-                    chat.channelFor(channel)?.moderation.heldVersion ??
-                    ValueNotifier(0),
-                builder: (_, _, _) {
-                  final pending =
-                      chat.channelFor(channel)?.moderation.held.length ?? 0;
-                  return Tab(text: pending > 0 ? 'Queue ($pending)' : 'Queue');
-                },
-              ),
+              _queueTab(chat.channelFor(channel)?.moderation),
               const Tab(text: 'Activity'),
               const Tab(text: 'Modes'),
               const Tab(text: 'Channel'),

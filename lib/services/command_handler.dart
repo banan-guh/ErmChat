@@ -909,13 +909,7 @@ class CommandHandler {
             );
             return;
           }
-          Map<String, dynamic>? activePoll;
-          for (final p in polls) {
-            if (p['status'] == 'ACTIVE') {
-              activePoll = p;
-              break;
-            }
-          }
+          final activePoll = polls.where((p) => p.isActive).firstOrNull;
           if (activePoll == null) {
             addSystemMessage(channel, 'No poll is currently running.');
             return;
@@ -924,7 +918,7 @@ class CommandHandler {
           final endPollResult = await modActions.endPoll(
             auth,
             channel,
-            pollId: activePoll['id'] as String,
+            pollId: activePoll.id,
             archive: archivePoll,
           );
           if (endPollResult.ok) {
@@ -985,17 +979,10 @@ class CommandHandler {
             );
             return;
           }
-          Map<String, dynamic>? open;
           final wantLocked = cmd == '/lockprediction';
-          for (final p in predictions) {
-            final status = p['status'];
-            if (wantLocked
-                ? status == 'ACTIVE'
-                : status == 'ACTIVE' || status == 'LOCKED') {
-              open = p;
-              break;
-            }
-          }
+          final open = predictions
+              .where((p) => wantLocked ? p.isActive : p.isOpen)
+              .firstOrNull;
           if (open == null) {
             addSystemMessage(channel, 'No prediction is currently running.');
             return;
@@ -1020,46 +1007,20 @@ class CommandHandler {
               );
               return;
             }
-            final outcomes = (open['outcomes'] as List<dynamic>? ?? [])
-                .cast<Map>();
-            String? matchTitle;
             final selector = args.join(' ').trim();
-            final index = int.tryParse(selector);
-            if (index != null && index >= 1 && index <= outcomes.length) {
-              matchTitle = outcomes[index - 1]['title'] as String?;
-            } else {
-              for (final o in outcomes) {
-                if ((o['title'] as String?)?.toLowerCase() ==
-                    selector.toLowerCase()) {
-                  matchTitle = o['title'] as String?;
-                  break;
-                }
-              }
-            }
-            final outcomeId =
-                index != null && index >= 1 && index <= outcomes.length
-                ? outcomes[index - 1]['id'] as String?
-                : outcomes
-                      .where(
-                        (o) =>
-                            (o['title'] as String?)?.toLowerCase() ==
-                            selector.toLowerCase(),
-                      )
-                      .map((o) => o['id'] as String?)
-                      .firstOrNull;
-            if (outcomeId == null) {
+            final outcome = open.outcomeFor(selector);
+            if (outcome == null) {
               addSystemMessage(channel, 'No outcome matching "$selector".');
               return;
             }
             status = 'RESOLVED';
-            winningOutcomeId = outcomeId;
-            successMsg =
-                'The prediction was resolved${matchTitle != null ? ': $matchTitle' : ''}.';
+            winningOutcomeId = outcome.id;
+            successMsg = 'The prediction was resolved: ${outcome.title}.';
           }
           final endPredictionResult = await modActions.endPrediction(
             auth,
             channel,
-            predictionId: open['id'] as String,
+            predictionId: open.id,
             status: status,
             winningOutcomeId: winningOutcomeId,
           );

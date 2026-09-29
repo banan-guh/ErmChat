@@ -6,13 +6,13 @@ Everything below is based on imports, provider wiring in `lib/providers/`, and t
 
 ## Top-level overview
 
-`lib/` holds 217 files (59.1k lines) in six layers, grouped by folder. Edge labels count `import` lines between layers. Every layer also imports Base, so those edges are left out, as are pairs under 10 imports that point the right way. Dashed red edges point the wrong way.
+`lib/` holds 220 files (58.3k lines) in six layers, grouped by folder. Edge labels count `import` lines between layers. Every layer also imports Base, so those edges are left out, as are pairs under 10 imports that point the right way. Dashed red edges point the wrong way.
 
 ```mermaid
 %%{init: {"flowchart": {"nodeSpacing": 50, "rankSpacing": 60, "padding": 12}, "themeVariables": {"fontSize": "16px"}}}%%
 flowchart TD
   shell["<b>Shell</b><br/>main, screens, providers<br/>34 files, 8.8k lines"]
-  ui["<b>UI</b><br/>chrome, panels, composer, sheets, widgets<br/>61 files, 20.9k lines"]
+  ui["<b>UI</b><br/>chrome, panels, composer, sheets, widgets<br/>63 files, 20.0k lines"]
   app["<b>App services</b><br/>services, channels<br/>57 files, 19.9k lines"]
   kernel["<b>Chat kernel</b><br/>chat, client<br/>10 files, 2.0k lines"]
   transport["<b>Transports</b><br/>irc, eventsub<br/>16 files, 3.7k lines"]
@@ -83,7 +83,7 @@ flowchart TD
 | panels <-> composer | `composer_bar.dart`, `mentions.dart`, `threads.dart`, `mod_panel.dart` | `ComposerBar` opens the mod and search panels; the panels write into `ComposerController`. |
 | widgets <-> composer | `chat_body.dart`, `autocomplete_dropdown.dart`, `composer_bar.dart`, `composer_controller.dart` | `ChatBody` hosts `ComposerBar`; the composer builds on `MessageInput` and `PanelManager`. |
 
-Size is the other pressure point. `services` is a third of the code (55 files, 19.4k lines) and `widgets` a quarter (48 files, 16.4k lines). The largest files are `screens/home_screen.dart` (1.6k lines), `services/twitch_api.dart` (1.4k), `widgets/emote_url_provider.dart`, `services/command_handler.dart`, and `services/emote_store.dart` (1.1k each). The Mod View lives in `widgets/mod_view/`, one file per tab.
+Size is the other pressure point. `services` is a third of the code (55 files, 19.4k lines) and `widgets` a quarter (50 files, 15.5k lines). The largest files are `screens/home_screen.dart` (1.6k lines), `services/twitch_api.dart` (1.4k), `widgets/emote_url_provider.dart`, `services/command_handler.dart`, and `services/emote_store.dart` (1.1k each). The Mod View lives in `widgets/mod_view/`, one file per tab.
 
 ## Chat data pipeline
 

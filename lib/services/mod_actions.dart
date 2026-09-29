@@ -1,4 +1,5 @@
 import '../models/point_rewards.dart';
+import '../models/polls.dart';
 import '../services/twitch_api.dart';
 import '../services/twitch_auth.dart';
 import '../util/log.dart';
@@ -564,7 +565,7 @@ class ModActions {
     );
   }
 
-  Future<List<Map<String, dynamic>>> getPolls(TwitchAuth auth, String channel) {
+  Future<List<Poll>> getPolls(TwitchAuth auth, String channel) {
     final broadcasterId = getChannelUserIds()[channel];
     if (broadcasterId == null) return Future.value(const []);
     return twitchApi.getPolls(auth, broadcasterId);
@@ -608,10 +609,7 @@ class ModActions {
     );
   }
 
-  Future<List<Map<String, dynamic>>> getPredictions(
-    TwitchAuth auth,
-    String channel,
-  ) {
+  Future<List<Prediction>> getPredictions(TwitchAuth auth, String channel) {
     final broadcasterId = getChannelUserIds()[channel];
     if (broadcasterId == null) return Future.value(const []);
     return twitchApi.getPredictions(auth, broadcasterId);

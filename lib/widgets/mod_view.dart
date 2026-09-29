@@ -1,25 +1,26 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+
 import '../chat/chat.dart';
 import '../services/mod_actions.dart';
 import '../services/twitch_auth.dart';
-import 'mod_view/queue_tab.dart';
 import 'mod_view/activity_tab.dart';
-import 'mod_view/users_tab.dart';
-import 'mod_view/requests_tab.dart';
-import 'mod_view/terms_tab.dart';
-import 'mod_view/setup_tab.dart';
 import 'mod_view/channel_tab.dart';
 import 'mod_view/modes_tab.dart';
+import 'mod_view/queue_tab.dart';
+import 'mod_view/requests_tab.dart';
+import 'mod_view/scope.dart';
+import 'mod_view/setup_tab.dart';
+import 'mod_view/terms_tab.dart';
+import 'mod_view/users_tab.dart';
 import 'tab_drag_focus.dart';
 
-export 'mod_view/common.dart'
+export 'mod_view/dialogs.dart'
     show modErrorText, showModError, showModTextDialog, showTimeoutDialog;
 
 /// Mod View panel body: Queue / Activity / Modes / Channel / Users /
-/// Requests / Terms / Setup tabs. State arrives as channel lookups (not
-/// snapshots) so every [refresh] tick re-reads live values; the queue and
-/// feed additionally listen to their own versions.
+/// Requests / Terms / Setup tabs. Scope and room modes are re-read on every
+/// [refresh] tick; each tab listens to its own kernel versions.
 class ModViewPanel extends StatelessWidget {
   const ModViewPanel({
     super.key,
@@ -55,17 +56,26 @@ class ModViewPanel extends StatelessWidget {
   final bool Function(String channel) isAutomodActive;
   final Map<String, String> Function(String channel) getRoomModes;
 
-  /// Notice sink for failures; the shell routes these to the inline bar.
+  /// Notice sink; the shell routes these to the inline bar.
   final ValueChanged<String> onNotice;
 
-  /// Opens a user card (queue rows, feed-adjacent user lists).
+  /// Opens a user card (queue rows, user lists).
   final ValueChanged<String>? onShowUser;
 
-  /// Whether the session user owns the channel (Channel and Users gates).
+  /// Whether the session user owns the channel (Channel tab gates).
   final bool isBroadcaster;
 
   @override
   Widget build(BuildContext context) {
+    final mod = ModContext(
+      channel: channel,
+      chat: chat,
+      actions: modActions,
+      auth: auth,
+      notify: onNotice,
+      showUser: onShowUser,
+      isBroadcaster: isBroadcaster,
+    );
     return ListenableBuilder(
       listenable: refresh,
       builder: (_, _) {
@@ -88,75 +98,30 @@ class ModViewPanel extends StatelessWidget {
             ),
           );
         }
+        final tabs = <Widget>[
+          QueueTab(
+            mod: mod,
+            automodActive: automodActive,
+            needsScope: moderationActive || auth.scopeStale,
+          ),
+          ActivityTab(mod: mod),
+          ModesTab(
+            mod: mod,
+            roomModes: getRoomModes(channel),
+            moderationActive: moderationActive,
+          ),
+          ChannelTab(mod: mod, moderationActive: moderationActive),
+          UsersTab(mod: mod),
+          RequestsTab(mod: mod),
+          TermsTab(mod: mod, termsVersion: termsVersion),
+          SetupTab(mod: mod),
+        ];
         return NotificationListener<ScrollNotification>(
           onNotification: dragFocus.onNotification,
           child: TabBarView(
             controller: tabController,
             // Kept alive so swiping back doesn't refetch every Helix list.
-            children: [
-              for (final tab in <Widget>[
-                QueueTab(
-                  channel: channel,
-                  chat: chat,
-                  modActions: modActions,
-                  auth: auth,
-                  automodActive: automodActive,
-                  scopeReady: moderationActive,
-                  scopeStale: auth.scopeStale,
-                  onNotice: onNotice,
-                  onShowUser: onShowUser,
-                ),
-                ActivityTab(channel: channel, chat: chat),
-                ModesTab(
-                  channel: channel,
-                  modActions: modActions,
-                  auth: auth,
-                  roomModes: getRoomModes(channel),
-                  moderationActive: moderationActive,
-                  onNotice: onNotice,
-                ),
-                ChannelTab(
-                  channel: channel,
-                  chat: chat,
-                  modActions: modActions,
-                  auth: auth,
-                  onNotice: onNotice,
-                  isBroadcaster: isBroadcaster,
-                  isModerationActive: moderationActive,
-                ),
-                UsersTab(
-                  channel: channel,
-                  chat: chat,
-                  modActions: modActions,
-                  auth: auth,
-                  onNotice: onNotice,
-                  onShowUser: onShowUser,
-                ),
-                RequestsTab(
-                  channel: channel,
-                  chat: chat,
-                  modActions: modActions,
-                  auth: auth,
-                  onNotice: onNotice,
-                ),
-                TermsTab(
-                  channel: channel,
-                  chat: chat,
-                  modActions: modActions,
-                  auth: auth,
-                  termsVersion: termsVersion,
-                  onNotice: onNotice,
-                ),
-                SetupTab(
-                  channel: channel,
-                  chat: chat,
-                  modActions: modActions,
-                  auth: auth,
-                  onNotice: onNotice,
-                ),
-              ])
-                _KeepAlive(child: tab),
-            ],
+            children: [for (final tab in tabs) _KeepAlive(child: tab)],
           ),
         );
       },
