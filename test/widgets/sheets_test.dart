@@ -54,6 +54,27 @@ void main() {
       );
     }
 
+    testWidgets('Twitch emote sheet has no creator line', (tester) async {
+      await tester.pumpWidget(
+        wrapEmoteSheet(
+          const Emote(
+            id: 'tw-1',
+            code: 'SubEmote',
+            meta: TwitchMeta(
+              kind: TwitchEmoteKind.sub,
+              ownerChannel: 'streamer',
+            ),
+            scales: {EmoteScale.medium: 'https://example.com/1.png'},
+            scope: EmoteScope.channel,
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump();
+
+      expect(find.textContaining('Created by'), findsNothing);
+    });
+
     testWidgets(
       'Emote sheet header shows name and type and alias and zero width',
       (WidgetTester tester) async {

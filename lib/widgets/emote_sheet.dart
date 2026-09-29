@@ -84,6 +84,7 @@ class _EmoteSheetState extends State<EmoteSheet>
   }
 
   String? _ownerLabel(Emote emote) {
+    if (emote.meta is TwitchMeta) return null;
     final owner = emote.meta.owner;
     if (owner == null) return null;
     return 'Created by $owner';
