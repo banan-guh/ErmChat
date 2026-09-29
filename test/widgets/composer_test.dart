@@ -132,10 +132,9 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  // A short screen collapses chrome once the keyboard opens, handing the
-  // pill off to the in-flow path. The field must move intact: a rebuilt
-  // EditableText closes the input connection and iOS drops the keyboard.
-  testWidgets('pill hand-off keeps the input connection', (tester) async {
+  // A short screen collapses chrome once the keyboard opens (the iPhone
+  // case). The pill must stay put: only the focus glow changes.
+  testWidgets('keyboard chrome collapse keeps the pill', (tester) async {
     final focus = FocusNode();
     addTearDown(focus.dispose);
     tester.view.physicalSize = const Size(400, 550);
@@ -144,22 +143,21 @@ void main() {
 
     await pumpBody(tester, liquidGlass: true, focus: focus);
     await tester.pumpAndSettle();
+    final pill = find.byKey(const ValueKey('composer_pill'));
+    final width = tester.getSize(pill).width;
     await tester.tap(find.byKey(const Key('message_input')));
     await tester.pump();
-    expect(find.byKey(const ValueKey('composer_pill')), findsOneWidget);
 
     for (var kb = 50.0; kb <= 350; kb += 50) {
       tester.view.viewInsets = FakeViewPadding(bottom: kb);
       await tester.pump(const Duration(milliseconds: 16));
     }
-    // Past the pill fade and its hide backstop.
-    await tester.pump(const Duration(milliseconds: 300));
     await tester.pumpAndSettle();
 
-    expect(find.byKey(const ValueKey('composer_pill')), findsNothing);
+    expect(pill, findsOneWidget);
+    expect(tester.getSize(pill).width, width);
     expect(focus.hasFocus, isTrue);
     expect(tester.testTextInput.isVisible, isTrue);
-    // The glow rides with the field, so the docked bar still shows it.
     final glow = tester.widget<AnimatedContainer>(
       find.descendant(
         of: find.byType(ComposerFocusGlow),

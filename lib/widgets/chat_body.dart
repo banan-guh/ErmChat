@@ -325,12 +325,12 @@ class _ChatBodyState extends State<ChatBody> with WidgetsBindingObserver {
       maxHeight: decisionH,
     );
     // Glass pill footprint, shared with the list bottom padding upstream.
+    // Independent of the keyboard, so focusing never reshapes the composer.
     final pill =
         widget.liquidGlass &&
         composer != null &&
         !widget.isInPip &&
-        !MediaQuery.highContrastOf(context) &&
-        !hideChromeForKeyboard;
+        !MediaQuery.highContrastOf(context);
     // Composer footprint: content plus the live safe area, and the pill
     // margin only while floating. Composed at build so the clearance tracks
     // the keyboard inset on the same frame instead of lagging one frame.
