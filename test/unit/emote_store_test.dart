@@ -305,6 +305,20 @@ void main() {
     expect(store.version, 2);
   });
 
+  test('a channel resolves subs stored under other channels', () {
+    final store = EmoteStore();
+    expect(store.byCode('late')?.byCode.containsKey('SubA'), isNot(true));
+
+    store.storeUserTwitchEmotes({
+      'a': [_lockedTwitchSub('s1', 'SubA')],
+      'b': [_followerEmote('f1', 'FollowB', 'b')],
+    });
+    final lookup = store.byCode('late');
+    expect(lookup?.byCode.containsKey('SubA'), isTrue);
+    expect(lookup?.byCode.containsKey('FollowB'), isFalse);
+    expect(store.byCode('b')?.byCode.containsKey('FollowB'), isTrue);
+  });
+
   test('no-op 7TV deltas emit no changes', () {
     final store = EmoteStore();
     final changes = <EmoteChange>[];

@@ -349,7 +349,7 @@ class EmoteStore {
   }) {
     final cached = _mergedCache[channel];
     if (cached != null) return cached;
-    final channelCatalog = _channelCatalogs[channel];
+    final channelCatalog = _withSharedSubs(channel);
     final hasGlobalData =
         _globalCatalog.isNotEmpty || unlocks.isNotEmpty || personal.isNotEmpty;
     EmoteLookup? result;
@@ -365,6 +365,36 @@ class EmoteStore {
     }
     _mergedCache[channel] = result;
     return result;
+  }
+
+  /// [channel]'s catalog with the subs and bits emotes stored under every
+  /// other channel added, so they resolve wherever the account can send
+  /// them. Follower emotes stay in their home channel.
+  EmoteCatalog? _withSharedSubs(String channel) {
+    final own = _channelCatalogs[channel];
+    List<Emote>? merged;
+    Set<String>? seenCodes;
+    Set<String>? seenIds;
+    for (final entry in _channelCatalogs.entries) {
+      if (entry.key == channel) continue;
+      for (final e in entry.value.twitchSubs) {
+        final meta = e.meta;
+        if (meta is! TwitchMeta || meta.kind == TwitchEmoteKind.follower) {
+          continue;
+        }
+        if (merged == null) {
+          merged = [...?own?.twitchSubs];
+          seenCodes = {for (final s in merged) s.code};
+          seenIds = {for (final s in merged) s.id};
+        }
+        if (!seenIds!.contains(e.id) && seenCodes!.add(e.code)) {
+          seenIds.add(e.id);
+          merged.add(e);
+        }
+      }
+    }
+    if (merged == null) return own;
+    return (own ?? EmoteCatalog()).copyWith(twitchSubs: merged);
   }
 
   /// Map for one message: channel sets plus the sender's personal 7TV emotes
@@ -835,6 +865,8 @@ class EmoteStore {
     if (changedChannels.isEmpty) return;
     _subsByChannelCache = null;
     changedChannels.sort();
+    // Every channel's lookup includes the others' subs.
+    _mergedCache.clear();
     for (final channel in changedChannels) {
       emitChange(channel: channel);
     }
