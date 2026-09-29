@@ -775,6 +775,8 @@ void main() {
       expect(isImageEmbedCandidate('https://kappa.lol/abc'), isTrue);
       expect(isImageEmbedCandidate('https://sub.kappa.lol/abc'), isTrue);
       expect(isImageEmbedCandidate('https://kappa.lol'), isFalse);
+      expect(isImageEmbedCandidate('https://kappa.lol/abc.mp4'), isFalse);
+      expect(isImageEmbedCandidate('https://kappa.lol/abc.gif'), isTrue);
       expect(isImageEmbedCandidate('https://youtu.be/abc'), isFalse);
       expect(isImageEmbedCandidate('not a url'), isFalse);
     });

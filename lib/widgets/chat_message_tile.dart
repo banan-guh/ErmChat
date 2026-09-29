@@ -10,7 +10,7 @@ import '../util/constants.dart';
 import '../util/log.dart';
 import '../util/timestamp_formatter.dart';
 import 'emote_text.dart';
-import 'image_embed_viewer.dart';
+import 'image_embed_preview.dart';
 import 'painted_username_text.dart';
 
 class ChatMessageTile extends StatefulWidget {
@@ -257,27 +257,14 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
   /// on purpose: arbitrary hosts cannot go through the emote disk cap, and
   /// GIFs here animate regardless of the animate_gifs freeze.
   Widget _embedPreview(String url, double s) {
-    final maxH = widget.imageHeight * s;
     return Padding(
       padding: const EdgeInsets.only(left: 8, right: 8, top: 2, bottom: 4),
       child: Align(
         alignment: Alignment.centerLeft,
-        child: ConstrainedBox(
-          constraints: BoxConstraints(maxWidth: 300 * s, maxHeight: maxH),
-          child: GestureDetector(
-            onTap: () => showImageEmbedViewer(context, url),
-            child: CachedNetworkImage(
-              imageUrl: url,
-              fit: BoxFit.contain,
-              alignment: Alignment.centerLeft,
-              fadeInDuration: Duration.zero,
-              placeholder: (_, _) => SizedBox(width: 300 * s, height: maxH),
-              errorWidget: (_, failedUrl, error) {
-                logDebug('Image embed load failed: $failedUrl - $error');
-                return const Icon(Icons.broken_image);
-              },
-            ),
-          ),
+        child: ImageEmbedPreview(
+          url: url,
+          maxWidth: 300 * s,
+          maxHeight: widget.imageHeight * s,
         ),
       ),
     );

@@ -87,12 +87,15 @@ bool isImageEmbedCandidate(String url) {
   final knownHost = kImageEmbedHosts.any(
     (d) => host == d || host.endsWith('.$d'),
   );
-  if (knownHost) return uri.pathSegments.isNotEmpty;
   final path = uri.path.toLowerCase();
   final dot = path.lastIndexOf('.');
-  if (dot < 0) return false;
-  final ext = path.substring(dot + 1);
-  if (ext.contains('/')) return false;
+  final ext = dot < 0 ? null : path.substring(dot + 1);
+  // A known host serves anything: its bare ids pass, a video extension not.
+  if (knownHost) {
+    if (uri.pathSegments.isEmpty) return false;
+    return ext == null || ext.contains('/') || _kImageExtensions.contains(ext);
+  }
+  if (ext == null || ext.contains('/')) return false;
   return _kImageExtensions.contains(ext);
 }
 

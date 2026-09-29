@@ -1148,6 +1148,44 @@ void main() {
       );
     });
 
+    testWidgets('an expanded embed shows a left-aligned loading box', (
+      tester,
+    ) async {
+      const url = 'https://i.imgur.com/a.png';
+      void Function(String url)? expand;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: ChatMessageTile(
+              message: TwitchMessage(
+                login: 'alice',
+                text: url,
+                channel: 'test',
+                messageId: 'm2',
+              ),
+              channel: 'test',
+              surface: Colors.white,
+              textScale: 1.0,
+              showImages: true,
+              buildBadgeSpans: (_, _, {double badgeScale = 1.0}) => const [],
+              buildMessageSpans:
+                  (_, _, _, {colored = false, textScale = 1.0, onImageTap}) {
+                    expand = onImageTap;
+                    return <InlineSpan>[const TextSpan(text: url)];
+                  },
+              bodyIsCached: (_, _) => false,
+            ),
+          ),
+        ),
+      );
+      expand!(url);
+      await tester.pump();
+      final spinner = find.byType(CircularProgressIndicator);
+      expect(spinner, findsOneWidget);
+      // Anchored left from the first frame, so the image never slides in.
+      expect(tester.getTopLeft(spinner).dx, lessThan(200));
+    });
+
     testWidgets(
       'Image embed viewer opens over a scrim, closes via X or swipe',
       (tester) async {
