@@ -61,6 +61,7 @@ export 'package:ermchat/widgets/emote_sheet.dart';
 export 'package:ermchat/widgets/message_input.dart';
 export 'package:ermchat/widgets/chrome_menu_button.dart';
 export 'package:ermchat/widgets/user_profile_sheet.dart';
+export 'package:ermchat/widgets/image_embed_preview.dart';
 export 'package:ermchat/widgets/image_embed_viewer.dart';
 export 'package:cached_network_image/cached_network_image.dart';
 

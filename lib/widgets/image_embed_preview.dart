@@ -31,12 +31,42 @@ class ImageEmbedPreview extends StatefulWidget {
   final http.Client? client;
   final BaseCacheManager? cache;
 
+  /// Forgets the in-memory recent embeds. Exposed for tests.
+  @visibleForTesting
+  static void debugClearRecent() => _ImageEmbedPreviewState._clearRecent();
+
   @override
   State<ImageEmbedPreview> createState() => _ImageEmbedPreviewState();
 }
 
 class _ImageEmbedPreviewState extends State<ImageEmbedPreview> {
+  /// Recently shown embeds, newest last, so reopening one paints on the
+  /// first frame instead of flashing the loading box over a disk read.
+  static final _recent = <String, Uint8List>{};
+  static int _recentBytes = 0;
+  static const _maxRecentBytes = 24 << 20;
+
+  static void _remember(String url, Uint8List bytes) {
+    final old = _recent.remove(url);
+    if (old != null) _recentBytes -= old.length;
+    _recent[url] = bytes;
+    _recentBytes += bytes.length;
+    while (_recentBytes > _maxRecentBytes && _recent.length > 1) {
+      final oldest = _recent.keys.first;
+      _recentBytes -= _recent.remove(oldest)!.length;
+    }
+  }
+
+  static void _clearRecent() {
+    _recent.clear();
+    _recentBytes = 0;
+  }
+
   Uint8List? _bytes;
+
+  /// A network fetch is running; until then the box stays blank, so a
+  /// disk cache hit never flashes the spinner.
+  bool _fetching = false;
 
   /// Why the link cannot show, once known.
   String? _rejected;
@@ -52,6 +82,12 @@ class _ImageEmbedPreviewState extends State<ImageEmbedPreview> {
   @override
   void initState() {
     super.initState();
+    final recent = _recent[widget.url];
+    if (recent != null) {
+      _bytes = recent;
+      _remember(widget.url, recent);
+      return;
+    }
     unawaited(_load());
   }
 
@@ -69,6 +105,7 @@ class _ImageEmbedPreviewState extends State<ImageEmbedPreview> {
         final bytes = await cached.file.readAsBytes();
         if (!mounted) return;
         if (sniffEmbedImage(bytes) == true) {
+          _remember(widget.url, bytes);
           setState(() => _bytes = bytes);
           return;
         }
@@ -77,6 +114,7 @@ class _ImageEmbedPreviewState extends State<ImageEmbedPreview> {
       // No cache (tests, storage errors): fetch instead.
     }
     if (!mounted) return;
+    setState(() => _fetching = true);
     final client = widget.client ?? (_ownClient = http.Client());
     final http.StreamedResponse response;
     try {
@@ -120,6 +158,7 @@ class _ImageEmbedPreviewState extends State<ImageEmbedPreview> {
           _reject(type);
           return;
         }
+        _remember(widget.url, bytes);
         if (!mounted) return;
         setState(() => _bytes = bytes);
         _cache.putFile(widget.url, bytes).ignore();
@@ -160,6 +199,9 @@ class _ImageEmbedPreviewState extends State<ImageEmbedPreview> {
     if (_failed) return const _Notice('Image failed to load');
     final bytes = _bytes;
     if (bytes == null) {
+      if (!_fetching) {
+        return SizedBox.square(dimension: widget.maxHeight);
+      }
       return _EmbedProgress(
         size: widget.maxHeight,
         received: _received,

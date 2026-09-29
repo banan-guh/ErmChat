@@ -46,7 +46,17 @@ final _mp4Head = Uint8List.fromList([
 
 void main() {
   late _NoCache cache;
-  setUp(() => cache = _NoCache());
+
+  // Stream events land in microtasks; the second pump paints their setState.
+  Future<void> settle(WidgetTester tester) async {
+    await tester.pump();
+    await tester.pump();
+  }
+
+  setUp(() {
+    cache = _NoCache();
+    ImageEmbedPreview.debugClearRecent();
+  });
 
   Future<StreamController<List<int>>> pumpPreview(
     WidgetTester tester, {
@@ -99,7 +109,7 @@ void main() {
       contentLength: 10000000,
     );
     body.add(_mp4Head);
-    await tester.pump();
+    await settle(tester);
     expect(body.hasListener, isFalse);
     expect(find.textContaining("Can't preview"), findsOneWidget);
   });
@@ -113,15 +123,33 @@ void main() {
     expect(find.byType(CircularProgressIndicator), findsOneWidget);
 
     body.add(_png);
-    await tester.pump();
+    await settle(tester);
     expect(find.text('50%'), findsOneWidget);
 
     body.add(Uint8List(_png.length));
     unawaited(body.close());
-    await tester.pump();
+    await settle(tester);
     expect(find.byType(Image), findsOneWidget);
     expect(find.byType(CircularProgressIndicator), findsNothing);
     expect(cache.puts, ['https://kappa.lol/abc']);
+  });
+
+  testWidgets('reopening a loaded embed skips the loading box', (tester) async {
+    final body = await pumpPreview(
+      tester,
+      contentType: 'image/png',
+      contentLength: _png.length,
+    );
+    body.add(_png);
+    unawaited(body.close());
+    await settle(tester);
+    expect(find.byType(Image), findsOneWidget);
+
+    // Collapse and expand again: the first frame already shows the image.
+    await tester.pumpWidget(const SizedBox());
+    await pumpPreview(tester, contentType: 'image/png');
+    expect(find.byType(CircularProgressIndicator), findsNothing);
+    expect(find.byType(Image), findsOneWidget);
   });
 
   test('content types', () {

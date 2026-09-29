@@ -1148,9 +1148,7 @@ void main() {
       );
     });
 
-    testWidgets('an expanded embed shows a left-aligned loading box', (
-      tester,
-    ) async {
+    testWidgets('an expanded embed mounts left-aligned', (tester) async {
       const url = 'https://i.imgur.com/a.png';
       void Function(String url)? expand;
       await tester.pumpWidget(
@@ -1180,10 +1178,10 @@ void main() {
       );
       expand!(url);
       await tester.pump();
-      final spinner = find.byType(CircularProgressIndicator);
-      expect(spinner, findsOneWidget);
+      final preview = find.byType(ImageEmbedPreview);
+      expect(preview, findsOneWidget);
       // Anchored left from the first frame, so the image never slides in.
-      expect(tester.getTopLeft(spinner).dx, lessThan(200));
+      expect(tester.getTopLeft(preview).dx, lessThan(200));
     });
 
     testWidgets(
