@@ -14,6 +14,7 @@ import '../services/twitch_auth.dart';
 import '../util/date_format.dart';
 import '../util/haptics.dart';
 import '../util/log.dart';
+import '../util/mention.dart';
 import '../util/prefs.dart';
 import 'app_snack.dart';
 import 'badge_chip.dart';
@@ -895,12 +896,7 @@ class UserProfileSheetState extends State<UserProfileSheet> {
           final prefs = await Prefs.load();
           final username = widget.username;
           // Mention format preference: how name is inserted into compose box.
-          final prefix = switch (prefs.mentionFormat) {
-            'name' => '$username ',
-            'name,' => '$username, ',
-            '@name,' => '@$username, ',
-            _ => '@$username ',
-          };
+          final prefix = formatMention(prefs.mentionFormat, username);
           final text = widget.messageController.text;
           widget.messageController.text = '$prefix$text';
           widget.messageController.selection = TextSelection.fromPosition(

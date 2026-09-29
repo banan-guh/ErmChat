@@ -22,3 +22,19 @@ bool isMentionOf(TwitchMessage msg, String login) {
       msg.replyToUser != null && msg.replyToUser!.toLowerCase() == login;
   return isMention(msg.text, login) || isReplyToMe;
 }
+
+/// [name] in the mention format pref ('@name', '@name,', 'name', 'name,')
+/// with the trailing space an input insert wants.
+String formatMention(String format, String name) => switch (format) {
+  'name' => '$name ',
+  'name,' => '$name, ',
+  '@name,' => '@$name, ',
+  _ => '@$name ',
+};
+
+/// How chat addresses [msg]'s sender: the display name when it is just the
+/// login recased, else the login (localized display names do not ping).
+String mentionName(TwitchMessage msg) =>
+    msg.displayName.toLowerCase() == msg.login.toLowerCase()
+    ? msg.displayName
+    : msg.login;

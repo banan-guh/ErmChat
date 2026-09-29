@@ -1,6 +1,7 @@
-import 'package:flutter/gestures.dart';
+import 'dart:async';
+
 import 'package:flutter/material.dart';
-import 'package:flutter/semantics.dart';
+import 'package:flutter/rendering.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../color_utils.dart';
 import '../models/twitch_message.dart';
@@ -39,6 +40,9 @@ class ChatMessageTile extends StatefulWidget {
   final List<InlineSpan> Function(TwitchMessage msg, double textScale)?
   systemBodyBuilder;
   final void Function(String login, String? userId)? onTapUser;
+
+  /// Double tap on the name zone. Null keeps single taps instant.
+  final VoidCallback? onDoubleTapUser;
   final VoidCallback? onLongPress;
   final VoidCallback? onDoubleTap;
   final Widget? replyIndicator;
@@ -82,6 +86,7 @@ class ChatMessageTile extends StatefulWidget {
     required this.bodyIsCached,
     this.systemBodyBuilder,
     this.onTapUser,
+    this.onDoubleTapUser,
     this.onLongPress,
     this.onDoubleTap,
     this.replyIndicator,
@@ -105,8 +110,20 @@ class ChatMessageTile extends StatefulWidget {
 }
 
 class _ChatMessageTileState extends State<ChatMessageTile> {
-  TapGestureRecognizer? _usernameRecognizer;
   DateTime? _lastTap;
+
+  // The name zone is hit-tested on the row, not a span recognizer, so it can
+  // reach past the glyphs: everything left of the name (timestamp, badges),
+  // the name, and a margin around it.
+  final _paragraphKey = GlobalKey();
+  // Plain-text offset where the name (and its separator) ends; null for
+  // system rows, which have no name.
+  int? _nameEnd;
+  // Holds a name tap for the double-tap window when double tap is wired.
+  Timer? _nameTapTimer;
+
+  static const _nameSlopX = 12.0;
+  static const _nameSlopY = 6.0;
 
   /// Fresh link/email span lists built for this tile only. Cached span lists
   /// are shared across tiles and hold no recognizers, so only tracked lists
@@ -135,6 +152,47 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
 
   static const _doubleTapThreshold = Duration(milliseconds: 300);
 
+  bool _hitsName(Offset globalPosition) {
+    final end = _nameEnd;
+    if (end == null || end == 0) return false;
+    final paragraph = _paragraphKey.currentContext?.findRenderObject();
+    if (paragraph is! RenderParagraph || !paragraph.hasSize) return false;
+    final boxes = paragraph.getBoxesForSelection(
+      TextSelection(baseOffset: 0, extentOffset: end),
+    );
+    if (boxes.isEmpty) return false;
+    var zone = boxes.first.toRect();
+    for (final box in boxes.skip(1)) {
+      zone = zone.expandToInclude(box.toRect());
+    }
+    zone = Rect.fromLTRB(
+      double.negativeInfinity,
+      zone.top - _nameSlopY,
+      zone.right + _nameSlopX,
+      zone.bottom + _nameSlopY,
+    );
+    return zone.contains(paragraph.globalToLocal(globalPosition));
+  }
+
+  void _handleTapUp(TapUpDetails details) {
+    final onTapUser = widget.onTapUser;
+    if (onTapUser != null && _hitsName(details.globalPosition)) {
+      final msg = widget.message;
+      void open() => onTapUser(msg.login, msg.userId);
+      final onDoubleTapUser = widget.onDoubleTapUser;
+      if (onDoubleTapUser == null) {
+        open();
+      } else if (_nameTapTimer?.isActive ?? false) {
+        _nameTapTimer!.cancel();
+        onDoubleTapUser();
+      } else {
+        _nameTapTimer = Timer(_doubleTapThreshold, open);
+      }
+      return;
+    }
+    _handleTap();
+  }
+
   void _handleTap() {
     if (widget.onDoubleTap == null) return;
     final now = DateTime.now();
@@ -153,14 +211,12 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
   @override
   void initState() {
     super.initState();
-    _updateRecognizer();
     _updatePaintNotifier();
   }
 
   @override
   void didUpdateWidget(ChatMessageTile oldWidget) {
     super.didUpdateWidget(oldWidget);
-    _updateRecognizer();
     _updatePaintNotifier();
   }
 
@@ -177,19 +233,6 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
 
   void _onPaintChanged() {
     if (mounted) setState(() {});
-  }
-
-  void _updateRecognizer() {
-    final onTapUser = widget.onTapUser;
-    final login = widget.message.login;
-    final userId = widget.message.userId;
-    if (onTapUser != null) {
-      _usernameRecognizer ??= TapGestureRecognizer();
-      _usernameRecognizer!.onTap = () => onTapUser(login, userId);
-    } else {
-      _usernameRecognizer?.dispose();
-      _usernameRecognizer = null;
-    }
   }
 
   /// The sender's resolved paint, or null when paints are off or it has no
@@ -246,7 +289,7 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
     _paintNotifier = null;
     _disposeSpans(_ownedBodySpans);
     _ownedBodySpans = null;
-    _usernameRecognizer?.dispose();
+    _nameTapTimer?.cancel();
     super.dispose();
   }
 
@@ -262,6 +305,7 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
     final List<InlineSpan> children;
     final String semanticsLabel;
     final bool deleted;
+    int? nameEnd;
     // Image preview URLs for the embed column below the text.
     List<String> embedUrls = const [];
 
@@ -332,7 +376,6 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
         decoration: TextDecoration.none,
       );
       final usernameColor = parseColor(msg.color, background: widget.surface);
-      final recognizer = widget.onTapUser != null ? _usernameRecognizer : null;
       final paint = _currentPaint();
       final solid = paint?.solidColor;
       final shadows = paint == null
@@ -354,7 +397,6 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
             color: solid ?? usernameColor,
             shadows: shadows == null || shadows.isEmpty ? null : shadows,
           ),
-          recognizer: recognizer,
         );
       } else {
         usernameSpan = WidgetSpan(
@@ -367,7 +409,6 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
             fallbackColor:
                 paint.fallbackColor ?? usernameColor ?? const Color(0xFF808080),
             shadows: shadows!.isEmpty ? null : shadows,
-            recognizer: recognizer,
           ),
         );
       }
@@ -397,6 +438,11 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
       }
       _trackBodySpans(bodySpans, widget.bodyIsCached(msg, bodySpans));
       children = [?channelSpan, ...badges, usernameSpan, ...bodySpans];
+      nameEnd = [
+        ?channelSpan,
+        ...badges,
+        usernameSpan,
+      ].fold<int>(0, (n, span) => n + span.toPlainText().length);
       final channelLabel = widget.showChannel ? '#${widget.channel} ' : '';
       semanticsLabel = msg.isHighlighted
           ? 'Mention: $ts $channelLabel${msg.formattedUsername}: ${msg.text}'
@@ -429,9 +475,14 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
             style: tsStyle,
           );
 
+    _nameEnd = nameEnd == null
+        ? null
+        : nameEnd + (tsSpan?.toPlainText().length ?? 0);
+
     Widget child = Padding(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
       child: Text.rich(
+        key: _paragraphKey,
         TextSpan(children: [?tsSpan, ...children], style: bodyTextStyle),
       ),
     );
@@ -529,9 +580,12 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
       );
     }
 
-    if (widget.onLongPress != null || widget.onDoubleTap != null) {
+    if (widget.onLongPress != null ||
+        widget.onDoubleTap != null ||
+        widget.onTapUser != null) {
       child = InkWell(
-        onTap: _handleTap,
+        onTapUp: _handleTapUp,
+        onTap: () {},
         onLongPress: widget.onLongPress,
         child: child,
       );

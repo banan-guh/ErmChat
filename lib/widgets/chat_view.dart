@@ -1,9 +1,14 @@
 import 'package:flutter/foundation.dart' show defaultTargetPlatform;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
-import 'package:flutter/services.dart' show HapticFeedback;
+import 'package:flutter/services.dart'
+    show Clipboard, ClipboardData, HapticFeedback;
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 import '../models/twitch_message.dart';
+import '../providers/feature_providers.dart' show chatNoticeProvider;
+import '../util/mention.dart';
+import '../util/prefs.dart';
 import '../util/thread_utils.dart';
 import 'glass_chrome.dart';
 import 'seven_tv_paint_service.dart';
@@ -201,6 +206,22 @@ class _ChatHoldBouncingPhysics extends BouncingScrollPhysics
 
 class _ChatViewState extends State<ChatView>
     with AutomaticKeepAliveClientMixin {
+  /// Copies the sender in the mention format pref and confirms in the chat
+  /// notice bar.
+  Future<void> _copyUsername(TwitchMessage msg) async {
+    final prefs = await Prefs.load();
+    final text = formatMention(
+      prefs.mentionFormat,
+      mentionName(msg),
+    ).trimRight();
+    await Clipboard.setData(ClipboardData(text: text));
+    if (!mounted) return;
+    ProviderScope.containerOf(
+      context,
+      listen: false,
+    ).read(chatNoticeProvider).show('Copied $text');
+  }
+
   /// Pixels from the newest row above which the reader counts as scrolled up.
   static const double _followEps = 0.5;
 
@@ -725,6 +746,7 @@ class _ChatViewState extends State<ChatView>
           userId,
           displayName: msg.displayName,
         ),
+        onDoubleTapUser: () => _copyUsername(msg),
         onLongPress: widget.onShowMessageMenu == null
             ? null
             : () => widget.onShowMessageMenu!(msg),

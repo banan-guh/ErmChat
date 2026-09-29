@@ -1,4 +1,3 @@
-import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'seven_tv_paint_service.dart';
 
@@ -14,7 +13,6 @@ class PaintedUsernameText extends StatelessWidget {
   final TextStyle baseStyle;
   final Color fallbackColor;
   final List<Shadow>? shadows;
-  final GestureRecognizer? recognizer;
 
   const PaintedUsernameText({
     super.key,
@@ -24,7 +22,6 @@ class PaintedUsernameText extends StatelessWidget {
     required this.baseStyle,
     required this.fallbackColor,
     this.shadows,
-    this.recognizer,
   });
 
   @override
@@ -47,9 +44,7 @@ class PaintedUsernameText extends StatelessWidget {
             foreground: Paint()..shader = shader,
             shadows: shadows,
           );
-    return Text.rich(
-      TextSpan(text: text, style: style, recognizer: recognizer),
-    );
+    return Text.rich(TextSpan(text: text, style: style));
   }
 
   /// The box [Text.rich] lays out to, so the shader spans the same bounds a
