@@ -178,6 +178,7 @@ class FakeIrcService extends IrcService {
   Future<void> connect({
     required String username,
     required String accessToken,
+    bool useProxy = true,
   }) async {}
 
   @override
@@ -219,6 +220,7 @@ class FakeIrcReadService extends IrcReadService {
   Future<void> connect({
     required String username,
     required String accessToken,
+    bool useProxy = true,
   }) async {}
 
   @override

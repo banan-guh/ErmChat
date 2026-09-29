@@ -577,6 +577,7 @@ class ChatLifecycle {
             ircRead.connect(
               username: liveness.anonymousNick(2),
               accessToken: 'anonymous',
+              useProxy: false,
             ),
           ]);
         } catch (e) {

@@ -61,7 +61,7 @@ class _TestService extends IrcService {
 }
 
 class _TestReadService extends IrcReadService {
-  _TestReadService(this.channels, {super.joinBudget});
+  _TestReadService(this.channels, {super.joinBudget, super.wsUrlOverride});
 
   final List<FakeWebSocketChannel> channels;
 
@@ -242,6 +242,7 @@ class _TestIrc extends IrcService {
   Future<void> connect({
     required String username,
     required String accessToken,
+    bool useProxy = true,
   }) async {
     connectCalls++;
     this.username = username.toLowerCase();
@@ -288,6 +289,7 @@ class _NoopIrcRead extends IrcReadService {
   Future<void> connect({
     required String username,
     required String accessToken,
+    bool useProxy = true,
   }) async {}
 
   /// Feeds a ROOMSTATE through the real dispatch path so readiness tracking
@@ -319,6 +321,7 @@ class _TestIrcRead extends IrcReadService {
   Future<void> connect({
     required String username,
     required String accessToken,
+    bool useProxy = true,
   }) async {}
 
   @override
@@ -555,6 +558,29 @@ ChatConnectionManager _makeReconnectConn({
 }
 
 void main() {
+  group('proxy routing', () {
+    test('anonymous connects skip the proxy', () {
+      fakeAsync((async) {
+        final service = _TestReadService([
+          FakeWebSocketChannel(),
+        ], wsUrlOverride: 'ws://proxy.test/ws');
+        service.connect(username: 'user', accessToken: 'token');
+        async.flushMicrotasks();
+        expect(service.socketUri.host, 'proxy.test');
+
+        service.disconnect();
+        service.connect(
+          username: 'justinfan1234',
+          accessToken: 'anonymous',
+          useProxy: false,
+        );
+        async.flushMicrotasks();
+        expect(service.socketUri.host, 'irc-ws.chat.twitch.tv');
+        service.dispose();
+      });
+    });
+  });
+
   group('reconnect backoff', () {
     test('delays grow 1s, 2s, 4s, then cap at 8s and never give up', () {
       fakeAsync((async) {

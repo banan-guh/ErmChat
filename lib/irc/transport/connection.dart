@@ -58,6 +58,10 @@ abstract class IrcConnection {
   /// connection. The write socket never sets this.
   final String? wsUrlOverride;
 
+  /// Whether the current connect goes through [wsUrlOverride]. The proxy
+  /// rejects anonymous nicks, so anonymous connects stay direct.
+  bool _viaProxy = false;
+
   /// Shared JOIN pacing. When the app wires both sockets to one limiter,
   /// their combined JOIN rate stays inside Twitch's command budget; a null
   /// injection falls back to a private bucket with identical semantics.
@@ -190,6 +194,7 @@ abstract class IrcConnection {
   Future<void> connect({
     required String username,
     required String accessToken,
+    bool useProxy = true,
   }) {
     if (_disposed) return Future.value();
     if (isConnected) {
@@ -202,7 +207,8 @@ abstract class IrcConnection {
     this.username = username.toLowerCase();
     token = accessToken;
     // Proxied sockets cost no Twitch budget: their JOINs bypass pacing.
-    _joinBudget.setBypass(role, wsUrlOverride != null);
+    _viaProxy = useProxy && wsUrlOverride != null;
+    _joinBudget.setBypass(role, _viaProxy);
     _fatalAuth = false;
     _runGeneration++;
     final firstSettled = Completer<void>();
@@ -381,7 +387,11 @@ abstract class IrcConnection {
   /// Opens the socket; overridable in tests.
   @visibleForTesting
   Future<WebSocketChannel> openChannel() async =>
-      WebSocketChannel.connect(Uri.parse(wsUrlOverride ?? _wsUrl));
+      WebSocketChannel.connect(socketUri);
+
+  /// Where the next connect dials: the proxy or Twitch.
+  @visibleForTesting
+  Uri get socketUri => Uri.parse(_viaProxy ? wsUrlOverride! : _wsUrl);
 
   /// Waits for the WebSocket handshake with an upper bound. The timeout timer
   /// is tracked and cancelled on disconnect/dispose so a torn-down connect
