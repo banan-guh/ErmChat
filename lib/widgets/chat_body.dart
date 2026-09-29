@@ -101,7 +101,20 @@ class ChatBody extends StatefulWidget {
   State<ChatBody> createState() => _ChatBodyState();
 }
 
-class _ChatBodyState extends State<ChatBody> with WidgetsBindingObserver {
+class _ChatBodyState extends State<ChatBody>
+    with WidgetsBindingObserver, TickerProviderStateMixin {
+  // Bottom safe area and the list clearance under the pill. Both ease when
+  // the system bars or the pill come and go (fullscreen, input toggle)
+  // instead of jumping; keyboard ticks still move them directly.
+  late final _bottomPad = _Eased(this, _onEasedTick);
+  late final _clearance = _Eased(this, _onEasedTick);
+  double? _lastViewPadBottom;
+  bool? _lastPill;
+
+  void _onEasedTick() {
+    if (mounted) setState(() {});
+  }
+
   // Stack box height with the keyboard closed, learned during layout.
   double? _fullBoxHeight;
 
@@ -211,6 +224,8 @@ class _ChatBodyState extends State<ChatBody> with WidgetsBindingObserver {
     _releaseTimer?.cancel();
     _frozenImage?.dispose();
     _glassFreeze.dispose();
+    _bottomPad.dispose();
+    _clearance.dispose();
     super.dispose();
   }
 
@@ -305,7 +320,16 @@ class _ChatBodyState extends State<ChatBody> with WidgetsBindingObserver {
   @override
   Widget build(BuildContext context) {
     final keyboardH = _liftH;
-    final bottomPad = MediaQuery.paddingOf(context).bottom;
+    // The keyboard shrinks padding but never viewPadding, so a viewPadding
+    // change means the system bars moved: ease that, follow the keyboard.
+    final viewPadBottom = MediaQuery.viewPaddingOf(context).bottom;
+    final barsMoved =
+        _lastViewPadBottom != null && viewPadBottom != _lastViewPadBottom;
+    _lastViewPadBottom = viewPadBottom;
+    final bottomPad = _bottomPad.resolve(
+      MediaQuery.paddingOf(context).bottom,
+      animate: barsMoved,
+    );
     final size = MediaQuery.sizeOf(context);
     final composer = widget.composer;
     // Cache the settled composer height after layout for keyboard-room
@@ -338,6 +362,14 @@ class _ChatBodyState extends State<ChatBody> with WidgetsBindingObserver {
         ? 0.0
         : _composerH + bottomPad + (pill ? kGlassComposerMargin : 0.0);
     final pillH = glassComposerOverlayHeight(composerH);
+    // Rows under the pill ease out of or into its space when it comes and
+    // goes; composer growth and keyboard ticks move it directly.
+    final pillFlipped = _lastPill != null && pill != _lastPill;
+    _lastPill = pill;
+    final clearance = _clearance.resolve(
+      pill ? pillH : 0.0,
+      animate: pillFlipped,
+    );
     if (pill) {
       _pillShown = true;
       _pillComposer = composer;
@@ -388,7 +420,7 @@ class _ChatBodyState extends State<ChatBody> with WidgetsBindingObserver {
       key: const ValueKey('reply_header'),
       left: (pill ? kGlassComposerMargin : 8.0) - 4,
       right: (pill ? kGlassComposerMargin : 8.0) - 4,
-      bottom: pill ? pillH : 0,
+      bottom: clearance,
       child: NotificationListener<SizeChangedLayoutNotification>(
         onNotification: (_) {
           WidgetsBinding.instance.addPostFrameCallback((_) => _cacheReplyH());
@@ -406,7 +438,7 @@ class _ChatBodyState extends State<ChatBody> with WidgetsBindingObserver {
     // message input, 60% width like DankChat's popup.
     final autocomplete = Positioned(
       key: const ValueKey('autocomplete'),
-      bottom: pill ? pillH : 0,
+      bottom: clearance,
       left: 0,
       child: SizedBox(
         width: (size.width * 0.6).clamp(0.0, 340.0),
@@ -422,7 +454,7 @@ class _ChatBodyState extends State<ChatBody> with WidgetsBindingObserver {
         ? null
         : Positioned(
             key: const ValueKey('chat_notice'),
-            bottom: pill ? pillH : 0,
+            bottom: clearance,
             left: 0,
             right: 0,
             child: widget.notice!,
@@ -494,7 +526,7 @@ class _ChatBodyState extends State<ChatBody> with WidgetsBindingObserver {
           child: widget.isInPip
               ? body
               : GlassChromeScope(
-                  bottomClearance: pill ? pillH : 0,
+                  bottomClearance: clearance,
                   listExtra: widget.replyHeader != null ? _replyH : 0,
                   freeze: _glassFreeze,
                   // The glass freeze snapshots this boundary. The fill makes
@@ -585,5 +617,60 @@ class _ChatBodyState extends State<ChatBody> with WidgetsBindingObserver {
         return column;
       },
     );
+  }
+}
+
+/// A number that eases to a new target over 220ms instead of jumping, or
+/// snaps when told to. Read during build; [onTick] rebuilds while it runs.
+class _Eased {
+  _Eased(TickerProvider vsync, VoidCallback onTick)
+    : _ctrl = AnimationController(
+        vsync: vsync,
+        duration: const Duration(milliseconds: 220),
+      )..addListener(onTick);
+
+  final AnimationController _ctrl;
+  bool _seeded = false;
+  double _from = 0;
+  double _to = 0;
+
+  /// The controller starts after the frame (it notifies on start, which
+  /// would rebuild mid-build), so the building frame still shows [_from].
+  bool _startPending = false;
+
+  double get value {
+    if (_startPending) return _from;
+    if (!_ctrl.isAnimating) return _to;
+    return ui.lerpDouble(_from, _to, Curves.easeInOut.transform(_ctrl.value))!;
+  }
+
+  double resolve(double target, {required bool animate}) {
+    if (!_seeded) {
+      _seeded = true;
+      _to = target;
+    }
+    if (target == _to) return value;
+    if (animate) {
+      _from = value;
+      _to = target;
+      if (!_startPending) {
+        _startPending = true;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!_startPending) return;
+          _startPending = false;
+          _ctrl.forward(from: 0);
+        });
+      }
+    } else {
+      _startPending = false;
+      _ctrl.stop();
+      _to = target;
+    }
+    return value;
+  }
+
+  void dispose() {
+    _startPending = false;
+    _ctrl.dispose();
   }
 }

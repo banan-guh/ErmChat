@@ -168,6 +168,37 @@ void main() {
     expect((outline.border! as Border).top.color.a, greaterThan(0));
   });
 
+  // Fullscreen hides the nav bar: the composer eases down into the freed
+  // inset instead of jumping, in both chrome modes.
+  for (final glass in [false, true]) {
+    testWidgets('nav bar inset eases away (glass: $glass)', (tester) async {
+      final focus = FocusNode();
+      addTearDown(focus.dispose);
+      tester.view.devicePixelRatio = 1;
+      tester.view.padding = const FakeViewPadding(bottom: 48);
+      tester.view.viewPadding = const FakeViewPadding(bottom: 48);
+      addTearDown(tester.view.reset);
+      await pumpBody(tester, liquidGlass: glass, focus: focus);
+      await tester.pumpAndSettle();
+      final field = find.byKey(const Key('message_input'));
+      final before = tester.getBottomLeft(field).dy;
+
+      tester.view.padding = FakeViewPadding.zero;
+      tester.view.viewPadding = FakeViewPadding.zero;
+      await tester.pump();
+      // The ease starts after the frame that saw the change.
+      await tester.pump(const Duration(milliseconds: 16));
+      await tester.pump(const Duration(milliseconds: 110));
+      final mid = tester.getBottomLeft(field).dy;
+      await tester.pumpAndSettle();
+      final after = tester.getBottomLeft(field).dy;
+
+      expect(after, closeTo(before + 48, 1));
+      expect(mid, greaterThan(before + 5));
+      expect(mid, lessThan(after - 5));
+    });
+  }
+
   testWidgets('input toggle-off fades the field out with the pill', (
     tester,
   ) async {
