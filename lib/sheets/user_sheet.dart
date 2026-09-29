@@ -17,6 +17,7 @@ import '../services/twitch_api.dart';
 import '../services/twitch_auth.dart';
 import '../widgets/chat_message_tile.dart';
 import '../widgets/emote_sheet.dart';
+import '../widgets/glass_chrome.dart';
 import '../widgets/message_builder.dart';
 import '../widgets/panel_manager.dart';
 import '../widgets/user_profile_sheet.dart';
@@ -317,6 +318,7 @@ class UserSheets {
                   builder: (_, scrollController) {
                     listController = historyController;
                     return UserProfileSheet(
+                      glass: glassEnabled(context, prefs.liquidGlass),
                       username: username,
                       displayName: displayName ?? username,
                       userId: userId,

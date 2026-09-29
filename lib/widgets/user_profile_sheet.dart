@@ -2,6 +2,7 @@ import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 import 'package:flutter/services.dart' show HapticFeedback;
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -96,6 +97,9 @@ class UserProfileSheet extends StatefulWidget {
   /// would hit a disposed controller while the sheet still lays out.
   final VoidCallback? onDispose;
 
+  /// Liquid glass on: the jump-to-latest button matches chat's glass one.
+  final bool glass;
+
   const UserProfileSheet({
     super.key,
     required this.username,
@@ -123,6 +127,7 @@ class UserProfileSheet extends StatefulWidget {
     this.sheetMinExtent = 0.25,
     this.onCardMeasured,
     this.cardBadges = const [],
+    this.glass = false,
     this.userMessages = const [],
     this.messageRowBuilder,
     this.onDispose,
@@ -517,6 +522,16 @@ class UserProfileSheetState extends State<UserProfileSheet> {
   // Same scroll-down FAB as ChatView: appears when scrolled up, jumps to
   // the latest message. Own hero tag so it never collides with chat FABs.
   Widget _buildHistoryArrow(ThemeData theme) {
+    if (widget.glass) {
+      return GlassIconButton(
+        key: const ValueKey('user_history_scroll_down'),
+        icon: const Icon(Icons.keyboard_arrow_down),
+        shape: GlassIconButtonShape.roundedSquare,
+        onPressed: _onArrowTap,
+        useOwnLayer: true,
+        quality: GlassQuality.premium,
+      );
+    }
     return FloatingActionButton(
       key: const ValueKey('user_history_scroll_down'),
       heroTag: 'user_history_scroll_down',
