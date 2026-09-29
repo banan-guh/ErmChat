@@ -106,9 +106,6 @@ class TabbedLayout extends StatefulWidget {
   /// Off hides tab strip (hidden-chrome / fullscreen mode).
   final bool showTabBar;
 
-  /// Tab-strip show/hide animation duration. Zero = instant for keyboard collapse.
-  final Duration tabBarAnimationDuration;
-
   /// Overlay anchored top-right below tab strip (hidden-chrome menu).
   final Widget? chromeMenu;
 
@@ -146,7 +143,6 @@ class TabbedLayout extends StatefulWidget {
     this.headerOverlay,
     this.glassOverlay = false,
     this.overlayHeaderHeight = 0,
-    this.tabBarAnimationDuration = const Duration(milliseconds: 200),
   });
 
   @override
@@ -594,7 +590,7 @@ class TabbedLayoutState extends State<TabbedLayout>
     return Column(
       children: [
         AnimatedSize(
-          duration: widget.tabBarAnimationDuration,
+          duration: const Duration(milliseconds: 200),
           curve: Curves.easeInOut,
           child: widget.showTabBar
               ? Container(

@@ -537,9 +537,6 @@ Widget stackedPlayerHarness({required bool showVideo}) {
                       selectedIndex: 0,
                       onSelectedIndexChanged: (_) {},
                       showTabBar: !hideChromeForKeyboard,
-                      tabBarAnimationDuration: hideChromeForKeyboard
-                          ? Duration.zero
-                          : const Duration(milliseconds: 200),
                       belowTabBar: buildStackedPlayer(
                         show: showVideo,
                         video: stackedStubVideo(),

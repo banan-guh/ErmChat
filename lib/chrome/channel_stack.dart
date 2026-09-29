@@ -336,9 +336,6 @@ class ChannelPanels {
                     atBottomNotifier(channel).value = true;
                   },
                   showTabBar: !isFullscreen() && !hideChrome,
-                  tabBarAnimationDuration: hideChrome
-                      ? Duration.zero
-                      : const Duration(milliseconds: 200),
                   chromeMenu: homeAppBar.chromeMenu(glass: glassOverlay),
                   belowTabBar: belowTabBar,
                   glassOverlay: glassOverlay,

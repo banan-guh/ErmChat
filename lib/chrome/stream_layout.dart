@@ -375,9 +375,7 @@ class StreamPanels {
     return Column(
       children: [
         AnimatedSize(
-          duration: hideChromeForKeyboard
-              ? Duration.zero
-              : const Duration(milliseconds: 200),
+          duration: const Duration(milliseconds: 200),
           curve: Curves.easeInOut,
           child: !isFullscreen() && !hideChromeForKeyboard
               ? homeAppBar.appBar(context)
