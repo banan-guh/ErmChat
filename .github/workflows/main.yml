@@ -1,8 +1,7 @@
 name: Build Release Assets (iOS & Android)
 
+# Tag push only: a release event too would build twice with two numbers.
 on:
-  release:
-    types: [published]
   push:
     tags:
       - 'v*'
@@ -12,23 +11,64 @@ permissions:
   contents: write
 
 jobs:
+  # --- JOB 0: VERSION GUARD ---
+  # pubspec is the single version source for every store. Fails before the
+  # builds when the tag and pubspec disagree or the build number did not rise.
+  check-version:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check pubspec version
+        run: |
+          read_version() { grep -E '^version:' | head -1 | sed -E 's/^version:[[:space:]]*//'; }
+          CURRENT="$(read_version < pubspec.yaml)"
+          NAME="${CURRENT%%+*}"
+          BUILD="${CURRENT##*+}"
+          echo "pubspec: $NAME build $BUILD"
+          if [[ "$GITHUB_REF_TYPE" != "tag" ]]; then
+            echo "Not a tag build; skipping tag checks."
+            exit 0
+          fi
+          if [[ "$GITHUB_REF_NAME" != "v$NAME" ]]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match pubspec version $NAME."
+            exit 1
+          fi
+          PREV_TAG="$(git describe --tags --abbrev=0 "$GITHUB_REF_NAME^" 2>/dev/null || true)"
+          if [[ -z "$PREV_TAG" ]]; then
+            echo "No previous tag; nothing to compare."
+            exit 0
+          fi
+          PREV="$(git show "$PREV_TAG:pubspec.yaml" | read_version)"
+          PREV_BUILD="${PREV##*+}"
+          echo "previous: $PREV_TAG build $PREV_BUILD"
+          if (( BUILD <= PREV_BUILD )); then
+            echo "::error::Build number $BUILD must be higher than $PREV_BUILD from $PREV_TAG. Bump the +N in pubspec.yaml."
+            exit 1
+          fi
+
   # --- JOB 1: ANDROID BUILD ---
   build-android:
+    needs: check-version
     runs-on: ubuntu-latest
     env:
       KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+      PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           submodules: recursive
 
+      # Temurin 17 ships on the runner, so this skips the JDK download.
       - name: Set up Java
         uses: actions/setup-java@v4
         with:
-          distribution: 'zulu'
+          distribution: 'temurin'
           java-version: '17'
-          cache: 'gradle'
 
       - name: Set up Flutter SDK
         uses: subosito/flutter-action@v2
@@ -56,6 +96,9 @@ jobs:
       - name: Build universal APK
         run: flutter build apk --release
 
+      - name: Build app bundle
+        run: flutter build appbundle --release
+
       - name: Prepare APK Assets
         run: |
           mkdir -p build/release-assets
@@ -72,13 +115,27 @@ jobs:
           name: android-asset
           path: build/release-assets/*.apk
 
+      - name: Publish to Google Play
+        if: env.PLAY_SERVICE_ACCOUNT_JSON != '' && env.KEYSTORE_BASE64 != '' && github.ref_type == 'tag'
+        uses: r0adkll/upload-google-play@v1
+        with:
+          serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+          packageName: io.github.bananguh.ErmChat
+          releaseFiles: build/app/outputs/bundle/release/app-release.aab
+          track: production
+          status: completed
+
   # --- JOB 2: IOS BUILD ---
   build-ios:
+    needs: check-version
     runs-on: macos-latest
     env:
       BUILD_CERTIFICATE_BASE64: ${{ secrets.BUILD_CERTIFICATE_BASE64 }}
       BUILD_PROVISION_PROFILE_BASE64: ${{ secrets.BUILD_PROVISION_PROFILE_BASE64 }}
       P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
+      ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+      ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+      ASC_PRIVATE_KEY: ${{ secrets.ASC_PRIVATE_KEY }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -193,12 +250,8 @@ jobs:
       - name: Build signed iOS IPA
         if: env.BUILD_CERTIFICATE_BASE64 != '' && env.BUILD_PROVISION_PROFILE_BASE64 != '' && env.P12_PASSWORD != ''
         run: |
-          VERSION="${{ github.ref_name }}"
-          VERSION="${VERSION#v}"
           flutter build ipa --release \
-            --export-options-plist="$RUNNER_TEMP/ExportOptions.plist" \
-            --build-name="$VERSION" \
-            --build-number="${{ github.run_number }}"
+            --export-options-plist="$RUNNER_TEMP/ExportOptions.plist"
 
       - name: Prepare signed IPA asset
         if: env.BUILD_CERTIFICATE_BASE64 != '' && env.BUILD_PROVISION_PROFILE_BASE64 != '' && env.P12_PASSWORD != ''
@@ -231,10 +284,7 @@ jobs:
           echo "=========================================================="
           echo "=========================================================="
           echo ""
-          VERSION="${TAG_NAME#v}"
-          flutter build ipa --no-codesign \
-            --build-name="$VERSION" \
-            --build-number="${{ github.run_number }}"
+          flutter build ipa --no-codesign
           echo ""
           echo "=========================================================="
           echo "  ⚠️  OUTPUT: ${REPO_NAME}-${TAG_NAME}-UNSIGNED.ipa (UNSIGNED!) ⚠️ "
@@ -258,11 +308,22 @@ jobs:
           name: ios-asset
           path: build/release-assets/*.ipa
 
+      - name: Upload to TestFlight
+        if: env.ASC_KEY_ID != '' && env.ASC_ISSUER_ID != '' && env.ASC_PRIVATE_KEY != '' && env.BUILD_CERTIFICATE_BASE64 != '' && env.BUILD_PROVISION_PROFILE_BASE64 != '' && env.P12_PASSWORD != '' && github.ref_type == 'tag'
+        run: |
+          KEY_DIR="$HOME/.appstoreconnect/private_keys"
+          mkdir -p "$KEY_DIR"
+          printf '%s\n' "$ASC_PRIVATE_KEY" > "$KEY_DIR/AuthKey_${ASC_KEY_ID}.p8"
+          xcrun altool --upload-app --type ios \
+            --file build/ios/ipa/*.ipa \
+            --apiKey "$ASC_KEY_ID" \
+            --apiIssuer "$ASC_ISSUER_ID"
+
   # --- JOB 3: PUBLISH TO GITHUB RELEASE ---
   publish-release:
     needs: [build-android, build-ios]
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'release'
+    if: github.ref_type == 'tag'
     steps:
       - name: Download all build artifacts
         uses: actions/download-artifact@v4
