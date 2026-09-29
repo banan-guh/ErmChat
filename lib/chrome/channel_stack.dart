@@ -289,6 +289,7 @@ class ChannelPanels {
     double overlayTop = 50,
     Widget? belowTabBar,
     bool glassOverlay = false,
+    bool glassChrome = false,
     Widget? glassHeader,
     double glassHeaderHeight = 0,
     double glassTopPadding = 0,
@@ -301,6 +302,7 @@ class ChannelPanels {
         overlayTop: overlayTop,
         belowTabBar: belowTabBar,
         glassOverlay: glassOverlay,
+        glassChrome: glassChrome,
         glassHeader: glassHeader,
         glassHeaderHeight: glassHeaderHeight,
         glassTopPadding: glassTopPadding,
@@ -315,6 +317,7 @@ class ChannelPanels {
     required double overlayTop,
     Widget? belowTabBar,
     bool glassOverlay = false,
+    bool glassChrome = false,
     Widget? glassHeader,
     double glassHeaderHeight = 0,
     double glassTopPadding = 0,
@@ -340,7 +343,10 @@ class ChannelPanels {
                     atBottomNotifier(channel).value = true;
                   },
                   showTabBar: !isFullscreen() && !hideChrome,
-                  chromeMenu: homeAppBar.chromeMenu(glass: glassOverlay),
+                  fullscreen: isFullscreen(),
+                  chromeMenu: homeAppBar.chromeMenu(
+                    glass: glassOverlay || glassChrome,
+                  ),
                   // Compact merges the app bar into the strip: join as the
                   // last tab, the other actions pinned on the right.
                   addTab: merged ? homeAppBar.joinTab() : null,
@@ -388,9 +394,12 @@ class ChannelPanels {
                       top: -kGlassEdgeBleed,
                       left: -kGlassEdgeBleed,
                       right: -kGlassEdgeBleed,
-                      child: glassBar(
-                        dark: Theme.of(context).brightness == Brightness.dark,
-                        child: glassHeader,
+                      child: glassHeaderSlot(
+                        hidden: isFullscreen(),
+                        child: glassBar(
+                          dark: Theme.of(context).brightness == Brightness.dark,
+                          child: glassHeader,
+                        ),
                       ),
                     ),
                   ],

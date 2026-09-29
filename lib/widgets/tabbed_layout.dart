@@ -106,6 +106,10 @@ class TabbedLayout extends StatefulWidget {
   /// Off hides tab strip (hidden-chrome / fullscreen mode).
   final bool showTabBar;
 
+  /// Fullscreen: the system bars are hidden, so the chrome menu takes the
+  /// corner. The floating glass header slides away with the tab strip.
+  final bool fullscreen;
+
   /// Overlay anchored top-right below tab strip (hidden-chrome menu).
   final Widget? chromeMenu;
 
@@ -150,6 +154,7 @@ class TabbedLayout extends StatefulWidget {
     this.fastSnap = true,
     this.preloadAdjacentPages = false,
     this.showTabBar = true,
+    this.fullscreen = false,
     this.chromeMenu,
     this.addTab,
     this.onAddTab,
@@ -404,7 +409,6 @@ class TabbedLayoutState extends State<TabbedLayout>
   // Mirrors the branch choice in build.
   bool _overlayBranch(BuildContext context) =>
       widget.glassOverlay &&
-      widget.showTabBar &&
       widget.belowTabBar == null &&
       !MediaQuery.highContrastOf(context);
 
@@ -628,8 +632,12 @@ class TabbedLayoutState extends State<TabbedLayout>
           child: const EdgeExclusionZone(),
         ),
         if (widget.chromeMenu != null)
-          Positioned(
-            top: overlay
+          AnimatedPositioned(
+            duration: const Duration(milliseconds: 200),
+            curve: Curves.easeInOut,
+            top: widget.fullscreen
+                ? 8.0
+                : overlay
                 ? widget.overlayHeaderHeight + 8
                 : widget.showTabBar
                 ? 8.0
@@ -650,14 +658,17 @@ class TabbedLayoutState extends State<TabbedLayout>
             top: -kGlassEdgeBleed,
             left: -kGlassEdgeBleed,
             right: -kGlassEdgeBleed,
-            child: glassBar(
-              dark: Theme.of(context).brightness == Brightness.dark,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  if (widget.headerOverlay != null) widget.headerOverlay!,
-                  tabStrip,
-                ],
+            child: glassHeaderSlot(
+              hidden: !widget.showTabBar,
+              child: glassBar(
+                dark: Theme.of(context).brightness == Brightness.dark,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (widget.headerOverlay != null) widget.headerOverlay!,
+                    tabStrip,
+                  ],
+                ),
               ),
             ),
           ),

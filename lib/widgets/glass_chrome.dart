@@ -271,6 +271,25 @@ Widget glassBar({required Widget child, required bool dark}) => GlassSurface(
   ),
 );
 
+/// Slides a floating glass header up and out while [hidden] (fullscreen).
+/// The fade reaches zero opacity, where nothing paints, so a hidden header
+/// captures no backdrop.
+Widget glassHeaderSlot({required bool hidden, required Widget child}) =>
+    IgnorePointer(
+      ignoring: hidden,
+      child: AnimatedSlide(
+        duration: const Duration(milliseconds: 200),
+        curve: Curves.easeInOut,
+        offset: hidden ? const Offset(0, -1) : Offset.zero,
+        child: AnimatedOpacity(
+          duration: const Duration(milliseconds: 200),
+          curve: Curves.easeInOut,
+          opacity: hidden ? 0 : 1,
+          child: child,
+        ),
+      ),
+    );
+
 // Floating composer pill.
 Widget glassPill({required Widget child}) => GlassSurface(
   settings: _pillSettings,
