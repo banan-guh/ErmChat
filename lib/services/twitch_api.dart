@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
@@ -134,19 +135,40 @@ class AutoModSettings {
   }
 }
 
+/// Failure details of the most recent Helix call in one error scope.
+class _ErrorSlot {
+  String? error;
+  int? status;
+  String? helixMessage;
+
+  void clear() {
+    error = null;
+    status = null;
+    helixMessage = null;
+  }
+}
+
 class TwitchApi {
   static const _base = 'https://api.twitch.tv/helix';
-  String? _lastError;
-  int? _lastErrorStatus;
-  String? _lastHelixMessage;
+  static final _slotKey = Object();
+  final _global = _ErrorSlot();
 
-  String? get lastError => _lastError;
+  _ErrorSlot? get _scoped => Zone.current[_slotKey] as _ErrorSlot?;
+  _ErrorSlot get _slot => _scoped ?? _global;
+
+  String? get lastError => _slot.error;
 
   /// HTTP status of the last failed call, or null when no HTTP error.
-  int? get lastErrorStatus => _lastErrorStatus;
+  int? get lastErrorStatus => _slot.status;
 
   /// Helix error `message`, or null.
-  String? get lastHelixMessage => _lastHelixMessage;
+  String? get lastHelixMessage => _slot.helixMessage;
+
+  /// Runs [body] in its own error scope: the `last*` getters inside it see
+  /// only failures from calls it made, so concurrent loads cannot read each
+  /// other's status. Failures still reach the unscoped getters as well.
+  Future<T> isolateErrors<T>(Future<T> Function() body) =>
+      runZoned(body, zoneValues: {_slotKey: _ErrorSlot()});
 
   late http.Client _client;
 
@@ -161,9 +183,8 @@ class TwitchApi {
   void close() => _client.close();
 
   void _clearError() {
-    _lastError = null;
-    _lastErrorStatus = null;
-    _lastHelixMessage = null;
+    _global.clear();
+    _scoped?.clear();
   }
 
   /// Clears the previous error, runs one request, and records the failure
@@ -1377,18 +1398,25 @@ class TwitchApi {
             : const <String>[],
       );
     } catch (e) {
-      _lastError = 'validateToken: $e';
+      _recordError('validateToken: $e');
       return null;
     }
   }
 
   void _setError(String label, [http.Response? res]) {
-    _lastErrorStatus = res?.statusCode;
-    _lastHelixMessage = _parseHelixMessage(res);
-    if (res != null) {
-      _lastError = '$label failed (${res.statusCode}): ${res.body}';
-    } else {
-      _lastError = label;
+    _recordError(
+      res != null ? '$label failed (${res.statusCode}): ${res.body}' : label,
+      status: res?.statusCode,
+      helixMessage: _parseHelixMessage(res),
+    );
+  }
+
+  void _recordError(String error, {int? status, String? helixMessage}) {
+    for (final slot in [_global, ?_scoped]) {
+      slot
+        ..error = error
+        ..status = status
+        ..helixMessage = helixMessage;
     }
   }
 

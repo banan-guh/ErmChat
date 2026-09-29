@@ -295,6 +295,19 @@ void main() {
   });
 
   group('Moderation versions', () {
+    test('terms and inbox bump separate versions', () {
+      final chat = Chat();
+      addTearDown(chat.dispose);
+      final mod = _mod(chat);
+      final inbox = mod.modInboxVersion.value;
+      final terms = mod.modTermsVersion.value;
+      mod.touchTerms();
+      expect(mod.modTermsVersion.value, terms + 1);
+      expect(mod.modInboxVersion.value, inbox);
+      mod.touchInbox();
+      expect(mod.modTermsVersion.value, terms + 1);
+    });
+
     test('settings bumps do not touch inbox version', () {
       final chat = Chat();
       addTearDown(chat.dispose);

@@ -20,8 +20,15 @@ class ModResult {
   /// DankChat-style API reason, set for [ModFailure.apiError].
   final String? reason;
 
-  const ModResult.ok() : ok = true, failure = null, reason = null;
-  const ModResult.fail(this.failure, [this.reason]) : ok = false;
+  /// HTTP status of the failed Helix call, when there was one.
+  final int? status;
+
+  const ModResult.ok()
+    : ok = true,
+      failure = null,
+      reason = null,
+      status = null;
+  const ModResult.fail(this.failure, [this.reason, this.status]) : ok = false;
 }
 
 /// Single execution site for channel-moderation Helix calls. Slash commands
@@ -68,16 +75,22 @@ class ModActions {
   /// Runs a Helix moderation call. False (or a throw) becomes an apiError;
   /// IRC slash commands were deprecated by Twitch (Feb 2023), so Helix is
   /// the only path and there is no fallback.
-  Future<ModResult> _run(String action, Future<bool> Function() call) async {
-    bool ok;
-    try {
-      ok = await call();
-    } catch (e) {
-      logDebug('[ModActions] $action failed: $e');
-      ok = false;
-    }
-    if (ok) return const ModResult.ok();
-    return ModResult.fail(ModFailure.apiError, failureReason());
+  Future<ModResult> _run(String action, Future<bool> Function() call) {
+    return twitchApi.isolateErrors(() async {
+      bool ok;
+      try {
+        ok = await call();
+      } catch (e) {
+        logDebug('[ModActions] $action failed: $e');
+        ok = false;
+      }
+      if (ok) return const ModResult.ok();
+      return ModResult.fail(
+        ModFailure.apiError,
+        failureReason(),
+        twitchApi.lastErrorStatus,
+      );
+    });
   }
 
   ({String broadcasterId, String moderatorId})? _ids(String channel) {

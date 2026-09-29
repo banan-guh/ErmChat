@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import '../models/point_rewards.dart';
 import '../chat/chat.dart';
 import '../chat/channel/moderation.dart';
+import '../chat/channel/points.dart';
 import '../util/date_format.dart';
 import '../util/mod_activity_format.dart';
 import '../services/mod_actions.dart';
@@ -270,72 +271,96 @@ class ModViewPanel extends StatelessWidget {
           onNotification: dragFocus.onNotification,
           child: TabBarView(
             controller: tabController,
+            // Kept alive so swiping back doesn't refetch every Helix list.
             children: [
-              _QueueTab(
-                channel: channel,
-                chat: chat,
-                modActions: modActions,
-                auth: auth,
-                automodActive: automodActive,
-                scopeReady: moderationActive,
-                scopeStale: auth.scopeStale,
-                onNotice: onNotice,
-                onShowUser: onShowUser,
-              ),
-              _ActivityTab(channel: channel, chat: chat),
-              _ModesTab(
-                channel: channel,
-                modActions: modActions,
-                auth: auth,
-                roomModes: getRoomModes(channel),
-                moderationActive: moderationActive,
-                onNotice: onNotice,
-              ),
-              _ChannelTab(
-                channel: channel,
-                chat: chat,
-                modActions: modActions,
-                auth: auth,
-                onNotice: onNotice,
-                isBroadcaster: isBroadcaster,
-                isModerationActive: moderationActive,
-              ),
-              _UsersTab(
-                channel: channel,
-                chat: chat,
-                modActions: modActions,
-                auth: auth,
-                onNotice: onNotice,
-                onShowUser: onShowUser,
-                isBroadcaster: isBroadcaster,
-              ),
-              _RequestsTab(
-                channel: channel,
-                chat: chat,
-                modActions: modActions,
-                auth: auth,
-                onNotice: onNotice,
-              ),
-              _TermsTab(
-                channel: channel,
-                chat: chat,
-                modActions: modActions,
-                auth: auth,
-                termsVersion: termsVersion,
-                onNotice: onNotice,
-              ),
-              _SetupTab(
-                channel: channel,
-                chat: chat,
-                modActions: modActions,
-                auth: auth,
-                onNotice: onNotice,
-              ),
+              for (final tab in <Widget>[
+                _QueueTab(
+                  channel: channel,
+                  chat: chat,
+                  modActions: modActions,
+                  auth: auth,
+                  automodActive: automodActive,
+                  scopeReady: moderationActive,
+                  scopeStale: auth.scopeStale,
+                  onNotice: onNotice,
+                  onShowUser: onShowUser,
+                ),
+                _ActivityTab(channel: channel, chat: chat),
+                _ModesTab(
+                  channel: channel,
+                  modActions: modActions,
+                  auth: auth,
+                  roomModes: getRoomModes(channel),
+                  moderationActive: moderationActive,
+                  onNotice: onNotice,
+                ),
+                _ChannelTab(
+                  channel: channel,
+                  chat: chat,
+                  modActions: modActions,
+                  auth: auth,
+                  onNotice: onNotice,
+                  isBroadcaster: isBroadcaster,
+                  isModerationActive: moderationActive,
+                ),
+                _UsersTab(
+                  channel: channel,
+                  chat: chat,
+                  modActions: modActions,
+                  auth: auth,
+                  onNotice: onNotice,
+                  onShowUser: onShowUser,
+                ),
+                _RequestsTab(
+                  channel: channel,
+                  chat: chat,
+                  modActions: modActions,
+                  auth: auth,
+                  onNotice: onNotice,
+                ),
+                _TermsTab(
+                  channel: channel,
+                  chat: chat,
+                  modActions: modActions,
+                  auth: auth,
+                  termsVersion: termsVersion,
+                  onNotice: onNotice,
+                ),
+                _SetupTab(
+                  channel: channel,
+                  chat: chat,
+                  modActions: modActions,
+                  auth: auth,
+                  onNotice: onNotice,
+                ),
+              ])
+                _KeepAlive(child: tab),
             ],
           ),
         );
       },
     );
+  }
+}
+
+class _KeepAlive extends StatefulWidget {
+  const _KeepAlive({required this.child});
+
+  final Widget child;
+
+  @override
+  State<_KeepAlive> createState() => _KeepAliveState();
+}
+
+class _KeepAliveState extends State<_KeepAlive>
+    with AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
+
+  @override
+  Widget build(BuildContext context) {
+    super.build(context);
+    return widget.child;
   }
 }
 
@@ -961,24 +986,24 @@ mixin _ModTabLoad<T extends StatefulWidget> on State<T> {
   /// refresh was already surfaced as a notice.
   Future<({V? value, String? error})?> guardedLoad<V>({
     required int gen,
-    required int currentGen,
+    required int Function() currentGen,
     required bool background,
     required Future<V> Function() request,
     required String fallbackError,
     String? Function(int status)? statusError,
   }) async {
-    V? value;
-    String? error;
-    try {
-      value = await request();
-      final status = modActions.twitchApi.lastErrorStatus;
-      if (status != null) {
-        error = statusError?.call(status) ?? modActions.failureReason();
+    final api = modActions.twitchApi;
+    final (value, error) = await api.isolateErrors<(V?, String?)>(() async {
+      try {
+        final value = await request();
+        final status = api.lastErrorStatus;
+        if (status == null) return (value, null);
+        return (null, statusError?.call(status) ?? modActions.failureReason());
+      } catch (_) {
+        return (null, fallbackError);
       }
-    } catch (_) {
-      error = fallbackError;
-    }
-    if (!mounted || gen != currentGen) return null;
+    });
+    if (!mounted || gen != currentGen()) return null;
     if (error != null && background) {
       onNotice(error);
       return null;
@@ -995,7 +1020,6 @@ class _UsersTab extends StatefulWidget {
     required this.auth,
     required this.onNotice,
     required this.onShowUser,
-    required this.isBroadcaster,
   });
 
   final String channel;
@@ -1004,10 +1028,6 @@ class _UsersTab extends StatefulWidget {
   final TwitchAuth auth;
   final ValueChanged<String> onNotice;
   final ValueChanged<String>? onShowUser;
-
-  /// Moderator and VIP rosters are broadcaster-only Helix (their GETs
-  /// require broadcaster_id to match the token), so mods never call them.
-  final bool isBroadcaster;
 
   @override
   State<_UsersTab> createState() => _UsersTabState();
@@ -1086,10 +1106,15 @@ class _UsersTabState extends State<_UsersTab> {
   @override
   Widget build(BuildContext context) {
     final mod = widget.chat.channelFor(widget.channel)?.moderation;
-    return ValueListenableBuilder<int>(
-      valueListenable: mod?.modActivityVersion ?? ValueNotifier(0),
-      builder: (_, _, _) {
-        final bans = mod?.bans.values.toList() ?? const [];
+    return ListenableBuilder(
+      listenable: mod?.modActivityVersion ?? const AlwaysStoppedAnimation(0),
+      builder: (_, _) {
+        // Lapsed timeouts are hidden here; the kernel prunes them on insert.
+        final now = DateTime.now();
+        final bans = [
+          for (final ban in mod?.bans.values ?? const <BanEntry>[])
+            if (ban.expiresAt?.isAfter(now) ?? true) ban,
+        ];
         final warnings = mod?.warnings ?? const [];
         final flagged = mod?.suspicious.values.toList() ?? const [];
         final counts = <String, int>{};
@@ -1100,11 +1125,11 @@ class _UsersTabState extends State<_UsersTab> {
         }
         final warned = latestByUser.values.toList()
           ..sort((a, b) => b.at.compareTo(a.at));
-        mod?.pruneExpiredBans();
         return ListView(
           padding: const EdgeInsets.fromLTRB(0, 4, 0, 24),
           children: [
-            _SectionHeader('Banned (${bans.length})'),
+            // Bans seen this session; the Channel tab lists every ban.
+            _SectionHeader('Recent bans (${bans.length})'),
             if (bans.isEmpty) const ListTile(title: Text('No bans yet.')),
             for (final ban in bans)
               ListTile(
@@ -1176,13 +1201,6 @@ class _UsersTabState extends State<_UsersTab> {
                         onPressed: () => _clearFlag(info.login),
                         child: const Text('Clear'),
                       ),
-              ),
-            if (widget.isBroadcaster)
-              _RosterSections(
-                channel: widget.channel,
-                modActions: widget.modActions,
-                auth: widget.auth,
-                onNotice: widget.onNotice,
               ),
           ],
         );
@@ -1326,7 +1344,7 @@ class _RequestsTabState extends State<_RequestsTab>
     final gen = ++_loadGen;
     final outcome = await guardedLoad<List<UnbanRequest>>(
       gen: gen,
-      currentGen: _loadGen,
+      currentGen: () => _loadGen,
       background: _requests != null,
       request: () => widget.modActions.getUnbanRequests(
         widget.auth,
@@ -1344,7 +1362,6 @@ class _RequestsTabState extends State<_RequestsTab>
 
   Future<void> _showDetail(UnbanRequest request) async {
     final resolutionCtrl = TextEditingController();
-    var resolutionDraft = '';
     final pending = showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -1375,7 +1392,6 @@ class _RequestsTabState extends State<_RequestsTab>
                     labelText: 'Resolution message (optional)',
                     border: OutlineInputBorder(),
                   ),
-                  onChanged: (v) => resolutionDraft = v,
                 ),
               ],
             ],
@@ -1399,11 +1415,10 @@ class _RequestsTabState extends State<_RequestsTab>
         ],
       ),
     );
-    pending.whenComplete(resolutionCtrl.dispose);
     final decision = await pending;
+    final trimmed = resolutionCtrl.text.trim();
+    resolutionCtrl.dispose();
     if (decision == null || !mounted) return;
-    final message = resolutionDraft.trim();
-    final trimmed = message.length > 500 ? message.substring(0, 500) : message;
     final result = await widget.modActions.resolveUnbanRequest(
       widget.auth,
       widget.channel,
@@ -1526,35 +1541,35 @@ class _TermsTabState extends State<_TermsTab> with _ModTabLoad<_TermsTab> {
   String? _error;
   int _loadGen = 0;
   final _removing = <String>{};
-  ValueNotifier<int>? _inboxVersion;
+  ValueNotifier<int>? _termsVersion;
 
   @override
   void initState() {
     super.initState();
-    _subscribeInbox();
-    widget.termsVersion.addListener(_onInboxChanged);
+    _subscribeTerms();
+    widget.termsVersion.addListener(_onTermsChanged);
     _load();
   }
 
-  void _subscribeInbox() {
-    _inboxVersion = widget.chat
+  void _subscribeTerms() {
+    _termsVersion = widget.chat
         .channelFor(widget.channel)
         ?.moderation
-        .modInboxVersion;
-    _inboxVersion?.addListener(_onInboxChanged);
+        .modTermsVersion;
+    _termsVersion?.addListener(_onTermsChanged);
   }
 
-  void _unsubscribeInbox() {
-    _inboxVersion?.removeListener(_onInboxChanged);
-    _inboxVersion = null;
+  void _unsubscribeTerms() {
+    _termsVersion?.removeListener(_onTermsChanged);
+    _termsVersion = null;
   }
 
   @override
   void didUpdateWidget(covariant _TermsTab oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.channel != widget.channel) {
-      _unsubscribeInbox();
-      _subscribeInbox();
+      _unsubscribeTerms();
+      _subscribeTerms();
       setState(() {
         _terms = null;
         _error = null;
@@ -1565,18 +1580,18 @@ class _TermsTabState extends State<_TermsTab> with _ModTabLoad<_TermsTab> {
 
   @override
   void dispose() {
-    _unsubscribeInbox();
-    widget.termsVersion.removeListener(_onInboxChanged);
+    _unsubscribeTerms();
+    widget.termsVersion.removeListener(_onTermsChanged);
     super.dispose();
   }
 
-  void _onInboxChanged() => _load();
+  void _onTermsChanged() => _load();
 
   Future<void> _load() async {
     final gen = ++_loadGen;
     final outcome = await guardedLoad<List<BlockedTerm>>(
       gen: gen,
-      currentGen: _loadGen,
+      currentGen: () => _loadGen,
       background: _terms != null,
       request: () =>
           widget.modActions.getBlockedTerms(widget.auth, widget.channel),
@@ -1731,11 +1746,11 @@ class _SetupTabState extends State<_SetupTab> {
         .channelFor(widget.channel)
         ?.moderation
         .modSettingsVersion;
-    _settingsVersion?.addListener(_onInboxChanged);
+    _settingsVersion?.addListener(_onSettingsChanged);
   }
 
   void _unsubscribeSettings() {
-    _settingsVersion?.removeListener(_onInboxChanged);
+    _settingsVersion?.removeListener(_onSettingsChanged);
     _settingsVersion = null;
   }
 
@@ -1755,26 +1770,31 @@ class _SetupTabState extends State<_SetupTab> {
     super.dispose();
   }
 
-  void _onInboxChanged() => _load();
+  void _onSettingsChanged() => _load();
 
   Future<void> _load({bool force = false}) async {
     final gen = ++_loadGen;
     final background = _settings != null;
-    AutoModSettings? settings;
-    String? error;
-    try {
-      settings = await widget.modActions.getAutoModSettings(
-        widget.auth,
-        widget.channel,
-      );
-      if (settings == null) {
-        error = widget.modActions.twitchApi.lastErrorStatus != null
-            ? widget.modActions.failureReason()
-            : 'Could not load AutoMod settings.';
-      }
-    } catch (_) {
-      error = 'Could not load AutoMod settings.';
-    }
+    final actions = widget.modActions;
+    final (settings, error) = await actions.twitchApi
+        .isolateErrors<(AutoModSettings?, String?)>(() async {
+          const fallback = 'Could not load AutoMod settings.';
+          try {
+            final settings = await actions.getAutoModSettings(
+              widget.auth,
+              widget.channel,
+            );
+            if (settings != null) return (settings, null);
+            return (
+              null,
+              actions.twitchApi.lastErrorStatus != null
+                  ? actions.failureReason()
+                  : fallback,
+            );
+          } catch (_) {
+            return (null, fallback);
+          }
+        });
     if (!mounted || gen != _loadGen) return;
     if (error != null && background) {
       widget.onNotice(error);
@@ -1795,22 +1815,16 @@ class _SetupTabState extends State<_SetupTab> {
     final saved = _settings;
     final levels = _levels;
     if (saved == null || levels == null) return false;
-    // Levels-only delta: dragging a slider and back is not a change,
-    // even though _overall flips to null (custom) on any slider move.
+    // A picked preset is a change until it matches the saved preset; Twitch
+    // maps presets to its own category levels, so levels alone can't tell.
+    if (_overall != null) return _overall != saved.overallLevel;
+    // Custom: a dropdown moved away and back is not a change.
+    if (saved.overallLevel != null) return true;
     if (levels.length != saved.levels.length) return true;
     for (final entry in levels.entries) {
       if (saved.levels[entry.key] != entry.value) return true;
     }
     return false;
-  }
-
-  /// Preset to display: all-equal levels read as that preset, else custom.
-  int? get _displayOverall {
-    final levels = _levels;
-    if (levels == null || levels.isEmpty) return _overall;
-    final first = levels.values.first;
-    if (levels.values.every((v) => v == first)) return first;
-    return null;
   }
 
   void _reset() {
@@ -1827,11 +1841,12 @@ class _SetupTabState extends State<_SetupTab> {
     if (levels == null || _saving || !_dirty) return;
     setState(() => _saving = true);
     try {
-      final effective = _displayOverall;
+      // Helix takes a preset or per-category levels, never both.
+      final overall = _overall;
       final result = await widget.modActions.updateAutoModSettings(
         widget.auth,
         widget.channel,
-        effective != null ? {'overall_level': effective} : levels,
+        overall != null ? {'overall_level': overall} : levels,
       );
       if (!mounted) return;
       if (result.ok) {
@@ -1855,7 +1870,7 @@ class _SetupTabState extends State<_SetupTab> {
       return const Center(child: CircularProgressIndicator());
     }
     final theme = Theme.of(context);
-    final displayOverall = _displayOverall;
+    final displayOverall = _overall;
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
       children: [
@@ -1883,12 +1898,17 @@ class _SetupTabState extends State<_SetupTab> {
                 selected: displayOverall == value,
                 onSelected: _saving
                     ? null
-                    : (_) => setState(() {
-                        _overall = value;
-                        for (final key in levels.keys) {
-                          levels[key] = value;
-                        }
-                      }),
+                    : (_) {
+                        final saved = _settings!;
+                        // The saved preset shows Twitch's own category mix.
+                        if (value == saved.overallLevel) return _reset();
+                        setState(() {
+                          _overall = value;
+                          for (final key in levels.keys) {
+                            levels[key] = value;
+                          }
+                        });
+                      },
               ),
           ],
         ),
@@ -2091,7 +2111,7 @@ class _BannedManagerState extends State<_BannedManager>
     final gen = ++_loadGen;
     final outcome = await guardedLoad<List<BannedUser>>(
       gen: gen,
-      currentGen: _loadGen,
+      currentGen: () => _loadGen,
       background: _banned != null,
       request: () =>
           widget.modActions.getBannedUsers(widget.auth, widget.channel),
@@ -2235,10 +2255,6 @@ class _StreamActionsState extends State<_StreamActions> {
       confirmLabel: 'Raid',
     );
     if (login == null || !context.mounted) return;
-    if (login.isEmpty) {
-      onNotice('Enter a username.');
-      return;
-    }
     final result = await modActions.startRaid(auth, channel, login: login);
     if (!context.mounted) return;
     onNotice(result.ok ? 'Raid started.' : modErrorText(result));
@@ -2545,7 +2561,7 @@ class _PollsSectionState extends State<_PollsSection>
     final gen = ++_loadGen;
     final outcome = await guardedLoad<List<Map<String, dynamic>>>(
       gen: gen,
-      currentGen: _loadGen,
+      currentGen: () => _loadGen,
       background: _polls != null,
       request: () => widget.modActions.getPolls(widget.auth, widget.channel),
       fallbackError: 'Could not load polls.',
@@ -2851,7 +2867,7 @@ class _PredictionsSectionState extends State<_PredictionsSection>
     final gen = ++_loadGen;
     final outcome = await guardedLoad<List<Map<String, dynamic>>>(
       gen: gen,
-      currentGen: _loadGen,
+      currentGen: () => _loadGen,
       background: _predictions != null,
       request: () =>
           widget.modActions.getPredictions(widget.auth, widget.channel),
@@ -3042,7 +3058,7 @@ class _PointsSectionState extends State<_PointsSection>
   int _queueGen = 0;
   final _busyRedemptions = <String>{};
   final _toggling = <String>{};
-  ValueNotifier<int>? _pointsVersion;
+  Points? _points;
 
   @override
   void initState() {
@@ -3052,13 +3068,15 @@ class _PointsSectionState extends State<_PointsSection>
   }
 
   void _subscribePoints() {
-    _pointsVersion = widget.chat.channelFor(widget.channel)?.points.version;
-    _pointsVersion?.addListener(_onPointsChanged);
+    _points = widget.chat.channelFor(widget.channel)?.points;
+    _points?.rewardsVersion.addListener(_loadRewards);
+    _points?.version.addListener(_loadQueue);
   }
 
   void _unsubscribePoints() {
-    _pointsVersion?.removeListener(_onPointsChanged);
-    _pointsVersion = null;
+    _points?.rewardsVersion.removeListener(_loadRewards);
+    _points?.version.removeListener(_loadQueue);
+    _points = null;
   }
 
   @override
@@ -3084,16 +3102,11 @@ class _PointsSectionState extends State<_PointsSection>
     super.dispose();
   }
 
-  void _onPointsChanged() {
-    _loadRewards();
-    if (_selectedRewardId != null) _loadQueue();
-  }
-
   Future<void> _loadRewards() async {
     final gen = ++_loadGen;
     final outcome = await guardedLoad<List<PointReward>>(
       gen: gen,
-      currentGen: _loadGen,
+      currentGen: () => _loadGen,
       background: _rewards != null,
       request: () =>
           widget.modActions.getPointRewards(widget.auth, widget.channel),
@@ -3121,7 +3134,7 @@ class _PointsSectionState extends State<_PointsSection>
     final gen = ++_queueGen;
     final outcome = await guardedLoad<List<PointRedemption>>(
       gen: gen,
-      currentGen: _queueGen,
+      currentGen: () => _queueGen,
       background: _queue != null,
       request: () => widget.modActions.getPointRedemptions(
         widget.auth,
@@ -3175,14 +3188,11 @@ class _PointsSectionState extends State<_PointsSection>
       );
       if (!mounted) return;
       if (result.ok) {
-        widget.chat
-            .channelFor(widget.channel)
-            ?.points
-            .resolveRedemption(redemption.id);
         widget.onNotice(
           fulfilled ? 'Redemption fulfilled.' : 'Redemption refunded.',
         );
-        _loadQueue();
+        // A tracked redemption reloads the queue through the points version.
+        if (_points?.resolveRedemption(redemption.id) != true) _loadQueue();
       } else {
         widget.onNotice(modErrorText(result));
       }
@@ -3206,7 +3216,7 @@ class _PointsSectionState extends State<_PointsSection>
       if (result.ok) {
         widget.onNotice(reward.isPaused ? 'Reward resumed.' : 'Reward paused.');
         _loadRewards();
-      } else if (widget.modActions.twitchApi.lastErrorStatus == 403) {
+      } else if (result.status == 403) {
         widget.onNotice('Only rewards created by this app can be paused.');
       } else {
         widget.onNotice(modErrorText(result));
@@ -3285,7 +3295,7 @@ class _PointsSectionState extends State<_PointsSection>
                   ),
           ),
         if (selected != null) ...[
-          _SectionHeader('Queue — ${selected.title}'),
+          _SectionHeader('Queue: ${selected.title}'),
           _queueBody(selected),
         ],
       ],
@@ -3470,9 +3480,9 @@ class _ModesTabState extends State<_ModesTab> {
   Future<void> _toggleSlow(bool on, int slow) async {
     if (on) {
       var picked = await _pick('Slow mode delay', const [
-        ('30 seconds', 30),
-        ('60 seconds', 60),
-        ('120 seconds', 120),
+        ('3 seconds', 3),
+        ('5 seconds', 5),
+        ('10 seconds', 10),
         ('Custom...', -1),
       ]);
       if (picked == null || !mounted) return;
@@ -3519,11 +3529,12 @@ class _ModesTabState extends State<_ModesTab> {
       ]);
       if (picked == null || !mounted) return;
       if (picked == -2) {
+        // Twitch allows up to 3 months.
         picked = await _pickCustomInt(
           title: 'Minimum follow age',
-          label: 'Minutes (1-10080)',
+          label: 'Minutes (1-129600)',
           min: 1,
-          max: 10080,
+          max: 129600,
         );
       }
       if (picked == null || !mounted) return;
@@ -3889,26 +3900,23 @@ class _RosterSectionsState extends State<_RosterSections> {
       _modsError = null;
       _vipsError = null;
     });
-    List<String> mods = const [];
-    List<String> vips = const [];
-    String? modsError;
-    String? vipsError;
-    try {
-      mods = await widget.modActions.getModerators(widget.auth, widget.channel);
-      if (widget.modActions.twitchApi.lastErrorStatus != null) {
-        modsError = widget.modActions.failureReason();
+    final actions = widget.modActions;
+    Future<(List<String>, String?)> fetch(
+      Future<List<String>> Function(TwitchAuth, String) request,
+      String fallback,
+    ) => actions.twitchApi.isolateErrors(() async {
+      try {
+        final logins = await request(widget.auth, widget.channel);
+        if (actions.twitchApi.lastErrorStatus == null) return (logins, null);
+        return (const <String>[], actions.failureReason());
+      } catch (_) {
+        return (const <String>[], fallback);
       }
-    } catch (_) {
-      modsError = 'Could not load moderators.';
-    }
-    try {
-      vips = await widget.modActions.getVips(widget.auth, widget.channel);
-      if (widget.modActions.twitchApi.lastErrorStatus != null) {
-        vipsError = widget.modActions.failureReason();
-      }
-    } catch (_) {
-      vipsError = 'Could not load VIPs.';
-    }
+    });
+    final ((mods, modsError), (vips, vipsError)) = await (
+      fetch(actions.getModerators, 'Could not load moderators.'),
+      fetch(actions.getVips, 'Could not load VIPs.'),
+    ).wait;
     if (!mounted || gen != _loadGen) return;
     setState(() {
       _modsError = modsError;
@@ -3926,10 +3934,6 @@ class _RosterSectionsState extends State<_RosterSections> {
       confirmLabel: 'Add',
     );
     if (login == null || !mounted) return;
-    if (login.isEmpty) {
-      widget.onNotice('Enter a username.');
-      return;
-    }
     final result = moderator
         ? await widget.modActions.setModerator(
             widget.auth,

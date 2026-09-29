@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -174,6 +175,48 @@ class _Harness extends StatelessWidget {
       isBroadcaster: broadcaster,
     );
   }
+}
+
+/// Pumps the Mod View on [tabIndex] over [handler]; returns the notices.
+Future<List<String>> _pumpOn(
+  WidgetTester tester,
+  int tabIndex, {
+  Chat? chat,
+  Future<http.Response> Function(http.Request) handler = _handler,
+}) async {
+  final auth = TwitchAuth();
+  auth.accessToken = 'tok';
+  final actions = ModActions(
+    twitchApi: TwitchApi(client: MockClient(handler)),
+    getChannelUserIds: () => {'testchannel': 'broad1'},
+    getCurrentUserId: () => 'mod1',
+  );
+  recordedRequests.clear();
+  tester.view.physicalSize = const Size(800, 1600);
+  tester.view.devicePixelRatio = 1.0;
+  addTearDown(tester.view.resetPhysicalSize);
+  final tab = TabController(
+    length: ModPanels.tabCount,
+    vsync: const TestVSync(),
+    initialIndex: tabIndex,
+  );
+  addTearDown(tab.dispose);
+  final notices = <String>[];
+  await tester.pumpWidget(
+    MaterialApp(
+      home: Scaffold(
+        body: _Harness(
+          chat: chat ?? _chat(),
+          actions: actions,
+          auth: auth,
+          tab: tab,
+          onUser: (_) {},
+          onNotice: notices.add,
+        ),
+      ),
+    ),
+  );
+  return notices;
 }
 
 void main() {
@@ -398,12 +441,12 @@ void main() {
       isNotEmpty,
     );
 
-    // As the broadcaster the Users tab also shows the mod/vip rosters.
+    // The rosters live on the Channel tab only.
     tab.animateTo(4);
     await tester.pumpAndSettle();
     expect(find.text('warneduser'), findsOneWidget);
-    expect(find.text('rosmod'), findsOneWidget);
-    expect(find.text('rosvip'), findsOneWidget);
+    expect(find.text('rosmod'), findsNothing);
+    expect(find.text('rosvip'), findsNothing);
 
     // Back to the Channel tab for the points section.
     tab.animateTo(3);
@@ -550,5 +593,155 @@ void main() {
       (r) => r.url.path.endsWith('chat/settings'),
     );
     expect(jsonDecode(patch.body)['emote_mode'], isTrue);
+  });
+
+  testWidgets('a slow load cannot overwrite a newer request list', (
+    tester,
+  ) async {
+    final pending = Completer<http.Response>();
+    Future<http.Response> handler(http.Request request) {
+      if (request.url.path.endsWith('moderation/unban_requests')) {
+        if (request.url.queryParameters['status'] == 'pending') {
+          return pending.future;
+        }
+        return Future.value(
+          http.Response(
+            '{"data":[{"id":"r2","user_login":"approveduser","text":"sorry",'
+            '"status":"approved","created_at":"2026-01-01T00:00:00Z"}]}',
+            200,
+          ),
+        );
+      }
+      return _handler(request);
+    }
+
+    await _pumpOn(tester, 5, handler: handler);
+    await tester.pump();
+    await tester.tap(find.text('Approved'));
+    await tester.pumpAndSettle();
+    expect(find.text('approveduser'), findsOneWidget);
+
+    pending.complete(
+      http.Response(
+        '{"data":[{"id":"r1","user_login":"pendinguser","text":"pls",'
+        '"status":"pending","created_at":"2026-01-01T00:00:00Z"}]}',
+        200,
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('pendinguser'), findsNothing);
+    expect(find.text('approveduser'), findsOneWidget);
+  });
+
+  test('concurrent Helix calls each see their own failure', () async {
+    final slowOk = Completer<http.Response>();
+    final api = TwitchApi(
+      client: MockClient((request) {
+        if (request.url.path.endsWith('moderation/moderators')) {
+          return Future.value(http.Response('{"message":"nope"}', 403));
+        }
+        return slowOk.future;
+      }),
+    );
+    final actions = ModActions(
+      twitchApi: api,
+      getChannelUserIds: () => {'testchannel': 'broad1'},
+      getCurrentUserId: () => 'mod1',
+    );
+    final auth = TwitchAuth()..accessToken = 'tok';
+
+    final vips = api.isolateErrors(() async {
+      await actions.getVips(auth, 'testchannel');
+      return api.lastErrorStatus;
+    });
+    final mods = api.isolateErrors(() async {
+      await actions.getModerators(auth, 'testchannel');
+      return api.lastErrorStatus;
+    });
+    expect(await mods, 403);
+    slowOk.complete(http.Response('{"data":[],"pagination":{}}', 200));
+    expect(await vips, isNull);
+  });
+
+  testWidgets('users tab hides lapsed timeouts', (tester) async {
+    final chat = _chat();
+    final mod = chat.channelFor('testchannel')!.moderation;
+    final now = DateTime.now();
+    mod.putBan(
+      BanEntry(
+        at: now.subtract(const Duration(minutes: 20)),
+        channel: 'testchannel',
+        login: 'lapseduser',
+        moderator: 'moduser',
+        expiresAt: now.subtract(const Duration(minutes: 10)),
+      ),
+    );
+    mod.putBan(
+      BanEntry(
+        at: now,
+        channel: 'testchannel',
+        login: 'timeduser',
+        moderator: 'moduser',
+        expiresAt: now.add(const Duration(minutes: 10)),
+      ),
+    );
+    await _pumpOn(tester, 4, chat: chat);
+    await tester.pumpAndSettle();
+    expect(find.text('timeduser'), findsOneWidget);
+    expect(find.text('lapseduser'), findsNothing);
+    expect(find.text('RECENT BANS (1)'), findsOneWidget);
+  });
+
+  testWidgets('slow mode offers short presets', (tester) async {
+    await _pumpOn(tester, 2);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Slow mode'));
+    await tester.pumpAndSettle();
+    for (final label in ['3 seconds', '5 seconds', '10 seconds', 'Custom...']) {
+      expect(find.text(label), findsOneWidget);
+    }
+    await tester.tap(find.text('5 seconds'));
+    await tester.pumpAndSettle();
+    final patch = recordedRequests.lastWhere(
+      (r) => r.url.path.endsWith('chat/settings'),
+    );
+    expect(jsonDecode(patch.body)['slow_mode_wait_time'], 5);
+  });
+
+  testWidgets('automod setup shows the preset Twitch reports', (tester) async {
+    Future<http.Response> handler(http.Request request) async {
+      if (request.method == 'GET' &&
+          request.url.path.endsWith('moderation/automod/settings')) {
+        // Twitch's level 1 preset uses mixed category levels.
+        return http.Response(
+          '{"data":[{"broadcaster_id":"broad1","moderator_id":"mod1",'
+          '"overall_level":1,"disability":0,"aggression":1,'
+          '"sexuality_sex_or_gender":0,"misogyny":0,"bullying":1,'
+          '"swearing":0,"race_ethnicity_or_religion":1,'
+          '"sex_based_terms":0}]}',
+          200,
+        );
+      }
+      return _handler(request);
+    }
+
+    await _pumpOn(tester, 7, handler: handler);
+    await tester.pumpAndSettle();
+    bool selected(String label) => tester
+        .widget<ChoiceChip>(find.widgetWithText(ChoiceChip, label))
+        .selected;
+    expect(selected('Low'), isTrue);
+    expect(find.text('Custom levels.'), findsNothing);
+
+    await tester.tap(find.widgetWithText(ChoiceChip, 'Max'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Save changes'));
+    await tester.pumpAndSettle();
+    final put = recordedRequests.lastWhere(
+      (r) =>
+          r.method == 'PUT' &&
+          r.url.path.endsWith('moderation/automod/settings'),
+    );
+    expect(jsonDecode(put.body), {'overall_level': 4});
   });
 }

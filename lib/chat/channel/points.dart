@@ -9,6 +9,9 @@ import '../../models/point_rewards.dart';
 class Points {
   final ValueNotifier<int> version = ValueNotifier(0);
 
+  /// Bumped with [version] when the reward list itself changes.
+  final ValueNotifier<int> rewardsVersion = ValueNotifier(0);
+
   List<PointReward> _rewards = const [];
   final List<PointRedemption> _redemptions = [];
 
@@ -26,6 +29,7 @@ class Points {
 
   void setRewards(List<PointReward> rewards) {
     _rewards = List.of(rewards);
+    rewardsVersion.value++;
     version.value++;
   }
 
@@ -54,6 +58,7 @@ class Points {
     var touched = false;
     if (_rewards.isNotEmpty) {
       _rewards = const [];
+      rewardsVersion.value++;
       touched = true;
     }
     if (_redemptions.isNotEmpty) {
@@ -67,6 +72,7 @@ class Points {
 
   void dispose() {
     version.dispose();
+    rewardsVersion.dispose();
     _rewards = const [];
     _redemptions.clear();
   }

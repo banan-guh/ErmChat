@@ -905,7 +905,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   void _onChannelContent(String channel) {
     _composer.refreshCooldown();
     _threads.syncSavedWithChannel(channel, newOnly: true);
-    _onPanelDataChanged(channel);
+    _onPanelDataChanged(channel, modView: false);
   }
 
   void _onChannelInfo(String channel) {
@@ -916,7 +916,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   }
 
   void _onMentionsContent() {
-    _onPanelDataChanged();
+    _onPanelDataChanged(null, modView: false);
   }
 
   void _syncChannelSubs() {
@@ -1013,11 +1013,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   // Appends channel buffer rows belonging to saved threads into the
   // persisted full log. Skips channels with no saved threads; dedup by id
   // keeps the per-event scan cheap and idempotent across history merges.
-  void _onPanelDataChanged([String? changedChannel]) {
+  void _onPanelDataChanged(String? changedChannel, {bool modView = true}) {
     if (_activePanel == OverlayPanel.closed) return;
     _threads.refreshOnData(changedChannel);
     if (_activePanel == OverlayPanel.mentions) _mentions.refreshOnData();
-    _mod.refreshOnData(changedChannel);
+    // Mod View reads room modes and moderation state, not message rows.
+    if (modView) _mod.refreshOnData(changedChannel);
   }
 
   // Cold-start pipe shared with account switch: the IRC connect. Emote

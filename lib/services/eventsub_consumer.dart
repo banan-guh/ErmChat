@@ -214,7 +214,7 @@ class EventSubConsumer {
   void _onAutomodTermsEvent(AutomodTermsEvent event) {
     if (_disposed) return;
     if (!topics.isInboxActive(event.channel)) return;
-    chat.channelFor(event.channel)?.moderation.touchInbox();
+    chat.channelFor(event.channel)?.moderation.touchTerms();
     if (topics.isModerationActive(event.channel)) return;
     final adding = event.action != AutomodTermsAction.remove;
     final permitted = event.list == 'permitted';

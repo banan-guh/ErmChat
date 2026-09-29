@@ -32,6 +32,7 @@ class Moderation {
   final ValueNotifier<int> modActivityVersion = ValueNotifier(0);
   final ValueNotifier<int> modFeedVersion = ValueNotifier(0);
   final ValueNotifier<int> modInboxVersion = ValueNotifier(0);
+  final ValueNotifier<int> modTermsVersion = ValueNotifier(0);
   final ValueNotifier<int> modSettingsVersion = ValueNotifier(0);
 
   /// Bumped on EventSub subscription success which mutates no list.
@@ -44,6 +45,7 @@ class Moderation {
       UnmodifiableListView(_warnings);
 
   void touchInbox() => modInboxVersion.value++;
+  void touchTerms() => modTermsVersion.value++;
   void touchSettings() => modSettingsVersion.value++;
   void noteSubscribed() => version.value++;
 
@@ -205,6 +207,7 @@ class Moderation {
     modActivityVersion.dispose();
     modFeedVersion.dispose();
     modInboxVersion.dispose();
+    modTermsVersion.dispose();
     modSettingsVersion.dispose();
     version.dispose();
     _held.clear();
