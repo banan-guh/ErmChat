@@ -72,6 +72,45 @@ Widget _addChannelHarness(
   );
 }
 
+// Harness with the trailing add tab. Channels and the add tab's presence can
+// change across rebuilds, like HomeScreen joining a channel or flipping the
+// layout density.
+Widget _addTabHarness(
+  ValueNotifier<int> selected,
+  ValueNotifier<List<String>> tabs,
+  ValueNotifier<bool> showAddTab, {
+  required VoidCallback onAddTab,
+  List<int>? reported,
+}) {
+  return MaterialApp(
+    home: Scaffold(
+      body: ListenableBuilder(
+        listenable: Listenable.merge([tabs, showAddTab]),
+        builder: (_, _) => TabbedLayout(
+          key: const Key('tl'),
+          tabs: tabs.value,
+          selectedIndex: selected.value,
+          focusOnHalfDrag: true,
+          onFocusChanged: (i) => selected.value = i,
+          onSelectedIndexChanged: (i) {
+            reported?.add(i);
+            selected.value = i;
+          },
+          addTab: showAddTab.value ? const Icon(Icons.add) : null,
+          onAddTab: onAddTab,
+          pageBuilder: (_, i) => Container(
+            key: Key('page-$i'),
+            child: Center(child: Text(tabs.value[i])),
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
+TabController _stripController(WidgetTester tester) =>
+    tester.widget<TabBar>(find.byType(TabBar)).controller!;
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -320,6 +359,117 @@ void main() {
         expect(tabH, findsOneWidget);
         expect(tabH.hitTestable(), findsOneWidget);
       }
+    });
+  });
+
+  group('TabbedLayout add tab', () {
+    testWidgets('tap runs onAddTab without moving the selection', (
+      tester,
+    ) async {
+      final selected = ValueNotifier<int>(1);
+      final tabs = ValueNotifier<List<String>>(['a', 'b', 'c']);
+      final showAddTab = ValueNotifier<bool>(true);
+      final reported = <int>[];
+      var adds = 0;
+      await tester.pumpWidget(
+        _addTabHarness(
+          selected,
+          tabs,
+          showAddTab,
+          onAddTab: () => adds++,
+          reported: reported,
+        ),
+      );
+      await tester.pumpAndSettle();
+      reported.clear();
+
+      await tester.tap(find.byIcon(Icons.add));
+      await tester.pumpAndSettle();
+
+      expect(adds, 1);
+      expect(reported, isEmpty);
+      expect(selected.value, 1);
+      expect(_stripController(tester).index, 1);
+      expect(_pageDx(tester, 1).abs(), lessThan(2.0));
+    });
+
+    testWidgets('swiping past the last channel never lands on it', (
+      tester,
+    ) async {
+      final selected = ValueNotifier<int>(2);
+      final tabs = ValueNotifier<List<String>>(['a', 'b', 'c']);
+      final showAddTab = ValueNotifier<bool>(true);
+      final reported = <int>[];
+      await tester.pumpWidget(
+        _addTabHarness(
+          selected,
+          tabs,
+          showAddTab,
+          onAddTab: () {},
+          reported: reported,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.fling(
+        find.byKey(const Key('page-2')),
+        const Offset(-400, 0),
+        2000,
+      );
+      await tester.pumpAndSettle();
+
+      expect(reported.where((i) => i > 2), isEmpty);
+      expect(selected.value, 2);
+      expect(_stripController(tester).index, 2);
+      expect(_pageDx(tester, 2).abs(), lessThan(2.0));
+    });
+
+    testWidgets('toggling the add tab keeps the selected channel', (
+      tester,
+    ) async {
+      final selected = ValueNotifier<int>(1);
+      final tabs = ValueNotifier<List<String>>(['a', 'b', 'c']);
+      final showAddTab = ValueNotifier<bool>(false);
+      await tester.pumpWidget(
+        _addTabHarness(selected, tabs, showAddTab, onAddTab: () {}),
+      );
+      await tester.pumpAndSettle();
+      expect(find.byIcon(Icons.add), findsNothing);
+
+      for (final on in [true, false, true]) {
+        showAddTab.value = on;
+        await tester.pump();
+        await tester.pumpAndSettle();
+        expect(find.byIcon(Icons.add), on ? findsOneWidget : findsNothing);
+        expect(selected.value, 1);
+        expect(_stripController(tester).index, 1);
+        expect(_pageDx(tester, 1).abs(), lessThan(2.0));
+      }
+    });
+
+    testWidgets('a joined channel lands before the add tab', (tester) async {
+      final selected = ValueNotifier<int>(0);
+      final tabs = ValueNotifier<List<String>>(['a', 'b']);
+      final showAddTab = ValueNotifier<bool>(true);
+      await tester.pumpWidget(
+        _addTabHarness(selected, tabs, showAddTab, onAddTab: () {}),
+      );
+      await tester.pumpAndSettle();
+
+      tabs.value = ['a', 'b', 'c'];
+      selected.value = 2;
+      await tester.pump();
+      await tester.pumpAndSettle();
+
+      expect(_pageDx(tester, 2).abs(), lessThan(2.0));
+      expect(_stripController(tester).index, 2);
+      final plus = tester.getCenter(find.byIcon(Icons.add)).dx;
+      final c = tester
+          .getCenter(
+            find.descendant(of: find.byType(TabBar), matching: find.text('c')),
+          )
+          .dx;
+      expect(plus, greaterThan(c));
     });
   });
 

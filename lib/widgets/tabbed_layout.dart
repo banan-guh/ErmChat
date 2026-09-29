@@ -109,6 +109,12 @@ class TabbedLayout extends StatefulWidget {
   /// Overlay anchored top-right below tab strip (hidden-chrome menu).
   final Widget? chromeMenu;
 
+  /// Trailing action tab after the channels (compact layout's join button).
+  /// It has no page: swipes never reach it and a tap runs [onAddTab]
+  /// without moving the selection.
+  final Widget? addTab;
+  final VoidCallback? onAddTab;
+
   /// Slot between the tab strip and the pages (stream player dock).
   final Widget? belowTabBar;
 
@@ -139,6 +145,8 @@ class TabbedLayout extends StatefulWidget {
     this.preloadAdjacentPages = false,
     this.showTabBar = true,
     this.chromeMenu,
+    this.addTab,
+    this.onAddTab,
     this.belowTabBar,
     this.headerOverlay,
     this.glassOverlay = false,
@@ -158,6 +166,8 @@ class TabbedLayoutState extends State<TabbedLayout>
   TabController? _tabController;
 
   int _tabLength = 0;
+  // Whether the controller was built with the trailing add tab slot.
+  bool _hasAddTab = false;
   // Last reported index. Dedups settle commits.
   int _lastReportedIndex = 0;
   // Focused page index. Pages outside it get TickerMode disabled, so
@@ -184,6 +194,7 @@ class TabbedLayoutState extends State<TabbedLayout>
   void _initControllers() {
     final len = widget.tabs.length;
     _tabLength = len;
+    _hasAddTab = widget.addTab != null;
     _tabController?.dispose();
     _tabController = null;
     if (len == 0) {
@@ -199,7 +210,11 @@ class TabbedLayoutState extends State<TabbedLayout>
     _pointerDragging = false;
     // PageController kept across tab-count changes (swap reuses stale ScrollPosition). Only TabController recreated.
     _pageController ??= PageController(initialPage: idx);
-    _tabController = TabController(length: len, vsync: this, initialIndex: idx);
+    _tabController = TabController(
+      length: len + (_hasAddTab ? 1 : 0),
+      vsync: this,
+      initialIndex: idx,
+    );
     // Force page to selection on controller swap via _goTo (suppresses flyover commits).
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
@@ -352,6 +367,12 @@ class TabbedLayoutState extends State<TabbedLayout>
   }
 
   void _onTabTap(int index) {
+    if (index >= _tabLength) {
+      // TabBar already started animating to the add tab; snap it back.
+      _tabController?.index = _lastReportedIndex;
+      widget.onAddTab?.call();
+      return;
+    }
     widget.onTabTapped?.call(index);
     // Tap is an explicit choice: commit the target now instead of on landing.
     // The landing report dedups against _lastReportedIndex.
@@ -414,7 +435,7 @@ class TabbedLayoutState extends State<TabbedLayout>
   void didUpdateWidget(TabbedLayout oldWidget) {
     super.didUpdateWidget(oldWidget);
     final len = widget.tabs.length;
-    if (len != _tabLength) {
+    if (len != _tabLength || (widget.addTab != null) != _hasAddTab) {
       _initControllers();
     } else if (len > 0) {
       // Externally-driven selection change. Pager follows unless finger is down (defers to lift).
@@ -492,11 +513,13 @@ class TabbedLayoutState extends State<TabbedLayout>
               ),
             ),
             indicatorSize: TabBarIndicatorSize.label,
-            tabs: List.generate(tabs.length, (i) {
-              return Tab(
-                child: widget.tabBuilder?.call(context, i) ?? Text(tabs[i]),
-              );
-            }),
+            tabs: [
+              for (var i = 0; i < tabs.length; i++)
+                Tab(
+                  child: widget.tabBuilder?.call(context, i) ?? Text(tabs[i]),
+                ),
+              if (_hasAddTab) Tab(child: widget.addTab),
+            ],
           ),
         ),
       ),
