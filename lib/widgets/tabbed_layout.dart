@@ -194,6 +194,8 @@ class TabbedLayoutState extends State<TabbedLayout>
   // docked branches return different roots, so a flip remounts the pages.
   bool? _overlayBuilt;
 
+  // Width of the fade where tabs meet the pinned strip actions.
+  static const double _stripFade = 24;
   static const _jumpDuration = Duration(milliseconds: 300);
   // Longest span animated in one go. Longer jumps land within this distance
   // first, so the flight only builds a few pages (as ViewPager2 does).
@@ -505,41 +507,69 @@ class TabbedLayoutState extends State<TabbedLayout>
         child: Row(
           children: [
             Expanded(
-              // TabBar disables the behavior-built overscroll indicator
-              // for scrollable tabs, so install the stretch directly.
-              child: StretchingOverscrollIndicator(
-                axisDirection: Directionality.of(context) == TextDirection.rtl
-                    ? AxisDirection.left
-                    : AxisDirection.right,
-                child: ScrollConfiguration(
-                  behavior: const _SwipeScrollBehavior(),
-                  child: TabBar(
-                    controller: _tabController,
-                    onTap: _onTabTap,
-                    isScrollable: true,
-                    tabAlignment: _resolveTabAlignment(),
-                    labelPadding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 0,
-                    ),
-                    indicator: BoxDecoration(
-                      border: Border(
-                        bottom: BorderSide(
-                          color: theme.colorScheme.primary,
-                          width: 2,
+              // Fades tabs out where they scroll under the pinned actions
+              // instead of hard-cutting them. Always mounted (fully opaque
+              // without actions) so a layout flip never remounts the TabBar.
+              child: ShaderMask(
+                blendMode: BlendMode.dstIn,
+                shaderCallback: (rect) {
+                  final fadeStart = widget.stripTrailing == null
+                      ? 1.0
+                      : 1 - _stripFade / rect.width;
+                  return LinearGradient(
+                    begin: AlignmentDirectional.centerStart,
+                    end: AlignmentDirectional.centerEnd,
+                    colors: const [
+                      Colors.white,
+                      Colors.white,
+                      Colors.transparent,
+                    ],
+                    stops: [0, fadeStart, 1],
+                  ).createShader(
+                    rect,
+                    textDirection: Directionality.of(context),
+                  );
+                },
+                // TabBar disables the behavior-built overscroll indicator
+                // for scrollable tabs, so install the stretch directly.
+                child: StretchingOverscrollIndicator(
+                  axisDirection: Directionality.of(context) == TextDirection.rtl
+                      ? AxisDirection.left
+                      : AxisDirection.right,
+                  child: ScrollConfiguration(
+                    behavior: const _SwipeScrollBehavior(),
+                    child: TabBar(
+                      controller: _tabController,
+                      onTap: _onTabTap,
+                      isScrollable: true,
+                      tabAlignment: _resolveTabAlignment(),
+                      // Lets the last tab scroll clear of the fade.
+                      padding: EdgeInsetsDirectional.only(
+                        end: widget.stripTrailing == null ? 0 : _stripFade,
+                      ),
+                      labelPadding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 0,
+                      ),
+                      indicator: BoxDecoration(
+                        border: Border(
+                          bottom: BorderSide(
+                            color: theme.colorScheme.primary,
+                            width: 2,
+                          ),
                         ),
                       ),
+                      indicatorSize: TabBarIndicatorSize.label,
+                      tabs: [
+                        for (var i = 0; i < tabs.length; i++)
+                          Tab(
+                            child:
+                                widget.tabBuilder?.call(context, i) ??
+                                Text(tabs[i]),
+                          ),
+                        if (_hasAddTab) Tab(child: widget.addTab),
+                      ],
                     ),
-                    indicatorSize: TabBarIndicatorSize.label,
-                    tabs: [
-                      for (var i = 0; i < tabs.length; i++)
-                        Tab(
-                          child:
-                              widget.tabBuilder?.call(context, i) ??
-                              Text(tabs[i]),
-                        ),
-                      if (_hasAddTab) Tab(child: widget.addTab),
-                    ],
                   ),
                 ),
               ),

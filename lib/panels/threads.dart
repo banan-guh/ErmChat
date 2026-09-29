@@ -544,47 +544,32 @@ class ThreadPanels {
     return overlaySheet(
       offstage: panelManager.activePanel != OverlayPanel.thread,
       ratio: panelManager.threadSheetRatio,
-      header: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 8),
-            child: Row(
-              children: [
-                IconButton(
-                  icon: const Icon(Icons.close),
-                  tooltip: 'Close',
-                  onPressed: closePanel,
-                ),
-                const SizedBox(width: 4),
-                Expanded(
-                  child: Text(
-                    'Threads',
-                    style: TextStyle(
-                      fontSize: 20,
-                      color: Theme.of(context).colorScheme.onSurface,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          TabBar(
-            controller: threadsTab(),
-            padding: EdgeInsets.fromLTRB(100.0, 0.0, 100.0, 0.0),
-            // Three tabs in the mentions-width island: center the strip so it
-            // reads the same, and let it scroll instead of clipping labels on
-            // narrow phones.
-            isScrollable: true,
-            tabAlignment: TabAlignment.center,
-            tabs: const [
-              Tab(text: 'Thread'),
-              Tab(text: 'Active'),
-              Tab(text: 'Saved'),
-            ],
-          ),
-          Divider(height: 1, color: Theme.of(context).dividerColor),
-        ],
+      header: panelHeader(
+        context,
+        leading: IconButton(
+          icon: const Icon(Icons.close),
+          tooltip: 'Close',
+          onPressed: closePanel,
+        ),
+        title: 'Threads',
+        tabs: (compact) => TabBar(
+          controller: threadsTab(),
+          // Full: a centered island. Compact: offsets the leading button so
+          // the tabs still center on the screen.
+          padding: compact
+              ? const EdgeInsets.only(right: 40)
+              : const EdgeInsets.symmetric(horizontal: 100),
+          // Three tabs in the mentions-width island: center the strip so it
+          // reads the same, and let it scroll instead of clipping labels on
+          // narrow phones.
+          isScrollable: true,
+          tabAlignment: TabAlignment.center,
+          tabs: const [
+            Tab(text: 'Thread'),
+            Tab(text: 'Active'),
+            Tab(text: 'Saved'),
+          ],
+        ),
       ),
       body: NotificationListener<ScrollNotification>(
         onNotification: tabDragFocus.onNotification,

@@ -7,6 +7,7 @@ import '../models/twitch_message.dart';
 import '../services/emote_manager.dart';
 import '../util/haptics.dart';
 import '../util/insets.dart';
+import '../util/layout_density.dart';
 import '../util/log.dart';
 import '../util/sheet_drag.dart';
 import '../util/thread_utils.dart';
@@ -157,6 +158,7 @@ class PanelManager {
     required VoidCallback onSnap,
     required double sheetH,
     Widget? header,
+    bool compact = false,
   }) {
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
@@ -190,7 +192,9 @@ class PanelManager {
           Container(
             width: double.infinity,
             color: Colors.transparent,
-            padding: const EdgeInsets.only(top: 10, bottom: 28),
+            padding: compact
+                ? const EdgeInsets.symmetric(vertical: 8)
+                : const EdgeInsets.only(top: 10, bottom: 28),
             child: Align(
               alignment: Alignment.topCenter,
               child: Container(
@@ -258,6 +262,7 @@ class PanelManager {
                             ),
                             sheetH: constraints.maxHeight,
                             header: header,
+                            compact: isCompactLayout(context),
                           ),
                         ),
                         Expanded(child: body),
@@ -515,4 +520,54 @@ class PanelManager {
     }
     return current;
   }
+}
+
+/// Overlay panel header: a leading close/back button and [title] above the
+/// panel's tab strip. Compact folds the button into the tab row and drops
+/// the title (the tabs already name the panel), saving a whole row.
+Widget panelHeader(
+  BuildContext context, {
+  required Widget leading,
+  required String title,
+  required Widget Function(bool compact) tabs,
+}) {
+  final compact = isCompactLayout(context);
+  final theme = Theme.of(context);
+  return Column(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      if (compact)
+        Padding(
+          padding: const EdgeInsets.only(left: 4),
+          child: Row(
+            children: [
+              leading,
+              Expanded(child: tabs(true)),
+            ],
+          ),
+        )
+      else ...[
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+          child: Row(
+            children: [
+              leading,
+              const SizedBox(width: 4),
+              Expanded(
+                child: Text(
+                  title,
+                  style: TextStyle(
+                    fontSize: 20,
+                    color: theme.colorScheme.onSurface,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        tabs(false),
+      ],
+      Divider(height: 1, color: theme.dividerColor),
+    ],
+  );
 }

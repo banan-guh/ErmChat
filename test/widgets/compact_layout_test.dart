@@ -97,6 +97,25 @@ void main() {
       expect(find.text('Join', skipOffstage: false), findsWidgets);
     });
 
+    testWidgets('compact folds the panel title into its tabs (glass=$glass)', (
+      tester,
+    ) async {
+      await pumpJoined(tester, glass: glass, density: LayoutDensity.compact);
+      await tester.tap(inStrip(find.byIcon(Icons.notifications_active)));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Mentions / Whispers'), findsNothing);
+      final whispers = find.widgetWithText(Tab, 'Whispers');
+      final back = find.byTooltip('Back');
+      expect(whispers, findsOneWidget);
+      expect(back, findsOneWidget);
+      // One row: the back button sits beside the tabs, not above them.
+      expect(
+        tester.getCenter(back).dy,
+        closeTo(tester.getCenter(whispers).dy, 4),
+      );
+    });
+
     testWidgets('full keeps the separate app bar (glass=$glass)', (
       tester,
     ) async {
@@ -105,6 +124,10 @@ void main() {
       expect(find.text('ErmChat'), findsOneWidget);
       expect(inStrip(find.byIcon(Icons.add)), findsNothing);
       expect(inStrip(find.byIcon(Icons.notifications_active)), findsNothing);
+
+      await tester.tap(find.byIcon(Icons.notifications_active));
+      await tester.pumpAndSettle();
+      expect(find.text('Mentions / Whispers'), findsOneWidget);
     });
 
     testWidgets('flipping density keeps the channel and focus (glass=$glass)', (

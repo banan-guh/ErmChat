@@ -325,74 +325,53 @@ class ModPanels {
     return overlaySheet(
       offstage: false,
       ratio: panelManager.modSheetRatio,
-      header: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 8),
-            child: Row(
-              children: [
-                IconButton(
-                  icon: const Icon(Icons.arrow_back),
-                  tooltip: 'Back',
-                  onPressed: closePanel,
-                ),
-                const SizedBox(width: 4),
-                Expanded(
-                  child: Text(
-                    channel.isEmpty ? 'Mod view' : 'Mod view · #$channel',
-                    style: TextStyle(
-                      fontSize: 20,
-                      color: Theme.of(context).colorScheme.onSurface,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          // Stream-first order: live work before people, settings last.
-          // Matches ModViewPanel children in mod_view.dart; keep Queue at 0.
-          SizedBox(
-            height: 40,
-            child: TabBar(
-              controller: modTab(),
-              isScrollable: true,
-              tabAlignment: TabAlignment.start,
-              labelPadding: const EdgeInsets.symmetric(horizontal: 12),
-              indicator: BoxDecoration(
-                border: Border(
-                  bottom: BorderSide(
-                    color: Theme.of(context).colorScheme.primary,
-                    width: 2,
-                  ),
+      header: panelHeader(
+        context,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          tooltip: 'Back',
+          onPressed: closePanel,
+        ),
+        title: channel.isEmpty ? 'Mod view' : 'Mod view · #$channel',
+        // Stream-first order: live work before people, settings last.
+        // Matches ModViewPanel children in mod_view.dart; keep Queue at 0.
+        tabs: (_) => SizedBox(
+          height: 40,
+          child: TabBar(
+            controller: modTab(),
+            isScrollable: true,
+            tabAlignment: TabAlignment.start,
+            labelPadding: const EdgeInsets.symmetric(horizontal: 12),
+            indicator: BoxDecoration(
+              border: Border(
+                bottom: BorderSide(
+                  color: Theme.of(context).colorScheme.primary,
+                  width: 2,
                 ),
               ),
-              indicatorSize: TabBarIndicatorSize.label,
-              tabs: [
-                ValueListenableBuilder<int>(
-                  valueListenable:
-                      chat.channelFor(channel)?.moderation.heldVersion ??
-                      ValueNotifier(0),
-                  builder: (_, _, _) {
-                    final pending =
-                        chat.channelFor(channel)?.moderation.held.length ?? 0;
-                    return Tab(
-                      text: pending > 0 ? 'Queue ($pending)' : 'Queue',
-                    );
-                  },
-                ),
-                const Tab(text: 'Activity'),
-                const Tab(text: 'Modes'),
-                const Tab(text: 'Channel'),
-                const Tab(text: 'Users'),
-                const Tab(text: 'Requests'),
-                const Tab(text: 'Terms'),
-                const Tab(text: 'Setup'),
-              ],
             ),
+            indicatorSize: TabBarIndicatorSize.label,
+            tabs: [
+              ValueListenableBuilder<int>(
+                valueListenable:
+                    chat.channelFor(channel)?.moderation.heldVersion ??
+                    ValueNotifier(0),
+                builder: (_, _, _) {
+                  final pending =
+                      chat.channelFor(channel)?.moderation.held.length ?? 0;
+                  return Tab(text: pending > 0 ? 'Queue ($pending)' : 'Queue');
+                },
+              ),
+              const Tab(text: 'Activity'),
+              const Tab(text: 'Modes'),
+              const Tab(text: 'Channel'),
+              const Tab(text: 'Users'),
+              const Tab(text: 'Requests'),
+              const Tab(text: 'Terms'),
+              const Tab(text: 'Setup'),
+            ],
           ),
-          Divider(height: 1, color: Theme.of(context).dividerColor),
-        ],
+        ),
       ),
       body: ModViewPanel(
         channel: channel,

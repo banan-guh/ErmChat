@@ -447,6 +447,35 @@ void main() {
       }
     });
 
+    testWidgets('the add tab scrolls clear of the actions fade', (
+      tester,
+    ) async {
+      final tabs = [for (var i = 0; i < 12; i++) 'channel$i'];
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: TabbedLayout(
+              tabs: tabs,
+              selectedIndex: 0,
+              onSelectedIndexChanged: (_) {},
+              addTab: const Icon(Icons.add),
+              onAddTab: () {},
+              stripTrailing: const SizedBox(width: 80, height: 40),
+              pageBuilder: (_, i) => Text(tabs[i]),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final strip = find.byType(TabBar);
+      await tester.drag(strip, const Offset(-4000, 0));
+      await tester.pumpAndSettle();
+
+      final plus = tester.getRect(find.byIcon(Icons.add));
+      final fadeStart = tester.getRect(strip).right - 24;
+      expect(plus.right, lessThanOrEqualTo(fadeStart));
+    });
+
     testWidgets('a joined channel lands before the add tab', (tester) async {
       final selected = ValueNotifier<int>(0);
       final tabs = ValueNotifier<List<String>>(['a', 'b']);

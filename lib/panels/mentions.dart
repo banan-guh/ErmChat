@@ -240,41 +240,26 @@ class MentionsPanels {
     return overlaySheet(
       offstage: panelManager.activePanel != OverlayPanel.mentions,
       ratio: panelManager.mentionsSheetRatio,
-      header: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 8),
-            child: Row(
-              children: [
-                IconButton(
-                  icon: const Icon(Icons.arrow_back),
-                  tooltip: 'Back',
-                  onPressed: closePanel,
-                ),
-                const SizedBox(width: 4),
-                Expanded(
-                  child: Text(
-                    'Mentions / Whispers',
-                    style: TextStyle(
-                      fontSize: 20,
-                      color: Theme.of(context).colorScheme.onSurface,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          TabBar(
-            controller: mentionsTab(),
-            padding: EdgeInsets.fromLTRB(100.0, 0.0, 100.0, 0.0),
-            tabs: const [
-              Tab(text: 'Mentions'),
-              Tab(text: 'Whispers'),
-            ],
-          ),
-          Divider(height: 1, color: Theme.of(context).dividerColor),
-        ],
+      header: panelHeader(
+        context,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          tooltip: 'Back',
+          onPressed: closePanel,
+        ),
+        title: 'Mentions / Whispers',
+        tabs: (compact) => TabBar(
+          controller: mentionsTab(),
+          // Full: a centered island. Compact: offsets the leading button so
+          // the tabs still center on the screen.
+          padding: compact
+              ? const EdgeInsets.only(right: 40)
+              : const EdgeInsets.symmetric(horizontal: 100),
+          tabs: const [
+            Tab(text: 'Mentions'),
+            Tab(text: 'Whispers'),
+          ],
+        ),
       ),
       body: NotificationListener<ScrollNotification>(
         onNotification: tabDragFocus.onNotification,
