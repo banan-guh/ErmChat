@@ -252,7 +252,7 @@ class Prefs {
       _p.setBool(_kOverrideTightComposer, value);
 
   bool get overrideSheetActionRow =>
-      _p.getBool(_kOverrideSheetActionRow) ?? true;
+      _p.getBool(_kOverrideSheetActionRow) ?? false;
 
   Future<void> setOverrideSheetActionRow(bool value) =>
       _p.setBool(_kOverrideSheetActionRow, value);

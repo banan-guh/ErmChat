@@ -114,7 +114,7 @@ class _EmoteSheetState extends State<EmoteSheet>
   Widget _buildEmotePage(Emote emote) {
     final theme = Theme.of(context);
     final owner = _ownerLabel(emote);
-    final compact = resolveLayoutOverride(context, (o) => o.sheetActionRow);
+    final compact = layoutOverridesOf(context).horizontalSheetActions;
 
     final subtitleStyle = TextStyle(
       fontSize: 16,
@@ -263,8 +263,8 @@ class _EmoteSheetState extends State<EmoteSheet>
     final textColumn = 4 + nameH + 4 + rowH * (1 + subRows) + 4 * subRows;
     final imageBlock = 128.0 + 8;
     final header = textColumn > imageBlock ? textColumn : imageBlock;
-    // Compact folds the actions into an icon row; full keeps three tiles.
-    final actions = resolveLayoutOverride(context, (o) => o.sheetActionRow)
+    // The custom icon row is one line; otherwise three tiles.
+    final actions = layoutOverridesOf(context).horizontalSheetActions
         ? SheetActionRow.heightFor(scaler)
         : 3 * 48.0 * scale;
     // Page padding: 4 top, 8 bottom.

@@ -74,6 +74,7 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
         bottom: true,
         child: _LayoutPickerSheet(
           current: _layoutDensity,
+          customEnabled: _customLayoutEnabled,
           onCustom: () => Navigator.push(
             context,
             MaterialPageRoute(builder: (_) => const CustomLayoutScreen()),
@@ -117,11 +118,10 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
             onTap: () => _pickTheme(context),
           ),
           ListTile(
-            enabled: !_customLayoutEnabled,
             title: const Text('Layout'),
             subtitle: Text(
               _customLayoutEnabled
-                  ? 'Overridden by custom layout'
+                  ? 'Custom'
                   : switch (_layoutDensity) {
                       LayoutDensity.auto =>
                         'Auto (${isCompactLayout(context) ? 'compact' : 'full'})',
@@ -130,9 +130,7 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
                     },
             ),
             trailing: const Icon(Icons.chevron_right),
-            onTap: _customLayoutEnabled
-                ? null
-                : () => _pickLayoutDensity(context),
+            onTap: () => _pickLayoutDensity(context),
           ),
           PrefsSwitchTile(
             title: 'True dark mode',
@@ -307,13 +305,19 @@ class _ThemePickerSheet extends StatelessWidget {
   }
 }
 
-/// Layout picker sheet. Mirrors the theme picker, plus an Other row that
-/// opens the custom layout screen.
+/// Layout picker sheet. Mirrors the theme picker, plus a Custom row that
+/// opens the custom layout screen. While custom is on the density rows grey
+/// out, and Custom stays open so it can be turned off.
 class _LayoutPickerSheet extends StatelessWidget {
   final LayoutDensity current;
+  final bool customEnabled;
   final VoidCallback onCustom;
 
-  const _LayoutPickerSheet({required this.current, required this.onCustom});
+  const _LayoutPickerSheet({
+    required this.current,
+    required this.customEnabled,
+    required this.onCustom,
+  });
 
   static const _options = <LayoutDensity, (IconData, String, String)>{
     LayoutDensity.auto: (
@@ -350,10 +354,11 @@ class _LayoutPickerSheet extends StatelessWidget {
           const SizedBox(height: 8),
           for (final entry in _options.entries)
             ListTile(
+              enabled: !customEnabled,
               leading: Icon(entry.value.$1),
               title: Text(entry.value.$2),
               subtitle: Text(entry.value.$3),
-              trailing: entry.key == current
+              trailing: !customEnabled && entry.key == current
                   ? Icon(
                       Icons.check,
                       color: Theme.of(context).colorScheme.primary,
@@ -366,7 +371,12 @@ class _LayoutPickerSheet extends StatelessWidget {
             leading: const Icon(Icons.tune),
             title: const Text('Custom'),
             subtitle: const Text('Override layout behaviors'),
-            trailing: const Icon(Icons.chevron_right),
+            trailing: customEnabled
+                ? Icon(
+                    Icons.check,
+                    color: Theme.of(context).colorScheme.primary,
+                  )
+                : const Icon(Icons.chevron_right),
             onTap: () {
               Navigator.pop(context);
               onCustom();

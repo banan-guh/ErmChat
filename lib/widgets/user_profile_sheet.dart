@@ -927,7 +927,7 @@ class UserProfileSheetState extends State<UserProfileSheet> {
   }
 
   List<Widget> _buildActionTiles() {
-    final compact = resolveLayoutOverride(context, (o) => o.sheetActionRow);
+    final compact = layoutOverridesOf(context).horizontalSheetActions;
     final showMod =
         widget.canModerate &&
         !widget.isSelf &&

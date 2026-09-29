@@ -261,7 +261,7 @@ void main() {
       expect(sheetBottomDy, moreOrLessEquals(stackBottom.dy, epsilon: 1.0));
     });
 
-    testWidgets('emote sheet uses the compact action row when compact', (
+    testWidgets('emote sheet uses the action row when custom enables it', (
       WidgetTester tester,
     ) async {
       await tester.pumpWidget(
@@ -269,6 +269,10 @@ void main() {
           key: UniqueKey(),
           home: CompactLayoutScope(
             compact: true,
+            overrides: const LayoutOverrides(
+              enabled: true,
+              sheetActionRow: true,
+            ),
             child: Scaffold(
               body: EmoteSheet(
                 emotes: [sevenTvEmote()],
@@ -327,7 +331,7 @@ void main() {
       );
     }
 
-    testWidgets('user profile uses the compact action row when compact', (
+    testWidgets('user profile uses the action row when custom enables it', (
       WidgetTester tester,
     ) async {
       await tester.pumpWidget(
@@ -335,6 +339,10 @@ void main() {
           key: UniqueKey(),
           home: CompactLayoutScope(
             compact: true,
+            overrides: const LayoutOverrides(
+              enabled: true,
+              sheetActionRow: true,
+            ),
             child: Scaffold(
               body: UserProfileSheet(
                 username: 'testuser',

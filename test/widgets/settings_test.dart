@@ -204,14 +204,20 @@ void main() {
       );
       expect(enabled.onChanged, isNotNull);
 
-      // Custom on disables the Layout density row back on Customization.
+      // Custom on keeps Layout reachable but greys the density rows.
       await tester.pageBack();
       await tester.pumpAndSettle();
-      final layoutTile = tester.widget<ListTile>(
-        find.widgetWithText(ListTile, 'Layout'),
+      expect(find.text('Custom'), findsOneWidget);
+      await tester.tap(find.text('Layout'));
+      await tester.pumpAndSettle();
+      final full = tester.widget<ListTile>(
+        find.widgetWithText(ListTile, 'Full'),
       );
-      expect(layoutTile.enabled, isFalse);
-      expect(find.text('Overridden by custom layout'), findsOneWidget);
+      expect(full.enabled, isFalse);
+      final custom = tester.widget<ListTile>(
+        find.widgetWithText(ListTile, 'Override layout behaviors'),
+      );
+      expect(custom.enabled, isTrue);
     });
 
     testWidgets('Channel settings drag handle reorders channels', (

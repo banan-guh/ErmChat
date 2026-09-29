@@ -25,7 +25,7 @@ class LayoutOverrides {
     this.mergeAppBar = true,
     this.foldPanelHeaders = true,
     this.tightComposer = true,
-    this.sheetActionRow = true,
+    this.sheetActionRow = false,
     this.compactDensity = true,
     this.tightChromeMargins = true,
   });
@@ -42,7 +42,8 @@ class LayoutOverrides {
   /// Shorter composer with the emote and send buttons spilling into padding.
   final bool tightComposer;
 
-  /// Icon-over-label action rows in the emote and user sheets.
+  /// Icon-over-label action rows in the emote and user sheets. Off by
+  /// default, and never on outside custom, so compact keeps the list.
   final bool sheetActionRow;
 
   /// Material's compact density for buttons, list tiles and menus.
@@ -50,6 +51,9 @@ class LayoutOverrides {
 
   /// Tighter chrome margins, e.g. the app bar action padding.
   final bool tightChromeMargins;
+
+  /// Whether the sheets use the icon row. Only custom turns it on.
+  bool get horizontalSheetActions => enabled && sheetActionRow;
 
   /// Resolves one behavior: the switch when custom is on, else the layout
   /// default ([compactDefault]).
