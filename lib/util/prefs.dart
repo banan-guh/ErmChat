@@ -4,6 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/emote_fetch_tier.dart';
 import '../theme_colors.dart';
 import 'constants.dart';
+import 'layout_density.dart';
 import 'timestamp_formatter.dart';
 
 /// Typed facade over [SharedPreferences]. Every persisted key string and
@@ -203,6 +204,16 @@ class Prefs {
 
   Future<void> setFastChannelSnap(bool value) =>
       _p.setBool(_kFastChannelSnap, value);
+
+  static const _kLayoutDensity = 'layout_density';
+
+  LayoutDensity get layoutDensity => LayoutDensity.values.firstWhere(
+    (e) => e.name == _p.getString(_kLayoutDensity),
+    orElse: () => LayoutDensity.auto,
+  );
+
+  Future<void> setLayoutDensity(LayoutDensity value) =>
+      _p.setString(_kLayoutDensity, value.name);
 
   static const _kLiquidGlass = 'liquid_glass';
 

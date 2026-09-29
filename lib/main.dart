@@ -21,6 +21,7 @@ import 'services/recent_messages.dart';
 import 'services/twitch_badge_service.dart';
 import 'theme_colors.dart';
 import 'util/insets.dart';
+import 'util/layout_density.dart';
 import 'util/log.dart';
 import 'util/prefs.dart';
 import 'util/prefs_store.dart';
@@ -213,6 +214,7 @@ class _TwitchChatAppState extends State<TwitchChatApp> {
   bool _keepScreenOn = true;
   bool _trueDark = false;
   String _accentKey = kDefaultAccent;
+  LayoutDensity _layoutDensity = LayoutDensity.auto;
   Color get _seedColor =>
       kAccentPresets[_accentKey] ?? kAccentPresets[kDefaultAccent]!;
   final _twitchAuth = TwitchAuth();
@@ -248,6 +250,7 @@ class _TwitchChatAppState extends State<TwitchChatApp> {
       WakelockPlus.toggle(enable: _keepScreenOn).ignore();
       _trueDark = prefs.trueDark;
       _accentKey = prefs.accentColor;
+      _layoutDensity = prefs.layoutDensity;
       _proxyConfig = ProxyConfig.fromPrefs(prefs);
     } catch (e) {
       logDebug('Failed to load preferences: $e');
@@ -261,6 +264,12 @@ class _TwitchChatAppState extends State<TwitchChatApp> {
       }),
     );
   }
+
+  Widget _appRoot(BuildContext context, Widget? child) => compactLayoutRoot(
+    context,
+    density: _layoutDensity,
+    child: _edgeExclusionWrapper(context, child),
+  );
 
   @override
   void dispose() {
@@ -296,7 +305,7 @@ class _TwitchChatAppState extends State<TwitchChatApp> {
           themeMode: _themeMode,
           theme: buildLightTheme(seedColor: _seedColor),
           darkTheme: buildDarkTheme(trueDark: _trueDark, seedColor: _seedColor),
-          builder: _edgeExclusionWrapper,
+          builder: _appRoot,
           scaffoldMessengerKey: rootScaffoldMessengerKey,
           navigatorObservers: [_snackPopObserver],
           home: const Scaffold(
@@ -313,7 +322,7 @@ class _TwitchChatAppState extends State<TwitchChatApp> {
         themeMode: _themeMode,
         theme: buildLightTheme(seedColor: _seedColor),
         darkTheme: buildDarkTheme(trueDark: _trueDark, seedColor: _seedColor),
-        builder: _edgeExclusionWrapper,
+        builder: _appRoot,
         scaffoldMessengerKey: rootScaffoldMessengerKey,
         navigatorObservers: [_snackPopObserver],
         home: HomeScreen(

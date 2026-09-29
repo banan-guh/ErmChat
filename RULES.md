@@ -7,6 +7,7 @@ Behavioral rules for anyone working on ermchat, human or agent. AGENTS.md covers
 Read this section before EVERY commit. Follow it exactly.
 
 NEVER commit unless you are explicitly instructed to.
+Do not write "Co-authored by" in the commit description.
 
 Format: `<type>: <summary>`
 

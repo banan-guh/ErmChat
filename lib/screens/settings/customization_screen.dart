@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import '../../theme_colors.dart';
+import '../../util/layout_density.dart';
 import '../../util/prefs.dart';
 import '../../util/prefs_store.dart';
+import '../../widgets/dialogs.dart';
 import 'prefs_tiles.dart';
 import 'settings_page.dart';
 
@@ -49,6 +51,28 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
     setState(() {});
   }
 
+  LayoutDensity get _layoutDensity =>
+      _prefs?.layoutDensity ?? LayoutDensity.auto;
+
+  Future<void> _pickLayoutDensity(BuildContext context) async {
+    final picked = await showChoiceDialog<LayoutDensity>(
+      context,
+      title: 'Layout',
+      value: _layoutDensity,
+      options: const [
+        (LayoutDensity.auto, 'Auto', 'Compact on small phones'),
+        (LayoutDensity.compact, 'Compact', 'Merged top row, tighter spacing'),
+        (LayoutDensity.full, 'Full', 'Separate top bar and tabs'),
+      ],
+    );
+    if (picked == null || !mounted || picked == _layoutDensity) return;
+    final prefs = _prefs ?? await Prefs.load();
+    await prefs.setLayoutDensity(picked);
+    PrefsStore.instance.notifyChanged();
+    if (!mounted) return;
+    setState(() {});
+  }
+
   Future<void> _setAccentColor(String key) async {
     if (key == _accentKey) return;
     final prefs = _prefs ?? await Prefs.load();
@@ -76,6 +100,17 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
             trailing: const Icon(Icons.chevron_right),
             onTap: () => _pickTheme(context),
           ),
+          ListTile(
+            title: const Text('Layout'),
+            subtitle: Text(switch (_layoutDensity) {
+              LayoutDensity.auto =>
+                'Auto (${isCompactLayout(context) ? 'compact' : 'full'})',
+              LayoutDensity.compact => 'Compact',
+              LayoutDensity.full => 'Full',
+            }),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => _pickLayoutDensity(context),
+          ),
           PrefsSwitchTile(
             title: 'True dark mode',
             defaultValue: false,
@@ -86,7 +121,6 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
           PrefsSwitchTile(
             title: 'Liquid glass (experimental)',
             subtitle: 'Floating glass header and composer with chat underneath',
-            defaultValue: true,
             read: (p) => p.liquidGlass,
             write: (p, v) => p.setLiquidGlass(v),
           ),
