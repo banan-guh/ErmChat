@@ -50,13 +50,35 @@ jobs:
             exit 1
           fi
 
+  # --- JOB 0b: TESTS ---
+  # Runs beside the builds; only the publish jobs wait on it, so a failing
+  # test blocks every store without adding its time to the release.
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter SDK
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.5'
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Analyze
+        run: flutter analyze
+
+      - name: Test
+        run: flutter test
+
   # --- JOB 1: ANDROID BUILD ---
   build-android:
     needs: check-version
     runs-on: ubuntu-latest
     env:
       KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
-      PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -74,7 +96,6 @@ jobs:
         uses: subosito/flutter-action@v2
         with:
           flutter-version: '3.47.5'
-          cache: true
 
       - name: Install dependencies
         run: flutter pub get
@@ -115,13 +136,35 @@ jobs:
           name: android-asset
           path: build/release-assets/*.apk
 
+      - name: Upload app bundle artifact
+        if: env.KEYSTORE_BASE64 != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-bundle
+          path: build/app/outputs/bundle/release/app-release.aab
+
+  # --- JOB 1b: GOOGLE PLAY ---
+  play:
+    needs: [build-android, test]
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    env:
+      KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+      PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+    steps:
+      - name: Download app bundle
+        if: env.PLAY_SERVICE_ACCOUNT_JSON != '' && env.KEYSTORE_BASE64 != ''
+        uses: actions/download-artifact@v4
+        with:
+          name: android-bundle
+
       - name: Publish to Google Play
-        if: env.PLAY_SERVICE_ACCOUNT_JSON != '' && env.KEYSTORE_BASE64 != '' && github.ref_type == 'tag'
+        if: env.PLAY_SERVICE_ACCOUNT_JSON != '' && env.KEYSTORE_BASE64 != ''
         uses: r0adkll/upload-google-play@v1
         with:
           serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
           packageName: io.github.bananguh.ErmChat
-          releaseFiles: build/app/outputs/bundle/release/app-release.aab
+          releaseFiles: app-release.aab
           track: production
           status: completed
 
@@ -143,7 +186,6 @@ jobs:
         uses: subosito/flutter-action@v2
         with:
           flutter-version: '3.47.5'
-          cache: true
 
       - name: Install dependencies
         run: flutter pub get
@@ -310,7 +352,7 @@ jobs:
   # the TESTFLIGHT_EXTERNAL_GROUP repo variable set, it waits for processing,
   # adds the build to that group and submits it for beta review.
   testflight:
-    needs: build-ios
+    needs: [build-ios, test]
     if: github.ref_type == 'tag'
     runs-on: macos-latest
     env:
@@ -352,13 +394,15 @@ jobs:
 
   # --- JOB 3: PUBLISH TO GITHUB RELEASE ---
   publish-release:
-    needs: [build-android, build-ios]
+    needs: [build-android, build-ios, test]
     runs-on: ubuntu-latest
     if: github.ref_type == 'tag'
     steps:
-      - name: Download all build artifacts
+      # The APK and IPA assets only; the app bundle is for Play.
+      - name: Download release assets
         uses: actions/download-artifact@v4
         with:
+          pattern: '*-asset'
           path: build/release-assets
           merge-multiple: true
 
