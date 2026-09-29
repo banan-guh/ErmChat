@@ -90,6 +90,10 @@ class EventSubTopics {
   /// surfaced instead of being dropped as unsolicited.
   bool isWidgetActive(String channel) => _widgetChannels.contains(channel);
 
+  /// Whether Twitch refused or revoked moderation here (not a session blip).
+  bool isModerationDenied(String channel) =>
+      _moderationSkippedChannels.contains(channel);
+
   /// Whether the session user owns this channel. Broadcaster-only widgets
   /// and the Channel tab gate on this, not on moderator status.
   bool isBroadcaster(String channel) =>
@@ -132,6 +136,51 @@ class EventSubTopics {
     _pointsChannels.remove(channel);
     _widgetChannels.remove(channel);
   }
+
+  /// Applies the user's role from a channel USERSTATE. Losing mod drops the
+  /// moderator families; gaining it retries families a 403 or drop skipped.
+  void noteSelfModerator(String channel, bool moderator) {
+    if (!moderator) {
+      if (_moderatorFamilies.any((f) => f.activeSet.contains(channel))) {
+        dropModerator(channel);
+      }
+      return;
+    }
+    if (!_moderationSkippedChannels.contains(channel)) return;
+    final channelUserId = chat.channelFor(channel)?.info.broadcasterId;
+    if (channelUserId == null) return;
+    for (final family in _moderatorFamilies) {
+      family.skipSet.remove(channel);
+    }
+    subscribeChannel(channel, channelUserId);
+  }
+
+  /// Drops the moderator families for [channel] (unmodded or revoked) and
+  /// marks them skipped, so a later mod grant retries them.
+  void dropModerator(String channel) {
+    var changed = false;
+    for (final family in _moderatorFamilies) {
+      changed |= family.activeSet.remove(channel);
+      family.skipSet.add(channel);
+    }
+    if (changed) chat.channelFor(channel)?.moderation.noteSubscribed();
+  }
+
+  /// Handles a revoked subscription from the EventSub socket.
+  void handleRevocation(Map<String, dynamic> subscription) {
+    final condition = subscription['condition'] as Map<String, dynamic>?;
+    final moderatorId = condition?['moderator_user_id'];
+    final broadcasterId = condition?['broadcaster_user_id'];
+    if (moderatorId == null || moderatorId != session.userId) return;
+    for (final name in chat.names) {
+      if (chat.channelFor(name)?.info.broadcasterId == broadcasterId) {
+        dropModerator(name);
+      }
+    }
+  }
+
+  Iterable<_TopicFamily> get _moderatorFamilies =>
+      _families.where((f) => !f.broadcasterOnly);
 
   /// Subscribes the EventSub families for a joined channel.
   void subscribeChannel(String channelName, String channelUserId) {

@@ -54,6 +54,9 @@ class IrcChatDecoder {
   );
   final _emoteSetsController =
       StreamController<(String?, List<String>)>.broadcast(sync: true);
+  final _selfModController = StreamController<(String, bool)>.broadcast(
+    sync: true,
+  );
 
   // Own badge set-ids per channel. Feeds slow-mode bypass checks.
   final selfBadges = <String?, Set<String>>{};
@@ -71,6 +74,10 @@ class IrcChatDecoder {
   Stream<(String?, List<String>)> get onUserEmoteSets =>
       _emoteSetsController.stream;
   Stream<IrcMessage> get onOwnMessage => _ownMessageController.stream;
+
+  /// Channel USERSTATE role: whether the user moderates (or owns) it. Sent
+  /// on JOIN and after each own message.
+  Stream<(String, bool)> get onSelfModerator => _selfModController.stream;
 
   void clearSelfBadges() => selfBadges.clear();
 
@@ -203,6 +210,14 @@ class IrcChatDecoder {
   void _handleUserState(IrcMessage msg) {
     final emoteSets = msg.tags['emote-sets'];
     final badges = parseIrcBadges(msg.tags['badges']);
+    final mod = msg.tags['mod'];
+    if (msg.command == 'USERSTATE' && mod != null) {
+      final channel = _channelNameOf(msg);
+      final owner = badges?.any((b) => b.setId == 'broadcaster') ?? false;
+      if (channel != null) {
+        _selfModController.add((channel, mod == '1' || owner));
+      }
+    }
     if ((emoteSets == null || emoteSets.isEmpty) && badges == null) return;
     final channel = msg.command == 'USERSTATE' ? _channelNameOf(msg) : null;
     if (emoteSets != null && emoteSets.isNotEmpty) {
@@ -317,5 +332,6 @@ class IrcChatDecoder {
     _roomStateController.close();
     _whisperController.close();
     _emoteSetsController.close();
+    _selfModController.close();
   }
 }

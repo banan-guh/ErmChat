@@ -37,6 +37,8 @@ class EventSubService {
   final _statusController = StreamController<EventSubStatus>.broadcast(
     sync: true,
   );
+  final _revocationController =
+      StreamController<Map<String, dynamic>>.broadcast(sync: true);
 
   bool get isConnected => _channel != null;
   String? get sessionId => _sessionId;
@@ -61,6 +63,10 @@ class EventSubService {
   Stream<Map<String, dynamic>> get onNotification =>
       _notificationController.stream;
   Stream<EventSubStatus> get onStatus => _statusController.stream;
+
+  /// Revoked subscriptions (the payload's `subscription` object), e.g.
+  /// `moderator_removed` when the user loses mod in a channel.
+  Stream<Map<String, dynamic>> get onRevocation => _revocationController.stream;
 
   @visibleForTesting
   Future<String?> waitForSession() {
@@ -185,7 +191,10 @@ class EventSubService {
         case 'session_reconnect':
           _handleReconnect(msg);
         case 'revocation':
-          logDebug('EventSub subscription revoked');
+          final payload = msg['payload'] as Map<String, dynamic>?;
+          final sub = payload?['subscription'] as Map<String, dynamic>?;
+          logDebug('EventSub subscription revoked: ${sub?['status']}');
+          if (sub != null) _revocationController.add(sub);
       }
 
       _resetKeepalive();
@@ -282,5 +291,6 @@ class EventSubService {
     _connectivityListener = null;
     _notificationController.close();
     _statusController.close();
+    _revocationController.close();
   }
 }

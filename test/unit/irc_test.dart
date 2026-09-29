@@ -1634,6 +1634,21 @@ void main() {
   group('USERSTATE / GLOBALUSERSTATE', () {
     Future<void> flush() => Future<void>.delayed(Duration.zero);
 
+    test('channel USERSTATE reports the mod role', () async {
+      final roles = <(String, bool)>[];
+      decoder.onSelfModerator.listen(roles.add);
+      service.handleLine(
+        '@badges=moderator/1;mod=1 :tmi.twitch.tv USERSTATE #xqc',
+      );
+      service.handleLine('@badges=;mod=0 :tmi.twitch.tv USERSTATE #xqc');
+      service.handleLine(
+        '@badges=broadcaster/1;mod=0 :tmi.twitch.tv USERSTATE #me',
+      );
+      service.handleLine('@badges=;mod=0 :tmi.twitch.tv GLOBALUSERSTATE');
+      await flush();
+      expect(roles, [('xqc', true), ('xqc', false), ('me', true)]);
+    });
+
     test('lines are safely ignored', () async {
       var messageCount = 0;
       decoder.onMessage.listen((_) => messageCount++);

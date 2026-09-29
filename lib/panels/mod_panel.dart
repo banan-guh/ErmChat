@@ -97,7 +97,17 @@ class ModPanels {
   void refreshOnData(String? changedChannel) {
     if (panelManager.activePanel != OverlayPanel.modView) return;
     // Modes are per selected channel; background channels need no work.
-    if (changedChannel != null && changedChannel != selectedChannel()) {
+    final channel = selectedChannel();
+    if (changedChannel != null && changedChannel != channel) {
+      return;
+    }
+    // Unmodded: close rather than leave an empty sheet. A dropped EventSub
+    // session never marks a channel denied, so blips keep the panel.
+    if (channel != null &&
+        chatConn.isModerationDenied(channel) &&
+        !chatConn.isBroadcaster(channel)) {
+      showNotice('You are no longer a moderator in #$channel.');
+      unawaited(panelManager.closePanel());
       return;
     }
     modPanelVersion.value++;
@@ -312,7 +322,6 @@ class ModPanels {
   }) {
     // Unmount while hidden so tab states, version subscriptions, and Helix
     // loads only exist while the panel is open. Reopen mounts fresh.
-    // TODO: make this mature instead of shoving it under the rug, currently it's a tradeoff for less jank for everyday.
     if (panelManager.activePanel != OverlayPanel.modView) {
       return overlaySheet(
         offstage: true,

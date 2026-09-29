@@ -113,6 +113,9 @@ class ChatLifecycle {
   StreamSubscription<IrcJoinFailureEvent>? _ircJoinFailedSub;
   StreamSubscription<IrcRoomStateEvent>? _readRoomStateSub;
   StreamSubscription<IrcRoomStateEvent>? _writeRoomStateSub;
+  StreamSubscription<(String, bool)>? _readSelfModSub;
+  StreamSubscription<(String, bool)>? _writeSelfModSub;
+  StreamSubscription<Map<String, dynamic>>? _revocationSub;
 
   Future<Map<String, dynamic>?>? _currentUserFetch;
 
@@ -130,6 +133,9 @@ class ChatLifecycle {
     _ircJoinFailedSub?.cancel();
     _readRoomStateSub?.cancel();
     _writeRoomStateSub?.cancel();
+    _readSelfModSub?.cancel();
+    _writeSelfModSub?.cancel();
+    _revocationSub?.cancel();
   }
 
   Future<Map<String, dynamic>?> ensureCurrentUser(TwitchAuth auth) {
@@ -215,6 +221,24 @@ class ChatLifecycle {
             connectionStateNotifier.value++;
           }
         }
+      });
+
+      // Mod grants and removals apply live: USERSTATE carries the role on
+      // JOIN and after each own message (the write socket sees the latter),
+      // and EventSub revokes moderator subscriptions on unmod.
+      void onSelfModerator((String, bool) event) {
+        if (_disposed) return;
+        eventSubTopics.noteSelfModerator(event.$1, event.$2);
+      }
+
+      _readSelfModSub?.cancel();
+      _readSelfModSub = readDecoder.onSelfModerator.listen(onSelfModerator);
+      _writeSelfModSub?.cancel();
+      _writeSelfModSub = writeDecoder.onSelfModerator.listen(onSelfModerator);
+      _revocationSub?.cancel();
+      _revocationSub = eventSub.onRevocation.listen((subscription) {
+        if (_disposed) return;
+        eventSubTopics.handleRevocation(subscription);
       });
 
       liveness.startWatchdog();

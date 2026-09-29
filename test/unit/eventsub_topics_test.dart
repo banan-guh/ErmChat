@@ -428,4 +428,60 @@ void main() {
       expect(topics.isWidgetActive('testchannel'), isTrue);
     });
   });
+
+  group('live mod role', () {
+    Map<String, dynamic> revoked({String moderator = 'mod1'}) => {
+      'type': 'channel.moderate',
+      'status': 'moderator_removed',
+      'condition': {
+        'broadcaster_user_id': 'broadcaster1',
+        'moderator_user_id': moderator,
+      },
+    };
+
+    test('a mod grant retries the families a 403 skipped', () async {
+      script['channel.moderate'] = 403;
+      topics.subscribeChannel('testchannel', 'broadcaster1');
+      await flush();
+      expect(topics.isModerationActive('testchannel'), isFalse);
+
+      script.remove('channel.moderate');
+      topics.noteSelfModerator('testchannel', true);
+      await flush();
+      expect(topics.isModerationActive('testchannel'), isTrue);
+    });
+
+    test('a mod role on join does not double-subscribe', () async {
+      topics.subscribeChannel('testchannel', 'broadcaster1');
+      await flush();
+      final first = calls;
+      topics.noteSelfModerator('testchannel', true);
+      await flush();
+      expect(calls, first);
+    });
+
+    test('losing mod drops the tools and wakes the mod view', () async {
+      topics.subscribeChannel('testchannel', 'broadcaster1');
+      await flush();
+      final version = modVersion();
+      topics.noteSelfModerator('testchannel', false);
+      expect(topics.isModerationActive('testchannel'), isFalse);
+      expect(topics.isAutomodActive('testchannel'), isFalse);
+      expect(modVersion(), greaterThan(version));
+
+      // A later grant brings them back.
+      topics.noteSelfModerator('testchannel', true);
+      await flush();
+      expect(topics.isModerationActive('testchannel'), isTrue);
+    });
+
+    test('a moderator_removed revocation drops the tools', () async {
+      topics.subscribeChannel('testchannel', 'broadcaster1');
+      await flush();
+      topics.handleRevocation(revoked(moderator: 'someoneelse'));
+      expect(topics.isModerationActive('testchannel'), isTrue);
+      topics.handleRevocation(revoked());
+      expect(topics.isModerationActive('testchannel'), isFalse);
+    });
+  });
 }

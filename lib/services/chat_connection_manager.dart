@@ -418,6 +418,10 @@ class ChatConnectionManager {
   bool isAutomodActive(String channel) =>
       eventSubTopics.isAutomodActive(channel);
 
+  /// Whether Twitch refused or revoked the user's moderation in [channel].
+  bool isModerationDenied(String channel) =>
+      eventSubTopics.isModerationDenied(channel);
+
   /// Whether the session user owns [channel] (Channel tab gate).
   bool isBroadcaster(String channel) => eventSubTopics.isBroadcaster(channel);
 
