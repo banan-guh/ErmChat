@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math';
 
 import 'package:battery_plus/battery_plus.dart';
 import 'package:flutter/gestures.dart';
@@ -9,12 +10,15 @@ import 'emote_url_provider.dart';
 /// Emote frame rate while someone is using the app.
 const int kActiveEmoteFps = 60;
 
-/// Default emote frame rate when idle or in battery saver; 0 freezes.
+/// Default emote frame rate when idle; 0 freezes.
 const int kIdleEmoteFps = 30;
 
+/// Active emote frame rate cap while the device is in battery saver.
+const int kSaverEmoteFps = 30;
+
 /// Drives [EmoteUrlProvider.frameRate]. Fixed at [kActiveEmoteFps], or when
-/// [adaptive], [idleFps] while the device is in battery saver or nobody has
-/// touched the screen for [idleAfter]. A focused text field
+/// [adaptive], [idleFps] once nobody has touched the screen for [idleAfter],
+/// with battery saver capping both at [kSaverEmoteFps]. A focused text field
 /// counts as use, since soft keyboard taps never reach Flutter.
 class EmoteFrameRatePolicy with WidgetsBindingObserver {
   EmoteFrameRatePolicy({
@@ -145,7 +149,10 @@ class EmoteFrameRatePolicy with WidgetsBindingObserver {
   }
 
   void _update() {
-    final fps = _adaptive && (_idle || _saver) ? _idleFps : kActiveEmoteFps;
+    // Battery saver lowers the ceiling, never the floor: a touch still
+    // animates, and the idle rate applies only when actually idle.
+    final active = _adaptive && _saver ? kSaverEmoteFps : kActiveEmoteFps;
+    final fps = _adaptive && _idle ? min(_idleFps, active) : active;
     if (fps == _fps) return;
     _fps = fps;
     _apply(fps);

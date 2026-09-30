@@ -174,6 +174,20 @@ void main() {
       policy.dispose();
     });
 
+    testWidgets('battery saver caps use at 30 but never applies the idle '
+        'rate to a touched screen', (tester) async {
+      await pumpApp(tester);
+      policy.idleFps = 0;
+      saver = true;
+      await tester.pump(const Duration(minutes: 1));
+      await tester.tapAt(const Offset(5, 300));
+      expect(policy.fps, kSaverEmoteFps);
+
+      await tester.pump(const Duration(seconds: 30));
+      expect(policy.fps, 0);
+      policy.dispose();
+    });
+
     testWidgets('turning adaptive off restores 60', (tester) async {
       await pumpApp(tester);
       await tester.pump(const Duration(seconds: 30));

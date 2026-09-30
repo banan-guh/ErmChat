@@ -387,8 +387,8 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
           secondary: const Icon(Icons.battery_saver_outlined),
           title: const Text('Adaptive frame rate'),
           subtitle: Text(
-            'Idle rate after 30s without a touch or in battery saver, '
-            'otherwise $kActiveEmoteFps fps',
+            'Idle rate after 30s without a touch, otherwise '
+            '$kActiveEmoteFps fps ($kSaverEmoteFps in battery saver)',
           ),
           value: _adaptiveFps,
           onChanged: _animateGifs
@@ -403,7 +403,11 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
         ListTile(
           enabled: _animateGifs && _adaptiveFps,
           title: const Text('Idle frame rate'),
-          trailing: Text(_idleFpsLabel(_idleFps)),
+          // Fixed width so the slider keeps its length as the label changes.
+          trailing: SizedBox(
+            width: 64,
+            child: Text(_idleFpsLabel(_idleFps), textAlign: TextAlign.end),
+          ),
           subtitle: Slider(
             key: const Key('idle_emote_fps_slider'),
             value: _idleFps.toDouble(),
