@@ -5,6 +5,7 @@ import '../emotes/emote.dart';
 import '../models/emote_fetch_tier.dart';
 import '../models/twitch_message.dart';
 import '../util/constants.dart' show kWhispersChannel;
+import '../util/perf_probe.dart';
 import '../irc/decode/codec.dart' show parseIrcChatMessage;
 import '../irc/decode/copy.dart'
     show buildUserNoticeText, userNoticeAccent, userNoticeLabelId;
@@ -281,6 +282,7 @@ class ChatIngestion {
       ownLogin: session.login,
     );
     if (!result.inserted) return;
+    if (PerfProbe.enabled) PerfProbe.messages++;
 
     // Feed the emote usage registry from live chat: the emotes people are
     // actually staring at get cache priority. History/backfill are skipped

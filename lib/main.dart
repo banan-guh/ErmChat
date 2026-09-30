@@ -23,6 +23,7 @@ import 'theme_colors.dart';
 import 'util/insets.dart';
 import 'util/layout_density.dart';
 import 'util/log.dart';
+import 'util/perf_probe.dart';
 import 'util/prefs.dart';
 import 'util/prefs_store.dart';
 import 'util/crash_report.dart';
@@ -65,6 +66,10 @@ void main() async {
   // still presents immediately. Premium shaders preload for the bars.
   await LiquidGlassWidgets.initialize();
   unawaited(_warmHistory());
+  PerfProbe.start();
+  PerfProbe.gauge('live', () => EmoteUrlProvider.liveCount);
+  PerfProbe.gauge('stream', () => EmoteUrlProvider.streamingCount);
+  PerfProbe.gauge('array', () => EmoteUrlProvider.arrayCount);
   runZonedGuarded(
     () => runApp(
       LiquidGlassWidgets.wrap(
@@ -78,6 +83,7 @@ void main() async {
       ),
     ),
     reportError,
+    zoneSpecification: PerfProbe.zoneSpec,
   );
 }
 

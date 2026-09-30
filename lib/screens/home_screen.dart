@@ -75,6 +75,7 @@ import '../widgets/emote_menu_panel.dart';
 import '../widgets/message_builder.dart';
 import '../widgets/predictive_back_handler.dart';
 import '../widgets/join_channel_dialog.dart';
+import '../services/fake_chat_feed.dart';
 import '../services/foreground_task.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
@@ -165,6 +166,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   final _isMobile = ValueNotifier<bool>(false);
 
   late final EmoteManager _emoteManager = ref.read(emoteManagerProvider);
+  late final FakeChatFeed _fakeChat = FakeChatFeed(
+    // ignore: invalid_use_of_visible_for_testing_member
+    decoder: _chatConn.readDecoder,
+    channel: () => selectedChannel,
+    emotes: _emoteManager.channelTabEmotes,
+  );
 
   late final EmoteLookupSource _emoteLookupSource = ref.read(
     emoteLookupSourceProvider,
@@ -1029,6 +1036,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   // priming and post-auth refresh live in EmoteController.
   void _connectChat() {
     _chatConn.connect();
+    if (FakeChatFeed.rate > 0) _fakeChat.start();
   }
 
   void _onAuthChanged() {
@@ -1209,6 +1217,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 
   @override
   void dispose() {
+    if (FakeChatFeed.rate > 0) _fakeChat.dispose();
     _isMobile.dispose();
     DataUsageStats.I.dispose();
     for (final unsubscribe in _signalUnsubs) {
