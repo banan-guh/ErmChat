@@ -9,6 +9,7 @@ import '../../services/emote_manager.dart';
 import '../../util/prefs.dart';
 import '../../util/prefs_store.dart';
 import '../../widgets/dialogs.dart';
+import '../../widgets/emote_frame_rate.dart';
 import 'settings_page.dart';
 
 class EmotesSettingsScreen extends StatefulWidget {
@@ -57,6 +58,7 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
   bool _allowUnlisted = false;
   bool _animateGifs = true;
   bool _adaptiveFps = true;
+  int _idleFps = kIdleEmoteFps;
 
   /// Enabled-provider snapshot from when the screen opened, so closing it
   /// can diff which providers were newly enabled.
@@ -141,6 +143,7 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
         _draftCacheMb = _appliedCacheMb;
         _animateGifs = prefs.animateGifs;
         _adaptiveFps = prefs.adaptiveEmoteFps;
+        _idleFps = prefs.idleEmoteFps;
       });
     }
   }
@@ -383,9 +386,9 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
         SwitchListTile(
           secondary: const Icon(Icons.battery_saver_outlined),
           title: const Text('Adaptive frame rate'),
-          subtitle: const Text(
-            'Animate at 30 fps after 30s without a touch or in battery saver, '
-            'otherwise 60 fps',
+          subtitle: Text(
+            'Idle rate after 30s without a touch or in battery saver, '
+            'otherwise $kActiveEmoteFps fps',
           ),
           value: _adaptiveFps,
           onChanged: _animateGifs
@@ -396,6 +399,27 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
                   if (mounted) setState(() => _adaptiveFps = value);
                 }
               : null,
+        ),
+        ListTile(
+          enabled: _animateGifs && _adaptiveFps,
+          title: const Text('Idle frame rate'),
+          trailing: Text(_idleFpsLabel(_idleFps)),
+          subtitle: Slider(
+            key: const Key('idle_emote_fps_slider'),
+            value: _idleFps.toDouble(),
+            min: 0,
+            max: kActiveEmoteFps.toDouble(),
+            divisions: kActiveEmoteFps ~/ 5,
+            label: _idleFpsLabel(_idleFps),
+            onChanged: _animateGifs && _adaptiveFps
+                ? (value) => setState(() => _idleFps = value.round())
+                : null,
+            onChangeEnd: (value) async {
+              final prefs = await Prefs.load();
+              await prefs.setIdleEmoteFps(value.round());
+              PrefsStore.instance.notifyChanged();
+            },
+          ),
         ),
         if (widget.emoteManager != null) ...[
           SettingsNavTile(
@@ -424,6 +448,8 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
     EmoteType.ffz,
     EmoteType.sevenTv,
   ];
+
+  static String _idleFpsLabel(int fps) => fps == 0 ? 'Freeze' : '$fps fps';
 
   String _providersSummary() {
     final enabled = [

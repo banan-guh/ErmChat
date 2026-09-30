@@ -259,6 +259,7 @@ class _TwitchChatAppState extends State<TwitchChatApp> {
       _keepScreenOn = prefs.keepScreenOn;
       WakelockPlus.toggle(enable: _keepScreenOn).ignore();
       _emoteFrameRate.adaptive = prefs.adaptiveEmoteFps;
+      _emoteFrameRate.idleFps = prefs.idleEmoteFps;
       _trueDark = prefs.trueDark;
       _accentKey = prefs.accentColor;
       _layoutDensity = prefs.layoutDensity;

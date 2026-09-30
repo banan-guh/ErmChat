@@ -28,6 +28,16 @@ void main() {
     });
   });
 
+  test('a 0 frame rate freezes until a nonzero rate returns', () {
+    addTearDown(() => EmoteUrlProvider.applyFrameRate(60));
+    EmoteUrlProvider.applyFrameRate(0);
+    expect(EmoteUrlProvider.animating, isFalse);
+    // Alignment stays defined even with nothing ticking.
+    expect(EmoteUrlProvider.alignWaitUs(1000, nowUs: 0), greaterThan(0));
+    EmoteUrlProvider.applyFrameRate(30);
+    expect(EmoteUrlProvider.animating, isTrue);
+  });
+
   group('shared tick', () {
     // A 1s period keeps every call in one bucket despite the real clock.
     setUp(() => EmoteUrlProvider.frameRate = 1);
@@ -147,6 +157,19 @@ void main() {
       await pumpApp(tester);
       await tester.tap(find.byType(TextField));
       await tester.pump(const Duration(minutes: 2));
+      expect(policy.fps, kActiveEmoteFps);
+      policy.dispose();
+    });
+
+    testWidgets('idle uses the chosen rate, including 0', (tester) async {
+      await pumpApp(tester);
+      policy.idleFps = 15;
+      await tester.pump(const Duration(seconds: 30));
+      expect(policy.fps, 15);
+
+      policy.idleFps = 0;
+      expect(applied.last, 0);
+      await tester.tapAt(const Offset(5, 300));
       expect(policy.fps, kActiveEmoteFps);
       policy.dispose();
     });

@@ -94,6 +94,7 @@ class Prefs {
   static const _kWelcomeSeen = 'welcome_seen';
   static const _kAnimateGifs = 'animate_gifs';
   static const _kAdaptiveEmoteFps = 'adaptive_emote_fps';
+  static const _kIdleEmoteFps = 'idle_emote_fps';
 
   int get maxMessagesPerChannel =>
       _p.getInt(_kMaxMessagesPerChannel) ?? kMaxMessagesPerChannelDefault;
@@ -178,6 +179,11 @@ class Prefs {
 
   Future<void> setAdaptiveEmoteFps(bool value) =>
       _p.setBool(_kAdaptiveEmoteFps, value);
+
+  /// Emote frame rate while idle under adaptive, 0 to 60; 0 freezes.
+  int get idleEmoteFps => _p.getInt(_kIdleEmoteFps) ?? 30;
+
+  Future<void> setIdleEmoteFps(int value) => _p.setInt(_kIdleEmoteFps, value);
 
   // ── Customization ───────────────────────────────────────────────────
   static const _kChatFontSize = 'chat_font_size';
