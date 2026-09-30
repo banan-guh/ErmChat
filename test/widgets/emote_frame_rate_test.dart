@@ -1,5 +1,6 @@
 import 'package:ermchat/widgets/emote_frame_rate.dart';
 import 'package:ermchat/widgets/emote_url_provider.dart';
+import 'package:fake_async/fake_async.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -24,6 +25,56 @@ void main() {
           expect(aligned - wait, lessThan(period));
         }
       }
+    });
+  });
+
+  group('shared tick', () {
+    // A 1s period keeps every call in one bucket despite the real clock.
+    setUp(() => EmoteUrlProvider.frameRate = 1);
+    tearDown(() => EmoteUrlProvider.frameRate = 60);
+
+    test('emotes due on one tick share a single timer', () {
+      fakeAsync((async) {
+        var fired = 0;
+        for (var i = 0; i < 10; i++) {
+          EmoteUrlProvider.runOnTick(1000, () => fired++);
+        }
+        expect(async.pendingTimers.length, 1);
+        async.elapse(const Duration(seconds: 2));
+        expect(fired, 10);
+      });
+    });
+
+    test('cancel skips one callback; the last cancel stops the timer', () {
+      fakeAsync((async) {
+        var fired = 0;
+        final a = EmoteUrlProvider.runOnTick(1000, () => fired++);
+        final b = EmoteUrlProvider.runOnTick(1000, () => fired += 10);
+        a.cancel();
+        expect(a.isActive, isFalse);
+        expect(b.isActive, isTrue);
+        async.elapse(const Duration(seconds: 2));
+        expect(fired, 10);
+
+        final c = EmoteUrlProvider.runOnTick(1000, () => fired++);
+        c.cancel();
+        expect(async.pendingTimers, isEmpty);
+      });
+    });
+
+    test('joinPendingTick rides a pending tick or declines', () {
+      fakeAsync((async) {
+        expect(EmoteUrlProvider.joinPendingTick(() {}), isNull);
+        final order = <String>[];
+        EmoteUrlProvider.runOnTick(0, () => order.add('emote'));
+        final joined = EmoteUrlProvider.joinPendingTick(
+          () => order.add('joined'),
+        );
+        expect(joined, isNotNull);
+        expect(async.pendingTimers.length, 1);
+        async.elapse(const Duration(seconds: 2));
+        expect(order, ['emote', 'joined']);
+      });
     });
   });
 

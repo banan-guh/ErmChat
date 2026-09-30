@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:collection';
 import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
@@ -110,6 +111,46 @@ class EmoteUrlProvider extends ImageProvider<EmoteUrlProvider> {
     return (due + periodUs - 1) ~/ periodUs * periodUs - now;
   }
 
+  /// Pending shared ticks by due time. Every emote due on the same tick
+  /// shares one [Timer], so wakeups scale with [frameRate], not emote count.
+  static final Map<int, _TickBucket> _tickBuckets = {};
+
+  /// Runs [f] on the shared tick at or after [waitUs]. The handle cancels
+  /// only [f]; the bucket timer fires for whoever is left.
+  static Timer runOnTick(int waitUs, void Function() f) {
+    final now = DateTime.now().microsecondsSinceEpoch;
+    final aligned = alignWaitUs(waitUs, nowUs: now);
+    final due = now + aligned;
+    var bucket = _tickBuckets[due];
+    // A bucket from another zone (a finished test) may never fire.
+    if (bucket == null || !identical(bucket.zone, Zone.current)) {
+      final fresh = bucket = _TickBucket(Zone.current, due);
+      _tickBuckets[due] = fresh;
+      fresh.timer = Timer(Duration(microseconds: aligned), fresh.fire);
+    }
+    final handle = _TickHandle(f, bucket);
+    bucket.handles.add(handle);
+    return handle;
+  }
+
+  /// Runs [f] on the pending shared tick due within one period, so another
+  /// frame source lands in the same frame as the emotes. Returns null when
+  /// none is pending; the caller should act now.
+  static Timer? joinPendingTick(void Function() f) {
+    final now = DateTime.now().microsecondsSinceEpoch;
+    final periodUs = 1000000 ~/ frameRate;
+    _TickBucket? next;
+    for (final bucket in _tickBuckets.values) {
+      if (!identical(bucket.zone, Zone.current)) continue;
+      if (bucket.due < now || bucket.due > now + periodUs) continue;
+      if (next == null || bucket.due < next.due) next = bucket;
+    }
+    if (next == null) return null;
+    final handle = _TickHandle(f, next);
+    next.handles.add(handle);
+    return handle;
+  }
+
   /// Live custom-loop completers by URL (animated WebP, playing GIFs,
   /// frozen stills). Engine-routable bytes never enter: they resolve through
   /// the stock provider at call sites, so this map no longer decides
@@ -118,6 +159,16 @@ class EmoteUrlProvider extends ImageProvider<EmoteUrlProvider> {
 
   /// Live completer count, for the growth probe.
   static int get liveCount => _liveByUrl.length;
+
+  /// Visible completers decoding per tick, for the perf probe.
+  static int get streamingCount => _liveByUrl.values
+      .where((c) => c._visible && c._frames == null && c._codec != null)
+      .length;
+
+  /// Visible completers replaying captured frames, for the perf probe.
+  static int get arrayCount => _liveByUrl.values
+      .where((c) => c._visible && (c._frames?.frames.length ?? 0) > 1)
+      .length;
 
   /// Fresh completers built this session. A shared URL keeps this at one;
   /// growth means a second playback clock was created. Exposed for tests.
@@ -525,6 +576,7 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
   bool get _isPlaying =>
       _frameCallbackId != null ||
       (_frameTimer?.isActive ?? false) ||
+      _awaitingSlot ||
       _streamDecoding;
 
   /// Current frame index (self-driven, 0 when not loaded).
@@ -643,6 +695,34 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
     return true;
   }
 
+  /// A decoded frame waiting for the shared tick, and its tick slot.
+  ui.Image? _heldFrame;
+  Timer? _heldEmit;
+
+  /// Shows a freshly decoded frame on the next shared tick instead of the
+  /// moment its decode lands. Decodes finish at scattered times, and each
+  /// would otherwise cost its own app frame; held, they share the tick's.
+  void _emitDecoded(ui.Image image) {
+    _heldFrame?.dispose();
+    _heldFrame = image;
+    if (_heldEmit?.isActive ?? false) return;
+    _heldEmit = EmoteUrlProvider.joinPendingTick(_releaseHeld);
+    if (_heldEmit == null) _releaseHeld();
+  }
+
+  void _releaseHeld() {
+    _heldEmit?.cancel();
+    _heldEmit = null;
+    final image = _heldFrame;
+    _heldFrame = null;
+    if (image == null) return;
+    if (_disposed) {
+      image.dispose();
+      return;
+    }
+    setImage(ImageInfo(image: image, scale: 1.0, debugLabel: 'emote-$url'));
+  }
+
   /// Starts the playback loop. App frames drive emission; timer requests next frame.
   void _startPlayback() {
     if (_disposed || !hasListeners) return;
@@ -682,6 +762,7 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
   void _stopPlayback() {
     _frameTimer?.cancel();
     _frameTimer = null;
+    _awaitingSlot = false;
     final id = _frameCallbackId;
     if (id != null) {
       SchedulerBinding.instance.cancelFrameCallbackWithId(id);
@@ -729,8 +810,7 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
     if (remainingUs <= 0) {
       remainingUs = 16000; // Zero-duration guard: next vsync.
     }
-    remainingUs = EmoteUrlProvider.alignWaitUs(remainingUs);
-    _frameTimer = Timer(Duration(microseconds: remainingUs), () {
+    _frameTimer = EmoteUrlProvider.runOnTick(remainingUs, () {
       _frameTimer = null;
       _scheduleAppFrame();
     });
@@ -824,13 +904,7 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
         _engineSeed?.dispose();
         _engineSeed = frame.image;
       }
-      setImage(
-        ImageInfo(
-          image: frame.image.clone(),
-          scale: 1.0,
-          debugLabel: 'emote-$url',
-        ),
-      );
+      _emitDecoded(frame.image.clone());
       if (!_streamIsWebp) frame.image.dispose();
       _streamEmitted++;
       _streamDecoding = false;
@@ -867,8 +941,7 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
     var waitUs = _streamDueUs - DateTime.now().microsecondsSinceEpoch;
     if (waitUs < 0) waitUs = 0;
     // Late frames past their window are skipped at decode, not slowed.
-    waitUs = EmoteUrlProvider.alignWaitUs(waitUs);
-    _frameTimer = Timer(Duration(microseconds: waitUs), _onStreamTick);
+    _frameTimer = EmoteUrlProvider.runOnTick(waitUs, _onStreamTick);
   }
 
   /// Fires when a streamed frame is due. Decodes immediately while the app is
@@ -887,7 +960,10 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
     // Cap concurrent decodes so bulk restarts stagger instead of stacking
     // decode cost into the same frame; each emote keeps its grid phase.
     if (_inFlightDecodes >= _maxConcurrentDecodes) {
-      _frameTimer = Timer(const Duration(milliseconds: 8), _onStreamTick);
+      if (!_awaitingSlot) {
+        _awaitingSlot = true;
+        _slotWaiters.add(this);
+      }
       return;
     }
     unawaited(_countedDecode());
@@ -897,12 +973,30 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
   static int _inFlightDecodes = 0;
   static const _maxConcurrentDecodes = 3;
 
+  /// Completers whose tick came due while every decode slot was busy, woken
+  /// in order as slots free up.
+  static final Queue<_EmoteImageCompleter> _slotWaiters = Queue();
+  bool _awaitingSlot = false;
+
   Future<void> _countedDecode() async {
     _inFlightDecodes++;
     try {
       await _onStreamAppFrame(Duration.zero);
     } finally {
       _inFlightDecodes--;
+      _wakeSlotWaiter();
+    }
+  }
+
+  /// Wakes queued completers until the free slots are taken. A waker that
+  /// skips its decode (paused, disposed) leaves the slot to the next one.
+  static void _wakeSlotWaiter() {
+    while (_slotWaiters.isNotEmpty &&
+        _inFlightDecodes < _maxConcurrentDecodes) {
+      final next = _slotWaiters.removeFirst();
+      if (!next._awaitingSlot) continue;
+      next._awaitingSlot = false;
+      next._onStreamTick();
     }
   }
 
@@ -1046,9 +1140,7 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
       _frameIndex = i;
       _hasStreamFrame = true;
       _captureFrame(i, out, Duration(milliseconds: frameMeta.durationMs));
-      setImage(
-        ImageInfo(image: out.clone(), scale: 1.0, debugLabel: 'emote-$url'),
-      );
+      _emitDecoded(out.clone());
     } on Object catch (error, stack) {
       bitmap?.dispose();
       codec?.dispose();
@@ -1121,6 +1213,10 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
   @mustCallSuper
   void onDisposed() {
     _disposed = true;
+    _heldEmit?.cancel();
+    _heldEmit = null;
+    _heldFrame?.dispose();
+    _heldFrame = null;
     if (EmoteUrlProvider._liveByUrl[url] == this) {
       EmoteUrlProvider._liveByUrl.remove(url);
     }
@@ -1154,5 +1250,61 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
     _expectedFrameCount = 0;
     EmoteUrlProvider._capturedOrder.remove(url);
     super.onDisposed();
+  }
+}
+
+/// Emotes sharing one tick timer, and the zone that timer lives in.
+class _TickBucket {
+  _TickBucket(this.zone, this.due);
+  final Zone zone;
+  final int due;
+  late final Timer timer;
+  final Set<_TickHandle> handles = {};
+
+  void fire() {
+    final map = EmoteUrlProvider._tickBuckets;
+    if (identical(map[due], this)) map.remove(due);
+    for (final h in handles.toList()) {
+      try {
+        h._fire();
+      } catch (error, stack) {
+        Zone.current.handleUncaughtError(error, stack);
+      }
+    }
+    handles.clear();
+  }
+
+  /// Drops [h]; the last one out cancels the shared timer.
+  void remove(_TickHandle h) {
+    if (!handles.remove(h) || handles.isNotEmpty) return;
+    timer.cancel();
+    final map = EmoteUrlProvider._tickBuckets;
+    if (identical(map[due], this)) map.remove(due);
+  }
+}
+
+/// One emote's slot in a shared tick; cancelling skips only this callback.
+class _TickHandle implements Timer {
+  _TickHandle(this._callback, this._bucket);
+  void Function()? _callback;
+  final _TickBucket _bucket;
+
+  void _fire() {
+    final f = _callback;
+    _callback = null;
+    f?.call();
+  }
+
+  @override
+  bool get isActive => _callback != null;
+
+  @override
+  int get tick => 0;
+
+  @override
+  void cancel() {
+    if (_callback == null) return;
+    _callback = null;
+    _bucket.remove(this);
   }
 }
