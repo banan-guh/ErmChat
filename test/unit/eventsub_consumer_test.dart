@@ -122,10 +122,17 @@ void main() {
     eventSub.dispose();
   });
 
+  // Lets the unawaited per-family subscribes finish their Helix calls.
+  Future<void> settle() async {
+    for (var i = 0; i < 30; i++) {
+      await Future<void>.delayed(Duration.zero);
+    }
+  }
+
   // Activates every family through the real topics path.
   Future<void> subscribeAll() async {
     topics.subscribeChannel('testchannel', 'broadcaster1');
-    await Future.delayed(const Duration(milliseconds: 100));
+    await settle();
   }
 
   // Drops the session state, fails moderation re-subscribes, and brings the
@@ -134,7 +141,7 @@ void main() {
     topics.clearSessionState();
     script['channel.moderate'] = 500;
     topics.subscribeChannel('testchannel', 'broadcaster1');
-    await Future.delayed(const Duration(milliseconds: 100));
+    await settle();
     expect(topics.isModerationActive('testchannel'), isFalse);
   }
 

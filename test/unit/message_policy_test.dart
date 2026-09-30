@@ -120,13 +120,11 @@ void main() {
       expect(message.highlight?.hasMention, isTrue);
     });
 
-    test('mention-only mode ignores non-mention highlights', () {
-      final message = msg('reward', msgId: 'highlighted-message');
-      policy.applyPingHighlight(message, mentionOnly: true);
-      expect(message.highlight, isNull);
-    });
+    test('mention-only mode drops non-mentions and keeps existing', () {
+      final plain = msg('reward', msgId: 'highlighted-message');
+      policy.applyPingHighlight(plain, mentionOnly: true);
+      expect(plain.highlight, isNull);
 
-    test('mention-only mode keeps an existing highlight', () {
       pings.setAccount('forsen');
       const existing = HighlightState(types: {HighlightType.username});
       final message = msg('hey forsen')..highlight = existing;
@@ -136,17 +134,13 @@ void main() {
   });
 
   group('user learning', () {
-    test('stores the login when the display name differs', () {
+    test('stores the login or a case-only display name', () {
       policy.learnUser(
         'ch',
         msg('hi', login: 'loginname', displayName: 'DisplayName'),
       );
-      expect(users.usersForChannel('ch'), contains('loginname'));
-    });
-
-    test('stores the display name when it only differs in case', () {
       policy.learnUser('ch', msg('hi', login: 'foobar', displayName: 'FooBar'));
-      expect(users.usersForChannel('ch'), contains('FooBar'));
+      expect(users.usersForChannel('ch'), containsAll(['loginname', 'FooBar']));
     });
   });
 

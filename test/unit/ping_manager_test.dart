@@ -84,7 +84,7 @@ void main() {
   });
 
   group('username rule', () {
-    test('matches whole word, @ prefix, case insensitive', () async {
+    test('matches whole word, @ prefix, case insensitive, not self', () async {
       final m = await makeManager();
       m.setAccount('forsen');
       expect(
@@ -93,6 +93,9 @@ void main() {
       );
       expect(m.evaluate(msg('hello Forsen'))?.hasMention, isTrue);
       expect(m.evaluate(msg('forsenator')), isNull);
+      // Self and system messages never ping.
+      expect(m.evaluate(msg('hi forsen', login: 'forsen')), isNull);
+      expect(m.evaluate(msg('hi forsen', isSystem: true)), isNull);
     });
 
     test('matches our own display name when it differs from login', () async {
@@ -112,116 +115,71 @@ void main() {
         HighlightType.username,
       );
     });
-
-    test('username and reply builtins skip self messages', () async {
-      final m = await makeManager();
-      m.setAccount('forsen');
-      expect(m.evaluate(msg('hi forsen', login: 'forsen')), isNull);
-      expect(m.evaluate(msg('hi forsen', isSystem: true)), isNull);
-    });
   });
 
   group('custom keyword rules', () {
-    Future<PingManager> managerWith(PingRule rule) async {
-      final m = await makeManager();
-      m.setAccount('me');
-      m.upsertRule(rule);
-      return m;
-    }
-
-    test(
-      'matches custom keywords by substring including own messages',
-      () async {
-        final m = await managerWith(
-          const PingRule(
-            id: 'c1',
-            kind: PingRuleKind.message,
-            type: 'custom',
-            pattern: 'KEKW',
-          ),
-        );
-        const cases = [
-          ('KEKW', 'me', true),
-          ('lol kekw', 'otheruser', true),
-          ('nothing here', 'otheruser', false),
-        ];
-        for (final (text, login, shouldMatch) in cases) {
-          final result = m.evaluate(msg(text, login: login));
-          if (shouldMatch) {
-            expect(
-              result?.types,
-              contains(HighlightType.custom),
-              reason: 'text: $text login: $login',
-            );
-          } else {
-            expect(result, isNull, reason: 'text: $text login: $login');
-          }
-        }
-      },
+    PingRule custom(
+      String pattern, {
+      bool isRegex = false,
+      bool cs = false,
+      bool enabled = true,
+      bool word = false,
+    }) => PingRule(
+      id: 'c',
+      kind: PingRuleKind.message,
+      type: 'custom',
+      pattern: pattern,
+      isRegex: isRegex,
+      caseSensitive: cs,
+      enabled: enabled,
+      wordBoundary: word,
     );
 
-    test('regex matching with fallback on invalid patterns', () async {
-      final m = await managerWith(
-        const PingRule(
-          id: 'c2',
-          kind: PingRuleKind.message,
-          type: 'custom',
-          pattern: '\\bKappa\\d+\\b',
-          isRegex: true,
-        ),
-      );
-      expect(m.evaluate(msg('Kappa123')), isNotNull);
-      expect(m.evaluate(msg('Kappa')), isNull);
+    for (final (name, rule, hits, misses) in [
+      ('substring, case-insensitive', custom('KEKW'), ['lol kekw'], ['nope']),
+      (
+        'regex',
+        custom(r'\bKappa\d+\b', isRegex: true),
+        ['Kappa123'],
+        ['Kappa'],
+      ),
+      (
+        'invalid regex falls back to literal',
+        custom('(unclosed', isRegex: true),
+        ['(unclosed lol'],
+        ['unclosed'],
+      ),
+      ('case sensitive', custom('KEKW', cs: true), ['KEKW'], ['kekw']),
+      ('disabled', custom('ping', enabled: false), <String>[], ['ping']),
+      (
+        'whole word anchors literals',
+        custom('cat', word: true),
+        ['petting the cat'],
+        ['concatenate category'],
+      ),
+    ]) {
+      test(name, () async {
+        final m = await makeManager();
+        m.setAccount('me');
+        m.upsertRule(rule);
+        for (final text in hits) {
+          expect(
+            m.evaluate(msg(text))?.types,
+            contains(HighlightType.custom),
+            reason: text,
+          );
+        }
+        for (final text in misses) {
+          expect(m.evaluate(msg(text)), isNull, reason: text);
+        }
+      });
+    }
 
-      final bad = await managerWith(
-        const PingRule(
-          id: 'c3',
-          kind: PingRuleKind.message,
-          type: 'custom',
-          pattern: '(unclosed',
-          isRegex: true,
-        ),
-      );
-      expect(bad.evaluate(msg('(unclosed lol')), isNotNull);
-    });
-
-    test('honors the case sensitive and enabled flags', () async {
-      final sensitive = await managerWith(
-        const PingRule(
-          id: 'c4',
-          kind: PingRuleKind.message,
-          type: 'custom',
-          pattern: 'KEKW',
-          caseSensitive: true,
-        ),
-      );
-      expect(sensitive.evaluate(msg('kekw')), isNull);
-      expect(sensitive.evaluate(msg('KEKW')), isNotNull);
-
-      final disabled = await managerWith(
-        const PingRule(
-          id: 'c5',
-          kind: PingRuleKind.message,
-          type: 'custom',
-          pattern: 'ping',
-          enabled: false,
-        ),
-      );
-      expect(disabled.evaluate(msg('ping')), isNull);
-    });
-
-    test('whole word flag anchors literal patterns', () async {
-      final m = await managerWith(
-        const PingRule(
-          id: 'c6',
-          kind: PingRuleKind.message,
-          type: 'custom',
-          pattern: 'cat',
-          wordBoundary: true,
-        ),
-      );
-      expect(m.evaluate(msg('petting the cat')), isNotNull);
-      expect(m.evaluate(msg('concatenate category')), isNull);
+    test('matches own messages too', () async {
+      final m = await makeManager();
+      m.setAccount('me');
+      m.upsertRule(custom('KEKW'));
+      expect(m.evaluate(msg('KEKW', login: 'me')), isNotNull);
     });
   });
 
@@ -234,21 +192,25 @@ void main() {
       return m;
     }
 
-    test('user rule matches the login', () async {
+    test('user and badge rules match; blacklist suppresses', () async {
       final m = await managerWith([
         const PingRule(id: 'u1', kind: PingRuleKind.user, pattern: 'spammy'),
+        const PingRule(id: 'b1', kind: PingRuleKind.badge, pattern: 'vip'),
       ]);
       expect(m.evaluate(msg('buy stuff', login: 'Spammy'))?.hasMention, isTrue);
       expect(m.evaluate(msg('buy stuff', login: 'other')), isNull);
-    });
-
-    test('badge rule matches a badge set id', () async {
-      final m = await managerWith([
-        const PingRule(id: 'b1', kind: PingRuleKind.badge, pattern: 'vip'),
-      ]);
       final hit = msg('hey', badges: [badge('vip')]);
       expect(m.evaluate(hit)?.types, contains(HighlightType.badge));
       expect(m.evaluate(msg('hey', badges: [badge('moderator')])), isNull);
+
+      m.upsertRule(
+        const PingRule(
+          id: 'bl1',
+          kind: PingRuleKind.blacklist,
+          pattern: 'spammy',
+        ),
+      );
+      expect(m.evaluate(msg('buy stuff', login: 'Spammy')), isNull);
     });
 
     test('redemption, elevated, first message builtins', () async {
@@ -273,34 +235,14 @@ void main() {
     });
   });
 
-  group('blacklist', () {
-    test('suppresses all highlights from a blacklisted user', () async {
-      final m = await makeManager();
-      m.setAccount('forsen');
-      m.upsertRule(
-        const PingRule(
-          id: 'bl1',
-          kind: PingRuleKind.blacklist,
-          pattern: 'botlord',
-        ),
-      );
-      expect(m.evaluate(msg('hey forsen', login: 'BotLord')), isNull);
-    });
-  });
-
   group('reply participation', () {
-    test('direct replies ping', () async {
+    test('direct replies and replies onto own messages ping', () async {
       final m = await makeManager();
       m.setAccount('forsen');
       expect(
         m.evaluate(msg('a reply', replyToUser: 'Forsen'))?.primary,
         HighlightType.reply,
       );
-    });
-
-    test('replies onto our own messages ping via registry', () async {
-      final m = await makeManager();
-      m.setAccount('forsen');
       m.registerOwnMessage('forsen', 'own-1', threadRootId: 'root-1');
       expect(
         m.evaluate(msg('chained', replyToParentId: 'own-1'))?.primary,
@@ -310,12 +252,7 @@ void main() {
         m.evaluate(msg('threaded', replyThreadRootId: 'root-1'))?.primary,
         HighlightType.reply,
       );
-    });
-
-    test('participation does not leak across channels', () async {
-      final m = await makeManager();
-      m.setAccount('forsen');
-      m.registerOwnMessage('chan1', 'own-1');
+      // Participation is per channel.
       expect(
         m.evaluate(msg('chained', channel: 'chan2', replyToParentId: 'own-1')),
         isNull,
@@ -346,35 +283,27 @@ void main() {
     );
   });
 
-  group('state merging', () {
-    test('notify aggregates across matched rules', () async {
-      final m = await makeManager();
-      m.setAccount('forsen');
-      m.upsertRule(
-        const PingRule(
-          id: 'n1',
-          kind: PingRuleKind.message,
-          type: 'custom',
-          pattern: 'alert',
-          notify: true,
-        ),
-      );
-      // Redemption alone never notifies; with a notifying keyword it must.
-      final both = m.evaluate(msg('alert x', customRewardId: 'r'));
-      expect(both?.notify, isTrue);
-      expect(
-        m.evaluate(msg('no keywords', customRewardId: 'r'))?.notify,
-        isFalse,
-      );
-    });
-
-    test('mention-tier beats event types for priority', () async {
-      final m = await makeManager();
-      m.setAccount('forsen');
-      final both = m.evaluate(msg('forsen', customRewardId: 'r'));
-      expect(both?.primary, HighlightType.username);
-      expect(both?.hasMention, isTrue);
-    });
+  test('notify aggregates and mention tier wins priority', () async {
+    final m = await makeManager();
+    m.setAccount('forsen');
+    m.upsertRule(
+      const PingRule(
+        id: 'n1',
+        kind: PingRuleKind.message,
+        type: 'custom',
+        pattern: 'alert',
+        notify: true,
+      ),
+    );
+    // Redemption alone never notifies; with a notifying keyword it must.
+    expect(m.evaluate(msg('alert x', customRewardId: 'r'))?.notify, isTrue);
+    expect(
+      m.evaluate(msg('no keywords', customRewardId: 'r'))?.notify,
+      isFalse,
+    );
+    final both = m.evaluate(msg('forsen', customRewardId: 'r'));
+    expect(both?.primary, HighlightType.username);
+    expect(both?.hasMention, isTrue);
   });
 
   group('rowColor contrast equalization', () {

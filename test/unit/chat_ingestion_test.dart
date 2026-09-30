@@ -82,7 +82,7 @@ void main() {
     );
     final ingestion = makeIngestion(manager);
 
-    // Live message with unknown words: previously triggered a listing fetch.
+    // Live message with unknown words: no listing fetch.
     ingestion.precacheMessageEmotes(
       TwitchMessage(
         login: 'someone',
@@ -91,7 +91,7 @@ void main() {
       ),
       'ch',
     );
-    // History message: same expectation.
+    // History message: same.
     ingestion.precacheMessageEmotes(
       TwitchMessage(
         login: 'someone',
@@ -101,7 +101,7 @@ void main() {
       ),
       'ch',
     );
-    await Future.delayed(const Duration(milliseconds: 100));
+    await pumpEventQueue();
 
     expect(sevenTvHttp, 0);
   });

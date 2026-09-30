@@ -47,18 +47,6 @@ void main() {
     expect(lines.single.$2, contains('banned'));
   });
 
-  test('IRC ban is suppressed while moderate covers it', () {
-    moderationActive = true;
-    hub.onIrcBan(
-      channel: 'test',
-      user: 'spammer',
-      isTimeout: false,
-      duration: null,
-    );
-    expect(analytics, isEmpty);
-    expect(lines, isEmpty);
-  });
-
   test('a ban reported by both sources counts analytics once', () {
     moderationActive = true;
     hub.onModeration(
@@ -110,9 +98,16 @@ void main() {
     },
   );
 
-  test('IRC clear is skipped while moderate is active', () {
+  test('IRC ban and clear are suppressed while moderate covers them', () {
     moderationActive = true;
+    hub.onIrcBan(
+      channel: 'test',
+      user: 'spammer',
+      isTimeout: false,
+      duration: null,
+    );
     hub.onIrcClear('test');
+    expect(analytics, isEmpty);
     expect(lines, isEmpty);
   });
 }

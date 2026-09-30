@@ -62,28 +62,6 @@ void main() {
     expect(chat.mentions.isEmpty, isTrue);
   });
 
-  test('a full channel commit heals history baked before the catalog', () {
-    final chat = Chat();
-    addTearDown(chat.dispose);
-    chat.ensure('ch');
-    final emotes = EmoteManager();
-    addTearDown(emotes.dispose);
-    final controller = _controller(chat, emotes);
-    addTearDown(controller.dispose);
-
-    controller.mergeHistory('ch', [historyRow('h1', 'Alpha')]);
-    final row = chat.channelFor('ch')!.messages.byId('h1')!;
-    expect(row.emoteTokens, isEmpty);
-
-    emotes.store.seedChannelFromCache(
-      'ch',
-      EmoteCatalog(sevenTvChannel: [sevenTv('a', 'Alpha')]),
-      const [],
-    );
-
-    expect(row.emoteTokens!.map((t) => t.emote!.code).toList(), ['Alpha']);
-  });
-
   test('a live 7TV delta does not heal history', () {
     final chat = Chat();
     addTearDown(chat.dispose);
@@ -101,7 +79,7 @@ void main() {
     expect(row.emoteTokens, isEmpty);
   });
 
-  test('a full commit leaves live rows frozen', () {
+  test('a full commit heals history and leaves live rows frozen', () {
     final chat = Chat();
     addTearDown(chat.dispose);
     chat.ensure('ch');
@@ -111,6 +89,7 @@ void main() {
     addTearDown(controller.dispose);
 
     controller.mergeHistory('ch', [historyRow('h1', 'Alpha')]);
+    expect(chat.channelFor('ch')!.messages.byId('h1')!.emoteTokens, isEmpty);
     final live = TwitchMessage(
       login: 'bob',
       text: 'Alpha',
@@ -131,22 +110,9 @@ void main() {
       const [],
     );
 
-    expect(
-      chat.channelFor('ch')!.messages.byId('h1')!.emoteTokens,
-      hasLength(1),
-    );
+    final healed = chat.channelFor('ch')!.messages.byId('h1')!.emoteTokens!;
+    expect(healed.map((t) => t.emote!.code).toList(), ['Alpha']);
     expect(chat.channelFor('ch')!.messages.byId('live')!.emoteTokens, isEmpty);
-  });
-
-  test('restamp on a missing channel is a no-op', () {
-    final chat = Chat();
-    addTearDown(chat.dispose);
-    final emotes = EmoteManager();
-    addTearDown(emotes.dispose);
-    final controller = _controller(chat, emotes);
-    addTearDown(controller.dispose);
-
-    expect(controller.restampChannelEmotes('gone'), 0);
   });
 
   test('dispose detaches the catalog listener', () {

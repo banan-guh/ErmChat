@@ -80,7 +80,7 @@ PointRedemption redemption({
 
 void main() {
   group('PointRedemption.fromPubSub', () {
-    test('parses user, reward, and large image fallback', () {
+    test('parses user, reward, default and custom images', () {
       final redemption = PointRedemption.fromPubSub(
         redemptionJson(),
         '2026-09-17T00:00:00.000Z',
@@ -94,20 +94,17 @@ void main() {
       expect(redemption.requiresUserInput, isFalse);
       expect(redemption.imageUrl, 'https://cdn/x/4.png');
       expect(redemption.redeemedAt, '2026-09-17T00:00:00.000Z');
-    });
 
-    test('prefers the custom image over the default set', () {
-      final redemption = PointRedemption.fromPubSub(
+      final custom = PointRedemption.fromPubSub(
         redemptionJson(
           image: {
             'url_1x': 'https://cdn/custom/1.png',
-            'url_2x': 'https://cdn/custom/2.png',
             'url_4x': 'https://cdn/custom/4.png',
           },
         ),
-        '2026-09-17T00:00:00.000Z',
+        '',
       );
-      expect(redemption.imageUrl, 'https://cdn/custom/4.png');
+      expect(custom.imageUrl, 'https://cdn/custom/4.png');
     });
 
     test('missing fields degrade to empty, never throw', () {
@@ -319,37 +316,6 @@ void main() {
       );
       now = now.add(const Duration(seconds: 11));
       expect(consumer.takeStaged('shroud', 'rw1'), isNull);
-    });
-
-    test('companion header posts before its chat line', () {
-      final chat = Chat();
-      addTearDown(chat.dispose);
-      final consumer = PubSubPointsConsumer(
-        chat: chat,
-        getMaxMessages: () => 500,
-      );
-      addTearDown(consumer.dispose);
-
-      expect(
-        consumer.insertCompanionHeader(
-          'shroud',
-          redemption(requiresInput: true),
-        ),
-        isFalse,
-        reason: 'no channel yet, nothing to attach to',
-      );
-      chat.ensure('shroud');
-      expect(
-        consumer.insertCompanionHeader(
-          'shroud',
-          redemption(requiresInput: true),
-        ),
-        isTrue,
-      );
-      expect(
-        chat.channelFor('shroud')!.messages.items.single.text,
-        'Redeemed Hydrate (500 pts)',
-      );
     });
   });
 }

@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -96,7 +97,11 @@ void main() {
   });
 
   // Lets the unawaited per-family subscribes finish their Helix calls.
-  Future<void> flush() => Future.delayed(const Duration(milliseconds: 100));
+  Future<void> flush() async {
+    for (var i = 0; i < 30; i++) {
+      await Future<void>.delayed(Duration.zero);
+    }
+  }
 
   int modVersion() => chat.channelFor('testchannel')!.moderation.version.value;
 
@@ -311,29 +316,26 @@ void main() {
       expect(calls, 0);
     });
 
-    test('no EventSub session means no subscriptions', () async {
-      eventSub.sessionOverride = null;
-      topics.subscribeChannel('testchannel', 'broadcaster1');
-      await Future.delayed(const Duration(seconds: 4));
-      expect(calls, 0);
-      expect(topics.isModerationActive('testchannel'), isFalse);
+    test('no EventSub session means no subscriptions', () {
+      fakeAsync((async) {
+        eventSub.sessionOverride = null;
+        topics.subscribeChannel('testchannel', 'broadcaster1');
+        async.elapse(const Duration(seconds: 4));
+        expect(calls, 0);
+        expect(topics.isModerationActive('testchannel'), isFalse);
+      });
     });
   });
 
-  group('isBroadcaster', () {
-    test('true when the session owns the channel', () {
-      session.seed('owner', userId: 'broadcaster1');
-      buildTopics();
-      expect(topics.isBroadcaster('testchannel'), isTrue);
-    });
-
-    test('false for other channels and anonymous sessions', () {
-      expect(topics.isBroadcaster('testchannel'), isFalse);
-      expect(topics.isBroadcaster('unknown'), isFalse);
-      session = Session();
-      buildTopics();
-      expect(topics.isBroadcaster('testchannel'), isFalse);
-    });
+  test('isBroadcaster is true only for the session-owned channel', () {
+    expect(topics.isBroadcaster('testchannel'), isFalse);
+    expect(topics.isBroadcaster('unknown'), isFalse);
+    session.seed('owner', userId: 'broadcaster1');
+    buildTopics();
+    expect(topics.isBroadcaster('testchannel'), isTrue);
+    session = Session();
+    buildTopics();
+    expect(topics.isBroadcaster('testchannel'), isFalse);
   });
 
   group('clear vs reset vs forget', () {
