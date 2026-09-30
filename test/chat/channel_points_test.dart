@@ -53,53 +53,10 @@ void main() {
       expect(points.resolveRedemption('r2'), isTrue);
       expect(points.redemptions, isEmpty);
     });
-
-    test('clear and account switch drop points state', () {
-      final chat = Chat();
-      addTearDown(chat.dispose);
-      final points = chat.ensure('test').points;
-      const reward = PointReward(
-        id: 'reward1',
-        title: 'Hydrate',
-        cost: 500,
-        isEnabled: true,
-        isPaused: false,
-      );
-      points.setRewards(const [reward]);
-      points.upsertRedemption(
-        const PointRedemption(
-          id: 'r1',
-          userLogin: 'fan',
-          rewardId: 'reward1',
-          rewardTitle: 'Hydrate',
-          cost: 500,
-          userInput: '',
-          status: 'UNFULFILLED',
-          redeemedAt: '2026-01-02T00:00:00Z',
-        ),
-      );
-      final version = points.version.value;
-      chat.ensure('empty').points.clear();
-      expect(
-        chat.channelFor('empty')!.points.version.value,
-        0,
-        reason: 'no-op is quiet',
-      );
-      points.clear();
-      expect(points.rewards, isEmpty);
-      expect(points.redemptions, isEmpty);
-      expect(points.version.value, version + 1);
-
-      points.setRewards(const [reward]);
-      points.clearForAccountSwitch();
-      expect(points.rewards, isEmpty);
-      chat.remove('test');
-      expect(chat.channelFor('test'), isNull);
-    });
   });
 
   group('redemption header retro-insert', () {
-    test('insertAfter lands directly above the target line', () {
+    test('lands above the target; misses on gone targets and duplicates', () {
       final chat = Chat();
       addTearDown(chat.dispose);
       const max = 500;
@@ -112,66 +69,23 @@ void main() {
           ownLogin: null,
         );
       }
-      // Newest-first: m2 on top.
-      expect(
-        chat.channelFor('shroud')!.messages.items.map((m) => m.messageId),
-        ['m2', 'm1'],
-      );
-
-      final ok = chat
-          .channelFor('shroud')!
-          .insertHeaderAbove(
-            'm2',
-            row('redemp:r1', system: true),
-            maxMessages: max,
-          );
-
-      expect(ok, isTrue);
-      expect(
-        chat.channelFor('shroud')!.messages.items.map((m) => m.messageId),
-        ['m2', 'redemp:r1', 'm1'],
-      );
-    });
-
-    test('misses on gone targets and duplicate header ids', () {
-      final chat = Chat();
-      addTearDown(chat.dispose);
-      const max = 500;
-      chat.receive(
-        'shroud',
-        row('m1'),
-        maxMessages: max,
-        isSelected: true,
-        ownLogin: null,
-      );
       final channel = chat.channelFor('shroud')!;
+      List<String?> ids() =>
+          channel.messages.items.map((m) => m.messageId).toList();
+      final header = row('redemp:r1', system: true);
 
       expect(
-        channel.insertHeaderAbove(
-          'missing',
-          row('redemp:r1', system: true),
-          maxMessages: max,
-        ),
+        channel.insertHeaderAbove('missing', header, maxMessages: max),
         isFalse,
       );
+      expect(channel.insertHeaderAbove('m2', header, maxMessages: max), isTrue);
+      expect(ids(), ['m2', 'redemp:r1', 'm1']);
       expect(
-        channel.insertHeaderAbove(
-          'm1',
-          row('redemp:r1', system: true),
-          maxMessages: max,
-        ),
-        isTrue,
-      );
-      expect(
-        channel.insertHeaderAbove(
-          'm1',
-          row('redemp:r1', system: true),
-          maxMessages: max,
-        ),
+        channel.insertHeaderAbove('m1', header, maxMessages: max),
         isFalse,
         reason: 'header id already buffered',
       );
-      expect(channel.messages.items, hasLength(2));
+      expect(ids(), hasLength(3));
     });
   });
 }

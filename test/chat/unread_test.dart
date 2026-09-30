@@ -3,159 +3,99 @@ import 'package:ermchat/models/highlight_state.dart';
 import 'package:ermchat/models/twitch_message.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-TwitchMessage _live(String id, {String login = 'alice'}) =>
-    TwitchMessage(login: login, text: 'hello', messageId: id, channel: 'test');
+TwitchMessage _live(
+  String id, {
+  String login = 'alice',
+  bool history = false,
+  HighlightType type = HighlightType.username,
+}) => TwitchMessage(
+  login: login,
+  text: 'hello',
+  messageId: id,
+  channel: 'test',
+  isHistory: history,
+)..highlight = HighlightState(types: {type});
 
 void main() {
   group('Chat.receive mention and unread counting', () {
-    test('mention in unselected channel bumps mention total and mirrors', () {
-      final chat = Chat();
-      addTearDown(chat.dispose);
-      final msg = _live('m1')
-        ..highlight = const HighlightState(types: {HighlightType.username});
-      final result = chat.receive(
-        'test',
-        msg,
-        maxMessages: 10,
-        isSelected: false,
-        ownLogin: null,
-      );
-      expect(result.inserted, isTrue);
-      expect(result.mentioned, isTrue);
-      expect(result.countMention, isTrue);
-      expect(chat.unreadMentions, 1);
-      expect(chat.mentionsBump.value, 1);
-      expect(chat.mentions.items, hasLength(1));
-      expect(chat.mentions.items.single.messageId, 'm1');
-    });
+    test(
+      'mentions mirror always, count only when the channel is unselected',
+      () {
+        for (final (name, selected, type, counted) in [
+          ('unselected channel', false, HighlightType.username, true),
+          ('selected channel', true, HighlightType.reply, false),
+        ]) {
+          final chat = Chat();
+          addTearDown(chat.dispose);
+          final result = chat.receive(
+            'test',
+            _live('m1', type: type),
+            maxMessages: 10,
+            isSelected: selected,
+            ownLogin: null,
+          );
+          expect(result.inserted, isTrue);
+          expect(result.mentioned, isTrue);
+          expect(result.countMention, counted);
+          expect(chat.unreadMentions, counted ? 1 : 0);
+          expect(chat.mentionsBump.value, counted ? 1 : 0);
+          expect(chat.mentions.items.single.messageId, 'm1', reason: name);
+        }
+      },
+    );
 
-    test('mention in selected channel skips counters but still mirrors', () {
-      final chat = Chat();
-      addTearDown(chat.dispose);
-      final msg = _live('m1')
-        ..highlight = const HighlightState(types: {HighlightType.reply});
-      final result = chat.receive(
-        'test',
-        msg,
-        maxMessages: 10,
-        isSelected: true,
-        ownLogin: null,
-      );
-      expect(result.inserted, isTrue);
-      expect(result.mentioned, isTrue);
-      expect(result.countMention, isFalse);
-      expect(result.countUnread, isFalse);
-      expect(chat.unreadMentions, 0);
-      expect(chat.mentionsBump.value, 0);
-      expect(chat.mentions.items, hasLength(1));
-      expect(chat.mentions.items.single.messageId, 'm1');
-    });
-
-    test('own messages never count', () {
-      final chat = Chat();
-      addTearDown(chat.dispose);
-      final msg = _live('m1', login: 'me')
-        ..highlight = const HighlightState(types: {HighlightType.username});
-      final result = chat.receive(
-        'test',
-        msg,
-        maxMessages: 10,
-        isSelected: false,
-        ownLogin: 'me',
-      );
-      expect(result.inserted, isTrue);
-      expect(result.mentioned, isFalse);
-      expect(result.countMention, isFalse);
-      expect(result.countUnread, isFalse);
-      expect(chat.unreadMentions, 0);
-      expect(chat.mentions.isEmpty, isTrue);
-      final channel = chat.channelFor('test')!;
-      expect(channel.unread.mentionCount, 0);
-      expect(channel.unread.hasUnread, isFalse);
-    });
-
-    test('history rows never count', () {
-      final chat = Chat();
-      addTearDown(chat.dispose);
-      final msg = TwitchMessage(
-        login: 'alice',
-        text: 'hello',
-        messageId: 'm1',
-        channel: 'test',
-        isHistory: true,
-      )..highlight = const HighlightState(types: {HighlightType.username});
-      final result = chat.receive(
-        'test',
-        msg,
-        maxMessages: 10,
-        isSelected: false,
-        ownLogin: null,
-      );
-      expect(result.inserted, isTrue);
-      expect(result.countMention, isFalse);
-      expect(result.countUnread, isFalse);
-      expect(chat.unreadMentions, 0);
-      final channel = chat.channelFor('test')!;
-      expect(channel.unread.mentionCount, 0);
-      expect(channel.unread.hasUnread, isFalse);
-    });
-
-    test('system rows skip bulk unread', () {
-      final chat = Chat();
-      addTearDown(chat.dispose);
-      final result = chat.receive(
-        'test',
-        TwitchMessage(
-          login: '',
-          text: 'slow mode on',
-          isSystem: true,
-          channel: 'test',
+    test('own, history and system rows never count', () {
+      for (final (name, msg, ownLogin) in <(String, TwitchMessage, String?)>[
+        ('own messages', _live('m1', login: 'me'), 'me'),
+        ('history rows', _live('m1', history: true), null),
+        (
+          'system rows',
+          TwitchMessage(
+            login: '',
+            text: 'slow mode on',
+            isSystem: true,
+            channel: 'test',
+          ),
+          null,
         ),
-        maxMessages: 10,
-        isSelected: false,
-        ownLogin: null,
-      );
-      expect(result.inserted, isTrue);
-      expect(result.countUnread, isFalse);
-      expect(chat.channelFor('test')!.unread.hasUnread, isFalse);
+      ]) {
+        final chat = Chat();
+        addTearDown(chat.dispose);
+        final result = chat.receive(
+          'test',
+          msg,
+          maxMessages: 10,
+          isSelected: false,
+          ownLogin: ownLogin,
+        );
+        expect(result.inserted, isTrue);
+        expect(result.countMention, isFalse);
+        expect(result.countUnread, isFalse);
+        expect(chat.unreadMentions, 0);
+        final unread = chat.channelFor('test')!.unread;
+        expect(unread.mentionCount, 0);
+        expect(unread.hasUnread, isFalse, reason: name);
+      }
     });
   });
 
   group('Chat.receiveHistory mention mirror', () {
-    TwitchMessage history(String id, {String login = 'alice'}) => TwitchMessage(
-      login: login,
-      text: 'hello',
-      messageId: id,
-      channel: 'test',
-      isHistory: true,
-    )..highlight = const HighlightState(types: {HighlightType.username});
-
-    test('mirrors mention rows and never counts unread', () {
+    test('mirrors others mention rows without counting; skips own', () {
       final chat = Chat();
       addTearDown(chat.dispose);
       chat.receiveHistory(
         'test',
-        [history('m1')],
-        rawHistory: [history('m1')],
-        maxMessages: 10,
-        ownLogin: null,
-      );
-      expect(chat.mentions.items.single.messageId, 'm1');
-      expect(chat.unreadMentions, 0);
-      expect(chat.channelFor('test')!.unread.mentionCount, 0);
-    });
-
-    test('own mention rows are not mirrored', () {
-      final chat = Chat();
-      addTearDown(chat.dispose);
-      chat.receiveHistory(
-        'test',
-        [history('m1', login: 'me')],
-        rawHistory: [history('m1', login: 'me')],
+        [_live('m1', history: true), _live('m2', login: 'me', history: true)],
+        rawHistory: [
+          _live('m1', history: true),
+          _live('m2', login: 'me', history: true),
+        ],
         maxMessages: 10,
         ownLogin: 'me',
       );
-      expect(chat.mentions.isEmpty, isTrue);
+      expect(chat.mentions.items.map((m) => m.messageId), ['m1']);
+      expect(chat.unreadMentions, 0);
+      expect(chat.channelFor('test')!.unread.mentionCount, 0);
     });
   });
 }

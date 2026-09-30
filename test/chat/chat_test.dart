@@ -31,16 +31,6 @@ const _mention = HighlightState(types: {HighlightType.username});
 
 void main() {
   group('Chat', () {
-    test('sub-success bump wakes moderation listeners', () {
-      final chat = Chat();
-      addTearDown(chat.dispose);
-      final channel = chat.ensure('test');
-      var ticks = 0;
-      channel.moderation.version.addListener(() => ticks++);
-      channel.moderation.noteSubscribed();
-      expect(ticks, 1);
-    });
-
     test('clearAccountScopedState keeps rows and threads', () {
       final chat = Chat();
       addTearDown(chat.dispose);

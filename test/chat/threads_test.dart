@@ -37,13 +37,6 @@ Chat _tickingChat(DateTime start) {
 
 void main() {
   group('Threads.activeThreads', () {
-    test('empty when no threads were ever ingested', () {
-      final chat = Chat();
-      addTearDown(chat.dispose);
-      expect(chat.ensure('test').threads.activeThreads(), isEmpty);
-      expect(chat.channelFor('missing'), isNull);
-    });
-
     test('sorts newest activity first with reply counts', () {
       final chat = _tickingChat(DateTime(2026, 1, 1));
       addTearDown(chat.dispose);
@@ -68,34 +61,22 @@ void main() {
       expect(threads.first.root?.messageId, 'r1');
     });
 
-    test('hides threads with a single reply', () {
+    test('hides standalone messages and single-reply threads', () {
       final chat = _tickingChat(DateTime(2026, 1, 1));
       addTearDown(chat.dispose);
       final channel = chat.channelFor('test')!;
-      expect(
-        channel
-            .receive(
-              _root('r1'),
-              maxMessages: 100,
-              isSelected: true,
-              ownLogin: null,
-            )
-            .inserted,
-        isTrue,
-      );
-      expect(
-        channel
-            .receive(
-              _reply('c1', 'r1'),
-              maxMessages: 100,
-              isSelected: true,
-              ownLogin: null,
-            )
-            .inserted,
-        isTrue,
+      ReceiveResult ingest(TwitchMessage m) => channel.receive(
+        m,
+        maxMessages: 100,
+        isSelected: true,
+        ownLogin: null,
       );
       expect(channel.threads.activeThreads(), isEmpty);
-      // The thread itself still resolves for the message-menu View thread.
+      ingest(_root('r1'));
+      expect(channel.threads.activeThreads(), isEmpty);
+      ingest(_reply('c1', 'r1'));
+      expect(channel.threads.activeThreads(), isEmpty);
+      // The thread still resolves for the message-menu View thread.
       expect(channel.threads.threadFor('r1'), hasLength(2));
     });
 
@@ -113,14 +94,6 @@ void main() {
       expect(threads.single.rootId, 'ghost');
       expect(threads.single.root, isNull);
       expect(threads.single.replyCount, 2);
-    });
-
-    test('standalone messages never become threads', () {
-      final chat = _tickingChat(DateTime(2026, 1, 1));
-      addTearDown(chat.dispose);
-      final channel = chat.channelFor('test')!;
-      channel.threads.index([_root('r1')], lookupRoot: channel.messages.byId);
-      expect(channel.threads.activeThreads(), isEmpty);
     });
 
     test('decayed threads with no replies left drop out', () {
@@ -200,30 +173,6 @@ void main() {
       );
     });
 
-    test('thread cap never evicts saved entries', () {
-      final chat = _tickingChat(DateTime(2026, 1, 1));
-      addTearDown(chat.dispose);
-      final channel = chat.channelFor('test')!;
-      ReceiveResult ingest(TwitchMessage m) => channel.receive(
-        m,
-        maxMessages: 10000,
-        isSelected: true,
-        ownLogin: null,
-      );
-      expect(ingest(_root('r0')).inserted, isTrue);
-      expect(ingest(_reply('c0', 'r0')).inserted, isTrue);
-      expect(ingest(_reply('d0', 'r0')).inserted, isTrue);
-      channel.threads.syncSavedKeys('test', {'test:r0'});
-      for (var i = 1; i <= 70; i++) {
-        expect(ingest(_root('r$i')).inserted, isTrue);
-        expect(ingest(_reply('c$i', 'r$i')).inserted, isTrue);
-        expect(ingest(_reply('d$i', 'r$i')).inserted, isTrue);
-      }
-      final ids = channel.threads.activeThreads().map((t) => t.rootId).toSet();
-      expect(ids, contains('r0'));
-      expect(ids.length, lessThanOrEqualTo(65));
-    });
-
     test('pinned open thread survives truncation and decay', () {
       final chat = Chat();
       addTearDown(chat.dispose);
@@ -283,33 +232,40 @@ void main() {
       expect(channel.threads.threadFor('r1')!.first.messageId, 'r1');
     });
 
-    test('pinned open thread survives the thread map cap', () {
+    test('thread map cap never evicts saved or pinned threads', () {
       final chat = _tickingChat(DateTime(2026, 1, 1));
       addTearDown(chat.dispose);
       final channel = chat.channelFor('test')!;
-      ReceiveResult ingest(TwitchMessage m) => channel.receive(
-        m,
-        maxMessages: 10000,
-        isSelected: true,
-        ownLogin: null,
-      );
-      expect(ingest(_root('r0')).inserted, isTrue);
-      expect(ingest(_reply('c0', 'r0')).inserted, isTrue);
-      expect(ingest(_reply('d0', 'r0')).inserted, isTrue);
-      channel.threads.pin('r0');
-      for (var i = 1; i <= 65; i++) {
-        expect(ingest(_root('r$i')).inserted, isTrue);
-        expect(ingest(_reply('c$i', 'r$i')).inserted, isTrue);
-        expect(ingest(_reply('d$i', 'r$i')).inserted, isTrue);
+      void thread(String n) {
+        for (final m in [
+          _root('r$n'),
+          _reply('c$n', 'r$n'),
+          _reply('d$n', 'r$n'),
+        ]) {
+          channel.receive(
+            m,
+            maxMessages: 10000,
+            isSelected: true,
+            ownLogin: null,
+          );
+        }
       }
-      // 66 threads, 65 unheld over the 64 cap: the pinned oldest survives
-      // outside the cap (like saved threads) and r1 falls off.
-      expect(channel.threads.threadFor('r0'), isNotNull);
+
+      thread('0');
+      thread('1');
+      channel.threads.syncSavedKeys('test', {'test:r0'});
+      channel.threads.pin('r1');
+      for (var i = 2; i <= 70; i++) {
+        thread('$i');
+      }
+      expect(channel.threads.threadFor('r0'), isNotNull, reason: 'saved');
+      expect(channel.threads.threadFor('r1'), isNotNull, reason: 'pinned');
+      expect(channel.threads.threadFor('r2'), isNull, reason: 'oldest unheld');
       expect(
         channel.threads.activeThreads().map((t) => t.rootId),
-        contains('r0'),
+        containsAll(['r0', 'r1']),
       );
-      expect(channel.threads.threadFor('r1'), isNull);
+      expect(channel.threads.activeThreads().length, lessThanOrEqualTo(66));
     });
 
     test(

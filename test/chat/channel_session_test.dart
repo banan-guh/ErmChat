@@ -104,7 +104,7 @@ void main() {
       return chat;
     }
 
-    test('refetch overlap with identical text and timestamp folds', () {
+    test('refetch and live overlaps fold into one row', () {
       final chat = mergeChat();
       addTearDown(chat.dispose);
       final session = _channelSession(chat);
@@ -112,31 +112,29 @@ void main() {
       session.history.mergeHistory('test', [historyNotice(t0)]);
       session.history.mergeHistory('test', [historyNotice(t0)]);
       expect(sysRows(chat, noticeText), 1);
-    });
 
-    test('live row plus refetch overlap folds', () {
-      final chat = mergeChat();
-      addTearDown(chat.dispose);
-      final session = _channelSession(chat);
-      final t0 = DateTime.now();
+      final now = DateTime.now();
       chat
           .channelFor('test')!
           .receive(
             TwitchMessage(
               login: '',
-              text: noticeText,
+              text: 'Live only notice.',
               isSystem: true,
               channel: 'test',
-              timestamp: t0,
+              timestamp: now,
             ),
             maxMessages: 500,
             isSelected: true,
             ownLogin: null,
           );
       session.history.mergeHistory('test', [
-        historyNotice(t0.millisecondsSinceEpoch),
+        RecentMessagesService.parseIrcLine(
+          '@msg-id=x;rm-received-ts=${now.millisecondsSinceEpoch} :tmi.twitch.tv NOTICE #test :Live only notice.',
+          channel: 'test',
+        )!,
       ]);
-      expect(sysRows(chat, noticeText), 1);
+      expect(sysRows(chat, 'Live only notice.'), 1);
     });
   });
 
@@ -164,7 +162,7 @@ void main() {
     expect(status, 2);
   });
 
-  test('structural writes still bump the tile-dropping version', () {
+  test('structural writes bump the tile-dropping version', () {
     final info = ChannelInfo();
     addTearDown(info.dispose);
     var structural = 0;
@@ -222,12 +220,10 @@ void main() {
         );
       }
       final before = channel.messages.length;
-
       expect(
         channel.addSystemMessage('hello', messageId: 'dup', maxMessages: 1),
         isFalse,
       );
-
       expect(channel.messages.length, before);
     });
   });
