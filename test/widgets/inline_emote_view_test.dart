@@ -402,6 +402,46 @@ void main() {
     expect(find.byType(Image), findsOneWidget);
   });
 
+  testWidgets('a stock Twitch GIF pauses while emotes are frozen', (
+    tester,
+  ) async {
+    addTearDown(() => EmoteUrlProvider.applyFrameRate(60));
+    const emote = Emote(
+      id: 'gif',
+      code: 'KappaGif',
+      meta: TwitchMeta(kind: TwitchEmoteKind.standard),
+      scales: {EmoteScale.medium: 'https://inline.test/gif.gif'},
+      isAnimated: true,
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: EmoteScaleResolver(
+          emote: emote,
+          surface: EmoteSurface.chat,
+          images: _ResolvingEmoteImages(),
+          width: 28,
+          height: 28,
+          lean: true,
+        ),
+      ),
+    );
+    await tester.pump();
+
+    // Playing Twitch GIFs take the stock path, which only TickerMode pauses.
+    expect(find.byType(InlineEmoteView), findsNothing);
+    bool ticking() =>
+        TickerMode.valuesOf(tester.element(find.byType(Image))).enabled;
+    expect(ticking(), isTrue);
+
+    EmoteUrlProvider.applyFrameRate(0);
+    await tester.pump();
+    expect(ticking(), isFalse);
+
+    EmoteUrlProvider.applyFrameRate(30);
+    await tester.pump();
+    expect(ticking(), isTrue);
+  });
+
   testWidgets('pausing then unmounting releases without throwing', (
     tester,
   ) async {

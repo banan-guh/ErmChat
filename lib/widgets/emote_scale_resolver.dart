@@ -146,7 +146,7 @@ class _EmoteScaleResolverState extends State<EmoteScaleResolver> {
         images: widget.images,
       );
     }
-    return Image(
+    final image = Image(
       key: ValueKey(url),
       image: CachedNetworkImageProvider(url, cacheManager: widget.images.cache),
       width: widget.width,
@@ -158,6 +158,14 @@ class _EmoteScaleResolverState extends State<EmoteScaleResolver> {
       errorBuilder: (_, _, _) =>
           widget.errorWidget ??
           SizedBox(width: widget.width, height: widget.height),
+    );
+    if (!widget.emote.isAnimated) return image;
+    // Stock GIFs play on their own clock; TickerMode holds the current frame
+    // while the custom loop is frozen (idle freeze).
+    return ValueListenableBuilder<bool>(
+      valueListenable: EmoteUrlProvider.playing,
+      builder: (_, on, child) => TickerMode(enabled: on, child: child!),
+      child: image,
     );
   }
 

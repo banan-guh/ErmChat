@@ -93,6 +93,7 @@ class EmoteUrlProvider extends ImageProvider<EmoteUrlProvider> {
   /// Toggles emote animation, freezing/resuming live completers.
   static void applyGifsEnabled(bool enabled) {
     gifsEnabled = enabled;
+    playing.value = animating;
     for (final completer in List.of(_liveByUrl.values)) {
       completer._refreshForAnimations();
     }
@@ -106,10 +107,15 @@ class EmoteUrlProvider extends ImageProvider<EmoteUrlProvider> {
   /// Whether emotes advance frames: animations on and a nonzero rate.
   static bool get animating => gifsEnabled && frameRate > 0;
 
+  /// [animating] as a listenable, for stock-provider emotes (playing Twitch
+  /// GIFs) that pause through [TickerMode] instead of the custom loop.
+  static final ValueNotifier<bool> playing = ValueNotifier(true);
+
   /// Sets [frameRate], freezing or resuming live completers when it crosses 0.
   static void applyFrameRate(int fps) {
     final was = animating;
     frameRate = fps;
+    playing.value = animating;
     if (animating == was) return;
     for (final completer in List.of(_liveByUrl.values)) {
       completer._refreshForAnimations();
