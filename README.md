@@ -1,86 +1,107 @@
-# ErmChat
+<p align="center">
+  <img src="assets/erm.png" width="96" alt="ErmChat icon">
+</p>
 
-A mobile Twitch chat app built with Flutter.
+<h1 align="center">ErmChat</h1>
 
-ErmChat is a DankChat-inspired chat client with more features, built for multi-platform. If you've had experience with other chat clients, this one is similar with some fun features stapled onto it, and a bit less polish. I made this because Chatsen didn't have the "feel" I liked, and I wanted a good alternative to it on iOS.
+<p align="center">
+  A Twitch chat app for Android and iOS.
+</p>
 
-Credit to NobleTrash38 / NobleTrash for inspiring this project!
+<p align="center">
+  <a href="https://github.com/banan-guh/ErmChat/releases/latest"><img src="https://img.shields.io/github/v/release/banan-guh/ErmChat?include_prereleases&label=release" alt="Latest release"></a>
+  <img src="https://img.shields.io/badge/platform-Android%20%7C%20iOS-blue" alt="Platforms">
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/banan-guh/ErmChat" alt="License"></a>
+  <a href="https://testflight.apple.com/join/NUUDJ5qY"><img src="https://img.shields.io/badge/iOS_beta-TestFlight-0D96F6" alt="iOS beta on TestFlight"></a>
+  <a href="https://f-droid.org/"><img src="https://img.shields.io/badge/F--Droid-pending-lightgrey?logo=fdroid&logoColor=white" alt="F-Droid: pending"></a>
+  <a href="https://discord.gg/asWuEHW359"><img src="https://img.shields.io/badge/Discord-join-5865F2?logo=discord&logoColor=white" alt="Discord"></a>
+</p>
 
-Check [TODO.md](TODO.md) for the roadmap. Found a bug or want a feature? Open an issue or submit a PR (see [RULES.md](RULES.md) first for commit style and ground rules).
+<p align="center">
+  <a href="https://play.google.com/store/apps/details?id=io.github.bananguh.ErmChat"><img src="assets/badges/google-play.png" height="48" alt="Get it on Google Play"></a>
+  <!-- Add appstore badge when listed (AppStore nobletrash38) -->
+</p>
+
+<p align="center">
+  <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/screenshot1.jpeg" width="190" alt="Chat with a sub notice">
+  <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/screenshot2.jpeg" width="190" alt="Chat with the stream open">
+  <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/screenshot3.jpeg" width="190" alt="Chat with a deleted message and a timeout">
+  <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/screenshot4.jpeg" width="190" alt="Emote settings">
+</p>
 
 ## Features
 
-**Chat**
-- Tabbed multi-channel chat with swipeable views and rearrangeable channel bar
-- Multi-account login with a switcher in settings
-- Messages over IRC
-- Reply threads with inline view (threads persist until last child goes over max msg threshold!! even when they disappear, you can see old threads)
-- Mentions / whispers panel
-- User profiles: tap a username for a bottom sheet with mod actions, follow age, and warning/ban history where you moderate, plus Mention / Whisper / Block / Report
-- System messages for subs, cheers, raids, bans, timeouts, announcements (subs/bits/raids highlight with the accent)
-- Shared chat support with spotlight / fade / hide modes for foreign messages
-- Phrase muting and regex ping rules (hide or highlight by keyword)
-- Slow-mode countdown on the input hint
-- Chat room state below the input (followers-only, emote-only, sub-only, live viewer #)
-- Clickable links, message timestamps with customizable formats
-- Configurable message cutoff and recent-history limit
-- Unread indicators, `/me` actions, message bypass for spam
+**Emote cache:** Novel cache system, so you don't need to re-download emotes every single time you restart the app.
 
-**Emotes & badges**
-- Emotes from Twitch, BTTV, FFZ, and 7TV with zero-width overlay support
-- Per-provider emote visibility toggles
-- Badges for mods, VIPs, subscribers, plus 3rd party badges (BTTV donor, FFZ mod/VIP, 7TV)
-- 7TV animated username paints rendered in chat
-- Emote and username autocomplete
-- Emote menu with provider tabs and a detail sheet (copy / share)
-- 7TV live emote updates via WebSocket
+**Data saver:** With the new emote cache, going on an excursion no longer makes a massive dent in your data. Customizable of course.
 
-**Commands**
-- 41 slash commands routed through the Twitch Helix API: `/ban`, `/timeout`, `/unban`, `/untimeout`, `/color`, `/delete`, `/clear`, `/announce` + color variants, `/mod`, `/vip`, chat modes (`/slow`, `/followers`, `/emoteonly`, `/subscribers`, `/r9kbeta`, `/uniquechat` + off variants), `/shoutout`, `/raid`, `/shield`, `/commercial`, `/marker`, `/w`, `/block`, `/unblock`, and more
-- `/` autocomplete for every command (permissions checked server-side)
-- Command macros with `{1} {2} {n+}` placeholder expansion, stored per account
-- DankChat-style error notices for failures
+**Threads:** Can be saved, and persist for as long as the latest message exists. Revisit old threads whenever you want.
 
-**Broadcaster widgets**
-- Hype train, poll, and prediction cards rendered in a swipeable cutout above chat (for the broadcaster's own channels, read-only)
+**Split links:** Chatters split links to get past filters. ErmChat joins them for you to save a bit of hassle.
 
-**Mod view**
-- Queue (allow/deny with category filter and inline timeout/ban), Activity feed, Users (bans, warnings, flagged users, mod/vip rosters), Modes, unban Requests inbox, public blocked Terms, AutoMod Setup levels
-- Message long-press and user cards expose Timeout / Delete / Warn / Ban / Unban / Shoutout (offline-friendly where you moderate)
-- Channel tab for the broadcaster: banned list, raid/commercial/marker actions, poll/prediction controls, Channel Points queue (rewards this app created are manageable, others read-only)
+**7TV integration:** 7tv name paints are supported, along with personal emotes, and emotes are updated live.
 
-**Customization & settings**
-- Dark mode toggle, true-dark, accent color picker
-- Timestamp format picker, keep-screen-on, custom ping highlights
-- Per-channel chat analytics (total messages, unique chatters, msgs/min, top chatters/emotes/words, bans/timeouts)
-- Background keepalive and mention push notifications (Android ONLY! iOS is still unpolished)
-- EXIF metadata stripped from image uploads before they go out
-- "Connected as {login}" account display, paste-token or browser OAuth login
+**Media embeds:** You can show images from some popular CDNs inline without having to leave the app.
 
-## Getting started (for people who clone the repo for their own use)
+**GIFs:** Official twitch GIFs are supported (view-only).
 
-1. Clone the repo: `git clone <repo-url>`.
-2. Create a Twitch app at https://dev.twitch.tv/console/apps and get a client ID.
-3. Open `lib/twitch_config.dart` and put it there.
-4. NOTE: redirect URI from `lib/twitch_config.dart` must match EXACTLY with what's in your twitch dev console. even / count.
-5. Android: JDK 17, 21, or 26 all work (CI uses Zulu 17), plus the standard
-   Android NDK, then run the app:
-   `flutter run`
-6. iOS: install pods first:
-   `pod install` inside `ios/`, then `flutter run`
+**Compact layout:** For small screens: collapse padding and headers to squeeze a bit more real estate for chat.
 
-`flutter test` and `flutter analyze` need no extra setup.
+**Mod view:** AutoMod queue, unban requests, blocked terms, warnings, suspicious users and a mod activity feed. Broadcasters also get Channel Points redemptions, polls, predictions, raids and markers.
 
-## Note for what the fastlane folder is
+**Chat analytics:** Per channel msgs/min, chatter list, top chatters, most used emotes/words, bans, timeouts.
 
-It's just for the F-droid publication. if you want to clone this and put it on F-droid, you need the changelogs folder to have these txt files:
-10[].txt
-20[].txt
-40[].txt
+**Liquid glass:** (opt-in, experimental, it's quite heavy so beware).
 
-(the [] is the "+N" you have in pubspec, e.g. v0.5.8+14). Make sure you update this along with pubspec every update you push.
-You can delete old changelogs, they aren't necessary to keep around. Reason for 3 different changelogs is just the split-ABI structure.
+**Performance:** A lot of work has gone into optimizing for battery life and fps. However, this is a heavy app, so there are lots of settings to disable or reduce the amount of battery-heavy work.
+
+**Accessibility:** TTS, line highlighting, font size, emote freeze. I'll get to translations soon, and maybe a reduced motion mode.
+
+<details>
+<summary><b>Everything else</b></summary>
+
+- Emotes from Twitch, BTTV, FFZ and 7TV, third-party badges
+- Multiple channels in swipeable tabs, multiple accounts
+- Mentions and whispers panel, user cards with a list of messages from that user
+- Slash commands with autocomplete, and your own command macros
+- Highlights and pings (customizable)
+- Shared chat with spotlight feature (see own chat better, customizable in settings)
+- Stream player with picture-in-picture
+- Image uploads with EXIF stripping
+- Chat history on join, slow mode / timeout countdown, live channel status
+- Backgrounding and mention notifications (Android only, iOS coming soon)
+- Themes, true black, accent colors, timestamp formats
+- Lots of customizability in settings
+
+</details>
+
+## Install
+
+**Android:** get it on [Google Play](https://play.google.com/store/apps/details?id=io.github.bananguh.ErmChat), or download the universal APK from [Releases](https://github.com/banan-guh/ErmChat/releases/latest). Pending F-Droid.
+
+**iOS:** join the beta on [TestFlight](https://testflight.apple.com/join/NUUDJ5qY). You need TestFlight (obviously). An App Store release is planned.
+
+No account needed to read chat anonymously, but signing in is recommended for the full feature set.
+
+## Privacy
+
+ErmChat communicates directly with Twitch servers, and uses (anonymous) emote providers / recent-messages for chat history. Media uploader is third-party. Details: [privacy policy](https://banan-guh.github.io/ErmChat/).
+
+## Feedback
+
+Any feedback, no matter what, is VERY much appreciated. You have multiple ways to give it:
+
+- Create an issue on GitHub (here), bugreport or feature request
+- Create an issue on [Discord](https://discord.gg/asWuEHW359), or even just send something in general
+- Come to my twitch channel (not live, only chat) at #ermugo2 and tell me directly - join the channel in ermchat!
+- Send an email to kuhwalri.contact@gmail.com
+
+An in-app bug reporter is on the way, but it's not finished yet.
+
+## Credits
+
+Inspired by NobleTrash, [DankChat](https://github.com/flxrs/DankChat) and [Chatsen](https://github.com/chatsen/chatsen). @stewlyblume is the cat.
 
 ## License
 
-MIT
+[MIT](LICENSE). Some logic (and the UI style) is derived from DankChat. See [THIRD_PARTY_LICENSES](THIRD_PARTY_LICENSES).
