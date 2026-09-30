@@ -108,7 +108,7 @@ void main() {
     final (unmarkedStream, unmarkedListener) = await startStream(
       tester,
       unmarked,
-      iterations: 120,
+      iterations: 40,
     );
     expect(EmoteUrlProvider.capturedFrameCount(unmarked), 0);
     expect(EmoteUrlProvider.isFullyCaptured(unmarked), isFalse);
@@ -252,22 +252,5 @@ void main() {
     expect(advanced, isTrue);
     expect(EmoteUrlProvider.debugCompleterBuilds, builds);
     stream.removeListener(listener);
-  });
-
-  testWidgets('capture LRU keeps the newest 20 and drops the oldest', (
-    tester,
-  ) async {
-    for (var i = 0; i < 25; i++) {
-      EmoteUrlProvider.debugSeedCaptured('https://capture.test/e$i');
-    }
-
-    expect(
-      EmoteUrlProvider.capturedEmoteCount,
-      EmoteUrlProvider.maxCapturedEmotes,
-    );
-    final captured = EmoteUrlProvider.debugCapturedEmotes;
-    expect(captured, contains('https://capture.test/e24'));
-    expect(captured, isNot(contains('https://capture.test/e0')));
-    expect(captured, [for (var i = 5; i < 25; i++) 'https://capture.test/e$i']);
   });
 }

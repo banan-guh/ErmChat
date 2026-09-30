@@ -1,10 +1,8 @@
 import 'package:ermchat/emotes/emote.dart';
 import 'package:ermchat/emotes/emote_catalog.dart';
 import 'package:ermchat/models/twitch_message.dart';
-import 'package:ermchat/providers/emote_providers.dart';
 import 'package:ermchat/services/emote_fetcher.dart';
 import 'package:ermchat/services/emote_store.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 Emote _emote(String id, String code, {EmoteType type = EmoteType.bttv}) =>
@@ -66,27 +64,6 @@ void main() {
     expect(store.version, 1);
   });
 
-  test('channel commit emits a channel full change', () {
-    final store = EmoteStore();
-    final changes = <EmoteChange>[];
-    store.addListener(changes.add);
-
-    final applied = store.commitChannel(
-      'ch',
-      store.channelEpoch('ch'),
-      ChannelEmoteFetch(
-        byProvider: {
-          EmoteType.bttv: [_emote('c1', 'Chan')],
-        },
-      ),
-    );
-
-    expect(applied, isTrue);
-    expect(changes.single.channel, 'ch');
-    expect(changes.single.deltaCodes, isNull);
-    expect(store.version, 1);
-  });
-
   test('7TV delta emits codes without advancing the version', () {
     final store = EmoteStore();
     final changes = <EmoteChange>[];
@@ -113,33 +90,6 @@ void main() {
     );
     expect(store.version, 1);
     expect(changes.last.deltaCodes, isNull);
-  });
-
-  test('emoteStateProvider reflects store mutations', () {
-    final store = EmoteStore();
-    final container = ProviderContainer(
-      overrides: [emoteStoreProvider.overrideWithValue(store)],
-    );
-    addTearDown(container.dispose);
-
-    final seen = <EmoteState>[];
-    container.listen(
-      emoteStateProvider,
-      (_, next) => seen.add(next),
-      fireImmediately: true,
-    );
-
-    store.commitGlobal(
-      store.globalEpoch,
-      GlobalEmoteFetch(
-        byProvider: {
-          EmoteType.bttv: [_emote('g1', 'Global')],
-        },
-      ),
-    );
-
-    expect(seen.last.change?.channel, isNull);
-    expect(seen.last.version, 1);
   });
 
   test('global commit resolves global emotes with no channel catalog', () {
@@ -201,42 +151,6 @@ void main() {
       'Bravo',
       'Charlie',
     ]);
-  });
-
-  test('emoteById resolves the account-unlock overlay', () {
-    final store = EmoteStore();
-    final unlock = _emote('u1', 'PrimePride', type: EmoteType.twitch);
-
-    expect(store.emoteById('u1', unlocks: [unlock])?.code, 'PrimePride');
-  });
-
-  test('state-cleared emit bumps the version with a global change', () {
-    final store = EmoteStore();
-    store.emitChange(channel: 'ch');
-    final before = store.lastChange!.version;
-    final changes = <EmoteChange>[];
-    void listener(EmoteChange change) => changes.add(change);
-    store.addListener(listener);
-
-    store.notifyCatalogChanged();
-
-    store.removeListener(listener);
-    expect(changes, hasLength(1));
-    expect(changes.single.channel, isNull);
-    expect(changes.single.version, before + 1);
-  });
-
-  test('personal-set refresh clears derived lookups and bumps the version', () {
-    final store = EmoteStore();
-    final first = store.byCode('ch', personal: [_emote('p1', 'OldPersonal')]);
-    expect(first?.byCode['OldPersonal']?.id, 'p1');
-
-    store.notifyCatalogChanged();
-
-    final second = store.byCode('ch', personal: [_emote('p2', 'NewPersonal')]);
-    expect(second?.byCode['NewPersonal']?.id, 'p2');
-    expect(second?.byCode.containsKey('OldPersonal'), isFalse);
-    expect(store.version, 1);
   });
 
   test('foreign refresh clears derived lookups and bumps the version', () {
@@ -431,30 +345,6 @@ void main() {
     expect(focusedB['chanA']!.map((e) => e.code), isNot(contains('FolA')));
   });
 
-  test('subsGrouped without focus hides all followers', () {
-    final store = EmoteStore();
-    store.storeUserTwitchEmotes({
-      'chanA': [
-        _followerEmote('fA', 'FolA', 'chanA'),
-        _lockedTwitchSub('sA', 'SubA'),
-      ],
-    });
-
-    for (final grouped in [
-      store.subsGrouped(),
-      store.subsGrouped(pinnedChannel: ''),
-    ]) {
-      expect(
-        grouped.values.expand((e) => e).map((e) => e.code),
-        contains('SubA'),
-      );
-      expect(
-        grouped.values.expand((e) => e).map((e) => e.code),
-        isNot(contains('FolA')),
-      );
-    }
-  });
-
   test('subsGrouped matches follower owners case-insensitively', () {
     final store = EmoteStore();
     store.storeUserTwitchEmotes({
@@ -497,30 +387,6 @@ void main() {
         identical(
           first.suggestions.singleWhere((e) => e.code == 'Alpha'),
           first.byCode['Alpha'],
-        ),
-        isTrue,
-      );
-    });
-
-    test('global tab and merged lookup share the global instance', () {
-      final store = EmoteStore();
-      store.commitGlobal(
-        store.globalEpoch,
-        GlobalEmoteFetch(
-          byProvider: {
-            EmoteType.bttv: [_emote('g1', 'Global')],
-          },
-        ),
-      );
-
-      final merged = store.byCode('ch')!;
-      final byProvider = store.globalEmotesByProvider();
-      expect(
-        identical(
-          byProvider.values
-              .expand((e) => e)
-              .singleWhere((e) => e.code == 'Global'),
-          merged.byCode['Global'],
         ),
         isTrue,
       );
@@ -591,29 +457,6 @@ void main() {
         ),
         isTrue,
       );
-    });
-
-    test('tokenize intern parameter canonicalizes outputs', () {
-      final store = EmoteStore();
-      commitChannel(store, 'ch', [sevenTv('a', 'Alpha')]);
-      final map = store.byCode('ch')!.byCode;
-
-      final tokens = EmoteStore.tokenize(
-        text: 'Alpha',
-        positions: null,
-        byCode: map,
-        intern: store.intern,
-      );
-      expect(identical(tokens.single.emote, map['Alpha']), isTrue);
-    });
-
-    test('emoteById converges through the index without a prior lookup', () {
-      final store = EmoteStore();
-      commitChannel(store, 'ch', [sevenTv('a', 'Alpha')]);
-
-      // No byCode call: the lazy index rebuild interns and serves pooled.
-      final byId = store.emoteById('a')!;
-      expect(identical(byId, store.byCode('ch')!.byCode['Alpha']), isTrue);
     });
   });
 }

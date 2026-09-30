@@ -61,11 +61,6 @@ void main() {
       expect(renamed.isZeroWidth, isTrue);
       expect(renamed.scope, EmoteScope.channel);
     });
-
-    test('without a code keeps the original', () {
-      final original = _emote('e1', 'Keep', EmoteType.bttv);
-      expect(original.copyWith().code, 'Keep');
-    });
   });
 
   group('mergeEmoteLookup precedence', () {

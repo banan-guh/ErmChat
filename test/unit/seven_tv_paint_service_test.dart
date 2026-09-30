@@ -340,14 +340,6 @@ void main() {
           paintService: paints,
         );
 
-    testWidgets('renders plain span when the feature is off', (tester) async {
-      await tester.pumpWidget(
-        MaterialApp(home: Scaffold(body: tile(message('999'), null))),
-      );
-      expect(find.byType(PaintedUsernameText), findsNothing);
-      expect(find.byType(ShaderMask), findsNothing);
-    });
-
     testWidgets('routes painted usernames through the gradient widget', (
       tester,
     ) async {

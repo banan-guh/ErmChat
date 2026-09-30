@@ -165,29 +165,24 @@ void main() {
       return FfzEmoteProvider.fetchGlobal();
     }
 
-    test('maps the 1/2/4 urls to small/medium/large', () async {
-      final result = await fetchGlobal({
-        '1': '$base/1',
-        '2': '$base/2',
-        '4': '$base/4',
-      });
-      final scales = result.single.scales;
-      expect(scales[EmoteScale.small], '$base/1');
-      expect(scales[EmoteScale.medium], '$base/2');
-      expect(scales[EmoteScale.large], '$base/4');
-    });
-
-    test('fills only the scales the emote actually has', () async {
-      final result = await fetchGlobal({'2': '$base/2'});
-      final scales = result.single.scales;
-      expect(scales[EmoteScale.medium], '$base/2');
-      expect(scales.containsKey(EmoteScale.small), isFalse);
-      expect(scales.containsKey(EmoteScale.large), isFalse);
-    });
-
-    test('keeps a lone 4x url as large', () async {
-      final result = await fetchGlobal({'4': '$base/4'});
-      expect(result.single.scales[EmoteScale.large], '$base/4');
+    test('maps only the sizes the emote has to their roles', () async {
+      const roles = {
+        '1': EmoteScale.small,
+        '2': EmoteScale.medium,
+        '4': EmoteScale.large,
+      };
+      for (final sizes in [
+        ['1', '2', '4'],
+        ['2'],
+        ['4'],
+      ]) {
+        final result = await fetchGlobal({
+          for (final n in sizes) n: '$base/$n',
+        });
+        expect(result.single.scales, {
+          for (final n in sizes) roles[n]!: '$base/$n',
+        }, reason: '$sizes');
+      }
     });
 
     test('global keeps only default sets', () async {
@@ -263,7 +258,7 @@ void main() {
       expect(result.single.scope, EmoteScope.channel);
     });
 
-    test('fetchChannel uses the FFZ owner display name', () async {
+    test('fetchChannel uses the FFZ owner display name when present', () async {
       const channelId = '71092938';
       const url = 'https://api.frankerfacez.com/v1/room/id/$channelId';
       HttpOverrides.global = _FakeHttpOverrides({
@@ -273,9 +268,14 @@ void main() {
               'emoticons': [
                 {
                   'id': 555,
-                  'name': 'FFZ',
+                  'name': 'Owned',
                   'urls': {'1': '$base/1', '2': '$base/2'},
                   'owner': {'display_name': 'SomeCreator'},
+                },
+                {
+                  'id': 556,
+                  'name': 'Ownerless',
+                  'urls': {'1': '$base/1', '2': '$base/2'},
                 },
               ],
             },
@@ -283,17 +283,10 @@ void main() {
         }),
       });
       final result = await FfzEmoteProvider.fetchChannel(channelId);
-      expect((result.single.meta as FfzMeta).ownerChannel, 'SomeCreator');
-    });
-
-    test('fetchChannel leaves ownerChannel null without an owner', () async {
-      const channelId = '71092938';
-      const url = 'https://api.frankerfacez.com/v1/room/id/$channelId';
-      HttpOverrides.global = _FakeHttpOverrides({
-        url: _ffzBody({'1': '$base/1', '2': '$base/2'}),
-      });
-      final result = await FfzEmoteProvider.fetchChannel(channelId);
-      expect((result.single.meta as FfzMeta).ownerChannel, isNull);
+      final owners = {
+        for (final e in result) e.code: (e.meta as FfzMeta).ownerChannel,
+      };
+      expect(owners, {'Owned': 'SomeCreator', 'Ownerless': null});
     });
   });
 
@@ -359,25 +352,24 @@ void main() {
       return TwitchEmoteProvider.fetchGlobal();
     }
 
-    test('maps the 1.0/2.0/3.0 scales to small/medium/large', () async {
-      final result = await fetchGlobal();
-      final scales = result.single.scales;
-      expect(scales[EmoteScale.small], _url('1', '1.0'));
-      expect(scales[EmoteScale.medium], _url('1', '2.0'));
-      expect(scales[EmoteScale.large], _url('1', '3.0'));
-    });
+    test(
+      'maps 1.0/2.0/3.0 to small/medium/large and skips absent ones',
+      () async {
+        var scales = (await fetchGlobal()).single.scales;
+        expect(scales, {
+          EmoteScale.small: _url('1', '1.0'),
+          EmoteScale.medium: _url('1', '2.0'),
+          EmoteScale.large: _url('1', '3.0'),
+        });
 
-    test('keeps only the smallest available scale', () async {
-      final result = await fetchGlobal(
-        data: [
-          _emoteJson('2', ['3.0']),
-        ],
-      );
-      final scales = result.single.scales;
-      expect(scales[EmoteScale.large], _url('2', '3.0'));
-      expect(scales.containsKey(EmoteScale.small), isFalse);
-      expect(scales.containsKey(EmoteScale.medium), isFalse);
-    });
+        scales = (await fetchGlobal(
+          data: [
+            _emoteJson('2', ['3.0']),
+          ],
+        )).single.scales;
+        expect(scales, {EmoteScale.large: _url('2', '3.0')});
+      },
+    );
 
     test('maps tier and emote_type to TwitchEmoteKind', () async {
       Map<String, dynamic> item(
@@ -471,34 +463,23 @@ void main() {
 
     const base = 'https://cdn.7tv.app/emote/sized';
 
-    test('maps 1x/2x/4x to small/medium/large', () {
-      final emotes = SevenTvEmoteProvider.parseSingleEmote(
-        emote(['1x.webp', '2x.webp', '4x.webp']),
-      );
-      expect(emotes, isNotNull);
-      final scales = emotes!.scales;
-      expect(scales[EmoteScale.small], '$base/1x.webp');
-      expect(scales[EmoteScale.medium], '$base/2x.webp');
-      expect(scales[EmoteScale.large], '$base/4x.webp');
-      expect(scales.values.any((url) => url.contains('3x')), isFalse);
-    });
+    test('maps 1x/2x/4x, falls back to 3x for large, and skips absent', () {
+      Map<EmoteScale, String> scalesOf(List<String> names) =>
+          SevenTvEmoteProvider.parseSingleEmote(emote(names))!.scales;
 
-    test('uses 3x as large when no 4x exists', () {
-      final emote3x = SevenTvEmoteProvider.parseSingleEmote(
-        emote(['1x.webp', '2x.webp', '3x.webp']),
+      expect(scalesOf(['1x.webp', '2x.webp', '3x.webp', '4x.webp']), {
+        EmoteScale.small: '$base/1x.webp',
+        EmoteScale.medium: '$base/2x.webp',
+        EmoteScale.large: '$base/4x.webp',
+      });
+      expect(
+        scalesOf(['1x.webp', '2x.webp', '3x.webp'])[EmoteScale.large],
+        '$base/3x.webp',
       );
-      expect(emote3x, isNotNull);
-      expect(emote3x!.scales[EmoteScale.large], '$base/3x.webp');
-    });
-
-    test('keeps an emote without a 2x file', () {
-      final noMedium = SevenTvEmoteProvider.parseSingleEmote(
-        emote(['1x.webp', '4x.webp']),
-      );
-      expect(noMedium, isNotNull);
-      expect(noMedium!.scales[EmoteScale.small], '$base/1x.webp');
-      expect(noMedium.scales[EmoteScale.large], '$base/4x.webp');
-      expect(noMedium.scales.containsKey(EmoteScale.medium), isFalse);
+      expect(scalesOf(['1x.webp', '4x.webp']), {
+        EmoteScale.small: '$base/1x.webp',
+        EmoteScale.large: '$base/4x.webp',
+      });
     });
   });
 }

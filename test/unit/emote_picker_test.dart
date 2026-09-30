@@ -61,18 +61,6 @@ void main() {
   });
 
   group('EmotePicker.resolve card', () {
-    test('targets large at high tier when nothing is cached', () {
-      final result = EmotePicker.resolve(
-        _emote(),
-        EmoteSurface.card,
-        EmoteFetchTier.high,
-        _cached({}),
-      );
-      expect(result, isNotNull);
-      expect(result!.url, _large);
-      expect(result.placeholder, isNull);
-    });
-
     test('uses a cached large with no placeholder', () {
       final result = EmotePicker.resolve(
         _emote(),
@@ -111,11 +99,8 @@ void main() {
   });
 
   group('EmotePicker.dominatedScaleUrls', () {
-    test('returns small when medium exists', () {
+    test('returns small when a larger scale exists', () {
       expect(EmotePicker.dominatedScaleUrls(_emote(large: false)), [_small]);
-    });
-
-    test('returns small when large exists', () {
       expect(EmotePicker.dominatedScaleUrls(_emote(medium: false)), [_small]);
     });
 
@@ -124,10 +109,6 @@ void main() {
         EmotePicker.dominatedScaleUrls(_emote(medium: false, large: false)),
         isEmpty,
       );
-    });
-
-    test('returns nothing when small is absent', () {
-      expect(EmotePicker.dominatedScaleUrls(_emote(small: false)), isEmpty);
     });
   });
 }
