@@ -1,6 +1,6 @@
 # ermchat
 
-Twitch chat viewer (WIP). Single Flutter package. See [TODO.md](TODO.md) for the roadmap; [PLAN.md](PLAN.md) is a scratchpad, with [I18N.md](I18N.md) and [BACKLOG.md](BACKLOG.md) as deferred plans.
+Twitch chat viewer (WIP). Single Flutter package. See [TODO.md](TODO.md) for the roadmap and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for a map of the app; [docs/I18N.md](docs/I18N.md) is a deferred plan.
 
 ## Commands
 
@@ -30,7 +30,7 @@ dart format <files>      # only the files you changed, never `.`
 
 ## Architecture rules
 
-See [docs/ARCHITECTURE_RULES.md](docs/ARCHITECTURE_RULES.md) for the rules and [docs/DECISIONS.md](docs/DECISIONS.md) for why. [docs/BEHAVIOR_CHECKLIST.md](docs/BEHAVIOR_CHECKLIST.md) gates each migration phase. `test/architecture/architecture_test.dart` enforces the import-direction rules; keep it green.
+See [docs/ARCHITECTURE_RULES.md](docs/ARCHITECTURE_RULES.md) for the rules and [docs/DECISIONS.md](docs/DECISIONS.md) for why. `test/architecture/architecture_test.dart` enforces the import-direction rules; keep it green.
 
 ## Chat kernel conventions
 

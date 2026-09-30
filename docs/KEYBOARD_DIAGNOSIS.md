@@ -1,5 +1,7 @@
 # Keyboard open lag: diagnosis record (Sep 2026)
 
+TODO: re-evaluate. Small keyboard issues still show up in daily use, and parts of this record are known to be wrong.
+
 ## Verdict
 
 The lag after unfocus is the platform cold-restart path (`setClient` plus

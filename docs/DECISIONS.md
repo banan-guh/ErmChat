@@ -7,7 +7,7 @@ choices or mistake a deliberate tradeoff for an oversight.
 
 ## Decision log
 
-Locked decisions, matching PLAN.md.
+Locked decisions.
 
 ### D1: Riverpod is the DI, state, and observation framework
 
@@ -117,7 +117,7 @@ It is not scheduled.
 Reason: consistency is not worth a hot-path regression, and the engine is isolated
 behind one API and one bridge, so the door stays open.
 
-Status: Spike B (`docs/SPIKES.md`) puts the cheapest immutable path at 2.65x to 3.77x the
+Status: Spike B (a hot-path benchmark, `tool/spikes/hot_path_bench.dart`) puts the cheapest immutable path at 2.65x to 3.77x the
 mutable engine, so criterion 2 fails and the migration is not triggered. The engine stays.
 
 Accepted tradeoff: the one sanctioned exception may remain indefinitely.
@@ -258,7 +258,7 @@ selective rebuilds.
   chrome, sheets) and the emote owner types; it keeps a narrow commented allowlist (the
   `BroadcastWidgets` own constructor declaration and the `AccountScreen` `TwitchApi` test
   seam).
-- `ARCHITECTURE.md` maps the whole app with Mermaid diagrams and a "who writes what"
+- `docs/ARCHITECTURE.md` maps the whole app with Mermaid diagrams and a "who writes what"
   mutation map.
 
 ## Open tradeoffs

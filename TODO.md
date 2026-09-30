@@ -82,6 +82,16 @@
 - [x] **Gboard autocorrect overridden** - single-backspace undo is now a TextInputFormatter port of Android's mark-as-replaced DEL undo (safe mode), so it no longer clobbers Gboard's composing region.
 - [x] **Keyboard should lose focus on dismiss**
 
+## Old backlog (Sep 18, unverified; some may already be fixed)
+
+- [ ] **Emote resilience** - low-res placeholder while the tier goes Low to High.
+- [ ] **Perf nits** - image-embed cache bypass plus double linkify, action-message recolor, double tokenize, GIF regex hoist, checker parity by id.
+- [ ] **Visual nits** - tab strip stretch, double Connected on iOS, timestamp gutter width, reply colon on empty preview.
+- [ ] **UX consistency** - one slider contract, one empty state, one error with Retry, welcome copy, InkWell audit, More menu Close, macro Save errors.
+- [ ] **Races** - notification double-init plus stale map, player and sheet controller swaps, subscribe-then-part.
+- [ ] **Mod View triage** - 52 cataloged issues.
+- [ ] **Structural (far future)** - split connection/channel/emote managers and mod_view per tab; one tile cache owner and tile config for main, thread, mentions and history; single panel shell; stable video slot across layouts.
+
 ## SMALL bugs
 
 - borders flicker white when tabbing in -
