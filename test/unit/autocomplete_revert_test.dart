@@ -9,36 +9,33 @@ TextEditingValue _value(String text, int offset) => TextEditingValue(
 
 void main() {
   group('AutocompleteRevertFormatter', () {
-    test('passes through when no mark is set', () {
-      final formatter = AutocompleteRevertFormatter();
-      final oldValue = _value('hello', 5);
-      final newValue = _value('hell', 4);
-      expect(formatter.formatEditUpdate(oldValue, newValue), newValue);
+    test('restores the typed token on a single backspace after the region', () {
+      final cases = [
+        ('Kappa ', 'Kappa ', 6, 'Kappa', 5, 'Kapp'),
+        ('Kappa', 'Kappa world', 5, 'Kapp world', 4, 'Kapp world'),
+      ];
+      for (final (replacement, oldText, oldAt, newText, newAt, want) in cases) {
+        final formatter = AutocompleteRevertFormatter()
+          ..markReplaced(start: 0, original: 'Kapp', replacement: replacement);
+        final result = formatter.formatEditUpdate(
+          _value(oldText, oldAt),
+          _value(newText, newAt),
+        );
+        expect(result.text, want, reason: oldText);
+        expect(result.selection.baseOffset, 4);
+      }
     });
 
-    test(
-      'restores the typed token on a single backspace at the region end',
-      () {
-        final formatter = AutocompleteRevertFormatter()
-          ..markReplaced(start: 0, original: 'Kapp', replacement: 'Kappa ');
-        final result = formatter.formatEditUpdate(
-          _value('Kappa ', 6),
-          _value('Kappa', 5),
-        );
-        expect(result.text, 'Kapp');
-        expect(result.selection.baseOffset, 4);
-      },
-    );
-
-    test('restores mid-text when the replacement has no trailing space', () {
+    test('marking again replaces the previous mark', () {
       final formatter = AutocompleteRevertFormatter()
-        ..markReplaced(start: 0, original: 'Kapp', replacement: 'Kappa');
+        ..markReplaced(start: 0, original: 'Kapp', replacement: 'Kappa ')
+        ..markReplaced(start: 0, original: 'foo', replacement: 'foobar');
       final result = formatter.formatEditUpdate(
-        _value('Kappa world', 5),
-        _value('Kapp world', 4),
+        _value('foobar', 6),
+        _value('fooba', 5),
       );
-      expect(result.text, 'Kapp world');
-      expect(result.selection.baseOffset, 4);
+      expect(result.text, 'foo');
+      expect(result.selection.baseOffset, 3);
     });
 
     test('an unrelated edit clears the mark so it cannot fire later', () {
@@ -57,50 +54,32 @@ void main() {
       expect(later.text, 'KappX');
     });
 
-    test('deleting outside the region clears the mark', () {
-      final formatter = AutocompleteRevertFormatter()
-        ..markReplaced(start: 0, original: 'Kapp', replacement: 'Kappa ');
-      final result = formatter.formatEditUpdate(
-        _value('Kappa ', 6),
-        _value('appa ', 0),
-      );
-      expect(result.text, 'appa ');
-    });
-
-    test('marking again replaces the previous mark', () {
-      final formatter = AutocompleteRevertFormatter()
-        ..markReplaced(start: 0, original: 'Kapp', replacement: 'Kappa ')
-        ..markReplaced(start: 0, original: 'foo', replacement: 'foobar');
-      final result = formatter.formatEditUpdate(
-        _value('foobar', 6),
-        _value('fooba', 5),
-      );
-      expect(result.text, 'foo');
-      expect(result.selection.baseOffset, 3);
-    });
-
-    test('a multi-char deletion does not restore', () {
-      final formatter = AutocompleteRevertFormatter()
-        ..markReplaced(start: 0, original: 'Kapp', replacement: 'Kappa ');
-      final result = formatter.formatEditUpdate(
-        _value('Kappa ', 6),
-        _value('Kapp', 4),
-      );
-      expect(result.text, 'Kapp');
-      expect(result.selection.baseOffset, 4);
-    });
-
-    test('a non-collapsed selection clears the mark', () {
-      final formatter = AutocompleteRevertFormatter()
-        ..markReplaced(start: 0, original: 'Kapp', replacement: 'Kappa ');
-      final newValue = const TextEditingValue(
+    test('other edits pass through untouched', () {
+      const selection = TextEditingValue(
         text: 'Kappa',
         selection: TextSelection(baseOffset: 1, extentOffset: 4),
       );
-      expect(
-        formatter.formatEditUpdate(_value('Kappa ', 6), newValue),
-        newValue,
-      );
+      final cases = <(String, bool, TextEditingValue, TextEditingValue)>[
+        ('no mark', false, _value('hello', 5), _value('hell', 4)),
+        ('delete outside', true, _value('Kappa ', 6), _value('appa ', 0)),
+        ('multi-char deletion', true, _value('Kappa ', 6), _value('Kapp', 4)),
+        ('non-collapsed selection', true, _value('Kappa ', 6), selection),
+      ];
+      for (final (name, marked, oldValue, newValue) in cases) {
+        final formatter = AutocompleteRevertFormatter();
+        if (marked) {
+          formatter.markReplaced(
+            start: 0,
+            original: 'Kapp',
+            replacement: 'Kappa ',
+          );
+        }
+        expect(
+          formatter.formatEditUpdate(oldValue, newValue),
+          newValue,
+          reason: name,
+        );
+      }
     });
 
     test('clear drops the mark', () {

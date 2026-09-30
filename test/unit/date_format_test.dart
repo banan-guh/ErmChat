@@ -22,6 +22,7 @@ void main() {
       '2d ago',
     );
     expect(formatAgo(DateTime(2025, 12, 1), now: now), '2025-12-01');
+    expect(formatAgoIso('not a date'), 'not a date');
   });
 
   test('formatIn looks ahead', () {
@@ -33,9 +34,5 @@ void main() {
       'in 0s',
     );
     expect(formatIn(DateTime(2026, 3, 12, 9, 5), now: now), '2026-03-12 09:05');
-  });
-
-  test('formatAgoIso passes unparsable input through', () {
-    expect(formatAgoIso('not a date'), 'not a date');
   });
 }

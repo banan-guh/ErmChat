@@ -20,35 +20,42 @@ TwitchMessage _msg(String id, String channel, {String? rootId}) =>
 
 void main() {
   group('SavedThreadsStore', () {
-    test('toggle saves then unsaves', () {
+    test('toggle saves and unsaves, matching channels case-insensitively', () {
       final store = SavedThreadsStore();
-      final entry = SavedThread.fromMessage(_msg('r1', 'forsen'), 'r1');
+      final entry = SavedThread.fromMessage(_msg('r1', 'Forsen'), 'r1');
       expect(store.toggle(entry), isTrue);
       expect(store.isSaved('forsen', 'r1'), isTrue);
+      expect(store.threads.single.channel, 'forsen');
       expect(store.toggle(entry), isFalse);
       expect(store.isSaved('forsen', 'r1'), isFalse);
+      expect(
+        store.toggle(SavedThread.fromMessage(_msg('r1', ''), 'r1')),
+        isFalse,
+        reason: 'empty channel is rejected',
+      );
+      expect(store.threads, isEmpty);
     });
 
-    test('channel matching is case-insensitive', () {
-      final store = SavedThreadsStore();
-      store.toggle(SavedThread.fromMessage(_msg('r1', 'Forsen'), 'r1'));
-      expect(store.isSaved('forsen', 'r1'), isTrue);
-      expect(store.threads.single.channel, 'forsen');
-    });
+    test('decode round-trips and drops corrupt rows', () {
+      final source = SavedThreadsStore();
+      source.toggle(SavedThread.fromMessage(_msg('r1', 'forsen'), 'r1'));
+      final good = jsonEncode(source.threads.single.toJson());
 
-    test('round-trips through JSON, dropping corrupt rows', () {
-      final store = SavedThreadsStore();
-      store.toggle(SavedThread.fromMessage(_msg('r1', 'forsen'), 'r1'));
-      final raw = store.encode();
-
-      final other = SavedThreadsStore();
-      other.decode(raw);
+      final other = SavedThreadsStore()..decode(source.encode());
       expect(other.isSaved('forsen', 'r1'), isTrue);
       expect(other.threads.single.author, 'Alice');
 
-      final bad = SavedThreadsStore();
-      bad.decode('not json{{{');
-      expect(bad.threads, isEmpty);
+      final inputs = {
+        'not json{{{': 0,
+        '[$good, 42, {"channel": 7, "rootId": ["x"]}, '
+                '{"channel": "", "rootId": ""}]':
+            1,
+        '[{"channel": "forsen", "rootId": "r1", "savedAt": "not-a-date"}]': 0,
+      };
+      inputs.forEach((raw, kept) {
+        final store = SavedThreadsStore()..decode(raw);
+        expect(store.threads, hasLength(kept), reason: raw);
+      });
     });
 
     test('caps at 50, evicting the oldest', () {
@@ -59,33 +66,6 @@ void main() {
       expect(store.threads, hasLength(maxSavedThreads));
       expect(store.isSaved('forsen', 'r0'), isFalse);
       expect(store.isSaved('forsen', 'r54'), isTrue);
-    });
-
-    test('rejects entries with an empty channel or root id', () {
-      final store = SavedThreadsStore();
-      expect(
-        store.toggle(SavedThread.fromMessage(_msg('r1', ''), 'r1')),
-        isFalse,
-      );
-      expect(store.threads, isEmpty);
-    });
-
-    test('keeps valid rows when sibling rows are corrupt', () {
-      final good = SavedThread.fromMessage(_msg('r1', 'forsen'), 'r1').toJson();
-      final raw =
-          '[${jsonEncode(good)}, 42, {"channel": 7, "rootId": ["x"]}, {"channel": "", "rootId": ""}]';
-      final mixed = SavedThreadsStore();
-      mixed.decode(raw);
-      expect(mixed.threads, hasLength(1));
-      expect(mixed.isSaved('forsen', 'r1'), isTrue);
-    });
-
-    test('drops rows with a bad savedAt instead of freezing at epoch', () {
-      final mixed = SavedThreadsStore();
-      mixed.decode(
-        '[{"channel": "forsen", "rootId": "r1", "savedAt": "not-a-date"}]',
-      );
-      expect(mixed.threads, isEmpty);
     });
 
     test('saves the full log and appends live replies', () {

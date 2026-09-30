@@ -9,14 +9,11 @@ void main() {
       expect(cleanChatText('hi \u{E0000}'), 'hi ');
     });
 
-    test('drops zero-width spaces', () {
+    test('drops zero-width spaces and turns blank lookalikes into spaces', () {
       expect(cleanChatText('a​b⁠c﻿'), 'abc');
-    });
-
-    test('turns blank lookalikes into single spaces', () {
-      expect(cleanChatText('a  b'), 'a b');
+      expect(cleanChatText('a  b'), 'a b');
       expect(cleanChatText('a　bㅤc'), 'a b c');
-      expect(cleanChatText('a   b'), 'a b');
+      expect(cleanChatText('a   b'), 'a b');
     });
 
     test('keeps emoji intact', () {
@@ -30,12 +27,9 @@ void main() {
       }
     });
 
-    test('keeps braille blanks for braille art', () {
+    test('keeps braille art and clean text as is', () {
       const art = '⠀⠀⣿⠀';
       expect(cleanChatText(art), art);
-    });
-
-    test('returns clean text as is', () {
       const text = 'nothing to clean here';
       expect(identical(cleanChatText(text), text), isTrue);
     });

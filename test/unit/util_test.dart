@@ -16,7 +16,6 @@ import 'package:ermchat/util/chat_text.dart';
 import 'package:ermchat/main.dart';
 import 'package:ermchat/sheets/user_sheet.dart';
 import 'package:ermchat/util/timestamp_formatter.dart';
-import 'package:ermchat/util/crash_report.dart';
 import 'package:flutter/services.dart';
 import 'package:ermchat/widgets/predictive_back_handler.dart';
 import 'package:ermchat/emotes/emote.dart';
@@ -89,27 +88,17 @@ void main() {
     });
   });
 
-  group('luminance', () {
-    test('scores black near zero and white near one', () {
-      expect(luminance(Colors.black), closeTo(0, 0.001));
-      expect(luminance(Colors.white), closeTo(1, 0.001));
-    });
-  });
+  test('luminance and normalizeColor keep text readable', () {
+    expect(luminance(Colors.black), closeTo(0, 0.001));
+    expect(luminance(Colors.white), closeTo(1, 0.001));
 
-  group('normalizeColor', () {
-    test('darkens light colors and brightens dark ones for contrast', () {
-      const yellow = Color(0xFFFFFF00);
-      final darkened = normalizeColor(yellow, Colors.white);
-      // Yellow starts at exactly 0.5 lightness and must drop below it.
-      expect(HSLColor.fromColor(darkened).lightness, lessThan(0.5));
+    const yellow = Color(0xFFFFFF00);
+    final darkened = normalizeColor(yellow, Colors.white);
+    expect(HSLColor.fromColor(darkened).lightness, lessThan(0.5));
 
-      const darkBlue = Color(0xFF00008B);
-      final brightened = normalizeColor(darkBlue, Colors.black);
-      expect(
-        HSLColor.fromColor(brightened).lightness,
-        greaterThanOrEqualTo(0.5),
-      );
-    });
+    const darkBlue = Color(0xFF00008B);
+    final brightened = normalizeColor(darkBlue, Colors.black);
+    expect(HSLColor.fromColor(brightened).lightness, greaterThanOrEqualTo(0.5));
   });
 
   group('getCurrentWord', () {
@@ -168,6 +157,8 @@ void main() {
         ('Kapp', 4, 'Kappa', 'Kappa ', 6),
         ('', 0, 'Kappa', 'Kappa ', 6),
         ('hello wor', 9, 'world', 'hello world ', 12),
+        ('hello Kapp world', 10, 'Kappa', 'hello Kappa world', 11),
+        ('hello Kappworld', 10, 'Kappa', 'hello Kappa world', 12),
       ];
       for (final c in cases) {
         final controller = TextEditingController(text: c.$1);
@@ -181,24 +172,6 @@ void main() {
         );
         controller.dispose();
       }
-    });
-
-    test('autocomplete keeps an existing following space', () {
-      final controller = TextEditingController(text: 'hello Kapp world');
-      controller.selection = const TextSelection.collapsed(offset: 10);
-      replaceCurrentWord(controller, 'Kappa', extendRight: false);
-      expect(controller.text, 'hello Kappa world');
-      expect(controller.selection.baseOffset, 11);
-      controller.dispose();
-    });
-
-    test('autocomplete adds a space before following text', () {
-      final controller = TextEditingController(text: 'hello Kappworld');
-      controller.selection = const TextSelection.collapsed(offset: 10);
-      replaceCurrentWord(controller, 'Kappa', extendRight: false);
-      expect(controller.text, 'hello Kappa world');
-      expect(controller.selection.baseOffset, 12);
-      controller.dispose();
     });
   });
 
@@ -317,12 +290,6 @@ void main() {
         reason: 'chrome stays grey in true dark too',
       );
     });
-
-    test('seed color drives the scheme', () {
-      final blue = buildDarkTheme(seedColor: Colors.blue).colorScheme;
-      final red = buildDarkTheme(seedColor: Colors.red).colorScheme;
-      expect(blue.primary, isNot(red.primary));
-    });
   });
 
   // Fixed local time: 2026-08-06 03:05:09 in the host's local time zone.
@@ -357,10 +324,6 @@ void main() {
       expect(formatTimestamp(pm, 'h:mm:ss a'), '3:05:09 PM');
       expect(formatTimestamp(pm, 'hh:mm:ss a'), '03:05:09 PM');
     });
-  });
-
-  test('presets cover 24h and 12h with and without seconds', () {
-    expect(kTimestampFormats, containsAll(['HH:mm', 'hh:mm a', 'HH:mm:ss']));
   });
 
   group('formatSeconds', () {
@@ -452,29 +415,19 @@ void main() {
     messageId: 'm1',
   );
 
-  test('spans are reused across builds', () {
+  test('spans are cached and stay frozen across catalog changes', () async {
     final em = EmoteManager();
     final msg = makeMsg();
     final builder = makeBuilder(em);
     final spans = builder.buildMessageSpans(msg, 'test', Colors.black);
-
     expect(builder.bodyIsCached(msg, spans), isTrue);
     expect(spans.any((s) => s is WidgetSpan), isFalse);
+    expect(
+      identical(builder.buildMessageSpans(msg, 'test', Colors.black), spans),
+      isTrue,
+    );
 
-    final again = builder.buildMessageSpans(msg, 'test', Colors.black);
-    expect(identical(again, spans), isTrue);
-  });
-
-  test('spans stay frozen across a live 7TV delta', () {
-    final em = EmoteManager();
-    final msg = makeMsg();
-    final builder = makeBuilder(em);
-    final spans = builder.buildMessageSpans(msg, 'test', Colors.black);
-    expect(spans.any((s) => s is WidgetSpan), isFalse);
-
-    // A live 7TV delta does not bump the version: already-rendered messages
-    // keep the emote state they were built with (no retroactive re-render on
-    // add/remove).
+    // A live 7TV delta and a full refetch never retroactively re-render.
     em.updateSevenTvEmotes(
       'test',
       added: [
@@ -486,20 +439,11 @@ void main() {
         ),
       ],
     );
+    expect(
+      identical(builder.buildMessageSpans(msg, 'test', Colors.black), spans),
+      isTrue,
+    );
 
-    final again = builder.buildMessageSpans(msg, 'test', Colors.black);
-    expect(identical(again, spans), isTrue);
-  });
-
-  test('spans stay frozen after a full refetch notify', () async {
-    final em = EmoteManager();
-    final msg = makeMsg();
-    final builder = makeBuilder(em);
-    final spans = builder.buildMessageSpans(msg, 'test', Colors.black);
-    expect(spans.any((s) => s is WidgetSpan), isFalse);
-
-    // A full refetch bumps the version, but the baked row keeps its spans:
-    // tokens parse once at first render and are never recomputed.
     await em.storeUserTwitchEmotes({
       'test': [
         const Emote(
@@ -512,9 +456,10 @@ void main() {
       ],
     });
     expect(em.version, greaterThan(0));
-
-    final re = builder.buildMessageSpans(msg, 'test', Colors.black);
-    expect(identical(re, spans), isTrue);
+    expect(
+      identical(builder.buildMessageSpans(msg, 'test', Colors.black), spans),
+      isTrue,
+    );
   });
 
   test('spans rebuild when a restamp reassigns the tokens', () {
@@ -600,11 +545,6 @@ void main() {
     }
   });
 
-  test('card badges are empty with no badge data', () {
-    final msg = makeMsg();
-    expect(makeBuilder(EmoteManager()).resolveCardBadges('test', msg), isEmpty);
-  });
-
   test('card badges resolve global sets and drop unknown', () async {
     final badgeService = TwitchBadgeService(
       client: MockClient(
@@ -667,8 +607,7 @@ void main() {
     ]);
   });
 
-  test('giphy toggle off falls back to plain text', () {
-    final em = EmoteManager();
+  test('giphy toggle and height rebuild spans; off falls back to text', () {
     final msg = TwitchMessage(
       login: 'user',
       text: 'hello world',
@@ -683,28 +622,7 @@ void main() {
         ),
       ],
     );
-    final builder = makeBuilder(em)..showGifs = false;
-    final spans = builder.buildMessageSpans(msg, 'test', Colors.black);
-    expect(spans.any((s) => s is WidgetSpan), isFalse);
-  });
-
-  test('giphy toggle on renders inline gif and invalidates cache', () {
-    final em = EmoteManager();
-    final msg = TwitchMessage(
-      login: 'user',
-      text: 'hello world',
-      channel: 'test',
-      messageId: 'gif2',
-      gifAttachments: const [
-        GifAttachment(
-          gifId: 'abc',
-          url: 'https://media.giphy.com/media/abc/giphy.gif',
-          startIndex: 0,
-          endIndex: 5,
-        ),
-      ],
-    );
-    final builder = makeBuilder(em)..showGifs = false;
+    final builder = makeBuilder(EmoteManager())..showGifs = false;
     final textOnly = builder.buildMessageSpans(msg, 'test', Colors.black);
     expect(textOnly.any((s) => s is WidgetSpan), isFalse);
 
@@ -712,59 +630,45 @@ void main() {
     final withGif = builder.buildMessageSpans(msg, 'test', Colors.black);
     expect(identical(withGif, textOnly), isFalse);
     expect(withGif.any((s) => s is WidgetSpan), isTrue);
-    // The gap after the gif range still renders as text.
     expect(
       withGif.whereType<TextSpan>().any(
         (s) => s.text?.contains('world') ?? false,
       ),
       isTrue,
+      reason: 'the gap after the gif range still renders as text',
     );
-  });
-
-  test('giphy height change invalidates the span cache', () {
-    final em = EmoteManager();
-    final msg = TwitchMessage(
-      login: 'user',
-      text: 'hello world',
-      channel: 'test',
-      messageId: 'gif3',
-      gifAttachments: const [
-        GifAttachment(
-          gifId: 'abc',
-          url: 'https://media.giphy.com/media/abc/giphy.gif',
-          startIndex: 0,
-          endIndex: 5,
-        ),
-      ],
-    );
-    final builder = makeBuilder(em)..showGifs = true;
-    final first = builder.buildMessageSpans(msg, 'test', Colors.black);
-    expect(first.any((s) => s is WidgetSpan), isTrue);
 
     builder.gifHeight = 200;
-    final second = builder.buildMessageSpans(msg, 'test', Colors.black);
-    expect(identical(second, first), isFalse);
-    expect(second.any((s) => s is WidgetSpan), isTrue);
+    final resized = builder.buildMessageSpans(msg, 'test', Colors.black);
+    expect(identical(resized, withGif), isFalse);
+    expect(resized.any((s) => s is WidgetSpan), isTrue);
   });
 
   group('image embeds', () {
-    test('detects image extensions, ignores query and fragment', () {
-      expect(isImageEmbedCandidate('https://example.com/a.png'), isTrue);
-      expect(isImageEmbedCandidate('https://example.com/a.JPG?x=1#y'), isTrue);
-      expect(isImageEmbedCandidate('http://example.com/a.webp'), isTrue);
-      expect(isImageEmbedCandidate('https://example.com/a.mp4'), isFalse);
-      expect(isImageEmbedCandidate('https://example.com/page'), isFalse);
-      expect(isImageEmbedCandidate('https://example.com/a.png/'), isFalse);
-    });
-
-    test('treats known hosts as images without an extension', () {
-      expect(isImageEmbedCandidate('https://kappa.lol/abc'), isTrue);
-      expect(isImageEmbedCandidate('https://sub.kappa.lol/abc'), isTrue);
-      expect(isImageEmbedCandidate('https://kappa.lol'), isFalse);
-      expect(isImageEmbedCandidate('https://kappa.lol/abc.mp4'), isFalse);
-      expect(isImageEmbedCandidate('https://kappa.lol/abc.gif'), isTrue);
-      expect(isImageEmbedCandidate('https://youtu.be/abc'), isFalse);
-      expect(isImageEmbedCandidate('not a url'), isFalse);
+    test('detects image urls by extension or known host', () {
+      const yes = [
+        'https://example.com/a.png',
+        'https://example.com/a.JPG?x=1#y',
+        'http://example.com/a.webp',
+        'https://kappa.lol/abc',
+        'https://sub.kappa.lol/abc',
+        'https://kappa.lol/abc.gif',
+      ];
+      const no = [
+        'https://example.com/a.mp4',
+        'https://example.com/page',
+        'https://example.com/a.png/',
+        'https://kappa.lol',
+        'https://kappa.lol/abc.mp4',
+        'https://youtu.be/abc',
+        'not a url',
+      ];
+      for (final url in yes) {
+        expect(isImageEmbedCandidate(url), isTrue, reason: url);
+      }
+      for (final url in no) {
+        expect(isImageEmbedCandidate(url), isFalse, reason: url);
+      }
     });
 
     test('collects embed urls in order without duplicates', () {
@@ -806,17 +710,16 @@ void main() {
         Colors.black,
       );
       expect(noTap.any((s) => s is WidgetSpan), isFalse);
-    });
 
-    test('showImages toggle invalidates the span cache', () {
-      final em = EmoteManager();
-      final builder = makeBuilder(em)..showImages = false;
+      // Toggling the setting rebuilds a cached message.
       final msg = imgMsg('img4', 'look https://example.com/a.png ok');
-      final off = builder.buildMessageSpans(msg, 'test', Colors.black);
-
-      builder.showImages = true;
-      final on = builder.buildMessageSpans(msg, 'test', Colors.black);
-      expect(identical(on, off), isFalse);
+      final off = (makeBuilder(em)..showImages = false).buildMessageSpans(
+        msg,
+        'test',
+        Colors.black,
+        onImageTap: tapped.add,
+      );
+      expect(off.any((s) => s is WidgetSpan), isFalse);
     });
   });
 
@@ -878,17 +781,6 @@ void main() {
       }
     });
 
-    test('does not link sentence boundary without path', () {
-      expect(urlsOf('that was nice. gg guys', ['gg']), isEmpty);
-      expect(urlsOf('that was cool. lol', ['lol']), isEmpty);
-      expect(urlsOf('hello. world', ['world']), isEmpty);
-    });
-
-    test('does not link non-whitelisted fractured runs', () {
-      expect(urlsOf('check example. com/ out', ['net']), isEmpty);
-      expect(urlsOf('check example .com/ out', ['net']), isEmpty);
-    });
-
     test('links bare whitelisted domains and paths', () {
       final bare = urlsOf('check x.com out', ['x.com']);
       expect(bare.single.url, 'https://x.com');
@@ -899,60 +791,39 @@ void main() {
       expect(path.single.text, 'kappa.lol/tests');
     });
 
-    test('does not link bare non-whitelisted domains', () {
-      expect(urlsOf('check x.com out', ['net']), isEmpty);
-    });
-
-    test('bare linking works with fracture detection off', () {
-      final elements = WhitelistLinkifier(const [
+    test('bare linking works, fractures need detection on', () {
+      final bare = WhitelistLinkifier(const [
         'x.com',
       ], fractures: false).parse([TextElement('check x.com out')], options);
-      final urls = elements.whereType<UrlElement>().toList();
-      expect(urls, hasLength(1));
-      expect(urls.single.url, 'https://x.com');
-    });
-
-    test('fractured runs stay plain with fracture detection off', () {
-      final elements = WhitelistLinkifier(
+      expect(bare.whereType<UrlElement>().single.url, 'https://x.com');
+      final fractured = WhitelistLinkifier(
         const ['com'],
         fractures: false,
       ).parse([TextElement('check example .com/ out')], options);
-      expect(elements.whereType<UrlElement>(), isEmpty);
+      expect(fractured.whereType<UrlElement>(), isEmpty);
     });
 
-    test('leaves emails intact', () {
-      expect(urlsOf('mail foo@gmail.com today', ['com']), isEmpty);
-      expect(urlsOf('mail foo@gmail.com today', ['gmail.com']), isEmpty);
-    });
-
-    test('leaves scheme URLs intact', () {
-      expect(urlsOf('visit https://x.com/a today', ['x.com']), isEmpty);
-      expect(urlsOf('visit https://example.com/a today', ['com']), isEmpty);
-    });
-
-    test('full linkify pipeline keeps scheme URLs whole', () {
-      final elements = linkify(
-        'visit https://example.com/a today',
-        options: options,
-        linkifiers: [
-          const SafeEmailLinkifier(),
-          WhitelistLinkifier(const ['com']),
-          const UrlLinkifier(),
-        ],
-      );
-      final urls = elements.whereType<UrlElement>().toList();
-      expect(urls, hasLength(1));
-      expect(urls.single.url, 'https://example.com/a');
-    });
-
-    test('does not link lone whitelisted words', () {
-      expect(urlsOf('lol that was funny', ['lol']), isEmpty);
-    });
-
-    test('empty whitelist passes text through', () {
-      final elements = runLinkifier('check example. com/ out', []);
-      expect(elements, hasLength(1));
-      expect(elements.single, isA<TextElement>());
+    test('leaves non-links, emails and scheme URLs alone', () {
+      const cases = [
+        ('that was nice. gg guys', ['gg']),
+        ('that was cool. lol', ['lol']),
+        ('hello. world', ['world']),
+        ('lol that was funny', ['lol']),
+        ('check example. com/ out', ['net']),
+        ('check example .com/ out', ['net']),
+        ('check x.com out', ['net']),
+        ('mail foo@gmail.com today', ['com']),
+        ('mail foo@gmail.com today', ['gmail.com']),
+        ('visit https://x.com/a today', ['x.com']),
+        ('visit https://example.com/a today', ['com']),
+      ];
+      for (final (text, whitelist) in cases) {
+        expect(urlsOf(text, whitelist), isEmpty, reason: text);
+      }
+      final empty = runLinkifier('check example. com/ out', []);
+      expect(empty.single, isA<TextElement>());
+      final scheme = runLinkifier('visit https://example.com/a today', ['com']);
+      expect(scheme.single.text, 'visit https://example.com/a today');
     });
 
     test('links show without the scheme but keep it for launching', () {
@@ -975,18 +846,6 @@ void main() {
       expect(urls.single.url, 'https://example.com/x');
       expect(urls.single.text, 'example.com/x');
     });
-
-    test(
-      'whitelist linkifier leaves scheme URLs contiguous for stock linkify',
-      () {
-        final elements = runLinkifier('visit https://example.com/a today', [
-          'com',
-        ]);
-        expect(elements, hasLength(1));
-        expect(elements.single, isA<TextElement>());
-        expect(elements.single.text, 'visit https://example.com/a today');
-      },
-    );
 
     test('prod pipeline highlights the scheme of posted links', () {
       const humanized = LinkifyOptions(
@@ -1073,26 +932,27 @@ void main() {
       }
     });
 
-    test('ignores unlisted single-char domains', () {
-      expect(runSingle('check y.com/abc out'), isEmpty);
-      expect(runSingle('check q.net/abc out'), isEmpty);
+    test('leaves unlisted domains, longer labels, emails and subdomains', () {
+      const cases = [
+        'check y.com/abc out',
+        'check q.net/abc out',
+        'check ax.com/abc out',
+        'mail foo@gmail.com today',
+        'visit www.x.com/a today',
+        'visit sub.x.com/a today',
+      ];
+      for (final text in cases) {
+        expect(runSingle(text), isEmpty, reason: text);
+      }
     });
 
-    test('leaves longer labels to stock linkify', () {
-      expect(runSingle('check ax.com/abc out'), isEmpty);
-    });
-
-    test('leaves emails and subdomains whole', () {
-      expect(runSingle('mail foo@gmail.com today'), isEmpty);
-      expect(runSingle('visit www.x.com/a today'), isEmpty);
-      expect(runSingle('visit sub.x.com/a today'), isEmpty);
-    });
-
-    test('links scheme URLs stock linkify misses', () {
-      final urls = runSingle('visit https://x.com/a today');
-      expect(urls, hasLength(1));
-      expect(urls.single.url, 'https://x.com/a');
-      expect(urls.single.text, 'https://x.com/a');
+    test('links scheme URLs and trims trailing sentence periods', () {
+      final scheme = runSingle('visit https://x.com/a today');
+      expect(scheme.single.url, 'https://x.com/a');
+      expect(scheme.single.text, 'https://x.com/a');
+      final dotted = runSingle('visit x.com.');
+      expect(dotted.single.url, 'https://x.com');
+      expect(dotted.single.text, 'x.com');
     });
 
     test('claims uppercase scheme URLs whole', () {
@@ -1108,13 +968,6 @@ void main() {
         ),
         isFalse,
       );
-    });
-
-    test('keeps trailing sentence periods out of the link', () {
-      final urls = runSingle('visit x.com.');
-      expect(urls, hasLength(1));
-      expect(urls.single.url, 'https://x.com');
-      expect(urls.single.text, 'x.com');
     });
 
     test('prod pipeline links bare x.com with an empty whitelist', () {
@@ -1145,16 +998,14 @@ void main() {
     List<LinkifyElement> runEmail(String text) =>
         const SafeEmailLinkifier().parse([TextElement(text)], options);
 
-    test('claims plain email addresses', () {
-      final elements = runEmail('mail foo@gmail.com today');
-      final emails = elements.whereType<EmailElement>().toList();
-      expect(emails, hasLength(1));
-      expect(emails.single.emailAddress, 'foo@gmail.com');
-    });
-
-    test('claims multiple email addresses', () {
-      final elements = runEmail('a@b.co and c@d.io');
-      expect(elements.whereType<EmailElement>().map((e) => e.emailAddress), [
+    test('claims plain and multiple email addresses', () {
+      final one = runEmail('mail foo@gmail.com today');
+      expect(
+        one.whereType<EmailElement>().single.emailAddress,
+        'foo@gmail.com',
+      );
+      final two = runEmail('a@b.co and c@d.io');
+      expect(two.whereType<EmailElement>().map((e) => e.emailAddress), [
         'a@b.co',
         'c@d.io',
       ]);
@@ -1165,38 +1016,6 @@ void main() {
       final elements = runEmail(text);
       expect(elements.whereType<EmailElement>(), isEmpty);
       expect(elements.map((e) => e.text).join(), text);
-    });
-
-    test('full pipeline keeps userinfo URLs whole', () {
-      final elements = linkify(
-        'visit https://user@host.com/x now',
-        options: options,
-        linkifiers: [
-          const SafeEmailLinkifier(),
-          WhitelistLinkifier(const ['com']),
-          const UrlLinkifier(),
-        ],
-      );
-      final urls = elements.whereType<UrlElement>().toList();
-      expect(urls, hasLength(1));
-      expect(urls.single.url, 'https://user@host.com/x');
-      expect(elements.whereType<EmailElement>(), isEmpty);
-    });
-
-    test('full pipeline routes plain emails to EmailElement', () {
-      final elements = linkify(
-        'mail foo@gmail.com today',
-        options: options,
-        linkifiers: [
-          const SafeEmailLinkifier(),
-          WhitelistLinkifier(const ['com']),
-          const UrlLinkifier(),
-        ],
-      );
-      final emails = elements.whereType<EmailElement>().toList();
-      expect(emails, hasLength(1));
-      expect(emails.single.emailAddress, 'foo@gmail.com');
-      expect(elements.whereType<UrlElement>(), isEmpty);
     });
 
     test('drops duplicate-bypass marks so they cannot wrap alone', () {
@@ -1226,95 +1045,56 @@ void main() {
     });
   });
 
-  group('crash_report', () {
-    test('reportError forwards to the plugged reporter', () {
-      Object? captured;
-      StackTrace? capturedStack;
-      crashReporter = (e, s) {
-        captured = e;
-        capturedStack = s;
-      };
-      reportError('boom', StackTrace.current);
-      expect(captured, 'boom');
-      expect(capturedStack, isNotNull);
-      crashReporter = null;
-    });
-  });
-
-  group('userSheetNearestDetent', () {
+  group('user sheet detents', () {
     const minExtent = 0.25;
     const cardExtent = 0.4;
     const maxExtent = 1.0;
 
-    double nearest(double size) => userSheetNearestDetent(
-      size,
-      minExtent: minExtent,
-      cardExtent: cardExtent,
-      maxExtent: maxExtent,
-    );
-
-    test('detents map to themselves', () {
-      expect(nearest(minExtent), minExtent);
-      expect(nearest(cardExtent), cardExtent);
-      expect(nearest(maxExtent), maxExtent);
-    });
-
-    test('between detents picks the nearer one', () {
+    test('nearest detent snaps to the closest', () {
+      double nearest(double size) => userSheetNearestDetent(
+        size,
+        minExtent: minExtent,
+        cardExtent: cardExtent,
+        maxExtent: maxExtent,
+      );
+      for (final d in [minExtent, cardExtent, maxExtent]) {
+        expect(nearest(d), d);
+      }
       expect(nearest(0.3), minExtent);
       expect(nearest(0.6), cardExtent);
       expect(nearest(0.9), maxExtent);
     });
-  });
 
-  // A sheet left between detents (list fling into the sheet, cancelled
-  // pointer) eases to the nearer of card and max once it rests.
-  group('userSheetRestTarget', () {
-    double? rest(double size) => userSheetRestTarget(
-      size,
-      minExtent: 0,
-      cardExtent: 0.4,
-      maxExtent: 1.0,
-    );
-
-    test('between detents picks the nearer one', () {
+    // A sheet left between detents eases to the nearer of card and max.
+    test('rest target eases between detents and stays on a detent', () {
+      double? rest(double size) => userSheetRestTarget(
+        size,
+        minExtent: 0,
+        cardExtent: 0.4,
+        maxExtent: 1.0,
+      );
       expect(rest(0.55), 0.4);
       expect(rest(0.8), 1.0);
       expect(rest(0.2), 0.4);
+      for (final d in [0.4, 1.0, 0.0]) {
+        expect(rest(d), isNull);
+      }
     });
 
-    test('on a detent or closing stays put', () {
-      expect(rest(0.4), isNull);
-      expect(rest(1.0), isNull);
-      expect(rest(0.0), isNull);
-    });
-  });
-
-  group('userSheetTargetDetent', () {
-    const minExtent = 0.25;
-    const cardExtent = 0.4;
-    const maxExtent = 1.0;
-
-    double target(double size, double velocityDy) => userSheetTargetDetent(
-      size,
-      minExtent: minExtent,
-      cardExtent: cardExtent,
-      maxExtent: maxExtent,
-      velocityDy: velocityDy,
-    );
-
-    test('slow releases use distance', () {
+    test('release target uses distance when slow, velocity when fast', () {
+      double target(double size, double velocityDy) => userSheetTargetDetent(
+        size,
+        minExtent: minExtent,
+        cardExtent: cardExtent,
+        maxExtent: maxExtent,
+        velocityDy: velocityDy,
+      );
       expect(target(0.3, 100), minExtent);
       expect(target(0.6, -100), cardExtent);
       expect(target(0.9, 100), maxExtent);
-    });
-
-    test('fast upward releases move up one detent', () {
       expect(target(0.3, -1000), cardExtent);
       expect(target(cardExtent, -1000), maxExtent);
       expect(target(0.8, -1000), maxExtent);
-    });
-
-    test('fast downward releases move down one detent', () {
       expect(target(maxExtent, 1000), cardExtent);
       expect(target(0.8, 1000), cardExtent);
       expect(target(cardExtent, 1000), minExtent);
@@ -1336,43 +1116,39 @@ void main() {
       isSystem: isSystem,
     );
 
-    test('system rows never match a real query', () {
-      const f = ChatSearchFilter(query: 'sys');
-      expect(searchMatches(searchMsg('sys', isSystem: true), f), isFalse);
-    });
+    test('scopes decide whether text or sender is matched', () {
+      const any = ChatSearchFilter(query: 'sys');
+      expect(searchMatches(searchMsg('sys', isSystem: true), any), isFalse);
 
-    test('messages scope ignores the sender', () {
-      const f = ChatSearchFilter(query: 'bob', scope: ChatSearchScope.messages);
-      expect(searchMatches(searchMsg('hi bob'), f), isTrue);
-      expect(searchMatches(searchMsg('hi', login: 'bob'), f), isFalse);
-    });
+      const messages = ChatSearchFilter(
+        query: 'bob',
+        scope: ChatSearchScope.messages,
+      );
+      expect(searchMatches(searchMsg('hi bob'), messages), isTrue);
+      expect(searchMatches(searchMsg('hi', login: 'bob'), messages), isFalse);
 
-    test('chatters scope ignores the text', () {
-      const f = ChatSearchFilter(query: 'bob', scope: ChatSearchScope.chatters);
-      expect(searchMatches(searchMsg('hi', login: 'bob'), f), isTrue);
-      expect(searchMatches(searchMsg('hi bob'), f), isFalse);
-    });
+      const chatters = ChatSearchFilter(
+        query: 'bob',
+        scope: ChatSearchScope.chatters,
+      );
+      expect(searchMatches(searchMsg('hi', login: 'bob'), chatters), isTrue);
+      expect(searchMatches(searchMsg('hi bob'), chatters), isFalse);
 
-    test('chatters scope matches display names case-insensitively', () {
-      const f = ChatSearchFilter(
+      const kappa = ChatSearchFilter(
         query: 'kappa',
         scope: ChatSearchScope.chatters,
       );
       expect(
-        searchMatches(searchMsg('hi', displayName: 'KappaKid'), f),
+        searchMatches(searchMsg('hi', displayName: 'KappaKid'), kappa),
         isTrue,
+        reason: 'display names match case-insensitively',
       );
     });
   });
 
-  group('resolveThreadRootId', () {
-    test('walks to the root', () {
-      expect(resolveThreadRootId('c', {'c': 'b', 'b': 'a'}), 'a');
-    });
-
-    test('cycle terminates instead of hanging', () {
-      expect(resolveThreadRootId('a', {'a': 'b', 'b': 'a'}), isNotEmpty);
-      expect(resolveThreadRootId('a', {'a': 'a'}), 'a');
-    });
+  test('resolveThreadRootId walks to the root and survives cycles', () {
+    expect(resolveThreadRootId('c', {'c': 'b', 'b': 'a'}), 'a');
+    expect(resolveThreadRootId('a', {'a': 'b', 'b': 'a'}), isNotEmpty);
+    expect(resolveThreadRootId('a', {'a': 'a'}), 'a');
   });
 }

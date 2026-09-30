@@ -1,5 +1,6 @@
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:ermchat/services/pip_service.dart';
 import 'package:ermchat/services/stream_player_controller.dart';
 
@@ -34,6 +35,9 @@ StreamPlayerController _controller({PipService? pipService}) {
 }
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+  SharedPreferences.setMockInitialValues({});
+
   group('StreamPlayerController PiP', () {
     test('enterPip is a no-op unless eligible', () async {
       final setups = <String, void Function(StreamPlayerController)>{
@@ -107,6 +111,54 @@ void main() {
       controller.setPipPlaying(false);
       expect(controller.pipPlaying, isFalse);
       expect(notifies, 2);
+    });
+  });
+
+  group('StreamPlayerController', () {
+    test('stream, audio-only and theater flags stay consistent', () {
+      final controller = StreamPlayerController();
+      addTearDown(controller.dispose);
+      controller.toggleStream('foo');
+      expect(controller.currentChannel, 'foo');
+      expect(controller.isActive, isTrue);
+
+      controller.toggleAudioOnly();
+      expect(controller.isAudioOnly, isTrue);
+      controller.toggleStream('bar');
+      expect(controller.currentChannel, 'bar');
+      expect(controller.isAudioOnly, isFalse, reason: 'switching resets it');
+
+      controller.toggleTheaterMode();
+      expect(controller.isTheaterMode, isTrue);
+      controller.toggleAudioOnly();
+      expect(controller.isTheaterMode, isFalse);
+      expect(controller.isAudioOnly, isTrue);
+
+      controller.toggleStream('bar');
+      expect(controller.currentChannel, isNull);
+      expect(controller.isActive, isFalse);
+    });
+
+    test('playerUrl carries channel and extensions flag', () {
+      final controller = StreamPlayerController();
+      final url = controller.playerUrl('foo');
+      expect(url, contains('channel=foo'));
+      controller.setShowExtensions(true);
+      expect(controller.playerUrl('foo'), contains('enableExtensions=true'));
+      controller.dispose();
+    });
+
+    test('split fraction clamps and render death bumps generation', () {
+      final controller = StreamPlayerController();
+      controller.setSplitFraction(0.9);
+      expect(controller.splitFraction, 0.8);
+      controller.setSplitFraction(0.1);
+      expect(controller.splitFraction, 0.2);
+      final generation = controller.generation;
+      controller.onRenderProcessGone();
+      expect(controller.generation, generation + 1);
+      expect(controller.hasEverAttached, isFalse);
+      controller.dispose();
     });
   });
 }

@@ -52,19 +52,13 @@ void main() {
   });
 
   group('stripExif', () {
-    test('removes the EXIF segment from a JPEG', () async {
+    test('removes EXIF and bakes the orientation into the pixels', () async {
       final input = jpegWithExif(width: 4, height: 2);
       expect(String.fromCharCodes(input).contains('Exif'), isTrue);
 
       final output = await stripExif(input);
 
       expect(String.fromCharCodes(output).contains('Exif'), isFalse);
-      expect(img.decodeJpg(output), isNotNull, reason: 'still a valid JPEG');
-    });
-
-    test('bakes the EXIF orientation into the pixels', () async {
-      final output = await stripExif(jpegWithExif(width: 4, height: 2));
-
       final decoded = img.decodeJpg(output)!;
       expect(decoded.width, 2);
       expect(decoded.height, 4);
@@ -98,7 +92,7 @@ void main() {
       ]);
     });
 
-    test('round-trips through json', () {
+    test('round-trips through json, defaulting missing fields', () {
       const config = UploaderConfig(
         uploadUrl: 'https://example.com/upload',
         formField: 'file',
@@ -106,20 +100,13 @@ void main() {
         imageLinkPattern: '{link}',
         deletionLinkPattern: '{delete}',
       );
-      expect(
-        UploaderConfig.fromJson(config.toJson()).uploadUrl,
-        config.uploadUrl,
-      );
-      expect(
-        UploaderConfig.fromJson(config.toJson()).deletionLinkPattern,
-        '{delete}',
-      );
-    });
+      final back = UploaderConfig.fromJson(config.toJson());
+      expect(back.uploadUrl, config.uploadUrl);
+      expect(back.deletionLinkPattern, '{delete}');
 
-    test('missing fields fall back to defaults', () {
-      final config = UploaderConfig.fromJson(const {});
-      expect(config.uploadUrl, UploaderConfig.defaultConfig.uploadUrl);
-      expect(config.formField, UploaderConfig.defaultConfig.formField);
+      final empty = UploaderConfig.fromJson(const {});
+      expect(empty.uploadUrl, UploaderConfig.defaultConfig.uploadUrl);
+      expect(empty.formField, UploaderConfig.defaultConfig.formField);
     });
   });
 
@@ -197,44 +184,30 @@ void main() {
   });
 
   group('MediaUploader config persistence', () {
-    test('loads default config when nothing is stored', () async {
+    test('config defaults, saves, loads and resets', () async {
       final uploader = MediaUploader(
         client: MockClient((_) async => http.Response('', 200)),
       );
-      final config = await uploader.loadConfig();
-      expect(config.uploadUrl, 'https://kappa.lol/api/upload');
-    });
-
-    test('save then load round-trips', () async {
-      final uploader = MediaUploader(
-        client: MockClient((_) async => http.Response('', 200)),
+      expect(
+        (await uploader.loadConfig()).uploadUrl,
+        'https://kappa.lol/api/upload',
       );
-      const config = UploaderConfig(
-        uploadUrl: 'https://example.com/upload',
-        formField: 'file',
-        headers: 'X-A: 1',
-        imageLinkPattern: '{link}',
-        deletionLinkPattern: '{delete}',
-      );
-      await uploader.saveConfig(config);
 
+      await uploader.saveConfig(
+        const UploaderConfig(
+          uploadUrl: 'https://example.com/upload',
+          formField: 'x',
+          headers: 'X-A: 1',
+        ),
+      );
       final loaded = await uploader.loadConfig();
       expect(loaded.uploadUrl, 'https://example.com/upload');
       expect(loaded.headers, 'X-A: 1');
-    });
 
-    test('reset restores kappa.lol defaults', () async {
-      final uploader = MediaUploader(
-        client: MockClient((_) async => http.Response('', 200)),
-      );
-      await uploader.saveConfig(
-        const UploaderConfig(uploadUrl: 'https://example.com', formField: 'x'),
-      );
       await uploader.resetConfig();
-
-      final loaded = await uploader.loadConfig();
-      expect(loaded.uploadUrl, 'https://kappa.lol/api/upload');
-      expect(loaded.formField, 'file');
+      final reset = await uploader.loadConfig();
+      expect(reset.uploadUrl, 'https://kappa.lol/api/upload');
+      expect(reset.formField, 'file');
     });
   });
 
@@ -255,7 +228,7 @@ void main() {
       expect(uploads.last.imageLink, 'https://kappa.lol/10');
     });
 
-    test('removeRecent deletes the entry at the index', () async {
+    test('removeRecent and clearRecents edit the list', () async {
       final uploader = MediaUploader(
         client: MockClient((_) async => http.Response('', 200)),
       );
@@ -263,20 +236,10 @@ void main() {
       await uploader.addRecent(const UploadResult(imageLink: 'b'));
 
       await uploader.removeRecent(0);
-
       final uploads = await uploader.recentUploads();
-      expect(uploads.length, 1);
-      expect(uploads.first.imageLink, 'a');
-    });
-
-    test('clearRecents empties the list', () async {
-      final uploader = MediaUploader(
-        client: MockClient((_) async => http.Response('', 200)),
-      );
-      await uploader.addRecent(const UploadResult(imageLink: 'a'));
+      expect(uploads.map((u) => u.imageLink), ['a']);
 
       await uploader.clearRecents();
-
       expect(await uploader.recentUploads(), isEmpty);
     });
   });

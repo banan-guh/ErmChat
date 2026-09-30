@@ -94,14 +94,12 @@ void main() {
       });
 
       final loaded = await loadMacros('corrupt');
-      expect(loaded, hasLength(1));
-      expect(loaded.single.name, '!ok');
+      expect(loaded.map((m) => m.name), ['!ok']);
     });
   });
 
   test('macroLookup lowercases triggers', () {
     final lookup = macroLookup([const CommandMacro(name: '!So', body: 'x')]);
-    expect(lookup.containsKey('!so'), isTrue);
-    expect(lookup.containsKey('!So'), isFalse);
+    expect(lookup.keys, ['!so']);
   });
 }

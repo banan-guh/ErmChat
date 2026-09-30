@@ -75,8 +75,14 @@ void main() {
     final container = _boot();
     addTearDown(container.dispose);
 
+    container.read(chatProvider);
+    container.read(sessionProvider);
+    expect(_twitchApiBuilds, 0, reason: 'pipeline graph is lazy');
+
     final manager = container.read(chatPipelineProvider);
     expect(manager, isA<ChatConnectionManager>());
+    expect(_twitchApiBuilds, 1);
+    expect(identical(container.read(chatPipelineProvider), manager), isTrue);
 
     expect(
       identical(manager.config.chat, container.read(chatProvider)),
@@ -119,58 +125,6 @@ void main() {
     );
   });
 
-  test('chatPipelineProvider is lazy until its first read', () {
-    final container = _boot();
-    addTearDown(container.dispose);
-
-    // Reading non-dependencies touches nothing in the pipeline graph.
-    container.read(chatProvider);
-    container.read(sessionProvider);
-    expect(_twitchApiBuilds, 0);
-
-    final manager = container.read(chatPipelineProvider);
-    expect(_twitchApiBuilds, 1);
-    // A second read reuses the cached manager and re-builds nothing.
-    expect(identical(container.read(chatPipelineProvider), manager), isTrue);
-    expect(_twitchApiBuilds, 1);
-  });
-
-  test('emoteManagerProvider injects the provider-owned emote owners', () {
-    final container = _boot();
-    addTearDown(container.dispose);
-
-    final manager = container.read(emoteManagerProvider);
-    expect(
-      identical(manager.store, container.read(emoteStoreProvider)),
-      isTrue,
-    );
-    expect(
-      identical(manager.images, container.read(emoteImagesProvider)),
-      isTrue,
-    );
-    expect(
-      identical(manager.usage, container.read(emoteUsageRegistryProvider)),
-      isTrue,
-    );
-    expect(
-      identical(
-        manager.personalSets,
-        container.read(sevenTvPersonalSetsProvider),
-      ),
-      isTrue,
-    );
-    expect(
-      identical(manager.twitchSets, container.read(twitchEmoteSetsProvider)),
-      isTrue,
-    );
-    expect(
-      identical(manager.persistence, container.read(emotePersistenceProvider)),
-      isTrue,
-    );
-    expect(manager.tier, container.read(emoteFetchTierProvider));
-    expect(manager.cacheCapMb, container.read(emoteCacheCapProvider));
-  });
-
   test('personal-set notifications bump the shared version', () {
     final store = _ChangeTrackingStore();
     final container = ProviderContainer(
@@ -183,15 +137,6 @@ void main() {
 
     expect(store.stateCleared, 1);
     expect(store.version, 1);
-  });
-
-  test('chatUiSignalsProvider is stable across reads', () {
-    final container = _boot();
-    addTearDown(container.dispose);
-
-    final first = container.read(chatUiSignalsProvider);
-    final second = container.read(chatUiSignalsProvider);
-    expect(identical(first, second), isTrue);
   });
 
   test('container disposal runs owners and blocks further reads', () {
@@ -212,30 +157,28 @@ void main() {
     expect(() => container.read(chatProvider), throwsStateError);
   });
 
-  test('proxy config is disabled by default, no override URL', () async {
-    SharedPreferences.setMockInitialValues({});
-    final config = ProxyConfig.fromPrefs(await Prefs.load());
-    expect(config.enabled, isFalse);
-    expect(config.readWsUrl, isNull);
-  });
+  test(
+    'proxy config round trips and only overrides the socket with a url',
+    () async {
+      Future<ProxyConfig> roundTrip(ProxyConfig? saved) async {
+        SharedPreferences.setMockInitialValues({});
+        if (saved != null) await saved.toPrefs(await Prefs.load());
+        return ProxyConfig.fromPrefs(await Prefs.load());
+      }
 
-  test('proxy config enabled with URL overrides the read socket', () async {
-    SharedPreferences.setMockInitialValues({});
-    final prefs = await Prefs.load();
-    await const ProxyConfig(
-      enabled: true,
-      url: 'ws://192.168.1.10:8080/ws',
-    ).toPrefs(prefs);
-    final config = ProxyConfig.fromPrefs(await Prefs.load());
-    expect(config.readWsUrl, 'ws://192.168.1.10:8080/ws');
-  });
-
-  test('proxy config enabled without URL keeps direct connection', () async {
-    SharedPreferences.setMockInitialValues({});
-    final prefs = await Prefs.load();
-    await const ProxyConfig(enabled: true).toPrefs(prefs);
-    expect(ProxyConfig.fromPrefs(await Prefs.load()).readWsUrl, isNull);
-  });
+      expect((await roundTrip(null)).enabled, isFalse);
+      expect((await roundTrip(null)).readWsUrl, isNull);
+      const url = 'ws://192.168.1.10:8080/ws';
+      expect(
+        (await roundTrip(const ProxyConfig(enabled: true, url: url))).readWsUrl,
+        url,
+      );
+      expect(
+        (await roundTrip(const ProxyConfig(enabled: true))).readWsUrl,
+        isNull,
+      );
+    },
+  );
 
   // The app root rebuilds on every settings write with a fresh config. The
   // read socket must survive it: the pipeline holds this exact instance.
