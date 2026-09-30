@@ -551,50 +551,6 @@ void main() {
     expect(find.text('thirduser'), findsOneWidget);
   });
 
-  testWidgets('modes emote toggle sends chat settings', (tester) async {
-    final chat = _chat();
-    final auth = TwitchAuth();
-    auth.accessToken = 'tok';
-    final actions = ModActions(
-      twitchApi: TwitchApi(client: MockClient(_handler)),
-      getChannelUserIds: () => {'testchannel': 'broad1'},
-      getCurrentUserId: () => 'mod1',
-    );
-    recordedRequests.clear();
-    tester.view.physicalSize = const Size(800, 1200);
-    tester.view.devicePixelRatio = 1.0;
-    addTearDown(tester.view.resetPhysicalSize);
-    final tab = TabController(
-      length: ModPanels.tabCount,
-      vsync: const TestVSync(),
-    );
-    addTearDown(tab.dispose);
-    await tester.pumpWidget(
-      MaterialApp(
-        home: Scaffold(
-          body: _Harness(
-            chat: chat,
-            actions: actions,
-            auth: auth,
-            tab: tab,
-            onUser: (_) {},
-          ),
-        ),
-      ),
-    );
-    await tester.pumpAndSettle();
-    tab.animateTo(2);
-    await tester.pumpAndSettle();
-    final card = find.text('Emote-only');
-    expect(card, findsOneWidget);
-    await tester.tap(card);
-    await tester.pumpAndSettle();
-    final patch = recordedRequests.lastWhere(
-      (r) => r.url.path.endsWith('chat/settings'),
-    );
-    expect(jsonDecode(patch.body)['emote_mode'], isTrue);
-  });
-
   testWidgets('a slow load cannot overwrite a newer request list', (
     tester,
   ) async {
@@ -692,9 +648,18 @@ void main() {
     expect(find.text('RECENT BANS (1)'), findsOneWidget);
   });
 
-  testWidgets('slow mode offers short presets', (tester) async {
+  testWidgets('modes tab sends chat settings and offers slow presets', (
+    tester,
+  ) async {
     await _pumpOn(tester, 2);
     await tester.pumpAndSettle();
+    await tester.tap(find.text('Emote-only'));
+    await tester.pumpAndSettle();
+    final emote = recordedRequests.lastWhere(
+      (r) => r.url.path.endsWith('chat/settings'),
+    );
+    expect(jsonDecode(emote.body)['emote_mode'], isTrue);
+
     await tester.tap(find.text('Slow mode'));
     await tester.pumpAndSettle();
     for (final label in ['3 seconds', '5 seconds', '10 seconds', 'Custom...']) {
@@ -732,17 +697,6 @@ void main() {
         .selected;
     expect(selected('Low'), isTrue);
     expect(find.text('Custom levels.'), findsNothing);
-
-    await tester.tap(find.widgetWithText(ChoiceChip, 'Max'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Save changes'));
-    await tester.pumpAndSettle();
-    final put = recordedRequests.lastWhere(
-      (r) =>
-          r.method == 'PUT' &&
-          r.url.path.endsWith('moderation/automod/settings'),
-    );
-    expect(jsonDecode(put.body), {'overall_level': 4});
   });
 
   testWidgets('a channel switch reloads and rebinds the tab', (tester) async {

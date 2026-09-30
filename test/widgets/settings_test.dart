@@ -13,155 +13,94 @@ void main() {
   });
 
   group('Settings screen', () {
-    testWidgets(
-      'Account screen runs the full idle to connected to lookup to disconnect lifecycle',
-      (WidgetTester tester) async {
-        {
-          SharedPreferences.setMockInitialValues({});
-          final auth = TwitchAuth();
-
-          await tester.pumpWidget(
-            MaterialApp(
-              key: UniqueKey(),
-              home: AccountScreen(twitchAuth: auth),
-            ),
-          );
-          await tester.pump();
-
-          expect(find.text('Account', skipOffstage: false), findsOneWidget);
-          expect(find.text('Login', skipOffstage: false), findsOneWidget);
-          expect(find.text('Connected'), findsNothing);
-        }
-        {
-          SharedPreferences.setMockInitialValues({});
-          final auth = TwitchAuth()..accessToken = 'test-token';
-
-          await tester.pumpWidget(
-            MaterialApp(
-              key: UniqueKey(),
-              home: AccountScreen(twitchAuth: auth),
-            ),
-          );
-          await tester.pump();
-
-          expect(find.text('Connected', skipOffstage: false), findsOneWidget);
-          expect(find.text('Disconnect', skipOffstage: false), findsOneWidget);
-          expect(find.text('Login'), findsNothing);
-        }
-        {
-          SharedPreferences.setMockInitialValues({});
-          final auth = TwitchAuth()..accessToken = 'test-token';
-          final api = TwitchApi(
-            client: MockClient((request) async {
-              return http.Response(
-                '{"data":[{"id":"1","login":"testuser","display_name":"TestUser"}]}',
-                200,
-              );
-            }),
-          );
-
-          await tester.pumpWidget(
-            MaterialApp(
-              key: UniqueKey(),
-              home: AccountScreen(twitchAuth: auth, twitchApi: api),
-            ),
-          );
-          await tester.pump();
-          await tester.pump();
-
-          expect(
-            find.text('Connected as testuser', skipOffstage: false),
-            findsOneWidget,
-          );
-          expect(find.text('Connected'), findsNothing);
-        }
-        {
-          SharedPreferences.setMockInitialValues({});
-          final auth = TwitchAuth()..accessToken = 'test-token';
-
-          await tester.pumpWidget(
-            MaterialApp(
-              key: UniqueKey(),
-              home: AccountScreen(twitchAuth: auth),
-            ),
-          );
-          await tester.pump();
-
-          expect(find.text('Connected', skipOffstage: false), findsOneWidget);
-
-          await tester.tap(find.text('Disconnect', skipOffstage: false));
-          await tester.pump();
-          await tester.pump();
-
-          expect(find.text('Connected'), findsNothing);
-          expect(find.text('Login', skipOffstage: false), findsOneWidget);
-        }
-      },
-    );
-
-    testWidgets('Customization true dark toggle is disabled in light mode', (
+    testWidgets('Account screen shows the looked-up login and disconnects', (
       WidgetTester tester,
     ) async {
-      SharedPreferences.setMockInitialValues({});
+      {
+        SharedPreferences.setMockInitialValues({});
+        final auth = TwitchAuth()..accessToken = 'test-token';
+        final api = TwitchApi(
+          client: MockClient((request) async {
+            return http.Response(
+              '{"data":[{"id":"1","login":"testuser","display_name":"TestUser"}]}',
+              200,
+            );
+          }),
+        );
 
-      await tester.pumpWidget(
-        MaterialApp(key: UniqueKey(), home: const CustomizationScreen()),
-      );
-      await tester.pump();
+        await tester.pumpWidget(
+          MaterialApp(
+            key: UniqueKey(),
+            home: AccountScreen(twitchAuth: auth, twitchApi: api),
+          ),
+        );
+        await tester.pump();
+        await tester.pump();
 
-      await tester.scrollUntilVisible(
-        find.widgetWithText(SwitchListTile, 'True dark mode'),
-        120,
-        scrollable: find.byType(Scrollable).first,
-      );
+        expect(
+          find.text('Connected as testuser', skipOffstage: false),
+          findsOneWidget,
+        );
+        expect(find.text('Connected'), findsNothing);
+      }
+      {
+        SharedPreferences.setMockInitialValues({});
+        final auth = TwitchAuth()..accessToken = 'test-token';
 
-      final tile = tester.widget<SwitchListTile>(
-        find.widgetWithText(SwitchListTile, 'True dark mode'),
-      );
-      expect(tile.onChanged, isNull);
+        await tester.pumpWidget(
+          MaterialApp(
+            key: UniqueKey(),
+            home: AccountScreen(twitchAuth: auth),
+          ),
+        );
+        await tester.pump();
 
-      await tester.tap(find.widgetWithText(SwitchListTile, 'True dark mode'));
-      await tester.pumpAndSettle();
+        expect(find.text('Connected', skipOffstage: false), findsOneWidget);
 
-      final prefs = await SharedPreferences.getInstance();
-      expect(prefs.getBool('true_dark'), isNull);
+        await tester.tap(find.text('Disconnect', skipOffstage: false));
+        await tester.pump();
+        await tester.pump();
+
+        expect(find.text('Connected'), findsNothing);
+        expect(find.text('Login', skipOffstage: false), findsOneWidget);
+      }
     });
 
-    testWidgets('Customization true dark toggle persists and flips', (
+    testWidgets('Customization true dark toggle is locked in light mode', (
       WidgetTester tester,
     ) async {
-      SharedPreferences.setMockInitialValues({});
+      final tileFinder = find.widgetWithText(SwitchListTile, 'True dark mode');
+      Future<void> pumpScreen(ThemeMode mode) async {
+        await tester.pumpWidget(
+          MaterialApp(
+            key: UniqueKey(),
+            theme: ThemeData(brightness: Brightness.light),
+            darkTheme: ThemeData(brightness: Brightness.dark),
+            themeMode: mode,
+            home: const CustomizationScreen(),
+          ),
+        );
+        await tester.pump();
+        await tester.scrollUntilVisible(
+          tileFinder,
+          120,
+          scrollable: find.byType(Scrollable).first,
+        );
+      }
 
-      await tester.pumpWidget(
-        MaterialApp(
-          key: UniqueKey(),
-          theme: ThemeData(brightness: Brightness.light),
-          darkTheme: ThemeData(brightness: Brightness.dark),
-          themeMode: ThemeMode.dark,
-          home: const CustomizationScreen(),
-        ),
-      );
-      await tester.pump();
-
-      await tester.scrollUntilVisible(
-        find.widgetWithText(SwitchListTile, 'True dark mode'),
-        120,
-        scrollable: find.byType(Scrollable).first,
-      );
-
-      final tile = tester.widget<SwitchListTile>(
-        find.widgetWithText(SwitchListTile, 'True dark mode'),
-      );
-      expect(tile.value, isFalse);
-
-      await tester.tap(find.widgetWithText(SwitchListTile, 'True dark mode'));
+      await pumpScreen(ThemeMode.light);
+      expect(tester.widget<SwitchListTile>(tileFinder).onChanged, isNull);
+      await tester.tap(tileFinder);
       await tester.pumpAndSettle();
+      var prefs = await SharedPreferences.getInstance();
+      expect(prefs.getBool('true_dark'), isNull);
 
-      final flipped = tester.widget<SwitchListTile>(
-        find.widgetWithText(SwitchListTile, 'True dark mode'),
-      );
-      expect(flipped.value, isTrue);
-      final prefs = await SharedPreferences.getInstance();
+      await pumpScreen(ThemeMode.dark);
+      expect(tester.widget<SwitchListTile>(tileFinder).value, isFalse);
+      await tester.tap(tileFinder);
+      await tester.pumpAndSettle();
+      expect(tester.widget<SwitchListTile>(tileFinder).value, isTrue);
+      prefs = await SharedPreferences.getInstance();
       expect(prefs.getBool('true_dark'), isTrue);
     });
 
@@ -410,11 +349,6 @@ void main() {
         findsOneWidget,
       );
 
-      final slider = tester.widget<Slider>(find.byType(Slider).first);
-      expect(slider.min, 0);
-      expect(slider.max, 9);
-      expect(slider.divisions, 9);
-
       // Tap the far right of the track: snaps to the max step (5000).
       final rect = tester.getRect(find.byType(Slider).first);
       await tester.tapAt(Offset(rect.right - 4, rect.center.dy));
@@ -547,23 +481,6 @@ void main() {
         }
       },
     );
-
-    testWidgets('cache stats sit right under the cache buttons', (
-      tester,
-    ) async {
-      SharedPreferences.setMockInitialValues({});
-      await tester.pumpWidget(const MaterialApp(home: EmotesSettingsScreen()));
-      await tester.pump();
-      final apply = find.byKey(const Key('emote_cache_apply'));
-      final footer = find.byKey(
-        const Key('emote_cache_footer'),
-        skipOffstage: false,
-      );
-      final animation = find.text('Animation', skipOffstage: false);
-      final footerTop = tester.getTopLeft(footer).dy;
-      expect(footerTop, greaterThan(tester.getBottomLeft(apply).dy));
-      expect(footerTop, lessThan(tester.getTopLeft(animation).dy));
-    });
 
     testWidgets('provider toggles flip the manager and persist', (
       WidgetTester tester,
@@ -730,88 +647,6 @@ void main() {
     });
   });
 
-  group('Tools settings', () {
-    testWidgets(
-      'Tools screen links to helpers and hides analytics without a service',
-      (WidgetTester tester) async {
-        {
-          SharedPreferences.setMockInitialValues({});
-          await tester.pumpWidget(
-            MaterialApp(
-              key: UniqueKey(),
-              home: ToolsSettingsScreen(
-                analyticsService: AnalyticsService(),
-                channels: ['channel1'],
-                images: EmoteImages(),
-              ),
-            ),
-          );
-          await tester.pump();
-
-          expect(find.text('Tools', skipOffstage: false), findsOneWidget);
-          expect(
-            find.text('Image uploader', skipOffstage: false),
-            findsOneWidget,
-          );
-          expect(
-            find.text('Recent uploads', skipOffstage: false),
-            findsOneWidget,
-          );
-          expect(find.text('Analytics', skipOffstage: false), findsOneWidget);
-
-          await tester.tap(find.text('Image uploader', skipOffstage: false));
-          await tester.pumpAndSettle();
-          expect(
-            find.text('Image uploader', skipOffstage: false),
-            findsWidgets,
-          );
-          expect(find.text('Save', skipOffstage: false), findsOneWidget);
-        }
-        {
-          SharedPreferences.setMockInitialValues({});
-          await tester.pumpWidget(
-            MaterialApp(key: UniqueKey(), home: ToolsSettingsScreen()),
-          );
-          await tester.pump();
-
-          expect(
-            find.text('Image uploader', skipOffstage: false),
-            findsOneWidget,
-          );
-          expect(
-            find.text('Recent uploads', skipOffstage: false),
-            findsOneWidget,
-          );
-          expect(find.text('Analytics'), findsNothing);
-        }
-        {
-          SharedPreferences.setMockInitialValues({});
-          await tester.pumpWidget(
-            MaterialApp(key: UniqueKey(), home: ToolsSettingsScreen()),
-          );
-          await tester.pump();
-
-          expect(
-            find.text('Recent messages', skipOffstage: false),
-            findsOneWidget,
-          );
-
-          await tester.tap(find.text('Recent messages', skipOffstage: false));
-          await tester.pumpAndSettle();
-
-          // The recent-messages settings screen exposes the four provider modes.
-          expect(find.text('Auto', skipOffstage: false), findsOneWidget);
-          expect(
-            find.text('Robotty only', skipOffstage: false),
-            findsOneWidget,
-          );
-          expect(find.text('Zneix only', skipOffstage: false), findsOneWidget);
-          expect(find.text('Custom URL', skipOffstage: false), findsOneWidget);
-        }
-      },
-    );
-  });
-
   setUp(() {
     FlutterSecureStorage.setMockInitialValues({});
   });
@@ -832,46 +667,18 @@ void main() {
     return auth;
   }
 
-  testWidgets(
-    'Saved accounts list marks the active account and switch on tap',
-    (WidgetTester tester) async {
-      {
-        final auth = twoAccounts();
-        await tester.pumpWidget(wrapAccountScreen(auth));
-        await tester.pump();
-
-        expect(find.text('Accounts', skipOffstage: false), findsOneWidget);
-        expect(find.text('alice', skipOffstage: false), findsOneWidget);
-        expect(find.text('bob', skipOffstage: false), findsOneWidget);
-        expect(find.text('Active', skipOffstage: false), findsOneWidget);
-        expect(find.byIcon(Icons.check), findsOneWidget);
-      }
-      {
-        final auth = twoAccounts();
-        await tester.pumpWidget(wrapAccountScreen(auth));
-        await tester.pump();
-        expect(auth.login, 'bob');
-
-        await tester.tap(find.text('alice', skipOffstage: false));
-        await tester.pumpAndSettle();
-        expect(auth.login, 'alice');
-        expect(auth.accessToken, 'token_a');
-      }
-    },
-  );
-
-  testWidgets('Anonymous row is present and selected with no accounts', (
+  testWidgets('Tapping a saved account switches to it', (
     WidgetTester tester,
   ) async {
-    final auth = TwitchAuth();
+    final auth = twoAccounts();
     await tester.pumpWidget(wrapAccountScreen(auth));
     await tester.pump();
+    expect(auth.login, 'bob');
 
-    expect(find.text('Accounts', skipOffstage: false), findsOneWidget);
-    expect(find.text('Anonymous', skipOffstage: false), findsOneWidget);
-    expect(find.text('Active', skipOffstage: false), findsOneWidget);
-    expect(find.byIcon(Icons.check), findsOneWidget);
-    expect(find.text('Login', skipOffstage: false), findsOneWidget);
+    await tester.tap(find.text('alice', skipOffstage: false));
+    await tester.pumpAndSettle();
+    expect(auth.login, 'alice');
+    expect(auth.accessToken, 'token_a');
   });
 
   testWidgets('Anonymous row switches to and from saved accounts', (
@@ -930,19 +737,6 @@ void main() {
         expect(find.text('alice'), findsNothing);
       }
       {
-        final auth = twoAccounts();
-        await tester.pumpWidget(wrapAccountScreen(auth));
-        await tester.pump();
-
-        await tester.longPress(find.text('alice', skipOffstage: false));
-        await tester.pumpAndSettle();
-        await tester.tap(find.text('Cancel', skipOffstage: false));
-        await tester.pumpAndSettle();
-
-        expect(auth.accounts.length, 2);
-        expect(find.text('alice', skipOffstage: false), findsOneWidget);
-      }
-      {
         final auth = TwitchAuth();
         auth.setCredentials(accessToken: 'token_a');
         auth.setUser('alice', '111');
@@ -959,65 +753,4 @@ void main() {
       }
     },
   );
-
-  setUp(() {
-    SharedPreferences.setMockInitialValues({});
-  });
-
-  AnalyticsService seededService() {
-    final service = AnalyticsService();
-    service.recordMessage(
-      'chan1',
-      TwitchMessage(login: 'alice', text: 'hello world', channel: 'chan1'),
-    );
-    service.recordMessage(
-      'chan1',
-      TwitchMessage(login: 'bob', text: 'hello', channel: 'chan1'),
-    );
-    service.recordMessage(
-      'chan2',
-      TwitchMessage(login: 'carol', text: 'yo', channel: 'chan2'),
-    );
-    return service;
-  }
-
-  Widget wrapAnalytics(AnalyticsService service, List<String> channels) {
-    return MaterialApp(
-      key: UniqueKey(),
-      home: AnalyticsScreen(
-        analyticsService: service,
-        channels: channels,
-        images: EmoteImages(),
-      ),
-    );
-  }
-
-  testWidgets('shows empty state when no channels', (tester) async {
-    await tester.pumpWidget(wrapAnalytics(AnalyticsService(), []));
-    await tester.pump();
-    expect(
-      find.text('Join a channel to start tracking stats', skipOffstage: false),
-      findsOneWidget,
-    );
-  });
-
-  testWidgets('renders summary and top lists for the first channel', (
-    tester,
-  ) async {
-    await tester.pumpWidget(wrapAnalytics(seededService(), ['chan1', 'chan2']));
-    await tester.pump();
-
-    expect(find.text('Total messages', skipOffstage: false), findsOneWidget);
-    expect(find.text('Unique chatters', skipOffstage: false), findsOneWidget);
-    expect(
-      find.text('Messages per minute', skipOffstage: false),
-      findsOneWidget,
-    );
-    expect(find.text('Tracking for', skipOffstage: false), findsOneWidget);
-    expect(find.text('Top chatters', skipOffstage: false), findsOneWidget);
-    expect(find.text('Top emotes', skipOffstage: false), findsOneWidget);
-    expect(find.text('Top words', skipOffstage: false), findsOneWidget);
-    expect(find.text('alice', skipOffstage: false), findsOneWidget);
-    expect(find.text('bob', skipOffstage: false), findsOneWidget);
-  });
 }

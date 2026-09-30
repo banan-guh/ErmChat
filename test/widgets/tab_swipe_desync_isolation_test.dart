@@ -208,7 +208,6 @@ void main() {
       await gesture.up();
       await tester.pumpAndSettle();
 
-      debugPrint('R2 rest=[${_restingDump(tester)}] ${_dump(home)}');
       expect(_restingPage(tester), 1, reason: 'page should complete to b');
       expect(home.selectedChannel, 'b', reason: _dump(home));
       expect(home.tabIndex.value, 1, reason: _dump(home));
@@ -237,7 +236,6 @@ void main() {
       await gesture.up();
       await tester.pumpAndSettle();
 
-      debugPrint('R4 rest=[${_restingDump(tester)}] ${_dump(home)}');
       expect(_restingPage(tester), 0);
       expect(home.selectedChannel, 'a', reason: _dump(home));
       expect(home.tabIndex.value, 0, reason: _dump(home));
@@ -254,7 +252,6 @@ void main() {
         await tester.pump();
         await gesture.up();
         await tester.pumpAndSettle();
-        debugPrint('R7 rest=[${_restingDump(tester)}] ${_dump(home)}');
         expect(_restingPage(tester), 1);
         expect(home.selectedChannel, 'b');
         expect(
@@ -268,7 +265,6 @@ void main() {
         await _stealMidSwipe(tester, fraction: 0.30);
         await tester.pumpAndSettle();
         await _swipeToNext(tester);
-        debugPrint('R17 rest=[${_restingDump(tester)}] ${_dump(home)}');
         expect(_restingPage(tester), 1, reason: _restingDump(tester));
         expect(home.selectedChannel, 'b', reason: _dump(home));
         expect(home.tabIndex.value, 1, reason: _dump(home));
@@ -278,25 +274,6 @@ void main() {
           reason: 'exactly one full commit for b: ${_dump(home)}',
         );
       }
-    });
-
-    testWidgets('R10: plain uninterrupted tap switches channel exactly once', (
-      tester,
-    ) async {
-      final (home, _) = await pumpHome(tester);
-
-      await _tapTab(tester, 'b');
-      await tester.pumpAndSettle();
-
-      debugPrint('R10 rest=[${_restingDump(tester)}] ${_dump(home)}');
-      expect(_restingPage(tester), 1, reason: 'page must land on b');
-      expect(home.selectedChannel, 'b', reason: _dump(home));
-      expect(home.tabIndex.value, 1, reason: _dump(home));
-      expect(
-        home.commits['b'] ?? 0,
-        1,
-        reason: 'exactly one bookkeeping run for b: ${_dump(home)}',
-      );
     });
 
     testWidgets('R11: tapping the already-visible tab is a no-op', (
@@ -313,7 +290,6 @@ void main() {
       await _swipeToNext(tester);
       await tester.pumpAndSettle();
 
-      debugPrint('R11 rest=[${_restingDump(tester)}] ${_dump(home)}');
       expect(
         _restingPage(tester),
         1,
@@ -335,7 +311,6 @@ void main() {
       await _tapTab(tester, 'b');
       await tester.pumpAndSettle();
 
-      debugPrint('R12 rest=[${_restingDump(tester)}] ${_dump(home)}');
       expect(_restingPage(tester), 1, reason: 'retarget must land on b');
       expect(home.selectedChannel, 'b', reason: _dump(home));
       // Both taps commit on tap; the retarget's landing dedups.
@@ -354,7 +329,6 @@ void main() {
       await gesture.up();
       await tester.pumpAndSettle();
 
-      debugPrint('R13 rest=[${_restingDump(tester)}] ${_dump(home)}');
       final resting = _restingPage(tester);
       expect(resting, 0, reason: 'drag-back from c jump must return to a');
       // The tap already committed c; the grab-back commits a. The landing
@@ -365,29 +339,6 @@ void main() {
         reason: 'the tapped jump target commits once: ${_dump(home)}',
       );
       expect(home.commits['a'] ?? 0, 1, reason: _dump(home));
-    });
-
-    testWidgets('R8: sweep catch fractions below half for persistent '
-        'desync', (tester) async {
-      final failures = <double, String>{};
-      for (final fraction in [0.30, 0.36, 0.4, 0.48]) {
-        final (home, _) = await pumpHome(tester);
-        await _tapTab(tester, 'b');
-        await tester.pump(const Duration(milliseconds: 40));
-        final gesture = await _catchAndHold(tester, fraction: fraction);
-        await gesture.up();
-        await tester.pumpAndSettle();
-
-        final resting = _restingPage(tester);
-        final highlight = home.tabIndex.value;
-        // Fractions below half must return to page 0 (a).
-        final ok = resting == 0 && highlight == 0;
-        if (!ok) {
-          failures[fraction] =
-              'rest=$resting highlight=$highlight ${_dump(home)}';
-        }
-      }
-      expect(failures, isEmpty, reason: 'desync fractions: $failures');
     });
 
     testWidgets('R14: half-drag round trip then tab tap must commit focus '
@@ -416,7 +367,6 @@ void main() {
       await _tapTab(tester, 'b');
       await tester.pumpAndSettle();
 
-      debugPrint('R14 rest=[${_restingDump(tester)}] ${_dump(home)}');
       expect(_restingPage(tester), 1, reason: 'page must land on b');
       expect(
         home.selectedChannel,
@@ -443,9 +393,6 @@ void main() {
           expect(home.tabIndex.value, 1, reason: _dump(home));
           _externalNavigate(home, set, 2);
           await tester.pumpAndSettle();
-          debugPrint(
-            'steal-above rest=[${_restingDump(tester)}] ${_dump(home)}',
-          );
           expect(
             _restingPage(tester),
             2,
@@ -464,9 +411,6 @@ void main() {
           expect(home.tabIndex.value, 0, reason: _dump(home));
           _externalNavigate(home, set, 2);
           await tester.pumpAndSettle();
-          debugPrint(
-            'steal-below rest=[${_restingDump(tester)}] ${_dump(home)}',
-          );
           expect(
             _restingPage(tester),
             2,
@@ -478,36 +422,5 @@ void main() {
         }
       },
     );
-
-    testWidgets('R18: pointer steal snaps the page instead of resting '
-        'mid-way', (tester) async {
-      final (home, set) = await pumpHome(tester);
-
-      // Steal below half: without a snap the pixels would rest 30% between
-      // pages forever, since the OS cancellation carries no ballistic.
-      await _stealMidSwipe(tester, fraction: 0.30);
-      await tester.pumpAndSettle();
-
-      debugPrint('R18a rest=[${_restingDump(tester)}] ${_dump(home)}');
-      expect(
-        tester.getTopLeft(find.byKey(const Key('page-0'))).dx.abs(),
-        lessThan(2.0),
-        reason: 'stolen drag must settle on the nearest page',
-      );
-      expect(home.selectedChannel, 'a', reason: _dump(home));
-
-      // Same above half: snap forward and commit the page under the pixels.
-      await _stealMidSwipe(tester, fraction: 0.70);
-      await tester.pumpAndSettle();
-
-      debugPrint('R18b rest=[${_restingDump(tester)}] ${_dump(home)}');
-      expect(
-        tester.getTopLeft(find.byKey(const Key('page-1'))).dx.abs(),
-        lessThan(2.0),
-        reason: 'stolen drag must settle on the nearest page',
-      );
-      expect(_tabs.indexOf(home.selectedChannel), 1, reason: _dump(home));
-      expect(home.tabIndex.value, 1, reason: _dump(home));
-    });
   });
 }

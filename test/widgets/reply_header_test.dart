@@ -5,41 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  testWidgets('reply header is a bottom sheet and drags down to dismiss', (
-    WidgetTester tester,
-  ) async {
-    var dismissed = false;
-    await tester.pumpWidget(
-      MaterialApp(
-        home: Scaffold(
-          body: Column(
-            mainAxisAlignment: MainAxisAlignment.end,
-            children: [
-              ReplyHeader(
-                message: TwitchMessage(
-                  login: 'alice',
-                  text: 'parent msg',
-                  channel: 'testchannel',
-                ),
-                onDismiss: () => dismissed = true,
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-    await tester.pumpAndSettle();
-
-    expect(find.textContaining('Replying to @alice'), findsOneWidget);
-    expect(find.byType(BottomSheet), findsOneWidget);
-
-    await tester.drag(find.byType(BottomSheet), const Offset(0, 300));
-    await tester.pumpAndSettle();
-
-    expect(dismissed, isTrue);
-  });
-
-  testWidgets('reply overlay toggle and dismiss throws nothing', (
+  testWidgets('reply header shows in ChatBody and drags down to dismiss', (
     WidgetTester tester,
   ) async {
     final controller = TextEditingController();
@@ -101,6 +67,7 @@ void main() {
     setLocal(() => replyActive = true);
     await tester.pumpAndSettle();
     expect(find.textContaining('Replying to @alice'), findsOneWidget);
+    expect(find.byType(BottomSheet), findsOneWidget);
 
     await tester.drag(find.byType(BottomSheet), const Offset(0, 300));
     await tester.pumpAndSettle();

@@ -83,61 +83,31 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  testWidgets('custom off keeps the layout default', (tester) async {
+  testWidgets('overrides apply only with custom layout on', (tester) async {
     await pumpJoined(tester, glass: false, density: LayoutDensity.compact);
     expect(find.text('ErmChat'), findsNothing);
 
-    // Switch off, master off: ignored, compact still merges.
-    await (await Prefs.load()).setOverrideMergeAppBar(false);
-    await settlePrefs(tester);
-    expect(find.text('ErmChat'), findsNothing);
-  });
-
-  testWidgets('override off keeps the separate app bar in compact', (
-    tester,
-  ) async {
-    await pumpJoined(tester, glass: false, density: LayoutDensity.compact);
-    expect(find.text('ErmChat'), findsNothing);
-
+    // Master off: the override is ignored and compact still merges.
     final prefs = await Prefs.load();
-    await prefs.setCustomLayoutEnabled(true);
     await prefs.setOverrideMergeAppBar(false);
     await settlePrefs(tester);
+    expect(find.text('ErmChat'), findsNothing);
 
-    expect(find.text('ErmChat'), findsOneWidget);
-    expect(inStrip(find.byIcon(Icons.add)), findsNothing);
-    expect(inStrip(find.byIcon(Icons.notifications_active)), findsNothing);
-  });
-
-  testWidgets('override off shows the panel title in compact', (tester) async {
-    await pumpJoined(tester, glass: false, density: LayoutDensity.compact);
-    final prefs = await Prefs.load();
     await prefs.setCustomLayoutEnabled(true);
     await prefs.setOverrideFoldPanelHeaders(false);
     await settlePrefs(tester);
+    expect(find.text('ErmChat'), findsOneWidget);
+    expect(inStrip(find.byIcon(Icons.add)), findsNothing);
+    expect(inStrip(find.byIcon(Icons.notifications_active)), findsNothing);
 
     await tester.tap(find.byIcon(Icons.notifications_active));
     await tester.pumpAndSettle();
     expect(find.text('Mentions / Whispers'), findsOneWidget);
   });
 
-  testWidgets('override on merges the app bar in full', (tester) async {
-    await pumpJoined(tester, glass: false, density: LayoutDensity.full);
-    expect(find.text('ErmChat'), findsOneWidget);
-
-    final prefs = await Prefs.load();
-    await prefs.setCustomLayoutEnabled(true);
-    await prefs.setOverrideMergeAppBar(true);
-    await settlePrefs(tester);
-
-    expect(find.text('ErmChat'), findsNothing);
-    expect(inStrip(find.byIcon(Icons.add)), findsOneWidget);
-  });
-
   for (final glass in [false, true]) {
-    testWidgets('compact merges the app bar into the strip (glass=$glass)', (
-      tester,
-    ) async {
+    testWidgets('compact merges the app bar and folds panel titles '
+        '(glass=$glass)', (tester) async {
       await pumpJoined(tester, glass: glass, density: LayoutDensity.compact);
 
       expect(find.text('ErmChat'), findsNothing);
@@ -146,37 +116,31 @@ void main() {
       expect(inStrip(find.byIcon(Icons.more_vert)), findsOneWidget);
 
       // The strip clears the status bar now that nothing sits above it.
-      final strip = tester.getRect(find.byType(TabBar));
-      expect(strip.top, greaterThanOrEqualTo(24));
+      expect(tester.getRect(find.byType(TabBar)).top, greaterThanOrEqualTo(24));
 
       // The join tab opens the join dialog without leaving the channel.
       await tester.tap(inStrip(find.byIcon(Icons.add)));
       await tester.pumpAndSettle();
       expect(find.text('Join', skipOffstage: false), findsWidgets);
-    });
-
-    testWidgets('compact folds the panel title into its tabs (glass=$glass)', (
-      tester,
-    ) async {
-      await pumpJoined(tester, glass: glass, density: LayoutDensity.compact);
-      await tester.tap(inStrip(find.byIcon(Icons.notifications_active)));
+      await tester.tap(find.text('Cancel'));
       await tester.pumpAndSettle();
 
+      // The panel title folds into its tabs, one row with the back button.
+      await tester.tap(inStrip(find.byIcon(Icons.notifications_active)));
+      await tester.pumpAndSettle();
       expect(find.text('Mentions / Whispers'), findsNothing);
       final whispers = find.widgetWithText(Tab, 'Whispers');
       final back = find.byTooltip('Back');
       expect(whispers, findsOneWidget);
       expect(back, findsOneWidget);
-      // One row: the back button sits beside the tabs, not above them.
       expect(
         tester.getCenter(back).dy,
         closeTo(tester.getCenter(whispers).dy, 4),
       );
     });
 
-    testWidgets('full keeps the separate app bar (glass=$glass)', (
-      tester,
-    ) async {
+    testWidgets('full keeps the separate app bar until override merges it '
+        '(glass=$glass)', (tester) async {
       await pumpJoined(tester, glass: glass, density: LayoutDensity.full);
 
       expect(find.text('ErmChat'), findsOneWidget);
@@ -186,6 +150,15 @@ void main() {
       await tester.tap(find.byIcon(Icons.notifications_active));
       await tester.pumpAndSettle();
       expect(find.text('Mentions / Whispers'), findsOneWidget);
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+
+      final prefs = await Prefs.load();
+      await prefs.setCustomLayoutEnabled(true);
+      await prefs.setOverrideMergeAppBar(true);
+      await settlePrefs(tester);
+      expect(find.text('ErmChat'), findsNothing);
+      expect(inStrip(find.byIcon(Icons.add)), findsOneWidget);
     });
 
     testWidgets('flipping density keeps the channel and focus (glass=$glass)', (

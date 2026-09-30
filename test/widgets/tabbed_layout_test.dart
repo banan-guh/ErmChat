@@ -115,42 +115,46 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   group('TabbedLayout channel switching', () {
-    testWidgets('unrelated rebuild during a swipe does not snap the page back', (
-      WidgetTester tester,
-    ) async {
-      final selected = ValueNotifier<int>(0);
-      late StateSetter setStateTop;
+    for (final fastSnap in [false, true]) {
+      testWidgets(
+        'unrelated rebuild during a swipe does not snap the page back '
+        '(fastSnap=$fastSnap)',
+        (WidgetTester tester) async {
+          final selected = ValueNotifier<int>(0);
+          late StateSetter setStateTop;
 
-      await tester.pumpWidget(
-        _harness(
-          selected,
-          captureSetState: (set) => setStateTop = set,
-          onFocusChanged: (i) {
-            selected.value = i;
-          },
-          onSelectedIndexChanged: (i) => selected.value = i,
-        ),
+          await tester.pumpWidget(
+            _harness(
+              selected,
+              captureSetState: (set) => setStateTop = set,
+              onFocusChanged: (i) => selected.value = i,
+              onSelectedIndexChanged: (i) => selected.value = i,
+              fastSnap: fastSnap,
+            ),
+          );
+
+          // Swipe past halfway so the page is heading to channel b.
+          final size = tester.getSize(find.byType(PageView));
+          final center = tester.getCenter(find.byType(PageView));
+          final gesture = await tester.startGesture(center);
+          await gesture.moveBy(const Offset(-1, 0));
+          await tester.pump();
+          await gesture.moveBy(Offset(-size.width * 0.6, 0));
+          await tester.pump();
+
+          // An unrelated rebuild lands mid-swipe (e.g. doSendMessage).
+          setStateTop(() {});
+          await tester.pump();
+
+          await gesture.up();
+          await tester.pumpAndSettle();
+
+          // The page settled on b and was never yanked back to a.
+          expect(selected.value, 1);
+          expect(_pageDx(tester, 1).abs(), lessThan(2.0));
+        },
       );
-
-      // Swipe past halfway so the page is heading to channel b (index 1).
-      final size = tester.getSize(find.byType(PageView));
-      final center = tester.getCenter(find.byType(PageView));
-      final gesture = await tester.startGesture(center);
-      await gesture.moveBy(const Offset(-1, 0));
-      await tester.pump();
-      await gesture.moveBy(Offset(-size.width * 0.6, 0));
-      await tester.pump();
-
-      // An unrelated rebuild lands mid-swipe (e.g. doSendMessage -> onRebuild).
-      setStateTop(() {});
-      await tester.pump();
-
-      await gesture.up();
-      await tester.pumpAndSettle();
-
-      // The page settled on b and was never yanked back to a.
-      expect(_pageDx(tester, 1).abs(), lessThan(2.0));
-    });
+    }
 
     testWidgets(
       'Programmatic selection moves the page and ignores unchanged rebuilds',
@@ -271,35 +275,6 @@ void main() {
     });
   });
 
-  group('TabbedLayout fastSnap', () {
-    testWidgets('Swipe switches channels with fast snap enabled', (
-      WidgetTester tester,
-    ) async {
-      final selected = ValueNotifier<int>(0);
-
-      await tester.pumpWidget(
-        _harness(
-          selected,
-          captureSetState: (_) {},
-          onFocusChanged: (i) => selected.value = i,
-          onSelectedIndexChanged: (i) => selected.value = i,
-          fastSnap: true,
-        ),
-      );
-
-      final size = tester.getSize(find.byType(PageView));
-      final center = tester.getCenter(find.byType(PageView));
-      final gesture = await tester.startGesture(center);
-      await gesture.moveBy(Offset(-size.width * 0.6, 0));
-      await tester.pump();
-      await gesture.up();
-      await tester.pumpAndSettle();
-
-      expect(selected.value, 1);
-      expect(_pageDx(tester, 1).abs(), lessThan(2.0));
-    });
-  });
-
   group('TabbedLayout add channel', () {
     // Regression: adding a channel must land on it AND scroll the tab strip to
     // reveal it, even when the pager is already parked on the target (initialPage
@@ -307,29 +282,6 @@ void main() {
     testWidgets('Adding channels lands on and reveals the new tab', (
       WidgetTester tester,
     ) async {
-      {
-        final selected = ValueNotifier<int>(0);
-        final tabs = ValueNotifier<List<String>>(['a', 'b']);
-        await tester.pumpWidget(_addChannelHarness(selected, tabs));
-        await tester.pumpAndSettle();
-
-        // Append channel c and select it (index 2), as _addChannel does.
-        tabs.value = ['a', 'b', 'c'];
-        selected.value = 2;
-        await tester.pump();
-        await tester.pumpAndSettle();
-
-        // The pager actually lands on the new channel (not one short).
-        expect(_pageDx(tester, 2).abs(), lessThan(2.0));
-        // The tab strip scrolls to reveal the new tab (on-screen, not past the
-        // right edge in its own scroller).
-        final tabC = find.descendant(
-          of: find.byType(TabBar),
-          matching: find.text('c'),
-        );
-        expect(tabC, findsOneWidget);
-        expect(tabC.hitTestable(), findsOneWidget);
-      }
       {
         final selected = ValueNotifier<int>(0);
         final tabs = ValueNotifier<List<String>>([
@@ -363,7 +315,7 @@ void main() {
   });
 
   group('TabbedLayout add tab', () {
-    testWidgets('tap runs onAddTab without moving the selection', (
+    testWidgets('add tab taps, toggles, and joins without moving selection', (
       tester,
     ) async {
       final selected = ValueNotifier<int>(1);
@@ -385,12 +337,36 @@ void main() {
 
       await tester.tap(find.byIcon(Icons.add));
       await tester.pumpAndSettle();
-
       expect(adds, 1);
       expect(reported, isEmpty);
       expect(selected.value, 1);
       expect(_stripController(tester).index, 1);
       expect(_pageDx(tester, 1).abs(), lessThan(2.0));
+
+      for (final on in [false, true]) {
+        showAddTab.value = on;
+        await tester.pump();
+        await tester.pumpAndSettle();
+        expect(find.byIcon(Icons.add), on ? findsOneWidget : findsNothing);
+        expect(selected.value, 1);
+        expect(_stripController(tester).index, 1);
+        expect(_pageDx(tester, 1).abs(), lessThan(2.0));
+      }
+
+      // A joined channel lands before the add tab.
+      tabs.value = ['a', 'b', 'c', 'd'];
+      selected.value = 3;
+      await tester.pump();
+      await tester.pumpAndSettle();
+      expect(_pageDx(tester, 3).abs(), lessThan(2.0));
+      expect(_stripController(tester).index, 3);
+      final plus = tester.getCenter(find.byIcon(Icons.add)).dx;
+      final d = tester
+          .getCenter(
+            find.descendant(of: find.byType(TabBar), matching: find.text('d')),
+          )
+          .dx;
+      expect(plus, greaterThan(d));
     });
 
     testWidgets('swiping past the last channel never lands on it', (
@@ -424,29 +400,6 @@ void main() {
       expect(_pageDx(tester, 2).abs(), lessThan(2.0));
     });
 
-    testWidgets('toggling the add tab keeps the selected channel', (
-      tester,
-    ) async {
-      final selected = ValueNotifier<int>(1);
-      final tabs = ValueNotifier<List<String>>(['a', 'b', 'c']);
-      final showAddTab = ValueNotifier<bool>(false);
-      await tester.pumpWidget(
-        _addTabHarness(selected, tabs, showAddTab, onAddTab: () {}),
-      );
-      await tester.pumpAndSettle();
-      expect(find.byIcon(Icons.add), findsNothing);
-
-      for (final on in [true, false, true]) {
-        showAddTab.value = on;
-        await tester.pump();
-        await tester.pumpAndSettle();
-        expect(find.byIcon(Icons.add), on ? findsOneWidget : findsNothing);
-        expect(selected.value, 1);
-        expect(_stripController(tester).index, 1);
-        expect(_pageDx(tester, 1).abs(), lessThan(2.0));
-      }
-    });
-
     testWidgets('the add tab scrolls clear of the actions fade', (
       tester,
     ) async {
@@ -474,31 +427,6 @@ void main() {
       final plus = tester.getRect(find.byIcon(Icons.add));
       final fadeStart = tester.getRect(strip).right - 24;
       expect(plus.right, lessThanOrEqualTo(fadeStart));
-    });
-
-    testWidgets('a joined channel lands before the add tab', (tester) async {
-      final selected = ValueNotifier<int>(0);
-      final tabs = ValueNotifier<List<String>>(['a', 'b']);
-      final showAddTab = ValueNotifier<bool>(true);
-      await tester.pumpWidget(
-        _addTabHarness(selected, tabs, showAddTab, onAddTab: () {}),
-      );
-      await tester.pumpAndSettle();
-
-      tabs.value = ['a', 'b', 'c'];
-      selected.value = 2;
-      await tester.pump();
-      await tester.pumpAndSettle();
-
-      expect(_pageDx(tester, 2).abs(), lessThan(2.0));
-      expect(_stripController(tester).index, 2);
-      final plus = tester.getCenter(find.byIcon(Icons.add)).dx;
-      final c = tester
-          .getCenter(
-            find.descendant(of: find.byType(TabBar), matching: find.text('c')),
-          )
-          .dx;
-      expect(plus, greaterThan(c));
     });
   });
 
@@ -588,7 +516,7 @@ void main() {
       expect(focused.last, 2);
     });
 
-    testWidgets('fast fling across pages converges', (tester) async {
+    testWidgets('far jumps and fast flings converge', (tester) async {
       final tab = TabController(length: 3, vsync: const TestVSync());
       addTearDown(tab.dispose);
       final focused = <int>[];
@@ -610,6 +538,14 @@ void main() {
           ),
         ),
       );
+
+      // A far jump reports only its landing, never intermediates.
+      tab.animateTo(2);
+      await tester.pumpAndSettle();
+      expect(focused, [2]);
+      tab.animateTo(0);
+      await tester.pumpAndSettle();
+      focused.clear();
 
       await tester.fling(find.text('p0'), const Offset(-800, 0), 8000);
       await tester.pumpAndSettle();
@@ -622,35 +558,6 @@ void main() {
       tab.animateTo(0);
       await tester.pumpAndSettle();
       expect(focused.last, 0);
-    });
-
-    testWidgets('far animateTo never reports intermediates', (tester) async {
-      final tab = TabController(length: 3, vsync: const TestVSync());
-      addTearDown(tab.dispose);
-      final focused = <int>[];
-      final drag = TabDragFocus(tab: () => tab, onFocusChanged: focused.add);
-      addTearDown(drag.dispose);
-      tab.addListener(() {
-        if (!tab.indexIsChanging) drag.syncFromController();
-      });
-      await tester.pumpWidget(
-        MaterialApp(
-          home: Scaffold(
-            body: NotificationListener<ScrollNotification>(
-              onNotification: drag.onNotification,
-              child: TabBarView(
-                controller: tab,
-                children: const [Text('p0'), Text('p1'), Text('p2')],
-              ),
-            ),
-          ),
-        ),
-      );
-
-      tab.animateTo(2);
-      await tester.pumpAndSettle();
-      expect(focused, [2]);
-      expect(drag.effectiveIndex, 2);
     });
   });
 

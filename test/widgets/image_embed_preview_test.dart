@@ -91,30 +91,29 @@ void main() {
     return body;
   }
 
-  testWidgets('a video content type is rejected before any bytes', (
+  testWidgets('videos are rejected by content type or by their first bytes', (
     tester,
   ) async {
-    final body = await pumpPreview(tester, contentType: 'video/mp4');
-    expect(body.hasListener, isFalse);
+    final typed = await pumpPreview(tester, contentType: 'video/mp4');
+    expect(typed.hasListener, isFalse);
     expect(find.textContaining('video/mp4'), findsOneWidget);
     expect(find.byType(CircularProgressIndicator), findsNothing);
-  });
 
-  testWidgets('an untyped video is rejected on its first bytes', (
-    tester,
-  ) async {
-    final body = await pumpPreview(
+    await tester.pumpWidget(const SizedBox());
+    final untyped = await pumpPreview(
       tester,
       contentType: 'application/octet-stream',
       contentLength: 10000000,
     );
-    body.add(_mp4Head);
+    untyped.add(_mp4Head);
     await settle(tester);
-    expect(body.hasListener, isFalse);
+    expect(untyped.hasListener, isFalse);
     expect(find.textContaining("Can't preview"), findsOneWidget);
   });
 
-  testWidgets('counts progress, then shows the image', (tester) async {
+  testWidgets('counts progress, shows the image, and reopens without loading', (
+    tester,
+  ) async {
     final body = await pumpPreview(
       tester,
       contentType: 'image/png',
@@ -132,18 +131,6 @@ void main() {
     expect(find.byType(Image), findsOneWidget);
     expect(find.byType(CircularProgressIndicator), findsNothing);
     expect(cache.puts, ['https://kappa.lol/abc']);
-  });
-
-  testWidgets('reopening a loaded embed skips the loading box', (tester) async {
-    final body = await pumpPreview(
-      tester,
-      contentType: 'image/png',
-      contentLength: _png.length,
-    );
-    body.add(_png);
-    unawaited(body.close());
-    await settle(tester);
-    expect(find.byType(Image), findsOneWidget);
 
     // Collapse and expand again: the first frame already shows the image.
     await tester.pumpWidget(const SizedBox());
@@ -152,15 +139,12 @@ void main() {
     expect(find.byType(Image), findsOneWidget);
   });
 
-  test('content types', () {
+  test('content types and byte sniffing', () {
     expect(embedTypeMayBeImage('image/gif'), isTrue);
     expect(embedTypeMayBeImage(''), isTrue);
     expect(embedTypeMayBeImage('application/octet-stream'), isTrue);
     expect(embedTypeMayBeImage('video/mp4'), isFalse);
     expect(embedTypeMayBeImage('text/html; charset=utf-8'), isFalse);
-  });
-
-  test('byte sniff', () {
     expect(sniffEmbedImage(_png), isTrue);
     expect(sniffEmbedImage(_mp4Head), isFalse);
     expect(sniffEmbedImage(Uint8List(4)), isNull);

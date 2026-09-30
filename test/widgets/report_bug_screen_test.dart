@@ -90,26 +90,22 @@ void main() {
     scrollable: find.byType(Scrollable).first,
   );
 
-  testWidgets('send stays disabled until required fields are filled', (
-    tester,
-  ) async {
-    await openEditor(tester);
-    await tester.enterText(field('Summary *'), 'Header sticks');
-    await scrollToSend(tester);
-    FilledButton send() => tester.widget(sendButton);
-    expect(send().onPressed, isNull);
-
-    await tester.enterText(field('What happened *'), 'It stayed');
-    await tester.pump();
-    expect(send().onPressed, isNotNull);
-  });
-
   testWidgets('sending assembles the fields into one report', (tester) async {
     final draft = await openEditor(tester);
     await tester.enterText(field('Summary *'), 'Header sticks');
-    await tester.enterText(field('What happened *'), 'It stayed');
     await tester.enterText(field('What you expected'), 'It goes away');
     await scrollToSend(tester);
+    // Send stays disabled until the required fields are filled.
+    expect(tester.widget<FilledButton>(sendButton).onPressed, isNull);
+    await tester.scrollUntilVisible(
+      field('What happened *'),
+      -200,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.enterText(field('What happened *'), 'It stayed');
+    await tester.pump();
+    await scrollToSend(tester);
+    expect(tester.widget<FilledButton>(sendButton).onPressed, isNotNull);
     await tester.tap(sendButton);
     await tester.pumpAndSettle();
     await settleIo(tester);

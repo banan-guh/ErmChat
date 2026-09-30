@@ -51,7 +51,6 @@ void main() {
       final full = tester.getSize(find.byType(MessageInput)).height;
       await pumpInput(tester, compact: true, borderless: borderless);
       final compact = tester.getSize(find.byType(MessageInput)).height;
-      debugPrint('borderless=$borderless full=$full compact=$compact');
       expect(compact, lessThan(full));
     });
 

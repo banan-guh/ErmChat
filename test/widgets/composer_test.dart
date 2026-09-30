@@ -60,34 +60,29 @@ void main() {
     return focus.hasFocus;
   }
 
-  testWidgets('non-glass composer is tappable', (tester) async {
-    final focus = FocusNode();
-    addTearDown(focus.dispose);
-    await pumpBody(tester, liquidGlass: false, focus: focus);
-    await tester.pumpAndSettle();
-    expect(await tapBodyComposer(tester, focus), isTrue);
-    expect(tester.takeException(), isNull);
-  });
+  for (final glass in [false, true]) {
+    testWidgets('composer is tappable (glass=$glass)', (tester) async {
+      final focus = FocusNode();
+      addTearDown(focus.dispose);
+      await pumpBody(tester, liquidGlass: glass, focus: focus);
+      await tester.pumpAndSettle();
+      expect(find.byKey(inputBarKey), findsOneWidget);
+      expect(await tapBodyComposer(tester, focus), isTrue);
+      expect(tester.takeException(), isNull);
+    });
+  }
 
-  testWidgets('glass composer is tappable', (tester) async {
-    final focus = FocusNode();
-    addTearDown(focus.dispose);
-    await pumpBody(tester, liquidGlass: true, focus: focus);
-    await tester.pumpAndSettle();
-    expect(await tapBodyComposer(tester, focus), isTrue);
-    expect(tester.takeException(), isNull);
-  });
-
-  testWidgets('toggling glass off leaves the composer tappable', (
+  testWidgets('toggling glass off keeps one composer mount and tappable', (
     tester,
   ) async {
     final focus = FocusNode();
     addTearDown(focus.dispose);
     await pumpBody(tester, liquidGlass: true, focus: focus);
     await tester.pumpAndSettle();
+    expect(find.byKey(inputBarKey), findsOneWidget);
     await pumpBody(tester, liquidGlass: false, focus: focus);
-    await tester.pump();
     await tester.pumpAndSettle();
+    expect(find.byKey(inputBarKey), findsOneWidget);
     expect(await tapBodyComposer(tester, focus), isTrue);
     expect(tester.takeException(), isNull);
   });
@@ -113,23 +108,6 @@ void main() {
       closeTo(800, 0.5),
       reason: 'pill bottom must sit on the body bottom, not 45dp above it',
     );
-  });
-
-  testWidgets('the two composer paths share one key without colliding', (
-    tester,
-  ) async {
-    final focus = FocusNode();
-    addTearDown(focus.dispose);
-    await pumpBody(tester, liquidGlass: true, focus: focus);
-    await tester.pumpAndSettle();
-    // Glass on: the pill owns the key, the in-flow slot is empty.
-    expect(find.byKey(inputBarKey), findsOneWidget);
-    // Flip to opaque: the key moves to the in-flow composer, still one mount.
-    await pumpBody(tester, liquidGlass: false, focus: focus);
-    await tester.pump();
-    await tester.pumpAndSettle();
-    expect(find.byKey(inputBarKey), findsOneWidget);
-    expect(tester.takeException(), isNull);
   });
 
   // A short screen collapses chrome once the keyboard opens (the iPhone

@@ -62,9 +62,7 @@ void main() {
   Future<void> settle(WidgetTester tester) =>
       tester.pump(const Duration(milliseconds: 350));
 
-  testWidgets('a tap left of, on, or just past the name opens the user', (
-    tester,
-  ) async {
+  testWidgets('taps open the user only on and around the name', (tester) async {
     await pumpTile(tester);
     final name = nameRect(tester);
     for (final x in [2.0, name.center.dx, name.right + 8]) {
@@ -72,40 +70,33 @@ void main() {
       await settle(tester);
     }
     expect(taps, ['user:alice', 'user:alice', 'user:alice']);
-  });
 
-  testWidgets('a tap in the body text does not open the user', (tester) async {
-    await pumpTile(tester);
-    final name = nameRect(tester);
+    // A tap in the body text does not.
+    taps.clear();
     await tester.tapAt(Offset(name.right + 60, name.center.dy));
     await settle(tester);
     expect(taps, isEmpty);
   });
 
-  testWidgets('double tap on the name copies it, not the message', (
-    tester,
-  ) async {
-    await pumpTile(tester);
-    final at = nameRect(tester).center;
-    await tester.tapAt(at);
-    await tester.pump(const Duration(milliseconds: 80));
-    await tester.tapAt(at);
-    await settle(tester);
-    expect(taps, ['copy']);
-  });
+  testWidgets(
+    'double tap copies the name on the name, the message on the body',
+    (tester) async {
+      await pumpTile(tester);
+      final name = nameRect(tester);
+      Future<void> doubleTap(Offset at) async {
+        await tester.tapAt(at);
+        await tester.pump(const Duration(milliseconds: 80));
+        await tester.tapAt(at);
+        await settle(tester);
+      }
 
-  testWidgets('double tap on the body still copies the message', (
-    tester,
-  ) async {
-    await pumpTile(tester);
-    final name = nameRect(tester);
-    final at = Offset(name.right + 60, name.center.dy);
-    await tester.tapAt(at);
-    await tester.pump(const Duration(milliseconds: 80));
-    await tester.tapAt(at);
-    await settle(tester);
-    expect(taps, ['message']);
-  });
+      await doubleTap(name.center);
+      expect(taps, ['copy']);
+      taps.clear();
+      await doubleTap(Offset(name.right + 60, name.center.dy));
+      expect(taps, ['message']);
+    },
+  );
 
   testWidgets('without double tap copy the name opens at once', (tester) async {
     await pumpTile(tester, doubleTapUser: false);

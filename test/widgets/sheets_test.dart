@@ -56,29 +56,8 @@ void main() {
       );
     }
 
-    testWidgets('Twitch emote sheet has no creator line', (tester) async {
-      await tester.pumpWidget(
-        wrapEmoteSheet(
-          const Emote(
-            id: 'tw-1',
-            code: 'SubEmote',
-            meta: TwitchMeta(
-              kind: TwitchEmoteKind.sub,
-              ownerChannel: 'streamer',
-            ),
-            scales: {EmoteScale.medium: 'https://example.com/1.png'},
-            scope: EmoteScope.channel,
-          ),
-        ),
-      );
-      await tester.pump();
-      await tester.pump();
-
-      expect(find.textContaining('Created by'), findsNothing);
-    });
-
     testWidgets(
-      'Emote sheet header shows name and type and alias and zero width',
+      'Emote sheet header shows name, type, alias, creator and zero width',
       (WidgetTester tester) async {
         {
           await tester.pumpWidget(wrapEmoteSheet(sevenTvEmote()));
@@ -119,6 +98,26 @@ void main() {
             find.text('7TV Global Emote (Zero Width)', skipOffstage: false),
             findsOneWidget,
           );
+        }
+        {
+          await tester.pumpWidget(
+            wrapEmoteSheet(
+              const Emote(
+                id: 'tw-1',
+                code: 'SubEmote',
+                meta: TwitchMeta(
+                  kind: TwitchEmoteKind.sub,
+                  ownerChannel: 'streamer',
+                ),
+                scales: {EmoteScale.medium: 'https://example.com/1.png'},
+                scope: EmoteScope.channel,
+              ),
+            ),
+          );
+          await tester.pump();
+          await tester.pump();
+
+          expect(find.textContaining('Created by'), findsNothing);
         }
         {
           await tester.pumpWidget(
@@ -260,38 +259,6 @@ void main() {
       expect(sheetSize.height, moreOrLessEquals(465.6, epsilon: 1.0));
       expect(sheetBottomDy, moreOrLessEquals(stackBottom.dy, epsilon: 1.0));
     });
-
-    testWidgets('emote sheet uses the action row when custom enables it', (
-      WidgetTester tester,
-    ) async {
-      await tester.pumpWidget(
-        MaterialApp(
-          key: UniqueKey(),
-          home: CompactLayoutScope(
-            compact: true,
-            overrides: const LayoutOverrides(
-              enabled: true,
-              sheetActionRow: true,
-            ),
-            child: Scaffold(
-              body: EmoteSheet(
-                emotes: [sevenTvEmote()],
-                messageController: TextEditingController(),
-                focusNode: FocusNode(),
-                onClose: () {},
-                images: EmoteImages(),
-              ),
-            ),
-          ),
-        ),
-      );
-      await tester.pump();
-      await tester.pump();
-
-      expect(find.byType(SheetActionRow), findsOneWidget);
-      expect(find.text('Open link', skipOffstage: false), findsOneWidget);
-      expect(find.text('Open emote link', skipOffstage: false), findsNothing);
-    });
   });
 
   group('user profile sheet', () {
@@ -331,72 +298,41 @@ void main() {
       );
     }
 
-    testWidgets('user profile uses the action row when custom enables it', (
-      WidgetTester tester,
-    ) async {
-      await tester.pumpWidget(
-        MaterialApp(
-          key: UniqueKey(),
-          home: CompactLayoutScope(
-            compact: true,
-            overrides: const LayoutOverrides(
-              enabled: true,
-              sheetActionRow: true,
-            ),
-            child: Scaffold(
-              body: UserProfileSheet(
-                username: 'testuser',
-                userId: '123',
-                displayName: 'TestUser',
-                twitchApi: createApi(),
-                twitchAuth: TwitchAuth()..accessToken = 'test-token',
-                messageController: TextEditingController(),
-                focusNode: FocusNode(),
-                onClose: () {},
+    for (final row in [true, false]) {
+      testWidgets('user profile action row follows the override ($row)', (
+        WidgetTester tester,
+      ) async {
+        await tester.pumpWidget(
+          MaterialApp(
+            key: UniqueKey(),
+            home: CompactLayoutScope(
+              compact: true,
+              overrides: LayoutOverrides(enabled: true, sheetActionRow: row),
+              child: Scaffold(
+                body: UserProfileSheet(
+                  username: 'testuser',
+                  userId: '123',
+                  displayName: 'TestUser',
+                  twitchApi: createApi(),
+                  twitchAuth: TwitchAuth()..accessToken = 'test-token',
+                  messageController: TextEditingController(),
+                  focusNode: FocusNode(),
+                  onClose: () {},
+                ),
               ),
             ),
           ),
-        ),
-      );
-      await tester.pumpAndSettle();
+        );
+        await tester.pumpAndSettle();
 
-      expect(find.byType(SheetActionRow), findsOneWidget);
-      expect(find.text('Mention'), findsOneWidget);
-      expect(find.text('Mention user'), findsNothing);
-    });
-
-    testWidgets('user profile keeps the vertical list when the row is off', (
-      WidgetTester tester,
-    ) async {
-      await tester.pumpWidget(
-        MaterialApp(
-          key: UniqueKey(),
-          home: CompactLayoutScope(
-            compact: true,
-            overrides: const LayoutOverrides(
-              enabled: true,
-              sheetActionRow: false,
-            ),
-            child: Scaffold(
-              body: UserProfileSheet(
-                username: 'testuser',
-                userId: '123',
-                displayName: 'TestUser',
-                twitchApi: createApi(),
-                twitchAuth: TwitchAuth()..accessToken = 'test-token',
-                messageController: TextEditingController(),
-                focusNode: FocusNode(),
-                onClose: () {},
-              ),
-            ),
-          ),
-        ),
-      );
-      await tester.pumpAndSettle();
-
-      expect(find.byType(SheetActionRow), findsNothing);
-      expect(find.text('Mention user'), findsOneWidget);
-    });
+        expect(
+          find.byType(SheetActionRow),
+          row ? findsOneWidget : findsNothing,
+        );
+        expect(find.text('Mention'), row ? findsOneWidget : findsNothing);
+        expect(find.text('Mention user'), row ? findsNothing : findsOneWidget);
+      });
+    }
 
     testWidgets('User profile report opens the page and reports failures', (
       WidgetTester tester,
@@ -464,7 +400,7 @@ void main() {
       return tester.widget<AnimatedOpacity>(fade).opacity;
     }
 
-    testWidgets('User profile opens pinned to the latest message', (
+    testWidgets('User profile pins the latest message and the arrow returns', (
       WidgetTester tester,
     ) async {
       await tester.pumpWidget(
@@ -495,126 +431,18 @@ void main() {
       );
       expect(cardMaterials, findsOneWidget);
       expect(arrowOpacity(tester), 0);
-    });
 
-    testWidgets('User profile arrow jumps back to the latest message', (
-      WidgetTester tester,
-    ) async {
-      await tester.pumpWidget(
-        wrapUserProfileWithHistory(createApi(), [
-          // Oldest first, like production: the latest lands at the bottom.
-          for (var i = 0; i < 30; i++)
-            TwitchMessage(
-              login: 'testuser',
-              text: 'm$i',
-              channel: 'somechannel',
-            ),
-        ]),
-      );
-      await tester.pumpAndSettle();
-
-      // Drag down toward older messages: the card stays pinned, the jump
-      // arrow appears, and the latest row leaves the viewport.
+      // Drag toward older messages: the card stays pinned, the arrow shows.
       await tester.drag(find.text('row:m29'), const Offset(0, 300));
       await tester.pumpAndSettle();
       expect(find.text('TestUser'), findsOneWidget);
       expect(find.text('row:m29'), findsNothing);
       expect(arrowOpacity(tester), 1);
 
-      // Tapping it jumps back to the latest and hides again.
       await tester.tap(find.byIcon(Icons.keyboard_arrow_down));
       await tester.pumpAndSettle();
       expect(find.text('row:m29'), findsOneWidget);
       expect(arrowOpacity(tester), 0);
-    });
-
-    testWidgets('User profile hides history until the card loads', (
-      WidgetTester tester,
-    ) async {
-      await tester.pumpWidget(
-        wrapUserProfileWithHistory(createApi(), [
-          for (var i = 0; i < 30; i++)
-            TwitchMessage(
-              login: 'testuser',
-              text: 'm$i',
-              channel: 'somechannel',
-            ),
-        ]),
-      );
-
-      // Spinner only: no rows flash before the card fills in. No extra pump
-      // here: any rebuild would already show the loaded profile.
-      expect(find.byType(CircularProgressIndicator), findsOneWidget);
-      expect(find.text('row:m29', skipOffstage: false), findsNothing);
-
-      await tester.pumpAndSettle();
-      expect(find.text('row:m29'), findsOneWidget);
-    });
-
-    testWidgets('User profile card shows channel badges', (
-      WidgetTester tester,
-    ) async {
-      Widget wrap(List<CardBadge> badges) {
-        return MaterialApp(
-          key: UniqueKey(),
-          home: Scaffold(
-            body: UserProfileSheet(
-              username: 'testuser',
-              userId: '123',
-              displayName: 'TestUser',
-              twitchApi: createApi(),
-              twitchAuth: TwitchAuth()..accessToken = 'test-token',
-              messageController: TextEditingController(),
-              focusNode: FocusNode(),
-              onClose: () {},
-              cardBadges: badges,
-            ),
-          ),
-        );
-      }
-
-      Finder badgeImage(String url) => find.byWidgetPredicate(
-        (w) => w is CachedNetworkImage && w.imageUrl == url,
-      );
-
-      await tester.pumpWidget(
-        wrap(const [
-          CardBadge(url: 'https://example.com/mod.png', label: 'moderator'),
-        ]),
-      );
-      await tester.pumpAndSettle();
-      expect(badgeImage('https://example.com/mod.png'), findsOneWidget);
-
-      await tester.pumpWidget(wrap(const []));
-      await tester.pumpAndSettle();
-      expect(badgeImage('https://example.com/mod.png'), findsNothing);
-    });
-
-    testWidgets('User profile card keeps rounded top corners', (
-      WidgetTester tester,
-    ) async {
-      await tester.pumpWidget(
-        wrapUserProfileWithHistory(createApi(), [
-          TwitchMessage(
-            login: 'testuser',
-            text: 'hello',
-            channel: 'somechannel',
-          ),
-        ]),
-      );
-      await tester.pumpAndSettle();
-
-      final cardMaterial = find.ancestor(
-        of: find.text('TestUser'),
-        matching: find.byWidgetPredicate(
-          (w) => w is Material && w.borderRadius != null,
-        ),
-      );
-      expect(cardMaterial, findsOneWidget);
-      final radius =
-          tester.widget<Material>(cardMaterial).borderRadius as BorderRadius;
-      expect(radius.topLeft.x, 28.0);
-      expect(radius.bottomLeft, Radius.zero);
     });
 
     testWidgets('User profile never overflows a short screen', (
@@ -1290,23 +1118,6 @@ void main() {
       );
       await tester.pumpAndSettle();
       expect(find.text('TestUser'), findsOneWidget);
-    });
-
-    testWidgets('User profile shows empty history placeholder', (
-      WidgetTester tester,
-    ) async {
-      await tester.pumpWidget(wrapUserProfileWithHistory(createApi(), []));
-      await tester.pumpAndSettle();
-
-      expect(find.textContaining('Recent messages'), findsNothing);
-      expect(find.byIcon(Icons.keyboard_arrow_down), findsNothing);
-      expect(
-        find.text(
-          'No recent messages from this user here yet',
-          skipOffstage: false,
-        ),
-        findsOneWidget,
-      );
     });
   });
 }

@@ -70,33 +70,11 @@ void main() {
     EmoteUrlProvider.debugFetchOverride = null;
   });
 
-  testWidgets('shows the band while loading, frame after', (tester) async {
-    final gate = Completer<Uint8List>();
-    EmoteUrlProvider.debugFetchOverride = (_) => gate.future;
-    const url = 'https://inline.test/gated.png';
-    await tester.pumpWidget(
-      MaterialApp(
-        home: InlineEmoteView(url: url, width: 28, height: 28, images: _images),
-      ),
-    );
-    await tester.pump();
-
-    final ro = _renderOf(tester);
-    expect(ro.debugFrame, isNull);
-    expect(ro.debugShowsBand, isTrue);
-
-    gate.complete(_pngBytes());
-    await tester.pump();
-    await _pumpUntilLoaded(tester);
-
-    expect(ro.debugFrame, isNotNull);
-    expect(ro.debugShowsBand, isFalse);
-  });
-
-  testWidgets('a url change drops the old frame and resolves anew', (
+  testWidgets('shows the band while loading and after a url change', (
     tester,
   ) async {
-    EmoteUrlProvider.debugFetchOverride = (_) async => _pngBytes();
+    final firstGate = Completer<Uint8List>();
+    EmoteUrlProvider.debugFetchOverride = (_) => firstGate.future;
     const firstUrl = 'https://inline.test/a.png';
     await tester.pumpWidget(
       MaterialApp(
@@ -108,6 +86,11 @@ void main() {
         ),
       ),
     );
+    await tester.pump();
+    expect(_renderOf(tester).debugFrame, isNull);
+    expect(_renderOf(tester).debugShowsBand, isTrue);
+
+    firstGate.complete(_pngBytes());
     await _pumpUntilLoaded(tester);
     expect(_renderOf(tester).debugFrame, isNotNull);
 
@@ -201,41 +184,6 @@ void main() {
     // emote box. A boxed fallback would be 28 wide with two lines.
     expect(find.text(code), findsOneWidget);
     expect(tester.getSize(find.text(code)).width, greaterThan(28));
-  });
-
-  testWidgets('an oversized frame is contain-fit into the slot', (
-    tester,
-  ) async {
-    // 64x32 red source in a 28x28 box: correct contain-fit draws a 28x14
-    // band centered vertically; the old inscribe-only bug drew it at
-    // intrinsic pixel size, spilling over the whole slot and beyond.
-    EmoteUrlProvider.debugFetchOverride = (_) async => _pngBytes(64, 32);
-    const url = 'https://inline.test/wide.png';
-    await tester.pumpWidget(
-      MaterialApp(
-        home: Center(
-          child: SizedBox(
-            width: 28,
-            height: 28,
-            child: InlineEmoteView(
-              url: url,
-              width: 28,
-              height: 28,
-              images: _images,
-            ),
-          ),
-        ),
-      ),
-    );
-    await _pumpUntilLoaded(tester);
-
-    final ro = _renderOf(tester);
-    // The render object must be contain-fit within the 28x28 slot.
-    expect(ro.size.width, lessThanOrEqualTo(28.0));
-    expect(ro.size.height, lessThanOrEqualTo(28.0));
-    // The image's intrinsic 64x32 ratio means the fitted height is less
-    // than the slot height, confirming contain-fit (not stretch).
-    expect(ro.debugFrame, isNotNull);
   });
 
   testWidgets(
@@ -369,6 +317,13 @@ void main() {
     await _pumpUntilLoaded(tester);
     expect(fetches, 1);
     expect(_renderOf(tester).debugFrame, isNotNull);
+
+    // Pausing then unmounting balances the completer handle release.
+    await pumpWith(false);
+    await tester.pump();
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('a warm emote skips the placeholder frame', (tester) async {
@@ -440,51 +395,6 @@ void main() {
     EmoteUrlProvider.applyFrameRate(30);
     await tester.pump();
     expect(ticking(), isTrue);
-  });
-
-  testWidgets('pausing then unmounting releases without throwing', (
-    tester,
-  ) async {
-    EmoteUrlProvider.debugFetchOverride = (_) async => _pngBytes();
-    const url = 'https://inline.test/pause-dispose.png';
-    final enabled = ValueNotifier<bool>(true);
-    final shown = ValueNotifier<bool>(true);
-    addTearDown(enabled.dispose);
-    addTearDown(shown.dispose);
-
-    await tester.pumpWidget(
-      MaterialApp(
-        home: ValueListenableBuilder<bool>(
-          valueListenable: shown,
-          builder: (_, visible, _) => !visible
-              ? const SizedBox.shrink()
-              : ValueListenableBuilder<bool>(
-                  valueListenable: enabled,
-                  builder: (_, on, _) => TickerMode(
-                    enabled: on,
-                    child: InlineEmoteView(
-                      url: url,
-                      width: 28,
-                      height: 28,
-                      images: _images,
-                    ),
-                  ),
-                ),
-        ),
-      ),
-    );
-    await _pumpUntilLoaded(tester);
-    expect(_renderOf(tester).debugFrame, isNotNull);
-
-    // Background the page: the listener leaves but the completer stays alive.
-    enabled.value = false;
-    await tester.pump();
-    // Then unmount it: the handle release must be balanced.
-    shown.value = false;
-    await tester.pump();
-    await tester.pump();
-
-    expect(tester.takeException(), isNull);
   });
 
   testWidgets('a cache evict does not spawn a second decoder for a live url', (

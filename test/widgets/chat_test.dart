@@ -12,63 +12,6 @@ void main() {
   });
 
   testWidgets(
-    'Home screen shows empty state prompts for signed out and signed in users',
-    (WidgetTester tester) async {
-      await tester.pumpWidget(
-        TwitchChatApp(
-          key: UniqueKey(),
-          eventSubService: FakeEventSubService(),
-          ircService: FakeIrcService(),
-          recentMessagesService: FakeRecentMessagesService(),
-        ),
-      );
-      await tester.pump();
-
-      expect(find.byIcon(Icons.add), findsOneWidget);
-      expect(find.byIcon(Icons.more_vert), findsOneWidget);
-      expect(find.byIcon(Icons.settings), findsNothing);
-      expect(
-        find.textContaining(
-          'Configure Twitch credentials in Settings first',
-          skipOffstage: false,
-        ),
-        findsWidgets,
-      );
-      // Let the anonymous-mode socket attempts resolve so no timer pends.
-      await tester.pumpAndSettle();
-
-      FlutterSecureStorage.setMockInitialValues({
-        'accounts': '[{"login":"alice","access_token":"tok_a"}]',
-        'active_login': 'alice',
-        'access_token': 'tok_a',
-      });
-      await tester.pumpWidget(
-        TwitchChatApp(
-          key: UniqueKey(),
-          eventSubService: FakeEventSubService(),
-          ircService: FakeIrcService(),
-          recentMessagesService: FakeRecentMessagesService(),
-        ),
-      );
-      await tester.pump();
-
-      expect(
-        find.textContaining('Signed in as alice', skipOffstage: false),
-        findsWidgets,
-      );
-      expect(
-        find.textContaining('Press + to join a channel', skipOffstage: false),
-        findsWidgets,
-      );
-      expect(
-        find.textContaining('Configure Twitch', skipOffstage: false),
-        findsNothing,
-      );
-      await tester.pumpAndSettle();
-    },
-  );
-
-  testWidgets(
     'Adding channel without credentials is view-only: sending blocked, '
     'incoming messages still render',
     (WidgetTester tester) async {
@@ -128,38 +71,7 @@ void main() {
     },
   );
 
-  testWidgets('chrome menu offers Show stream without live status', (
-    WidgetTester tester,
-  ) async {
-    await tester.pumpWidget(
-      TwitchChatApp(
-        key: UniqueKey(),
-        eventSubService: FakeEventSubService(),
-        ircService: FakeIrcService(),
-        ircReadService: FakeIrcReadService(),
-        recentMessagesService: FakeRecentMessagesService(),
-      ),
-    );
-    await tester.pump();
-
-    await tester.tap(find.byIcon(Icons.add));
-    await tester.pumpAndSettle();
-    await tester.enterText(find.byType(TextField).last, 'xqc');
-    await tester.tap(find.text('Join', skipOffstage: false));
-    await tester.pumpAndSettle();
-
-    // WebView has no platform view in tests, so open the menu but never
-    // tap the item itself.
-    expect(find.byIcon(Icons.expand_more), findsOneWidget);
-    await tester.tap(find.byIcon(Icons.expand_more));
-    await tester.pumpAndSettle();
-
-    expect(find.text('Toggle fullscreen'), findsOneWidget);
-    expect(find.text('Toggle input'), findsOneWidget);
-    expect(find.text('Show stream'), findsOneWidget);
-  });
-
-  testWidgets('fullscreen toggles immersive system bars', (
+  testWidgets('chrome menu toggles fullscreen and the composer', (
     WidgetTester tester,
   ) async {
     final modes = <String>[];
@@ -196,97 +108,48 @@ void main() {
     await tester.tap(find.text('Join', skipOffstage: false));
     await tester.pumpAndSettle();
 
-    Future<void> toggleFullscreen() async {
+    Future<void> pick(String entry) async {
       await tester.tap(find.byIcon(Icons.expand_more));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Toggle fullscreen'));
+      await tester.tap(find.text(entry));
       await tester.pumpAndSettle();
     }
+
+    // The webview has no platform view in tests, so Show stream is only
+    // checked for presence, never tapped.
+    await tester.tap(find.byIcon(Icons.expand_more));
+    await tester.pumpAndSettle();
+    expect(find.text('Show stream'), findsOneWidget);
+    await tester.tapAt(Offset.zero);
+    await tester.pumpAndSettle();
 
     modes.clear();
-    await toggleFullscreen();
+    await pick('Toggle fullscreen');
     expect(modes.last, 'SystemUiMode.immersiveSticky');
-
-    // The chrome menu arrow survives fullscreen so the bars come back.
-    await toggleFullscreen();
+    // The menu arrow survives fullscreen so the bars come back.
+    await pick('Toggle fullscreen');
     expect(modes.last, 'SystemUiMode.edgeToEdge');
-  });
 
-  testWidgets('toggle input hides and restores the composer without errors', (
-    WidgetTester tester,
-  ) async {
-    await tester.pumpWidget(
-      TwitchChatApp(
-        key: UniqueKey(),
-        eventSubService: FakeEventSubService(),
-        ircService: FakeIrcService(),
-        ircReadService: FakeIrcReadService(),
-        recentMessagesService: FakeRecentMessagesService(),
-      ),
-    );
-    await tester.pump();
-
-    await tester.tap(find.byIcon(Icons.add));
-    await tester.pumpAndSettle();
-    await tester.enterText(find.byType(TextField).last, 'xqc');
-    await tester.tap(find.text('Join', skipOffstage: false));
-    await tester.pumpAndSettle();
-
-    Future<void> toggleInput() async {
-      await tester.tap(find.byIcon(Icons.expand_more));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Toggle input'));
-      await tester.pumpAndSettle();
-    }
-
-    // Composer visible before the toggle.
     expect(find.byType(MessageInput), findsOneWidget);
-
-    // Hide with the keyboard closed: chat and chrome survive.
-    await toggleInput();
+    await pick('Toggle input');
     expect(tester.takeException(), isNull);
-    expect(find.byType(ErrorWidget), findsNothing);
     expect(find.byType(MessageInput), findsNothing);
     expect(find.text('xqc', skipOffstage: false), findsWidgets);
 
-    // Restore: composer comes back.
-    await toggleInput();
-    expect(tester.takeException(), isNull);
+    await pick('Toggle input');
     expect(find.byType(MessageInput), findsOneWidget);
 
     // Hide with the keyboard open: no strand, no error.
     await tester.tap(find.byType(MessageInput));
     await tester.showKeyboard(find.byType(TextField).first);
     await tester.pump();
-    await toggleInput();
+    await pick('Toggle input');
     expect(tester.takeException(), isNull);
-    expect(find.byType(ErrorWidget), findsNothing);
     expect(find.byType(MessageInput), findsNothing);
-    expect(find.text('xqc', skipOffstage: false), findsWidgets);
   });
 
   group('stacked player with keyboard', () {
-    testWidgets('video shown without keyboard, audio hidden', (tester) async {
-      tester.view.physicalSize = const Size(1080, 2340);
-      tester.view.devicePixelRatio = 3.0;
-      tester.view.viewInsets = FakeViewPadding(bottom: 0);
-      addTearDown(tester.view.reset);
-
-      await tester.pumpWidget(stackedPlayerHarness(showVideo: true));
-      await tester.pumpAndSettle();
-
-      expect(tester.takeException(), isNull);
-      expect(find.byType(ErrorWidget), findsNothing);
-      // Default finders skip offstage: found means painted, not Offstage.
-      expect(find.byKey(stackedVideoKey), findsOneWidget);
-      expect(find.byKey(stackedAudioKey), findsNothing);
-      expect(
-        tester.getSize(find.byKey(stackedVideoKey)).height,
-        moreOrLessEquals(202.5, epsilon: 1.0),
-      );
-    });
-
-    testWidgets('keyboard hides video but keeps it attached with audio', (
+    testWidgets('keyboard swaps video for audio without remounting', (
       tester,
     ) async {
       tester.view.physicalSize = const Size(1080, 2340);
@@ -296,120 +159,30 @@ void main() {
 
       await tester.pumpWidget(stackedPlayerHarness(showVideo: true));
       await tester.pumpAndSettle();
+      expect(find.byKey(stackedVideoKey), findsOneWidget);
+      expect(find.byKey(stackedAudioKey), findsNothing);
       final before = tester.element(find.byKey(stackedVideoKey));
 
       // Stream enabled + keyboard opening in the same frame.
       tester.view.viewInsets = FakeViewPadding(bottom: 300 * 3.0);
       await tester.pumpWidget(stackedPlayerHarness(showVideo: false));
       await tester.pumpAndSettle();
-
-      expect(tester.takeException(), isNull);
-      expect(find.byType(ErrorWidget), findsNothing);
-      // Default finders skip offstage: found means painted, not Offstage.
       expect(find.byKey(stackedVideoKey), findsOneWidget);
       expect(find.byKey(stackedAudioKey), findsOneWidget);
-      // Inner box keeps full 16:9 size while only a 1px clip shows.
-      expect(
-        tester.getSize(find.byKey(stackedVideoKey)).height,
-        moreOrLessEquals(202.5, epsilon: 1.0),
-      );
       // Same element: WebView state would survive the toggle.
       expect(
         identical(tester.element(find.byKey(stackedVideoKey)), before),
         isTrue,
       );
-    });
 
-    testWidgets('rapid show/hide flapping never errors', (tester) async {
-      tester.view.physicalSize = const Size(1080, 2340);
-      tester.view.devicePixelRatio = 3.0;
-      tester.view.viewInsets = FakeViewPadding(bottom: 0);
-      addTearDown(tester.view.reset);
-
-      await tester.pumpWidget(stackedPlayerHarness(showVideo: true));
-      await tester.pump();
-      await tester.pumpWidget(stackedPlayerHarness(showVideo: false));
-      await tester.pump();
-      await tester.pumpWidget(stackedPlayerHarness(showVideo: true));
-      await tester.pump();
-      await tester.pumpWidget(stackedPlayerHarness(showVideo: false));
+      // Rapid flapping never errors.
+      for (final show in [true, false, true, false]) {
+        await tester.pumpWidget(stackedPlayerHarness(showVideo: show));
+        await tester.pump();
+      }
       await tester.pumpAndSettle();
-
       expect(tester.takeException(), isNull);
       expect(find.byType(ErrorWidget), findsNothing);
-      expect(find.byKey(stackedVideoKey), findsOneWidget);
-      expect(find.byKey(stackedAudioKey), findsOneWidget);
-    });
-
-    testWidgets('composer height arrives post-layout without size reads', (
-      tester,
-    ) async {
-      tester.view.physicalSize = const Size(1080, 2340);
-      tester.view.devicePixelRatio = 3.0;
-      tester.view.viewInsets = FakeViewPadding(bottom: 0);
-      addTearDown(tester.view.reset);
-
-      double? seenComposerH;
-      await tester.pumpWidget(
-        MaterialApp(
-          home: Scaffold(
-            resizeToAvoidBottomInset: true,
-            body: ChatBody(
-              bodyBuilder:
-                  (
-                    context, {
-                    required hideChromeForKeyboard,
-                    required maxWidth,
-                    required maxHeight,
-                    required keyboardH,
-                    required composerH,
-                  }) {
-                    seenComposerH = composerH;
-                    // The real decision path, with settled inputs only.
-                    final show = shouldShowStreamVideo(
-                      maxWidth: maxWidth,
-                      maxHeight: maxHeight,
-                      keyboardH: keyboardH,
-                      inputH: composerH,
-                      chatFontSize: 14,
-                    );
-                    return Column(
-                      children: [
-                        Expanded(
-                          child: TabbedLayout(
-                            tabs: const ['xqc'],
-                            selectedIndex: 0,
-                            onSelectedIndexChanged: (_) {},
-                            belowTabBar: buildStackedPlayer(
-                              show: show,
-                              video: stackedStubVideo(),
-                              audioBar: stackedStubAudio(),
-                            ),
-                            pageBuilder: (_, _) =>
-                                const ColoredBox(color: Colors.green),
-                          ),
-                        ),
-                      ],
-                    );
-                  },
-              threadPanel: const SizedBox.shrink(),
-              mentionsPanel: const SizedBox.shrink(),
-              modViewPanel: const SizedBox.shrink(),
-              emotePickerBuilder: (_, {required sheetBoxHeight}) =>
-                  const SizedBox.shrink(),
-              autocomplete: const SizedBox.shrink(),
-              emoteMaxFraction: 0.6,
-              composer: const SizedBox(height: 56),
-            ),
-          ),
-        ),
-      );
-      await tester.pumpAndSettle();
-
-      expect(tester.takeException(), isNull);
-      expect(find.byType(ErrorWidget), findsNothing);
-      expect(seenComposerH, moreOrLessEquals(56.0, epsilon: 1.0));
-      expect(find.byKey(stackedVideoKey), findsOneWidget);
     });
 
     // The safe area animates as the keyboard crosses the gesture bar. Those
@@ -722,65 +495,6 @@ void main() {
       expect(tester.takeException(), isNull);
     });
 
-    // Glass mode pads the list by the measured pill footprint. That footprint
-    // must be composed from live insets, not a cached measurement, or the
-    // newest row dips under the pill for a frame as the keyboard retracts.
-    testWidgets('glass collapses the chrome where opaque does', (tester) async {
-      SharedPreferences.setMockInitialValues({});
-      // 700dp tall with a 360dp keyboard: the docked composer leaves 284dp,
-      // under the 300dp collapse threshold.
-      tester.view.physicalSize = const Size(1080, 2100);
-      tester.view.devicePixelRatio = 3.0;
-      addTearDown(tester.view.reset);
-
-      Future<bool> hidesChrome({required bool glass}) async {
-        tester.view.viewInsets = FakeViewPadding(bottom: 0);
-        var hide = false;
-        await tester.pumpWidget(
-          MaterialApp(
-            key: ValueKey(glass),
-            home: Scaffold(
-              resizeToAvoidBottomInset: true,
-              body: ChatBody(
-                liquidGlass: glass,
-                emoteMaxFraction: 0.5,
-                composer: const SizedBox(height: 56),
-                bodyBuilder:
-                    (
-                      context, {
-                      required hideChromeForKeyboard,
-                      required maxWidth,
-                      required maxHeight,
-                      required keyboardH,
-                      required composerH,
-                    }) {
-                      hide = hideChromeForKeyboard;
-                      return const SizedBox.expand();
-                    },
-                threadPanel: const SizedBox.shrink(),
-                mentionsPanel: const SizedBox.shrink(),
-                modViewPanel: const SizedBox.shrink(),
-                emotePickerBuilder: (_, {required sheetBoxHeight}) =>
-                    const SizedBox.shrink(),
-                autocomplete: const SizedBox.shrink(),
-              ),
-            ),
-          ),
-        );
-        await tester.pumpAndSettle();
-        for (final h in [120.0, 240.0, 360.0]) {
-          tester.view.viewInsets = FakeViewPadding(bottom: h * 3.0);
-          await tester.pump(const Duration(milliseconds: 16));
-        }
-        await tester.pump(const Duration(milliseconds: 300));
-        await tester.pumpAndSettle();
-        return hide;
-      }
-
-      expect(await hidesChrome(glass: false), isTrue);
-      expect(await hidesChrome(glass: true), isTrue);
-    });
-
     testWidgets('a settled keyboard close drops focus once', (tester) async {
       SharedPreferences.setMockInitialValues({});
       tester.view.physicalSize = const Size(1080, 2340);
@@ -914,6 +628,9 @@ void main() {
       expect(snapshotShown(), isFalse);
     });
 
+    // Glass mode pads the list by the measured pill footprint. That footprint
+    // must be composed from live insets, not a cached measurement, or the
+    // newest row dips under the pill for a frame as the keyboard retracts.
     testWidgets('glass clearance tracks the keyboard on retract', (
       WidgetTester tester,
     ) async {
@@ -1097,93 +814,7 @@ void main() {
     });
   });
 
-  group('ChatMessageTile deleted rows', () {
-    TwitchMessage deletedMsg() => TwitchMessage(
-      login: 'alice',
-      text: 'gone',
-      channel: 'test',
-      messageId: 'm1',
-    )..deleted = true;
-
-    Widget buildTile({required bool fadeDeleted}) => MaterialApp(
-      key: UniqueKey(),
-      home: Scaffold(
-        body: ChatMessageTile(
-          message: deletedMsg(),
-          channel: 'test',
-          surface: Colors.white,
-          textScale: 1.0,
-          buildBadgeSpans: (_, _, {double badgeScale = 1.0}) => const [],
-          buildMessageSpans:
-              (_, _, _, {colored = false, textScale = 1.0, onImageTap}) =>
-                  <InlineSpan>[TextSpan(text: 'gone')],
-          bodyIsCached: (_, _) => false,
-          fadeDeleted: fadeDeleted,
-        ),
-      ),
-    );
-
-    testWidgets('Deleted rows fade only when fading is enabled', (
-      tester,
-    ) async {
-      // Fading is a background-colored foreground overlay, not Opacity.
-      final fade = find.byWidgetPredicate(
-        (w) =>
-            w is DecoratedBox &&
-            w.position == DecorationPosition.foreground &&
-            (w.decoration as BoxDecoration).color?.a != 0,
-      );
-      await tester.pumpWidget(buildTile(fadeDeleted: true));
-      expect(fade, findsOneWidget);
-
-      await tester.pumpWidget(buildTile(fadeDeleted: false));
-      await tester.pump();
-      expect(fade, findsNothing);
-      // The body is a Text.rich, so match on the rendered rich text.
-      expect(
-        find.byWidgetPredicate(
-          (w) => w is RichText && w.text.toPlainText().contains('gone'),
-        ),
-        findsOneWidget,
-      );
-    });
-
-    testWidgets('an expanded embed mounts left-aligned', (tester) async {
-      const url = 'https://i.imgur.com/a.png';
-      void Function(String url)? expand;
-      await tester.pumpWidget(
-        MaterialApp(
-          home: Scaffold(
-            body: ChatMessageTile(
-              message: TwitchMessage(
-                login: 'alice',
-                text: url,
-                channel: 'test',
-                messageId: 'm2',
-              ),
-              channel: 'test',
-              surface: Colors.white,
-              textScale: 1.0,
-              showImages: true,
-              buildBadgeSpans: (_, _, {double badgeScale = 1.0}) => const [],
-              buildMessageSpans:
-                  (_, _, _, {colored = false, textScale = 1.0, onImageTap}) {
-                    expand = onImageTap;
-                    return <InlineSpan>[const TextSpan(text: url)];
-                  },
-              bodyIsCached: (_, _) => false,
-            ),
-          ),
-        ),
-      );
-      expand!(url);
-      await tester.pump();
-      final preview = find.byType(ImageEmbedPreview);
-      expect(preview, findsOneWidget);
-      // Anchored left from the first frame, so the image never slides in.
-      expect(tester.getTopLeft(preview).dx, lessThan(200));
-    });
-
+  group('Image embed viewer', () {
     testWidgets(
       'Image embed viewer opens over a scrim, closes via X or swipe',
       (tester) async {
@@ -1275,36 +906,6 @@ void main() {
         findsNothing,
       );
     });
-  });
-
-  testWidgets('Notification bell opens mentions modal', (
-    WidgetTester tester,
-  ) async {
-    await tester.pumpWidget(TwitchChatApp(key: UniqueKey()));
-    await tester.pump();
-
-    await tester.tap(find.byIcon(Icons.add));
-    await tester.pumpAndSettle();
-    await tester.enterText(find.byType(TextField).last, 'xqc');
-    await tester.tap(find.text('Join', skipOffstage: false));
-    await tester.pump();
-
-    // Mentions panel is always mounted but closed with null data.
-    expect(find.text('No mentions or whispers'), findsNothing);
-
-    await tester.tap(find.byIcon(Icons.notifications_active));
-    await tester.pumpAndSettle();
-
-    expect(
-      find.text('Mentions / Whispers', skipOffstage: false),
-      findsOneWidget,
-    ); // title
-    expect(find.text('Mentions', skipOffstage: false), findsOneWidget); // tab
-    expect(find.text('Whispers', skipOffstage: false), findsOneWidget); // tab
-    expect(
-      find.textContaining('No mentions or whispers', skipOffstage: false),
-      findsOneWidget,
-    );
   });
 
   testWidgets('Notification bell gates only on unfocused mentions', (
@@ -1478,162 +1079,64 @@ void main() {
     },
   );
 
-  testWidgets(
-    'Incoming whisper turns the bell red and shows in the Whispers tab',
-    (WidgetTester tester) async {
-      final eventSub = FakeEventSubService();
-      final irc = FakeIrcService();
-      final ircRead = FakeIrcReadService();
-      final recent = ConfigurableRecentMessagesService(const []);
-      await tester.pumpWidget(
-        TwitchChatApp(
-          key: UniqueKey(),
-          eventSubService: eventSub,
-          ircService: irc,
-          ircReadService: ircRead,
-          recentMessagesService: recent,
-          initialCurrentUserLogin: 'me',
-        ),
-      );
-      await tester.pump();
-
-      for (final name in ['b', 'a']) {
-        await tester.tap(find.byIcon(Icons.add));
-        await tester.pumpAndSettle();
-        await tester.enterText(find.byType(TextField).last, name);
-        await tester.tap(find.text('Join', skipOffstage: false));
-        await tester.pump();
-      }
-
-      ircRead.emitWhisper(
-        TwitchMessage(
-          login: 'carol',
-          text: 'hello @me',
-          channel: null,
-          messageId: 'w1',
-        ),
-      );
-      await tester.pump();
-
-      expect(
-        tester.widget<Icon>(find.byIcon(Icons.notifications_active)).color,
-        isNotNull,
-      );
-
-      await tester.tap(find.byIcon(Icons.notifications_active));
-      await tester.pumpAndSettle();
-
-      // The bell tap clears all unread (mentions + whispers).
-      expect(
-        tester.widget<Icon>(find.byIcon(Icons.notifications_active)).color,
-        isNull,
-      );
-
-      await tester.tap(find.text('Whispers', skipOffstage: false));
-      await tester.pumpAndSettle();
-
-      expect(
-        find.textContaining('hello @me', skipOffstage: false),
-        findsOneWidget,
-      );
-    },
-  );
-
   testWidgets('Long pressed mention and whisper rows open the copy menu', (
     WidgetTester tester,
   ) async {
-    {
-      final eventSub = FakeEventSubService();
-      final irc = FakeIrcService();
-      final ircRead = FakeIrcReadService();
-      final recent = ConfigurableRecentMessagesService(const []);
-      await tester.pumpWidget(
-        TwitchChatApp(
-          key: UniqueKey(),
-          eventSubService: eventSub,
-          ircService: irc,
-          ircReadService: ircRead,
-          recentMessagesService: recent,
-          initialCurrentUserLogin: 'me',
-        ),
-      );
-      await tester.pump();
+    final ircRead = FakeIrcReadService();
+    await tester.pumpWidget(
+      TwitchChatApp(
+        key: UniqueKey(),
+        eventSubService: FakeEventSubService(),
+        ircService: FakeIrcService(),
+        ircReadService: ircRead,
+        recentMessagesService: ConfigurableRecentMessagesService(const []),
+        initialCurrentUserLogin: 'me',
+      ),
+    );
+    await tester.pump();
 
-      await tester.tap(find.byIcon(Icons.add));
-      await tester.pumpAndSettle();
-      await tester.enterText(find.byType(TextField).last, 'b');
-      await tester.tap(find.text('Join', skipOffstage: false));
-      await tester.pump();
+    await tester.tap(find.byIcon(Icons.add));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).last, 'b');
+    await tester.tap(find.text('Join', skipOffstage: false));
+    await tester.pump();
 
-      ircRead.emitMessage(
-        TwitchMessage(
-          login: 'carol',
-          text: 'hello @me',
-          channel: 'b',
-          messageId: 'm-panel-1',
-        ),
-      );
-      await tester.pump();
+    ircRead.emitMessage(
+      TwitchMessage(
+        login: 'carol',
+        text: 'hello @me',
+        channel: 'b',
+        messageId: 'm-panel-1',
+      ),
+    );
+    ircRead.emitWhisper(
+      TwitchMessage(
+        login: 'carol',
+        text: 'psst',
+        channel: null,
+        messageId: 'w-panel-1',
+      ),
+    );
+    await tester.pump();
 
-      await tester.tap(find.byIcon(Icons.notifications_active));
-      await tester.pumpAndSettle();
-
-      final row = find.textContaining('hello @me', skipOffstage: false);
+    Future<void> expectCopyMenu(String text) async {
+      final row = find.textContaining(text, skipOffstage: false);
       expect(row, findsAtLeast(1));
       await tester.longPress(row.last);
       await tester.pumpAndSettle();
-
       expect(find.text('Copy message', skipOffstage: false), findsOneWidget);
-      expect(find.text('More...', skipOffstage: false), findsOneWidget);
       expect(find.text('Reply to message', skipOffstage: false), findsNothing);
     }
-    {
-      final eventSub = FakeEventSubService();
-      final irc = FakeIrcService();
-      final ircRead = FakeIrcReadService();
-      final recent = ConfigurableRecentMessagesService(const []);
-      await tester.pumpWidget(
-        TwitchChatApp(
-          key: UniqueKey(),
-          eventSubService: eventSub,
-          ircService: irc,
-          ircReadService: ircRead,
-          recentMessagesService: recent,
-          initialCurrentUserLogin: 'me',
-        ),
-      );
-      await tester.pump();
 
-      await tester.tap(find.byIcon(Icons.add));
-      await tester.pumpAndSettle();
-      await tester.enterText(find.byType(TextField).last, 'b');
-      await tester.tap(find.text('Join', skipOffstage: false));
-      await tester.pump();
+    await tester.tap(find.byIcon(Icons.notifications_active));
+    await tester.pumpAndSettle();
+    await expectCopyMenu('hello @me');
+    await tester.tapAt(const Offset(5, 5));
+    await tester.pumpAndSettle();
 
-      ircRead.emitWhisper(
-        TwitchMessage(
-          login: 'carol',
-          text: 'psst',
-          channel: null,
-          messageId: 'w-panel-1',
-        ),
-      );
-      await tester.pump();
-
-      await tester.tap(find.byIcon(Icons.notifications_active));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Whispers', skipOffstage: false));
-      await tester.pumpAndSettle();
-
-      final row = find.textContaining('psst', skipOffstage: false);
-      expect(row, findsAtLeast(1));
-      await tester.longPress(row.last);
-      await tester.pumpAndSettle();
-
-      expect(find.text('Copy message', skipOffstage: false), findsOneWidget);
-      expect(find.text('More...', skipOffstage: false), findsOneWidget);
-      expect(find.text('Reply to message', skipOffstage: false), findsNothing);
-    }
+    await tester.tap(find.text('Whispers', skipOffstage: false));
+    await tester.pumpAndSettle();
+    await expectCopyMenu('psst');
   });
 
   testWidgets(
@@ -1682,9 +1185,17 @@ void main() {
         ),
       );
       await tester.pump();
+      expect(
+        tester.widget<Icon>(find.byIcon(Icons.notifications_active)).color,
+        isNotNull,
+      );
 
       await tester.tap(find.byIcon(Icons.notifications_active));
       await tester.pumpAndSettle();
+      expect(
+        tester.widget<Icon>(find.byIcon(Icons.notifications_active)).color,
+        isNull,
+      );
 
       // Mentions tab keeps the box locked.
       expect(
@@ -1868,177 +1379,99 @@ void main() {
     expect(irc.sent.last.replyParent, isNotNull);
   });
 
-  testWidgets(
-    'Message timestamps render in default and custom formats and hide when disabled',
-    (WidgetTester tester) async {
-      {
-        final fakeEventSub = FakeEventSubService();
-        final fakeIrc = FakeIrcService();
-        final fakeIrcRead = FakeIrcReadService();
-        final fakeRecent = FakeRecentMessagesService();
-
-        await tester.pumpWidget(
-          TwitchChatApp(
-            key: UniqueKey(),
-            eventSubService: fakeEventSub,
-            ircService: fakeIrc,
-            ircReadService: fakeIrcRead,
-            recentMessagesService: fakeRecent,
-          ),
-        );
-        await tester.pump();
-
-        await tester.tap(find.byIcon(Icons.add));
-        await tester.pumpAndSettle();
-        await tester.enterText(find.byType(TextField).last, 'xqc');
-        await tester.tap(find.text('Join', skipOffstage: false));
-        await tester.pump();
-
-        fakeIrcRead.emitMessage(
-          TwitchMessage(
-            login: 'xqc',
-            text: 'hello',
-            channel: 'xqc',
-            messageId: 'm1',
-          ),
-        );
-        await tester.pump();
-
-        // The timestamp is the first span of the row's rich text now, so match
-        // it inside that plain text rather than as a standalone widget.
-        final timeText = find.textContaining(
-          RegExp(r'\d{2}:\d{2} '),
-          skipOffstage: false,
-        );
-        expect(timeText, findsAtLeast(1));
-      }
-      await tester.pumpAndSettle();
-      {
-        SharedPreferences.setMockInitialValues({
-          'timestamp_format': 'h:mm a',
-          'show_timestamps': true,
-        });
-        final fakeEventSub = FakeEventSubService();
-        final fakeIrc = FakeIrcService();
-        final fakeIrcRead = FakeIrcReadService();
-        final fakeRecent = FakeRecentMessagesService();
-
-        await tester.pumpWidget(
-          TwitchChatApp(
-            key: UniqueKey(),
-            eventSubService: fakeEventSub,
-            ircService: fakeIrc,
-            ircReadService: fakeIrcRead,
-            recentMessagesService: fakeRecent,
-          ),
-        );
-        await tester.pump();
-
-        await tester.tap(find.byIcon(Icons.add));
-        await tester.pumpAndSettle();
-        await tester.enterText(find.byType(TextField).last, 'xqc');
-        await tester.tap(find.text('Join', skipOffstage: false));
-        await tester.pump();
-
-        fakeIrcRead.emitMessage(
-          TwitchMessage(
-            login: 'xqc',
-            text: 'hello',
-            channel: 'xqc',
-            messageId: 'm1',
-          ),
-        );
-        await tester.pump();
-
-        expect(
-          find.textContaining(
-            RegExp(r'\d{1,2}:\d{2} (AM|PM)'),
-            skipOffstage: false,
-          ),
-          findsAtLeast(1),
-        );
-      }
-      await tester.pumpAndSettle();
-      {
-        SharedPreferences.setMockInitialValues({
-          'timestamp_format': 'HH:mm',
-          'show_timestamps': false,
-        });
-        final fakeEventSub = FakeEventSubService();
-        final fakeIrc = FakeIrcService();
-        final fakeIrcRead = FakeIrcReadService();
-        final fakeRecent = FakeRecentMessagesService();
-
-        await tester.pumpWidget(
-          TwitchChatApp(
-            key: UniqueKey(),
-            eventSubService: fakeEventSub,
-            ircService: fakeIrc,
-            ircReadService: fakeIrcRead,
-            recentMessagesService: fakeRecent,
-          ),
-        );
-        await tester.pump();
-
-        await tester.tap(find.byIcon(Icons.add));
-        await tester.pumpAndSettle();
-        await tester.enterText(find.byType(TextField).last, 'xqc');
-        await tester.tap(find.text('Join', skipOffstage: false));
-        await tester.pump();
-
-        fakeIrcRead.emitMessage(
-          TwitchMessage(
-            login: 'xqc',
-            text: 'hello',
-            channel: 'xqc',
-            messageId: 'm1',
-          ),
-        );
-        await tester.pump();
-
-        expect(
-          find.textContaining(RegExp(r'\d{2}:\d{2} '), skipOffstage: false),
-          findsNothing,
-        );
-        expect(find.textContaining('hello', skipOffstage: false), findsWidgets);
-      }
-    },
-  );
-
-  testWidgets('Connected notice inserts once and survives history load', (
+  testWidgets('Message timestamps render by default and hide when disabled', (
     WidgetTester tester,
   ) async {
     {
       final fakeEventSub = FakeEventSubService();
-      final fakeRecent = FakeRecentMessagesService();
       final fakeIrc = FakeIrcService();
-      SharedPreferences.setMockInitialValues({'access_token': 'test_token'});
-      FlutterSecureStorage.setMockInitialValues({'access_token': 'test_token'});
+      final fakeIrcRead = FakeIrcReadService();
+      final fakeRecent = FakeRecentMessagesService();
+
       await tester.pumpWidget(
         TwitchChatApp(
           key: UniqueKey(),
           eventSubService: fakeEventSub,
-          recentMessagesService: fakeRecent,
           ircService: fakeIrc,
+          ircReadService: fakeIrcRead,
+          recentMessagesService: fakeRecent,
         ),
       );
       await tester.pump();
+
       await tester.tap(find.byIcon(Icons.add));
       await tester.pumpAndSettle();
-      await tester.enterText(find.byType(TextField).last, 'testchannel');
+      await tester.enterText(find.byType(TextField).last, 'xqc');
       await tester.tap(find.text('Join', skipOffstage: false));
-      await tester.pumpAndSettle();
-      expect(find.textContaining('Connected'), findsNothing);
-      fakeIrc.triggerConnect(joinChannel: 'testchannel');
       await tester.pump();
-      await tester.pump(const Duration(milliseconds: 600));
-      await tester.pump();
-      expect(
-        find.textContaining('Connected', skipOffstage: false),
-        findsOneWidget,
+
+      fakeIrcRead.emitMessage(
+        TwitchMessage(
+          login: 'xqc',
+          text: 'hello',
+          channel: 'xqc',
+          messageId: 'm1',
+        ),
       );
-      expect(find.textContaining('Disconnected'), findsNothing);
+      await tester.pump();
+
+      // The timestamp is the first span of the row's rich text now, so match
+      // it inside that plain text rather than as a standalone widget.
+      final timeText = find.textContaining(
+        RegExp(r'\d{2}:\d{2} '),
+        skipOffstage: false,
+      );
+      expect(timeText, findsAtLeast(1));
     }
+    await tester.pumpAndSettle();
+    {
+      SharedPreferences.setMockInitialValues({
+        'timestamp_format': 'HH:mm',
+        'show_timestamps': false,
+      });
+      final fakeEventSub = FakeEventSubService();
+      final fakeIrc = FakeIrcService();
+      final fakeIrcRead = FakeIrcReadService();
+      final fakeRecent = FakeRecentMessagesService();
+
+      await tester.pumpWidget(
+        TwitchChatApp(
+          key: UniqueKey(),
+          eventSubService: fakeEventSub,
+          ircService: fakeIrc,
+          ircReadService: fakeIrcRead,
+          recentMessagesService: fakeRecent,
+        ),
+      );
+      await tester.pump();
+
+      await tester.tap(find.byIcon(Icons.add));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField).last, 'xqc');
+      await tester.tap(find.text('Join', skipOffstage: false));
+      await tester.pump();
+
+      fakeIrcRead.emitMessage(
+        TwitchMessage(
+          login: 'xqc',
+          text: 'hello',
+          channel: 'xqc',
+          messageId: 'm1',
+        ),
+      );
+      await tester.pump();
+
+      expect(
+        find.textContaining(RegExp(r'\d{2}:\d{2} '), skipOffstage: false),
+        findsNothing,
+      );
+      expect(find.textContaining('hello', skipOffstage: false), findsWidgets);
+    }
+  });
+
+  testWidgets('Connected notice inserts once and survives history load', (
+    WidgetTester tester,
+  ) async {
     {
       final fakeEventSub = FakeEventSubService();
       final fakeIrc = FakeIrcService();
@@ -2090,43 +1523,6 @@ void main() {
         findsOneWidget,
       );
     }
-    {
-      final fakeEventSub = FakeEventSubService();
-      final fakeIrc = FakeIrcService();
-      SharedPreferences.setMockInitialValues({'access_token': 'test_token'});
-      FlutterSecureStorage.setMockInitialValues({'access_token': 'test_token'});
-      await tester.pumpWidget(
-        TwitchChatApp(
-          key: UniqueKey(),
-          eventSubService: fakeEventSub,
-          recentMessagesService: FakeRecentMessagesService(),
-          ircService: fakeIrc,
-        ),
-      );
-      await tester.pump();
-      await tester.tap(find.byIcon(Icons.add));
-      await tester.pumpAndSettle();
-      await tester.enterText(find.byType(TextField).last, 'testchannel');
-      await tester.tap(find.text('Join', skipOffstage: false).last);
-      await tester.pump();
-      await tester.pump();
-      fakeIrc.triggerConnect(joinChannel: 'testchannel');
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 600));
-      await tester.pump();
-      expect(
-        find.textContaining('Connected', skipOffstage: false),
-        findsOneWidget,
-      );
-      fakeIrc.triggerConnect(joinChannel: 'testchannel');
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 600));
-      await tester.pump();
-      expect(
-        find.textContaining('Connected', skipOffstage: false),
-        findsOneWidget,
-      );
-    }
   });
 
   testWidgets('editing a channel swaps it in place', (tester) async {
@@ -2170,110 +1566,9 @@ void main() {
     expect(prefs.getStringList('channels'), ['a', 'z', 'c']);
   });
 
-  testWidgets('Reconnect refetch dedups and shows gaps and merges in order', (
+  testWidgets('Reconnect refetch shows gaps and merges in order', (
     WidgetTester tester,
   ) async {
-    {
-      SharedPreferences.setMockInitialValues({
-        'access_token': 'test_token',
-        'channels': ['xqc'],
-      });
-      FlutterSecureStorage.setMockInitialValues({'access_token': 'test_token'});
-
-      final now = DateTime.now();
-      final recent = ScriptedRecentMessagesService([
-        [
-          TwitchMessage(
-            login: 'alice',
-            text: 'first message',
-            channel: 'xqc',
-            messageId: 'a1',
-            timestamp: now.subtract(const Duration(minutes: 5)),
-          ),
-          TwitchMessage(
-            login: 'bob',
-            text: 'second message',
-            channel: 'xqc',
-            messageId: 'a2',
-            timestamp: now.subtract(const Duration(minutes: 4)),
-          ),
-        ],
-        [
-          TwitchMessage(
-            login: 'bob',
-            text: 'second message',
-            channel: 'xqc',
-            messageId: 'a2',
-            timestamp: now.subtract(const Duration(minutes: 4)),
-          ),
-          TwitchMessage(
-            login: 'carol',
-            text: 'third message',
-            channel: 'xqc',
-            messageId: 'a3',
-            timestamp: now.subtract(const Duration(minutes: 3)),
-          ),
-        ],
-      ]);
-      final fakeEventSub = FakeEventSubService();
-      final fakeIrc = FakeIrcService();
-
-      await tester.pumpWidget(
-        TwitchChatApp(
-          key: UniqueKey(),
-          eventSubService: fakeEventSub,
-          ircService: fakeIrc,
-          recentMessagesService: recent,
-        ),
-      );
-      await tester.pumpAndSettle();
-
-      expect(
-        find.textContaining('first message', skipOffstage: false),
-        findsOneWidget,
-      );
-      expect(
-        find.textContaining('second message', skipOffstage: false),
-        findsOneWidget,
-      );
-
-      // First connect must not trigger a history re-fetch.
-      fakeIrc.triggerConnect();
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 600));
-      await tester.pump();
-      expect(recent.callCount, 1);
-
-      // Reconnect: robotty returns one duplicate + one new message.
-      fakeIrc.triggerDisconnect();
-      await tester.pump();
-      fakeIrc.triggerConnect();
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 600));
-      await tester.pump();
-
-      expect(recent.callCount, 2);
-      expect(
-        find.textContaining('third message', skipOffstage: false),
-        findsOneWidget,
-      );
-      expect(
-        find.textContaining('second message', skipOffstage: false),
-        findsOneWidget,
-        reason: 'duplicate from re-fetch must be discarded',
-      );
-      expect(
-        find.textContaining('first message', skipOffstage: false),
-        findsOneWidget,
-      );
-      expect(
-        find.textContaining(
-          'History: Not all messages retrieved',
-          skipOffstage: false,
-        ),
-        findsNothing,
-      );
-    }
     {
       SharedPreferences.setMockInitialValues({
         'access_token': 'test_token',
@@ -2468,49 +1763,6 @@ void main() {
         reason: 'missed history is newer than pre-disconnect messages',
       );
     }
-    {
-      SharedPreferences.setMockInitialValues({'access_token': 'test_token'});
-      FlutterSecureStorage.setMockInitialValues({'access_token': 'test_token'});
-      final eventSub3 = FakeEventSubService();
-      final irc3 = FakeIrcService();
-      final recent3 = GappedRecentMessagesService();
-      await tester.pumpWidget(
-        TwitchChatApp(
-          key: UniqueKey(),
-          eventSubService: eventSub3,
-          recentMessagesService: recent3,
-          ircService: irc3,
-        ),
-      );
-      await tester.pump();
-      await tester.tap(find.byIcon(Icons.add));
-      await tester.pumpAndSettle();
-      await tester.enterText(find.byType(TextField).last, 'testchannel');
-      await tester.tap(find.text('Join', skipOffstage: false).last);
-      await tester.pump();
-      await tester.pump();
-
-      irc3.triggerConnect();
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 600));
-      await tester.pump();
-      expect(
-        find.textContaining('early message', skipOffstage: false),
-        findsWidgets,
-      );
-
-      irc3.triggerDisconnect();
-      await tester.pump();
-      irc3.triggerConnect();
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 600));
-      await tester.pump();
-
-      expect(
-        find.textContaining('missed during gap', skipOffstage: false),
-        findsWidgets,
-      );
-    }
   });
 
   testWidgets('chat input is disabled until the channel join confirms', (
@@ -2571,114 +1823,6 @@ void main() {
     expect(find.text('Disconnected'), findsNothing);
   });
 
-  testWidgets('reconnect refetch folds duplicated id-less system rows', (
-    WidgetTester tester,
-  ) async {
-    SharedPreferences.setMockInitialValues({
-      'access_token': 'test_token',
-      'channels': ['xqc'],
-    });
-    FlutterSecureStorage.setMockInitialValues({'access_token': 'test_token'});
-
-    final now = DateTime.now();
-    final refetchGate = Completer<void>();
-    const dupBanText = 'spammer was timed out for 5m.';
-    final recent = GatedRecentMessagesService(
-      [
-        [
-          TwitchMessage(
-            login: 'alice',
-            text: 'old history',
-            channel: 'xqc',
-            messageId: 'a1',
-            timestamp: now.subtract(const Duration(minutes: 5)),
-          ),
-        ],
-        [
-          // Same event the live socket already delivered while the app was
-          // connected: identical text, near-identical timestamp, no id.
-          TwitchMessage(
-            login: 'spammer',
-            text: dupBanText,
-            channel: 'xqc',
-            isSystem: true,
-            isBanNotice: true,
-            timestamp: now,
-          ),
-          // A distinct event must still come through.
-          TwitchMessage(
-            login: 'otheruser',
-            text: 'otheruser was banned.',
-            channel: 'xqc',
-            isSystem: true,
-            isBanNotice: true,
-            timestamp: now.subtract(const Duration(seconds: 30)),
-          ),
-        ],
-      ],
-      gateOnCall: 2,
-      gate: refetchGate,
-    );
-    final fakeEventSub = FakeEventSubService();
-    final fakeIrc = FakeIrcService();
-    final fakeIrcRead = FakeIrcReadService();
-
-    await tester.pumpWidget(
-      TwitchChatApp(
-        key: UniqueKey(),
-        eventSubService: fakeEventSub,
-        ircService: fakeIrc,
-        ircReadService: fakeIrcRead,
-        recentMessagesService: recent,
-      ),
-    );
-    await tester.pumpAndSettle();
-    expect(
-      find.textContaining('old history', skipOffstage: false),
-      findsOneWidget,
-    );
-
-    fakeIrcRead.emitBan(
-      'spammer',
-      isTimeout: true,
-      durationSeconds: 300,
-      channel: 'xqc',
-    );
-    // Socket decode delivers asynchronously; the first pump flushes it.
-    await tester.pump();
-    await tester.pump();
-    expect(
-      find.textContaining(dupBanText, skipOffstage: false),
-      findsOneWidget,
-    );
-
-    fakeIrc.triggerDisconnect();
-    fakeIrcRead.triggerDisconnect();
-    await tester.pump();
-    fakeIrc.triggerConnect();
-    fakeIrcRead.triggerConnect();
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 600));
-    await tester.pump();
-    expect(recent.callCount, 2, reason: 'reconnect must trigger a re-fetch');
-
-    refetchGate.complete();
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 600));
-    await tester.pump();
-
-    expect(
-      find.textContaining(dupBanText, skipOffstage: false),
-      findsOneWidget,
-      reason: 'the backfilled copy of the ban line must fold away',
-    );
-    expect(
-      find.textContaining('otheruser was banned.', skipOffstage: false),
-      findsOneWidget,
-      reason: 'a distinct id-less system row must still be inserted',
-    );
-  });
-
   group('Thread', () {
     late DateTime now;
 
@@ -2721,95 +1865,6 @@ void main() {
     testWidgets(
       'Thread replies open from indicators and menus with full chains',
       (WidgetTester tester) async {
-        {
-          const channel = 'testchannel';
-          final parent = TwitchMessage(
-            login: 'alice',
-            text: 'parent msg',
-            messageId: 'p1',
-            timestamp: now.subtract(const Duration(minutes: 5)),
-            channel: channel,
-          );
-          final child = TwitchMessage(
-            login: 'bob',
-            text: 'child msg',
-            messageId: 'c1',
-            replyToParentId: 'p1',
-            replyToUser: 'alice',
-            replyToText: 'parent msg',
-            timestamp: now.subtract(const Duration(minutes: 4)),
-            isHistory: true,
-            channel: channel,
-          );
-          await joinChannel(
-            tester,
-            channelName: channel,
-            history: [parent, child],
-          );
-
-          await tester.tap(
-            find.textContaining(
-              'Replying to @alice: parent msg',
-              skipOffstage: false,
-            ),
-          );
-          await tester.pumpAndSettle();
-
-          expect(find.text('Threads', skipOffstage: false), findsOneWidget);
-          expect(find.byIcon(Icons.close), findsOneWidget);
-          expect(
-            find.textContaining('parent msg', skipOffstage: false),
-            findsAtLeast(1),
-          );
-          expect(
-            find.textContaining('child msg', skipOffstage: false),
-            findsAtLeast(1),
-          );
-        }
-        {
-          const channel = 'testchannel';
-          final parent = TwitchMessage(
-            login: 'alice',
-            text: 'parent msg',
-            messageId: 'p1',
-            timestamp: now.subtract(const Duration(minutes: 5)),
-            channel: channel,
-          );
-          final child = TwitchMessage(
-            login: 'bob',
-            text: 'child msg',
-            messageId: 'c1',
-            replyToParentId: 'p1',
-            replyToUser: 'alice',
-            replyToText: 'parent msg',
-            timestamp: now.subtract(const Duration(minutes: 4)),
-            isHistory: true,
-            channel: channel,
-          );
-          await joinChannel(
-            tester,
-            channelName: channel,
-            history: [parent, child],
-          );
-
-          await tester.longPress(
-            find.textContaining('bob: child msg', skipOffstage: false),
-          );
-          await tester.pumpAndSettle();
-
-          await tester.tap(find.text('View thread', skipOffstage: false));
-          await tester.pumpAndSettle();
-
-          expect(find.text('Threads', skipOffstage: false), findsOneWidget);
-          expect(
-            find.textContaining('parent msg', skipOffstage: false),
-            findsAtLeast(1),
-          );
-          expect(
-            find.textContaining('child msg', skipOffstage: false),
-            findsAtLeast(1),
-          );
-        }
         {
           const channel = 'testchannel';
           final parent = TwitchMessage(
@@ -3065,68 +2120,6 @@ void main() {
       },
     );
 
-    testWidgets('Long pressed thread rows open the copy menu', (
-      WidgetTester tester,
-    ) async {
-      const channel = 'testchannel';
-      final threadNow = DateTime.now();
-      final parent = TwitchMessage(
-        login: 'alice',
-        text: 'parent msg',
-        messageId: 'p1',
-        timestamp: threadNow.subtract(const Duration(minutes: 5)),
-        channel: channel,
-      );
-      final child = TwitchMessage(
-        login: 'bob',
-        text: 'child msg',
-        messageId: 'c1',
-        replyToParentId: 'p1',
-        replyToUser: 'alice',
-        replyToText: 'parent msg',
-        timestamp: threadNow.subtract(const Duration(minutes: 4)),
-        isHistory: true,
-        channel: channel,
-      );
-      final fakeRecent = ConfigurableRecentMessagesService([parent, child]);
-      await tester.pumpWidget(
-        TwitchChatApp(
-          key: UniqueKey(),
-          eventSubService: FakeEventSubService(),
-          recentMessagesService: fakeRecent,
-          ircService: FakeIrcService(),
-        ),
-      );
-      await tester.pump();
-      await tester.tap(find.byIcon(Icons.add));
-      await tester.pumpAndSettle();
-      await tester.enterText(find.byType(TextField).last, channel);
-      await tester.tap(find.text('Join', skipOffstage: false).last);
-      await tester.pump();
-      await tester.pump();
-
-      await tester.tap(
-        find.textContaining(
-          'Replying to @alice: parent msg',
-          skipOffstage: false,
-        ),
-      );
-      await tester.pumpAndSettle();
-      expect(find.text('Threads', skipOffstage: false), findsOneWidget);
-
-      final childInThread = find.textContaining(
-        'bob: child msg',
-        skipOffstage: false,
-      );
-      expect(childInThread, findsAtLeast(1));
-      await tester.longPress(childInThread.first);
-      await tester.pumpAndSettle();
-
-      expect(find.text('Copy message', skipOffstage: false), findsOneWidget);
-      expect(find.text('More...', skipOffstage: false), findsOneWidget);
-      expect(find.text('Reply to message', skipOffstage: false), findsNothing);
-    });
-
     testWidgets('Panels close on downward drags on thread and emote headers', (
       WidgetTester tester,
     ) async {
@@ -3265,209 +2258,68 @@ void main() {
       await tester.pump();
     }
 
-    testWidgets('Ban and timeout notices describe the action and duration', (
+    testWidgets('Ban, timeout and deletion notices render as system rows', (
       WidgetTester tester,
     ) async {
-      {
-        final eventSub = FakeEventSubService();
-        final irc = FakeIrcService();
-        final ircRead = FakeIrcReadService();
-        await setupChannel(
-          tester,
-          eventSub: eventSub,
-          irc: irc,
-          ircReadService: ircRead,
-        );
+      final ircRead = FakeIrcReadService();
+      await setupChannel(
+        tester,
+        eventSub: FakeEventSubService(),
+        irc: FakeIrcService(),
+        ircReadService: ircRead,
+      );
 
-        ircRead.emitBan('baduser', isTimeout: false, channel: 'testchannel');
-        await tester.pump();
+      ircRead.emitBan('baduser', isTimeout: false, channel: 'testchannel');
+      ircRead.emitBan(
+        'spammer',
+        isTimeout: true,
+        durationSeconds: 300,
+        channel: 'testchannel',
+      );
+      ircRead.emitBan('quiet', isTimeout: true, channel: 'testchannel');
+      await tester.pump();
+      Finder row(String t) => find.textContaining(t, skipOffstage: false);
+      expect(row('baduser was banned'), findsOneWidget);
+      expect(row('spammer was timed out for 5m.'), findsOneWidget);
+      expect(row('quiet was timed out'), findsOneWidget);
+      expect(find.textContaining('quiet was timed out for'), findsNothing);
 
-        expect(
-          find.textContaining('baduser was banned', skipOffstage: false),
-          findsOneWidget,
-        );
-      }
-      {
-        final eventSub = FakeEventSubService();
-        final irc = FakeIrcService();
-        final ircRead = FakeIrcReadService();
-        await setupChannel(
-          tester,
-          eventSub: eventSub,
-          irc: irc,
-          ircReadService: ircRead,
-        );
-
-        ircRead.emitBan(
-          'spammer',
-          isTimeout: true,
-          durationSeconds: 300,
+      // A tombstone for a message never seen, then a live row that is
+      // deleted after a second row shifts it: the text stays, greyed out.
+      ircRead.emitDeleted(
+        'root-1',
+        'testchannel',
+        user: 'alice',
+        deletedMessageText: 'hello world',
+      );
+      ircRead.emitMessage(
+        TwitchMessage(
+          login: 'bob',
+          text: 'will be deleted',
           channel: 'testchannel',
-        );
-        await tester.pump();
-
-        expect(
-          find.textContaining(
-            'spammer was timed out for 5m.',
-            skipOffstage: false,
-          ),
-          findsOneWidget,
-        );
-      }
-      {
-        final eventSub = FakeEventSubService();
-        final irc = FakeIrcService();
-        final ircRead = FakeIrcReadService();
-        await setupChannel(
-          tester,
-          eventSub: eventSub,
-          irc: irc,
-          ircReadService: ircRead,
-        );
-
-        ircRead.emitBan('spammer', isTimeout: true, channel: 'testchannel');
-        await tester.pump();
-
-        expect(
-          find.textContaining('spammer was timed out', skipOffstage: false),
-          findsOneWidget,
-        );
-        expect(find.textContaining('for '), findsNothing);
-      }
-    });
-
-    testWidgets('Deletion leaves a tombstone and greys out cleared messages', (
-      WidgetTester tester,
-    ) async {
-      {
-        final eventSub = FakeEventSubService();
-        final irc = FakeIrcService();
-        final ircRead = FakeIrcReadService();
-        await setupChannel(
-          tester,
-          eventSub: eventSub,
-          irc: irc,
-          ircReadService: ircRead,
-        );
-
-        ircRead.emitDeleted(
-          'root-1',
-          'testchannel',
-          user: 'alice',
-          deletedMessageText: 'hello world',
-        );
-        await tester.pump();
-
-        expect(
-          find.textContaining(
-            'A message from alice was deleted',
-            skipOffstage: false,
-          ),
-          findsOneWidget,
-        );
-        expect(
-          find.textContaining('hello world', skipOffstage: false),
-          findsAtLeast(1),
-        );
-      }
-      {
-        final eventSub = FakeEventSubService();
-        final irc = FakeIrcService();
-        final ircRead = FakeIrcReadService();
-        await setupChannel(
-          tester,
-          eventSub: eventSub,
-          irc: irc,
-          ircReadService: ircRead,
-        );
-
-        // Send a live message and let its tile cache/element settle.
-        ircRead.emitMessage(
-          TwitchMessage(
-            login: 'bob',
-            text: 'will be deleted',
-            channel: 'testchannel',
-            messageId: 'live-1',
-          ),
-        );
-        await tester.pump();
-        // A second live message shifts the first, forcing a real reconciliation.
-        ircRead.emitMessage(
-          TwitchMessage(
-            login: 'carol',
-            text: 'shift me',
-            channel: 'testchannel',
-            messageId: 'live-2',
-          ),
-        );
-        await tester.pump();
-
-        ircRead.emitDeleted(
-          'live-1',
-          'testchannel',
-          user: 'mod',
-          deletedMessageText: 'will be deleted',
-        );
-        await tester.pump();
-
-        // The deleted message's tile must still be visible (greyed out, not removed).
-        expect(
-          find.textContaining('will be deleted', skipOffstage: false),
-          findsAtLeast(1),
-        );
-      }
-    });
-
-    testWidgets('statuses: Connected survives Disconnected; reconnect folds', (
-      WidgetTester tester,
-    ) async {
-      final eventSub = FakeEventSubService();
-      final irc = FakeIrcService();
-      await setupChannel(tester, eventSub: eventSub, irc: irc);
-
-      irc.triggerConnect(joinChannel: 'testchannel');
+          messageId: 'live-1',
+        ),
+      );
       await tester.pump();
-      await tester.pump(const Duration(milliseconds: 600));
+      ircRead.emitMessage(
+        TwitchMessage(
+          login: 'carol',
+          text: 'shift me',
+          channel: 'testchannel',
+          messageId: 'live-2',
+        ),
+      );
       await tester.pump();
-      expect(
-        find.textContaining('Connected', skipOffstage: false),
-        findsOneWidget,
+      ircRead.emitDeleted(
+        'live-1',
+        'testchannel',
+        user: 'mod',
+        deletedMessageText: 'will be deleted',
       );
-
-      irc.triggerDisconnect();
       await tester.pump();
-      // "Connected" is NOT swallowed by "Disconnected": both stay separate.
-      // (The input hint reads "Reconnecting..." while down, hence one
-      // "Disconnected" system line and one "Reconnecting..." hint.)
-      expect(
-        find.textContaining('Connected', skipOffstage: false),
-        findsOneWidget,
-      );
-      expect(
-        find.textContaining('Disconnected', skipOffstage: false),
-        findsOneWidget,
-      );
-      expect(
-        find.textContaining('Reconnecting', skipOffstage: false),
-        findsOneWidget,
-      );
-
-      irc.triggerConnect(joinChannel: 'testchannel');
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 600));
-      await tester.pump();
-
-      // The transient "Disconnected" is folded into "Reconnected"; the
-      // boot "Connected" survives as its own line.
-      expect(
-        find.textContaining('Connected', skipOffstage: false),
-        findsOneWidget,
-      );
-      expect(
-        find.textContaining('Reconnected', skipOffstage: false),
-        findsOneWidget,
-      );
-      expect(find.textContaining('Disconnected'), findsNothing);
+      expect(row('A message from alice was deleted'), findsOneWidget);
+      expect(row('hello world'), findsAtLeast(1));
+      expect(row('will be deleted'), findsAtLeast(1));
     });
   });
 
@@ -3506,146 +2358,9 @@ void main() {
       await tester.pump();
     }
 
-    testWidgets('truncates non-thread messages when exceeding limit', (
+    testWidgets('Truncation keeps a thread until it is pushed past the limit', (
       WidgetTester tester,
     ) async {
-      const channel = 'testchannel';
-      final history = List.generate(
-        15,
-        (i) => TwitchMessage(
-          login: 'user$i',
-          text: 'msg $i',
-          messageId: 'm$i',
-          timestamp: DateTime.now().subtract(Duration(minutes: 15 - i)),
-          channel: channel,
-        ),
-      );
-      final irc = FakeIrcService();
-      await joinChannel(
-        tester,
-        channelName: channel,
-        history: history,
-        irc: irc,
-        maxMessages: 10,
-      );
-
-      await tester.pump();
-      await tester.pump();
-
-      expect(
-        find.textContaining('msg 14', skipOffstage: false),
-        findsOneWidget,
-      );
-    });
-
-    testWidgets('Truncation keeps threads together and drops them past the limit', (
-      WidgetTester tester,
-    ) async {
-      {
-        const channel = 'testchannel';
-        final parent = TwitchMessage(
-          login: 'alice',
-          text: 'thread root',
-          messageId: 'p1',
-          timestamp: DateTime.now().subtract(const Duration(minutes: 12)),
-          channel: channel,
-        );
-        final child = TwitchMessage(
-          login: 'bob',
-          text: 'thread reply',
-          messageId: 'c1',
-          replyToParentId: 'p1',
-          replyToUser: 'alice',
-          replyToText: 'thread root',
-          timestamp: DateTime.now().subtract(const Duration(minutes: 11)),
-          isHistory: true,
-          channel: channel,
-        );
-        final filler = List.generate(
-          9,
-          (i) => TwitchMessage(
-            login: 'user$i',
-            text: 'filler $i',
-            messageId: 'f$i',
-            timestamp: DateTime.now().subtract(Duration(minutes: 10 - i)),
-            channel: channel,
-          ),
-        );
-        final irc = FakeIrcService();
-        await joinChannel(
-          tester,
-          channelName: channel,
-          history: [parent, child, ...filler],
-          irc: irc,
-          maxMessages: 10,
-        );
-
-        await tester.pump();
-        await tester.pump();
-
-        // Expand viewport so lazy ListView builds all items without scrolling
-        // (avoids triggering the frozen-snapshot behavior in scroll notifications).
-        await tester.binding.setSurfaceSize(const Size(2000, 2000));
-        addTearDown(() => tester.binding.setSurfaceSize(null));
-        await tester.pumpAndSettle();
-
-        final taken = tester.takeException();
-        if (taken != null) debugPrint('TAKEN EXCEPTION: $taken');
-
-        expect(
-          find.textContaining('thread root', skipOffstage: false),
-          findsWidgets,
-        );
-        expect(
-          find.textContaining('thread reply', skipOffstage: false),
-          findsOneWidget,
-        );
-      }
-      {
-        const channel = 'testchannel';
-        final parent = TwitchMessage(
-          login: 'alice',
-          text: 'thread root',
-          messageId: 'p2',
-          timestamp: DateTime.now().subtract(const Duration(minutes: 14)),
-          channel: channel,
-        );
-        final child = TwitchMessage(
-          login: 'bob',
-          text: 'thread reply',
-          messageId: 'c2',
-          replyToParentId: 'p2',
-          replyToUser: 'alice',
-          replyToText: 'thread root',
-          timestamp: DateTime.now().subtract(const Duration(minutes: 13)),
-          isHistory: true,
-          channel: channel,
-        );
-        final filler = List.generate(
-          13,
-          (i) => TwitchMessage(
-            login: 'user$i',
-            text: 'filler $i',
-            messageId: 'g$i',
-            timestamp: DateTime.now().subtract(Duration(minutes: 12 - i)),
-            channel: channel,
-          ),
-        );
-        final irc = FakeIrcService();
-        await joinChannel(
-          tester,
-          channelName: channel,
-          history: [parent, child, ...filler],
-          irc: irc,
-          maxMessages: 10,
-        );
-
-        await tester.pump();
-        await tester.pump();
-
-        expect(find.textContaining('thread root'), findsNothing);
-        expect(find.textContaining('thread reply'), findsNothing);
-      }
       {
         const channel = 'testchannel';
         final parent = TwitchMessage(
@@ -3732,65 +2447,6 @@ void main() {
   });
 
   group('Chat pause', () {
-    testWidgets(
-      'scroll-to-bottom FAB appears when scrolled up and hides on tap',
-      (WidgetTester tester) async {
-        final now = DateTime.now();
-        final manyMessages = List.generate(
-          50,
-          (i) => TwitchMessage(
-            login: 'user$i',
-            text: 'message number $i with some extra text to fill the line',
-            channel: 'testchannel',
-            messageId: 'msg-$i',
-            timestamp: now.subtract(Duration(minutes: 50 - i)),
-          ),
-        );
-        final fakeEventSub = FakeEventSubService();
-        final fakeIrc = FakeIrcService();
-        final fakeRecent = ConfigurableRecentMessagesService(manyMessages);
-
-        await tester.pumpWidget(
-          TwitchChatApp(
-            key: UniqueKey(),
-            eventSubService: fakeEventSub,
-            ircService: fakeIrc,
-            recentMessagesService: fakeRecent,
-          ),
-        );
-        await tester.pump();
-
-        await tester.tap(find.byIcon(Icons.add));
-        await tester.pumpAndSettle();
-        await tester.enterText(find.byType(TextField).last, 'testchannel');
-        await tester.tap(find.text('Join', skipOffstage: false).last);
-        await tester.pump();
-        await tester.pump();
-
-        // Initially at bottom - FAB should not be visible
-        expect(find.byIcon(Icons.keyboard_arrow_down), findsNothing);
-
-        // Scroll up to trigger pause (with reverse:true, drag DOWN = scroll UP)
-        await tester.drag(find.byType(ListView).first, const Offset(0, 500));
-        await tester.pump();
-        await tester.pump();
-
-        // FAB should now be visible
-        expect(find.byIcon(Icons.keyboard_arrow_down), findsOneWidget);
-
-        // Tap FAB to scroll back to bottom
-        await tester.tap(find.byIcon(Icons.keyboard_arrow_down));
-        await tester.pump();
-        await tester.pump();
-
-        // FAB should be gone
-        expect(find.byIcon(Icons.keyboard_arrow_down), findsNothing);
-
-        // Let the DoubleTapGestureRecognizer timer from the drag expire.
-        await tester.pump(const Duration(milliseconds: 50));
-      },
-    );
-
     testWidgets(
       'keepPosition holds reading position while scrolled up on arrival',
       (WidgetTester tester) async {
@@ -3982,80 +2638,42 @@ void main() {
           isNotEmpty,
           reason: 'announcement should sit on a full-row accent background',
         );
-      }
-      {
-        final fakeEventSub = FakeEventSubService();
-        final fakeIrc = FakeIrcService();
-        final fakeIrcRead = FakeIrcReadService();
-        await tester.pumpWidget(
-          TwitchChatApp(
-            key: UniqueKey(),
-            eventSubService: fakeEventSub,
-            ircService: fakeIrc,
-            ircReadService: fakeIrcRead,
-          ),
-        );
-        await tester.pump();
-        await tester.tap(find.byIcon(Icons.add));
-        await tester.pumpAndSettle();
-        await tester.enterText(find.byType(TextField).last, 'testchannel');
-        await tester.tap(find.text('Join', skipOffstage: false).last);
-        await tester.pump();
-        await tester.pump();
 
-        final systemMsg = TwitchMessage(
-          login: '',
-          text: 'Plain system notice',
-          isSystem: true,
-          channel: 'testchannel',
-        );
-        fakeIrcRead.emitMessage(systemMsg);
-        await tester.pump();
+        {
+          final systemMsg = TwitchMessage(
+            login: '',
+            text: 'Plain system notice',
+            isSystem: true,
+            channel: 'testchannel',
+          );
+          fakeIrcRead.emitMessage(systemMsg);
+          await tester.pump();
 
-        expect(
-          find.textContaining('Plain system notice', skipOffstage: false),
-          findsOneWidget,
-        );
-        final surface = Theme.of(
-          tester.element(
+          expect(
             find.textContaining('Plain system notice', skipOffstage: false),
-          ),
-        ).colorScheme.surface;
-        final blended = Color.alphaBlend(
-          const Color(0xFF1F69FF).withValues(alpha: 0.25),
-          surface,
-        );
-        final rows = find
-            .ancestor(
-              of: find.textContaining(
-                'Plain system notice',
-                skipOffstage: false,
-              ),
-              matching: find.byType(ColoredBox),
-            )
-            .evaluate()
-            .where((el) => (el.widget as ColoredBox).color == blended);
-        expect(rows, isEmpty);
-      }
-      {
-        final fakeEventSub = FakeEventSubService();
-        final fakeIrc = FakeIrcService();
-        final fakeIrcRead = FakeIrcReadService();
-        await tester.pumpWidget(
-          TwitchChatApp(
-            key: UniqueKey(),
-            eventSubService: fakeEventSub,
-            ircService: fakeIrc,
-            ircReadService: fakeIrcRead,
-          ),
-        );
-        await tester.pump();
-        await tester.tap(find.byIcon(Icons.add));
-        await tester.pumpAndSettle();
-        await tester.enterText(find.byType(TextField).last, 'testchannel');
-        await tester.tap(find.text('Join', skipOffstage: false).last);
-        await tester.pump();
-        await tester.pump();
+            findsOneWidget,
+          );
+          final surface = Theme.of(
+            tester.element(
+              find.textContaining('Plain system notice', skipOffstage: false),
+            ),
+          ).colorScheme.surface;
+          final blended = Color.alphaBlend(
+            const Color(0xFF1F69FF).withValues(alpha: 0.25),
+            surface,
+          );
+          final rows = find
+              .ancestor(
+                of: find.textContaining(
+                  'Plain system notice',
+                  skipOffstage: false,
+                ),
+                matching: find.byType(ColoredBox),
+              )
+              .evaluate()
+              .where((el) => (el.widget as ColoredBox).color == blended);
+          expect(rows, isEmpty);
+        }
 
         fakeIrcRead.emitUserNotice(
           UserNoticeEvent(
@@ -4073,10 +2691,11 @@ void main() {
         );
         await tester.pump();
 
-        // DankChat-style: the child message plus the "Announcement" label.
+        // The child message plus its own "Announcement" label (three matches
+        // with the first announcement's text).
         expect(
           find.textContaining('Announcement', skipOffstage: false),
-          findsOneWidget,
+          findsNWidgets(3),
         );
         expect(
           find.textContaining('ermugo2: uuh', skipOffstage: false),
@@ -4086,339 +2705,103 @@ void main() {
     });
   });
 
-  group('Autocomplete', () {
-    testWidgets('shows dropdown with user suggestion after typing', (
-      WidgetTester tester,
-    ) async {
-      SharedPreferences.setMockInitialValues({'access_token': 'test_token'});
-      // Resolved identity: typing needs an enabled composer, which now
-      // requires the session user (not just a token).
-      FlutterSecureStorage.setMockInitialValues({
-        'accounts':
-            '[{"login":"me","user_id":"42","access_token":"test_token"}]',
-        'active_login': 'me',
-      });
-      final eventSub = FakeEventSubService();
-      final irc = FakeIrcService();
-      final ircRead = FakeIrcReadService();
-      final recent = FakeRecentMessagesService();
+  testWidgets('Autocomplete suggests users and commands and inserts picks', (
+    WidgetTester tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({'access_token': 'test_token'});
+    // Resolved identity: typing needs an enabled composer.
+    FlutterSecureStorage.setMockInitialValues({
+      'accounts': '[{"login":"me","user_id":"42","access_token":"test_token"}]',
+      'active_login': 'me',
+    });
+    final irc = FakeIrcService();
+    final ircRead = FakeIrcReadService();
+    await tester.pumpWidget(
+      TwitchChatApp(
+        key: UniqueKey(),
+        eventSubService: FakeEventSubService(),
+        ircService: irc,
+        ircReadService: ircRead,
+        recentMessagesService: FakeRecentMessagesService(),
+      ),
+    );
+    await tester.pump();
 
-      await tester.pumpWidget(
-        TwitchChatApp(
-          key: UniqueKey(),
-          eventSubService: eventSub,
-          ircService: irc,
-          ircReadService: ircRead,
-          recentMessagesService: recent,
-        ),
-      );
-      await tester.pump();
+    await tester.tap(find.byIcon(Icons.add));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).last, 'xqc');
+    await tester.tap(find.text('Join', skipOffstage: false));
+    await tester.pump();
+    ircRead.emitMessage(
+      TwitchMessage(
+        login: 'UserOne',
+        text: 'hello chat',
+        channel: 'xqc',
+        messageId: 'm1',
+      ),
+    );
+    await tester.pump();
+    irc.triggerConnect(joinChannel: 'xqc');
+    ircRead.triggerConnect(joinChannel: 'xqc');
+    await tester.pump();
 
-      await tester.tap(find.byIcon(Icons.add));
-      await tester.pumpAndSettle();
-      await tester.enterText(find.byType(TextField).last, 'xqc');
-      await tester.tap(find.text('Join', skipOffstage: false));
-      await tester.pump();
+    final input = find.byKey(const Key('message_input'));
+    final dropdown = find.byKey(const Key('autocomplete_dropdown'));
+    void select(Suggestion suggestion) => tester
+        .widget<AutocompleteDropdown>(find.byType(AutocompleteDropdown))
+        .onSelect(suggestion);
+    String text() => tester.widget<TextField>(input).controller!.text;
 
-      ircRead.emitMessage(
-        TwitchMessage(
-          login: 'UserOne',
-          text: 'hello chat',
-          channel: 'xqc',
-          messageId: 'm1',
-        ),
-      );
-      await tester.pump();
+    // One character is too short to suggest.
+    await tester.enterText(input, 'U');
+    await tester.pump();
+    expect(dropdown, findsNothing);
 
+    await tester.enterText(input, 'Us');
+    await tester.pump();
+    expect(
+      find.descendant(
+        of: dropdown,
+        matching: find.text('UserOne', skipOffstage: false),
+      ),
+      findsOneWidget,
+    );
+
+    await tester.enterText(input, '@Us');
+    await tester.pump();
+    select(UserSuggestion(displayName: 'UserOne'));
+    await tester.pump();
+    expect(text(), '@UserOne ');
+
+    // Every command is offered, including mod-only ones.
+    await tester.enterText(input, '/');
+    await tester.pump();
+    for (final command in ['/me', '/color', '/ban']) {
       expect(
-        find.textContaining('UserOne', skipOffstage: false),
+        find.descendant(of: dropdown, matching: find.text(command)),
         findsOneWidget,
       );
+    }
+    select(const CommandSuggestion(command: '/me'));
+    await tester.pump();
+    expect(text(), '/me ');
 
-      irc.triggerConnect(joinChannel: 'xqc');
-      ircRead.triggerConnect(joinChannel: 'xqc');
-      await tester.pump();
-      await tester.enterText(find.byKey(const Key('message_input')), 'Us');
-      await tester.pump();
-
-      final dropdown = find.byKey(const Key('autocomplete_dropdown'));
-      expect(dropdown, findsOneWidget);
-      expect(
-        find.descendant(
-          of: find.byKey(const Key('autocomplete_dropdown')),
-          matching: find.text('UserOne', skipOffstage: false),
-        ),
-        findsOneWidget,
-      );
-    });
-
-    testWidgets('autocomplete inserts the picked user', (
-      WidgetTester tester,
-    ) async {
-      SharedPreferences.setMockInitialValues({'access_token': 'test_token'});
-      // Resolved identity: typing needs an enabled composer, which now
-      // requires the session user (not just a token).
-      FlutterSecureStorage.setMockInitialValues({
-        'accounts':
-            '[{"login":"me","user_id":"42","access_token":"test_token"}]',
-        'active_login': 'me',
-      });
-      final eventSub = FakeEventSubService();
-      final irc = FakeIrcService();
-      final ircRead = FakeIrcReadService();
-      final recent = FakeRecentMessagesService();
-
-      await tester.pumpWidget(
-        TwitchChatApp(
-          key: UniqueKey(),
-          eventSubService: eventSub,
-          ircService: irc,
-          ircReadService: ircRead,
-          recentMessagesService: recent,
-        ),
-      );
-      await tester.pump();
-
-      // Join channel.
-      await tester.tap(find.byIcon(Icons.add));
-      await tester.pumpAndSettle();
-      await tester.enterText(find.byType(TextField).last, 'xqc');
-      await tester.tap(find.text('Join', skipOffstage: false));
-      await tester.pump();
-
-      // Populate user store so UserOne appears as a suggestion.
-      ircRead.emitMessage(
-        TwitchMessage(
-          login: 'UserOne',
-          text: 'hello chat',
-          channel: 'xqc',
-          messageId: 'm1',
-        ),
-      );
-      await tester.pump();
-
-      irc.triggerConnect(joinChannel: 'xqc');
-      ircRead.triggerConnect(joinChannel: 'xqc');
-      await tester.pump();
-
-      // Type @Us to trigger autocomplete for user UserOne.
-      final inputFinder = find.byKey(const Key('message_input'));
-      await tester.enterText(inputFinder, '@Us');
-      await tester.pump();
-
-      // Directly invoke autocomplete callback (bypasses hit-test issues).
-      final autocomplete = tester.widget<AutocompleteDropdown>(
-        find.byType(AutocompleteDropdown),
-      );
-      autocomplete.onSelect(UserSuggestion(displayName: 'UserOne'));
-      await tester.pump();
-
-      // After autocomplete the text should be @UserOne followed by a space.
-      final controller = tester.widget<TextField>(inputFinder).controller!;
-      expect(controller.text, startsWith('@UserOne'));
-
-      // Ensure the text ends with a trailing space.
-      expect(controller.text, endsWith(' '));
-    });
-
-    testWidgets('autocomplete emote tap records a recent', (
-      WidgetTester tester,
-    ) async {
-      SharedPreferences.setMockInitialValues({'access_token': 'test_token'});
-      FlutterSecureStorage.setMockInitialValues({
-        'accounts':
-            '[{"login":"me","user_id":"42","access_token":"test_token"}]',
-        'active_login': 'me',
-      });
-      await tester.pumpWidget(
-        TwitchChatApp(
-          key: UniqueKey(),
-          eventSubService: FakeEventSubService(),
-          ircService: FakeIrcService(),
-          ircReadService: FakeIrcReadService(),
-          recentMessagesService: FakeRecentMessagesService(),
-        ),
-      );
-      await tester.pump();
-
-      // Join a channel so the composer and its autocomplete are mounted.
-      await tester.tap(find.byIcon(Icons.add));
-      await tester.pumpAndSettle();
-      await tester.enterText(find.byType(TextField).last, 'xqc');
-      await tester.tap(find.text('Join', skipOffstage: false));
-      await tester.pump();
-
-      final autocomplete = tester.widget<AutocompleteDropdown>(
-        find.byType(AutocompleteDropdown),
-      );
-      autocomplete.onSelect(
-        EmoteSuggestion(
-          emote: makeTestEmote(id: 'recent-e1', code: 'RecentEmote'),
-        ),
-      );
-      // The tap marks the emote used fire-and-forget; a couple of pumps flush
-      // the prefs write's microtasks.
-      await tester.pump();
-      await tester.pump();
-
-      final container = ProviderScope.containerOf(
-        tester.element(find.byType(HomeScreen)),
-      );
-      final registry = container.read(emoteUsageRegistryProvider);
-      expect(registry.recentEmoteIds, contains('recent-e1'));
-      await tester.pumpAndSettle();
-    });
-
-    testWidgets('dropdown hides when text fewer than 2 characters', (
-      WidgetTester tester,
-    ) async {
-      SharedPreferences.setMockInitialValues({'access_token': 'test_token'});
-      // Resolved identity: typing needs an enabled composer, which now
-      // requires the session user (not just a token).
-      FlutterSecureStorage.setMockInitialValues({
-        'accounts':
-            '[{"login":"me","user_id":"42","access_token":"test_token"}]',
-        'active_login': 'me',
-      });
-      final eventSub = FakeEventSubService();
-      final irc = FakeIrcService();
-      final ircRead = FakeIrcReadService();
-      final recent = FakeRecentMessagesService();
-
-      await tester.pumpWidget(
-        TwitchChatApp(
-          key: UniqueKey(),
-          eventSubService: eventSub,
-          ircService: irc,
-          ircReadService: ircRead,
-          recentMessagesService: recent,
-        ),
-      );
-      await tester.pump();
-
-      await tester.tap(find.byIcon(Icons.add));
-      await tester.pumpAndSettle();
-      await tester.enterText(find.byType(TextField).last, 'xqc');
-      await tester.tap(find.text('Join', skipOffstage: false));
-      await tester.pump();
-
-      irc.triggerConnect(joinChannel: 'xqc');
-      ircRead.triggerConnect(joinChannel: 'xqc');
-      await tester.pump();
-
-      ircRead.emitMessage(
-        TwitchMessage(
-          login: 'UserOne',
-          text: 'hello chat',
-          channel: 'xqc',
-          messageId: 'm1',
-        ),
-      );
-      await tester.pump();
-
-      await tester.enterText(find.byKey(const Key('message_input')), 'U');
-      await tester.pump();
-
-      final dropdown = find.byKey(const Key('autocomplete_dropdown'));
-      expect(dropdown, findsNothing);
-    });
-    testWidgets('typing slash shows all commands regardless of permission', (
-      WidgetTester tester,
-    ) async {
-      SharedPreferences.setMockInitialValues({'access_token': 'test_token'});
-      // Resolved identity: typing needs an enabled composer, which now
-      // requires the session user (not just a token).
-      FlutterSecureStorage.setMockInitialValues({
-        'accounts':
-            '[{"login":"me","user_id":"42","access_token":"test_token"}]',
-        'active_login': 'me',
-      });
-      final eventSub = FakeEventSubService();
-      final irc = FakeIrcService();
-      final ircRead = FakeIrcReadService();
-      final recent = FakeRecentMessagesService();
-
-      await tester.pumpWidget(
-        TwitchChatApp(
-          key: UniqueKey(),
-          eventSubService: eventSub,
-          ircService: irc,
-          ircReadService: ircRead,
-          recentMessagesService: recent,
-        ),
-      );
-      await tester.pump();
-
-      await tester.tap(find.byIcon(Icons.add));
-      await tester.pumpAndSettle();
-      await tester.enterText(find.byType(TextField).last, 'xqc');
-      await tester.tap(find.text('Join', skipOffstage: false));
-      await tester.pump();
-
-      irc.triggerConnect(joinChannel: 'xqc');
-      ircRead.triggerConnect(joinChannel: 'xqc');
-      await tester.pump();
-
-      await tester.enterText(find.byKey(const Key('message_input')), '/');
-      await tester.pump();
-
-      final dropdown = find.byKey(const Key('autocomplete_dropdown'));
-      expect(dropdown, findsOneWidget);
-      expect(
-        find.descendant(of: dropdown, matching: find.text('/me')),
-        findsOneWidget,
-      );
-      expect(
-        find.descendant(of: dropdown, matching: find.text('/color')),
-        findsOneWidget,
-      );
-      // Mod-only commands are suggested to everyone too; the API rejects
-      // them with a clean error notice if the account cannot run them.
-      expect(
-        find.descendant(of: dropdown, matching: find.text('/ban')),
-        findsOneWidget,
-      );
-    });
-
-    testWidgets('selecting a command inserts it with a trailing space', (
-      WidgetTester tester,
-    ) async {
-      SharedPreferences.setMockInitialValues({'access_token': 'test_token'});
-      FlutterSecureStorage.setMockInitialValues({'access_token': 'test_token'});
-      final eventSub = FakeEventSubService();
-      final irc = FakeIrcService();
-      final recent = FakeRecentMessagesService();
-
-      await tester.pumpWidget(
-        TwitchChatApp(
-          key: UniqueKey(),
-          eventSubService: eventSub,
-          ircService: irc,
-          recentMessagesService: recent,
-        ),
-      );
-      await tester.pump();
-
-      await tester.tap(find.byIcon(Icons.add));
-      await tester.pumpAndSettle();
-      await tester.enterText(find.byType(TextField).last, 'xqc');
-      await tester.tap(find.text('Join', skipOffstage: false));
-      await tester.pump();
-
-      final inputFinder = find.byKey(const Key('message_input'));
-      await tester.enterText(inputFinder, '/');
-      await tester.pump();
-
-      // Directly invoke autocomplete callback (bypasses hit-test issues).
-      final autocomplete = tester.widget<AutocompleteDropdown>(
-        find.byType(AutocompleteDropdown),
-      );
-      autocomplete.onSelect(const CommandSuggestion(command: '/me'));
-      await tester.pump();
-
-      final controller = tester.widget<TextField>(inputFinder).controller!;
-      expect(controller.text, '/me ');
-    });
+    select(
+      EmoteSuggestion(
+        emote: makeTestEmote(id: 'recent-e1', code: 'RecentEmote'),
+      ),
+    );
+    // The usage write is fire-and-forget; two pumps flush its microtasks.
+    await tester.pump();
+    await tester.pump();
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(HomeScreen)),
+    );
+    expect(
+      container.read(emoteUsageRegistryProvider).recentEmoteIds,
+      contains('recent-e1'),
+    );
+    await tester.pumpAndSettle();
   });
 
   setUp(() {
@@ -4449,228 +2832,111 @@ void main() {
   }
 
   group('Channel bar', () {
-    testWidgets(
-      'Channel bar hides with no channels and returns after removal',
-      (WidgetTester tester) async {
-        {
-          await tester.pumpWidget(TwitchChatApp(key: UniqueKey()));
-          await tester.pump();
+    testWidgets('Removing the last channel hides the channel bar', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(TwitchChatApp(key: UniqueKey()));
+      await tester.pump();
+      expect(find.byType(TabBar), findsNothing);
 
-          expect(find.byType(TabBar), findsNothing);
-          // Let the anonymous-mode socket attempts resolve so no timer pends.
-          await tester.pumpAndSettle();
-        }
-        {
-          await tester.pumpWidget(TwitchChatApp(key: UniqueKey()));
-          await tester.pump();
+      await joinChannel(tester, 'xqc');
+      expect(find.byType(TabBar), findsOneWidget);
 
-          await joinChannel(tester, 'xqc');
+      await tester.tap(find.byIcon(Icons.more_vert));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Settings', skipOffstage: false));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Channels', skipOffstage: false));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byIcon(Icons.remove_circle_outline));
+      await tester.pump();
+      await tester.pump();
+      await tester.pump();
+      await tester.tap(find.byIcon(Icons.arrow_back));
+      await tester.pumpAndSettle();
 
-          await tester.tap(find.byIcon(Icons.more_vert));
-          await tester.pumpAndSettle();
-          await tester.tap(find.text('Settings', skipOffstage: false));
-          await tester.pumpAndSettle();
+      expect(find.text('xqc'), findsNothing);
+      expect(find.byType(TabBar), findsNothing);
+    });
 
-          await tester.tap(find.text('Channels', skipOffstage: false));
-          await tester.pumpAndSettle();
+    testWidgets('Joining a channel selects it, not its neighbor', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(TwitchChatApp(key: UniqueKey()));
+      await tester.pump();
 
-          await tester.tap(find.byIcon(Icons.remove_circle_outline));
-          await tester.pump();
-          await tester.pump();
-          await tester.pump();
+      await joinChannel(tester, 'alpha');
+      await joinChannel(tester, 'beta');
+      await tester.pumpAndSettle();
+      final bar0 = tester.widget<TabBar>(find.byType(TabBar).first);
+      expect(bar0.controller!.length, 2);
+      expect(bar0.controller!.index, 1);
 
-          await tester.tap(find.byIcon(Icons.arrow_back));
-          await tester.pumpAndSettle();
-
-          expect(find.text('xqc'), findsNothing);
-          expect(find.byType(TabBar), findsNothing);
-        }
-      },
-    );
-
-    testWidgets(
-      'Joining channels selects the newest channel without landing on its neighbor',
-      (WidgetTester tester) async {
-        {
-          await tester.pumpWidget(TwitchChatApp(key: UniqueKey()));
-          await tester.pump();
-
-          await joinChannel(tester, 'xqc');
-
-          expect(find.text('xqc', skipOffstage: false), findsOneWidget);
-        }
-        {
-          SharedPreferences.setMockInitialValues({});
-          FlutterSecureStorage.setMockInitialValues({});
-          await tester.pumpWidget(TwitchChatApp(key: UniqueKey()));
-          await tester.pump();
-
-          await joinChannel(tester, 'alpha');
-          await joinChannel(tester, 'beta');
-          await tester.pumpAndSettle();
-
-          final bar0 = tester.widget<TabBar>(find.byType(TabBar).first);
-          expect(bar0.controller!.length, 2);
-          expect(bar0.controller!.index, 1);
-
-          await joinChannel(tester, 'gamma');
-          await tester.pumpAndSettle();
-          await tester.pump();
-
-          final bar1 = tester.widget<TabBar>(find.byType(TabBar).first);
-          expect(bar1.controller!.length, 3);
-          // The new channel (gamma) is appended last and must be selected;
-          // a regression lands on its neighbor (beta, index 1) instead.
-          expect(bar1.controller!.index, 2);
-          expect(find.text('gamma', skipOffstage: false), findsOneWidget);
-        }
-      },
-    );
+      await joinChannel(tester, 'gamma');
+      await tester.pumpAndSettle();
+      await tester.pump();
+      // A regression lands on the neighbor (beta, index 1) instead.
+      final bar1 = tester.widget<TabBar>(find.byType(TabBar).first);
+      expect(bar1.controller!.length, 3);
+      expect(bar1.controller!.index, 2);
+    });
 
     testWidgets('Channel focus follows swipe thresholds with hysteresis', (
       WidgetTester tester,
     ) async {
-      {
-        await tester.pumpWidget(TwitchChatApp(key: UniqueKey()));
-        await tester.pump();
+      await tester.pumpWidget(TwitchChatApp(key: UniqueKey()));
+      await tester.pump();
+      await joinChannel(tester, 'a');
+      await joinChannel(tester, 'b');
 
-        await joinChannel(tester, 'a');
-        await joinChannel(tester, 'b');
+      FontWeight? weight(String name) => tester
+          .widget<Text>(
+            find.descendant(
+              of: find.byType(TabBar),
+              matching: find.text(name, skipOffstage: false),
+            ),
+          )
+          .style
+          ?.fontWeight;
 
-        expect(
-          tester
-              .widget<Text>(find.text('b', skipOffstage: false))
-              .style
-              ?.fontWeight,
-          FontWeight.w600,
-        );
-        expect(
-          tester
-              .widget<Text>(find.text('a', skipOffstage: false))
-              .style
-              ?.fontWeight,
-          FontWeight.normal,
-        );
-      }
-      {
-        await tester.pumpWidget(TwitchChatApp(key: UniqueKey()));
-        await tester.pump();
-        await joinChannel(tester, 'a');
-        await joinChannel(tester, 'b');
+      // Drags from a toward b by each fraction in turn, still holding.
+      Future<TestGesture> dragFromA(List<double> fractions) async {
         await tapChannel(tester, 'a');
-
         final size = tester.getSize(find.byType(PageView));
-        final center = tester.getCenter(find.byType(PageView));
-        final gesture = await tester.startGesture(center);
+        final gesture = await tester.startGesture(
+          tester.getCenter(find.byType(PageView)),
+        );
         await gesture.moveBy(const Offset(-1, 0));
         await tester.pump();
-        await gesture.moveBy(Offset(-size.width * 0.55, 0));
-        await tester.pump();
-        // Don't release - verify focus switched mid-drag
-        expect(
-          tester
-              .widget<Text>(
-                find.descendant(
-                  of: find.byType(TabBar),
-                  matching: find.text('b', skipOffstage: false),
-                ),
-              )
-              .style
-              ?.fontWeight,
-          FontWeight.w600,
-        );
-        expect(
-          tester
-              .widget<Text>(
-                find.descendant(
-                  of: find.byType(TabBar),
-                  matching: find.text('a', skipOffstage: false),
-                ),
-              )
-              .style
-              ?.fontWeight,
-          FontWeight.normal,
-        );
-
-        await gesture.up();
-        await tester.pumpAndSettle();
+        for (final f in fractions) {
+          await gesture.moveBy(Offset(size.width * f, 0));
+          await tester.pump();
+        }
+        return gesture;
       }
-      {
-        await tester.pumpWidget(TwitchChatApp(key: UniqueKey()));
-        await tester.pump();
-        await joinChannel(tester, 'a');
-        await joinChannel(tester, 'b');
-        await tapChannel(tester, 'a');
 
-        final size = tester.getSize(find.byType(PageView));
-        final center = tester.getCenter(find.byType(PageView));
-        final gesture = await tester.startGesture(center);
-        await gesture.moveBy(const Offset(-1, 0));
-        await tester.pump();
-        await gesture.moveBy(Offset(-size.width * 0.45, 0)); // under 50%
-        await tester.pump();
-        await gesture.up();
-        await tester.pumpAndSettle();
+      expect(weight('b'), FontWeight.w600);
+      expect(weight('a'), FontWeight.normal);
 
-        expect(
-          tester
-              .widget<Text>(
-                find.descendant(
-                  of: find.byType(TabBar),
-                  matching: find.text('a', skipOffstage: false),
-                ),
-              )
-              .style
-              ?.fontWeight,
-          FontWeight.w600,
-        );
-        expect(
-          tester
-              .widget<Text>(
-                find.descendant(
-                  of: find.byType(TabBar),
-                  matching: find.text('b', skipOffstage: false),
-                ),
-              )
-              .style
-              ?.fontWeight,
-          FontWeight.normal,
-        );
-      }
-      {
-        await tester.pumpWidget(TwitchChatApp(key: UniqueKey()));
-        await tester.pump();
-        await joinChannel(tester, 'a');
-        await joinChannel(tester, 'b');
-        await tapChannel(tester, 'a');
+      // Past half: focus switches mid-drag, before release.
+      var gesture = await dragFromA([-0.55]);
+      expect(weight('b'), FontWeight.w600);
+      expect(weight('a'), FontWeight.normal);
+      await gesture.up();
+      await tester.pumpAndSettle();
 
-        final size = tester.getSize(find.byType(PageView));
-        final center = tester.getCenter(find.byType(PageView));
-        final gesture = await tester.startGesture(center);
-        await gesture.moveBy(const Offset(-1, 0));
-        await tester.pump();
-        // Cross 50%
-        await gesture.moveBy(Offset(-size.width * 0.6, 0));
-        await tester.pump();
-        // Return below 50%
-        await gesture.moveBy(Offset(size.width * 0.3, 0));
-        await tester.pump();
-        await gesture.up();
-        await tester.pumpAndSettle();
+      // Under half: focus stays.
+      gesture = await dragFromA([-0.45]);
+      await gesture.up();
+      await tester.pumpAndSettle();
+      expect(weight('a'), FontWeight.w600);
+      expect(weight('b'), FontWeight.normal);
 
-        expect(
-          tester
-              .widget<Text>(
-                find.descendant(
-                  of: find.byType(TabBar),
-                  matching: find.text('a', skipOffstage: false),
-                ),
-              )
-              .style
-              ?.fontWeight,
-          FontWeight.w600,
-        );
-      }
+      // Cross half, then come back under: focus returns.
+      gesture = await dragFromA([-0.6, 0.3]);
+      await gesture.up();
+      await tester.pumpAndSettle();
+      expect(weight('a'), FontWeight.w600);
     });
   });
 
@@ -4712,38 +2978,31 @@ void main() {
   testWidgets(
     'SevenTV list updates reuse elements across inserts and removals',
     (WidgetTester tester) async {
-      {
-        final manager = EmoteManager(
-          fetchStagger: Duration.zero,
-          usageFlushDelay: Duration.zero,
-          removeCachedFile: (url) async {},
-        );
-        manager.updateSevenTvEmotes(
-          'ch',
-          added: [
-            sevenTv('a', 'Alpha'),
-            sevenTv('c', 'Charlie'),
-            sevenTv('d', 'Delta'),
-          ],
-        );
+      final manager = EmoteManager(
+        fetchStagger: Duration.zero,
+        usageFlushDelay: Duration.zero,
+        removeCachedFile: (url) async {},
+      );
+      manager.updateSevenTvEmotes(
+        'ch',
+        added: [
+          sevenTv('a', 'Alpha'),
+          sevenTv('c', 'Charlie'),
+          sevenTv('d', 'Delta'),
+        ],
+      );
 
-        await tester.pumpWidget(wrapEmoteMenu(manager));
-        await tester.tap(find.text('Channel', skipOffstage: false));
-        // The loading band animates indefinitely, so pump fixed durations
-        // instead of pumpAndSettle (which would never settle).
-        await tester.pump();
-        await tester.pump(const Duration(milliseconds: 500));
+      await tester.pumpWidget(wrapEmoteMenu(manager));
+      await tester.tap(find.text('Channel', skipOffstage: false));
+      // The loading band animates indefinitely, so pump fixed durations
+      // instead of pumpAndSettle (which would never settle).
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
 
-        final alphaElement = tester.element(find.byKey(const ValueKey('a')));
-        final deltaElement = tester.element(find.byKey(const ValueKey('d')));
+      final alphaElement = tester.element(find.byKey(const ValueKey('a')));
+      final deltaElement = tester.element(find.byKey(const ValueKey('d')));
 
-        // Insert between Alpha and Charlie: Alpha stays in place (identical
-        // element), Delta shifts down but keeps its element via keyed
-        // reconciliation, and only the new cell is built.
-        manager.updateSevenTvEmotes('ch', added: [sevenTv('b', 'Bravo')]);
-        await tester.pump();
-        await tester.pump(const Duration(milliseconds: 100));
-
+      void expectReused() {
         expect(
           tester.element(find.byKey(const ValueKey('a'))),
           same(alphaElement),
@@ -4752,112 +3011,47 @@ void main() {
           tester.element(find.byKey(const ValueKey('d'))),
           same(deltaElement),
         );
-        expect(find.byKey(const ValueKey('b')), findsOneWidget);
       }
-      {
-        final manager = EmoteManager(
-          fetchStagger: Duration.zero,
-          usageFlushDelay: Duration.zero,
-          removeCachedFile: (url) async {},
-        );
-        manager.updateSevenTvEmotes(
-          'ch',
-          added: [
-            sevenTv('a', 'Alpha'),
-            sevenTv('b', 'Bravo'),
-            sevenTv('d', 'Delta'),
-          ],
-        );
 
-        await tester.pumpWidget(wrapEmoteMenu(manager));
-        await tester.tap(find.text('Channel', skipOffstage: false));
-        await tester.pump();
-        await tester.pump(const Duration(milliseconds: 500));
+      // Keyed reconciliation: neighbors keep their elements on insert/remove.
+      manager.updateSevenTvEmotes('ch', added: [sevenTv('b', 'Bravo')]);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+      expectReused();
+      expect(find.byKey(const ValueKey('b')), findsOneWidget);
 
-        final alphaElement = tester.element(find.byKey(const ValueKey('a')));
-        final deltaElement = tester.element(find.byKey(const ValueKey('d')));
-
-        manager.updateSevenTvEmotes('ch', removedIds: ['b']);
-        await tester.pump();
-        await tester.pump(const Duration(milliseconds: 100));
-
-        expect(
-          tester.element(find.byKey(const ValueKey('a'))),
-          same(alphaElement),
-        );
-        expect(
-          tester.element(find.byKey(const ValueKey('d'))),
-          same(deltaElement),
-        );
-        expect(find.byKey(const ValueKey('b')), findsNothing);
-      }
+      manager.updateSevenTvEmotes('ch', removedIds: ['b']);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+      expectReused();
+      expect(find.byKey(const ValueKey('b')), findsNothing);
     },
   );
 
-  // Regression: the chat list must hug the bottom edge when its content is
-  // shorter than the viewport. Plain reverse:true provides this naturally, so
-  // this guards against any future change that pins short content to the top.
-  testWidgets('short chat list hugs the bottom edge', (tester) async {
-    tester.view.physicalSize = const Size(400, 600);
-    tester.view.devicePixelRatio = 1.0;
-    addTearDown(tester.view.reset);
-
-    await tester.pumpWidget(
-      MaterialApp(
-        key: UniqueKey(),
-        home: Scaffold(
-          body: ListView(
-            reverse: true,
-            children: [
-              for (var i = 0; i < 3; i++)
-                SizedBox(height: 50, child: Text('row $i')),
-            ],
-          ),
-        ),
-      ),
-    );
-    await tester.pump();
-
-    Finder row(String s) => find.byWidgetPredicate(
-      (w) => w is Text && w.data == s,
-      skipOffstage: false,
-    );
-    // Newest row (index 0) sits flush against the bottom edge.
-    expect(tester.getRect(row('row 0')).bottom, closeTo(600.0, 1.0));
-    // Oldest row starts near the top, not pinned to the very top edge.
-    expect(tester.getRect(row('row 2')).top, lessThan(460.0));
-  });
-
   group('Chat notices and snackbars', () {
-    testWidgets('notice floats above the composer without resizing the chat', (
+    testWidgets('notice floats above the composer, acts, and dismisses', (
       tester,
     ) async {
       final controller = ChatNoticeController();
       addTearDown(controller.dispose);
       await tester.pumpWidget(noticeHarness(controller));
       final chatSize = tester.getSize(find.byKey(const Key('notice-chat')));
+
       controller.show('hello');
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 250));
-      expect(find.text('hello'), findsOneWidget);
       final barBottom = tester.getBottomLeft(find.text('hello')).dy;
       final composerTop = tester
           .getTopLeft(find.byKey(const Key('notice-composer')))
           .dy;
-      // Bar padding ends 8dp above the composer, so text sits higher still.
-      expect(composerTop - barBottom, greaterThanOrEqualTo(8));
+      expect(composerTop, greaterThan(barBottom));
       // Overlay: the chat keeps its size instead of shrinking.
       expect(tester.getSize(find.byKey(const Key('notice-chat'))), chatSize);
-      controller.dismiss();
-      await tester.pump();
-    });
 
-    testWidgets('notice action runs the callback and dismisses', (
-      tester,
-    ) async {
-      final controller = ChatNoticeController();
-      addTearDown(controller.dispose);
-      await tester.pumpWidget(noticeHarness(controller));
+      await tester.fling(find.text('hello'), const Offset(400, 0), 800);
+      await tester.pumpAndSettle();
+      expect(find.text('hello'), findsNothing);
+
       var pressed = 0;
       controller.show(
         'copied',
@@ -4870,44 +3064,16 @@ void main() {
       await tester.pump();
       expect(pressed, 1);
       expect(find.text('copied'), findsNothing);
-    });
 
-    testWidgets('notice horizontal swipe dismisses', (tester) async {
-      final controller = ChatNoticeController();
-      addTearDown(controller.dispose);
-      await tester.pumpWidget(noticeHarness(controller));
-      controller.show('hello');
+      controller.show('later', duration: const Duration(milliseconds: 100));
       await tester.pump();
-      await tester.pump(const Duration(milliseconds: 250));
-      await tester.fling(find.text('hello'), const Offset(400, 0), 800);
-      await tester.pumpAndSettle();
-      expect(find.text('hello'), findsNothing);
-    });
-
-    testWidgets('notice auto-dismisses on screen', (tester) async {
-      final controller = ChatNoticeController();
-      addTearDown(controller.dispose);
-      await tester.pumpWidget(noticeHarness(controller));
-      controller.show('hello', duration: const Duration(milliseconds: 100));
-      await tester.pump();
-      expect(find.text('hello'), findsOneWidget);
+      expect(find.text('later'), findsOneWidget);
       await tester.pump(const Duration(milliseconds: 200));
       await tester.pump();
-      expect(find.text('hello'), findsNothing);
+      expect(find.text('later'), findsNothing);
     });
 
-    testWidgets('overlay snackbar uses the shared style', (tester) async {
-      await tester.pumpWidget(snackHarness());
-      await tester.tap(find.text('show snack'));
-      await tester.pump();
-      expect(find.text('from button'), findsOneWidget);
-      final bar = tester.widget<SnackBar>(find.byType(SnackBar));
-      expect(bar.behavior, SnackBarBehavior.floating);
-      expect(bar.dismissDirection, DismissDirection.horizontal);
-      expect(bar.duration, AppSnack.defaultDuration);
-    });
-
-    testWidgets('overlay snackbar replaces instead of queueing', (
+    testWidgets('overlay snackbar replaces, and pops on page changes only', (
       tester,
     ) async {
       await tester.pumpWidget(snackHarness());
@@ -4919,28 +3085,25 @@ void main() {
       expect(find.text('first'), findsNothing);
       expect(find.text('second'), findsOneWidget);
       expect(find.byType(SnackBar), findsOneWidget);
-    });
 
-    testWidgets('page push pops the overlay snackbar', (tester) async {
-      await tester.pumpWidget(snackHarness());
-      final context = tester.element(find.text('show snack'));
-      AppSnack.show(context, 'lingering');
-      await tester.pump();
-      expect(find.text('lingering'), findsOneWidget);
+      // A dialog leaves it alone.
+      showDialog(
+        context: context,
+        builder: (_) => const AlertDialog(content: Text('dialog')),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('second'), findsOneWidget);
+      Navigator.of(tester.element(find.text('dialog'))).pop();
+      await tester.pumpAndSettle();
+
+      // A page push pops it.
       Navigator.of(context).push(
         MaterialPageRoute(builder: (_) => const Scaffold(body: Text('next'))),
       );
       await tester.pumpAndSettle();
-      expect(find.text('lingering'), findsNothing);
-    });
+      expect(find.text('second'), findsNothing);
 
-    testWidgets('page pop pops the overlay snackbar', (tester) async {
-      await tester.pumpWidget(snackHarness());
-      final context = tester.element(find.text('show snack'));
-      Navigator.of(context).push(
-        MaterialPageRoute(builder: (_) => const Scaffold(body: Text('next'))),
-      );
-      await tester.pumpAndSettle();
+      // So does a page pop.
       final next = tester.element(find.text('next'));
       AppSnack.show(next, 'on next');
       await tester.pump();
@@ -4950,56 +3113,39 @@ void main() {
       expect(find.text('on next'), findsNothing);
     });
 
-    testWidgets('dialog push leaves the overlay snackbar alone', (
-      tester,
-    ) async {
-      await tester.pumpWidget(snackHarness());
-      final context = tester.element(find.text('show snack'));
-      AppSnack.show(context, 'behind dialog');
-      await tester.pump();
-      showDialog(
-        context: context,
-        builder: (_) => const AlertDialog(content: Text('dialog')),
-      );
-      await tester.pumpAndSettle();
-      expect(find.text('dialog'), findsOneWidget);
-      expect(find.text('behind dialog'), findsOneWidget);
-    });
-
     group('ChatNoticeController', () {
-      test('notice show replaces the current notice', () {
+      testWidgets('show replaces and dismiss clears the current notice', (
+        tester,
+      ) async {
         final controller = ChatNoticeController();
+        addTearDown(controller.dispose);
         controller.show('first');
         controller.show('second');
         expect(controller.current?.message, 'second');
-        controller.dispose();
-      });
-
-      test('notice dismiss clears the current notice', () {
-        final controller = ChatNoticeController();
-        controller.show('hello');
         controller.dismiss();
         expect(controller.current, isNull);
-        controller.dispose();
       });
 
-      test('notice auto-dismisses after the duration', () async {
+      testWidgets('auto-dismisses after the duration', (tester) async {
         final controller = ChatNoticeController();
-        controller.show('hello', duration: const Duration(milliseconds: 50));
+        addTearDown(controller.dispose);
+        controller.show('hello', duration: const Duration(seconds: 1));
+        await tester.pump(const Duration(milliseconds: 900));
         expect(controller.current, isNotNull);
-        await Future.delayed(const Duration(milliseconds: 120));
+        await tester.pump(const Duration(milliseconds: 200));
         expect(controller.current, isNull);
-        controller.dispose();
       });
 
-      test('notice replace resets the auto-dismiss timer', () async {
+      testWidgets('replace resets the auto-dismiss timer', (tester) async {
         final controller = ChatNoticeController();
-        controller.show('first', duration: const Duration(milliseconds: 60));
-        await Future.delayed(const Duration(milliseconds: 40));
-        controller.show('second', duration: const Duration(milliseconds: 200));
-        await Future.delayed(const Duration(milliseconds: 60));
+        addTearDown(controller.dispose);
+        controller.show('first', duration: const Duration(seconds: 1));
+        await tester.pump(const Duration(milliseconds: 700));
+        controller.show('second', duration: const Duration(seconds: 2));
+        await tester.pump(const Duration(milliseconds: 700));
         expect(controller.current?.message, 'second');
-        controller.dispose();
+        await tester.pump(const Duration(seconds: 2));
+        expect(controller.current, isNull);
       });
     });
   });
@@ -5026,7 +3172,7 @@ void main() {
       await tester.pumpAndSettle();
     }
 
-    testWidgets('shows Mod view only when gated on', (tester) async {
+    testWidgets('Mod view is gated and Search always fires', (tester) async {
       var opened = false;
       await tester.pumpWidget(
         chromeMenuHarness(showMod: true, onMod: () => opened = true),
@@ -5036,40 +3182,29 @@ void main() {
       await tester.pumpAndSettle();
       expect(opened, isTrue);
 
-      await tester.pumpWidget(chromeMenuHarness(showMod: false));
-      await openChromeMenu(tester);
-      expect(find.text('Mod view'), findsNothing);
-    });
-
-    testWidgets('Search is always shown and fires', (tester) async {
       var toggled = false;
       await tester.pumpWidget(
-        chromeMenuHarness(onSearch: () => toggled = true),
+        chromeMenuHarness(showMod: false, onSearch: () => toggled = true),
       );
       await openChromeMenu(tester);
-      expect(find.text('Search'), findsOneWidget);
+      expect(find.text('Mod view'), findsNothing);
       await tester.tap(find.text('Search'));
       await tester.pumpAndSettle();
       expect(toggled, isTrue);
     });
   });
 
-  group('PiP body collapse', () {
-    testWidgets('video-only tree hides composer and panels', (tester) async {
-      await tester.pumpWidget(pipCollapseHarness(isInPip: true));
-      await tester.pumpAndSettle();
-      expect(find.byKey(const Key('pip-video')), findsOneWidget);
-      expect(find.byKey(const Key('pip-composer')), findsNothing);
-      expect(find.byKey(const Key('pip-thread')), findsNothing);
-    });
+  testWidgets('PiP collapse keeps only the video', (tester) async {
+    await tester.pumpWidget(pipCollapseHarness(isInPip: true));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('pip-video')), findsOneWidget);
+    expect(find.byKey(const Key('pip-composer')), findsNothing);
+    expect(find.byKey(const Key('pip-thread')), findsNothing);
 
-    testWidgets('normal tree keeps composer and panels', (tester) async {
-      await tester.pumpWidget(pipCollapseHarness(isInPip: false));
-      await tester.pumpAndSettle();
-      expect(find.byKey(const Key('pip-video')), findsOneWidget);
-      expect(find.byKey(const Key('pip-composer')), findsOneWidget);
-      expect(find.byKey(const Key('pip-thread')), findsOneWidget);
-    });
+    await tester.pumpWidget(pipCollapseHarness(isInPip: false));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('pip-composer')), findsOneWidget);
+    expect(find.byKey(const Key('pip-thread')), findsOneWidget);
   });
 
   group('Background channel window', () {

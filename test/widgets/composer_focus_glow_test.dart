@@ -30,7 +30,9 @@ void main() {
     return (decoration?.border as Border?)?.top.color.a ?? 0;
   }
 
-  testWidgets('glows while an inner field holds focus', (tester) async {
+  testWidgets('glows while focused and stays flat when disabled', (
+    tester,
+  ) async {
     final focusNode = await pumpGlow(tester, enabled: true);
     expect(outlineAlpha(tester), 0);
     final size = tester.getSize(find.byType(TextField));
@@ -51,14 +53,13 @@ void main() {
     await tester.pump();
     await tester.pump();
     expect(outlineAlpha(tester), 0);
-  });
 
-  testWidgets('stays flat when disabled', (tester) async {
-    final focusNode = await pumpGlow(tester, enabled: false);
-    focusNode.requestFocus();
+    // Disabled fields keep focus but never glow.
+    final disabledNode = await pumpGlow(tester, enabled: false);
+    disabledNode.requestFocus();
     await tester.pump();
     await tester.pump();
-    expect(focusNode.hasFocus, isTrue);
+    expect(disabledNode.hasFocus, isTrue);
     expect(outlineAlpha(tester), 0);
   });
 }
