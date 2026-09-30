@@ -100,9 +100,9 @@ void main() {
       reason: 'need built rows to track',
     );
 
-    // A message arrives at the head: every built row shifts one slot. The list
-    // rebuilds them in place instead of asking the framework to move a keyed
-    // child, which used to park a row in a slot with no layout offset.
+    // A message arrives at the head: every built row shifts one slot. Rows
+    // move only into slots that existed last layout, so none lands in a slot
+    // with no layout offset; the rest rebuild in place.
     messages.insert(0, _msg(100));
     notifier.value++;
     await tester.pump();
@@ -146,5 +146,57 @@ void main() {
         reason: 'round $round threw during churn or hit test',
       );
     }
+  });
+
+  testWidgets('rows outside the viewport freeze their tickers', (tester) async {
+    tester.view.physicalSize = const Size(1080, 2400);
+    tester.view.devicePixelRatio = 3.0;
+    addTearDown(tester.view.reset);
+
+    final notifier = ValueNotifier(0);
+    addTearDown(notifier.dispose);
+    final messages = <TwitchMessage>[for (var i = 1; i <= 40; i++) _msg(i)];
+    final h = _Harness(tester: tester, messages: messages, notifier: notifier);
+    await h.pump();
+
+    final screen = Offset.zero & tester.view.physicalSize / 3.0;
+    void expectGatesMatchViewport() {
+      var frozen = 0;
+      // Cache extent rows count as offstage, so include them explicitly.
+      final rows = find.byWidgetPredicate(
+        (w) => w.runtimeType.toString() == '_RowGate',
+        skipOffstage: false,
+      );
+      for (final e in rows.evaluate()) {
+        final id = (e.widget.key! as ValueKey<String>).value;
+        // The row's own boundary sits under the gate's TickerMode.
+        Element? inner;
+        void seek(Element c) {
+          if (inner != null) return;
+          if (c.widget is RepaintBoundary) {
+            inner = c;
+            return;
+          }
+          c.visitChildren(seek);
+        }
+
+        e.visitChildren(seek);
+        final enabled = TickerMode.valuesOf(inner!).enabled;
+        final box = e.renderObject! as RenderBox;
+        final row = box.localToGlobal(Offset.zero) & box.size;
+        final onScreen = row.overlaps(screen);
+        expect(enabled, onScreen, reason: '$id ticker should match viewport');
+        if (!enabled) frozen++;
+      }
+      expect(frozen, greaterThan(0), reason: 'cache extent rows exist');
+    }
+
+    // Gates settle the frame after layout; rows start enabled on purpose.
+    await tester.pump();
+    expectGatesMatchViewport();
+    await tester.drag(find.byType(ListView), const Offset(0, 300));
+    await tester.pump();
+    await tester.pump();
+    expectGatesMatchViewport();
   });
 }

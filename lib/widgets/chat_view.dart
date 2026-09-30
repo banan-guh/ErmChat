@@ -241,6 +241,10 @@ class _ChatViewState extends State<ChatView>
   int? _builtMin;
   int? _builtMax;
 
+  /// Live row gates, re-checked against the viewport after each layout.
+  final Set<_RowGateState> _gates = {};
+  bool _gateSyncScheduled = false;
+
   // Hold state shared with the physics; the physics corrects during layout so
   // a prepended row never shows in the wrong place, not even for one frame.
   final _ChatHold _hold = _ChatHold();
@@ -299,6 +303,7 @@ class _ChatViewState extends State<ChatView>
       children: [
         NotificationListener<ScrollNotification>(
           onNotification: (notification) {
+            _scheduleGateSync();
             if (notification is ScrollStartNotification) {
               if (notification.dragDetails != null) _follow = false;
               _applyScrollState(notification.metrics);
@@ -409,15 +414,20 @@ class _ChatViewState extends State<ChatView>
         addSemanticIndexes: true,
         itemBuilder: (ctx, i) {
           _noteBuiltIndex(i);
-          return _buildTile(
-            msgs,
-            cache,
-            _idToIndex,
-            i,
-            surface,
-            s,
-            ctx,
-            widget.checkeredMessages,
+          _scheduleGateSync();
+          return _RowGate(
+            key: _messageKey(msgs[i]),
+            gates: _gates,
+            child: _buildTile(
+              msgs,
+              cache,
+              _idToIndex,
+              i,
+              surface,
+              s,
+              ctx,
+              widget.checkeredMessages,
+            ),
           );
         },
       );
@@ -537,6 +547,31 @@ class _ChatViewState extends State<ChatView>
     if (min == null || max == null) return null;
     if (index < min || index > max) return null;
     return index;
+  }
+
+  /// Re-checks row visibility once this frame's layout settles.
+  void _scheduleGateSync() {
+    if (_gateSyncScheduled) return;
+    _gateSyncScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _gateSyncScheduled = false;
+      if (mounted) _syncRowGates();
+    });
+  }
+
+  /// Freezes emotes in rows that sit in the cache extent: laid out beyond the
+  /// viewport but never painted, so their animation is pure waste.
+  void _syncRowGates() {
+    final pos = _position;
+    final viewport = pos?.context.notificationContext?.findRenderObject();
+    if (viewport is! RenderBox || !viewport.hasSize) return;
+    final extent = viewport.size.height;
+    for (final gate in _gates) {
+      final box = gate.context.findRenderObject();
+      if (box is! RenderBox || !box.attached || !box.hasSize) continue;
+      final top = box.localToGlobal(Offset.zero, ancestor: viewport).dy;
+      gate.visible.value = top < extent && top + box.size.height > 0;
+    }
   }
 
   /// Applies the scroll state for a user or ballistic update and mirrors it to
@@ -821,7 +856,7 @@ class _ChatViewState extends State<ChatView>
     }
 
     // Key by messageId for rematch on index shifts; cached tiles short-circuit.
-    final tile = RepaintBoundary(key: _messageKey(msg), child: body);
+    final tile = RepaintBoundary(child: body);
     if (cache != null && msg.messageId != null) {
       cache[msg.messageId!] = tile;
       // Mark the freshly cached row as live for this frame. The eviction check
@@ -901,4 +936,49 @@ class _ChatViewState extends State<ChatView>
       ),
     );
   }
+}
+
+/// Chat row that pauses its emotes while it sits outside the viewport.
+/// Starts enabled so a row built offscreen still decodes its first frame.
+class _RowGate extends StatefulWidget {
+  const _RowGate({super.key, required this.gates, required this.child});
+
+  final Set<_RowGateState> gates;
+  final Widget child;
+
+  @override
+  State<_RowGate> createState() => _RowGateState();
+}
+
+class _RowGateState extends State<_RowGate> {
+  final ValueNotifier<bool> visible = ValueNotifier(true);
+
+  @override
+  void initState() {
+    super.initState();
+    widget.gates.add(this);
+  }
+
+  @override
+  void didUpdateWidget(_RowGate oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.gates, widget.gates)) {
+      oldWidget.gates.remove(this);
+      widget.gates.add(this);
+    }
+  }
+
+  @override
+  void dispose() {
+    widget.gates.remove(this);
+    visible.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => ValueListenableBuilder<bool>(
+    valueListenable: visible,
+    builder: (_, on, child) => TickerMode(enabled: on, child: child!),
+    child: widget.child,
+  );
 }
