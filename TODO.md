@@ -37,6 +37,7 @@
 ## Research / Open Ends
 
 - [ ] **Send acknowledgement** - verify own messages can't silently vanish if the read socket dies mid-send.
+- [-] **TestFlight job 500s** - altool sometimes logs 500s on its finalize calls after the IPA is delivered (v0.9.4), so fastlane fails the job even though the build is on ASC. Left as is: the red build email doubles as a "publish manually" reminder, and a re-run would hit a duplicate build number.
 - [-] **Rate limit enforcement** - Enforce the 20-msg / 30-sec limit before Twitch does, with a toggle to disable. Research Twitch's exact rate limit behavior to decide on implementation.
 - [+] **WHISPER support** - Route WHISPER into the mentions panel. Needs two authed accounts to verify (anonymous sockets can't receive whispers).
 - [-] **Channel point redeems** - (SKIPPED) Redeems only reach IRC when the reward requires viewer text (`custom-reward-id` tag on PRIVMSG; no reward name in IRC). Full visibility needs EventSub `channel.channel_points_custom_reward_redemption.add` + `channel:read:redemptions` scope, or PubSub (DankChat matches PubSub reward payloads to `custom-reward-id`).

@@ -5,10 +5,10 @@ Twitch chat viewer (WIP). Single Flutter package. See [TODO.md](TODO.md) for the
 ## Commands
 
 ```
-flutter run        # launch on device/emulator
-flutter test       # run all tests
-flutter analyze    # static analysis (flutter_lints)
-dart format .      # format all Dart files
+flutter run              # launch on device/emulator
+flutter test             # run all tests
+flutter analyze          # static analysis (flutter_lints)
+dart format <files>      # only the files you changed, never `.`
 ```
 
 ## Setup
@@ -25,6 +25,8 @@ dart format .      # format all Dart files
 - OAuth: Android goes through `MainActivity` (session-bound Custom Tab so App Links can't hand off to the Twitch app; `ermchat://` redirect back via the `ermchat/oauth` MethodChannel). iOS keeps `flutter_web_auth_2`. `startFlow({ephemeral})` applies to iOS only (re-auth path).
 - Emote caching: `EmoteManager` (ChangeNotifier, metadata TTL, usage registry) + `EmoteCacheManager` (disk cap, evicts by registry priority). 7TV live updates via `SevenTvEventClient`.
 - Message tokens parse once at ingest onto `TwitchMessage.emoteTokens` and freeze; `MessageBuilder` caches spans per message keyed on badge/link/gif prefs only. Typing, picker, and menus read the live mixer.
+- Emote playback: animated non-Twitch emotes (and frozen stills) run through `EmoteUrlProvider`'s custom loop on one shared tick (`runOnTick`) at `EmoteUrlProvider.frameRate`, set by `EmoteFrameRatePolicy`. Playing Twitch GIFs use the stock `Image` and pause only through `TickerMode` (`EmoteUrlProvider.playing`). Per-frame work joins the shared tick; never add a timer per emote.
+- `ChatView` reuses rows across inserts via `findChildIndexCallback`, limited to slots from the last layout (flutter#153922 crash). Removing it rebuilds every visible row per message. Rows outside the viewport freeze their emotes through `_RowGate`.
 
 ## Architecture rules
 
@@ -40,9 +42,17 @@ See [docs/ARCHITECTURE_RULES.md](docs/ARCHITECTURE_RULES.md) for the rules and [
 - New chat-state features: put the rule in `lib/chat/`, add tests in `test/chat/`, then consume from pipeline/UI.
 - View-only caches (tile caches, panel data) stay in `HomeScreen`, driven by typed notifiers.
 
-## Test conventions
+## Tests
 
-- Unit tests in `test/unit/<file>_test.dart`, data/IRC-parsing tests in `test/data/`, widget/integration tests in `test/widgets/`.
+A test earns its place when a bug there would be quiet, rare to trigger, or expensive. Loud bugs you would hit in a day of normal use don't need one.
+
+- Test: protocol parsing (IRC, EventSub, 7TV, history) with real payloads; chat kernel rules; reconnect, backoff, join rate limits; auth and token refresh; persisted data that must survive an upgrade; emote priority and eviction; leaks; and each bug that actually shipped (one regression test, named for the bug).
+- Don't test: that a widget renders or a label shows, that a toggle saves a pref, pixel sizes, copy text, getters/enums/constants, internal counters (unless guarding a leak), or third-party libraries.
+- Extend an existing table or flow before adding a test: one test per rule, not per input. Name the failing case with `reason:`.
+- Fake time, never real waits. New timing code takes an injectable clock instead of reading `DateTime.now()`.
+- Widget tests: pump once and assert along one flow. Boot `TwitchChatApp`/`HomeScreen` only when the behavior needs the whole app.
+- Deleting a redundant test is a normal change.
+- Layout: `test/chat` (kernel rules), `test/data` (parsing), `test/unit`, `test/widgets`, `test/leak`, `test/architecture`.
 - Injectable for tests: `TwitchApi.client`, `TwitchChatApp`/`HomeScreen` service params, `EventSubService.handleRawMessage`/`emitConnected`/`waitForSession`, `EventSubDecoder.feed`, `IrcChatDecoder.feed`, socket `handleLine`, `OAuthStarter`, `AccountScreen.twitchApi`.
 
 ## Rules
@@ -52,6 +62,11 @@ IMPORTANT: NO em-dashes.
 If a comment is multiple lines long, see if you can rephrase it to be shorter. ALWAYS review a comment if you write one more than 3 lines long.
 Comments and doc comments state what the code does and why, in the present tense. Never narrate the change (no "previously", "used to", "moved from").
 NEVER `dart format .` as it creates extremely large diffs. Instead, specify the exact files to format.
+
+## Performance
+
+- `--dart-define=ERMCHAT_PERF=true` logs a `[perf]` line every 10s (frames, build/raster ms, timer sites, emote gauges). `ERMCHAT_FAKE_CHAT=<msgs/sec>` feeds seeded synthetic chat through the real IRC decoder.
+- `tool/perf_ab.sh <label>` builds, installs and samples per-thread CPU on a USB device (`FAKE=10` for load). Compare A/B runs back to back; about ±5% is noise. Measure on a real phone, not an emulator.
 
 ## Notes
 

@@ -52,7 +52,7 @@ When spawning:
 
 ## Good practice
 
-- Before claiming done: `dart format .`, `flutter analyze`, and run the tests that cover the change (`flutter test` when unsure).
+- Before claiming done: `dart format` the files you changed (never `.`), `flutter analyze`, and run the tests that cover the change (`flutter test` when unsure).
 - Never commit unless explicitly asked.
 - Minimal diffs. Match surrounding style. No drive-by refactors.
 - Keep TODO.md markers current as work lands or gets skipped (`x` finished, `+` finished untested, `-` skip, `*` pay attention).
