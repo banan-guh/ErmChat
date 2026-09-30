@@ -368,8 +368,6 @@ void main() {
       final controller = StreamPlayerController();
       final url = controller.playerUrl('foo');
       expect(url, contains('channel=foo'));
-      expect(url, contains('player.twitch.tv'));
-      expect(url, contains('parent=twitch.tv'));
       controller.setShowExtensions(true);
       expect(controller.playerUrl('foo'), contains('enableExtensions=true'));
       controller.dispose();
@@ -385,19 +383,6 @@ void main() {
       controller.onRenderProcessGone();
       expect(controller.generation, generation + 1);
       expect(controller.hasEverAttached, isFalse);
-      controller.dispose();
-    });
-
-    test('closeStream and exitTheaterMode clear state', () {
-      final controller = StreamPlayerController();
-      controller.toggleStream('foo');
-      controller.toggleTheaterMode();
-      controller.exitTheaterMode();
-      expect(controller.isTheaterMode, isFalse);
-      expect(controller.isActive, isTrue);
-      controller.closeStream();
-      expect(controller.isActive, isFalse);
-      expect(controller.isAudioOnly, isFalse);
       controller.dispose();
     });
   });

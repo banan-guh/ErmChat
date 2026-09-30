@@ -428,84 +428,13 @@ void main() {
   });
 
   group('TwitchOAuth.generateAuthUrl', () {
-    for (final (name, required, forbidden) in [
-      (
-        'requests blocked_users scopes for the block feature',
-        ['user:manage:blocked_users', 'user:read:blocked_users'],
-        <String>[],
-      ),
-      (
-        'requests core chat scopes',
-        [
-          'chat:read',
-          'chat:edit',
-          'user:write:chat',
-          'user:manage:chat_color',
-          'moderator:manage:banned_users',
-          'moderator:manage:chat_messages',
-          'moderator:manage:announcements',
-          'moderator:manage:shoutouts',
-        ],
-        <String>[],
-      ),
-      (
-        'requests scopes for the extended command set',
-        [
-          'moderator:manage:chat_settings',
-          'channel:manage:moderators',
-          'channel:manage:vips',
-          'channel:edit:commercial',
-          'channel:manage:raids',
-          'moderator:manage:shield_mode',
-          'channel:manage:broadcast',
-          'user:manage:whispers',
-        ],
-        <String>[],
-      ),
-      (
-        'requests EventSub moderation scopes',
-        ['moderator:read:blocked_terms', 'moderator:read:unban_requests'],
-        <String>[],
-      ),
-      (
-        'requests Tier 3 moderation scopes',
-        [
-          'moderator:manage:blocked_terms',
-          'moderator:manage:unban_requests',
-          'moderator:read:warnings',
-          'moderator:manage:automod_settings',
-          'moderator:read:chat_settings',
-          'moderator:read:suspicious_users',
-          'moderator:manage:suspicious_users',
-          'moderator:read:chatters',
-          'moderator:read:followers',
-          'user:read:moderated_channels',
-        ],
-        <String>[],
-      ),
-      (
-        'requests broadcaster points scopes',
-        ['channel:read:redemptions', 'channel:manage:redemptions'],
-        <String>[],
-      ),
-      (
-        'does not request EventSub-only scopes',
-        <String>[],
-        ['user:read:chat', 'channel:moderate'],
-      ),
-    ]) {
-      test(name, () {
-        final urlInfo = TwitchOAuth.generateAuthUrl();
-        expect(urlInfo, isNotNull, reason: name);
-        final scopes = Uri.parse(
-          urlInfo!.url,
-        ).queryParameters['scope']!.split(' ');
-        expect(scopes, containsAll(required), reason: name);
-        for (final s in forbidden) {
-          expect(scopes, isNot(contains(s)), reason: name);
-        }
-      });
-    }
+    test('does not request EventSub-only scopes', () {
+      final scopes = Uri.parse(
+        TwitchOAuth.generateAuthUrl()!.url,
+      ).queryParameters['scope']!.split(' ');
+      expect(scopes, isNot(contains('user:read:chat')));
+      expect(scopes, isNot(contains('channel:moderate')));
+    });
 
     test('url covers the full requiredScopes list', () {
       final urlInfo = TwitchOAuth.generateAuthUrl();
@@ -2651,24 +2580,12 @@ void main() {
     });
   });
 
-  group('service disposal', () {
-    test('TwitchApi.close closes the injected client', () {
-      final client = _RecordingClient();
-      TwitchApi(client: client).close();
-      expect(client.closed, isTrue);
-    });
-
-    test('TwitchBadgeService.close closes the injected client', () {
-      final client = _RecordingClient();
-      TwitchBadgeService(client: client).close();
-      expect(client.closed, isTrue);
-    });
-
-    test('MediaUploader.close closes the injected client', () {
-      final client = _RecordingClient();
-      MediaUploader(client: client).close();
-      expect(client.closed, isTrue);
-    });
+  test('services close their injected http clients', () {
+    final clients = List.generate(3, (_) => _RecordingClient());
+    TwitchApi(client: clients[0]).close();
+    TwitchBadgeService(client: clients[1]).close();
+    MediaUploader(client: clients[2]).close();
+    expect(clients.map((c) => c.closed), everyElement(isTrue));
   });
 
   test('session apply announces, seed and clear stay silent', () {

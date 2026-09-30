@@ -4,38 +4,21 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   group('collapseChromeForKeyboard', () {
-    test('keeps chrome when the keyboard is closed', () {
-      expect(collapseChromeForKeyboard(keyboardH: 0, maxHeight: 100), isFalse);
-    });
-
-    test('keeps chrome when room is plentiful', () {
-      expect(
-        collapseChromeForKeyboard(
-          keyboardH: 300,
-          maxHeight: kKeyboardChromeCollapseBelowHeight + 1,
-        ),
-        isFalse,
-      );
-    });
-
-    test('collapses chrome when the keyboard starves the chat', () {
-      expect(
-        collapseChromeForKeyboard(
-          keyboardH: 300,
-          maxHeight: kKeyboardChromeCollapseBelowHeight - 1,
-        ),
-        isTrue,
-      );
-    });
-
-    test('keeps chrome exactly at the threshold', () {
-      expect(
-        collapseChromeForKeyboard(
-          keyboardH: 300,
-          maxHeight: kKeyboardChromeCollapseBelowHeight,
-        ),
-        isFalse,
-      );
+    test('collapses only when an open keyboard starves the chat', () {
+      const threshold = kKeyboardChromeCollapseBelowHeight;
+      const cases = [
+        (0.0, 100.0, false),
+        (300.0, threshold + 1, false),
+        (300.0, threshold, false),
+        (300.0, threshold - 1, true),
+      ];
+      for (final (keyboardH, maxHeight, expected) in cases) {
+        expect(
+          collapseChromeForKeyboard(keyboardH: keyboardH, maxHeight: maxHeight),
+          expected,
+          reason: 'keyboard $keyboardH, height $maxHeight',
+        );
+      }
     });
   });
 

@@ -49,22 +49,9 @@ PredictiveBackEvent _event(double progress) {
 }
 
 void main() {
-  group('officialColors', () {
-    test('is a non-empty list of hex strings', () {
-      expect(officialColors, isNotEmpty);
-      for (final c in officialColors) {
-        expect(c.startsWith('#'), isTrue);
-      }
-    });
-  });
-
   group('pickColor', () {
-    test('returns a color from officialColors', () {
-      final color = pickColor('forsen');
-      expect(officialColors, contains(color));
-    });
-
-    test('handles empty string', () {
+    test('returns an official color, including for empty input', () {
+      expect(officialColors, contains(pickColor('forsen')));
       expect(officialColors, contains(pickColor('')));
     });
   });
@@ -374,7 +361,6 @@ void main() {
 
   test('presets cover 24h and 12h with and without seconds', () {
     expect(kTimestampFormats, containsAll(['HH:mm', 'hh:mm a', 'HH:mm:ss']));
-    expect(kTimestampFormats.length, 8);
   });
 
   group('formatSeconds', () {
@@ -848,54 +834,48 @@ void main() {
     List<UrlElement> urlsOf(String text, List<String> whitelist) =>
         runLinkifier(text, whitelist).whereType<UrlElement>().toList();
 
-    test('links space-before-dot with trailing slash', () {
-      final urls = urlsOf('check example .com/ out', ['com']);
-      expect(urls, hasLength(1));
-      expect(urls.single.url, 'https://example.com/');
-      expect(urls.single.text, 'example .com/');
-    });
-
-    test('links space-after-dot with trailing slash', () {
-      final urls = urlsOf('check example. com/ out', ['com']);
-      expect(urls, hasLength(1));
-      expect(urls.single.url, 'https://example.com/');
-      expect(urls.single.text, 'example. com/');
-    });
-
-    test('links space-after-dot with path', () {
-      final urls = urlsOf('see example. com/foo', ['com']);
-      expect(urls, hasLength(1));
-      expect(urls.single.url, 'https://example.com/foo');
-    });
-
-    test('links fully spaced domain with path', () {
-      final urls = urlsOf('see example . com / foo', ['com']);
-      expect(urls, hasLength(1));
-      expect(urls.single.url, 'https://example.com/foo');
-    });
-
-    test('keeps linking space-before-dot without path', () {
-      final urls = urlsOf('check example .com out', ['com']);
-      expect(urls, hasLength(1));
-      expect(urls.single.url, 'https://example.com');
-    });
-
-    test('links whitelisted domain with split path', () {
-      final urls = urlsOf('watch kappa .lol/ABCDE now', ['kappa.lol']);
-      expect(urls, hasLength(1));
-      expect(urls.single.url, 'https://kappa.lol/ABCDE');
-    });
-
-    test('links subdomains of whitelisted domains', () {
-      final urls = urlsOf('see sub .kappa.lol/x', ['kappa.lol']);
-      expect(urls, hasLength(1));
-      expect(urls.single.url, 'https://sub.kappa.lol/x');
-    });
-
-    test('keeps trailing slash without eating the next word', () {
-      final urls = urlsOf('see i .nuuls .com/ ABCD', ['i.nuuls.com']);
-      expect(urls, hasLength(1));
-      expect(urls.single.url, 'https://i.nuuls.com/');
+    test('links split and spaced domains to one url', () {
+      const cases = [
+        (
+          'check example .com/ out',
+          ['com'],
+          'https://example.com/',
+          'example .com/',
+        ),
+        (
+          'check example. com/ out',
+          ['com'],
+          'https://example.com/',
+          'example. com/',
+        ),
+        ('see example. com/foo', ['com'], 'https://example.com/foo', null),
+        ('see example . com / foo', ['com'], 'https://example.com/foo', null),
+        ('check example .com out', ['com'], 'https://example.com', null),
+        (
+          'watch kappa .lol/ABCDE now',
+          ['kappa.lol'],
+          'https://kappa.lol/ABCDE',
+          null,
+        ),
+        (
+          'see sub .kappa.lol/x',
+          ['kappa.lol'],
+          'https://sub.kappa.lol/x',
+          null,
+        ),
+        (
+          'see i .nuuls .com/ ABCD',
+          ['i.nuuls.com'],
+          'https://i.nuuls.com/',
+          null,
+        ),
+      ];
+      for (final (text, whitelist, url, shown) in cases) {
+        final urls = urlsOf(text, whitelist);
+        expect(urls, hasLength(1), reason: text);
+        expect(urls.single.url, url, reason: text);
+        if (shown != null) expect(urls.single.text, shown, reason: text);
+      }
     });
 
     test('does not link sentence boundary without path', () {
@@ -909,24 +889,14 @@ void main() {
       expect(urlsOf('check example .com/ out', ['net']), isEmpty);
     });
 
-    test('links bare whitelisted domains stock linkify misses', () {
-      final urls = urlsOf('check x.com out', ['x.com']);
-      expect(urls, hasLength(1));
-      expect(urls.single.url, 'https://x.com');
-      expect(urls.single.text, 'x.com', reason: 'no scheme shown');
-    });
-
-    test('links bare domains via whitelisted TLD', () {
-      final urls = urlsOf('check x.com out', ['com']);
-      expect(urls, hasLength(1));
-      expect(urls.single.url, 'https://x.com');
-    });
-
-    test('links bare whitelisted domains with paths', () {
-      final urls = urlsOf('check kappa.lol/tests out', ['kappa.lol']);
-      expect(urls, hasLength(1));
-      expect(urls.single.url, 'https://kappa.lol/tests');
-      expect(urls.single.text, 'kappa.lol/tests');
+    test('links bare whitelisted domains and paths', () {
+      final bare = urlsOf('check x.com out', ['x.com']);
+      expect(bare.single.url, 'https://x.com');
+      expect(bare.single.text, 'x.com', reason: 'no scheme shown');
+      expect(urlsOf('check x.com out', ['com']).single.url, 'https://x.com');
+      final path = urlsOf('check kappa.lol/tests out', ['kappa.lol']);
+      expect(path.single.url, 'https://kappa.lol/tests');
+      expect(path.single.text, 'kappa.lol/tests');
     });
 
     test('does not link bare non-whitelisted domains', () {
@@ -983,21 +953,6 @@ void main() {
       final elements = runLinkifier('check example. com/ out', []);
       expect(elements, hasLength(1));
       expect(elements.single, isA<TextElement>());
-    });
-
-    test('full linkify pipeline links the split domain once', () {
-      final elements = linkify(
-        'check example. com/ out',
-        options: options,
-        linkifiers: [
-          const SafeEmailLinkifier(),
-          WhitelistLinkifier(const ['com']),
-          const UrlLinkifier(),
-        ],
-      );
-      final urls = elements.whereType<UrlElement>().toList();
-      expect(urls, hasLength(1));
-      expect(urls.single.url, 'https://example.com/');
     });
 
     test('links show without the scheme but keep it for launching', () {

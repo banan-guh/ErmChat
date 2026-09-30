@@ -9,8 +9,9 @@ Question: does `flutter_riverpod` fit this app's DI, lifecycle, and observation 
 including the planned bridge for the mutable chat kernel whose leaf state is exposed as
 Flutter `ValueNotifier`s?
 
-Method: `test/spikes/riverpod_fit_test.dart`, a deterministic widget test (8 tests) with
-rebuild counters and disposal flags. Added `flutter_riverpod: ^3.4.3` in this phase.
+Method: a deterministic widget test (8 tests) with rebuild counters and disposal flags,
+deleted once the result held since it exercised only Riverpod itself. Added
+`flutter_riverpod: ^3.4.3` in this phase.
 
 Result: confirmed. The planned shape works.
 

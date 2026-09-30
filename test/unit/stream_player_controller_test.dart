@@ -35,30 +35,23 @@ StreamPlayerController _controller({PipService? pipService}) {
 
 void main() {
   group('StreamPlayerController PiP', () {
-    test('enterPip is a no-op without an active channel', () async {
-      final pip = FakePipService();
-      final controller = _controller(pipService: pip);
-      controller.setPipEnabled(true);
-      await controller.enterPip();
-      expect(pip.enterCalls, 0);
-    });
-
-    test('enterPip is a no-op when audio-only', () async {
-      final pip = FakePipService();
-      final controller = _controller(pipService: pip);
-      controller.setPipEnabled(true);
-      controller.toggleStream('shroud');
-      controller.toggleAudioOnly();
-      await controller.enterPip();
-      expect(pip.enterCalls, 0);
-    });
-
-    test('enterPip is a no-op when PiP is disabled', () async {
-      final pip = FakePipService();
-      final controller = _controller(pipService: pip);
-      controller.toggleStream('shroud');
-      await controller.enterPip();
-      expect(pip.enterCalls, 0);
+    test('enterPip is a no-op unless eligible', () async {
+      final setups = <String, void Function(StreamPlayerController)>{
+        'no active channel': (c) => c.setPipEnabled(true),
+        'audio-only': (c) {
+          c.setPipEnabled(true);
+          c.toggleStream('shroud');
+          c.toggleAudioOnly();
+        },
+        'pip disabled': (c) => c.toggleStream('shroud'),
+      };
+      for (final entry in setups.entries) {
+        final pip = FakePipService();
+        final controller = _controller(pipService: pip);
+        entry.value(controller);
+        await controller.enterPip();
+        expect(pip.enterCalls, 0, reason: entry.key);
+      }
     });
 
     test('enterPip reaches the host when eligible', () async {
