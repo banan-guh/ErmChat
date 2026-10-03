@@ -166,8 +166,17 @@ class _PingsScreenState extends ConsumerState<PingsScreen> {
   Widget _tile(PingRule r, bool pushOn) => _RuleTile(
     rule: r,
     pushOn: _pushSupported && _canNotify(r) ? pushOn : null,
+    onBell: () => _toggleBell(r),
+    notifyColumn: _pushSupported,
     onTap: () => _edit(r),
   );
+
+  void _toggleBell(PingRule rule) {
+    final on = !rule.notify;
+    _manager.upsertRule(rule.copyWith(notify: on));
+    _manager.save();
+    if (on) _ensurePush();
+  }
 
   List<Widget> _notificationSection(bool pushOn) => [
     const SettingsSectionHeader('Notifications'),
@@ -222,6 +231,7 @@ class _PingsScreenState extends ConsumerState<PingsScreen> {
 
   List<Widget> _mentionSection(List<PingRule> rules, bool pushOn) => [
     const SettingsSectionHeader('Mentions'),
+    _ColumnLabels(notify: _pushSupported),
     for (final type in const ['username', 'reply', 'thread'])
       ...rules
           .where((r) => r.kind == PingRuleKind.message && r.type == type)
@@ -241,6 +251,7 @@ class _PingsScreenState extends ConsumerState<PingsScreen> {
           (keywords ? Setting.highlightKeywords : Setting.highlightUsers).title,
         ),
       ),
+      _ColumnLabels(notify: _pushSupported),
       for (final r in rules.where(
         (r) => r.kind == kind && (!keywords || r.type == 'custom'),
       ))
@@ -294,6 +305,7 @@ class _PingsScreenState extends ConsumerState<PingsScreen> {
       child: SettingsSectionHeader(Setting.dontHighlight.title),
     ),
     const _Caption('Shown, but never highlighted or notified.'),
+    const _ColumnLabels(notify: false),
     for (final r in rules.where((r) => r.kind == PingRuleKind.blacklist))
       _RuleTile(rule: r, onTap: () => _edit(r)),
     _AddTile(
@@ -468,7 +480,13 @@ class _AddTile extends StatelessWidget {
 /// One rule: tint swatch, name (with a bell when it notifies), on/off. The
 /// switch is the only control; notifying is set in the rule's editor.
 class _RuleTile extends ConsumerWidget {
-  const _RuleTile({required this.rule, required this.onTap, this.pushOn});
+  const _RuleTile({
+    required this.rule,
+    required this.onTap,
+    this.pushOn,
+    this.onBell,
+    this.notifyColumn = false,
+  });
 
   final PingRule rule;
   final VoidCallback onTap;
@@ -476,6 +494,10 @@ class _RuleTile extends ConsumerWidget {
   /// Null hides the bell (tint-only rules, or no push on this platform);
   /// false dims it because notifications are switched off.
   final bool? pushOn;
+  final VoidCallback? onBell;
+
+  /// The section labels a Notify column, so rows keep its slot aligned.
+  final bool notifyColumn;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -483,45 +505,60 @@ class _RuleTile extends ConsumerWidget {
     final muted = rule.kind == PingRuleKind.blacklist;
     final subtitle = _ruleSubtitle(rule);
     final pushOn = this.pushOn;
+    // An off rule greys everything but its switch.
+    final dim = rule.enabled ? 1.0 : 0.38;
     final tile = ListTile(
-      leading: SizedBox(
-        width: 28,
-        child: muted
-            ? Icon(Icons.block, color: scheme.onSurfaceVariant)
-            : Center(
-                child: Container(
-                  width: 22,
-                  height: 22,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: _ruleTint(context, rule, rule.colorArgb, 1),
-                    border: Border.all(color: scheme.outlineVariant),
+      leading: Opacity(
+        opacity: dim,
+        child: SizedBox(
+          width: 28,
+          child: muted
+              ? Icon(Icons.block, color: scheme.onSurfaceVariant)
+              : Center(
+                  child: Container(
+                    width: 22,
+                    height: 22,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: _ruleTint(context, rule, rule.colorArgb, 1),
+                      border: Border.all(color: scheme.outlineVariant),
+                    ),
                   ),
                 ),
-              ),
+        ),
       ),
-      title: Row(
+      title: Opacity(opacity: dim, child: Text(_ruleTitle(rule))),
+      subtitle: subtitle == null
+          ? null
+          : Opacity(opacity: dim, child: Text(subtitle)),
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          Flexible(child: Text(_ruleTitle(rule))),
-          if (pushOn != null && rule.notify) ...[
-            const SizedBox(width: 6),
-            Icon(
-              Icons.notifications_active,
-              size: 16,
-              semanticLabel: 'Notifies',
-              color: pushOn ? scheme.primary : scheme.onSurfaceVariant,
+          if (notifyColumn)
+            SizedBox(
+              width: 48,
+              child: pushOn == null
+                  ? null
+                  : IconButton(
+                      tooltip: 'Notify',
+                      isSelected: rule.notify,
+                      icon: const Icon(Icons.notifications_none),
+                      selectedIcon: Icon(
+                        Icons.notifications_active,
+                        color: pushOn ? scheme.primary : null,
+                      ),
+                      onPressed: rule.enabled ? onBell : null,
+                    ),
             ),
-          ],
+          Switch(
+            value: rule.enabled,
+            onChanged: (v) {
+              final manager = ref.read(pingManagerProvider);
+              manager.upsertRule(rule.copyWith(enabled: v));
+              manager.save();
+            },
+          ),
         ],
-      ),
-      subtitle: subtitle == null ? null : Text(subtitle),
-      trailing: Switch(
-        value: rule.enabled,
-        onChanged: (v) {
-          final manager = ref.read(pingManagerProvider);
-          manager.upsertRule(rule.copyWith(enabled: v));
-          manager.save();
-        },
       ),
       onTap: onTap,
     );
@@ -1133,4 +1170,30 @@ class _RuleEditorState extends State<_RuleEditor> {
   }
 
   void _save() => Navigator.pop(context, _result());
+}
+
+/// Small labels over a rule section's controls, aligned to the row's bell
+/// (48) and switch (60) slots and the row's 24px end padding.
+class _ColumnLabels extends StatelessWidget {
+  const _ColumnLabels({required this.notify});
+
+  final bool notify;
+
+  @override
+  Widget build(BuildContext context) {
+    final style = Theme.of(context).textTheme.labelSmall?.copyWith(
+      color: Theme.of(context).colorScheme.onSurfaceVariant,
+    );
+    Widget label(String text, double width) => SizedBox(
+      width: width,
+      child: Text(text, style: style, textAlign: TextAlign.center),
+    );
+    return Padding(
+      padding: const EdgeInsetsDirectional.only(end: 24),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.end,
+        children: [if (notify) label('Notify', 48), label('On', 60)],
+      ),
+    );
+  }
 }
