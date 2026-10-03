@@ -9,12 +9,14 @@ final _replyPrefixRe = RegExp(r'^\s*@\S+\s+');
 final _gifEntryRe = RegExp(r'(\d+)-(\d+)\|([^|]+)\|(.+?)(?=,\d+-\d+\||$)');
 
 /// Parses IRC `emotes` tag into [EmotePosition]s. Positions are relative to
-/// [originalText]; [prefixLen] adjusts for reply prefix.
+/// [originalText]; [prefixLen] adjusts for reply prefix. [cpToUtf16] is an
+/// optional precomputed table for the base text, shared with the gif parser.
 List<EmotePosition>? parseIrcEmotePositions(
   String? emotesTag, {
   required String originalText,
   required String strippedText,
   int prefixLen = 0,
+  List<int>? cpToUtf16,
 }) {
   if (emotesTag == null || emotesTag.isEmpty) return null;
   // ACTION wrapper: Twitch sends emote positions relative to the message
@@ -36,7 +38,7 @@ List<EmotePosition>? parseIrcEmotePositions(
     }
   }
   if (raw.isEmpty) return null;
-  final conv = _cpToUtf16Table(baseText);
+  final conv = cpToUtf16 ?? _cpToUtf16Table(baseText);
   int lookup(int cp) => cp >= 0 && cp < conv.length ? conv[cp] : -1;
   final positions = <EmotePosition>[];
   for (final entry in raw) {
@@ -65,18 +67,20 @@ List<EmotePosition>? parseIrcEmotePositions(
 /// Parses IRC `gifs` tag into [GifAttachment]s. Format per entry:
 /// `<start>-<end>|<gifId>|<url>`, entries comma-separated. Positions are
 /// relative to [originalText]; [prefixLen] adjusts for reply prefix.
-/// URLs are used verbatim and never modified.
+/// URLs are used verbatim and never modified. [cpToUtf16] is an optional
+/// precomputed table for the base text, shared with the emote parser.
 List<GifAttachment>? parseIrcGifPositions(
   String? gifsTag, {
   required String originalText,
   required String strippedText,
   int prefixLen = 0,
+  List<int>? cpToUtf16,
 }) {
   if (gifsTag == null || gifsTag.isEmpty) return null;
   final baseText = _actionBody(originalText);
   final matches = _gifEntryRe.allMatches(gifsTag).toList();
   if (matches.isEmpty) return null;
-  final conv = _cpToUtf16Table(baseText);
+  final conv = cpToUtf16 ?? _cpToUtf16Table(baseText);
   int lookup(int cp) => cp >= 0 && cp < conv.length ? conv[cp] : -1;
   final attachments = <GifAttachment>[];
   for (final m in matches) {
@@ -234,6 +238,14 @@ TwitchMessage parseIrcChatMessage(
   final customRewardId = ircMsg.tags['custom-reward-id'];
   final pinnedPaidAmount = ircMsg.tags['pinned-chat-paid-amount'];
 
+  // Emote and gif positions share one codepoint table for the same base text.
+  final emotesTag = ircMsg.tags['emotes'];
+  final gifsTag = ircMsg.tags['gifs'];
+  final hasPositions =
+      (emotesTag != null && emotesTag.isNotEmpty) ||
+      (gifsTag != null && gifsTag.isNotEmpty);
+  final cpToUtf16 = hasPositions ? _cpToUtf16Table(_actionBody(text)) : null;
+
   return TwitchMessage(
     login: user.login,
     displayName: user.displayName,
@@ -249,16 +261,18 @@ TwitchMessage parseIrcChatMessage(
     replyToText: ircReplyText,
     replyThreadRootId: ircReplyThreadRootId,
     emotePositions: parseIrcEmotePositions(
-      ircMsg.tags['emotes'],
+      emotesTag,
       originalText: text,
       strippedText: strippedText,
       prefixLen: prefixLen,
+      cpToUtf16: cpToUtf16,
     ),
     gifAttachments: parseIrcGifPositions(
-      ircMsg.tags['gifs'],
+      gifsTag,
       originalText: text,
       strippedText: strippedText,
       prefixLen: prefixLen,
+      cpToUtf16: cpToUtf16,
     ),
     badges: parseIrcBadges(ircMsg.tags['badges']),
     sourceBroadcasterId: sourceBroadcasterId,
