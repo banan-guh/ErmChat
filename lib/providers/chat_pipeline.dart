@@ -4,6 +4,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../services/chat_connection_manager.dart';
 import '../services/seven_tv_presence.dart';
+import '../util/friendly_error.dart';
+import '../util/log.dart';
 import 'app_providers.dart';
 import 'chat_signals.dart';
 import 'feature_providers.dart';
@@ -71,7 +73,8 @@ final chatPipelineProvider = Provider<ChatConnectionManager>((ref) {
           try {
             await ref.read(commandHandlerProvider).handle(text, channel, auth);
           } catch (e) {
-            writeSystem(channel, 'Command failed: $e');
+            logDebug('[Command] $text failed: $e');
+            writeSystem(channel, 'Command failed. ${friendlyError(e)}');
           }
         },
         getReplyToMsg: () => ref.read(replyToProvider),

@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import '../services/media_uploader.dart';
+import '../util/friendly_error.dart';
+import '../util/log.dart';
 import 'app_snack.dart';
 
 /// Notice sink for upload results. Home wires the inline notice bar;
@@ -16,10 +18,8 @@ typedef NoticeCallback =
     });
 
 class MediaUploadController {
-  MediaUploadController({
-    MediaUploader? uploader,
-    this.onNotice,
-  }) : _uploader = uploader ?? MediaUploader();
+  MediaUploadController({MediaUploader? uploader, this.onNotice})
+    : _uploader = uploader ?? MediaUploader();
 
   final MediaUploader _uploader;
   final NoticeCallback? onNotice;
@@ -76,7 +76,16 @@ class MediaUploadController {
       Clipboard.setData(ClipboardData(text: result.imageLink));
       _showSnack(context, 'Uploaded ${result.imageLink}');
     } catch (e) {
-      if (context.mounted) _showSnack(context, 'Upload failed: $e');
+      logDebug('[Upload] failed: $e');
+      if (context.mounted) {
+        _showSnack(
+          context,
+          friendlyError(
+            e,
+            fallback: 'Upload failed. Check Tools > Image uploader.',
+          ),
+        );
+      }
     } finally {
       _isUploading = false;
     }

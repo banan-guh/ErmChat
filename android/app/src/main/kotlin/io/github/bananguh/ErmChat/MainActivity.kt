@@ -32,6 +32,12 @@ class MainActivity : FlutterActivity() {
     private var pendingUrl: String? = null
     private var pendingRedirect: String? = null
 
+    // Login tab bookkeeping: the redirect lands in onNewIntent before
+    // onResume, so resuming with a launched tab and no redirect means the
+    // user closed the tab. Dart gets onCancel and can retry at once.
+    private var oauthPending = false
+    private var oauthLeftApp = false
+
     // TTS engine selection is delegated to the system "Text-to-speech output"
     // screen (same as dankchat's ACTION_INSTALL_TTS_DATA flow), so we only need
     // an intent to open it.
@@ -84,6 +90,8 @@ class MainActivity : FlutterActivity() {
                     if (url == null) {
                         result.error("NO_URL", "No url provided", null)
                     } else {
+                        oauthPending = true
+                        oauthLeftApp = false
                         launchInCustomTab(url)
                         result.success(null)
                     }
@@ -147,6 +155,19 @@ class MainActivity : FlutterActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         handleOAuthIntent(intent)
+    }
+
+    override fun onPause() {
+        super.onPause()
+        if (oauthPending) oauthLeftApp = true
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (oauthPending && oauthLeftApp) {
+            oauthPending = false
+            methodChannel?.invokeMethod("onCancel", null)
+        }
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -262,6 +283,7 @@ class MainActivity : FlutterActivity() {
     private fun handleOAuthIntent(intent: Intent) {
         val data = intent.data
         if (data != null && data.scheme == "ermchat") {
+            oauthPending = false
             if (methodChannel != null) {
                 methodChannel?.invokeMethod("onRedirect", data.toString())
             } else {

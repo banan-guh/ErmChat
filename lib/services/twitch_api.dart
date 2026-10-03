@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import '../twitch_config.dart';
 import '../util/constants.dart';
+import '../util/friendly_error.dart';
 import '../models/point_rewards.dart';
 import '../models/polls.dart';
 import 'twitch_auth.dart';
@@ -164,6 +165,13 @@ class TwitchApi {
 
   /// Helix error `message`, or null.
   String? get lastHelixMessage => _slot.helixMessage;
+
+  /// The last failure in words a person can act on: a known status first,
+  /// then Twitch's own message (already plain English), then a generic line.
+  String get friendlyLastError =>
+      friendlyHttpStatus(lastErrorStatus) ??
+      lastHelixMessage ??
+      'Twitch request failed. Try again.';
 
   /// Runs [body] in its own error scope: the `last*` getters inside it see
   /// only failures from calls it made, so concurrent loads cannot read each

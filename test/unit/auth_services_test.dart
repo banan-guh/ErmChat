@@ -1,4 +1,5 @@
 import 'package:fake_async/fake_async.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:ermchat/services/twitch_auth.dart';
@@ -233,6 +234,27 @@ void main() {
         }
       });
     }
+  });
+
+  // Regression: a closed login used to keep the flow locked until restart.
+  test('a cancelled login is not an error and frees the next one', () async {
+    TestWidgetsFlutterBinding.ensureInitialized();
+    const channel = MethodChannel('flutter_web_auth_2');
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    var calls = 0;
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      calls++;
+      throw PlatformException(code: 'CANCELED');
+    });
+    addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+
+    expect(await TwitchOAuth.startFlow(), isNull);
+    expect(TwitchOAuth.lastCancelled, isTrue);
+    expect(TwitchOAuth.lastError, isNull);
+
+    expect(await TwitchOAuth.startFlow(), isNull);
+    expect(calls, 2, reason: 'the retry reached the login, not a lock');
   });
 
   test('TwitchOAuth.parseFragment decodes the redirect fragment', () {

@@ -107,11 +107,18 @@ class _AccountScreenState extends State<AccountScreen> {
         widget.twitchAuth.setCredentials(accessToken: token);
         setState(() => _authState = _AuthState.success);
         _loadConnectedLogin();
+      } else if (starter == null && TwitchOAuth.lastCancelled) {
+        // Closing the login is not an error: back to where the user was.
+        setState(() {
+          _authState = widget.twitchAuth.isConfigured
+              ? _AuthState.success
+              : _AuthState.idle;
+        });
       } else {
         setState(() {
           _authState = _AuthState.error;
           _authError =
-              TwitchOAuth.lastError ?? 'Authorization failed or timed out.';
+              TwitchOAuth.lastError ?? "Couldn't log in to Twitch. Try again.";
         });
       }
     }
@@ -142,7 +149,7 @@ class _AccountScreenState extends State<AccountScreen> {
     if (error != null) {
       setState(() {
         _authState = _AuthState.error;
-        _authError = 'Authorization error: $error';
+        _authError = TwitchOAuth.describeError(error);
       });
       return;
     }
@@ -151,7 +158,7 @@ class _AccountScreenState extends State<AccountScreen> {
       if (state != _browserAuthState) {
         setState(() {
           _authState = _AuthState.error;
-          _authError = 'CSRF: state mismatch';
+          _authError = TwitchOAuth.stateMismatchError;
         });
         return;
       }
@@ -163,8 +170,8 @@ class _AccountScreenState extends State<AccountScreen> {
 
     setState(() {
       _authError =
-          'No access token found in the pasted URL. '
-          'Make sure you paste the full redirect URL including the #fragment.';
+          'That link has no login in it. Copy the whole address from the '
+          'browser, including the part after #.';
     });
   }
 

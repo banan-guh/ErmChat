@@ -78,6 +78,10 @@ class TwitchOAuth {
   }
 
   static String? lastError;
+
+  /// True when the last flow ended because the user closed the login, which
+  /// is not an error: the caller just returns to its idle state.
+  static bool lastCancelled = false;
   static bool _flowInProgress = false;
 
   /// Starts the OAuth flow. Set [ephemeral] to launch the login in an
@@ -89,8 +93,9 @@ class TwitchOAuth {
   /// every navigation inside the tab regardless of cookies.
   static Future<String?> startFlow({bool ephemeral = false}) async {
     lastError = null;
+    lastCancelled = false;
     if (_flowInProgress) {
-      lastError = 'An authorization flow is already in progress.';
+      lastError = 'A Twitch login is already open. Finish or close it first.';
       return null;
     }
 
@@ -108,11 +113,22 @@ class TwitchOAuth {
             ).timeout(const Duration(minutes: 5));
 
       return _extractToken(result, urlInfo.state);
-    } on TimeoutException {
-      lastError = 'Authorization timed out.';
+    } on _LoginCancelled {
+      lastCancelled = true;
       return null;
-    } catch (e) {
-      lastError = 'Authorization failed: $e';
+    } on PlatformException catch (e) {
+      // flutter_web_auth_2 reports a closed login sheet as CANCELED.
+      if (e.code == 'CANCELED') {
+        lastCancelled = true;
+      } else {
+        lastError = "Couldn't open the Twitch login. Try again.";
+      }
+      return null;
+    } on TimeoutException {
+      lastError = 'The Twitch login timed out. Try again.';
+      return null;
+    } catch (_) {
+      lastError = "Couldn't open the Twitch login. Try again.";
       return null;
     } finally {
       _flowInProgress = false;
@@ -127,9 +143,14 @@ class TwitchOAuth {
     Timer? timeoutTimer;
 
     _channel.setMethodCallHandler((call) async {
-      if (call.method == 'onRedirect' && !completer.isCompleted) {
+      if (completer.isCompleted) return;
+      if (call.method == 'onRedirect') {
         timeoutTimer?.cancel();
         completer.complete(call.arguments as String);
+      } else if (call.method == 'onCancel') {
+        // The user came back without finishing; free the flow for a retry.
+        timeoutTimer?.cancel();
+        completer.completeError(const _LoginCancelled());
       }
     });
 
@@ -165,21 +186,33 @@ class TwitchOAuth {
     final state = params['state'];
 
     if (error != null) {
-      lastError = 'Twitch returned: $error';
+      lastError = describeError(error);
       return null;
     }
 
     if (token != null) {
       if (state != expectedState) {
-        lastError = 'CSRF: state mismatch';
+        lastError = stateMismatchError;
         return null;
       }
       return token;
     }
 
-    lastError = 'No token in response.';
+    lastError = noTokenError;
     return null;
   }
+
+  // The state nonce guards against a forged redirect; to the user it just
+  // means this attempt is stale.
+  static const stateMismatchError =
+      "That login didn't match this attempt. Try logging in again.";
+  static const noTokenError = "Twitch didn't send a login. Try again.";
+
+  /// Plain sentence for an OAuth `error` code from the redirect.
+  static String describeError(String code) => switch (code) {
+    'access_denied' => 'You declined access on Twitch.',
+    _ => "Twitch couldn't log you in. Try again.",
+  };
 
   static String _randomState() {
     final random = Random.secure();
@@ -193,4 +226,9 @@ class TwitchOAuth {
     if (fragment.isEmpty) return {};
     return Uri.splitQueryString(fragment);
   }
+}
+
+/// The login tab was closed before Twitch redirected back.
+class _LoginCancelled implements Exception {
+  const _LoginCancelled();
 }

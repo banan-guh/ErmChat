@@ -13,6 +13,7 @@ import '../services/mod_actions.dart';
 import '../services/twitch_api.dart';
 import '../services/twitch_auth.dart';
 import '../util/date_format.dart';
+import '../util/friendly_error.dart';
 import '../util/haptics.dart';
 import '../util/layout_density.dart';
 import '../util/log.dart';
@@ -265,10 +266,17 @@ class UserProfileSheetState extends State<UserProfileSheet> {
     // With the user id known up front, follow age loads alongside the profile.
     final follow = widget.userId != null ? _fetchFollowAge() : null;
     try {
-      final profile = await widget.twitchApi.getUserProfile(
-        widget.twitchAuth,
-        widget.username,
-      );
+      // Own error scope: the parallel follow lookup must not clear ours.
+      final api = widget.twitchApi;
+      final (profile, failure) = await api.isolateErrors(() async {
+        final p = await api.getUserProfile(widget.twitchAuth, widget.username);
+        final failure = p != null
+            ? null
+            : api.lastErrorStatus == null
+            ? 'User not found'
+            : api.friendlyLastError;
+        return (p, failure);
+      });
       if (!mounted) return;
       if (profile != null) {
         setState(() {
@@ -279,7 +287,7 @@ class UserProfileSheetState extends State<UserProfileSheet> {
         await (follow ?? _fetchFollowAge());
       } else {
         setState(() {
-          _error = widget.twitchApi.lastError ?? 'User not found';
+          _error = failure;
           _loading = false;
           _measureDirty = true;
         });
@@ -287,7 +295,7 @@ class UserProfileSheetState extends State<UserProfileSheet> {
     } catch (e) {
       if (!mounted) return;
       setState(() {
-        _error = e.toString();
+        _error = friendlyError(e);
         _loading = false;
         _measureDirty = true;
       });
@@ -938,7 +946,7 @@ class UserProfileSheetState extends State<UserProfileSheet> {
       context,
       ok
           ? '${widget.displayName} blocked'
-          : 'Block failed: ${widget.twitchApi.lastError ?? "unknown"}',
+          : "Couldn't block: ${widget.twitchApi.friendlyLastError}",
     );
     if (ok) widget.onUserBlocked?.call(widget.username);
     widget.onClose();
