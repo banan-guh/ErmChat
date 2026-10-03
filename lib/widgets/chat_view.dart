@@ -306,32 +306,41 @@ class _ChatViewState extends State<ChatView>
     return Stack(
       clipBehavior: Clip.hardEdge,
       children: [
-        NotificationListener<ScrollNotification>(
-          onNotification: (notification) {
-            _scheduleGateSync();
-            if (notification is ScrollStartNotification) {
-              if (notification.dragDetails != null) _follow = false;
-              _applyScrollState(notification.metrics);
-            } else if (notification is ScrollUpdateNotification) {
-              if (notification.dragDetails != null) _follow = false;
-              _applyScrollState(notification.metrics);
-            } else if (notification is ScrollEndNotification) {
-              if (notification.metrics.pixels <= _followEps) _follow = true;
-              _applyScrollState(notification.metrics);
-            }
+        // A viewport resize (keyboard) moves rows in or out of view without
+        // a scroll or a build. This arrives post-frame, after layout, so it
+        // syncs now: a deferred sync could wait for a frame that never comes.
+        NotificationListener<ScrollMetricsNotification>(
+          onNotification: (_) {
+            _syncRowGates();
             return false;
           },
-          child: ScrollbarTheme(
-            data: const ScrollbarThemeData(
-              thickness: WidgetStatePropertyAll(0),
-            ),
-            child: ValueListenableBuilder<int>(
-              valueListenable: widget.messageNotifier,
-              builder: (_, _, _) {
-                final msgs = widget.messages;
-                _syncHold(msgs);
-                return _buildList(context, msgs, surface, s);
-              },
+          child: NotificationListener<ScrollNotification>(
+            onNotification: (notification) {
+              _scheduleGateSync();
+              if (notification is ScrollStartNotification) {
+                if (notification.dragDetails != null) _follow = false;
+                _applyScrollState(notification.metrics);
+              } else if (notification is ScrollUpdateNotification) {
+                if (notification.dragDetails != null) _follow = false;
+                _applyScrollState(notification.metrics);
+              } else if (notification is ScrollEndNotification) {
+                if (notification.metrics.pixels <= _followEps) _follow = true;
+                _applyScrollState(notification.metrics);
+              }
+              return false;
+            },
+            child: ScrollbarTheme(
+              data: const ScrollbarThemeData(
+                thickness: WidgetStatePropertyAll(0),
+              ),
+              child: ValueListenableBuilder<int>(
+                valueListenable: widget.messageNotifier,
+                builder: (_, _, _) {
+                  final msgs = widget.messages;
+                  _syncHold(msgs);
+                  return _buildList(context, msgs, surface, s);
+                },
+              ),
             ),
           ),
         ),

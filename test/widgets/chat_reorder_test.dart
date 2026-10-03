@@ -233,4 +233,47 @@ void main() {
     await tester.pump();
     expectGatesMatchViewport();
   });
+
+  testWidgets('rows revealed by a keyboard close unfreeze', (tester) async {
+    tester.view.physicalSize = const Size(1080, 2400);
+    tester.view.devicePixelRatio = 3.0;
+    tester.view.viewInsets = const FakeViewPadding(bottom: 900);
+    addTearDown(tester.view.reset);
+
+    final notifier = ValueNotifier(0);
+    addTearDown(notifier.dispose);
+    // Short enough that every row is already built, so the resize builds
+    // nothing new and only the metrics change can re-check the gates.
+    final messages = <TwitchMessage>[for (var i = 1; i <= 10; i++) _msg(i)];
+    final h = _Harness(tester: tester, messages: messages, notifier: notifier);
+    await h.pump();
+    await tester.pump();
+
+    // The viewport grows with no scroll and no new rows.
+    tester.view.viewInsets = FakeViewPadding.zero;
+    await tester.pump();
+    await tester.pump();
+
+    final screen = Offset.zero & tester.view.physicalSize / 3.0;
+    final rows = find.byWidgetPredicate(
+      (w) => w.runtimeType.toString() == '_RowGate',
+      skipOffstage: false,
+    );
+    for (final e in rows.evaluate()) {
+      final box = e.renderObject! as RenderBox;
+      if (!(box.localToGlobal(Offset.zero) & box.size).overlaps(screen)) {
+        continue;
+      }
+      final gate = e.widget.key! as ValueKey<String>;
+      final ticker = find.descendant(
+        of: find.byKey(gate, skipOffstage: false),
+        matching: find.byType(RepaintBoundary, skipOffstage: false),
+      );
+      expect(
+        TickerMode.valuesOf(tester.element(ticker.first)).enabled,
+        isTrue,
+        reason: '${gate.value} is on screen but frozen',
+      );
+    }
+  });
 }
