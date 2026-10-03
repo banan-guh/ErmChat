@@ -262,6 +262,8 @@ class UserProfileSheetState extends State<UserProfileSheet> {
       });
       return;
     }
+    // With the user id known up front, follow age loads alongside the profile.
+    final follow = widget.userId != null ? _fetchFollowAge() : null;
     try {
       final profile = await widget.twitchApi.getUserProfile(
         widget.twitchAuth,
@@ -274,7 +276,7 @@ class UserProfileSheetState extends State<UserProfileSheet> {
           _loading = false;
           _measureDirty = true;
         });
-        await _fetchFollowAge();
+        await (follow ?? _fetchFollowAge());
       } else {
         setState(() {
           _error = widget.twitchApi.lastError ?? 'User not found';
@@ -292,11 +294,11 @@ class UserProfileSheetState extends State<UserProfileSheet> {
     }
   }
 
-  // Follow age is a nicety; a failed lookup hides the row.
+  // Follow age is a nicety for mods; a failed lookup leaves the line blank.
   Future<void> _fetchFollowAge() async {
     final broadcasterId = widget.broadcasterUserId;
     final userId = _targetUserId;
-    if (broadcasterId == null || userId == null) return;
+    if (!_showFollowLine || broadcasterId == null || userId == null) return;
     try {
       final date = await widget.twitchApi.getFollowDate(
         widget.twitchAuth,
@@ -309,9 +311,18 @@ class UserProfileSheetState extends State<UserProfileSheet> {
         _measureDirty = true;
       });
     } catch (_) {
-      // Row stays hidden.
+      // Line stays blank.
     }
   }
+
+  bool get _showMod =>
+      widget.canModerate &&
+      !widget.isSelf &&
+      widget.modActions != null &&
+      widget.channel != null;
+
+  // Reserved from the first frame so the answer never changes card height.
+  bool get _showFollowLine => _showMod && widget.broadcasterUserId != null;
 
   String _formatDate(String iso) {
     final dt = DateTime.tryParse(iso);
@@ -335,7 +346,8 @@ class UserProfileSheetState extends State<UserProfileSheet> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final actions = _profile != null ? _buildActionTiles() : const <Widget>[];
+    // Built while loading too, so the card opens at its final height.
+    final actions = _anonymous ? const <Widget>[] : _buildActionTiles();
     final media = MediaQuery.sizeOf(context);
     // Opaque card surface (a Material, so tile ink still renders) with the
     // sheet's top rounding; rows can never bleed through or poke past it.
@@ -489,14 +501,7 @@ class UserProfileSheetState extends State<UserProfileSheet> {
           ),
         ),
         const SizedBox(height: 10),
-        if (_loading)
-          const Center(
-            child: Padding(
-              padding: EdgeInsets.all(24),
-              child: CircularProgressIndicator(),
-            ),
-          )
-        else if (_error != null)
+        if (_error != null)
           Center(
             child: Text(
               _error!,
@@ -510,7 +515,18 @@ class UserProfileSheetState extends State<UserProfileSheet> {
             padding: const EdgeInsets.symmetric(horizontal: 16),
             child: _buildProfileHeader(theme),
           ),
-          if (_profile != null) ...actions,
+          // Inert until the profile lands; the rows already hold their space.
+          IgnorePointer(
+            ignoring: _loading,
+            child: AnimatedOpacity(
+              opacity: _loading ? 0.5 : 1,
+              duration: const Duration(milliseconds: 150),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: actions,
+              ),
+            ),
+          ),
         ],
         // Pins with the card, separating it from the scrolling history.
         const Padding(
@@ -599,6 +615,15 @@ class UserProfileSheetState extends State<UserProfileSheet> {
         ],
       );
     }
+    final detailStyle = TextStyle(
+      fontSize: 13,
+      color: theme.colorScheme.onSurfaceVariant,
+    );
+    final avatarSlot = Container(
+      width: 96,
+      height: 96,
+      color: theme.colorScheme.surfaceContainerHighest,
+    );
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -606,26 +631,28 @@ class UserProfileSheetState extends State<UserProfileSheet> {
           children: [
             ClipRRect(
               borderRadius: BorderRadius.circular(8),
-              child: CachedNetworkImage(
-                imageUrl: _profile!['profile_image_url'] as String? ?? '',
-                width: 96,
-                height: 96,
-                fit: BoxFit.cover,
-                memCacheWidth: (96 * MediaQuery.devicePixelRatioOf(context))
-                    .round(),
-                fadeInDuration: Duration.zero,
-                placeholder: (_, _) => const SizedBox(width: 96, height: 96),
-                errorWidget: (_, _, _) => Container(
-                  width: 96,
-                  height: 96,
-                  color: theme.colorScheme.surfaceContainerHighest,
-                  child: Icon(
-                    Icons.person,
-                    size: 32,
-                    color: theme.colorScheme.onSurfaceVariant,
-                  ),
-                ),
-              ),
+              child: _profile == null
+                  ? avatarSlot
+                  : CachedNetworkImage(
+                      imageUrl: _profile!['profile_image_url'] as String? ?? '',
+                      width: 96,
+                      height: 96,
+                      fit: BoxFit.cover,
+                      memCacheWidth:
+                          (96 * MediaQuery.devicePixelRatioOf(context)).round(),
+                      fadeInDuration: Duration.zero,
+                      placeholder: (_, _) => avatarSlot,
+                      errorWidget: (_, _, _) => Container(
+                        width: 96,
+                        height: 96,
+                        color: theme.colorScheme.surfaceContainerHighest,
+                        child: Icon(
+                          Icons.person,
+                          size: 32,
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ),
             ),
             const SizedBox(width: 12),
             Expanded(
@@ -641,13 +668,20 @@ class UserProfileSheetState extends State<UserProfileSheet> {
                     ),
                   ),
                   const SizedBox(height: 2),
+                  // Empty lines while loading still hold their height.
                   Text(
-                    'Created: ${_formatDate(_profile!['created_at'] as String? ?? '')}',
-                    style: TextStyle(
-                      fontSize: 13,
-                      color: theme.colorScheme.onSurfaceVariant,
-                    ),
+                    _profile == null
+                        ? ''
+                        : 'Created: ${_formatDate(_profile!['created_at'] as String? ?? '')}',
+                    style: detailStyle,
                   ),
+                  if (_showFollowLine)
+                    Text(
+                      _followDate == null
+                          ? ''
+                          : 'Following since ${_formatDate(_followDate!)}',
+                      style: detailStyle,
+                    ),
                   if (widget.cardBadges.isNotEmpty) ...[
                     const SizedBox(height: 8),
                     Wrap(
@@ -792,15 +826,12 @@ class UserProfileSheetState extends State<UserProfileSheet> {
   }
 
   // Display-only moderation record: active ban/timeout, warning history,
-  // suspicious context, and follow age. Empty hides the whole block.
+  // and suspicious context. Empty hides the whole block.
   List<Widget> _recordTiles() {
     final ban = widget.banEntry;
     final warnings = widget.userWarnings;
     final suspicious = widget.suspiciousInfo;
-    if (ban == null &&
-        warnings.isEmpty &&
-        suspicious == null &&
-        _followDate == null) {
+    if (ban == null && warnings.isEmpty && suspicious == null) {
       return const [];
     }
     return [
@@ -831,14 +862,6 @@ class UserProfileSheetState extends State<UserProfileSheet> {
           leading: const Icon(Icons.shield_outlined),
           title: Text(_suspiciousTitle(suspicious.status)),
           subtitle: Text(_suspiciousSubtitle(suspicious)),
-        ),
-      if (_followDate != null)
-        ListTile(
-          dense: true,
-          visualDensity: VisualDensity.compact,
-          leading: const Icon(Icons.favorite_outline),
-          title: const Text('Following'),
-          subtitle: Text('Since ${_formatDate(_followDate!)}'),
         ),
       const Divider(height: 1),
     ];
@@ -931,11 +954,7 @@ class UserProfileSheetState extends State<UserProfileSheet> {
 
   List<Widget> _buildActionTiles() {
     final compact = layoutOverridesOf(context).horizontalSheetActions;
-    final showMod =
-        widget.canModerate &&
-        !widget.isSelf &&
-        widget.modActions != null &&
-        widget.channel != null;
+    final showMod = _showMod;
     final modActions = <SheetAction>[
       SheetAction(
         icon: Icons.timer_outlined,

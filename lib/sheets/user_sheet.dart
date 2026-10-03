@@ -206,6 +206,7 @@ class UserSheets {
       );
     }
 
+    var measured = false;
     // Every measurement retargets the card detent, so the divider always
     // rests on the sheet's bottom edge and the history hides below the fold.
     void onCardMeasured(double naturalH) {
@@ -227,6 +228,24 @@ class UserSheets {
       _cardExtent = target;
       if (sheetDragging || userExpanded) {
         autoSeek.value = null;
+        return;
+      }
+      // The first measurement lands while the route is still sliding in;
+      // jumping keeps that slide the only motion instead of stacking a
+      // resize on it.
+      if (!measured) {
+        measured = true;
+        void jump() {
+          if (!sheetController.isAttached) return;
+          sheetController.jumpTo(target);
+          autoSeek.value = null;
+        }
+
+        if (attached) {
+          jump();
+        } else {
+          WidgetsBinding.instance.addPostFrameCallback((_) => jump());
+        }
         return;
       }
       // Hide the history until the sheet reaches the measured card. The list
@@ -281,6 +300,11 @@ class UserSheets {
       // The route's own drag moves the whole modal, including on list
       // overscroll; resizing and dismissal are owned here instead.
       enableDrag: false,
+      // Dismissal pops mid-fling, so the exit must start fast and ease out.
+      // The stock reverse curve starts flat, stalling the released sheet.
+      sheetAnimationStyle: const AnimationStyle(
+        reverseCurve: Curves.easeInCubic,
+      ),
       builder: (ctx) {
         var tracker = VelocityTracker.withKind(PointerDeviceKind.touch);
         var sizeAtDown = initialChildSize;

@@ -644,7 +644,12 @@ void main() {
       expect(settled, greaterThan(0.25));
       expect(find.text('TestUser'), findsOneWidget);
       expect(find.text('Report'), findsOneWidget);
-      expect(tester.getSize(find.byType(ListView)).height, closeTo(0, 1));
+      final history = find.byType(ListView);
+      expect(
+        history.evaluate().isEmpty || tester.getSize(history).height < 1,
+        isTrue,
+        reason: 'history stays below the fold (unbuilt or zero-height)',
+      );
       expect(find.text('row:m0'), findsNothing);
       expect(arrowOpacity(tester), 0);
 

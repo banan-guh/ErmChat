@@ -173,16 +173,15 @@ void main() {
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.reset);
 
-    // Hold the follow-age lookup open so the second card measurement lands
-    // after the user has expanded the sheet.
-    final follow = Completer<http.Response>();
+    // Hold the profile lookup open so the second card measurement (the
+    // failure message replacing the card) lands after the user expanded.
+    final profile = Completer<http.Response>();
     final api = TwitchApi(
       client: MockClient((request) async {
-        if (request.url.path.contains('followers')) return follow.future;
-        return http.Response(
-          '{"data": [{"id": "123", "login": "testuser", "display_name": "TestUser", "created_at": "2020-01-01T00:00:00Z", "profile_image_url": "https://example.com/img.png"}]}',
-          200,
-        );
+        if (request.url.path.contains('followers')) {
+          return http.Response('{"data": []}', 200);
+        }
+        return profile.future;
       }),
     );
 
@@ -312,13 +311,12 @@ void main() {
     final expanded = sheetController.size;
     expect(expanded, greaterThan(cardExtent + 0.05));
 
-    // The follow-age row arrives; the expanded sheet must not collapse.
+    // The lookup fails and the card shrinks; the expanded sheet must not
+    // collapse onto it.
     final before = cardExtent;
-    follow.complete(
-      http.Response('{"data":[{"followed_at":"2020-01-01T00:00:00Z"}]}', 200),
-    );
+    profile.complete(http.Response('{"data": []}', 200));
     await tester.pumpAndSettle();
-    expect(cardExtent, greaterThan(before + 0.02));
+    expect(cardExtent, lessThan(before - 0.02));
     expect(sheetController.size, closeTo(expanded, 0.02));
   });
 
