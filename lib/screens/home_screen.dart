@@ -935,18 +935,34 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     _tileCache.remove(channel);
     _threads.syncSavedWithChannel(channel);
     _onPanelDataChanged(channel);
+    // Badges and link rules render into mention rows too.
+    _onMentionsContent();
   }
 
   void _onMentionsContent() {
     if (_activePanel == OverlayPanel.mentions) _mentions.refreshOnData();
   }
 
+  // Channels with row edits awaiting one coalesced panel refresh.
+  final _rowPanelChannels = <String>{};
+
   /// Mention and thread rows are shared with the channel buffers, so in-place
-  /// edits there (deletes, restamps) refresh the panels. Channel arrivals do
-  /// not: threads move on their index, mentions on their own channel.
+  /// edits there (deletes, restamps) refresh the panels. A ban emits one edit
+  /// per row, so the refresh runs once per channel after the verb finishes.
   void _refreshRowPanels(String channel) {
-    if (_activePanel == OverlayPanel.mentions) _mentions.refreshOnData();
-    _threads.refreshOnData(channel);
+    if (_activePanel == OverlayPanel.closed) return;
+    final scheduled = _rowPanelChannels.isNotEmpty;
+    _rowPanelChannels.add(channel);
+    if (scheduled) return;
+    scheduleMicrotask(() {
+      final channels = List.of(_rowPanelChannels);
+      _rowPanelChannels.clear();
+      if (!mounted) return;
+      _onMentionsContent();
+      for (final c in channels) {
+        _threads.refreshOnData(c);
+      }
+    });
   }
 
   void _syncChannelSubs() {
