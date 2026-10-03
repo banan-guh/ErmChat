@@ -1020,6 +1020,48 @@ void main() {
       expect(codes, isNot(contains('Old7tv')));
       expect(codes, contains('NonTwitch'));
     });
+
+    // Live edits only changed memory, so a restart seeded the stale disk
+    // cache until the TTL ran out.
+    test(
+      'live 7TV edits survive a restart without extending the TTL',
+      () async {
+        final ts = DateTime.now()
+            .subtract(const Duration(hours: 1))
+            .toIso8601String();
+        SharedPreferences.setMockInitialValues({
+          'emotes5_ch': jsonEncode({
+            'ts': ts,
+            'tier': EmoteFetchTier.low.index,
+            'emotes': _catalogJson([
+              sevenTv('old', 'Old7tv'),
+            ], scope: EmoteScope.channel),
+          }),
+        });
+        EmoteManager boot() => EmoteManager(
+          fetchStagger: Duration.zero,
+          tier: EmoteFetchTier.low,
+          sevenTvSaveDelay: Duration.zero,
+          removeCachedFile: (url) async {},
+        );
+        final manager = boot();
+        await manager.resolveEmotes('ch', 'b1');
+        manager.updateSevenTvEmotes('ch', removedIds: ['old']);
+        manager.updateSevenTvEmotes(
+          'ch',
+          added: [sevenTv('live', 'LiveEmote')],
+        );
+        await pumpEventQueue();
+
+        final restarted = boot();
+        await restarted.resolveEmotes('ch', 'b1');
+        final codes = restarted.byCode('ch')!.suggestions.map((e) => e.code);
+        expect(codes, contains('LiveEmote'));
+        expect(codes, isNot(contains('Old7tv')));
+        final stored = jsonDecode((await EmoteMetaStore.I.read('emotes5_ch'))!);
+        expect((stored as Map)['ts'], ts, reason: 'TTL clock must not reset');
+      },
+    );
   });
 
   group('7TV startup reconcile', () {

@@ -87,6 +87,14 @@ class EmoteManager implements EmoteLookupSource {
   /// Global/channel catalog persistence.
   late final EmotePersistence _persistence;
 
+  // Fetch time of each channel's persisted catalog. Live 7TV edits re-save
+  // with it, so they reach the disk without extending the TTL.
+  final _savedAt = <String, DateTime>{};
+  final _sevenTvSaves = <String, Timer>{};
+
+  /// Debounce before live 7TV edits are written to the disk cache.
+  final Duration sevenTvSaveDelay;
+
   /// Provider visibility config; the manager mirrors it into the store.
   late final EmoteVisibility _visibility;
   late final bool _ownsVisibility;
@@ -117,6 +125,7 @@ class EmoteManager implements EmoteLookupSource {
     int cacheCapMb = defaultEmoteCacheMb,
     void Function(int)? writeCacheCap,
     Duration usageFlushDelay = const Duration(milliseconds: 250),
+    this.sevenTvSaveDelay = const Duration(seconds: 2),
     Future<SevenTvChannelResponse> Function(String channelId)?
     sevenTvChannelFetcher,
     Future<List<Emote>> Function()? sevenTvGlobalFetcher,
@@ -710,11 +719,7 @@ class EmoteManager implements EmoteLookupSource {
         () => _fetcher.fetchAllChannel(broadcasterId, channelName: channel),
       );
       if (_commitChannel(channel, epoch, fetch)) {
-        await _persistence.save(
-          'emotes5_$channel',
-          _store.channelCatalog(channel)!,
-          ttl,
-        );
+        await _saveChannel(channel, ttl, _now());
       }
       return;
     }
@@ -731,6 +736,8 @@ class EmoteManager implements EmoteLookupSource {
       final existingSubs =
           _store.channelCatalog(channel)?.twitchSubs ?? const <Emote>[];
       _store.seedChannelFromCache(channel, cached, existingSubs);
+      final savedAt = loaded.savedAt;
+      if (savedAt != null) _savedAt[channel] = savedAt;
       if (loaded.fresh || _registryFrozen || tier == EmoteFetchTier.nothing) {
         // Fresh: render, background-refresh Twitch channel emotes.
         if (!_skipTwitchBackgroundRefresh) {
@@ -759,7 +766,9 @@ class EmoteManager implements EmoteLookupSource {
                   if (fetch.byProvider[EmoteType.sevenTv] != null) {
                     _store.dropLiveSevenTv(channel);
                   }
-                  _commitChannel(channel, epoch, fetch);
+                  if (_commitChannel(channel, epoch, fetch)) {
+                    _scheduleSevenTvSave(channel);
+                  }
                 })
                 .catchError((Object _) {}),
           );
@@ -774,12 +783,35 @@ class EmoteManager implements EmoteLookupSource {
       () => _fetcher.fetchAllChannel(broadcasterId, channelName: channel),
     );
     if (_commitChannel(channel, epoch, fetch)) {
-      await _persistence.save(
-        'emotes5_$channel',
-        _store.channelCatalog(channel)!,
-        ttl,
-      );
+      await _saveChannel(channel, ttl, _now());
     }
+  }
+
+  // Persists the channel catalog stamped with [savedAt].
+  Future<void> _saveChannel(
+    String channel,
+    Duration ttl,
+    DateTime savedAt,
+  ) async {
+    final catalog = _store.channelCatalog(channel);
+    if (catalog == null) return;
+    _savedAt[channel] = savedAt;
+    await _persistence.save('emotes5_$channel', catalog, ttl, savedAt: savedAt);
+  }
+
+  // Writes live 7TV edits through to the disk cache once a burst settles.
+  // Only a full set with a known fetch time is saved: a partial pre-fetch
+  // view would persist as the whole set, and a new stamp would extend the
+  // TTL of the providers that did not refresh.
+  void _scheduleSevenTvSave(String channel) {
+    if (!_store.isSevenTvFull(channel)) return;
+    _sevenTvSaves[channel]?.cancel();
+    _sevenTvSaves[channel] = Timer(sevenTvSaveDelay, () async {
+      _sevenTvSaves.remove(channel);
+      final savedAt = _savedAt[channel];
+      if (savedAt == null || !_store.isSevenTvFull(channel)) return;
+      await _saveChannel(channel, await _fetcher.effectiveTtl(), savedAt);
+    });
   }
 
   /// Applies one global fetch at [epoch]. A stale epoch is dropped so an
@@ -824,11 +856,12 @@ class EmoteManager implements EmoteLookupSource {
     if (fetch.byProvider[EmoteType.sevenTv] != null) {
       _store.dropLiveSevenTv(channel);
     }
-    _commitChannel(channel, epoch, fetch);
+    if (_commitChannel(channel, epoch, fetch)) _scheduleSevenTvSave(channel);
   }
 
   void evictChannel(String channel) {
     _channelBroadcasterIds.remove(channel);
+    _sevenTvSaves.remove(channel)?.cancel();
     _store.evictChannel(channel);
   }
 
@@ -869,12 +902,16 @@ class EmoteManager implements EmoteLookupSource {
   }) {
     if (tier == EmoteFetchTier.nothing) return;
     if (!_isProviderOn(EmoteType.sevenTv)) return;
+    final before = _store.channelCatalog(channel);
     final unusedUrls = _store.updateSevenTvEmotes(
       channel,
       added: added,
       removedIds: removedIds,
       renamed: renamed,
     );
+    if (!identical(_store.channelCatalog(channel), before)) {
+      _scheduleSevenTvSave(channel);
+    }
     if (unusedUrls.isNotEmpty) {
       unawaited(_evictEmoteImages(unusedUrls));
     }
@@ -971,6 +1008,10 @@ class EmoteManager implements EmoteLookupSource {
   Future<void> clearImageCache() => _images.clear();
 
   void dispose() {
+    for (final t in _sevenTvSaves.values) {
+      t.cancel();
+    }
+    _sevenTvSaves.clear();
     _visibility.removeListener(_applyVisibility);
     if (_ownsFetcher) _fetcher.dispose();
     if (_ownsUsage) _usage.dispose();

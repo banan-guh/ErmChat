@@ -797,6 +797,10 @@ class EmoteStore {
     _channelCatalogs[channel] = catalog.copyWith(sevenTvChannel: live);
   }
 
+  /// Whether the channel's 7TV list is a full set (fetched or cached), not a
+  /// partial view built from deltas.
+  bool isSevenTvFull(String channel) => _sevenTvFull.contains(channel);
+
   /// Drops stale live 7TV deltas when a full fetched set is authoritative.
   void dropLiveSevenTv(String channel) {
     _sevenTvLive.remove(channel);

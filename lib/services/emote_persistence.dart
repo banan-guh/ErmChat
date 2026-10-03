@@ -34,8 +34,8 @@ class EmotePersistence {
   }
 
   /// Loads a persisted catalog for [key], dropping subs and flagging whether
-  /// the tier and TTL still match.
-  Future<({EmoteCatalog? catalog, bool fresh})> load(
+  /// the tier and TTL still match. [savedAt] is the stored fetch time.
+  Future<({EmoteCatalog? catalog, bool fresh, DateTime? savedAt})> load(
     String key,
     Duration ttl, {
     DateTime? fetchTime,
@@ -43,7 +43,7 @@ class EmotePersistence {
     final prefs = await _getPrefs();
     await _metaStore.migrateFromPrefs(prefs.raw);
     final raw = await _metaStore.read(key);
-    if (raw == null) return (catalog: null, fresh: false);
+    if (raw == null) return (catalog: null, fresh: false, savedAt: null);
     try {
       // Decode off main isolate for smooth startup.
       final tierIndex = _tier().index;
@@ -61,10 +61,10 @@ class EmotePersistence {
       final cachedTime = fetchTime ?? ts;
       final withinTtl = DateTime.now().difference(cachedTime) <= ttl;
       final fresh = withinTtl && parsed.tierMatches;
-      return (catalog: _dropSubs(parsed.catalog), fresh: fresh);
+      return (catalog: _dropSubs(parsed.catalog), fresh: fresh, savedAt: ts);
     } catch (_) {
       logDebug('[EmotePersistence] failed to parse cached emotes');
-      return (catalog: null, fresh: false);
+      return (catalog: null, fresh: false, savedAt: null);
     }
   }
 
@@ -75,7 +75,14 @@ class EmotePersistence {
     twitchSubs: const [],
   );
 
-  Future<void> save(String key, EmoteCatalog catalog, Duration ttl) async {
+  /// Persists [catalog] stamped with [savedAt] (default now). Live edits pass
+  /// the original fetch time so they never extend the TTL.
+  Future<void> save(
+    String key,
+    EmoteCatalog catalog,
+    Duration ttl, {
+    DateTime? savedAt,
+  }) async {
     // Low/nothing: persist Twitch too (zero network). Medium/high: non-Twitch
     // only. Per-account unlocks never persist.
     final persistTwitch =
@@ -104,7 +111,7 @@ class EmotePersistence {
     if (saved.isEmpty) return;
     try {
       final data = {
-        'ts': DateTime.now().toIso8601String(),
+        'ts': (savedAt ?? DateTime.now()).toIso8601String(),
         'tier': _tier().index,
         'emotes': saved.toJsonMap(),
       };
