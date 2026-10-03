@@ -159,7 +159,8 @@ class _ChatBodyState extends State<ChatBody>
   // Keyboard overlap in dp. The Scaffold strips viewInsets from its body,
   // so this reads the view directly on metrics changes; nothing above
   // ChatBody has to rebuild per keyboard tick.
-  late ui.FlutterView _view;
+  ui.FlutterView? _boundView;
+  ui.FlutterView get _view => _boundView!;
   double _rawH = 0;
 
   // True from the first keyboard tick until it settles closed. A system-bar
@@ -234,7 +235,12 @@ class _ChatBodyState extends State<ChatBody>
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    _view = View.of(context);
+    // Seeds the keyboard height only when the view binds. Re-reading it on
+    // every dependency change would absorb keyboard ticks that
+    // didChangeMetrics must see, including the one that lands on closed.
+    final view = View.of(context);
+    if (identical(view, _boundView)) return;
+    _boundView = view;
     _rawH = _readRawH();
     if (_rawH > 0.5) _keyboardEngaged = true;
     if (_rawH > 0.5 && _liftH == 0) {
@@ -259,7 +265,9 @@ class _ChatBodyState extends State<ChatBody>
   @override
   void didChangeMetrics() {
     final raw = _readRawH();
-    if ((raw - _rawH).abs() < 0.5) return;
+    // Sub-pixel ticks are noise, except the one that crosses into or out of
+    // closed: IMEs ease out in tiny steps, so that crossing can be one.
+    if ((raw - _rawH).abs() < 0.5 && (raw <= 0.5) == (_rawH <= 0.5)) return;
     final wasClosed = _rawH <= 0.5;
     _opening = raw > _rawH;
     _rawH = raw;

@@ -328,6 +328,58 @@ void main() {
     expect(builds, isEmpty);
   });
 
+  // A real Samsung close (from a device trace) eases out in sub-pixel steps
+  // while the nav-bar padding grows back. The step onto closed was dropped
+  // as noise and the field never unfocused.
+  testWidgets('a sub-pixel keyboard close still unfocuses', (tester) async {
+    final focus = FocusNode();
+    addTearDown(focus.dispose);
+    tester.view.physicalSize = const Size(400, 800);
+    tester.view.devicePixelRatio = 1;
+    tester.view.viewPadding = const FakeViewPadding(bottom: 15);
+    addTearDown(tester.view.reset);
+    await pumpBody(
+      tester,
+      liquidGlass: false,
+      focus: focus,
+      dismissUnfocuses: true,
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('message_input')));
+    await tester.pump();
+    Future<void> tick(double kb) async {
+      tester.view.viewInsets = FakeViewPadding(bottom: kb);
+      tester.view.padding = FakeViewPadding(bottom: kb >= 15 ? 0 : 15 - kb);
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+
+    for (final kb in <double>[100, 200, 300]) {
+      await tick(kb);
+    }
+    await tester.pump(const Duration(milliseconds: 400));
+    for (final kb in <double>[
+      100,
+      50,
+      20,
+      12.1,
+      8.2,
+      4.6,
+      2.5,
+      1.4,
+      1.1,
+      0.7,
+      0.4,
+      0.4,
+      0.0,
+      0.0,
+    ]) {
+      await tick(kb);
+    }
+    await tester.pump(const Duration(milliseconds: 400));
+
+    expect(focus.hasFocus, isFalse);
+  });
+
   // An IME that stalls mid-close settles at a partial height. Learning it
   // made the next open assume that height, then flip decisions on settle.
   testWidgets('a stalled close does not teach the keyboard height', (
