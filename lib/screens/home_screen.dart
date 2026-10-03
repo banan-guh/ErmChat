@@ -798,9 +798,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.paused) _releaseDecodedImages();
+    // Inactive is still on screen (notification shade, system dialog), so
+    // only a hidden app counts as backgrounded for notifications.
     final backgrounded =
-        state == AppLifecycleState.paused ||
-        state == AppLifecycleState.inactive;
+        state == AppLifecycleState.paused || state == AppLifecycleState.hidden;
     ref.read(backgroundedProvider.notifier).set(backgrounded);
     if (Platform.isAndroid) {
       if (state == AppLifecycleState.paused) {
