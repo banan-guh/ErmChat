@@ -76,7 +76,6 @@ class _StreamPlayerViewState extends State<StreamPlayerView> {
             NavigationDelegate(
               onNavigationRequest: _onNavigationRequest,
               onPageFinished: (_) {
-                widget.controller.hasEverAttached = true;
                 if (mounted) {
                   setState(() => _pageLoaded = true);
                   _revealOverlay();

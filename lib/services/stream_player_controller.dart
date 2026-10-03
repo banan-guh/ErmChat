@@ -31,7 +31,6 @@ class StreamPlayerController extends ChangeNotifier {
   String? _pendingPipAction;
   double _splitFraction = 0.5;
   int _generation = 0;
-  bool hasEverAttached = false;
 
   String? get currentChannel => _currentChannel;
   bool get isActive => _currentChannel != null;
@@ -106,7 +105,6 @@ class StreamPlayerController extends ChangeNotifier {
 
   void onRenderProcessGone() {
     _generation++;
-    hasEverAttached = false;
     notifyListeners();
   }
 

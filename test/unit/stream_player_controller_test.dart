@@ -157,7 +157,6 @@ void main() {
       final generation = controller.generation;
       controller.onRenderProcessGone();
       expect(controller.generation, generation + 1);
-      expect(controller.hasEverAttached, isFalse);
       controller.dispose();
     });
   });
