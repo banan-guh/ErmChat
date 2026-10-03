@@ -99,6 +99,7 @@ class ChromeMenuButtonState extends State<ChromeMenuButton> {
       child: widget.glass
           ? GlassSurface(
               shape: const LiquidRoundedSuperellipse(borderRadius: 8),
+              quality: GlassQuality.minimal,
               child: Padding(padding: const EdgeInsets.all(4), child: arrow),
             )
           : Container(

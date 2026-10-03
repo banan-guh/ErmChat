@@ -367,8 +367,7 @@ class _ChatViewState extends State<ChatView>
                           iosHaptic(HapticFeedback.lightImpact);
                           _jumpToBottom();
                         },
-                        useOwnLayer: true,
-                        quality: GlassQuality.premium,
+                        quality: GlassQuality.minimal,
                       )
                     : FloatingActionButton(
                         key: const ValueKey('scroll_down'),

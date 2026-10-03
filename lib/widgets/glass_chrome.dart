@@ -103,11 +103,15 @@ class GlassSurface extends StatefulWidget {
     super.key,
     required this.shape,
     this.settings,
+    this.quality = GlassQuality.premium,
     required this.child,
   });
 
   final LiquidShape shape;
   final LiquidGlassSettings? settings;
+
+  /// Minimal is a plain frosted blur; it needs no own layer.
+  final GlassQuality quality;
   final Widget child;
 
   @override
@@ -173,9 +177,9 @@ class _GlassSurfaceState extends State<GlassSurface>
           child: Offstage(
             offstage: frozen,
             child: GlassContainer(
-              quality: GlassQuality.premium,
+              quality: widget.quality,
               settings: widget.settings,
-              useOwnLayer: true,
+              useOwnLayer: widget.quality != GlassQuality.minimal,
               shape: widget.shape,
               child: const SizedBox.expand(),
             ),

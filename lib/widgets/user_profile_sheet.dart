@@ -530,8 +530,7 @@ class UserProfileSheetState extends State<UserProfileSheet> {
         icon: const Icon(Icons.keyboard_arrow_down),
         shape: GlassIconButtonShape.roundedSquare,
         onPressed: _onArrowTap,
-        useOwnLayer: true,
-        quality: GlassQuality.premium,
+        quality: GlassQuality.minimal,
       );
     }
     return FloatingActionButton(
