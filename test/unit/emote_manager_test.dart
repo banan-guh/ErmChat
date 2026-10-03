@@ -2573,6 +2573,34 @@ void main() {
       expect(persisted, contains('https://example.com/e2.png'));
     });
 
+    test('usage flush lands while touches keep arriving', () async {
+      SharedPreferences.setMockInitialValues({});
+      PathProviderPlatform.instance = _FakePathProvider(
+        Directory.systemTemp.path,
+      );
+      final manager = EmoteManager(
+        fetchStagger: Duration.zero,
+        usageFlushDelay: const Duration(milliseconds: 60),
+        now: () => DateTime(2026, 1, 1, 12),
+        cacheManager: testCacheManager(),
+      );
+      await manager.startCacheGc();
+      manager.dispose();
+
+      final emote = makeEmotes(1)[0];
+      // Touches arrive faster than the debounce; the flush must still run.
+      for (var i = 0; i < 15; i++) {
+        manager.markEmoteViewed(emote);
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+      }
+      final prefs = await SharedPreferences.getInstance();
+      expect(
+        prefs.getString('emote_usage'),
+        contains('https://example.com/e0.png'),
+        reason: 'continuous touches postponed the flush indefinitely',
+      );
+    });
+
     test('enqueueSeenEmotes skips precache when the cap is zero', () async {
       SharedPreferences.setMockInitialValues({});
       final capped = EmoteManager(

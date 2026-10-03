@@ -281,11 +281,10 @@ class EmoteUsageRegistry implements EmoteImagePolicy {
     await _flushUsage();
   }
 
-  /// Debounced flush for high-frequency view tracking.
-  /// Schedules a debounced usage flush (no-op before the registry loads).
+  /// Schedules a usage flush [_flushDelay] after the first touch of a burst
+  /// (no-op before the registry loads). Later touches ride the pending timer.
   void scheduleFlush() {
-    if (!_usageLoaded) return;
-    _usageFlushTimer?.cancel();
+    if (!_usageLoaded || _usageFlushTimer != null) return;
     _usageFlushTimer = Timer(_flushDelay, () {
       _usageFlushTimer = null;
       unawaited(_flushUsage());
