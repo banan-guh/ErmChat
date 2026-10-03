@@ -1,22 +1,6 @@
 import 'dart:io';
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 
-@pragma('vm:entry-point')
-void startCallback() {
-  FlutterForegroundTask.setTaskHandler(ChatTaskHandler());
-}
-
-class ChatTaskHandler extends TaskHandler {
-  @override
-  Future<void> onStart(DateTime timestamp, TaskStarter starter) async {}
-
-  @override
-  void onRepeatEvent(DateTime timestamp) {}
-
-  @override
-  Future<void> onDestroy(DateTime timestamp, bool isTimeout) async {}
-}
-
 Future<void> requestForegroundPermissions() async {
   if (!Platform.isAndroid) return;
 
@@ -80,7 +64,6 @@ Future<ServiceRequestResult> startForegroundService(
     notificationTitle: title,
     notificationText: text,
     notificationIcon: null,
-    callback: startCallback,
   );
 }
 

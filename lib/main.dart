@@ -4,7 +4,6 @@ import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/misc.dart';
 import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
@@ -59,9 +58,6 @@ void main() async {
   // the emote cache filled (and permanently at cap 0). Emote images fetch via
   // EmoteCacheManager directly, so they are unaffected by this decoupling.
 
-  if (Platform.isAndroid) {
-    FlutterForegroundTask.initCommunicationPort();
-  }
   // Liquid glass shaders warm up with disk I/O only, so the first frame
   // still presents immediately. Premium shaders preload for the bars.
   await LiquidGlassWidgets.initialize();
