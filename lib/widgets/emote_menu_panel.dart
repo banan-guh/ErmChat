@@ -264,14 +264,14 @@ class EmoteMenuPanelWidgetState extends ConsumerState<EmoteMenuPanelWidget> {
 
   Widget _buildEmoteChannelGrid(ScrollController? scrollController) {
     final channel = widget.selectedChannel ?? '';
-    final emotes = _emoteManager.channelTabEmotes(channel);
-    if (emotes.isEmpty) {
+    final byProvider = _emoteManager.channelEmotesByProvider(channel);
+    if (byProvider.isEmpty) {
       return _buildEmoteEmptyState(
         scrollController,
         const Center(child: Text('No channel emotes')),
       );
     }
-    return _buildEmoteGrid(emotes, scrollController);
+    return _buildGroupedEmoteGrid(byProvider, scrollController);
   }
 
   Widget _buildEmoteGlobalGrid(ScrollController? scrollController) {
@@ -285,7 +285,8 @@ class EmoteMenuPanelWidgetState extends ConsumerState<EmoteMenuPanelWidget> {
     return _buildGroupedEmoteGrid(byProvider, scrollController);
   }
 
-  // Sectioned grid with group headers (Subs by channel, Global by provider).
+  // Sectioned grid with group headers (Subs by channel, Channel and Global
+  // by provider).
   Widget _buildGroupedEmoteGrid(
     Map<String, List<Emote>> groups,
     ScrollController? scrollController,

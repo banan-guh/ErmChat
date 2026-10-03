@@ -365,6 +365,13 @@ class EmoteManager implements EmoteLookupSource {
     unlocks: _twitchSets.unlockedEmotes,
   );
 
+  Map<String, List<Emote>> channelEmotesByProvider(String channel) =>
+      _store.channelEmotesByProvider(
+        channel,
+        personal: _personalSets.viewerEmotes,
+        unlocks: _twitchSets.unlockedEmotes,
+      );
+
   /// Viewer Twitch user id for matching personal 7TV grants. Cleared logout.
   set viewerTwitchId(String? value) => _personalSets.viewerTwitchId = value;
 

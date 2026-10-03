@@ -536,8 +536,22 @@ class EmoteStore {
       personal: personal,
       unlocks: unlocks,
     );
+    return _byProvider(lookup.suggestions);
+  }
+
+  /// The channel tab grouped like [globalEmotesByProvider].
+  Map<String, List<Emote>> channelEmotesByProvider(
+    String channel, {
+    Iterable<Emote> personal = const [],
+    Iterable<Emote> unlocks = const [],
+  }) => _byProvider(
+    channelTabEmotes(channel, personal: personal, unlocks: unlocks),
+  );
+
+  // Provider sections in display order, each keeping the input order.
+  static Map<String, List<Emote>> _byProvider(Iterable<Emote> emotes) {
     final grouped = <EmoteType, List<Emote>>{};
-    for (final e in lookup.suggestions) {
+    for (final e in emotes) {
       (grouped[e.type] ??= []).add(e);
     }
     final result = <String, List<Emote>>{};
