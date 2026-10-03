@@ -359,6 +359,29 @@ void main() {
     expect(both?.hasMention, isTrue);
   });
 
+  test('system highlights outrank colored user rules', () async {
+    final m = await makeManager();
+    m.setAccount('forsen');
+    m.upsertRule(
+      const PingRule(
+        id: 'k',
+        kind: PingRuleKind.message,
+        pattern: 'pog',
+        colorArgb: 0xFF64B5F6,
+      ),
+    );
+    expect(
+      m.evaluate(msg('pog'))?.customColor,
+      const Color(0xFF64B5F6),
+      reason: 'keyword alone keeps its color',
+    );
+    for (final hit in [msg('pog forsen'), msg('pog', isFirstMessage: true)]) {
+      final state = m.evaluate(hit);
+      expect(state?.primary, isNot(HighlightType.custom), reason: hit.text);
+      expect(state?.customColor, isNull, reason: 'palette, not the keyword');
+    }
+  });
+
   group('rowColor contrast equalization', () {
     test(
       'normalizes every highlight to equal contrast with custom colors winning',

@@ -184,13 +184,15 @@ class PingManager extends ChangeNotifier {
 
     final types = <HighlightType>{};
     var notify = false;
-    Color? color;
+    // First custom color per type; the row takes the primary type's.
+    final colors = <HighlightType, Color>{};
     String? lowerText;
 
     void add(PingRule rule, HighlightType type) {
       types.add(type);
       if (rule.notify && rule.mention) notify = true;
-      color ??= rule.colorArgb == null ? null : Color(rule.colorArgb!);
+      final argb = rule.colorArgb;
+      if (argb != null) colors.putIfAbsent(type, () => Color(argb));
     }
 
     for (final rule in _rules) {
@@ -246,7 +248,12 @@ class PingManager extends ChangeNotifier {
     }
 
     if (types.isEmpty) return null;
-    return HighlightState(types: types, customColor: color, notify: notify);
+    final primary = HighlightState(types: types).primary;
+    return HighlightState(
+      types: types,
+      customColor: colors[primary],
+      notify: notify,
+    );
   }
 
   bool _isBlacklisted(String login) {

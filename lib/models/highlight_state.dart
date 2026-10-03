@@ -40,15 +40,16 @@ class HighlightState {
 
   bool get hasMention => types.any(_mentionTypes.contains);
 
-  /// Priority order, lowest first. Mention-tier types always rank above these.
+  /// Priority order, lowest first: user rules, then chat events, then
+  /// mentions of you.
   static const _priority = [
     HighlightType.tint,
-    HighlightType.firstMsg,
-    HighlightType.redemption,
-    HighlightType.elevated,
     HighlightType.badge,
     HighlightType.user,
     HighlightType.custom,
+    HighlightType.firstMsg,
+    HighlightType.redemption,
+    HighlightType.elevated,
     HighlightType.reply,
     HighlightType.username,
   ];
