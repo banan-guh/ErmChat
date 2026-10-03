@@ -590,8 +590,8 @@ class EmoteStore {
   }
 
   /// Resolve an emote by ID. Explicit overlay params win (caller's freshest
-  /// context), then the pool when the index is clean, then a lazy index
-  /// rebuild that converges the pool. Served instances are always pooled.
+  /// context), then the pool, after a lazy index rebuild when a catalog
+  /// changed. Served instances are always pooled.
   Emote? emoteById(
     String id, {
     Iterable<Emote> personal = const [],
@@ -603,11 +603,7 @@ class EmoteStore {
     for (final e in unlocks) {
       if (e.id == id) return intern(e);
     }
-    if (!_emoteIndexDirty) {
-      final pooled = _pool[id];
-      if (pooled != null) return pooled;
-    }
-    _rebuildEmoteIndex();
+    if (_emoteIndexDirty) _rebuildEmoteIndex();
     return _pool[id];
   }
 
@@ -696,6 +692,7 @@ class EmoteStore {
   bool fillMissingGlobal(int epoch, EmoteCatalog seed) {
     if (epoch != _globalEpoch) return false;
     _globalCatalog = _globalCatalog.fillMissing(seed);
+    _emoteIndexDirty = true;
     _globalAttempted = true;
     return true;
   }
@@ -738,6 +735,7 @@ class EmoteStore {
   void fillMissingChannel(String channel, EmoteCatalog seed) {
     _channelCatalogs[channel] = (_channelCatalogs[channel] ?? EmoteCatalog())
         .fillMissing(seed);
+    _emoteIndexDirty = true;
   }
 
   /// Applies one channel fetch at [epoch]. A stale epoch is dropped so an
