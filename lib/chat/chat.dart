@@ -184,7 +184,9 @@ class Chat {
   int clearUnread(String channel) {
     final c = _channels[channel];
     if (c == null) return 0;
-    final cleared = c.unread.clear();
+    final unread = c.unread;
+    if (!unread.hasUnread && !unread.hasMention) return 0;
+    final cleared = unread.clear();
     if (cleared > 0) {
       _setUnreadMentions(_unreadMentions - cleared);
     }
