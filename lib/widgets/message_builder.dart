@@ -98,7 +98,6 @@ class MessageBuilder {
     if (cached == null ||
         cached.key != key ||
         !identical(cached.tokens, msg.emoteTokens)) {
-      if (cached != null) _disposeSpanRecognizers(cached.spans);
       final fresh = _computeMessageSpans(msg, channel, scale: textScale);
       // Link and email spans own TapGestureRecognizers that have no dispose
       // hook on message eviction, so never cache them. Link-heavy messages
@@ -152,16 +151,6 @@ class MessageBuilder {
       }
     }
     return false;
-  }
-
-  void _disposeSpanRecognizers(List<InlineSpan>? spans) {
-    if (spans == null) return;
-    for (final span in spans) {
-      if (span is TextSpan) {
-        span.recognizer?.dispose();
-        if (span.children != null) _disposeSpanRecognizers(span.children!);
-      }
-    }
   }
 
   /// Body style for action (/me) messages: the sender's color.
@@ -333,16 +322,15 @@ class MessageBuilder {
     double badgeScale = 1.0,
   }) {
     // Badge cache depends on third-party data, shared-chat lookup, and scale.
-    final cacheVersion =
-        thirdPartyBadgeService.version * 1000003 + badgeService.version;
+    final key = (
+      thirdPartyBadgeService.version,
+      badgeService.version,
+      badgeScale,
+    );
     final cached = _badgeCache[msg];
-    final stale =
-        cached == null ||
-        cached.version != cacheVersion ||
-        cached.scale != badgeScale;
-    if (!stale) return cached.spans;
+    if (cached != null && cached.key == key) return cached.spans;
     final spans = _computeBadgeSpans(channel, msg, badgeScale);
-    _badgeCache[msg] = _BadgeSpans(spans, cacheVersion, badgeScale);
+    _badgeCache[msg] = _BadgeSpans(spans, key);
     return spans;
   }
 
@@ -474,9 +462,8 @@ class _BodySpans {
 }
 
 class _BadgeSpans {
-  _BadgeSpans(this.spans, this.version, this.scale);
+  _BadgeSpans(this.spans, this.key);
 
   final List<WidgetSpan> spans;
-  final int version;
-  final double scale;
+  final (int, int, double) key;
 }
