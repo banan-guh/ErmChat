@@ -1289,6 +1289,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 
   void _onPrefsChanged() => unawaited(_applyPrefs());
 
+  // The emote sheet lives in this route's tree, so a sheet, menu or page
+  // pushed on top would otherwise open with it still up underneath.
+  @override
+  void didPushNext() {
+    if (_panelManager.emoteSheetOpen) {
+      unawaited(_panelManager.closeEmoteSheet());
+    }
+  }
+
   // A covering route hands focus back on pop, and Android sometimes ignores
   // that restored IME show, leaving the field focused with no keyboard.
   // Settings drops focus before it opens, so it never comes back here.
