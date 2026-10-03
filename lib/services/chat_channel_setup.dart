@@ -194,13 +194,18 @@ class ChatChannelSetup {
 
     try {
       final auth = twitchAuth;
-      var channelUserId = auth.accessToken != null
-          ? await twitchApi.getUserId(auth, channelName)
-          : null;
-      // Anonymous: Helix 401s without a token, so the channel user ID comes
-      // from the IRC ROOMSTATE room-id tag instead (powers the third-party
-      // emote providers and badge fetches).
-      channelUserId ??= await _waitForRoomId(channelName);
+      // A resubscribe already has the channel id; only resolve it on the
+      // first join, when Helix or the ROOMSTATE room-id is still needed.
+      var channelUserId = chat.channelFor(channelName)?.info.broadcasterId;
+      if (channelUserId == null || channelUserId.isEmpty) {
+        channelUserId = auth.accessToken != null
+            ? await twitchApi.getUserId(auth, channelName)
+            : null;
+        // Anonymous: Helix 401s without a token, so the channel user ID comes
+        // from the IRC ROOMSTATE room-id tag instead (powers the third-party
+        // emote providers and badge fetches).
+        channelUserId ??= await _waitForRoomId(channelName);
+      }
       if (channelUserId == null) return;
       chat.channelFor(channelName)?.info.setBroadcasterId(channelUserId);
       // Unauthenticated redemption banners for every viewer, DankChat parity.

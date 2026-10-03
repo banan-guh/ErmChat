@@ -16,6 +16,9 @@ class TwitchBadgeService {
 
   final _globalBadges = <String, BadgeSet>{};
   final _channelBadges = <String, Map<String, BadgeSet>>{};
+  // Channels whose badges were fetched successfully; a resubscribe reuses
+  // the cache instead of re-downloading the same channel badges.
+  final _channelBadgesFetched = <String>{};
   final _channelAvatars = <String, String>{};
   // broadcasterId -> login / display name (shared-chat source channels).
   final _channelLogins = <String, String>{};
@@ -58,6 +61,7 @@ class TwitchBadgeService {
     String broadcasterId,
     String channel,
   ) async {
+    if (_channelBadgesFetched.contains(channel)) return;
     final existing = _inflightChannelBadges[channel];
     if (existing != null) return existing;
     final future = _doFetchChannelBadges(auth, broadcasterId, channel);
@@ -82,6 +86,7 @@ class TwitchBadgeService {
     );
     if (sets.isNotEmpty) {
       _channelBadges[channel] = sets;
+      _channelBadgesFetched.add(channel);
     }
   }
 
@@ -95,6 +100,7 @@ class TwitchBadgeService {
 
   void clearChannel(String channel) {
     _channelBadges.remove(channel);
+    _channelBadgesFetched.remove(channel);
   }
 
   String? resolveChannelAvatar(String broadcasterId) {
@@ -162,6 +168,7 @@ class TwitchBadgeService {
   void resetCaches() {
     _globalBadges.clear();
     _channelBadges.clear();
+    _channelBadgesFetched.clear();
     _channelAvatars.clear();
     _channelLogins.clear();
     _channelDisplayNames.clear();
