@@ -28,6 +28,10 @@ class PerfLog {
   Timer? _flushTimer;
   bool _dirty = false;
 
+  /// Lines already on disk, and how many ring entries they account for.
+  int _fileLines = 0;
+  int _flushedCount = 0;
+
   /// Rotates previous log and prepares a fresh file. Idempotent.
   Future<void> init() async {
     if (_file != null) return;
@@ -54,7 +58,10 @@ class PerfLog {
     final line = '${DateTime.now().toIso8601String()} [$tag] $message';
     _entries.add(line);
     if (_entries.length > maxEntries) {
-      _entries.removeRange(0, _entries.length - maxEntries);
+      final removed = _entries.length - maxEntries;
+      _entries.removeRange(0, removed);
+      _flushedCount -= removed;
+      if (_flushedCount < 0) _flushedCount = 0;
     }
     logDebug('[perf] $tag $message');
     _dirty = true;
@@ -76,14 +83,30 @@ class PerfLog {
 
   void _scheduleFlush() {
     if (_file == null || _flushTimer != null) return;
-    _flushTimer = Timer(flushInterval, () async {
+    _flushTimer = Timer(flushInterval, () {
       _flushTimer = null;
-      final f = _file;
-      if (f == null || !_dirty) return;
-      _dirty = false;
-      try {
-        await f.writeAsString('${_entries.join('\n')}\n');
-      } catch (_) {}
+      _flush();
     });
+  }
+
+  /// Appends entries added since the last flush. Rewrites the ring when the
+  /// file would exceed [maxEntries], so the on-disk log stays bounded.
+  Future<void> _flush() async {
+    final f = _file;
+    if (f == null || !_dirty) return;
+    _dirty = false;
+    final batch = _entries.sublist(_flushedCount);
+    if (batch.isEmpty) return;
+    // Advance before the await so a record that lands mid-write is not lost.
+    final rewrite = _fileLines + batch.length > maxEntries;
+    _flushedCount = _entries.length;
+    _fileLines = rewrite ? _entries.length : _fileLines + batch.length;
+    try {
+      if (rewrite) {
+        await f.writeAsString('${_entries.join('\n')}\n');
+      } else {
+        await f.writeAsString('${batch.join('\n')}\n', mode: FileMode.append);
+      }
+    } catch (_) {}
   }
 }
