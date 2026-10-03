@@ -214,7 +214,7 @@ class TwitchChatApp extends StatefulWidget {
 
 class _TwitchChatAppState extends State<TwitchChatApp> {
   ThemeMode _themeMode = ThemeMode.system;
-  bool _keepScreenOn = true;
+  bool? _keepScreenOn;
   bool _trueDark = false;
   String _accentKey = kDefaultAccent;
   LayoutDensity _layoutDensity = LayoutDensity.auto;
@@ -227,6 +227,32 @@ class _TwitchChatAppState extends State<TwitchChatApp> {
   final _snackPopObserver = SnackPopObserver();
   final _routeObserver = RouteObserver<ModalRoute<Object?>>();
   final _emoteFrameRate = EmoteFrameRatePolicy();
+
+  // Memoized themes; fromSeed reruns only when the seed or trueDark changes.
+  Color? _lightSeed;
+  ThemeData? _lightTheme;
+  Color? _darkSeed;
+  bool? _darkTrueDark;
+  ThemeData? _darkTheme;
+
+  ThemeData get _lightThemeData {
+    final seed = _seedColor;
+    if (_lightTheme == null || _lightSeed != seed) {
+      _lightSeed = seed;
+      _lightTheme = buildLightTheme(seedColor: seed);
+    }
+    return _lightTheme!;
+  }
+
+  ThemeData get _darkThemeData {
+    final seed = _seedColor;
+    if (_darkTheme == null || _darkSeed != seed || _darkTrueDark != _trueDark) {
+      _darkSeed = seed;
+      _darkTrueDark = _trueDark;
+      _darkTheme = buildDarkTheme(trueDark: _trueDark, seedColor: seed);
+    }
+    return _darkTheme!;
+  }
 
   @override
   void initState() {
@@ -248,19 +274,12 @@ class _TwitchChatAppState extends State<TwitchChatApp> {
   }
 
   /// Re-reads theme, wakelock, accent, and proxy settings. Runs at startup
-  /// and whenever settings write through [PrefsStore].
-  Future<void> _applyThemePrefs() async {
+  /// and whenever settings write through [PrefsStore]. Returns whether any
+  /// value [build] reads changed, so the caller can skip the rebuild.
+  Future<bool> _applyThemePrefs() async {
     try {
       final prefs = await Prefs.load();
-      _themeMode = prefs.themeMode;
-      _keepScreenOn = prefs.keepScreenOn;
-      WakelockPlus.toggle(enable: _keepScreenOn).ignore();
-      _emoteFrameRate.adaptive = prefs.adaptiveEmoteFps;
-      _emoteFrameRate.idleFps = prefs.idleEmoteFps;
-      _trueDark = prefs.trueDark;
-      _accentKey = prefs.accentColor;
-      _layoutDensity = prefs.layoutDensity;
-      _layoutOverrides = LayoutOverrides(
+      final overrides = LayoutOverrides(
         enabled: prefs.customLayoutEnabled,
         mergeAppBar: prefs.overrideMergeAppBar,
         foldPanelHeaders: prefs.overrideFoldPanelHeaders,
@@ -269,16 +288,37 @@ class _TwitchChatAppState extends State<TwitchChatApp> {
         compactDensity: prefs.overrideCompactDensity,
         tightChromeMargins: prefs.overrideTightChromeMargins,
       );
-      _proxyConfig = ProxyConfig.fromPrefs(prefs);
+      final proxy = ProxyConfig.fromPrefs(prefs);
+      final changed =
+          _themeMode != prefs.themeMode ||
+          _trueDark != prefs.trueDark ||
+          _accentKey != prefs.accentColor ||
+          _layoutDensity != prefs.layoutDensity ||
+          _layoutOverrides != overrides ||
+          _proxyConfig != proxy;
+      _themeMode = prefs.themeMode;
+      if (_keepScreenOn != prefs.keepScreenOn) {
+        _keepScreenOn = prefs.keepScreenOn;
+        WakelockPlus.toggle(enable: prefs.keepScreenOn).ignore();
+      }
+      _emoteFrameRate.adaptive = prefs.adaptiveEmoteFps;
+      _emoteFrameRate.idleFps = prefs.idleEmoteFps;
+      _trueDark = prefs.trueDark;
+      _accentKey = prefs.accentColor;
+      _layoutDensity = prefs.layoutDensity;
+      _layoutOverrides = overrides;
+      _proxyConfig = proxy;
+      return changed;
     } catch (e) {
       logDebug('Failed to load preferences: $e');
+      return false;
     }
   }
 
   void _onPrefsChanged() {
     unawaited(
-      _applyThemePrefs().then((_) {
-        if (mounted) setState(() {});
+      _applyThemePrefs().then((changed) {
+        if (mounted && changed) setState(() {});
       }),
     );
   }
@@ -323,8 +363,8 @@ class _TwitchChatAppState extends State<TwitchChatApp> {
         overrides: _providerOverrides,
         child: MaterialApp(
           themeMode: _themeMode,
-          theme: buildLightTheme(seedColor: _seedColor),
-          darkTheme: buildDarkTheme(trueDark: _trueDark, seedColor: _seedColor),
+          theme: _lightThemeData,
+          darkTheme: _darkThemeData,
           builder: _appRoot,
           scaffoldMessengerKey: rootScaffoldMessengerKey,
           navigatorObservers: [_snackPopObserver],
@@ -340,8 +380,8 @@ class _TwitchChatAppState extends State<TwitchChatApp> {
       child: MaterialApp(
         title: 'ErmChat',
         themeMode: _themeMode,
-        theme: buildLightTheme(seedColor: _seedColor),
-        darkTheme: buildDarkTheme(trueDark: _trueDark, seedColor: _seedColor),
+        theme: _lightThemeData,
+        darkTheme: _darkThemeData,
         builder: _appRoot,
         scaffoldMessengerKey: rootScaffoldMessengerKey,
         navigatorObservers: [_snackPopObserver, _routeObserver],

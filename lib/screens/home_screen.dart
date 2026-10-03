@@ -1193,6 +1193,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     );
     final maxCapChanged =
         ref.read(maxMessagesPerChannelProvider) != prefs.maxMessagesPerChannel;
+    final recentLimitChanged =
+        ref.read(recentMessagesLimitProvider) != prefs.recentMessagesLimit;
     final sharedChatChanged =
         ref.read(sharedChatModeProvider) != prefs.sharedChatMode;
     final animateChanged = _animateGifs != prefs.animateGifs;
@@ -1211,6 +1213,17 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
         animateChanged ||
         _showImages != prefs.imageEmbedEnabled ||
         _imageHeight != imageHeight;
+    // Every field apply() writes; any change keeps the rebuild.
+    final fieldsChanged =
+        appearanceChanged ||
+        maxCapChanged ||
+        recentLimitChanged ||
+        sharedChatChanged ||
+        _replyToRoot != prefs.replyToThreadRoot ||
+        _preferEmotesFirst != prefs.preferEmotesFirst ||
+        _fastSnap != prefs.fastChannelSnap ||
+        _liquidGlass != prefs.liquidGlass ||
+        _showInput != prefs.showInput;
 
     void apply() {
       // Providers cannot change during initState; none of these touch the
@@ -1251,7 +1264,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     if (initial) {
       apply();
     } else {
-      setState(apply);
+      apply();
+      if (fieldsChanged) setState(() {});
     }
     _sevenTvPaintService.enabled = _showNamePaints;
     if (animateChanged) EmoteUrlProvider.applyGifsEnabled(_animateGifs);
