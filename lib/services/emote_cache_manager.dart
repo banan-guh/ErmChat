@@ -56,13 +56,16 @@ class EmoteCacheBudget {
       total += object.length ?? 0;
     }
     if (fits(total)) return const [];
+    // Score once per row; the sort compares the cached values.
     final candidates = [
       for (final object in objects)
-        if (!_withinGrace(object, now)) object,
-    ]..sort((a, b) => score(a, now).compareTo(score(b, now)));
+        if (!_withinGrace(object, now))
+          (object: object, score: score(object, now)),
+    ]..sort((a, b) => a.score.compareTo(b.score));
     final victims = <CacheObject>[];
-    for (final object in candidates) {
+    for (final candidate in candidates) {
       if (fits(total)) break;
+      final object = candidate.object;
       victims.add(object);
       total -= object.length ?? 0;
     }
