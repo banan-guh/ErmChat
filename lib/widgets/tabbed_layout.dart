@@ -195,9 +195,12 @@ class TabbedLayoutState extends State<TabbedLayout>
   // True only inside the pre-jump of a long _goTo; swallows the transient
   // scroll-end so the landing still owns the commit.
   bool _preJumping = false;
-  // Branch last built with; null before the first build. The overlay and
-  // docked branches return different roots, so a flip remounts the pages.
+  // Branch last built with; null before the first build.
   bool? _overlayBuilt;
+  // The overlay and docked branches return different roots. The key moves
+  // the pages between them, so a flip keeps the page and every chat's
+  // scroll position instead of remounting them.
+  final _pagesKey = GlobalKey();
 
   // Width of the fade where tabs meet the pinned strip actions.
   static const double _stripFade = 24;
@@ -412,23 +415,14 @@ class TabbedLayoutState extends State<TabbedLayout>
       widget.belowTabBar == null &&
       !MediaQuery.highContrastOf(context);
 
-  // A branch flip remounts the PageView: its fresh position starts on the
-  // PageController's stale initialPage while the tab controller keeps its
-  // index, so content lands on channel 1 with the strip unchanged.
+  // A branch flip remounts the tab strip, which comes back without
+  // revealing the selected tab.
   void _syncBranchFlip() {
     if (_overlayBuilt == null || _overlayBranch(context) == _overlayBuilt) {
       return;
     }
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || _tabLength == 0) return;
-      // The flip supersedes any in-flight jump from before it.
-      _programmaticTarget = null;
-      final pc = _pageController;
-      if (pc != null &&
-          pc.hasClients &&
-          pc.page?.round() != _lastReportedIndex) {
-        pc.jumpToPage(_lastReportedIndex.clamp(0, _tabLength - 1));
-      }
       final ctrl = _tabController;
       if (ctrl != null && !ctrl.indexIsChanging && ctrl.offset == 0) {
         // Same-index animateTo is a no-op; a null offset nudge fires
@@ -589,6 +583,7 @@ class TabbedLayoutState extends State<TabbedLayout>
     final overlay = _overlayBranch(context);
     _overlayBuilt = overlay;
     final pages = Stack(
+      key: _pagesKey,
       children: [
         NotificationListener<ScrollNotification>(
           onNotification: _onPageNotification,

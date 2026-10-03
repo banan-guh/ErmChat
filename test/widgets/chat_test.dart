@@ -2902,6 +2902,64 @@ void main() {
     await tester.pump();
   }
 
+  // Glass swaps the floating header for the docked layout when the keyboard
+  // leaves too little room. The swap remounted the pages: one frame of the
+  // first channel, and the chat lost its scroll position (iOS, 0.9.5).
+  testWidgets('glass keyboard collapse keeps the page and chat position', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({'liquid_glass': true});
+    final msgs = List.generate(
+      50,
+      (i) => TwitchMessage(
+        login: 'user$i',
+        text: 'message number $i',
+        channel: 'b',
+        messageId: 'msg-$i',
+        timestamp: DateTime.now().subtract(Duration(minutes: 50 - i)),
+      ),
+    );
+    await tester.pumpWidget(
+      TwitchChatApp(
+        key: UniqueKey(),
+        eventSubService: FakeEventSubService(),
+        ircService: FakeIrcService(),
+        ircReadService: FakeIrcReadService(),
+        recentMessagesService: ConfigurableRecentMessagesService(msgs),
+      ),
+    );
+    await tester.pump();
+    await joinChannel(tester, 'a');
+    await joinChannel(tester, 'b');
+    await tester.drag(find.byType(ListView).first, const Offset(0, 300));
+    await tester.pumpAndSettle();
+
+    ScrollableState chat() => tester.state<ScrollableState>(
+      find
+          .descendant(
+            of: find.byType(ListView).first,
+            matching: find.byType(Scrollable),
+          )
+          .first,
+    );
+    double? page() =>
+        tester.widget<PageView>(find.byType(PageView).first).controller!.page;
+    final list = chat();
+    final pixels = list.position.pixels;
+    final selected = page();
+    expect(pixels, greaterThan(0));
+
+    for (final kb in [1200.0, 0.0]) {
+      tester.view.viewInsets = FakeViewPadding(bottom: kb);
+      await tester.pump(const Duration(milliseconds: 16));
+      expect(page(), selected, reason: 'flip frame, kb=$kb');
+      await tester.pumpAndSettle();
+      expect(identical(chat(), list), isTrue, reason: 'remounted, kb=$kb');
+      expect(chat().position.pixels, pixels, reason: 'kb=$kb');
+    }
+    tester.view.reset();
+  });
+
   group('Channel bar', () {
     testWidgets('Removing the last channel hides the channel bar', (
       WidgetTester tester,
