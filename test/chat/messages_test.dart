@@ -103,6 +103,13 @@ void main() {
       expect(messages.addSystem('Reconnected'), isTrue);
       expect(count(messages, 'Reconnected'), 2);
       expect(count(messages, 'Disconnected'), 0);
+      // Rows render through a tile cache keyed by id: a shared id drew the
+      // older Reconnected line with the newer one's timestamp.
+      final ids = messages.items
+          .where((e) => e.text == 'Reconnected')
+          .map((e) => e.messageId)
+          .toSet();
+      expect(ids, hasLength(2), reason: 'each Reconnected row owns its id');
     });
 
     test('messageId and id-less dedup', () {

@@ -82,8 +82,9 @@ class Messages {
   /// Per-thread member cap applied during truncation.
   static const maxPinnedThreadMembers = 20;
 
-  /// Connect-state rows carry a stable `sys_conn:<state>` id, so folding and
-  /// lookup never match on user-visible copy. The map keys the incoming status
+  /// Connect-state rows carry a `sys_conn:<state>:<n>` id: unique per row, so
+  /// two Reconnected lines never share a tile, while folding matches the state
+  /// prefix instead of user-visible copy. The map keys the incoming status
   /// text to its state.
   static const _connIdPrefix = 'sys_conn:';
   static const _statusStateByText = {
@@ -98,9 +99,12 @@ class Messages {
   static const loadingHistoryId = 'sys_loading';
   static const _gapNoteText = 'History: Not all messages retrieved';
 
-  static String _connId(String state) => '$_connIdPrefix$state';
   static bool _isConnRow(TwitchMessage m) =>
       m.isSystem && (m.messageId?.startsWith(_connIdPrefix) ?? false);
+  static bool _isConn(TwitchMessage? m, String state) =>
+      m != null &&
+      m.isSystem &&
+      (m.messageId?.startsWith('$_connIdPrefix$state:') ?? false);
 
   // ---- Reads ---------------------------------------------------------------
 
@@ -355,7 +359,7 @@ class Messages {
         var newestRecovery = -1;
         for (var i = 0; i < _items.length; i++) {
           final m = _items[i];
-          if (_isConnRow(m) && m.messageId == _connId('reconnected')) {
+          if (_isConn(m, 'reconnected')) {
             newestRecovery = i;
             break;
           }
@@ -373,39 +377,25 @@ class Messages {
         // The transient outage marker never survives a recovery.
         final before = _items.length;
         _items.removeWhere(
-          (m) =>
-              m.isSystem &&
-              (m.messageId == _connId('disconnected') ||
-                  m.messageId == _connId('reconnecting')),
+          (m) => _isConn(m, 'disconnected') || _isConn(m, 'reconnecting'),
         );
         if (recentRecovery) {
           if (_items.length != before) _bump();
           return false;
         }
         if (!hasActivity) {
-          _items.removeWhere(
-            (m) => m.isSystem && m.messageId == _connId('reconnected'),
-          );
+          _items.removeWhere((m) => _isConn(m, 'reconnected'));
         }
       } else if (resolved == 'disconnected' || resolved == 'reconnecting') {
         if (resolved == 'reconnecting') {
-          final hasDisconnected = _items.any(
-            (m) => m.isSystem && m.messageId == _connId('disconnected'),
-          );
-          if (hasDisconnected) return false;
-          if (top != null && top.messageId == _connId('reconnecting')) {
-            return false;
-          }
+          if (_items.any((m) => _isConn(m, 'disconnected'))) return false;
+          if (_isConn(top, 'reconnecting')) return false;
         } else {
-          if (top != null && top.messageId == _connId('disconnected')) {
-            return false;
-          }
-          _items.removeWhere(
-            (m) => m.isSystem && m.messageId == _connId('reconnecting'),
-          );
+          if (_isConn(top, 'disconnected')) return false;
+          _items.removeWhere((m) => _isConn(m, 'reconnecting'));
         }
       }
-      messageId = _connId(resolved);
+      messageId = '$_connIdPrefix$resolved:${_nextSystemMessageId++}';
     }
 
     if (messageId == null && state == null) {
@@ -491,14 +481,8 @@ class Messages {
   /// Moves the newest connect-state system line back to the top.
   bool moveConnectedToTop() {
     if (_items.length < 2) return false;
-    var idx = _items.indexWhere(
-      (m) => m.isSystem && m.messageId == _connId('reconnected'),
-    );
-    idx = idx < 0
-        ? _items.indexWhere(
-            (m) => m.isSystem && m.messageId == _connId('connected'),
-          )
-        : idx;
+    var idx = _items.indexWhere((m) => _isConn(m, 'reconnected'));
+    idx = idx < 0 ? _items.indexWhere((m) => _isConn(m, 'connected')) : idx;
     if (idx <= 0) return false;
     final msg = _items.removeAt(idx);
     _items.insert(0, msg);
