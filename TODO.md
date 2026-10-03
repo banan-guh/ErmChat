@@ -111,3 +111,6 @@
 - troubleshoot lag on copy
 - empty input bar after update?? could not repro, weird bug
 - collapse ci test successes
+
+- more friendly err messages
+- input bar in threads/glass

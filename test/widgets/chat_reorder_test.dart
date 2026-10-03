@@ -117,6 +117,40 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('a duplicate row id does not orphan a moved row', (tester) async {
+    tester.view.physicalSize = const Size(1080, 2400);
+    tester.view.devicePixelRatio = 3.0;
+    addTearDown(tester.view.reset);
+
+    final notifier = ValueNotifier(0);
+    addTearDown(notifier.dispose);
+    final messages = <TwitchMessage>[for (var i = 1; i <= 40; i++) _msg(i)];
+    final h = _Harness(tester: tester, messages: messages, notifier: notifier);
+    await h.pump();
+
+    // The duplicates below come from rows newer than this one.
+    const tracked = 'msg-6';
+    const trackedKey = ValueKey<String>(tracked);
+    final before = tester.element(find.byKey(trackedKey, skipOffstage: false));
+
+    // Two rows share a key: both would claim the same slot and leave one
+    // render child behind, a blank row that also stalls scrolling.
+    for (var round = 0; round < 2; round++) {
+      messages.insert(0, _msg(500 + round));
+      messages.insert(0, messages[4]);
+      notifier.value++;
+      await tester.pump();
+      await tester.tap(find.byType(ListView), warnIfMissed: false);
+      await tester.pump();
+      expect(tester.takeException(), isNull, reason: 'round $round');
+    }
+    expect(
+      tester.element(find.byKey(trackedKey, skipOffstage: false)),
+      same(before),
+      reason: 'rows still move instead of rebuilding',
+    );
+  });
+
   testWidgets('rapid grow and shrink churn does not throw', (tester) async {
     tester.view.physicalSize = const Size(1080, 2400);
     tester.view.devicePixelRatio = 3.0;

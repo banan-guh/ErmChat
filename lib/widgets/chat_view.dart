@@ -241,6 +241,11 @@ class _ChatViewState extends State<ChatView>
   int? _builtMin;
   int? _builtMax;
 
+  // Rows the current build renders, and the slots [_findChildIndex] already
+  // handed out this rebuild, so two elements never move into one slot.
+  List<TwitchMessage> _listMsgs = const [];
+  final Set<int> _claimedSlots = {};
+
   /// Live row gates, re-checked against the viewport after each layout.
   final Set<_RowGateState> _gates = {};
   bool _gateSyncScheduled = false;
@@ -393,6 +398,7 @@ class _ChatViewState extends State<ChatView>
         () => <String?, Widget>{},
       );
       _refreshIndexMap(msgs, cache);
+      _listMsgs = msgs;
       return ListView.builder(
         // PageStorage key restores the offset after the channel page
         // unmounts off screen; kept-alive lists need no key.
@@ -525,6 +531,7 @@ class _ChatViewState extends State<ChatView>
     _prevBuiltMax = _builtMax;
     _builtMin = null;
     _builtMax = null;
+    _claimedSlots.clear();
   }
 
   void _noteBuiltIndex(int index) {
@@ -536,8 +543,10 @@ class _ChatViewState extends State<ChatView>
   /// rebuilding it. A move is only allowed into a slot that existed in the last
   /// layout: the sliver restores the moved row's offset from that slot's
   /// previous occupant, and a slot with no occupant leaves the offset null,
-  /// which crashes hit testing (flutter#153922). Returning null rebuilds that
-  /// one row in place instead.
+  /// which crashes hit testing (flutter#153922). Each slot is claimed once and
+  /// must hold the keyed row: two elements sent to one slot orphan a render
+  /// child, which shows as a blank row and a stuck scroll. Returning null
+  /// rebuilds that one row in place instead.
   int? _findChildIndex(Key key) {
     if (key is! ValueKey<String>) return null;
     final index = _idToIndex[key.value];
@@ -546,6 +555,10 @@ class _ChatViewState extends State<ChatView>
     final max = _prevBuiltMax;
     if (min == null || max == null) return null;
     if (index < min || index > max) return null;
+    if (index >= _listMsgs.length || _listMsgs[index].messageId != key.value) {
+      return null;
+    }
+    if (!_claimedSlots.add(index)) return null;
     return index;
   }
 
