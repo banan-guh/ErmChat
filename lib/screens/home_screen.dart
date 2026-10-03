@@ -1471,14 +1471,16 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
             !_mod.termsInputActive
         ? ReplyHeader(message: replyMsg, onDismiss: _composer.clearReply)
         : null;
+    // Focus stays out of canPop: the IME owns back while it is up and
+    // ChatBody unfocuses on close. Claiming back would outrank the IME's
+    // callback after any rebuild and skip its predictive dip.
     return PopScope(
       canPop:
           !_isFullscreen &&
           !_streamPlayer.isTheaterMode &&
           _activePanel == OverlayPanel.closed &&
           !_emoteSheetOpen &&
-          !_search.open &&
-          !_composer.hasFocus,
+          !_search.open,
       onPopInvokedWithResult: (didPop, _) {
         if (didPop) return;
         if (_search.open) {
@@ -1491,9 +1493,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
           _streamPlayer.exitTheaterMode();
         } else if (_isFullscreen) {
           _toggleFullscreen();
-        } else {
-          _composer.unfocus();
-          setState(() {});
         }
       },
       child: Scaffold(
