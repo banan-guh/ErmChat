@@ -28,6 +28,7 @@ class ChatStatusComposer {
   final _streamStatusParts = <String, List<String>>{};
   Timer? _chatStatusTimer;
   final _chatStatusChannels = <String>{};
+  bool _fetchScheduled = false;
   static const _chatStatusInterval = Duration(seconds: 30);
 
   void dispose() {
@@ -44,9 +45,20 @@ class ChatStatusComposer {
 
   /// Starts the periodic status fetch for [channel] and arms the timer.
   void startFor(String channel) {
-    fetchChatStatus(channel);
     _chatStatusChannels.add(channel);
     _startChatStatusTimer();
+    _scheduleFetch();
+  }
+
+  // Coalesces the per-channel starts in one turn into a single batched
+  // request; a reconnect starts every channel back to back.
+  void _scheduleFetch() {
+    if (_fetchScheduled) return;
+    _fetchScheduled = true;
+    scheduleMicrotask(() {
+      _fetchScheduled = false;
+      unawaited(fetchAllChatStatus());
+    });
   }
 
   /// Stops tracking [channel] and drops its accumulated status bits.
