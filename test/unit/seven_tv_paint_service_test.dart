@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:ui' show PictureRecorder;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -133,6 +134,103 @@ void main() {
       expect(solid.a, closeTo((1 / 255) * 0.8, 0.0005));
       service.dispose();
     });
+  });
+
+  test('gradient shaders match CSS repeat period and radial size', () async {
+    const red = {'hex': '#FF0000FF'};
+    const blue = {'hex': '#0000FFFF'};
+    List<Map<String, dynamic>> bands(double from, double to) => [
+      {'at': from, 'color': red},
+      {'at': (from + to) / 2, 'color': red},
+      {'at': (from + to) / 2, 'color': blue},
+      {'at': to, 'color': blue},
+    ];
+    Map<String, dynamic> layer(Map<String, dynamic> ty) => {
+      'layers': [
+        {'opacity': 1.0, 'ty': ty},
+      ],
+      'shadows': [],
+    };
+    // Each case: paint data, then pixels in a 100x20 box and the CSS color.
+    final cases = <String, (Map<String, dynamic>, Map<(int, int), String>)>{
+      // Repeats every 20% of the line, not once across it.
+      'repeating linear': (
+        layer({
+          '__typename': 'PaintLayerTypeLinearGradient',
+          'angle': 90,
+          'repeating': true,
+          'stops': bands(0, 0.2),
+        }),
+        {(25, 10): 'red', (35, 10): 'blue'},
+      ),
+      // A period starting at 10% keeps its phase.
+      'repeating linear, offset': (
+        layer({
+          '__typename': 'PaintLayerTypeLinearGradient',
+          'angle': 90,
+          'repeating': true,
+          'stops': bands(0.1, 0.3),
+        }),
+        {(45, 10): 'blue', (55, 10): 'red'},
+      ),
+      // Ellipse reaches the corner with the box's aspect: 8px off center
+      // vertically is past half of the 14px vertical radius.
+      'ellipse': (
+        layer({
+          '__typename': 'PaintLayerTypeRadialGradient',
+          'shape': 'ELLIPSE',
+          'repeating': false,
+          'stops': bands(0, 1),
+        }),
+        {(50, 2): 'blue', (60, 10): 'red'},
+      ),
+      // Circle radius is the corner distance (51px); period 20% from 10%.
+      'repeating circle, offset': (
+        layer({
+          '__typename': 'PaintLayerTypeRadialGradient',
+          'shape': 'CIRCLE',
+          'repeating': true,
+          'stops': bands(0.1, 0.3),
+        }),
+        {(57, 10): 'red', (62, 10): 'blue', (67, 10): 'red'},
+      ),
+    };
+
+    final service = SevenTvPaintService(
+      gqlQuery: (_) async =>
+          jsonDecode(
+                _catalogQueryResponse([
+                  for (final MapEntry(key: name, value: (data, _))
+                      in cases.entries)
+                    _paintItem(name, name, data),
+                ]),
+              )['data']
+              as Map<String, dynamic>,
+    );
+    await service.ensureCatalog();
+    service.enabled = true;
+    for (final MapEntry(key: name, value: (_, pixels)) in cases.entries) {
+      service.assignForTesting(name, name);
+      final shader = service.shaderFor(
+        service.lookup(name)!,
+        const Size(100, 20),
+      )!;
+      final recorder = PictureRecorder();
+      Canvas(
+        recorder,
+      ).drawRect(const Rect.fromLTWH(0, 0, 100, 20), Paint()..shader = shader);
+      final image = await recorder.endRecording().toImage(100, 20);
+      final bytes = (await image.toByteData())!;
+      image.dispose();
+      for (final MapEntry(key: (x, y), value: want) in pixels.entries) {
+        final at = (y * 100 + x) * 4;
+        final got = bytes.getUint8(at) > bytes.getUint8(at + 2)
+            ? 'red'
+            : 'blue';
+        expect(got, want, reason: '$name at ($x, $y)');
+      }
+    }
+    service.dispose();
   });
 
   group('SevenTvPaintService user resolution', () {

@@ -667,25 +667,77 @@ class SevenTvPaintService extends ChangeNotifier {
         final dy = -math.cos(theta);
         final length = (size.width * dx.abs() + size.height * dy.abs()).abs();
         if (length <= 0) return null;
+        final dir = Offset(dx, dy);
+        final start = center - dir * length / 2;
+        final period = _period(stops);
+        if (linear.repeating && period != null) {
+          // CSS repeats every (last - first) stop, not the whole line: span
+          // the shader across one period and let the tile mode repeat it.
+          final (first, last) = period;
+          return ui.Gradient.linear(
+            start + dir * length * first,
+            start + dir * length * last,
+            colors,
+            [for (final s in stops) (s - first) / (last - first)],
+            ui.TileMode.repeated,
+          );
+        }
         return ui.Gradient.linear(
-          center - Offset(dx, dy) * length / 2,
-          center + Offset(dx, dy) * length / 2,
+          start,
+          start + dir * length,
           colors,
           stops,
-          linear.repeating ? ui.TileMode.repeated : ui.TileMode.clamp,
+          ui.TileMode.clamp,
         );
 
       case SevenTvRadialGradientLayer radial:
         final (colors, stops) = _stopLists(radial.stops, radial.opacity);
-        // Elliptical shapes approximate to a circle covering the box.
-        final radius = size.longestSide / 2;
+        // CSS default size is farthest-corner: a circle reaches the corner,
+        // an ellipse keeps the box's aspect and passes through the corner.
+        final halfW = size.width / 2;
+        final halfH = size.height / 2;
+        final double radius;
+        Float64List? matrix;
+        if (radial.isCircle) {
+          radius = math.sqrt(halfW * halfW + halfH * halfH);
+        } else {
+          radius = halfW * math.sqrt2;
+          if (halfW > 0 && halfH != halfW) {
+            // Squash the circle to the ellipse around the center.
+            matrix =
+                (Matrix4.identity()
+                      ..translateByDouble(center.dx, center.dy, 0, 1)
+                      ..scaleByDouble(1, halfH / halfW, 1, 1)
+                      ..translateByDouble(-center.dx, -center.dy, 0, 1))
+                    .storage;
+          }
+        }
         if (radius <= 0) return null;
+        final period = _period(stops);
+        if (radial.repeating && period != null) {
+          // The gradient always starts at the center, so one period spans
+          // the radius and the stops rotate by the first stop's offset.
+          final (first, last) = period;
+          final span = last - first;
+          final (shiftedColors, shiftedStops) = _rotateStops(colors, [
+            for (final s in stops) (s - first) / span,
+          ], (first / span) % 1);
+          return ui.Gradient.radial(
+            center,
+            radius * span,
+            shiftedColors,
+            shiftedStops,
+            ui.TileMode.repeated,
+            matrix,
+          );
+        }
         return ui.Gradient.radial(
           center,
           radius,
           colors,
           stops,
-          radial.repeating ? ui.TileMode.repeated : ui.TileMode.clamp,
+          ui.TileMode.clamp,
+          matrix,
         );
 
       case SevenTvSolidColorLayer solid:
@@ -716,6 +768,60 @@ class SevenTvPaintService extends ChangeNotifier {
     final positions = [for (final stop in stops) stop.at];
     // Duplicate stops produce hard edges, matching CSS behavior.
     return (colors, positions);
+  }
+
+  /// First and last stop of a repeating gradient's period, or null when the
+  /// stops collapse to one point (CSS then paints the average color; the
+  /// plain gradient is close enough).
+  static (double, double)? _period(List<double> stops) {
+    if (stops.length < 2) return null;
+    final first = stops.first;
+    final last = stops.last;
+    if (last - first <= 1e-6) return null;
+    return (first, last);
+  }
+
+  /// Shifts normalized stops by [phase] around the 0..1 cycle, so the color
+  /// at t is the original color at (t - phase). Stops past 1 wrap to the
+  /// front, and both ends get the interpolated wrap color.
+  static (List<Color>, List<double>) _rotateStops(
+    List<Color> colors,
+    List<double> stops,
+    double phase,
+  ) {
+    if (phase <= 1e-6 || phase >= 1 - 1e-6) return (colors, stops);
+    final edge = _colorAt(colors, stops, 1 - phase);
+    final wrappedColors = <Color>[];
+    final wrappedStops = <double>[];
+    final restColors = <Color>[];
+    final restStops = <double>[];
+    for (var i = 0; i < stops.length; i++) {
+      final q = stops[i] + phase;
+      if (q >= 1) {
+        wrappedColors.add(colors[i]);
+        wrappedStops.add(q - 1);
+      } else {
+        restColors.add(colors[i]);
+        restStops.add(q);
+      }
+    }
+    return (
+      [edge, ...wrappedColors, ...restColors, edge],
+      [0, ...wrappedStops, ...restStops, 1],
+    );
+  }
+
+  /// Color of sorted [stops] at [t], interpolated, clamped at the ends.
+  static Color _colorAt(List<Color> colors, List<double> stops, double t) {
+    if (t <= stops.first) return colors.first;
+    for (var i = 1; i < stops.length; i++) {
+      if (t <= stops[i]) {
+        final span = stops[i] - stops[i - 1];
+        if (span <= 0) return colors[i];
+        return Color.lerp(colors[i - 1], colors[i], (t - stops[i - 1]) / span)!;
+      }
+    }
+    return colors.last;
   }
 
   @visibleForTesting
