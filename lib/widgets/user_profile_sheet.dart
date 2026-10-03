@@ -649,6 +649,7 @@ class UserProfileSheetState extends State<UserProfileSheet> {
                       memCacheWidth:
                           (96 * MediaQuery.devicePixelRatioOf(context)).round(),
                       fadeInDuration: Duration.zero,
+                      fadeOutDuration: Duration.zero,
                       placeholder: (_, _) => avatarSlot,
                       errorWidget: (_, _, _) => Container(
                         width: 96,
@@ -723,6 +724,7 @@ class UserProfileSheetState extends State<UserProfileSheet> {
       height: _cardBadgeSize,
       fit: badge.circular ? BoxFit.cover : BoxFit.contain,
       fadeInDuration: Duration.zero,
+      fadeOutDuration: Duration.zero,
       placeholder: (_, _) =>
           const SizedBox(width: _cardBadgeSize, height: _cardBadgeSize),
       errorWidget: (_, url, error) {
