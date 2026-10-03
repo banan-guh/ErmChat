@@ -649,6 +649,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     _sevenTvPaintService.bindSevenTvEvents(_sevenTvClient);
     unawaited(_thirdPartyBadgeService.fetchFfzBadges());
     unawaited(_thirdPartyBadgeService.fetchBttvBadges());
+    unawaited(_thirdPartyBadgeService.fetchLimerinoBadges());
     WidgetsBinding.instance.addObserver(this);
     _predictiveBackHandler = PanelPredictiveBackHandler(
       isPanelOpen: () => _activePanel != OverlayPanel.closed || _emoteSheetOpen,

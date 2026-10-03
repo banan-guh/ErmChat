@@ -6,6 +6,12 @@ import '../util/log.dart';
 import 'seven_tv_event_client.dart';
 
 class ThirdPartyBadgeService {
+  ThirdPartyBadgeService({this._client, DateTime Function()? now})
+    : _now = now ?? DateTime.now;
+
+  final http.Client? _client;
+  final DateTime Function() _now;
+
   // FFZ: badgeId -> {name, imageUrl}
   final _ffzBadges = <String, _FfzBadge>{};
   // FFZ: twitchUserId -> badgeId
@@ -16,6 +22,31 @@ class ThirdPartyBadgeService {
   final _sevenTvBadges = <String, ThirdPartyBadge>{};
   // 7TV: twitchUserId -> cosmeticId
   final _sevenTvUsers = <String, String>{};
+
+  // Limerino: badgeId -> badge (catalog), and per-user answers. The API only
+  // answers per user, so unknown users queue for a batched lookup.
+  final _limerinoBadges = <String, ThirdPartyBadge>{};
+  final _limerinoUsers = <String, ({String? badgeId, DateTime at})>{};
+  final _limerinoPending = <String>{};
+  // Off until the app starts the catalog fetch, so bare renders (tests,
+  // previews) never queue network lookups.
+  bool _limerinoEnabled = false;
+  Timer? _limerinoFlushTimer;
+  bool _limerinoInflight = false;
+  bool _limerinoCatalogInflight = false;
+  DateTime? _limerinoCatalogAt;
+  DateTime? _limerinoBlockedUntil;
+  Duration _limerinoBackoff = Duration.zero;
+
+  static const _limerinoApi = 'https://api.limerino.com/v1/badges';
+  // Limits and cache lifetimes follow limerino.com/developers/badges.
+  static const _limerinoBatchDelay = Duration(milliseconds: 250);
+  static const _limerinoMaxBatch = 100;
+  static const _limerinoHitTtl = Duration(minutes: 10);
+  static const _limerinoMissTtl = Duration(minutes: 30);
+  static const _limerinoCatalogTtl = Duration(minutes: 10);
+  static const _limerinoMaxUsers = 10000;
+  static const _limerinoMaxBackoff = Duration(minutes: 10);
 
   bool _ffzFetched = false;
   bool _bttvFetched = false;
@@ -123,14 +154,196 @@ class ThirdPartyBadgeService {
     }
   }
 
-  /// The user's one third-party badge: FFZ, then BTTV, then 7TV.
+  /// Loads the Limerino badge catalog (names and art). Refreshes when older
+  /// than its TTL or when a user answer names an unknown badge.
+  Future<void> fetchLimerinoBadges({bool force = false}) async {
+    _limerinoEnabled = true;
+    if (_limerinoCatalogInflight) return;
+    final at = _limerinoCatalogAt;
+    if (!force && at != null && _now().difference(at) < _limerinoCatalogTtl) {
+      return;
+    }
+    _limerinoCatalogInflight = true;
+    try {
+      final res = await _get(Uri.parse(_limerinoApi));
+      if (res.statusCode != 200) return;
+      _limerinoCatalogAt = _now();
+      final data = jsonDecode(res.body) as Map<String, dynamic>;
+      for (final raw in data['badges'] as List<dynamic>? ?? const []) {
+        final badge = _parseLimerinoBadge(raw);
+        if (badge != null) _limerinoBadges[badge.$1] = badge.$2;
+      }
+      _version++;
+    } catch (e) {
+      logDebug('Limerino badge catalog error: $e');
+    } finally {
+      _limerinoCatalogInflight = false;
+    }
+  }
+
+  static (String, ThirdPartyBadge)? _parseLimerinoBadge(Object? raw) {
+    if (raw is! Map<String, dynamic>) return null;
+    final data = raw['data'] as Map<String, dynamic>? ?? const {};
+    final id = (raw['id'] ?? data['id']) as String? ?? '';
+    final host = data['host'] as Map<String, dynamic>? ?? const {};
+    final hostUrl = host['url'] as String? ?? '';
+    if (id.isEmpty || hostUrl.isEmpty) return null;
+    final names = [
+      for (final f in host['files'] as List<dynamic>? ?? const [])
+        if (f is Map<String, dynamic>) f['name'] as String? ?? '',
+    ];
+    // 2x (36px) suits the 18dp badge slot; every badge ships a 2x.png.
+    final file = names.contains('2x.webp')
+        ? '2x.webp'
+        : names.contains('2x.png')
+        ? '2x.png'
+        : names.firstOrNull;
+    if (file == null || file.isEmpty) return null;
+    final base = hostUrl.startsWith('//') ? 'https:$hostUrl' : hostUrl;
+    return (
+      id,
+      (
+        url: '$base/$file',
+        name: data['tooltip'] as String? ?? data['name'] as String? ?? '',
+      ),
+    );
+  }
+
+  /// The user's Limerino badge, queueing a batched lookup when the cached
+  /// answer is missing or expired.
+  ThirdPartyBadge? _limerinoBadgeFor(String userId) {
+    if (!_limerinoEnabled) return null;
+    final answer = _limerinoUsers[userId];
+    if (answer == null ||
+        _now().difference(answer.at) >
+            (answer.badgeId == null ? _limerinoMissTtl : _limerinoHitTtl)) {
+      _queueLimerino(userId);
+    }
+    final badgeId = answer?.badgeId;
+    return badgeId == null ? null : _limerinoBadges[badgeId];
+  }
+
+  void _queueLimerino(String userId) {
+    if (userId.isEmpty || !_limerinoPending.add(userId)) return;
+    _limerinoFlushTimer ??= Timer(_limerinoBatchDelay, () {
+      _limerinoFlushTimer = null;
+      unawaited(_flushLimerino());
+    });
+  }
+
+  Future<void> _flushLimerino() async {
+    if (_limerinoInflight || _limerinoPending.isEmpty) return;
+    final blocked = _limerinoBlockedUntil;
+    if (blocked != null && _now().isBefore(blocked)) {
+      _limerinoFlushTimer ??= Timer(blocked.difference(_now()), () {
+        _limerinoFlushTimer = null;
+        unawaited(_flushLimerino());
+      });
+      return;
+    }
+    final batch = _limerinoPending.take(_limerinoMaxBatch).toList();
+    _limerinoPending.removeAll(batch);
+    _limerinoInflight = true;
+    var retry = false;
+    try {
+      final res = await _post(
+        Uri.parse('$_limerinoApi/users'),
+        jsonEncode({'twitch_ids': batch}),
+      );
+      if (res.statusCode == 429 || res.statusCode >= 500) {
+        _limerinoPending.addAll(batch);
+        _backOffLimerino(res.headers['retry-after']);
+        retry = true;
+        return;
+      }
+      if (res.statusCode != 200) return;
+      _limerinoBackoff = Duration.zero;
+      final users =
+          (jsonDecode(res.body) as Map<String, dynamic>)['users']
+              as Map<String, dynamic>? ??
+          const {};
+      final at = _now();
+      var changed = false;
+      var unknownBadge = false;
+      for (final userId in batch) {
+        final ids = users[userId];
+        final badgeId = ids is List && ids.isNotEmpty
+            ? ids.first.toString()
+            : null;
+        final before = _limerinoUsers.remove(userId)?.badgeId;
+        _limerinoUsers[userId] = (badgeId: badgeId, at: at);
+        if (before != badgeId) changed = true;
+        if (badgeId != null && !_limerinoBadges.containsKey(badgeId)) {
+          unknownBadge = true;
+        }
+      }
+      while (_limerinoUsers.length > _limerinoMaxUsers) {
+        _limerinoUsers.remove(_limerinoUsers.keys.first);
+      }
+      if (unknownBadge) {
+        unawaited(fetchLimerinoBadges(force: true));
+      } else {
+        unawaited(fetchLimerinoBadges());
+      }
+      if (changed) _version++;
+    } catch (e) {
+      _limerinoPending.addAll(batch);
+      _backOffLimerino(null);
+      retry = true;
+      logDebug('Limerino badge lookup error: $e');
+    } finally {
+      _limerinoInflight = false;
+      if (!retry && _limerinoPending.isNotEmpty) {
+        _limerinoFlushTimer ??= Timer(_limerinoBatchDelay, () {
+          _limerinoFlushTimer = null;
+          unawaited(_flushLimerino());
+        });
+      } else if (retry) {
+        unawaited(_flushLimerino());
+      }
+    }
+  }
+
+  // Waits retry-after (60s when unreadable), doubling per consecutive
+  // failure up to the documented ~10 minute cap.
+  void _backOffLimerino(String? retryAfter) {
+    final hinted = int.tryParse(retryAfter ?? '');
+    final base = Duration(seconds: hinted ?? 60);
+    final next = _limerinoBackoff == Duration.zero
+        ? base
+        : _limerinoBackoff * 2;
+    _limerinoBackoff = next > _limerinoMaxBackoff ? _limerinoMaxBackoff : next;
+    _limerinoBlockedUntil = _now().add(_limerinoBackoff);
+  }
+
+  Future<http.Response> _get(Uri uri) =>
+      (_client?.get(uri) ?? http.get(uri)).timeout(httpTimeout);
+
+  Future<http.Response> _post(Uri uri, String body) {
+    const headers = {'content-type': 'application/json'};
+    return (_client?.post(uri, headers: headers, body: body) ??
+            http.post(uri, headers: headers, body: body))
+        .timeout(httpTimeout);
+  }
+
+  /// The user's one third-party badge: FFZ, then BTTV, then 7TV, then
+  /// Limerino. Every call keeps the Limerino answer fresh, so a user with
+  /// another badge still gets looked up once.
   ThirdPartyBadge? resolveBadge(String userId) {
+    final limerino = _limerinoBadgeFor(userId);
     final ffz = _ffzBadges[_ffzUsers[userId]];
     if (ffz != null) return (url: ffz.imageUrl, name: ffz.name);
-    return _bttvUsers[userId] ?? _sevenTvBadges[_sevenTvUsers[userId]];
+    return _bttvUsers[userId] ??
+        _sevenTvBadges[_sevenTvUsers[userId]] ??
+        limerino;
   }
 
   void dispose() {
+    _limerinoFlushTimer?.cancel();
+    _limerinoFlushTimer = null;
+    _limerinoPending.clear();
+    _limerinoUsers.clear();
+    _limerinoBadges.clear();
     _cosmeticSub?.cancel();
     _entitlementSub?.cancel();
     _ffzBadges.clear();
