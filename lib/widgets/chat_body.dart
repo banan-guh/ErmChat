@@ -284,6 +284,7 @@ class _ChatBodyState extends State<ChatBody>
       if (_rawH <= 0.5) {
         _keyboardEngaged = false;
         if (!_retapped) widget.onKeyboardDismissed?.call();
+        _retapped = false;
         return;
       }
       if (_opening) {
