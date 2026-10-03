@@ -402,6 +402,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     lineSeparator: () => _lineSeparator,
     sharedChatMode: () => ref.read(sharedChatModeProvider),
     copyMessage: _copyMessageToClipboard,
+    namePaintService: () => _showNamePaints ? _sevenTvPaintService : null,
   );
 
   late final _search = SearchPanels(

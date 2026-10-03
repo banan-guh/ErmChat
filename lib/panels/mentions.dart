@@ -17,6 +17,7 @@ import '../util/haptics.dart';
 import '../widgets/chat_view.dart';
 import '../widgets/message_builder.dart';
 import '../widgets/panel_manager.dart';
+import '../widgets/seven_tv_paint_service.dart';
 import '../widgets/tab_drag_focus.dart';
 
 // Mentions/whispers inbox and its open/show verbs.
@@ -45,6 +46,7 @@ class MentionsPanels {
     required this.lineSeparator,
     required this.sharedChatMode,
     required this.copyMessage,
+    required this.namePaintService,
   });
 
   final PanelManager panelManager;
@@ -70,6 +72,7 @@ class MentionsPanels {
   final bool Function() lineSeparator;
   final String Function() sharedChatMode;
   final void Function(TwitchMessage msg) copyMessage;
+  final SevenTvPaintService? Function() namePaintService;
 
   final whispers = <TwitchMessage>[];
   int unreadWhispers = 0;
@@ -281,6 +284,7 @@ class MentionsPanels {
               highlightOpacity: highlightOpacity(),
               lineSeparator: lineSeparator(),
               sharedChatMode: sharedChatMode(),
+              paintService: namePaintService(),
               physics: const ClampingScrollPhysics(),
               onShowUserProfile: (login, userId, {displayName}) =>
                   userSheets.showUserProfile(
@@ -313,6 +317,7 @@ class MentionsPanels {
               highlightOpacity: highlightOpacity(),
               lineSeparator: lineSeparator(),
               sharedChatMode: sharedChatMode(),
+              paintService: namePaintService(),
               physics: const ClampingScrollPhysics(),
               onShowUserProfile: (login, userId, {displayName}) =>
                   userSheets.showUserProfile(
