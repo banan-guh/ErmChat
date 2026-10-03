@@ -32,6 +32,8 @@ dart format <files>      # only the files you changed, never `.`
 
 See [docs/ARCHITECTURE_RULES.md](docs/ARCHITECTURE_RULES.md) for the rules and [docs/DECISIONS.md](docs/DECISIONS.md) for why. `test/architecture/architecture_test.dart` enforces the import-direction rules; keep it green.
 
+Never route around a rule to make a check pass: no re-export shims, wrapper files, or new carve-outs that sneak a forbidden import in, and no flipping a test's assertion because your change broke it. A test that locks deliberate behavior (read its name and comments) means your change is wrong, or the user must decide. When a rule blocks the obvious fix, put the code in the layer allowed to own it (e.g. widget identity like `GlobalKey` lives in `lib/widgets`, not on a service). If no layer fits, stop and ask.
+
 ## Chat kernel conventions
 
 - `Chat` is the root: channel registry and cross-channel totals. `Channel` composes `Messages`/`Threads`/`Unread`/`Moderation`/`Points`/`ChannelInfo`. Account identity lives in `lib/client/Session`, outside the kernel; the app subscribes to `Session.version`.
@@ -62,6 +64,7 @@ IMPORTANT: NO em-dashes.
 If a comment is multiple lines long, see if you can rephrase it to be shorter. ALWAYS review a comment if you write one more than 3 lines long.
 Comments and doc comments state what the code does and why, in the present tense. Never narrate the change (no "previously", "used to", "moved from").
 NEVER `dart format .` as it creates extremely large diffs. Instead, specify the exact files to format.
+Smallest change in the code that already owns the behavior. No new files, helpers, abstractions, or dependencies for a one-off; no edits outside your task (version bumps, TODO lines, unrelated cleanups) folded into a commit.
 
 ## Performance
 

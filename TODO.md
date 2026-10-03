@@ -115,3 +115,4 @@
 
 - more friendly err messages
 - input bar in threads/glass
+- "devotion" 7tv paint not rendering properly
