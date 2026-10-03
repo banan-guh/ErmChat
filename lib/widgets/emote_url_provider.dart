@@ -310,6 +310,10 @@ class EmoteUrlProvider extends ImageProvider<EmoteUrlProvider> {
     return live.currentFrameIndex;
   }
 
+  /// Materialized cycle for [url] (null until captured). Exposed for tests.
+  @visibleForTesting
+  static EmoteFrameData? debugFrames(String url) => _liveByUrl[url]?._frames;
+
   /// Whether [url] has a decoded frame ready. No completer creation.
   static bool hasFrames(String url) {
     final live = _liveByUrl[url];
@@ -882,14 +886,19 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
         _stopPlayback();
         return;
       }
+      // A dropped frame still advanced the codec, so it still counts: the
+      // count picks each frame's ANMF duration and capture slot, and a skipped
+      // count pairs every later frame with its neighbour's duration.
       if (_disposed || _codec != codec || !hasListeners) {
         frame.image.dispose();
+        if (_codec == codec) _streamEmitted++;
         _streamDecoding = false;
         return;
       }
       if (!EmoteUrlProvider.animating && _hasStreamFrame) {
         // Toggled off mid-decode with a frame showing: drop and hold.
         frame.image.dispose();
+        _streamEmitted++;
         _streamDecoding = false;
         return;
       }

@@ -1,4 +1,6 @@
 import 'dart:io';
+import 'dart:typed_data';
+import 'dart:ui' as ui;
 
 import 'package:ermchat/services/emote_images.dart';
 import 'package:ermchat/widgets/emote_url_provider.dart';
@@ -147,6 +149,73 @@ void main() {
       stream.removeListener(listener);
     },
   );
+
+  testWidgets('a decode dropped mid-stream keeps frames on their durations', (
+    tester,
+  ) async {
+    // 4 frames at 800/100/200/100 ms: a frame paired with its neighbour's
+    // duration holds visibly wrong, and it persisted until restart.
+    final webp = File('test/fixtures/7tv_uneven_2x.webp').readAsBytesSync();
+    EmoteUrlProvider.debugFetchOverride = (url) async => webp;
+    final reference = (await tester.runAsync(() async {
+      final codec = await ui.instantiateImageCodec(webp);
+      final out = <ByteData>[];
+      for (var i = 0; i < codec.frameCount; i++) {
+        final frame = await codec.getNextFrame();
+        out.add((await frame.image.toByteData())!);
+        frame.image.dispose();
+      }
+      codec.dispose();
+      return out;
+    }))!;
+
+    const url = 'https://capture.test/uneven.webp';
+    EmoteUrlProvider.markChatUse(url);
+    final stream = EmoteUrlProvider(
+      url,
+      images: images,
+    ).resolve(ImageConfiguration.empty);
+    final listener = ImageStreamListener((_, _) {});
+    stream.addListener(listener);
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 200)),
+    );
+    await tester.pump();
+    // Pausing right after a tick lands while its decode is in flight, so the
+    // decoded frame is dropped.
+    for (var i = 0; i < 200 && !EmoteUrlProvider.isFullyCaptured(url); i++) {
+      await tester.pump(const Duration(milliseconds: 70));
+      final pause = i < 12 && i % 3 == 1;
+      if (pause) EmoteUrlProvider.applyGifsEnabled(false);
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 35)),
+      );
+      if (!pause) continue;
+      // The decode's continuation lands on the next pump, still paused.
+      await tester.pump();
+      EmoteUrlProvider.applyGifsEnabled(true);
+    }
+    expect(EmoteUrlProvider.isFullyCaptured(url), isTrue);
+
+    final frames = EmoteUrlProvider.debugFrames(url)!;
+    expect(frames.durations, const [
+      Duration(milliseconds: 800),
+      Duration(milliseconds: 100),
+      Duration(milliseconds: 200),
+      Duration(milliseconds: 100),
+    ]);
+    for (var i = 0; i < reference.length; i++) {
+      final bytes = (await tester.runAsync(
+        () => frames.frames[i].toByteData(),
+      ))!;
+      expect(
+        bytes.buffer.asUint8List(),
+        reference[i].buffer.asUint8List(),
+        reason: 'slot $i holds another frame',
+      );
+    }
+    stream.removeListener(listener);
+  });
 
   testWidgets('array playback keeps wall-clock phase across a gap', (
     tester,
