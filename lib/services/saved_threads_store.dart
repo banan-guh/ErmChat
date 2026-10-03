@@ -176,6 +176,7 @@ class SavedThreadsStore {
     _messages[entry.key] = List.of(messages);
     _messageIds[entry.key] = _idsOf(messages);
     _markDirty(entry);
+    unawaited(_writeIndex());
     return true;
   }
 
@@ -233,7 +234,6 @@ class SavedThreadsStore {
 
   void _markDirty(SavedThread t) {
     _dirty.add(t.key);
-    unawaited(_writeIndex());
     _flushTimer?.cancel();
     _flushTimer = Timer(const Duration(seconds: 1), () {
       unawaited(flush());
