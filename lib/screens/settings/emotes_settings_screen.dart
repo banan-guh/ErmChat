@@ -295,7 +295,14 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
             key: const Key('emote_auto_mode'),
             segments: [
               for (final mode in EmoteFetchAutoMode.values)
-                ButtonSegment(value: mode, label: Text(mode.label)),
+                ButtonSegment(
+                  value: mode,
+                  // Narrow phones shrink the word instead of breaking it.
+                  label: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Text(mode.label, maxLines: 1, softWrap: false),
+                  ),
+                ),
             ],
             selected: {_autoMode},
             showSelectedIcon: false,
