@@ -928,7 +928,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   void _onChannelContent(String channel) {
     _composer.refreshCooldown();
     _threads.syncSavedWithChannel(channel, newOnly: true);
-    _onPanelDataChanged(channel, modView: false);
   }
 
   void _onChannelInfo(String channel) {
@@ -939,14 +938,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   }
 
   void _onMentionsContent() {
-    _onPanelDataChanged(null, modView: false);
-    _refreshMentionsPanel();
+    if (_activePanel == OverlayPanel.mentions) _mentions.refreshOnData();
   }
 
-  /// Mention rows are shared with the channel buffers, so in-place edits
-  /// there (deletes, restamps) refresh the panel; channel arrivals do not.
-  void _refreshMentionsPanel() {
+  /// Mention and thread rows are shared with the channel buffers, so in-place
+  /// edits there (deletes, restamps) refresh the panels. Channel arrivals do
+  /// not: threads move on their index, mentions on their own channel.
+  void _refreshRowPanels(String channel) {
     if (_activePanel == OverlayPanel.mentions) _mentions.refreshOnData();
+    _threads.refreshOnData(channel);
   }
 
   void _syncChannelSubs() {
@@ -965,12 +965,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       void onThread() => _onPanelDataChanged(name);
       void onMutation(String? id) {
         if (id != null) _tileCache[name]?.remove(id);
-        _refreshMentionsPanel();
+        _refreshRowPanels(name);
       }
 
       void onMutateAll() {
         _tileCache.remove(name);
-        _refreshMentionsPanel();
+        _refreshRowPanels(name);
       }
 
       channel.messages.version.addListener(onContent);

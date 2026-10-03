@@ -1379,6 +1379,77 @@ void main() {
     expect(irc.sent.last.replyParent, isNotNull);
   });
 
+  // The open thread refreshes on its index, not on every channel arrival.
+  testWidgets('An open thread picks up a live reply', (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    final ircRead = FakeIrcReadService();
+    final irc = FakeIrcService();
+    await tester.pumpWidget(
+      TwitchChatApp(
+        key: UniqueKey(),
+        eventSubService: FakeEventSubService(),
+        ircService: irc,
+        ircReadService: ircRead,
+        recentMessagesService: ConfigurableRecentMessagesService(const []),
+      ),
+    );
+    await tester.pump();
+    await tester.tap(find.byIcon(Icons.add));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).last, 'a');
+    await tester.tap(find.text('Join', skipOffstage: false));
+    await tester.pump();
+    irc.triggerConnect();
+    ircRead.triggerConnect();
+    await tester.pump(const Duration(milliseconds: 600));
+    irc.triggerJoin('a');
+    ircRead.triggerJoin('a');
+    await tester.pump();
+
+    TwitchMessage reply(String id, String text) => TwitchMessage(
+      login: 'bob',
+      text: text,
+      messageId: id,
+      replyToParentId: 'p1',
+      replyToUser: 'alice',
+      replyToText: 'parent msg',
+      channel: 'a',
+    );
+    ircRead.emitMessage(
+      TwitchMessage(
+        login: 'alice',
+        text: 'parent msg',
+        messageId: 'p1',
+        channel: 'a',
+      ),
+    );
+    ircRead.emitMessage(reply('c1', 'first reply'));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.textContaining('Replying to @alice: parent msg').first,
+    );
+    await tester.pumpAndSettle();
+
+    ircRead.emitMessage(
+      TwitchMessage(
+        login: 'carol',
+        text: 'noise',
+        messageId: 'n1',
+        channel: 'a',
+      ),
+    );
+    ircRead.emitMessage(reply('c2', 'second reply'));
+    await tester.pumpAndSettle();
+
+    // Main chat plus the thread panel.
+    expect(
+      find.textContaining('second reply', skipOffstage: false),
+      findsNWidgets(2),
+      reason: 'the open thread must show a reply that lands while open',
+    );
+    expect(find.textContaining('noise', skipOffstage: false), findsOneWidget);
+  });
+
   testWidgets('Message timestamps render by default and hide when disabled', (
     WidgetTester tester,
   ) async {
