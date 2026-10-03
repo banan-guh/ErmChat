@@ -275,6 +275,14 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
             read: (p) => p.preferEmotesFirst,
             write: (p, v) => p.setPreferEmotesFirst(v),
           ),
+          PrefsSwitchTile(
+            secondary: const Icon(Icons.content_copy),
+            title: 'Double-tap name to copy',
+            subtitle: 'Off opens the user card instantly',
+            defaultValue: false,
+            read: (p) => p.doubleTapNameCopy,
+            write: (p, v) => p.setDoubleTapNameCopy(v),
+          ),
           const SettingsSectionHeader('Notifications'),
           SettingsNavTile(
             icon: Icons.notifications,

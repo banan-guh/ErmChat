@@ -86,6 +86,7 @@ class Prefs {
   static const _kMentionPush = 'mention_push';
   static const _kWhisperNotifications = 'whisper_notifications';
   static const _kPreferEmotesFirst = 'prefer_emotes_first';
+  static const _kDoubleTapNameCopy = 'double_tap_name_copy';
   static const _kSharedChatMode = 'shared_chat_mode';
   static const _kSeventvNamePaints = 'seventv_name_paints';
   static const _kShowInput = 'show_input';
@@ -131,6 +132,11 @@ class Prefs {
 
   Future<void> setPreferEmotesFirst(bool value) =>
       _p.setBool(_kPreferEmotesFirst, value);
+
+  bool get doubleTapNameCopy => _p.getBool(_kDoubleTapNameCopy) ?? false;
+
+  Future<void> setDoubleTapNameCopy(bool value) =>
+      _p.setBool(_kDoubleTapNameCopy, value);
 
   bool get showTimestamps => _p.getBool(kShowTimestampsPrefKey) ?? true;
 

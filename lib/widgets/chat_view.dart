@@ -868,7 +868,9 @@ class _ChatViewState extends State<ChatView>
               displayName: msg.displayName,
             )
           : null,
-      onDoubleTapUser: chatRow ? () => _copyUsername(msg) : null,
+      onDoubleTapUser: chatRow && widget.messageBuilder.doubleTapNameCopy
+          ? () => _copyUsername(msg)
+          : null,
       onLongPress: chatRow && widget.onShowMessageMenu != null
           ? () => widget.onShowMessageMenu!(msg)
           : null,

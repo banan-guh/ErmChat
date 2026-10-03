@@ -37,6 +37,10 @@ class MessageBuilder {
   /// Inline image preview max height at textScale 1.0.
   double imageHeight;
 
+  /// Whether a double tap on a name copies it. Off opens the user card on
+  /// the first tap instead of waiting out the double-tap window.
+  bool doubleTapNameCopy = false;
+
   /// Tap handler for email spans (copy + feedback). Null copies silently.
   void Function(String email)? onEmailTap;
 

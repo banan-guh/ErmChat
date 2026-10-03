@@ -1212,7 +1212,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
         _gifHeight != gifHeight ||
         animateChanged ||
         _showImages != prefs.imageEmbedEnabled ||
-        _imageHeight != imageHeight;
+        _imageHeight != imageHeight ||
+        _messageBuilder.doubleTapNameCopy != prefs.doubleTapNameCopy;
     // Every field apply() writes; any change keeps the rebuild.
     final fieldsChanged =
         appearanceChanged ||
@@ -1259,6 +1260,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       _messageBuilder.showImages = _showImages;
       _messageBuilder.imageHeight = _imageHeight;
       _messageBuilder.animateGifs = _animateGifs;
+      _messageBuilder.doubleTapNameCopy = prefs.doubleTapNameCopy;
     }
 
     if (initial) {
