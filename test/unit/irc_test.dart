@@ -1747,6 +1747,19 @@ void main() {
       offline.dispose();
     });
 
+    test('7TV reconnect counter survives failed connect attempts', () {
+      fakeAsync((async) {
+        final c = SevenTvEventClient()..isOnline = true;
+        c.connect();
+        async.elapse(const Duration(seconds: 11));
+        expect(c.reconnectAttempt, 1);
+        // The retry timer calls connect(), which must keep the counter.
+        async.elapse(const Duration(seconds: 12));
+        expect(c.reconnectAttempt, greaterThan(1), reason: 'connect() reset');
+        c.dispose();
+      });
+    });
+
     test('events after dispose are ignored', () {
       client.handleRawMessage(_hello());
       client.dispose();

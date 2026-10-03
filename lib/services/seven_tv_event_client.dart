@@ -193,6 +193,7 @@ class SevenTvEventClient {
   /// where [isConnected] alone can't be trusted.
   Future<void> forceReconnect() {
     if (_disposed || _connecting) return Future.value();
+    _reconnectAttempt = 0;
     _disconnect();
     return connect();
   }
@@ -202,7 +203,6 @@ class SevenTvEventClient {
     _connecting = true;
     try {
       _fatalCloseCode = null;
-      _reconnectAttempt = 0;
       _ensureConnectivityListener();
       _disconnect();
       try {
@@ -665,6 +665,7 @@ class SevenTvEventClient {
       final wasOffline = !_isOnline;
       _isOnline = online;
       if (wasOffline && online && _channel == null && !_reconnecting) {
+        _reconnectAttempt = 0;
         connect();
       }
     };
