@@ -218,6 +218,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   // [_chatLoading] (driven by ChatConnectionManager.connectionStateNotifier),
   // so this only covers emote work that doesn't move the connection phase.
   final ValueNotifier<bool> _networkBusy = ValueNotifier(false);
+  // Kept so dispose unbinds only the handlers this state installed.
+  late final PipService _pip;
+  ValueChanged<bool>? _pipChangedHandler;
+  ValueChanged<String>? _pipActionHandler;
   bool _showTimestamps = true;
   String _timestampFormat = kDefaultTimestampFormat;
   double _chatFontSize = 14.0;
@@ -630,16 +634,19 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     unawaited(_linkWhitelist.load());
     unawaited(_streamPlayer.loadPrefs());
     _streamPlayer.pipService = _pipService;
-    _pipService.onPipChanged = (inPip) {
+    _pip = _pipService;
+    _pipChangedHandler = (inPip) {
       if (!mounted) return;
       // No context here (channel callback), so dismiss globally. Covers
       // the auto-enter path where no overlay button runs first.
       if (inPip) FocusManager.instance.primaryFocus?.unfocus();
       setState(() => _streamPlayer.setPipActive(inPip));
     };
+    _pip.onPipChanged = _pipChangedHandler;
     // PiP window taps land on the controller; the player view (which owns
     // the WebView) consumes them via its controller listener.
-    _pipService.onPipAction = _streamPlayer.notifyPipAction;
+    _pipActionHandler = _streamPlayer.notifyPipAction;
+    _pip.onPipAction = _pipActionHandler;
     _streamPlayer.addListener(_stream.onStreamPlayerChanged);
     _streamPlayer.addListener(_syncSystemUiMode);
     _linkWhitelist.addListener(_onLinkWhitelistChanged);
@@ -1293,6 +1300,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     PrefsStore.instance.removeListener(_onPrefsChanged);
     _streamPlayer.removeListener(_stream.onStreamPlayerChanged);
     _streamPlayer.removeListener(_syncSystemUiMode);
+    if (_pip.onPipChanged == _pipChangedHandler) {
+      _pip.onPipChanged = null;
+    }
+    if (_pip.onPipAction == _pipActionHandler) {
+      _pip.onPipAction = null;
+    }
     _mentionsTabCtrl.removeListener(_mentions.onMentionsTabChanged);
     _mentionsTabCtrl.dispose();
     _threadsTabCtrl.removeListener(_threads.onThreadsTabChanged);
