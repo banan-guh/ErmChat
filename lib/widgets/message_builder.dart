@@ -58,21 +58,20 @@ class MessageBuilder {
   final _bodyCache = Expando<_BodySpans>();
   final _badgeCache = Expando<_BadgeSpans>();
 
-  /// Composite cache key for message spans. Emote tokens bake onto the
-  /// message at ingest, so catalog changes never invalidate spans here;
-  /// only badge data, link prefs, and gif/image prefs join the key. A token
+  /// Inputs the cached spans depend on. Emote tokens bake onto the message
+  /// at ingest, so catalog changes never invalidate spans here; only badge
+  /// data, link prefs, and gif/image prefs join the key. A token
   /// reassignment (history restamp after a late catalog) invalidates through
   /// the stored token identity instead.
-  int get _spanCacheVersion {
-    var v = badgeService.version;
-    v += linkWhitelist.entries.fold<int>(0, (h, e) => h ^ e.hashCode * 31);
-    if (linkWhitelist.enabled) v += 30000031;
-    if (onEmailTap != null) v += 40000037;
-    if (showGifs) v += 10000019 + (gifHeight * 13).toInt();
-    if (showImages) v += 20000029;
-    if (!animateGifs) v += 50000051;
-    return v;
-  }
+  _SpanKey _spanKey(double scale) => (
+    badges: badgeService.version,
+    links: linkWhitelist.revision,
+    email: onEmailTap != null,
+    gifHeight: showGifs ? gifHeight : null,
+    images: showImages,
+    animate: animateGifs,
+    scale: scale,
+  );
 
   List<InlineSpan> buildMessageSpans(
     TwitchMessage msg,
@@ -91,43 +90,56 @@ class MessageBuilder {
         scale: textScale,
         onImageTap: onImageTap,
       );
-      if (colored) return _recolor(fresh, msg, surface, textScale);
-      return fresh;
+      if (!colored) return fresh;
+      return _recolor(fresh, _textStyle(msg, surface, textScale));
     }
-    final spanVersion = _spanCacheVersion;
-    final cached = _bodyCache[msg];
-    final stale =
-        cached == null ||
-        cached.version != spanVersion ||
-        cached.scale != textScale ||
-        !identical(cached.tokens, msg.emoteTokens);
-    if (!stale) {
-      return colored
-          ? _recolor(cached.spans, msg, surface, textScale)
-          : cached.spans;
+    final key = _spanKey(textScale);
+    var cached = _bodyCache[msg];
+    if (cached == null ||
+        cached.key != key ||
+        !identical(cached.tokens, msg.emoteTokens)) {
+      if (cached != null) _disposeSpanRecognizers(cached.spans);
+      final fresh = _computeMessageSpans(msg, channel, scale: textScale);
+      // Link and email spans own TapGestureRecognizers that have no dispose
+      // hook on message eviction, so never cache them. Link-heavy messages
+      // rebuild per tile instead of leaking recognizers per message.
+      if (_containsRecognizer(fresh)) {
+        if (!colored) return fresh;
+        return _recolor(fresh, _textStyle(msg, surface, textScale));
+      }
+      cached = _bodyCache[msg] = _BodySpans(fresh, key, msg.emoteTokens);
     }
-    if (cached != null) _disposeSpanRecognizers(cached.spans);
-    final fresh = _computeMessageSpans(msg, channel, scale: textScale);
-    // Link and email spans own TapGestureRecognizers that have no dispose
-    // hook on message eviction, so never cache them. Link-heavy messages
-    // rebuild per tile instead of leaking recognizers per message.
-    if (!_containsRecognizer(fresh)) {
-      _bodyCache[msg] = _BodySpans(
-        fresh,
-        spanVersion,
-        textScale,
-        msg.emoteTokens,
-      );
+    return colored ? _cachedColored(cached, msg, surface) : cached.spans;
+  }
+
+  /// Action-message spans recolored once per sender color and surface, so
+  /// cached rows skip the color parse and span copies on rebuild.
+  List<InlineSpan> _cachedColored(
+    _BodySpans entry,
+    TwitchMessage msg,
+    Color surface,
+  ) {
+    final colored = entry.colored;
+    if (colored != null &&
+        entry.coloredFrom == msg.color &&
+        entry.coloredSurface == surface) {
+      return colored;
     }
-    if (colored) return _recolor(fresh, msg, surface, textScale);
-    return fresh;
+    entry
+      ..coloredFrom = msg.color
+      ..coloredSurface = surface;
+    return entry.colored = _recolor(
+      entry.spans,
+      _textStyle(msg, surface, entry.key.scale),
+    );
   }
 
   /// Whether [spans] is the shared cached body list for [msg], so the tile
   /// knows not to own (and dispose) it.
   bool bodyIsCached(TwitchMessage msg, List<InlineSpan> spans) {
     final cached = _bodyCache[msg];
-    return cached != null && identical(cached.spans, spans);
+    return cached != null &&
+        (identical(cached.spans, spans) || identical(cached.colored, spans));
   }
 
   bool _containsRecognizer(List<InlineSpan> spans) {
@@ -152,28 +164,22 @@ class MessageBuilder {
     }
   }
 
-  List<InlineSpan> _recolor(
-    List<InlineSpan> spans,
-    TwitchMessage msg,
-    Color surface,
-    double textScale,
-  ) {
+  /// Body style for action (/me) messages: the sender's color.
+  TextStyle _textStyle(TwitchMessage msg, Color surface, double textScale) =>
+      TextStyle(
+        fontSize: 14 * textScale,
+        color: parseColor(msg.color, background: surface),
+        decoration: TextDecoration.none,
+      );
+
+  List<InlineSpan> _recolor(List<InlineSpan> spans, TextStyle style) {
     return [
-      ...spans.map((span) {
+      for (final span in spans)
         // Links keep blue style (repainting hides clickability).
-        if (span is TextSpan && span.recognizer == null) {
-          return TextSpan(
-            text: span.text,
-            style: TextStyle(
-              fontSize: 14 * textScale,
-              color: parseColor(msg.color, background: surface),
-              decoration: TextDecoration.none,
-            ),
-            recognizer: span.recognizer,
-          );
-        }
-        return span;
-      }),
+        if (span is TextSpan && span.recognizer == null)
+          TextSpan(text: span.text, style: style)
+        else
+          span,
     ];
   }
 
@@ -439,17 +445,32 @@ String _humanizeSetId(String setId) {
   return '${words[0].toUpperCase()}${words.substring(1)}';
 }
 
+typedef _SpanKey = ({
+  int badges,
+  int links,
+  bool email,
+  double? gifHeight,
+  bool images,
+  bool animate,
+  double scale,
+});
+
 class _BodySpans {
-  _BodySpans(this.spans, this.version, this.scale, this.tokens);
+  _BodySpans(this.spans, this.key, this.tokens);
 
   final List<InlineSpan> spans;
-  final int version;
-  final double scale;
+  final _SpanKey key;
 
   /// Token list the spans were built from. A restamp assigns a new list,
   /// which is the only emote-driven invalidation; catalog changes alone
   /// keep the identity and the freeze.
   final List<EmoteToken>? tokens;
+
+  /// [spans] in the sender's color for action rows, and what it was built
+  /// for.
+  List<InlineSpan>? colored;
+  String? coloredFrom;
+  Color? coloredSurface;
 }
 
 class _BadgeSpans {

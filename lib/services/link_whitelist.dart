@@ -18,12 +18,18 @@ class LinkWhitelist extends ChangeNotifier {
     'youtu.be',
   ];
 
+  // Always unmodifiable and replaced on change, so [entries] hands it out
+  // without a copy.
   List<String> _entries = const [];
   bool _loaded = false;
   bool enabled = false;
+  int _revision = 0;
 
   bool get loaded => _loaded;
-  List<String> get entries => List.unmodifiable(_entries);
+  List<String> get entries => _entries;
+
+  /// Bumped on every change, so render caches can key on one int.
+  int get revision => _revision;
 
   /// Normalizes entry: strips whitespace and leading/trailing dots.
   static String normalize(String raw) =>
@@ -37,14 +43,14 @@ class LinkWhitelist extends ChangeNotifier {
     final stored = prefs.linkWhitelist;
     if (stored == null) {
       // First run: seed defaults.
-      _entries = List.of(_defaults);
+      _entries = List.unmodifiable(_defaults);
       await _persist();
     } else {
-      _entries = stored;
+      _entries = List.unmodifiable(stored);
     }
     enabled = prefs.linkWhitelistEnabled;
     _loaded = true;
-    notifyListeners();
+    _changed();
   }
 
   Future<void> _persist() async {
@@ -57,29 +63,34 @@ class LinkWhitelist extends ChangeNotifier {
     enabled = value;
     final prefs = await Prefs.load();
     await prefs.setLinkWhitelistEnabled(value);
-    notifyListeners();
+    _changed();
   }
 
   void add(String raw) {
     final entry = normalize(raw);
     if (entry.isEmpty || _entries.contains(entry)) return;
-    _entries = [..._entries, entry];
+    _entries = List.unmodifiable([..._entries, entry]);
     unawaited(_persist());
-    notifyListeners();
+    _changed();
   }
 
   void remove(String entry) {
     final normalized = normalize(entry);
     if (!_entries.contains(normalized)) return;
-    _entries = _entries.where((e) => e != normalized).toList();
+    _entries = List.unmodifiable(_entries.where((e) => e != normalized));
     unawaited(_persist());
-    notifyListeners();
+    _changed();
   }
 
   /// Resets to default entries.
   void restoreDefaults() {
-    _entries = List.of(_defaults);
+    _entries = List.unmodifiable(_defaults);
     unawaited(_persist());
+    _changed();
+  }
+
+  void _changed() {
+    _revision++;
     notifyListeners();
   }
 }

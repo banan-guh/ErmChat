@@ -545,6 +545,30 @@ void main() {
     }
   });
 
+  test('cached /me spans recolor only when the surface changes', () {
+    final builder = makeBuilder(EmoteManager());
+    final msg = TwitchMessage(
+      login: 'user',
+      text: 'Pog',
+      channel: 'test',
+      messageId: 'm3',
+      isAction: true,
+      color: '#0000FF',
+    );
+    List<InlineSpan> build(Color surface) =>
+        builder.buildMessageSpans(msg, 'test', surface, colored: true);
+
+    final dark = build(Colors.black);
+    expect(builder.bodyIsCached(msg, dark), isTrue);
+    expect(identical(build(Colors.black), dark), isTrue, reason: 'memoized');
+    final light = build(Colors.white);
+    expect(
+      (light.single as TextSpan).style?.color,
+      isNot((dark.single as TextSpan).style?.color),
+      reason: 'a theme flip renormalizes the sender color',
+    );
+  });
+
   test('card badges resolve global sets and drop unknown', () async {
     final badgeService = TwitchBadgeService(
       client: MockClient(
