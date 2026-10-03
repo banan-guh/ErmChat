@@ -3820,7 +3820,9 @@ void main() {
     });
 
     test('unlisted 7TV emotes stay hidden until allowed and persist', () async {
-      SharedPreferences.setMockInitialValues({});
+      SharedPreferences.setMockInitialValues({
+        'emote_7tv_allow_unlisted': false,
+      });
       final manager = EmoteManager(fetchStagger: Duration.zero);
       await manager.enabledProviders();
       manager.updateSevenTvEmotes(
@@ -3864,6 +3866,12 @@ void main() {
       );
 
       expect(next.byCode('ch')!.byCode.keys, ['Secret']);
+
+      // A fresh install allows them.
+      SharedPreferences.setMockInitialValues({});
+      final fresh = EmoteManager(fetchStagger: Duration.zero);
+      await fresh.enabledProviders();
+      expect(fresh.allowUnlisted7tv, isTrue);
     });
   });
 

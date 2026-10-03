@@ -55,7 +55,7 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
   int _draftCacheMb = defaultEmoteCacheMb;
   EmoteCacheStats? _stats;
   final _providerEnabled = <EmoteType, bool>{};
-  bool _allowUnlisted = false;
+  bool _allowUnlisted = true;
   bool _animateGifs = true;
   bool _adaptiveFps = true;
   int _idleFps = kIdleEmoteFps;

@@ -339,8 +339,7 @@ class Prefs {
   Future<void> setEmoteProvidersDisabled(List<String> value) =>
       _p.setStringList(_kEmoteProvidersDisabled, value);
 
-  bool get emoteAllowUnlisted7tv =>
-      _p.getBool(_kEmoteAllowUnlisted7tv) ?? false;
+  bool get emoteAllowUnlisted7tv => _p.getBool(_kEmoteAllowUnlisted7tv) ?? true;
 
   Future<void> setEmoteAllowUnlisted7tv(bool value) =>
       _p.setBool(_kEmoteAllowUnlisted7tv, value);

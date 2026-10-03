@@ -17,7 +17,7 @@ class EmoteVisibility extends ChangeNotifier {
   bool _loaded = false;
   bool _disposed = false;
   final Set<EmoteType> _disabled = {};
-  bool _allowUnlisted = false;
+  bool _allowUnlisted = true;
 
   /// Disabled providers as an immutable snapshot.
   Set<EmoteType> get disabledProviders => Set.unmodifiable(_disabled);
