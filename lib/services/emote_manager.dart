@@ -193,6 +193,7 @@ class EmoteManager implements EmoteLookupSource {
           tier: () => tier,
           isProviderEnabled: (type) => _visibility.isProviderEnabled(type),
           notifyChanged: _store.notifyCatalogChanged,
+          onSendersChanged: _notifyPersonalSenders,
           now: _now,
         );
     _twitchSets =
@@ -430,6 +431,21 @@ class EmoteManager implements EmoteLookupSource {
 
   /// Placeholder for a personal set announced over the socket.
   void trackForeignPersonalSet(String setId) => _personalSets.trackSet(setId);
+
+  final _personalSenderListeners = <void Function(Set<String>)>[];
+
+  /// Notified with the Twitch ids whose personal 7TV emotes just changed.
+  void addPersonalSendersListener(void Function(Set<String>) listener) =>
+      _personalSenderListeners.add(listener);
+
+  void removePersonalSendersListener(void Function(Set<String>) listener) =>
+      _personalSenderListeners.remove(listener);
+
+  void _notifyPersonalSenders(Set<String> twitchIds) {
+    for (final listener in List.of(_personalSenderListeners)) {
+      listener(twitchIds);
+    }
+  }
 
   /// Applies a socket emote_set.update to a tracked foreign personal set.
   void applyForeignPersonalSetUpdate({

@@ -28,6 +28,7 @@ class SevenTvPersonalSets {
     required this._notifyChanged,
     DateTime Function()? now,
     String? Function()? viewerTwitchIdSource,
+    this._onSendersChanged,
   }) : _isProviderOn = isProviderEnabled,
        _viewerIdSource = viewerTwitchIdSource,
        _now = now ?? DateTime.now;
@@ -37,6 +38,17 @@ class SevenTvPersonalSets {
   final EmoteFetchTier Function() _tier;
   final bool Function(EmoteType) _isProviderOn;
   final void Function() _notifyChanged;
+
+  /// Senders whose personal emotes just changed, reported after
+  /// [_notifyChanged] so lookups already see the new sets. Their recent
+  /// messages can then pick up emotes that arrived after they did.
+  final void Function(Set<String> twitchIds)? _onSendersChanged;
+
+  void _sendersChanged(Iterable<String>? twitchIds) {
+    final ids = {...?twitchIds}..remove('');
+    if (ids.isNotEmpty) _onSendersChanged?.call(ids);
+  }
+
   final DateTime Function() _now;
 
   /// Live account-id source, read when no explicit id was set. Wired by the
@@ -141,6 +153,7 @@ class SevenTvPersonalSets {
     }
     if (changed) {
       _notifyChanged();
+      _sendersChanged([viewerId]);
       unawaited(_save());
     }
   }
@@ -182,6 +195,7 @@ class SevenTvPersonalSets {
     _personalSevenTvSetIds.add(event.cosmeticId);
     _personalSevenTvSets[event.cosmeticId] = emotes;
     _notifyChanged();
+    _sendersChanged([viewerId]);
     unawaited(_save());
   }
 
@@ -208,6 +222,7 @@ class SevenTvPersonalSets {
       if (mappingChanged) {
         _rebuildForeignUsers(setId);
         _notifyChanged();
+        _sendersChanged(userTwitchIds);
       }
       return;
     }
@@ -336,6 +351,7 @@ class SevenTvPersonalSets {
     _touchForeignSet(setId);
     _rebuildForeignUsers(setId);
     _notifyChanged();
+    _sendersChanged(_foreignPersonalSetOwners[setId]);
     unawaited(_save());
   }
 
@@ -365,6 +381,7 @@ class SevenTvPersonalSets {
       _putForeignSet(setId, fetched);
       _rebuildForeignUsers(setId);
       _notifyChanged();
+      _sendersChanged(_foreignPersonalSetOwners[setId]);
     }();
     _foreignPersonalSetInflight[setId] = future;
     try {

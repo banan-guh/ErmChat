@@ -38,6 +38,7 @@ class ChatHistoryController {
          isBlocked: isBlocked,
        ) {
     emoteManager.store.addListener(_onCatalogChanged);
+    emoteManager.addPersonalSendersListener(_onPersonalSendersChanged);
   }
 
   final Chat chat;
@@ -152,9 +153,23 @@ class ChatHistoryController {
     }
   }
 
+  /// Gives the recent rows of [twitchIds] the personal emotes that landed
+  /// after their messages did.
+  void _onPersonalSendersChanged(Set<String> twitchIds) {
+    for (final name in List.of(chat.names)) {
+      chat
+          .channelFor(name)
+          ?.restampSenderEmotes(
+            twitchIds,
+            (msg) => _parseForChannel(msg, name).tokens,
+          );
+    }
+  }
+
   /// Detaches the catalog listener. The provider owns teardown.
   void dispose() {
     emoteManager.store.removeListener(_onCatalogChanged);
+    emoteManager.removePersonalSendersListener(_onPersonalSendersChanged);
   }
 
   /// Retroactive mention scan, run once on login: evaluates ping rules against

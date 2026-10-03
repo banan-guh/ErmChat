@@ -31,6 +31,12 @@ class _FakeConn with _Unimplemented implements ChatConnectionManager {}
 class _FakeEmotes with _Unimplemented implements EmoteManager {
   @override
   final EmoteStore store = EmoteStore();
+
+  @override
+  void addPersonalSendersListener(void Function(Set<String>) listener) {}
+
+  @override
+  void removePersonalSendersListener(void Function(Set<String>) listener) {}
 }
 
 class _FakeAnalytics with _Unimplemented implements AnalyticsService {}

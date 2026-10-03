@@ -245,14 +245,38 @@ class Messages {
   int restampPartialEmotes(
     ({List<EmoteToken>? tokens, bool complete}) Function(TwitchMessage msg)
     resolve,
+  ) => _restamp(_items.where((m) => m.emotesPartial), (msg) {
+    final (:tokens, :complete) = resolve(msg);
+    if (complete) msg.emotesPartial = false;
+    return tokens;
+  });
+
+  /// Re-resolves the newest [window] rows sent by [userIds] after their
+  /// personal emotes landed: the set often arrives just after the message
+  /// that announced it (chatterino7 re-parses the sender's last message the
+  /// same way). Adds emotes only, like [restampPartialEmotes].
+  int restampSenderEmotes(
+    Set<String> userIds,
+    List<EmoteToken>? Function(TwitchMessage msg) resolve, {
+    int window = 100,
+  }) {
+    if (userIds.isEmpty) return 0;
+    return _restamp(
+      _items.take(window).where((m) => userIds.contains(m.userId)),
+      resolve,
+    );
+  }
+
+  int _restamp(
+    Iterable<TwitchMessage> rows,
+    List<EmoteToken>? Function(TwitchMessage msg) resolve,
   ) {
     final touchedIds = <String>[];
     var touchedIdless = false;
     var healed = 0;
-    for (final msg in _items) {
-      if (msg.isSystem || !msg.emotesPartial) continue;
-      final (:tokens, :complete) = resolve(msg);
-      if (complete) msg.emotesPartial = false;
+    for (final msg in rows) {
+      if (msg.isSystem) continue;
+      final tokens = resolve(msg);
       if (tokens == null || !_addsEmotes(msg.emoteTokens, tokens)) continue;
       msg.emoteTokens = tokens;
       healed++;

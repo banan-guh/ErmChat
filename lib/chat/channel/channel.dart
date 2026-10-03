@@ -141,6 +141,12 @@ class Channel {
     resolve,
   ) => messages.restampPartialEmotes(resolve);
 
+  /// Heals the recent rows of senders whose personal emotes just landed.
+  int restampSenderEmotes(
+    Set<String> userIds,
+    List<EmoteToken>? Function(TwitchMessage msg) resolve,
+  ) => messages.restampSenderEmotes(userIds, resolve);
+
   /// Retro-inserts a redemption header above an already-buffered chat line.
   /// System rows skip unread counting; truncation decay runs in the same
   /// step so callers never write channel children directly.

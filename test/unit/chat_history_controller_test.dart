@@ -122,6 +122,47 @@ void main() {
     expect(early.emoteTokens!.map((t) => t.emote!.code).toList(), ['Alpha']);
   });
 
+  test('a personal set landing after its message heals that message', () async {
+    final chat = Chat();
+    addTearDown(chat.dispose);
+    chat.ensure('ch');
+    final emotes = EmoteManager();
+    addTearDown(emotes.dispose);
+    final controller = _controller(chat, emotes);
+    addTearDown(controller.dispose);
+
+    // The message that triggers the sender's 7TV presence lands first.
+    TwitchMessage row(String id, String userId) => TwitchMessage(
+      login: userId,
+      userId: userId,
+      text: 'hi Mine',
+      messageId: id,
+      channel: 'ch',
+    )..emoteTokens = const [];
+    final sender = row('m1', 'u1');
+    final other = row('m2', 'u2');
+    for (final m in [sender, other]) {
+      chat.receive('ch', m, maxMessages: 500, isSelected: true, ownLogin: null);
+    }
+
+    // Socket order: set created, filled, then granted to the sender.
+    emotes.trackForeignPersonalSet('set');
+    emotes.applyForeignPersonalSetUpdate(
+      setId: 'set',
+      added: [sevenTv('p1', 'Mine')],
+      removedIds: const [],
+      renamed: const {},
+    );
+    await emotes.trackForeignPersonalGrant(['u1'], 'set');
+
+    expect(sender.emoteTokens!.map((t) => t.emote!.code), ['Mine']);
+    expect(
+      other.emoteTokens,
+      isEmpty,
+      reason: 'personal emotes are sender-scoped',
+    );
+  });
+
   test('dispose detaches the catalog listener', () {
     final chat = Chat();
     addTearDown(chat.dispose);
