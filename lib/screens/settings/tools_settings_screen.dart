@@ -1,31 +1,31 @@
+import 'dart:io' show Platform;
+
 import 'package:flutter/material.dart';
 import '../../services/analytics_service.dart';
 import '../../services/emote_images.dart';
-import '../../services/recent_messages.dart';
 import '../../services/tts_controller.dart';
 import 'analytics_screen.dart';
-import 'link_whitelist_screen.dart';
-import 'proxy_settings_screen.dart';
-import 'recent_messages_settings_screen.dart';
-import 'recent_uploads_screen.dart';
+import 'prefs_tiles.dart';
 import 'settings_page.dart';
-import 'uploader_settings_screen.dart';
 import 'tts_settings_screen.dart';
+import 'uploader_settings_screen.dart';
 
+/// Features too small for a top-level entry: TTS, uploads, analytics, and
+/// the stream player toggles.
 class ToolsSettingsScreen extends StatelessWidget {
   final AnalyticsService? analyticsService;
   final List<String>? channels;
   final TtsController? ttsController;
-  final ValueChanged<RecentMessagesConfig>? onRecentMessagesModeChanged;
   final EmoteImages? images;
+  final ValueChanged<bool>? onPipEnabledChanged;
 
   const ToolsSettingsScreen({
     super.key,
     this.analyticsService,
     this.channels,
     this.ttsController,
-    this.onRecentMessagesModeChanged,
     this.images,
+    this.onPipEnabledChanged,
   });
 
   @override
@@ -52,14 +52,6 @@ class ToolsSettingsScreen extends StatelessWidget {
               MaterialPageRoute(builder: (_) => const UploaderSettingsScreen()),
             ),
           ),
-          SettingsNavTile(
-            icon: Icons.image,
-            title: 'Recent uploads',
-            onTap: () => Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => const RecentUploadsScreen()),
-            ),
-          ),
           if (analyticsService != null && channels != null && images != null)
             SettingsNavTile(
               icon: Icons.insights,
@@ -75,38 +67,17 @@ class ToolsSettingsScreen extends StatelessWidget {
                 ),
               ),
             ),
-          SettingsNavTile(
-            icon: Icons.history,
-            title: 'Recent messages',
-            subtitle: 'Choose provider',
-            onTap: () => Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => RecentMessagesSettingsScreen(
-                  onChanged: onRecentMessagesModeChanged,
-                ),
-              ),
+          if (Platform.isAndroid) ...[
+            const SettingsSectionHeader('Livestreams'),
+            PrefsSwitchTile(
+              secondary: const Icon(Icons.picture_in_picture),
+              title: 'Picture-in-picture',
+              defaultValue: false,
+              read: (p) => p.streamPipEnabled,
+              write: (p, v) => p.setStreamPipEnabled(v),
+              onChanged: onPipEnabledChanged,
             ),
-          ),
-          SettingsNavTile(
-            icon: Icons.link,
-            title: 'Split link whitelist',
-            onTap: () => Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => const LinkWhitelistSettingsScreen(),
-              ),
-            ),
-          ),
-          SettingsNavTile(
-            icon: Icons.cloud,
-            title: 'Chat proxy',
-            subtitle: 'Optional ermchat-server relay',
-            onTap: () => Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => const ProxySettingsScreen()),
-            ),
-          ),
+          ],
         ],
       ),
     );

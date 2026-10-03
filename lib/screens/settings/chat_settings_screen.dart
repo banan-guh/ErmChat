@@ -1,14 +1,18 @@
+import 'dart:io' show Platform;
+
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import '../../services/recent_messages.dart';
 import '../../services/twitch_auth.dart';
 import '../../util/constants.dart';
 import '../../util/prefs.dart';
 import '../../util/prefs_store.dart';
-import '../../util/timestamp_formatter.dart';
-import '../../widgets/dialogs.dart';
+import 'link_whitelist_screen.dart';
 import 'macros_screen.dart';
-import 'ignores_screen.dart';
 import 'inline_embeds_screen.dart';
 import 'prefs_tiles.dart';
+import 'proxy_settings_screen.dart';
+import 'recent_messages_settings_screen.dart';
 import 'settings_page.dart';
 
 class ChatSettingsScreen extends StatefulWidget {
@@ -18,10 +22,13 @@ class ChatSettingsScreen extends StatefulWidget {
   /// re-applied from a prefs re-read, so it stays a callback.
   final ValueChanged<bool>? onBackgroundServiceChanged;
 
+  final ValueChanged<RecentMessagesConfig>? onRecentMessagesModeChanged;
+
   const ChatSettingsScreen({
     super.key,
     this.twitchAuth,
     this.onBackgroundServiceChanged,
+    this.onRecentMessagesModeChanged,
   });
 
   @override
@@ -62,9 +69,6 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
     return best;
   }
 
-  String get _timestampFormat =>
-      _prefs?.timestampFormat ?? kDefaultTimestampFormat;
-
   String get _sharedChatMode => _prefs?.sharedChatMode ?? 'spotlight';
 
   bool get _showGifs =>
@@ -73,30 +77,10 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
   bool get _showImages =>
       _prefs?.imageEmbedEnabled ?? kImageEmbedEnabledDefault;
 
-  Future<void> _pickTimestampFormat() async {
-    final now = DateTime.now();
-    final selected = await showChoiceDialog<String>(
-      context,
-      title: 'Timestamp format',
-      value: _timestampFormat,
-      height: 420,
-      options: [
-        for (final fmt in kTimestampFormats)
-          (fmt, fmt, 'e.g. ${formatTimestamp(now, fmt)}'),
-      ],
-    );
-    if (selected == null || selected == _timestampFormat) return;
-    final prefs = _prefs ?? await Prefs.load();
-    await prefs.setTimestampFormat(selected);
-    PrefsStore.instance.notifyChanged();
-    if (!mounted) return;
-    setState(() {});
-  }
-
   String get _sharedChatModeLabel => switch (_sharedChatMode) {
-    'fade' => 'Fade (dim foreign messages)',
-    'hide' => 'Hide (drop foreign messages)',
-    _ => 'Spotlight (show all)',
+    'fade' => 'Fade',
+    'hide' => 'Hide',
+    _ => 'Spotlight',
   };
 
   Future<void> _pickSharedChatMode() async {
@@ -115,17 +99,17 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
               RadioListTile<String>(
                 value: 'spotlight',
                 title: Text('Spotlight'),
-                subtitle: Text('Show all messages with attribution'),
+                subtitle: Text('Labeled by channel'),
               ),
               RadioListTile<String>(
                 value: 'fade',
                 title: Text('Fade'),
-                subtitle: Text('Dim foreign messages'),
+                subtitle: Text('Dimmed'),
               ),
               RadioListTile<String>(
                 value: 'hide',
                 title: Text('Hide'),
-                subtitle: Text('Drop foreign messages entirely'),
+                subtitle: Text('Hidden'),
               ),
             ],
           ),
@@ -141,15 +125,12 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
   }
 
   String get _inlineEmbedsSubtitle {
-    final parts = <String>[];
-    if (_showGifs) {
-      parts.add('Giphy on (${(_prefs?.giphyInlineHeight ?? 0).round()}dp)');
-    }
-    if (_showImages) {
-      parts.add('Images on (${(_prefs?.imageEmbedHeight ?? 0).round()}dp)');
-    }
-    if (parts.isEmpty) return 'Off';
-    return parts.join(', ');
+    return switch ((_showGifs, _showImages)) {
+      (true, true) => 'Giphy, images',
+      (true, false) => 'Giphy',
+      (false, true) => 'Images',
+      _ => 'Off',
+    };
   }
 
   @override
@@ -175,40 +156,11 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
               kMaxMessagesPerChannelValues[v.round()],
             ),
           ),
-          PrefsSliderTile(
-            label: (v) => 'Recent messages to load: ${v.round()}',
-            sliderLabel: (v) => '${v.round()}',
-            min: 0,
-            max: 800,
-            divisions: 8,
-            defaultValue: kRecentMessagesLimitDefault.toDouble(),
-            read: (p) => p.recentMessagesLimit.clamp(0, 800).toDouble(),
-            write: (p, v) => p.setRecentMessagesLimit(v.round()),
-          ),
-          PrefsSwitchTile(
-            secondary: const Icon(Icons.reply),
-            title: 'Reply to thread root',
-            subtitle:
-                'Always reply to the first message in a thread instead of the latest',
-            defaultValue: false,
-            read: (p) => p.replyToThreadRoot,
-            write: (p, v) => p.setReplyToThreadRoot(v),
-          ),
           SettingsNavTile(
             icon: Icons.merge_type,
             title: 'Shared chat messages',
             subtitle: _sharedChatModeLabel,
             onTap: _pickSharedChatMode,
-          ),
-          SettingsNavTile(
-            icon: Icons.visibility_off,
-            title: 'Ignores',
-            onTap: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const IgnoresScreen()),
-              );
-            },
           ),
           SettingsNavTile(
             icon: Icons.gif_box,
@@ -221,7 +173,56 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
               );
             },
           ),
+          SettingsNavTile(
+            icon: Icons.link,
+            title: 'Split links',
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => const LinkWhitelistSettingsScreen(),
+              ),
+            ),
+          ),
+          const SettingsSectionHeader('History'),
+          PrefsSliderTile(
+            label: (v) => 'Recent messages to load: ${v.round()}',
+            sliderLabel: (v) => '${v.round()}',
+            min: 0,
+            max: 800,
+            divisions: 8,
+            defaultValue: kRecentMessagesLimitDefault.toDouble(),
+            read: (p) => p.recentMessagesLimit.clamp(0, 800).toDouble(),
+            write: (p, v) => p.setRecentMessagesLimit(v.round()),
+          ),
+          SettingsNavTile(
+            icon: Icons.history,
+            title: 'Recent messages',
+            subtitle: 'Choose provider',
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => RecentMessagesSettingsScreen(
+                  onChanged: widget.onRecentMessagesModeChanged,
+                ),
+              ),
+            ),
+          ),
+          const SettingsSectionHeader('Typing'),
+          PrefsSwitchTile(
+            secondary: const Icon(Icons.sentiment_very_satisfied),
+            title: 'Prefer emote suggestions (autocomplete)',
+            defaultValue: false,
+            read: (p) => p.preferEmotesFirst,
+            write: (p, v) => p.setPreferEmotesFirst(v),
+          ),
           const _MentionFormatTile(),
+          PrefsSwitchTile(
+            secondary: const Icon(Icons.reply),
+            title: 'Reply to thread first message',
+            defaultValue: false,
+            read: (p) => p.replyToThreadRoot,
+            write: (p, v) => p.setReplyToThreadRoot(v),
+          ),
           if (widget.twitchAuth != null)
             SettingsNavTile(
               icon: Icons.bolt,
@@ -236,53 +237,43 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
                 );
               },
             ),
-          const SettingsSectionHeader('UI'),
-          PrefsSwitchTile(
-            secondary: const Icon(Icons.schedule),
-            title: 'Show timestamps',
-            defaultValue: true,
-            read: (p) => p.showTimestamps,
-            write: (p, v) => p.setShowTimestamps(v),
-          ),
-          SettingsNavTile(
-            icon: Icons.access_time,
-            title: 'Timestamp format',
-            subtitle: _timestampFormat,
-            onTap: _pickTimestampFormat,
-          ),
-          PrefsSwitchTile(
-            secondary: const Icon(Icons.format_paint),
-            title: '7TV name paints',
-            subtitle: 'Gradient username colors for 7TV subscribers',
-            defaultValue: false,
-            read: (p) => p.seventvNamePaints,
-            write: (p, v) => p.setSeventvNamePaints(v),
-          ),
-          PrefsSwitchTile(
-            secondary: const Icon(Icons.sentiment_very_satisfied),
-            title: 'Prefer emote suggestions',
-            subtitle: 'Emote priority over usernames in autocomplete',
-            defaultValue: false,
-            read: (p) => p.preferEmotesFirst,
-            write: (p, v) => p.setPreferEmotesFirst(v),
-          ),
+          const SettingsSectionHeader('Users'),
           PrefsSwitchTile(
             secondary: const Icon(Icons.content_copy),
             title: 'Double-tap name to copy',
-            subtitle: 'Off opens the user card instantly',
+            subtitle: 'Delays opening the user card',
             defaultValue: false,
             read: (p) => p.doubleTapNameCopy,
             write: (p, v) => p.setDoubleTapNameCopy(v),
           ),
-          const SettingsSectionHeader('Connection'),
           PrefsSwitchTile(
-            secondary: const Icon(Icons.wifi_tethering),
-            title: 'Keep chat alive in background',
-            subtitle: 'Foreground notification to not reconnect every time',
+            secondary: const Icon(Icons.format_paint),
+            title: '7TV name paints',
             defaultValue: false,
-            read: (p) => p.backgroundService,
-            write: (p, v) => p.setBackgroundService(v),
-            onChanged: widget.onBackgroundServiceChanged,
+            read: (p) => p.seventvNamePaints,
+            write: (p, v) => p.setSeventvNamePaints(v),
+          ),
+          const SettingsSectionHeader('Connection'),
+          // The foreground service behind this is Android-only.
+          if (!kIsWeb && Platform.isAndroid)
+            PrefsSwitchTile(
+              secondary: const Icon(Icons.wifi_tethering),
+              title: 'Stay connected in background',
+              subtitle: 'Shows a persistent notification',
+              defaultValue: false,
+              read: (p) => p.backgroundService,
+              write: (p, v) => p.setBackgroundService(v),
+              onChanged: widget.onBackgroundServiceChanged,
+            ),
+          SettingsNavTile(
+            icon: Icons.cloud,
+            title: 'Chat proxy',
+            subtitle: (_prefs?.proxyEnabled ?? false) ? 'On' : 'Off',
+            // The proxy screen saves without announcing it; re-read on return.
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const ProxySettingsScreen()),
+            ).then((_) => _loadPrefs()),
           ),
         ],
       ),
@@ -351,8 +342,7 @@ class _MentionFormatTileState extends State<_MentionFormatTile> {
     return SettingsNavTile(
       icon: Icons.text_format,
       title: 'Mention format',
-      subtitle:
-          'How tapping "Mention user" inserts the name: ${formats[_format]}',
+      subtitle: formats[_format],
       onTap: _pick,
     );
   }

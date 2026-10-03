@@ -50,7 +50,6 @@ class _InlineEmbedsScreenState extends State<InlineEmbedsScreen> {
           PrefsSwitchTile(
             secondary: const Icon(Icons.gif_box),
             title: 'Show Giphy inline',
-            subtitle: 'Render Giphy attachments as images in chat',
             defaultValue: kGiphyInlineEnabledDefault,
             read: (p) => p.giphyInlineEnabled,
             write: (p, v) => p.setGiphyInlineEnabled(v),
@@ -72,7 +71,7 @@ class _InlineEmbedsScreenState extends State<InlineEmbedsScreen> {
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
             child: Text(
-              'Animation follows Emotes > Animate GIFs.',
+              'Animation follows Emotes > Animate emotes.',
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
                 color: Theme.of(context).colorScheme.onSurfaceVariant,
               ),
@@ -82,7 +81,7 @@ class _InlineEmbedsScreenState extends State<InlineEmbedsScreen> {
           PrefsSwitchTile(
             secondary: const Icon(Icons.image_outlined),
             title: 'Show images inline',
-            subtitle: 'Image links get an icon; tap to expand the preview',
+            subtitle: "Tap a link's icon to preview",
             defaultValue: kImageEmbedEnabledDefault,
             read: (p) => p.imageEmbedEnabled,
             write: (p, v) => p.setImageEmbedEnabled(v),
@@ -100,16 +99,6 @@ class _InlineEmbedsScreenState extends State<InlineEmbedsScreen> {
               kImageEmbedHeightMax,
             ),
             write: (p, v) => p.setImageEmbedHeight(v),
-          ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-            child: Text(
-              'Previews load only when expanded, directly from the host, '
-              'which sees your IP. Off by default.',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
-              ),
-            ),
           ),
         ],
       ),

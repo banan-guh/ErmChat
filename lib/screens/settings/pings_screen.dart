@@ -179,32 +179,48 @@ class _PingsScreenState extends ConsumerState<PingsScreen> {
 
   List<Widget> _notificationSection(bool pushOn) => [
     const SettingsSectionHeader('Notifications'),
-    SwitchListTile(
-      secondary: const Icon(Icons.alternate_email),
-      title: const Text('Mentions'),
-      value: pushOn,
-      onChanged: _setPush,
-    ),
-    if (pushOn && !_keepAlive)
-      ListTile(
-        leading: Icon(
-          Icons.warning_amber_rounded,
-          color: Theme.of(context).colorScheme.error,
-        ),
-        title: const Text('Notifications need Keep chat alive'),
-        trailing: TextButton(
-          onPressed: _enableKeepAlive,
-          child: const Text('Turn on'),
-        ),
+    _needsKeepAlive(
+      SwitchListTile(
+        secondary: const Icon(Icons.alternate_email),
+        title: const Text('Mentions'),
+        value: pushOn,
+        onChanged: _keepAlive ? _setPush : null,
       ),
-    PrefsSwitchTile(
-      secondary: const Icon(Icons.mail_outline),
-      title: 'Whispers',
-      read: (p) => p.whisperNotifications,
-      write: (p, v) => p.setWhisperNotifications(v),
-      onChanged: widget.onWhisperNotifyChanged,
+    ),
+    _needsKeepAlive(
+      PrefsSwitchTile(
+        secondary: const Icon(Icons.mail_outline),
+        title: 'Whispers',
+        enabled: _keepAlive,
+        read: (p) => p.whisperNotifications,
+        write: (p, v) => p.setWhisperNotifications(v),
+        onChanged: widget.onWhisperNotifyChanged,
+      ),
     ),
   ];
+
+  /// Notifications only arrive while the background connection runs, so
+  /// without it the toggles are greyed and a tap says what to turn on.
+  Widget _needsKeepAlive(Widget tile) {
+    if (_keepAlive) return tile;
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () => ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          SnackBar(
+            content: const Text(
+              'Notifications need Stay connected in background',
+            ),
+            action: SnackBarAction(
+              label: 'Turn on',
+              onPressed: _enableKeepAlive,
+            ),
+          ),
+        ),
+      child: tile,
+    );
+  }
 
   List<Widget> _mentionSection(List<PingRule> rules, bool pushOn) => [
     const SettingsSectionHeader('Mentions'),
@@ -275,18 +291,12 @@ class _PingsScreenState extends ConsumerState<PingsScreen> {
         isNew: true,
       ),
     ),
-    Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 8),
-      child: Align(
-        alignment: Alignment.centerLeft,
-        child: TextButton.icon(
-          icon: const Icon(Icons.visibility_off_outlined, size: 18),
-          label: const Text('Open Ignores'),
-          onPressed: () => Navigator.push(
-            context,
-            MaterialPageRoute(builder: (_) => const IgnoresScreen()),
-          ),
-        ),
+    SettingsNavTile(
+      icon: Icons.visibility_off_outlined,
+      title: 'Ignores',
+      onTap: () => Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => const IgnoresScreen()),
       ),
     ),
   ];

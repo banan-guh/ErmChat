@@ -97,8 +97,7 @@ class _LinkWhitelistSettingsScreenState
               const Padding(
                 padding: EdgeInsets.fromLTRB(16, 16, 16, 4),
                 child: Text(
-                  'Split domains can be linked here so you can open them without hassle. \n'
-                  'Example of split domains: kappa .lol/ABCDE',
+                  'Highlight links broken by a space, like kappa .lol/ABCDE.',
                 ),
               ),
               SwitchListTile(

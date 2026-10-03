@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../services/media_uploader.dart';
 import '../../widgets/app_snack.dart';
 import '../../widgets/dialogs.dart';
+import 'recent_uploads_screen.dart';
 import 'settings_page.dart';
 
 class UploaderSettingsScreen extends StatefulWidget {
@@ -64,8 +65,7 @@ class _UploaderSettingsScreenState extends State<UploaderSettingsScreen> {
   Future<void> _reset() async {
     final confirmed = await confirmDialog(
       context,
-      title: 'Reset media uploader',
-      message: 'Restore the default kappa.lol uploader settings?',
+      title: 'Reset uploader?',
       confirmLabel: 'Reset',
     );
     if (!confirmed) return;
@@ -101,9 +101,8 @@ class _UploaderSettingsScreenState extends State<UploaderSettingsScreen> {
         padding: const EdgeInsets.all(16),
         children: [
           const Text(
-            'Images and videos picked from chat are uploaded to this endpoint '
-            'and the returned link is pasted into the input box. The default '
-            'points at kappa.lol.',
+            'Uploads go to this endpoint, and the link is pasted into your '
+            'message. Defaults to kappa.lol.',
             style: TextStyle(height: 1.4),
           ),
           Align(
@@ -167,6 +166,15 @@ class _UploaderSettingsScreenState extends State<UploaderSettingsScreen> {
             onPressed: _save,
             icon: const Icon(Icons.save),
             label: const Text('Save'),
+          ),
+          const SizedBox(height: 8),
+          SettingsNavTile(
+            icon: Icons.image,
+            title: 'Recent uploads',
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const RecentUploadsScreen()),
+            ),
           ),
         ],
       ),

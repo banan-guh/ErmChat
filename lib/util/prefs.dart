@@ -419,20 +419,8 @@ class Prefs {
       _p.setString(_kTtsVoiceRaw, value);
 
   // ── Stream player ───────────────────────────────────────────────────
-  static const _kStreamShowExtensions = 'stream_show_extensions';
-  static const _kStreamRetainWebview = 'stream_retain_webview';
   static const _kStreamPipEnabled = 'stream_pip_enabled';
   static const _kStreamSplitFraction = 'stream_split_fraction';
-
-  bool get streamShowExtensions => _p.getBool(_kStreamShowExtensions) ?? false;
-
-  Future<void> setStreamShowExtensions(bool value) =>
-      _p.setBool(_kStreamShowExtensions, value);
-
-  bool get streamRetainWebview => _p.getBool(_kStreamRetainWebview) ?? true;
-
-  Future<void> setStreamRetainWebview(bool value) =>
-      _p.setBool(_kStreamRetainWebview, value);
 
   bool get streamPipEnabled => _p.getBool(_kStreamPipEnabled) ?? false;
 

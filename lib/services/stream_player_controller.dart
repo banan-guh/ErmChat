@@ -15,8 +15,6 @@ class StreamPlayerController extends ChangeNotifier {
   String? _currentChannel;
   bool _isAudioOnly = false;
   bool _isTheaterMode = false;
-  bool _showExtensions = false;
-  bool _retainWebview = true;
   bool _pipEnabled = false;
   bool _isInPip = false;
 
@@ -36,31 +34,23 @@ class StreamPlayerController extends ChangeNotifier {
   bool get isActive => _currentChannel != null;
   bool get isAudioOnly => _isAudioOnly;
   bool get isTheaterMode => _isTheaterMode;
-  bool get retainWebview => _retainWebview;
   bool get isInPip => _isInPip;
   double get splitFraction => _splitFraction;
   int get generation => _generation;
 
   /// PiP eligibility, manual and auto alike: an active video player with PiP
-  /// opted in. Audio-only never enters PiP (its audio already plays), and a
-  /// non-retained WebView would blank the window on channel switches.
+  /// opted in. Audio-only never enters PiP (its audio already plays).
   bool get canPip =>
-      isActive &&
-      !isAudioOnly &&
-      _pipEnabled &&
-      _retainWebview &&
-      pipService != null;
+      isActive && !isAudioOnly && _pipEnabled && pipService != null;
 
   String playerUrl(String channel) {
     final encoded = Uri.encodeComponent(channel);
     return 'https://player.twitch.tv/?channel=$encoded'
-        '&enableExtensions=$_showExtensions&muted=false&parent=twitch.tv';
+        '&enableExtensions=false&muted=false&parent=twitch.tv';
   }
 
   Future<void> loadPrefs() async {
     final prefs = await Prefs.load();
-    _showExtensions = prefs.streamShowExtensions;
-    _retainWebview = prefs.streamRetainWebview;
     _pipEnabled = prefs.streamPipEnabled;
     _splitFraction = prefs.streamSplitFraction.clamp(0.2, 0.8);
     notifyListeners();
@@ -105,16 +95,6 @@ class StreamPlayerController extends ChangeNotifier {
 
   void onRenderProcessGone() {
     _generation++;
-    notifyListeners();
-  }
-
-  void setShowExtensions(bool value) {
-    _showExtensions = value;
-    notifyListeners();
-  }
-
-  void setRetainWebview(bool value) {
-    _retainWebview = value;
     notifyListeners();
   }
 

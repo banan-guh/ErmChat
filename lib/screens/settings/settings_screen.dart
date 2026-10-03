@@ -15,7 +15,6 @@ import 'emotes_settings_screen.dart';
 import 'pings_screen.dart';
 import 'report_bug_screen.dart';
 import 'settings_page.dart';
-import 'stream_settings_screen.dart';
 import 'tools_settings_screen.dart';
 import '../../services/recent_messages.dart';
 
@@ -40,8 +39,6 @@ class SettingsScreen extends StatelessWidget {
   final OAuthStarter? oAuthStarter;
   final TtsController? ttsController;
   final EmoteManager? emoteManager;
-  final ValueChanged<bool>? onStreamExtensionsChanged;
-  final ValueChanged<bool>? onRetainWebviewChanged;
   final ValueChanged<bool>? onPipEnabledChanged;
 
   /// Live hook for the dev-only test-widgets toggle (About > 7 taps).
@@ -69,8 +66,6 @@ class SettingsScreen extends StatelessWidget {
     this.oAuthStarter,
     this.ttsController,
     this.emoteManager,
-    this.onStreamExtensionsChanged,
-    this.onRetainWebviewChanged,
     this.onPipEnabledChanged,
     this.onTestWidgetsChanged,
   });
@@ -99,7 +94,7 @@ class SettingsScreen extends StatelessWidget {
           ),
           SettingsNavTile(
             icon: Icons.palette,
-            title: 'Customization',
+            title: 'Appearance',
             onTap: () => Navigator.push(
               context,
               MaterialPageRoute(builder: (_) => const CustomizationScreen()),
@@ -114,6 +109,7 @@ class SettingsScreen extends StatelessWidget {
                 builder: (_) => ChatSettingsScreen(
                   twitchAuth: twitchAuth,
                   onBackgroundServiceChanged: onBackgroundServiceChanged,
+                  onRecentMessagesModeChanged: onRecentMessagesModeChanged,
                 ),
               ),
             ),
@@ -149,37 +145,23 @@ class SettingsScreen extends StatelessWidget {
               ),
             ),
           ),
+          const Divider(),
           SettingsNavTile(
-            icon: Icons.play_arrow,
-            title: 'Livestreams',
+            icon: Icons.handyman,
+            title: 'Tools',
             onTap: () => Navigator.push(
               context,
               MaterialPageRoute(
-                builder: (_) => StreamSettingsScreen(
-                  onShowExtensionsChanged: onStreamExtensionsChanged,
-                  onRetainWebviewChanged: onRetainWebviewChanged,
+                builder: (_) => ToolsSettingsScreen(
+                  analyticsService: analyticsService,
+                  channels: channels,
+                  ttsController: ttsController,
+                  images: emoteManager?.images,
                   onPipEnabledChanged: onPipEnabledChanged,
                 ),
               ),
             ),
           ),
-          if (analyticsService != null && channels != null)
-            SettingsNavTile(
-              icon: Icons.handyman,
-              title: 'Tools',
-              onTap: () => Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => ToolsSettingsScreen(
-                    analyticsService: analyticsService,
-                    channels: channels,
-                    ttsController: ttsController,
-                    onRecentMessagesModeChanged: onRecentMessagesModeChanged,
-                    images: emoteManager?.images,
-                  ),
-                ),
-              ),
-            ),
           SettingsNavTile(
             icon: Icons.person,
             title: 'Account',

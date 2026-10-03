@@ -55,9 +55,6 @@ class _ProxySettingsScreenState extends State<ProxySettingsScreen> {
         children: [
           SwitchListTile(
             title: const Text('Use chat proxy'),
-            subtitle: const Text(
-              'Use ermchat-server.',
-            ),
             value: _enabled,
             onChanged: _onEnabledChanged,
           ),

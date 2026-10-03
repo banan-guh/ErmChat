@@ -3,6 +3,8 @@ import '../../theme_colors.dart';
 import '../../util/layout_density.dart';
 import '../../util/prefs.dart';
 import '../../util/prefs_store.dart';
+import '../../util/timestamp_formatter.dart';
+import '../../widgets/dialogs.dart';
 import 'custom_layout_screen.dart';
 import 'prefs_tiles.dart';
 import 'settings_page.dart';
@@ -99,14 +101,38 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
     setState(() {});
   }
 
+  String get _timestampFormat =>
+      _prefs?.timestampFormat ?? kDefaultTimestampFormat;
+
+  Future<void> _pickTimestampFormat() async {
+    final now = DateTime.now();
+    final selected = await showChoiceDialog<String>(
+      context,
+      title: 'Timestamp format',
+      value: _timestampFormat,
+      height: 420,
+      options: [
+        for (final fmt in kTimestampFormats)
+          (fmt, fmt, 'e.g. ${formatTimestamp(now, fmt)}'),
+      ],
+    );
+    if (selected == null || selected == _timestampFormat) return;
+    final prefs = _prefs ?? await Prefs.load();
+    await prefs.setTimestampFormat(selected);
+    PrefsStore.instance.notifyChanged();
+    if (!mounted) return;
+    setState(() {});
+  }
+
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return SettingsPage(
-      title: const Text('Customization'),
+      title: const Text('Appearance'),
       body: ListView(
         children: [
+          const SettingsSectionHeader('Theme'),
           ListTile(
             title: const Text('Theme'),
             subtitle: Text(switch (_themeMode) {
@@ -116,34 +142,6 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
             }),
             trailing: const Icon(Icons.chevron_right),
             onTap: () => _pickTheme(context),
-          ),
-          ListTile(
-            title: const Text('Layout'),
-            subtitle: Text(
-              _customLayoutEnabled
-                  ? 'Custom'
-                  : switch (_layoutDensity) {
-                      LayoutDensity.auto =>
-                        'Auto (${isCompactLayout(context) ? 'compact' : 'full'})',
-                      LayoutDensity.compact => 'Compact',
-                      LayoutDensity.full => 'Full',
-                    },
-            ),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () => _pickLayoutDensity(context),
-          ),
-          PrefsSwitchTile(
-            title: 'True dark mode',
-            defaultValue: false,
-            enabled: isDark,
-            read: (p) => p.trueDark,
-            write: (p, v) => p.setTrueDark(v),
-          ),
-          PrefsSwitchTile(
-            title: 'Liquid glass (experimental)',
-            subtitle: 'Floating glass header and composer with chat underneath',
-            read: (p) => p.liquidGlass,
-            write: (p, v) => p.setLiquidGlass(v),
           ),
           const Padding(
             padding: EdgeInsets.fromLTRB(16, 16, 16, 8),
@@ -168,6 +166,36 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
               ],
             ),
           ),
+          PrefsSwitchTile(
+            title: 'True dark mode',
+            defaultValue: false,
+            enabled: isDark,
+            read: (p) => p.trueDark,
+            write: (p, v) => p.setTrueDark(v),
+          ),
+          const SettingsSectionHeader('Layout'),
+          ListTile(
+            title: const Text('Layout'),
+            subtitle: Text(
+              _customLayoutEnabled
+                  ? 'Custom'
+                  : switch (_layoutDensity) {
+                      LayoutDensity.auto =>
+                        'Auto (${isCompactLayout(context) ? 'compact' : 'full'})',
+                      LayoutDensity.compact => 'Compact',
+                      LayoutDensity.full => 'Full',
+                    },
+            ),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => _pickLayoutDensity(context),
+          ),
+          PrefsSwitchTile(
+            title: 'Liquid glass',
+            subtitle: 'Experimental',
+            read: (p) => p.liquidGlass,
+            write: (p, v) => p.setLiquidGlass(v),
+          ),
+          const SettingsSectionHeader('Chat display'),
           PrefsSliderTile(
             label: (v) => 'Chat font size: ${v.round()}',
             min: 8,
@@ -178,9 +206,21 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
             write: (p, v) => p.setChatFontSize(v),
           ),
           PrefsSwitchTile(
+            secondary: const Icon(Icons.schedule),
+            title: 'Show timestamps',
+            defaultValue: true,
+            read: (p) => p.showTimestamps,
+            write: (p, v) => p.setShowTimestamps(v),
+          ),
+          SettingsNavTile(
+            icon: Icons.access_time,
+            title: 'Timestamp format',
+            subtitle: _timestampFormat,
+            onTap: _pickTimestampFormat,
+          ),
+          PrefsSwitchTile(
             title: 'Checkered messages',
-            subtitle:
-                'Separate each line with a different background brightness',
+            subtitle: 'Alternate row shading',
             defaultValue: false,
             read: (p) => p.checkeredMessages,
             write: (p, v) => p.setCheckeredMessages(v),
@@ -191,18 +231,19 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
             read: (p) => p.lineSeparator,
             write: (p, v) => p.setLineSeparator(v),
           ),
-          PrefsSwitchTile(
-            title: 'Fast channel swipe',
-            subtitle: 'Snap to the next channel more quickly',
-            defaultValue: true,
-            read: (p) => p.fastChannelSnap,
-            write: (p, v) => p.setFastChannelSnap(v),
-          ),
+          const SettingsSectionHeader('Display'),
           PrefsSwitchTile(
             title: 'Keep screen on',
             defaultValue: true,
             read: (p) => p.keepScreenOn,
             write: (p, v) => p.setKeepScreenOn(v),
+          ),
+          const SettingsSectionHeader('Navigation'),
+          PrefsSwitchTile(
+            title: 'Fast channel swipe',
+            defaultValue: true,
+            read: (p) => p.fastChannelSnap,
+            write: (p, v) => p.setFastChannelSnap(v),
           ),
         ],
       ),
@@ -361,7 +402,6 @@ class _LayoutPickerSheet extends StatelessWidget {
           ListTile(
             leading: const Icon(Icons.tune),
             title: const Text('Custom'),
-            subtitle: const Text('Override layout behaviors'),
             trailing: customEnabled
                 ? Icon(
                     Icons.check,

@@ -62,14 +62,6 @@ void main() {
       expect(controller.isActive, isFalse);
     });
 
-    test('canPip requires retainWebview', () {
-      final controller = _controller(pipService: FakePipService());
-      controller.setPipEnabled(true);
-      controller.setRetainWebview(false);
-      controller.toggleStream('shroud');
-      expect(controller.canPip, isFalse);
-    });
-
     test('takePipAction returns and clears the queued action', () {
       final controller = _controller(pipService: FakePipService());
       expect(controller.takePipAction(), isNull);
@@ -115,12 +107,11 @@ void main() {
       expect(controller.isActive, isFalse);
     });
 
-    test('playerUrl carries channel and extensions flag', () {
+    test('playerUrl carries the channel with extensions off', () {
       final controller = StreamPlayerController();
       final url = controller.playerUrl('foo');
       expect(url, contains('channel=foo'));
-      controller.setShowExtensions(true);
-      expect(controller.playerUrl('foo'), contains('enableExtensions=true'));
+      expect(url, contains('enableExtensions=false'));
       controller.dispose();
     });
 

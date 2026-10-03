@@ -62,7 +62,7 @@ void main() {
         await tester.pump();
 
         expect(find.text('Connected'), findsNothing);
-        expect(find.text('Login', skipOffstage: false), findsOneWidget);
+        expect(find.text('Log in', skipOffstage: false), findsOneWidget);
       }
     });
 
@@ -115,7 +115,7 @@ void main() {
       await tester.pumpAndSettle();
 
       // Layout opens a bottom sheet with the density rows plus Custom.
-      await tester.tap(find.text('Layout'));
+      await tester.tap(find.widgetWithText(ListTile, 'Layout'));
       await tester.pumpAndSettle();
       expect(find.text('Custom'), findsOneWidget);
 
@@ -125,7 +125,7 @@ void main() {
       expect(prefs.getString('layout_density'), 'full');
 
       // Custom opens the override screen, greyed out until the master is on.
-      await tester.tap(find.text('Layout'));
+      await tester.tap(find.widgetWithText(ListTile, 'Layout'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Custom'));
       await tester.pumpAndSettle();
@@ -147,14 +147,15 @@ void main() {
       await tester.pageBack();
       await tester.pumpAndSettle();
       expect(find.text('Custom'), findsOneWidget);
-      await tester.tap(find.text('Layout'));
+      await tester.tap(find.widgetWithText(ListTile, 'Layout'));
       await tester.pumpAndSettle();
       final full = tester.widget<ListTile>(
         find.widgetWithText(ListTile, 'Full'),
       );
       expect(full.enabled, isFalse);
+      // Last match: the page's Layout row also reads "Custom" underneath.
       final custom = tester.widget<ListTile>(
-        find.widgetWithText(ListTile, 'Override layout behaviors'),
+        find.widgetWithText(ListTile, 'Custom').last,
       );
       expect(custom.enabled, isTrue);
     });
@@ -273,42 +274,34 @@ void main() {
       },
     );
 
-    testWidgets('Chat settings timestamp toggle and format picker persist', (
+    testWidgets('Appearance timestamp toggle and format picker persist', (
       WidgetTester tester,
     ) async {
       SharedPreferences.setMockInitialValues({});
 
       await tester.pumpWidget(
-        MaterialApp(key: UniqueKey(), home: ChatSettingsScreen()),
+        MaterialApp(key: UniqueKey(), home: const CustomizationScreen()),
       );
       await tester.pump();
 
-      final toggle = tester.widget<SwitchListTile>(
-        find.widgetWithText(
-          SwitchListTile,
-          'Show timestamps',
-          skipOffstage: false,
-        ),
+      final toggleFinder = find.widgetWithText(
+        SwitchListTile,
+        'Show timestamps',
+        skipOffstage: false,
       );
-      expect(toggle.value, isTrue);
       // Interact with the toggle before scrolling down: the lazy ListView
       // disposes items that scroll out of the cache extent, so bring it into
       // view first (otherwise the tap misses and nothing is persisted).
-      await tester.ensureVisible(
-        find.widgetWithText(
-          SwitchListTile,
-          'Show timestamps',
-          skipOffstage: false,
-        ),
+      await tester.scrollUntilVisible(
+        toggleFinder,
+        120,
+        scrollable: find.byType(Scrollable).first,
       );
       await tester.pumpAndSettle();
-      await tester.tap(
-        find.widgetWithText(
-          SwitchListTile,
-          'Show timestamps',
-          skipOffstage: false,
-        ),
-      );
+
+      final toggle = tester.widget<SwitchListTile>(toggleFinder);
+      expect(toggle.value, isTrue);
+      await tester.tap(toggleFinder);
       await tester.pumpAndSettle();
       var prefs = await SharedPreferences.getInstance();
       expect(prefs.getBool('show_timestamps'), isFalse);
@@ -700,7 +693,7 @@ void main() {
     expect(auth.accounts.length, 2);
     expect(find.text('Active', skipOffstage: false), findsOneWidget);
     expect(find.byIcon(Icons.check), findsOneWidget);
-    expect(find.text('Login', skipOffstage: false), findsOneWidget);
+    expect(find.text('Log in', skipOffstage: false), findsOneWidget);
 
     await tester.tap(find.text('alice', skipOffstage: false));
     await tester.pumpAndSettle();
@@ -749,7 +742,7 @@ void main() {
         await tester.pumpAndSettle();
 
         expect(auth.accounts, isEmpty);
-        expect(find.text('Login', skipOffstage: false), findsOneWidget);
+        expect(find.text('Log in', skipOffstage: false), findsOneWidget);
       }
     },
   );

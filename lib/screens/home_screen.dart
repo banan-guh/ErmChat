@@ -1455,8 +1455,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
           channels: _chat.names,
           ttsController: _ttsController,
           emoteManager: _emoteManager,
-          onStreamExtensionsChanged: _streamPlayer.setShowExtensions,
-          onRetainWebviewChanged: _streamPlayer.setRetainWebview,
           onPipEnabledChanged: _streamPlayer.setPipEnabled,
           onTestWidgetsChanged: _broadcastWidgets.setTestWidgets,
         ),

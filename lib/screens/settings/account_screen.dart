@@ -321,7 +321,7 @@ class _AccountScreenState extends State<AccountScreen> {
             child: FilledButton.icon(
               onPressed: _startOAuth,
               icon: const Icon(Icons.login),
-              label: const Text('Login'),
+              label: const Text('Log in'),
             ),
           ),
         );
@@ -350,7 +350,7 @@ class _AccountScreenState extends State<AccountScreen> {
                 FilledButton.icon(
                   onPressed: _startOAuth,
                   icon: const Icon(Icons.refresh),
-                  label: const Text('Try Again'),
+                  label: const Text('Try again'),
                 ),
               ],
             ),
@@ -417,7 +417,7 @@ class _AccountScreenState extends State<AccountScreen> {
               TextField(
                 controller: _pasteController,
                 decoration: const InputDecoration(
-                  hintText: 'Paste redirect URL here...',
+                  hintText: 'Paste redirect URL',
                   border: OutlineInputBorder(),
                 ),
                 maxLines: 2,
@@ -537,7 +537,7 @@ class _AccountScreenState extends State<AccountScreen> {
                 FilledButton.icon(
                   onPressed: _startOAuth,
                   icon: const Icon(Icons.refresh),
-                  label: const Text('Try Again'),
+                  label: const Text('Try again'),
                 ),
               ],
             ),

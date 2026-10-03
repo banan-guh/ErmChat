@@ -264,10 +264,8 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
                 duration: const Duration(milliseconds: 250),
                 child: autoOn
                     ? Text(
-                        'Auto picks by connection '
-                        '(${isMobile ? 'cellular' : 'Wi-Fi'}). '
-                        'Currently: ${displayTier.label}. '
-                        'Disable auto to choose manually.',
+                        'Auto: ${displayTier.label} on '
+                        '${isMobile ? 'cellular' : 'Wi-Fi'}',
                         key: ValueKey(
                           'auto_note_${isMobile}_${displayTier.label}',
                         ),
@@ -363,7 +361,7 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
                   onPressed: () async {
                     final confirm = await confirmDialog(
                       context,
-                      title: 'Are you sure?',
+                      title: 'Clear emote cache?',
                       message: 'This will wipe all cached emotes and refetch.',
                       confirmLabel: 'Erm the nuke',
                       cancelLabel: 'No',
@@ -381,7 +379,6 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
         SwitchListTile(
           secondary: const Icon(Icons.gif_box),
           title: const Text('Animate emotes'),
-          subtitle: Text('Play animated emotes'),
           value: _animateGifs,
           onChanged: (value) async {
             final prefs = await Prefs.load();
@@ -393,10 +390,7 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
         SwitchListTile(
           secondary: const Icon(Icons.battery_saver_outlined),
           title: const Text('Adaptive frame rate'),
-          subtitle: Text(
-            'Idle rate after 30s without a touch, otherwise '
-            '$kActiveEmoteFps fps ($kSaverEmoteFps in battery saver)',
-          ),
+          subtitle: const Text('Frame rate after 30s idle'),
           value: _adaptiveFps,
           onChanged: _animateGifs
               ? (value) async {
@@ -443,8 +437,7 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
           SwitchListTile(
             key: const Key('allow_unlisted_tile'),
             secondary: const Icon(Icons.visibility_off_outlined),
-            title: const Text('Allow unlisted emotes'),
-            subtitle: const Text('Shows 7TV emotes marked unlisted'),
+            title: const Text('Unlisted 7TV emotes'),
             value: _allowUnlisted,
             onChanged: _onAllowUnlistedChanged,
           ),
@@ -491,16 +484,6 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
                       style: Theme.of(context).textTheme.titleMedium?.copyWith(
                         fontWeight: FontWeight.bold,
                       ),
-                    ),
-                  ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
-                  child: Text(
-                    'Disabled providers are not fetched and their emotes stop '
-                    'rendering until re-enabled.',
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: Theme.of(context).colorScheme.onSurfaceVariant,
                     ),
                   ),
                 ),

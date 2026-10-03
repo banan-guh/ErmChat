@@ -38,20 +38,13 @@ class StreamPlayerView extends StatefulWidget {
     this.showControls = true,
   });
 
-  static final _keys = Expando<(String, GlobalKey)>('streamPlayerKey');
+  static final _keys = Expando<GlobalKey>('streamPlayerKey');
 
   /// The player's identity across layout parents (stacked, split, theater,
-  /// the PiP root overlay), so the WebView moves instead of reloading. One
-  /// shared key while the WebView is retained, a fresh key per channel
-  /// otherwise.
-  static GlobalKey keyFor(StreamPlayerController controller, String channel) {
-    final name = controller.retainWebview ? 'stream' : 'stream:$channel';
-    final held = _keys[controller];
-    if (held != null && held.$1 == name) return held.$2;
-    final key = GlobalKey();
-    _keys[controller] = (name, key);
-    return key;
-  }
+  /// the PiP root overlay) and channel switches, so the one WebView moves
+  /// instead of reloading.
+  static GlobalKey keyFor(StreamPlayerController controller, String channel) =>
+      _keys[controller] ??= GlobalKey();
 
   @override
   State<StreamPlayerView> createState() => _StreamPlayerViewState();

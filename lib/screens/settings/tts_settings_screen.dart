@@ -228,8 +228,13 @@ class _TtsSettingsScreenState extends State<TtsSettingsScreen> {
           ),
           SettingsNavTile(
             icon: Icons.person_off,
-            title: 'User ignore list',
-            subtitle: 'Skip messages from specific users',
+            title: 'Ignored users',
+            subtitle: switch (widget.ttsController?.userIgnoreList.length) {
+              null || 0 => 'None',
+              1 => '1 user',
+              final n => '$n users',
+            },
+            // The list screen edits the controller directly; recount on return.
             onTap: () => Navigator.push(
               context,
               MaterialPageRoute(
@@ -237,7 +242,7 @@ class _TtsSettingsScreenState extends State<TtsSettingsScreen> {
                   ttsController: widget.ttsController,
                 ),
               ),
-            ),
+            ).then((_) => mounted ? setState(() {}) : null),
           ),
         ],
       ),

@@ -5,7 +5,7 @@ import 'package:flutter/material.dart';
 Future<bool> confirmDialog(
   BuildContext context, {
   required String title,
-  required String message,
+  String? message,
   required String confirmLabel,
   String cancelLabel = 'Cancel',
   bool destructive = false,
@@ -14,7 +14,7 @@ Future<bool> confirmDialog(
     context: context,
     builder: (ctx) => AlertDialog(
       title: Text(title),
-      content: Text(message),
+      content: message == null ? null : Text(message),
       actions: [
         TextButton(
           onPressed: () => Navigator.pop(ctx, false),
