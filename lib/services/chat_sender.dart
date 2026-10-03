@@ -26,6 +26,7 @@ class ChatSender {
     this.onBanner,
     this.onFocusComposer,
     this.onSendStateChanged,
+    this.onMessageSent,
   });
 
   final IrcService irc;
@@ -51,6 +52,9 @@ class ChatSender {
   /// Bumped when a send changes composer state (reply cleared) so the input
   /// rebuilds without a full screen setState.
   final void Function()? onSendStateChanged;
+
+  /// A chat line went out on the wire (not commands).
+  final void Function(String channel)? onMessageSent;
 
   // Self send-gates per channel: when your latest timeout there expires and
   // when Twitch last accepted one of your messages (the slow-mode cooldown
@@ -186,6 +190,7 @@ class ChatSender {
         wireText,
         replyParentMessageId: reply?.messageId,
       );
+      onMessageSent?.call(channel);
     } else {
       onSystemMessage(channel, 'Not connected: message not sent');
     }

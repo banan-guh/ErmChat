@@ -3,6 +3,7 @@ import 'dart:ui' show Color;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../services/chat_connection_manager.dart';
+import '../services/seven_tv_presence.dart';
 import 'app_providers.dart';
 import 'chat_signals.dart';
 import 'feature_providers.dart';
@@ -52,6 +53,7 @@ final chatPipelineProvider = Provider<ChatConnectionManager>((ref) {
         pingManager: ref.read(pingManagerProvider),
         ignoreManager: ref.read(ignoreManagerProvider),
         joinBudget: ref.read(joinBudgetProvider),
+        sevenTvPresence: SevenTvPresence(),
       ),
       chat: chat,
       session: session,

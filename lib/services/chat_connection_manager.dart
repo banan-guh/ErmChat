@@ -15,6 +15,7 @@ import '../irc/transport/write.dart' show IrcService;
 import '../services/emote_manager.dart';
 import '../irc/join_rate_limiter.dart';
 import '../services/seven_tv_event_client.dart';
+import '../services/seven_tv_presence.dart';
 import '../services/twitch_badge_service.dart';
 import '../services/user_store.dart';
 import '../services/ping_manager.dart';
@@ -50,6 +51,7 @@ class ChatServices {
     this.pingManager,
     this.ignoreManager,
     this.joinBudget,
+    this.sevenTvPresence,
   });
 
   final TwitchApi twitchApi;
@@ -70,6 +72,9 @@ class ChatServices {
   /// The shared JOIN budget both sockets were wired with; null disables
   /// join-progress surfacing.
   final JoinRateLimiter? joinBudget;
+
+  /// Announces the viewer to 7TV when they chat; null skips it (tests).
+  final SevenTvPresence? sevenTvPresence;
 }
 
 /// Coarse connect phase for UI copy. Single source of truth for anything
@@ -205,6 +210,17 @@ class ChatConnectionManager {
     onBanner: config.bridge.onBanner,
     onFocusComposer: config.bridge.onFocusComposer,
     onSendStateChanged: () => connectionStateNotifier.value++,
+    onMessageSent: (channel) {
+      final channelId = config.chat.channelFor(channel)?.info.broadcasterId;
+      final viewerId = config.session.userId;
+      if (channelId == null || viewerId == null) return;
+      unawaited(
+        config.services.sevenTvPresence?.announce(
+          channelTwitchId: channelId,
+          viewerTwitchId: viewerId,
+        ),
+      );
+    },
   );
 
   // EventSub subscription lifecycle: active/skip sets, subscribe paths,
