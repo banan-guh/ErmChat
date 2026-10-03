@@ -87,14 +87,22 @@ class HomeScreen extends ConsumerStatefulWidget {
 
   final String? initialCurrentUserLogin;
 
-  const HomeScreen({super.key, this.initialCurrentUserLogin});
+  /// Reports routes pushed over this screen, so the composer can drop focus
+  /// before a sheet or page takes it.
+  final RouteObserver<ModalRoute<Object?>>? routeObserver;
+
+  const HomeScreen({
+    super.key,
+    this.initialCurrentUserLogin,
+    this.routeObserver,
+  });
 
   @override
   ConsumerState<HomeScreen> createState() => _HomeScreenState();
 }
 
 class _HomeScreenState extends ConsumerState<HomeScreen>
-    with WidgetsBindingObserver, TickerProviderStateMixin {
+    with WidgetsBindingObserver, TickerProviderStateMixin, RouteAware {
   static const _mentionsChannel = '@mentions';
 
   late final ConnectivityService _connectivityService = ref.read(
@@ -712,6 +720,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   void didChangeDependencies() {
     super.didChangeDependencies();
     _messageBuilder.onEmailTap = _copyEmail;
+    final route = ModalRoute.of(context);
+    if (route != null) widget.routeObserver?.subscribe(this, route);
     final surface = Theme.of(context).scaffoldBackgroundColor;
     if (_lastSurface != surface) {
       _lastSurface = surface;
@@ -1254,8 +1264,16 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 
   void _onPrefsChanged() => unawaited(_applyPrefs());
 
+  // A covering route takes focus and hands it back on pop. The restored
+  // focus reopens the IME cold, and when Android ignores that show the field
+  // sits focused with no keyboard. Dropping focus first leaves nothing to
+  // restore.
+  @override
+  void didPushNext() => _composer.unfocus();
+
   @override
   void dispose() {
+    widget.routeObserver?.unsubscribe(this);
     if (FakeChatFeed.rate > 0) _fakeChat.dispose();
     _isMobile.dispose();
     DataUsageStats.I.dispose();

@@ -225,6 +225,7 @@ class _TwitchChatAppState extends State<TwitchChatApp> {
   bool _loaded = false;
   ProxyConfig _proxyConfig = const ProxyConfig();
   final _snackPopObserver = SnackPopObserver();
+  final _routeObserver = RouteObserver<ModalRoute<Object?>>();
   final _emoteFrameRate = EmoteFrameRatePolicy();
 
   @override
@@ -343,9 +344,10 @@ class _TwitchChatAppState extends State<TwitchChatApp> {
         darkTheme: buildDarkTheme(trueDark: _trueDark, seedColor: _seedColor),
         builder: _appRoot,
         scaffoldMessengerKey: rootScaffoldMessengerKey,
-        navigatorObservers: [_snackPopObserver],
+        navigatorObservers: [_snackPopObserver, _routeObserver],
         home: HomeScreen(
           initialCurrentUserLogin: widget.initialCurrentUserLogin,
+          routeObserver: _routeObserver,
         ),
       ),
     );
