@@ -48,6 +48,11 @@ class ThirdPartyBadgeService {
   static const _limerinoMaxUsers = 10000;
   static const _limerinoMaxBackoff = Duration(minutes: 10);
 
+  // Static-list providers: one catalog each, every badge naming its users.
+  // provider -> (twitchUserId -> badge), filled once per launch.
+  final _listUsers = <_ListProvider, Map<String, ThirdPartyBadge>>{};
+  final _listInflight = <_ListProvider>{};
+
   bool _ffzFetched = false;
   bool _bttvFetched = false;
   int _version = 0;
@@ -152,6 +157,65 @@ class ThirdPartyBadgeService {
     } finally {
       _bttvInflight = false;
     }
+  }
+
+  /// Loads the Chatterino, DankChat and Chatsen badge lists.
+  Future<void> fetchListBadges() =>
+      Future.wait([for (final p in _ListProvider.values) _fetchList(p)]);
+
+  Future<void> _fetchList(_ListProvider provider) async {
+    if (_listUsers.containsKey(provider) || !_listInflight.add(provider)) {
+      return;
+    }
+    try {
+      final res = await _get(Uri.parse(provider.url));
+      if (res.statusCode != 200) return;
+      _listUsers[provider] = _parseList(provider, jsonDecode(res.body));
+      _version++;
+    } catch (e) {
+      logDebug('${provider.name} badge fetch error: $e');
+    } finally {
+      _listInflight.remove(provider);
+    }
+  }
+
+  static Map<String, ThirdPartyBadge> _parseList(
+    _ListProvider provider,
+    Object? body,
+  ) {
+    final entries = switch (provider) {
+      _ListProvider.chatterino =>
+        (body as Map<String, dynamic>)['badges'] as List<dynamic>? ?? const [],
+      _ => body as List<dynamic>,
+    };
+    final users = <String, ThirdPartyBadge>{};
+    for (final raw in entries) {
+      if (raw is! Map<String, dynamic>) continue;
+      final (url, name) = switch (provider) {
+        // 1x (18px wide) already fills the tiny badge slot.
+        _ListProvider.chatterino => (
+          raw['image1'] as String?,
+          raw['tooltip'] as String?,
+        ),
+        _ListProvider.dankchat => (
+          raw['url'] as String?,
+          raw['type'] as String?,
+        ),
+        _ListProvider.chatsen => (
+          switch (raw['mipmap']) {
+            final List<dynamic> m when m.isNotEmpty => m.first as String?,
+            _ => null,
+          },
+          raw['name'] as String?,
+        ),
+      };
+      if (url == null || url.isEmpty) continue;
+      final badge = (url: url, name: name ?? '');
+      for (final id in raw['users'] as List<dynamic>? ?? const []) {
+        users.putIfAbsent(id.toString(), () => badge);
+      }
+    }
+    return users;
   }
 
   /// Loads the Limerino badge catalog (names and art). Refreshes when older
@@ -326,15 +390,22 @@ class ThirdPartyBadgeService {
         .timeout(httpTimeout);
   }
 
-  /// The user's one third-party badge: FFZ, then BTTV, then 7TV, then
-  /// Limerino. Every call keeps the Limerino answer fresh, so a user with
-  /// another badge still gets looked up once.
+  /// The user's one third-party badge: FFZ, BTTV, 7TV, the static-list
+  /// providers in [_ListProvider] order, then Limerino. Every call keeps the
+  /// Limerino answer fresh, so a user with another badge still gets looked
+  /// up once.
   ThirdPartyBadge? resolveBadge(String userId) {
     final limerino = _limerinoBadgeFor(userId);
     final ffz = _ffzBadges[_ffzUsers[userId]];
     if (ffz != null) return (url: ffz.imageUrl, name: ffz.name);
+    ThirdPartyBadge? listed;
+    for (final p in _ListProvider.values) {
+      listed = _listUsers[p]?[userId];
+      if (listed != null) break;
+    }
     return _bttvUsers[userId] ??
         _sevenTvBadges[_sevenTvUsers[userId]] ??
+        listed ??
         limerino;
   }
 
@@ -351,7 +422,18 @@ class ThirdPartyBadgeService {
     _bttvUsers.clear();
     _sevenTvBadges.clear();
     _sevenTvUsers.clear();
+    _listUsers.clear();
   }
+}
+
+/// Providers that publish one badge list naming every user up front.
+enum _ListProvider {
+  chatterino('https://api.chatterino.com/badges'),
+  dankchat('https://flxrs.com/api/badges'),
+  chatsen('https://api.chatsen.app/account/badges');
+
+  const _ListProvider(this.url);
+  final String url;
 }
 
 /// A third-party badge image and its display name (may be empty).

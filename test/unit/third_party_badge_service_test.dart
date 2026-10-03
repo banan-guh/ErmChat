@@ -100,4 +100,64 @@ void main() {
       expect(lookups.last, ['b']);
     });
   });
+
+  test('Chatterino, DankChat and Chatsen lists parse and rank', () async {
+    // Trimmed real payloads from each provider's badge endpoint.
+    final bodies = {
+      'api.chatterino.com': jsonEncode({
+        'badges': [
+          {
+            'tooltip': 'Chatterino Top Donator',
+            'image1': 'https://fourtf.com/chatterino/badges/topd.png',
+            'image2': 'https://fourtf.com/chatterino/badges/topd2x.png',
+            'image3': 'https://fourtf.com/chatterino/badges/topd3x.png',
+            'users': ['241105451', 'both'],
+          },
+        ],
+      }),
+      'flxrs.com': jsonEncode([
+        {
+          'type': 'DuckerZ',
+          'url': 'https://flxrs.com/dankchat/badges/ente.gif',
+          'users': ['147950640', 'both'],
+        },
+      ]),
+      'api.chatsen.app': jsonEncode([
+        {
+          'id': '7313273',
+          'name': 'Chatsen Patreon: Tier 1',
+          'description': null,
+          'mipmap': [
+            'https://raw.githubusercontent.com/chatsen/resources/master/assets/tier1.png',
+          ],
+          'users': ['73250113'],
+        },
+      ]),
+    };
+    final service = ThirdPartyBadgeService(
+      client: MockClient(
+        (req) async => http.Response(bodies[req.url.host] ?? '', 200),
+      ),
+    );
+    addTearDown(service.dispose);
+    await service.fetchListBadges();
+
+    expect(service.resolveBadge('241105451'), (
+      url: 'https://fourtf.com/chatterino/badges/topd.png',
+      name: 'Chatterino Top Donator',
+    ));
+    expect(service.resolveBadge('147950640'), (
+      url: 'https://flxrs.com/dankchat/badges/ente.gif',
+      name: 'DuckerZ',
+    ));
+    expect(
+      service.resolveBadge('73250113')?.url,
+      'https://raw.githubusercontent.com/chatsen/resources/master/assets/tier1.png',
+    );
+    expect(
+      service.resolveBadge('both')?.name,
+      'Chatterino Top Donator',
+      reason: 'Chatterino outranks DankChat',
+    );
+  });
 }
