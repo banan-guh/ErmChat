@@ -251,6 +251,13 @@ class _ChatViewState extends State<ChatView>
   final Set<_RowGateState> _gates = {};
   bool _gateSyncScheduled = false;
 
+  // Metrics seen by the last gate sync; a repeat notification for the same
+  // layout skips the second pass.
+  double? _lastGateExtentBefore;
+  double? _lastGateExtentInside;
+  double? _lastGateExtentAfter;
+  AxisDirection? _lastGateAxis;
+
   // Hold state shared with the physics; the physics corrects during layout so
   // a prepended row never shows in the wrong place, not even for one frame.
   final _ChatHold _hold = _ChatHold();
@@ -314,8 +321,16 @@ class _ChatViewState extends State<ChatView>
         // a scroll or a build. This arrives post-frame, after layout, so it
         // syncs now: a deferred sync could wait for a frame that never comes.
         NotificationListener<ScrollMetricsNotification>(
-          onNotification: (_) {
-            _syncRowGates();
+          onNotification: (notification) {
+            // A scheduled post-frame sync already covers this layout; a repeat
+            // notification for the same metrics is a no-op.
+            final m = notification.metrics;
+            if (m.extentBefore != _lastGateExtentBefore ||
+                m.extentInside != _lastGateExtentInside ||
+                m.extentAfter != _lastGateExtentAfter ||
+                m.axisDirection != _lastGateAxis) {
+              _syncRowGates();
+            }
             return false;
           },
           child: NotificationListener<ScrollNotification>(
@@ -543,10 +558,12 @@ class _ChatViewState extends State<ChatView>
     _endsLast = _rowKey(msgs.last);
     final idToIndex = <String, int>{};
     if (cache != null) {
-      final pending = cache.keys.whereType<String>().toSet();
-      for (var i = 0; i < msgs.length && pending.isNotEmpty; i++) {
+      // Stop once every cached row has been located, without materializing
+      // the cached id set on every message.
+      final cached = cache.length;
+      for (var i = 0; i < msgs.length && idToIndex.length < cached; i++) {
         final id = msgs[i].messageId;
-        if (id != null && pending.remove(id)) {
+        if (id != null && !idToIndex.containsKey(id) && cache.containsKey(id)) {
           idToIndex[id] = i;
         }
       }
@@ -607,7 +624,11 @@ class _ChatViewState extends State<ChatView>
   void _syncRowGates() {
     final pos = _position;
     final viewport = pos?.context.notificationContext?.findRenderObject();
-    if (viewport is! RenderBox || !viewport.hasSize) return;
+    if (pos == null || viewport is! RenderBox || !viewport.hasSize) return;
+    _lastGateExtentBefore = pos.extentBefore;
+    _lastGateExtentInside = pos.extentInside;
+    _lastGateExtentAfter = pos.extentAfter;
+    _lastGateAxis = pos.axisDirection;
     final extent = viewport.size.height;
     for (final gate in _gates) {
       final box = gate.context.findRenderObject();
