@@ -12,6 +12,7 @@ import 'providers/app_providers.dart';
 import 'providers/feature_providers.dart';
 import 'irc/proxy_config.dart';
 import 'screens/home_screen.dart';
+import 'services/pip_service.dart';
 import 'services/twitch_auth.dart';
 import 'eventsub/transport/connection.dart';
 import 'irc/transport/read.dart';
@@ -29,6 +30,7 @@ import 'util/crash_report.dart';
 import 'widgets/app_snack.dart';
 import 'widgets/emote_frame_rate.dart';
 import 'widgets/emote_url_provider.dart';
+import 'widgets/stream_player_view.dart';
 import 'widgets/tabbed_layout.dart';
 
 void main() async {
@@ -196,6 +198,7 @@ class TwitchChatApp extends StatefulWidget {
   final IrcReadService? ircReadService;
   final RecentMessagesService? recentMessagesService;
   final TwitchBadgeService? badgeService;
+  final PipService? pipService;
   final String? initialCurrentUserLogin;
 
   const TwitchChatApp({
@@ -205,6 +208,7 @@ class TwitchChatApp extends StatefulWidget {
     this.ircReadService,
     this.recentMessagesService,
     this.badgeService,
+    this.pipService,
     this.initialCurrentUserLogin,
   });
 
@@ -327,7 +331,42 @@ class _TwitchChatAppState extends State<TwitchChatApp> {
     context,
     density: _layoutDensity,
     overrides: _layoutOverrides,
-    child: _edgeExclusionWrapper(context, child),
+    child: _edgeExclusionWrapper(
+      context,
+      Consumer(
+        builder: (context, ref, _) {
+          final streamPlayer = ref.watch(streamPlayerProvider);
+          return ListenableBuilder(
+            listenable: streamPlayer,
+            child: child,
+            builder: (context, navigator) {
+              final channel = streamPlayer.currentChannel;
+              if (!streamPlayer.isInPip || channel == null) return navigator!;
+              // PiP shows the whole activity; draw the player above every route
+              // so settings, sheets and dialogs never appear in the window. The
+              // key matches the home screen's, so the WebView moves with it.
+              return Stack(
+                children: [
+                  navigator!,
+                  Positioned.fill(
+                    child: ColoredBox(
+                      color: Colors.black,
+                      child: StreamPlayerView(
+                        key: StreamPlayerView.keyFor(streamPlayer, channel),
+                        controller: streamPlayer,
+                        channel: channel,
+                        fillPane: true,
+                        showControls: false,
+                      ),
+                    ),
+                  ),
+                ],
+              );
+            },
+          );
+        },
+      ),
+    ),
   );
 
   @override
@@ -354,6 +393,8 @@ class _TwitchChatAppState extends State<TwitchChatApp> {
       ),
     if (widget.badgeService != null)
       badgeServiceProvider.overrideWithValue(widget.badgeService!),
+    if (widget.pipService != null)
+      pipServiceProvider.overrideWithValue(widget.pipService!),
   ];
 
   @override

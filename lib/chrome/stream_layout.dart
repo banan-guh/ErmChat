@@ -172,24 +172,14 @@ class StreamPanels {
     );
   }
 
-  // The player moves between PiP, theater, split, and stacked parents; a
-  // GlobalKey carries its WebView across instead of reloading the stream.
-  String? _playerKeyName;
-  GlobalKey _playerKey = GlobalKey();
-
   Widget playerView(
     String channel, {
     bool fillPane = false,
     bool visible = true,
     bool showControls = true,
   }) {
-    final name = streamPlayer.retainWebview ? 'stream' : 'stream:$channel';
-    if (name != _playerKeyName) {
-      _playerKeyName = name;
-      _playerKey = GlobalKey();
-    }
     return StreamPlayerView(
-      key: _playerKey,
+      key: StreamPlayerView.keyFor(streamPlayer, channel),
       controller: streamPlayer,
       channel: channel,
       fillPane: fillPane,
@@ -318,14 +308,11 @@ class StreamPanels {
     final landscape =
         MediaQuery.orientationOf(context) == Orientation.landscape;
     // System PiP window shows the whole activity, so collapse to video-only
-    // (DankChat hides appbar/tabs/chat/input the same way).
+    // (DankChat hides appbar/tabs/chat/input the same way). The app root draws
+    // the player above routes; this stays black so one player holds the key.
     if (channel != null && streamPlayer.isInPip) {
-      return Column(
-        children: [
-          Expanded(
-            child: playerView(channel, fillPane: true, showControls: false),
-          ),
-        ],
+      return const Column(
+        children: [Expanded(child: ColoredBox(color: Colors.black))],
       );
     }
     if (channel != null &&

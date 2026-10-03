@@ -1,32 +1,8 @@
-import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:ermchat/services/pip_service.dart';
 import 'package:ermchat/services/stream_player_controller.dart';
-
-class FakePipService extends PipService {
-  FakePipService() : super(channel: const MethodChannel('test/pip'));
-
-  int enterCalls = 0;
-  bool? lastAutoEnter;
-  bool? lastPlaying;
-
-  @override
-  Future<bool> enterPip() async {
-    enterCalls++;
-    return true;
-  }
-
-  @override
-  Future<void> setAutoEnter(bool enabled) async {
-    lastAutoEnter = enabled;
-  }
-
-  @override
-  Future<void> updatePipActions({required bool playing}) async {
-    lastPlaying = playing;
-  }
-}
+import '../helpers/fake_pip_service.dart';
 
 StreamPlayerController _controller({PipService? pipService}) {
   final controller = StreamPlayerController();
