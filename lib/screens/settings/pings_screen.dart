@@ -676,17 +676,36 @@ Future<_Saved?> _editRule(
   // Typing gets a full page so the keyboard never covers the form; the rest
   // fit a sheet.
   final typed = _isListRule(rule) || rule.kind == PingRuleKind.blacklist;
+  PingRule apply(_EditResult r) => rule.copyWith(
+    pattern: r.pattern,
+    wordBoundary: r.wholeWord,
+    mention: r.mention,
+    notify: r.notify,
+    colorArgb: r.colorArgb,
+    clearColor: r.colorArgb == null,
+  );
+  // Existing rules save on every change; this tracks the last one written.
+  PingRule? live;
   Widget editor(_) => _RuleEditor(
     rule: rule,
     isNew: isNew,
     recent: recent,
     opacity: opacity,
     sheet: !typed,
+    onLiveChange: isNew
+        ? null
+        : (r) {
+            live = apply(r);
+            manager.upsertRule(live!);
+            manager.save();
+          },
   );
   final result = typed
       ? await Navigator.push<_EditResult>(
           context,
-          MaterialPageRoute(fullscreenDialog: true, builder: editor),
+          // A new rule is a draft (close discards it); an edit is already
+          // saved, so it gets a plain back arrow.
+          MaterialPageRoute(fullscreenDialog: isNew, builder: editor),
         )
       : await showModalBottomSheet<_EditResult>(
           context: context,
@@ -695,32 +714,27 @@ Future<_Saved?> _editRule(
           showDragHandle: true,
           builder: editor,
         );
-  if (result == null) return null;
-  if (result.delete) {
+  if (result != null && result.delete) {
     manager.removeRule(rule.id);
     manager.save();
     return (rule: rule, deleted: true);
   }
-  final edited = rule.copyWith(
-    pattern: result.pattern,
-    wordBoundary: result.wholeWord,
-    mention: result.mention,
-    notify: result.notify,
-    colorArgb: result.colorArgb,
-    clearColor: result.colorArgb == null,
+  if (!isNew) {
+    final saved = live;
+    return saved == null ? null : (rule: saved, deleted: false);
+  }
+  if (result == null) return null;
+  final edited = apply(result);
+  final saved = PingRule(
+    id: DateTime.now().microsecondsSinceEpoch.toString(),
+    kind: edited.kind,
+    type: edited.type,
+    pattern: edited.pattern,
+    wordBoundary: edited.wordBoundary,
+    mention: edited.mention,
+    notify: edited.notify,
+    colorArgb: edited.colorArgb,
   );
-  final saved = isNew
-      ? PingRule(
-          id: DateTime.now().microsecondsSinceEpoch.toString(),
-          kind: edited.kind,
-          type: edited.type,
-          pattern: edited.pattern,
-          wordBoundary: edited.wordBoundary,
-          mention: edited.mention,
-          notify: edited.notify,
-          colorArgb: edited.colorArgb,
-        )
-      : edited;
   manager.upsertRule(saved);
   manager.save();
   return (rule: saved, deleted: false);
@@ -756,6 +770,7 @@ class _RuleEditor extends StatefulWidget {
     required this.recent,
     required this.opacity,
     required this.sheet,
+    this.onLiveChange,
   });
 
   final PingRule rule;
@@ -763,8 +778,12 @@ class _RuleEditor extends StatefulWidget {
   final List<TwitchMessage> recent;
   final double opacity;
 
-  /// Bottom-sheet chrome (title and Save inline) instead of a full page.
+  /// Bottom-sheet chrome instead of a full page.
   final bool sheet;
+
+  /// Set when editing an existing rule: every change persists at once, so
+  /// there is no Save. New rules still need Add to be created.
+  final ValueChanged<_EditResult>? onLiveChange;
 
   @override
   State<_RuleEditor> createState() => _RuleEditorState();
@@ -852,8 +871,9 @@ class _RuleEditorState extends State<_RuleEditor> {
               autofocus: widget.isNew,
               autocorrect: !_isUserList,
               textInputAction: TextInputAction.done,
-              onChanged: (_) => setState(() {}),
-              onSubmitted: (_) => canSave ? _save() : null,
+              onChanged: (_) => _set(() {}),
+              onSubmitted: (_) =>
+                  widget.isNew && canSave ? _save() : Navigator.pop(context),
               decoration: InputDecoration(
                 labelText: _isKeyword ? 'Word or phrase' : 'Username',
                 prefixText: _isUserList ? '@' : null,
@@ -869,7 +889,7 @@ class _RuleEditorState extends State<_RuleEditor> {
                 ButtonSegment(value: false, label: Text('Anywhere')),
               ],
               selected: {_wholeWord},
-              onSelectionChanged: (s) => setState(() => _wholeWord = s.first),
+              onSelectionChanged: (s) => _set(() => _wholeWord = s.first),
             ),
             const SizedBox(height: 12),
             _matchExample(theme),
@@ -878,7 +898,7 @@ class _RuleEditorState extends State<_RuleEditor> {
             const SizedBox(height: 20),
             RadioGroup<_Effect>(
               groupValue: _effect,
-              onChanged: (v) => setState(() => _effect = v ?? _effect),
+              onChanged: (v) => _set(() => _effect = v ?? _effect),
               child: Column(
                 children: [
                   const RadioListTile(
@@ -907,7 +927,7 @@ class _RuleEditorState extends State<_RuleEditor> {
               secondary: const Icon(Icons.notifications_outlined),
               title: const Text('Send a notification'),
               value: _notify,
-              onChanged: (v) => setState(() => _notify = v),
+              onChanged: (v) => _set(() => _notify = v),
             ),
           ],
           if (_hasColor) ...[
@@ -918,7 +938,7 @@ class _RuleEditorState extends State<_RuleEditor> {
                 const Spacer(),
                 if (_color != null)
                   TextButton(
-                    onPressed: () => setState(() => _color = null),
+                    onPressed: () => _set(() => _color = null),
                     child: const Text('Use default'),
                   ),
               ],
@@ -950,7 +970,7 @@ class _RuleEditorState extends State<_RuleEditor> {
               ),
             ),
           ],
-          if (widget.sheet) ...[
+          if (widget.sheet && widget.isNew) ...[
             const SizedBox(height: 28),
             Align(
               alignment: Alignment.centerRight,
@@ -965,13 +985,14 @@ class _RuleEditorState extends State<_RuleEditor> {
       appBar: AppBar(
         title: Text(_title),
         actions: [
-          Padding(
-            padding: const EdgeInsets.only(right: 8),
-            child: TextButton(
-              onPressed: canSave ? _save : null,
-              child: saveLabel,
+          if (widget.isNew)
+            Padding(
+              padding: const EdgeInsets.only(right: 8),
+              child: TextButton(
+                onPressed: canSave ? _save : null,
+                child: saveLabel,
+              ),
             ),
-          ),
         ],
       ),
       body: body,
@@ -996,7 +1017,7 @@ class _RuleEditorState extends State<_RuleEditor> {
         ),
         clipBehavior: Clip.antiAlias,
         child: InkWell(
-          onTap: () => setState(() => _color = c),
+          onTap: () => _set(() => _color = c),
           child: SizedBox(
             width: 36,
             height: 36,
@@ -1092,17 +1113,24 @@ class _RuleEditorState extends State<_RuleEditor> {
     );
   }
 
-  void _save() {
+  _EditResult _result() {
     final listRule = _isListRule(_rule);
-    Navigator.pop(
-      context,
-      _EditResult(
-        pattern: _hasPattern ? _pattern : _rule.pattern,
-        wholeWord: _wholeWord,
-        mention: listRule ? _effect != _Effect.tint : _rule.mention,
-        notify: listRule ? _effect == _Effect.notify : _notify,
-        colorArgb: _color,
-      ),
+    return _EditResult(
+      pattern: _hasPattern ? _pattern : _rule.pattern,
+      wholeWord: _wholeWord,
+      mention: listRule ? _effect != _Effect.tint : _rule.mention,
+      notify: listRule ? _effect == _Effect.notify : _notify,
+      colorArgb: _color,
     );
   }
+
+  /// Applies an edit and, for an existing rule, persists it right away. An
+  /// emptied pattern waits until it has text again.
+  void _set(VoidCallback change) {
+    setState(change);
+    final live = widget.onLiveChange;
+    if (live != null && (!_hasPattern || _pattern.isNotEmpty)) live(_result());
+  }
+
+  void _save() => Navigator.pop(context, _result());
 }
