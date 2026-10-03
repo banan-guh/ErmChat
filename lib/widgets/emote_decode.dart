@@ -13,7 +13,10 @@ class EmoteFrameData {
 
   bool get isAnimated => frames.length > 1;
 
-  Duration get totalDuration {
+  // Summed once: frame durations are fixed after decode and read every frame.
+  late final Duration totalDuration = _sumDurations();
+
+  Duration _sumDurations() {
     var total = Duration.zero;
     for (final d in durations) {
       total += d;
