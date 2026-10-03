@@ -19,6 +19,8 @@ void main() {
     required bool liquidGlass,
     required FocusNode focus,
     bool showComposer = true,
+    bool dismissUnfocuses = false,
+    List<double>? keyboardHs,
   }) {
     return tester.pumpWidget(
       MaterialApp(
@@ -26,6 +28,7 @@ void main() {
           body: ChatBody(
             liquidGlass: liquidGlass,
             emoteMaxFraction: 0.5,
+            onKeyboardDismissed: dismissUnfocuses ? focus.unfocus : null,
             composer: showComposer
                 ? TextField(key: const Key('message_input'), focusNode: focus)
                 : null,
@@ -37,7 +40,10 @@ void main() {
                   required maxHeight,
                   required keyboardH,
                   required composerH,
-                }) => const SizedBox.expand(),
+                }) {
+                  keyboardHs?.add(keyboardH);
+                  return const SizedBox.expand();
+                },
             threadPanel: const SizedBox.shrink(),
             mentionsPanel: const SizedBox.shrink(),
             modViewPanel: const SizedBox.shrink(),
@@ -249,6 +255,79 @@ void main() {
       expect(tester.takeException(), isNull);
     });
   }
+
+  Future<void> moveKeyboard(WidgetTester tester, List<double> insets) async {
+    for (final kb in insets) {
+      tester.view.viewInsets = FakeViewPadding(bottom: kb);
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+  }
+
+  // A tap right after a close asks for the keyboard before the IME's first
+  // tick lands; the close's pending unfocus then closed it again.
+  for (final gap in [60, 100]) {
+    testWidgets('retap ${gap}ms after a close keeps the keyboard', (
+      tester,
+    ) async {
+      final focus = FocusNode();
+      addTearDown(focus.dispose);
+      tester.view.physicalSize = const Size(400, 800);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      await pumpBody(
+        tester,
+        liquidGlass: false,
+        focus: focus,
+        dismissUnfocuses: true,
+      );
+      await tester.pumpAndSettle();
+      final field = find.byKey(const Key('message_input'));
+      await tester.tap(field);
+      await tester.pump();
+      await moveKeyboard(tester, [100, 200, 300]);
+      await tester.pump(const Duration(milliseconds: 400));
+      await moveKeyboard(tester, [200, 100, 0]);
+
+      await tester.pump(Duration(milliseconds: gap));
+      await tester.tap(field);
+      await tester.pump(const Duration(milliseconds: 80));
+      await moveKeyboard(tester, [100, 200, 300]);
+      await tester.pump(const Duration(milliseconds: 400));
+
+      expect(focus.hasFocus, isTrue, reason: 'gap ${gap}ms');
+      expect(tester.testTextInput.isVisible, isTrue, reason: 'gap ${gap}ms');
+    });
+  }
+
+  // An IME that stalls mid-close settles at a partial height. Learning it
+  // made the next open assume that height, then flip decisions on settle.
+  testWidgets('a stalled close does not teach the keyboard height', (
+    tester,
+  ) async {
+    final focus = FocusNode();
+    addTearDown(focus.dispose);
+    tester.view.physicalSize = const Size(400, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final keyboardHs = <double>[];
+    await pumpBody(
+      tester,
+      liquidGlass: false,
+      focus: focus,
+      keyboardHs: keyboardHs,
+    );
+    await tester.pumpAndSettle();
+    await moveKeyboard(tester, [100, 200, 300]);
+    await tester.pump(const Duration(milliseconds: 400));
+    await moveKeyboard(tester, [250, 200]);
+    await tester.pump(const Duration(milliseconds: 200));
+    await moveKeyboard(tester, [100, 0]);
+    await tester.pump(const Duration(milliseconds: 400));
+
+    keyboardHs.clear();
+    await moveKeyboard(tester, [30]);
+    expect(keyboardHs.first, 300, reason: 'next open uses the real height');
+  });
 
   testWidgets('input toggle-off fades the field out with the pill', (
     tester,

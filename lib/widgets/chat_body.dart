@@ -184,6 +184,12 @@ class _ChatBodyState extends State<ChatBody>
         if (s == AnimationStatus.completed) _releaseFrozen();
       });
   double _learnedH = 0;
+  // A composer tap after the keyboard closes asks for it again before the
+  // IME's first tick lands, so the pending settle must not unfocus.
+  bool _retapped = false;
+  // Whether the last tick moved up. Only an opening settles at the real
+  // height; a close that stalls mid-way must not be learned.
+  bool _opening = false;
   double _persistedH = 0;
   Timer? _settleTimer;
 
@@ -250,11 +256,13 @@ class _ChatBodyState extends State<ChatBody>
     final raw = _readRawH();
     if ((raw - _rawH).abs() < 0.5) return;
     final wasClosed = _rawH <= 0.5;
+    _opening = raw > _rawH;
     _rawH = raw;
     if (raw > 0.5) _keyboardEngaged = true;
     _settleTimer?.cancel();
     if (widget.liquidGlass) _freezeGlass();
     if (raw <= 0.5) {
+      _retapped = false;
       if (_liftH != 0) setState(() => _liftH = 0);
     } else if (wasClosed) {
       // Opening: commit the learned height at once so the decisions see the
@@ -270,11 +278,13 @@ class _ChatBodyState extends State<ChatBody>
       // so it waits for the close to settle; a reopen cancels it.
       if (_rawH <= 0.5) {
         _keyboardEngaged = false;
-        widget.onKeyboardDismissed?.call();
+        if (!_retapped) widget.onKeyboardDismissed?.call();
         return;
       }
-      _learnedH = _rawH;
-      _saveLearnedHeight(_rawH);
+      if (_opening) {
+        _learnedH = _rawH;
+        _saveLearnedHeight(_rawH);
+      }
       if ((_liftH - _rawH).abs() > 0.5) setState(() => _liftH = _rawH);
     });
   }
@@ -485,7 +495,13 @@ class _ChatBodyState extends State<ChatBody>
     // iOS drops the keyboard. Each path rings its own shell with the glow.
     Widget composerSlot(Widget? field) => field == null
         ? const SizedBox.shrink()
-        : KeyedSubtree(key: _composerKey, child: field);
+        : KeyedSubtree(
+            key: _composerKey,
+            child: Listener(
+              onPointerDown: (_) => _retapped = true,
+              child: field,
+            ),
+          );
     // Floating composer pill. The list pads by pillH upstream
     // so the newest rows clear it and slide underneath while scrolling. The
     // size notifier keeps the measurement fresh when inner listenables
