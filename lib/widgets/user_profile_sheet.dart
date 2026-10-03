@@ -606,12 +606,16 @@ class UserProfileSheetState extends State<UserProfileSheet> {
           children: [
             ClipRRect(
               borderRadius: BorderRadius.circular(8),
-              child: Image.network(
-                _profile!['profile_image_url'] as String? ?? '',
+              child: CachedNetworkImage(
+                imageUrl: _profile!['profile_image_url'] as String? ?? '',
                 width: 96,
                 height: 96,
                 fit: BoxFit.cover,
-                errorBuilder: (_, _, _) => Container(
+                memCacheWidth: (96 * MediaQuery.devicePixelRatioOf(context))
+                    .round(),
+                fadeInDuration: Duration.zero,
+                placeholder: (_, _) => const SizedBox(width: 96, height: 96),
+                errorWidget: (_, _, _) => Container(
                   width: 96,
                   height: 96,
                   color: theme.colorScheme.surfaceContainerHighest,
