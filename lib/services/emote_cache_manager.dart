@@ -127,6 +127,38 @@ class EmoteCacheRepository implements CacheInfoRepository {
     return total;
   }
 
+  /// File count and summed length from one SQL aggregate, plus rows with no
+  /// recorded length. Returns null when the inner repository is not SQLite,
+  /// so the caller enumerates every row instead.
+  Future<({int count, int bytes, List<CacheObject> unknownLength})?>
+  aggregate() async {
+    final inner = _inner;
+    final db = inner is CacheObjectProvider ? inner.db : null;
+    if (db == null) return null;
+    try {
+      // Table name mirrors the package's private constant.
+      final rows = await db.rawQuery(
+        'SELECT COUNT(*) AS count, '
+        'COALESCE(SUM(${CacheObject.columnLength}), 0) AS bytes '
+        'FROM cacheObject WHERE ${CacheObject.columnLength} IS NOT NULL',
+      );
+      final unknown = await db.query(
+        'cacheObject',
+        where: '${CacheObject.columnLength} IS NULL',
+      );
+      final row = rows.first;
+      return (
+        count: (row['count'] as num).toInt(),
+        bytes: (row['bytes'] as num).toInt(),
+        unknownLength: CacheObject.fromMapList(unknown),
+      );
+    } catch (e) {
+      // Schema drift in the package: let the caller enumerate rows.
+      logDebug('[EmoteCacheManager] aggregate query failed: $e');
+      return null;
+    }
+  }
+
   @override
   Future<List<CacheObject>> getObjectsOverCapacity(int capacity) async {
     if (budget.fits(await totalBytes())) return const [];
@@ -322,6 +354,20 @@ class EmoteCacheManager extends CacheManager {
   /// Returns an empty snapshot if the cache can't be inspected.
   Future<EmoteCacheStats> stats() async {
     try {
+      final aggregate = await _repo.aggregate();
+      if (aggregate != null) {
+        var count = aggregate.count;
+        var bytes = aggregate.bytes;
+        // Only rows without a recorded length need a file stat.
+        for (final object in aggregate.unknownLength) {
+          final file = await config.fileSystem.createFile(object.relativePath);
+          if (await file.exists()) {
+            count++;
+            bytes += await file.length();
+          }
+        }
+        return EmoteCacheStats(fileCount: count, totalBytes: bytes);
+      }
       final objects = await _repo.getAllObjects();
       var count = 0;
       var bytes = 0;
