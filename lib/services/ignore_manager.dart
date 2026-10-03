@@ -95,6 +95,10 @@ class IgnoreManager extends ChangeNotifier {
   final Set<String> _literalUserPatterns = {};
   final Set<String> _literalBlockPatterns = {};
 
+  /// True when a keyword can block or rewrite, so the hot path can skip early.
+  bool _hasBlockKeywords = false;
+  bool _hasReplacementKeywords = false;
+
   bool get loaded => _loaded;
   List<IgnoreEntry> get users => List.unmodifiable(_users);
   List<IgnoreEntry> get keywords => List.unmodifiable(_keywords);
@@ -132,11 +136,19 @@ class IgnoreManager extends ChangeNotifier {
         );
       }
     }
+    _hasBlockKeywords = false;
+    _hasReplacementKeywords = false;
     for (final e in _keywords) {
-      if (e.block && e.pattern.isNotEmpty && !e.isRegex && !e.wordBoundary) {
-        _literalBlockPatterns.add(
-          e.caseSensitive ? e.pattern : e.pattern.toLowerCase(),
-        );
+      if (e.pattern.isEmpty) continue;
+      if (e.block) {
+        _hasBlockKeywords = true;
+        if (!e.isRegex && !e.wordBoundary) {
+          _literalBlockPatterns.add(
+            e.caseSensitive ? e.pattern : e.pattern.toLowerCase(),
+          );
+        }
+      } else {
+        _hasReplacementKeywords = true;
       }
     }
   }
@@ -215,6 +227,7 @@ class IgnoreManager extends ChangeNotifier {
 
   /// True when any block keyword matches [text] (message dropped).
   bool isBlockedPhrase(String text) {
+    if (_literalBlockPatterns.isEmpty && !_hasBlockKeywords) return false;
     final lower = text.toLowerCase();
     for (final p in _literalBlockPatterns) {
       if (lower.contains(p)) return true;
@@ -225,6 +238,7 @@ class IgnoreManager extends ChangeNotifier {
   /// Finds non-overlapping keyword occurrences (earliest + longest wins).
   RewriteResult applyKeywordReplacements(String text) {
     if (!_loaded || text.isEmpty) return RewriteResult(text, const []);
+    if (!_hasReplacementKeywords) return RewriteResult(text, const []);
     final candidates = <(int, int, String)>[];
     for (final rule in _keywords) {
       if (rule.pattern.isEmpty || rule.block) continue;

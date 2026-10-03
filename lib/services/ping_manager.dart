@@ -40,6 +40,7 @@ class PingManager extends ChangeNotifier {
   /// Active display name (learned from IRC echoes, not persisted).
   String? _displayName;
   final Map<String, RegExp?> _regexCache = {};
+  final Map<String, String> _lowerPatternCache = {};
 
   // Reply-participation: own message ids + thread roots (DankChat-style).
   static const _participationCap = 64;
@@ -56,11 +57,13 @@ class PingManager extends ChangeNotifier {
     } else {
       _rules.add(rule);
     }
+    _lowerPatternCache.clear();
     notifyListeners();
   }
 
   void removeRule(String id) {
     _rules.removeWhere((r) => r.id == id);
+    _lowerPatternCache.clear();
     notifyListeners();
   }
 
@@ -78,6 +81,7 @@ class PingManager extends ChangeNotifier {
       _rules = decodeRules(raw);
     }
     _regexCache.clear();
+    _lowerPatternCache.clear();
     _loaded = true;
     notifyListeners();
   }
@@ -86,6 +90,7 @@ class PingManager extends ChangeNotifier {
     final prefs = await Prefs.load();
     await prefs.setPingRules(encodeRules(_rules));
     _regexCache.clear();
+    _lowerPatternCache.clear();
     notifyListeners();
   }
 
@@ -159,6 +164,7 @@ class PingManager extends ChangeNotifier {
     final types = <HighlightType>{};
     var notify = false;
     Color? color;
+    String? lowerText;
 
     void add(PingRule rule, HighlightType type) {
       types.add(type);
@@ -180,7 +186,12 @@ class PingManager extends ChangeNotifier {
                 add(rule, HighlightType.reply);
               }
             case 'custom':
-              if (matchesText(rule, msg.text)) add(rule, HighlightType.custom);
+              if (!rule.caseSensitive) {
+                lowerText ??= msg.text.toLowerCase();
+              }
+              if (matchesText(rule, msg.text, lowerText)) {
+                add(rule, HighlightType.custom);
+              }
             case 'redemption':
               if (msg.customRewardId != null ||
                   msg.msgId == 'highlighted-message') {
@@ -198,9 +209,7 @@ class PingManager extends ChangeNotifier {
         case PingRuleKind.badge:
           final badges = msg.badges;
           if (badges != null &&
-              badges.any(
-                (b) => b.setId.toLowerCase() == rule.pattern.toLowerCase(),
-              )) {
+              badges.any((b) => b.setId.toLowerCase() == _lowerPattern(rule))) {
             add(rule, HighlightType.badge);
           }
         case PingRuleKind.blacklist:
@@ -261,11 +270,12 @@ class PingManager extends ChangeNotifier {
     }
     return rule.caseSensitive
         ? login == rule.pattern
-        : login.toLowerCase() == rule.pattern.toLowerCase();
+        : login.toLowerCase() == _lowerPattern(rule);
   }
 
-  /// Custom keyword matching; invalid regex falls back to literal.
-  bool matchesText(PingRule rule, String text) {
+  /// Custom keyword matching; invalid regex falls back to literal. [lowerText]
+  /// is a precomputed lowercase form of [text] shared across rules.
+  bool matchesText(PingRule rule, String text, [String? lowerText]) {
     if (rule.pattern.isEmpty) return false;
     if (rule.isRegex || rule.wordBoundary) {
       final re = _regexFor(rule);
@@ -273,8 +283,13 @@ class PingManager extends ChangeNotifier {
     }
     return rule.caseSensitive
         ? text.contains(rule.pattern)
-        : text.toLowerCase().contains(rule.pattern.toLowerCase());
+        : (lowerText ?? text.toLowerCase()).contains(_lowerPattern(rule));
   }
+
+  String _lowerPattern(PingRule rule) => _lowerPatternCache.putIfAbsent(
+    '${rule.id}\u0000${rule.pattern}',
+    () => rule.pattern.toLowerCase(),
+  );
 
   RegExp? _regexFor(PingRule rule) {
     final key =
