@@ -187,8 +187,8 @@ class EventSubTopics {
     if (session.login == null || session.userId == null) return;
     // Guard like resubscribeEventSubChannels: a connected-edge resubscribe
     // racing this join must not double-subscribe (409s dedupe, but each
-    // attempt costs Helix calls and a redundant noteSubscribed). Widgets skip
-    // the already-subscribed guard, preserving the join-path behavior.
+    // attempt costs Helix calls and a redundant noteSubscribed). A fresh join
+    // starts with an empty active set, so this only catches races.
     for (final family in _families) {
       if (family.skipIfActive && family.activeSet.contains(channelName)) {
         continue;
@@ -288,7 +288,7 @@ class EventSubTopics {
       broadcasterOnly: true,
       notify: false,
       failFast: true,
-      skipIfActive: false,
+      skipIfActive: true,
     ),
   ];
 
@@ -429,7 +429,7 @@ class _TopicFamily {
   /// Whether any failure aborts the family. True for widgets.
   final bool failFast;
 
-  /// Whether the join path skips already-covered channels. False for
-  /// widgets, preserving the join-path behavior.
+  /// Whether the join path skips already-covered channels. True for every
+  /// family; a fresh join has an empty active set.
   final bool skipIfActive;
 }

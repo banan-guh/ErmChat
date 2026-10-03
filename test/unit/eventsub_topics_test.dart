@@ -257,7 +257,7 @@ void main() {
       expect(calls, first);
     });
 
-    test('join re-runs widgets while other families stay guarded', () async {
+    test('join skips already-covered families', () async {
       topics.subscribeChannel('testchannel', 'broadcaster1');
       await flush();
       expect(topics.isWidgetActive('testchannel'), isTrue);
@@ -270,10 +270,10 @@ void main() {
           .length;
       topics.subscribeChannel('testchannel', 'broadcaster1');
       await flush();
-      // Widgets skip the already-subscribed guard on the join path.
+      // The active-set guard skips the re-subscribe for every family.
       expect(
         seenTypes.where((t) => t.startsWith('channel.hype_train.')).length,
-        greaterThan(widgetCalls),
+        widgetCalls,
       );
       expect(
         seenTypes.where((t) => t == 'channel.moderate').length,
