@@ -173,7 +173,7 @@ int _scoreEmote(
   String lowerQuery,
   bool isRecentlyUsed,
 ) {
-  final matchIndex = code.toLowerCase().indexOf(lowerQuery);
+  final matchIndex = _indexOfIgnoreCase(code, lowerQuery);
   if (matchIndex < 0) return _noMatch;
 
   var caseDiffs = 0;
@@ -185,4 +185,24 @@ int _scoreEmote(
   final caseCost = caseDiffs == 0 ? -10 : caseDiffs;
   final usageBoost = isRecentlyUsed ? -50 : 0;
   return caseCost + extraChars * 100 + usageBoost;
+}
+
+// Case-insensitive indexOf for ASCII text without allocating a lowercased
+// copy. Non-ASCII falls back to toLowerCase so results stay identical.
+int _indexOfIgnoreCase(String code, String lowerQuery) {
+  final queryLength = lowerQuery.length;
+  if (queryLength == 0) return 0;
+  final lastStart = code.length - queryLength;
+  for (var start = 0; start <= lastStart; start++) {
+    var i = 0;
+    while (i < queryLength) {
+      final unit = code.codeUnitAt(start + i);
+      if (unit >= 0x80) return code.toLowerCase().indexOf(lowerQuery);
+      final lower = unit >= 0x41 && unit <= 0x5A ? unit + 0x20 : unit;
+      if (lower != lowerQuery.codeUnitAt(i)) break;
+      i++;
+    }
+    if (i == queryLength) return start;
+  }
+  return -1;
 }
