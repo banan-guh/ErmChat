@@ -95,6 +95,30 @@ class SevenTvPersonalSets {
   static const personalSetsKey = 'emotes5_personal_sets';
   static const _personalSetsTtl = Duration(days: 30);
 
+  // Socket grants and updates arrive in bursts; writes ride a quiet debounce.
+  Timer? _saveTimer;
+  bool _savePending = false;
+  static const _saveDelay = Duration(seconds: 1);
+
+  // Schedules a debounced save. Later changes ride the pending timer.
+  void _scheduleSave() {
+    _savePending = true;
+    _saveTimer ??= Timer(_saveDelay, () {
+      _saveTimer = null;
+      unawaited(_flushSave());
+    });
+  }
+
+  // Writes pending changes now, cancelling the debounce. Used by reset,
+  // dispose, and tests.
+  Future<void> _flushSave() async {
+    _saveTimer?.cancel();
+    _saveTimer = null;
+    if (!_savePending) return;
+    _savePending = false;
+    await _save();
+  }
+
   /// Viewer Twitch user id for matching personal 7TV grants. Clears viewer
   /// sets on change so the old account's emotes never leak.
   set viewerTwitchId(String? value) {
@@ -154,7 +178,7 @@ class SevenTvPersonalSets {
     if (changed) {
       _notifyChanged();
       _sendersChanged([viewerId]);
-      unawaited(_save());
+      _scheduleSave();
     }
   }
 
@@ -180,7 +204,7 @@ class SevenTvPersonalSets {
       final hadEmotes = _personalSevenTvSets.remove(event.cosmeticId) != null;
       if (hadSet || hadEmotes) {
         _notifyChanged();
-        unawaited(_save());
+        _scheduleSave();
       }
       return;
     }
@@ -196,7 +220,7 @@ class SevenTvPersonalSets {
     _personalSevenTvSets[event.cosmeticId] = emotes;
     _notifyChanged();
     _sendersChanged([viewerId]);
-    unawaited(_save());
+    _scheduleSave();
   }
 
   /// Maps foreign users to a personal set from a socket entitlement grant.
@@ -231,7 +255,7 @@ class SevenTvPersonalSets {
     // fails, comes back empty, or never runs still evicts with the set.
     trackSet(setId);
     await _fillForeignSet(setId);
-    unawaited(_save());
+    _scheduleSave();
   }
 
   /// Drops a foreign user's personal-set grant (entitlement.delete).
@@ -260,7 +284,7 @@ class SevenTvPersonalSets {
     }
     if (changed) {
       _notifyChanged();
-      unawaited(_save());
+      _scheduleSave();
     }
   }
 
@@ -352,7 +376,7 @@ class SevenTvPersonalSets {
     _rebuildForeignUsers(setId);
     _notifyChanged();
     _sendersChanged(_foreignPersonalSetOwners[setId]);
-    unawaited(_save());
+    _scheduleSave();
   }
 
   /// One-time REST fill for a socket-announced set. Once per set id, shared
@@ -425,7 +449,7 @@ class SevenTvPersonalSets {
     }
   }
 
-  Future<void> flushForTest() => _save();
+  Future<void> flushForTest() => _flushSave();
 
   int get foreignSetCount => _foreignPersonalSetContents.length;
 
@@ -434,6 +458,8 @@ class SevenTvPersonalSets {
   /// Clears viewer and foreign personal state (account switch) and emits,
   /// so no caller can serve a stale merge built from dropped sets.
   void reset() {
+    // Persist pending changes before dropping state.
+    unawaited(_flushSave());
     _generation++;
     _personalSevenTvSetIds.clear();
     _personalSevenTvSets.clear();
@@ -444,6 +470,11 @@ class SevenTvPersonalSets {
     _foreignPlaceholderSets.clear();
     _foreignPersonalSets.clear();
     _notifyChanged();
+  }
+
+  /// Writes any pending personal-set changes and stops the debounce.
+  void dispose() {
+    unawaited(_flushSave());
   }
 
   Future<void> _save() async {
