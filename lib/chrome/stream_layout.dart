@@ -172,15 +172,24 @@ class StreamPanels {
     );
   }
 
+  // The player moves between PiP, theater, split, and stacked parents; a
+  // GlobalKey carries its WebView across instead of reloading the stream.
+  String? _playerKeyName;
+  GlobalKey _playerKey = GlobalKey();
+
   Widget playerView(
     String channel, {
     bool fillPane = false,
     bool visible = true,
     bool showControls = true,
   }) {
-    final key = streamPlayer.retainWebview ? 'stream' : 'stream:$channel';
+    final name = streamPlayer.retainWebview ? 'stream' : 'stream:$channel';
+    if (name != _playerKeyName) {
+      _playerKeyName = name;
+      _playerKey = GlobalKey();
+    }
     return StreamPlayerView(
-      key: ValueKey(key),
+      key: _playerKey,
       controller: streamPlayer,
       channel: channel,
       fillPane: fillPane,
