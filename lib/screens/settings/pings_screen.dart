@@ -720,6 +720,7 @@ Future<_Saved?> _editRule(
     notify: r.notify,
     colorArgb: r.colorArgb,
     clearColor: r.colorArgb == null,
+    enabled: r.enabled,
   );
   // Existing rules save on every change; this tracks the last one written.
   PingRule? live;
@@ -770,6 +771,7 @@ Future<_Saved?> _editRule(
     wordBoundary: edited.wordBoundary,
     mention: edited.mention,
     notify: edited.notify,
+    enabled: edited.enabled,
     colorArgb: edited.colorArgb,
   );
   manager.upsertRule(saved);
@@ -783,6 +785,7 @@ class _EditResult {
     this.wholeWord = false,
     this.mention = true,
     this.notify = false,
+    this.enabled = true,
     this.colorArgb,
     this.delete = false,
   });
@@ -791,6 +794,7 @@ class _EditResult {
   final bool wholeWord;
   final bool mention;
   final bool notify;
+  final bool enabled;
   final int? colorArgb;
   final bool delete;
 }
@@ -844,6 +848,7 @@ class _RuleEditorState extends State<_RuleEditor> {
   late final _patternCtrl = TextEditingController(text: widget.rule.pattern);
   late bool _wholeWord = widget.rule.wordBoundary;
   late bool _notify = widget.rule.notify;
+  late bool _enabled = widget.rule.enabled;
   late _Effect _effect = !widget.rule.mention
       ? _Effect.tint
       : widget.rule.notify && _pushSupported
@@ -902,6 +907,18 @@ class _RuleEditorState extends State<_RuleEditor> {
             const SizedBox(height: 4),
           ],
           if (description != null) Text(description, style: muted),
+          // Same switch as the row's, named here so the row's is learnable.
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: Text(
+              _rule.kind == PingRuleKind.blacklist
+                  ? 'On'
+                  : 'Highlight these messages',
+            ),
+            value: _enabled,
+            onChanged: (v) => _set(() => _enabled = v),
+          ),
+          const SizedBox(height: 8),
           if (_hasPattern)
             TextField(
               controller: _patternCtrl,
@@ -1157,6 +1174,7 @@ class _RuleEditorState extends State<_RuleEditor> {
       wholeWord: _wholeWord,
       mention: listRule ? _effect != _Effect.tint : _rule.mention,
       notify: listRule ? _effect == _Effect.notify : _notify,
+      enabled: _enabled,
       colorArgb: _color,
     );
   }
