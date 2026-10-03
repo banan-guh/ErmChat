@@ -356,23 +356,6 @@ class EmoteManager implements EmoteLookupSource {
     unlocks: _twitchSets.unlockedEmotes,
   );
 
-  /// Emotes found in [text] for precache: tag emotes by id plus word
-  /// matches under the sender-proof rule, deduped by id.
-  List<Emote> matchEmotes({
-    required String channel,
-    required String text,
-    required List<EmotePosition>? positions,
-    String? senderTwitchId,
-  }) => _store.matchEmotes(
-    channel: channel,
-    text: text,
-    positions: positions,
-    senderTwitchId: senderTwitchId,
-    personal: _personalSets.viewerEmotes,
-    unlocks: _twitchSets.unlockedEmotes,
-    foreign: _personalSets.foreignFor(senderTwitchId),
-  );
-
   /// Viewer Twitch user id for matching personal 7TV grants. Cleared logout.
   set viewerTwitchId(String? value) => _personalSets.viewerTwitchId = value;
 

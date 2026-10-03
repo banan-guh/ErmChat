@@ -311,7 +311,7 @@ class ChatIngestion {
       onMention?.call(channel, msg);
     }
 
-    precacheMessageEmotes(msg, channel);
+    precacheMessageEmotes(msg);
     onChatMessage?.call(channel, msg);
   }
 
@@ -345,21 +345,18 @@ class ChatIngestion {
   }
 
   /// Pre-warms image decode for emotes the user is staring at right now.
-  void precacheMessageEmotes(TwitchMessage msg, String channel) {
+  /// Reads the tokens stamped at ingest, so the text is tokenized once.
+  void precacheMessageEmotes(TwitchMessage msg) {
     if (emoteManager.tier == EmoteFetchTier.nothing) return;
     if (msg.isSystem || msg.isHistory) return;
-    final lookupChannel = msg.sourceBroadcasterId != null
-        ? badgeService.resolveChannelLogin(msg.sourceBroadcasterId!) ?? channel
-        : channel;
-    final found = emoteManager.matchEmotes(
-      channel: lookupChannel,
-      text: msg.text,
-      positions: msg.emotePositions,
-      senderTwitchId: msg.userId,
-    );
-    if (found.isNotEmpty) {
-      emoteManager.enqueueSeenEmotes(found);
-    }
+    final tokens = msg.emoteTokens;
+    if (tokens == null || tokens.isEmpty) return;
+    final seen = <String>{};
+    final found = [
+      for (final token in tokens)
+        if (token.emote case final emote? when seen.add(emote.id)) emote,
+    ];
+    if (found.isNotEmpty) emoteManager.enqueueSeenEmotes(found);
   }
 
   // ---- USERNOTICE ---------------------------------------------------------
@@ -523,7 +520,7 @@ class ChatIngestion {
     // the same message, so counting before the insert would double it.
     onAnalyticsMessage?.call(channel, msg);
 
-    precacheMessageEmotes(msg, channel);
+    precacheMessageEmotes(msg);
     // Own messages arrive on the read socket (not the channel echo), so they
     // would otherwise never be read aloud; surface them like any other chat
     // message so TTS can speak them too.

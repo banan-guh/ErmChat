@@ -407,8 +407,7 @@ void main() {
     test('fallback synthesis interns: unknown tag id resolves identically', () {
       final store = EmoteStore();
       commitChannel(store, 'ch', [sevenTv('a', 'Alpha')]);
-      final found = store.matchEmotes(
-        channel: 'ch',
+      final found = EmoteStore.tokenize(
         text: 'hello',
         positions: const [
           EmotePosition(
@@ -418,7 +417,9 @@ void main() {
             emoteCode: 'Hello',
           ),
         ],
-      );
+        byCode: store.byCode('ch')!.byCode,
+        intern: store.intern,
+      ).where((t) => t.isEmote).map((t) => t.emote!);
 
       expect(found.single.id, 't1');
       expect(identical(store.emoteById('t1'), found.single), isTrue);

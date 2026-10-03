@@ -83,23 +83,23 @@ void main() {
     final ingestion = makeIngestion(manager);
 
     // Live message with unknown words: no listing fetch.
-    ingestion.precacheMessageEmotes(
+    ingestion.onMessage(
       TwitchMessage(
         login: 'someone',
         text: 'SomeUnknownWord hello',
         userId: 'sender-1',
+        channel: 'ch',
       ),
-      'ch',
     );
     // History message: same.
-    ingestion.precacheMessageEmotes(
+    ingestion.onMessage(
       TwitchMessage(
         login: 'someone',
         text: 'SomeUnknownWord hello',
         userId: 'sender-1',
+        channel: 'ch',
         isHistory: true,
       ),
-      'ch',
     );
     await pumpEventQueue();
 

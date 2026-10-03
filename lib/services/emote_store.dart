@@ -526,40 +526,6 @@ class EmoteStore {
         .toList();
   }
 
-  /// Emotes found in [text] for precache: tag emotes by id plus word
-  /// matches under the sender-proof rule, deduped by id.
-  List<Emote> matchEmotes({
-    required String channel,
-    required String text,
-    required List<EmotePosition>? positions,
-    String? senderTwitchId,
-    Iterable<Emote> personal = const [],
-    Iterable<Emote> unlocks = const [],
-    EmoteLookup? foreign,
-  }) {
-    final lookup = senderTwitchId == null
-        ? byCode(channel, personal: personal, unlocks: unlocks)
-        : byCodeForSender(
-            channel,
-            personal: personal,
-            unlocks: unlocks,
-            foreign: foreign,
-          );
-    if (lookup == null) return const [];
-    final seen = <String>{};
-    final found = <Emote>[];
-    for (final token in tokenize(
-      text: text,
-      positions: positions,
-      byCode: lookup.byCode,
-      intern: intern,
-    )) {
-      final emote = token.emote;
-      if (emote != null && seen.add(emote.id)) found.add(emote);
-    }
-    return found;
-  }
-
   // Global emotes by provider, in display order, sorted by code.
   Map<String, List<Emote>> globalEmotesByProvider({
     Iterable<Emote> personal = const [],
