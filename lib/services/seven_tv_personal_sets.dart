@@ -66,10 +66,13 @@ class SevenTvPersonalSets {
   // the cap counts them, and distinguished from a filled set so a later grant
   // can still trigger the REST fill.
   final _foreignPlaceholderSets = <String>{};
-  // Unmapped sets render for nobody; bound the contents map.
-  // Eviction is least-recently-touched first (insertion order doubles as
-  // recency: touches reinsert). Render lookups never touch; too hot.
-  static const _maxForeignPersonalSets = 50;
+  // Filled sets mapped to a user stay for the session (chatterino7 parity):
+  // the socket sends each set once per connection, so a dropped set never
+  // comes back until reconnect. Unmapped or still-empty sets render nothing
+  // and are bounded, least-recently-touched first (touches reinsert).
+  static const _maxIdleForeignSets = 50;
+  // The disk seed keeps the most recently touched mapped sets.
+  static const _maxPersistedForeignSets = 200;
 
   // Bumped on reset so an in-flight foreign fill that lands afterwards is
   // dropped instead of repopulating cleared state.
@@ -274,12 +277,19 @@ class SevenTvPersonalSets {
   }
 
   // Shared insert for placeholders and filled sets: reinserts (recency) and
-  // evicts down to the cap so neither path can exceed it.
+  // evicts idle sets (unmapped or empty) down to their cap. Filled, mapped
+  // sets are never evicted.
   void _putForeignSet(String setId, List<Emote> contents) {
     _foreignPersonalSetContents.remove(setId);
     _foreignPersonalSetContents[setId] = contents;
-    while (_foreignPersonalSetContents.length > _maxForeignPersonalSets) {
-      _evictForeignSet(_foreignPersonalSetContents.keys.first);
+    final idle = [
+      for (final MapEntry(key: id, value: emotes)
+          in _foreignPersonalSetContents.entries)
+        if (emotes.isEmpty || _foreignPersonalSetOwners[id]?.isNotEmpty != true)
+          id,
+    ];
+    for (var i = 0; i < idle.length - _maxIdleForeignSets; i++) {
+      _evictForeignSet(idle[i]);
     }
   }
 
@@ -429,7 +439,11 @@ class SevenTvPersonalSets {
       }
       final foreign = <String, dynamic>{};
       final owners = <String, dynamic>{};
-      for (final entry in _foreignPersonalSetContents.entries) {
+      final entries = _foreignPersonalSetContents.entries.toList();
+      final newest = entries.length > _maxPersistedForeignSets
+          ? entries.sublist(entries.length - _maxPersistedForeignSets)
+          : entries;
+      for (final entry in newest) {
         if (entry.value.isEmpty) continue;
         final setOwners = _foreignPersonalSetOwners[entry.key];
         if (setOwners == null || setOwners.isEmpty) continue;
