@@ -199,6 +199,11 @@ class _ChatBodyState extends State<ChatBody>
   double _persistedH = 0;
   Timer? _settleTimer;
 
+  // Keeps a frame requested while the keyboard moves. Each inset tick lands
+  // inside Android's frame; a frame requested only then misses that vsync,
+  // so the composer would draw every other tick (30fps).
+  late final _keyboardPump = createTicker((_) {});
+
   double _readRawH() => _view.viewInsets.bottom / _view.devicePixelRatio;
 
   // Last learned open height, persisted so decisions start right even on a
@@ -254,6 +259,7 @@ class _ChatBodyState extends State<ChatBody>
     WidgetsBinding.instance.removeObserver(this);
     _settleTimer?.cancel();
     _pillHideTimer?.cancel();
+    _keyboardPump.dispose();
     _release.dispose();
     _frozenImage?.dispose();
     _glassFreeze.dispose();
@@ -273,6 +279,7 @@ class _ChatBodyState extends State<ChatBody>
     _rawH = raw;
     if (raw > 0.5) _keyboardEngaged = true;
     _settleTimer?.cancel();
+    if (!_keyboardPump.isActive) _keyboardPump.start();
     if (widget.liquidGlass) _freezeGlass();
     if (raw <= 0.5) {
       _retapped = false;
@@ -285,6 +292,7 @@ class _ChatBodyState extends State<ChatBody>
     }
     _settleTimer = Timer(const Duration(milliseconds: 120), () {
       if (!mounted) return;
+      _keyboardPump.stop();
       _glassFreeze.value = null;
       if (_frozenImage != null) _release.forward(from: 0);
       // Unfocusing mid-animation races the IME and the next open overshoots,

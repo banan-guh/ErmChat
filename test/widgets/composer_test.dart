@@ -380,6 +380,31 @@ void main() {
     expect(focus.hasFocus, isFalse);
   });
 
+  // Inset ticks land inside Android's frame. With no frame already
+  // requested, each one missed its vsync and a reopen after unfocus drew
+  // at 30fps.
+  testWidgets('keyboard motion keeps a frame requested', (tester) async {
+    final focus = FocusNode();
+    addTearDown(focus.dispose);
+    tester.view.physicalSize = const Size(400, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await pumpBody(
+      tester,
+      liquidGlass: false,
+      focus: focus,
+      dismissUnfocuses: true,
+    );
+    await tester.pumpAndSettle();
+    for (final kb in <double>[100, 200, 300]) {
+      tester.view.viewInsets = FakeViewPadding(bottom: kb);
+      await tester.pump(const Duration(milliseconds: 16));
+      expect(tester.binding.hasScheduledFrame, isTrue, reason: 'kb=$kb');
+    }
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(tester.binding.hasScheduledFrame, isFalse, reason: 'settled');
+  });
+
   // An IME that stalls mid-close settles at a partial height. Learning it
   // made the next open assume that height, then flip decisions on settle.
   testWidgets('a stalled close does not teach the keyboard height', (
