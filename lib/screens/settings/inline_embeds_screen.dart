@@ -4,6 +4,7 @@ import '../../util/prefs.dart';
 import '../../util/prefs_store.dart';
 import 'prefs_tiles.dart';
 import 'settings_page.dart';
+import 'settings_search.dart';
 
 class InlineEmbedsScreen extends StatefulWidget {
   const InlineEmbedsScreen({super.key});
@@ -47,26 +48,32 @@ class _InlineEmbedsScreenState extends State<InlineEmbedsScreen> {
       body: ListView(
         children: [
           const SettingsSectionHeader('Giphy'),
-          PrefsSwitchTile(
-            secondary: const Icon(Icons.gif_box),
-            title: 'Show Giphy inline',
-            defaultValue: kGiphyInlineEnabledDefault,
-            read: (p) => p.giphyInlineEnabled,
-            write: (p, v) => p.setGiphyInlineEnabled(v),
-          ),
-          PrefsSliderTile(
-            label: (v) => 'Giphy height: ${v.round()}dp',
-            sliderLabel: (v) => '${v.round()}dp',
-            enabled: _showGifs,
-            min: kGiphyInlineHeightMin,
-            max: kGiphyInlineHeightMax,
-            divisions: 12,
-            defaultValue: kGiphyInlineHeightDefault,
-            read: (p) => p.giphyInlineHeight.clamp(
-              kGiphyInlineHeightMin,
-              kGiphyInlineHeightMax,
+          SettingAnchor(
+            Setting.showGiphy,
+            child: PrefsSwitchTile(
+              secondary: const Icon(Icons.gif_box),
+              title: Setting.showGiphy.title,
+              defaultValue: kGiphyInlineEnabledDefault,
+              read: (p) => p.giphyInlineEnabled,
+              write: (p, v) => p.setGiphyInlineEnabled(v),
             ),
-            write: (p, v) => p.setGiphyInlineHeight(v),
+          ),
+          SettingAnchor(
+            Setting.giphyHeight,
+            child: PrefsSliderTile(
+              label: (v) => '${Setting.giphyHeight.title}: ${v.round()}dp',
+              sliderLabel: (v) => '${v.round()}dp',
+              enabled: _showGifs,
+              min: kGiphyInlineHeightMin,
+              max: kGiphyInlineHeightMax,
+              divisions: 12,
+              defaultValue: kGiphyInlineHeightDefault,
+              read: (p) => p.giphyInlineHeight.clamp(
+                kGiphyInlineHeightMin,
+                kGiphyInlineHeightMax,
+              ),
+              write: (p, v) => p.setGiphyInlineHeight(v),
+            ),
           ),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
@@ -78,27 +85,33 @@ class _InlineEmbedsScreenState extends State<InlineEmbedsScreen> {
             ),
           ),
           const SettingsSectionHeader('Images'),
-          PrefsSwitchTile(
-            secondary: const Icon(Icons.image_outlined),
-            title: 'Show images inline',
-            subtitle: "Tap a link's icon to preview",
-            defaultValue: kImageEmbedEnabledDefault,
-            read: (p) => p.imageEmbedEnabled,
-            write: (p, v) => p.setImageEmbedEnabled(v),
-          ),
-          PrefsSliderTile(
-            label: (v) => 'Image height: ${v.round()}dp',
-            sliderLabel: (v) => '${v.round()}dp',
-            enabled: _showImages,
-            min: kImageEmbedHeightMin,
-            max: kImageEmbedHeightMax,
-            divisions: 12,
-            defaultValue: kImageEmbedHeightDefault,
-            read: (p) => p.imageEmbedHeight.clamp(
-              kImageEmbedHeightMin,
-              kImageEmbedHeightMax,
+          SettingAnchor(
+            Setting.showImages,
+            child: PrefsSwitchTile(
+              secondary: const Icon(Icons.image_outlined),
+              title: Setting.showImages.title,
+              subtitle: "Tap a link's icon to preview",
+              defaultValue: kImageEmbedEnabledDefault,
+              read: (p) => p.imageEmbedEnabled,
+              write: (p, v) => p.setImageEmbedEnabled(v),
             ),
-            write: (p, v) => p.setImageEmbedHeight(v),
+          ),
+          SettingAnchor(
+            Setting.imageHeight,
+            child: PrefsSliderTile(
+              label: (v) => '${Setting.imageHeight.title}: ${v.round()}dp',
+              sliderLabel: (v) => '${v.round()}dp',
+              enabled: _showImages,
+              min: kImageEmbedHeightMin,
+              max: kImageEmbedHeightMax,
+              divisions: 12,
+              defaultValue: kImageEmbedHeightDefault,
+              read: (p) => p.imageEmbedHeight.clamp(
+                kImageEmbedHeightMin,
+                kImageEmbedHeightMax,
+              ),
+              write: (p, v) => p.setImageEmbedHeight(v),
+            ),
           ),
         ],
       ),

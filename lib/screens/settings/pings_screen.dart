@@ -17,6 +17,7 @@ import '../../util/prefs_store.dart';
 import 'ignores_screen.dart';
 import 'prefs_tiles.dart';
 import 'settings_page.dart';
+import 'settings_search.dart';
 
 /// Mention push rides the Android foreground-service path; iOS has none.
 final _pushSupported = !kIsWeb && !Platform.isIOS;
@@ -170,22 +171,28 @@ class _PingsScreenState extends ConsumerState<PingsScreen> {
 
   List<Widget> _notificationSection(bool pushOn) => [
     const SettingsSectionHeader('Notifications'),
-    _needsKeepAlive(
-      SwitchListTile(
-        secondary: const Icon(Icons.alternate_email),
-        title: const Text('Mentions'),
-        value: pushOn,
-        onChanged: _keepAlive ? _setPush : null,
+    SettingAnchor(
+      Setting.mentionPush,
+      child: _needsKeepAlive(
+        SwitchListTile(
+          secondary: const Icon(Icons.alternate_email),
+          title: Text(Setting.mentionPush.title),
+          value: pushOn,
+          onChanged: _keepAlive ? _setPush : null,
+        ),
       ),
     ),
-    _needsKeepAlive(
-      PrefsSwitchTile(
-        secondary: const Icon(Icons.mail_outline),
-        title: 'Whispers',
-        enabled: _keepAlive,
-        read: (p) => p.whisperNotifications,
-        write: (p, v) => p.setWhisperNotifications(v),
-        onChanged: widget.onWhisperNotifyChanged,
+    SettingAnchor(
+      Setting.whisperPush,
+      child: _needsKeepAlive(
+        PrefsSwitchTile(
+          secondary: const Icon(Icons.mail_outline),
+          title: Setting.whisperPush.title,
+          enabled: _keepAlive,
+          read: (p) => p.whisperNotifications,
+          write: (p, v) => p.setWhisperNotifications(v),
+          onChanged: widget.onWhisperNotifyChanged,
+        ),
       ),
     ),
   ];
@@ -228,7 +235,12 @@ class _PingsScreenState extends ConsumerState<PingsScreen> {
   ) {
     final keywords = kind == PingRuleKind.message;
     return [
-      SettingsSectionHeader(keywords ? 'Keywords' : 'Users'),
+      SettingAnchor(
+        keywords ? Setting.highlightKeywords : Setting.highlightUsers,
+        child: SettingsSectionHeader(
+          (keywords ? Setting.highlightKeywords : Setting.highlightUsers).title,
+        ),
+      ),
       for (final r in rules.where(
         (r) => r.kind == kind && (!keywords || r.type == 'custom'),
       ))
@@ -254,16 +266,22 @@ class _PingsScreenState extends ConsumerState<PingsScreen> {
         ...rules
             .where((r) => r.kind == PingRuleKind.message && r.type == type)
             .map((r) => _RuleTile(rule: r, onTap: () => _edit(r))),
-      ListTile(
-        leading: const SizedBox(width: 28, child: Icon(Icons.shield_outlined)),
-        title: const Text('Badges'),
-        subtitle: Text(badgesOn.isEmpty ? 'None' : badgesOn.join(', ')),
-        trailing: const Icon(Icons.chevron_right),
-        onTap: () => Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (_) =>
-                _BadgesPage(opacity: _opacity, recent: _recentMessages()),
+      SettingAnchor(
+        Setting.badges,
+        child: ListTile(
+          leading: const SizedBox(
+            width: 28,
+            child: Icon(Icons.shield_outlined),
+          ),
+          title: Text(Setting.badges.title),
+          subtitle: Text(badgesOn.isEmpty ? 'None' : badgesOn.join(', ')),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: () => Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) =>
+                  _BadgesPage(opacity: _opacity, recent: _recentMessages()),
+            ),
           ),
         ),
       ),
@@ -271,7 +289,10 @@ class _PingsScreenState extends ConsumerState<PingsScreen> {
   }
 
   List<Widget> _muteSection(List<PingRule> rules) => [
-    const SettingsSectionHeader("Don't highlight"),
+    SettingAnchor(
+      Setting.dontHighlight,
+      child: SettingsSectionHeader(Setting.dontHighlight.title),
+    ),
     const _Caption('Shown, but never highlighted or notified.'),
     for (final r in rules.where((r) => r.kind == PingRuleKind.blacklist))
       _RuleTile(rule: r, onTap: () => _edit(r)),
@@ -282,12 +303,15 @@ class _PingsScreenState extends ConsumerState<PingsScreen> {
         isNew: true,
       ),
     ),
-    SettingsNavTile(
-      icon: Icons.visibility_off_outlined,
-      title: 'Ignores',
-      onTap: () => Navigator.push(
-        context,
-        MaterialPageRoute(builder: (_) => const IgnoresScreen()),
+    SettingAnchor(
+      Setting.ignores,
+      child: SettingsNavTile(
+        icon: Icons.visibility_off_outlined,
+        title: Setting.ignores.title,
+        onTap: () => Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => const IgnoresScreen()),
+        ),
       ),
     ),
   ];
@@ -325,15 +349,19 @@ class _PingsScreenState extends ConsumerState<PingsScreen> {
           ),
         ),
       ),
-      PrefsSliderTile(
-        label: (v) => 'Highlight strength: ${(v * 100).round()}%',
-        min: 0,
-        max: 1,
-        divisions: 5,
-        defaultValue: 0.6,
-        read: (p) => p.highlightOpacity,
-        write: (p, v) => p.setHighlightOpacity(v),
-        onChanged: (v) => setState(() => _opacity = v),
+      SettingAnchor(
+        Setting.highlightStrength,
+        child: PrefsSliderTile(
+          label: (v) =>
+              '${Setting.highlightStrength.title}: ${(v * 100).round()}%',
+          min: 0,
+          max: 1,
+          divisions: 5,
+          defaultValue: 0.6,
+          read: (p) => p.highlightOpacity,
+          write: (p, v) => p.setHighlightOpacity(v),
+          onChanged: (v) => setState(() => _opacity = v),
+        ),
       ),
     ];
   }
@@ -455,7 +483,7 @@ class _RuleTile extends ConsumerWidget {
     final muted = rule.kind == PingRuleKind.blacklist;
     final subtitle = _ruleSubtitle(rule);
     final pushOn = this.pushOn;
-    return ListTile(
+    final tile = ListTile(
       leading: SizedBox(
         width: 28,
         child: muted
@@ -497,6 +525,11 @@ class _RuleTile extends ConsumerWidget {
       ),
       onTap: onTap,
     );
+    // Builtin rows are searchable settings; user-made rules are not.
+    final setting = rule.kind == PingRuleKind.message
+        ? _builtinSettings[rule.type]
+        : null;
+    return setting == null ? tile : SettingAnchor(setting, child: tile);
   }
 }
 
@@ -550,14 +583,14 @@ List<InlineSpan> _markedSpans(
   return spans;
 }
 
-/// Builtin message-rule names, in no particular order.
-const _builtinTitles = {
-  'username': 'My username',
-  'reply': 'Replies to me',
-  'thread': "Threads I'm in",
-  'firstMsg': 'First messages',
-  'redemption': 'Channel point redemptions',
-  'elevated': 'Hype Chat',
+/// Builtin message rules as searchable settings; their names come from here.
+const _builtinSettings = {
+  'username': Setting.myUsername,
+  'reply': Setting.repliesToMe,
+  'thread': Setting.threadsImIn,
+  'firstMsg': Setting.firstMessages,
+  'redemption': Setting.redemptions,
+  'elevated': Setting.hypeChat,
 };
 
 /// Editor notes for the builtins whose names undersell what they catch.
@@ -574,7 +607,7 @@ String _badgeLabel(String id) => switch (id) {
 
 String _ruleTitle(PingRule rule) => switch (rule.kind) {
   PingRuleKind.message when rule.type != 'custom' =>
-    _builtinTitles[rule.type] ?? rule.type,
+    _builtinSettings[rule.type]?.title ?? rule.type,
   PingRuleKind.badge => _badgeLabel(rule.pattern),
   PingRuleKind.user || PingRuleKind.blacklist => '@${rule.pattern}',
   _ => rule.pattern,

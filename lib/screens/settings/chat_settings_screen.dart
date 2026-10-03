@@ -14,6 +14,7 @@ import 'prefs_tiles.dart';
 import 'proxy_settings_screen.dart';
 import 'recent_messages_settings_screen.dart';
 import 'settings_page.dart';
+import 'settings_search.dart';
 
 class ChatSettingsScreen extends StatefulWidget {
   final TwitchAuth? twitchAuth;
@@ -140,140 +141,180 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
       body: ListView(
         children: [
           const SettingsSectionHeader('Messages'),
-          PrefsSliderTile(
-            label: (v) =>
-                'Max messages per channel: '
-                '${kMaxMessagesPerChannelValues[v.round()]}',
-            sliderLabel: (v) => '${kMaxMessagesPerChannelValues[v.round()]}',
-            min: 0,
-            max: (kMaxMessagesPerChannelValues.length - 1).toDouble(),
-            divisions: kMaxMessagesPerChannelValues.length - 1,
-            defaultValue: _stepIndexFor(
-              kMaxMessagesPerChannelDefault,
-            ).toDouble(),
-            read: (p) => _stepIndexFor(p.maxMessagesPerChannel).toDouble(),
-            write: (p, v) => p.setMaxMessagesPerChannel(
-              kMaxMessagesPerChannelValues[v.round()],
+          SettingAnchor(
+            Setting.maxMessages,
+            child: PrefsSliderTile(
+              label: (v) =>
+                  '${Setting.maxMessages.title}: '
+                  '${kMaxMessagesPerChannelValues[v.round()]}',
+              sliderLabel: (v) => '${kMaxMessagesPerChannelValues[v.round()]}',
+              min: 0,
+              max: (kMaxMessagesPerChannelValues.length - 1).toDouble(),
+              divisions: kMaxMessagesPerChannelValues.length - 1,
+              defaultValue: _stepIndexFor(
+                kMaxMessagesPerChannelDefault,
+              ).toDouble(),
+              read: (p) => _stepIndexFor(p.maxMessagesPerChannel).toDouble(),
+              write: (p, v) => p.setMaxMessagesPerChannel(
+                kMaxMessagesPerChannelValues[v.round()],
+              ),
             ),
           ),
-          SettingsNavTile(
-            icon: Icons.merge_type,
-            title: 'Shared chat messages',
-            subtitle: _sharedChatModeLabel,
-            onTap: _pickSharedChatMode,
+          SettingAnchor(
+            Setting.sharedChat,
+            child: SettingsNavTile(
+              icon: Icons.merge_type,
+              title: Setting.sharedChat.title,
+              subtitle: _sharedChatModeLabel,
+              onTap: _pickSharedChatMode,
+            ),
           ),
-          SettingsNavTile(
-            icon: Icons.gif_box,
-            title: 'Inline embeds',
-            subtitle: _inlineEmbedsSubtitle,
-            onTap: () {
-              Navigator.push(
+          SettingAnchor(
+            Setting.inlineEmbeds,
+            child: SettingsNavTile(
+              icon: Icons.gif_box,
+              title: Setting.inlineEmbeds.title,
+              subtitle: _inlineEmbedsSubtitle,
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const InlineEmbedsScreen()),
+                );
+              },
+            ),
+          ),
+          SettingAnchor(
+            Setting.splitLinks,
+            child: SettingsNavTile(
+              icon: Icons.link,
+              title: Setting.splitLinks.title,
+              onTap: () => Navigator.push(
                 context,
-                MaterialPageRoute(builder: (_) => const InlineEmbedsScreen()),
-              );
-            },
-          ),
-          SettingsNavTile(
-            icon: Icons.link,
-            title: 'Split links',
-            onTap: () => Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => const LinkWhitelistSettingsScreen(),
+                MaterialPageRoute(
+                  builder: (_) => const LinkWhitelistSettingsScreen(),
+                ),
               ),
             ),
           ),
           const SettingsSectionHeader('History'),
-          PrefsSliderTile(
-            label: (v) => 'Recent messages to load: ${v.round()}',
-            sliderLabel: (v) => '${v.round()}',
-            min: 0,
-            max: 800,
-            divisions: 8,
-            defaultValue: kRecentMessagesLimitDefault.toDouble(),
-            read: (p) => p.recentMessagesLimit.clamp(0, 800).toDouble(),
-            write: (p, v) => p.setRecentMessagesLimit(v.round()),
+          SettingAnchor(
+            Setting.recentMessagesLimit,
+            child: PrefsSliderTile(
+              label: (v) =>
+                  '${Setting.recentMessagesLimit.title}: ${v.round()}',
+              sliderLabel: (v) => '${v.round()}',
+              min: 0,
+              max: 800,
+              divisions: 8,
+              defaultValue: kRecentMessagesLimitDefault.toDouble(),
+              read: (p) => p.recentMessagesLimit.clamp(0, 800).toDouble(),
+              write: (p, v) => p.setRecentMessagesLimit(v.round()),
+            ),
           ),
-          SettingsNavTile(
-            icon: Icons.history,
-            title: 'Recent messages',
-            subtitle: 'Choose provider',
-            onTap: () => Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => RecentMessagesSettingsScreen(
-                  onChanged: widget.onRecentMessagesModeChanged,
+          SettingAnchor(
+            Setting.recentMessagesSource,
+            child: SettingsNavTile(
+              icon: Icons.history,
+              title: Setting.recentMessagesSource.title,
+              subtitle: 'Choose provider',
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => RecentMessagesSettingsScreen(
+                    onChanged: widget.onRecentMessagesModeChanged,
+                  ),
                 ),
               ),
             ),
           ),
           const SettingsSectionHeader('Typing'),
-          PrefsSwitchTile(
-            secondary: const Icon(Icons.sentiment_very_satisfied),
-            title: 'Prefer emote suggestions (autocomplete)',
-            defaultValue: false,
-            read: (p) => p.preferEmotesFirst,
-            write: (p, v) => p.setPreferEmotesFirst(v),
+          SettingAnchor(
+            Setting.preferEmotes,
+            child: PrefsSwitchTile(
+              secondary: const Icon(Icons.sentiment_very_satisfied),
+              title: Setting.preferEmotes.title,
+              defaultValue: false,
+              read: (p) => p.preferEmotesFirst,
+              write: (p, v) => p.setPreferEmotesFirst(v),
+            ),
           ),
           const _MentionFormatTile(),
-          PrefsSwitchTile(
-            secondary: const Icon(Icons.reply),
-            title: 'Reply to thread first message',
-            defaultValue: false,
-            read: (p) => p.replyToThreadRoot,
-            write: (p, v) => p.setReplyToThreadRoot(v),
+          SettingAnchor(
+            Setting.replyThreadRoot,
+            child: PrefsSwitchTile(
+              secondary: const Icon(Icons.reply),
+              title: Setting.replyThreadRoot.title,
+              defaultValue: false,
+              read: (p) => p.replyToThreadRoot,
+              write: (p, v) => p.setReplyToThreadRoot(v),
+            ),
           ),
           if (widget.twitchAuth != null)
-            SettingsNavTile(
-              icon: Icons.bolt,
-              title: 'Command macros',
-              onTap: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) =>
-                        MacrosScreen(twitchAuth: widget.twitchAuth!),
-                  ),
-                );
-              },
+            SettingAnchor(
+              Setting.macros,
+              child: SettingsNavTile(
+                icon: Icons.bolt,
+                title: Setting.macros.title,
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) =>
+                          MacrosScreen(twitchAuth: widget.twitchAuth!),
+                    ),
+                  );
+                },
+              ),
             ),
           const SettingsSectionHeader('Users'),
-          PrefsSwitchTile(
-            secondary: const Icon(Icons.content_copy),
-            title: 'Double-tap name to copy',
-            subtitle: 'Delays opening the user card',
-            defaultValue: false,
-            read: (p) => p.doubleTapNameCopy,
-            write: (p, v) => p.setDoubleTapNameCopy(v),
+          SettingAnchor(
+            Setting.doubleTapCopy,
+            child: PrefsSwitchTile(
+              secondary: const Icon(Icons.content_copy),
+              title: Setting.doubleTapCopy.title,
+              subtitle: 'Delays opening the user card',
+              defaultValue: false,
+              read: (p) => p.doubleTapNameCopy,
+              write: (p, v) => p.setDoubleTapNameCopy(v),
+            ),
           ),
-          PrefsSwitchTile(
-            secondary: const Icon(Icons.format_paint),
-            title: '7TV name paints',
-            defaultValue: false,
-            read: (p) => p.seventvNamePaints,
-            write: (p, v) => p.setSeventvNamePaints(v),
+          SettingAnchor(
+            Setting.namePaints,
+            child: PrefsSwitchTile(
+              secondary: const Icon(Icons.format_paint),
+              title: Setting.namePaints.title,
+              defaultValue: false,
+              read: (p) => p.seventvNamePaints,
+              write: (p, v) => p.setSeventvNamePaints(v),
+            ),
           ),
           const SettingsSectionHeader('Connection'),
           // The foreground service behind this is Android-only.
           if (!kIsWeb && Platform.isAndroid)
-            PrefsSwitchTile(
-              secondary: const Icon(Icons.wifi_tethering),
-              title: 'Stay connected in background',
-              subtitle: 'Shows a persistent notification',
-              defaultValue: false,
-              read: (p) => p.backgroundService,
-              write: (p, v) => p.setBackgroundService(v),
-              onChanged: widget.onBackgroundServiceChanged,
+            SettingAnchor(
+              Setting.stayConnected,
+              child: PrefsSwitchTile(
+                secondary: const Icon(Icons.wifi_tethering),
+                title: Setting.stayConnected.title,
+                subtitle: 'Shows a persistent notification',
+                defaultValue: false,
+                read: (p) => p.backgroundService,
+                write: (p, v) => p.setBackgroundService(v),
+                onChanged: widget.onBackgroundServiceChanged,
+              ),
             ),
-          SettingsNavTile(
-            icon: Icons.cloud,
-            title: 'Chat proxy',
-            subtitle: (_prefs?.proxyEnabled ?? false) ? 'On' : 'Off',
-            // The proxy screen saves without announcing it; re-read on return.
-            onTap: () => Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => const ProxySettingsScreen()),
-            ).then((_) => _loadPrefs()),
+          SettingAnchor(
+            Setting.chatProxy,
+            child: SettingsNavTile(
+              icon: Icons.cloud,
+              title: Setting.chatProxy.title,
+              subtitle: (_prefs?.proxyEnabled ?? false) ? 'On' : 'Off',
+              // The proxy screen saves without announcing it; re-read on return.
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const ProxySettingsScreen()),
+              ).then((_) => _loadPrefs()),
+            ),
           ),
         ],
       ),
@@ -339,11 +380,14 @@ class _MentionFormatTileState extends State<_MentionFormatTile> {
 
   @override
   Widget build(BuildContext context) {
-    return SettingsNavTile(
-      icon: Icons.text_format,
-      title: 'Mention format',
-      subtitle: formats[_format],
-      onTap: _pick,
+    return SettingAnchor(
+      Setting.mentionFormat,
+      child: SettingsNavTile(
+        icon: Icons.text_format,
+        title: Setting.mentionFormat.title,
+        subtitle: formats[_format],
+        onTap: _pick,
+      ),
     );
   }
 }

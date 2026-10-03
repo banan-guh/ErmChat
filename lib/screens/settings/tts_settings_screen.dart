@@ -6,6 +6,7 @@ import '../../util/prefs.dart';
 import '../../widgets/app_snack.dart';
 import '../../widgets/dialogs.dart';
 import 'settings_page.dart';
+import 'settings_search.dart';
 import 'tts_user_ignore_list_screen.dart';
 
 class TtsSettingsScreen extends StatefulWidget {
@@ -177,72 +178,96 @@ class _TtsSettingsScreenState extends State<TtsSettingsScreen> {
       title: const Text('Text-to-speech'),
       body: ListView(
         children: [
-          SwitchListTile(
-            secondary: const Icon(Icons.record_voice_over),
-            title: const Text('Enable TTS'),
-            value: _enabled,
-            onChanged: (value) => unawaited(_setEnabled(value)),
+          SettingAnchor(
+            Setting.enableTts,
+            child: SwitchListTile(
+              secondary: const Icon(Icons.record_voice_over),
+              title: Text(Setting.enableTts.title),
+              value: _enabled,
+              onChanged: (value) => unawaited(_setEnabled(value)),
+            ),
           ),
-          SettingsNavTile(
-            icon: Icons.audio_file,
-            title: 'TTS engine',
-            subtitle:
-                _selectedOption?.label ??
-                (widget.ttsController?.canOpenSystemSettings == true
-                    ? 'Change in system settings'
-                    : 'Device default'),
-            enabled: _enabled,
-            onTap: _openEngineSettings,
+          SettingAnchor(
+            Setting.ttsEngine,
+            child: SettingsNavTile(
+              icon: Icons.audio_file,
+              title: Setting.ttsEngine.title,
+              subtitle:
+                  _selectedOption?.label ??
+                  (widget.ttsController?.canOpenSystemSettings == true
+                      ? 'Change in system settings'
+                      : 'Device default'),
+              enabled: _enabled,
+              onTap: _openEngineSettings,
+            ),
           ),
-          SettingsNavTile(
-            icon: Icons.queue,
-            title: 'Message queue mode',
-            subtitle: _queueMode == TtsQueueMode.queue ? 'Queue' : 'Newest',
-            onTap: _pickQueueMode,
+          SettingAnchor(
+            Setting.ttsQueueMode,
+            child: SettingsNavTile(
+              icon: Icons.queue,
+              title: Setting.ttsQueueMode.title,
+              subtitle: _queueMode == TtsQueueMode.queue ? 'Queue' : 'Newest',
+              onTap: _pickQueueMode,
+            ),
           ),
-          SettingsNavTile(
-            icon: Icons.format_quote,
-            title: 'Message format',
-            subtitle: _formatMode == TtsFormatMode.messageOnly
-                ? 'Message only'
-                : 'User and message',
-            onTap: _pickFormatMode,
+          SettingAnchor(
+            Setting.ttsFormat,
+            child: SettingsNavTile(
+              icon: Icons.format_quote,
+              title: Setting.ttsFormat.title,
+              subtitle: _formatMode == TtsFormatMode.messageOnly
+                  ? 'Message only'
+                  : 'User and message',
+              onTap: _pickFormatMode,
+            ),
           ),
-          SwitchListTile(
-            secondary: const Icon(Icons.language),
-            title: const Text('Force language to English'),
-            value: _forceEnglish,
-            onChanged: _setForceEnglish,
+          SettingAnchor(
+            Setting.ttsForceEnglish,
+            child: SwitchListTile(
+              secondary: const Icon(Icons.language),
+              title: Text(Setting.ttsForceEnglish.title),
+              value: _forceEnglish,
+              onChanged: _setForceEnglish,
+            ),
           ),
-          SwitchListTile(
-            secondary: const Icon(Icons.link_off),
-            title: const Text('Ignore URLs'),
-            value: _ignoreUrls,
-            onChanged: _setIgnoreUrls,
+          SettingAnchor(
+            Setting.ttsIgnoreUrls,
+            child: SwitchListTile(
+              secondary: const Icon(Icons.link_off),
+              title: Text(Setting.ttsIgnoreUrls.title),
+              value: _ignoreUrls,
+              onChanged: _setIgnoreUrls,
+            ),
           ),
-          SwitchListTile(
-            secondary: const Icon(Icons.emoji_emotions),
-            title: const Text('Ignore emotes'),
-            value: _ignoreEmotes,
-            onChanged: _setIgnoreEmotes,
+          SettingAnchor(
+            Setting.ttsIgnoreEmotes,
+            child: SwitchListTile(
+              secondary: const Icon(Icons.emoji_emotions),
+              title: Text(Setting.ttsIgnoreEmotes.title),
+              value: _ignoreEmotes,
+              onChanged: _setIgnoreEmotes,
+            ),
           ),
-          SettingsNavTile(
-            icon: Icons.person_off,
-            title: 'Ignored users',
-            subtitle: switch (widget.ttsController?.userIgnoreList.length) {
-              null || 0 => 'None',
-              1 => '1 user',
-              final n => '$n users',
-            },
-            // The list screen edits the controller directly; recount on return.
-            onTap: () => Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => TtsUserIgnoreListScreen(
-                  ttsController: widget.ttsController,
+          SettingAnchor(
+            Setting.ttsIgnoredUsers,
+            child: SettingsNavTile(
+              icon: Icons.person_off,
+              title: Setting.ttsIgnoredUsers.title,
+              subtitle: switch (widget.ttsController?.userIgnoreList.length) {
+                null || 0 => 'None',
+                1 => '1 user',
+                final n => '$n users',
+              },
+              // The list screen edits the controller directly; recount on return.
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => TtsUserIgnoreListScreen(
+                    ttsController: widget.ttsController,
+                  ),
                 ),
-              ),
-            ).then((_) => mounted ? setState(() {}) : null),
+              ).then((_) => mounted ? setState(() {}) : null),
+            ),
           ),
         ],
       ),

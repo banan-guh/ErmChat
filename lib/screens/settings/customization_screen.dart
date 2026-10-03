@@ -8,6 +8,7 @@ import '../../widgets/dialogs.dart';
 import 'custom_layout_screen.dart';
 import 'prefs_tiles.dart';
 import 'settings_page.dart';
+import 'settings_search.dart';
 
 class CustomizationScreen extends StatefulWidget {
   const CustomizationScreen({super.key});
@@ -133,117 +134,158 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
       body: ListView(
         children: [
           const SettingsSectionHeader('Theme'),
-          ListTile(
-            title: const Text('Theme'),
-            subtitle: Text(switch (_themeMode) {
-              ThemeMode.system => 'System',
-              ThemeMode.light => 'Light',
-              ThemeMode.dark => 'Dark',
-            }),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () => _pickTheme(context),
-          ),
-          const Padding(
-            padding: EdgeInsets.fromLTRB(16, 16, 16, 8),
-            child: Text(
-              'Accent color',
-              style: TextStyle(fontWeight: FontWeight.w600),
+          SettingAnchor(
+            Setting.theme,
+            child: ListTile(
+              title: Text(Setting.theme.title),
+              subtitle: Text(switch (_themeMode) {
+                ThemeMode.system => 'System',
+                ThemeMode.light => 'Light',
+                ThemeMode.dark => 'Dark',
+              }),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => _pickTheme(context),
             ),
           ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Wrap(
-              spacing: 10,
-              runSpacing: 10,
+          SettingAnchor(
+            Setting.accentColor,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                for (final entry in kAccentPresets.entries)
-                  _AccentSwatch(
-                    key: ValueKey('accent_${entry.key}'),
-                    color: entry.value,
-                    selected: entry.key == _accentKey,
-                    onTap: () => _setAccentColor(entry.key),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+                  child: Text(
+                    Setting.accentColor.title,
+                    style: const TextStyle(fontWeight: FontWeight.w600),
                   ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: Wrap(
+                    spacing: 10,
+                    runSpacing: 10,
+                    children: [
+                      for (final entry in kAccentPresets.entries)
+                        _AccentSwatch(
+                          key: ValueKey('accent_${entry.key}'),
+                          color: entry.value,
+                          selected: entry.key == _accentKey,
+                          onTap: () => _setAccentColor(entry.key),
+                        ),
+                    ],
+                  ),
+                ),
               ],
             ),
           ),
-          PrefsSwitchTile(
-            title: 'True dark mode',
-            defaultValue: false,
-            enabled: isDark,
-            read: (p) => p.trueDark,
-            write: (p, v) => p.setTrueDark(v),
+          SettingAnchor(
+            Setting.trueDark,
+            child: PrefsSwitchTile(
+              title: Setting.trueDark.title,
+              defaultValue: false,
+              enabled: isDark,
+              read: (p) => p.trueDark,
+              write: (p, v) => p.setTrueDark(v),
+            ),
           ),
           const SettingsSectionHeader('Layout'),
-          ListTile(
-            title: const Text('Layout'),
-            subtitle: Text(
-              _customLayoutEnabled
-                  ? 'Custom'
-                  : switch (_layoutDensity) {
-                      LayoutDensity.auto =>
-                        'Auto (${isCompactLayout(context) ? 'compact' : 'full'})',
-                      LayoutDensity.compact => 'Compact',
-                      LayoutDensity.full => 'Full',
-                    },
+          SettingAnchor(
+            Setting.layout,
+            child: ListTile(
+              title: Text(Setting.layout.title),
+              subtitle: Text(
+                _customLayoutEnabled
+                    ? 'Custom'
+                    : switch (_layoutDensity) {
+                        LayoutDensity.auto =>
+                          'Auto (${isCompactLayout(context) ? 'compact' : 'full'})',
+                        LayoutDensity.compact => 'Compact',
+                        LayoutDensity.full => 'Full',
+                      },
+              ),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => _pickLayoutDensity(context),
             ),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () => _pickLayoutDensity(context),
           ),
-          PrefsSwitchTile(
-            title: 'Liquid glass',
-            subtitle: 'Experimental',
-            read: (p) => p.liquidGlass,
-            write: (p, v) => p.setLiquidGlass(v),
+          SettingAnchor(
+            Setting.liquidGlass,
+            child: PrefsSwitchTile(
+              title: Setting.liquidGlass.title,
+              subtitle: 'Experimental',
+              read: (p) => p.liquidGlass,
+              write: (p, v) => p.setLiquidGlass(v),
+            ),
           ),
           const SettingsSectionHeader('Chat display'),
-          PrefsSliderTile(
-            label: (v) => 'Chat font size: ${v.round()}',
-            min: 8,
-            max: 24,
-            divisions: 16,
-            defaultValue: 14,
-            read: (p) => p.chatFontSize,
-            write: (p, v) => p.setChatFontSize(v),
+          SettingAnchor(
+            Setting.chatFontSize,
+            child: PrefsSliderTile(
+              label: (v) => '${Setting.chatFontSize.title}: ${v.round()}',
+              min: 8,
+              max: 24,
+              divisions: 16,
+              defaultValue: 14,
+              read: (p) => p.chatFontSize,
+              write: (p, v) => p.setChatFontSize(v),
+            ),
           ),
-          PrefsSwitchTile(
-            secondary: const Icon(Icons.schedule),
-            title: 'Show timestamps',
-            defaultValue: true,
-            read: (p) => p.showTimestamps,
-            write: (p, v) => p.setShowTimestamps(v),
+          SettingAnchor(
+            Setting.showTimestamps,
+            child: PrefsSwitchTile(
+              secondary: const Icon(Icons.schedule),
+              title: Setting.showTimestamps.title,
+              defaultValue: true,
+              read: (p) => p.showTimestamps,
+              write: (p, v) => p.setShowTimestamps(v),
+            ),
           ),
-          SettingsNavTile(
-            icon: Icons.access_time,
-            title: 'Timestamp format',
-            subtitle: _timestampFormat,
-            onTap: _pickTimestampFormat,
+          SettingAnchor(
+            Setting.timestampFormat,
+            child: SettingsNavTile(
+              icon: Icons.access_time,
+              title: Setting.timestampFormat.title,
+              subtitle: _timestampFormat,
+              onTap: _pickTimestampFormat,
+            ),
           ),
-          PrefsSwitchTile(
-            title: 'Checkered messages',
-            subtitle: 'Alternate row shading',
-            defaultValue: false,
-            read: (p) => p.checkeredMessages,
-            write: (p, v) => p.setCheckeredMessages(v),
+          SettingAnchor(
+            Setting.checkered,
+            child: PrefsSwitchTile(
+              title: Setting.checkered.title,
+              subtitle: 'Alternate row shading',
+              defaultValue: false,
+              read: (p) => p.checkeredMessages,
+              write: (p, v) => p.setCheckeredMessages(v),
+            ),
           ),
-          PrefsSwitchTile(
-            title: 'Separate messages with lines',
-            defaultValue: false,
-            read: (p) => p.lineSeparator,
-            write: (p, v) => p.setLineSeparator(v),
+          SettingAnchor(
+            Setting.lineSeparator,
+            child: PrefsSwitchTile(
+              title: Setting.lineSeparator.title,
+              defaultValue: false,
+              read: (p) => p.lineSeparator,
+              write: (p, v) => p.setLineSeparator(v),
+            ),
           ),
           const SettingsSectionHeader('Display'),
-          PrefsSwitchTile(
-            title: 'Keep screen on',
-            defaultValue: true,
-            read: (p) => p.keepScreenOn,
-            write: (p, v) => p.setKeepScreenOn(v),
+          SettingAnchor(
+            Setting.keepScreenOn,
+            child: PrefsSwitchTile(
+              title: Setting.keepScreenOn.title,
+              defaultValue: true,
+              read: (p) => p.keepScreenOn,
+              write: (p, v) => p.setKeepScreenOn(v),
+            ),
           ),
           const SettingsSectionHeader('Navigation'),
-          PrefsSwitchTile(
-            title: 'Fast channel swipe',
-            defaultValue: true,
-            read: (p) => p.fastChannelSnap,
-            write: (p, v) => p.setFastChannelSnap(v),
+          SettingAnchor(
+            Setting.fastChannelSwipe,
+            child: PrefsSwitchTile(
+              title: Setting.fastChannelSwipe.title,
+              defaultValue: true,
+              read: (p) => p.fastChannelSnap,
+              write: (p, v) => p.setFastChannelSnap(v),
+            ),
           ),
         ],
       ),

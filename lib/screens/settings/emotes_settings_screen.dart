@@ -11,6 +11,7 @@ import '../../util/prefs_store.dart';
 import '../../widgets/dialogs.dart';
 import '../../widgets/emote_frame_rate.dart';
 import 'settings_page.dart';
+import 'settings_search.dart';
 
 class EmotesSettingsScreen extends StatefulWidget {
   final ValueChanged<int>? onEmoteTierChanged;
@@ -216,7 +217,10 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
         : tier;
     return ListView(
       children: [
-        const SettingsSectionHeader('Emote fetching'),
+        SettingAnchor(
+          Setting.emoteFetching,
+          child: SettingsSectionHeader(Setting.emoteFetching.title),
+        ),
         TweenAnimationBuilder<double>(
           duration: const Duration(milliseconds: 350),
           curve: Curves.easeInOut,
@@ -286,7 +290,10 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
             ),
           ),
         ),
-        const SettingsSectionHeader('Auto data saver mode'),
+        SettingAnchor(
+          Setting.autoDataSaver,
+          child: SettingsSectionHeader(Setting.autoDataSaver.title),
+        ),
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
           child: SegmentedButton<EmoteFetchAutoMode>(
@@ -315,7 +322,10 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
             style: Theme.of(context).textTheme.bodyMedium,
           ),
         ),
-        const SettingsSectionHeader('Emote image cache'),
+        SettingAnchor(
+          Setting.emoteCache,
+          child: SettingsSectionHeader(Setting.emoteCache.title),
+        ),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
           child: Text(
@@ -376,70 +386,85 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
         ),
         _buildCacheFooter(context),
         const SettingsSectionHeader('Animation'),
-        SwitchListTile(
-          secondary: const Icon(Icons.gif_box),
-          title: const Text('Animate emotes'),
-          value: _animateGifs,
-          onChanged: (value) async {
-            final prefs = await Prefs.load();
-            await prefs.setAnimateGifs(value);
-            PrefsStore.instance.notifyChanged();
-            if (mounted) setState(() => _animateGifs = value);
-          },
-        ),
-        SwitchListTile(
-          secondary: const Icon(Icons.battery_saver_outlined),
-          title: const Text('Adaptive frame rate'),
-          subtitle: const Text('Frame rate after 30s idle'),
-          value: _adaptiveFps,
-          onChanged: _animateGifs
-              ? (value) async {
-                  final prefs = await Prefs.load();
-                  await prefs.setAdaptiveEmoteFps(value);
-                  PrefsStore.instance.notifyChanged();
-                  if (mounted) setState(() => _adaptiveFps = value);
-                }
-              : null,
-        ),
-        ListTile(
-          enabled: _animateGifs && _adaptiveFps,
-          title: const Text('Idle frame rate'),
-          // Fixed width so the slider keeps its length as the label changes.
-          trailing: SizedBox(
-            width: 64,
-            child: Text(_idleFpsLabel(_idleFps), textAlign: TextAlign.end),
-          ),
-          subtitle: Slider(
-            key: const Key('idle_emote_fps_slider'),
-            value: _idleFps.toDouble(),
-            min: 0,
-            max: kActiveEmoteFps.toDouble(),
-            divisions: kActiveEmoteFps ~/ 5,
-            label: _idleFpsLabel(_idleFps),
-            onChanged: _animateGifs && _adaptiveFps
-                ? (value) => setState(() => _idleFps = value.round())
-                : null,
-            onChangeEnd: (value) async {
+        SettingAnchor(
+          Setting.animateEmotes,
+          child: SwitchListTile(
+            secondary: const Icon(Icons.gif_box),
+            title: Text(Setting.animateEmotes.title),
+            value: _animateGifs,
+            onChanged: (value) async {
               final prefs = await Prefs.load();
-              await prefs.setIdleEmoteFps(value.round());
+              await prefs.setAnimateGifs(value);
               PrefsStore.instance.notifyChanged();
+              if (mounted) setState(() => _animateGifs = value);
             },
           ),
         ),
-        if (widget.emoteManager != null) ...[
-          SettingsNavTile(
-            key: const Key('providers_tile'),
-            icon: Icons.extension,
-            title: 'Providers',
-            subtitle: _providersSummary(),
-            onTap: _showProviderSheet,
+        SettingAnchor(
+          Setting.adaptiveFps,
+          child: SwitchListTile(
+            secondary: const Icon(Icons.battery_saver_outlined),
+            title: Text(Setting.adaptiveFps.title),
+            subtitle: const Text('Frame rate after 30s idle'),
+            value: _adaptiveFps,
+            onChanged: _animateGifs
+                ? (value) async {
+                    final prefs = await Prefs.load();
+                    await prefs.setAdaptiveEmoteFps(value);
+                    PrefsStore.instance.notifyChanged();
+                    if (mounted) setState(() => _adaptiveFps = value);
+                  }
+                : null,
           ),
-          SwitchListTile(
-            key: const Key('allow_unlisted_tile'),
-            secondary: const Icon(Icons.visibility_off_outlined),
-            title: const Text('Unlisted 7TV emotes'),
-            value: _allowUnlisted,
-            onChanged: _onAllowUnlistedChanged,
+        ),
+        SettingAnchor(
+          Setting.idleFps,
+          child: ListTile(
+            enabled: _animateGifs && _adaptiveFps,
+            title: Text(Setting.idleFps.title),
+            // Fixed width so the slider keeps its length as the label changes.
+            trailing: SizedBox(
+              width: 64,
+              child: Text(_idleFpsLabel(_idleFps), textAlign: TextAlign.end),
+            ),
+            subtitle: Slider(
+              key: const Key('idle_emote_fps_slider'),
+              value: _idleFps.toDouble(),
+              min: 0,
+              max: kActiveEmoteFps.toDouble(),
+              divisions: kActiveEmoteFps ~/ 5,
+              label: _idleFpsLabel(_idleFps),
+              onChanged: _animateGifs && _adaptiveFps
+                  ? (value) => setState(() => _idleFps = value.round())
+                  : null,
+              onChangeEnd: (value) async {
+                final prefs = await Prefs.load();
+                await prefs.setIdleEmoteFps(value.round());
+                PrefsStore.instance.notifyChanged();
+              },
+            ),
+          ),
+        ),
+        if (widget.emoteManager != null) ...[
+          SettingAnchor(
+            Setting.providers,
+            child: SettingsNavTile(
+              key: const Key('providers_tile'),
+              icon: Icons.extension,
+              title: Setting.providers.title,
+              subtitle: _providersSummary(),
+              onTap: _showProviderSheet,
+            ),
+          ),
+          SettingAnchor(
+            Setting.unlistedEmotes,
+            child: SwitchListTile(
+              key: const Key('allow_unlisted_tile'),
+              secondary: const Icon(Icons.visibility_off_outlined),
+              title: Text(Setting.unlistedEmotes.title),
+              value: _allowUnlisted,
+              onChanged: _onAllowUnlistedChanged,
+            ),
           ),
         ],
         SizedBox(height: 16),

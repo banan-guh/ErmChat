@@ -4,6 +4,7 @@ import '../../widgets/app_snack.dart';
 import '../../widgets/dialogs.dart';
 import 'recent_uploads_screen.dart';
 import 'settings_page.dart';
+import 'settings_search.dart';
 
 class UploaderSettingsScreen extends StatefulWidget {
   const UploaderSettingsScreen({super.key});
@@ -168,12 +169,15 @@ class _UploaderSettingsScreenState extends State<UploaderSettingsScreen> {
             label: const Text('Save'),
           ),
           const SizedBox(height: 8),
-          SettingsNavTile(
-            icon: Icons.image,
-            title: 'Recent uploads',
-            onTap: () => Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => const RecentUploadsScreen()),
+          SettingAnchor(
+            Setting.recentUploads,
+            child: SettingsNavTile(
+              icon: Icons.image,
+              title: Setting.recentUploads.title,
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const RecentUploadsScreen()),
+              ),
             ),
           ),
         ],
