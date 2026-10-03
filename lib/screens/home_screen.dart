@@ -940,6 +940,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 
   void _onMentionsContent() {
     _onPanelDataChanged(null, modView: false);
+    _refreshMentionsPanel();
+  }
+
+  /// Mention rows are shared with the channel buffers, so in-place edits
+  /// there (deletes, restamps) refresh the panel; channel arrivals do not.
+  void _refreshMentionsPanel() {
+    if (_activePanel == OverlayPanel.mentions) _mentions.refreshOnData();
   }
 
   void _syncChannelSubs() {
@@ -958,9 +965,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       void onThread() => _onPanelDataChanged(name);
       void onMutation(String? id) {
         if (id != null) _tileCache[name]?.remove(id);
+        _refreshMentionsPanel();
       }
 
-      void onMutateAll() => _tileCache.remove(name);
+      void onMutateAll() {
+        _tileCache.remove(name);
+        _refreshMentionsPanel();
+      }
+
       channel.messages.version.addListener(onContent);
       channel.info.version.addListener(onInfo);
       channel.moderation.version.addListener(onModSub);
@@ -1039,7 +1051,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   void _onPanelDataChanged(String? changedChannel, {bool modView = true}) {
     if (_activePanel == OverlayPanel.closed) return;
     _threads.refreshOnData(changedChannel);
-    if (_activePanel == OverlayPanel.mentions) _mentions.refreshOnData();
     // Mod View reads room modes and moderation state, not message rows.
     if (modView) _mod.refreshOnData(changedChannel);
   }

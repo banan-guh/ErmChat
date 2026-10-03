@@ -119,10 +119,9 @@ class MentionsPanels {
   /// Panel close hook: drop a stranded drag focus.
   void onMentionsClosed() => tabDragFocus.reset();
 
-  // Mentions branch of panel data fan-out.
+  // Mentions branch of panel data fan-out. Whispers bump their own count.
   void refreshOnData() {
     mentionsMsgCount.value++;
-    whispersMsgCount.value++;
   }
 
   Future<void> showMentionsView() async {
