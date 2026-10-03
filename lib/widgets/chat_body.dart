@@ -65,6 +65,7 @@ class ChatBody extends StatefulWidget {
     this.notice,
     this.replyHeader,
     this.isInPip = false,
+    this.bodyReadsKeyboard = true,
   });
 
   final ChatBodyBuilder bodyBuilder;
@@ -88,6 +89,10 @@ class ChatBody extends StatefulWidget {
   /// panels, picker, autocomplete, and notice stay out of the tree so the
   /// OS window shows just the video (the activity is what shrinks).
   final bool isInPip;
+
+  /// Whether [bodyBuilder] reads maxHeight, keyboardH and composerH. When
+  /// false a keyboard gesture never rebuilds the body.
+  final bool bodyReadsKeyboard;
 
   /// Reply target card floated above the composer. Null when not replying.
   final Widget? replyHeader;
@@ -419,14 +424,16 @@ class _ChatBodyState extends State<ChatBody>
     // safe-area ticks that rebuild ChatBody) reuse the same instance and
     // the body subtree skips rebuilding. The body reads the content height
     // without the live safe area; the pill clearance reaches its lists
-    // through GlassChromeScope.
+    // through GlassChromeScope. A body that ignores the keyboard numbers
+    // gets constants, so a gesture leaves the cache intact.
+    final keyed = widget.bodyReadsKeyboard && !widget.isInPip;
     final inputs = (
       widget.bodyBuilder,
       widget.isInPip ? false : hideChromeForKeyboard,
       size.width,
-      decisionH,
-      widget.isInPip ? 0.0 : keyboardH,
-      composer == null || widget.isInPip
+      keyed ? decisionH : 0.0,
+      keyed ? keyboardH : 0.0,
+      !keyed || composer == null
           ? 0.0
           : _composerH + (pill ? kGlassComposerMargin : 0.0),
     );

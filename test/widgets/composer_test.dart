@@ -21,6 +21,7 @@ void main() {
     bool showComposer = true,
     bool dismissUnfocuses = false,
     List<double>? keyboardHs,
+    bool bodyReadsKeyboard = true,
   }) {
     return tester.pumpWidget(
       MaterialApp(
@@ -29,6 +30,7 @@ void main() {
             liquidGlass: liquidGlass,
             emoteMaxFraction: 0.5,
             onKeyboardDismissed: dismissUnfocuses ? focus.unfocus : null,
+            bodyReadsKeyboard: bodyReadsKeyboard,
             composer: showComposer
                 ? TextField(key: const Key('message_input'), focusNode: focus)
                 : null,
@@ -298,6 +300,33 @@ void main() {
       expect(tester.testTextInput.isVisible, isTrue, reason: 'gap ${gap}ms');
     });
   }
+
+  // Without a stacked player the body ignores the keyboard numbers, so a
+  // gesture must not rebuild it (a few hundred elements on open and close).
+  testWidgets('a keyboard gesture keeps a keyboard-blind body cached', (
+    tester,
+  ) async {
+    final focus = FocusNode();
+    addTearDown(focus.dispose);
+    tester.view.physicalSize = const Size(400, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final builds = <double>[];
+    await pumpBody(
+      tester,
+      liquidGlass: false,
+      focus: focus,
+      keyboardHs: builds,
+      bodyReadsKeyboard: false,
+    );
+    await tester.pumpAndSettle();
+    builds.clear();
+    await moveKeyboard(tester, [100, 200, 300]);
+    await tester.pump(const Duration(milliseconds: 400));
+    await moveKeyboard(tester, [200, 100, 0]);
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(builds, isEmpty);
+  });
 
   // An IME that stalls mid-close settles at a partial height. Learning it
   // made the next open assume that height, then flip decisions on settle.
