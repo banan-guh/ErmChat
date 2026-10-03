@@ -1287,12 +1287,16 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 
   void _onPrefsChanged() => unawaited(_applyPrefs());
 
-  // A covering route takes focus and hands it back on pop. The restored
-  // focus reopens the IME cold, and when Android ignores that show the field
-  // sits focused with no keyboard. Dropping focus first leaves nothing to
-  // restore.
+  // A covering route hands focus back on pop, and Android sometimes ignores
+  // that restored IME show, leaving the field focused with no keyboard.
+  // Settings drops focus before it opens, so it never comes back here.
   @override
-  void didPushNext() => _composer.unfocus();
+  void didPopNext() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_composer.hasFocus) return;
+      unawaited(SystemChannels.textInput.invokeMethod<void>('TextInput.show'));
+    });
+  }
 
   @override
   void dispose() {

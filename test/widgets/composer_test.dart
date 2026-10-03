@@ -586,7 +586,7 @@ void main() {
   // A sheet over the chat took focus and handed it back on pop, reopening
   // the IME cold; when Android ignored that show the field stayed focused
   // with no keyboard, and back closed the app instead of unfocusing.
-  testWidgets('full app: a closed sheet does not restore composer focus', (
+  testWidgets('full app: a closed sheet restores composer focus and keyboard', (
     tester,
   ) async {
     await pumpJoined(tester, glass: false);
@@ -607,7 +607,7 @@ void main() {
     Navigator.of(home).pop();
     await tester.pumpAndSettle();
 
-    expect(node.hasFocus, isFalse);
-    expect(tester.testTextInput.isVisible, isFalse);
+    expect(node.hasFocus, isTrue);
+    expect(tester.testTextInput.isVisible, isTrue);
   });
 }
