@@ -92,6 +92,7 @@ class Prefs {
   static const _kShowInput = 'show_input';
   static const _kMentionFormat = 'mention_format';
   static const _kWelcomeSeen = 'welcome_seen';
+  static const _kAnalyticsEnabled = 'analytics_enabled';
   static const _kAnimateGifs = 'animate_gifs';
   static const _kAdaptiveEmoteFps = 'adaptive_emote_fps';
   static const _kIdleEmoteFps = 'idle_emote_fps';
@@ -168,6 +169,11 @@ class Prefs {
       _p.setString(_kMentionFormat, value);
 
   bool get welcomeSeen => _p.getBool(_kWelcomeSeen) ?? false;
+
+  bool get analyticsEnabled => _p.getBool(_kAnalyticsEnabled) ?? false;
+
+  Future<void> setAnalyticsEnabled(bool value) =>
+      _p.setBool(_kAnalyticsEnabled, value);
 
   Future<void> setWelcomeSeen(bool value) => _p.setBool(_kWelcomeSeen, value);
 

@@ -1,3 +1,4 @@
+import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:ermchat/services/twitch_auth.dart';
@@ -39,6 +40,19 @@ TwitchMessage msg(
 
 EmoteLookup emoteMap(Map<String, Emote> byCode) {
   return EmoteLookup(byCode: byCode, suggestions: byCode.values.toList());
+}
+
+class _MemoryAnalyticsStore implements AnalyticsStore {
+  String? data;
+
+  @override
+  Future<String?> read() async => data;
+
+  @override
+  Future<void> write(String value) async => data = value;
+
+  @override
+  Future<void> delete() async => data = null;
 }
 
 class _RecordingIrcService extends IrcService {
@@ -510,6 +524,60 @@ void main() {
       expect(service.isTracking('other'), isTrue);
       service.resetAll();
       expect(service.trackedChannels(), isEmpty);
+    });
+
+    test('persists across launches, drops idle channels, wipes when off', () {
+      fakeAsync((async) {
+        final store = _MemoryAnalyticsStore();
+        var now = DateTime(2026, 1, 1, 12);
+        AnalyticsService launch() =>
+            AnalyticsService(now: () => now, store: store);
+
+        final first = launch();
+        first.recordMessage(
+          'live',
+          msg(
+            'alice',
+            'PogChamp hello',
+            positions: [
+              EmotePosition(
+                emoteId: '123',
+                startIndex: 0,
+                endIndex: 8,
+                emoteCode: 'PogChamp',
+              ),
+            ],
+          ),
+        );
+        first.recordMessage('idle', msg('bob', 'yo'));
+        expect(store.data, isNull, reason: 'writes wait for the debounce');
+        async.elapse(AnalyticsService.saveDelay);
+        expect(store.data, isNotNull);
+
+        // 'live' keeps chatting past a day; 'idle' goes quiet.
+        now = now.add(const Duration(hours: 23));
+        first.recordMessage('live', msg('carol', 'still here'));
+        async.elapse(AnalyticsService.saveDelay);
+        now = now.add(const Duration(hours: 2));
+
+        final second = launch();
+        second.load();
+        async.flushMicrotasks();
+        expect(second.trackedChannels(), ['live'], reason: 'idle > 24h');
+        expect(second.totalMessages('live'), 2);
+        expect(second.topChatters('live', 5).map((c) => c.name), {
+          'alice',
+          'carol',
+        });
+        expect(second.topEmotes('live', 5).single.emote.code, 'PogChamp');
+
+        second.setEnabled(false);
+        async.flushMicrotasks();
+        expect(second.trackedChannels(), isEmpty);
+        expect(store.data, isNull, reason: 'off deletes the saved file');
+        second.recordMessage('live', msg('dave', 'ignored'));
+        expect(second.isTracking('live'), isFalse);
+      });
     });
   });
 

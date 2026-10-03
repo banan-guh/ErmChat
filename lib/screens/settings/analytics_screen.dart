@@ -162,25 +162,50 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
             ],
           ),
       ],
-      body: widget.channels.isEmpty
-          ? const Center(child: Text('Join a channel to start tracking stats'))
-          : TabbedLayout(
-              tabs: widget.channels,
-              selectedIndex: _channelIndex,
-              onSelectedIndexChanged: (i) {
-                setState(() => _selectedChannel = widget.channels[i]);
-              },
-              tabBarColor: Theme.of(context).colorScheme.surface,
-              // The ListenableBuilder is scoped to the page content rather
-              // than the whole TabbedLayout so a live message never rebuilds
-              // the tab bar / controller mid-swipe.
-              pageBuilder: (context, i) => ListenableBuilder(
-                listenable: widget.analyticsService,
-                builder: (context, _) =>
-                    _buildStats(context, widget.channels[i]),
-              ),
+      body: Column(
+        children: [
+          SwitchListTile(
+            title: const Text('Track chat stats'),
+            subtitle: const Text(
+              'Counts chatters, emotes and words. Stays on this device for '
+              '24 hours.',
             ),
+            value: widget.analyticsService.enabled,
+            onChanged: _setEnabled,
+          ),
+          const Divider(height: 1),
+          Expanded(child: _body(context)),
+        ],
+      ),
     );
+  }
+
+  Future<void> _setEnabled(bool value) async {
+    final prefs = await Prefs.load();
+    await prefs.setAnalyticsEnabled(value);
+    await widget.analyticsService.setEnabled(value);
+    if (mounted) setState(() {});
+  }
+
+  Widget _body(BuildContext context) {
+    if (!widget.analyticsService.enabled) return const SizedBox.shrink();
+    return widget.channels.isEmpty
+        ? const Center(child: Text('Join a channel to start tracking stats'))
+        : TabbedLayout(
+            tabs: widget.channels,
+            selectedIndex: _channelIndex,
+            onSelectedIndexChanged: (i) {
+              setState(() => _selectedChannel = widget.channels[i]);
+            },
+            tabBarColor: Theme.of(context).colorScheme.surface,
+            // The ListenableBuilder is scoped to the page content rather
+            // than the whole TabbedLayout so a live message never rebuilds
+            // the tab bar / controller mid-swipe.
+            pageBuilder: (context, i) => ListenableBuilder(
+              listenable: widget.analyticsService,
+              builder: (context, _) => _buildStats(context, widget.channels[i]),
+            ),
+          );
   }
 
   Widget _buildStats(BuildContext context, String channel) {

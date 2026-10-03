@@ -1,6 +1,9 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:path_provider/path_provider.dart';
 import '../emotes/emote.dart';
 import '../emotes/emote_catalog.dart';
 import '../models/twitch_message.dart';
@@ -22,10 +25,103 @@ class _ChannelStats {
   final minuteBuckets = <int, int>{};
   int banCount = 0;
   int timeoutCount = 0;
-  late final DateTime trackingStartedAt;
+  final DateTime trackingStartedAt;
 
-  _ChannelStats(DateTime Function() now) {
-    trackingStartedAt = now();
+  /// Last recorded event; channels idle past the retention window expire.
+  DateTime lastActivityAt;
+
+  _ChannelStats(this.trackingStartedAt) : lastActivityAt = trackingStartedAt;
+
+  Map<String, dynamic> toJson() => {
+    'total': totalMessages,
+    'chatters': chatterCounts,
+    'unique': uniqueChatters.toList(),
+    'emotes': [
+      for (final e in emoteCounts.values)
+        {'emote': e.emote.toJson(), 'count': e.count},
+    ],
+    'words': wordCounts,
+    'minutes': {for (final b in minuteBuckets.entries) '${b.key}': b.value},
+    'bans': banCount,
+    'timeouts': timeoutCount,
+    'started': trackingStartedAt.millisecondsSinceEpoch,
+    'last': lastActivityAt.millisecondsSinceEpoch,
+  };
+
+  static _ChannelStats? fromJson(Object? raw) {
+    if (raw is! Map<String, dynamic>) return null;
+    final started = raw['started'];
+    final last = raw['last'];
+    if (started is! int || last is! int) return null;
+    final stats = _ChannelStats(DateTime.fromMillisecondsSinceEpoch(started))
+      ..lastActivityAt = DateTime.fromMillisecondsSinceEpoch(last)
+      ..totalMessages = raw['total'] as int? ?? 0
+      ..banCount = raw['bans'] as int? ?? 0
+      ..timeoutCount = raw['timeouts'] as int? ?? 0;
+    Map<String, int> counts(Object? m) => {
+      if (m is Map<String, dynamic>)
+        for (final e in m.entries)
+          if (e.value is int) e.key: e.value as int,
+    };
+    stats.chatterCounts.addAll(counts(raw['chatters']));
+    stats.wordCounts.addAll(counts(raw['words']));
+    stats.uniqueChatters.addAll([
+      for (final u in raw['unique'] as List<dynamic>? ?? const [])
+        if (u is String) u,
+    ]);
+    for (final e in counts(raw['minutes']).entries) {
+      final minute = int.tryParse(e.key);
+      if (minute != null) stats.minuteBuckets[minute] = e.value;
+    }
+    for (final raw in raw['emotes'] as List<dynamic>? ?? const []) {
+      if (raw is! Map<String, dynamic>) continue;
+      try {
+        final emote = Emote.fromJson(raw['emote'] as Map<String, dynamic>);
+        stats.emoteCounts[emote.id] = _EmoteCount(
+          emote,
+          raw['count'] as int? ?? 0,
+        );
+      } catch (_) {
+        // A malformed emote drops only itself.
+      }
+    }
+    return stats;
+  }
+}
+
+/// Where opted-in analytics persist between launches.
+abstract interface class AnalyticsStore {
+  Future<String?> read();
+  Future<void> write(String data);
+  Future<void> delete();
+}
+
+/// One JSON file in app support storage; never leaves the device.
+class FileAnalyticsStore implements AnalyticsStore {
+  Future<File> _file() async {
+    final dir = await getApplicationSupportDirectory();
+    return File('${dir.path}${Platform.pathSeparator}analytics.json');
+  }
+
+  @override
+  Future<String?> read() async {
+    final file = await _file();
+    return await file.exists() ? file.readAsString() : null;
+  }
+
+  @override
+  Future<void> write(String data) async {
+    final file = await _file();
+    // Write then rename, so a kill mid-write never leaves half a file.
+    final tmp = File('${file.path}.tmp');
+    await tmp.writeAsString(data, flush: true);
+    await tmp.rename(file.path);
+  }
+
+  @override
+  Future<void> delete() async {
+    final file = await _file();
+    if (await file.exists()) await file.delete();
   }
 }
 
@@ -106,21 +202,110 @@ class AnalyticsService extends ChangeNotifier {
 
   final _channels = <String, _ChannelStats>{};
 
+  /// Null keeps stats in memory only (tests, previews).
+  final AnalyticsStore? _store;
+  bool _enabled;
+  Timer? _saveTimer;
+  bool _dirty = false;
+
+  /// Channels idle longer than this are dropped on load and save.
+  static const retention = Duration(hours: 24);
+
+  /// Coalesces bursts of chat into one write.
+  static const saveDelay = Duration(minutes: 2);
+
   AnalyticsService({
     this._emoteLookup,
     DateTime Function()? now,
     this.stopwords = defaultStopwords,
+    this._store,
+    this._enabled = true,
   }) : _now = now ?? DateTime.now;
+
+  bool get enabled => _enabled;
+
+  /// Opt-in switch. On loads the saved stats; off drops them everywhere.
+  Future<void> setEnabled(bool value) async {
+    if (_enabled == value) return;
+    _enabled = value;
+    if (value) {
+      await load();
+      return;
+    }
+    _saveTimer?.cancel();
+    _saveTimer = null;
+    _dirty = false;
+    _channels.clear();
+    _scheduleNotify();
+    await _store?.delete();
+  }
+
+  /// Restores saved stats, keeping only channels active within [retention].
+  /// Live counts recorded before the load finishes win over saved ones.
+  Future<void> load() async {
+    final store = _store;
+    if (store == null || !_enabled) return;
+    try {
+      final raw = await store.read();
+      if (raw == null || !_enabled) return;
+      final data = jsonDecode(raw);
+      if (data is! Map<String, dynamic>) return;
+      for (final entry in data.entries) {
+        final stats = _ChannelStats.fromJson(entry.value);
+        if (stats != null) _channels.putIfAbsent(entry.key, () => stats);
+      }
+      _dropExpired();
+      _scheduleNotify();
+    } catch (_) {
+      // A corrupt file starts fresh; the next save overwrites it.
+    }
+  }
+
+  /// Writes pending stats now (also on app pause).
+  Future<void> flush() async {
+    _saveTimer?.cancel();
+    _saveTimer = null;
+    final store = _store;
+    if (store == null || !_enabled || !_dirty) return;
+    _dirty = false;
+    _dropExpired();
+    await store.write(
+      jsonEncode({for (final e in _channels.entries) e.key: e.value.toJson()}),
+    );
+  }
+
+  void _dropExpired() {
+    final cutoff = _now().subtract(retention);
+    _channels.removeWhere((_, s) => s.lastActivityAt.isBefore(cutoff));
+  }
+
+  void _touch(_ChannelStats stats) {
+    stats.lastActivityAt = _now();
+    _markDirty();
+  }
+
+  void _markDirty() {
+    _dirty = true;
+    if (_store != null) _saveTimer ??= Timer(saveDelay, () => flush());
+  }
+
+  @override
+  void dispose() {
+    _saveTimer?.cancel();
+    super.dispose();
+  }
 
   _ChannelStats? _stats(String channel) => _channels[channel];
 
   _ChannelStats _statsFor(String channel) {
-    return _channels.putIfAbsent(channel, () => _ChannelStats(_now));
+    return _channels.putIfAbsent(channel, () => _ChannelStats(_now()));
   }
 
   void recordMessage(String channel, TwitchMessage msg) {
+    if (!_enabled) return;
     if (msg.isSystem || msg.isHistory || msg.isBackfill) return;
     final stats = _statsFor(channel);
+    _touch(stats);
     final now = _now();
     stats.totalMessages++;
     final login = msg.login.trim().toLowerCase();
@@ -138,7 +323,9 @@ class AnalyticsService extends ChangeNotifier {
   }
 
   void recordModeration(String channel, bool isTimeout) {
+    if (!_enabled) return;
     final stats = _statsFor(channel);
+    _touch(stats);
     if (isTimeout) {
       stats.timeoutCount++;
     } else {
@@ -147,13 +334,17 @@ class AnalyticsService extends ChangeNotifier {
     _scheduleNotify();
   }
 
+  // Resets persist too, or a cleared channel would return on next launch.
   void resetChannel(String channel) {
-    if (_channels.remove(channel) != null) _scheduleNotify();
+    if (_channels.remove(channel) == null) return;
+    _markDirty();
+    _scheduleNotify();
   }
 
   void resetAll() {
     if (_channels.isEmpty) return;
     _channels.clear();
+    _markDirty();
     _scheduleNotify();
   }
 

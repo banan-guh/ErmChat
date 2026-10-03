@@ -13,6 +13,7 @@ import '../services/mod_actions.dart';
 import '../services/notification_service.dart';
 import '../services/tts_controller.dart';
 import '../services/twitch_auth.dart';
+import '../util/prefs.dart';
 import '../widgets/broadcast_widgets.dart';
 import '../widgets/chat_notice_bar.dart';
 import 'app_providers.dart';
@@ -24,11 +25,18 @@ import 'ui_state_providers.dart';
 /// [Ref.onDispose]. Reads are imperative, so consumers use `ref.read`.
 final analyticsServiceProvider = Provider<AnalyticsService>((ref) {
   final emoteManager = ref.read(emoteManagerProvider);
+  // Opt-in: off until the saved preference says otherwise.
   final service = AnalyticsService(
     emoteLookup: (channel, senderTwitchId) =>
         emoteManager.byCodeForSender(channel, senderTwitchId),
+    store: FileAnalyticsStore(),
+    enabled: false,
   );
-  ref.onDispose(service.dispose);
+  unawaited(Prefs.load().then((p) => service.setEnabled(p.analyticsEnabled)));
+  ref.onDispose(() {
+    unawaited(service.flush());
+    service.dispose();
+  });
   return service;
 });
 

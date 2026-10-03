@@ -805,7 +805,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.paused) _releaseDecodedImages();
+    if (state == AppLifecycleState.paused) {
+      _releaseDecodedImages();
+      // Android may kill a paused app without warning; save stats now.
+      unawaited(_analytics.flush());
+    }
     // Inactive is still on screen (notification shade, system dialog), so
     // only a hidden app counts as backgrounded for notifications.
     final backgrounded =
