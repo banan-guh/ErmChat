@@ -289,7 +289,8 @@ class EmoteUrlProvider extends ImageProvider<EmoteUrlProvider> {
     if (url == sourceUrl) return;
     final live = _liveByUrl[url];
     if (live != null && !live._disposed) {
-      if (live._isPlaying) {
+      // A stream that has not shown a frame yet can still align to a seed.
+      if (live._isPlaying && (live._frames != null || live._hasStreamFrame)) {
         if (_pendingSeeds[url] == sourceUrl) _pendingSeeds.remove(url);
         if (live._seedFromUrl == sourceUrl) live._seedFromUrl = null;
         return;
@@ -536,9 +537,13 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
         'engine=${codec.frameCount} anmf=${durations.length}',
       );
     }
-    // A sequential codec cannot seek, so a queued playback seed is a no-op.
-    _seedFromUrl = null;
-    EmoteUrlProvider._pendingSeeds.remove(url);
+    // A sequential codec cannot seek; a WebP seed instead aligns the first
+    // decode's grid (see _alignStreamToSeed). Engine GIF durations are unknown
+    // up front, so their seed is dropped.
+    if (!isWebp) {
+      _seedFromUrl = null;
+      EmoteUrlProvider._pendingSeeds.remove(url);
+    }
     if (hasListeners) _startPlayback();
   }
 
@@ -552,8 +557,8 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
   /// if already playing or streaming (a sequential codec cannot seek).
   void seedFrom(String? sourceUrl) {
     if (_disposed || sourceUrl == null || sourceUrl == url) return;
-    if (_isPlaying) return;
-    if (_frames == null && (_codec != null || _compositor != null)) return;
+    if (_isPlaying && (_frames != null || _hasStreamFrame)) return;
+    if (_frames == null && _hasStreamFrame) return;
     _seedFromUrl = sourceUrl;
     if (_frames != null) _applySeed();
   }
@@ -797,6 +802,7 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
     // Invalidate the stream grid so resume re-anchors instead of repaying
     // paused time as immediate back-to-back ticks.
     _streamDueUs = -1;
+    _seekingSeed = false;
   }
 
   void _scheduleAppFrame() {
@@ -867,6 +873,7 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
       return;
     }
     _streamDecoding = true;
+    if (!_hasStreamFrame) _alignStreamToSeed();
     var skipped = 0;
     while (true) {
       final ui.FrameInfo frame;
@@ -916,7 +923,7 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
       final nowUs = DateTime.now().microsecondsSinceEpoch;
       final windowUs = _safeStreamDuration(duration).inMicroseconds;
       final stale =
-          _hasStreamFrame &&
+          (_hasStreamFrame || _seekingSeed) &&
           _streamDueUs >= 0 &&
           nowUs >= _streamDueUs + windowUs &&
           skipped < codec.frameCount;
@@ -929,6 +936,7 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
       }
       _frameIndex = index;
       _hasStreamFrame = true;
+      _seekingSeed = false;
       if (_streamIsWebp) {
         // Retain the raw frame (one at a time) to seed a lazy fallback.
         _engineSeed?.dispose();
@@ -948,6 +956,54 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
       _scheduleNextStreamTick(duration);
       return;
     }
+  }
+
+  /// True while the first decodes skip ahead to a seed source's phase.
+  bool _seekingSeed = false;
+
+  /// Starts a WebP stream in phase with [_seedFromUrl] (the scale it replaces).
+  /// A sequential codec cannot seek, so this anchors the grid at the start of
+  /// the source's current cycle and lets the stale-frame skip fast-forward:
+  /// at most one cycle of decodes, and the time they take is accounted for.
+  void _alignStreamToSeed() {
+    final sourceUrl = _seedFromUrl;
+    final durations = _streamDurations;
+    if (sourceUrl == null) return;
+    _seedFromUrl = null;
+    EmoteUrlProvider._pendingSeeds.remove(url);
+    if (!_streamIsWebp || durations == null || durations.isEmpty) return;
+    final source = EmoteUrlProvider._liveByUrl[sourceUrl];
+    if (source == null || source._disposed) return;
+    final cycleStartUs = source._cycleStartUs();
+    if (cycleStartUs == null) return;
+    var totalUs = 0;
+    for (final d in durations) {
+      totalUs += _safeStreamDuration(d).inMicroseconds;
+    }
+    if (totalUs <= 0) return;
+    final nowUs = DateTime.now().microsecondsSinceEpoch;
+    _streamDueUs = nowUs - (nowUs - cycleStartUs) % totalUs;
+    _seekingSeed = true;
+  }
+
+  /// Wall time (microseconds) the current cycle started, or null when not
+  /// playing on a known grid.
+  int? _cycleStartUs() {
+    final nowUs = DateTime.now().microsecondsSinceEpoch;
+    final frames = _frames;
+    if (frames != null) {
+      if (!_isPlaying) return null;
+      return nowUs - _cyclePosition.inMicroseconds;
+    }
+    final durations = _streamDurations;
+    if (!_hasStreamFrame || _streamDueUs < 0 || durations == null) return null;
+    if (durations.isEmpty) return null;
+    // _streamDueUs is when the frame after the shown one is due.
+    var endUs = 0;
+    for (var i = 0; i <= _frameIndex && i < durations.length; i++) {
+      endUs += _safeStreamDuration(durations[i]).inMicroseconds;
+    }
+    return _streamDueUs - endUs;
   }
 
   /// Schedules the next streamed frame on the ideal grid: the window extends

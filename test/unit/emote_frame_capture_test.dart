@@ -217,6 +217,39 @@ void main() {
     stream.removeListener(listener);
   });
 
+  testWidgets('a seeded stream starts in phase with its source scale', (
+    tester,
+  ) async {
+    // The sheet swaps 2x for 4x; the 4x used to restart at frame 0. Skipped
+    // decodes land one per pump here, so the target needs pumps to catch up.
+    final webp = File('test/fixtures/7tv_kiss_2x.webp').readAsBytesSync();
+    EmoteUrlProvider.debugFetchOverride = (url) async => webp;
+
+    const source = 'https://capture.test/seed_2x.webp';
+    const target = 'https://capture.test/seed_4x.webp';
+    final (sourceStream, sourceListener) = await startStream(
+      tester,
+      source,
+      iterations: 25,
+    );
+    final at = EmoteUrlProvider.currentFrame(source);
+    expect(at, greaterThan(3), reason: 'source must be well into its cycle');
+
+    EmoteUrlProvider.seedPlayback(target, source);
+    final (targetStream, targetListener) = await startStream(
+      tester,
+      target,
+      iterations: 40,
+    );
+    final diff =
+        (EmoteUrlProvider.currentFrame(target) -
+            EmoteUrlProvider.currentFrame(source)) %
+        47;
+    expect(diff <= 3 || diff >= 44, isTrue, reason: 'off by $diff frames');
+    targetStream.removeListener(targetListener);
+    sourceStream.removeListener(sourceListener);
+  });
+
   testWidgets('array playback keeps wall-clock phase across a gap', (
     tester,
   ) async {
