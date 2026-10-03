@@ -95,25 +95,37 @@ class ChatHistoryController {
   /// message, so scrolling back renders what history arrived with.
   void _stampEmoteResolution(TwitchMessage msg, String channel) {
     if (msg.isSystem) return;
-    msg.emoteTokens = _parseForChannel(msg, channel);
+    final parsed = _parseForChannel(msg, channel);
+    msg.emoteTokens = parsed.tokens;
+    msg.emotesPartial = !parsed.complete;
   }
 
   /// Shared lookup: shared-chat rows resolve against the source channel.
-  List<EmoteToken>? _parseForChannel(TwitchMessage msg, String channel) {
-    if (msg.isSystem) return null;
+  /// [complete] reports whether that channel's catalogs had all landed.
+  ({List<EmoteToken>? tokens, bool complete}) _parseForChannel(
+    TwitchMessage msg,
+    String channel,
+  ) {
     final source = msg.sourceBroadcasterId;
     final lookupChannel = source == null
         ? channel
         : badgeService.resolveChannelLogin(source) ?? channel;
-    return emoteManager.parseMessageEmotes(msg, lookupChannel: lookupChannel);
+    return (
+      tokens: emoteManager.parseMessageEmotes(
+        msg,
+        lookupChannel: lookupChannel,
+      ),
+      complete: emoteManager.catalogComplete(lookupChannel),
+    );
   }
 
-  /// Restamps one channel after its catalog landed. Only history rows baked
-  /// as empty are candidates; live rows stay frozen. Returns healed rows.
+  /// Restamps one channel after a catalog landed. Only rows baked before
+  /// their catalog was complete are candidates, live or history; the rest
+  /// stay frozen. Returns healed rows.
   int restampChannelEmotes(String channel) {
     final channelState = chat.channelFor(channel);
     if (channelState == null) return 0;
-    return channelState.restampHistoryEmotes(
+    return channelState.restampPartialEmotes(
       (msg) => _parseForChannel(msg, channel),
     );
   }

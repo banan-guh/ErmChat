@@ -381,105 +381,120 @@ void main() {
     });
   });
 
-  group('Messages.restampHistoryEmotes', () {
-    TwitchMessage history(
+  group('Messages.restampPartialEmotes', () {
+    TwitchMessage row(
       String id,
       String text, {
       List<EmoteToken>? tokens = const [],
-    }) => TwitchMessage(
-      login: 'alice',
-      text: text,
-      messageId: id,
-      channel: 'test',
-      isHistory: true,
-    )..emoteTokens = tokens;
+      bool partial = true,
+      bool history = false,
+    }) =>
+        TwitchMessage(
+            login: 'alice',
+            text: text,
+            messageId: id,
+            channel: 'test',
+            isHistory: history,
+          )
+          ..emoteTokens = tokens
+          ..emotesPartial = partial;
 
-    List<EmoteToken> resolved(String code) => [
-      EmoteToken(
-        emote: Emote(
-          id: 'e1',
-          code: code,
-          meta: const SevenTvMeta(),
-          scales: const {EmoteScale.medium: 'https://example.com/e1.png'},
-        ),
-        text: code,
-        start: 0,
-        end: code.length,
+    EmoteToken token(String id, String code, int start) => EmoteToken(
+      emote: Emote(
+        id: id,
+        code: code,
+        meta: const SevenTvMeta(),
+        scales: {EmoteScale.medium: 'https://example.com/$id.png'},
       ),
-    ];
+      text: code,
+      start: start,
+      end: start + code.length,
+    );
 
-    test('heals only empty history rows and emits their ids', () {
+    ({List<EmoteToken>? tokens, bool complete}) parsed(
+      List<EmoteToken> tokens, {
+      bool complete = true,
+    }) => (tokens: tokens, complete: complete);
+
+    test('heals partial rows by adding emotes only', () {
       final messages = Messages(channel: 'test');
       addTearDown(messages.dispose);
-      final healed = history('h1', 'Alpha');
-      final already = history('h2', 'Alpha', tokens: resolved('Alpha'));
-      final live = TwitchMessage(
-        login: 'alice',
-        text: 'Alpha',
-        messageId: 'live',
-        channel: 'test',
-      )..emoteTokens = const [];
-      final system = TwitchMessage(
-        login: '',
-        text: 'Alpha',
-        messageId: 'sys',
-        channel: 'test',
-        isSystem: true,
-        isHistory: true,
-      )..emoteTokens = const [];
-      final pure = history('h3', 'just words');
-      for (final m in [healed, already, live, system, pure]) {
+      final a = token('a', 'Alpha', 0);
+      final b = token('b', 'Beta', 6);
+      // Baked before the channel set: live and history rows both heal.
+      final live = row('live', 'Alpha Beta', tokens: [a]);
+      final history = row('hist', 'Alpha Beta', history: true);
+      // The reparse lost Alpha (removed since): the row keeps what it shows.
+      final removed = row('gone', 'Alpha Beta', tokens: [a]);
+      // Baked against a complete catalog: frozen.
+      final frozen = row('frozen', 'Alpha Beta', partial: false);
+      final system =
+          TwitchMessage(
+              login: '',
+              text: 'Alpha Beta',
+              messageId: 'sys',
+              channel: 'test',
+              isSystem: true,
+            )
+            ..emoteTokens = const []
+            ..emotesPartial = true;
+      for (final m in [live, history, removed, frozen, system]) {
         messages.add(m, maxMessages: 100);
       }
       final emitted = <String?>[];
-      var allCount = 0;
       messages.mutations.addListener(emitted.add);
-      messages.mutations.addAllListener(() => allCount++);
       final before = messages.version.value;
 
-      final count = messages.restampHistoryEmotes(
-        (msg) => msg.text == 'Alpha' ? resolved('Alpha') : const [],
+      final count = messages.restampPartialEmotes(
+        (msg) => msg.messageId == 'gone' ? parsed([b]) : parsed([a, b]),
       );
 
-      expect(count, 1);
-      expect(healed.emoteTokens, hasLength(1));
-      expect(already.emoteTokens, hasLength(1));
-      expect(live.emoteTokens, isEmpty);
+      expect(count, 2);
+      expect(live.emoteTokens, [a, b]);
+      expect(history.emoteTokens, [a, b]);
+      expect(removed.emoteTokens, [a], reason: 'healing never drops');
+      expect(frozen.emoteTokens, isEmpty);
       expect(system.emoteTokens, isEmpty);
-      expect(pure.emoteTokens, isEmpty);
+      expect(
+        [live, history, removed].any((m) => m.emotesPartial),
+        isFalse,
+        reason: 'a complete catalog ends candidacy',
+      );
       expect(messages.version.value, before + 1);
-      expect(allCount, 0);
-      expect(emitted, ['h1']);
+      expect(emitted, unorderedEquals(['live', 'hist']));
     });
 
-    test('no candidates means no bump and no emissions', () {
+    test('an incomplete catalog keeps the row a candidate', () {
       final messages = Messages(channel: 'test');
       addTearDown(messages.dispose);
-      messages.add(_live('m1'), maxMessages: 100);
-      final emitted = <String?>[];
-      messages.mutations.addListener(emitted.add);
+      final m = row('m1', 'Alpha');
+      messages.add(m, maxMessages: 100);
       final before = messages.version.value;
 
-      expect(messages.restampHistoryEmotes((_) => resolved('X')), 0);
+      expect(
+        messages.restampPartialEmotes((_) => parsed([], complete: false)),
+        0,
+      );
+      expect(m.emotesPartial, isTrue);
       expect(messages.version.value, before);
-      expect(emitted, isEmpty);
     });
 
     test('an id-less healed row evicts the whole channel', () {
       final messages = Messages(channel: 'test');
       addTearDown(messages.dispose);
-      final row = TwitchMessage(
-        login: 'alice',
-        text: 'Alpha',
-        channel: 'test',
-        isHistory: true,
-      )..emoteTokens = const [];
-      messages.add(row, maxMessages: 100);
+      final idless =
+          TwitchMessage(login: 'alice', text: 'Alpha', channel: 'test')
+            ..emoteTokens = const []
+            ..emotesPartial = true;
+      messages.add(idless, maxMessages: 100);
       var allCount = 0;
       messages.mutations.addAllListener(() => allCount++);
 
-      expect(messages.restampHistoryEmotes((_) => resolved('Alpha')), 1);
-      expect(row.emoteTokens, hasLength(1));
+      expect(
+        messages.restampPartialEmotes((_) => parsed([token('a', 'Alpha', 0)])),
+        1,
+      );
+      expect(idless.emoteTokens, hasLength(1));
       expect(allCount, 1);
     });
   });

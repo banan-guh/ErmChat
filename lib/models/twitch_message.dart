@@ -110,9 +110,15 @@ class TwitchMessage {
   final List<EmotePosition>? emotePositions;
 
   /// Emote tokens parsed once at ingest and frozen: the row keeps the emote
-  /// state it arrived with, never recomputed. Null until first parse;
-  /// restored threads re-parse once on first render. Not persisted.
+  /// state it arrived with. Only a [emotesPartial] row gains emotes later.
+  /// Null until first parse; restored threads re-parse once on first render.
+  /// Not persisted.
   List<EmoteToken>? emoteTokens;
+
+  /// True when [emoteTokens] were baked before the global and channel
+  /// catalogs both landed, so later full commits may add the emotes it
+  /// missed. Not persisted.
+  bool emotesPartial = false;
   final List<GifAttachment>? gifAttachments;
   final List<MessageBadge>? badges;
   final String? sourceBroadcasterId;

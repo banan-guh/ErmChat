@@ -79,7 +79,7 @@ void main() {
     expect(row.emoteTokens, isEmpty);
   });
 
-  test('a full commit heals history and leaves live rows frozen', () {
+  test('a full commit heals partial rows and leaves complete rows frozen', () {
     final chat = Chat();
     addTearDown(chat.dispose);
     chat.ensure('ch');
@@ -96,13 +96,19 @@ void main() {
       messageId: 'live',
       channel: 'ch',
     )..emoteTokens = const [];
-    chat.receive(
-      'ch',
-      live,
-      maxMessages: 500,
-      isSelected: true,
-      ownLogin: null,
-    );
+    // Baked live before the channel set landed (the bug: never healed).
+    final early =
+        TwitchMessage(
+            login: 'carol',
+            text: 'Alpha',
+            messageId: 'early',
+            channel: 'ch',
+          )
+          ..emoteTokens = const []
+          ..emotesPartial = true;
+    for (final m in [live, early]) {
+      chat.receive('ch', m, maxMessages: 500, isSelected: true, ownLogin: null);
+    }
 
     emotes.store.seedChannelFromCache(
       'ch',
@@ -113,6 +119,7 @@ void main() {
     final healed = chat.channelFor('ch')!.messages.byId('h1')!.emoteTokens!;
     expect(healed.map((t) => t.emote!.code).toList(), ['Alpha']);
     expect(chat.channelFor('ch')!.messages.byId('live')!.emoteTokens, isEmpty);
+    expect(early.emoteTokens!.map((t) => t.emote!.code).toList(), ['Alpha']);
   });
 
   test('dispose detaches the catalog listener', () {

@@ -543,6 +543,7 @@ class ChatIngestion {
       msg,
       lookupChannel: lookupChannel,
     );
+    msg.emotesPartial = !emoteManager.catalogComplete(lookupChannel);
   }
 
   // Own echo: the emotes actually sent become the recents that fill the emote

@@ -236,26 +236,25 @@ class Messages {
     return MergeOutcome(inserted: resident, evicted: evicted);
   }
 
-  /// Re-resolves history rows baked before their catalog landed. Only
-  /// history rows holding empty tokens are candidates; live rows and
-  /// resolved rows keep their tokens, so later catalog deltas never rewrite
-  /// the visible buffer. Empty reparse results are not assigned, so
-  /// pure-text rows rescan without churning. Bumps [version] and emits one
-  /// mutation per touched id (a whole-channel evict when an id-less row
-  /// changed). Returns how many rows healed.
-  int restampHistoryEmotes(
-    List<EmoteToken>? Function(TwitchMessage msg) resolve,
+  /// Re-resolves rows baked before their catalog was complete, live or
+  /// history. Healing only adds: a row adopts the reparse when it keeps every
+  /// emote the row already shows and finds more, so an emote removed since
+  /// stays on old rows. A row stops being a candidate once its catalog is
+  /// complete. Bumps [version] and emits one mutation per touched id (a
+  /// whole-channel evict when an id-less row changed). Returns rows healed.
+  int restampPartialEmotes(
+    ({List<EmoteToken>? tokens, bool complete}) Function(TwitchMessage msg)
+    resolve,
   ) {
     final touchedIds = <String>[];
     var touchedIdless = false;
     var healed = 0;
     for (final msg in _items) {
-      if (msg.isSystem || !msg.isHistory) continue;
-      final tokens = msg.emoteTokens;
-      if (tokens == null || tokens.isNotEmpty) continue;
-      final resolved = resolve(msg);
-      if (resolved == null || resolved.isEmpty) continue;
-      msg.emoteTokens = resolved;
+      if (msg.isSystem || !msg.emotesPartial) continue;
+      final (:tokens, :complete) = resolve(msg);
+      if (complete) msg.emotesPartial = false;
+      if (tokens == null || !_addsEmotes(msg.emoteTokens, tokens)) continue;
+      msg.emoteTokens = tokens;
       healed++;
       final id = msg.messageId;
       if (id != null) {
@@ -274,6 +273,15 @@ class Messages {
       }
     }
     return healed;
+  }
+
+  /// Whether [next] shows every emote [current] does, at the same span, plus
+  /// at least one more.
+  static bool _addsEmotes(List<EmoteToken>? current, List<EmoteToken> next) {
+    final had = current ?? const <EmoteToken>[];
+    if (next.length <= had.length) return false;
+    final spans = {for (final t in next) (t.start, t.end, t.emote?.id)};
+    return had.every((t) => spans.contains((t.start, t.end, t.emote?.id)));
   }
 
   /// Merges mention-tier rows into this (the @mentions pseudo) buffer: dedup by

@@ -114,6 +114,9 @@ class EmoteStore {
   // drops all in-flight channel commits without tracking each one.
   int _channelEpochBase = 0;
   final _channelFetchTimes = <String, DateTime>{};
+  // Channels holding a full provider catalog (fetch or disk seed). Subs from
+  // USERSTATE or a stray 7TV delta create a catalog without filling it.
+  final _channelLoaded = <String>{};
   final _emotesResolvedChannels = <String>{};
   final _sevenTvEmoteSetIds = <String, String>{};
   final _sevenTvUserIds = <String, String>{};
@@ -161,6 +164,11 @@ class EmoteStore {
   List<String> get channelNames => _channelCatalogs.keys.toList();
 
   bool hasChannelCache(String channel) => _channelCatalogs.containsKey(channel);
+
+  /// Whether a message parsed for [channel] now sees every catalog it can:
+  /// globals attempted and the channel's providers loaded.
+  bool catalogComplete(String channel) =>
+      _globalAttempted && _channelLoaded.contains(channel);
 
   // ── Provider visibility ─────────────────────────────────────────────
   void setProviderVisibility(Set<EmoteType> disabled, bool allowUnlisted) {
@@ -754,6 +762,7 @@ class EmoteStore {
     List<Emote> existingSubs,
   ) {
     _channelCatalogs[channel] = cached.copyWith(twitchSubs: existingSubs);
+    _channelLoaded.add(channel);
     _sevenTvFull.add(channel);
     _reapplyLiveSevenTv(channel);
     emitChange(channel: channel);
@@ -803,6 +812,7 @@ class EmoteStore {
       _subsByChannelCache = null;
     }
     _channelCatalogs[channel] = catalog;
+    if (fetch.byProvider.isNotEmpty) _channelLoaded.add(channel);
     // A fetched 7TV list is a full snapshot; deltas can now be stashed and
     // re-applied over later rebuilds.
     if (fetch.byProvider[EmoteType.sevenTv] != null) {
@@ -1041,6 +1051,7 @@ class EmoteStore {
     // Keep the epoch entry so an in-flight fetch cannot match after eviction.
     _channelEpoch[channel] = (_channelEpoch[channel] ?? 0) + 1;
     _channelCatalogs.remove(channel);
+    _channelLoaded.remove(channel);
     _channelFetchTimes.remove(channel);
     _emotesResolvedChannels.remove(channel);
     _subsByChannelCache = null;
@@ -1092,6 +1103,7 @@ class EmoteStore {
       );
     }
     _channelCatalogs.clear();
+    _channelLoaded.clear();
     // Channel 7TV set ids are channel identity, not account identity, so they
     // stay for live delta routing; the 7TV user id is refreshed on re-resolve.
     _sevenTvUserIds.clear();

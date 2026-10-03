@@ -134,11 +134,12 @@ class Channel {
 
   bool moveConnectedToTop() => messages.moveConnectedToTop();
 
-  /// Heals history rows baked before their emote catalog landed. Delegates
-  /// to the buffer verb; no order, count, or index changes, so no decay run.
-  int restampHistoryEmotes(
-    List<EmoteToken>? Function(TwitchMessage msg) resolve,
-  ) => messages.restampHistoryEmotes(resolve);
+  /// Heals rows baked before their emote catalog landed. Delegates to the
+  /// buffer verb; no order, count, or index changes, so no decay run.
+  int restampPartialEmotes(
+    ({List<EmoteToken>? tokens, bool complete}) Function(TwitchMessage msg)
+    resolve,
+  ) => messages.restampPartialEmotes(resolve);
 
   /// Retro-inserts a redemption header above an already-buffered chat line.
   /// System rows skip unread counting; truncation decay runs in the same

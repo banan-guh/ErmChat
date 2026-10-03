@@ -463,6 +463,9 @@ class EmoteManager implements EmoteLookupSource {
   /// Whether the global emote cache has been resolved at least once.
   bool get hasGlobalCache => _store.hasGlobalCache;
 
+  /// Whether a parse for [channel] sees the full global and channel catalog.
+  bool catalogComplete(String channel) => _store.catalogComplete(channel);
+
   Map<String, List<Emote>> subscriberEmotesByChannel() =>
       _store.subscriberEmotesByChannel();
 
