@@ -10,13 +10,16 @@ class PingRule {
 
   /// Builtin/custom type for message rules; unused for other kinds.
   final String type;
-  final String pattern;
-  final bool isRegex;
-  final bool caseSensitive;
 
-  /// Literal patterns match on word boundaries; ignored for regex.
+  /// Plain text, matched case-insensitively.
+  final String pattern;
+
+  /// Keyword matches only as a whole word, not inside other words.
   final bool wordBoundary;
   final bool enabled;
+
+  /// Keyword and user rules: false only tints, true also fills @mentions.
+  final bool mention;
   final bool notify;
   final int? colorArgb;
 
@@ -25,20 +28,18 @@ class PingRule {
     required this.kind,
     this.type = 'custom',
     this.pattern = '',
-    this.isRegex = false,
-    this.caseSensitive = false,
     this.wordBoundary = false,
     this.enabled = true,
+    this.mention = true,
     this.notify = false,
     this.colorArgb,
   });
 
   PingRule copyWith({
     String? pattern,
-    bool? isRegex,
-    bool? caseSensitive,
     bool? wordBoundary,
     bool? enabled,
+    bool? mention,
     bool? notify,
     int? colorArgb,
     bool clearColor = false,
@@ -48,10 +49,9 @@ class PingRule {
       kind: kind,
       type: type,
       pattern: pattern ?? this.pattern,
-      isRegex: isRegex ?? this.isRegex,
-      caseSensitive: caseSensitive ?? this.caseSensitive,
       wordBoundary: wordBoundary ?? this.wordBoundary,
       enabled: enabled ?? this.enabled,
+      mention: mention ?? this.mention,
       notify: notify ?? this.notify,
       colorArgb: clearColor ? null : (colorArgb ?? this.colorArgb),
     );
@@ -62,10 +62,9 @@ class PingRule {
     'kind': kind.name,
     if (kind == PingRuleKind.message) 'type': type,
     'pattern': pattern,
-    'isRegex': isRegex,
-    'caseSensitive': caseSensitive,
     'wordBoundary': wordBoundary,
     'enabled': enabled,
+    'mention': mention,
     'notify': notify,
     if (colorArgb != null) 'color': colorArgb,
   };
@@ -81,10 +80,9 @@ class PingRule {
       ),
       type: json['type'] as String? ?? 'custom',
       pattern: json['pattern'] as String? ?? '',
-      isRegex: json['isRegex'] == true,
-      caseSensitive: json['caseSensitive'] == true,
       wordBoundary: json['wordBoundary'] == true,
       enabled: json['enabled'] != false,
+      mention: json['mention'] != false,
       notify: json['notify'] == true,
       colorArgb: json['color'] is int ? json['color'] as int : null,
     );

@@ -177,15 +177,6 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
             read: (p) => p.chatFontSize,
             write: (p, v) => p.setChatFontSize(v),
           ),
-          PrefsSliderTile(
-            label: (v) => 'Highlight opacity: ${(v * 100).round()}%',
-            min: 0,
-            max: 1,
-            divisions: 5,
-            defaultValue: 0.6,
-            read: (p) => p.highlightOpacity,
-            write: (p, v) => p.setHighlightOpacity(v),
-          ),
           PrefsSwitchTile(
             title: 'Checkered messages',
             subtitle:

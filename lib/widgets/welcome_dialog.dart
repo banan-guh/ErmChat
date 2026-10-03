@@ -6,9 +6,9 @@ Future<void> showWelcomeDialog(BuildContext context) {
     builder: (ctx) => AlertDialog(
       title: const Text('Welcome to ErmChat'),
       content: const Text(
-        'Mention notifications are off by default. You can turn them on in '
-        'Settings > Chat > Mention notifications to get a ping when someone '
-        'mentions you in chat.',
+        'Mention notifications are off by default. Turn on Mentions in '
+        'Settings > Highlights to get a ping when someone mentions you in '
+        'chat.',
       ),
       actions: [
         TextButton(

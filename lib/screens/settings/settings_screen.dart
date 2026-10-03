@@ -12,6 +12,7 @@ import 'channel_settings_screen.dart';
 import 'chat_settings_screen.dart';
 import 'customization_screen.dart';
 import 'emotes_settings_screen.dart';
+import 'pings_screen.dart';
 import 'report_bug_screen.dart';
 import 'settings_page.dart';
 import 'stream_settings_screen.dart';
@@ -113,8 +114,20 @@ class SettingsScreen extends StatelessWidget {
                 builder: (_) => ChatSettingsScreen(
                   twitchAuth: twitchAuth,
                   onBackgroundServiceChanged: onBackgroundServiceChanged,
+                ),
+              ),
+            ),
+          ),
+          SettingsNavTile(
+            icon: Icons.notifications,
+            title: 'Highlights',
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => PingsScreen(
                   onMentionPushChanged: onMentionPushChanged,
                   onWhisperNotifyChanged: onWhisperNotifyChanged,
+                  onBackgroundServiceChanged: onBackgroundServiceChanged,
                 ),
               ),
             ),

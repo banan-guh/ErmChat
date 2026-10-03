@@ -219,6 +219,7 @@ Color highlightRowColor(
         HighlightType.reply ||
         HighlightType.user ||
         HighlightType.badge ||
+        HighlightType.tint ||
         HighlightType.custom => palette[0],
         HighlightType.redemption => palette[1],
         HighlightType.elevated => palette[2],

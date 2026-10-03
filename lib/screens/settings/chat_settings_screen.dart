@@ -1,6 +1,3 @@
-import 'dart:io' show Platform;
-
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import '../../services/twitch_auth.dart';
 import '../../util/constants.dart';
@@ -9,7 +6,6 @@ import '../../util/prefs_store.dart';
 import '../../util/timestamp_formatter.dart';
 import '../../widgets/dialogs.dart';
 import 'macros_screen.dart';
-import 'pings_screen.dart';
 import 'ignores_screen.dart';
 import 'inline_embeds_screen.dart';
 import 'prefs_tiles.dart';
@@ -18,19 +14,14 @@ import 'settings_page.dart';
 class ChatSettingsScreen extends StatefulWidget {
   final TwitchAuth? twitchAuth;
 
-  /// Foreground-service and notification side effects: starting/stopping the
-  /// service and requesting permissions cannot be re-applied from a prefs
-  /// re-read, so these stay callbacks.
+  /// Foreground-service side effect: starting/stopping the service cannot be
+  /// re-applied from a prefs re-read, so it stays a callback.
   final ValueChanged<bool>? onBackgroundServiceChanged;
-  final ValueChanged<bool>? onMentionPushChanged;
-  final ValueChanged<bool>? onWhisperNotifyChanged;
 
   const ChatSettingsScreen({
     super.key,
     this.twitchAuth,
     this.onBackgroundServiceChanged,
-    this.onMentionPushChanged,
-    this.onWhisperNotifyChanged,
   });
 
   @override
@@ -283,37 +274,6 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
             read: (p) => p.doubleTapNameCopy,
             write: (p, v) => p.setDoubleTapNameCopy(v),
           ),
-          const SettingsSectionHeader('Notifications'),
-          SettingsNavTile(
-            icon: Icons.notifications,
-            title: 'Pings',
-            onTap: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const PingsScreen()),
-              );
-            },
-          ),
-          // Mention push is Android-only (the foreground service path); the
-          // iOS toggle would silently do nothing, so hide it there.
-          if (!kIsWeb && !Platform.isIOS) ...[
-            PrefsSwitchTile(
-              secondary: const Icon(Icons.notifications_active),
-              title: 'Mention notifications',
-              defaultValue: false,
-              read: (p) => p.mentionPush,
-              write: (p, v) => p.setMentionPush(v),
-              onChanged: widget.onMentionPushChanged,
-            ),
-            PrefsSwitchTile(
-              secondary: const Icon(Icons.chat_bubble),
-              title: 'Whisper notifications',
-              defaultValue: false,
-              read: (p) => p.whisperNotifications,
-              write: (p, v) => p.setWhisperNotifications(v),
-              onChanged: widget.onWhisperNotifyChanged,
-            ),
-          ],
           const SettingsSectionHeader('Connection'),
           PrefsSwitchTile(
             secondary: const Icon(Icons.wifi_tethering),

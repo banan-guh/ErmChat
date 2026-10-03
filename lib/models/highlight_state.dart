@@ -1,12 +1,15 @@
 import 'dart:ui' show Color;
 
-/// Highlight type. First five are mention-tier (count toward unread/push); rest only tint the row.
+/// Highlight type. First four are mention-tier (count toward unread/push); rest only tint the row.
 enum HighlightType {
   username,
   reply,
   custom,
   user,
   badge,
+
+  /// A keyword or user rule set to tint only.
+  tint,
   redemption,
   firstMsg,
   elevated,
@@ -33,13 +36,13 @@ class HighlightState {
     HighlightType.reply,
     HighlightType.custom,
     HighlightType.user,
-    HighlightType.badge,
   };
 
   bool get hasMention => types.any(_mentionTypes.contains);
 
   /// Priority order, lowest first. Mention-tier types always rank above these.
   static const _priority = [
+    HighlightType.tint,
     HighlightType.firstMsg,
     HighlightType.redemption,
     HighlightType.elevated,

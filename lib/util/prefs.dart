@@ -91,7 +91,6 @@ class Prefs {
   static const _kSeventvNamePaints = 'seventv_name_paints';
   static const _kShowInput = 'show_input';
   static const _kMentionFormat = 'mention_format';
-  static const _kPingSimpleMode = 'ping_simple_mode';
   static const _kWelcomeSeen = 'welcome_seen';
   static const _kAnimateGifs = 'animate_gifs';
   static const _kAdaptiveEmoteFps = 'adaptive_emote_fps';
@@ -167,11 +166,6 @@ class Prefs {
 
   Future<void> setMentionFormat(String value) =>
       _p.setString(_kMentionFormat, value);
-
-  bool get pingSimpleMode => _p.getBool(_kPingSimpleMode) ?? true;
-
-  Future<void> setPingSimpleMode(bool value) =>
-      _p.setBool(_kPingSimpleMode, value);
 
   bool get welcomeSeen => _p.getBool(_kWelcomeSeen) ?? false;
 

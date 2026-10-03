@@ -16,6 +16,7 @@ class PingManager extends ChangeNotifier {
   static const builtinMessageTypes = [
     'username',
     'reply',
+    'thread',
     'redemption',
     'firstMsg',
     'elevated',
@@ -39,7 +40,7 @@ class PingManager extends ChangeNotifier {
 
   /// Active display name (learned from IRC echoes, not persisted).
   String? _displayName;
-  final Map<String, RegExp?> _regexCache = {};
+  final Map<String, RegExp> _regexCache = {};
   final Map<String, String> _lowerPatternCache = {};
 
   // Reply-participation: own message ids + thread roots (DankChat-style).
@@ -79,6 +80,7 @@ class PingManager extends ChangeNotifier {
       await prefs.setPingRules(encodeRules(_rules));
     } else {
       _rules = decodeRules(raw);
+      _splitThreadRule();
     }
     _regexCache.clear();
     _lowerPatternCache.clear();
@@ -102,7 +104,7 @@ class PingManager extends ChangeNotifier {
         type: type,
         pattern: '',
         enabled: true,
-        notify: type == 'username' || type == 'reply',
+        notify: type == 'username' || type == 'reply' || type == 'thread',
       ),
     for (final entry in presetBadges.entries)
       PingRule(
@@ -113,6 +115,25 @@ class PingManager extends ChangeNotifier {
         colorArgb: entry.value,
       ),
   ];
+
+  /// Saved rules predate the thread builtin, when the reply rule covered
+  /// threads too; seed it from the reply rule so nothing changes on upgrade.
+  void _splitThreadRule() {
+    if (_rules.any((r) => r.id == 'builtin_thread')) return;
+    final i = _rules.indexWhere((r) => r.id == 'builtin_reply');
+    final reply = i < 0 ? null : _rules[i];
+    _rules.insert(
+      i + 1,
+      PingRule(
+        id: 'builtin_thread',
+        kind: PingRuleKind.message,
+        type: 'thread',
+        enabled: reply?.enabled ?? true,
+        notify: reply?.notify ?? true,
+        colorArgb: reply?.colorArgb,
+      ),
+    );
+  }
 
   /// Sets account for matching; null clears departed account's state.
   void setAccount(String? login) {
@@ -168,7 +189,7 @@ class PingManager extends ChangeNotifier {
 
     void add(PingRule rule, HighlightType type) {
       types.add(type);
-      if (rule.notify) notify = true;
+      if (rule.notify && rule.mention) notify = true;
       color ??= rule.colorArgb == null ? null : Color(rule.colorArgb!);
     }
 
@@ -185,12 +206,17 @@ class PingManager extends ChangeNotifier {
               if (!isSelf && _isReplyToMe(msg)) {
                 add(rule, HighlightType.reply);
               }
-            case 'custom':
-              if (!rule.caseSensitive) {
-                lowerText ??= msg.text.toLowerCase();
+            case 'thread':
+              if (!isSelf && _isInMyThread(msg)) {
+                add(rule, HighlightType.reply);
               }
+            case 'custom':
+              lowerText ??= msg.text.toLowerCase();
               if (matchesText(rule, msg.text, lowerText)) {
-                add(rule, HighlightType.custom);
+                add(
+                  rule,
+                  rule.mention ? HighlightType.custom : HighlightType.tint,
+                );
               }
             case 'redemption':
               if (msg.customRewardId != null ||
@@ -205,7 +231,9 @@ class PingManager extends ChangeNotifier {
               }
           }
         case PingRuleKind.user:
-          if (_matchesUser(rule, msg.login)) add(rule, HighlightType.user);
+          if (_matchesUser(rule, msg.login)) {
+            add(rule, rule.mention ? HighlightType.user : HighlightType.tint);
+          }
         case PingRuleKind.badge:
           final badges = msg.badges;
           if (badges != null &&
@@ -250,64 +278,49 @@ class PingManager extends ChangeNotifier {
     final channel = msg.channel;
     if (channel == null) return false;
     final parentId = msg.replyToParentId;
-    if (parentId != null &&
-        _ownMessageIds[channel]?.contains(parentId) == true) {
-      return true;
-    }
+    return parentId != null &&
+        _ownMessageIds[channel]?.contains(parentId) == true;
+  }
+
+  /// A reply in a thread we started or posted in, to anyone.
+  bool _isInMyThread(TwitchMessage msg) {
+    final channel = msg.channel;
     final rootId = msg.replyThreadRootId;
-    if (rootId != null && _ownThreadRoots[channel]?.contains(rootId) == true) {
-      return true;
-    }
-    return false;
+    if (channel == null || rootId == null) return false;
+    return _ownThreadRoots[channel]?.contains(rootId) == true ||
+        _ownMessageIds[channel]?.contains(rootId) == true;
   }
 
-  bool _matchesUser(PingRule rule, String login) {
-    if (rule.pattern.isEmpty) return false;
-    if (rule.isRegex) {
-      final re = _regexFor(rule);
-      if (re != null) return re.hasMatch(login);
-      // Invalid regex: fall back to literal.
-    }
-    return rule.caseSensitive
-        ? login == rule.pattern
-        : login.toLowerCase() == _lowerPattern(rule);
-  }
+  bool _matchesUser(PingRule rule, String login) =>
+      rule.pattern.isNotEmpty && login.toLowerCase() == _lowerPattern(rule);
 
-  /// Custom keyword matching; invalid regex falls back to literal. [lowerText]
-  /// is a precomputed lowercase form of [text] shared across rules.
+  /// Plain-text keyword matching, case-insensitive. [lowerText] is a
+  /// precomputed lowercase form of [text] shared across rules.
   bool matchesText(PingRule rule, String text, [String? lowerText]) {
     if (rule.pattern.isEmpty) return false;
-    if (rule.isRegex || rule.wordBoundary) {
-      final re = _regexFor(rule);
-      if (re != null) return re.hasMatch(text);
+    if (rule.wordBoundary) {
+      return _regexCache
+          .putIfAbsent(
+            '${rule.id}\u0000${rule.pattern}',
+            () => keywordRegExp(rule.pattern, wholeWord: true),
+          )
+          .hasMatch(text);
     }
-    return rule.caseSensitive
-        ? text.contains(rule.pattern)
-        : (lowerText ?? text.toLowerCase()).contains(_lowerPattern(rule));
+    return (lowerText ?? text.toLowerCase()).contains(_lowerPattern(rule));
+  }
+
+  /// Regex equivalent of a keyword rule, for callers that need match ranges.
+  /// Whole word uses lookarounds so patterns like `:)` still anchor.
+  static RegExp keywordRegExp(String pattern, {required bool wholeWord}) {
+    final escaped = RegExp.escape(pattern);
+    return RegExp(
+      wholeWord ? '(?<!\\w)$escaped(?!\\w)' : escaped,
+      caseSensitive: false,
+    );
   }
 
   String _lowerPattern(PingRule rule) => _lowerPatternCache.putIfAbsent(
     '${rule.id}\u0000${rule.pattern}',
     () => rule.pattern.toLowerCase(),
   );
-
-  RegExp? _regexFor(PingRule rule) {
-    final key =
-        '${rule.id}\u0000${rule.pattern}\u0000${rule.caseSensitive}'
-        '\u0000${rule.wordBoundary}';
-    return _regexCache.putIfAbsent(key, () {
-      try {
-        // Lookaround anchors for non-word-char patterns.
-        if (!rule.isRegex && rule.wordBoundary) {
-          return RegExp(
-            '(?<!\\w)${RegExp.escape(rule.pattern)}(?!\\w)',
-            caseSensitive: rule.caseSensitive,
-          );
-        }
-        return RegExp(rule.pattern, caseSensitive: rule.caseSensitive);
-      } on FormatException {
-        return null;
-      }
-    });
-  }
 }

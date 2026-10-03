@@ -70,8 +70,7 @@ void main() {
         kind: PingRuleKind.message,
         type: 'custom',
         pattern: 'KEKW',
-        isRegex: true,
-        caseSensitive: true,
+        wordBoundary: true,
         enabled: false,
         notify: true,
         colorArgb: 0xFFE57373,
@@ -80,6 +79,17 @@ void main() {
       expect(decoded.single.toJson(), rule.toJson());
       expect(decodeRules('not json'), isEmpty);
       expect(decodeRules('{"id": "x"}'), isEmpty);
+    });
+
+    test('rules saved with the removed regex flags still load', () async {
+      final m = await makeManager({
+        'ping_rules_v1':
+            '[{"id":"old","kind":"message","type":"custom",'
+            r'"pattern":"\\bKappa\\d+","isRegex":true,"caseSensitive":true}]',
+      });
+      expect(m.rules.firstWhere((r) => r.id == 'old').pattern, r'\bKappa\d+');
+      expect(m.evaluate(msg('Kappa123')), isNull, reason: 'now plain text');
+      expect(m.evaluate(msg(r'see \bkappa\d+')), isNotNull);
     });
   });
 
@@ -118,44 +128,36 @@ void main() {
   });
 
   group('custom keyword rules', () {
-    PingRule custom(
-      String pattern, {
-      bool isRegex = false,
-      bool cs = false,
-      bool enabled = true,
-      bool word = false,
-    }) => PingRule(
-      id: 'c',
-      kind: PingRuleKind.message,
-      type: 'custom',
-      pattern: pattern,
-      isRegex: isRegex,
-      caseSensitive: cs,
-      enabled: enabled,
-      wordBoundary: word,
-    );
+    PingRule custom(String pattern, {bool enabled = true, bool word = false}) =>
+        PingRule(
+          id: 'c',
+          kind: PingRuleKind.message,
+          type: 'custom',
+          pattern: pattern,
+          enabled: enabled,
+          wordBoundary: word,
+        );
 
     for (final (name, rule, hits, misses) in [
       ('substring, case-insensitive', custom('KEKW'), ['lol kekw'], ['nope']),
       (
-        'regex',
-        custom(r'\bKappa\d+\b', isRegex: true),
-        ['Kappa123'],
-        ['Kappa'],
+        'regex syntax is plain text',
+        custom('what?', word: true),
+        ['wait what?'],
+        ['wha', 'what'],
       ),
-      (
-        'invalid regex falls back to literal',
-        custom('(unclosed', isRegex: true),
-        ['(unclosed lol'],
-        ['unclosed'],
-      ),
-      ('case sensitive', custom('KEKW', cs: true), ['KEKW'], ['kekw']),
       ('disabled', custom('ping', enabled: false), <String>[], ['ping']),
       (
         'whole word anchors literals',
         custom('cat', word: true),
-        ['petting the cat'],
+        ['petting the CAT'],
         ['concatenate category'],
+      ),
+      (
+        'whole word anchors punctuation',
+        custom(':)', word: true),
+        ['nice :)'],
+        ['nice:)'],
       ),
     ]) {
       test(name, () async {
@@ -181,6 +183,16 @@ void main() {
       m.upsertRule(custom('KEKW'));
       expect(m.evaluate(msg('KEKW', login: 'me')), isNotNull);
     });
+
+    test('tint-only rules stay out of @mentions and never notify', () async {
+      final m = await makeManager();
+      m.setAccount('me');
+      m.upsertRule(custom('KEKW').copyWith(mention: false, notify: true));
+      final state = m.evaluate(msg('KEKW'));
+      expect(state?.types, {HighlightType.tint});
+      expect(state?.hasMention, isFalse);
+      expect(state?.notify, isFalse);
+    });
   });
 
   group('user / badge / event rules', () {
@@ -201,6 +213,11 @@ void main() {
       expect(m.evaluate(msg('buy stuff', login: 'other')), isNull);
       final hit = msg('hey', badges: [badge('vip')]);
       expect(m.evaluate(hit)?.types, contains(HighlightType.badge));
+      expect(
+        m.evaluate(hit)?.hasMention,
+        isFalse,
+        reason: 'badges tint only, never fill @mentions',
+      );
       expect(m.evaluate(msg('hey', badges: [badge('moderator')])), isNull);
 
       m.upsertRule(
@@ -252,12 +269,48 @@ void main() {
         m.evaluate(msg('threaded', replyThreadRootId: 'root-1'))?.primary,
         HighlightType.reply,
       );
+      // A thread rooted at our own message counts as one we are in.
+      m.registerOwnMessage('forsen', 'own-2');
+      expect(
+        m.evaluate(msg('in my thread', replyThreadRootId: 'own-2'))?.primary,
+        HighlightType.reply,
+      );
       // Participation is per channel.
       expect(
         m.evaluate(msg('chained', channel: 'chan2', replyToParentId: 'own-1')),
         isNull,
       );
     });
+
+    test('replies and threads toggle separately', () async {
+      final m = await makeManager();
+      m.setAccount('forsen');
+      m.registerOwnMessage('forsen', 'own-1', threadRootId: 'root-1');
+      final thread = m.rules.firstWhere((r) => r.id == 'builtin_thread');
+      m.upsertRule(thread.copyWith(enabled: false));
+      expect(
+        m.evaluate(msg('threaded', replyThreadRootId: 'root-1')),
+        isNull,
+        reason: 'thread rule off',
+      );
+      expect(m.evaluate(msg('direct', replyToParentId: 'own-1')), isNotNull);
+    });
+
+    test(
+      'rules saved before the thread split inherit the reply rule',
+      () async {
+        final m = await makeManager({
+          'ping_rules_v1':
+              '[{"id":"builtin_reply","kind":"message","type":"reply",'
+              '"enabled":true,"notify":false,"color":4293212469}]',
+        });
+        final ids = m.rules.map((r) => r.id).toList();
+        expect(ids, ['builtin_reply', 'builtin_thread']);
+        final thread = m.rules.last;
+        expect(thread.notify, isFalse);
+        expect(thread.colorArgb, 4293212469);
+      },
+    );
 
     test(
       'switching accounts drops the departed account learned state',
