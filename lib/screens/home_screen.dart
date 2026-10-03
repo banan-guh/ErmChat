@@ -938,7 +938,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       unawaited(_emotes.loadUserEmoteSets(signal.channel, signal.ids));
 
   void _onChannelContent(String channel) {
-    _composer.refreshCooldown();
+    if (channel == selectedChannel) _composer.refreshCooldown();
     _threads.syncSavedWithChannel(channel, newOnly: true);
   }
 
