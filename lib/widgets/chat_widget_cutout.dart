@@ -177,6 +177,7 @@ class _HypeTrainCardState extends State<HypeTrainCard> {
     }
     final d = expiresAt.difference(DateTime.now());
     if (d.isNegative) {
+      _timer?.cancel();
       _remainingNotifier.value = '0:00';
       return;
     }
