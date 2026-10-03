@@ -148,9 +148,11 @@ class SettingsScreen extends StatelessWidget {
         IconButton(
           icon: const Icon(Icons.search),
           tooltip: 'Search settings',
-          onPressed: () => showSearch(
-            context: context,
-            delegate: SettingsSearchDelegate(_page),
+          onPressed: () => Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => SettingsSearchPage(openPage: _page),
+            ),
           ),
         ),
       ],

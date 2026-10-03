@@ -764,62 +764,102 @@ class _SettingAnchorState extends State<SettingAnchor>
   }
 }
 
-/// Matches every typed word against a setting's title, location and extra
+/// Settings search: a normal page with the field focused from the first
+/// frame, so the keyboard opens during the slide-in. (Flutter's showSearch
+/// fades for 300ms and only then focuses the field.)
+///
+/// Every typed word must match a setting's title, location or extra
 /// keywords, so "dark" finds Theme and "ping" finds Highlights.
-class SettingsSearchDelegate extends SearchDelegate<void> {
-  SettingsSearchDelegate(this.openPage)
-    : super(searchFieldLabel: 'Search settings');
+class SettingsSearchPage extends StatefulWidget {
+  const SettingsSearchPage({super.key, required this.openPage});
 
-  /// Builds a settings page; the result wraps it to reveal the setting.
+  /// Builds a settings page; a result wraps it to reveal the setting.
   final Widget Function(SettingsPageId page) openPage;
 
   @override
-  List<Widget> buildActions(BuildContext context) => [
-    if (query.isNotEmpty)
-      IconButton(
-        icon: const Icon(Icons.clear),
-        tooltip: 'Clear',
-        onPressed: () => query = '',
-      ),
-  ];
+  State<SettingsSearchPage> createState() => _SettingsSearchPageState();
+}
+
+class _SettingsSearchPageState extends State<SettingsSearchPage> {
+  final _query = TextEditingController();
 
   @override
-  Widget buildLeading(BuildContext context) =>
-      BackButton(onPressed: () => close(context, null));
+  void dispose() {
+    _query.dispose();
+    super.dispose();
+  }
 
-  @override
-  Widget buildResults(BuildContext context) => buildSuggestions(context);
-
-  @override
-  Widget buildSuggestions(BuildContext context) {
-    final words = query.toLowerCase().split(' ').where((w) => w.isNotEmpty);
-    if (words.isEmpty) return const SizedBox.shrink();
-    final hits = Setting.available.where((s) {
+  List<Setting> get _hits {
+    final words = _query.text
+        .toLowerCase()
+        .split(' ')
+        .where((w) => w.isNotEmpty)
+        .toList();
+    if (words.isEmpty) return const [];
+    return Setting.available.where((s) {
       final haystack = '${s.title} ${s.path} ${s.keywords}'.toLowerCase();
       return words.every(haystack.contains);
     }).toList();
-    if (hits.isEmpty) {
-      return const Padding(
-        padding: EdgeInsets.all(24),
-        child: Text('No matching settings'),
-      );
-    }
-    return ListView(
-      children: [
-        for (final hit in hits)
-          ListTile(
-            title: Text(hit.title),
-            subtitle: Text(hit.path),
-            onTap: () => Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => hit.anchored
-                    ? SettingsTarget(target: hit, child: openPage(hit.page))
-                    : openPage(hit.page),
-              ),
-            ),
+  }
+
+  void _open(Setting hit) {
+    final page = widget.openPage(hit.page);
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) =>
+            hit.anchored ? SettingsTarget(target: hit, child: page) : page,
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final hits = _hits;
+    return Scaffold(
+      appBar: AppBar(
+        title: TextField(
+          controller: _query,
+          autofocus: true,
+          textInputAction: TextInputAction.search,
+          onChanged: (_) => setState(() {}),
+          onSubmitted: (_) {
+            if (hits.isNotEmpty) _open(hits.first);
+          },
+          decoration: const InputDecoration(
+            hintText: 'Search settings',
+            border: InputBorder.none,
           ),
-      ],
+        ),
+        actions: [
+          if (_query.text.isNotEmpty)
+            IconButton(
+              icon: const Icon(Icons.clear),
+              tooltip: 'Clear',
+              onPressed: () => setState(_query.clear),
+            ),
+        ],
+      ),
+      body: SafeArea(
+        top: false,
+        child: _query.text.trim().isEmpty
+            ? const SizedBox.shrink()
+            : hits.isEmpty
+            ? const Padding(
+                padding: EdgeInsets.all(24),
+                child: Text('No matching settings'),
+              )
+            : ListView(
+                children: [
+                  for (final hit in hits)
+                    ListTile(
+                      title: Text(hit.title),
+                      subtitle: Text(hit.path),
+                      onTap: () => _open(hit),
+                    ),
+                ],
+              ),
+      ),
     );
   }
 }
