@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'seven_tv_paint_service.dart';
 
-/// Username filled with a gradient or image 7TV paint. Draws one paragraph
+/// Username filled with a gradient or image 7TV paint. Paints one paragraph
 /// whose foreground carries the shader, so no ShaderMask layer and no
 /// shadow underlay. Solid paints never reach here: they ride a TextSpan.
 class PaintedUsernameText extends StatelessWidget {
@@ -38,29 +38,70 @@ class PaintedUsernameText extends StatelessWidget {
   }
 
   Widget _buildText(BuildContext context) {
-    final shader = service.shaderFor(paint, _measure(context));
-    final style = shader == null
-        ? baseStyle.copyWith(color: fallbackColor, shadows: shadows)
-        : baseStyle.copyWith(
+    final style = DefaultTextStyle.of(context).style.merge(baseStyle);
+    final textDirection = Directionality.of(context);
+    final textScaler = MediaQuery.textScalerOf(context);
+    final size = _measure(style, textDirection, textScaler);
+    final shader = service.shaderFor(paint, size);
+    final painted = shader == null
+        ? style.copyWith(color: fallbackColor, shadows: shadows)
+        : style.copyWith(
             foreground: Paint()..shader = shader,
             shadows: shadows,
           );
-    return Text.rich(TextSpan(text: text, style: style));
+    // A paragraph paints at its parent offset without moving the canvas, so
+    // a foreground shader would sit at the row origin and show only its end
+    // stops. CustomPaint translates first, aligning the shader with the name.
+    return Semantics(
+      label: text,
+      child: CustomPaint(
+        size: size,
+        painter: _NamePainter(
+          TextSpan(text: text, style: painted),
+          textDirection,
+          textScaler,
+        ),
+      ),
+    );
   }
 
-  /// The box [Text.rich] lays out to, so the shader spans the same bounds a
-  /// ShaderMask would receive.
-  Size _measure(BuildContext context) {
+  Size _measure(
+    TextStyle style,
+    TextDirection textDirection,
+    TextScaler textScaler,
+  ) {
     final painter = TextPainter(
-      text: TextSpan(
-        text: text,
-        style: DefaultTextStyle.of(context).style.merge(baseStyle),
-      ),
-      textDirection: Directionality.of(context),
-      textScaler: MediaQuery.textScalerOf(context),
+      text: TextSpan(text: text, style: style),
+      textDirection: textDirection,
+      textScaler: textScaler,
     )..layout();
     final size = painter.size;
     painter.dispose();
     return size;
   }
+}
+
+class _NamePainter extends CustomPainter {
+  _NamePainter(this.span, this.textDirection, this.textScaler);
+
+  final TextSpan span;
+  final TextDirection textDirection;
+  final TextScaler textScaler;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final painter = TextPainter(
+      text: span,
+      textDirection: textDirection,
+      textScaler: textScaler,
+    )..layout();
+    painter.paint(canvas, Offset.zero);
+    painter.dispose();
+  }
+
+  @override
+  bool shouldRepaint(_NamePainter old) =>
+      old.span != span ||
+      old.textDirection != textDirection ||
+      old.textScaler != textScaler;
 }
