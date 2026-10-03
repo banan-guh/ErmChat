@@ -2172,6 +2172,12 @@ void main() {
           'hello world this is a test',
         ),
         (
+          'keeps colons and space runs inside trailing verbatim',
+          ':user!user@user.tmi.twitch.tv PRIVMSG #channel :a  :b c ',
+          'PRIVMSG',
+          'a  :b c ',
+        ),
+        (
           'parses NOTICE with tags',
           '@msg-id=slow_mode :tmi.twitch.tv NOTICE #xqc :You are sending messages too fast.',
           'NOTICE',

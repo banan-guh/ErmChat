@@ -4,6 +4,15 @@ import '../util/log.dart';
 final _loneLowSurrogateRe = RegExp(r'[\uDC00-\uDFFF]');
 final _orphanedHighSurrogateRe = RegExp(r'[\uD800-\uDBFF](?![\uDC00-\uDFFF])');
 
+/// Whether [s] holds any UTF-16 surrogate unit. Most tag values are ASCII,
+/// so this skips both regex passes for them.
+bool _hasSurrogate(String s) {
+  for (var i = 0; i < s.length; i++) {
+    if (s.codeUnitAt(i) & 0xF800 == 0xD800) return true;
+  }
+  return false;
+}
+
 /// A single parsed IRC frame: tags, prefix, command, params and trailing.
 class IrcMessage {
   final Map<String, String> tags;
@@ -27,8 +36,6 @@ IrcMessage? parseIrcMessage(String line) {
   try {
     String? tags;
     String? prefix;
-    String command;
-    List<String> params = [];
     String? trailing;
 
     int pos = 0;
@@ -47,19 +54,14 @@ IrcMessage? parseIrcMessage(String line) {
       pos = end + 1;
     }
 
-    final rest = line.substring(pos);
-    final parts = rest.split(' ');
-    command = parts[0];
-
-    int i = 1;
-    while (i < parts.length) {
-      if (parts[i].startsWith(':')) {
-        trailing = parts.sublist(i).join(' ').substring(1);
-        break;
-      }
-      params.add(parts[i]);
-      i++;
-    }
+    // The trailing param starts at the first " :", so the message body is
+    // sliced once instead of split per word and rejoined.
+    final trailingAt = line.indexOf(' :', pos);
+    final head = line.substring(pos, trailingAt == -1 ? null : trailingAt);
+    if (trailingAt != -1) trailing = line.substring(trailingAt + 2);
+    final parts = head.split(' ');
+    final command = parts[0];
+    final params = parts.sublist(1);
 
     final tagMap = <String, String>{};
     if (tags != null) {
@@ -71,8 +73,10 @@ IrcMessage? parseIrcMessage(String line) {
           // Strip orphaned UTF-16 surrogates: low surrogates alone or high
           // surrogates not followed by low (Flutter's text engine crashes on
           // isolated surrogates from malformed Twitch IRC data).
-          decoded = decoded.replaceAll(_loneLowSurrogateRe, '');
-          decoded = decoded.replaceAll(_orphanedHighSurrogateRe, '');
+          if (_hasSurrogate(decoded)) {
+            decoded = decoded.replaceAll(_loneLowSurrogateRe, '');
+            decoded = decoded.replaceAll(_orphanedHighSurrogateRe, '');
+          }
           tagMap[tag.substring(0, eq)] = decoded;
         }
       }

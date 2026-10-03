@@ -5,6 +5,9 @@ import '../message.dart';
 
 final _replyPrefixRe = RegExp(r'^\s*@\S+\s+');
 
+// One `gifs` tag entry. A regex scan, not a comma split: URLs may hold commas.
+final _gifEntryRe = RegExp(r'(\d+)-(\d+)\|([^|]+)\|(.+?)(?=,\d+-\d+\||$)');
+
 /// Parses IRC `emotes` tag into [EmotePosition]s. Positions are relative to
 /// [originalText]; [prefixLen] adjusts for reply prefix.
 List<EmotePosition>? parseIrcEmotePositions(
@@ -71,9 +74,7 @@ List<GifAttachment>? parseIrcGifPositions(
 }) {
   if (gifsTag == null || gifsTag.isEmpty) return null;
   final baseText = _actionBody(originalText);
-  // Regex scan instead of comma-split: URLs could legally contain commas.
-  final entryRe = RegExp(r'(\d+)-(\d+)\|([^|]+)\|(.+?)(?=,\d+-\d+\||$)');
-  final matches = entryRe.allMatches(gifsTag).toList();
+  final matches = _gifEntryRe.allMatches(gifsTag).toList();
   if (matches.isEmpty) return null;
   final conv = _cpToUtf16Table(baseText);
   int lookup(int cp) => cp >= 0 && cp < conv.length ? conv[cp] : -1;
