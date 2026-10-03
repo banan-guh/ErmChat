@@ -249,6 +249,18 @@ class EmoteUrlProvider extends ImageProvider<EmoteUrlProvider> {
     }
   }
 
+  /// Frees every captured cycle while nothing renders (app backgrounded,
+  /// memory pressure). Each falls back to its open stream and re-captures
+  /// on the next pass; the frame on screen stays.
+  static void releaseDecodedFrames() {
+    for (final url in _capturedOrder.keys.toList()) {
+      _capturedOrder.remove(url);
+      final live = _liveByUrl[url];
+      if (live == null || live._disposed) continue;
+      if (live._dropCapture() && live._visible) live._startPlayback();
+    }
+  }
+
   /// Whether [url]'s completer has captured a full cycle. Exposed for tests.
   @visibleForTesting
   static bool isFullyCaptured(String url) {

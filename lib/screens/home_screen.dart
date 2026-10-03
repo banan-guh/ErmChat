@@ -774,8 +774,19 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     await requestForegroundPermissions();
   }
 
+  /// Decoded frames buy nothing while nothing renders: emotes re-decode from
+  /// the disk cache on return. Frames on screen stay until their rows go.
+  void _releaseDecodedImages() {
+    EmoteUrlProvider.releaseDecodedFrames();
+    PaintingBinding.instance.imageCache.clear();
+  }
+
+  @override
+  void didHaveMemoryPressure() => _releaseDecodedImages();
+
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused) _releaseDecodedImages();
     final backgrounded =
         state == AppLifecycleState.paused ||
         state == AppLifecycleState.inactive;
