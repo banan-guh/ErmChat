@@ -24,6 +24,7 @@
 - [x] **Join robustness** - unlisted 7TV emote filter; surface suspended / nonexistent channel join failures.
 - [x] **7TV name paints** - animated personal name colors, repaint rows when a paint arrives late.
 - [x] **un-overlap notifs** - keepalive / push notifs are same panel, split them
+- [ ] **Native audio-only stream + background audio** - audio-only today just shrinks the WebView to 1px, which still decodes video and stops when the app backgrounds. Fetch a playback token from Twitch GQL (`PlaybackAccessToken`, web client id), load the usher HLS playlist, and play its `audio_only` rendition through a native player (`just_audio` + `audio_service`: ExoPlayer foreground service on Android, AVPlayer with the iOS background audio mode). Backgrounding a playing stream hands off to it unless PiP auto-enter wins; returning resumes the WebView. Proven by Xtra and streamlink; copy Xtra's token request. Risk: unofficial API, fails safe back to the WebView.
 
 ## Bugs
 
