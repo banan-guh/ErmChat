@@ -1050,7 +1050,7 @@ void main() {
       final barSize = tester.getSize(find.byType(PageView));
       final barCenter = tester.getCenter(find.byType(PageView));
       final gesture = await tester.startGesture(barCenter);
-      await gesture.moveBy(const Offset(1, 0));
+      await gesture.moveBy(const Offset(kTouchSlop + 1, 0));
       await tester.pump();
       await gesture.moveBy(Offset(barSize.width * 0.55, 0));
       await tester.pump();
@@ -2977,7 +2977,7 @@ void main() {
         final gesture = await tester.startGesture(
           tester.getCenter(find.byType(PageView)),
         );
-        await gesture.moveBy(const Offset(-1, 0));
+        await gesture.moveBy(const Offset(-kTouchSlop - 1, 0));
         await tester.pump();
         for (final f in fractions) {
           await gesture.moveBy(Offset(size.width * f, 0));

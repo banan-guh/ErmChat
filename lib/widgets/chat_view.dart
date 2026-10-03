@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart' show defaultTargetPlatform;
+import 'package:flutter/gestures.dart' show kLongPressTimeout, kTouchSlop;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart'
@@ -255,6 +256,9 @@ class _ChatViewState extends State<ChatView>
   final _ChatHold _hold = _ChatHold();
   bool _refreshScheduled = false;
 
+  // Pointer-down of a possible tap on the chat, for tap-to-dismiss.
+  (Offset, Duration)? _tapDown;
+
   // Follow intent, separate from the raw offset. A far jump can leave a
   // transient offset for a frame while the sliver rebuilds; only a user drag
   // leaves follow, so those transients cannot re-arm the hold.
@@ -338,7 +342,7 @@ class _ChatViewState extends State<ChatView>
                 builder: (_, _, _) {
                   final msgs = widget.messages;
                   _syncHold(msgs);
-                  return _buildList(context, msgs, surface, s);
+                  return _tapToDismiss(_buildList(context, msgs, surface, s));
                 },
               ),
             ),
@@ -482,10 +486,28 @@ class _ChatViewState extends State<ChatView>
     );
   }
 
+  /// A tap on the chat dismisses the keyboard. Raw pointers, so row taps
+  /// keep working, and a scroll or long press does not count.
+  Widget _tapToDismiss(Widget list) => Listener(
+    onPointerDown: (e) => _tapDown = (e.position, e.timeStamp),
+    onPointerUp: (e) {
+      final down = _tapDown;
+      _tapDown = null;
+      if (down == null) return;
+      if ((e.position - down.$1).distance > kTouchSlop) return;
+      if (e.timeStamp - down.$2 > kLongPressTimeout) return;
+      FocusManager.instance.primaryFocus?.unfocus();
+    },
+    onPointerCancel: (_) => _tapDown = null,
+    child: list,
+  );
+
+  // Always scrollable, so a drag on a short list still dismisses the keyboard.
   ScrollPhysics _scrollPhysics() {
+    final parent = AlwaysScrollableScrollPhysics(parent: widget.physics);
     return defaultTargetPlatform == TargetPlatform.iOS
-        ? _ChatHoldBouncingPhysics(parent: widget.physics, hold: _hold)
-        : _ChatHoldClampingPhysics(parent: widget.physics, hold: _hold);
+        ? _ChatHoldBouncingPhysics(parent: parent, hold: _hold)
+        : _ChatHoldClampingPhysics(parent: parent, hold: _hold);
   }
 
   /// Jumps to the newest row. Follow is claimed before the jump so a transient
