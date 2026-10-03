@@ -806,76 +806,60 @@ class _ChatViewState extends State<ChatView>
     }
     final parity = doCheckered ? (++ChatView._checkerSeq).isEven : i.isEven;
 
-    final Widget body;
-    if (msg.isSystem) {
-      body = ChatMessageTile(
-        message: msg,
-        channel: tileChannel,
-        surface: surface,
-        textScale: s,
-        showTimestamp: widget.showTimestamp,
-        timestampFormat: widget.timestampFormat,
-        buildBadgeSpans: widget.messageBuilder.buildBadgeSpans,
-        buildMessageSpans: widget.messageBuilder.buildMessageSpans,
-        bodyIsCached: widget.messageBuilder.bodyIsCached,
-        systemBodyBuilder: (msg, scale) => parseTextWithLinks(
-          msg.text,
-          linkWhitelist: widget.linkWhitelist?.entries,
-          onEmailTap: widget.messageBuilder.onEmailTap,
-        ),
-        checkeredMessages: widget.checkeredMessages,
-        highlightOpacity: widget.highlightOpacity,
-        lineSeparator: widget.lineSeparator,
-        isAlternateBackground: parity,
-        fadeDeleted: widget.fadeDeleted,
-        sharedChatMode: widget.sharedChatMode,
-        showChannel: widget.showChannel,
-      );
-    } else {
-      body = ChatMessageTile(
-        message: msg,
-        channel: tileChannel,
-        surface: surface,
-        textScale: s,
-        showTimestamp: widget.showTimestamp,
-        timestampFormat: widget.timestampFormat,
-        buildBadgeSpans: widget.messageBuilder.buildBadgeSpans,
-        buildMessageSpans: widget.messageBuilder.buildMessageSpans,
-        bodyIsCached: widget.messageBuilder.bodyIsCached,
-        onTapUser: (login, userId) => widget.onShowUserProfile(
-          login,
-          userId,
-          displayName: msg.displayName,
-        ),
-        onDoubleTapUser: () => _copyUsername(msg),
-        onLongPress: widget.onShowMessageMenu == null
-            ? null
-            : () => widget.onShowMessageMenu!(msg),
-        onDoubleTap: widget.onCopyMessage == null
-            ? null
-            : () => widget.onCopyMessage!(msg),
-        replyIndicator:
-            widget.showReplyIndicators &&
-                widget.onFindThreadRoot != null &&
-                widget.onShowThreadView != null &&
-                msg.replyToUser != null
-            ? _buildReplyIndicator(context, msg, s)
-            : null,
-        checkeredMessages: widget.checkeredMessages,
-        highlightOpacity: widget.highlightOpacity,
-        lineSeparator: widget.lineSeparator,
-        isAlternateBackground: parity,
-        fadeDeleted: widget.fadeDeleted,
-        sharedChatMode: widget.sharedChatMode,
-        showChannel: widget.showChannel,
-        paintService: widget.paintService,
-        showImages: widget.messageBuilder.showImages,
-        imageHeight: widget.messageBuilder.imageHeight,
-        linkWhitelist:
-            widget.linkWhitelist?.entries ??
-            widget.messageBuilder.linkWhitelist.entries,
-      );
-    }
+    // System rows take no taps, reply line, paint, or embeds; the tile reads
+    // their body from systemBodyBuilder.
+    final chatRow = !msg.isSystem;
+    final body = ChatMessageTile(
+      message: msg,
+      channel: tileChannel,
+      surface: surface,
+      textScale: s,
+      showTimestamp: widget.showTimestamp,
+      timestampFormat: widget.timestampFormat,
+      buildBadgeSpans: widget.messageBuilder.buildBadgeSpans,
+      buildMessageSpans: widget.messageBuilder.buildMessageSpans,
+      bodyIsCached: widget.messageBuilder.bodyIsCached,
+      systemBodyBuilder: (msg, scale) => parseTextWithLinks(
+        msg.text,
+        linkWhitelist: widget.linkWhitelist?.entries,
+        onEmailTap: widget.messageBuilder.onEmailTap,
+      ),
+      onTapUser: chatRow
+          ? (login, userId) => widget.onShowUserProfile(
+              login,
+              userId,
+              displayName: msg.displayName,
+            )
+          : null,
+      onDoubleTapUser: chatRow ? () => _copyUsername(msg) : null,
+      onLongPress: chatRow && widget.onShowMessageMenu != null
+          ? () => widget.onShowMessageMenu!(msg)
+          : null,
+      onDoubleTap: chatRow && widget.onCopyMessage != null
+          ? () => widget.onCopyMessage!(msg)
+          : null,
+      replyIndicator:
+          chatRow &&
+              widget.showReplyIndicators &&
+              widget.onFindThreadRoot != null &&
+              widget.onShowThreadView != null &&
+              msg.replyToUser != null
+          ? _buildReplyIndicator(context, msg, s)
+          : null,
+      checkeredMessages: widget.checkeredMessages,
+      highlightOpacity: widget.highlightOpacity,
+      lineSeparator: widget.lineSeparator,
+      isAlternateBackground: parity,
+      fadeDeleted: widget.fadeDeleted,
+      sharedChatMode: widget.sharedChatMode,
+      showChannel: widget.showChannel,
+      paintService: chatRow ? widget.paintService : null,
+      showImages: chatRow && widget.messageBuilder.showImages,
+      imageHeight: widget.messageBuilder.imageHeight,
+      linkWhitelist:
+          widget.linkWhitelist?.entries ??
+          widget.messageBuilder.linkWhitelist.entries,
+    );
 
     // Key by messageId for rematch on index shifts; cached tiles short-circuit.
     final tile = RepaintBoundary(child: body);
@@ -910,22 +894,19 @@ class _ChatViewState extends State<ChatView>
   }
 
   // Key by messageId; falls back to an identity key from immutable fields.
-  Key _messageKey(TwitchMessage msg) {
-    final id = msg.messageId;
-    if (id != null) return ValueKey<String>(id);
-    return ValueKey<String>(
-      'anon-${msg.timestamp.microsecondsSinceEpoch}-${msg.login}-${msg.text.hashCode}',
-    );
-  }
+  Key _messageKey(TwitchMessage msg) =>
+      ValueKey<String>(msg.messageId ?? _anonKey(msg));
 
-  // Stable row identity for end markers. Mirrors the onItemKey logic so a
-  // capped buffer with steady length still refreshes its eviction index
-  // when the oldest or newest row turns over.
+  // Stable row identity for end markers and the hold anchor, so a capped
+  // buffer with steady length still refreshes its eviction index when the
+  // oldest or newest row turns over.
   String _rowKey(TwitchMessage msg) {
     final id = msg.messageId;
-    if (id != null) return 'msg-$id';
-    return 'anon-${msg.timestamp.microsecondsSinceEpoch}-${msg.login}-${msg.text.hashCode}';
+    return id != null ? 'msg-$id' : _anonKey(msg);
   }
+
+  static String _anonKey(TwitchMessage msg) =>
+      'anon-${msg.timestamp.microsecondsSinceEpoch}-${msg.login}-${msg.text.hashCode}';
 
   Widget _buildReplyIndicator(
     BuildContext context,

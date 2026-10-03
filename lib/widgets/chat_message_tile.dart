@@ -400,29 +400,22 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
         );
       }
 
-      final bodySpans = msg.isAction
-          ? widget.buildMessageSpans(
-              msg,
-              widget.channel,
-              widget.surface,
-              colored: true,
-              textScale: s,
-              onImageTap: widget.showImages ? _toggleEmbed : null,
-            )
-          : widget.buildMessageSpans(
-              msg,
-              widget.channel,
-              widget.surface,
-              textScale: s,
-              onImageTap: widget.showImages ? _toggleEmbed : null,
-            );
-
       if (widget.showImages) {
         embedUrls = collectImageEmbedUrls(
           msg.text,
           linkWhitelist: widget.linkWhitelist,
-        ).take(kMaxImageEmbedsPerMessage).toList();
+        );
       }
+      // Only rows with an image link take the tile-bound tap, which skips
+      // the shared span cache; every other row stays cached.
+      final bodySpans = widget.buildMessageSpans(
+        msg,
+        widget.channel,
+        widget.surface,
+        colored: msg.isAction,
+        textScale: s,
+        onImageTap: embedUrls.isEmpty ? null : _toggleEmbed,
+      );
       _trackBodySpans(bodySpans, widget.bodyIsCached(msg, bodySpans));
       children = [?channelSpan, ...badges, usernameSpan, ...bodySpans];
       nameEnd = [

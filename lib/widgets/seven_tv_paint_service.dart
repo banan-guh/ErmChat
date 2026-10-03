@@ -191,6 +191,10 @@ class SevenTvPaintService extends ChangeNotifier {
   bool _enabled = false;
   bool get enabled => _enabled;
 
+  /// Bumped when a paint image texture lands. Image-painted names listen to
+  /// this alone, so user and catalog resolution never rebuild them.
+  final ValueNotifier<int> imageRevision = ValueNotifier(0);
+
   set enabled(bool value) {
     if (_enabled == value) return;
     _enabled = value;
@@ -642,7 +646,7 @@ class SevenTvPaintService extends ChangeNotifier {
         final oldest = _imageAccessOrder.removeAt(0);
         _images.remove(oldest)?.dispose();
       }
-      if (_enabled) notifyListeners();
+      if (_enabled) imageRevision.value++;
     } catch (e) {
       logDebug('7TV paint image failed: ${variant.url}: $e');
       _images.remove(variant.url);
@@ -845,6 +849,7 @@ class SevenTvPaintService extends ChangeNotifier {
     }
     _images.clear();
     _imageAccessOrder.clear();
+    imageRevision.dispose();
     super.dispose();
   }
 }
