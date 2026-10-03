@@ -102,6 +102,7 @@ class SearchPanels {
   bool open = false;
   final _filters = <String, ChatSearchFilter>{};
   final _frozen = <String, List<TwitchMessage>>{};
+  final _visibleCache = <String, _SearchCache>{};
   final field = TextEditingController();
 
   // Shared with the composer: mode swaps keep focus, keyboard stays up.
@@ -125,25 +126,45 @@ class SearchPanels {
   // non-matches fade per tile via dimPredicate.
   List<TwitchMessage> visibleMessages(String channel) {
     final filter = stateFor(channel);
+    final messages = chat.channelFor(channel)?.messages;
+    final items = messages?.items ?? const <TwitchMessage>[];
     if (!open || !filter.isActive) {
-      return chat.channelFor(channel)?.messages.items ?? const [];
+      return items;
+    }
+    final version = messages?.version.value ?? 0;
+    final frozen = _frozen[channel];
+    final cached = _visibleCache[channel];
+    if (cached != null &&
+        cached.matches(filter: filter, version: version, frozen: frozen)) {
+      return cached.rows;
     }
     final q = filter.query.trim().toLowerCase();
     var base = filter.live == ChatSearchLive.pause
-        ? (_frozen[channel] ?? const <TwitchMessage>[])
-        : (chat.channelFor(channel)?.messages.items ?? const <TwitchMessage>[]);
+        ? (frozen ?? const <TwitchMessage>[])
+        : items;
     if (filter.live == ChatSearchLive.pause) {
       // Drops rows evicted by truncation/deletes while frozen.
       final liveIds = {
-        for (final m in chat.channelFor(channel)?.messages.items ?? const [])
+        for (final m in items)
           if (m.messageId != null) m.messageId!,
       };
       base = base
           .where((m) => m.messageId == null || liveIds.contains(m.messageId))
           .toList();
     }
-    if (filter.display == ChatSearchDisplay.dim) return base;
-    return base.where((m) => searchMatchesLower(m, q, filter.scope)).toList();
+    final rows = filter.display == ChatSearchDisplay.dim
+        ? base
+        : base.where((m) => searchMatchesLower(m, q, filter.scope)).toList();
+    _visibleCache[channel] = _SearchCache(
+      query: filter.query,
+      scope: filter.scope,
+      display: filter.display,
+      live: filter.live,
+      version: version,
+      frozen: frozen,
+      rows: rows,
+    );
+    return rows;
   }
 
   // Null unless dimming is active; true means fade this row.
@@ -200,6 +221,7 @@ class SearchPanels {
     }
     _filters.clear();
     _frozen.clear();
+    _visibleCache.clear();
     field.clear();
     if (!focusComposer) focusNode.unfocus();
     markDirty();
@@ -237,6 +259,7 @@ class SearchPanels {
   void forget(String channel) {
     _filters.remove(channel);
     _frozen.remove(channel);
+    _visibleCache.remove(channel);
     // Deferred like the at-bottom notifiers: listeners unmount this frame.
     final v = _versions.remove(channel);
     if (v != null) {
@@ -422,4 +445,38 @@ class SearchPanels {
       ),
     );
   }
+}
+
+// Cached filtered rows for one channel. Keyed on the inputs visibleMessages
+// reads; a full match skips the re-filter.
+class _SearchCache {
+  const _SearchCache({
+    required this.query,
+    required this.scope,
+    required this.display,
+    required this.live,
+    required this.version,
+    required this.frozen,
+    required this.rows,
+  });
+
+  final String query;
+  final ChatSearchScope scope;
+  final ChatSearchDisplay display;
+  final ChatSearchLive live;
+  final int version;
+  final List<TwitchMessage>? frozen;
+  final List<TwitchMessage> rows;
+
+  bool matches({
+    required ChatSearchFilter filter,
+    required int version,
+    required List<TwitchMessage>? frozen,
+  }) =>
+      query == filter.query &&
+      scope == filter.scope &&
+      display == filter.display &&
+      live == filter.live &&
+      this.version == version &&
+      identical(this.frozen, frozen);
 }

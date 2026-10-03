@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:linkify/linkify.dart';
+import 'package:ermchat/chat/chat.dart';
 import 'package:ermchat/color_utils.dart';
 import 'package:ermchat/composer/suggestion.dart';
 import 'package:ermchat/models/twitch_badge.dart';
@@ -1167,6 +1168,44 @@ void main() {
         isTrue,
         reason: 'display names match case-insensitively',
       );
+    });
+
+    test('visibleMessages reflects a message inserted mid-search', () {
+      final chat = Chat();
+      chat.ensure('test');
+      TwitchMessage row(String text, String id) =>
+          TwitchMessage(login: 'bob', text: text, messageId: id);
+      chat.receive(
+        'test',
+        row('hello', '1'),
+        maxMessages: 100,
+        isSelected: true,
+        ownLogin: 'me',
+      );
+      final search = SearchPanels(
+        chat: chat,
+        selectedChannel: () => 'test',
+        isMounted: () => true,
+        markDirty: () {},
+        showInput: () => false,
+        setShowInput: (_) {},
+        emoteSheetOpen: () => false,
+        closeEmoteSheet: () async {},
+        clearComposerSuggestions: () {},
+        composerFocusNode: FocusNode(),
+      );
+      search.open = true;
+      search.setQuery('test', 'hello');
+      expect(search.visibleMessages('test').length, 1);
+
+      chat.receive(
+        'test',
+        row('hello again', '2'),
+        maxMessages: 100,
+        isSelected: true,
+        ownLogin: 'me',
+      );
+      expect(search.visibleMessages('test').length, 2);
     });
   });
 
