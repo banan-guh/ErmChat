@@ -17,7 +17,7 @@ Picked for a mobile chat client from Chatterino, DankChat, Chatsen, Frosty, Lime
 - [ ] **Hide bots and `!command` lines** - filter toggle, big help in busy channels on a small screen.
 - [ ] **Local nicknames + user notes** - set from the user card; notes mostly for mods. (Chatterino, Chatty)
 - [ ] **Pronouns** - show from the community pronoun service in the user card / chat. (Chatterino, Chatty)
-- [ ] **Settings search**
+- [+] **Settings search**
 - [ ] **Followed + live quick-join** - list followed channels that are live, one tap to join. Helix `streams/followed` with the existing token. Most mobile-native gap; 1.0 headliner candidate.
 - [ ] **Link previews** - title + thumbnail cards for links. Opt-in: fetching previews hits the linked site from the user's IP.
 - [ ] **In-app changelog** - "What's new" sheet once after an update, reopenable from About. Bundle one changelog file per release (offline, matches the installed build); CI can feed the same text to F-Droid `fastlane/metadata/android/en-US/changelogs`, TestFlight "What to test", Play, and the GitHub release.
