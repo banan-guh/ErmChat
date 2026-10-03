@@ -173,7 +173,16 @@ class _ChatBodyState extends State<ChatBody>
   final _chromeKey = GlobalKey();
   final _composerKey = GlobalKey();
   ui.Image? _frozenImage;
-  Timer? _releaseTimer;
+  // Frees the snapshot once the surfaces' fade back to live glass is done.
+  // Frame-timed like that fade, so a stall in frames (app hidden) cannot
+  // dispose an image a surface still paints.
+  late final _release =
+      AnimationController(
+        vsync: this,
+        duration: const Duration(milliseconds: 400),
+      )..addStatusListener((s) {
+        if (s == AnimationStatus.completed) _releaseFrozen();
+      });
   double _learnedH = 0;
   double _persistedH = 0;
   Timer? _settleTimer;
@@ -228,7 +237,7 @@ class _ChatBodyState extends State<ChatBody>
     WidgetsBinding.instance.removeObserver(this);
     _settleTimer?.cancel();
     _pillHideTimer?.cancel();
-    _releaseTimer?.cancel();
+    _release.dispose();
     _frozenImage?.dispose();
     _glassFreeze.dispose();
     _bottomPad.dispose();
@@ -244,7 +253,7 @@ class _ChatBodyState extends State<ChatBody>
     _rawH = raw;
     if (raw > 0.5) _keyboardEngaged = true;
     _settleTimer?.cancel();
-    _freezeGlass();
+    if (widget.liquidGlass) _freezeGlass();
     if (raw <= 0.5) {
       if (_liftH != 0) setState(() => _liftH = 0);
     } else if (wasClosed) {
@@ -256,8 +265,7 @@ class _ChatBodyState extends State<ChatBody>
     _settleTimer = Timer(const Duration(milliseconds: 120), () {
       if (!mounted) return;
       _glassFreeze.value = null;
-      // Outlives the surfaces' fade back to live glass.
-      _releaseTimer = Timer(const Duration(milliseconds: 400), _releaseFrozen);
+      if (_frozenImage != null) _release.forward(from: 0);
       // Unfocusing mid-animation races the IME and the next open overshoots,
       // so it waits for the close to settle; a reopen cancels it.
       if (_rawH <= 0.5) {
@@ -281,7 +289,7 @@ class _ChatBodyState extends State<ChatBody>
   // snapshot, so a new gesture picks up exactly what is on screen.
   void _freezeGlass() {
     if (_glassFreeze.value != null) return;
-    _releaseTimer?.cancel();
+    _release.stop();
     final boundary =
         _chromeKey.currentContext?.findRenderObject() as RenderRepaintBoundary?;
     if (boundary == null || !boundary.hasSize) return;
