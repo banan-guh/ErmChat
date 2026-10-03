@@ -76,8 +76,8 @@ Skipped from the survey: emoji picker (the keyboard has one), follow/unfollow, p
 - [ ] **Extra search feats** - words to filter search
 - [ ] **Badge info**
 - [ ] **Bug reports via Discord/GitHub login** - replace the report-server flow, which doesn't work.
-- [ ] **Friendly errors and sign-in retry** - cancelled login needs a restart; errors show codes, not what to do.
-- [ ] **Highlights row controls** - bell and switch sit side by side with nothing saying which does what.
+- [+] **Friendly errors and sign-in retry** - cancelled login needs a restart; errors show codes, not what to do.
+- [+] **Highlights row controls** - bell and switch sit side by side with nothing saying which does what.
 - [ ] **Channel emote picker layout** - organize channel emotes like the global ones.
 
 ## Old backlog (Sep 18, unverified; some may already be fixed)

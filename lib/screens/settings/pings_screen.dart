@@ -86,17 +86,10 @@ class _PingsScreenState extends ConsumerState<PingsScreen> {
     widget.onBackgroundServiceChanged?.call(true);
   }
 
-  /// Turning a bell on while push is off turns push on too: the user just
-  /// asked to be notified, so a second switch elsewhere would be a trap.
+  /// Saving a notifying rule while push is off turns push on too: the user
+  /// just asked to be notified, so a second switch elsewhere would be a trap.
   void _ensurePush() {
     if (!ref.read(mentionPushProvider)) _setPush(true);
-  }
-
-  void _toggleBell(PingRule rule) {
-    final on = !rule.notify;
-    _manager.upsertRule(rule.copyWith(notify: on));
-    _manager.save();
-    if (on) _ensurePush();
   }
 
   Future<void> _edit(PingRule rule, {bool isNew = false}) async {
@@ -171,9 +164,7 @@ class _PingsScreenState extends ConsumerState<PingsScreen> {
 
   Widget _tile(PingRule r, bool pushOn) => _RuleTile(
     rule: r,
-    bell: _pushSupported && _canNotify(r)
-        ? (pushOn: pushOn, onTap: _toggleBell)
-        : null,
+    pushOn: _pushSupported && _canNotify(r) ? pushOn : null,
     onTap: () => _edit(r),
   );
 
@@ -446,22 +437,24 @@ class _AddTile extends StatelessWidget {
   }
 }
 
-/// One rule: tint swatch, name, what it catches, then bell and on/off.
+/// One rule: tint swatch, name (with a bell when it notifies), on/off. The
+/// switch is the only control; notifying is set in the rule's editor.
 class _RuleTile extends ConsumerWidget {
-  const _RuleTile({required this.rule, required this.onTap, this.bell});
+  const _RuleTile({required this.rule, required this.onTap, this.pushOn});
 
   final PingRule rule;
   final VoidCallback onTap;
 
-  /// Null hides the bell (tint-only rules, or no push on this platform).
-  final ({bool pushOn, void Function(PingRule) onTap})? bell;
+  /// Null hides the bell (tint-only rules, or no push on this platform);
+  /// false dims it because notifications are switched off.
+  final bool? pushOn;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final scheme = Theme.of(context).colorScheme;
     final muted = rule.kind == PingRuleKind.blacklist;
     final subtitle = _ruleSubtitle(rule);
-    final bell = this.bell;
+    final pushOn = this.pushOn;
     return ListTile(
       leading: SizedBox(
         width: 28,
@@ -479,31 +472,28 @@ class _RuleTile extends ConsumerWidget {
                 ),
               ),
       ),
-      title: Text(_ruleTitle(rule)),
-      subtitle: subtitle == null ? null : Text(subtitle),
-      trailing: Row(
-        mainAxisSize: MainAxisSize.min,
+      title: Row(
         children: [
-          if (bell != null)
-            IconButton(
-              tooltip: rule.notify ? 'Notifications on' : 'Notifications off',
-              isSelected: rule.notify,
-              icon: const Icon(Icons.notifications_none),
-              selectedIcon: Icon(
-                Icons.notifications_active,
-                color: bell.pushOn ? scheme.primary : scheme.onSurfaceVariant,
-              ),
-              onPressed: () => bell.onTap(rule),
+          Flexible(child: Text(_ruleTitle(rule))),
+          if (pushOn != null && rule.notify) ...[
+            const SizedBox(width: 6),
+            Icon(
+              Icons.notifications_active,
+              size: 16,
+              semanticLabel: 'Notifies',
+              color: pushOn ? scheme.primary : scheme.onSurfaceVariant,
             ),
-          Switch(
-            value: rule.enabled,
-            onChanged: (v) {
-              final manager = ref.read(pingManagerProvider);
-              manager.upsertRule(rule.copyWith(enabled: v));
-              manager.save();
-            },
-          ),
+          ],
         ],
+      ),
+      subtitle: subtitle == null ? null : Text(subtitle),
+      trailing: Switch(
+        value: rule.enabled,
+        onChanged: (v) {
+          final manager = ref.read(pingManagerProvider);
+          manager.upsertRule(rule.copyWith(enabled: v));
+          manager.save();
+        },
       ),
       onTap: onTap,
     );
