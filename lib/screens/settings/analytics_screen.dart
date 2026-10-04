@@ -165,7 +165,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
       body: Column(
         children: [
           SwitchListTile(
-            title: const Text('Track chat stats'),
+            title: const Text('Track chat stats (local)'),
             subtitle: const Text(
               'Counts chatters, emotes and words. Stays on this device for '
               '24 hours.',
