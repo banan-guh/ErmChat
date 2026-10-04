@@ -35,6 +35,7 @@ Skipped from the survey: emoji picker (the keyboard has one), follow/unfollow, p
 ## Medium Priority
 
 - [ ] **Documentation** - architecture, data flow, key design decisions, non-obvious logic.
+- [ ] **Service status screen** - which of Twitch, 7TV, BTTV, FFZ is down, or whether it's your connection.
 - [*] **Update AGENTS.md periodically** - not a checklist, just a chore, reminder.
 
 ## Bugs
