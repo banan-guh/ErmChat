@@ -74,7 +74,7 @@ class _PingsScreenState extends ConsumerState<PingsScreen> {
   void _scheduleResumeRebuild() {
     _resumeTimer?.cancel();
     final until = ref.read(notificationPauseProvider);
-    if (until == null || until == NotificationPauseNotifier.forever) return;
+    if (until == null) return;
     final left = until.difference(DateTime.now());
     if (left.isNegative) return;
     _resumeTimer = Timer(left, () {
@@ -157,8 +157,11 @@ class _PingsScreenState extends ConsumerState<PingsScreen> {
   @override
   Widget build(BuildContext context) {
     final manager = ref.watch(pingManagerProvider);
+    final pushOn = ref.watch(mentionPushProvider);
     ref.watch(notificationPauseProvider);
-    final paused = ref.read(notificationPauseProvider.notifier).paused;
+    final muted = ref.read(notificationPauseProvider.notifier).paused;
+    // Rules keep their notify setting; the bells show it's silenced.
+    final paused = !pushOn || muted;
     return SettingsPage(
       title: const Text('Highlights'),
       body: ListenableBuilder(
@@ -171,8 +174,8 @@ class _PingsScreenState extends ConsumerState<PingsScreen> {
           return ListView(
             padding: const EdgeInsets.only(bottom: 32),
             children: [
-              if (_pushSupported) _pauseTile(paused),
-              ..._mentionSection(rules, paused),
+              if (_pushSupported) _notificationsTile(pushOn, muted),
+              ..._mentionSection(rules, paused, pushOn),
               ..._listSection(rules, paused, PingRuleKind.message),
               ..._listSection(rules, paused, PingRuleKind.user),
               ..._eventSection(rules),
@@ -185,72 +188,75 @@ class _PingsScreenState extends ConsumerState<PingsScreen> {
     );
   }
 
-  /// Silences every notifying rule and whispers for a while without
-  /// changing them.
-  Widget _pauseTile(bool paused) {
+  /// Master switch for rule and whisper notifications, plus a moon that
+  /// mutes them for a while. Neither changes the rules.
+  Widget _notificationsTile(bool pushOn, bool muted) {
     final pause = ref.read(notificationPauseProvider.notifier);
     final until = ref.read(notificationPauseProvider);
-    if (!paused || until == null) {
-      return SettingAnchor(
-        Setting.pauseNotifications,
-        child: ListTile(
+    final scheme = Theme.of(context).colorScheme;
+    final showMute = pushOn && muted && until != null;
+    String? subtitle;
+    if (showMute) {
+      final time = MaterialLocalizations.of(
+        context,
+      ).formatTimeOfDay(TimeOfDay.fromDateTime(until.toLocal()));
+      subtitle = 'Muted until $time';
+    }
+    return SettingAnchor(
+      Setting.notifications,
+      child: _blockedTap(
+        _keepAlive ? null : _keepAliveSnack,
+        ListTile(
+          enabled: _keepAlive,
           leading: const SizedBox(
             width: 28,
-            child: Icon(Icons.notifications_paused_outlined),
+            child: Icon(Icons.notifications_outlined),
           ),
-          title: Text(Setting.pauseNotifications.title),
-          onTap: _pickPause,
-        ),
-      );
-    }
-    final time = MaterialLocalizations.of(
-      context,
-    ).formatTimeOfDay(TimeOfDay.fromDateTime(until.toLocal()));
-    return SettingAnchor(
-      Setting.pauseNotifications,
-      child: ListTile(
-        leading: SizedBox(
-          width: 28,
-          child: Icon(
-            Icons.notifications_paused,
-            color: Theme.of(context).colorScheme.primary,
+          title: Text(Setting.notifications.title),
+          subtitle: subtitle == null ? null : Text(subtitle),
+          onTap: () => _setPush(!pushOn),
+          trailing: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              IconButton(
+                tooltip: showMute ? 'Unmute' : 'Mute for a while',
+                isSelected: showMute,
+                icon: const Icon(Icons.bedtime_outlined),
+                selectedIcon: Icon(Icons.bedtime, color: scheme.primary),
+                onPressed: !_keepAlive || !pushOn
+                    ? null
+                    : showMute
+                    ? pause.resume
+                    : _pickMute,
+              ),
+              Switch(value: pushOn, onChanged: _keepAlive ? _setPush : null),
+            ],
           ),
-        ),
-        title: const Text('Notifications paused'),
-        subtitle: Text(
-          until == NotificationPauseNotifier.forever
-              ? 'Until you resume'
-              : 'Until $time',
-        ),
-        trailing: TextButton(
-          onPressed: pause.resume,
-          child: const Text('Resume'),
         ),
       ),
     );
   }
 
-  Future<void> _pickPause() async {
-    const choices = <(String, Duration?)>[
+  Future<void> _pickMute() async {
+    const choices = <(String, Duration)>[
       ('1 hour', Duration(hours: 1)),
       ('8 hours', Duration(hours: 8)),
-      ('Until I resume', null),
     ];
-    final picked = await showDialog<(String, Duration?)>(
+    final picked = await showDialog<Duration>(
       context: context,
       builder: (ctx) => SimpleDialog(
-        title: Text(Setting.pauseNotifications.title),
+        title: const Text('Mute notifications'),
         children: [
-          for (final c in choices)
+          for (final (label, duration) in choices)
             SimpleDialogOption(
-              onPressed: () => Navigator.pop(ctx, c),
-              child: Text(c.$1),
+              onPressed: () => Navigator.pop(ctx, duration),
+              child: Text(label),
             ),
         ],
       ),
     );
     if (picked == null) return;
-    ref.read(notificationPauseProvider.notifier).pauseFor(picked.$2);
+    ref.read(notificationPauseProvider.notifier).pauseFor(picked);
     _scheduleResumeRebuild();
   }
 
@@ -280,6 +286,18 @@ class _PingsScreenState extends ConsumerState<PingsScreen> {
       ),
     );
 
+  void _masterOffSnack() => ScaffoldMessenger.of(context)
+    ..hideCurrentSnackBar()
+    ..showSnackBar(
+      SnackBar(
+        content: const Text('Notifications are off'),
+        action: SnackBarAction(
+          label: 'Turn on',
+          onPressed: () => _setPush(true),
+        ),
+      ),
+    );
+
   /// Wraps a greyed tile so a tap explains what to turn on; a null
   /// [onBlocked] leaves the tile as is.
   Widget _blockedTap(VoidCallback? onBlocked, Widget tile) {
@@ -291,7 +309,11 @@ class _PingsScreenState extends ConsumerState<PingsScreen> {
     );
   }
 
-  List<Widget> _mentionSection(List<PingRule> rules, bool paused) => [
+  List<Widget> _mentionSection(
+    List<PingRule> rules,
+    bool paused,
+    bool pushOn,
+  ) => [
     const SettingsSectionHeader('Mentions'),
     for (final type in const ['username', 'reply', 'thread'])
       ...rules
@@ -301,11 +323,15 @@ class _PingsScreenState extends ConsumerState<PingsScreen> {
       SettingAnchor(
         Setting.whisperPush,
         child: _blockedTap(
-          _keepAlive ? null : _keepAliveSnack,
+          !_keepAlive
+              ? _keepAliveSnack
+              : pushOn
+              ? null
+              : _masterOffSnack,
           PrefsSwitchTile(
             secondary: const Icon(Icons.mail_outline),
             title: Setting.whisperPush.title,
-            enabled: _keepAlive,
+            enabled: _keepAlive && pushOn,
             read: (p) => p.whisperNotifications,
             write: (p, v) => p.setWhisperNotifications(v),
             onChanged: widget.onWhisperNotifyChanged,
@@ -946,7 +972,7 @@ class _RuleEditorState extends State<_RuleEditor> {
   String get _levelName => _levels == 2
       ? (_level > 0 ? 'On' : 'Off')
       : _level == 2 && widget.paused
-      ? 'Highlight and notify (paused)'
+      ? 'Highlight and notify (muted)'
       : const ['Off', 'Highlight', 'Highlight and notify'][_level];
   bool get _isKeyword =>
       _rule.kind == PingRuleKind.message && _rule.type == 'custom';
@@ -1335,7 +1361,7 @@ class _LevelSwitchState extends State<_LevelSwitch> {
   String _nameOf(int level) => switch (level) {
     0 => 'Off',
     1 => 'Highlight',
-    _ => widget.paused ? 'Notify (paused)' : 'Notify',
+    _ => widget.paused ? 'Notify (muted)' : 'Notify',
   };
 
   @override
@@ -1373,8 +1399,10 @@ class _LevelSwitchState extends State<_LevelSwitch> {
       (dx / _width * _levels).floor().clamp(0, _levels - 1);
 
   /// Thumb center as a fraction of the track, for anchoring the bubble.
+  static const _inset = _pad + _border + (_thumb - 4) / 2;
+
   double _thumbAlign(int level) {
-    const inset = _pad + _border + (_thumb - 4) / 2;
+    const inset = _inset;
     final travel = _width - 2 * inset;
     final x = inset + (_levels == 1 ? 0 : level / (_levels - 1) * travel);
     return x / _width * 2 - 1;
@@ -1382,16 +1410,25 @@ class _LevelSwitchState extends State<_LevelSwitch> {
 
   Widget _bubbleBuilder(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    // Switches sit at the screen's right edge, so at the last stop the bubble
+    // grows leftward from the switch's edge instead of centering.
+    final last = _level == _levels - 1;
+    final anchor = last ? Alignment.bottomRight : Alignment.bottomCenter;
     return CompositedTransformFollower(
       link: _link,
-      targetAnchor: Alignment(_thumbAlign(_level), -1),
-      followerAnchor: Alignment.bottomCenter,
+      targetAnchor: last
+          ? Alignment.topRight
+          : Alignment(_thumbAlign(_level), -1),
+      followerAnchor: anchor,
       offset: const Offset(0, -2),
       child: Align(
-        alignment: Alignment.bottomCenter,
+        alignment: anchor,
         child: IgnorePointer(
           child: Column(
             mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: last
+                ? CrossAxisAlignment.end
+                : CrossAxisAlignment.center,
             children: [
               DecoratedBox(
                 decoration: BoxDecoration(
@@ -1411,9 +1448,13 @@ class _LevelSwitchState extends State<_LevelSwitch> {
                   ),
                 ),
               ),
-              CustomPaint(
-                size: const Size(10, 5),
-                painter: _TailPainter(scheme.inverseSurface),
+              Padding(
+                // Keeps the point under the thumb when right-aligned.
+                padding: EdgeInsets.only(right: last ? _inset - 5 : 0),
+                child: CustomPaint(
+                  size: const Size(10, 5),
+                  painter: _TailPainter(scheme.inverseSurface),
+                ),
               ),
             ],
           ),

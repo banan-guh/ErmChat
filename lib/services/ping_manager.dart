@@ -82,11 +82,6 @@ class PingManager extends ChangeNotifier {
       _rules = decodeRules(raw);
       _splitThreadRule();
     }
-    // Notifying turns mention push on, so with push off no rule may claim it.
-    if (!prefs.mentionPush && _rules.any((r) => r.notify)) {
-      _rules = [for (final r in _rules) r.copyWith(notify: false)];
-      await prefs.setPingRules(encodeRules(_rules));
-    }
     _regexCache.clear();
     _lowerPatternCache.clear();
     _loaded = true;

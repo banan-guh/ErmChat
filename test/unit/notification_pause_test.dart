@@ -4,8 +4,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
-  // A pause that never ends silences notifications for good, quietly.
-  test('a timed pause ends on its own; an open one waits for resume', () {
+  // A mute that never ends silences notifications for good, quietly.
+  test('a mute ends on its own or when unmuted', () {
     SharedPreferences.setMockInitialValues({});
     var now = DateTime.utc(2026, 10, 3, 22);
     final container = ProviderContainer(
@@ -24,11 +24,9 @@ void main() {
     now = now.add(const Duration(minutes: 1));
     expect(pause.paused, isFalse, reason: 'hour is up');
 
-    pause.pauseFor(null);
-    now = now.add(const Duration(days: 30));
-    expect(pause.paused, isTrue, reason: 'until resumed');
+    pause.pauseFor(const Duration(hours: 8));
     pause.resume();
-    expect(pause.paused, isFalse);
+    expect(pause.paused, isFalse, reason: 'unmuted early');
 
     final expired = now.subtract(const Duration(minutes: 1));
     pause.restore(expired.millisecondsSinceEpoch);

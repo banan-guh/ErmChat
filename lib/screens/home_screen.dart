@@ -781,7 +781,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   }
 
   void _maybeNotifyWhisper(TwitchMessage msg) {
-    if (!_whisperNotify || !ref.read(backgroundedProvider)) return;
+    // The Highlights master switch covers whispers too.
+    if (!_whisperNotify || !ref.read(mentionPushProvider)) return;
+    if (!ref.read(backgroundedProvider)) return;
     if (ref.read(notificationPauseProvider.notifier).paused) return;
     if (_notificationTapSub == null || _mentions.isWhispersTabActive) return;
     unawaited(

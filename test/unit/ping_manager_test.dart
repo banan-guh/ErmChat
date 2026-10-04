@@ -81,29 +81,6 @@ void main() {
       expect(decodeRules('{"id": "x"}'), isEmpty);
     });
 
-    test('saved notify flags only survive with mention push on', () async {
-      const saved =
-          '[{"id":"builtin_username","kind":"message","type":"username",'
-          '"enabled":true,"notify":true}]';
-      final off = await makeManager({'ping_rules_v1': saved});
-      expect(
-        off.rules.any((r) => r.notify),
-        isFalse,
-        reason: 'push was off, so these rules never notified',
-      );
-      final prefs = await SharedPreferences.getInstance();
-      expect(
-        prefs.getString('ping_rules_v1'),
-        isNot(contains('"notify":true')),
-      );
-
-      final on = await makeManager({
-        'ping_rules_v1': saved,
-        'mention_push': true,
-      });
-      expect(on.rules.first.notify, isTrue);
-    });
-
     test('rules saved with the removed regex flags still load', () async {
       final m = await makeManager({
         'ping_rules_v1':

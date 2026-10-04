@@ -332,11 +332,11 @@ class Setting {
   );
 
   // ── Highlights ──────────────────────────────────────────────────────
-  static const pauseNotifications = Setting(
-    'pause_notifications',
-    'Pause notifications',
+  static const notifications = Setting(
+    'notifications',
+    'Notifications',
     SettingsPageId.highlights,
-    keywords: 'notifications mute snooze do not disturb dnd',
+    keywords: 'push alert mute pause snooze do not disturb dnd',
     visible: _notIos,
   );
   static const whisperPush = Setting(
@@ -596,7 +596,7 @@ class Setting {
     giphyHeight,
     showImages,
     imageHeight,
-    pauseNotifications,
+    notifications,
     whisperPush,
     myUsername,
     repliesToMe,

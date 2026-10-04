@@ -123,16 +123,13 @@ final mentionPushProvider = NotifierProvider<MentionPushNotifier, bool>(
   MentionPushNotifier.new,
 );
 
-/// When paused notifications resume, or null when they aren't paused. Rules
-/// keep their notify setting; a pause only silences them.
+/// When muted notifications come back, or null when they aren't muted.
+/// Rules keep their notify setting; a mute only silences them.
 class NotificationPauseNotifier extends Notifier<DateTime?> {
   NotificationPauseNotifier({DateTime Function()? now})
     : _now = now ?? DateTime.now;
 
   final DateTime Function() _now;
-
-  /// Paused until the user resumes.
-  static final forever = DateTime.utc(9999);
 
   @override
   DateTime? build() => null;
@@ -142,8 +139,7 @@ class NotificationPauseNotifier extends Notifier<DateTime?> {
     return until != null && _now().isBefore(until);
   }
 
-  void pauseFor(Duration? duration) =>
-      _set(duration == null ? forever : _now().add(duration));
+  void pauseFor(Duration duration) => _set(_now().add(duration));
 
   void resume() => _set(null);
 
