@@ -5,7 +5,8 @@
 <h1 align="center">ErmChat</h1>
 
 <p align="center">
-  A Twitch chat app for Android and iOS.
+  A Twitch chat app for Android and iOS.<br>
+  <a href="https://ermchat.com">ermchat.com</a>
 </p>
 
 <p align="center">
