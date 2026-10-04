@@ -14,7 +14,7 @@
   <a href="LICENSE"><img src="https://img.shields.io/github/license/banan-guh/ErmChat" alt="License"></a>
   <a href="https://testflight.apple.com/join/NUUDJ5qY"><img src="https://img.shields.io/badge/iOS_beta-TestFlight-0D96F6" alt="iOS beta on TestFlight"></a>
   <a href="https://f-droid.org/"><img src="https://img.shields.io/badge/F--Droid-pending-lightgrey?logo=fdroid&logoColor=white" alt="F-Droid: pending"></a>
-  <a href="https://discord.gg/asWuEHW359"><img src="https://img.shields.io/badge/Discord-join-5865F2?logo=discord&logoColor=white" alt="Discord"></a>
+  <a href="https://discord.gg/ETUHUwTq25"><img src="https://img.shields.io/badge/Discord-join-5865F2?logo=discord&logoColor=white" alt="Discord"></a>
 </p>
 
 <p align="center">
@@ -92,7 +92,7 @@ ErmChat communicates directly with Twitch servers, and uses (anonymous) emote pr
 Any feedback, no matter what, is VERY much appreciated. You have multiple ways to give it:
 
 - Create an issue on GitHub (here), bugreport or feature request
-- Create an issue on [Discord](https://discord.gg/asWuEHW359), or even just send something in general
+- Create an issue on [Discord](https://discord.gg/ETUHUwTq25), or even just send something in general
 - Come to my twitch channel (not live, only chat) at #ermugo2 and tell me directly - join the channel in ermchat!
 - Send an email to kuhwalri.contact@gmail.com
 
