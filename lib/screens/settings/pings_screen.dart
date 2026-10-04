@@ -1232,12 +1232,11 @@ class _RuleEditorState extends State<_RuleEditor> {
     );
   }
 
-  /// One sample line run through the real matcher, so switching modes shows
-  /// exactly which part of it lights up.
+  /// One fixed sample line run through the real matcher, so switching modes
+  /// shows exactly which part of it lights up.
   Widget _matchExample(ThemeData theme) {
-    final t = _pattern.isEmpty ? 'pog' : _pattern;
-    final sample = '$t ${t}gers ${t}champ';
-    final re = PingManager.keywordRegExp(t, wholeWord: _wholeWord);
+    const sample = 'pog poggers pogchamp';
+    final re = PingManager.keywordRegExp('pog', wholeWord: _wholeWord);
     final scheme = theme.colorScheme;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
