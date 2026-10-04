@@ -18,6 +18,7 @@ import '../widgets/broadcast_widgets.dart';
 import '../widgets/chat_notice_bar.dart';
 import 'app_providers.dart';
 import 'chat_signals.dart';
+import 'emote_providers.dart';
 import 'ui_state_providers.dart';
 
 /// App-scope feature owners that screens consume instead of constructing.
@@ -101,6 +102,7 @@ final chatHistoryControllerProvider = Provider<ChatHistoryController>((ref) {
     recentMessagesLimit: () => ref.read(recentMessagesLimitProvider),
     isBlocked: (login) =>
         ref.read(blockedLoginsProvider).contains(login.toLowerCase()),
+    emoteReloading: ref.read(emoteSignalsProvider).busy,
   );
   ref.onDispose(controller.dispose);
   return controller;

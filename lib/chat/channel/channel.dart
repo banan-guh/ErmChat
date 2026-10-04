@@ -141,6 +141,13 @@ class Channel {
     resolve,
   ) => messages.restampPartialEmotes(resolve);
 
+  /// Heals every row after a manual emote reload. Same delegation as
+  /// [restampPartialEmotes].
+  int restampAllEmotes(
+    ({List<EmoteToken>? tokens, bool complete}) Function(TwitchMessage msg)
+    resolve,
+  ) => messages.restampAllEmotes(resolve);
+
   /// Heals the recent rows of senders whose personal emotes just landed.
   int restampSenderEmotes(
     Set<String> userIds,

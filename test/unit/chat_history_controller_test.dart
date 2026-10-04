@@ -10,6 +10,7 @@ import 'package:ermchat/services/ping_manager.dart';
 import 'package:ermchat/services/recent_messages.dart';
 import 'package:ermchat/services/twitch_badge_service.dart';
 import 'package:ermchat/services/user_store.dart';
+import 'package:ermchat/util/signal.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 Emote sevenTv(String id, String code) => Emote(
@@ -28,19 +29,23 @@ TwitchMessage historyRow(String id, String text) => TwitchMessage(
   isHistory: true,
 );
 
-ChatHistoryController _controller(Chat chat, EmoteManager emotes) =>
-    ChatHistoryController(
-      chat: chat,
-      session: Session(),
-      recentMessages: RecentMessagesService(),
-      ignoreManager: IgnoreManager(),
-      pingManager: PingManager(),
-      userStore: UserStore(),
-      emoteManager: emotes,
-      badgeService: TwitchBadgeService(),
-      maxMessages: () => 500,
-      recentMessagesLimit: () => 100,
-    );
+ChatHistoryController _controller(
+  Chat chat,
+  EmoteManager emotes, {
+  ChatSignal<bool>? emoteReloading,
+}) => ChatHistoryController(
+  chat: chat,
+  session: Session(),
+  recentMessages: RecentMessagesService(),
+  ignoreManager: IgnoreManager(),
+  pingManager: PingManager(),
+  userStore: UserStore(),
+  emoteManager: emotes,
+  badgeService: TwitchBadgeService(),
+  maxMessages: () => 500,
+  recentMessagesLimit: () => 100,
+  emoteReloading: emoteReloading,
+);
 
 void main() {
   test('mergeHistory does not resurrect a removed channel', () {
@@ -120,6 +125,43 @@ void main() {
     expect(healed.map((t) => t.emote!.code).toList(), ['Alpha']);
     expect(chat.channelFor('ch')!.messages.byId('live')!.emoteTokens, isEmpty);
     expect(early.emoteTokens!.map((t) => t.emote!.code).toList(), ['Alpha']);
+  });
+
+  // Rows baked "complete" while a provider was failing stayed bare after
+  // Reload emotes until a restart.
+  test('a manual reload heals rows baked complete', () {
+    final chat = Chat();
+    addTearDown(chat.dispose);
+    chat.ensure('ch');
+    final emotes = EmoteManager();
+    addTearDown(emotes.dispose);
+    final reloading = ChatSignal<bool>();
+    final controller = _controller(chat, emotes, emoteReloading: reloading);
+    addTearDown(controller.dispose);
+    final baked = TwitchMessage(
+      login: 'bob',
+      text: 'Alpha',
+      messageId: 'baked',
+      channel: 'ch',
+    )..emoteTokens = const [];
+    chat.receive(
+      'ch',
+      baked,
+      maxMessages: 500,
+      isSelected: true,
+      ownLogin: null,
+    );
+
+    reloading.emit(true);
+    emotes.store.seedChannelFromCache(
+      'ch',
+      EmoteCatalog(sevenTvChannel: [sevenTv('a', 'Alpha')]),
+      const [],
+    );
+    expect(baked.emoteTokens!.map((t) => t.emote!.code).toList(), [
+      'Alpha',
+    ], reason: 'each catalog landing mid-reload heals every row');
+    reloading.emit(false);
   });
 
   test('a personal set landing after its message heals that message', () async {

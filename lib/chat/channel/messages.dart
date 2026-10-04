@@ -255,6 +255,18 @@ class Messages {
     return tokens;
   });
 
+  /// Re-resolves every row, partial or not, for a manual emote reload: a row
+  /// baked "complete" can still lack emotes when a provider failed. Adds
+  /// emotes only, like [restampPartialEmotes].
+  int restampAllEmotes(
+    ({List<EmoteToken>? tokens, bool complete}) Function(TwitchMessage msg)
+    resolve,
+  ) => _restamp(_items, (msg) {
+    final (:tokens, :complete) = resolve(msg);
+    if (complete) msg.emotesPartial = false;
+    return tokens;
+  });
+
   /// Re-resolves the newest [window] rows sent by [userIds] after their
   /// personal emotes landed: the set often arrives just after the message
   /// that announced it (chatterino7 re-parses the sender's last message the

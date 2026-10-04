@@ -5,6 +5,7 @@ import '../client/session.dart';
 import '../emotes/emote.dart';
 import '../models/twitch_message.dart';
 import '../util/log.dart';
+import '../util/signal.dart';
 import 'emote_manager.dart';
 import 'emote_store.dart';
 import 'ignore_manager.dart';
@@ -30,6 +31,7 @@ class ChatHistoryController {
     required this.maxMessages,
     required this.recentMessagesLimit,
     this.isBlocked,
+    ChatSignal<bool>? emoteReloading,
   }) : _policy = ChatMessagePolicy(
          ignoreManager: ignoreManager,
          pingManager: pingManager,
@@ -39,6 +41,7 @@ class ChatHistoryController {
        ) {
     emoteManager.store.addListener(_onCatalogChanged);
     emoteManager.addPersonalSendersListener(_onPersonalSendersChanged);
+    _removeReloadListener = emoteReloading?.add(_onEmoteReloading);
   }
 
   final Chat chat;
@@ -60,6 +63,11 @@ class ChatHistoryController {
   /// changes; live 7TV deltas and config-only updates skip the bump, so
   /// comparing here keeps those off the restamp path by construction.
   int _restampedVersion = 0;
+
+  /// True while a manual emote reload runs: every catalog commit then heals
+  /// all rows, not just partial ones.
+  bool _healAll = false;
+  void Function()? _removeReloadListener;
 
   /// Merges robotty history into the channel buffer (newest-first). Single
   /// owner for the history checklist: ignore and block filters, user learning,
@@ -126,9 +134,11 @@ class ChatHistoryController {
   int restampChannelEmotes(String channel) {
     final channelState = chat.channelFor(channel);
     if (channelState == null) return 0;
-    return channelState.restampPartialEmotes(
-      (msg) => _parseForChannel(msg, channel),
-    );
+    ({List<EmoteToken>? tokens, bool complete}) resolve(TwitchMessage msg) =>
+        _parseForChannel(msg, channel);
+    return _healAll
+        ? channelState.restampAllEmotes(resolve)
+        : channelState.restampPartialEmotes(resolve);
   }
 
   /// Restamps every joined channel after a global catalog change.
@@ -153,6 +163,17 @@ class ChatHistoryController {
     }
   }
 
+  /// A manual reload heals every row as each catalog lands, then once more
+  /// when it ends, so rows baked while a provider was failing catch up.
+  void _onEmoteReloading(bool reloading) {
+    if (reloading) {
+      _healAll = true;
+      return;
+    }
+    restampAllChannels();
+    _healAll = false;
+  }
+
   /// Gives the recent rows of [twitchIds] the personal emotes that landed
   /// after their messages did.
   void _onPersonalSendersChanged(Set<String> twitchIds) {
@@ -170,6 +191,7 @@ class ChatHistoryController {
   void dispose() {
     emoteManager.store.removeListener(_onCatalogChanged);
     emoteManager.removePersonalSendersListener(_onPersonalSendersChanged);
+    _removeReloadListener?.call();
   }
 
   /// Retroactive mention scan, run once on login: evaluates ping rules against
