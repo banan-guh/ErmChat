@@ -714,9 +714,11 @@ class EmoteStore {
   /// Applies one global fetch at [epoch]. A stale epoch is dropped so an
   /// in-flight fetch that lands after an evict or forced reload cannot
   /// overwrite newer state.
-  bool commitGlobal(int epoch, GlobalEmoteFetch fetch) {
+  bool commitGlobal(int epoch, GlobalEmoteFetch fetch, {bool partial = false}) {
     if (epoch != _globalEpoch) return false;
-    _globalAttempted = true;
+    // One provider landing early shows its emotes without marking the
+    // catalog complete, or rows baked meanwhile would never heal.
+    if (!partial) _globalAttempted = true;
     if (fetch.byProvider.isEmpty) {
       // Nothing new: a retained catalog still counts as applied. Report
       // whether data is present so a no-op failure keeps the persisted cache.
@@ -756,7 +758,12 @@ class EmoteStore {
   /// in-flight fetch that lands after an evict or forced resolve cannot
   /// resurrect the channel. Missing providers keep their retained list; the
   /// stored subs and 7TV identity are preserved.
-  bool commitChannel(String channel, int epoch, ChannelEmoteFetch fetch) {
+  bool commitChannel(
+    String channel,
+    int epoch,
+    ChannelEmoteFetch fetch, {
+    bool partial = false,
+  }) {
     if (epoch != channelEpoch(channel)) return false;
     // No provider lists and no 7TV identity: keep the retained lists, skip the
     // freshness stamp and emit, and report a retained catalog so the caller
@@ -790,7 +797,8 @@ class EmoteStore {
       _subsByChannelCache = null;
     }
     _channelCatalogs[channel] = catalog;
-    if (fetch.byProvider.isNotEmpty) _channelLoaded.add(channel);
+    // Like commitGlobal: an early provider doesn't make the channel loaded.
+    if (fetch.byProvider.isNotEmpty && !partial) _channelLoaded.add(channel);
     // A fetched 7TV list is a full snapshot; deltas can now be stashed and
     // re-applied over later rebuilds.
     if (fetch.byProvider[EmoteType.sevenTv] != null) {

@@ -174,36 +174,50 @@ class EmoteFetcher {
   }
 
   /// Fetches every enabled global provider list plus the catalogue unlock ids.
-  Future<GlobalEmoteFetch> fetchAllGlobal() async {
+  /// [onProvider] gets each provider's list as it lands, so the caller can
+  /// show it before the slowest provider answers.
+  Future<GlobalEmoteFetch> fetchAllGlobal({
+    void Function(GlobalEmoteFetch landed)? onProvider,
+  }) async {
     final results = <EmoteType, List<Emote>>{};
     var unlockIds = const <String>{};
+    void landed(EmoteType type, List<Emote> emotes) {
+      results[type] = emotes;
+      onProvider?.call(
+        GlobalEmoteFetch(
+          byProvider: {type: emotes},
+          twitchCatalogUnlockIds: type == EmoteType.twitch
+              ? unlockIds
+              : const {},
+        ),
+      );
+    }
+
     final providers = <EmoteType, Future<List<Emote>> Function()>{
       EmoteType.twitch: () async {
         if (!_isProviderEnabled(EmoteType.twitch)) return [];
         final twitch = await _fetchTwitchGlobal();
         unlockIds = twitch.unlockIds;
         // Empty fetch: keep the retained catalog list.
-        if (twitch.emotes.isNotEmpty) {
-          results[EmoteType.twitch] = twitch.emotes;
-        }
+        if (twitch.emotes.isNotEmpty) landed(EmoteType.twitch, twitch.emotes);
         return twitch.emotes;
       },
       EmoteType.bttv: () async {
         if (!_isProviderEnabled(EmoteType.bttv)) return [];
         final emotes = await BttvEmoteProvider.fetchGlobal();
-        if (emotes.isNotEmpty) results[EmoteType.bttv] = emotes;
+        if (emotes.isNotEmpty) landed(EmoteType.bttv, emotes);
         return emotes;
       },
       EmoteType.ffz: () async {
         if (!_isProviderEnabled(EmoteType.ffz)) return [];
         final emotes = await FfzEmoteProvider.fetchGlobal();
-        if (emotes.isNotEmpty) results[EmoteType.ffz] = emotes;
+        if (emotes.isNotEmpty) landed(EmoteType.ffz, emotes);
         return emotes;
       },
       EmoteType.sevenTv: () async {
         if (!_isProviderEnabled(EmoteType.sevenTv)) return [];
         final emotes = await _sevenTvGlobalFetcher();
-        if (emotes.isNotEmpty) results[EmoteType.sevenTv] = emotes;
+        if (emotes.isNotEmpty) landed(EmoteType.sevenTv, emotes);
         return emotes;
       },
     };
@@ -216,9 +230,12 @@ class EmoteFetcher {
   }
 
   /// Fetches every enabled channel provider list plus the 7TV identity.
+  /// [onProvider] gets each provider's list as it lands, like
+  /// [fetchAllGlobal].
   Future<ChannelEmoteFetch> fetchAllChannel(
     String? broadcasterId, {
     String? channelName,
+    void Function(ChannelEmoteFetch landed)? onProvider,
   }) async {
     if (broadcasterId == null) {
       // No broadcaster id: nothing to fetch; the commit keeps retained lists.
@@ -227,6 +244,17 @@ class EmoteFetcher {
     final results = <EmoteType, List<Emote>>{};
     String? sevenTvSetId;
     String? sevenTvUserId;
+    void landed(EmoteType type, List<Emote> emotes) {
+      results[type] = emotes;
+      onProvider?.call(
+        ChannelEmoteFetch(
+          byProvider: {type: emotes},
+          sevenTvSetId: type == EmoteType.sevenTv ? sevenTvSetId : null,
+          sevenTvUserId: type == EmoteType.sevenTv ? sevenTvUserId : null,
+        ),
+      );
+    }
+
     final providers = <EmoteType, Future<List<Emote>> Function()>{
       EmoteType.twitch: () async {
         if (!_isProviderEnabled(EmoteType.twitch)) return [];
@@ -238,19 +266,19 @@ class EmoteFetcher {
         final nonSub = fetched.where((e) => !isTwitchSub(e)).toList();
         // Empty fetch: keep the retained catalog entry so a silent non-200
         // cannot clobber it.
-        if (nonSub.isNotEmpty) results[EmoteType.twitch] = nonSub;
+        if (nonSub.isNotEmpty) landed(EmoteType.twitch, nonSub);
         return nonSub;
       },
       EmoteType.bttv: () async {
         if (!_isProviderEnabled(EmoteType.bttv)) return [];
         final emotes = await BttvEmoteProvider.fetchChannel(broadcasterId);
-        if (emotes.isNotEmpty) results[EmoteType.bttv] = emotes;
+        if (emotes.isNotEmpty) landed(EmoteType.bttv, emotes);
         return emotes;
       },
       EmoteType.ffz: () async {
         if (!_isProviderEnabled(EmoteType.ffz)) return [];
         final emotes = await FfzEmoteProvider.fetchChannel(broadcasterId);
-        if (emotes.isNotEmpty) results[EmoteType.ffz] = emotes;
+        if (emotes.isNotEmpty) landed(EmoteType.ffz, emotes);
         return emotes;
       },
       EmoteType.sevenTv: () async {
@@ -258,7 +286,7 @@ class EmoteFetcher {
         final resp = await _sevenTvChannelFetcher(broadcasterId);
         sevenTvSetId = resp.emoteSetId;
         sevenTvUserId = resp.userId;
-        if (resp.emotes.isNotEmpty) results[EmoteType.sevenTv] = resp.emotes;
+        if (resp.emotes.isNotEmpty) landed(EmoteType.sevenTv, resp.emotes);
         return resp.emotes;
       },
     };

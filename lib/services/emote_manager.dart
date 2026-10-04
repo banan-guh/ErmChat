@@ -672,7 +672,11 @@ class EmoteManager implements EmoteLookupSource {
       // fetch (429/5xx/timeout), without clobbering in-memory data.
       if (!_store.fillMissingGlobal(epoch, loaded.catalog!)) return;
     }
-    final fetch = await _fetcher.enqueue(_fetcher.fetchAllGlobal);
+    final fetch = await _fetcher.enqueue(
+      () => _fetcher.fetchAllGlobal(
+        onProvider: (landed) => _commitGlobal(epoch, landed, partial: true),
+      ),
+    );
     if (_commitGlobal(epoch, fetch)) {
       await _persistence.save('emotes5_global', _store.globalCatalog, ttl);
     }
@@ -723,7 +727,12 @@ class EmoteManager implements EmoteLookupSource {
         _store.fillMissingChannel(channel, loaded.catalog!);
       }
       final fetch = await _fetcher.enqueue(
-        () => _fetcher.fetchAllChannel(broadcasterId, channelName: channel),
+        () => _fetcher.fetchAllChannel(
+          broadcasterId,
+          channelName: channel,
+          onProvider: (landed) =>
+              _commitChannel(channel, epoch, landed, partial: true),
+        ),
       );
       if (_commitChannel(channel, epoch, fetch)) {
         await _saveChannel(channel, ttl, _now());
@@ -787,7 +796,12 @@ class EmoteManager implements EmoteLookupSource {
     // Nothing tier: render cached only.
     if (tier == EmoteFetchTier.nothing) return;
     final fetch = await _fetcher.enqueue(
-      () => _fetcher.fetchAllChannel(broadcasterId, channelName: channel),
+      () => _fetcher.fetchAllChannel(
+        broadcasterId,
+        channelName: channel,
+        onProvider: (landed) =>
+            _commitChannel(channel, epoch, landed, partial: true),
+      ),
     );
     if (_commitChannel(channel, epoch, fetch)) {
       await _saveChannel(channel, ttl, _now());
@@ -824,7 +838,12 @@ class EmoteManager implements EmoteLookupSource {
   /// Applies one global fetch at [epoch]. A stale epoch is dropped so an
   /// in-flight fetch that lands after an evict or forced reload cannot
   /// overwrite newer state. Failed providers feed [takeFetchFailures].
-  bool _commitGlobal(int epoch, GlobalEmoteFetch fetch) {
+  /// [partial] is one provider landing early (see [EmoteStore.commitGlobal]).
+  bool _commitGlobal(
+    int epoch,
+    GlobalEmoteFetch fetch, {
+    bool partial = false,
+  }) {
     if (epoch != _store.globalEpoch) return false;
     for (final _ in fetch.failed) {
       _fetchFailures.add('global emotes');
@@ -832,19 +851,24 @@ class EmoteManager implements EmoteLookupSource {
     // Apply the account catalogue unlock ids here, not in the fetcher, so the
     // fetch stays pure.
     _twitchSets.applyCatalogUnlockIds(fetch.twitchCatalogUnlockIds);
-    return _store.commitGlobal(epoch, fetch);
+    return _store.commitGlobal(epoch, fetch, partial: partial);
   }
 
   /// Applies one channel fetch at [epoch]. A stale epoch is dropped so an
   /// in-flight fetch that lands after an evict or forced resolve cannot
   /// resurrect the channel. Missing providers keep their retained list; the
   /// stored subs and 7TV identity are preserved.
-  bool _commitChannel(String channel, int epoch, ChannelEmoteFetch fetch) {
+  bool _commitChannel(
+    String channel,
+    int epoch,
+    ChannelEmoteFetch fetch, {
+    bool partial = false,
+  }) {
     if (epoch != _store.channelEpoch(channel)) return false;
     for (final _ in fetch.failed) {
       _fetchFailures.add(channel);
     }
-    return _store.commitChannel(channel, epoch, fetch);
+    return _store.commitChannel(channel, epoch, fetch, partial: partial);
   }
 
   /// Reconciles the channel's 7TV set against the server. Used when a live

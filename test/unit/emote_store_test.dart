@@ -92,6 +92,25 @@ void main() {
     expect(changes.last.deltaCodes, isNull);
   });
 
+  // An early provider marking the catalog complete would freeze rows baked
+  // before the rest landed, and they would never heal.
+  test('an early provider shows emotes without completing the catalog', () {
+    final store = EmoteStore();
+    store.commitGlobal(store.globalEpoch, const GlobalEmoteFetch());
+    final early = ChannelEmoteFetch(
+      byProvider: {
+        EmoteType.bttv: [_emote('b', 'Bravo')],
+      },
+    );
+
+    store.commitChannel('ch', store.channelEpoch('ch'), early, partial: true);
+    expect(store.channelCatalog('ch'), isNotNull);
+    expect(store.catalogComplete('ch'), isFalse);
+
+    store.commitChannel('ch', store.channelEpoch('ch'), early);
+    expect(store.catalogComplete('ch'), isTrue);
+  });
+
   test('global commit resolves global emotes with no channel catalog', () {
     final store = EmoteStore();
 
