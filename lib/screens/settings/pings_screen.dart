@@ -3,6 +3,7 @@ import 'dart:math';
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show HapticFeedback;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../color_utils.dart' show highlightRowColor;
@@ -101,6 +102,8 @@ class _PingsScreenState extends ConsumerState<PingsScreen> {
       isNew: isNew,
       recent: _recentMessages(),
       opacity: _opacity,
+      keepAlive: _keepAlive,
+      onEnableKeepAlive: _enableKeepAlive,
     );
     if (!mounted || saved == null) return;
     if (saved.deleted) {
@@ -136,7 +139,6 @@ class _PingsScreenState extends ConsumerState<PingsScreen> {
   @override
   Widget build(BuildContext context) {
     final manager = ref.watch(pingManagerProvider);
-    final pushOn = ref.watch(mentionPushProvider);
     return SettingsPage(
       title: const Text('Highlights'),
       body: ListenableBuilder(
@@ -149,10 +151,9 @@ class _PingsScreenState extends ConsumerState<PingsScreen> {
           return ListView(
             padding: const EdgeInsets.only(bottom: 32),
             children: [
-              if (_pushSupported) ..._notificationSection(pushOn),
-              ..._mentionSection(rules, pushOn),
-              ..._listSection(rules, pushOn, PingRuleKind.message),
-              ..._listSection(rules, pushOn, PingRuleKind.user),
+              ..._mentionSection(rules),
+              ..._listSection(rules, PingRuleKind.message),
+              ..._listSection(rules, PingRuleKind.user),
               ..._eventSection(rules),
               ..._muteSection(rules),
               ..._appearanceSection(),
@@ -163,86 +164,63 @@ class _PingsScreenState extends ConsumerState<PingsScreen> {
     );
   }
 
-  Widget _tile(PingRule r, bool pushOn) => _RuleTile(
+  Widget _tile(PingRule r) => _RuleTile(
     rule: r,
-    pushOn: _pushSupported && _canNotify(r) ? pushOn : null,
-    onBell: () => _toggleBell(r),
-    notifyColumn: _pushSupported,
+    levels: _pushSupported && _canNotify(r) ? 3 : 2,
+    onLevel: (level) => _setLevel(r, level),
+    onBlocked: _keepAlive ? null : _keepAliveSnack,
     onTap: () => _edit(r),
   );
 
-  void _toggleBell(PingRule rule) {
-    final on = !rule.notify;
-    _manager.upsertRule(rule.copyWith(notify: on));
+  void _setLevel(PingRule rule, int level) {
+    _manager.upsertRule(_withLevel(rule, level));
     _manager.save();
-    if (on) _ensurePush();
+    if (level == 2) _ensurePush();
   }
 
-  List<Widget> _notificationSection(bool pushOn) => [
-    const SettingsSectionHeader('Notifications'),
-    SettingAnchor(
-      Setting.mentionPush,
-      child: _needsKeepAlive(
-        SwitchListTile(
-          secondary: const Icon(Icons.alternate_email),
-          title: Text(Setting.mentionPush.title),
-          value: pushOn,
-          onChanged: _keepAlive ? _setPush : null,
-        ),
-      ),
-    ),
-    SettingAnchor(
-      Setting.whisperPush,
-      child: _needsKeepAlive(
-        PrefsSwitchTile(
-          secondary: const Icon(Icons.mail_outline),
-          title: Setting.whisperPush.title,
-          enabled: _keepAlive,
-          read: (p) => p.whisperNotifications,
-          write: (p, v) => p.setWhisperNotifications(v),
-          onChanged: widget.onWhisperNotifyChanged,
-        ),
-      ),
-    ),
-  ];
-
   /// Notifications only arrive while the background connection runs, so
-  /// without it the toggles are greyed and a tap says what to turn on.
+  /// without it notifying controls are greyed and a tap says what to turn on.
+  void _keepAliveSnack() => ScaffoldMessenger.of(context)
+    ..hideCurrentSnackBar()
+    ..showSnackBar(
+      SnackBar(
+        content: const Text('Notifications need Stay connected in background'),
+        action: SnackBarAction(label: 'Turn on', onPressed: _enableKeepAlive),
+      ),
+    );
+
   Widget _needsKeepAlive(Widget tile) {
     if (_keepAlive) return tile;
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
-      onTap: () => ScaffoldMessenger.of(context)
-        ..hideCurrentSnackBar()
-        ..showSnackBar(
-          SnackBar(
-            content: const Text(
-              'Notifications need Stay connected in background',
-            ),
-            action: SnackBarAction(
-              label: 'Turn on',
-              onPressed: _enableKeepAlive,
-            ),
-          ),
-        ),
+      onTap: _keepAliveSnack,
       child: tile,
     );
   }
 
-  List<Widget> _mentionSection(List<PingRule> rules, bool pushOn) => [
+  List<Widget> _mentionSection(List<PingRule> rules) => [
     const SettingsSectionHeader('Mentions'),
-    _ColumnLabels(notify: _pushSupported),
     for (final type in const ['username', 'reply', 'thread'])
       ...rules
           .where((r) => r.kind == PingRuleKind.message && r.type == type)
-          .map((r) => _tile(r, pushOn)),
+          .map(_tile),
+    if (_pushSupported)
+      SettingAnchor(
+        Setting.whisperPush,
+        child: _needsKeepAlive(
+          PrefsSwitchTile(
+            secondary: const Icon(Icons.mail_outline),
+            title: Setting.whisperPush.title,
+            enabled: _keepAlive,
+            read: (p) => p.whisperNotifications,
+            write: (p, v) => p.setWhisperNotifications(v),
+            onChanged: widget.onWhisperNotifyChanged,
+          ),
+        ),
+      ),
   ];
 
-  List<Widget> _listSection(
-    List<PingRule> rules,
-    bool pushOn,
-    PingRuleKind kind,
-  ) {
+  List<Widget> _listSection(List<PingRule> rules, PingRuleKind kind) {
     final keywords = kind == PingRuleKind.message;
     return [
       SettingAnchor(
@@ -251,11 +229,10 @@ class _PingsScreenState extends ConsumerState<PingsScreen> {
           (keywords ? Setting.highlightKeywords : Setting.highlightUsers).title,
         ),
       ),
-      _ColumnLabels(notify: _pushSupported),
       for (final r in rules.where(
         (r) => r.kind == kind && (!keywords || r.type == 'custom'),
       ))
-        _tile(r, pushOn),
+        _tile(r),
       _AddTile(
         keywords ? 'Add keyword' : 'Add user',
         onTap: () => _edit(
@@ -276,7 +253,7 @@ class _PingsScreenState extends ConsumerState<PingsScreen> {
       for (final type in const ['firstMsg', 'redemption', 'elevated'])
         ...rules
             .where((r) => r.kind == PingRuleKind.message && r.type == type)
-            .map((r) => _RuleTile(rule: r, onTap: () => _edit(r))),
+            .map(_tile),
       SettingAnchor(
         Setting.badges,
         child: ListTile(
@@ -305,9 +282,8 @@ class _PingsScreenState extends ConsumerState<PingsScreen> {
       child: SettingsSectionHeader(Setting.dontHighlight.title),
     ),
     const _Caption('Shown, but never highlighted or notified.'),
-    const _ColumnLabels(notify: false),
     for (final r in rules.where((r) => r.kind == PingRuleKind.blacklist))
-      _RuleTile(rule: r, onTap: () => _edit(r)),
+      _tile(r),
     _AddTile(
       'Add user',
       onTap: () => _edit(
@@ -477,34 +453,31 @@ class _AddTile extends StatelessWidget {
   }
 }
 
-/// One rule: tint swatch, name (with a bell when it notifies), on/off. The
-/// switch is the only control; notifying is set in the rule's editor.
+/// One rule: color swatch, name, and a level switch. Tapping opens the editor.
 class _RuleTile extends ConsumerWidget {
   const _RuleTile({
     required this.rule,
     required this.onTap,
-    this.pushOn,
-    this.onBell,
-    this.notifyColumn = false,
+    this.levels = 2,
+    this.onLevel,
+    this.onBlocked,
   });
 
   final PingRule rule;
   final VoidCallback onTap;
 
-  /// Null hides the bell (tint-only rules, or no push on this platform);
-  /// false dims it because notifications are switched off.
-  final bool? pushOn;
-  final VoidCallback? onBell;
+  /// 3 adds the notify stop; see [_LevelSwitch].
+  final int levels;
 
-  /// The section labels a Notify column, so rows keep its slot aligned.
-  final bool notifyColumn;
+  /// Null writes plain on/off straight to the manager.
+  final ValueChanged<int>? onLevel;
+  final VoidCallback? onBlocked;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final scheme = Theme.of(context).colorScheme;
     final muted = rule.kind == PingRuleKind.blacklist;
     final subtitle = _ruleSubtitle(rule);
-    final pushOn = this.pushOn;
     // An off rule greys everything but its switch.
     final dim = rule.enabled ? 1.0 : 0.38;
     final tile = ListTile(
@@ -531,34 +504,20 @@ class _RuleTile extends ConsumerWidget {
       subtitle: subtitle == null
           ? null
           : Opacity(opacity: dim, child: Text(subtitle)),
-      trailing: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          if (notifyColumn)
-            SizedBox(
-              width: 48,
-              child: pushOn == null
-                  ? null
-                  : IconButton(
-                      tooltip: 'Notify',
-                      isSelected: rule.notify,
-                      icon: const Icon(Icons.notifications_none),
-                      selectedIcon: Icon(
-                        Icons.notifications_active,
-                        color: pushOn ? scheme.primary : null,
-                      ),
-                      onPressed: rule.enabled ? onBell : null,
-                    ),
-            ),
-          Switch(
-            value: rule.enabled,
-            onChanged: (v) {
+      trailing: _LevelSwitch(
+        level: min(_levelOf(rule), levels - 1),
+        levels: levels,
+        color: muted
+            ? scheme.primary
+            : _ruleTint(context, rule, rule.colorArgb, 1),
+        onBlocked: onBlocked,
+        onChanged:
+            onLevel ??
+            (level) {
               final manager = ref.read(pingManagerProvider);
-              manager.upsertRule(rule.copyWith(enabled: v));
+              manager.upsertRule(rule.copyWith(enabled: level > 0));
               manager.save();
             },
-          ),
-        ],
       ),
       onTap: onTap,
     );
@@ -692,11 +651,25 @@ bool _isListRule(PingRule rule) =>
     rule.kind == PingRuleKind.user ||
     (rule.kind == PingRuleKind.message && rule.type == 'custom');
 
-/// Mention-tier rules may notify; list rules only while not tint-only.
-bool _canNotify(PingRule rule) => _isListRule(rule)
-    ? rule.mention
-    : rule.kind == PingRuleKind.message &&
-          const {'username', 'reply', 'thread'}.contains(rule.type);
+/// Mention-tier builtins and list rules may notify.
+bool _canNotify(PingRule rule) =>
+    _isListRule(rule) ||
+    rule.kind == PingRuleKind.message &&
+        const {'username', 'reply', 'thread'}.contains(rule.type);
+
+/// 0 off, 1 highlight, 2 highlight and notify.
+int _levelOf(PingRule rule) => !rule.enabled
+    ? 0
+    : rule.notify && rule.mention
+    ? 2
+    : 1;
+
+/// Notifying needs the message in @mentions, so level 2 adds it.
+PingRule _withLevel(PingRule rule, int level) => rule.copyWith(
+  enabled: level > 0,
+  notify: level == 2,
+  mention: level == 2 || rule.mention,
+);
 
 typedef _Saved = ({PingRule rule, bool deleted});
 
@@ -709,6 +682,8 @@ Future<_Saved?> _editRule(
   bool isNew = false,
   required List<TwitchMessage> recent,
   required double opacity,
+  bool keepAlive = true,
+  VoidCallback? onEnableKeepAlive,
 }) async {
   // Typing gets a full page so the keyboard never covers the form; the rest
   // fit a sheet.
@@ -730,6 +705,8 @@ Future<_Saved?> _editRule(
     recent: recent,
     opacity: opacity,
     sheet: !typed,
+    keepAlive: keepAlive,
+    onEnableKeepAlive: onEnableKeepAlive,
     onLiveChange: isNew
         ? null
         : (r) {
@@ -799,9 +776,6 @@ class _EditResult {
   final bool delete;
 }
 
-/// How far a keyword or user rule reaches.
-enum _Effect { tint, mention, notify }
-
 /// Rule editor, as a page or a sheet. Owns its TextEditingController and
 /// disposes it in [dispose], which only runs after the route has fully exited.
 class _RuleEditor extends StatefulWidget {
@@ -811,6 +785,8 @@ class _RuleEditor extends StatefulWidget {
     required this.recent,
     required this.opacity,
     required this.sheet,
+    this.keepAlive = true,
+    this.onEnableKeepAlive,
     this.onLiveChange,
   });
 
@@ -821,6 +797,11 @@ class _RuleEditor extends StatefulWidget {
 
   /// Bottom-sheet chrome instead of a full page.
   final bool sheet;
+
+  /// Notifications need Stay connected in background; without it the
+  /// notify stop explains that instead of switching.
+  final bool keepAlive;
+  final VoidCallback? onEnableKeepAlive;
 
   /// Set when editing an existing rule: every change persists at once, so
   /// there is no Save. New rules still need Add to be created.
@@ -847,16 +828,17 @@ class _RuleEditorState extends State<_RuleEditor> {
 
   late final _patternCtrl = TextEditingController(text: widget.rule.pattern);
   late bool _wholeWord = widget.rule.wordBoundary;
-  late bool _notify = widget.rule.notify;
-  late bool _enabled = widget.rule.enabled;
-  late _Effect _effect = !widget.rule.mention
-      ? _Effect.tint
-      : widget.rule.notify && _pushSupported
-      ? _Effect.notify
-      : _Effect.mention;
+  late int _level = min(_levelOf(widget.rule), _levels - 1);
+  late bool _mention = widget.rule.mention;
+  late bool _keepAlive = widget.keepAlive;
+  bool _showKeepAlive = false;
   late int? _color = widget.rule.colorArgb;
 
   PingRule get _rule => widget.rule;
+  int get _levels => _pushSupported && _canNotify(_rule) ? 3 : 2;
+  String get _levelName => _levels == 2
+      ? (_level > 0 ? 'On' : 'Off')
+      : const ['Off', 'Highlight', 'Highlight and notify'][_level];
   bool get _isKeyword =>
       _rule.kind == PingRuleKind.message && _rule.type == 'custom';
   bool get _isUserList =>
@@ -908,16 +890,42 @@ class _RuleEditorState extends State<_RuleEditor> {
           ],
           if (description != null) Text(description, style: muted),
           // Same switch as the row's, named here so the row's is learnable.
-          SwitchListTile(
+          ListTile(
             contentPadding: EdgeInsets.zero,
-            title: Text(
-              _rule.kind == PingRuleKind.blacklist
-                  ? 'On'
-                  : 'Highlight these messages',
+            title: Text(_levelName),
+            trailing: _LevelSwitch(
+              level: _level,
+              levels: _levels,
+              color: _hasColor
+                  ? _ruleTint(context, _rule, _color, 1)
+                  : theme.colorScheme.primary,
+              onBlocked: _keepAlive
+                  ? null
+                  : () => setState(() => _showKeepAlive = true),
+              onChanged: (v) => _set(() => _level = v),
             ),
-            value: _enabled,
-            onChanged: (v) => _set(() => _enabled = v),
           ),
+          if (_showKeepAlive)
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'Notifications need Stay connected in background',
+                    style: muted,
+                  ),
+                ),
+                TextButton(
+                  onPressed: () {
+                    widget.onEnableKeepAlive?.call();
+                    setState(() {
+                      _keepAlive = true;
+                      _showKeepAlive = false;
+                    });
+                  },
+                  child: const Text('Turn on'),
+                ),
+              ],
+            ),
           const SizedBox(height: 8),
           if (_hasPattern)
             TextField(
@@ -949,39 +957,13 @@ class _RuleEditorState extends State<_RuleEditor> {
             _matchExample(theme),
           ],
           if (_isListRule(_rule)) ...[
-            const SizedBox(height: 20),
-            RadioGroup<_Effect>(
-              groupValue: _effect,
-              onChanged: (v) => _set(() => _effect = v ?? _effect),
-              child: Column(
-                children: [
-                  const RadioListTile(
-                    contentPadding: EdgeInsets.zero,
-                    value: _Effect.tint,
-                    title: Text('Highlight only'),
-                  ),
-                  const RadioListTile(
-                    contentPadding: EdgeInsets.zero,
-                    value: _Effect.mention,
-                    title: Text('Add to @mentions'),
-                  ),
-                  if (_pushSupported)
-                    const RadioListTile(
-                      contentPadding: EdgeInsets.zero,
-                      value: _Effect.notify,
-                      title: Text('Add to @mentions and notify'),
-                    ),
-                ],
-              ),
-            ),
-          ] else if (_pushSupported && _canNotify(_rule)) ...[
             const SizedBox(height: 16),
             SwitchListTile(
               contentPadding: EdgeInsets.zero,
-              secondary: const Icon(Icons.notifications_outlined),
-              title: const Text('Send a notification'),
-              value: _notify,
-              onChanged: (v) => _set(() => _notify = v),
+              title: const Text('Add to @mentions'),
+              value: _level == 2 || _mention,
+              // Notifying always adds to @mentions.
+              onChanged: _level == 2 ? null : (v) => _set(() => _mention = v),
             ),
           ],
           if (_hasColor) ...[
@@ -1172,9 +1154,9 @@ class _RuleEditorState extends State<_RuleEditor> {
     return _EditResult(
       pattern: _hasPattern ? _pattern : _rule.pattern,
       wholeWord: _wholeWord,
-      mention: listRule ? _effect != _Effect.tint : _rule.mention,
-      notify: listRule ? _effect == _Effect.notify : _notify,
-      enabled: _enabled,
+      mention: listRule ? _level == 2 || _mention : _rule.mention,
+      notify: _levels == 3 ? _level == 2 : _rule.notify,
+      enabled: _level > 0,
       colorArgb: _color,
     );
   }
@@ -1190,27 +1172,156 @@ class _RuleEditorState extends State<_RuleEditor> {
   void _save() => Navigator.pop(context, _result());
 }
 
-/// Small labels over a rule section's controls, aligned to the row's bell
-/// (48) and switch (60) slots and the row's 24px end padding.
-class _ColumnLabels extends StatelessWidget {
-  const _ColumnLabels({required this.notify});
+/// A switch with an optional third stop: off, highlight, and highlight and
+/// notify. Once on, the track takes the rule's color; the notify stop puts a
+/// bell in the thumb. Tap a stop or drag to it.
+class _LevelSwitch extends StatelessWidget {
+  const _LevelSwitch({
+    required this.level,
+    required this.levels,
+    required this.color,
+    required this.onChanged,
+    this.onBlocked,
+  });
 
-  final bool notify;
+  final int level;
+
+  /// 2 (off, on) or 3 (off, highlight, notify).
+  final int levels;
+  final Color color;
+  final ValueChanged<int> onChanged;
+
+  /// Set while notifying needs something else turned on first; picking the
+  /// notify stop calls this instead.
+  final VoidCallback? onBlocked;
+
+  static const _height = 32.0;
+  static const _pad = 4.0;
+  static const _thumb = 24.0;
+  static const _offThumb = 16.0;
+  static const _duration = Duration(milliseconds: 160);
+
+  double get _width => levels == 3 ? 84 : 52;
+
+  static const _names = ['Off', 'Highlight', 'Notify'];
+
+  void _pick(int next) {
+    next = next.clamp(0, levels - 1);
+    if (next == level) return;
+    if (next == 2 && onBlocked != null) {
+      onBlocked!();
+      return;
+    }
+    HapticFeedback.selectionClick();
+    onChanged(next);
+  }
+
+  int _stopAt(double dx) => (dx / _width * levels).floor().clamp(0, levels - 1);
 
   @override
   Widget build(BuildContext context) {
-    final style = Theme.of(context).textTheme.labelSmall?.copyWith(
-      color: Theme.of(context).colorScheme.onSurfaceVariant,
-    );
-    Widget label(String text, double width) => SizedBox(
-      width: width,
-      child: Text(text, style: style, textAlign: TextAlign.center),
-    );
-    return Padding(
-      padding: const EdgeInsetsDirectional.only(end: 24),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.end,
-        children: [if (notify) label('Notify', 48), label('On', 60)],
+    final scheme = Theme.of(context).colorScheme;
+    final on = level > 0;
+    final onDark =
+        ThemeData.estimateBrightnessForColor(color) == Brightness.dark;
+    final thumbColor = !on
+        ? scheme.outline
+        : onDark
+        ? Colors.white
+        : Colors.black87;
+    final thumbSize = on ? _thumb : _offThumb;
+    final x = levels == 1 ? 0.0 : level / (levels - 1) * 2 - 1;
+    return Semantics(
+      container: true,
+      slider: levels == 3,
+      toggled: levels == 2 ? on : null,
+      value: levels == 3 ? _names[level] : null,
+      increasedValue: level < levels - 1 && levels == 3
+          ? _names[level + 1]
+          : null,
+      decreasedValue: level > 0 && levels == 3 ? _names[level - 1] : null,
+      onIncrease: level < levels - 1 ? () => _pick(level + 1) : null,
+      onDecrease: level > 0 ? () => _pick(level - 1) : null,
+      onTap: levels == 2 ? () => _pick(on ? 0 : 1) : null,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        // Two stops toggle on any tap, like a plain switch.
+        onTapUp: (d) =>
+            _pick(levels == 2 ? (on ? 0 : 1) : _stopAt(d.localPosition.dx)),
+        onHorizontalDragUpdate: (d) => _pick(_stopAt(d.localPosition.dx)),
+        child: SizedBox(
+          width: _width,
+          height: 48,
+          child: Center(
+            child: AnimatedContainer(
+              duration: _duration,
+              width: _width,
+              height: _height,
+              padding: const EdgeInsets.all(_pad),
+              decoration: BoxDecoration(
+                color: on ? color : scheme.surfaceContainerHighest,
+                borderRadius: BorderRadius.circular(_height / 2),
+                border: Border.all(
+                  color: on ? color : scheme.outline,
+                  width: 2,
+                ),
+              ),
+              child: Stack(
+                children: [
+                  // Dots mark the stops the thumb isn't on.
+                  if (levels == 3)
+                    for (var i = 0; i < levels; i++)
+                      if (i != level)
+                        Align(
+                          alignment: Alignment(i / (levels - 1) * 2 - 1, 0),
+                          child: SizedBox(
+                            width: _thumb - 4,
+                            child: Center(
+                              child: Container(
+                                width: 4,
+                                height: 4,
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  color: thumbColor.withValues(alpha: 0.5),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                  AnimatedAlign(
+                    duration: _duration,
+                    curve: Curves.easeOutCubic,
+                    alignment: Alignment(x, 0),
+                    child: SizedBox(
+                      width: _thumb - 4,
+                      height: _thumb - 4,
+                      child: OverflowBox(
+                        maxWidth: _thumb,
+                        maxHeight: _thumb,
+                        child: AnimatedContainer(
+                          duration: _duration,
+                          width: thumbSize,
+                          height: thumbSize,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: thumbColor,
+                          ),
+                          child: level == 2
+                              ? Icon(
+                                  Icons.notifications_active,
+                                  size: 16,
+                                  color: color,
+                                )
+                              : null,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }

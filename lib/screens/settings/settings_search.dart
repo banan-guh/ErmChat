@@ -332,20 +332,12 @@ class Setting {
   );
 
   // ── Highlights ──────────────────────────────────────────────────────
-  static const mentionPush = Setting(
-    'mention_push',
-    'Mentions',
-    SettingsPageId.highlights,
-    section: 'Notifications',
-    keywords: 'notifications push ping alert',
-    visible: _notIos,
-  );
   static const whisperPush = Setting(
     'whisper_push',
-    'Whispers',
+    'Whisper notifications',
     SettingsPageId.highlights,
-    section: 'Notifications',
-    keywords: 'notifications push',
+    section: 'Mentions',
+    keywords: 'notify push dm',
     visible: _notIos,
   );
   static const myUsername = Setting(
@@ -353,7 +345,7 @@ class Setting {
     'My username',
     SettingsPageId.highlights,
     section: 'Mentions',
-    keywords: 'ping',
+    keywords: 'ping notify notifications push alert',
   );
   static const repliesToMe = Setting(
     'replies_to_me',
@@ -597,7 +589,6 @@ class Setting {
     giphyHeight,
     showImages,
     imageHeight,
-    mentionPush,
     whisperPush,
     myUsername,
     repliesToMe,
