@@ -9,7 +9,6 @@ import '../providers/chat_pipeline.dart';
 import '../providers/emote_providers.dart';
 import '../providers/feature_providers.dart';
 import '../providers/ui_state_providers.dart';
-import '../report_config.dart';
 import '../emotes/emote.dart';
 import '../models/twitch_message.dart';
 import '../util/chat_text.dart';
@@ -595,7 +594,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     unawaited(PerfLog.I.init());
     DataUsageStats.I.start();
     // Creating the outbox resends reports queued in an earlier session.
-    if (ReportConfig.isConfigured) ref.read(bugReportOutboxProvider);
+    ref.read(bugReportOutboxProvider);
     _session.seed(widget.initialCurrentUserLogin);
     _session.version.addListener(_onSessionApplied);
     _pingManager.setAccount(widget.initialCurrentUserLogin);

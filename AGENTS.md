@@ -15,7 +15,7 @@ dart format <files>      # only the files you changed, never `.`
 
 - Clone normally; no submodules. Emote decode is engine + pure-Dart.
 - Set `clientId` in `lib/twitch_config.dart` and register the `redirectUri` (exact match) in the Twitch console.
-- In-app bug reports: build with `--dart-define=ERMCHAT_REPORT_URL=https://<ermchatbot host>/report` (optionally `ERMCHAT_REPORT_SECRET`). Without it the Settings entry is hidden. The bot's `TWITCH_CLIENT_ID` must equal `clientId`.
+- In-app bug reports post to ermchatbot at the URL in `lib/report_config.dart`. The bot's `TWITCH_CLIENT_ID` must equal `clientId`.
 
 ## Architecture (know before editing)
 
