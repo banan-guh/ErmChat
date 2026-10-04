@@ -185,7 +185,9 @@ class _PingsScreenState extends ConsumerState<PingsScreen> {
     );
   }
 
+  /// Zero is "Nevermind": letting go there leaves notifications as they were.
   static const _muteSteps = [
+    Duration.zero,
     Duration(minutes: 15),
     Duration(minutes: 30),
     Duration(hours: 1),
@@ -194,11 +196,10 @@ class _PingsScreenState extends ConsumerState<PingsScreen> {
     Duration(hours: 8),
     Duration(hours: 12),
   ];
-  static const _defaultMute = 2;
+  static const _defaultMute = 3;
 
   /// Step under the finger while the moon is held, else null.
   int? _muteDrag;
-  double _muteDragFrom = 0;
   final _muteTrack = GlobalKey();
 
   static String _muteLabel(Duration d) => d.inMinutes < 60
@@ -212,18 +213,58 @@ class _PingsScreenState extends ConsumerState<PingsScreen> {
     _scheduleResumeRebuild();
   }
 
-  /// Moves the held mute slider by finger travel, one step per track
-  /// division, starting from the default.
+  /// Puts the held mute slider's thumb under the finger. The track runs
+  /// right to left, so further left is a longer mute.
   void _dragMute(double x) {
     final box = _muteTrack.currentContext?.findRenderObject() as RenderBox?;
-    final step = (box?.size.width ?? 240) / (_muteSteps.length - 1);
-    final next = (_defaultMute + ((x - _muteDragFrom) / step).round()).clamp(
+    if (box == null || !box.hasSize) return;
+    final width = box.size.width;
+    final fromEnd = width - box.globalToLocal(Offset(x, 0)).dx;
+    final next = (fromEnd / width * (_muteSteps.length - 1)).round().clamp(
       0,
       _muteSteps.length - 1,
     );
     if (next == _muteDrag) return;
     HapticFeedback.selectionClick();
     setState(() => _muteDrag = next);
+  }
+
+  /// The held moon's slider, in place of the title. It reaches right to
+  /// the moon's center, where it starts at Nevermind under the finger.
+  Widget _muteSlider(int drag) {
+    // The gap before the trailing widgets (16) plus half the moon (24).
+    const reach = 40.0;
+    final d = _muteSteps[drag];
+    return SizedBox(
+      height: 44,
+      child: LayoutBuilder(
+        builder: (context, c) => OverflowBox(
+          alignment: AlignmentDirectional.centerStart,
+          minWidth: c.maxWidth + reach,
+          maxWidth: c.maxWidth + reach,
+          child: Directionality(
+            textDirection: TextDirection.rtl,
+            child: SliderTheme(
+              data: SliderTheme.of(context).copyWith(
+                padding: EdgeInsets.zero,
+                showValueIndicator: ShowValueIndicator.alwaysVisible,
+              ),
+              child: IgnorePointer(
+                child: Slider(
+                  key: _muteTrack,
+                  value: drag.toDouble(),
+                  max: (_muteSteps.length - 1).toDouble(),
+                  divisions: _muteSteps.length - 1,
+                  // The mark keeps the dots after the word in right-to-left.
+                  label: d == Duration.zero ? 'Nevermind...‎' : _muteLabel(d),
+                  onChanged: (_) {},
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   /// Master switch for rule and whisper notifications, plus a moon that
@@ -250,12 +291,9 @@ class _PingsScreenState extends ConsumerState<PingsScreen> {
     // The moon keeps its place in the tree while held, or the hold would end.
     final moon = GestureDetector(
       onLongPressStart: canMute
-          ? (d) {
+          ? (_) {
               HapticFeedback.mediumImpact();
-              setState(() {
-                _muteDrag = _defaultMute;
-                _muteDragFrom = d.globalPosition.dx;
-              });
+              setState(() => _muteDrag = 0);
             }
           : null,
       onLongPressMoveUpdate: canMute
@@ -265,15 +303,15 @@ class _PingsScreenState extends ConsumerState<PingsScreen> {
           ? (_) {
               final i = _muteDrag;
               setState(() => _muteDrag = null);
-              if (i != null) _mute(_muteSteps[i]);
+              if (i != null && i > 0) _mute(_muteSteps[i]);
             }
           : null,
       onLongPressCancel: () => setState(() => _muteDrag = null),
       child: Semantics(
         button: true,
         label: showMute ? 'Unmute' : 'Mute for 1 hour',
-        child: InkResponse(
-          radius: 24,
+        child: InkWell(
+          customBorder: const CircleBorder(),
           onTap: !canMute
               ? null
               : showMute
@@ -305,32 +343,10 @@ class _PingsScreenState extends ConsumerState<PingsScreen> {
               width: 28,
               child: Icon(Icons.notifications_outlined),
             ),
-            title: Text(
-              drag == null
-                  ? Setting.notifications.title
-                  : 'Mute for ${_muteLabel(_muteSteps[drag])}',
-            ),
-            subtitle: drag == null
-                ? Text(status)
-                : SizedBox(
-                    key: _muteTrack,
-                    height: 20,
-                    child: SliderTheme(
-                      data: SliderTheme.of(context).copyWith(
-                        trackHeight: 4,
-                        overlayShape: SliderComponentShape.noOverlay,
-                        showValueIndicator: ShowValueIndicator.never,
-                      ),
-                      child: IgnorePointer(
-                        child: Slider(
-                          value: drag.toDouble(),
-                          max: (_muteSteps.length - 1).toDouble(),
-                          divisions: _muteSteps.length - 1,
-                          onChanged: (_) {},
-                        ),
-                      ),
-                    ),
-                  ),
+            title: drag == null
+                ? Text(Setting.notifications.title)
+                : _muteSlider(drag),
+            subtitle: drag == null ? Text(status) : null,
             onTap: () => _setPush(!pushOn),
             trailing: Row(
               mainAxisSize: MainAxisSize.min,
