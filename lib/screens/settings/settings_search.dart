@@ -332,6 +332,13 @@ class Setting {
   );
 
   // ── Highlights ──────────────────────────────────────────────────────
+  static const pauseNotifications = Setting(
+    'pause_notifications',
+    'Pause notifications',
+    SettingsPageId.highlights,
+    keywords: 'notifications mute snooze do not disturb dnd',
+    visible: _notIos,
+  );
   static const whisperPush = Setting(
     'whisper_push',
     'Whisper notifications',
@@ -345,7 +352,7 @@ class Setting {
     'My username',
     SettingsPageId.highlights,
     section: 'Mentions',
-    keywords: 'ping notify notifications push alert',
+    keywords: 'ping',
   );
   static const repliesToMe = Setting(
     'replies_to_me',
@@ -589,6 +596,7 @@ class Setting {
     giphyHeight,
     showImages,
     imageHeight,
+    pauseNotifications,
     whisperPush,
     myUsername,
     repliesToMe,

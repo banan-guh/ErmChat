@@ -700,6 +700,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     final whisperNotify = prefs.whisperNotifications;
     if (!mounted) return;
     ref.read(mentionPushProvider.notifier).set(mentionPush);
+    ref
+        .read(notificationPauseProvider.notifier)
+        .restore(prefs.notificationsPausedUntil);
     setState(() {
       _backgroundService = backgroundService;
       _whisperNotify = whisperNotify;
@@ -779,6 +782,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 
   void _maybeNotifyWhisper(TwitchMessage msg) {
     if (!_whisperNotify || !ref.read(backgroundedProvider)) return;
+    if (ref.read(notificationPauseProvider.notifier).paused) return;
     if (_notificationTapSub == null || _mentions.isWhispersTabActive) return;
     unawaited(
       _notificationService.showWhisperNotification(

@@ -123,6 +123,54 @@ final mentionPushProvider = NotifierProvider<MentionPushNotifier, bool>(
   MentionPushNotifier.new,
 );
 
+/// When paused notifications resume, or null when they aren't paused. Rules
+/// keep their notify setting; a pause only silences them.
+class NotificationPauseNotifier extends Notifier<DateTime?> {
+  NotificationPauseNotifier({DateTime Function()? now})
+    : _now = now ?? DateTime.now;
+
+  final DateTime Function() _now;
+
+  /// Paused until the user resumes.
+  static final forever = DateTime.utc(9999);
+
+  @override
+  DateTime? build() => null;
+
+  bool get paused {
+    final until = state;
+    return until != null && _now().isBefore(until);
+  }
+
+  void pauseFor(Duration? duration) =>
+      _set(duration == null ? forever : _now().add(duration));
+
+  void resume() => _set(null);
+
+  /// Startup load from prefs; an expired pause loads as none.
+  void restore(int? untilMs) {
+    final until = untilMs == null
+        ? null
+        : DateTime.fromMillisecondsSinceEpoch(untilMs, isUtc: true);
+    state = until != null && _now().isBefore(until) ? until : null;
+  }
+
+  void _set(DateTime? until) {
+    state = until;
+    unawaited(
+      Prefs.load().then(
+        (prefs) =>
+            prefs.setNotificationsPausedUntil(until?.millisecondsSinceEpoch),
+      ),
+    );
+  }
+}
+
+final notificationPauseProvider =
+    NotifierProvider<NotificationPauseNotifier, DateTime?>(
+      NotificationPauseNotifier.new,
+    );
+
 /// Whether the app is currently backgrounded. The mention notifier reads it
 /// to avoid buzzing while the user is already looking at chat.
 class BackgroundedNotifier extends Notifier<bool> {

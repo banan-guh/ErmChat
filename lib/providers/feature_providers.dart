@@ -156,6 +156,7 @@ class MentionNotifier {
 
   void handle(String channel, TwitchMessage msg) {
     if (!_ref.read(mentionPushProvider)) return;
+    if (_ref.read(notificationPauseProvider.notifier).paused) return;
     if (!_ref.read(backgroundedProvider)) return;
     if (msg.isHistory) return;
     // Per-rule opt-in: only rules with "notify" enabled may buzz.

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io' show Platform;
 import 'dart:math';
 
@@ -52,17 +53,33 @@ class _PingsScreenState extends ConsumerState<PingsScreen> {
 
   PingManager get _manager => ref.read(pingManagerProvider);
 
+  /// Rebuilds when a timed pause runs out, so the rows un-pause on screen.
+  Timer? _resumeTimer;
+
   @override
   void initState() {
     super.initState();
     _loadPrefs();
     PrefsStore.instance.addListener(_loadPrefs);
+    _scheduleResumeRebuild();
   }
 
   @override
   void dispose() {
+    _resumeTimer?.cancel();
     PrefsStore.instance.removeListener(_loadPrefs);
     super.dispose();
+  }
+
+  void _scheduleResumeRebuild() {
+    _resumeTimer?.cancel();
+    final until = ref.read(notificationPauseProvider);
+    if (until == null || until == NotificationPauseNotifier.forever) return;
+    final left = until.difference(DateTime.now());
+    if (left.isNegative) return;
+    _resumeTimer = Timer(left, () {
+      if (mounted) setState(() {});
+    });
   }
 
   Future<void> _loadPrefs() async {
@@ -104,6 +121,7 @@ class _PingsScreenState extends ConsumerState<PingsScreen> {
       opacity: _opacity,
       keepAlive: _keepAlive,
       onEnableKeepAlive: _enableKeepAlive,
+      paused: ref.read(notificationPauseProvider.notifier).paused,
     );
     if (!mounted || saved == null) return;
     if (saved.deleted) {
@@ -139,6 +157,8 @@ class _PingsScreenState extends ConsumerState<PingsScreen> {
   @override
   Widget build(BuildContext context) {
     final manager = ref.watch(pingManagerProvider);
+    ref.watch(notificationPauseProvider);
+    final paused = ref.read(notificationPauseProvider.notifier).paused;
     return SettingsPage(
       title: const Text('Highlights'),
       body: ListenableBuilder(
@@ -151,9 +171,10 @@ class _PingsScreenState extends ConsumerState<PingsScreen> {
           return ListView(
             padding: const EdgeInsets.only(bottom: 32),
             children: [
-              ..._mentionSection(rules),
-              ..._listSection(rules, PingRuleKind.message),
-              ..._listSection(rules, PingRuleKind.user),
+              if (_pushSupported) _pauseTile(paused),
+              ..._mentionSection(rules, paused),
+              ..._listSection(rules, paused, PingRuleKind.message),
+              ..._listSection(rules, paused, PingRuleKind.user),
               ..._eventSection(rules),
               ..._muteSection(rules),
               ..._appearanceSection(),
@@ -164,8 +185,78 @@ class _PingsScreenState extends ConsumerState<PingsScreen> {
     );
   }
 
-  Widget _tile(PingRule r) => _RuleTile(
+  /// Silences every notifying rule and whispers for a while without
+  /// changing them.
+  Widget _pauseTile(bool paused) {
+    final pause = ref.read(notificationPauseProvider.notifier);
+    final until = ref.read(notificationPauseProvider);
+    if (!paused || until == null) {
+      return SettingAnchor(
+        Setting.pauseNotifications,
+        child: ListTile(
+          leading: const SizedBox(
+            width: 28,
+            child: Icon(Icons.notifications_paused_outlined),
+          ),
+          title: Text(Setting.pauseNotifications.title),
+          onTap: _pickPause,
+        ),
+      );
+    }
+    final time = MaterialLocalizations.of(
+      context,
+    ).formatTimeOfDay(TimeOfDay.fromDateTime(until.toLocal()));
+    return SettingAnchor(
+      Setting.pauseNotifications,
+      child: ListTile(
+        leading: SizedBox(
+          width: 28,
+          child: Icon(
+            Icons.notifications_paused,
+            color: Theme.of(context).colorScheme.primary,
+          ),
+        ),
+        title: const Text('Notifications paused'),
+        subtitle: Text(
+          until == NotificationPauseNotifier.forever
+              ? 'Until you resume'
+              : 'Until $time',
+        ),
+        trailing: TextButton(
+          onPressed: pause.resume,
+          child: const Text('Resume'),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _pickPause() async {
+    const choices = <(String, Duration?)>[
+      ('1 hour', Duration(hours: 1)),
+      ('8 hours', Duration(hours: 8)),
+      ('Until I resume', null),
+    ];
+    final picked = await showDialog<(String, Duration?)>(
+      context: context,
+      builder: (ctx) => SimpleDialog(
+        title: Text(Setting.pauseNotifications.title),
+        children: [
+          for (final c in choices)
+            SimpleDialogOption(
+              onPressed: () => Navigator.pop(ctx, c),
+              child: Text(c.$1),
+            ),
+        ],
+      ),
+    );
+    if (picked == null) return;
+    ref.read(notificationPauseProvider.notifier).pauseFor(picked.$2);
+    _scheduleResumeRebuild();
+  }
+
+  Widget _tile(PingRule r, bool paused) => _RuleTile(
     rule: r,
+    paused: paused,
     levels: _pushSupported && _canNotify(r) ? 3 : 2,
     onLevel: (level) => _setLevel(r, level),
     onBlocked: _keepAlive ? null : _keepAliveSnack,
@@ -189,25 +280,28 @@ class _PingsScreenState extends ConsumerState<PingsScreen> {
       ),
     );
 
-  Widget _needsKeepAlive(Widget tile) {
-    if (_keepAlive) return tile;
+  /// Wraps a greyed tile so a tap explains what to turn on; a null
+  /// [onBlocked] leaves the tile as is.
+  Widget _blockedTap(VoidCallback? onBlocked, Widget tile) {
+    if (onBlocked == null) return tile;
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
-      onTap: _keepAliveSnack,
+      onTap: onBlocked,
       child: tile,
     );
   }
 
-  List<Widget> _mentionSection(List<PingRule> rules) => [
+  List<Widget> _mentionSection(List<PingRule> rules, bool paused) => [
     const SettingsSectionHeader('Mentions'),
     for (final type in const ['username', 'reply', 'thread'])
       ...rules
           .where((r) => r.kind == PingRuleKind.message && r.type == type)
-          .map(_tile),
+          .map((r) => _tile(r, paused)),
     if (_pushSupported)
       SettingAnchor(
         Setting.whisperPush,
-        child: _needsKeepAlive(
+        child: _blockedTap(
+          _keepAlive ? null : _keepAliveSnack,
           PrefsSwitchTile(
             secondary: const Icon(Icons.mail_outline),
             title: Setting.whisperPush.title,
@@ -220,7 +314,11 @@ class _PingsScreenState extends ConsumerState<PingsScreen> {
       ),
   ];
 
-  List<Widget> _listSection(List<PingRule> rules, PingRuleKind kind) {
+  List<Widget> _listSection(
+    List<PingRule> rules,
+    bool paused,
+    PingRuleKind kind,
+  ) {
     final keywords = kind == PingRuleKind.message;
     return [
       SettingAnchor(
@@ -232,7 +330,7 @@ class _PingsScreenState extends ConsumerState<PingsScreen> {
       for (final r in rules.where(
         (r) => r.kind == kind && (!keywords || r.type == 'custom'),
       ))
-        _tile(r),
+        _tile(r, paused),
       _AddTile(
         keywords ? 'Add keyword' : 'Add user',
         onTap: () => _edit(
@@ -253,7 +351,7 @@ class _PingsScreenState extends ConsumerState<PingsScreen> {
       for (final type in const ['firstMsg', 'redemption', 'elevated'])
         ...rules
             .where((r) => r.kind == PingRuleKind.message && r.type == type)
-            .map(_tile),
+            .map((r) => _tile(r, false)),
       SettingAnchor(
         Setting.badges,
         child: ListTile(
@@ -283,7 +381,7 @@ class _PingsScreenState extends ConsumerState<PingsScreen> {
     ),
     const _Caption('Shown, but never highlighted or notified.'),
     for (final r in rules.where((r) => r.kind == PingRuleKind.blacklist))
-      _tile(r),
+      _tile(r, false),
     _AddTile(
       'Add user',
       onTap: () => _edit(
@@ -459,12 +557,16 @@ class _RuleTile extends ConsumerWidget {
     required this.rule,
     required this.onTap,
     this.levels = 2,
+    this.paused = false,
     this.onLevel,
     this.onBlocked,
   });
 
   final PingRule rule;
   final VoidCallback onTap;
+
+  /// Notifications are paused: the notify stop shows a crossed-out bell.
+  final bool paused;
 
   /// 3 adds the notify stop; see [_LevelSwitch].
   final int levels;
@@ -507,6 +609,7 @@ class _RuleTile extends ConsumerWidget {
       trailing: _LevelSwitch(
         level: min(_levelOf(rule), levels - 1),
         levels: levels,
+        paused: paused,
         color: muted
             ? scheme.primary
             : _ruleTint(context, rule, rule.colorArgb, 1),
@@ -684,6 +787,7 @@ Future<_Saved?> _editRule(
   required double opacity,
   bool keepAlive = true,
   VoidCallback? onEnableKeepAlive,
+  bool paused = false,
 }) async {
   // Typing gets a full page so the keyboard never covers the form; the rest
   // fit a sheet.
@@ -707,6 +811,7 @@ Future<_Saved?> _editRule(
     sheet: !typed,
     keepAlive: keepAlive,
     onEnableKeepAlive: onEnableKeepAlive,
+    paused: paused,
     onLiveChange: isNew
         ? null
         : (r) {
@@ -787,6 +892,7 @@ class _RuleEditor extends StatefulWidget {
     required this.sheet,
     this.keepAlive = true,
     this.onEnableKeepAlive,
+    this.paused = false,
     this.onLiveChange,
   });
 
@@ -802,6 +908,7 @@ class _RuleEditor extends StatefulWidget {
   /// notify stop explains that instead of switching.
   final bool keepAlive;
   final VoidCallback? onEnableKeepAlive;
+  final bool paused;
 
   /// Set when editing an existing rule: every change persists at once, so
   /// there is no Save. New rules still need Add to be created.
@@ -838,6 +945,8 @@ class _RuleEditorState extends State<_RuleEditor> {
   int get _levels => _pushSupported && _canNotify(_rule) ? 3 : 2;
   String get _levelName => _levels == 2
       ? (_level > 0 ? 'On' : 'Off')
+      : _level == 2 && widget.paused
+      ? 'Highlight and notify (paused)'
       : const ['Off', 'Highlight', 'Highlight and notify'][_level];
   bool get _isKeyword =>
       _rule.kind == PingRuleKind.message && _rule.type == 'custom';
@@ -896,6 +1005,7 @@ class _RuleEditorState extends State<_RuleEditor> {
             trailing: _LevelSwitch(
               level: _level,
               levels: _levels,
+              paused: widget.paused,
               color: _hasColor
                   ? _ruleTint(context, _rule, _color, 1)
                   : theme.colorScheme.primary,
@@ -1174,13 +1284,15 @@ class _RuleEditorState extends State<_RuleEditor> {
 
 /// A switch with an optional third stop: off, highlight, and highlight and
 /// notify. Once on, the track takes the rule's color; the notify stop puts a
-/// bell in the thumb. Tap a stop or drag to it.
-class _LevelSwitch extends StatelessWidget {
+/// bell in the thumb. Tap a stop or drag to it; a bubble names the stop while
+/// it moves.
+class _LevelSwitch extends StatefulWidget {
   const _LevelSwitch({
     required this.level,
     required this.levels,
     required this.color,
     required this.onChanged,
+    this.paused = false,
     this.onBlocked,
   });
 
@@ -1191,37 +1303,130 @@ class _LevelSwitch extends StatelessWidget {
   final Color color;
   final ValueChanged<int> onChanged;
 
+  /// Notifications are paused, so the notify bell is crossed out.
+  final bool paused;
+
   /// Set while notifying needs something else turned on first; picking the
   /// notify stop calls this instead.
   final VoidCallback? onBlocked;
 
+  @override
+  State<_LevelSwitch> createState() => _LevelSwitchState();
+}
+
+class _LevelSwitchState extends State<_LevelSwitch> {
   static const _height = 32.0;
   static const _pad = 4.0;
+  static const _border = 2.0;
   static const _thumb = 24.0;
   static const _offThumb = 16.0;
   static const _duration = Duration(milliseconds: 160);
 
-  double get _width => levels == 3 ? 84 : 52;
+  final _bubble = OverlayPortalController();
+  final _link = LayerLink();
+  Timer? _hideBubble;
 
-  static const _names = ['Off', 'Highlight', 'Notify'];
+  int get _level => widget.level;
+  int get _levels => widget.levels;
+  double get _width => _levels == 3 ? 84 : 52;
 
-  void _pick(int next) {
-    next = next.clamp(0, levels - 1);
-    if (next == level) return;
-    if (next == 2 && onBlocked != null) {
-      onBlocked!();
+  String get _name => _nameOf(_level);
+
+  String _nameOf(int level) => switch (level) {
+    0 => 'Off',
+    1 => 'Highlight',
+    _ => widget.paused ? 'Notify (paused)' : 'Notify',
+  };
+
+  @override
+  void dispose() {
+    _hideBubble?.cancel();
+    super.dispose();
+  }
+
+  /// Shows the bubble on three-stop switches until [linger] after the last
+  /// move; a null [linger] keeps it up (mid-drag).
+  void _showBubble({Duration? linger = const Duration(milliseconds: 900)}) {
+    if (_levels != 3) return;
+    _hideBubble?.cancel();
+    _bubble.show();
+    if (linger != null) {
+      _hideBubble = Timer(linger, () {
+        if (mounted) _bubble.hide();
+      });
+    }
+  }
+
+  void _pick(int next, {bool dragging = false}) {
+    next = next.clamp(0, _levels - 1);
+    if (next == _level) return;
+    if (next == 2 && widget.onBlocked != null) {
+      widget.onBlocked!();
       return;
     }
     HapticFeedback.selectionClick();
-    onChanged(next);
+    widget.onChanged(next);
+    _showBubble(linger: dragging ? null : const Duration(milliseconds: 900));
   }
 
-  int _stopAt(double dx) => (dx / _width * levels).floor().clamp(0, levels - 1);
+  int _stopAt(double dx) =>
+      (dx / _width * _levels).floor().clamp(0, _levels - 1);
+
+  /// Thumb center as a fraction of the track, for anchoring the bubble.
+  double _thumbAlign(int level) {
+    const inset = _pad + _border + (_thumb - 4) / 2;
+    final travel = _width - 2 * inset;
+    final x = inset + (_levels == 1 ? 0 : level / (_levels - 1) * travel);
+    return x / _width * 2 - 1;
+  }
+
+  Widget _bubbleBuilder(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return CompositedTransformFollower(
+      link: _link,
+      targetAnchor: Alignment(_thumbAlign(_level), -1),
+      followerAnchor: Alignment.bottomCenter,
+      offset: const Offset(0, -2),
+      child: Align(
+        alignment: Alignment.bottomCenter,
+        child: IgnorePointer(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              DecoratedBox(
+                decoration: BoxDecoration(
+                  color: scheme.inverseSurface,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 4,
+                  ),
+                  child: Text(
+                    _name,
+                    style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                      color: scheme.onInverseSurface,
+                    ),
+                  ),
+                ),
+              ),
+              CustomPaint(
+                size: const Size(10, 5),
+                painter: _TailPainter(scheme.inverseSurface),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final on = level > 0;
+    final color = widget.color;
+    final on = _level > 0;
     final onDark =
         ThemeData.estimateBrightnessForColor(color) == Brightness.dark;
     final thumbColor = !on
@@ -1230,94 +1435,109 @@ class _LevelSwitch extends StatelessWidget {
         ? Colors.white
         : Colors.black87;
     final thumbSize = on ? _thumb : _offThumb;
-    final x = levels == 1 ? 0.0 : level / (levels - 1) * 2 - 1;
+    final x = _levels == 1 ? 0.0 : _level / (_levels - 1) * 2 - 1;
+    final three = _levels == 3;
     return Semantics(
       container: true,
-      slider: levels == 3,
-      toggled: levels == 2 ? on : null,
-      value: levels == 3 ? _names[level] : null,
-      increasedValue: level < levels - 1 && levels == 3
-          ? _names[level + 1]
-          : null,
-      decreasedValue: level > 0 && levels == 3 ? _names[level - 1] : null,
-      onIncrease: level < levels - 1 ? () => _pick(level + 1) : null,
-      onDecrease: level > 0 ? () => _pick(level - 1) : null,
-      onTap: levels == 2 ? () => _pick(on ? 0 : 1) : null,
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        // Two stops toggle on any tap, like a plain switch.
-        onTapUp: (d) =>
-            _pick(levels == 2 ? (on ? 0 : 1) : _stopAt(d.localPosition.dx)),
-        onHorizontalDragUpdate: (d) => _pick(_stopAt(d.localPosition.dx)),
-        child: SizedBox(
-          width: _width,
-          height: 48,
-          child: Center(
-            child: AnimatedContainer(
-              duration: _duration,
-              width: _width,
-              height: _height,
-              padding: const EdgeInsets.all(_pad),
-              decoration: BoxDecoration(
-                color: on ? color : scheme.surfaceContainerHighest,
-                borderRadius: BorderRadius.circular(_height / 2),
-                border: Border.all(
-                  color: on ? color : scheme.outline,
-                  width: 2,
-                ),
-              ),
-              child: Stack(
-                children: [
-                  // Dots mark the stops the thumb isn't on.
-                  if (levels == 3)
-                    for (var i = 0; i < levels; i++)
-                      if (i != level)
-                        Align(
-                          alignment: Alignment(i / (levels - 1) * 2 - 1, 0),
-                          child: SizedBox(
-                            width: _thumb - 4,
-                            child: Center(
-                              child: Container(
-                                width: 4,
-                                height: 4,
-                                decoration: BoxDecoration(
-                                  shape: BoxShape.circle,
-                                  color: thumbColor.withValues(alpha: 0.5),
+      slider: three,
+      toggled: three ? null : on,
+      value: three ? _name : null,
+      increasedValue: three && _level < 2 ? _nameOf(_level + 1) : null,
+      decreasedValue: three && _level > 0 ? _nameOf(_level - 1) : null,
+      onIncrease: three && _level < 2 ? () => _pick(_level + 1) : null,
+      onDecrease: three && _level > 0 ? () => _pick(_level - 1) : null,
+      onTap: three ? null : () => _pick(on ? 0 : 1),
+      child: OverlayPortal(
+        controller: _bubble,
+        overlayChildBuilder: _bubbleBuilder,
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          // Two stops toggle on any tap, like a plain switch.
+          onTapUp: (d) =>
+              _pick(three ? _stopAt(d.localPosition.dx) : (on ? 0 : 1)),
+          onHorizontalDragStart: (_) => _showBubble(linger: null),
+          onHorizontalDragUpdate: (d) =>
+              _pick(_stopAt(d.localPosition.dx), dragging: true),
+          onHorizontalDragEnd: (_) => _showBubble(),
+          onHorizontalDragCancel: _showBubble,
+          child: SizedBox(
+            width: _width,
+            height: 48,
+            child: Center(
+              child: CompositedTransformTarget(
+                link: _link,
+                child: AnimatedContainer(
+                  duration: _duration,
+                  width: _width,
+                  height: _height,
+                  padding: const EdgeInsets.all(_pad),
+                  decoration: BoxDecoration(
+                    color: on ? color : scheme.surfaceContainerHighest,
+                    borderRadius: BorderRadius.circular(_height / 2),
+                    border: Border.all(
+                      color: on ? color : scheme.outline,
+                      width: _border,
+                    ),
+                  ),
+                  child: Stack(
+                    children: [
+                      // Dots mark the stops the thumb isn't on.
+                      if (three)
+                        for (var i = 0; i < _levels; i++)
+                          if (i != _level)
+                            Align(
+                              alignment: Alignment(
+                                i / (_levels - 1) * 2 - 1,
+                                0,
+                              ),
+                              child: SizedBox(
+                                width: _thumb - 4,
+                                child: Center(
+                                  child: Container(
+                                    width: 4,
+                                    height: 4,
+                                    decoration: BoxDecoration(
+                                      shape: BoxShape.circle,
+                                      color: thumbColor.withValues(alpha: 0.5),
+                                    ),
+                                  ),
                                 ),
                               ),
                             ),
+                      AnimatedAlign(
+                        duration: _duration,
+                        curve: Curves.easeOutCubic,
+                        alignment: Alignment(x, 0),
+                        child: SizedBox(
+                          width: _thumb - 4,
+                          height: _thumb - 4,
+                          child: OverflowBox(
+                            maxWidth: _thumb,
+                            maxHeight: _thumb,
+                            child: AnimatedContainer(
+                              duration: _duration,
+                              width: thumbSize,
+                              height: thumbSize,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: thumbColor,
+                              ),
+                              child: _level == 2
+                                  ? Icon(
+                                      widget.paused
+                                          ? Icons.notifications_off
+                                          : Icons.notifications_active,
+                                      size: 16,
+                                      color: color,
+                                    )
+                                  : null,
+                            ),
                           ),
-                        ),
-                  AnimatedAlign(
-                    duration: _duration,
-                    curve: Curves.easeOutCubic,
-                    alignment: Alignment(x, 0),
-                    child: SizedBox(
-                      width: _thumb - 4,
-                      height: _thumb - 4,
-                      child: OverflowBox(
-                        maxWidth: _thumb,
-                        maxHeight: _thumb,
-                        child: AnimatedContainer(
-                          duration: _duration,
-                          width: thumbSize,
-                          height: thumbSize,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            color: thumbColor,
-                          ),
-                          child: level == 2
-                              ? Icon(
-                                  Icons.notifications_active,
-                                  size: 16,
-                                  color: color,
-                                )
-                              : null,
                         ),
                       ),
-                    ),
+                    ],
                   ),
-                ],
+                ),
               ),
             ),
           ),
@@ -1325,4 +1545,24 @@ class _LevelSwitch extends StatelessWidget {
       ),
     );
   }
+}
+
+/// The bubble's downward point.
+class _TailPainter extends CustomPainter {
+  const _TailPainter(this.color);
+
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final path = Path()
+      ..moveTo(0, 0)
+      ..lineTo(size.width, 0)
+      ..lineTo(size.width / 2, size.height)
+      ..close();
+    canvas.drawPath(path, Paint()..color = color);
+  }
+
+  @override
+  bool shouldRepaint(_TailPainter old) => old.color != color;
 }

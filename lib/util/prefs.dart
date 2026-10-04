@@ -84,6 +84,7 @@ class Prefs {
   static const _kReplyToThreadRoot = 'reply_to_thread_root';
   static const _kBackgroundService = 'background_service';
   static const _kMentionPush = 'mention_push';
+  static const _kNotificationsPausedUntil = 'notifications_paused_until';
   static const _kWhisperNotifications = 'whisper_notifications';
   static const _kPreferEmotesFirst = 'prefer_emotes_first';
   static const _kDoubleTapNameCopy = 'double_tap_name_copy';
@@ -122,6 +123,13 @@ class Prefs {
   bool get mentionPush => _p.getBool(_kMentionPush) ?? false;
 
   Future<void> setMentionPush(bool value) => _p.setBool(_kMentionPush, value);
+
+  /// Epoch milliseconds; absent when notifications aren't paused.
+  int? get notificationsPausedUntil => _p.getInt(_kNotificationsPausedUntil);
+
+  Future<void> setNotificationsPausedUntil(int? value) => value == null
+      ? _p.remove(_kNotificationsPausedUntil)
+      : _p.setInt(_kNotificationsPausedUntil, value);
 
   bool get whisperNotifications => _p.getBool(_kWhisperNotifications) ?? false;
 
