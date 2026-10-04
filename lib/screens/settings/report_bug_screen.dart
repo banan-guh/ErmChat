@@ -38,7 +38,7 @@ class ReportBugScreen extends ConsumerWidget {
               child: Padding(
                 padding: EdgeInsets.all(24),
                 child: Text(
-                  'Reports go to the ermchat issue tracker. Drafts stay on '
+                  'Reports are public on the ermchat GitHub. Drafts stay on '
                   'this device, and sent reports wait here until the app '
                   'can reach the server.',
                   textAlign: TextAlign.center,
@@ -285,8 +285,8 @@ class _ReportEditorScreenState extends ConsumerState<ReportEditorScreen> {
             ),
             const SizedBox(height: 8),
             Text(
-              'Sent with your Twitch name so we can follow up. Offline? It '
-              'sends automatically once you are back online.',
+              "Posted publicly on GitHub with your Twitch name. Offline? It "
+              "sends once you're back online.",
               style: Theme.of(context).textTheme.bodySmall,
               textAlign: TextAlign.center,
             ),
