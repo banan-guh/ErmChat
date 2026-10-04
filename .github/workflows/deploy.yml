@@ -1,9 +1,13 @@
 name: Deploy to GitHub Pages
 
+# The site is just index.html (the privacy policy): deploy when it changes,
+# or by hand from the Actions tab. Releases don't touch it.
 on:
   push:
-    tags:
-      - 'v*'
+    branches: [main]
+    paths:
+      - 'index.html'
+      - '.github/workflows/deploy.yml'
   workflow_dispatch:
 
 permissions:
@@ -28,10 +32,14 @@ jobs:
       - name: Configure Pages
         uses: actions/configure-pages@v5
 
+      # The upload takes a folder, so stage the one page in its own.
+      - name: Stage site
+        run: mkdir _site && cp index.html _site/
+
       - name: Upload site artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: '.'
+          path: _site
 
       - name: Deploy to GitHub Pages
         id: deployment
