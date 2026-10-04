@@ -119,9 +119,6 @@ class _PingsScreenState extends ConsumerState<PingsScreen> {
       isNew: isNew,
       recent: _recentMessages(),
       opacity: _opacity,
-      keepAlive: _keepAlive,
-      onEnableKeepAlive: _enableKeepAlive,
-      paused: ref.read(notificationPauseProvider.notifier).paused,
     );
     if (!mounted || saved == null) return;
     if (saved.deleted) {
@@ -188,76 +185,164 @@ class _PingsScreenState extends ConsumerState<PingsScreen> {
     );
   }
 
+  static const _muteSteps = [
+    Duration(minutes: 15),
+    Duration(minutes: 30),
+    Duration(hours: 1),
+    Duration(hours: 2),
+    Duration(hours: 4),
+    Duration(hours: 8),
+    Duration(hours: 12),
+  ];
+  static const _defaultMute = 2;
+
+  /// Step under the finger while the moon is held, else null.
+  int? _muteDrag;
+  double _muteDragFrom = 0;
+  final _muteTrack = GlobalKey();
+
+  static String _muteLabel(Duration d) => d.inMinutes < 60
+      ? '${d.inMinutes} min'
+      : d.inHours == 1
+      ? '1 hour'
+      : '${d.inHours} hours';
+
+  void _mute(Duration d) {
+    ref.read(notificationPauseProvider.notifier).pauseFor(d);
+    _scheduleResumeRebuild();
+  }
+
+  /// Moves the held mute slider by finger travel, one step per track
+  /// division, starting from the default.
+  void _dragMute(double x) {
+    final box = _muteTrack.currentContext?.findRenderObject() as RenderBox?;
+    final step = (box?.size.width ?? 240) / (_muteSteps.length - 1);
+    final next = (_defaultMute + ((x - _muteDragFrom) / step).round()).clamp(
+      0,
+      _muteSteps.length - 1,
+    );
+    if (next == _muteDrag) return;
+    HapticFeedback.selectionClick();
+    setState(() => _muteDrag = next);
+  }
+
   /// Master switch for rule and whisper notifications, plus a moon that
-  /// mutes them for a while. Neither changes the rules.
+  /// mutes them for a while: tap for an hour, hold and slide to choose.
+  /// Neither changes the rules. The row keeps one height in every state.
   Widget _notificationsTile(bool pushOn, bool muted) {
     final pause = ref.read(notificationPauseProvider.notifier);
     final until = ref.read(notificationPauseProvider);
     final scheme = Theme.of(context).colorScheme;
     final showMute = pushOn && muted && until != null;
-    String? subtitle;
-    if (showMute) {
+    final canMute = _keepAlive && pushOn;
+    final drag = _muteDrag;
+    final String status;
+    if (!pushOn) {
+      status = 'Off';
+    } else if (showMute) {
       final time = MaterialLocalizations.of(
         context,
       ).formatTimeOfDay(TimeOfDay.fromDateTime(until.toLocal()));
-      subtitle = 'Muted until $time';
+      status = 'Muted until $time';
+    } else {
+      status = 'On';
     }
-    return SettingAnchor(
-      Setting.notifications,
-      child: _blockedTap(
-        _keepAlive ? null : _keepAliveSnack,
-        ListTile(
-          enabled: _keepAlive,
-          leading: const SizedBox(
-            width: 28,
-            child: Icon(Icons.notifications_outlined),
-          ),
-          title: Text(Setting.notifications.title),
-          subtitle: subtitle == null ? null : Text(subtitle),
-          onTap: () => _setPush(!pushOn),
-          trailing: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              IconButton(
-                tooltip: showMute ? 'Unmute' : 'Mute for a while',
-                isSelected: showMute,
-                icon: const Icon(Icons.bedtime_outlined),
-                selectedIcon: Icon(Icons.bedtime, color: scheme.primary),
-                onPressed: !_keepAlive || !pushOn
-                    ? null
-                    : showMute
-                    ? pause.resume
-                    : _pickMute,
-              ),
-              Switch(value: pushOn, onChanged: _keepAlive ? _setPush : null),
-            ],
+    // The moon keeps its place in the tree while held, or the hold would end.
+    final moon = GestureDetector(
+      onLongPressStart: canMute
+          ? (d) {
+              HapticFeedback.mediumImpact();
+              setState(() {
+                _muteDrag = _defaultMute;
+                _muteDragFrom = d.globalPosition.dx;
+              });
+            }
+          : null,
+      onLongPressMoveUpdate: canMute
+          ? (d) => _dragMute(d.globalPosition.dx)
+          : null,
+      onLongPressEnd: canMute
+          ? (_) {
+              final i = _muteDrag;
+              setState(() => _muteDrag = null);
+              if (i != null) _mute(_muteSteps[i]);
+            }
+          : null,
+      onLongPressCancel: () => setState(() => _muteDrag = null),
+      child: Semantics(
+        button: true,
+        label: showMute ? 'Unmute' : 'Mute for 1 hour',
+        child: InkResponse(
+          radius: 24,
+          onTap: !canMute
+              ? null
+              : showMute
+              ? pause.resume
+              : () => _mute(_muteSteps[_defaultMute]),
+          child: SizedBox.square(
+            dimension: 48,
+            child: Icon(
+              showMute || drag != null ? Icons.bedtime : Icons.bedtime_outlined,
+              color: !canMute
+                  ? scheme.onSurface.withValues(alpha: 0.38)
+                  : showMute || drag != null
+                  ? scheme.primary
+                  : scheme.onSurfaceVariant,
+            ),
           ),
         ),
       ),
     );
-  }
-
-  Future<void> _pickMute() async {
-    const choices = <(String, Duration)>[
-      ('1 hour', Duration(hours: 1)),
-      ('8 hours', Duration(hours: 8)),
-    ];
-    final picked = await showDialog<Duration>(
-      context: context,
-      builder: (ctx) => SimpleDialog(
-        title: const Text('Mute notifications'),
-        children: [
-          for (final (label, duration) in choices)
-            SimpleDialogOption(
-              onPressed: () => Navigator.pop(ctx, duration),
-              child: Text(label),
+    return SettingAnchor(
+      Setting.notifications,
+      child: _blockedTap(
+        _keepAlive ? null : _keepAliveSnack,
+        SizedBox(
+          height: 72,
+          child: ListTile(
+            enabled: _keepAlive,
+            leading: const SizedBox(
+              width: 28,
+              child: Icon(Icons.notifications_outlined),
             ),
-        ],
+            title: Text(
+              drag == null
+                  ? Setting.notifications.title
+                  : 'Mute for ${_muteLabel(_muteSteps[drag])}',
+            ),
+            subtitle: drag == null
+                ? Text(status)
+                : SizedBox(
+                    key: _muteTrack,
+                    height: 20,
+                    child: SliderTheme(
+                      data: SliderTheme.of(context).copyWith(
+                        trackHeight: 4,
+                        overlayShape: SliderComponentShape.noOverlay,
+                        showValueIndicator: ShowValueIndicator.never,
+                      ),
+                      child: IgnorePointer(
+                        child: Slider(
+                          value: drag.toDouble(),
+                          max: (_muteSteps.length - 1).toDouble(),
+                          divisions: _muteSteps.length - 1,
+                          onChanged: (_) {},
+                        ),
+                      ),
+                    ),
+                  ),
+            onTap: () => _setPush(!pushOn),
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                moon,
+                Switch(value: pushOn, onChanged: _keepAlive ? _setPush : null),
+              ],
+            ),
+          ),
+        ),
       ),
     );
-    if (picked == null) return;
-    ref.read(notificationPauseProvider.notifier).pauseFor(picked);
-    _scheduleResumeRebuild();
   }
 
   Widget _tile(PingRule r, bool paused) => _RuleTile(
@@ -811,9 +896,6 @@ Future<_Saved?> _editRule(
   bool isNew = false,
   required List<TwitchMessage> recent,
   required double opacity,
-  bool keepAlive = true,
-  VoidCallback? onEnableKeepAlive,
-  bool paused = false,
 }) async {
   // Typing gets a full page so the keyboard never covers the form; the rest
   // fit a sheet.
@@ -835,9 +917,6 @@ Future<_Saved?> _editRule(
     recent: recent,
     opacity: opacity,
     sheet: !typed,
-    keepAlive: keepAlive,
-    onEnableKeepAlive: onEnableKeepAlive,
-    paused: paused,
     onLiveChange: isNew
         ? null
         : (r) {
@@ -916,9 +995,6 @@ class _RuleEditor extends StatefulWidget {
     required this.recent,
     required this.opacity,
     required this.sheet,
-    this.keepAlive = true,
-    this.onEnableKeepAlive,
-    this.paused = false,
     this.onLiveChange,
   });
 
@@ -929,12 +1005,6 @@ class _RuleEditor extends StatefulWidget {
 
   /// Bottom-sheet chrome instead of a full page.
   final bool sheet;
-
-  /// Notifications need Stay connected in background; without it the
-  /// notify stop explains that instead of switching.
-  final bool keepAlive;
-  final VoidCallback? onEnableKeepAlive;
-  final bool paused;
 
   /// Set when editing an existing rule: every change persists at once, so
   /// there is no Save. New rules still need Add to be created.
@@ -961,19 +1031,14 @@ class _RuleEditorState extends State<_RuleEditor> {
 
   late final _patternCtrl = TextEditingController(text: widget.rule.pattern);
   late bool _wholeWord = widget.rule.wordBoundary;
-  late int _level = min(_levelOf(widget.rule), _levels - 1);
+
+  /// Set on the row's switch, not here; kept so edits write it back as is.
+  late final int _level = min(_levelOf(widget.rule), _levels - 1);
   late bool _mention = widget.rule.mention;
-  late bool _keepAlive = widget.keepAlive;
-  bool _showKeepAlive = false;
   late int? _color = widget.rule.colorArgb;
 
   PingRule get _rule => widget.rule;
   int get _levels => _pushSupported && _canNotify(_rule) ? 3 : 2;
-  String get _levelName => _levels == 2
-      ? (_level > 0 ? 'On' : 'Off')
-      : _level == 2 && widget.paused
-      ? 'Highlight and notify (muted)'
-      : const ['Off', 'Highlight', 'Highlight and notify'][_level];
   bool get _isKeyword =>
       _rule.kind == PingRuleKind.message && _rule.type == 'custom';
   bool get _isUserList =>
@@ -1024,44 +1089,6 @@ class _RuleEditorState extends State<_RuleEditor> {
             const SizedBox(height: 4),
           ],
           if (description != null) Text(description, style: muted),
-          // Same switch as the row's, named here so the row's is learnable.
-          ListTile(
-            contentPadding: EdgeInsets.zero,
-            title: Text(_levelName),
-            trailing: _LevelSwitch(
-              level: _level,
-              levels: _levels,
-              paused: widget.paused,
-              color: _hasColor
-                  ? _ruleTint(context, _rule, _color, 1)
-                  : theme.colorScheme.primary,
-              onBlocked: _keepAlive
-                  ? null
-                  : () => setState(() => _showKeepAlive = true),
-              onChanged: (v) => _set(() => _level = v),
-            ),
-          ),
-          if (_showKeepAlive)
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    'Notifications need Stay connected in background',
-                    style: muted,
-                  ),
-                ),
-                TextButton(
-                  onPressed: () {
-                    widget.onEnableKeepAlive?.call();
-                    setState(() {
-                      _keepAlive = true;
-                      _showKeepAlive = false;
-                    });
-                  },
-                  child: const Text('Turn on'),
-                ),
-              ],
-            ),
           const SizedBox(height: 8),
           if (_hasPattern)
             TextField(
@@ -1097,6 +1124,9 @@ class _RuleEditorState extends State<_RuleEditor> {
             SwitchListTile(
               contentPadding: EdgeInsets.zero,
               title: const Text('Add to @mentions'),
+              subtitle: _level == 2
+                  ? const Text('Always on while this notifies')
+                  : null,
               value: _level == 2 || _mention,
               // Notifying always adds to @mentions.
               onChanged: _level == 2 ? null : (v) => _set(() => _mention = v),
