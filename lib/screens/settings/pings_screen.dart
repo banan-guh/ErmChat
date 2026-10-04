@@ -200,7 +200,10 @@ class _PingsScreenState extends ConsumerState<PingsScreen> {
 
   /// Step under the finger while the moon is held, else null.
   int? _muteDrag;
-  final _muteTrack = GlobalKey();
+  final _muteRow = GlobalKey();
+
+  /// Inset of the mute slider's track from the row's edges.
+  static const _muteInset = 16.0;
 
   static String _muteLabel(Duration d) => d.inMinutes < 60
       ? '${d.inMinutes} min'
@@ -213,14 +216,13 @@ class _PingsScreenState extends ConsumerState<PingsScreen> {
     _scheduleResumeRebuild();
   }
 
-  /// Puts the held mute slider's thumb under the finger. The track runs
-  /// right to left, so further left is a longer mute.
+  /// Puts the held mute slider's thumb under the finger.
   void _dragMute(double x) {
-    final box = _muteTrack.currentContext?.findRenderObject() as RenderBox?;
+    final box = _muteRow.currentContext?.findRenderObject() as RenderBox?;
     if (box == null || !box.hasSize) return;
-    final width = box.size.width;
-    final fromEnd = width - box.globalToLocal(Offset(x, 0)).dx;
-    final next = (fromEnd / width * (_muteSteps.length - 1)).round().clamp(
+    final width = box.size.width - 2 * _muteInset;
+    final along = box.globalToLocal(Offset(x, 0)).dx - _muteInset;
+    final next = (along / width * (_muteSteps.length - 1)).round().clamp(
       0,
       _muteSteps.length - 1,
     );
@@ -229,39 +231,38 @@ class _PingsScreenState extends ConsumerState<PingsScreen> {
     setState(() => _muteDrag = next);
   }
 
-  /// The held moon's slider, in place of the title. It reaches right to
-  /// the moon's center, where it starts at Nevermind under the finger.
+  /// The held moon's slider, laid over the hidden row. It fades in as the
+  /// mute gets longer.
   Widget _muteSlider(int drag) {
-    // The gap before the trailing widgets (16) plus half the moon (24).
-    const reach = 40.0;
     final d = _muteSteps[drag];
-    return SizedBox(
-      height: 44,
-      child: LayoutBuilder(
-        builder: (context, c) => OverflowBox(
-          alignment: AlignmentDirectional.centerStart,
-          minWidth: c.maxWidth + reach,
-          maxWidth: c.maxWidth + reach,
-          child: Directionality(
-            textDirection: TextDirection.rtl,
-            child: SliderTheme(
-              data: SliderTheme.of(context).copyWith(
-                padding: EdgeInsets.zero,
-                showValueIndicator: ShowValueIndicator.alwaysVisible,
-              ),
-              child: IgnorePointer(
+    final last = _muteSteps.length - 1;
+    return IgnorePointer(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: _muteInset),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              d == Duration.zero ? 'Nevermind...' : 'Mute for ${_muteLabel(d)}',
+              style: Theme.of(context).textTheme.bodyLarge,
+            ),
+            Opacity(
+              opacity: 0.4 + 0.6 * drag / last,
+              child: SliderTheme(
+                data: SliderTheme.of(context).copyWith(
+                  padding: EdgeInsets.zero,
+                  showValueIndicator: ShowValueIndicator.never,
+                ),
                 child: Slider(
-                  key: _muteTrack,
                   value: drag.toDouble(),
-                  max: (_muteSteps.length - 1).toDouble(),
-                  divisions: _muteSteps.length - 1,
-                  // The mark keeps the dots after the word in right-to-left.
-                  label: d == Duration.zero ? 'Nevermind...‎' : _muteLabel(d),
+                  max: last.toDouble(),
+                  divisions: last,
                   onChanged: (_) {},
                 ),
               ),
             ),
-          ),
+          ],
         ),
       ),
     );
@@ -291,9 +292,9 @@ class _PingsScreenState extends ConsumerState<PingsScreen> {
     // The moon keeps its place in the tree while held, or the hold would end.
     final moon = GestureDetector(
       onLongPressStart: canMute
-          ? (_) {
+          ? (d) {
               HapticFeedback.mediumImpact();
-              setState(() => _muteDrag = 0);
+              _dragMute(d.globalPosition.dx);
             }
           : null,
       onLongPressMoveUpdate: canMute
@@ -336,25 +337,37 @@ class _PingsScreenState extends ConsumerState<PingsScreen> {
       child: _blockedTap(
         _keepAlive ? null : _keepAliveSnack,
         SizedBox(
+          key: _muteRow,
           height: 72,
-          child: ListTile(
-            enabled: _keepAlive,
-            leading: const SizedBox(
-              width: 28,
-              child: Icon(Icons.notifications_outlined),
-            ),
-            title: drag == null
-                ? Text(Setting.notifications.title)
-                : _muteSlider(drag),
-            subtitle: drag == null ? Text(status) : null,
-            onTap: () => _setPush(!pushOn),
-            trailing: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                moon,
-                Switch(value: pushOn, onChanged: _keepAlive ? _setPush : null),
-              ],
-            ),
+          // While the moon is held the row hides under the slider but stays
+          // laid out, so nothing shifts and the hold keeps its gesture.
+          child: Stack(
+            children: [
+              Opacity(
+                opacity: drag == null ? 1 : 0,
+                child: ListTile(
+                  enabled: _keepAlive,
+                  leading: const SizedBox(
+                    width: 28,
+                    child: Icon(Icons.notifications_outlined),
+                  ),
+                  title: Text(Setting.notifications.title),
+                  subtitle: Text(status),
+                  onTap: () => _setPush(!pushOn),
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      moon,
+                      Switch(
+                        value: pushOn,
+                        onChanged: _keepAlive ? _setPush : null,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              if (drag != null) Positioned.fill(child: _muteSlider(drag)),
+            ],
           ),
         ),
       ),
