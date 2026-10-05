@@ -75,4 +75,5 @@ Smallest change in the code that already owns the behavior. No new files, helper
 
 ## Notes
 
-- Versions live in pubspec.yaml (Dart SDK, Flutter channel, app version). `flutter_lints` only, no codegen.
+- Versions live in pubspec.yaml (Dart SDK, Flutter channel, app version). `flutter_lints` only. The one codegen is `flutter gen-l10n` (run by pub get, test, build); its output is gitignored.
+- User-facing text lives in `lib/l10n/app_en.arb` and reads through `context.l10n`; translations arrive as other `app_<locale>.arb` files. Usernames, emotes, chat text and Twitch's own notices stay untranslated.

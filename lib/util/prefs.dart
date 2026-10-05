@@ -43,6 +43,7 @@ class Prefs {
 
   // ── App / theme ─────────────────────────────────────────────────────
   static const _kThemeMode = 'themeMode';
+  static const _kLocale = 'locale';
   static const _kKeepScreenOn = 'keep_screen_on';
   static const _kTrueDark = 'true_dark';
   static const _kAccentColor = 'accent_color';
@@ -59,6 +60,12 @@ class Prefs {
 
   Future<void> setThemeMode(ThemeMode value) =>
       _p.setString(_kThemeMode, value.name);
+
+  /// App language tag (`es`, `pt_BR`); null follows the system.
+  String? get locale => _p.getString(_kLocale);
+
+  Future<void> setLocale(String? value) =>
+      value == null ? _p.remove(_kLocale) : _p.setString(_kLocale, value);
 
   bool get keepScreenOn => _p.getBool(_kKeepScreenOn) ?? true;
 

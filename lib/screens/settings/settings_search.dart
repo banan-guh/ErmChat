@@ -83,6 +83,12 @@ class Setting {
   );
 
   // ── Appearance ──────────────────────────────────────────────────────
+  static const language = Setting(
+    'language',
+    'Language',
+    SettingsPageId.appearance,
+    keywords: 'translation locale',
+  );
   static const theme = Setting(
     'theme',
     'Theme',
@@ -559,6 +565,7 @@ class Setting {
   /// Every searchable setting, in browsing order.
   static const all = [
     channels,
+    language,
     theme,
     accentColor,
     trueDark,

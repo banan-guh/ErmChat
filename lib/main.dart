@@ -8,6 +8,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/misc.dart';
 import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
+import 'l10n/app_localizations.dart';
 import 'providers/app_providers.dart';
 import 'providers/feature_providers.dart';
 import 'irc/proxy_config.dart';
@@ -218,6 +219,9 @@ class TwitchChatApp extends StatefulWidget {
 
 class _TwitchChatAppState extends State<TwitchChatApp> {
   ThemeMode _themeMode = ThemeMode.system;
+
+  /// Chosen app language; null follows the system.
+  Locale? _locale;
   bool? _keepScreenOn;
   bool _trueDark = false;
   String _accentKey = kDefaultAccent;
@@ -295,12 +299,15 @@ class _TwitchChatAppState extends State<TwitchChatApp> {
       final proxy = ProxyConfig.fromPrefs(prefs);
       final changed =
           _themeMode != prefs.themeMode ||
+          _locale?.toLanguageTag() !=
+              _parseLocale(prefs.locale)?.toLanguageTag() ||
           _trueDark != prefs.trueDark ||
           _accentKey != prefs.accentColor ||
           _layoutDensity != prefs.layoutDensity ||
           _layoutOverrides != overrides ||
           _proxyConfig != proxy;
       _themeMode = prefs.themeMode;
+      _locale = _parseLocale(prefs.locale);
       if (_keepScreenOn != prefs.keepScreenOn) {
         _keepScreenOn = prefs.keepScreenOn;
         WakelockPlus.toggle(enable: prefs.keepScreenOn).ignore();
@@ -403,6 +410,9 @@ class _TwitchChatAppState extends State<TwitchChatApp> {
       return ProviderScope(
         overrides: _providerOverrides,
         child: MaterialApp(
+          locale: _locale,
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
           themeMode: _themeMode,
           theme: _lightThemeData,
           darkTheme: _darkThemeData,
@@ -420,6 +430,9 @@ class _TwitchChatAppState extends State<TwitchChatApp> {
       overrides: _providerOverrides,
       child: MaterialApp(
         title: 'ErmChat',
+        locale: _locale,
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
         themeMode: _themeMode,
         theme: _lightThemeData,
         darkTheme: _darkThemeData,
@@ -433,4 +446,11 @@ class _TwitchChatAppState extends State<TwitchChatApp> {
       ),
     );
   }
+}
+
+/// `pt_BR` style pref value to a [Locale]; null or empty follows the system.
+Locale? _parseLocale(String? tag) {
+  if (tag == null || tag.isEmpty) return null;
+  final parts = tag.split('_');
+  return Locale(parts[0], parts.length > 1 ? parts[1] : null);
 }
