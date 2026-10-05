@@ -6,8 +6,9 @@ import '../irc/decode/decoder.dart';
 import '../irc/message.dart';
 
 /// Seeded synthetic PRIVMSG load for battery tuning, fed through the real
-/// read decoder. Enabled with `--dart-define=ERMCHAT_FAKE_CHAT=<msgs/sec>`;
-/// the same seed and emote pool produce the same stream every run.
+/// read decoder. Starts at `--dart-define=ERMCHAT_FAKE_CHAT=<msgs/sec>`; dev
+/// settings change the rate or fill the buffer at runtime. The same seed and
+/// emote pool produce the same stream every run.
 class FakeChatFeed {
   FakeChatFeed({
     required this.decoder,
@@ -16,8 +17,11 @@ class FakeChatFeed {
     this.seed = 1,
   });
 
-  /// Messages per second; 0 disables the feed.
-  static const int rate = int.fromEnvironment('ERMCHAT_FAKE_CHAT');
+  /// Starting messages per second; 0 leaves the feed off.
+  static const int defaultRate = int.fromEnvironment('ERMCHAT_FAKE_CHAT');
+
+  /// Lines a fill feeds per timer tick.
+  static const _fillChunk = 250;
 
   final IrcChatDecoder decoder;
   final String? Function() channel;
@@ -28,7 +32,12 @@ class FakeChatFeed {
 
   late final Random _rng = Random(seed);
   Timer? _timer;
+  Timer? _fillTimer;
   int _n = 0;
+
+  /// Current messages per second; 0 is off.
+  int get rate => _rate;
+  int _rate = defaultRate;
 
   static const _words = [
     'lol',
@@ -63,20 +72,56 @@ class FakeChatFeed {
   static const _colors = ['#FF4500', '#1E90FF', '#9ACD32', '#DAA520', ''];
 
   void start() {
-    if (rate <= 0 || _timer != null) return;
-    _timer = Timer.periodic(Duration(microseconds: 1000000 ~/ rate), (_) {
-      final ch = channel();
-      if (ch == null || ch.startsWith('@')) return;
-      final msg = parseIrcMessage(_next(ch));
-      // Dev load tool: rides the decoder's test seam on purpose.
-      // ignore: invalid_use_of_visible_for_testing_member
-      if (msg != null) decoder.feed(msg);
+    if (_rate <= 0 || _timer != null) return;
+    _timer = Timer.periodic(Duration(microseconds: 1000000 ~/ _rate), (_) {
+      final ch = _channel();
+      if (ch != null) _feed(_next(ch));
     });
+  }
+
+  /// Restarts the live feed at [perSecond]; 0 stops it.
+  void setRate(int perSecond) {
+    _rate = max(0, perSecond);
+    _timer?.cancel();
+    _timer = null;
+    start();
+  }
+
+  /// Feeds [count] chat lines into the selected channel, a chunk per frame,
+  /// so a full buffer lands in a second or two without one long frame.
+  void fill(int count) {
+    _fillTimer?.cancel();
+    var left = count;
+    _fillTimer = Timer.periodic(const Duration(milliseconds: 16), (t) {
+      final ch = _channel();
+      for (var i = 0; ch != null && i < _fillChunk && left > 0; i++) {
+        _feed(_line(ch));
+        left--;
+      }
+      if (ch == null || left <= 0) {
+        t.cancel();
+        _fillTimer = null;
+      }
+    });
+  }
+
+  String? _channel() {
+    final ch = channel();
+    return ch == null || ch.startsWith('@') ? null : ch;
+  }
+
+  void _feed(String line) {
+    final msg = parseIrcMessage(line);
+    // Dev load tool: rides the decoder's test seam on purpose.
+    // ignore: invalid_use_of_visible_for_testing_member
+    if (msg != null) decoder.feed(msg);
   }
 
   void dispose() {
     _timer?.cancel();
     _timer = null;
+    _fillTimer?.cancel();
+    _fillTimer = null;
   }
 
   /// Recent (user, message id) pairs, targets for moderation lines.

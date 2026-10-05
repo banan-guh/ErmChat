@@ -2,13 +2,21 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import '../../util/log.dart';
+import '../../services/fake_chat_feed.dart';
 import 'dev_settings_screen.dart';
 import 'settings_page.dart';
 
 class AboutScreen extends StatefulWidget {
   final ValueChanged<bool>? onTestWidgetsChanged;
+  final FakeChatFeed? fakeChat;
+  final int Function()? fakeFillCount;
 
-  const AboutScreen({super.key, this.onTestWidgetsChanged});
+  const AboutScreen({
+    super.key,
+    this.onTestWidgetsChanged,
+    this.fakeChat,
+    this.fakeFillCount,
+  });
 
   @override
   State<AboutScreen> createState() => _AboutScreenState();
@@ -45,6 +53,8 @@ class _AboutScreenState extends State<AboutScreen> {
         MaterialPageRoute(
           builder: (_) => DevSettingsScreen(
             onTestWidgetsChanged: widget.onTestWidgetsChanged,
+            fakeChat: widget.fakeChat,
+            fakeFillCount: widget.fakeFillCount,
           ),
         ),
       );

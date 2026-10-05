@@ -1104,7 +1104,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   // priming and post-auth refresh live in EmoteController.
   void _connectChat() {
     _chatConn.connect();
-    if (FakeChatFeed.rate > 0) _fakeChat.start();
+    _fakeChat.start();
   }
 
   void _onAuthChanged() {
@@ -1326,7 +1326,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   @override
   void dispose() {
     widget.routeObserver?.unsubscribe(this);
-    if (FakeChatFeed.rate > 0) _fakeChat.dispose();
+    _fakeChat.dispose();
     _isMobile.dispose();
     DataUsageStats.I.dispose();
     for (final unsubscribe in _signalUnsubs) {
@@ -1470,6 +1470,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
           emoteManager: _emoteManager,
           onPipEnabledChanged: _streamPlayer.setPipEnabled,
           onTestWidgetsChanged: _broadcastWidgets.setTestWidgets,
+          fakeChat: _fakeChat,
+          fakeFillCount: () => ref.read(maxMessagesPerChannelProvider),
         ),
       ),
     );

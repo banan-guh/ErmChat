@@ -5,6 +5,7 @@ import '../../services/emote_manager.dart';
 import '../../services/twitch_auth.dart';
 import '../../services/twitch_oauth.dart';
 import '../../services/tts_controller.dart';
+import '../../services/fake_chat_feed.dart';
 import 'about_screen.dart';
 import 'account_screen.dart';
 import 'channel_settings_screen.dart';
@@ -48,6 +49,10 @@ class SettingsScreen extends StatelessWidget {
   /// Live hook for the dev-only test-widgets toggle (About > 7 taps).
   final ValueChanged<bool>? onTestWidgetsChanged;
 
+  /// Dev-only synthetic chat load and the fill size (message limit).
+  final FakeChatFeed? fakeChat;
+  final int Function()? fakeFillCount;
+
   const SettingsScreen({
     super.key,
     required this.twitchAuth,
@@ -72,6 +77,8 @@ class SettingsScreen extends StatelessWidget {
     this.emoteManager,
     this.onPipEnabledChanged,
     this.onTestWidgetsChanged,
+    this.fakeChat,
+    this.fakeFillCount,
   });
 
   // One builder per destination, shared by the tiles and the search index.
@@ -117,7 +124,11 @@ class SettingsScreen extends StatelessWidget {
   Widget _account() =>
       AccountScreen(twitchAuth: twitchAuth, oAuthStarter: oAuthStarter);
 
-  Widget _about() => AboutScreen(onTestWidgetsChanged: onTestWidgetsChanged);
+  Widget _about() => AboutScreen(
+    onTestWidgetsChanged: onTestWidgetsChanged,
+    fakeChat: fakeChat,
+    fakeFillCount: fakeFillCount,
+  );
 
   Widget _tts() => TtsSettingsScreen(ttsController: ttsController);
 

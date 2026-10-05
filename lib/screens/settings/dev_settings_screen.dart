@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import '../../util/log.dart';
 import '../../util/prefs.dart';
 import '../../models/emote_fetch_tier.dart';
+import '../../services/fake_chat_feed.dart';
 import '../../util/data_usage.dart';
 import '../../widgets/app_snack.dart';
 import '../../widgets/welcome_dialog.dart';
@@ -14,7 +15,16 @@ import 'settings_page.dart';
 class DevSettingsScreen extends StatefulWidget {
   final ValueChanged<bool>? onTestWidgetsChanged;
 
-  const DevSettingsScreen({super.key, this.onTestWidgetsChanged});
+  /// Synthetic chat load for the selected channel; null hides its controls.
+  final FakeChatFeed? fakeChat;
+  final int Function()? fakeFillCount;
+
+  const DevSettingsScreen({
+    super.key,
+    this.onTestWidgetsChanged,
+    this.fakeChat,
+    this.fakeFillCount,
+  });
 
   @override
   State<DevSettingsScreen> createState() => _DevSettingsScreenState();
@@ -45,6 +55,30 @@ class _DevSettingsScreenState extends State<DevSettingsScreen> {
             write: (p, v) => p.setTestChatWidgets(v),
             onChanged: widget.onTestWidgetsChanged,
           ),
+          if (widget.fakeChat case final fake?) ...[
+            const Divider(),
+            ListTile(
+              leading: const Icon(Icons.forum_outlined),
+              title: const Text('Fake chat'),
+              subtitle: Slider(
+                value: fake.rate.clamp(0, 50).toDouble(),
+                max: 50,
+                divisions: 50,
+                label: '${fake.rate} msgs/s',
+                onChanged: (v) => setState(() => fake.setRate(v.round())),
+              ),
+              trailing: Text(
+                fake.rate == 0 ? 'Off' : '${fake.rate}/s',
+                textAlign: TextAlign.end,
+              ),
+            ),
+            ListTile(
+              leading: const Icon(Icons.vertical_align_top),
+              title: const Text('Fill to message limit'),
+              subtitle: const Text('Into the selected channel'),
+              onTap: () => fake.fill(widget.fakeFillCount?.call() ?? 500),
+            ),
+          ],
           const Divider(),
           PrefsSwitchTile(
             secondary: const Icon(Icons.language),
