@@ -244,6 +244,61 @@ class _HypeTrainCardState extends State<HypeTrainCard> {
   }
 }
 
+/// The channel's pinned chat message.
+class PinnedMessageCard extends StatelessWidget {
+  const PinnedMessageCard({super.key, required this.event});
+
+  final PinnedMessageEvent event;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(14, 10, 44, 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.push_pin, size: 16, color: theme.colorScheme.primary),
+              const SizedBox(width: 6),
+              Text('Pinned', style: theme.textTheme.titleSmall),
+              if (event.pinnedBy.isNotEmpty) ...[
+                const SizedBox(width: 8),
+                Flexible(
+                  child: Text(
+                    'by ${event.pinnedBy}',
+                    style: theme.textTheme.labelSmall?.copyWith(
+                      color: theme.colorScheme.outline,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text.rich(
+            TextSpan(
+              children: [
+                if (event.senderName.isNotEmpty)
+                  TextSpan(
+                    text: '${event.senderName}: ',
+                    style: const TextStyle(fontWeight: FontWeight.w600),
+                  ),
+                TextSpan(text: event.text),
+              ],
+            ),
+            style: theme.textTheme.bodySmall,
+            maxLines: 4,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 /// Read-only poll results card.
 class PollCard extends StatelessWidget {
   const PollCard({super.key, required this.event});

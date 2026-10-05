@@ -2,10 +2,11 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:ermchat/chat/chat.dart';
+import 'package:ermchat/eventsub/decode/events.dart';
 import 'package:ermchat/models/point_rewards.dart';
 import 'package:ermchat/models/twitch_message.dart';
 import 'package:ermchat/services/pubsub_points_consumer.dart';
-import 'package:ermchat/services/pubsub_points_service.dart';
+import 'package:ermchat/services/pubsub_service.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 Map<String, dynamic> redemptionJson({
@@ -140,9 +141,9 @@ void main() {
     });
   });
 
-  group('PubSubPointsService frames', () {
+  group('PubSubService frames', () {
     test('routes reward-redeemed to the mapped channel', () async {
-      final service = PubSubPointsService();
+      final service = PubSubService();
       addTearDown(service.dispose);
       service.seedTopic('shroud', '12345');
       final events = <PubSubPointRedemption>[];
@@ -159,8 +160,96 @@ void main() {
       expect(events.single.redemption.imageUrl, 'https://cdn/x/4.png');
     });
 
+    test('widget topics decode to banner events', () {
+      final service = PubSubService();
+      addTearDown(service.dispose);
+      service.seedTopic('lirik', '23161357');
+      final hype = <HypeTrainEvent>[];
+      final predictions = <PredictionEvent>[];
+      final pins = <PinnedMessageEvent>[];
+      final subs = [
+        service.onHypeTrain.listen(hype.add),
+        service.onPrediction.listen(predictions.add),
+        service.onPinned.listen(pins.add),
+      ];
+      addTearDown(() {
+        for (final s in subs) {
+          s.cancel();
+        }
+      });
+
+      // Trimmed from live anonymous frames (2026-10-05).
+      service.feedText(
+        messageFrame('hype-train-events-v1.23161357', {
+          'type': 'hype-train-progression',
+          'data': {
+            'progress': {
+              'level': {'value': 18, 'goal': 192200},
+              'value': 20051,
+              'goal': 28600,
+              'total': 183651,
+              'remaining_seconds': 181,
+            },
+            'expires_at': '2026-10-05T22:16:02.981310906Z',
+          },
+        }),
+      );
+      service.feedText(
+        messageFrame('predictions-channel-v1.23161357', {
+          'type': 'event-updated',
+          'data': {
+            'event': {
+              'status': 'LOCKED',
+              'title': r'Wardogs: Banked $ @ end of stream',
+              'outcomes': [
+                {'title': r'0 - $200k', 'total_points': 500, 'total_users': 1},
+              ],
+            },
+          },
+        }),
+      );
+      service.feedText(
+        messageFrame('pinned-chat-updates-v1.23161357', {
+          'type': 'pin-message',
+          'data': {
+            'id': 'pin1',
+            'pinned_by': {'login': 'moddy', 'display_name': 'Moddy'},
+            'message': {
+              'sender': {'login': 'moddy', 'display_name': 'Moddy'},
+              'content': {'text': 'GET THE ADDON'},
+              'ends_at': 1791239991,
+            },
+          },
+        }),
+      );
+      service.feedText(
+        messageFrame('pinned-chat-updates-v1.23161357', {
+          'type': 'unpin-message',
+          'data': {'id': 'pin1'},
+        }),
+      );
+
+      final train = hype.single;
+      expect(train.channel, 'lirik');
+      expect(train.kind, HypeTrainKind.progress);
+      expect(train.level, 18);
+      expect((train.progress, train.goal), (20051, 28600));
+      expect(train.expiresAt, isNotNull);
+
+      final prediction = predictions.single;
+      expect(prediction.kind, PredictionKind.lock);
+      expect(prediction.outcomes.single.users, 1);
+      expect(prediction.outcomes.single.channelPoints, 500);
+
+      expect(pins.first.senderName, 'Moddy');
+      expect(pins.first.text, 'GET THE ADDON');
+      expect(pins.first.endsAt?.millisecondsSinceEpoch, 1791239991000);
+      expect(pins.last.removed, isTrue);
+      expect(pins.last.id, 'pin1');
+    });
+
     test('ignores unknown topics, other types, and malformed frames', () {
-      final service = PubSubPointsService();
+      final service = PubSubService();
       addTearDown(service.dispose);
       service.seedTopic('shroud', '12345');
       var count = 0;
@@ -188,7 +277,7 @@ void main() {
     });
 
     test('listen is idempotent and unlisten drops the mapping', () {
-      final service = PubSubPointsService();
+      final service = PubSubService();
       addTearDown(service.dispose);
       service.seedTopic('shroud', '12345');
       var count = 0;

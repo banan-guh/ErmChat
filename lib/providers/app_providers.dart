@@ -11,7 +11,7 @@ import '../services/emote_manager.dart';
 import '../services/ignore_manager.dart';
 import '../services/ping_manager.dart';
 import '../services/pip_service.dart';
-import '../services/pubsub_points_service.dart';
+import '../services/pubsub_service.dart';
 import '../services/recent_messages.dart';
 import '../services/seven_tv_event_client.dart';
 import '../services/stream_player_controller.dart';
@@ -64,8 +64,8 @@ final eventSubServiceProvider = Provider<EventSubService>((ref) {
 
 /// Unauthenticated PubSub socket for channel-point redemption banners.
 /// One app-scope socket shared by every joined channel.
-final pubSubPointsServiceProvider = Provider<PubSubPointsService>((ref) {
-  final service = PubSubPointsService(
+final pubSubServiceProvider = Provider<PubSubService>((ref) {
+  final service = PubSubService(
     connectivityService: ref.watch(connectivityServiceProvider),
   );
   ref.onDispose(service.dispose);

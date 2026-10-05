@@ -330,6 +330,30 @@ class HypeTrainContribution {
   });
 }
 
+/// A pinned chat message (PubSub `pinned-chat-updates-v1`). [removed] is an
+/// unpin; [endsAt] is when a timed pin lapses on its own.
+class PinnedMessageEvent {
+  final String channel;
+
+  /// Pin id, shared by the pin and its unpin.
+  final String id;
+  final String senderName;
+  final String text;
+  final String pinnedBy;
+  final DateTime? endsAt;
+  final bool removed;
+
+  PinnedMessageEvent({
+    required this.channel,
+    required this.id,
+    this.senderName = '',
+    this.text = '',
+    this.pinnedBy = '',
+    this.endsAt,
+    this.removed = false,
+  });
+}
+
 /// A channel poll event. [kind] is begin, progress, or end.
 class PollEvent {
   final String channel;

@@ -44,7 +44,7 @@ final chatPipelineProvider = Provider<ChatConnectionManager>((ref) {
       services: ChatServices(
         twitchApi: ref.read(twitchApiProvider),
         eventSub: ref.read(eventSubServiceProvider),
-        pubSubPoints: ref.read(pubSubPointsServiceProvider),
+        pubSub: ref.read(pubSubServiceProvider),
         irc: ref.read(ircServiceProvider),
         ircRead: ref.read(ircReadServiceProvider),
         sevenTvClient: ref.read(sevenTvClientProvider),
@@ -103,6 +103,7 @@ final chatPipelineProvider = Provider<ChatConnectionManager>((ref) {
         onPoll: (event) => ref.read(broadcastWidgetsProvider).onPoll(event),
         onPrediction: (event) =>
             ref.read(broadcastWidgetsProvider).onPrediction(event),
+        onPinned: (event) => ref.read(broadcastWidgetsProvider).onPinned(event),
         onChatMessage: (channel, msg) => ref
             .read(ttsControllerProvider)
             .handleMessage(channel, msg, ref.read(selectedChannelProvider)),

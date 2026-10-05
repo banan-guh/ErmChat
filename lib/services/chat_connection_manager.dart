@@ -26,7 +26,7 @@ import '../services/chat_sender.dart';
 import '../services/eventsub_consumer.dart';
 import '../services/moderation_hub.dart';
 import '../services/pubsub_points_consumer.dart';
-import '../services/pubsub_points_service.dart';
+import '../services/pubsub_service.dart';
 import '../services/seven_tv_consumer.dart';
 import '../services/chat_readiness.dart';
 import '../services/chat_lifecycle.dart';
@@ -40,7 +40,7 @@ class ChatServices {
   ChatServices({
     required this.twitchApi,
     required this.eventSub,
-    this.pubSubPoints,
+    this.pubSub,
     required this.irc,
     required this.ircRead,
     this.sevenTvClient,
@@ -58,7 +58,7 @@ class ChatServices {
   final EventSubService eventSub;
 
   /// Null disables redemption headers; the IRC highlight path still works.
-  final PubSubPointsService? pubSubPoints;
+  final PubSubService? pubSub;
   final IrcService irc;
   final IrcReadService ircRead;
   final SevenTvEventClient? sevenTvClient;
@@ -125,6 +125,7 @@ class ChatSinks {
     this.onHypeTrain,
     this.onPoll,
     this.onPrediction,
+    this.onPinned,
     this.onChatMessage,
   });
 
@@ -144,6 +145,7 @@ class ChatSinks {
   final void Function(HypeTrainEvent event)? onHypeTrain;
   final void Function(PollEvent event)? onPoll;
   final void Function(PredictionEvent event)? onPrediction;
+  final void Function(PinnedMessageEvent event)? onPinned;
   final void Function(String channel, TwitchMessage msg)? onChatMessage;
 }
 
@@ -288,7 +290,7 @@ class ChatConnectionManager {
     irc: config.services.irc,
     ircRead: config.services.ircRead,
     eventSub: config.services.eventSub,
-    pubSubPoints: config.services.pubSubPoints,
+    pubSub: config.services.pubSub,
     sevenTvClient: config.services.sevenTvClient,
     session: config.session,
     twitchAuth: config.services.twitchAuth,
@@ -359,7 +361,7 @@ class ChatConnectionManager {
     twitchApi: config.services.twitchApi,
     eventSubDecoder: eventSubDecoder,
     eventSubTopics: eventSubTopics,
-    pubSubPoints: config.services.pubSubPoints,
+    pubSub: config.services.pubSub,
     irc: config.services.irc,
     ircRead: config.services.ircRead,
     readDecoder: readDecoder,
@@ -409,7 +411,7 @@ class ChatConnectionManager {
   /// re-subscribes from scratch.
   void forgetChannel(String channel) {
     _sender.forgetChannel(channel);
-    config.services.pubSubPoints?.forgetChannel(channel);
+    config.services.pubSub?.forgetChannel(channel);
     _channelSetup.forgetChannel(channel);
   }
 
@@ -512,9 +514,18 @@ class ChatConnectionManager {
 
     _channelSetup.attach();
 
-    final pubSubPoints = config.services.pubSubPoints;
-    if (pubSubPoints != null) {
-      pubSubPointsConsumer.attach(pubSubPoints.onRedemption);
+    final pubSub = config.services.pubSub;
+    if (pubSub != null) {
+      pubSubPointsConsumer.attach(pubSub.onRedemption);
+      // Viewer-side chat widgets; EventSub feeds the same sinks for the
+      // broadcaster.
+      final sinks = config.sinks;
+      _ingestionSubs.addAll([
+        pubSub.onHypeTrain.listen((e) => sinks.onHypeTrain?.call(e)),
+        pubSub.onPoll.listen((e) => sinks.onPoll?.call(e)),
+        pubSub.onPrediction.listen((e) => sinks.onPrediction?.call(e)),
+        pubSub.onPinned.listen((e) => sinks.onPinned?.call(e)),
+      ]);
     }
     eventSubConsumer.attach(eventSubDecoder);
 

@@ -5,7 +5,7 @@ import '../color_utils.dart' show Color;
 import '../models/point_rewards.dart';
 import '../models/twitch_message.dart';
 import '../util/log.dart';
-import 'pubsub_points_service.dart';
+import 'pubsub_service.dart';
 
 /// Joins PubSub redemption banners to IRC chat lines, mirroring DankChat.
 ///

@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
+import '../eventsub/decode/events.dart';
 import '../models/point_rewards.dart';
 import '../util/connectivity.dart';
 import '../util/constants.dart';
@@ -19,15 +20,16 @@ class PubSubPointRedemption {
   final PointRedemption redemption;
 }
 
-/// Unauthenticated PubSub client for `community-points-channel-v1.*`.
+/// Unauthenticated PubSub client for channel points, hype trains,
+/// predictions, polls and pinned messages.
 ///
-/// Direct port of DankChat's `PubSubConnection` points path: the redemption
-/// topic needs no `auth_token`, so viewers see every joined channel. The
-/// socket is otherwise silent: a `PING` every 5 minutes plus one small
-/// `reward-redeemed` frame per redeem. Deprecated upstream and able to die
-/// without notice; failures degrade to the IRC-only highlight path.
-class PubSubPointsService {
-  PubSubPointsService({this.connectivityService});
+/// The connection is a port of DankChat's `PubSubConnection`. None of these
+/// topics need an `auth_token`, so viewers get them for every joined channel
+/// (EventSub only serves the broadcaster). Deprecated upstream and able to
+/// die without notice; failures degrade to the IRC highlight path and the
+/// broadcaster's EventSub widgets.
+class PubSubService {
+  PubSubService({this.connectivityService});
 
   static const _wsUrl = 'wss://pubsub-edge.twitch.tv';
   static const _maxReconnectAttempts = 8;
@@ -59,13 +61,39 @@ class PubSubPointsService {
   VoidCallback? _connectivityListener;
   final _rng = Random();
 
-  /// Full topic string per channel name. Re-listened on every reconnect.
-  final _topicsByChannel = <String, String>{};
+  /// Topics per channel name. Re-listened on every reconnect.
+  final _topicsByChannel = <String, List<String>>{};
+  final _channelByTopic = <String, String>{};
+
+  /// Last known hype train expiry per channel; level-ups may omit it.
+  final _hypeExpiry = <String, DateTime>{};
   final _redemptionController =
       StreamController<PubSubPointRedemption>.broadcast(sync: true);
+  final _hypeTrainController = StreamController<HypeTrainEvent>.broadcast(
+    sync: true,
+  );
+  final _pollController = StreamController<PollEvent>.broadcast(sync: true);
+  final _predictionController = StreamController<PredictionEvent>.broadcast(
+    sync: true,
+  );
+  final _pinnedController = StreamController<PinnedMessageEvent>.broadcast(
+    sync: true,
+  );
 
   Stream<PubSubPointRedemption> get onRedemption =>
       _redemptionController.stream;
+  Stream<HypeTrainEvent> get onHypeTrain => _hypeTrainController.stream;
+  Stream<PollEvent> get onPoll => _pollController.stream;
+  Stream<PredictionEvent> get onPrediction => _predictionController.stream;
+  Stream<PinnedMessageEvent> get onPinned => _pinnedController.stream;
+
+  static List<String> _topicsFor(String channelId) => [
+    'community-points-channel-v1.$channelId',
+    'hype-train-events-v1.$channelId',
+    'predictions-channel-v1.$channelId',
+    'polls.$channelId',
+    'pinned-chat-updates-v1.$channelId',
+  ];
   bool get isConnected => _channel != null;
 
   /// True when the socket exists but nothing arrived for >1.5x the ping
@@ -78,13 +106,15 @@ class PubSubPointsService {
 
   /// Starts (or joins) listening for a channel. Idempotent per channel.
   void listen(String channelName, String channelId) {
-    final topic = 'community-points-channel-v1.$channelId';
-    if (_topicsByChannel[channelName] == topic) return;
-    final old = _topicsByChannel[channelName];
-    if (old != null) _sendSingle('UNLISTEN', [old]);
-    _topicsByChannel[channelName] = topic;
+    final topics = _topicsFor(channelId);
+    if (_topicsByChannel[channelName]?.first == topics.first) return;
+    unlistenChannel(channelName);
+    _topicsByChannel[channelName] = topics;
+    for (final t in topics) {
+      _channelByTopic[t] = channelName;
+    }
     if (isConnected) {
-      _sendSingle('LISTEN', [topic]);
+      _sendSingle('LISTEN', topics);
     } else {
       unawaited(connect());
     }
@@ -92,8 +122,11 @@ class PubSubPointsService {
 
   /// Stops listening for a channel (parted). Keeps the socket for the rest.
   void unlistenChannel(String channelName) {
-    final topic = _topicsByChannel.remove(channelName);
-    if (topic != null && isConnected) _sendSingle('UNLISTEN', [topic]);
+    final topics = _topicsByChannel.remove(channelName);
+    if (topics == null) return;
+    topics.forEach(_channelByTopic.remove);
+    _hypeExpiry.remove(channelName);
+    if (isConnected) _sendSingle('UNLISTEN', topics);
   }
 
   /// Drops per-channel state (channel left). Skip sets do not exist here:
@@ -123,7 +156,7 @@ class PubSubPointsService {
         _resubscribeAll();
         _armPing();
       } catch (e) {
-        logDebug('PubSub points connect error: $e');
+        logDebug('PubSub connect error: $e');
         _channel = null;
         _streamSub = null;
         _scheduleReconnect();
@@ -167,7 +200,7 @@ class PubSubPointsService {
   }
 
   void _resubscribeAll() {
-    final topics = _topicsByChannel.values.toSet();
+    final topics = _topicsByChannel.values.expand((t) => t).toSet();
     if (topics.isEmpty) return;
     // DankChat batches 50 topics per LISTEN; channel counts here are small,
     // so one frame suffices.
@@ -196,7 +229,7 @@ class PubSubPointsService {
       final channel = _channel;
       if (channel == null) return;
       if (_awaitingPong) {
-        logDebug('PubSub points pong missed - reconnecting');
+        logDebug('PubSub pong missed - reconnecting');
         unawaited(forceReconnect());
         return;
       }
@@ -211,7 +244,7 @@ class PubSubPointsService {
     try {
       frame = jsonDecode(raw) as Map<String, dynamic>;
     } catch (e) {
-      logDebug('PubSub points frame parse error: $e');
+      logDebug('PubSub frame parse error: $e');
       return;
     }
     final type = frame['type'] as String?;
@@ -223,7 +256,7 @@ class PubSubPointsService {
       case 'RESPONSE':
         final error = frame['error'] as String?;
         if (error != null && error.isNotEmpty) {
-          logDebug('PubSub points LISTEN rejected: $error');
+          logDebug('PubSub LISTEN rejected: $error');
         }
       case 'MESSAGE':
         _handleMessage(frame);
@@ -238,10 +271,26 @@ class PubSubPointsService {
       final topic = data?['topic'] as String?;
       final rawMessage = data?['message'] as String?;
       if (topic == null || rawMessage == null) return;
-      final channel = _topicChannel(topic);
+      final channel = _channelByTopic[topic];
       if (channel == null) return;
       final inner = jsonDecode(rawMessage) as Map<String, dynamic>;
-      if (!_redemptionTypes.contains(inner['type'])) return;
+      final type = inner['type'] as String?;
+      final kind = topic.substring(0, topic.lastIndexOf('.'));
+      switch (kind) {
+        case 'hype-train-events-v1':
+          _handleHypeTrain(channel, type, inner['data']);
+          return;
+        case 'predictions-channel-v1':
+          _handlePrediction(channel, type, inner['data']);
+          return;
+        case 'polls':
+          _handlePoll(channel, type, inner['data']);
+          return;
+        case 'pinned-chat-updates-v1':
+          _handlePinned(channel, type, inner['data']);
+          return;
+      }
+      if (!_redemptionTypes.contains(type)) return;
       final payload = inner['data'] as Map<String, dynamic>?;
       final redemption = payload?['redemption'] as Map<String, dynamic>?;
       final timestamp = payload?['timestamp'] as String?;
@@ -253,22 +302,154 @@ class PubSubPointsService {
         ),
       );
     } catch (e) {
-      logDebug('PubSub points message parse error: $e');
+      logDebug('PubSub message parse error: $e');
     }
   }
 
-  String? _topicChannel(String topic) {
-    for (final entry in _topicsByChannel.entries) {
-      if (entry.value == topic) return entry.key;
+  void _handleHypeTrain(String channel, String? type, Object? data) {
+    if (data is! Map<String, dynamic>) return;
+    if (type == 'hype-train-end') {
+      _hypeExpiry.remove(channel);
+      _hypeTrainController.add(
+        HypeTrainEvent(
+          channel: channel,
+          kind: HypeTrainKind.end,
+          rawKind: type!,
+          level: 0,
+          progress: 0,
+          goal: 0,
+          total: 0,
+        ),
+      );
+      return;
     }
-    return null;
+    final kind = switch (type) {
+      'hype-train-start' => HypeTrainKind.begin,
+      'hype-train-progression' ||
+      'hype-train-level-up' => HypeTrainKind.progress,
+      _ => null,
+    };
+    final progress = data['progress'];
+    if (kind == null || progress is! Map<String, dynamic>) return;
+    final expires = DateTime.tryParse(data['expires_at'] as String? ?? '');
+    if (expires != null) _hypeExpiry[channel] = expires;
+    int intOf(Object? v) => v is num ? v.toInt() : 0;
+    final level = progress['level'];
+    _hypeTrainController.add(
+      HypeTrainEvent(
+        channel: channel,
+        kind: kind,
+        rawKind: type!,
+        level: level is Map ? intOf(level['value']) : 1,
+        progress: intOf(progress['value']),
+        goal: intOf(progress['goal']),
+        total: intOf(progress['total']),
+        expiresAt: _hypeExpiry[channel],
+      ),
+    );
+  }
+
+  void _handlePrediction(String channel, String? type, Object? data) {
+    final event = data is Map<String, dynamic> ? data['event'] : null;
+    if (event is! Map<String, dynamic>) return;
+    final status = event['status'] as String? ?? '';
+    final kind = type == 'event-created'
+        ? PredictionKind.begin
+        : switch (status) {
+            'ACTIVE' => PredictionKind.progress,
+            'LOCKED' || 'RESOLVE_PENDING' => PredictionKind.lock,
+            _ => PredictionKind.end,
+          };
+    _predictionController.add(
+      PredictionEvent(
+        channel: channel,
+        kind: kind,
+        rawKind: type ?? '',
+        title: event['title'] as String? ?? '',
+        status: status,
+        outcomes: [
+          for (final o in event['outcomes'] as List? ?? const [])
+            if (o is Map<String, dynamic>)
+              PredictionOutcome(
+                title: o['title'] as String? ?? '',
+                users: (o['total_users'] as num?)?.toInt() ?? 0,
+                channelPoints: (o['total_points'] as num?)?.toInt() ?? 0,
+              ),
+        ],
+      ),
+    );
+  }
+
+  // Not seen live yet; shape from the PubSub poll payloads Twitch's web
+  // client used.
+  void _handlePoll(String channel, String? type, Object? data) {
+    final poll = data is Map<String, dynamic> ? data['poll'] : null;
+    if (poll is! Map<String, dynamic>) return;
+    final kind = switch (type) {
+      'POLL_CREATE' => PollKind.begin,
+      'POLL_UPDATE' => PollKind.progress,
+      _ => PollKind.end,
+    };
+    int votesOf(Object? v) => switch (v) {
+      num n => n.toInt(),
+      {'total': num n} => n.toInt(),
+      _ => 0,
+    };
+    _pollController.add(
+      PollEvent(
+        channel: channel,
+        kind: kind,
+        rawKind: type ?? '',
+        title: poll['title'] as String? ?? '',
+        status: poll['status'] as String? ?? '',
+        choices: [
+          for (final c in poll['choices'] as List? ?? const [])
+            if (c is Map<String, dynamic>)
+              PollChoice(
+                title: c['title'] as String? ?? '',
+                votes: votesOf(c['votes']),
+              ),
+        ],
+      ),
+    );
+  }
+
+  void _handlePinned(String channel, String? type, Object? data) {
+    if (data is! Map<String, dynamic>) return;
+    final id = data['id'] as String? ?? '';
+    if (type == 'unpin-message') {
+      _pinnedController.add(
+        PinnedMessageEvent(channel: channel, id: id, removed: true),
+      );
+      return;
+    }
+    if (type != 'pin-message') return;
+    final message = data['message'];
+    if (message is! Map<String, dynamic>) return;
+    String nameOf(Object? user) => user is Map
+        ? (user['display_name'] as String? ?? user['login'] as String? ?? '')
+        : '';
+    final content = message['content'];
+    final endsAt = (message['ends_at'] as num?)?.toInt() ?? 0;
+    _pinnedController.add(
+      PinnedMessageEvent(
+        channel: channel,
+        id: id,
+        senderName: nameOf(message['sender']),
+        text: content is Map ? content['text'] as String? ?? '' : '',
+        pinnedBy: nameOf(data['pinned_by']),
+        endsAt: endsAt > 0
+            ? DateTime.fromMillisecondsSinceEpoch(endsAt * 1000)
+            : null,
+      ),
+    );
   }
 
   void _scheduleReconnect() {
     if (_reconnecting || _disposed) return;
     if (!_isOnline) return;
     if (_reconnectAttempt >= _maxReconnectAttempts) {
-      logDebug('PubSub points max reconnect attempts reached - giving up');
+      logDebug('PubSub max reconnect attempts reached - giving up');
       return;
     }
     _reconnecting = true;
@@ -291,7 +472,7 @@ class PubSubPointsService {
     _connectTimer?.cancel();
     _connectTimer = Timer(_connectTimeout, () {
       if (!completer.isCompleted) {
-        completer.completeError(TimeoutException('PubSub points timed out'));
+        completer.completeError(TimeoutException('PubSub timed out'));
       }
     });
     channel.ready.then(
@@ -331,7 +512,11 @@ class PubSubPointsService {
   /// Test hook: registers a topic mapping without opening a socket.
   @visibleForTesting
   void seedTopic(String channelName, String channelId) {
-    _topicsByChannel[channelName] = 'community-points-channel-v1.$channelId';
+    final topics = _topicsFor(channelId);
+    _topicsByChannel[channelName] = topics;
+    for (final t in topics) {
+      _channelByTopic[t] = channelName;
+    }
   }
 
   void dispose() {
@@ -341,5 +526,9 @@ class PubSubPointsService {
     if (listener != null) connectivityService?.removeListener(listener);
     _connectivityListener = null;
     _redemptionController.close();
+    _hypeTrainController.close();
+    _pollController.close();
+    _predictionController.close();
+    _pinnedController.close();
   }
 }

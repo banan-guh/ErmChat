@@ -6,7 +6,7 @@ import '../eventsub/decode/events.dart';
 import '../util/prefs.dart';
 import 'chat_widget_cutout.dart';
 
-// Chat overlay widgets (hype train, poll, prediction) plus test fakes.
+// Chat overlay widgets (hype train, poll, prediction, pin) plus test fakes.
 class BroadcastWidgets {
   BroadcastWidgets({required this.selectedChannel});
 
@@ -16,6 +16,10 @@ class BroadcastWidgets {
   final hypeTrains = <String, HypeTrainEvent>{};
   final polls = <String, PollEvent>{};
   final predictions = <String, PredictionEvent>{};
+  final pins = <String, PinnedMessageEvent>{};
+
+  // Lapses timed pins, which get no unpin event.
+  final _pinExpiry = <String, Timer>{};
   final widgetsMinimized = <String, bool>{};
   final pageCtrl = PageController();
 
@@ -35,6 +39,9 @@ class BroadcastWidgets {
   void dispose() {
     mounted = false;
     _testWidgetsTimer?.cancel();
+    for (final t in _pinExpiry.values) {
+      t.cancel();
+    }
     pageCtrl.dispose();
     notifier.dispose();
   }
@@ -68,6 +75,34 @@ class BroadcastWidgets {
     } else {
       predictions[event.channel] = event;
     }
+    notifier.value++;
+    clampPage();
+  }
+
+  void onPinned(PinnedMessageEvent event) {
+    if (!mounted) return;
+    final channel = event.channel;
+    if (event.removed) {
+      if (pins[channel]?.id != event.id) return;
+      _dropPin(channel);
+    } else {
+      _pinExpiry.remove(channel)?.cancel();
+      pins[channel] = event;
+      final left = event.endsAt?.difference(DateTime.now());
+      if (left != null) {
+        _pinExpiry[channel] = Timer(
+          left.isNegative ? Duration.zero : left,
+          () => _dropPin(channel),
+        );
+      }
+    }
+    notifier.value++;
+    clampPage();
+  }
+
+  void _dropPin(String channel) {
+    _pinExpiry.remove(channel)?.cancel();
+    if (pins.remove(channel) == null || !mounted) return;
     notifier.value++;
     clampPage();
   }
@@ -180,6 +215,8 @@ class BroadcastWidgets {
 
   List<Widget> pagesFor(String channel) {
     final result = <Widget>[];
+    final pin = pins[channel];
+    if (pin != null) result.add(PinnedMessageCard(event: pin));
     final poll = polls[channel];
     if (poll != null) result.add(PollCard(event: poll));
     final prediction = predictions[channel];
@@ -191,6 +228,7 @@ class BroadcastWidgets {
 
   String labelsFor(String channel) {
     final labels = <String>[];
+    if (pins.containsKey(channel)) labels.add('Pinned');
     if (polls.containsKey(channel)) labels.add('Poll');
     if (predictions.containsKey(channel)) labels.add('Prediction');
     if (hypeTrains.containsKey(channel)) labels.add('Hype Train');
@@ -239,6 +277,8 @@ class BroadcastWidgets {
     hypeTrains.remove(channel);
     polls.remove(channel);
     predictions.remove(channel);
+    _pinExpiry.remove(channel)?.cancel();
+    pins.remove(channel);
     widgetsMinimized.remove(channel);
   }
 

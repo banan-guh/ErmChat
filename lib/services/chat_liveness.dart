@@ -5,7 +5,7 @@ import '../eventsub/transport/connection.dart';
 import '../irc/transport/read.dart';
 import '../irc/transport/write.dart';
 import '../util/log.dart';
-import 'pubsub_points_service.dart';
+import 'pubsub_service.dart';
 import 'seven_tv_event_client.dart';
 import 'twitch_auth.dart';
 
@@ -17,7 +17,7 @@ class ChatLiveness {
     required this.irc,
     required this.ircRead,
     required this.eventSub,
-    this.pubSubPoints,
+    this.pubSub,
     required this.sevenTvClient,
     required this.session,
     required this.twitchAuth,
@@ -26,7 +26,7 @@ class ChatLiveness {
   final IrcService irc;
   final IrcReadService ircRead;
   final EventSubService eventSub;
-  final PubSubPointsService? pubSubPoints;
+  final PubSubService? pubSub;
   final SevenTvEventClient? sevenTvClient;
   final Session session;
   final TwitchAuth twitchAuth;
@@ -58,7 +58,7 @@ class ChatLiveness {
     irc.forceReconnect();
     ircRead.forceReconnect();
     unawaited(eventSub.forceReconnect());
-    unawaited(pubSubPoints?.forceReconnect());
+    unawaited(pubSub?.forceReconnect());
     unawaited(sevenTvClient?.forceReconnect());
   }
 
@@ -107,7 +107,7 @@ class ChatLiveness {
     if (!eventSub.isConnected || eventSub.isStale) {
       unawaited(eventSub.forceReconnect());
     }
-    final points = pubSubPoints;
+    final points = pubSub;
     if (points != null && (!points.isConnected || points.isStale)) {
       unawaited(points.forceReconnect());
     }
