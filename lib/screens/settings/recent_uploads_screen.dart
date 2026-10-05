@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../../l10n/l10n.dart';
 import '../../services/media_uploader.dart';
 import '../../util/timestamp_formatter.dart';
 import '../../widgets/app_snack.dart';
@@ -36,7 +37,7 @@ class _RecentUploadsScreenState extends State<RecentUploadsScreen> {
   Future<void> _copyLink(RecentUpload upload) async {
     Clipboard.setData(ClipboardData(text: upload.imageLink)).ignore();
     if (!mounted) return;
-    AppSnack.show(context, 'Copied ${upload.imageLink}');
+    AppSnack.show(context, context.l10n.copiedValue(upload.imageLink));
   }
 
   Future<void> _delete(int index) async {
@@ -48,9 +49,9 @@ class _RecentUploadsScreenState extends State<RecentUploadsScreen> {
   Future<void> _clearAll() async {
     final confirmed = await confirmDialog(
       context,
-      title: 'Clear recent uploads',
-      message: 'This only clears the local history of uploads.',
-      confirmLabel: 'Clear',
+      title: context.l10n.clearRecentUploadsTitle,
+      message: context.l10n.clearRecentUploadsMessage,
+      confirmLabel: context.l10n.clear,
     );
     if (!confirmed) return;
     await _mediaUploader.clearRecents();
@@ -67,19 +68,19 @@ class _RecentUploadsScreenState extends State<RecentUploadsScreen> {
   @override
   Widget build(BuildContext context) {
     return SettingsPage(
-      title: const Text('Recent uploads'),
+      title: Text(context.l10n.recentUploadsTitle),
       actions: [
         if (_uploads.isNotEmpty)
           IconButton(
             icon: const Icon(Icons.delete_sweep),
-            tooltip: 'Clear all',
+            tooltip: context.l10n.clearAll,
             onPressed: _clearAll,
           ),
       ],
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _uploads.isEmpty
-          ? const Center(child: Text('No uploads yet'))
+          ? Center(child: Text(context.l10n.noUploadsYet))
           : ListView.builder(
               itemCount: _uploads.length,
               itemBuilder: (context, index) {
@@ -97,7 +98,7 @@ class _RecentUploadsScreenState extends State<RecentUploadsScreen> {
                   onTap: () => _copyLink(upload),
                   trailing: IconButton(
                     icon: const Icon(Icons.delete_outline),
-                    tooltip: 'Remove',
+                    tooltip: context.l10n.remove,
                     onPressed: () => _delete(index),
                   ),
                 );

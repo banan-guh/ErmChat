@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import '../../irc/proxy_config.dart';
+import '../../l10n/l10n.dart';
 import '../../util/prefs.dart';
 import 'settings_page.dart';
 
@@ -50,11 +51,11 @@ class _ProxySettingsScreenState extends State<ProxySettingsScreen> {
   @override
   Widget build(BuildContext context) {
     return SettingsPage(
-      title: const Text('Chat proxy'),
+      title: Text(context.l10n.chatProxy),
       body: ListView(
         children: [
           SwitchListTile(
-            title: const Text('Use chat proxy'),
+            title: Text(context.l10n.useChatProxy),
             value: _enabled,
             onChanged: _onEnabledChanged,
           ),
@@ -63,8 +64,8 @@ class _ProxySettingsScreenState extends State<ProxySettingsScreen> {
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               child: TextField(
                 controller: _urlController,
-                decoration: const InputDecoration(
-                  labelText: 'Proxy URL',
+                decoration: InputDecoration(
+                  labelText: context.l10n.proxyUrl,
                   hintText: 'ws://192.168.1.10:8080/ws',
                 ),
                 keyboardType: TextInputType.url,

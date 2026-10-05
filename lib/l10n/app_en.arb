@@ -458,5 +458,108 @@
   "tighterComposerHint": "Shorter input field with full-size buttons",
   "horizontalSheetActionsHint": "Icon-over-label rows in the emote and user sheets",
   "compactDensityHint": "Smaller buttons, list tiles and menus",
-  "tighterChromeHint": "Closer app bar action padding"
+  "tighterChromeHint": "Closer app bar action padding",
+  "newReport": "New report",
+  "reportsEmpty": "Reports are public on the ermchat GitHub. Drafts stay on this device, and sent reports wait here until the app can reach the server.",
+  "reportDraft": "Draft",
+  "reportWaiting": "Waiting to send",
+  "reportSent": "Sent",
+  "reportSentAs": "Sent as #{number}",
+  "@reportSentAs": {
+    "placeholders": {
+      "number": {
+        "type": "int"
+      }
+    }
+  },
+  "reportNotSent": "Not sent: {reason}",
+  "@reportNotSent": {
+    "placeholders": {
+      "reason": {
+        "type": "String"
+      }
+    }
+  },
+  "reportRejected": "rejected",
+  "untitledReport": "Untitled report",
+  "couldNotOpenGallery": "Could not open the gallery",
+  "uploadFailed": "Upload failed",
+  "reportTooLong": "Report is too long; trim some text",
+  "reportTitle": "Title",
+  "reportDescription": "Description (optional)",
+  "reportSteps": "Steps to reproduce (optional)",
+  "reportScreenshots": "Screenshots (optional)",
+  "reportScreenshotsHint": "Totally optional, most reports have none. kappa.lol links in the description work too.",
+  "addScreenshot": "Add screenshot",
+  "includeDiagnostics": "Include diagnostics",
+  "includeDiagnosticsHint": "App version, phone model and settings",
+  "previewDiagnostics": "Preview diagnostics",
+  "send": "Send",
+  "reportPublicNote": "Posted publicly on GitHub with your Twitch name. Offline? It sends once you're back online.",
+  "kindBug": "Bug",
+  "kindCrash": "Crash",
+  "kindVisual": "Visual glitch",
+  "kindPerformance": "Performance",
+  "kindIdea": "Idea",
+  "kindOther": "Other",
+  "ttsNoEngine": "No TTS engine available. Install or enable one in your device's Text-to-speech settings, then enable again.",
+  "ttsQueueModeTitle": "Message queue mode",
+  "ttsQueue": "Queue",
+  "ttsQueueHint": "Plays every message using a queue",
+  "ttsNewest": "Newest",
+  "ttsNewestHint": "Plays only the newest message",
+  "ttsFormatTitle": "Message format",
+  "ttsMessageOnly": "Message only",
+  "ttsMessageOnlyHint": "Reads out just the message",
+  "ttsUserAndMessage": "User and message",
+  "ttsUserAndMessageHint": "Reads out the user then the message",
+  "ttsNoEngines": "No TTS engines available",
+  "ttsEngineTitle": "TTS engine",
+  "ttsTitle": "Text-to-speech",
+  "ttsChangeInSystem": "Change in system settings",
+  "ttsDeviceDefault": "Device default",
+  "userCount": "{count, plural, =0{None} =1{1 user} other{{count} users}}",
+  "@userCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "ttsIgnoreListTitle": "TTS user ignore list",
+  "addUsername": "Add username",
+  "exampleUsername": "e.g. forsen",
+  "noIgnoredUsers": "No ignored users",
+  "copiedValue": "Copied {value}",
+  "@copiedValue": {
+    "placeholders": {
+      "value": {
+        "type": "String"
+      }
+    }
+  },
+  "clearRecentUploadsTitle": "Clear recent uploads",
+  "clearRecentUploadsMessage": "This only clears the local history of uploads.",
+  "clear": "Clear",
+  "recentUploadsTitle": "Recent uploads",
+  "clearAll": "Clear all",
+  "noUploadsYet": "No uploads yet",
+  "chatProxy": "Chat proxy",
+  "useChatProxy": "Use chat proxy",
+  "proxyUrl": "Proxy URL",
+  "noChannelsJoined": "No channels joined",
+  "joinChannel": "Join channel",
+  "editChannel": "Edit channel",
+  "inlineEmbedsTitle": "Inline embeds",
+  "giphyAnimationNote": "Animation follows Emotes > Animate emotes.",
+  "imagePreviewHint": "Tap a link's icon to preview",
+  "versionValue": "Version {version}",
+  "@versionValue": {
+    "placeholders": {
+      "version": {
+        "type": "String"
+      }
+    }
+  },
+  "openSourceLicenses": "Open source licenses"
 }

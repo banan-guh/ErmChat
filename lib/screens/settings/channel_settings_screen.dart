@@ -1,5 +1,6 @@
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import '../../l10n/l10n.dart';
 import '../../util/constants.dart';
 import '../../widgets/join_channel_dialog.dart';
 import 'settings_page.dart';
@@ -50,13 +51,13 @@ class _ChannelSettingsScreenState extends State<ChannelSettingsScreen> {
     final channels = widget.channelNotifier.value;
 
     return SettingsPage(
-      title: const Text('Channels'),
+      title: Text(context.l10n.pageChannels),
       body: ListView(
         children: [
           if (channels.isEmpty)
-            const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 16, vertical: 24),
-              child: Text('No channels joined'),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+              child: Text(context.l10n.noChannelsJoined),
             )
           else
             ReorderableListView.builder(
@@ -92,7 +93,7 @@ class _ChannelSettingsScreenState extends State<ChannelSettingsScreen> {
                   ? null
                   : _addChannelDialog,
               icon: const Icon(Icons.add),
-              label: const Text('Join channel'),
+              label: Text(context.l10n.joinChannel),
             ),
           ),
         ],
@@ -178,7 +179,7 @@ class _ReorderableChannelTileState extends State<_ReorderableChannelTile>
                   if (widget.onEdit != null)
                     IconButton(
                       icon: const Icon(Icons.edit_outlined),
-                      tooltip: 'Edit channel',
+                      tooltip: context.l10n.editChannel,
                       onPressed: () => widget.onEdit!(widget.channel),
                     ),
                   IconButton(

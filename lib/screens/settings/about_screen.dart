@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
+import '../../l10n/l10n.dart';
 import '../../util/log.dart';
 import '../../services/fake_chat_feed.dart';
 import 'dev_settings_screen.dart';
@@ -64,7 +65,7 @@ class _AboutScreenState extends State<AboutScreen> {
   @override
   Widget build(BuildContext context) {
     return SettingsPage(
-      title: const Text('About'),
+      title: Text(context.l10n.pageAbout),
       body: Column(
         children: [
           Expanded(
@@ -81,7 +82,7 @@ class _AboutScreenState extends State<AboutScreen> {
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        'Version $_version',
+                        context.l10n.versionValue(_version),
                         style: Theme.of(context).textTheme.bodyMedium,
                       ),
                     ],
@@ -92,7 +93,7 @@ class _AboutScreenState extends State<AboutScreen> {
           ),
           ListTile(
             leading: const Icon(Icons.description_outlined),
-            title: const Text('Open source licenses'),
+            title: Text(context.l10n.openSourceLicenses),
             onTap: () => showLicensePage(
               context: context,
               applicationName: 'ErmChat',

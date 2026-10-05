@@ -67,11 +67,7 @@ class _TtsSettingsScreenState extends State<TtsSettingsScreen> {
         final ready = await c.checkAndPrepare();
         if (!ready) {
           if (mounted) {
-            AppSnack.showError(
-              context,
-              'No TTS engine available. Install or enable one in your '
-              'device\'s Text-to-speech settings, then enable again.',
-            );
+            AppSnack.showError(context, context.l10n.ttsNoEngine);
             setState(() => _enabled = false);
           }
           return;
@@ -104,11 +100,15 @@ class _TtsSettingsScreenState extends State<TtsSettingsScreen> {
   Future<void> _pickQueueMode() async {
     final chosen = await showChoiceDialog<TtsQueueMode>(
       context,
-      title: 'Message queue mode',
+      title: context.l10n.ttsQueueModeTitle,
       value: _queueMode,
-      options: const [
-        (TtsQueueMode.queue, 'Queue', 'Plays every message using a queue'),
-        (TtsQueueMode.newest, 'Newest', 'Plays only the newest message'),
+      options: [
+        (TtsQueueMode.queue, context.l10n.ttsQueue, context.l10n.ttsQueueHint),
+        (
+          TtsQueueMode.newest,
+          context.l10n.ttsNewest,
+          context.l10n.ttsNewestHint,
+        ),
       ],
     );
     if (chosen == null || chosen == _queueMode) return;
@@ -120,18 +120,18 @@ class _TtsSettingsScreenState extends State<TtsSettingsScreen> {
   Future<void> _pickFormatMode() async {
     final chosen = await showChoiceDialog<TtsFormatMode>(
       context,
-      title: 'Message format',
+      title: context.l10n.ttsFormatTitle,
       value: _formatMode,
-      options: const [
+      options: [
         (
           TtsFormatMode.messageOnly,
-          'Message only',
-          'Reads out just the message',
+          context.l10n.ttsMessageOnly,
+          context.l10n.ttsMessageOnlyHint,
         ),
         (
           TtsFormatMode.userAndMessage,
-          'User and message',
-          'Reads out the user then the message',
+          context.l10n.ttsUserAndMessage,
+          context.l10n.ttsUserAndMessageHint,
         ),
       ],
     );
@@ -147,12 +147,12 @@ class _TtsSettingsScreenState extends State<TtsSettingsScreen> {
     final options = await c.fetchOptions();
     if (!mounted) return;
     if (options.isEmpty) {
-      AppSnack.showError(context, 'No TTS engines available');
+      AppSnack.showError(context, context.l10n.ttsNoEngines);
       return;
     }
     final chosen = await showChoiceDialog<TtsOption>(
       context,
-      title: 'TTS engine',
+      title: context.l10n.ttsEngineTitle,
       value: _selectedOption,
       options: [for (final o in options) (o, o.label, o.id)],
     );
@@ -176,7 +176,7 @@ class _TtsSettingsScreenState extends State<TtsSettingsScreen> {
   @override
   Widget build(BuildContext context) {
     return SettingsPage(
-      title: const Text('Text-to-speech'),
+      title: Text(context.l10n.ttsTitle),
       body: ListView(
         children: [
           SettingAnchor(
@@ -196,8 +196,8 @@ class _TtsSettingsScreenState extends State<TtsSettingsScreen> {
               subtitle:
                   _selectedOption?.label ??
                   (widget.ttsController?.canOpenSystemSettings == true
-                      ? 'Change in system settings'
-                      : 'Device default'),
+                      ? context.l10n.ttsChangeInSystem
+                      : context.l10n.ttsDeviceDefault),
               enabled: _enabled,
               onTap: _openEngineSettings,
             ),
@@ -207,7 +207,9 @@ class _TtsSettingsScreenState extends State<TtsSettingsScreen> {
             child: SettingsNavTile(
               icon: Icons.queue,
               title: Setting.ttsQueueMode.titleOf(context.l10n),
-              subtitle: _queueMode == TtsQueueMode.queue ? 'Queue' : 'Newest',
+              subtitle: _queueMode == TtsQueueMode.queue
+                  ? context.l10n.ttsQueue
+                  : context.l10n.ttsNewest,
               onTap: _pickQueueMode,
             ),
           ),
@@ -217,8 +219,8 @@ class _TtsSettingsScreenState extends State<TtsSettingsScreen> {
               icon: Icons.format_quote,
               title: Setting.ttsFormat.titleOf(context.l10n),
               subtitle: _formatMode == TtsFormatMode.messageOnly
-                  ? 'Message only'
-                  : 'User and message',
+                  ? context.l10n.ttsMessageOnly
+                  : context.l10n.ttsUserAndMessage,
               onTap: _pickFormatMode,
             ),
           ),
@@ -254,11 +256,9 @@ class _TtsSettingsScreenState extends State<TtsSettingsScreen> {
             child: SettingsNavTile(
               icon: Icons.person_off,
               title: Setting.ttsIgnoredUsers.titleOf(context.l10n),
-              subtitle: switch (widget.ttsController?.userIgnoreList.length) {
-                null || 0 => 'None',
-                1 => '1 user',
-                final n => '$n users',
-              },
+              subtitle: context.l10n.userCount(
+                widget.ttsController?.userIgnoreList.length ?? 0,
+              ),
               // The list screen edits the controller directly; recount on return.
               onTap: () => Navigator.push(
                 context,

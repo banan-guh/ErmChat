@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import '../../l10n/l10n.dart';
 import '../../services/tts_controller.dart';
 import '../../util/prefs.dart';
 import 'settings_page.dart';
@@ -49,7 +50,7 @@ class _TtsUserIgnoreListScreenState extends State<TtsUserIgnoreListScreen> {
   @override
   Widget build(BuildContext context) {
     return SettingsPage(
-      title: const Text('TTS user ignore list'),
+      title: Text(context.l10n.ttsIgnoreListTitle),
       body: Column(
         children: [
           Padding(
@@ -59,9 +60,9 @@ class _TtsUserIgnoreListScreenState extends State<TtsUserIgnoreListScreen> {
                 Expanded(
                   child: TextField(
                     controller: _controller,
-                    decoration: const InputDecoration(
-                      labelText: 'Add username',
-                      hintText: 'e.g. forsen',
+                    decoration: InputDecoration(
+                      labelText: context.l10n.addUsername,
+                      hintText: context.l10n.exampleUsername,
                     ),
                     onSubmitted: _addUser,
                   ),
@@ -69,7 +70,7 @@ class _TtsUserIgnoreListScreenState extends State<TtsUserIgnoreListScreen> {
                 const SizedBox(width: 8),
                 IconButton(
                   icon: const Icon(Icons.add),
-                  tooltip: 'Add',
+                  tooltip: context.l10n.add,
                   onPressed: () => _addUser(_controller.text),
                 ),
               ],
@@ -77,7 +78,7 @@ class _TtsUserIgnoreListScreenState extends State<TtsUserIgnoreListScreen> {
           ),
           Expanded(
             child: _users.isEmpty
-                ? const Center(child: Text('No ignored users'))
+                ? Center(child: Text(context.l10n.noIgnoredUsers))
                 : ListView.builder(
                     itemCount: _users.length,
                     itemBuilder: (context, index) {
@@ -97,7 +98,7 @@ class _TtsUserIgnoreListScreenState extends State<TtsUserIgnoreListScreen> {
                           title: Text(user),
                           trailing: IconButton(
                             icon: const Icon(Icons.delete),
-                            tooltip: 'Remove',
+                            tooltip: context.l10n.remove,
                             onPressed: () => _removeUser(index),
                           ),
                         ),

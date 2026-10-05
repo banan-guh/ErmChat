@@ -33,7 +33,7 @@ class ToolsSettingsScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SettingsPage(
-      title: const Text('Tools'),
+      title: Text(context.l10n.pageTools),
       body: ListView(
         children: [
           SettingAnchor(
@@ -82,7 +82,7 @@ class ToolsSettingsScreen extends StatelessWidget {
               ),
             ),
           if (Platform.isAndroid) ...[
-            const SettingsSectionHeader('Livestreams'),
+            SettingsSectionHeader(context.l10n.sectionLivestreams),
             SettingAnchor(
               Setting.pip,
               child: PrefsSwitchTile(

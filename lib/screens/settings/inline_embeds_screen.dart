@@ -45,10 +45,10 @@ class _InlineEmbedsScreenState extends State<InlineEmbedsScreen> {
   @override
   Widget build(BuildContext context) {
     return SettingsPage(
-      title: const Text('Inline embeds'),
+      title: Text(context.l10n.inlineEmbedsTitle),
       body: ListView(
         children: [
-          const SettingsSectionHeader('Giphy'),
+          SettingsSectionHeader(context.l10n.sectionGiphy),
           SettingAnchor(
             Setting.showGiphy,
             child: PrefsSwitchTile(
@@ -80,19 +80,19 @@ class _InlineEmbedsScreenState extends State<InlineEmbedsScreen> {
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
             child: Text(
-              'Animation follows Emotes > Animate emotes.',
+              context.l10n.giphyAnimationNote,
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
                 color: Theme.of(context).colorScheme.onSurfaceVariant,
               ),
             ),
           ),
-          const SettingsSectionHeader('Images'),
+          SettingsSectionHeader(context.l10n.sectionImages),
           SettingAnchor(
             Setting.showImages,
             child: PrefsSwitchTile(
               secondary: const Icon(Icons.image_outlined),
               title: Setting.showImages.titleOf(context.l10n),
-              subtitle: "Tap a link's icon to preview",
+              subtitle: context.l10n.imagePreviewHint,
               defaultValue: kImageEmbedEnabledDefault,
               read: (p) => p.imageEmbedEnabled,
               write: (p, v) => p.setImageEmbedEnabled(v),

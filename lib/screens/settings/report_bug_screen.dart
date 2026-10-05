@@ -8,6 +8,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../../l10n/l10n.dart';
 import '../../models/bug_report.dart';
 import '../../models/emote_fetch_tier.dart';
 import '../../providers/feature_providers.dart';
@@ -30,20 +31,18 @@ class ReportBugScreen extends ConsumerWidget {
     final outbox = ref.watch(bugReportOutboxProvider);
     final reports = outbox.reports;
     return SettingsPage(
-      title: const Text('Send feedback'),
+      title: Text(context.l10n.sendFeedback),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => _newReport(context, outbox),
         icon: const Icon(Icons.add),
-        label: const Text('New report'),
+        label: Text(context.l10n.newReport),
       ),
       body: reports.isEmpty
-          ? const Center(
+          ? Center(
               child: Padding(
-                padding: EdgeInsets.all(24),
+                padding: const EdgeInsets.all(24),
                 child: Text(
-                  'Reports are public on the ermchat GitHub. Drafts stay on '
-                  'this device, and sent reports wait here until the app '
-                  'can reach the server.',
+                  context.l10n.reportsEmpty,
                   textAlign: TextAlign.center,
                 ),
               ),
@@ -103,28 +102,32 @@ class _ReportTile extends StatelessWidget {
       BugReportStatus.draft => (
         Icons.edit_note,
         scheme.onSurfaceVariant,
-        'Draft',
+        context.l10n.reportDraft,
       ),
       BugReportStatus.queued => (
         Icons.schedule_send,
         scheme.tertiary,
-        report.lastError ?? 'Waiting to send',
+        report.lastError ?? context.l10n.reportWaiting,
       ),
       BugReportStatus.sent => (
         Icons.check_circle,
         scheme.primary,
-        report.issueNumber == null ? 'Sent' : 'Sent as #${report.issueNumber}',
+        report.issueNumber == null
+            ? context.l10n.reportSent
+            : context.l10n.reportSentAs(report.issueNumber!),
       ),
       BugReportStatus.failed => (
         Icons.error,
         scheme.error,
-        'Not sent: ${report.lastError ?? 'rejected'}',
+        context.l10n.reportNotSent(
+          report.lastError ?? context.l10n.reportRejected,
+        ),
       ),
     };
     return ListTile(
       leading: Icon(icon, color: color),
       title: Text(
-        report.title.isEmpty ? 'Untitled report' : report.title,
+        report.title.isEmpty ? context.l10n.untitledReport : report.title,
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
       ),
@@ -133,7 +136,7 @@ class _ReportTile extends StatelessWidget {
           ? null
           : IconButton(
               icon: const Icon(Icons.delete_outline),
-              tooltip: 'Delete',
+              tooltip: context.l10n.delete,
               onPressed: onDelete,
             ),
       onTap: onTap,
@@ -203,7 +206,7 @@ class _ReportEditorScreenState extends ConsumerState<ReportEditorScreen> {
     try {
       picked = await ImagePicker().pickImage(source: ImageSource.gallery);
     } catch (e) {
-      _snack('Could not open the gallery');
+      if (mounted) _snack(context.l10n.couldNotOpenGallery);
       return;
     }
     if (picked == null || !mounted) return;
@@ -214,7 +217,8 @@ class _ReportEditorScreenState extends ConsumerState<ReportEditorScreen> {
       if (mounted) setState(() => _screenshots.add(result.imageLink));
     } catch (e) {
       logDebug('[Report] screenshot upload failed: $e');
-      _snack(friendlyError(e, fallback: 'Upload failed'));
+      if (!mounted) return;
+      _snack(friendlyError(e, fallback: context.l10n.uploadFailed));
     } finally {
       if (mounted) setState(() => _uploading = false);
     }
@@ -230,7 +234,7 @@ class _ReportEditorScreenState extends ConsumerState<ReportEditorScreen> {
   Future<void> _send() async {
     final report = _apply();
     if (!report.isSendable) {
-      _snack('Report is too long; trim some text');
+      _snack(context.l10n.reportTooLong);
       return;
     }
     _sent = true;
@@ -255,7 +259,7 @@ class _ReportEditorScreenState extends ConsumerState<ReportEditorScreen> {
     return PopScope(
       onPopInvokedWithResult: _onPop,
       child: SettingsPage(
-        title: const Text('Send feedback'),
+        title: Text(context.l10n.sendFeedback),
         body: ListView(
           padding: const EdgeInsets.all(16),
           children: [
@@ -263,9 +267,9 @@ class _ReportEditorScreenState extends ConsumerState<ReportEditorScreen> {
               controller: _summary,
               maxLength: kBugReportMaxTitle,
               textCapitalization: TextCapitalization.sentences,
-              decoration: const InputDecoration(
-                labelText: 'Title',
-                border: OutlineInputBorder(),
+              decoration: InputDecoration(
+                labelText: context.l10n.reportTitle,
+                border: const OutlineInputBorder(),
               ),
             ),
             Wrap(
@@ -274,26 +278,25 @@ class _ReportEditorScreenState extends ConsumerState<ReportEditorScreen> {
               children: [
                 for (final k in BugReportKind.values)
                   ChoiceChip(
-                    label: Text(k.label),
+                    label: Text(_kindLabel(context.l10n, k)),
                     selected: _kind == k,
                     onSelected: (_) => setState(() => _kind = k),
                   ),
               ],
             ),
             const SizedBox(height: 16),
-            _multiline(_what, 'Description (optional)', minLines: 3),
+            _multiline(_what, context.l10n.reportDescription, minLines: 3),
             if (_kind.hasSteps) ...[
               const SizedBox(height: 16),
-              _multiline(_steps, 'Steps to reproduce (optional)'),
+              _multiline(_steps, context.l10n.reportSteps),
             ],
             const SizedBox(height: 16),
-            Text('Screenshots (optional)', style: theme.textTheme.titleSmall),
-            const SizedBox(height: 4),
             Text(
-              'Totally optional, most reports have none. kappa.lol links '
-              'in the description work too.',
-              style: caption,
+              context.l10n.reportScreenshots,
+              style: theme.textTheme.titleSmall,
             ),
+            const SizedBox(height: 4),
+            Text(context.l10n.reportScreenshotsHint, style: caption),
             const SizedBox(height: 8),
             Wrap(
               spacing: 8,
@@ -318,15 +321,15 @@ class _ReportEditorScreenState extends ConsumerState<ReportEditorScreen> {
                   OutlinedButton.icon(
                     onPressed: _addScreenshot,
                     icon: const Icon(Icons.add_photo_alternate_outlined),
-                    label: const Text('Add screenshot'),
+                    label: Text(context.l10n.addScreenshot),
                   ),
               ],
             ),
             const SizedBox(height: 8),
             SwitchListTile(
               contentPadding: EdgeInsets.zero,
-              title: const Text('Include diagnostics'),
-              subtitle: const Text('App version, phone model and settings'),
+              title: Text(context.l10n.includeDiagnostics),
+              subtitle: Text(context.l10n.includeDiagnosticsHint),
               value: _includeDiagnostics,
               onChanged: diagnostics.isEmpty
                   ? null
@@ -335,7 +338,7 @@ class _ReportEditorScreenState extends ConsumerState<ReportEditorScreen> {
             if (_includeDiagnostics && diagnostics.isNotEmpty)
               ExpansionTile(
                 tilePadding: EdgeInsets.zero,
-                title: const Text('Preview diagnostics'),
+                title: Text(context.l10n.previewDiagnostics),
                 children: [
                   Align(
                     alignment: Alignment.centerLeft,
@@ -353,12 +356,11 @@ class _ReportEditorScreenState extends ConsumerState<ReportEditorScreen> {
             FilledButton.icon(
               onPressed: canSend ? _send : null,
               icon: const Icon(Icons.send),
-              label: const Text('Send'),
+              label: Text(context.l10n.send),
             ),
             const SizedBox(height: 8),
             Text(
-              "Posted publicly on GitHub with your Twitch name. Offline? It "
-              "sends once you're back online.",
+              context.l10n.reportPublicNote,
               style: theme.textTheme.bodySmall,
               textAlign: TextAlign.center,
             ),
@@ -385,6 +387,15 @@ class _ReportEditorScreenState extends ConsumerState<ReportEditorScreen> {
     ),
   );
 }
+
+String _kindLabel(AppLocalizations l, BugReportKind k) => switch (k) {
+  BugReportKind.bug => l.kindBug,
+  BugReportKind.crash => l.kindCrash,
+  BugReportKind.visual => l.kindVisual,
+  BugReportKind.performance => l.kindPerformance,
+  BugReportKind.idea => l.kindIdea,
+  BugReportKind.other => l.kindOther,
+};
 
 const _deviceChannel = MethodChannel('ermchat/device');
 
