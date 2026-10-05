@@ -236,11 +236,18 @@ void main() {
         m.evaluate(msg('for the reward', customRewardId: 'rew-1'))?.primary,
         HighlightType.redemption,
       );
-      // Twitch flags redemption highlights via msg-id on the wire.
-      expect(
-        m.evaluate(msg('reward!', msgId: 'highlighted-message'))?.primary,
-        HighlightType.redemption,
-      );
+      // Twitch flags its own paid redemptions via msg-id on the wire.
+      for (final id in [
+        'highlighted-message',
+        'gigantified-emote-message',
+        'animated-message',
+      ]) {
+        expect(
+          m.evaluate(msg('reward!', msgId: id))?.primary,
+          HighlightType.redemption,
+          reason: id,
+        );
+      }
       expect(
         m.evaluate(msg('big money', pinnedPaidAmount: '500'))?.primary,
         HighlightType.elevated,

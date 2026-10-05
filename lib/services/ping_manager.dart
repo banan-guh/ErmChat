@@ -9,6 +9,13 @@ import '../util/prefs.dart';
 
 /// Evaluates highlight rules (DankChat-style): skip self/system, blacklist, then rules.
 class PingManager extends ChangeNotifier {
+  /// Twitch's own paid redemptions, flagged by `msg-id` (DankChat parity).
+  static const _rewardMsgIds = {
+    'highlighted-message',
+    'gigantified-emote-message',
+    'animated-message',
+  };
+
   /// Shared instance; tests construct fresh ones.
   static final PingManager instance = PingManager();
 
@@ -221,8 +228,8 @@ class PingManager extends ChangeNotifier {
                 );
               }
             case 'redemption':
-              if (msg.customRewardId != null ||
-                  msg.msgId == 'highlighted-message') {
+              if ((msg.customRewardId?.isNotEmpty ?? false) ||
+                  _rewardMsgIds.contains(msg.msgId)) {
                 add(rule, HighlightType.redemption);
               }
             case 'firstMsg':
