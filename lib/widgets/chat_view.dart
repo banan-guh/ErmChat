@@ -271,6 +271,9 @@ class _ChatViewState extends State<ChatView>
   bool _followSnapScheduled = false;
   int _followSnapTries = 0;
 
+  // Bumped by a far jump to the newest row to mount a fresh list.
+  int _listGen = 0;
+
   // Effective pill clearance for this frame: the explicit prop wins, zero
   // falls back to the scope so surfaces without threaded params (welcome,
   // panels) still clear the floating pill. Set at the top of every build.
@@ -424,7 +427,7 @@ class _ChatViewState extends State<ChatView>
       );
       _refreshIndexMap(msgs, cache);
       _listMsgs = msgs;
-      return ListView.builder(
+      final list = ListView.builder(
         // PageStorage key restores the offset after the channel page
         // unmounts off screen; kept-alive lists need no key.
         key: widget.keepAlive
@@ -462,6 +465,7 @@ class _ChatViewState extends State<ChatView>
           );
         },
       );
+      return KeyedSubtree(key: ValueKey<int>(_listGen), child: list);
     }
     // Distinct key from the content list: swapping the item set under one key
     // lets the sliver graft a stale row onto the empty state.
@@ -527,7 +531,17 @@ class _ChatViewState extends State<ChatView>
     _follow = true;
     _followSnapTries = 0;
     final pos = _position;
-    if (pos != null && pos.hasPixels) pos.jumpTo(0);
+    if (pos != null && pos.hasPixels) {
+      if (pos.pixels > pos.viewportDimension * 4) {
+        // jumpTo lays out every row between here and the newest in one
+        // frame (thousands from the top). A fresh list starts at the newest.
+        final storage = pos.context.storageContext;
+        PageStorage.maybeOf(storage)?.writeState(storage, 0.0);
+        setState(() => _listGen++);
+      } else {
+        pos.jumpTo(0);
+      }
+    }
     widget.atBottomNotifier.value = true;
     widget.onScrollActivity?.call(widget.channel);
     _scheduleFollowSnap();

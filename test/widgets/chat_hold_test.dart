@@ -30,6 +30,7 @@ class _Harness {
   final List<TwitchMessage> messages;
   final ValueNotifier<int> notifier;
   late final ScrollController controller;
+  final tileCache = <String, Map<String?, Widget>>{};
   final _em = EmoteManager();
 
   Future<void> pump({bool keepAlive = true, bool keepPosition = true}) async {
@@ -41,7 +42,6 @@ class _Harness {
     );
     final atBottom = ValueNotifier(true);
     controller = ScrollController();
-    final tileCache = <String, Map<String?, Widget>>{};
     addTearDown(_em.dispose);
     addTearDown(controller.dispose);
     addTearDown(atBottom.dispose);
@@ -388,11 +388,17 @@ void main() {
     await tester.pumpAndSettle();
     expect(h.controller.offset, greaterThan(1000));
 
+    h.tileCache.clear();
     await tester.tap(find.byKey(const ValueKey('scroll_down')));
     await tester.pump();
     await tester.pump();
 
     expect(h.controller.offset, lessThanOrEqualTo(0.5));
+    expect(
+      h.tileCache['test']!.length,
+      lessThan(100),
+      reason: 'the jump built every row between the oldest and the newest',
+    );
   });
 
   testWidgets('FAB reaches the bottom on an active chat', (tester) async {
