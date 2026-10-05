@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import '../../l10n/l10n.dart';
 import '../../services/tts_controller.dart';
 import '../../util/prefs.dart';
 import '../../widgets/app_snack.dart';
@@ -182,7 +183,7 @@ class _TtsSettingsScreenState extends State<TtsSettingsScreen> {
             Setting.enableTts,
             child: SwitchListTile(
               secondary: const Icon(Icons.record_voice_over),
-              title: Text(Setting.enableTts.title),
+              title: Text(Setting.enableTts.titleOf(context.l10n)),
               value: _enabled,
               onChanged: (value) => unawaited(_setEnabled(value)),
             ),
@@ -191,7 +192,7 @@ class _TtsSettingsScreenState extends State<TtsSettingsScreen> {
             Setting.ttsEngine,
             child: SettingsNavTile(
               icon: Icons.audio_file,
-              title: Setting.ttsEngine.title,
+              title: Setting.ttsEngine.titleOf(context.l10n),
               subtitle:
                   _selectedOption?.label ??
                   (widget.ttsController?.canOpenSystemSettings == true
@@ -205,7 +206,7 @@ class _TtsSettingsScreenState extends State<TtsSettingsScreen> {
             Setting.ttsQueueMode,
             child: SettingsNavTile(
               icon: Icons.queue,
-              title: Setting.ttsQueueMode.title,
+              title: Setting.ttsQueueMode.titleOf(context.l10n),
               subtitle: _queueMode == TtsQueueMode.queue ? 'Queue' : 'Newest',
               onTap: _pickQueueMode,
             ),
@@ -214,7 +215,7 @@ class _TtsSettingsScreenState extends State<TtsSettingsScreen> {
             Setting.ttsFormat,
             child: SettingsNavTile(
               icon: Icons.format_quote,
-              title: Setting.ttsFormat.title,
+              title: Setting.ttsFormat.titleOf(context.l10n),
               subtitle: _formatMode == TtsFormatMode.messageOnly
                   ? 'Message only'
                   : 'User and message',
@@ -225,7 +226,7 @@ class _TtsSettingsScreenState extends State<TtsSettingsScreen> {
             Setting.ttsForceEnglish,
             child: SwitchListTile(
               secondary: const Icon(Icons.language),
-              title: Text(Setting.ttsForceEnglish.title),
+              title: Text(Setting.ttsForceEnglish.titleOf(context.l10n)),
               value: _forceEnglish,
               onChanged: _setForceEnglish,
             ),
@@ -234,7 +235,7 @@ class _TtsSettingsScreenState extends State<TtsSettingsScreen> {
             Setting.ttsIgnoreUrls,
             child: SwitchListTile(
               secondary: const Icon(Icons.link_off),
-              title: Text(Setting.ttsIgnoreUrls.title),
+              title: Text(Setting.ttsIgnoreUrls.titleOf(context.l10n)),
               value: _ignoreUrls,
               onChanged: _setIgnoreUrls,
             ),
@@ -243,7 +244,7 @@ class _TtsSettingsScreenState extends State<TtsSettingsScreen> {
             Setting.ttsIgnoreEmotes,
             child: SwitchListTile(
               secondary: const Icon(Icons.emoji_emotions),
-              title: Text(Setting.ttsIgnoreEmotes.title),
+              title: Text(Setting.ttsIgnoreEmotes.titleOf(context.l10n)),
               value: _ignoreEmotes,
               onChanged: _setIgnoreEmotes,
             ),
@@ -252,7 +253,7 @@ class _TtsSettingsScreenState extends State<TtsSettingsScreen> {
             Setting.ttsIgnoredUsers,
             child: SettingsNavTile(
               icon: Icons.person_off,
-              title: Setting.ttsIgnoredUsers.title,
+              title: Setting.ttsIgnoredUsers.titleOf(context.l10n),
               subtitle: switch (widget.ttsController?.userIgnoreList.length) {
                 null || 0 => 'None',
                 1 => '1 user',

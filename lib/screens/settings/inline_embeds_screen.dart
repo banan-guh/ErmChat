@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../l10n/l10n.dart';
 import '../../util/constants.dart';
 import '../../util/prefs.dart';
 import '../../util/prefs_store.dart';
@@ -52,7 +53,7 @@ class _InlineEmbedsScreenState extends State<InlineEmbedsScreen> {
             Setting.showGiphy,
             child: PrefsSwitchTile(
               secondary: const Icon(Icons.gif_box),
-              title: Setting.showGiphy.title,
+              title: Setting.showGiphy.titleOf(context.l10n),
               defaultValue: kGiphyInlineEnabledDefault,
               read: (p) => p.giphyInlineEnabled,
               write: (p, v) => p.setGiphyInlineEnabled(v),
@@ -61,7 +62,8 @@ class _InlineEmbedsScreenState extends State<InlineEmbedsScreen> {
           SettingAnchor(
             Setting.giphyHeight,
             child: PrefsSliderTile(
-              label: (v) => '${Setting.giphyHeight.title}: ${v.round()}dp',
+              label: (v) =>
+                  '${Setting.giphyHeight.titleOf(context.l10n)}: ${v.round()}dp',
               sliderLabel: (v) => '${v.round()}dp',
               enabled: _showGifs,
               min: kGiphyInlineHeightMin,
@@ -89,7 +91,7 @@ class _InlineEmbedsScreenState extends State<InlineEmbedsScreen> {
             Setting.showImages,
             child: PrefsSwitchTile(
               secondary: const Icon(Icons.image_outlined),
-              title: Setting.showImages.title,
+              title: Setting.showImages.titleOf(context.l10n),
               subtitle: "Tap a link's icon to preview",
               defaultValue: kImageEmbedEnabledDefault,
               read: (p) => p.imageEmbedEnabled,
@@ -99,7 +101,8 @@ class _InlineEmbedsScreenState extends State<InlineEmbedsScreen> {
           SettingAnchor(
             Setting.imageHeight,
             child: PrefsSliderTile(
-              label: (v) => '${Setting.imageHeight.title}: ${v.round()}dp',
+              label: (v) =>
+                  '${Setting.imageHeight.titleOf(context.l10n)}: ${v.round()}dp',
               sliderLabel: (v) => '${v.round()}dp',
               enabled: _showImages,
               min: kImageEmbedHeightMin,

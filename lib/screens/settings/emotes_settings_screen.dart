@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import '../../l10n/l10n.dart';
 import '../../models/emote_fetch_tier.dart';
 import '../../emotes/emote.dart';
 import '../../services/emote_cache_manager.dart';
@@ -223,7 +224,9 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
       children: [
         SettingAnchor(
           Setting.emoteFetching,
-          child: SettingsSectionHeader(Setting.emoteFetching.title),
+          child: SettingsSectionHeader(
+            Setting.emoteFetching.titleOf(context.l10n),
+          ),
         ),
         TweenAnimationBuilder<double>(
           duration: const Duration(milliseconds: 350),
@@ -296,7 +299,9 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
         ),
         SettingAnchor(
           Setting.autoDataSaver,
-          child: SettingsSectionHeader(Setting.autoDataSaver.title),
+          child: SettingsSectionHeader(
+            Setting.autoDataSaver.titleOf(context.l10n),
+          ),
         ),
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
@@ -328,7 +333,9 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
         ),
         SettingAnchor(
           Setting.emoteCache,
-          child: SettingsSectionHeader(Setting.emoteCache.title),
+          child: SettingsSectionHeader(
+            Setting.emoteCache.titleOf(context.l10n),
+          ),
         ),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -394,7 +401,7 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
           Setting.animateEmotes,
           child: SwitchListTile(
             secondary: const Icon(Icons.gif_box),
-            title: Text(Setting.animateEmotes.title),
+            title: Text(Setting.animateEmotes.titleOf(context.l10n)),
             value: _animateGifs,
             onChanged: (value) async {
               final prefs = await Prefs.load();
@@ -408,7 +415,7 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
           Setting.adaptiveFps,
           child: SwitchListTile(
             secondary: const Icon(Icons.battery_saver_outlined),
-            title: Text(Setting.adaptiveFps.title),
+            title: Text(Setting.adaptiveFps.titleOf(context.l10n)),
             subtitle: const Text('Frame rate after 30s idle'),
             value: _adaptiveFps,
             onChanged: _animateGifs
@@ -425,7 +432,7 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
           Setting.idleFps,
           child: ListTile(
             enabled: _animateGifs && _adaptiveFps,
-            title: Text(Setting.idleFps.title),
+            title: Text(Setting.idleFps.titleOf(context.l10n)),
             // Fixed width so the slider keeps its length as the label changes.
             trailing: SizedBox(
               width: 64,
@@ -455,7 +462,7 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
             child: SettingsNavTile(
               key: const Key('providers_tile'),
               icon: Icons.extension,
-              title: Setting.providers.title,
+              title: Setting.providers.titleOf(context.l10n),
               subtitle: _providersSummary(),
               onTap: _showProviderSheet,
             ),
@@ -465,7 +472,7 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
             child: SwitchListTile(
               key: const Key('allow_unlisted_tile'),
               secondary: const Icon(Icons.visibility_off_outlined),
-              title: Text(Setting.unlistedEmotes.title),
+              title: Text(Setting.unlistedEmotes.titleOf(context.l10n)),
               value: _allowUnlisted,
               onChanged: _onAllowUnlistedChanged,
             ),

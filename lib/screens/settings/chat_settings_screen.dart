@@ -2,6 +2,7 @@ import 'dart:io' show Platform;
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import '../../l10n/l10n.dart';
 import '../../services/recent_messages.dart';
 import '../../services/twitch_auth.dart';
 import '../../util/constants.dart';
@@ -145,7 +146,7 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
             Setting.maxMessages,
             child: PrefsSliderTile(
               label: (v) =>
-                  '${Setting.maxMessages.title}: '
+                  '${Setting.maxMessages.titleOf(context.l10n)}: '
                   '${kMaxMessagesPerChannelValues[v.round()]}',
               sliderLabel: (v) => '${kMaxMessagesPerChannelValues[v.round()]}',
               min: 0,
@@ -164,7 +165,7 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
             Setting.sharedChat,
             child: SettingsNavTile(
               icon: Icons.merge_type,
-              title: Setting.sharedChat.title,
+              title: Setting.sharedChat.titleOf(context.l10n),
               subtitle: _sharedChatModeLabel,
               onTap: _pickSharedChatMode,
             ),
@@ -173,7 +174,7 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
             Setting.inlineEmbeds,
             child: SettingsNavTile(
               icon: Icons.gif_box,
-              title: Setting.inlineEmbeds.title,
+              title: Setting.inlineEmbeds.titleOf(context.l10n),
               subtitle: _inlineEmbedsSubtitle,
               onTap: () {
                 Navigator.push(
@@ -187,7 +188,7 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
             Setting.splitLinks,
             child: SettingsNavTile(
               icon: Icons.link,
-              title: Setting.splitLinks.title,
+              title: Setting.splitLinks.titleOf(context.l10n),
               onTap: () => Navigator.push(
                 context,
                 MaterialPageRoute(
@@ -201,7 +202,7 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
             Setting.recentMessagesLimit,
             child: PrefsSliderTile(
               label: (v) =>
-                  '${Setting.recentMessagesLimit.title}: ${v.round()}',
+                  '${Setting.recentMessagesLimit.titleOf(context.l10n)}: ${v.round()}',
               sliderLabel: (v) => '${v.round()}',
               min: 0,
               max: 800,
@@ -215,7 +216,7 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
             Setting.recentMessagesSource,
             child: SettingsNavTile(
               icon: Icons.history,
-              title: Setting.recentMessagesSource.title,
+              title: Setting.recentMessagesSource.titleOf(context.l10n),
               subtitle: 'Choose provider',
               onTap: () => Navigator.push(
                 context,
@@ -232,7 +233,7 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
             Setting.preferEmotes,
             child: PrefsSwitchTile(
               secondary: const Icon(Icons.sentiment_very_satisfied),
-              title: Setting.preferEmotes.title,
+              title: Setting.preferEmotes.titleOf(context.l10n),
               defaultValue: false,
               read: (p) => p.preferEmotesFirst,
               write: (p, v) => p.setPreferEmotesFirst(v),
@@ -243,7 +244,7 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
             Setting.replyThreadRoot,
             child: PrefsSwitchTile(
               secondary: const Icon(Icons.reply),
-              title: Setting.replyThreadRoot.title,
+              title: Setting.replyThreadRoot.titleOf(context.l10n),
               defaultValue: false,
               read: (p) => p.replyToThreadRoot,
               write: (p, v) => p.setReplyToThreadRoot(v),
@@ -254,7 +255,7 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
               Setting.macros,
               child: SettingsNavTile(
                 icon: Icons.bolt,
-                title: Setting.macros.title,
+                title: Setting.macros.titleOf(context.l10n),
                 onTap: () {
                   Navigator.push(
                     context,
@@ -271,7 +272,7 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
             Setting.doubleTapCopy,
             child: PrefsSwitchTile(
               secondary: const Icon(Icons.content_copy),
-              title: Setting.doubleTapCopy.title,
+              title: Setting.doubleTapCopy.titleOf(context.l10n),
               subtitle: 'Delays opening the user card',
               defaultValue: false,
               read: (p) => p.doubleTapNameCopy,
@@ -282,7 +283,7 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
             Setting.namePaints,
             child: PrefsSwitchTile(
               secondary: const Icon(Icons.format_paint),
-              title: Setting.namePaints.title,
+              title: Setting.namePaints.titleOf(context.l10n),
               defaultValue: false,
               read: (p) => p.seventvNamePaints,
               write: (p, v) => p.setSeventvNamePaints(v),
@@ -295,7 +296,7 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
               Setting.stayConnected,
               child: PrefsSwitchTile(
                 secondary: const Icon(Icons.wifi_tethering),
-                title: Setting.stayConnected.title,
+                title: Setting.stayConnected.titleOf(context.l10n),
                 subtitle: 'Shows a persistent notification',
                 defaultValue: false,
                 read: (p) => p.backgroundService,
@@ -307,7 +308,7 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
             Setting.chatProxy,
             child: SettingsNavTile(
               icon: Icons.cloud,
-              title: Setting.chatProxy.title,
+              title: Setting.chatProxy.titleOf(context.l10n),
               subtitle: (_prefs?.proxyEnabled ?? false) ? 'On' : 'Off',
               // The proxy screen saves without announcing it; re-read on return.
               onTap: () => Navigator.push(
@@ -384,7 +385,7 @@ class _MentionFormatTileState extends State<_MentionFormatTile> {
       Setting.mentionFormat,
       child: SettingsNavTile(
         icon: Icons.text_format,
-        title: Setting.mentionFormat.title,
+        title: Setting.mentionFormat.titleOf(context.l10n),
         subtitle: formats[_format],
         onTap: _pick,
       ),

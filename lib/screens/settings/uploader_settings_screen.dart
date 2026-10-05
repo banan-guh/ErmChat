@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../l10n/l10n.dart';
 import '../../services/media_uploader.dart';
 import '../../widgets/app_snack.dart';
 import '../../widgets/dialogs.dart';
@@ -173,7 +174,7 @@ class _UploaderSettingsScreenState extends State<UploaderSettingsScreen> {
             Setting.recentUploads,
             child: SettingsNavTile(
               icon: Icons.image,
-              title: Setting.recentUploads.title,
+              title: Setting.recentUploads.titleOf(context.l10n),
               onTap: () => Navigator.push(
                 context,
                 MaterialPageRoute(builder: (_) => const RecentUploadsScreen()),

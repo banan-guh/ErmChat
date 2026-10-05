@@ -5,6 +5,8 @@ import 'dart:math' as math;
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 
+import '../../l10n/l10n.dart';
+
 /// Settings pages a search result can open.
 enum SettingsPageId {
   channels('Channels'),
@@ -22,6 +24,24 @@ enum SettingsPageId {
 
   const SettingsPageId(this.label);
   final String label;
+}
+
+extension SettingsPageIdL10n on SettingsPageId {
+  /// [label] in the app language.
+  String labelOf(AppLocalizations l) => switch (this) {
+    SettingsPageId.channels => l.pageChannels,
+    SettingsPageId.appearance => l.pageAppearance,
+    SettingsPageId.customLayout => l.pageCustomLayout,
+    SettingsPageId.chat => l.pageChat,
+    SettingsPageId.inlineEmbeds => l.pageInlineEmbeds,
+    SettingsPageId.highlights => l.pageHighlights,
+    SettingsPageId.emotes => l.pageEmotes,
+    SettingsPageId.tools => l.pageTools,
+    SettingsPageId.tts => l.pageTts,
+    SettingsPageId.uploader => l.pageUploader,
+    SettingsPageId.account => l.pageAccount,
+    SettingsPageId.about => l.pageAbout,
+  };
 }
 
 bool _android() => !kIsWeb && Platform.isAndroid;
@@ -58,6 +78,115 @@ class Setting {
   final bool anchored;
 
   String get path => section == null ? page.label : '${page.label} › $section';
+
+  /// [title] in the app language.
+  String titleOf(AppLocalizations l) => switch (id) {
+    'channels' => l.settingChannels,
+    'account' => l.settingAccount,
+    'about' => l.settingAbout,
+    'language' => l.settingLanguage,
+    'theme' => l.settingTheme,
+    'accent_color' => l.settingAccentColor,
+    'true_dark' => l.settingTrueDark,
+    'layout' => l.settingLayout,
+    'liquid_glass' => l.settingLiquidGlass,
+    'chat_font_size' => l.settingChatFontSize,
+    'show_timestamps' => l.settingShowTimestamps,
+    'timestamp_format' => l.settingTimestampFormat,
+    'checkered' => l.settingCheckered,
+    'line_separator' => l.settingLineSeparator,
+    'keep_screen_on' => l.settingKeepScreenOn,
+    'fast_channel_swipe' => l.settingFastChannelSwipe,
+    'custom_layout' => l.settingCustomLayout,
+    'merge_app_bar' => l.settingMergeAppBar,
+    'fold_panel_titles' => l.settingFoldPanelTitles,
+    'tighter_composer' => l.settingTighterComposer,
+    'horizontal_sheet_actions' => l.settingHorizontalSheetActions,
+    'compact_density' => l.settingCompactDensity,
+    'tighter_chrome' => l.settingTighterChrome,
+    'max_messages' => l.settingMaxMessages,
+    'shared_chat' => l.settingSharedChat,
+    'inline_embeds' => l.settingInlineEmbeds,
+    'split_links' => l.settingSplitLinks,
+    'recent_messages_limit' => l.settingRecentMessagesLimit,
+    'recent_messages_source' => l.settingRecentMessagesSource,
+    'prefer_emotes' => l.settingPreferEmotes,
+    'mention_format' => l.settingMentionFormat,
+    'reply_thread_root' => l.settingReplyThreadRoot,
+    'macros' => l.settingMacros,
+    'double_tap_copy' => l.settingDoubleTapCopy,
+    'name_paints' => l.settingNamePaints,
+    'stay_connected' => l.settingStayConnected,
+    'chat_proxy' => l.settingChatProxy,
+    'show_giphy' => l.settingShowGiphy,
+    'giphy_height' => l.settingGiphyHeight,
+    'show_images' => l.settingShowImages,
+    'image_height' => l.settingImageHeight,
+    'notifications' => l.settingNotifications,
+    'whisper_push' => l.settingWhisperPush,
+    'my_username' => l.settingMyUsername,
+    'replies_to_me' => l.settingRepliesToMe,
+    'threads_im_in' => l.settingThreadsImIn,
+    'keywords' => l.settingHighlightKeywords,
+    'highlight_users' => l.settingHighlightUsers,
+    'first_messages' => l.settingFirstMessages,
+    'redemptions' => l.settingRedemptions,
+    'hype_chat' => l.settingHypeChat,
+    'badges' => l.settingBadges,
+    'dont_highlight' => l.settingDontHighlight,
+    'ignores' => l.settingIgnores,
+    'highlight_strength' => l.settingHighlightStrength,
+    'emote_fetching' => l.settingEmoteFetching,
+    'auto_data_saver' => l.settingAutoDataSaver,
+    'emote_cache' => l.settingEmoteCache,
+    'animate_emotes' => l.settingAnimateEmotes,
+    'adaptive_fps' => l.settingAdaptiveFps,
+    'idle_fps' => l.settingIdleFps,
+    'providers' => l.settingProviders,
+    'unlisted_emotes' => l.settingUnlistedEmotes,
+    'tts' => l.settingTts,
+    'uploader' => l.settingUploader,
+    'analytics' => l.settingAnalytics,
+    'pip' => l.settingPip,
+    'enable_tts' => l.settingEnableTts,
+    'tts_engine' => l.settingTtsEngine,
+    'tts_queue_mode' => l.settingTtsQueueMode,
+    'tts_format' => l.settingTtsFormat,
+    'tts_force_english' => l.settingTtsForceEnglish,
+    'tts_ignore_urls' => l.settingTtsIgnoreUrls,
+    'tts_ignore_emotes' => l.settingTtsIgnoreEmotes,
+    'tts_ignored_users' => l.settingTtsIgnoredUsers,
+    'recent_uploads' => l.settingRecentUploads,
+    _ => title,
+  };
+
+  /// [path] in the app language.
+  String pathOf(AppLocalizations l) {
+    final pageLabel = page.labelOf(l);
+    final s = section;
+    return s == null ? pageLabel : '$pageLabel › ${_sectionOf(l, s)}';
+  }
+
+  static String _sectionOf(AppLocalizations l, String s) => switch (s) {
+    'Animation' => l.sectionAnimation,
+    'Appearance' => l.sectionAppearance,
+    'Chat display' => l.sectionChatDisplay,
+    'Connection' => l.sectionConnection,
+    'Display' => l.sectionDisplay,
+    'Events' => l.sectionEvents,
+    'Giphy' => l.sectionGiphy,
+    'History' => l.sectionHistory,
+    'Images' => l.sectionImages,
+    'Layout' => l.sectionLayout,
+    'Livestreams' => l.sectionLivestreams,
+    'Mentions' => l.sectionMentions,
+    'Messages' => l.sectionMessages,
+    'Navigation' => l.sectionNavigation,
+    'Theme' => l.sectionTheme,
+    'Typing' => l.sectionTyping,
+    'Users' => l.sectionUsers,
+    _ => s,
+  };
 
   // ── Pages opened whole ──────────────────────────────────────────────
   static const channels = Setting(
@@ -802,8 +931,12 @@ class _SettingsSearchPageState extends State<SettingsSearchPage> {
         .where((w) => w.isNotEmpty)
         .toList();
     if (words.isEmpty) return const [];
+    final l = context.l10n;
+    // English stays searchable next to the translation.
     return Setting.available.where((s) {
-      final haystack = '${s.title} ${s.path} ${s.keywords}'.toLowerCase();
+      final haystack =
+          '${s.titleOf(l)} ${s.pathOf(l)} ${s.title} ${s.path} ${s.keywords}'
+              .toLowerCase();
       return words.every(haystack.contains);
     }).toList();
   }
@@ -859,8 +992,8 @@ class _SettingsSearchPageState extends State<SettingsSearchPage> {
                 children: [
                   for (final hit in hits)
                     ListTile(
-                      title: Text(hit.title),
-                      subtitle: Text(hit.path),
+                      title: Text(hit.titleOf(context.l10n)),
+                      subtitle: Text(hit.pathOf(context.l10n)),
                       onTap: () => _open(hit),
                     ),
                 ],

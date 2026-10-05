@@ -1,6 +1,7 @@
 import 'dart:io' show Platform;
 
 import 'package:flutter/material.dart';
+import '../../l10n/l10n.dart';
 import '../../services/analytics_service.dart';
 import '../../services/emote_images.dart';
 import '../../services/tts_controller.dart';
@@ -39,7 +40,7 @@ class ToolsSettingsScreen extends StatelessWidget {
             Setting.tts,
             child: SettingsNavTile(
               icon: Icons.record_voice_over,
-              title: Setting.tts.title,
+              title: Setting.tts.titleOf(context.l10n),
               onTap: () => Navigator.push(
                 context,
                 MaterialPageRoute(
@@ -53,7 +54,7 @@ class ToolsSettingsScreen extends StatelessWidget {
             Setting.uploader,
             child: SettingsNavTile(
               icon: Icons.upload,
-              title: Setting.uploader.title,
+              title: Setting.uploader.titleOf(context.l10n),
               onTap: () => Navigator.push(
                 context,
                 MaterialPageRoute(
@@ -67,7 +68,7 @@ class ToolsSettingsScreen extends StatelessWidget {
               Setting.analytics,
               child: SettingsNavTile(
                 icon: Icons.insights,
-                title: Setting.analytics.title,
+                title: Setting.analytics.titleOf(context.l10n),
                 onTap: () => Navigator.push(
                   context,
                   MaterialPageRoute(
@@ -86,7 +87,7 @@ class ToolsSettingsScreen extends StatelessWidget {
               Setting.pip,
               child: PrefsSwitchTile(
                 secondary: const Icon(Icons.picture_in_picture),
-                title: Setting.pip.title,
+                title: Setting.pip.titleOf(context.l10n),
                 defaultValue: false,
                 read: (p) => p.streamPipEnabled,
                 write: (p, v) => p.setStreamPipEnabled(v),

@@ -206,7 +206,7 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
           SettingAnchor(
             Setting.theme,
             child: ListTile(
-              title: Text(Setting.theme.title),
+              title: Text(Setting.theme.titleOf(context.l10n)),
               subtitle: Text(switch (_themeMode) {
                 ThemeMode.system => 'System',
                 ThemeMode.light => 'Light',
@@ -224,7 +224,7 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
                 Padding(
                   padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
                   child: Text(
-                    Setting.accentColor.title,
+                    Setting.accentColor.titleOf(context.l10n),
                     style: const TextStyle(fontWeight: FontWeight.w600),
                   ),
                 ),
@@ -250,7 +250,7 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
           SettingAnchor(
             Setting.trueDark,
             child: PrefsSwitchTile(
-              title: Setting.trueDark.title,
+              title: Setting.trueDark.titleOf(context.l10n),
               defaultValue: false,
               enabled: isDark,
               read: (p) => p.trueDark,
@@ -261,7 +261,7 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
           SettingAnchor(
             Setting.layout,
             child: ListTile(
-              title: Text(Setting.layout.title),
+              title: Text(Setting.layout.titleOf(context.l10n)),
               subtitle: Text(
                 _customLayoutEnabled
                     ? 'Custom'
@@ -279,7 +279,7 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
           SettingAnchor(
             Setting.liquidGlass,
             child: PrefsSwitchTile(
-              title: Setting.liquidGlass.title,
+              title: Setting.liquidGlass.titleOf(context.l10n),
               subtitle: 'Experimental',
               read: (p) => p.liquidGlass,
               write: (p, v) => p.setLiquidGlass(v),
@@ -289,7 +289,8 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
           SettingAnchor(
             Setting.chatFontSize,
             child: PrefsSliderTile(
-              label: (v) => '${Setting.chatFontSize.title}: ${v.round()}',
+              label: (v) =>
+                  '${Setting.chatFontSize.titleOf(context.l10n)}: ${v.round()}',
               min: 8,
               max: 24,
               divisions: 16,
@@ -302,7 +303,7 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
             Setting.showTimestamps,
             child: PrefsSwitchTile(
               secondary: const Icon(Icons.schedule),
-              title: Setting.showTimestamps.title,
+              title: Setting.showTimestamps.titleOf(context.l10n),
               defaultValue: true,
               read: (p) => p.showTimestamps,
               write: (p, v) => p.setShowTimestamps(v),
@@ -312,7 +313,7 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
             Setting.timestampFormat,
             child: SettingsNavTile(
               icon: Icons.access_time,
-              title: Setting.timestampFormat.title,
+              title: Setting.timestampFormat.titleOf(context.l10n),
               subtitle: _timestampFormat,
               onTap: _pickTimestampFormat,
             ),
@@ -320,7 +321,7 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
           SettingAnchor(
             Setting.checkered,
             child: PrefsSwitchTile(
-              title: Setting.checkered.title,
+              title: Setting.checkered.titleOf(context.l10n),
               subtitle: 'Alternate row shading',
               defaultValue: false,
               read: (p) => p.checkeredMessages,
@@ -330,7 +331,7 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
           SettingAnchor(
             Setting.lineSeparator,
             child: PrefsSwitchTile(
-              title: Setting.lineSeparator.title,
+              title: Setting.lineSeparator.titleOf(context.l10n),
               defaultValue: false,
               read: (p) => p.lineSeparator,
               write: (p, v) => p.setLineSeparator(v),
@@ -340,7 +341,7 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
           SettingAnchor(
             Setting.keepScreenOn,
             child: PrefsSwitchTile(
-              title: Setting.keepScreenOn.title,
+              title: Setting.keepScreenOn.titleOf(context.l10n),
               defaultValue: true,
               read: (p) => p.keepScreenOn,
               write: (p, v) => p.setKeepScreenOn(v),
@@ -350,7 +351,7 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
           SettingAnchor(
             Setting.fastChannelSwipe,
             child: PrefsSwitchTile(
-              title: Setting.fastChannelSwipe.title,
+              title: Setting.fastChannelSwipe.titleOf(context.l10n),
               defaultValue: true,
               read: (p) => p.fastChannelSnap,
               write: (p, v) => p.setFastChannelSnap(v),

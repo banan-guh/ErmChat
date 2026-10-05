@@ -8,6 +8,7 @@ import 'package:flutter/services.dart' show HapticFeedback;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../color_utils.dart' show highlightRowColor;
+import '../../l10n/l10n.dart';
 import '../../models/highlight_state.dart';
 import '../../models/ping_rule.dart';
 import '../../models/twitch_message.dart';
@@ -351,7 +352,7 @@ class _PingsScreenState extends ConsumerState<PingsScreen> {
                     width: 28,
                     child: Icon(Icons.notifications_outlined),
                   ),
-                  title: Text(Setting.notifications.title),
+                  title: Text(Setting.notifications.titleOf(context.l10n)),
                   subtitle: Text(status),
                   onTap: () => _setPush(!pushOn),
                   trailing: Row(
@@ -444,7 +445,7 @@ class _PingsScreenState extends ConsumerState<PingsScreen> {
               : _masterOffSnack,
           PrefsSwitchTile(
             secondary: const Icon(Icons.mail_outline),
-            title: Setting.whisperPush.title,
+            title: Setting.whisperPush.titleOf(context.l10n),
             enabled: _keepAlive && pushOn,
             read: (p) => p.whisperNotifications,
             write: (p, v) => p.setWhisperNotifications(v),
@@ -499,7 +500,7 @@ class _PingsScreenState extends ConsumerState<PingsScreen> {
             width: 28,
             child: Icon(Icons.shield_outlined),
           ),
-          title: Text(Setting.badges.title),
+          title: Text(Setting.badges.titleOf(context.l10n)),
           subtitle: Text(badgesOn.isEmpty ? 'None' : badgesOn.join(', ')),
           trailing: const Icon(Icons.chevron_right),
           onTap: () => Navigator.push(
@@ -517,7 +518,7 @@ class _PingsScreenState extends ConsumerState<PingsScreen> {
   List<Widget> _muteSection(List<PingRule> rules) => [
     SettingAnchor(
       Setting.dontHighlight,
-      child: SettingsSectionHeader(Setting.dontHighlight.title),
+      child: SettingsSectionHeader(Setting.dontHighlight.titleOf(context.l10n)),
     ),
     const _Caption('Shown, but never highlighted or notified.'),
     for (final r in rules.where((r) => r.kind == PingRuleKind.blacklist))
@@ -533,7 +534,7 @@ class _PingsScreenState extends ConsumerState<PingsScreen> {
       Setting.ignores,
       child: SettingsNavTile(
         icon: Icons.visibility_off_outlined,
-        title: Setting.ignores.title,
+        title: Setting.ignores.titleOf(context.l10n),
         onTap: () => Navigator.push(
           context,
           MaterialPageRoute(builder: (_) => const IgnoresScreen()),
@@ -579,7 +580,7 @@ class _PingsScreenState extends ConsumerState<PingsScreen> {
         Setting.highlightStrength,
         child: PrefsSliderTile(
           label: (v) =>
-              '${Setting.highlightStrength.title}: ${(v * 100).round()}%',
+              '${Setting.highlightStrength.titleOf(context.l10n)}: ${(v * 100).round()}%',
           min: 0,
           max: 1,
           divisions: 5,

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../l10n/l10n.dart';
 import '../../util/prefs.dart';
 import 'prefs_tiles.dart';
 import 'settings_page.dart';
@@ -39,7 +40,7 @@ class _CustomLayoutScreenState extends State<CustomLayoutScreen> {
           SettingAnchor(
             Setting.customLayout,
             child: PrefsSwitchTile(
-              title: Setting.customLayout.title,
+              title: Setting.customLayout.titleOf(context.l10n),
               read: (p) => p.customLayoutEnabled,
               write: (p, v) => p.setCustomLayoutEnabled(v),
               onChanged: (v) => setState(() => _enabled = v),
@@ -50,7 +51,7 @@ class _CustomLayoutScreenState extends State<CustomLayoutScreen> {
             Setting.mergeAppBar,
             child: PrefsSwitchTile(
               enabled: _enabled,
-              title: Setting.mergeAppBar.title,
+              title: Setting.mergeAppBar.titleOf(context.l10n),
               subtitle: 'Join button becomes the last tab, actions pin right',
               read: (p) => p.overrideMergeAppBar,
               write: (p, v) => p.setOverrideMergeAppBar(v),
@@ -60,7 +61,7 @@ class _CustomLayoutScreenState extends State<CustomLayoutScreen> {
             Setting.foldPanelTitles,
             child: PrefsSwitchTile(
               enabled: _enabled,
-              title: Setting.foldPanelTitles.title,
+              title: Setting.foldPanelTitles.titleOf(context.l10n),
               subtitle: 'Drops the panel title row so the tabs name it',
               read: (p) => p.overrideFoldPanelHeaders,
               write: (p, v) => p.setOverrideFoldPanelHeaders(v),
@@ -70,7 +71,7 @@ class _CustomLayoutScreenState extends State<CustomLayoutScreen> {
             Setting.tighterComposer,
             child: PrefsSwitchTile(
               enabled: _enabled,
-              title: Setting.tighterComposer.title,
+              title: Setting.tighterComposer.titleOf(context.l10n),
               subtitle: 'Shorter input field with full-size buttons',
               read: (p) => p.overrideTightComposer,
               write: (p, v) => p.setOverrideTightComposer(v),
@@ -80,7 +81,7 @@ class _CustomLayoutScreenState extends State<CustomLayoutScreen> {
             Setting.horizontalSheetActions,
             child: PrefsSwitchTile(
               enabled: _enabled,
-              title: Setting.horizontalSheetActions.title,
+              title: Setting.horizontalSheetActions.titleOf(context.l10n),
               subtitle: 'Icon-over-label rows in the emote and user sheets',
               read: (p) => p.overrideSheetActionRow,
               write: (p, v) => p.setOverrideSheetActionRow(v),
@@ -90,7 +91,7 @@ class _CustomLayoutScreenState extends State<CustomLayoutScreen> {
             Setting.compactDensity,
             child: PrefsSwitchTile(
               enabled: _enabled,
-              title: Setting.compactDensity.title,
+              title: Setting.compactDensity.titleOf(context.l10n),
               subtitle: 'Smaller buttons, list tiles and menus',
               read: (p) => p.overrideCompactDensity,
               write: (p, v) => p.setOverrideCompactDensity(v),
@@ -100,7 +101,7 @@ class _CustomLayoutScreenState extends State<CustomLayoutScreen> {
             Setting.tighterChrome,
             child: PrefsSwitchTile(
               enabled: _enabled,
-              title: Setting.tighterChrome.title,
+              title: Setting.tighterChrome.titleOf(context.l10n),
               subtitle: 'Closer app bar action padding',
               read: (p) => p.overrideTightChromeMargins,
               write: (p, v) => p.setOverrideTightChromeMargins(v),

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../l10n/l10n.dart';
 import '../../models/emote_fetch_tier.dart';
 import '../../services/analytics_service.dart';
 import '../../services/emote_manager.dart';
@@ -170,7 +171,7 @@ class SettingsScreen extends StatelessWidget {
         children: [
           SettingsNavTile(
             icon: Icons.tag,
-            title: Setting.channels.title,
+            title: Setting.channels.titleOf(context.l10n),
             onTap: () => _go(context, _channels),
           ),
           SettingsNavTile(
@@ -201,7 +202,7 @@ class SettingsScreen extends StatelessWidget {
           ),
           SettingsNavTile(
             icon: Icons.person,
-            title: Setting.account.title,
+            title: Setting.account.titleOf(context.l10n),
             onTap: () => _go(context, _account),
           ),
           // Reports carry the signed-in Twitch identity, so the entry only
@@ -214,7 +215,7 @@ class SettingsScreen extends StatelessWidget {
             ),
           SettingsNavTile(
             icon: Icons.info,
-            title: Setting.about.title,
+            title: Setting.about.titleOf(context.l10n),
             onTap: () => _go(context, _about),
           ),
         ],
