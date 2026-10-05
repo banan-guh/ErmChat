@@ -26,7 +26,7 @@ SOFTWARE.
 ---
 
 This software includes emote effect values (filters, keyframes, timings) adapted from
-FrankerFaceZ (https://github.com/FrankerFaceZ/FrankerFaceZ), in lib/widgets/ffz_effect.dart.
+FrankerFaceZ (https://github.com/FrankerFaceZ/FrankerFaceZ), in lib/widgets/emote_effect.dart.
 
 Copyright 2016 Dan Salvato LLC
 

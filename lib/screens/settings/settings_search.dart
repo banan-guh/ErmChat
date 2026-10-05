@@ -452,12 +452,19 @@ class Setting {
     section: 'Animation',
     keywords: 'gif',
   );
-  static const emoteEffects = Setting(
-    'emote_effects',
-    'Emote effects',
+  static const ffzEffects = Setting(
+    'ffz_effects',
+    'FFZ effects',
     SettingsPageId.emotes,
     section: 'Animation',
-    keywords: 'ffz modifier flip spin',
+    keywords: 'modifier flip ffzx',
+  );
+  static const bttvModifiers = Setting(
+    'bttv_modifiers',
+    'BTTV modifiers',
+    SettingsPageId.emotes,
+    section: 'Animation',
+    keywords: 'wide flip w! h!',
   );
   static const adaptiveFps = Setting(
     'adaptive_fps',
@@ -621,7 +628,8 @@ class Setting {
     autoDataSaver,
     emoteCache,
     animateEmotes,
-    emoteEffects,
+    ffzEffects,
+    bttvModifiers,
     adaptiveFps,
     idleFps,
     providers,

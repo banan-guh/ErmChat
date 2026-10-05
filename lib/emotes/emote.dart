@@ -285,6 +285,40 @@ abstract final class FfzEffect {
       slide | appear | leave | rotate | rainbow | shake | jam | bounce;
 }
 
+/// BTTV prefix modifier effects (`w!`, `h!` ...), in bits above
+/// [FfzEffect]'s so both fit one mask.
+abstract final class BttvEffect {
+  static const flipX = 1 << 20;
+  static const flipY = 1 << 21;
+  static const rotateLeft = 1 << 22;
+  static const rotateRight = 1 << 23;
+  static const wide = 1 << 24;
+  static const zeroSpace = 1 << 25;
+  static const cursed = 1 << 26;
+  static const party = 1 << 27;
+  static const shake = 1 << 28;
+
+  static const animated = party | shake;
+
+  static const _byCode = {
+    'w!': wide,
+    'h!': flipX,
+    'v!': flipY,
+    'z!': zeroSpace,
+    'c!': cursed,
+    'l!': rotateLeft,
+    'r!': rotateRight,
+    'p!': party,
+    's!': shake,
+  };
+}
+
+/// Effect bits of a BTTV global prefix modifier, 0 for anything else.
+int bttvModifierEffects(Emote e) =>
+    e.type == EmoteType.bttv && e.scope == EmoteScope.global
+    ? BttvEffect._byCode[e.code] ?? 0
+    : 0;
+
 /// Effect bits of an FFZ modifier, 0 for anything else.
 int ffzEffects(Emote e) => switch (e.meta) {
   FfzMeta(:final effects?) => effects,

@@ -34,9 +34,12 @@ class MessageBuilder {
   /// Joins the cache key so flips recompute spans lazily.
   bool animateGifs;
 
-  /// Whether FFZ modifier effects (flips, spins, filters) apply. Joins the
-  /// cache key.
-  bool emoteEffects = true;
+  /// Whether FFZ modifier effects apply. Joins the cache key.
+  bool ffzEffects = true;
+
+  /// Whether BTTV prefix modifiers (`w!`, `h!` ...) apply. Joins the cache
+  /// key.
+  bool bttvModifiers = true;
 
   /// Inline image preview max height at textScale 1.0.
   double imageHeight;
@@ -78,7 +81,8 @@ class MessageBuilder {
     gifHeight: showGifs ? gifHeight : null,
     images: showImages,
     animate: animateGifs,
-    effects: emoteEffects,
+    ffzEffects: ffzEffects,
+    bttvModifiers: bttvModifiers,
     scale: scale,
   );
 
@@ -217,7 +221,8 @@ class MessageBuilder {
         showImages: showImages,
         onImageTap: onImageTap,
         animateGifs: animateGifs,
-        emoteEffects: emoteEffects,
+        ffzEffects: ffzEffects,
+        bttvModifiers: bttvModifiers,
         emoteImages: emoteSource.images,
       );
     }
@@ -270,7 +275,8 @@ class MessageBuilder {
           showImages: showImages,
           onImageTap: onImageTap,
           animateGifs: animateGifs,
-          emoteEffects: emoteEffects,
+          ffzEffects: ffzEffects,
+          bttvModifiers: bttvModifiers,
           emoteImages: emoteSource.images,
         ),
       );
@@ -451,7 +457,8 @@ typedef _SpanKey = ({
   double? gifHeight,
   bool images,
   bool animate,
-  bool effects,
+  bool ffzEffects,
+  bool bttvModifiers,
   double scale,
 });
 

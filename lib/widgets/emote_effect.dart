@@ -1,7 +1,8 @@
-// FFZ emote effects. Effect values (filters, keyframes, timings, sizing) are
-// adapted from FrankerFaceZ src/modules/chat/emotes.js and tokenizers.jsx,
-// Copyright 2016 Dan Salvato LLC, Apache License 2.0 (see
-// THIRD_PARTY_LICENSES). Rewritten in Dart for Flutter layers.
+// FFZ and BTTV emote effects. FFZ effect values (filters, keyframes,
+// timings, sizing) are adapted from FrankerFaceZ src/modules/chat/emotes.js
+// and tokenizers.jsx, Copyright 2016 Dan Salvato LLC, Apache License 2.0
+// (see THIRD_PARTY_LICENSES). BTTV modifiers reproduce BTTV's documented
+// behavior with FFZ's motion tables; no BTTV code is included.
 
 import 'dart:async';
 import 'dart:math' as math;
@@ -15,12 +16,12 @@ import 'emote_url_provider.dart';
 /// One clock for every animated effect. Ticks on the shared emote grid while
 /// anything listens and emotes animate, so any number of effects costs one
 /// wakeup per frame.
-class FfzEffectClock extends ChangeNotifier {
-  FfzEffectClock({int Function()? nowUs}) : _nowUs = nowUs ?? _stopwatchUs {
+class EmoteEffectClock extends ChangeNotifier {
+  EmoteEffectClock({int Function()? nowUs}) : _nowUs = nowUs ?? _stopwatchUs {
     EmoteUrlProvider.playing.addListener(_arm);
   }
 
-  static final instance = FfzEffectClock();
+  static final instance = EmoteEffectClock();
 
   static final _watch = Stopwatch()..start();
   static int _stopwatchUs() => _watch.elapsedMicroseconds;
@@ -70,28 +71,43 @@ class FfzEffectClock extends ChangeNotifier {
   }
 }
 
-/// Box size for an emote carrying [effects]: stretch doubles the width, and
-/// spin shrinks wide emotes so they turn inside their slot. [height] is the
-/// emote's normal height, the 28px reference for FFZ's pixel limits.
-Size ffzEffectSize(int effects, Size size, double height) {
+/// Box size for an emote carrying [effects]: stretches widen it, and spins
+/// and quarter turns shrink wide emotes to fit their slot. [height] is the
+/// emote's normal height, the 28px reference for the pixel limits.
+Size emoteEffectSize(int effects, Size size, double height) {
   var w = size.width;
   var h = size.height;
   final unit = height / 28;
   if (effects & FfzEffect.growX != 0) w = math.min(w * 2, 128 * unit);
-  final spins =
-      effects & FfzEffect.rotate != 0 && effects & FfzEffect.slide == 0;
-  if (spins && w > 32 * unit) {
-    final f = 32 * unit / w;
+  // BTTV wide is a fixed 112x28 box.
+  if (effects & BttvEffect.wide != 0) {
+    w = 4 * height;
+    h = height;
+  }
+  void fitWidth(double limit) {
+    if (w <= limit) return;
+    final f = limit / w;
     w *= f;
     h *= f;
+  }
+
+  if (effects & FfzEffect.rotate != 0 && effects & FfzEffect.slide == 0) {
+    fitWidth(32 * unit);
+  }
+  if (effects & (BttvEffect.rotateLeft | BttvEffect.rotateRight) != 0) {
+    fitWidth(28 * unit);
   }
   return Size(w, h);
 }
 
+/// Whether [effects] stretch the image to fill a wider box.
+bool emoteEffectStretches(int effects) =>
+    effects & (FfzEffect.growX | BttvEffect.wide) != 0;
+
 /// Applies FFZ [effects] to [child]. [slide] effects need [child] to be two
 /// copies of the emote side by side, [width] each.
-class FfzEffectBox extends SingleChildRenderObjectWidget {
-  const FfzEffectBox({
+class EmoteEffectBox extends SingleChildRenderObjectWidget {
+  const EmoteEffectBox({
     super.key,
     required this.effects,
     required this.unit,
@@ -104,15 +120,19 @@ class FfzEffectBox extends SingleChildRenderObjectWidget {
   final double unit;
 
   @override
-  RenderFfzEffect createRenderObject(BuildContext context) => RenderFfzEffect(
-    effects: effects,
-    unit: unit,
-    animate: TickerMode.valuesOf(context).enabled,
-    clock: FfzEffectClock.instance,
-  );
+  RenderEmoteEffect createRenderObject(BuildContext context) =>
+      RenderEmoteEffect(
+        effects: effects,
+        unit: unit,
+        animate: TickerMode.valuesOf(context).enabled,
+        clock: EmoteEffectClock.instance,
+      );
 
   @override
-  void updateRenderObject(BuildContext context, RenderFfzEffect renderObject) {
+  void updateRenderObject(
+    BuildContext context,
+    RenderEmoteEffect renderObject,
+  ) {
     renderObject
       ..effects = effects
       ..unit = unit
@@ -122,21 +142,21 @@ class FfzEffectBox extends SingleChildRenderObjectWidget {
 
 /// Paints its child through the effect's transform and color layers. A
 /// repaint boundary over a retained child, so a tick re-records two layers.
-class RenderFfzEffect extends RenderProxyBox {
-  RenderFfzEffect({
+class RenderEmoteEffect extends RenderProxyBox {
+  RenderEmoteEffect({
     required int effects,
     required this._unit,
     required this._animate,
     required this._clock,
-  }) : _plan = FfzEffectPlan(effects);
+  }) : _plan = EmoteEffectPlan(effects);
 
-  final FfzEffectClock _clock;
+  final EmoteEffectClock _clock;
   bool _listening = false;
 
-  FfzEffectPlan _plan;
+  EmoteEffectPlan _plan;
   set effects(int value) {
     if (_plan.effects == value) return;
-    _plan = FfzEffectPlan(value);
+    _plan = EmoteEffectPlan(value);
     _sync();
     markNeedsPaint();
   }
@@ -237,8 +257,8 @@ enum _Motion { none, appear, leave, inOut, rotate, shake, jam, bounce }
 /// What a flag set draws, resolved once: static flips, color steps, and the
 /// one transform animation that wins (later CSS animations on the same
 /// property override earlier ones).
-class FfzEffectPlan {
-  FfzEffectPlan(this.effects)
+class EmoteEffectPlan {
+  EmoteEffectPlan(this.effects)
     : _motion = _pickMotion(effects),
       _rainbow = effects & FfzEffect.rainbow != 0,
       _slide = effects & FfzEffect.slide != 0;
@@ -248,7 +268,8 @@ class FfzEffectPlan {
   final bool _rainbow;
   final bool _slide;
 
-  bool get animated => effects & FfzEffect.animated != 0;
+  bool get animated =>
+      effects & (FfzEffect.animated | BttvEffect.animated) != 0;
 
   static _Motion _pickMotion(int f) {
     bool has(int bit) => f & bit != 0;
@@ -263,7 +284,45 @@ class FfzEffectPlan {
   }
 
   /// Transform at [t] seconds (null: animations off), or null for none.
+  /// BTTV's applies outside FFZ's.
   Matrix4? transform(double? t, Size size, double unit) {
+    final ffz = _ffzTransform(t, size, unit);
+    final bttv = _bttvTransform(size);
+    final shake = t != null && effects & BttvEffect.shake != 0
+        ? _stepSample(_shakeFrames, _phase(t, 0.5))
+        : null;
+    if (bttv == null && shake == null) return ffz;
+    final m = shake == null
+        ? Matrix4.identity()
+        : Matrix4.translationValues(shake[0] * unit, shake[1] * unit, 0);
+    if (bttv != null) m.multiply(bttv);
+    if (ffz != null) m.multiply(ffz);
+    return m;
+  }
+
+  // Each BTTV modifier sets the same CSS transform, so the one latest in its
+  // stylesheet wins instead of composing.
+  Matrix4? _bttvTransform(Size size) {
+    bool has(int bit) => effects & bit != 0;
+    final Matrix4 m;
+    if (has(BttvEffect.rotateRight)) {
+      m = Matrix4.rotationZ(math.pi / 2);
+    } else if (has(BttvEffect.rotateLeft)) {
+      m = Matrix4.rotationZ(-math.pi / 2);
+    } else if (has(BttvEffect.flipY)) {
+      m = Matrix4.diagonal3Values(1, -1, 1);
+    } else if (has(BttvEffect.flipX)) {
+      m = Matrix4.diagonal3Values(-1, 1, 1);
+    } else {
+      return null;
+    }
+    final c = size.center(Offset.zero);
+    return Matrix4.translationValues(c.dx, c.dy, 0)
+      ..multiply(m)
+      ..translateByDouble(-c.dx, -c.dy, 0, 1);
+  }
+
+  Matrix4? _ffzTransform(double? t, Size size, double unit) {
     final flips = Matrix4.identity();
     var flipped = false;
     if (effects & FfzEffect.flipX != 0) {
@@ -304,9 +363,15 @@ class FfzEffectPlan {
       ),
       _saturate(8),
     ],
-    if (effects & FfzEffect.cursed != 0)
-      _mul(_contrast(2.5), _mul(_brightness(0.7), _grayscale)),
+    if (effects & FfzEffect.cursed != 0) _cursed,
     if (_rainbow && t != null) _hueRotate(360 * _phase(t, 2)),
+    // BTTV's party animation overrides its cursed filter while it runs.
+    if (effects & BttvEffect.party != 0 && t != null) ...[
+      _sepiaBy(0.5),
+      _hueRotate(360 * _phase(t, 1.5)),
+      _saturate(2.5),
+    ] else if (effects & BttvEffect.cursed != 0)
+      _cursed,
   ];
 
   /// Horizontal shift of the doubled slide strip at [t], or null.
@@ -354,6 +419,16 @@ class FfzEffectPlan {
       Matrix4.translationValues(f[0] * unit, 0, 0)
         ..scaleByDouble(f[1], f[2], 1, 1)
         ..translateByDouble(0, f[3] * unit, 0, 1);
+
+  /// Keyframe values at [p] under CSS `step-start`: each interval shows its
+  /// end frame from the moment it begins.
+  static List<double> _stepSample(List<List<double>> frames, double p) {
+    final pct = p * 100;
+    for (final f in frames) {
+      if (f[0] > pct) return f.sublist(1);
+    }
+    return frames.last.sublist(1);
+  }
 
   /// Linear interpolation of keyframe values at [p] (0..1). Frames are
   /// [percent, ...values].
@@ -471,6 +546,18 @@ class FfzEffectPlan {
     0.349, 0.686, 0.168,
     0.272, 0.534, 0.131,
   ]);
+
+  static final _cursed = _mul(
+    _contrast(2.5),
+    _mul(_brightness(0.7), _grayscale),
+  );
+
+  /// sepia(amount): a blend of identity toward [_sepia].
+  static List<double> _sepiaBy(double a) => [
+    for (var i = 0; i < 20; i++) _identity[i] * (1 - a) + _sepia[i] * a,
+  ];
+
+  static final _identity = _rgb([1, 0, 0, 0, 1, 0, 0, 0, 1]);
 
   static List<double> _brightness(double b) =>
       _rgb([b, 0, 0, 0, b, 0, 0, 0, b]);

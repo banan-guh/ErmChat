@@ -1,5 +1,5 @@
 import 'package:ermchat/emotes/emote.dart';
-import 'package:ermchat/widgets/ffz_effect.dart';
+import 'package:ermchat/widgets/emote_effect.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -7,7 +7,7 @@ void main() {
   testWidgets('every effect paints and the clock stops when unmounted', (
     tester,
   ) async {
-    final clock = FfzEffectClock.instance;
+    final clock = EmoteEffectClock.instance;
     // Each bit alone plus the combinations FFZ special-cases.
     final effects = [
       for (var bit = 1; bit <= FfzEffect.bounce; bit <<= 1) bit,
@@ -16,6 +16,9 @@ void main() {
       FfzEffect.rotate | FfzEffect.slide,
       FfzEffect.hyperRed | FfzEffect.shake | FfzEffect.flipX,
       FfzEffect.cursed | FfzEffect.rainbow,
+      for (var bit = BttvEffect.flipX; bit <= BttvEffect.shake; bit <<= 1) bit,
+      BttvEffect.party | BttvEffect.shake | BttvEffect.cursed,
+      BttvEffect.rotateLeft | FfzEffect.flipX,
     ];
     await tester.pumpWidget(
       Directionality(
@@ -26,7 +29,7 @@ void main() {
               SizedBox(
                 width: 28,
                 height: 28,
-                child: FfzEffectBox(
+                child: EmoteEffectBox(
                   effects: fx,
                   unit: 1,
                   child: const ColoredBox(color: Color(0xFF00FF00)),

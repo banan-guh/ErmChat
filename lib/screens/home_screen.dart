@@ -1221,7 +1221,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
         _showGifs != prefs.giphyInlineEnabled ||
         _gifHeight != gifHeight ||
         animateChanged ||
-        _messageBuilder.emoteEffects != prefs.emoteEffects ||
+        _messageBuilder.ffzEffects != prefs.ffzEffects ||
+        _messageBuilder.bttvModifiers != prefs.bttvModifiers ||
         _showImages != prefs.imageEmbedEnabled ||
         _imageHeight != imageHeight ||
         _messageBuilder.doubleTapNameCopy != prefs.doubleTapNameCopy;
@@ -1271,7 +1272,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       _messageBuilder.showImages = _showImages;
       _messageBuilder.imageHeight = _imageHeight;
       _messageBuilder.animateGifs = _animateGifs;
-      _messageBuilder.emoteEffects = prefs.emoteEffects;
+      _messageBuilder.ffzEffects = prefs.ffzEffects;
+      _messageBuilder.bttvModifiers = prefs.bttvModifiers;
       _messageBuilder.doubleTapNameCopy = prefs.doubleTapNameCopy;
     }
 

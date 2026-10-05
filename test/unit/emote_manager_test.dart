@@ -31,7 +31,7 @@ import '../helpers.dart';
 import 'package:ermchat/models/twitch_message.dart';
 import 'package:ermchat/services/seven_tv_event_client.dart';
 import 'package:ermchat/widgets/emote_text.dart';
-import 'package:ermchat/widgets/ffz_effect.dart';
+import 'package:ermchat/widgets/emote_effect.dart';
 import 'package:ermchat/models/twitch_command.dart';
 import 'package:ermchat/composer/suggestion.dart';
 import 'package:ermchat/util/webp_anim.dart';
@@ -3121,13 +3121,13 @@ void main() {
           text: 'Kappa ffzX',
           twitchPositions: null,
           channelEmotes: emotes,
-          emoteEffects: effectsOn,
+          ffzEffects: effectsOn,
         );
         expect(spans, hasLength(1), reason: 'the modifier joins Kappa');
         return ((spans.single as WidgetSpan).child as Padding).child!;
       }
 
-      final box = (emoteOf(true) as SizedBox).child! as FfzEffectBox;
+      final box = (emoteOf(true) as SizedBox).child! as EmoteEffectBox;
       expect(box.effects, FfzEffect.flipX);
       expect(
         emoteOf(false),
@@ -3135,6 +3135,46 @@ void main() {
         reason: 'effects off: plain Kappa, modifier still hidden',
       );
     });
+
+    test(
+      'BTTV prefix modifiers apply to the next emote, else read as text',
+      () {
+        Emote bttv(String id, String code) => makeTestEmote(id: id, code: code);
+        final emotes = _makeEmotes({
+          'KEKW': bttv('1', 'KEKW'),
+          'w!': bttv('2', 'w!'),
+          'h!': bttv('3', 'h!'),
+          'z!': bttv('4', 'z!'),
+        });
+        List<InlineSpan> build(String text, {bool on = true}) =>
+            EmoteText.build(
+              emoteImages: _testImages,
+              text: text,
+              twitchPositions: null,
+              channelEmotes: emotes,
+              bttvModifiers: on,
+            );
+        String textOf(List<InlineSpan> spans) =>
+            spans.whereType<TextSpan>().map((s) => s.toPlainText()).join();
+        EmoteEffectBox boxOf(InlineSpan span) {
+          final child = ((span as WidgetSpan).child as Padding).child!;
+          return (child as SizedBox).child! as EmoteEffectBox;
+        }
+
+        var spans = build('w! h! KEKW');
+        expect(spans, hasLength(1), reason: 'modifiers fold into KEKW');
+        expect(boxOf(spans.single).effects, BttvEffect.wide | BttvEffect.flipX);
+
+        spans = build('KEKW z! KEKW');
+        expect(spans.whereType<WidgetSpan>(), hasLength(2));
+        expect(textOf(spans), isEmpty, reason: 'z! removes the gap');
+
+        expect(textOf(build('w! hello')), 'w! hello', reason: 'unattached');
+        spans = build('h! KEKW', on: false);
+        expect(textOf(spans), 'h! ', reason: 'off: the modifier is text');
+        expect(spans.whereType<WidgetSpan>(), hasLength(1));
+      },
+    );
 
     test('zero-width overlays stack onto the preceding base emote', () {
       var emotes = _makeEmotes({

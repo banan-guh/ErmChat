@@ -11,7 +11,7 @@ import '../util/constants.dart';
 import '../util/log.dart';
 import '../util/chat_text.dart';
 import 'emote_scale_resolver.dart';
-import 'ffz_effect.dart';
+import 'emote_effect.dart';
 import '../services/link_whitelist.dart';
 import 'link_whitelist.dart';
 import '../emotes/emote.dart';
@@ -66,7 +66,8 @@ class EmoteText {
     bool showImages = false,
     void Function(String url)? onImageTap,
     bool animateGifs = true,
-    bool emoteEffects = true,
+    bool ffzEffects = true,
+    bool bttvModifiers = true,
   }) {
     try {
       return _buildUnsafe(
@@ -81,7 +82,8 @@ class EmoteText {
         showImages: showImages,
         onImageTap: onImageTap,
         animateGifs: animateGifs,
-        emoteEffects: emoteEffects,
+        ffzEffects: ffzEffects,
+        bttvModifiers: bttvModifiers,
         emoteImages: emoteImages,
       );
     } catch (e, stack) {
@@ -112,7 +114,8 @@ class EmoteText {
     bool showImages = false,
     void Function(String url)? onImageTap,
     bool animateGifs = true,
-    bool emoteEffects = true,
+    bool ffzEffects = true,
+    bool bttvModifiers = true,
   }) {
     if (channelEmotes == null && resolvedTokens == null) {
       return parseTextWithLinks(
@@ -182,8 +185,59 @@ class EmoteText {
       pendingSpace = null;
     }
 
+    // BTTV prefix modifiers waiting for the emote they apply to, and their
+    // source text in case none follows.
+    var prefix = <Emote>[];
+    var prefixEffects = 0;
+    var prefixText = '';
+    void dropPrefix() {
+      buffer += prefixText;
+      prefix = [];
+      prefixEffects = 0;
+      prefixText = '';
+    }
+
     // Zero-width emotes overlay on preceding base; whitespace between is consumed.
     for (final seg in segments) {
+      if (prefix.isNotEmpty) {
+        if (seg is TextSegment && seg.text.trim().isEmpty) {
+          prefixText += seg.text;
+          continue;
+        }
+        if (seg is EmoteSegment && bttvModifierEffects(seg.emote) == 0) {
+          // z! pulls the emote against whatever came before it.
+          if (prefixEffects & BttvEffect.zeroSpace != 0) {
+            buffer = buffer.trimRight();
+          }
+          flushBase();
+          currentBase = _EmoteSpanData(
+            base: seg.emote,
+            modifiers: prefix,
+            effects: prefixEffects,
+          );
+          currentBaseEnd = seg.endIndex;
+          prefix = [];
+          prefixEffects = 0;
+          prefixText = '';
+          continue;
+        }
+        if (seg is! EmoteSegment) dropPrefix();
+      }
+      if (seg is EmoteSegment) {
+        final bttvFx = bttvModifierEffects(seg.emote);
+        if (bttvFx != 0) {
+          // BTTV modifiers never draw: off or unattached, they read as text.
+          if (bttvModifiers) {
+            prefix = [...prefix, seg.emote];
+            prefixEffects |= bttvFx;
+            prefixText += seg.emote.code;
+          } else {
+            buffer += seg.emote.code;
+            pendingSpace = null;
+          }
+          continue;
+        }
+      }
       if (seg is TextSegment) {
         if (seg.text.trim().isEmpty) {
           buffer += seg.text;
@@ -196,10 +250,7 @@ class EmoteText {
         if (seg.emote.isZeroWidth) {
           if (currentBase != null && currentBaseEnd == seg.startIndex) {
             pendingSpace = null;
-            currentBase = currentBase!.attach(
-              seg.emote,
-              effectsOn: emoteEffects,
-            );
+            currentBase = currentBase!.attach(seg.emote, effectsOn: ffzEffects);
             currentBaseEnd = seg.endIndex;
           } else if (currentBase != null &&
               pendingSpace != null &&
@@ -212,10 +263,7 @@ class EmoteText {
               );
             }
             pendingSpace = null;
-            currentBase = currentBase!.attach(
-              seg.emote,
-              effectsOn: emoteEffects,
-            );
+            currentBase = currentBase!.attach(seg.emote, effectsOn: ffzEffects);
             currentBaseEnd = seg.endIndex;
           } else {
             flushBase();
@@ -230,6 +278,7 @@ class EmoteText {
       }
     }
 
+    if (prefix.isNotEmpty) dropPrefix();
     flushBase();
 
     return spans;
@@ -322,7 +371,7 @@ class EmoteText {
     final fx = data.effects;
     final baseSize = fx == 0
         ? rawSize
-        : ffzEffectSize(fx, rawSize, rawSize.height);
+        : emoteEffectSize(fx, rawSize, rawSize.height);
     var maxW = baseSize.width;
     var maxH = baseSize.height;
     for (final overlay in data.overlays) {
@@ -331,14 +380,33 @@ class EmoteText {
       if (o.height > maxH) maxH = o.height;
     }
 
-    Widget baseImage() => _emoteImage(
-      data.base,
-      baseSize.width,
-      baseSize.height,
-      animateGifs: animateGifs,
-      emoteImages: emoteImages,
-      scale: scale,
-    );
+    // Stretch effects draw the emote at its own size, filled to the box.
+    final stretch = emoteEffectStretches(fx);
+    final imageSize = stretch ? rawSize : baseSize;
+    Widget baseImage() {
+      final image = _emoteImage(
+        data.base,
+        imageSize.width,
+        imageSize.height,
+        animateGifs: animateGifs,
+        emoteImages: emoteImages,
+        scale: scale,
+      );
+      if (!stretch) return image;
+      return SizedBox(
+        width: baseSize.width,
+        height: baseSize.height,
+        child: FittedBox(
+          fit: BoxFit.fill,
+          child: SizedBox(
+            width: imageSize.width,
+            height: imageSize.height,
+            child: image,
+          ),
+        ),
+      );
+    }
+
     Widget? effected;
     if (fx != 0) {
       // Slide scrolls a strip of two copies through the emote's box.
@@ -353,7 +421,7 @@ class EmoteText {
       effected = SizedBox(
         width: baseSize.width,
         height: baseSize.height,
-        child: FfzEffectBox(
+        child: EmoteEffectBox(
           effects: fx,
           unit: rawSize.height / 28,
           child: RepaintBoundary(child: image),

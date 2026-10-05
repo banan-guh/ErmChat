@@ -58,7 +58,8 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
   final _providerEnabled = <EmoteType, bool>{};
   bool _allowUnlisted = true;
   bool _animateGifs = true;
-  bool _emoteEffects = true;
+  bool _ffzEffects = true;
+  bool _bttvModifiers = true;
   bool _adaptiveFps = true;
   int _idleFps = kIdleEmoteFps;
 
@@ -144,7 +145,8 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
         _appliedCacheMb = prefs.emoteCacheMb;
         _draftCacheMb = _appliedCacheMb;
         _animateGifs = prefs.animateGifs;
-        _emoteEffects = prefs.emoteEffects;
+        _ffzEffects = prefs.ffzEffects;
+        _bttvModifiers = prefs.bttvModifiers;
         _adaptiveFps = prefs.adaptiveEmoteFps;
         _idleFps = prefs.idleEmoteFps;
       });
@@ -403,17 +405,32 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
           ),
         ),
         SettingAnchor(
-          Setting.emoteEffects,
+          Setting.ffzEffects,
           child: SwitchListTile(
             secondary: const Icon(Icons.auto_awesome),
-            title: Text(Setting.emoteEffects.title),
-            subtitle: const Text('FFZ modifiers'),
-            value: _emoteEffects,
+            title: Text(Setting.ffzEffects.title),
+            subtitle: const Text('ffzX, ffzW ...'),
+            value: _ffzEffects,
             onChanged: (value) async {
               final prefs = await Prefs.load();
-              await prefs.setEmoteEffects(value);
+              await prefs.setFfzEffects(value);
               PrefsStore.instance.notifyChanged();
-              if (mounted) setState(() => _emoteEffects = value);
+              if (mounted) setState(() => _ffzEffects = value);
+            },
+          ),
+        ),
+        SettingAnchor(
+          Setting.bttvModifiers,
+          child: SwitchListTile(
+            secondary: const Icon(Icons.auto_awesome_outlined),
+            title: Text(Setting.bttvModifiers.title),
+            subtitle: const Text('w!, h! ...'),
+            value: _bttvModifiers,
+            onChanged: (value) async {
+              final prefs = await Prefs.load();
+              await prefs.setBttvModifiers(value);
+              PrefsStore.instance.notifyChanged();
+              if (mounted) setState(() => _bttvModifiers = value);
             },
           ),
         ),
