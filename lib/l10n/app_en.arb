@@ -335,5 +335,128 @@
   "logInAgain": "Log in again",
   "addAccount": "Add account",
   "disconnect": "Disconnect",
-  "unknownError": "Unknown error"
+  "unknownError": "Unknown error",
+  "resetStats": "Reset stats",
+  "resetThisChannel": "Reset this channel",
+  "resetAllChannels": "Reset all channels",
+  "trackChatStats": "Track chat stats (local)",
+  "trackChatStatsHint": "Counts chatters, emotes and words. Stays on this device for 24 hours.",
+  "joinChannelForStats": "Join a channel to start tracking stats",
+  "totalMessages": "Total messages",
+  "uniqueChatters": "Unique chatters",
+  "messagesPerMinute": "Messages per minute",
+  "trackingFor": "Tracking for",
+  "moderation": "Moderation",
+  "bans": "Bans",
+  "timeouts": "Timeouts",
+  "topChatters": "Top chatters",
+  "topEmotes": "Top emotes",
+  "topWords": "Top words",
+  "filterCommonWords": "Filter common words",
+  "noMessagesYet": "No messages yet",
+  "noEmotesYet": "No emotes yet",
+  "noWordsYet": "No words yet",
+  "uploaderSaved": "Uploader settings saved",
+  "resetUploaderTitle": "Reset uploader?",
+  "reset": "Reset",
+  "uploaderHint": "Uploads go to this endpoint, and the link is pasted into your message. Defaults to kappa.lol.",
+  "uploadUrl": "Upload URL",
+  "formField": "Form field",
+  "headers": "Headers",
+  "headersHint": "Name: value; Name: value",
+  "imageLinkPattern": "Image link pattern",
+  "deletionLinkPattern": "Deletion link pattern",
+  "recentMessagesTitle": "Recent messages",
+  "recentAuto": "Auto",
+  "recentAutoHint": "robotty, then zneix mirror",
+  "recentRobotty": "Robotty only",
+  "recentZneix": "Zneix only",
+  "recentCustom": "Custom URL",
+  "recentCustomHint": "Your own recent-messages backend",
+  "baseUrl": "Base URL",
+  "analyticsTitle": "Analytics",
+  "imageUploaderTitle": "Image uploader",
+  "splitLinkWhitelist": "Split link whitelist",
+  "restoreDefaults": "Restore defaults",
+  "addLink": "Add link",
+  "domainOrTld": "Domain or TLD",
+  "domainOrTldHint": "e.g. \"lol\" (any *.lol) or \"kappa.lol\" (+subs)",
+  "splitLinksHint": "Highlight links broken by a space, like kappa .lol/ABCDE.",
+  "enableSplitLinks": "Enable split links",
+  "noEntriesYet": "No entries yet. Add one or tap an example.",
+  "examplesTapToAdd": "Examples (tap to add):",
+  "restoreDefaultsTitle": "Restore defaults?",
+  "restoreDefaultsMessage": "This replaces your whitelist with the built-in defaults, and removes any entries you added.",
+  "restore": "Restore",
+  "linkTypeTld": "TLD",
+  "linkTypeDomain": "DOMAIN",
+  "ignoresTitle": "Ignores",
+  "tabUsers": "Users",
+  "tabKeywords": "Keywords",
+  "ignoreKeywordsEmpty": "Keyword rules rewrite specific text. Tap + to add one.",
+  "ignoreUsersEmpty": "Ignored users' messages / whispers are not shown. Tap + to add one.",
+  "noPattern": "(no pattern)",
+  "ignoreRegex": "regex",
+  "ignoreCaseSensitive": "case sensitive",
+  "ignoreWholeWord": "whole word",
+  "ignoreBlocks": "blocks message",
+  "ignoreReplacedWith": "replaced with \"{replacement}\"",
+  "@ignoreReplacedWith": {
+    "placeholders": {
+      "replacement": {
+        "type": "String"
+      }
+    }
+  },
+  "edit": "Edit",
+  "addIgnore": "Add ignore",
+  "editIgnore": "Edit ignore",
+  "keywordOrRegex": "Keyword or regex",
+  "usernameOrRegex": "Username or regex",
+  "regularExpression": "Regular expression",
+  "caseSensitive": "Case sensitive",
+  "blockMessage": "Block message",
+  "blockMessageHint": "Hide the whole message, not just the match",
+  "replaceWith": "Replace with",
+  "replaceWithHint": "What matched text becomes (default ***)",
+  "settingsTitle": "Settings",
+  "searchSettings": "Search settings",
+  "sendFeedback": "Send feedback",
+  "commandMacros": "Command macros",
+  "macrosNeedAccount": "Connect an account to use macros.",
+  "macrosEmpty": "No macros yet. Tap + to add one.\n\nExample:\n{example}\nTyping \"{typed}\" sends the shoutout.",
+  "@macrosEmpty": {
+    "placeholders": {
+      "example": {
+        "type": "String"
+      },
+      "typed": {
+        "type": "String"
+      }
+    }
+  },
+  "addMacro": "Add macro",
+  "editMacro": "Edit macro",
+  "macroTrigger": "Trigger",
+  "macroBody": "Body",
+  "macroArgsHelp": "{first}, {second} = args; {rest} = args 2 onward",
+  "@macroArgsHelp": {
+    "placeholders": {
+      "first": {
+        "type": "String"
+      },
+      "second": {
+        "type": "String"
+      },
+      "rest": {
+        "type": "String"
+      }
+    }
+  },
+  "mergeAppBarHint": "Join button becomes the last tab, actions pin right",
+  "foldPanelTitlesHint": "Drops the panel title row so the tabs name it",
+  "tighterComposerHint": "Shorter input field with full-size buttons",
+  "horizontalSheetActionsHint": "Icon-over-label rows in the emote and user sheets",
+  "compactDensityHint": "Smaller buttons, list tiles and menus",
+  "tighterChromeHint": "Closer app bar action padding"
 }

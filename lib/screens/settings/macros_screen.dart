@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../l10n/l10n.dart';
 import '../../services/command_macros.dart';
 import '../../services/twitch_auth.dart';
 import 'settings_page.dart';
@@ -64,7 +65,7 @@ class _MacrosScreenState extends State<MacrosScreen> {
   Widget build(BuildContext context) {
     final anonymous = _login == null;
     return SettingsPage(
-      title: const Text('Command macros'),
+      title: Text(context.l10n.commandMacros),
       floatingActionButton: anonymous
           ? null
           : FloatingActionButton(
@@ -72,13 +73,11 @@ class _MacrosScreenState extends State<MacrosScreen> {
               child: const Icon(Icons.add),
             ),
       body: anonymous
-          ? const Center(child: Text('Connect an account to use macros.'))
+          ? Center(child: Text(context.l10n.macrosNeedAccount))
           : _macros.isEmpty
-          ? const Center(
+          ? Center(
               child: Text(
-                'No macros yet. Tap + to add one.\n\n'
-                'Example:\n!so -> /shoutout {1}\n'
-                'Typing "!so forsen" sends the shoutout.',
+                context.l10n.macrosEmpty('!so -> /shoutout {1}', '!so forsen'),
                 textAlign: TextAlign.center,
               ),
             )
@@ -126,24 +125,28 @@ class _MacroEditDialogState extends State<_MacroEditDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: Text(widget.existing == null ? 'Add macro' : 'Edit macro'),
+      title: Text(
+        widget.existing == null
+            ? context.l10n.addMacro
+            : context.l10n.editMacro,
+      ),
       content: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           TextField(
             controller: _nameCtrl,
             autofocus: true,
-            decoration: const InputDecoration(
+            decoration: InputDecoration(
               hintText: '!so',
-              label: Text('Trigger'),
+              label: Text(context.l10n.macroTrigger),
             ),
           ),
           TextField(
             controller: _bodyCtrl,
-            decoration: const InputDecoration(
+            decoration: InputDecoration(
               hintText: '/shoutout {1}',
-              helperText: '{1}, {2} = args; {2+} = args 2 onward',
-              label: Text('Body'),
+              helperText: context.l10n.macroArgsHelp('{1}', '{2}', '{2+}'),
+              label: Text(context.l10n.macroBody),
             ),
           ),
         ],
@@ -151,7 +154,7 @@ class _MacroEditDialogState extends State<_MacroEditDialog> {
       actions: [
         TextButton(
           onPressed: () => Navigator.pop(context),
-          child: const Text('Cancel'),
+          child: Text(context.l10n.cancel),
         ),
         TextButton(
           onPressed: () {
@@ -160,7 +163,7 @@ class _MacroEditDialogState extends State<_MacroEditDialog> {
             if (name.isEmpty || body.isEmpty || name.contains(_ws)) return;
             Navigator.pop(context, (name, body));
           },
-          child: const Text('Save'),
+          child: Text(context.l10n.save),
         ),
       ],
     );

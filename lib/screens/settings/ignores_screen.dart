@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../l10n/l10n.dart';
 import '../../services/ignore_manager.dart';
 import 'settings_page.dart';
 
@@ -18,11 +19,11 @@ class _IgnoresScreenState extends State<IgnoresScreen> {
     return DefaultTabController(
       length: 2,
       child: SettingsPage(
-        title: const Text('Ignores'),
-        bottom: const TabBar(
+        title: Text(context.l10n.ignoresTitle),
+        bottom: TabBar(
           tabs: [
-            Tab(text: 'Users'),
-            Tab(text: 'Keywords'),
+            Tab(text: context.l10n.tabUsers),
+            Tab(text: context.l10n.tabKeywords),
           ],
         ),
         // The FAB needs the selected tab; look it up from a context INSIDE
@@ -61,10 +62,8 @@ class _IgnoresScreenState extends State<IgnoresScreen> {
       return Center(
         child: Text(
           keywords
-              ? 'Keyword rules rewrite specific text. '
-                    'Tap + to add one.'
-              : "Ignored users' messages / whispers are not shown. "
-                    'Tap + to add one.',
+              ? context.l10n.ignoreKeywordsEmpty
+              : context.l10n.ignoreUsersEmpty,
           textAlign: TextAlign.center,
         ),
       );
@@ -73,15 +72,17 @@ class _IgnoresScreenState extends State<IgnoresScreen> {
       children: [
         for (final entry in entries)
           ListTile(
-            title: Text(entry.pattern.isEmpty ? '(no pattern)' : entry.pattern),
+            title: Text(
+              entry.pattern.isEmpty ? context.l10n.noPattern : entry.pattern,
+            ),
             subtitle: Text(
               [
-                if (entry.isRegex) 'regex',
-                if (entry.caseSensitive) 'case sensitive',
-                if (entry.wordBoundary) 'whole word',
-                if (entry.block) 'blocks message',
+                if (entry.isRegex) context.l10n.ignoreRegex,
+                if (entry.caseSensitive) context.l10n.ignoreCaseSensitive,
+                if (entry.wordBoundary) context.l10n.ignoreWholeWord,
+                if (entry.block) context.l10n.ignoreBlocks,
                 if (keywords && (entry.replacement ?? '').isNotEmpty)
-                  'replaced with "${entry.replacement}"',
+                  context.l10n.ignoreReplacedWith(entry.replacement!),
               ].join(', '),
               style: const TextStyle(fontSize: 12),
             ),
@@ -90,13 +91,13 @@ class _IgnoresScreenState extends State<IgnoresScreen> {
               children: [
                 IconButton(
                   icon: const Icon(Icons.edit_outlined),
-                  tooltip: 'Edit',
+                  tooltip: context.l10n.edit,
                   onPressed: () =>
                       _edit(entry, keyword: keywords, isNew: false),
                 ),
                 IconButton(
                   icon: const Icon(Icons.delete_outline),
-                  tooltip: 'Delete',
+                  tooltip: context.l10n.delete,
                   onPressed: () {
                     if (keywords) {
                       _manager.removeKeyword(entry.id);
@@ -200,7 +201,9 @@ class _IgnoreEditDialogState extends State<_IgnoreEditDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: Text(widget.isNew ? 'Add ignore' : 'Edit ignore'),
+      title: Text(
+        widget.isNew ? context.l10n.addIgnore : context.l10n.editIgnore,
+      ),
       // Keyword rules stack six rows; on small screens (or with the keyboard
       // open) that exceeds the dialog bounds, so let the content scroll
       // instead of overflowing.
@@ -213,21 +216,21 @@ class _IgnoreEditDialogState extends State<_IgnoreEditDialog> {
               autofocus: widget.isNew,
               decoration: InputDecoration(
                 labelText: widget.keyword
-                    ? 'Keyword or regex'
-                    : 'Username or regex',
+                    ? context.l10n.keywordOrRegex
+                    : context.l10n.usernameOrRegex,
               ),
             ),
             SwitchListTile(
               dense: true,
               contentPadding: EdgeInsets.zero,
-              title: const Text('Regular expression'),
+              title: Text(context.l10n.regularExpression),
               value: _isRegex,
               onChanged: (v) => setState(() => _isRegex = v),
             ),
             SwitchListTile(
               dense: true,
               contentPadding: EdgeInsets.zero,
-              title: const Text('Case sensitive'),
+              title: Text(context.l10n.caseSensitive),
               value: _caseSensitive,
               onChanged: (v) => setState(() => _caseSensitive = v),
             ),
@@ -235,7 +238,7 @@ class _IgnoreEditDialogState extends State<_IgnoreEditDialog> {
               SwitchListTile(
                 dense: true,
                 contentPadding: EdgeInsets.zero,
-                title: const Text('Whole word'),
+                title: Text(context.l10n.wholeWord),
                 value: _wholeWord,
                 onChanged: (v) => setState(() => _wholeWord = v),
               ),
@@ -243,19 +246,17 @@ class _IgnoreEditDialogState extends State<_IgnoreEditDialog> {
               SwitchListTile(
                 dense: true,
                 contentPadding: EdgeInsets.zero,
-                title: const Text('Block message'),
-                subtitle: const Text(
-                  'Hide the whole message, not just the match',
-                ),
+                title: Text(context.l10n.blockMessage),
+                subtitle: Text(context.l10n.blockMessageHint),
                 value: _block,
                 onChanged: (v) => setState(() => _block = v),
               ),
             if (widget.keyword && !_block)
               TextField(
                 controller: _replacementCtrl,
-                decoration: const InputDecoration(
-                  labelText: 'Replace with',
-                  helperText: 'What matched text becomes (default ***)',
+                decoration: InputDecoration(
+                  labelText: context.l10n.replaceWith,
+                  helperText: context.l10n.replaceWithHint,
                 ),
               ),
           ],
@@ -264,7 +265,7 @@ class _IgnoreEditDialogState extends State<_IgnoreEditDialog> {
       actions: [
         TextButton(
           onPressed: () => Navigator.pop(context),
-          child: const Text('Cancel'),
+          child: Text(context.l10n.cancel),
         ),
         TextButton(
           onPressed: () {
@@ -285,7 +286,7 @@ class _IgnoreEditDialogState extends State<_IgnoreEditDialog> {
               ),
             );
           },
-          child: Text(widget.isNew ? 'Add' : 'Save'),
+          child: Text(widget.isNew ? context.l10n.add : context.l10n.save),
         ),
       ],
     );

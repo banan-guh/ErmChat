@@ -34,7 +34,7 @@ class _CustomLayoutScreenState extends State<CustomLayoutScreen> {
   @override
   Widget build(BuildContext context) {
     return SettingsPage(
-      title: const Text('Custom'),
+      title: Text(context.l10n.layoutCustom),
       body: ListView(
         children: [
           SettingAnchor(
@@ -52,7 +52,7 @@ class _CustomLayoutScreenState extends State<CustomLayoutScreen> {
             child: PrefsSwitchTile(
               enabled: _enabled,
               title: Setting.mergeAppBar.titleOf(context.l10n),
-              subtitle: 'Join button becomes the last tab, actions pin right',
+              subtitle: context.l10n.mergeAppBarHint,
               read: (p) => p.overrideMergeAppBar,
               write: (p, v) => p.setOverrideMergeAppBar(v),
             ),
@@ -62,7 +62,7 @@ class _CustomLayoutScreenState extends State<CustomLayoutScreen> {
             child: PrefsSwitchTile(
               enabled: _enabled,
               title: Setting.foldPanelTitles.titleOf(context.l10n),
-              subtitle: 'Drops the panel title row so the tabs name it',
+              subtitle: context.l10n.foldPanelTitlesHint,
               read: (p) => p.overrideFoldPanelHeaders,
               write: (p, v) => p.setOverrideFoldPanelHeaders(v),
             ),
@@ -72,7 +72,7 @@ class _CustomLayoutScreenState extends State<CustomLayoutScreen> {
             child: PrefsSwitchTile(
               enabled: _enabled,
               title: Setting.tighterComposer.titleOf(context.l10n),
-              subtitle: 'Shorter input field with full-size buttons',
+              subtitle: context.l10n.tighterComposerHint,
               read: (p) => p.overrideTightComposer,
               write: (p, v) => p.setOverrideTightComposer(v),
             ),
@@ -82,7 +82,7 @@ class _CustomLayoutScreenState extends State<CustomLayoutScreen> {
             child: PrefsSwitchTile(
               enabled: _enabled,
               title: Setting.horizontalSheetActions.titleOf(context.l10n),
-              subtitle: 'Icon-over-label rows in the emote and user sheets',
+              subtitle: context.l10n.horizontalSheetActionsHint,
               read: (p) => p.overrideSheetActionRow,
               write: (p, v) => p.setOverrideSheetActionRow(v),
             ),
@@ -92,7 +92,7 @@ class _CustomLayoutScreenState extends State<CustomLayoutScreen> {
             child: PrefsSwitchTile(
               enabled: _enabled,
               title: Setting.compactDensity.titleOf(context.l10n),
-              subtitle: 'Smaller buttons, list tiles and menus',
+              subtitle: context.l10n.compactDensityHint,
               read: (p) => p.overrideCompactDensity,
               write: (p, v) => p.setOverrideCompactDensity(v),
             ),
@@ -102,7 +102,7 @@ class _CustomLayoutScreenState extends State<CustomLayoutScreen> {
             child: PrefsSwitchTile(
               enabled: _enabled,
               title: Setting.tighterChrome.titleOf(context.l10n),
-              subtitle: 'Closer app bar action padding',
+              subtitle: context.l10n.tighterChromeHint,
               read: (p) => p.overrideTightChromeMargins,
               write: (p, v) => p.setOverrideTightChromeMargins(v),
             ),

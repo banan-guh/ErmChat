@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../l10n/l10n.dart';
 import '../../services/link_whitelist.dart';
 import '../../widgets/dialogs.dart';
 import 'settings_page.dart';
@@ -47,11 +48,11 @@ class _LinkWhitelistSettingsScreenState
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return SettingsPage(
-      title: const Text('Split link whitelist'),
+      title: Text(context.l10n.splitLinkWhitelist),
       actions: [
         IconButton(
           icon: const Icon(Icons.restore),
-          tooltip: 'Restore defaults',
+          tooltip: context.l10n.restoreDefaults,
           onPressed: () => _confirmRestore(context),
         ),
       ],
@@ -60,25 +61,24 @@ class _LinkWhitelistSettingsScreenState
             ? () => showDialog(
                 context: context,
                 builder: (ctx) => AlertDialog(
-                  title: const Text('Add link'),
+                  title: Text(ctx.l10n.addLink),
                   content: TextField(
                     controller: _controller,
                     autofocus: true,
-                    decoration: const InputDecoration(
-                      labelText: 'Domain or TLD',
-                      helperText:
-                          'e.g. "lol" (any *.lol) or "kappa.lol" (+subs)',
+                    decoration: InputDecoration(
+                      labelText: ctx.l10n.domainOrTld,
+                      helperText: ctx.l10n.domainOrTldHint,
                     ),
                     onSubmitted: (_) => _add(ctx),
                   ),
                   actions: [
                     TextButton(
                       onPressed: () => Navigator.pop(context),
-                      child: const Text('Cancel'),
+                      child: Text(ctx.l10n.cancel),
                     ),
                     TextButton(
                       onPressed: () => _add(ctx),
-                      child: const Text('Add'),
+                      child: Text(ctx.l10n.add),
                     ),
                   ],
                 ),
@@ -94,14 +94,12 @@ class _LinkWhitelistSettingsScreenState
           return ListView(
             padding: const EdgeInsets.only(bottom: 80),
             children: [
-              const Padding(
-                padding: EdgeInsets.fromLTRB(16, 16, 16, 4),
-                child: Text(
-                  'Highlight links broken by a space, like kappa .lol/ABCDE.',
-                ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
+                child: Text(context.l10n.splitLinksHint),
               ),
               SwitchListTile(
-                title: const Text('Enable split links'),
+                title: Text(context.l10n.enableSplitLinks),
                 value: enabled,
                 onChanged: (v) => LinkWhitelist.instance.setEnabled(v),
               ),
@@ -120,7 +118,7 @@ class _LinkWhitelistSettingsScreenState
                               _TypeBadge(LinkWhitelist.classify(entry)),
                               IconButton(
                                 icon: const Icon(Icons.delete_outline),
-                                tooltip: 'Remove',
+                                tooltip: context.l10n.remove,
                                 onPressed: () =>
                                     LinkWhitelist.instance.remove(entry),
                               ),
@@ -128,17 +126,15 @@ class _LinkWhitelistSettingsScreenState
                           ),
                         ),
                       if (entries.isEmpty)
-                        const Padding(
-                          padding: EdgeInsets.all(16),
-                          child: Text(
-                            'No entries yet. Add one or tap an example.',
-                          ),
+                        Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Text(context.l10n.noEntriesYet),
                         ),
-                      const Padding(
-                        padding: EdgeInsets.fromLTRB(16, 24, 16, 8),
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 24, 16, 8),
                         child: Text(
-                          'Examples (tap to add):',
-                          style: TextStyle(fontWeight: FontWeight.bold),
+                          context.l10n.examplesTapToAdd,
+                          style: const TextStyle(fontWeight: FontWeight.bold),
                         ),
                       ),
                       Padding(
@@ -177,11 +173,9 @@ class _LinkWhitelistSettingsScreenState
   Future<void> _confirmRestore(BuildContext context) async {
     final confirmed = await confirmDialog(
       context,
-      title: 'Restore defaults?',
-      message:
-          'This replaces your whitelist with the built-in defaults, '
-          'and removes any entries you added.',
-      confirmLabel: 'Restore',
+      title: context.l10n.restoreDefaultsTitle,
+      message: context.l10n.restoreDefaultsMessage,
+      confirmLabel: context.l10n.restore,
     );
     if (confirmed) LinkWhitelist.instance.restoreDefaults();
   }
@@ -204,7 +198,7 @@ class _TypeBadge extends StatelessWidget {
         borderRadius: BorderRadius.circular(4),
       ),
       child: Text(
-        isTld ? 'TLD' : 'DOMAIN',
+        isTld ? context.l10n.linkTypeTld : context.l10n.linkTypeDomain,
         style: TextStyle(
           fontSize: 11,
           color: isTld ? Colors.orange : Colors.green,

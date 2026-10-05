@@ -61,14 +61,14 @@ class _UploaderSettingsScreenState extends State<UploaderSettingsScreen> {
       ),
     );
     if (!mounted) return;
-    AppSnack.show(context, 'Uploader settings saved');
+    AppSnack.show(context, context.l10n.uploaderSaved);
   }
 
   Future<void> _reset() async {
     final confirmed = await confirmDialog(
       context,
-      title: 'Reset uploader?',
-      confirmLabel: 'Reset',
+      title: context.l10n.resetUploaderTitle,
+      confirmLabel: context.l10n.reset,
     );
     if (!confirmed) return;
     await _mediaUploader.resetConfig();
@@ -98,29 +98,25 @@ class _UploaderSettingsScreenState extends State<UploaderSettingsScreen> {
   @override
   Widget build(BuildContext context) {
     return SettingsPage(
-      title: const Text('Image uploader'),
+      title: Text(context.l10n.imageUploaderTitle),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          const Text(
-            'Uploads go to this endpoint, and the link is pasted into your '
-            'message. Defaults to kappa.lol.',
-            style: TextStyle(height: 1.4),
-          ),
+          Text(context.l10n.uploaderHint, style: const TextStyle(height: 1.4)),
           Align(
             alignment: Alignment.centerRight,
             child: TextButton.icon(
               onPressed: _reset,
               icon: const Icon(Icons.restore),
-              label: const Text('Reset'),
+              label: Text(context.l10n.reset),
             ),
           ),
           TextField(
             controller: _uploadUrl,
             keyboardType: TextInputType.url,
             autocorrect: false,
-            decoration: const InputDecoration(
-              labelText: 'Upload URL',
+            decoration: InputDecoration(
+              labelText: context.l10n.uploadUrl,
               border: OutlineInputBorder(),
             ),
           ),
@@ -128,8 +124,8 @@ class _UploaderSettingsScreenState extends State<UploaderSettingsScreen> {
           TextField(
             controller: _formField,
             autocorrect: false,
-            decoration: const InputDecoration(
-              labelText: 'Form field',
+            decoration: InputDecoration(
+              labelText: context.l10n.formField,
               border: OutlineInputBorder(),
             ),
           ),
@@ -137,9 +133,9 @@ class _UploaderSettingsScreenState extends State<UploaderSettingsScreen> {
           TextField(
             controller: _headers,
             autocorrect: false,
-            decoration: const InputDecoration(
-              labelText: 'Headers',
-              hintText: 'Name: value; Name: value',
+            decoration: InputDecoration(
+              labelText: context.l10n.headers,
+              hintText: context.l10n.headersHint,
               border: OutlineInputBorder(),
             ),
           ),
@@ -147,8 +143,8 @@ class _UploaderSettingsScreenState extends State<UploaderSettingsScreen> {
           TextField(
             controller: _imageLinkPattern,
             autocorrect: false,
-            decoration: const InputDecoration(
-              labelText: 'Image link pattern',
+            decoration: InputDecoration(
+              labelText: context.l10n.imageLinkPattern,
               hintText: '{link}',
               border: OutlineInputBorder(),
             ),
@@ -157,8 +153,8 @@ class _UploaderSettingsScreenState extends State<UploaderSettingsScreen> {
           TextField(
             controller: _deletionLinkPattern,
             autocorrect: false,
-            decoration: const InputDecoration(
-              labelText: 'Deletion link pattern',
+            decoration: InputDecoration(
+              labelText: context.l10n.deletionLinkPattern,
               hintText: '{delete}',
               border: OutlineInputBorder(),
             ),
@@ -167,7 +163,7 @@ class _UploaderSettingsScreenState extends State<UploaderSettingsScreen> {
           FilledButton.icon(
             onPressed: _save,
             icon: const Icon(Icons.save),
-            label: const Text('Save'),
+            label: Text(context.l10n.save),
           ),
           const SizedBox(height: 8),
           SettingAnchor(

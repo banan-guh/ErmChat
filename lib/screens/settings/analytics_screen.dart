@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import '../../l10n/l10n.dart';
 import '../../widgets/emote_scale_resolver.dart';
 import '../../emotes/emote_picker.dart';
 import '../../widgets/tabbed_layout.dart';
@@ -139,12 +140,12 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   @override
   Widget build(BuildContext context) {
     return SettingsPage(
-      title: const Text('Analytics'),
+      title: Text(context.l10n.analyticsTitle),
       actions: [
         if (_channel != null)
           PopupMenuButton<String>(
             icon: const Icon(Icons.refresh),
-            tooltip: 'Reset stats',
+            tooltip: context.l10n.resetStats,
             onSelected: (value) {
               final service = widget.analyticsService;
               if (value == 'channel') {
@@ -153,23 +154,23 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                 service.resetAll();
               }
             },
-            itemBuilder: (_) => const [
+            itemBuilder: (_) => [
               PopupMenuItem(
                 value: 'channel',
-                child: Text('Reset this channel'),
+                child: Text(context.l10n.resetThisChannel),
               ),
-              PopupMenuItem(value: 'all', child: Text('Reset all channels')),
+              PopupMenuItem(
+                value: 'all',
+                child: Text(context.l10n.resetAllChannels),
+              ),
             ],
           ),
       ],
       body: Column(
         children: [
           SwitchListTile(
-            title: const Text('Track chat stats (local)'),
-            subtitle: const Text(
-              'Counts chatters, emotes and words. Stays on this device for '
-              '24 hours.',
-            ),
+            title: Text(context.l10n.trackChatStats),
+            subtitle: Text(context.l10n.trackChatStatsHint),
             value: widget.analyticsService.enabled,
             onChanged: _setEnabled,
           ),
@@ -190,7 +191,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   Widget _body(BuildContext context) {
     if (!widget.analyticsService.enabled) return const SizedBox.shrink();
     return widget.channels.isEmpty
-        ? const Center(child: Text('Join a channel to start tracking stats'))
+        ? Center(child: Text(context.l10n.joinChannelForStats))
         : TabbedLayout(
             tabs: widget.channels,
             selectedIndex: _channelIndex,
@@ -225,19 +226,19 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                 Text(channel, style: theme.textTheme.titleLarge),
                 const SizedBox(height: 12),
                 _summaryRow(
-                  'Total messages',
+                  context.l10n.totalMessages,
                   '${service.totalMessages(channel)}',
                 ),
                 _summaryRow(
-                  'Unique chatters',
+                  context.l10n.uniqueChatters,
                   '${service.uniqueChatters(channel)}',
                 ),
                 _summaryRow(
-                  'Messages per minute',
+                  context.l10n.messagesPerMinute,
                   service.messagesPerMinute(channel).toStringAsFixed(1),
                 ),
                 _summaryRowWidget(
-                  'Tracking for',
+                  context.l10n.trackingFor,
                   _ElapsedText(startedAt: startedAt),
                 ),
               ],
@@ -253,26 +254,35 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('Moderation', style: theme.textTheme.titleMedium),
+                  Text(
+                    context.l10n.moderation,
+                    style: theme.textTheme.titleMedium,
+                  ),
                   const SizedBox(height: 8),
-                  _summaryRow('Bans', '${service.banCount(channel)}'),
-                  _summaryRow('Timeouts', '${service.timeoutCount(channel)}'),
+                  _summaryRow(
+                    context.l10n.bans,
+                    '${service.banCount(channel)}',
+                  ),
+                  _summaryRow(
+                    context.l10n.timeouts,
+                    '${service.timeoutCount(channel)}',
+                  ),
                 ],
               ),
             ),
           ),
           const SizedBox(height: 16),
         ],
-        _sectionHeader(context, 'Top chatters'),
+        _sectionHeader(context, context.l10n.topChatters),
         ..._buildChatterRows(service.topChatters(channel, 10)),
         const SizedBox(height: 16),
-        _sectionHeader(context, 'Top emotes'),
+        _sectionHeader(context, context.l10n.topEmotes),
         ..._buildEmoteRows(service.topEmotes(channel, 10)),
         const SizedBox(height: 16),
-        _sectionHeader(context, 'Top words'),
+        _sectionHeader(context, context.l10n.topWords),
         SwitchListTile(
           secondary: const Icon(Icons.filter_alt),
-          title: const Text('Filter common words'),
+          title: Text(context.l10n.filterCommonWords),
           value: _useStopwords,
           onChanged: _setStopwords,
         ),
@@ -310,9 +320,9 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   List<Widget> _buildChatterRows(List<({String name, int count})> chatters) {
     if (chatters.isEmpty) {
       return [
-        const Padding(
-          padding: EdgeInsets.symmetric(vertical: 8),
-          child: Text('No messages yet'),
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          child: Text(context.l10n.noMessagesYet),
         ),
       ];
     }
@@ -330,9 +340,9 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   List<Widget> _buildEmoteRows(List<({Emote emote, int count})> emotes) {
     if (emotes.isEmpty) {
       return [
-        const Padding(
-          padding: EdgeInsets.symmetric(vertical: 8),
-          child: Text('No emotes yet'),
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          child: Text(context.l10n.noEmotesYet),
         ),
       ];
     }
@@ -359,9 +369,9 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   List<Widget> _buildWordRows(List<({String word, int count})> words) {
     if (words.isEmpty) {
       return [
-        const Padding(
-          padding: EdgeInsets.symmetric(vertical: 8),
-          child: Text('No words yet'),
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          child: Text(context.l10n.noWordsYet),
         ),
       ];
     }

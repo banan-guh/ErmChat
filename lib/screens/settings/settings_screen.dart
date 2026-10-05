@@ -154,11 +154,11 @@ class SettingsScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SettingsPage(
-      title: const Text('Settings'),
+      title: Text(context.l10n.settingsTitle),
       actions: [
         IconButton(
           icon: const Icon(Icons.search),
-          tooltip: 'Search settings',
+          tooltip: context.l10n.searchSettings,
           onPressed: () => Navigator.push(
             context,
             MaterialPageRoute(
@@ -176,28 +176,28 @@ class SettingsScreen extends StatelessWidget {
           ),
           SettingsNavTile(
             icon: Icons.palette,
-            title: 'Appearance',
+            title: context.l10n.pageAppearance,
             onTap: () => _go(context, _appearance),
           ),
           SettingsNavTile(
             icon: Icons.chat_bubble,
-            title: 'Chat',
+            title: context.l10n.pageChat,
             onTap: () => _go(context, _chat),
           ),
           SettingsNavTile(
             icon: Icons.notifications,
-            title: 'Highlights',
+            title: context.l10n.pageHighlights,
             onTap: () => _go(context, _highlights),
           ),
           SettingsNavTile(
             icon: Icons.emoji_emotions,
-            title: 'Emotes',
+            title: context.l10n.pageEmotes,
             onTap: () => _go(context, _emotes),
           ),
           const Divider(),
           SettingsNavTile(
             icon: Icons.handyman,
-            title: 'Tools',
+            title: context.l10n.pageTools,
             onTap: () => _go(context, _tools),
           ),
           SettingsNavTile(
@@ -210,7 +210,7 @@ class SettingsScreen extends StatelessWidget {
           if (twitchAuth.isConfigured)
             SettingsNavTile(
               icon: Icons.bug_report,
-              title: 'Send feedback',
+              title: context.l10n.sendFeedback,
               onTap: () => _go(context, ReportBugScreen.new),
             ),
           SettingsNavTile(

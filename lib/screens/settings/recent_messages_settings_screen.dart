@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import '../../l10n/l10n.dart';
 import '../../services/recent_messages.dart';
 import '../../util/prefs.dart';
 import 'settings_page.dart';
@@ -62,7 +63,7 @@ class _RecentMessagesSettingsScreenState
   @override
   Widget build(BuildContext context) {
     return SettingsPage(
-      title: const Text('Recent messages'),
+      title: Text(context.l10n.recentMessagesTitle),
       body: RadioGroup<RecentMessagesMode>(
         groupValue: _mode,
         onChanged: (mode) {
@@ -71,23 +72,23 @@ class _RecentMessagesSettingsScreenState
         child: ListView(
           children: [
             RadioListTile<RecentMessagesMode>(
-              title: const Text('Auto'),
-              subtitle: const Text('robotty, then zneix mirror'),
+              title: Text(context.l10n.recentAuto),
+              subtitle: Text(context.l10n.recentAutoHint),
               value: RecentMessagesMode.auto,
             ),
             RadioListTile<RecentMessagesMode>(
-              title: const Text('Robotty only'),
+              title: Text(context.l10n.recentRobotty),
               subtitle: const Text('recent-messages.robotty.de'),
               value: RecentMessagesMode.robotty,
             ),
             RadioListTile<RecentMessagesMode>(
-              title: const Text('Zneix only'),
+              title: Text(context.l10n.recentZneix),
               subtitle: const Text('recent-messages.zneix.eu'),
               value: RecentMessagesMode.zneix,
             ),
             RadioListTile<RecentMessagesMode>(
-              title: const Text('Custom URL'),
-              subtitle: const Text('Your own recent-messages backend'),
+              title: Text(context.l10n.recentCustom),
+              subtitle: Text(context.l10n.recentCustomHint),
               value: RecentMessagesMode.custom,
             ),
             if (_mode == RecentMessagesMode.custom)
@@ -98,8 +99,8 @@ class _RecentMessagesSettingsScreenState
                 ),
                 child: TextField(
                   controller: _customUrlController,
-                  decoration: const InputDecoration(
-                    labelText: 'Base URL',
+                  decoration: InputDecoration(
+                    labelText: context.l10n.baseUrl,
                     hintText: 'https://example.com/api/v2/recent-messages',
                   ),
                   keyboardType: TextInputType.url,
