@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../l10n/l10n.dart';
 import '../../models/polls.dart';
 import '../../util/date_format.dart';
 import '../dialogs.dart';
@@ -24,7 +25,7 @@ class _PollsSectionState extends State<PollsSection>
     super.initState();
     _polls = loader(
       (mod) => mod.actions.getPolls(mod.auth, mod.channel),
-      failure: 'Could not load polls.',
+      failure: mod.l10n.loadPollsFailed,
     );
   }
 
@@ -32,12 +33,10 @@ class _PollsSectionState extends State<PollsSection>
     if (anyBusy) return;
     final confirmed = await confirmDialog(
       context,
-      title: archive ? 'Cancel poll?' : 'End poll now?',
-      message: archive
-          ? 'This archives the poll without showing results.'
-          : 'This ends the poll and shows the results (TERMINATED).',
-      confirmLabel: archive ? 'Cancel poll' : 'End poll',
-      cancelLabel: 'Back',
+      title: archive ? mod.l10n.cancelPollTitle : mod.l10n.endPollTitle,
+      message: archive ? mod.l10n.cancelPollMessage : mod.l10n.endPollMessage,
+      confirmLabel: archive ? mod.l10n.cancelPoll : mod.l10n.endPoll,
+      cancelLabel: mod.l10n.back,
       destructive: true,
     );
     if (!confirmed || !mounted) return;
@@ -49,7 +48,7 @@ class _PollsSectionState extends State<PollsSection>
           pollId: poll.id,
           archive: archive,
         ),
-        done: archive ? 'Poll cancelled.' : 'Poll ended.',
+        done: archive ? mod.l10n.pollCancelled : mod.l10n.pollEnded,
       );
       if (ok) await _polls.load();
     });
@@ -71,12 +70,12 @@ class _PollsSectionState extends State<PollsSection>
             horizontal: 16,
             vertical: 4,
           ),
-          title: Text(active.title.isEmpty ? 'Poll' : active.title),
+          title: Text(active.title.isEmpty ? mod.l10n.poll : active.title),
           subtitle: Text(
             [
-              '${active.choices.length} choices',
-              '${active.totalVotes} votes',
-              if (endsAt != null) 'ends ${formatIn(endsAt)}',
+              mod.l10n.choiceCount(active.choices.length),
+              mod.l10n.voteCount(active.totalVotes),
+              if (endsAt != null) mod.l10n.endsIn(formatIn(endsAt)),
             ].join(' · '),
           ),
           trailing: anyBusy
@@ -86,11 +85,11 @@ class _PollsSectionState extends State<PollsSection>
                   children: [
                     OutlinedButton(
                       onPressed: () => _end(active, archive: false),
-                      child: const Text('End'),
+                      child: Text(mod.l10n.end),
                     ),
                     TextButton(
                       onPressed: () => _end(active, archive: true),
-                      child: const Text('Archive'),
+                      child: Text(mod.l10n.archive),
                     ),
                   ],
                 ),
@@ -142,7 +141,7 @@ class _PollFormState extends State<_PollForm> {
         if (c.text.trim().isNotEmpty) c.text.trim(),
     ];
     if (title.isEmpty || choices.length < 2) {
-      mod.notify('Enter a title and at least 2 choices.');
+      mod.notify(mod.l10n.pollNeedsChoices);
       return;
     }
     if (_creating) return;
@@ -156,7 +155,7 @@ class _PollFormState extends State<_PollForm> {
           choices: choices,
           durationSeconds: _duration,
         ),
-        done: 'Poll started.',
+        done: mod.l10n.pollStarted,
       );
       if (ok) widget.onCreated();
     } finally {
@@ -171,19 +170,21 @@ class _PollFormState extends State<_PollForm> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('No active poll.'),
+          Text(widget.mod.l10n.noActivePoll),
           TextField(
             controller: _title,
-            decoration: const InputDecoration(labelText: 'Poll title'),
+            decoration: InputDecoration(labelText: widget.mod.l10n.pollTitle),
           ),
           for (final (i, choice) in _choices.indexed)
             TextField(
               controller: choice,
-              decoration: InputDecoration(labelText: 'Choice ${i + 1}'),
+              decoration: InputDecoration(
+                labelText: widget.mod.l10n.choiceNumber(i + 1),
+              ),
             ),
           Row(
             children: [
-              const Text('Duration:'),
+              Text(widget.mod.l10n.durationLabel),
               const SizedBox(width: 8),
               DropdownButton<int>(
                 value: _duration,
@@ -204,7 +205,7 @@ class _PollFormState extends State<_PollForm> {
                       : () => setState(
                           () => _choices.add(TextEditingController()),
                         ),
-                  child: const Text('Add choice'),
+                  child: Text(widget.mod.l10n.addChoice),
                 ),
             ],
           ),
@@ -212,7 +213,7 @@ class _PollFormState extends State<_PollForm> {
             onPressed: _creating ? null : _create,
             child: _creating
                 ? const ModSpinner(size: 18)
-                : const Text('Start poll'),
+                : Text(widget.mod.l10n.startPoll),
           ),
         ],
       ),
@@ -237,7 +238,7 @@ class _PredictionsSectionState extends State<PredictionsSection>
     super.initState();
     _predictions = loader(
       (mod) => mod.actions.getPredictions(mod.auth, mod.channel),
-      failure: 'Could not load predictions.',
+      failure: mod.l10n.loadPredictionsFailed,
     );
   }
 
@@ -263,23 +264,23 @@ class _PredictionsSectionState extends State<PredictionsSection>
   Future<void> _cancel(Prediction prediction) async {
     final confirmed = await confirmDialog(
       context,
-      title: 'Cancel prediction?',
-      message: 'Points are refunded to predictors.',
-      confirmLabel: 'Cancel prediction',
-      cancelLabel: 'Back',
+      title: mod.l10n.cancelPredictionTitle,
+      message: mod.l10n.cancelPredictionMessage,
+      confirmLabel: mod.l10n.cancelPrediction,
+      cancelLabel: mod.l10n.back,
       destructive: true,
     );
     if (!confirmed || !mounted) return;
-    await _end(prediction, 'CANCELED', done: 'Prediction cancelled.');
+    await _end(prediction, 'CANCELED', done: mod.l10n.predictionCancelled);
   }
 
   Future<void> _resolve(Prediction prediction) async {
     final winner = await showModChoiceDialog(
       context,
-      title: 'Winning outcome',
+      title: mod.l10n.winningOutcome,
       options: [
         for (final outcome in prediction.outcomes)
-          (_outcomeLabel(outcome), outcome.id),
+          (_outcomeLabel(mod.l10n, outcome), outcome.id),
       ],
     );
     if (winner == null || winner.isEmpty || !mounted) return;
@@ -287,7 +288,7 @@ class _PredictionsSectionState extends State<PredictionsSection>
       prediction,
       'RESOLVED',
       winningOutcomeId: winner,
-      done: 'Prediction resolved.',
+      done: mod.l10n.predictionResolved,
     );
   }
 
@@ -299,19 +300,19 @@ class _PredictionsSectionState extends State<PredictionsSection>
       builder: (context, predictions) {
         final open = predictions.where((p) => p.isOpen).firstOrNull;
         if (open == null) {
-          return const ListTile(
-            title: Text('No open prediction. Create one with /prediction.'),
-          );
+          return ListTile(title: Text(mod.l10n.noOpenPrediction));
         }
         return ListTile(
           contentPadding: const EdgeInsets.symmetric(
             horizontal: 16,
             vertical: 4,
           ),
-          title: Text(open.title.isEmpty ? 'Prediction' : open.title),
+          title: Text(open.title.isEmpty ? mod.l10n.prediction : open.title),
           subtitle: Text(
-            '${open.outcomes.length} outcomes'
-            '${open.isLocked ? ' · locked' : ''}',
+            [
+              mod.l10n.outcomeCount(open.outcomes.length),
+              if (open.isLocked) mod.l10n.locked,
+            ].join(' · '),
           ),
           trailing: anyBusy
               ? const ModSpinner()
@@ -320,17 +321,20 @@ class _PredictionsSectionState extends State<PredictionsSection>
                   children: [
                     if (!open.isLocked)
                       OutlinedButton(
-                        onPressed: () =>
-                            _end(open, 'LOCKED', done: 'Prediction locked.'),
-                        child: const Text('Lock'),
+                        onPressed: () => _end(
+                          open,
+                          'LOCKED',
+                          done: mod.l10n.predictionLocked,
+                        ),
+                        child: Text(mod.l10n.lock),
                       ),
                     FilledButton(
                       onPressed: () => _resolve(open),
-                      child: const Text('Resolve'),
+                      child: Text(mod.l10n.resolve),
                     ),
                     TextButton(
                       onPressed: () => _cancel(open),
-                      child: const Text('Cancel'),
+                      child: Text(mod.l10n.cancel),
                     ),
                   ],
                 ),
@@ -340,11 +344,11 @@ class _PredictionsSectionState extends State<PredictionsSection>
   }
 }
 
-String _outcomeLabel(PredictionOutcome outcome) {
+String _outcomeLabel(AppLocalizations l, PredictionOutcome outcome) {
   final detail = [
-    if (outcome.channelPoints != null) '${outcome.channelPoints} pts',
-    if (outcome.users != null) '${outcome.users} predictors',
+    if (outcome.channelPoints case final pts?) l.pointsValue(pts),
+    if (outcome.users case final users?) l.predictorCount(users),
   ].join(' · ');
-  final title = outcome.title.isEmpty ? 'Outcome' : outcome.title;
+  final title = outcome.title.isEmpty ? l.outcome : outcome.title;
   return detail.isEmpty ? title : '$title ($detail)';
 }

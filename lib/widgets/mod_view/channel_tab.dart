@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../l10n/l10n.dart';
 import '../../services/mod_actions.dart';
 import '../../services/twitch_api.dart';
 import '../../util/date_format.dart';
@@ -26,10 +27,10 @@ class ChannelTab extends StatelessWidget {
   Widget build(BuildContext context) {
     final owner = mod.isBroadcaster;
     if (!owner && !moderationActive) {
-      return const ModEmpty(
+      return ModEmpty(
         icon: Icons.shield_outlined,
-        title: 'Only the broadcaster can use these tools here.',
-        subtitle: 'Log in as the broadcaster to manage rosters and stream.',
+        title: mod.l10n.modOnlyBroadcaster,
+        subtitle: mod.l10n.modOnlyBroadcasterHint,
       );
     }
     return ListView(
@@ -40,14 +41,14 @@ class ChannelTab extends StatelessWidget {
           RosterSection(mod: mod, moderators: true),
           RosterSection(mod: mod, moderators: false),
         ],
-        const ModSectionHeader('Stream'),
+        ModSectionHeader(mod.l10n.modSectionStream),
         StreamActions(mod: mod),
         if (owner) ...[
-          const ModSectionHeader('Polls'),
+          ModSectionHeader(mod.l10n.modSectionPolls),
           PollsSection(mod: mod),
-          const ModSectionHeader('Predictions'),
+          ModSectionHeader(mod.l10n.modSectionPredictions),
           PredictionsSection(mod: mod),
-          const ModSectionHeader('Points'),
+          ModSectionHeader(mod.l10n.modSectionPoints),
           PointsSection(mod: mod),
         ],
       ],
@@ -72,14 +73,14 @@ class _BannedSectionState extends State<BannedSection>
     super.initState();
     _banned = loader(
       (mod) => mod.actions.getBannedUsers(mod.auth, mod.channel),
-      failure: 'Could not load the banned list.',
+      failure: mod.l10n.loadBannedFailed,
     );
   }
 
   Future<void> _unban(String login) => busy(login.toLowerCase(), () async {
     final ok = await mod.report(
       mod.actions.unbanUser(mod.auth, mod.channel, login: login),
-      done: 'Unbanned $login.',
+      done: mod.l10n.unbannedUser(login),
     );
     if (!ok) return;
     final key = login.toLowerCase();
@@ -97,14 +98,15 @@ class _BannedSectionState extends State<BannedSection>
       children: [
         ListenableBuilder(
           listenable: _banned,
-          builder: (_, _) =>
-              ModSectionHeader('Banned (${_banned.value?.length ?? 0})'),
+          builder: (_, _) => ModSectionHeader(
+            mod.l10n.bannedCount(_banned.value?.length ?? 0),
+          ),
         ),
         ModLoadView(
           loader: _banned,
           inline: true,
           isEmpty: (banned) => banned.isEmpty,
-          empty: const ListTile(title: Text('No bans yet.')),
+          empty: ListTile(title: Text(mod.l10n.noBansYet)),
           builder: (context, banned) => Column(
             children: [
               for (final ban in banned)
@@ -114,12 +116,12 @@ class _BannedSectionState extends State<BannedSection>
                     vertical: 4,
                   ),
                   title: Text(ban.userLogin),
-                  subtitle: Text(_bannedSubtitle(ban)),
+                  subtitle: Text(_bannedSubtitle(mod.l10n, ban)),
                   trailing: isBusy(ban.userLogin.toLowerCase())
                       ? const ModSpinner()
                       : OutlinedButton(
                           onPressed: () => _unban(ban.userLogin),
-                          child: const Text('Unban'),
+                          child: Text(mod.l10n.unban),
                         ),
                 ),
             ],
@@ -130,17 +132,18 @@ class _BannedSectionState extends State<BannedSection>
   }
 }
 
-String _bannedSubtitle(BannedUser ban) {
+String _bannedSubtitle(AppLocalizations l, BannedUser ban) {
   final expires = ban.expiresAt;
   final until = expires == null ? null : DateTime.tryParse(expires)?.toLocal();
   return [
     expires == null
-        ? 'Banned'
+        ? l.banned
         : until == null
-        ? 'Timed out (expiry unknown)'
-        : 'Timeout until ${formatYmdHm(until)}',
+        ? l.timedOutUnknown
+        : l.timeoutUntil(formatYmdHm(until)),
     if (ban.reason?.isNotEmpty ?? false) '"${ban.reason}"',
-    if (ban.moderatorName?.isNotEmpty ?? false) 'by ${ban.moderatorName}',
+    if (ban.moderatorName?.isNotEmpty ?? false)
+      l.byModerator(ban.moderatorName!),
   ].join(' · ');
 }
 
@@ -163,8 +166,6 @@ class _RosterSectionState extends State<RosterSection>
   late final ModLoader<List<String>> _logins;
 
   bool get _mods => widget.moderators;
-  String get _role => _mods ? 'moderator' : 'VIP';
-
   @override
   void initState() {
     super.initState();
@@ -172,7 +173,7 @@ class _RosterSectionState extends State<RosterSection>
       (mod) => _mods
           ? mod.actions.getModerators(mod.auth, mod.channel)
           : mod.actions.getVips(mod.auth, mod.channel),
-      failure: _mods ? 'Could not load moderators.' : 'Could not load VIPs.',
+      failure: _mods ? mod.l10n.loadModeratorsFailed : mod.l10n.loadVipsFailed,
     );
   }
 
@@ -183,9 +184,9 @@ class _RosterSectionState extends State<RosterSection>
   Future<void> _add() async {
     final login = await showModTextDialog(
       context,
-      title: _mods ? 'Add moderator' : 'Add VIP',
-      label: 'Username',
-      confirmLabel: 'Add',
+      title: _mods ? mod.l10n.addModerator : mod.l10n.addVip,
+      label: mod.l10n.username,
+      confirmLabel: mod.l10n.add,
     );
     if (login == null) return;
     if (await mod.report(_set(login, add: true))) await _logins.load();
@@ -196,17 +197,19 @@ class _RosterSectionState extends State<RosterSection>
     if (isBusy(key)) return;
     final confirmed = await confirmDialog(
       context,
-      title: 'Remove $login?',
-      message: 'This removes $_role status from $login.',
-      confirmLabel: 'Remove',
-      cancelLabel: 'Back',
+      title: mod.l10n.removeUserTitle(login),
+      message: _mods
+          ? mod.l10n.removeModeratorMessage(login)
+          : mod.l10n.removeVipMessage(login),
+      confirmLabel: mod.l10n.remove,
+      cancelLabel: mod.l10n.back,
       destructive: true,
     );
     if (!confirmed || !mounted) return;
     await busy(key, () async {
       final ok = await mod.report(
         _set(login, add: false),
-        done: 'Removed $login.',
+        done: mod.l10n.removedUser(login),
       );
       if (ok) await _logins.load();
     });
@@ -218,26 +221,26 @@ class _RosterSectionState extends State<RosterSection>
       listenable: _logins,
       builder: (context, _) {
         final count = _logins.value?.length;
-        final title = _mods ? 'Moderators' : 'VIPs';
+        final title = _mods ? mod.l10n.moderators : mod.l10n.vips;
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             ListTile(
               contentPadding: const EdgeInsets.only(left: 16, right: 8),
               title: ModSectionHeaderText(
-                count == null ? title : '$title ($count)',
+                count == null ? title : mod.l10n.titleWithCount(title, count),
               ),
               trailing: FilledButton.icon(
                 onPressed: _add,
                 icon: const Icon(Icons.person_add, size: 18),
-                label: const Text('Add'),
+                label: Text(mod.l10n.add),
               ),
             ),
             ModLoadView(
               loader: _logins,
               inline: true,
               isEmpty: (logins) => logins.isEmpty,
-              empty: const ListTile(title: Text('None yet.')),
+              empty: ListTile(title: Text(mod.l10n.noneYet)),
               builder: (context, logins) => Column(
                 children: [
                   for (final login in logins)
@@ -251,7 +254,7 @@ class _RosterSectionState extends State<RosterSection>
                           ? const ModSpinner()
                           : IconButton(
                               icon: const Icon(Icons.remove_circle_outline),
-                              tooltip: 'Remove',
+                              tooltip: mod.l10n.remove,
                               onPressed: () => _remove(login),
                             ),
                     ),
@@ -278,23 +281,23 @@ class _StreamActionsState extends State<StreamActions>
   Future<void> _raid() async {
     final login = await showModTextDialog(
       context,
-      title: 'Raid a channel?',
-      label: 'Username',
-      confirmLabel: 'Raid',
+      title: mod.l10n.raidChannelTitle,
+      label: mod.l10n.username,
+      confirmLabel: mod.l10n.raid,
     );
     if (login == null) return;
     await mod.report(
       mod.actions.startRaid(mod.auth, mod.channel, login: login),
-      done: 'Raid started.',
+      done: mod.l10n.raidStarted,
     );
   }
 
   Future<void> _unraid() async {
     final confirmed = await confirmDialog(
       context,
-      title: 'Cancel raid?',
-      message: 'This cancels the pending raid.',
-      confirmLabel: 'Confirm',
+      title: mod.l10n.cancelRaidTitle,
+      message: mod.l10n.cancelRaidMessage,
+      confirmLabel: mod.l10n.confirm,
       destructive: true,
     );
     if (!confirmed) return;
@@ -302,7 +305,7 @@ class _StreamActionsState extends State<StreamActions>
       'unraid',
       () => mod.report(
         mod.actions.cancelRaid(mod.auth, mod.channel),
-        done: 'Raid cancelled.',
+        done: mod.l10n.raidCancelled,
       ),
     );
   }
@@ -310,7 +313,7 @@ class _StreamActionsState extends State<StreamActions>
   Future<void> _commercial() async {
     final length = await showModChoiceDialog(
       context,
-      title: 'Commercial length',
+      title: mod.l10n.commercialLength,
       options: [
         for (final seconds in const [30, 60, 90, 120, 150, 180])
           ('${seconds}s', seconds),
@@ -319,16 +322,16 @@ class _StreamActionsState extends State<StreamActions>
     if (length == null) return;
     await mod.report(
       mod.actions.startCommercial(mod.auth, mod.channel, length: length),
-      done: 'Commercial running.',
+      done: mod.l10n.commercialRunning,
     );
   }
 
   Future<void> _marker() async {
     final description = await showModTextDialog(
       context,
-      title: 'Add stream marker',
-      label: 'Description (optional)',
-      confirmLabel: 'Add',
+      title: mod.l10n.addStreamMarker,
+      label: mod.l10n.descriptionOptional,
+      confirmLabel: mod.l10n.add,
       allowEmpty: true,
     );
     if (description == null) return;
@@ -338,23 +341,23 @@ class _StreamActionsState extends State<StreamActions>
         mod.channel,
         description: description.isEmpty ? null : description,
       ),
-      done: 'Marker added.',
+      done: mod.l10n.markerAdded,
     );
   }
 
   Future<void> _announce() async {
     final message = await showModTextDialog(
       context,
-      title: 'Send announcement',
-      label: 'Message',
-      confirmLabel: 'Send',
+      title: mod.l10n.sendAnnouncement,
+      label: mod.l10n.message,
+      confirmLabel: mod.l10n.send,
     );
     if (message == null) return;
     await busy(
       'announce',
       () => mod.report(
         mod.actions.sendAnnouncement(mod.auth, mod.channel, message: message),
-        done: 'Announcement sent.',
+        done: mod.l10n.announcementSent,
       ),
     );
   }
@@ -362,9 +365,9 @@ class _StreamActionsState extends State<StreamActions>
   Future<void> _clear() async {
     final confirmed = await confirmDialog(
       context,
-      title: 'Clear chat?',
-      message: 'This clears all chat messages.',
-      confirmLabel: 'Confirm',
+      title: mod.l10n.clearChatTitle,
+      message: mod.l10n.clearChatMessage,
+      confirmLabel: mod.l10n.confirm,
       destructive: true,
     );
     if (!confirmed) return;
@@ -372,7 +375,7 @@ class _StreamActionsState extends State<StreamActions>
       'clear',
       () => mod.report(
         mod.actions.clearChat(mod.auth, mod.channel),
-        done: 'Chat cleared.',
+        done: mod.l10n.chatCleared,
       ),
     );
   }
@@ -380,16 +383,16 @@ class _StreamActionsState extends State<StreamActions>
   Future<void> _shoutout() async {
     final login = await showModTextDialog(
       context,
-      title: 'Shoutout a channel?',
-      label: 'Username',
-      confirmLabel: 'Shoutout',
+      title: mod.l10n.shoutoutTitle,
+      label: mod.l10n.username,
+      confirmLabel: mod.l10n.shoutout,
     );
     if (login == null) return;
     await busy(
       'shoutout',
       () => mod.report(
         mod.actions.sendShoutout(mod.auth, mod.channel, login: login),
-        done: 'Shoutout sent.',
+        done: mod.l10n.shoutoutSent,
       ),
     );
   }
@@ -414,7 +417,7 @@ class _StreamActionsState extends State<StreamActions>
         onTap: anyBusy
             ? null
             : gated
-            ? () => mod.notify('Only broadcasters can use this.')
+            ? () => mod.notify(mod.l10n.onlyBroadcasters)
             : action,
       );
     }
@@ -424,39 +427,39 @@ class _StreamActionsState extends State<StreamActions>
       padding: const EdgeInsets.fromLTRB(4, 4, 4, 8),
       tiles: [
         tile(
-          'Start raid',
+          mod.l10n.startRaid,
           Icons.flight_takeoff_outlined,
           _raid,
           ownerOnly: true,
         ),
         tile(
-          'Cancel raid',
+          mod.l10n.cancelRaid,
           Icons.flight_land_outlined,
           _unraid,
           busyKey: 'unraid',
           ownerOnly: true,
         ),
         tile(
-          'Commercial',
+          mod.l10n.commercial,
           Icons.monetization_on_outlined,
           _commercial,
           ownerOnly: true,
         ),
-        tile('Add marker', Icons.bookmark_add_outlined, _marker),
+        tile(mod.l10n.addMarker, Icons.bookmark_add_outlined, _marker),
         tile(
-          'Announce',
+          mod.l10n.announce,
           Icons.campaign_outlined,
           _announce,
           busyKey: 'announce',
         ),
         tile(
-          'Clear chat',
+          mod.l10n.clearChat,
           Icons.delete_sweep_outlined,
           _clear,
           busyKey: 'clear',
         ),
         tile(
-          'Shoutout',
+          mod.l10n.shoutout,
           Icons.record_voice_over_outlined,
           _shoutout,
           busyKey: 'shoutout',

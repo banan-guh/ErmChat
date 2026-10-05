@@ -1,20 +1,22 @@
 import 'package:flutter/material.dart';
 
+import '../../l10n/l10n.dart';
 import '../../services/mod_actions.dart';
 import '../app_snack.dart';
 
 /// Snackbar copy for a failed mod action.
-String modErrorText(ModResult result) => switch (result.failure) {
-  ModFailure.unknownUser => 'No user matching that username.',
-  ModFailure.selfTarget => 'You cannot target yourself.',
-  ModFailure.broadcasterTarget => 'You cannot target the broadcaster.',
-  ModFailure.notJoined => 'Channel not joined.',
-  _ => result.reason ?? 'An unknown error has occurred.',
-};
+String modErrorText(ModResult result, AppLocalizations l) =>
+    switch (result.failure) {
+      ModFailure.unknownUser => l.modErrorUnknownUser,
+      ModFailure.selfTarget => l.modErrorSelfTarget,
+      ModFailure.broadcasterTarget => l.modErrorBroadcasterTarget,
+      ModFailure.notJoined => l.modErrorNotJoined,
+      _ => result.reason ?? l.modErrorUnknown,
+    };
 
 void showModError(BuildContext context, ModResult result) {
   if (result.ok) return;
-  AppSnack.showError(context, modErrorText(result));
+  AppSnack.showError(context, modErrorText(result, context.l10n));
 }
 
 /// Timeout picker: preset chips plus custom seconds and an optional reason.

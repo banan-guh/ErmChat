@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../l10n/l10n.dart';
 import '../../models/point_rewards.dart';
 import '../../util/date_format.dart';
 import '../dialogs.dart';
@@ -26,7 +27,7 @@ class _PointsSectionState extends State<PointsSection>
     super.initState();
     _rewards = loader(
       (mod) => mod.actions.getPointRewards(mod.auth, mod.channel),
-      failure: 'Could not load rewards.',
+      failure: mod.l10n.loadRewardsFailed,
     )..addListener(_dropMissingSelection);
     _queue = loader(
       (mod) async {
@@ -34,11 +35,9 @@ class _PointsSectionState extends State<PointsSection>
         if (rewardId == null) return const <PointRedemption>[];
         return mod.actions.getPointRedemptions(mod.auth, mod.channel, rewardId);
       },
-      failure: 'Could not load redemptions.',
-      statusFailure: (status) => status == 403
-          ? 'Redemptions for this reward are only visible '
-                'to the app that created it.'
-          : null,
+      failure: mod.l10n.loadRedemptionsFailed,
+      statusFailure: (status) =>
+          status == 403 ? mod.l10n.redemptionsOtherApp : null,
     );
     // Reward edits reload the list; any redemption event reloads the queue.
     watch((mod) => mod.points?.rewardsVersion, _rewards.load);
@@ -71,13 +70,15 @@ class _PointsSectionState extends State<PointsSection>
       !reward.isPaused,
     );
     if (result.ok) {
-      mod.notify(reward.isPaused ? 'Reward resumed.' : 'Reward paused.');
+      mod.notify(
+        reward.isPaused ? mod.l10n.rewardResumed : mod.l10n.rewardPaused,
+      );
       await _rewards.load();
     } else {
       mod.notify(
         result.status == 403
-            ? 'Only rewards created by this app can be paused.'
-            : modErrorText(result),
+            ? mod.l10n.rewardsOtherApp
+            : modErrorText(result, mod.l10n),
       );
     }
   });
@@ -86,10 +87,10 @@ class _PointsSectionState extends State<PointsSection>
     if (!fulfilled) {
       final confirmed = await confirmDialog(
         context,
-        title: 'Refund redemption?',
-        message: 'Refund ${redemption.cost} pts to ${redemption.userLogin}?',
-        confirmLabel: 'Refund',
-        cancelLabel: 'Back',
+        title: mod.l10n.refundTitle,
+        message: mod.l10n.refundMessage(redemption.cost, redemption.userLogin),
+        confirmLabel: mod.l10n.refund,
+        cancelLabel: mod.l10n.back,
         destructive: true,
       );
       if (!confirmed || !mounted) return;
@@ -103,7 +104,9 @@ class _PointsSectionState extends State<PointsSection>
           redemption.id,
           fulfilled,
         ),
-        done: fulfilled ? 'Redemption fulfilled.' : 'Redemption refunded.',
+        done: fulfilled
+            ? mod.l10n.redemptionFulfilled
+            : mod.l10n.redemptionRefunded,
       );
       // A tracked redemption reloads the queue through the points version.
       if (ok && mod.points?.resolveRedemption(redemption.id) != true) {
@@ -118,17 +121,15 @@ class _PointsSectionState extends State<PointsSection>
       loader: _rewards,
       inline: true,
       isEmpty: (rewards) => rewards.isEmpty,
-      empty: const ListTile(
-        title: Text('No custom rewards. Create them in the dashboard.'),
-      ),
+      empty: ListTile(title: Text(mod.l10n.noCustomRewards)),
       builder: (context, rewards) {
         final selected = rewards.where((r) => r.id == _selected).firstOrNull;
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const ModHint(
-              'Only rewards created by this app are manageable here.',
-              padding: EdgeInsets.symmetric(horizontal: 16),
+            ModHint(
+              mod.l10n.rewardsManageableHint,
+              padding: const EdgeInsets.symmetric(horizontal: 16),
             ),
             for (final reward in rewards)
               ListTile(
@@ -138,7 +139,10 @@ class _PointsSectionState extends State<PointsSection>
                 ),
                 selected: reward.id == _selected,
                 title: Text(reward.title),
-                subtitle: Text('${reward.cost} pts · ${_rewardState(reward)}'),
+                subtitle: Text(
+                  '${mod.l10n.pointsValue(reward.cost)} · '
+                  '${_rewardState(mod.l10n, reward)}',
+                ),
                 onTap: () => _select(reward.id),
                 trailing: isBusy(reward.id)
                     ? const ModSpinner()
@@ -146,17 +150,19 @@ class _PointsSectionState extends State<PointsSection>
                         icon: Icon(
                           reward.isPaused ? Icons.play_arrow : Icons.pause,
                         ),
-                        tooltip: reward.isPaused ? 'Resume' : 'Pause',
+                        tooltip: reward.isPaused
+                            ? mod.l10n.resume
+                            : mod.l10n.pause,
                         onPressed: () => _togglePause(reward),
                       ),
               ),
             if (selected != null) ...[
-              ModSectionHeader('Queue: ${selected.title}'),
+              ModSectionHeader(mod.l10n.rewardQueue(selected.title)),
               ModLoadView(
                 loader: _queue,
                 inline: true,
                 isEmpty: (queue) => queue.isEmpty,
-                empty: const ListTile(title: Text('Queue is clear.')),
+                empty: ListTile(title: Text(mod.l10n.queueClear)),
                 builder: (context, queue) => Column(
                   children: [
                     for (final redemption in queue) _redemptionRow(redemption),
@@ -176,9 +182,9 @@ class _PointsSectionState extends State<PointsSection>
       title: Text(redemption.userLogin),
       subtitle: Text(
         [
-          '${redemption.cost} pts',
+          mod.l10n.pointsValue(redemption.cost),
           if (redemption.redeemedAt.isNotEmpty)
-            'redeemed ${formatAgoIso(redemption.redeemedAt)}',
+            mod.l10n.redeemedAgo(formatAgoIso(redemption.redeemedAt)),
           if (redemption.userInput.isNotEmpty) '"${redemption.userInput}"',
         ].join(' · '),
         maxLines: 2,
@@ -192,12 +198,12 @@ class _PointsSectionState extends State<PointsSection>
                 FilledButton.icon(
                   onPressed: () => _resolve(redemption, true),
                   icon: const Icon(Icons.check, size: 18),
-                  label: const Text('Fulfill'),
+                  label: Text(mod.l10n.fulfill),
                 ),
                 OutlinedButton.icon(
                   onPressed: () => _resolve(redemption, false),
                   icon: const Icon(Icons.close, size: 18),
-                  label: const Text('Refund'),
+                  label: Text(mod.l10n.refund),
                 ),
               ],
             ),
@@ -205,8 +211,8 @@ class _PointsSectionState extends State<PointsSection>
   }
 }
 
-String _rewardState(PointReward reward) => reward.isPaused
-    ? 'Paused'
+String _rewardState(AppLocalizations l, PointReward reward) => reward.isPaused
+    ? l.rewardPausedState
     : reward.isEnabled
-    ? 'Enabled'
-    : 'Disabled';
+    ? l.rewardEnabled
+    : l.rewardDisabled;

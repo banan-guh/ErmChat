@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../chat/channel/moderation.dart';
 import '../chat/chat.dart';
 import '../composer/composer_controller.dart';
+import '../l10n/l10n.dart';
 import '../services/chat_connection_manager.dart';
 import '../services/mod_actions.dart';
 import '../services/twitch_auth.dart';
@@ -37,6 +38,7 @@ class ModPanels {
     required this.closeEmoteSheet,
     required this.clearComposerSuggestions,
     required this.composerFocusNode,
+    required this.strings,
   });
 
   final PanelManager panelManager;
@@ -57,6 +59,9 @@ class ModPanels {
   final Future<void> Function() closeEmoteSheet;
   final VoidCallback clearComposerSuggestions;
   final FocusNode composerFocusNode;
+
+  /// Strings in the app language for notices raised outside a build.
+  final AppLocalizations Function() strings;
 
   final modPanelVersion = ValueNotifier(0);
 
@@ -107,7 +112,7 @@ class ModPanels {
     if (channel != null &&
         chatConn.isModerationDenied(channel) &&
         !chatConn.isBroadcaster(channel)) {
-      showNotice('You are no longer a moderator in #$channel.');
+      showNotice(strings().noLongerModerator(channel));
       unawaited(panelManager.closePanel());
       return;
     }
@@ -239,7 +244,7 @@ class ModPanels {
     final text = termsField.text.trim();
     if (text.isEmpty || termsAdding.value) return;
     if (text.length < 2 || text.length > 500) {
-      showNotice('Terms must be 2-500 characters.');
+      showNotice(strings().termsLength);
       return;
     }
     termsAdding.value = true;
@@ -248,10 +253,10 @@ class ModPanels {
       if (!isMounted()) return;
       if (result.ok) {
         termsField.clear();
-        showNotice('Blocked term added.');
+        showNotice(strings().blockedTermAdded);
         termsVersion.value++;
       } else {
-        showNotice(modErrorText(result));
+        showNotice(modErrorText(result, strings()));
       }
     } finally {
       termsAdding.value = false;
@@ -310,12 +315,15 @@ class ModPanels {
   }
 
   Widget _queueTab(Moderation? moderation) {
-    if (moderation == null) return const Tab(text: 'Queue');
+    final l = strings();
+    if (moderation == null) return Tab(text: l.modTabQueue);
     return ValueListenableBuilder<int>(
       valueListenable: moderation.heldVersion,
       builder: (_, _, _) {
         final pending = moderation.held.length;
-        return Tab(text: pending > 0 ? 'Queue ($pending)' : 'Queue');
+        return Tab(
+          text: pending > 0 ? l.modTabQueueCount(pending) : l.modTabQueue,
+        );
       },
     );
   }
@@ -350,10 +358,12 @@ class ModPanels {
         context,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
-          tooltip: 'Back',
+          tooltip: context.l10n.back,
           onPressed: closePanel,
         ),
-        title: channel.isEmpty ? 'Mod view' : 'Mod view · #$channel',
+        title: channel.isEmpty
+            ? context.l10n.modView
+            : context.l10n.modViewChannel(channel),
         // Stream-first order: live work before people, settings last.
         // Matches ModViewPanel children in mod_view.dart; keep Queue at 0.
         tabs: (_) => SizedBox(
@@ -374,13 +384,13 @@ class ModPanels {
             indicatorSize: TabBarIndicatorSize.label,
             tabs: [
               _queueTab(chat.channelFor(channel)?.moderation),
-              const Tab(text: 'Activity'),
-              const Tab(text: 'Modes'),
-              const Tab(text: 'Channel'),
-              const Tab(text: 'Users'),
-              const Tab(text: 'Requests'),
-              const Tab(text: 'Terms'),
-              const Tab(text: 'Setup'),
+              Tab(text: context.l10n.modTabActivity),
+              Tab(text: context.l10n.modTabModes),
+              Tab(text: context.l10n.modTabChannel),
+              Tab(text: context.l10n.modTabUsers),
+              Tab(text: context.l10n.modTabRequests),
+              Tab(text: context.l10n.modTabTerms),
+              Tab(text: context.l10n.modTabSetup),
             ],
           ),
         ),

@@ -10,6 +10,7 @@ import '../providers/emote_providers.dart';
 import '../providers/feature_providers.dart';
 import '../providers/ui_state_providers.dart';
 import '../emotes/emote.dart';
+import '../l10n/l10n.dart';
 import '../models/twitch_message.dart';
 import '../util/chat_text.dart';
 import '../util/haptics.dart';
@@ -436,6 +437,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     showNotice: showNotice,
     showInput: () => _showInput,
     setShowInput: setShowInput,
+    strings: () => context.l10n,
     emoteSheetOpen: () => _emoteSheetOpen,
     closeEmoteSheet: _closeEmoteSheet,
     clearComposerSuggestions: _composer.clearSuggestions,

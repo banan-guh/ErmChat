@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../chat/channel/moderation.dart';
 import '../../chat/channel/points.dart';
 import '../../chat/chat.dart';
+import '../../l10n/l10n.dart';
 import '../../services/mod_actions.dart';
 import '../../services/twitch_auth.dart';
 import 'dialogs.dart';
@@ -18,6 +19,7 @@ class ModContext {
     required this.notify,
     this.showUser,
     this.isBroadcaster = false,
+    this._l10n,
   });
 
   final String channel;
@@ -34,6 +36,12 @@ class ModContext {
   /// Whether the session user owns the channel.
   final bool isBroadcaster;
 
+  /// Strings in the app language, readable where no context is (loader
+  /// failures built in initState). English without one.
+  AppLocalizations get l10n =>
+      _l10n ?? lookupAppLocalizations(const Locale('en'));
+  final AppLocalizations? _l10n;
+
   Moderation? get moderation => chat.channelFor(channel)?.moderation;
   Points? get points => chat.channelFor(channel)?.points;
 
@@ -42,7 +50,7 @@ class ModContext {
   Future<bool> report(Future<ModResult> action, {String? done}) async {
     final result = await action;
     if (!result.ok) {
-      notify(modErrorText(result));
+      notify(modErrorText(result, l10n));
     } else if (done != null) {
       notify(done);
     }

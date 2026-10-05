@@ -561,5 +561,343 @@
       }
     }
   },
-  "openSourceLicenses": "Open source licenses"
+  "openSourceLicenses": "Open source licenses",
+  "modErrorUnknownUser": "No user matching that username.",
+  "modErrorSelfTarget": "You cannot target yourself.",
+  "modErrorBroadcasterTarget": "You cannot target the broadcaster.",
+  "modErrorNotJoined": "Channel not joined.",
+  "modErrorUnknown": "An unknown error has occurred.",
+  "noLongerModerator": "You are no longer a moderator in #{channel}.",
+  "@noLongerModerator": {
+    "placeholders": {
+      "channel": {
+        "type": "String"
+      }
+    }
+  },
+  "termsLength": "Terms must be 2-500 characters.",
+  "blockedTermAdded": "Blocked term added.",
+  "modTabQueue": "Queue",
+  "modTabQueueCount": "Queue ({count})",
+  "@modTabQueueCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "back": "Back",
+  "modView": "Mod view",
+  "modViewChannel": "Mod view · #{channel}",
+  "@modViewChannel": {
+    "placeholders": {
+      "channel": {
+        "type": "String"
+      }
+    }
+  },
+  "modTabActivity": "Activity",
+  "modTabModes": "Modes",
+  "modTabChannel": "Channel",
+  "modTabUsers": "Users",
+  "modTabRequests": "Requests",
+  "modTabTerms": "Terms",
+  "modTabSetup": "Setup",
+  "modOnlyBroadcaster": "Only the broadcaster can use these tools here.",
+  "modOnlyBroadcasterHint": "Log in as the broadcaster to manage rosters and stream.",
+  "modSectionStream": "Stream",
+  "modSectionPolls": "Polls",
+  "modSectionPredictions": "Predictions",
+  "modSectionPoints": "Points",
+  "loadBannedFailed": "Could not load the banned list.",
+  "unbannedUser": "Unbanned {login}.",
+  "@unbannedUser": {
+    "placeholders": {
+      "login": {
+        "type": "String"
+      }
+    }
+  },
+  "bannedCount": "Banned ({count})",
+  "@bannedCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "noBansYet": "No bans yet.",
+  "unban": "Unban",
+  "banned": "Banned",
+  "timedOutUnknown": "Timed out (expiry unknown)",
+  "timeoutUntil": "Timeout until {time}",
+  "@timeoutUntil": {
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "byModerator": "by {name}",
+  "@byModerator": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "loadModeratorsFailed": "Could not load moderators.",
+  "loadVipsFailed": "Could not load VIPs.",
+  "addModerator": "Add moderator",
+  "addVip": "Add VIP",
+  "removeUserTitle": "Remove {login}?",
+  "@removeUserTitle": {
+    "placeholders": {
+      "login": {
+        "type": "String"
+      }
+    }
+  },
+  "removeModeratorMessage": "This removes moderator status from {login}.",
+  "@removeModeratorMessage": {
+    "placeholders": {
+      "login": {
+        "type": "String"
+      }
+    }
+  },
+  "removeVipMessage": "This removes VIP status from {login}.",
+  "@removeVipMessage": {
+    "placeholders": {
+      "login": {
+        "type": "String"
+      }
+    }
+  },
+  "removedUser": "Removed {login}.",
+  "@removedUser": {
+    "placeholders": {
+      "login": {
+        "type": "String"
+      }
+    }
+  },
+  "moderators": "Moderators",
+  "vips": "VIPs",
+  "titleWithCount": "{title} ({count})",
+  "@titleWithCount": {
+    "placeholders": {
+      "title": {
+        "type": "String"
+      },
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "noneYet": "None yet.",
+  "raidChannelTitle": "Raid a channel?",
+  "raid": "Raid",
+  "raidStarted": "Raid started.",
+  "cancelRaidTitle": "Cancel raid?",
+  "cancelRaidMessage": "This cancels the pending raid.",
+  "confirm": "Confirm",
+  "raidCancelled": "Raid cancelled.",
+  "commercialLength": "Commercial length",
+  "commercialRunning": "Commercial running.",
+  "addStreamMarker": "Add stream marker",
+  "descriptionOptional": "Description (optional)",
+  "markerAdded": "Marker added.",
+  "sendAnnouncement": "Send announcement",
+  "message": "Message",
+  "announcementSent": "Announcement sent.",
+  "clearChatTitle": "Clear chat?",
+  "clearChatMessage": "This clears all chat messages.",
+  "chatCleared": "Chat cleared.",
+  "shoutoutTitle": "Shoutout a channel?",
+  "shoutout": "Shoutout",
+  "shoutoutSent": "Shoutout sent.",
+  "onlyBroadcasters": "Only broadcasters can use this.",
+  "startRaid": "Start raid",
+  "cancelRaid": "Cancel raid",
+  "commercial": "Commercial",
+  "addMarker": "Add marker",
+  "announce": "Announce",
+  "clearChat": "Clear chat",
+  "loadPollsFailed": "Could not load polls.",
+  "cancelPollTitle": "Cancel poll?",
+  "endPollTitle": "End poll now?",
+  "cancelPollMessage": "This archives the poll without showing results.",
+  "endPollMessage": "This ends the poll and shows the results (TERMINATED).",
+  "cancelPoll": "Cancel poll",
+  "endPoll": "End poll",
+  "pollCancelled": "Poll cancelled.",
+  "pollEnded": "Poll ended.",
+  "poll": "Poll",
+  "choiceCount": "{count, plural, =1{1 choice} other{{count} choices}}",
+  "@choiceCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "voteCount": "{count, plural, =1{1 vote} other{{count} votes}}",
+  "@voteCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "endsIn": "ends {time}",
+  "@endsIn": {
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "end": "End",
+  "archive": "Archive",
+  "pollNeedsChoices": "Enter a title and at least 2 choices.",
+  "pollStarted": "Poll started.",
+  "noActivePoll": "No active poll.",
+  "pollTitle": "Poll title",
+  "choiceNumber": "Choice {number}",
+  "@choiceNumber": {
+    "placeholders": {
+      "number": {
+        "type": "int"
+      }
+    }
+  },
+  "durationLabel": "Duration:",
+  "addChoice": "Add choice",
+  "startPoll": "Start poll",
+  "loadPredictionsFailed": "Could not load predictions.",
+  "cancelPredictionTitle": "Cancel prediction?",
+  "cancelPredictionMessage": "Points are refunded to predictors.",
+  "cancelPrediction": "Cancel prediction",
+  "predictionCancelled": "Prediction cancelled.",
+  "winningOutcome": "Winning outcome",
+  "predictionResolved": "Prediction resolved.",
+  "noOpenPrediction": "No open prediction. Create one with /prediction.",
+  "prediction": "Prediction",
+  "outcomeCount": "{count, plural, =1{1 outcome} other{{count} outcomes}}",
+  "@outcomeCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "locked": "locked",
+  "predictionLocked": "Prediction locked.",
+  "lock": "Lock",
+  "resolve": "Resolve",
+  "pointsValue": "{count} pts",
+  "@pointsValue": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "predictorCount": "{count, plural, =1{1 predictor} other{{count} predictors}}",
+  "@predictorCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "outcome": "Outcome",
+  "timedOutUser": "Timed out {login}.",
+  "@timedOutUser": {
+    "placeholders": {
+      "login": {
+        "type": "String"
+      }
+    }
+  },
+  "banUserTitle": "Ban {login}?",
+  "@banUserTitle": {
+    "placeholders": {
+      "login": {
+        "type": "String"
+      }
+    }
+  },
+  "reasonOptional": "Reason (optional)",
+  "ban": "Ban",
+  "bannedUser": "Banned {login}.",
+  "@bannedUser": {
+    "placeholders": {
+      "login": {
+        "type": "String"
+      }
+    }
+  },
+  "messageIdCopied": "Message ID copied.",
+  "automodNeedsScope": "AutoMod queue needs the moderator:manage:automod scope. Your login predates it.",
+  "automodUnavailable": "AutoMod queue is unavailable here.",
+  "automodRelogin": "Open Settings > Account > Log in again to grant moderator:manage:automod.",
+  "howToRelogin": "How to re-login",
+  "queueClear": "Queue is clear.",
+  "queueClearHint": "Held messages will appear here for review.",
+  "filterAll": "All",
+  "noFilterMatches": "No matches for this filter.",
+  "clearFilter": "Clear filter",
+  "allow": "Allow",
+  "deny": "Deny",
+  "more": "More",
+  "timeoutEllipsis": "Timeout...",
+  "banEllipsis": "Ban...",
+  "copyMessageId": "Copy message ID",
+  "loadRewardsFailed": "Could not load rewards.",
+  "loadRedemptionsFailed": "Could not load redemptions.",
+  "redemptionsOtherApp": "Redemptions for this reward are only visible to the app that created it.",
+  "rewardResumed": "Reward resumed.",
+  "rewardPaused": "Reward paused.",
+  "rewardsOtherApp": "Only rewards created by this app can be paused.",
+  "refundTitle": "Refund redemption?",
+  "refundMessage": "Refund {cost} pts to {login}?",
+  "@refundMessage": {
+    "placeholders": {
+      "cost": {
+        "type": "int"
+      },
+      "login": {
+        "type": "String"
+      }
+    }
+  },
+  "refund": "Refund",
+  "redemptionFulfilled": "Redemption fulfilled.",
+  "redemptionRefunded": "Redemption refunded.",
+  "noCustomRewards": "No custom rewards. Create them in the dashboard.",
+  "rewardsManageableHint": "Only rewards created by this app are manageable here.",
+  "resume": "Resume",
+  "pause": "Pause",
+  "rewardQueue": "Queue: {title}",
+  "@rewardQueue": {
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
+  "redeemedAgo": "redeemed {time}",
+  "@redeemedAgo": {
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "fulfill": "Fulfill",
+  "rewardPausedState": "Paused",
+  "rewardEnabled": "Enabled",
+  "rewardDisabled": "Disabled"
 }

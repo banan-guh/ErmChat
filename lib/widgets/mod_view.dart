@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../chat/chat.dart';
+import '../l10n/l10n.dart';
 import '../services/mod_actions.dart';
 import '../services/twitch_auth.dart';
 import 'mod_view/activity_tab.dart';
@@ -75,6 +76,7 @@ class ModViewPanel extends StatelessWidget {
       notify: onNotice,
       showUser: onShowUser,
       isBroadcaster: isBroadcaster,
+      l10n: context.l10n,
     );
     return ListenableBuilder(
       listenable: refresh,

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../chat/channel/moderation.dart';
+import '../../l10n/l10n.dart';
 import 'dialogs.dart';
 import 'scope.dart';
 import 'widgets.dart';
@@ -54,16 +55,16 @@ class _QueueTabState extends State<QueueTab> with ModTabState<QueueTab> {
         duration: picked.seconds,
         reason: picked.reason,
       ),
-      done: 'Timed out ${held.userLogin}.',
+      done: mod.l10n.timedOutUser(held.userLogin),
     );
   }
 
   Future<void> _ban(HeldMessage held) async {
     final reason = await showModTextDialog(
       context,
-      title: 'Ban ${held.userLogin}?',
-      label: 'Reason (optional)',
-      confirmLabel: 'Ban',
+      title: mod.l10n.banUserTitle(held.userLogin),
+      label: mod.l10n.reasonOptional,
+      confirmLabel: mod.l10n.ban,
       allowEmpty: true,
     );
     if (reason == null) return;
@@ -74,13 +75,13 @@ class _QueueTabState extends State<QueueTab> with ModTabState<QueueTab> {
         login: held.userLogin,
         reason: reason.isEmpty ? null : reason,
       ),
-      done: 'Banned ${held.userLogin}.',
+      done: mod.l10n.bannedUser(held.userLogin),
     );
   }
 
   void _copyId(HeldMessage held) {
     Clipboard.setData(ClipboardData(text: held.messageId));
-    mod.notify('Message ID copied.');
+    mod.notify(mod.l10n.messageIdCopied);
   }
 
   @override
@@ -89,24 +90,20 @@ class _QueueTabState extends State<QueueTab> with ModTabState<QueueTab> {
       return ModEmpty(
         icon: Icons.shield_outlined,
         title: widget.needsScope
-            ? 'AutoMod queue needs the moderator:manage:automod scope. '
-                  'Your login predates it.'
-            : 'AutoMod queue is unavailable here.',
+            ? mod.l10n.automodNeedsScope
+            : mod.l10n.automodUnavailable,
         action: widget.needsScope
             ? TextButton(
-                onPressed: () => mod.notify(
-                  'Open Settings > Account > Log in again to grant '
-                  'moderator:manage:automod.',
-                ),
-                child: const Text('How to re-login'),
+                onPressed: () => mod.notify(mod.l10n.automodRelogin),
+                child: Text(mod.l10n.howToRelogin),
               )
             : null,
       );
     }
-    const clear = ModEmpty(
+    final clear = ModEmpty(
       icon: Icons.shield_outlined,
-      title: 'Queue is clear.',
-      subtitle: 'Held messages will appear here for review.',
+      title: mod.l10n.queueClear,
+      subtitle: mod.l10n.queueClearHint,
     );
     final moderation = mod.moderation;
     if (moderation == null) return clear;
@@ -124,7 +121,10 @@ class _QueueTabState extends State<QueueTab> with ModTabState<QueueTab> {
           children: [
             if (categories.length > 1)
               ModChoiceChips<String?>(
-                options: [('All', null), for (final c in categories) (c, c)],
+                options: [
+                  (mod.l10n.filterAll, null),
+                  for (final c in categories) (c, c),
+                ],
                 selected: _filter,
                 onSelected: (c) =>
                     setState(() => _filter = c == _filter ? null : c),
@@ -133,10 +133,10 @@ class _QueueTabState extends State<QueueTab> with ModTabState<QueueTab> {
               child: queue.isEmpty
                   ? ModEmpty(
                       icon: Icons.filter_list_off_outlined,
-                      title: 'No matches for this filter.',
+                      title: mod.l10n.noFilterMatches,
                       action: TextButton(
                         onPressed: () => setState(() => _filter = null),
-                        child: const Text('Clear filter'),
+                        child: Text(mod.l10n.clearFilter),
                       ),
                     )
                   : ListView.builder(
@@ -238,32 +238,32 @@ class _HeldCard extends StatelessWidget {
                       child: FilledButton.icon(
                         onPressed: () => onDecide(true),
                         icon: const Icon(Icons.check, size: 18),
-                        label: const Text('Allow'),
+                        label: Text(context.l10n.allow),
                       ),
                     ),
                     Expanded(
                       child: OutlinedButton.icon(
                         onPressed: () => onDecide(false),
                         icon: const Icon(Icons.close, size: 18),
-                        label: const Text('Deny'),
+                        label: Text(context.l10n.deny),
                       ),
                     ),
                     PopupMenuButton<VoidCallback>(
                       icon: const Icon(Icons.more_vert),
-                      tooltip: 'More',
+                      tooltip: context.l10n.more,
                       onSelected: (action) => action(),
                       itemBuilder: (_) => [
                         PopupMenuItem(
                           value: onTimeout,
-                          child: const Text('Timeout...'),
+                          child: Text(context.l10n.timeoutEllipsis),
                         ),
                         PopupMenuItem(
                           value: onBan,
-                          child: const Text('Ban...'),
+                          child: Text(context.l10n.banEllipsis),
                         ),
                         PopupMenuItem(
                           value: onCopyId,
-                          child: const Text('Copy message ID'),
+                          child: Text(context.l10n.copyMessageId),
                         ),
                       ],
                     ),
