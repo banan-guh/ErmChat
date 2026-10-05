@@ -536,8 +536,6 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
         !msg.isSystem) {
       fade *= 0.55;
     }
-    if (fade < 1) child = fadeOver(child, rowColor, fade);
-
     if (widget.replyIndicator != null) {
       child = Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -545,6 +543,9 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
         children: [widget.replyIndicator!, child],
       );
     }
+    // Fades the reply header with its row, so the tap ripple underneath shows
+    // at one strength across both.
+    if (fade < 1) child = fadeOver(child, rowColor, fade);
 
     if (widget.lineSeparator) {
       child = Container(
