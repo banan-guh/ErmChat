@@ -452,20 +452,6 @@ class Setting {
     section: 'Animation',
     keywords: 'gif',
   );
-  static const ffzEffects = Setting(
-    'ffz_effects',
-    'FFZ effects',
-    SettingsPageId.emotes,
-    section: 'Animation',
-    keywords: 'modifier flip ffzx',
-  );
-  static const bttvModifiers = Setting(
-    'bttv_modifiers',
-    'BTTV modifiers',
-    SettingsPageId.emotes,
-    section: 'Animation',
-    keywords: 'wide flip w! h!',
-  );
   static const adaptiveFps = Setting(
     'adaptive_fps',
     'Adaptive frame rate',
@@ -484,7 +470,7 @@ class Setting {
     'providers',
     'Providers',
     SettingsPageId.emotes,
-    keywords: 'bttv ffz 7tv',
+    keywords: 'twitch bttv ffz 7tv effects modifiers',
   );
   static const unlistedEmotes = Setting(
     'unlisted_emotes',
@@ -628,8 +614,6 @@ class Setting {
     autoDataSaver,
     emoteCache,
     animateEmotes,
-    ffzEffects,
-    bttvModifiers,
     adaptiveFps,
     idleFps,
     providers,

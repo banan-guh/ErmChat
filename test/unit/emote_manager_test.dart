@@ -3891,17 +3891,35 @@ void main() {
       expect(manager.subscriberEmotesByChannel(), isEmpty);
     });
 
-    test('a legacy-disabled twitch provider is re-enabled on load', () async {
+    test('turning Twitch off drops its inline IRC emotes too', () async {
       SharedPreferences.setMockInitialValues({
         'emote_providers_disabled': ['twitch'],
       });
       final manager = EmoteManager(tier: EmoteFetchTier.nothing);
+      addTearDown(manager.dispose);
+      expect(
+        await manager.enabledProviders(),
+        isNot(contains(EmoteType.twitch)),
+      );
 
-      expect(await manager.enabledProviders(), contains(EmoteType.twitch));
-
-      // The persisted set is cleaned up too, so the migration sticks.
-      final prefs = await SharedPreferences.getInstance();
-      expect(prefs.getStringList('emote_providers_disabled'), isEmpty);
+      final msg = TwitchMessage(
+        login: 'a',
+        text: 'Kappa hi',
+        channel: 'ch',
+        emotePositions: const [
+          EmotePosition(
+            emoteId: '25',
+            startIndex: 0,
+            endIndex: 5,
+            emoteCode: 'Kappa',
+          ),
+        ],
+      );
+      expect(
+        manager.parseMessageEmotes(msg, lookupChannel: 'ch'),
+        isEmpty,
+        reason: 'the IRC emotes tag drew Kappa anyway',
+      );
     });
 
     test('unlisted 7TV emotes stay hidden until allowed and persist', () async {

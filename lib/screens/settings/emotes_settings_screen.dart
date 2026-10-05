@@ -405,36 +405,6 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
           ),
         ),
         SettingAnchor(
-          Setting.ffzEffects,
-          child: SwitchListTile(
-            secondary: const Icon(Icons.auto_awesome),
-            title: Text(Setting.ffzEffects.title),
-            subtitle: const Text('ffzX, ffzW ...'),
-            value: _ffzEffects,
-            onChanged: (value) async {
-              final prefs = await Prefs.load();
-              await prefs.setFfzEffects(value);
-              PrefsStore.instance.notifyChanged();
-              if (mounted) setState(() => _ffzEffects = value);
-            },
-          ),
-        ),
-        SettingAnchor(
-          Setting.bttvModifiers,
-          child: SwitchListTile(
-            secondary: const Icon(Icons.auto_awesome_outlined),
-            title: Text(Setting.bttvModifiers.title),
-            subtitle: const Text('w!, h! ...'),
-            value: _bttvModifiers,
-            onChanged: (value) async {
-              final prefs = await Prefs.load();
-              await prefs.setBttvModifiers(value);
-              PrefsStore.instance.notifyChanged();
-              if (mounted) setState(() => _bttvModifiers = value);
-            },
-          ),
-        ),
-        SettingAnchor(
           Setting.adaptiveFps,
           child: SwitchListTile(
             secondary: const Icon(Icons.battery_saver_outlined),
@@ -506,7 +476,8 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
     );
   }
 
-  static const _thirdPartyProviders = [
+  static const _providers = [
+    EmoteType.twitch,
     EmoteType.bttv,
     EmoteType.ffz,
     EmoteType.sevenTv,
@@ -516,23 +487,24 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
 
   String _providersSummary() {
     final enabled = [
-      for (final type in _thirdPartyProviders)
+      for (final type in _providers)
         if (_providerEnabled[type] ?? true) _providerLabels[type]!,
     ];
     return enabled.isEmpty ? 'All disabled' : '${enabled.join(', ')} enabled';
   }
 
-  /// Bottom-sheet picker for third-party providers. Twitch is intentionally
-  /// absent: its emotes are always fetched and rendered.
+  /// Bottom-sheet picker for emote providers. FFZ effects and BTTV
+  /// modifiers sit under their provider while it is on.
   Future<void> _showProviderSheet() {
     return showModalBottomSheet<void>(
       context: context,
+      isScrollControlled: true,
       builder: (sheetContext) {
         var enabled = Map.of(_providerEnabled);
         return SafeArea(
           child: StatefulBuilder(
-            builder: (context, setSheetState) => Column(
-              mainAxisSize: MainAxisSize.min,
+            builder: (context, setSheetState) => ListView(
+              shrinkWrap: true,
               children: [
                 Padding(
                   padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
@@ -546,7 +518,7 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
                     ),
                   ),
                 ),
-                for (final type in _thirdPartyProviders)
+                for (final type in _providers) ...[
                   CheckboxListTile(
                     key: Key('provider_toggle_${type.name}'),
                     title: Text(_providerLabels[type] ?? type.name),
@@ -556,6 +528,27 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
                       _onProviderChanged(type, v ?? true);
                     },
                   ),
+                  if (type == EmoteType.ffz && (enabled[type] ?? true))
+                    _subSwitch('Effects', 'ffzX, ffzW ...', _ffzEffects, (
+                      v,
+                    ) async {
+                      setState(() => _ffzEffects = v);
+                      setSheetState(() {});
+                      final prefs = await Prefs.load();
+                      await prefs.setFfzEffects(v);
+                      PrefsStore.instance.notifyChanged();
+                    }),
+                  if (type == EmoteType.bttv && (enabled[type] ?? true))
+                    _subSwitch('Modifiers', 'w!, h! ...', _bttvModifiers, (
+                      v,
+                    ) async {
+                      setState(() => _bttvModifiers = v);
+                      setSheetState(() {});
+                      final prefs = await Prefs.load();
+                      await prefs.setBttvModifiers(v);
+                      PrefsStore.instance.notifyChanged();
+                    }),
+                ],
                 const SizedBox(height: 8),
               ],
             ),
@@ -564,6 +557,20 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
       },
     );
   }
+
+  Widget _subSwitch(
+    String title,
+    String subtitle,
+    bool value,
+    ValueChanged<bool> onChanged,
+  ) => SwitchListTile(
+    contentPadding: const EdgeInsets.only(left: 56, right: 24),
+    dense: true,
+    title: Text(title),
+    subtitle: Text(subtitle),
+    value: value,
+    onChanged: onChanged,
+  );
 
   Widget _buildCacheFooter(BuildContext context) {
     final textStyle = Theme.of(context).textTheme.bodySmall?.copyWith(

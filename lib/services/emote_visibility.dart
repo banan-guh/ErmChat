@@ -54,22 +54,14 @@ class EmoteVisibility extends ChangeNotifier {
     try {
       final prefs = await _getPrefs();
       final raw = prefs.emoteProvidersDisabled;
-      var migrated = false;
       _disabled.clear();
       if (raw != null) {
         for (final t in EmoteType.values) {
           if (raw.contains(t.name)) _disabled.add(t);
         }
-        // Migrate: Twitch is no longer toggleable.
-        if (_disabled.remove(EmoteType.twitch)) migrated = true;
       }
       _allowUnlisted = prefs.emoteAllowUnlisted7tv;
       _notify();
-      if (migrated) {
-        await prefs.setEmoteProvidersDisabled(
-          _disabled.map((t) => t.name).toList(),
-        );
-      }
     } catch (e) {
       // Retry on the next call instead of caching a failed load.
       _loaded = false;

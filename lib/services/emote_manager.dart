@@ -414,7 +414,10 @@ class EmoteManager implements EmoteLookupSource {
     return <EmoteToken>[
       for (final token in tokenize(
         text: msg.text,
-        positions: msg.emotePositions,
+        // Twitch off: the IRC emotes tag would still draw them otherwise.
+        positions: _store.isProviderEnabled(EmoteType.twitch)
+            ? msg.emotePositions
+            : null,
         byCode: byCode,
         intern: _store.intern,
       ))

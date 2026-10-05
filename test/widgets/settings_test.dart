@@ -502,14 +502,13 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      // Twitch is always on and not offered as an option.
-      expect(find.byKey(const Key('provider_toggle_twitch')), findsNothing);
       expect(find.text('Providers', skipOffstage: false), findsOneWidget);
 
       // The picker lives in a bottom sheet at the bottom of the page.
       expect(find.byKey(const Key('provider_toggle_bttv')), findsNothing);
       await tester.tap(find.byKey(const Key('providers_tile')));
       await tester.pumpAndSettle();
+      expect(find.byKey(const Key('provider_toggle_twitch')), findsOneWidget);
       expect(find.text('BetterTTV', skipOffstage: false), findsOneWidget);
       expect(find.text('FrankerFaceZ', skipOffstage: false), findsOneWidget);
       expect(find.text('7TV', skipOffstage: false), findsOneWidget);
