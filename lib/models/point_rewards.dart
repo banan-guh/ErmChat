@@ -46,6 +46,13 @@ class PointRedemption {
   /// Large reward image URL when the source carried one (PubSub only).
   final String? imageUrl;
 
+  /// Twitch's own reward (gigantified emote, message effects ...), set only
+  /// for PubSub `automatic-reward-redeemed`. Never posts on its own.
+  final bool isAutomatic;
+
+  /// [cost] is in bits rather than channel points.
+  final bool costInBits;
+
   const PointRedemption({
     required this.id,
     required this.userLogin,
@@ -58,6 +65,8 @@ class PointRedemption {
     required this.redeemedAt,
     this.requiresUserInput = false,
     this.imageUrl,
+    this.isAutomatic = false,
+    this.costInBits = false,
   });
 
   factory PointRedemption.fromJson(Map<String, dynamic> json) {
@@ -74,22 +83,41 @@ class PointRedemption {
     );
   }
 
-  /// Parses a PubSub `reward-redeemed` redemption object plus its envelope
-  /// timestamp. PubSub carries no fulfillment status or user input text, so
-  /// those stay empty; the reward id keys the IRC correlation.
+  /// Parses a PubSub `reward-redeemed` or `automatic-reward-redeemed`
+  /// redemption plus its envelope timestamp. PubSub carries no fulfillment
+  /// status or user input text, so those stay empty; the reward id keys the
+  /// IRC correlation.
   factory PointRedemption.fromPubSub(
     Map<String, dynamic> redemption,
     String timestamp,
   ) {
     final user = redemption['user'] as Map<String, dynamic>?;
     final reward = redemption['reward'] as Map<String, dynamic>?;
+    final type = reward?['reward_type'] as String?;
+    // Automatic rewards pair with their chat line by its IRC msg-id.
+    final (pairId, fallbackTitle) = switch (type) {
+      'SEND_GIGANTIFIED_EMOTE' => (
+        'gigantified-emote-message',
+        'Gigantify an Emote',
+      ),
+      'SEND_ANIMATED_MESSAGE' => ('animated-message', 'Message Effects'),
+      _ => (null, ''),
+    };
+    final title = reward?['title'] as String? ?? '';
+    int intOf(String key) => (reward?[key] as num?)?.toInt() ?? 0;
+    final points = intOf('cost');
+    final bits = intOf('bits_cost') > 0
+        ? intOf('bits_cost')
+        : intOf('default_bits_cost');
     return PointRedemption(
       id: redemption['id'] as String? ?? '',
       userLogin: user?['login'] as String? ?? '',
       userDisplayName: user?['display_name'] as String? ?? '',
-      rewardId: reward?['id'] as String? ?? '',
-      rewardTitle: reward?['title'] as String? ?? '',
-      cost: (reward?['cost'] as num?)?.toInt() ?? 0,
+      rewardId: pairId ?? reward?['id'] as String? ?? '',
+      rewardTitle: title.isEmpty ? fallbackTitle : title,
+      cost: points > 0 ? points : bits,
+      costInBits: points <= 0 && bits > 0,
+      isAutomatic: type != null,
       userInput: '',
       status: 'UNFULFILLED',
       redeemedAt: timestamp,

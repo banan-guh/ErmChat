@@ -63,10 +63,12 @@ Map<String, dynamic> rewardRedeemed({bool requiresInput = false}) => {
 PointRedemption redemption({
   String id = 'r1',
   String rewardId = 'rw1',
+  String login = 'fan',
   bool requiresInput = false,
+  bool automatic = false,
 }) => PointRedemption(
   id: id,
-  userLogin: 'fan',
+  userLogin: login,
   userDisplayName: 'Fan',
   rewardId: rewardId,
   rewardTitle: 'Hydrate',
@@ -76,6 +78,7 @@ PointRedemption redemption({
   redeemedAt: '2026-09-17T00:00:00.000Z',
   requiresUserInput: requiresInput,
   imageUrl: 'https://cdn/x/4.png',
+  isAutomatic: automatic,
 );
 
 void main() {
@@ -105,6 +108,25 @@ void main() {
         '',
       );
       expect(custom.imageUrl, 'https://cdn/custom/4.png');
+    });
+
+    test('automatic rewards key by msg-id and may cost bits', () {
+      final gigantify = PointRedemption.fromPubSub({
+        'id': 'r2',
+        'user': {'login': 'fan'},
+        'reward': {
+          'id': 'some-uuid',
+          'title': '',
+          'cost': 0,
+          'bits_cost': 25,
+          'reward_type': 'SEND_GIGANTIFIED_EMOTE',
+        },
+      }, '');
+      expect(gigantify.isAutomatic, isTrue);
+      expect(gigantify.rewardId, 'gigantified-emote-message');
+      expect(gigantify.rewardTitle, 'Gigantify an Emote');
+      expect(gigantify.cost, 25);
+      expect(gigantify.costInBits, isTrue);
     });
 
     test('missing fields degrade to empty, never throw', () {
@@ -220,6 +242,7 @@ void main() {
       final consumer = PubSubPointsConsumer(
         chat: chat,
         getMaxMessages: () => 500,
+        isHiddenUser: (login) => login == 'troll',
       );
       addTearDown(() async {
         consumer.dispose();
@@ -244,6 +267,18 @@ void main() {
         PubSubPointRedemption(channel: 'shroud', redemption: redemption()),
       );
       expect(chat.channelFor('shroud')!.messages.items, hasLength(1));
+
+      for (final (r, why) in [
+        (redemption(id: 'r2', login: 'troll'), 'blocked or ignored user'),
+        (redemption(id: 'r3', automatic: true), 'automatic reward'),
+      ]) {
+        source.add(PubSubPointRedemption(channel: 'shroud', redemption: r));
+        expect(
+          chat.channelFor('shroud')!.messages.items,
+          hasLength(1),
+          reason: '$why posted a header',
+        );
+      }
     });
 
     test('late PubSub retro-inserts the header above its chat line', () async {

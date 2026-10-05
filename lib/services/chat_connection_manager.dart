@@ -251,6 +251,9 @@ class ChatConnectionManager {
   late final PubSubPointsConsumer pubSubPointsConsumer = PubSubPointsConsumer(
     chat: config.chat,
     getMaxMessages: () => config.bridge.getMaxMessagesPerChannel(),
+    isHiddenUser: (login) =>
+        config.sinks.isBlocked?.call(login) == true ||
+        config.services.ignoreManager?.isIgnored(login) == true,
   );
 
   // EventSub consumption: typed decoder events applied to the chat kernel.

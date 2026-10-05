@@ -37,6 +37,10 @@ class PubSubPointsService {
   static const _pingInterval = Duration(minutes: 5);
   static const _maxJitterMs = 250;
   static const _pingPayload = '{"type":"PING"}';
+  static const _redemptionTypes = {
+    'reward-redeemed',
+    'automatic-reward-redeemed',
+  };
 
   final ConnectivityService? connectivityService;
 
@@ -237,7 +241,7 @@ class PubSubPointsService {
       final channel = _topicChannel(topic);
       if (channel == null) return;
       final inner = jsonDecode(rawMessage) as Map<String, dynamic>;
-      if (inner['type'] != 'reward-redeemed') return;
+      if (!_redemptionTypes.contains(inner['type'])) return;
       final payload = inner['data'] as Map<String, dynamic>?;
       final redemption = payload?['redemption'] as Map<String, dynamic>?;
       final timestamp = payload?['timestamp'] as String?;

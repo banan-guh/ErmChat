@@ -263,7 +263,13 @@ class ChatIngestion {
     // PubSub companion headers (DankChat parity): a staged partner posts
     // its header first so display order reads header above message; a miss
     // records the line for a late partner instead of delaying chat.
-    final rewardId = msg.customRewardId;
+    // Automatic rewards carry no reward id; their msg-id pairs instead.
+    final rewardId =
+        msg.customRewardId ??
+        switch (msg.msgId) {
+          'gigantified-emote-message' || 'animated-message' => msg.msgId,
+          _ => null,
+        };
     if (rewardId != null && rewardId.isNotEmpty && !msg.isSystem) {
       final partner = pubSubPoints?.takeStaged(channel, rewardId);
       if (partner != null) {

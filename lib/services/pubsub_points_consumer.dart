@@ -20,11 +20,15 @@ class PubSubPointsConsumer {
   PubSubPointsConsumer({
     required this.chat,
     required this.getMaxMessages,
+    this.isHiddenUser,
     this.clock,
   });
 
   final Chat chat;
   final int Function() getMaxMessages;
+
+  /// Blocked or ignored logins; their redemptions post nothing.
+  final bool Function(String login)? isHiddenUser;
   final DateTime Function()? clock;
 
   DateTime _now() => clock?.call() ?? DateTime.now();
@@ -81,13 +85,16 @@ class PubSubPointsConsumer {
   void _onRedemption(PubSubPointRedemption event) {
     if (_disposed) return;
     final redemption = event.redemption;
+    if (isHiddenUser?.call(redemption.userLogin.toLowerCase()) == true) return;
+    // Automatic rewards only head their own chat line (DankChat parity).
+    final paired = redemption.requiresUserInput || redemption.isAutomatic;
     if (redemption.rewardId.isEmpty) {
       // Unkeyable: only a standalone header makes sense.
-      if (redemption.requiresUserInput) return;
+      if (paired) return;
       _postStandalone(event.channel, redemption);
       return;
     }
-    if (redemption.requiresUserInput) {
+    if (paired) {
       final key = _key(event.channel, redemption.rewardId);
       final waiting = _waitingIrc[key];
       if (waiting != null && waiting.isNotEmpty) {
@@ -172,7 +179,8 @@ class PubSubPointsConsumer {
     final title = redemption.rewardTitle.isNotEmpty
         ? redemption.rewardTitle
         : 'channel reward';
-    final cost = redemption.cost > 0 ? ' (${redemption.cost} pts)' : '';
+    final unit = redemption.costInBits ? 'bits' : 'pts';
+    final cost = redemption.cost > 0 ? ' (${redemption.cost} $unit)' : '';
     final text = withUser
         ? '${_displayName(redemption)} redeemed $title$cost'
         : 'Redeemed $title$cost';
