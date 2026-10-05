@@ -295,7 +295,12 @@ class HypeTrainEvent {
   /// Wire kind.
   final String rawKind;
   final int level;
+
+  /// Points into the current level, out of [goal].
   final int progress;
+  final int goal;
+
+  /// Points across the whole train.
   final int total;
   final DateTime? expiresAt;
   final List<HypeTrainContribution> topContributions;
@@ -306,6 +311,7 @@ class HypeTrainEvent {
     required this.rawKind,
     required this.level,
     required this.progress,
+    required this.goal,
     required this.total,
     this.expiresAt,
     this.topContributions = const [],

@@ -292,6 +292,7 @@ class EventSubDecoder {
         rawKind: kind,
         level: event['level'] as int? ?? 1,
         progress: event['progress'] as int? ?? 0,
+        goal: event['goal'] as int? ?? 0,
         total: event['total'] as int? ?? 0,
         expiresAt: expiresAt,
         topContributions: contributions,

@@ -2109,7 +2109,8 @@ void main() {
           widget('channel.hype_train.begin', <String, dynamic>{
             'level': 2,
             'progress': 30,
-            'total': 100,
+            'goal': 100,
+            'total': 450,
             'expires_at': '2030-01-01T00:00:00Z',
             'top_contributions': <Map<String, dynamic>>[
               {'user_name': 'bitsuser', 'type': 'BITS', 'total': 2000},
@@ -2124,7 +2125,8 @@ void main() {
         expect(e.kind, HypeTrainKind.begin);
         expect(e.level, 2);
         expect(e.progress, 30);
-        expect(e.total, 100);
+        expect(e.goal, 100, reason: 'the bar fills toward the level goal');
+        expect(e.total, 450);
         expect(e.expiresAt, isNotNull);
         expect(e.topContributions, hasLength(2));
         expect(e.topContributions[0].userName, 'bitsuser');

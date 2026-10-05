@@ -132,6 +132,7 @@ class BroadcastWidgets {
       rawKind: 'progress',
       level: _fakeLevel,
       progress: _fakeProgress,
+      goal: _fakeGoal,
       total: _fakeGoal,
       expiresAt: _fakeTrainEndsAt,
       topContributions: [

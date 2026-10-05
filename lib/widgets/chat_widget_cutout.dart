@@ -190,7 +190,7 @@ class _HypeTrainCardState extends State<HypeTrainCard> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final e = widget.event;
-    final ratio = e.total > 0 ? (e.progress / e.total).clamp(0.0, 1.0) : 0.0;
+    final ratio = e.goal > 0 ? (e.progress / e.goal).clamp(0.0, 1.0) : 0.0;
     final top = e.topContributions
         .take(2)
         .map((c) => '${c.userName} (${c.type == 'BITS' ? 'Bits' : 'Subs'})')
@@ -226,7 +226,7 @@ class _HypeTrainCardState extends State<HypeTrainCard> {
           ),
           const SizedBox(height: 4),
           Text(
-            '${e.progress} / ${e.total} to next level',
+            '${e.progress} / ${e.goal} to next level',
             style: theme.textTheme.labelSmall,
           ),
           if (top.isNotEmpty) ...[
