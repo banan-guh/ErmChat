@@ -452,6 +452,13 @@ class Setting {
     section: 'Animation',
     keywords: 'gif',
   );
+  static const emoteEffects = Setting(
+    'emote_effects',
+    'Emote effects',
+    SettingsPageId.emotes,
+    section: 'Animation',
+    keywords: 'ffz modifier flip spin',
+  );
   static const adaptiveFps = Setting(
     'adaptive_fps',
     'Adaptive frame rate',
@@ -614,6 +621,7 @@ class Setting {
     autoDataSaver,
     emoteCache,
     animateEmotes,
+    emoteEffects,
     adaptiveFps,
     idleFps,
     providers,

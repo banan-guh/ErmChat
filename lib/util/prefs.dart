@@ -95,6 +95,7 @@ class Prefs {
   static const _kWelcomeSeen = 'welcome_seen';
   static const _kAnalyticsEnabled = 'analytics_enabled';
   static const _kAnimateGifs = 'animate_gifs';
+  static const _kEmoteEffects = 'emote_effects';
   static const _kAdaptiveEmoteFps = 'adaptive_emote_fps';
   static const _kIdleEmoteFps = 'idle_emote_fps';
 
@@ -188,6 +189,10 @@ class Prefs {
   bool get animateGifs => _p.getBool(_kAnimateGifs) ?? true;
 
   Future<void> setAnimateGifs(bool value) => _p.setBool(_kAnimateGifs, value);
+
+  bool get emoteEffects => _p.getBool(_kEmoteEffects) ?? true;
+
+  Future<void> setEmoteEffects(bool value) => _p.setBool(_kEmoteEffects, value);
 
   bool get adaptiveEmoteFps => _p.getBool(_kAdaptiveEmoteFps) ?? true;
 

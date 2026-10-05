@@ -34,6 +34,10 @@ class MessageBuilder {
   /// Joins the cache key so flips recompute spans lazily.
   bool animateGifs;
 
+  /// Whether FFZ modifier effects (flips, spins, filters) apply. Joins the
+  /// cache key.
+  bool emoteEffects = true;
+
   /// Inline image preview max height at textScale 1.0.
   double imageHeight;
 
@@ -74,6 +78,7 @@ class MessageBuilder {
     gifHeight: showGifs ? gifHeight : null,
     images: showImages,
     animate: animateGifs,
+    effects: emoteEffects,
     scale: scale,
   );
 
@@ -195,7 +200,7 @@ class MessageBuilder {
       lookupChannel: lookupChannel,
     );
     final channelEmotes = resolved == null
-        ? emoteSource.lookup(lookupChannel, msg.userId)
+        ? emoteSource.lookup(lookupChannel, msg.userId, senderLogin: msg.login)
         : null;
     // Giphy toggle off falls back to plain text (same as no attachments).
     final gifs = showGifs ? msg.gifAttachments : null;
@@ -212,6 +217,7 @@ class MessageBuilder {
         showImages: showImages,
         onImageTap: onImageTap,
         animateGifs: animateGifs,
+        emoteEffects: emoteEffects,
         emoteImages: emoteSource.images,
       );
     }
@@ -264,6 +270,7 @@ class MessageBuilder {
           showImages: showImages,
           onImageTap: onImageTap,
           animateGifs: animateGifs,
+          emoteEffects: emoteEffects,
           emoteImages: emoteSource.images,
         ),
       );
@@ -444,6 +451,7 @@ typedef _SpanKey = ({
   double? gifHeight,
   bool images,
   bool animate,
+  bool effects,
   double scale,
 });
 

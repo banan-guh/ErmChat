@@ -7,6 +7,7 @@ import '../models/emote_fetch_tier.dart';
 import '../util/log.dart';
 import '../util/prefs.dart';
 import 'emote_meta_store.dart';
+import 'ffz_user_emotes.dart';
 import 'seven_tv_personal_sets.dart';
 
 /// File-backed persistence for the emote catalog: global and per-channel
@@ -53,7 +54,7 @@ class EmotePersistence {
         final tierMatches = data['tier'] is! int || data['tier'] == tierIndex;
         return (
           catalog: catalog,
-          tierMatches: tierMatches,
+          tierMatches: tierMatches && !_hasFlaglessModifier(catalog),
           ts: data['ts'] as String,
         );
       });
@@ -67,6 +68,18 @@ class EmotePersistence {
       return (catalog: null, fresh: false, savedAt: null);
     }
   }
+
+  // FFZ modifiers saved before their effect flags were stored would render
+  // as plain overlays, so such a cache refetches once.
+  static bool _hasFlaglessModifier(EmoteCatalog catalog) =>
+      [...catalog.ffzGlobal, ...catalog.ffzChannel].any(
+        (e) =>
+            e.isZeroWidth &&
+            switch (e.meta) {
+              FfzMeta(effects: null) => true,
+              _ => false,
+            },
+      );
 
   // Persisted Twitch lists must never rehydrate another account's true subs.
   EmoteCatalog _dropSubs(EmoteCatalog catalog) => catalog.copyWith(
@@ -126,8 +139,9 @@ class EmotePersistence {
     try {
       for (final key in await _metaStore.keys()) {
         if (!key.startsWith('emotes5_')) continue;
-        // Personal seeds are account-scoped, not channel-scoped.
+        // Personal seeds and FFZ user sets are not channel-scoped.
         if (key == SevenTvPersonalSets.personalSetsKey) continue;
+        if (key == FfzUserEmotes.storeKey) continue;
         final channel = key.substring('emotes5_'.length);
         if (channel.isEmpty || channel == 'global') continue;
         if (!activeChannels.contains(channel)) {

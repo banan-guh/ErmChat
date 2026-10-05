@@ -58,6 +58,7 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
   final _providerEnabled = <EmoteType, bool>{};
   bool _allowUnlisted = true;
   bool _animateGifs = true;
+  bool _emoteEffects = true;
   bool _adaptiveFps = true;
   int _idleFps = kIdleEmoteFps;
 
@@ -143,6 +144,7 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
         _appliedCacheMb = prefs.emoteCacheMb;
         _draftCacheMb = _appliedCacheMb;
         _animateGifs = prefs.animateGifs;
+        _emoteEffects = prefs.emoteEffects;
         _adaptiveFps = prefs.adaptiveEmoteFps;
         _idleFps = prefs.idleEmoteFps;
       });
@@ -397,6 +399,21 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
               await prefs.setAnimateGifs(value);
               PrefsStore.instance.notifyChanged();
               if (mounted) setState(() => _animateGifs = value);
+            },
+          ),
+        ),
+        SettingAnchor(
+          Setting.emoteEffects,
+          child: SwitchListTile(
+            secondary: const Icon(Icons.auto_awesome),
+            title: Text(Setting.emoteEffects.title),
+            subtitle: const Text('FFZ modifiers'),
+            value: _emoteEffects,
+            onChanged: (value) async {
+              final prefs = await Prefs.load();
+              await prefs.setEmoteEffects(value);
+              PrefsStore.instance.notifyChanged();
+              if (mounted) setState(() => _emoteEffects = value);
             },
           ),
         ),

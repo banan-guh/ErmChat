@@ -18,6 +18,7 @@ import 'emote_providers/seven_tv_emotes.dart';
 import 'emote_store.dart';
 import 'emote_usage_registry.dart';
 import 'emote_visibility.dart';
+import 'ffz_user_emotes.dart';
 import 'seven_tv_event_client.dart';
 import 'seven_tv_personal_sets.dart';
 import 'twitch_auth.dart';
@@ -35,8 +36,13 @@ abstract interface class EmoteLookupSource {
   /// Image byte owner consumed by the render path.
   EmoteImages get images;
 
-  /// Merged emotes for [channel] plus [senderTwitchId]'s personal 7TV set.
-  EmoteLookup? lookup(String channel, String? senderTwitchId);
+  /// Merged emotes for [channel] plus [senderTwitchId]'s personal 7TV set
+  /// and [senderLogin]'s granted FFZ sets.
+  EmoteLookup? lookup(
+    String channel,
+    String? senderTwitchId, {
+    String? senderLogin,
+  });
 
   /// Parses [msg] once against the current mixer. The caller stores the
   /// result on the message; it is never recomputed, so live deltas do not
@@ -80,6 +86,11 @@ class EmoteManager implements EmoteLookupSource {
 
   /// Viewer and foreign 7TV personal sets.
   late final SevenTvPersonalSets _personalSets;
+
+  /// FFZ sets granted to named senders.
+  late final FfzUserEmotes _ffzUserEmotes = FfzUserEmotes(
+    metaStore: _metaStore,
+  );
 
   /// Twitch account emote sets (subs plus unlocks).
   late final TwitchEmoteSets _twitchSets;
@@ -385,19 +396,29 @@ class EmoteManager implements EmoteLookupSource {
       _personalSets.applyEntitlement(event);
 
   /// Map for one message: channel sets plus the sender's personal 7TV emotes
-  /// underneath. Foreign codes never leak into other senders' messages.
-  EmoteLookup? byCodeForSender(String channel, String? senderTwitchId) =>
-      _store.byCodeForSender(
-        channel,
-        personal: _personalSets.viewerEmotes,
-        unlocks: _twitchSets.unlockedEmotes,
-        foreign: _personalSets.foreignFor(senderTwitchId),
-      );
+  /// and granted FFZ sets underneath. Foreign codes never leak into other
+  /// senders' messages.
+  EmoteLookup? byCodeForSender(
+    String channel,
+    String? senderTwitchId, {
+    String? senderLogin,
+  }) => _store.byCodeForSender(
+    channel,
+    personal: _personalSets.viewerEmotes,
+    unlocks: _twitchSets.unlockedEmotes,
+    foreign: _ffzUserEmotes.withSender(
+      _personalSets.foreignFor(senderTwitchId),
+      senderLogin,
+    ),
+  );
 
   /// [EmoteLookupSource] view: the sender-scoped lookup the render path uses.
   @override
-  EmoteLookup? lookup(String channel, String? senderTwitchId) =>
-      byCodeForSender(channel, senderTwitchId);
+  EmoteLookup? lookup(
+    String channel,
+    String? senderTwitchId, {
+    String? senderLogin,
+  }) => byCodeForSender(channel, senderTwitchId, senderLogin: senderLogin);
 
   /// Parses [msg] once against the current mixer. The caller stores the
   /// result on the message; it is never recomputed, so a later live delta
@@ -409,7 +430,11 @@ class EmoteManager implements EmoteLookupSource {
     required String lookupChannel,
   }) {
     if (msg.isSystem) return null;
-    final byCode = byCodeForSender(lookupChannel, msg.userId)?.byCode;
+    final byCode = byCodeForSender(
+      lookupChannel,
+      msg.userId,
+      senderLogin: msg.login,
+    )?.byCode;
     if (byCode == null) return const <EmoteToken>[];
     return <EmoteToken>[
       for (final token in tokenize(
@@ -640,6 +665,7 @@ class EmoteManager implements EmoteLookupSource {
   Future<void> preloadGlobalEmotes({bool force = false}) async {
     final epoch = force ? _store.bumpGlobalEpoch() : _store.globalEpoch;
     await _visibility.ensureLoaded();
+    await _ffzUserEmotes.loadPersisted();
     if (_store.hasGlobalCache && !force) return;
     final ttl = await _fetcher.effectiveTtl();
     if (!force) {
@@ -647,7 +673,11 @@ class EmoteManager implements EmoteLookupSource {
       final cached = loaded.catalog;
       if (cached != null) {
         if (!_store.seedGlobalFromCache(epoch, cached)) return;
-        if (loaded.fresh || _registryFrozen || tier == EmoteFetchTier.nothing) {
+        // A cache from before FFZ user sets were stored refetches once.
+        final fresh =
+            loaded.fresh &&
+            (_ffzUserEmotes.known || !_isProviderOn(EmoteType.ffz));
+        if (fresh || _registryFrozen || tier == EmoteFetchTier.nothing) {
           // Fresh cache: render, then background-refresh Twitch globals.
           if (!_skipTwitchBackgroundRefresh) {
             unawaited(
@@ -851,6 +881,8 @@ class EmoteManager implements EmoteLookupSource {
     // Apply the account catalogue unlock ids here, not in the fetcher, so the
     // fetch stays pure.
     _twitchSets.applyCatalogUnlockIds(fetch.twitchCatalogUnlockIds);
+    final ffzUserSets = fetch.ffzUserSets;
+    if (ffzUserSets != null) unawaited(_ffzUserEmotes.apply(ffzUserSets));
     return _store.commitGlobal(epoch, fetch, partial: partial);
   }
 

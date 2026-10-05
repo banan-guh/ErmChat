@@ -175,7 +175,10 @@ sealed class EmoteMeta {
         ownerId: json['ownerId'] as String?,
       ),
       EmoteType.bttv => const BttvMeta(),
-      EmoteType.ffz => FfzMeta(ownerChannel: json['ownerChannel'] as String?),
+      EmoteType.ffz => FfzMeta(
+        ownerChannel: json['ownerChannel'] as String?,
+        effects: (json['effects'] as num?)?.toInt(),
+      ),
       EmoteType.sevenTv => SevenTvMeta(
         creator: json['creator'] as String?,
         baseName: json['baseName'] as String?,
@@ -236,10 +239,15 @@ final class BttvMeta extends EmoteMeta {
 }
 
 final class FfzMeta extends EmoteMeta {
-  const FfzMeta({this.ownerChannel});
+  const FfzMeta({this.ownerChannel, this.effects});
 
   /// FFZ creator display name for channel emotes; null for globals.
   final String? ownerChannel;
+
+  /// FFZ `modifier_flags` ([FfzEffect] bits) a modifier applies to the emote
+  /// before it. 0 is a plain overlay; null is a cache written before flags
+  /// were stored.
+  final int? effects;
 
   @override
   EmoteType get type => EmoteType.ffz;
@@ -251,8 +259,37 @@ final class FfzMeta extends EmoteMeta {
   Map<String, dynamic> toJson() => {
     'type': type.name,
     'ownerChannel': ownerChannel,
+    'effects': effects,
   };
 }
+
+/// FFZ modifier effect bits (`modifier_flags`), in FFZ's order.
+abstract final class FfzEffect {
+  static const hidden = 1 << 0;
+  static const flipX = 1 << 1;
+  static const flipY = 1 << 2;
+  static const growX = 1 << 3;
+  static const slide = 1 << 4;
+  static const appear = 1 << 5;
+  static const leave = 1 << 6;
+  static const rotate = 1 << 7;
+  static const rainbow = 1 << 11;
+  static const hyperRed = 1 << 12;
+  static const shake = 1 << 13;
+  static const cursed = 1 << 14;
+  static const jam = 1 << 15;
+  static const bounce = 1 << 16;
+
+  /// Effects that move or recolor over time.
+  static const animated =
+      slide | appear | leave | rotate | rainbow | shake | jam | bounce;
+}
+
+/// Effect bits of an FFZ modifier, 0 for anything else.
+int ffzEffects(Emote e) => switch (e.meta) {
+  FfzMeta(:final effects?) => effects,
+  _ => 0,
+};
 
 final class SevenTvMeta extends EmoteMeta {
   const SevenTvMeta({

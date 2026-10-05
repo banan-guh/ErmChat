@@ -19,6 +19,7 @@ import 'package:ermchat/models/emote_fetch_tier.dart';
 import 'package:ermchat/emotes/emote.dart';
 import 'package:ermchat/emotes/emote_catalog.dart';
 import 'package:ermchat/services/emote_manager.dart';
+import 'package:ermchat/services/ffz_user_emotes.dart';
 import 'package:ermchat/services/emote_usage_registry.dart';
 import 'package:ermchat/services/emote_store.dart';
 import 'package:ermchat/services/twitch_auth.dart';
@@ -30,6 +31,7 @@ import '../helpers.dart';
 import 'package:ermchat/models/twitch_message.dart';
 import 'package:ermchat/services/seven_tv_event_client.dart';
 import 'package:ermchat/widgets/emote_text.dart';
+import 'package:ermchat/widgets/ffz_effect.dart';
 import 'package:ermchat/models/twitch_command.dart';
 import 'package:ermchat/composer/suggestion.dart';
 import 'package:ermchat/util/webp_anim.dart';
@@ -1737,6 +1739,8 @@ void main() {
         'tier': EmoteFetchTier.medium.index,
         'emotes': _catalogJson(emotes, scope: EmoteScope.global),
       }),
+      // A current cache also holds the FFZ user sets record.
+      FfzUserEmotes.storeKey: '{}',
     };
 
     test(
@@ -3101,6 +3105,39 @@ void main() {
       expect(text, contains('hello'));
     });
 
+    test('hidden FFZ modifiers apply effects instead of drawing', () {
+      final ffzX = Emote(
+        id: '9',
+        code: 'ffzX',
+        meta: const FfzMeta(effects: FfzEffect.hidden | FfzEffect.flipX),
+        scales: const {EmoteScale.small: 'https://cdn.frankerfacez.com/9/1'},
+        isZeroWidth: true,
+      );
+      final emotes = _makeEmotes({
+        'Kappa': makeTestEmote(id: '1', code: 'Kappa'),
+        'ffzX': ffzX,
+      });
+      Widget emoteOf(bool effectsOn) {
+        final spans = EmoteText.build(
+          emoteImages: _testImages,
+          text: 'Kappa ffzX',
+          twitchPositions: null,
+          channelEmotes: emotes,
+          emoteEffects: effectsOn,
+        );
+        expect(spans, hasLength(1), reason: 'the modifier joins Kappa');
+        return ((spans.single as WidgetSpan).child as Padding).child!;
+      }
+
+      final box = (emoteOf(true) as SizedBox).child! as FfzEffectBox;
+      expect(box.effects, FfzEffect.flipX);
+      expect(
+        emoteOf(false),
+        isNot(isA<SizedBox>()),
+        reason: 'effects off: plain Kappa, modifier still hidden',
+      );
+    });
+
     test('zero-width overlays stack onto the preceding base emote', () {
       var emotes = _makeEmotes({
         'Kappa': makeTestEmote(id: '1', code: 'Kappa'),
@@ -3540,17 +3577,27 @@ void main() {
   });
 
   group('FfzEmoteProvider.parseEmote', () {
-    Map<String, dynamic> ffzItem({bool modifier = false}) => {
+    Map<String, dynamic> ffzItem({bool modifier = false, int? flags}) => {
       'id': 42,
       'name': modifier ? 'HatOverlay' : 'RegularEmote',
       'urls': {'1': '//cdn.frankerfacez.com/emote/42/1'},
       if (modifier) 'modifier': true,
+      'modifier_flags': ?flags,
     };
 
     test('modifier and regular entries parse zero-width flags', () {
       var emote = FfzEmoteProvider.parseEmote(ffzItem(modifier: true));
       expect(emote, isNotNull);
       expect(emote!.isZeroWidth, isTrue);
+      expect(ffzEffects(emote), 0, reason: 'flagless modifier is an overlay');
+
+      // ffzX from the live global set: hidden plus flip.
+      emote = FfzEmoteProvider.parseEmote(ffzItem(modifier: true, flags: 3));
+      expect(ffzEffects(emote!), FfzEffect.hidden | FfzEffect.flipX);
+      final restored = Emote.fromJson(
+        jsonDecode(jsonEncode(emote.toJson())) as Map<String, dynamic>,
+      );
+      expect(ffzEffects(restored), 3, reason: 'flags survive the disk cache');
 
       emote = FfzEmoteProvider.parseEmote(ffzItem());
       expect(emote, isNotNull);

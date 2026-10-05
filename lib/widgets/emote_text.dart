@@ -11,6 +11,7 @@ import '../util/constants.dart';
 import '../util/log.dart';
 import '../util/chat_text.dart';
 import 'emote_scale_resolver.dart';
+import 'ffz_effect.dart';
 import '../services/link_whitelist.dart';
 import 'link_whitelist.dart';
 import '../emotes/emote.dart';
@@ -20,9 +21,35 @@ import '../services/emote_manager.dart';
 
 class _EmoteSpanData {
   final Emote base;
+
+  /// Modifiers drawn on top of [base].
   final List<Emote> overlays;
 
-  const _EmoteSpanData({required this.base, this.overlays = const []});
+  /// Every attached modifier, hidden ones included, for the emote sheet.
+  final List<Emote> modifiers;
+
+  /// FFZ effect bits applied to [base].
+  final int effects;
+
+  const _EmoteSpanData({
+    required this.base,
+    this.overlays = const [],
+    this.modifiers = const [],
+    this.effects = 0,
+  });
+
+  /// [base] with [mod] attached: hidden FFZ modifiers only add their effects
+  /// ([effectsOn] off drops those effects).
+  _EmoteSpanData attach(Emote mod, {required bool effectsOn}) {
+    final fx = ffzEffects(mod);
+    final hidden = fx & FfzEffect.hidden != 0;
+    return _EmoteSpanData(
+      base: base,
+      overlays: hidden ? overlays : [...overlays, mod],
+      modifiers: [...modifiers, mod],
+      effects: effectsOn ? effects | (fx & ~FfzEffect.hidden) : effects,
+    );
+  }
 }
 
 class EmoteText {
@@ -39,6 +66,7 @@ class EmoteText {
     bool showImages = false,
     void Function(String url)? onImageTap,
     bool animateGifs = true,
+    bool emoteEffects = true,
   }) {
     try {
       return _buildUnsafe(
@@ -53,6 +81,7 @@ class EmoteText {
         showImages: showImages,
         onImageTap: onImageTap,
         animateGifs: animateGifs,
+        emoteEffects: emoteEffects,
         emoteImages: emoteImages,
       );
     } catch (e, stack) {
@@ -83,6 +112,7 @@ class EmoteText {
     bool showImages = false,
     void Function(String url)? onImageTap,
     bool animateGifs = true,
+    bool emoteEffects = true,
   }) {
     if (channelEmotes == null && resolvedTokens == null) {
       return parseTextWithLinks(
@@ -166,9 +196,9 @@ class EmoteText {
         if (seg.emote.isZeroWidth) {
           if (currentBase != null && currentBaseEnd == seg.startIndex) {
             pendingSpace = null;
-            currentBase = _EmoteSpanData(
-              base: currentBase!.base,
-              overlays: [...currentBase!.overlays, seg.emote],
+            currentBase = currentBase!.attach(
+              seg.emote,
+              effectsOn: emoteEffects,
             );
             currentBaseEnd = seg.endIndex;
           } else if (currentBase != null &&
@@ -182,9 +212,9 @@ class EmoteText {
               );
             }
             pendingSpace = null;
-            currentBase = _EmoteSpanData(
-              base: currentBase!.base,
-              overlays: [...currentBase!.overlays, seg.emote],
+            currentBase = currentBase!.attach(
+              seg.emote,
+              effectsOn: emoteEffects,
             );
             currentBaseEnd = seg.endIndex;
           } else {
@@ -288,7 +318,11 @@ class EmoteText {
     double scale = 1.0,
     bool animateGifs = true,
   }) {
-    final baseSize = _emoteSize(data.base, scale);
+    final rawSize = _emoteSize(data.base, scale);
+    final fx = data.effects;
+    final baseSize = fx == 0
+        ? rawSize
+        : ffzEffectSize(fx, rawSize, rawSize.height);
     var maxW = baseSize.width;
     var maxH = baseSize.height;
     for (final overlay in data.overlays) {
@@ -297,18 +331,41 @@ class EmoteText {
       if (o.height > maxH) maxH = o.height;
     }
 
+    Widget baseImage() => _emoteImage(
+      data.base,
+      baseSize.width,
+      baseSize.height,
+      animateGifs: animateGifs,
+      emoteImages: emoteImages,
+      scale: scale,
+    );
+    Widget? effected;
+    if (fx != 0) {
+      // Slide scrolls a strip of two copies through the emote's box.
+      final image = fx & FfzEffect.slide != 0
+          ? OverflowBox(
+              alignment: Alignment.centerLeft,
+              minWidth: baseSize.width * 2,
+              maxWidth: baseSize.width * 2,
+              child: Row(children: [baseImage(), baseImage()]),
+            )
+          : baseImage();
+      effected = SizedBox(
+        width: baseSize.width,
+        height: baseSize.height,
+        child: FfzEffectBox(
+          effects: fx,
+          unit: rawSize.height / 28,
+          child: RepaintBoundary(child: image),
+        ),
+      );
+    }
+
     final children = <Widget>[
       Positioned(
         left: (maxW - baseSize.width) / 2,
         top: (maxH - baseSize.height) / 2,
-        child: _emoteImage(
-          data.base,
-          baseSize.width,
-          baseSize.height,
-          animateGifs: animateGifs,
-          emoteImages: emoteImages,
-          scale: scale,
-        ),
+        child: effected ?? baseImage(),
       ),
     ];
     for (final overlay in data.overlays) {
@@ -336,14 +393,7 @@ class EmoteText {
       // Unconstrained resolver: images and placeholders size to the emote
       // box, but the text fallback (nothing cached at the nothing tier)
       // flows as normal inline text instead of wrapping inside that box.
-      emoteWidget = _emoteImage(
-        data.base,
-        baseSize.width,
-        baseSize.height,
-        animateGifs: animateGifs,
-        emoteImages: emoteImages,
-        scale: scale,
-      );
+      emoteWidget = effected ?? baseImage();
     } else {
       emoteWidget = SizedBox(
         width: maxW,
@@ -353,7 +403,7 @@ class EmoteText {
     }
     if (onEmoteTap != null) {
       emoteWidget = GestureDetector(
-        onTap: () => onEmoteTap([data.base, ...data.overlays]),
+        onTap: () => onEmoteTap([data.base, ...data.modifiers]),
         child: emoteWidget,
       );
     }
