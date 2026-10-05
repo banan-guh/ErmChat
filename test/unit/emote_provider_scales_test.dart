@@ -160,9 +160,9 @@ void main() {
     const globalUrl = 'https://api.frankerfacez.com/v1/set/global';
     const base = 'https://cdn.frankerfacez.com/emote/123';
 
-    Future<List<Emote>> fetchGlobal(Map<String, String> urls) async {
+    Future<List<Emote>> fetchGlobal(Map<String, String> urls) {
       HttpOverrides.global = _FakeHttpOverrides({globalUrl: _ffzBody(urls)});
-      return (await FfzEmoteProvider.fetchGlobal()).emotes;
+      return FfzEmoteProvider.fetchGlobal();
     }
 
     test('maps only the sizes the emote has to their roles', () async {
@@ -185,13 +185,10 @@ void main() {
       }
     });
 
-    test('global keeps default sets, user sets by login', () async {
+    test('global keeps only default sets', () async {
       HttpOverrides.global = _FakeHttpOverrides({
         globalUrl: jsonEncode({
           'default_sets': [1],
-          'users': {
-            '2': ['Alice', 'bob'],
-          },
           'sets': {
             '1': {
               'emoticons': [
@@ -215,9 +212,7 @@ void main() {
         }),
       });
       final result = await FfzEmoteProvider.fetchGlobal();
-      expect(result.emotes.map((e) => e.code), ['Open']);
-      expect(result.userSets.logins['2'], {'alice', 'bob'});
-      expect(result.userSets.emotes['2']!.map((e) => e.code), ['Gated']);
+      expect(result.map((e) => e.code), ['Open']);
     });
 
     test('animated map marks animated and prefers animated art', () async {
@@ -238,7 +233,7 @@ void main() {
           },
         }),
       });
-      final result = (await FfzEmoteProvider.fetchGlobal()).emotes;
+      final result = await FfzEmoteProvider.fetchGlobal();
       expect(result.single.isAnimated, isTrue);
       expect(result.single.scales[EmoteScale.medium], '$animBase/2');
     });

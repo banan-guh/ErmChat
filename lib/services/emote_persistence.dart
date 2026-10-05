@@ -7,7 +7,6 @@ import '../models/emote_fetch_tier.dart';
 import '../util/log.dart';
 import '../util/prefs.dart';
 import 'emote_meta_store.dart';
-import 'ffz_user_emotes.dart';
 import 'seven_tv_personal_sets.dart';
 
 /// File-backed persistence for the emote catalog: global and per-channel
@@ -139,9 +138,8 @@ class EmotePersistence {
     try {
       for (final key in await _metaStore.keys()) {
         if (!key.startsWith('emotes5_')) continue;
-        // Personal seeds and FFZ user sets are not channel-scoped.
+        // Personal seeds are account-scoped, not channel-scoped.
         if (key == SevenTvPersonalSets.personalSetsKey) continue;
-        if (key == FfzUserEmotes.storeKey) continue;
         final channel = key.substring('emotes5_'.length);
         if (channel.isEmpty || channel == 'global') continue;
         if (!activeChannels.contains(channel)) {

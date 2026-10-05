@@ -200,7 +200,7 @@ class MessageBuilder {
       lookupChannel: lookupChannel,
     );
     final channelEmotes = resolved == null
-        ? emoteSource.lookup(lookupChannel, msg.userId, senderLogin: msg.login)
+        ? emoteSource.lookup(lookupChannel, msg.userId)
         : null;
     // Giphy toggle off falls back to plain text (same as no attachments).
     final gifs = showGifs ? msg.gifAttachments : null;

@@ -24,14 +24,10 @@ class GlobalEmoteFetch {
     this.byProvider = const {},
     this.failed = const {},
     this.twitchCatalogUnlockIds = const {},
-    this.ffzUserSets,
   });
 
   final Map<EmoteType, List<Emote>> byProvider;
   final Set<EmoteType> failed;
-
-  /// FFZ sets granted to named users; null when FFZ was not fetched.
-  final FfzUserSets? ffzUserSets;
 
   /// Ids from the global unlockable Twitch catalogue (broadcaster_id=0). The
   /// global commit applies them to store state; the fetch stays pure.
@@ -185,7 +181,6 @@ class EmoteFetcher {
   }) async {
     final results = <EmoteType, List<Emote>>{};
     var unlockIds = const <String>{};
-    FfzUserSets? ffzUserSets;
     void landed(EmoteType type, List<Emote> emotes) {
       results[type] = emotes;
       onProvider?.call(
@@ -194,7 +189,6 @@ class EmoteFetcher {
           twitchCatalogUnlockIds: type == EmoteType.twitch
               ? unlockIds
               : const {},
-          ffzUserSets: type == EmoteType.ffz ? ffzUserSets : null,
         ),
       );
     }
@@ -216,10 +210,9 @@ class EmoteFetcher {
       },
       EmoteType.ffz: () async {
         if (!_isProviderEnabled(EmoteType.ffz)) return [];
-        final ffz = await FfzEmoteProvider.fetchGlobal();
-        ffzUserSets = ffz.userSets;
-        if (ffz.emotes.isNotEmpty) landed(EmoteType.ffz, ffz.emotes);
-        return ffz.emotes;
+        final emotes = await FfzEmoteProvider.fetchGlobal();
+        if (emotes.isNotEmpty) landed(EmoteType.ffz, emotes);
+        return emotes;
       },
       EmoteType.sevenTv: () async {
         if (!_isProviderEnabled(EmoteType.sevenTv)) return [];
@@ -233,7 +226,6 @@ class EmoteFetcher {
       byProvider: results,
       failed: failed,
       twitchCatalogUnlockIds: unlockIds,
-      ffzUserSets: ffzUserSets,
     );
   }
 
@@ -383,10 +375,9 @@ class EmoteFetcher {
           byProvider: _providerMap(EmoteType.bttv, emotes),
         );
       case EmoteType.ffz:
-        final ffz = await FfzEmoteProvider.fetchGlobal();
+        final emotes = await FfzEmoteProvider.fetchGlobal();
         return GlobalEmoteFetch(
-          byProvider: _providerMap(EmoteType.ffz, ffz.emotes),
-          ffzUserSets: ffz.userSets,
+          byProvider: _providerMap(EmoteType.ffz, emotes),
         );
       case EmoteType.sevenTv:
         final emotes = await _sevenTvGlobalFetcher();

@@ -19,11 +19,11 @@ import 'package:ermchat/models/emote_fetch_tier.dart';
 import 'package:ermchat/emotes/emote.dart';
 import 'package:ermchat/emotes/emote_catalog.dart';
 import 'package:ermchat/services/emote_manager.dart';
-import 'package:ermchat/services/ffz_user_emotes.dart';
 import 'package:ermchat/services/emote_usage_registry.dart';
 import 'package:ermchat/services/emote_store.dart';
 import 'package:ermchat/services/twitch_auth.dart';
 import 'package:ermchat/services/emote_meta_store.dart';
+import 'package:ermchat/services/emote_persistence.dart';
 import 'package:ermchat/services/emote_providers/bttv_emotes.dart';
 import 'package:ermchat/services/emote_providers/ffz_emotes.dart';
 import 'package:ermchat/services/emote_providers/seven_tv_emotes.dart';
@@ -1739,8 +1739,6 @@ void main() {
         'tier': EmoteFetchTier.medium.index,
         'emotes': _catalogJson(emotes, scope: EmoteScope.global),
       }),
-      // A current cache also holds the FFZ user sets record.
-      FfzUserEmotes.storeKey: '{}',
     };
 
     test(
@@ -4342,6 +4340,39 @@ void main() {
         unorderedEquals(manager.byCode('ch')!.byCode.keys),
       );
     });
+  });
+
+  test('a cached FFZ modifier without flags refetches once', () async {
+    SharedPreferences.setMockInitialValues({});
+    final dir = await Directory.systemTemp.createTemp('ermchat_ffz');
+    EmoteMetaStore.I.overrideDirectory(dir);
+    addTearDown(() => EmoteMetaStore.I.reset());
+    addTearDown(() => dir.delete(recursive: true));
+    Future<bool> freshWith(int? effects) async {
+      final modifier = Emote(
+        id: '1',
+        code: 'ffzX',
+        meta: FfzMeta(effects: effects),
+        scales: const {EmoteScale.small: 'https://cdn.frankerfacez.com/1/1'},
+        isZeroWidth: true,
+      );
+      await EmoteMetaStore.I.write(
+        'emotes5_global',
+        jsonEncode({
+          'ts': DateTime.now().toIso8601String(),
+          'tier': EmoteFetchTier.high.index,
+          'emotes': EmoteCatalog(ffzGlobal: [modifier]).toJsonMap(),
+        }),
+      );
+      final loaded = await EmotePersistence(
+        tier: () => EmoteFetchTier.high,
+        isAccountUnlock: (_) => false,
+      ).load('emotes5_global', const Duration(hours: 12));
+      return loaded.fresh;
+    }
+
+    expect(await freshWith(null), isFalse, reason: 'cache from before flags');
+    expect(await freshWith(3), isTrue);
   });
 
   group('persisted personal sets', () {
