@@ -248,6 +248,11 @@ void main() {
       }
       expect(messages.byId('s1'), isNull);
       expect(messages.byId('lone'), isNull);
+      expect(
+        messages.chatRows.map((m) => m.messageId),
+        ['s3', 's2'],
+        reason: 'thread rows held past the cap show in the chat',
+      );
     });
   });
 

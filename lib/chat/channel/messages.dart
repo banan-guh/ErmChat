@@ -60,6 +60,10 @@ class Messages {
   final List<TwitchMessage> _items = [];
   final Set<String> _seenIds = {};
   DateTime? _lastTruncateAt;
+
+  // Oldest row inside the message limit at the last truncate. Older rows are
+  // kept only for their threads. Null when nothing is held past the limit.
+  TwitchMessage? _limitEnd;
   int _nextSystemMessageId = 0;
 
   /// Bumped on any list change (insert, trim, bulk delete). Drives row lists.
@@ -111,6 +115,34 @@ class Messages {
   int get length => _items.length;
   bool get isEmpty => _items.isEmpty;
   UnmodifiableListView<TwitchMessage> get items => UnmodifiableListView(_items);
+
+  /// Rows the channel chat shows: [items] up to the message limit. Thread rows
+  /// held past the limit stay in [items] for thread views only.
+  late final List<TwitchMessage> chatRows = _ChatRows(this);
+
+  // [_chatLength] memo, keyed on the buffer version and length.
+  int _chatLengthAt = -1;
+  int _chatLengthOf = -1;
+  int _chatLengthMemo = 0;
+
+  int get _chatLength {
+    final end = _limitEnd;
+    if (end == null) return _items.length;
+    if (_chatLengthAt == version.value && _chatLengthOf == _items.length) {
+      return _chatLengthMemo;
+    }
+    _chatLengthAt = version.value;
+    _chatLengthOf = _items.length;
+    _chatLengthMemo = _items.length;
+    // The held rows sit at the oldest end, so the scan is short.
+    for (var i = _items.length - 1; i >= 0; i--) {
+      if (identical(_items[i], end)) {
+        _chatLengthMemo = i + 1;
+        break;
+      }
+    }
+    return _chatLengthMemo;
+  }
 
   bool containsId(String id) => _seenIds.contains(id);
 
@@ -498,6 +530,7 @@ class Messages {
     if (idx <= 0) return false;
     final msg = _items.removeAt(idx);
     _items.insert(0, msg);
+    if (identical(msg, _limitEnd)) _limitEnd = null;
     _bump();
     return true;
   }
@@ -594,6 +627,7 @@ class Messages {
         evicted.add(_items[i]);
       }
       _items.removeRange(maxMessages, _items.length);
+      _limitEnd = null;
       return evicted;
     }
 
@@ -678,6 +712,7 @@ class Messages {
     final retained = <TwitchMessage>[];
     final evicted = <TwitchMessage>[];
     int kept = 0;
+    TwitchMessage? limitEnd;
     final activeKept = <String, int>{};
     for (int i = 0; i < _items.length; i++) {
       final m = _items[i];
@@ -692,7 +727,10 @@ class Messages {
         keep = true;
       } else if (m.isSystem) {
         keep = kept < maxMessages;
-        if (keep) kept++;
+        if (keep) {
+          kept++;
+          limitEnd = m;
+        }
       } else {
         final key = threadKeyFor(m, parentOf);
         final isOrphanThread =
@@ -701,7 +739,10 @@ class Messages {
             key != null &&
             threadGroups.containsKey(key);
         keep = !isOrphanThread && kept < maxMessages;
-        if (keep) kept++;
+        if (keep) {
+          kept++;
+          limitEnd = m;
+        }
       }
       if (keep) {
         retained.add(m);
@@ -714,6 +755,8 @@ class Messages {
     _items
       ..clear()
       ..addAll(retained);
+    _limitEnd = kept >= maxMessages ? limitEnd : null;
+    _chatLengthAt = -1;
     return evicted;
   }
 
@@ -829,4 +872,24 @@ class MessageMutations {
     _listeners.clear();
     _allListeners.clear();
   }
+}
+
+/// Live read-only view of [Messages.chatRows].
+class _ChatRows extends ListBase<TwitchMessage> {
+  _ChatRows(this._messages);
+
+  final Messages _messages;
+
+  @override
+  int get length => _messages._chatLength;
+
+  @override
+  set length(int _) => throw UnsupportedError('read-only');
+
+  @override
+  TwitchMessage operator [](int index) => _messages._items[index];
+
+  @override
+  void operator []=(int index, TwitchMessage value) =>
+      throw UnsupportedError('read-only');
 }

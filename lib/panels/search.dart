@@ -127,7 +127,7 @@ class SearchPanels {
   List<TwitchMessage> visibleMessages(String channel) {
     final filter = stateFor(channel);
     final messages = chat.channelFor(channel)?.messages;
-    final items = messages?.items ?? const <TwitchMessage>[];
+    final items = messages?.chatRows ?? const <TwitchMessage>[];
     if (!open || !filter.isActive) {
       return items;
     }
@@ -247,7 +247,7 @@ class SearchPanels {
     _filters[channel] = stateFor(channel).copyWith(live: live);
     if (live == ChatSearchLive.pause) {
       _frozen[channel] = List.of(
-        chat.channelFor(channel)?.messages.items ?? const [],
+        chat.channelFor(channel)?.messages.chatRows ?? const [],
       );
     } else {
       _frozen.remove(channel);
