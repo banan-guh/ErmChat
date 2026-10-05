@@ -13,22 +13,22 @@ class SetupTab extends ModTabWidget {
 }
 
 class _SetupTabState extends State<SetupTab> with ModTabState<SetupTab> {
-  static const _categories = [
-    ('aggression', 'Aggression'),
-    ('bullying', 'Bullying'),
-    ('disability', 'Disability'),
-    ('misogyny', 'Misogyny'),
-    ('race_ethnicity_or_religion', 'Race, ethnicity, religion'),
-    ('sex_based_terms', 'Sex-based terms'),
-    ('sexuality_sex_or_gender', 'Sexuality, sex, gender'),
-    ('swearing', 'Swearing'),
+  List<(String, String)> get _categories => [
+    ('aggression', mod.l10n.automodAggression),
+    ('bullying', mod.l10n.automodBullying),
+    ('disability', mod.l10n.automodDisability),
+    ('misogyny', mod.l10n.automodMisogyny),
+    ('race_ethnicity_or_religion', mod.l10n.automodRace),
+    ('sex_based_terms', mod.l10n.automodSexBased),
+    ('sexuality_sex_or_gender', mod.l10n.automodSexuality),
+    ('swearing', mod.l10n.automodSwearing),
   ];
-  static const _levelNames = [
-    ('Off', 0),
-    ('Low', 1),
-    ('Medium', 2),
-    ('High', 3),
-    ('Max', 4),
+  List<(String, int)> get _levelNames => [
+    (mod.l10n.automodOff, 0),
+    (mod.l10n.automodLow, 1),
+    (mod.l10n.automodMedium, 2),
+    (mod.l10n.automodHigh, 3),
+    (mod.l10n.automodMax, 4),
   ];
 
   late final ModLoader<AutoModSettings> _settings;
@@ -48,7 +48,7 @@ class _SetupTabState extends State<SetupTab> with ModTabState<SetupTab> {
     super.initState();
     _settings = loader(
       (mod) => mod.actions.getAutoModSettings(mod.auth, mod.channel),
-      failure: 'Could not load AutoMod settings.',
+      failure: mod.l10n.loadAutomodFailed,
     )..addListener(_onLoaded);
     watch((mod) => mod.moderation?.modSettingsVersion, _settings.load);
   }
@@ -107,7 +107,7 @@ class _SetupTabState extends State<SetupTab> with ModTabState<SetupTab> {
         mod.channel,
         preset != null ? {'overall_level': preset} : _levels,
       ),
-      done: 'AutoMod settings saved.',
+      done: mod.l10n.automodSaved,
     );
     if (!ok) return;
     _adoptNext = true;
@@ -124,9 +124,7 @@ class _SetupTabState extends State<SetupTab> with ModTabState<SetupTab> {
         return ListView(
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
           children: [
-            const ModHint(
-              'Presets set every category. Changing one switches to custom.',
-            ),
+            ModHint(mod.l10n.automodPresetHint),
             const SizedBox(height: 8),
             Wrap(
               spacing: 8,
@@ -141,9 +139,9 @@ class _SetupTabState extends State<SetupTab> with ModTabState<SetupTab> {
               ],
             ),
             if (_preset == null)
-              const Padding(
-                padding: EdgeInsets.only(top: 8),
-                child: Text('Custom levels.'),
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Text(mod.l10n.customLevels),
               ),
             const SizedBox(height: 8),
             for (final (key, label) in _categories)
@@ -182,7 +180,7 @@ class _SetupTabState extends State<SetupTab> with ModTabState<SetupTab> {
                     onPressed: dirty
                         ? () => setState(() => _adopt(_saved!))
                         : null,
-                    child: const Text('Reset'),
+                    child: Text(mod.l10n.reset),
                   ),
                 ),
                 Expanded(
@@ -191,7 +189,7 @@ class _SetupTabState extends State<SetupTab> with ModTabState<SetupTab> {
                     onPressed: dirty ? _save : null,
                     child: saving
                         ? const ModSpinner(size: 18)
-                        : const Text('Save changes'),
+                        : Text(mod.l10n.saveChanges),
                   ),
                 ),
               ],

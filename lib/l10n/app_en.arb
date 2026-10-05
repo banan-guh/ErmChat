@@ -899,5 +899,222 @@
   "fulfill": "Fulfill",
   "rewardPausedState": "Paused",
   "rewardEnabled": "Enabled",
-  "rewardDisabled": "Disabled"
+  "rewardDisabled": "Disabled",
+  "requestPending": "Pending",
+  "requestApproved": "Approved",
+  "requestDenied": "Denied",
+  "loadUnbanRequestsFailed": "Could not load unban requests.",
+  "requestFrom": "Request from {login}",
+  "@requestFrom": {
+    "placeholders": {
+      "login": {
+        "type": "String"
+      }
+    }
+  },
+  "requestStatus": "Status: {status} · {time}",
+  "@requestStatus": {
+    "placeholders": {
+      "status": {
+        "type": "String"
+      },
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "requestResolution": "Resolution: \"{text}\"",
+  "@requestResolution": {
+    "placeholders": {
+      "text": {
+        "type": "String"
+      }
+    }
+  },
+  "resolutionMessage": "Resolution message (optional)",
+  "close": "Close",
+  "approve": "Approve",
+  "requestApprovedDone": "Request approved.",
+  "requestDeniedDone": "Request denied.",
+  "noPendingRequests": "No pending requests.",
+  "noApprovedRequests": "No approved requests.",
+  "noDeniedRequests": "No denied requests.",
+  "newRequestsHint": "New unban requests will appear here.",
+  "loadShieldFailed": "Could not load Shield status.",
+  "chatModeUpdated": "Chat mode updated.",
+  "slowModeDelay": "Slow mode delay",
+  "secondsCount": "{count, plural, =1{1 second} other{{count} seconds}}",
+  "@secondsCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "customEllipsis": "Custom...",
+  "secondsRange": "Seconds (3-120)",
+  "minimumFollowAge": "Minimum follow age",
+  "noMinimum": "No minimum",
+  "minutesCount": "{count, plural, =1{1 minute} other{{count} minutes}}",
+  "@minutesCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "oneHour": "1 hour",
+  "oneDay": "1 day",
+  "oneWeek": "1 week",
+  "minutesRange": "Minutes (1-129600)",
+  "chatModesNeedMod": "Chat modes need moderator status in this channel.",
+  "shieldLoadFailed": "Shield mode failed to load",
+  "retry": "Retry",
+  "slowMode": "Slow mode",
+  "followers": "Followers",
+  "followingMinutes": "Following {minutes}m",
+  "@followingMinutes": {
+    "placeholders": {
+      "minutes": {
+        "type": "String"
+      }
+    }
+  },
+  "emoteOnly": "Emote-only",
+  "subscribers": "Subscribers",
+  "uniqueChat": "Unique chat",
+  "shieldMode": "Shield mode",
+  "timeoutUser": "Timeout {login}",
+  "@timeoutUser": {
+    "placeholders": {
+      "login": {
+        "type": "String"
+      }
+    }
+  },
+  "customSeconds": "Custom seconds (max 2 weeks)",
+  "enterSecondsRange": "Enter 1-{max} seconds.",
+  "@enterSecondsRange": {
+    "placeholders": {
+      "max": {
+        "type": "int"
+      }
+    }
+  },
+  "timeout": "Timeout",
+  "enterValue": "Enter a value.",
+  "enterRange": "Enter {min}-{max}.",
+  "@enterRange": {
+    "placeholders": {
+      "min": {
+        "type": "int"
+      },
+      "max": {
+        "type": "int"
+      }
+    }
+  },
+  "useValue": "Use value",
+  "clearedFlagFor": "Cleared flag for {login}.",
+  "@clearedFlagFor": {
+    "placeholders": {
+      "login": {
+        "type": "String"
+      }
+    }
+  },
+  "dismissedWarningsFor": "Dismissed warnings for {login}.",
+  "@dismissedWarningsFor": {
+    "placeholders": {
+      "login": {
+        "type": "String"
+      }
+    }
+  },
+  "recentBansCount": "Recent bans ({count})",
+  "@recentBansCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "warnedCount": "Warned ({count})",
+  "@warnedCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "noWarningsYet": "No warnings yet.",
+  "dismiss": "Dismiss",
+  "flaggedCount": "Flagged ({count})",
+  "@flaggedCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "noFlaggedUsers": "No flagged users.",
+  "warningCount": "{count, plural, =1{1 warning} other{{count} warnings}}",
+  "@warningCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "banEvasionLikelihood": "{level} ban evasion likelihood",
+  "@banEvasionLikelihood": {
+    "placeholders": {
+      "level": {
+        "type": "String"
+      }
+    }
+  },
+  "sharedBansIn": "{count, plural, =1{shared bans in 1 channel} other{shared bans in {count} channels}}",
+  "@sharedBansIn": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "restricted": "Restricted",
+  "monitored": "Monitored",
+  "flagged": "Flagged",
+  "loadTermsFailed": "Could not load blocked terms.",
+  "termsHint": "Only moderators can see this list. Public terms only; private terms live in the dashboard. Type in the chat box below to add one.",
+  "noBlockedTerms": "No blocked terms yet.",
+  "wildcardHint": "A * wildcard is allowed at the start or the end.",
+  "addedAgo": "Added {time}",
+  "@addedAgo": {
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "automodAggression": "Aggression",
+  "automodBullying": "Bullying",
+  "automodDisability": "Disability",
+  "automodMisogyny": "Misogyny",
+  "automodRace": "Race, ethnicity, religion",
+  "automodSexBased": "Sex-based terms",
+  "automodSexuality": "Sexuality, sex, gender",
+  "automodSwearing": "Swearing",
+  "automodOff": "Off",
+  "automodLow": "Low",
+  "automodMedium": "Medium",
+  "automodHigh": "High",
+  "automodMax": "Max",
+  "loadAutomodFailed": "Could not load AutoMod settings.",
+  "automodSaved": "AutoMod settings saved.",
+  "automodPresetHint": "Presets set every category. Changing one switches to custom.",
+  "customLevels": "Custom levels.",
+  "saveChanges": "Save changes",
+  "noModActivity": "No moderation activity yet.",
+  "noModActivityHint": "Bans, timeouts and mod actions will show here."
 }

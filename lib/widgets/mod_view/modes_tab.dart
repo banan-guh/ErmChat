@@ -35,14 +35,14 @@ class _ModesTabState extends State<ModesTab> with ModTabState<ModesTab> {
     super.initState();
     _shield = loader(
       (mod) => mod.actions.getShieldMode(mod.auth, mod.channel),
-      failure: 'Could not load Shield status.',
+      failure: mod.l10n.loadShieldFailed,
     );
   }
 
   Future<bool> _apply(String key, Future<ModResult> Function() call) async {
     var ok = false;
     await busy(key, () async {
-      ok = await mod.report(call(), done: 'Chat mode updated.');
+      ok = await mod.report(call(), done: mod.l10n.chatModeUpdated);
     });
     return ok;
   }
@@ -68,20 +68,18 @@ class _ModesTabState extends State<ModesTab> with ModTabState<ModesTab> {
     var seconds = await _pick(
       () => showModChoiceDialog(
         context,
-        title: 'Slow mode delay',
-        options: const [
-          ('3 seconds', 3),
-          ('5 seconds', 5),
-          ('10 seconds', 10),
-          ('Custom...', -1),
+        title: mod.l10n.slowModeDelay,
+        options: [
+          for (final s in const [3, 5, 10]) (mod.l10n.secondsCount(s), s),
+          (mod.l10n.customEllipsis, -1),
         ],
       ),
     );
     if (seconds == -1 && mounted) {
       seconds = await showModNumberDialog(
         context,
-        title: 'Slow mode delay',
-        label: 'Seconds (3-120)',
+        title: mod.l10n.slowModeDelay,
+        label: mod.l10n.secondsRange,
         min: 3,
         max: 120,
       );
@@ -112,15 +110,15 @@ class _ModesTabState extends State<ModesTab> with ModTabState<ModesTab> {
     var minutes = await _pick(
       () => showModChoiceDialog(
         context,
-        title: 'Minimum follow age',
-        options: const [
-          ('No minimum', 0),
-          ('10 minutes', 10),
-          ('30 minutes', 30),
-          ('1 hour', 60),
-          ('1 day', 1440),
-          ('1 week', 10080),
-          ('Custom...', custom),
+        title: mod.l10n.minimumFollowAge,
+        options: [
+          (mod.l10n.noMinimum, 0),
+          (mod.l10n.minutesCount(10), 10),
+          (mod.l10n.minutesCount(30), 30),
+          (mod.l10n.oneHour, 60),
+          (mod.l10n.oneDay, 1440),
+          (mod.l10n.oneWeek, 10080),
+          (mod.l10n.customEllipsis, custom),
         ],
       ),
     );
@@ -128,8 +126,8 @@ class _ModesTabState extends State<ModesTab> with ModTabState<ModesTab> {
       // Twitch allows up to 3 months.
       minutes = await showModNumberDialog(
         context,
-        title: 'Minimum follow age',
-        label: 'Minutes (1-129600)',
+        title: mod.l10n.minimumFollowAge,
+        label: mod.l10n.minutesRange,
         min: 1,
         max: 129600,
       );
@@ -197,7 +195,7 @@ class _ModesTabState extends State<ModesTab> with ModTabState<ModesTab> {
     final followers = tags['followers-only'];
     final followersOn = followers != null && followers != '-1';
     bool tag(String name) => tags[name] == '1';
-    String onOff(bool on) => on ? 'On' : 'Off';
+    String onOff(bool on) => on ? mod.l10n.on : mod.l10n.off;
     return ListenableBuilder(
       listenable: _shield,
       builder: (context, _) {
@@ -207,21 +205,19 @@ class _ModesTabState extends State<ModesTab> with ModTabState<ModesTab> {
           padding: const EdgeInsets.fromLTRB(12, 8, 12, 24),
           children: [
             if (!widget.moderationActive)
-              const ListTile(
-                contentPadding: EdgeInsets.symmetric(horizontal: 4),
-                title: Text(
-                  'Chat modes need moderator status in this channel.',
-                ),
+              ListTile(
+                contentPadding: const EdgeInsets.symmetric(horizontal: 4),
+                title: Text(mod.l10n.chatModesNeedMod),
               ),
             if (anyBusy) const LinearProgressIndicator(minHeight: 2),
             if (shieldError != null && shield == null)
               ListTile(
                 contentPadding: const EdgeInsets.symmetric(horizontal: 4),
-                title: const Text('Shield mode failed to load'),
+                title: Text(mod.l10n.shieldLoadFailed),
                 subtitle: Text(shieldError),
                 trailing: TextButton(
                   onPressed: _shield.load,
-                  child: const Text('Retry'),
+                  child: Text(mod.l10n.retry),
                 ),
               ),
             ModTileGrid(
@@ -229,27 +225,27 @@ class _ModesTabState extends State<ModesTab> with ModTabState<ModesTab> {
               tiles: [
                 _toggle(
                   'slow',
-                  'Slow mode',
+                  mod.l10n.slowMode,
                   Icons.hourglass_bottom_outlined,
                   on: slow > 0,
-                  status: slow > 0 ? '${slow}s' : 'Off',
+                  status: slow > 0 ? '${slow}s' : mod.l10n.off,
                   onToggle: _toggleSlow,
                 ),
                 _toggle(
                   'followers',
-                  'Followers',
+                  mod.l10n.followers,
                   Icons.favorite_outline,
                   on: followersOn,
                   status: !followersOn
-                      ? 'Off'
+                      ? mod.l10n.off
                       : followers == '0'
-                      ? 'No minimum'
-                      : 'Following ${followers}m',
+                      ? mod.l10n.noMinimum
+                      : mod.l10n.followingMinutes(followers),
                   onToggle: _toggleFollowers,
                 ),
                 _toggle(
                   'emote',
-                  'Emote-only',
+                  mod.l10n.emoteOnly,
                   Icons.emoji_emotions_outlined,
                   on: tag('emote-only'),
                   status: onOff(tag('emote-only')),
@@ -264,7 +260,7 @@ class _ModesTabState extends State<ModesTab> with ModTabState<ModesTab> {
                 ),
                 _toggle(
                   'subs',
-                  'Subscribers',
+                  mod.l10n.subscribers,
                   Icons.star_outline,
                   on: tag('subs-only'),
                   status: onOff(tag('subs-only')),
@@ -279,7 +275,7 @@ class _ModesTabState extends State<ModesTab> with ModTabState<ModesTab> {
                 ),
                 _toggle(
                   'unique',
-                  'Unique chat',
+                  mod.l10n.uniqueChat,
                   Icons.person_outline,
                   on: tag('r9k'),
                   status: onOff(tag('r9k')),
@@ -294,7 +290,7 @@ class _ModesTabState extends State<ModesTab> with ModTabState<ModesTab> {
                 ),
                 _toggle(
                   'shield',
-                  'Shield mode',
+                  mod.l10n.shieldMode,
                   Icons.shield_outlined,
                   on: shield ?? false,
                   status: shield == null ? '...' : onOff(shield),

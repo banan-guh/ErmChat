@@ -44,10 +44,10 @@ class ActivityTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const empty = ModEmpty(
+    final empty = ModEmpty(
       icon: Icons.auto_awesome_outlined,
-      title: 'No moderation activity yet.',
-      subtitle: 'Bans, timeouts and mod actions will show here.',
+      title: mod.l10n.noModActivity,
+      subtitle: mod.l10n.noModActivityHint,
     );
     final moderation = mod.moderation;
     if (moderation == null) return empty;

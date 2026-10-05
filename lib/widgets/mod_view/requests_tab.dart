@@ -15,11 +15,18 @@ class RequestsTab extends ModTabWidget {
 
 class _RequestsTabState extends State<RequestsTab>
     with ModTabState<RequestsTab> {
-  static const _statuses = [
-    ('Pending', 'pending'),
-    ('Approved', 'approved'),
-    ('Denied', 'denied'),
+  List<(String, String)> get _statuses => [
+    (mod.l10n.requestPending, 'pending'),
+    (mod.l10n.requestApproved, 'approved'),
+    (mod.l10n.requestDenied, 'denied'),
   ];
+
+  String _statusLabel(String status) => switch (status) {
+    'approved' => mod.l10n.requestApproved,
+    'denied' => mod.l10n.requestDenied,
+    'pending' => mod.l10n.requestPending,
+    _ => status,
+  };
 
   String _status = 'pending';
   late final ModLoader<List<UnbanRequest>> _requests;
@@ -30,7 +37,7 @@ class _RequestsTabState extends State<RequestsTab>
     _requests = loader(
       (mod) =>
           mod.actions.getUnbanRequests(mod.auth, mod.channel, status: _status),
-      failure: 'Could not load unban requests.',
+      failure: mod.l10n.loadUnbanRequestsFailed,
     );
     watch((mod) => mod.moderation?.modInboxVersion, _requests.load);
   }
@@ -50,7 +57,7 @@ class _RequestsTabState extends State<RequestsTab>
     final decision = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: Text('Request from ${request.userLogin}'),
+        title: Text(mod.l10n.requestFrom(request.userLogin)),
         content: SingleChildScrollView(
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -59,12 +66,17 @@ class _RequestsTabState extends State<RequestsTab>
               Text('"${request.text}"'),
               const SizedBox(height: 8),
               Text(
-                'Status: ${request.status} · ${formatAgoIso(request.createdAt)}',
+                mod.l10n.requestStatus(
+                  _statusLabel(request.status),
+                  formatAgoIso(request.createdAt),
+                ),
               ),
               if (request.resolutionText?.isNotEmpty ?? false)
                 Padding(
                   padding: const EdgeInsets.only(top: 4),
-                  child: Text('Resolution: "${request.resolutionText}"'),
+                  child: Text(
+                    mod.l10n.requestResolution(request.resolutionText!),
+                  ),
                 ),
               if (pending) ...[
                 const SizedBox(height: 12),
@@ -72,9 +84,9 @@ class _RequestsTabState extends State<RequestsTab>
                   controller: resolution,
                   maxLength: 500,
                   maxLines: 2,
-                  decoration: const InputDecoration(
-                    labelText: 'Resolution message (optional)',
-                    border: OutlineInputBorder(),
+                  decoration: InputDecoration(
+                    labelText: mod.l10n.resolutionMessage,
+                    border: const OutlineInputBorder(),
                   ),
                 ),
               ],
@@ -84,16 +96,16 @@ class _RequestsTabState extends State<RequestsTab>
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
-            child: const Text('Close'),
+            child: Text(mod.l10n.close),
           ),
           if (pending) ...[
             TextButton(
               onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('Deny'),
+              child: Text(mod.l10n.deny),
             ),
             FilledButton(
               onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('Approve'),
+              child: Text(mod.l10n.approve),
             ),
           ],
         ],
@@ -110,7 +122,9 @@ class _RequestsTabState extends State<RequestsTab>
         approved: decision,
         resolutionText: message.isEmpty ? null : message,
       ),
-      done: decision ? 'Request approved.' : 'Request denied.',
+      done: decision
+          ? mod.l10n.requestApprovedDone
+          : mod.l10n.requestDeniedDone,
     );
     if (ok) _requests.load();
   }
@@ -131,10 +145,12 @@ class _RequestsTabState extends State<RequestsTab>
             isEmpty: (requests) => requests.isEmpty,
             empty: ModEmpty(
               icon: Icons.mark_email_read_outlined,
-              title: 'No $_status requests.',
-              subtitle: _status == 'pending'
-                  ? 'New unban requests will appear here.'
-                  : null,
+              title: switch (_status) {
+                'approved' => mod.l10n.noApprovedRequests,
+                'denied' => mod.l10n.noDeniedRequests,
+                _ => mod.l10n.noPendingRequests,
+              },
+              subtitle: _status == 'pending' ? mod.l10n.newRequestsHint : null,
             ),
             builder: (context, requests) => ListView.builder(
               padding: const EdgeInsets.fromLTRB(8, 4, 8, 16),

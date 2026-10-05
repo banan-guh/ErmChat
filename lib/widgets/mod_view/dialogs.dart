@@ -43,7 +43,7 @@ Future<({int seconds, String? reason})?> showTimeoutDialog(
       var error = '';
       return StatefulBuilder(
         builder: (ctx, setLocal) => AlertDialog(
-          title: Text('Timeout $login'),
+          title: Text(ctx.l10n.timeoutUser(login)),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -67,16 +67,12 @@ Future<({int seconds, String? reason})?> showTimeoutDialog(
               TextField(
                 controller: customCtrl,
                 keyboardType: TextInputType.number,
-                decoration: const InputDecoration(
-                  labelText: 'Custom seconds (max 2 weeks)',
-                ),
+                decoration: InputDecoration(labelText: ctx.l10n.customSeconds),
                 onChanged: (_) => setLocal(() => error = ''),
               ),
               TextField(
                 controller: reasonCtrl,
-                decoration: const InputDecoration(
-                  labelText: 'Reason (optional)',
-                ),
+                decoration: InputDecoration(labelText: ctx.l10n.reasonOptional),
               ),
               if (error.isNotEmpty)
                 Text(
@@ -88,7 +84,7 @@ Future<({int seconds, String? reason})?> showTimeoutDialog(
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(ctx),
-              child: const Text('Cancel'),
+              child: Text(ctx.l10n.cancel),
             ),
             FilledButton(
               onPressed: () {
@@ -97,7 +93,9 @@ Future<({int seconds, String? reason})?> showTimeoutDialog(
                 if (custom.isNotEmpty) {
                   final parsed = int.tryParse(custom);
                   if (parsed == null || parsed <= 0 || parsed > maxSeconds) {
-                    setLocal(() => error = 'Enter 1-$maxSeconds seconds.');
+                    setLocal(
+                      () => error = ctx.l10n.enterSecondsRange(maxSeconds),
+                    );
                     return;
                   }
                   picked = parsed;
@@ -108,7 +106,7 @@ Future<({int seconds, String? reason})?> showTimeoutDialog(
                   reason: reason.isEmpty ? null : reason,
                 ));
               },
-              child: const Text('Timeout'),
+              child: Text(ctx.l10n.timeout),
             ),
           ],
         ),
@@ -151,7 +149,7 @@ Future<String?> showModTextDialog(
                 onSubmitted: (_) {
                   final value = ctrl.text.trim();
                   if (value.isEmpty && !allowEmpty) {
-                    setLocal(() => error = 'Enter a value.');
+                    setLocal(() => error = ctx.l10n.enterValue);
                     return;
                   }
                   Navigator.pop(ctx, value);
@@ -162,13 +160,13 @@ Future<String?> showModTextDialog(
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(ctx),
-              child: const Text('Cancel'),
+              child: Text(ctx.l10n.cancel),
             ),
             FilledButton(
               onPressed: () {
                 final value = ctrl.text.trim();
                 if (value.isEmpty && !allowEmpty) {
-                  setLocal(() => error = 'Enter a value.');
+                  setLocal(() => error = ctx.l10n.enterValue);
                   return;
                 }
                 Navigator.pop(ctx, value);
@@ -233,18 +231,18 @@ Future<int?> showModNumberDialog(
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(ctx),
-              child: const Text('Cancel'),
+              child: Text(ctx.l10n.cancel),
             ),
             FilledButton(
               onPressed: () {
                 final parsed = int.tryParse(ctrl.text.trim());
                 if (parsed == null || parsed < min || parsed > max) {
-                  setLocal(() => error = 'Enter $min-$max.');
+                  setLocal(() => error = ctx.l10n.enterRange(min, max));
                   return;
                 }
                 Navigator.pop(ctx, parsed);
               },
-              child: const Text('Use value'),
+              child: Text(ctx.l10n.useValue),
             ),
           ],
         ),

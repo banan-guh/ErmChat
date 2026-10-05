@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../chat/channel/moderation.dart';
+import '../../l10n/l10n.dart';
 import '../../util/date_format.dart';
 import 'scope.dart';
 import 'widgets.dart';
@@ -18,7 +19,7 @@ class _UsersTabState extends State<UsersTab> with ModTabState<UsersTab> {
       busy('unban:${login.toLowerCase()}', () async {
         final ok = await mod.report(
           mod.actions.unbanUser(mod.auth, mod.channel, login: login),
-          done: 'Unbanned $login.',
+          done: mod.l10n.unbannedUser(login),
         );
         if (ok) mod.moderation?.removeBan(login);
       });
@@ -28,7 +29,7 @@ class _UsersTabState extends State<UsersTab> with ModTabState<UsersTab> {
     () async {
       final ok = await mod.report(
         mod.actions.clearSuspiciousStatus(mod.auth, mod.channel, login: login),
-        done: 'Cleared flag for $login.',
+        done: mod.l10n.clearedFlagFor(login),
       );
       if (ok) mod.moderation?.removeSuspicious(login);
     },
@@ -36,7 +37,7 @@ class _UsersTabState extends State<UsersTab> with ModTabState<UsersTab> {
 
   void _dismissWarnings(String login) {
     mod.moderation?.dismissWarningsFor(login);
-    mod.notify('Dismissed warnings for $login.');
+    mod.notify(mod.l10n.dismissedWarningsFor(login));
   }
 
   Widget _row({
@@ -81,43 +82,43 @@ class _UsersTabState extends State<UsersTab> with ModTabState<UsersTab> {
           padding: const EdgeInsets.fromLTRB(0, 4, 0, 24),
           children: [
             // Bans seen this session; the Channel tab lists every ban.
-            ModSectionHeader('Recent bans (${bans.length})'),
-            if (bans.isEmpty) const ListTile(title: Text('No bans yet.')),
+            ModSectionHeader(mod.l10n.recentBansCount(bans.length)),
+            if (bans.isEmpty) ListTile(title: Text(mod.l10n.noBansYet)),
             for (final ban in bans)
               _row(
                 login: ban.login,
-                subtitle: _banSubtitle(ban),
+                subtitle: _banSubtitle(mod.l10n, ban),
                 busyKey: 'unban:${ban.login.toLowerCase()}',
                 trailing: OutlinedButton(
                   onPressed: () => _unban(ban.login),
-                  child: const Text('Unban'),
+                  child: Text(mod.l10n.unban),
                 ),
               ),
-            ModSectionHeader('Warned (${warned.length})'),
-            if (warned.isEmpty) const ListTile(title: Text('No warnings yet.')),
+            ModSectionHeader(mod.l10n.warnedCount(warned.length)),
+            if (warned.isEmpty) ListTile(title: Text(mod.l10n.noWarningsYet)),
             for (final w in warned)
               _row(
                 login: w.target,
                 subtitle: _warnSubtitle(
+                  mod.l10n,
                   warnCounts[w.target.toLowerCase()] ?? 1,
                   w,
                 ),
                 trailing: TextButton(
                   onPressed: () => _dismissWarnings(w.target),
-                  child: const Text('Dismiss'),
+                  child: Text(mod.l10n.dismiss),
                 ),
               ),
-            ModSectionHeader('Flagged (${flagged.length})'),
-            if (flagged.isEmpty)
-              const ListTile(title: Text('No flagged users.')),
+            ModSectionHeader(mod.l10n.flaggedCount(flagged.length)),
+            if (flagged.isEmpty) ListTile(title: Text(mod.l10n.noFlaggedUsers)),
             for (final info in flagged)
               _row(
                 login: info.login,
-                subtitle: _suspiciousSubtitle(info),
+                subtitle: _suspiciousSubtitle(mod.l10n, info),
                 busyKey: 'flag:${info.login.toLowerCase()}',
                 trailing: OutlinedButton(
                   onPressed: () => _clearFlag(info.login),
-                  child: const Text('Clear'),
+                  child: Text(mod.l10n.clear),
                 ),
               ),
           ],
@@ -127,38 +128,37 @@ class _UsersTabState extends State<UsersTab> with ModTabState<UsersTab> {
   }
 }
 
-String _banSubtitle(BanEntry ban) {
+String _banSubtitle(AppLocalizations l, BanEntry ban) {
   final expires = ban.expiresAt;
   return [
-    expires == null ? 'Banned' : 'Timeout until ${formatYmdHm(expires)}',
+    expires == null ? l.banned : l.timeoutUntil(formatYmdHm(expires)),
     if (ban.reason?.isNotEmpty ?? false) '"${ban.reason}"',
-    if (ban.moderator.isNotEmpty) 'by ${ban.moderator}',
+    if (ban.moderator.isNotEmpty) l.byModerator(ban.moderator),
   ].join(' · ');
 }
 
-String _warnSubtitle(int count, WarnEntry latest) {
-  final head = count == 1 ? '1 warning' : '$count warnings';
+String _warnSubtitle(AppLocalizations l, int count, WarnEntry latest) {
+  final head = l.warningCount(count);
   final reason = latest.reason;
   return reason == null || reason.isEmpty ? head : '$head · "$reason"';
 }
 
-String _suspiciousSubtitle(SuspiciousInfo info) {
+String _suspiciousSubtitle(AppLocalizations l, SuspiciousInfo info) {
   final evasion = info.banEvasion;
   final shared = info.sharedBanChannelIds.length;
   return [
-    _suspiciousTitle(info.status),
-    if (evasion != null && evasion.isNotEmpty)
-      '$evasion ban evasion likelihood',
-    if (shared > 0) 'shared bans in $shared channel${shared == 1 ? '' : 's'}',
+    _suspiciousTitle(l, info.status),
+    if (evasion != null && evasion.isNotEmpty) l.banEvasionLikelihood(evasion),
+    if (shared > 0) l.sharedBansIn(shared),
     if (info.types.isNotEmpty) info.types.map(_titleCase).join(', '),
   ].join(' · ');
 }
 
-String _suspiciousTitle(String status) {
+String _suspiciousTitle(AppLocalizations l, String status) {
   final lower = status.toLowerCase();
-  if (lower.contains('restrict')) return 'Restricted';
-  if (lower.contains('monitor')) return 'Monitored';
-  if (lower.isEmpty) return 'Flagged';
+  if (lower.contains('restrict')) return l.restricted;
+  if (lower.contains('monitor')) return l.monitored;
+  if (lower.isEmpty) return l.flagged;
   return lower[0].toUpperCase() + lower.substring(1);
 }
 

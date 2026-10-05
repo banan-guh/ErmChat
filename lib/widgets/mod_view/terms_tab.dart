@@ -24,7 +24,7 @@ class _TermsTabState extends State<TermsTab> with ModTabState<TermsTab> {
     super.initState();
     _terms = loader(
       (mod) => mod.actions.getBlockedTerms(mod.auth, mod.channel),
-      failure: 'Could not load blocked terms.',
+      failure: mod.l10n.loadTermsFailed,
     );
     watch((mod) => mod.moderation?.modTermsVersion, _terms.load);
     watch((_) => widget.termsVersion, _terms.load);
@@ -41,20 +41,18 @@ class _TermsTabState extends State<TermsTab> with ModTabState<TermsTab> {
   Widget build(BuildContext context) {
     return Column(
       children: [
-        const ModHint(
-          'Only moderators can see this list. Public terms only; '
-          'private terms live in the dashboard. '
-          'Type in the chat box below to add one.',
-          padding: EdgeInsets.fromLTRB(16, 8, 16, 0),
+        ModHint(
+          mod.l10n.termsHint,
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
         ),
         Expanded(
           child: ModLoadView(
             loader: _terms,
             isEmpty: (terms) => terms.isEmpty,
-            empty: const ModEmpty(
+            empty: ModEmpty(
               icon: Icons.block_outlined,
-              title: 'No blocked terms yet.',
-              subtitle: 'A * wildcard is allowed at the start or the end.',
+              title: mod.l10n.noBlockedTerms,
+              subtitle: mod.l10n.wildcardHint,
             ),
             builder: (context, terms) => ListView.builder(
               padding: const EdgeInsets.fromLTRB(8, 4, 8, 16),
@@ -67,12 +65,14 @@ class _TermsTabState extends State<TermsTab> with ModTabState<TermsTab> {
                     vertical: 4,
                   ),
                   title: Text(term.text),
-                  subtitle: Text('Added ${formatAgoIso(term.createdAt)}'),
+                  subtitle: Text(
+                    mod.l10n.addedAgo(formatAgoIso(term.createdAt)),
+                  ),
                   trailing: isBusy(term.id)
                       ? const ModSpinner()
                       : IconButton(
                           icon: const Icon(Icons.delete_outline),
-                          tooltip: 'Remove',
+                          tooltip: mod.l10n.remove,
                           onPressed: () => _remove(term),
                         ),
                 );
