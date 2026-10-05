@@ -196,7 +196,7 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
     final tier = EmoteFetchTier.values[_tier];
     final autoOn = _autoMode != EmoteFetchAutoMode.off;
     return SettingsPage(
-      title: const Text('Emotes'),
+      title: Text(context.l10n.pageEmotes),
       body: widget.mobileNotifier == null
           ? _buildList(context, tier, autoOn, isMobile: false)
           : ValueListenableBuilder<bool>(
@@ -244,7 +244,7 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
                   child: AnimatedSwitcher(
                     duration: const Duration(milliseconds: 250),
                     child: Text(
-                      displayTier.label,
+                      _tierLabel(context.l10n, displayTier),
                       key: ValueKey('tier_label_${displayTier.label}'),
                       style: Theme.of(context).textTheme.titleLarge,
                     ),
@@ -256,7 +256,7 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
                   min: 0,
                   max: (EmoteFetchTier.values.length - 1).toDouble(),
                   divisions: EmoteFetchTier.values.length - 1,
-                  label: displayTier.label,
+                  label: _tierLabel(context.l10n, displayTier),
                   onChanged: autoOn ? null : _onTierDragging,
                   onChangeEnd: autoOn ? null : _onTierChanged,
                 ),
@@ -275,8 +275,13 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
                 duration: const Duration(milliseconds: 250),
                 child: autoOn
                     ? Text(
-                        'Auto: ${displayTier.label} on '
-                        '${isMobile ? 'cellular' : 'Wi-Fi'}',
+                        isMobile
+                            ? context.l10n.autoTierCellular(
+                                _tierLabel(context.l10n, displayTier),
+                              )
+                            : context.l10n.autoTierWifi(
+                                _tierLabel(context.l10n, displayTier),
+                              ),
                         key: ValueKey(
                           'auto_note_${isMobile}_${displayTier.label}',
                         ),
@@ -287,7 +292,7 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
                         ),
                       )
                     : Text(
-                        tier.subtitle,
+                        _tierHint(context.l10n, tier),
                         key: ValueKey('tier_subtitle_${tier.label}'),
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
@@ -314,7 +319,11 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
                   // Narrow phones shrink the word instead of breaking it.
                   label: FittedBox(
                     fit: BoxFit.scaleDown,
-                    child: Text(mode.label, maxLines: 1, softWrap: false),
+                    child: Text(
+                      _autoModeLabel(context.l10n, mode),
+                      maxLines: 1,
+                      softWrap: false,
+                    ),
                   ),
                 ),
             ],
@@ -327,7 +336,7 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
           child: Text(
-            _autoMode.subtitle,
+            _autoModeHint(context.l10n, _autoMode),
             style: Theme.of(context).textTheme.bodyMedium,
           ),
         ),
@@ -356,7 +365,7 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
             child: Text(
-              '0 will not keep any emotes in the cache',
+              context.l10n.emoteCacheZeroWarning,
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
                 color: Theme.of(context).colorScheme.error,
               ),
@@ -372,7 +381,7 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
                   onPressed: _draftCacheMb != _appliedCacheMb
                       ? _applyCacheMb
                       : null,
-                  child: const Text('Apply'),
+                  child: Text(context.l10n.apply),
                 ),
               ),
               const SizedBox(width: 12),
@@ -382,21 +391,21 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
                   onPressed: () async {
                     final confirm = await confirmDialog(
                       context,
-                      title: 'Clear emote cache?',
-                      message: 'This will wipe all cached emotes and refetch.',
-                      confirmLabel: 'Erm the nuke',
-                      cancelLabel: 'No',
+                      title: context.l10n.clearEmoteCacheTitle,
+                      message: context.l10n.clearEmoteCacheMessage,
+                      confirmLabel: context.l10n.clearEmoteCacheConfirm,
+                      cancelLabel: context.l10n.no,
                     );
                     if (confirm) widget.onNukeEmotes?.call();
                   },
-                  child: const Text('Nuke emotes'),
+                  child: Text(context.l10n.nukeEmotes),
                 ),
               ),
             ],
           ),
         ),
         _buildCacheFooter(context),
-        const SettingsSectionHeader('Animation'),
+        SettingsSectionHeader(context.l10n.sectionAnimation),
         SettingAnchor(
           Setting.animateEmotes,
           child: SwitchListTile(
@@ -416,7 +425,7 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
           child: SwitchListTile(
             secondary: const Icon(Icons.battery_saver_outlined),
             title: Text(Setting.adaptiveFps.titleOf(context.l10n)),
-            subtitle: const Text('Frame rate after 30s idle'),
+            subtitle: Text(context.l10n.adaptiveFpsHint),
             value: _adaptiveFps,
             onChanged: _animateGifs
                 ? (value) async {
@@ -436,7 +445,10 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
             // Fixed width so the slider keeps its length as the label changes.
             trailing: SizedBox(
               width: 64,
-              child: Text(_idleFpsLabel(_idleFps), textAlign: TextAlign.end),
+              child: Text(
+                _idleFpsLabel(context.l10n, _idleFps),
+                textAlign: TextAlign.end,
+              ),
             ),
             subtitle: Slider(
               key: const Key('idle_emote_fps_slider'),
@@ -444,7 +456,7 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
               min: 0,
               max: kActiveEmoteFps.toDouble(),
               divisions: kActiveEmoteFps ~/ 5,
-              label: _idleFpsLabel(_idleFps),
+              label: _idleFpsLabel(context.l10n, _idleFps),
               onChanged: _animateGifs && _adaptiveFps
                   ? (value) => setState(() => _idleFps = value.round())
                   : null,
@@ -490,14 +502,45 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
     EmoteType.sevenTv,
   ];
 
-  static String _idleFpsLabel(int fps) => fps == 0 ? 'Freeze' : '$fps fps';
+  static String _idleFpsLabel(AppLocalizations l, int fps) =>
+      fps == 0 ? l.idleFpsFreeze : l.fpsValue(fps);
+
+  static String _tierLabel(AppLocalizations l, EmoteFetchTier t) => switch (t) {
+    EmoteFetchTier.nothing => l.tierNothing,
+    EmoteFetchTier.low => l.tierLow,
+    EmoteFetchTier.medium => l.tierMedium,
+    EmoteFetchTier.high => l.tierHigh,
+  };
+
+  static String _tierHint(AppLocalizations l, EmoteFetchTier t) => switch (t) {
+    EmoteFetchTier.nothing => l.tierNothingHint,
+    EmoteFetchTier.low => l.tierLowHint,
+    EmoteFetchTier.medium => l.tierMediumHint,
+    EmoteFetchTier.high => l.tierHighHint,
+  };
+
+  static String _autoModeLabel(AppLocalizations l, EmoteFetchAutoMode m) =>
+      switch (m) {
+        EmoteFetchAutoMode.off => l.autoModeOff,
+        EmoteFetchAutoMode.balanced => l.autoModeBalanced,
+        EmoteFetchAutoMode.aggressive => l.autoModeAggressive,
+      };
+
+  static String _autoModeHint(AppLocalizations l, EmoteFetchAutoMode m) =>
+      switch (m) {
+        EmoteFetchAutoMode.off => l.autoModeOffHint,
+        EmoteFetchAutoMode.balanced => l.autoModeBalancedHint,
+        EmoteFetchAutoMode.aggressive => l.autoModeAggressiveHint,
+      };
 
   String _providersSummary() {
     final enabled = [
       for (final type in _providers)
         if (_providerEnabled[type] ?? true) _providerLabels[type]!,
     ];
-    return enabled.isEmpty ? 'All disabled' : '${enabled.join(', ')} enabled';
+    return enabled.isEmpty
+        ? context.l10n.providersAllDisabled
+        : context.l10n.providersEnabled(enabled.join(', '));
   }
 
   /// Bottom-sheet picker for emote providers. FFZ effects and BTTV
@@ -518,7 +561,7 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
                   child: Align(
                     alignment: Alignment.centerLeft,
                     child: Text(
-                      'Providers',
+                      context.l10n.providersTitle,
                       style: Theme.of(context).textTheme.titleMedium?.copyWith(
                         fontWeight: FontWeight.bold,
                       ),
@@ -536,25 +579,31 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
                     },
                   ),
                   if (type == EmoteType.ffz && (enabled[type] ?? true))
-                    _subSwitch('Effects', 'ffzX, ffzW ...', _ffzEffects, (
-                      v,
-                    ) async {
-                      setState(() => _ffzEffects = v);
-                      setSheetState(() {});
-                      final prefs = await Prefs.load();
-                      await prefs.setFfzEffects(v);
-                      PrefsStore.instance.notifyChanged();
-                    }),
+                    _subSwitch(
+                      context.l10n.ffzEffects,
+                      'ffzX, ffzW ...',
+                      _ffzEffects,
+                      (v) async {
+                        setState(() => _ffzEffects = v);
+                        setSheetState(() {});
+                        final prefs = await Prefs.load();
+                        await prefs.setFfzEffects(v);
+                        PrefsStore.instance.notifyChanged();
+                      },
+                    ),
                   if (type == EmoteType.bttv && (enabled[type] ?? true))
-                    _subSwitch('Modifiers', 'w!, h! ...', _bttvModifiers, (
-                      v,
-                    ) async {
-                      setState(() => _bttvModifiers = v);
-                      setSheetState(() {});
-                      final prefs = await Prefs.load();
-                      await prefs.setBttvModifiers(v);
-                      PrefsStore.instance.notifyChanged();
-                    }),
+                    _subSwitch(
+                      context.l10n.bttvModifiers,
+                      'w!, h! ...',
+                      _bttvModifiers,
+                      (v) async {
+                        setState(() => _bttvModifiers = v);
+                        setSheetState(() {});
+                        final prefs = await Prefs.load();
+                        await prefs.setBttvModifiers(v);
+                        PrefsStore.instance.notifyChanged();
+                      },
+                    ),
                 ],
                 const SizedBox(height: 8),
               ],
@@ -598,10 +647,12 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
           Expanded(
             child: Text(
               stats == null
-                  ? 'Emote cache...'
-                  : '${stats.fileCount} emotes stored · '
-                        '${_formatBytes(stats.totalBytes)} of '
-                        '$_appliedCacheMb MB',
+                  ? context.l10n.emoteCacheLoading
+                  : context.l10n.emoteCacheStats(
+                      stats.fileCount,
+                      _formatBytes(stats.totalBytes),
+                      _appliedCacheMb,
+                    ),
               style: textStyle,
             ),
           ),

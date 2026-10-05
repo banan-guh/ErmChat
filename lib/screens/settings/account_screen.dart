@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
+import '../../l10n/l10n.dart';
 import '../../services/twitch_api.dart';
 import '../../services/twitch_auth.dart';
 import '../../services/twitch_oauth.dart';
@@ -117,8 +118,7 @@ class _AccountScreenState extends State<AccountScreen> {
       } else {
         setState(() {
           _authState = _AuthState.error;
-          _authError =
-              TwitchOAuth.lastError ?? "Couldn't log in to Twitch. Try again.";
+          _authError = TwitchOAuth.lastError ?? context.l10n.loginFailed;
         });
       }
     }
@@ -169,9 +169,7 @@ class _AccountScreenState extends State<AccountScreen> {
     }
 
     setState(() {
-      _authError =
-          'That link has no login in it. Copy the whole address from the '
-          'browser, including the part after #.';
+      _authError = context.l10n.loginLinkMissing;
     });
   }
 
@@ -195,7 +193,7 @@ class _AccountScreenState extends State<AccountScreen> {
   @override
   Widget build(BuildContext context) {
     return SettingsPage(
-      title: const Text('Account'),
+      title: Text(context.l10n.pageAccount),
       body: ListView(children: [_buildAccountSection(), _buildBody()]),
     );
   }
@@ -215,7 +213,7 @@ class _AccountScreenState extends State<AccountScreen> {
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
               child: Text(
-                'Accounts',
+                context.l10n.accounts,
                 style: theme.textTheme.titleSmall?.copyWith(
                   color: theme.colorScheme.onSurfaceVariant,
                 ),
@@ -232,11 +230,11 @@ class _AccountScreenState extends State<AccountScreen> {
                     leading: _AccountAvatar(account: account),
                     title: Text(account.login),
                     subtitle: isExpired
-                        ? const Text('Expired - log in again')
+                        ? Text(context.l10n.accountExpired)
                         : needsReauth
-                        ? const Text('New permissions - log in again')
+                        ? Text(context.l10n.accountNewPermissions)
                         : isActive
-                        ? const Text('Active')
+                        ? Text(context.l10n.accountActive)
                         : null,
                     trailing: isActive && !isExpired
                         ? Icon(Icons.check, color: theme.colorScheme.primary)
@@ -261,8 +259,8 @@ class _AccountScreenState extends State<AccountScreen> {
                       color: theme.colorScheme.onSurfaceVariant,
                     ),
                   ),
-                  title: const Text('Anonymous'),
-                  subtitle: isActive ? const Text('Active') : null,
+                  title: Text(context.l10n.anonymous),
+                  subtitle: isActive ? Text(context.l10n.accountActive) : null,
                   trailing: isActive
                       ? Icon(Icons.check, color: theme.colorScheme.primary)
                       : null,
@@ -299,9 +297,9 @@ class _AccountScreenState extends State<AccountScreen> {
   Future<void> _confirmRemove(TwitchAccount account) async {
     final confirmed = await confirmDialog(
       context,
-      title: 'Remove account?',
-      message: 'Are you sure you want to remove @${account.login}?',
-      confirmLabel: 'Remove',
+      title: context.l10n.removeAccountTitle,
+      message: context.l10n.removeAccountMessage(account.login),
+      confirmLabel: context.l10n.remove,
       destructive: true,
     );
     if (!confirmed || !mounted) return;
@@ -328,7 +326,7 @@ class _AccountScreenState extends State<AccountScreen> {
             child: FilledButton.icon(
               onPressed: _startOAuth,
               icon: const Icon(Icons.login),
-              label: const Text('Log in'),
+              label: Text(context.l10n.logIn),
             ),
           ),
         );
@@ -357,7 +355,7 @@ class _AccountScreenState extends State<AccountScreen> {
                 FilledButton.icon(
                   onPressed: _startOAuth,
                   icon: const Icon(Icons.refresh),
-                  label: const Text('Try again'),
+                  label: Text(context.l10n.tryAgain),
                 ),
               ],
             ),
@@ -365,15 +363,15 @@ class _AccountScreenState extends State<AccountScreen> {
         );
 
       case _AuthState.waiting:
-        return const Center(
+        return Center(
           child: Padding(
-            padding: EdgeInsets.all(24),
+            padding: const EdgeInsets.all(24),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Text('Opening Twitch login...'),
-                SizedBox(height: 16),
-                CircularProgressIndicator(),
+                Text(context.l10n.openingTwitchLogin),
+                const SizedBox(height: 16),
+                const CircularProgressIndicator(),
               ],
             ),
           ),
@@ -397,11 +395,7 @@ class _AccountScreenState extends State<AccountScreen> {
                     textAlign: TextAlign.center,
                   ),
                 ),
-              const Text(
-                'Authorize in your browser, then paste the full redirect URL '
-                '(including the #fragment) below.',
-                textAlign: TextAlign.center,
-              ),
+              Text(context.l10n.browserAuthHint, textAlign: TextAlign.center),
               const SizedBox(height: 12),
               SelectionArea(
                 child: Text(
@@ -414,18 +408,18 @@ class _AccountScreenState extends State<AccountScreen> {
                 onPressed: () {
                   if (_browserAuthUrl != null) {
                     Clipboard.setData(ClipboardData(text: _browserAuthUrl!));
-                    AppSnack.show(context, 'URL copied!');
+                    AppSnack.show(context, context.l10n.urlCopied);
                   }
                 },
                 icon: const Icon(Icons.copy, size: 18),
-                label: const Text('Copy URL'),
+                label: Text(context.l10n.copyUrl),
               ),
               const SizedBox(height: 12),
               TextField(
                 controller: _pasteController,
-                decoration: const InputDecoration(
-                  hintText: 'Paste redirect URL',
-                  border: OutlineInputBorder(),
+                decoration: InputDecoration(
+                  hintText: context.l10n.pasteRedirectUrl,
+                  border: const OutlineInputBorder(),
                 ),
                 maxLines: 2,
               ),
@@ -437,14 +431,14 @@ class _AccountScreenState extends State<AccountScreen> {
                       onPressed: () {
                         setState(() => _authState = _AuthState.idle);
                       },
-                      child: const Text('Cancel'),
+                      child: Text(context.l10n.cancel),
                     ),
                   ),
                   const SizedBox(width: 12),
                   Expanded(
                     child: FilledButton(
                       onPressed: _submitPastedUrl,
-                      child: const Text('Submit'),
+                      child: Text(context.l10n.submit),
                     ),
                   ),
                 ],
@@ -470,7 +464,9 @@ class _AccountScreenState extends State<AccountScreen> {
                   builder: (context, _) {
                     final login = widget.twitchAuth.login ?? _connectedLogin;
                     return Text(
-                      login != null ? 'Connected as $login' : 'Connected',
+                      login != null
+                          ? context.l10n.connectedAs(login)
+                          : context.l10n.connected,
                     );
                   },
                 ),
@@ -483,8 +479,7 @@ class _AccountScreenState extends State<AccountScreen> {
                     return Padding(
                       padding: const EdgeInsets.only(top: 8),
                       child: Text(
-                        'New mod features need extra permissions. '
-                        'Log in again to grant them.',
+                        context.l10n.modScopesStale,
                         textAlign: TextAlign.center,
                         style: TextStyle(
                           color: Theme.of(context).colorScheme.error,
@@ -505,8 +500,8 @@ class _AccountScreenState extends State<AccountScreen> {
                           icon: const Icon(Icons.person_add),
                           label: Text(
                             widget.twitchAuth.scopeStale
-                                ? 'Log in again'
-                                : 'Add account',
+                                ? context.l10n.logInAgain
+                                : context.l10n.addAccount,
                           ),
                         );
                       },
@@ -515,7 +510,7 @@ class _AccountScreenState extends State<AccountScreen> {
                     TextButton.icon(
                       onPressed: _clearCredentials,
                       icon: const Icon(Icons.logout),
-                      label: const Text('Disconnect'),
+                      label: Text(context.l10n.disconnect),
                     ),
                   ],
                 ),
@@ -536,7 +531,7 @@ class _AccountScreenState extends State<AccountScreen> {
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 16),
                   child: Text(
-                    _authError ?? 'Unknown error',
+                    _authError ?? context.l10n.unknownError,
                     textAlign: TextAlign.center,
                   ),
                 ),
@@ -544,7 +539,7 @@ class _AccountScreenState extends State<AccountScreen> {
                 FilledButton.icon(
                   onPressed: _startOAuth,
                   icon: const Icon(Icons.refresh),
-                  label: const Text('Try again'),
+                  label: Text(context.l10n.tryAgain),
                 ),
               ],
             ),

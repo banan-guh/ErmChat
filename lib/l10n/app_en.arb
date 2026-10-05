@@ -105,5 +105,235 @@
   "sectionNavigation": "Navigation",
   "sectionTheme": "Theme",
   "sectionTyping": "Typing",
-  "sectionUsers": "Users"
+  "sectionUsers": "Users",
+  "timestampFormatTitle": "Timestamp format",
+  "timestampExample": "e.g. {example}",
+  "@timestampExample": {
+    "placeholders": {
+      "example": {
+        "type": "String"
+      }
+    }
+  },
+  "themeSystem": "System",
+  "themeLight": "Light",
+  "themeDark": "Dark",
+  "layoutCustom": "Custom",
+  "layoutAutoCompact": "Auto (compact)",
+  "layoutAutoFull": "Auto (full)",
+  "layoutAuto": "Auto",
+  "layoutCompact": "Compact",
+  "layoutFull": "Full",
+  "layoutAutoHint": "Compact on small phones",
+  "layoutCompactHint": "Merged top row, tighter spacing",
+  "layoutFullHint": "Separate top bar and tabs",
+  "experimental": "Experimental",
+  "checkeredHint": "Alternate row shading",
+  "tierNothing": "Nothing",
+  "tierLow": "Low",
+  "tierMedium": "Medium",
+  "tierHigh": "High",
+  "tierNothingHint": "Show only already-cached emotes, never fetch",
+  "tierLowHint": "Small 1x emotes, fetched once then frozen (data saver)",
+  "tierMediumHint": "Medium 2x emotes, normal updates",
+  "tierHighHint": "Medium 2x emotes with large 4x card detail",
+  "autoModeOff": "Off",
+  "autoModeBalanced": "Balanced",
+  "autoModeAggressive": "Aggressive",
+  "autoModeOffHint": "Always use the selected tier",
+  "autoModeBalancedHint": "High on Wi-Fi, Low on cellular",
+  "autoModeAggressiveHint": "Medium on Wi-Fi, nothing on cellular",
+  "autoTierCellular": "Auto: {tier} on cellular",
+  "@autoTierCellular": {
+    "placeholders": {
+      "tier": {
+        "type": "String"
+      }
+    }
+  },
+  "autoTierWifi": "Auto: {tier} on Wi-Fi",
+  "@autoTierWifi": {
+    "placeholders": {
+      "tier": {
+        "type": "String"
+      }
+    }
+  },
+  "emoteCacheZeroWarning": "0 will not keep any emotes in the cache",
+  "apply": "Apply",
+  "clearEmoteCacheTitle": "Clear emote cache?",
+  "clearEmoteCacheMessage": "This will wipe all cached emotes and refetch.",
+  "clearEmoteCacheConfirm": "Erm the nuke",
+  "no": "No",
+  "nukeEmotes": "Nuke emotes",
+  "adaptiveFpsHint": "Frame rate after 30s idle",
+  "idleFpsFreeze": "Freeze",
+  "fpsValue": "{fps} fps",
+  "@fpsValue": {
+    "placeholders": {
+      "fps": {
+        "type": "int"
+      }
+    }
+  },
+  "providersAllDisabled": "All disabled",
+  "providersEnabled": "{providers} enabled",
+  "@providersEnabled": {
+    "placeholders": {
+      "providers": {
+        "type": "String"
+      }
+    }
+  },
+  "providersTitle": "Providers",
+  "ffzEffects": "Effects",
+  "bttvModifiers": "Modifiers",
+  "emoteCacheLoading": "Emote cache...",
+  "emoteCacheStats": "{count, plural, =1{1 emote stored} other{{count} emotes stored}} · {used} of {cap} MB",
+  "@emoteCacheStats": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "used": {
+        "type": "String"
+      },
+      "cap": {
+        "type": "int"
+      }
+    }
+  },
+  "sharedChatFade": "Fade",
+  "sharedChatHide": "Hide",
+  "sharedChatSpotlight": "Spotlight",
+  "sharedChatTitle": "Shared chat messages",
+  "sharedChatSpotlightHint": "Labeled by channel",
+  "sharedChatFadeHint": "Dimmed",
+  "sharedChatHideHint": "Hidden",
+  "embedsGiphyImages": "Giphy, images",
+  "embedsGiphy": "Giphy",
+  "embedsImages": "Images",
+  "off": "Off",
+  "on": "On",
+  "chooseProvider": "Choose provider",
+  "delaysUserCard": "Delays opening the user card",
+  "persistentNotification": "Shows a persistent notification",
+  "mentionFormatTitle": "Mention format",
+  "keywordRemoved": "Keyword removed",
+  "userRemoved": "User removed",
+  "undo": "Undo",
+  "durationMinutes": "{minutes} min",
+  "@durationMinutes": {
+    "placeholders": {
+      "minutes": {
+        "type": "int"
+      }
+    }
+  },
+  "durationHours": "{hours, plural, =1{1 hour} other{{hours} hours}}",
+  "@durationHours": {
+    "placeholders": {
+      "hours": {
+        "type": "int"
+      }
+    }
+  },
+  "muteNevermind": "Nevermind...",
+  "muteFor": "Mute for {duration}",
+  "@muteFor": {
+    "placeholders": {
+      "duration": {
+        "type": "String"
+      }
+    }
+  },
+  "mutedUntil": "Muted until {time}",
+  "@mutedUntil": {
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "unmute": "Unmute",
+  "muteForHour": "Mute for 1 hour",
+  "notificationsNeedBackground": "Notifications need Stay connected in background",
+  "turnOn": "Turn on",
+  "notificationsOff": "Notifications are off",
+  "addKeyword": "Add keyword",
+  "addUser": "Add user",
+  "none": "None",
+  "dontHighlightCaption": "Shown, but never highlighted or notified.",
+  "badgesTitle": "Badges",
+  "redemptionNote": "Includes highlighted messages.",
+  "elevatedNote": "Paid messages pinned to chat.",
+  "matchAnywhere": "Anywhere",
+  "highlightOnly": "Highlight only",
+  "newKeyword": "New keyword",
+  "editKeyword": "Edit keyword",
+  "newUser": "New user",
+  "editUser": "Edit user",
+  "add": "Add",
+  "save": "Save",
+  "wordOrPhrase": "Word or phrase",
+  "username": "Username",
+  "wholeWord": "Whole word",
+  "addToMentions": "Add to @mentions",
+  "alwaysOnWhileNotifies": "Always on while this notifies",
+  "color": "Color",
+  "useDefault": "Use default",
+  "delete": "Delete",
+  "noRecentMessages": "No recent messages",
+  "recentMatches": "{count, plural, =0{No recent matches} =1{1 recent match} other{{count} recent matches}}",
+  "@recentMatches": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "levelOff": "Off",
+  "levelHighlight": "Highlight",
+  "levelNotify": "Notify",
+  "levelNotifyMuted": "Notify (muted)",
+  "loginFailed": "Couldn't log in to Twitch. Try again.",
+  "loginLinkMissing": "That link has no login in it. Copy the whole address from the browser, including the part after #.",
+  "accounts": "Accounts",
+  "accountExpired": "Expired - log in again",
+  "accountNewPermissions": "New permissions - log in again",
+  "accountActive": "Active",
+  "anonymous": "Anonymous",
+  "removeAccountTitle": "Remove account?",
+  "removeAccountMessage": "Are you sure you want to remove @{login}?",
+  "@removeAccountMessage": {
+    "placeholders": {
+      "login": {
+        "type": "String"
+      }
+    }
+  },
+  "remove": "Remove",
+  "logIn": "Log in",
+  "tryAgain": "Try again",
+  "openingTwitchLogin": "Opening Twitch login...",
+  "browserAuthHint": "Authorize in your browser, then paste the full redirect URL (including the #fragment) below.",
+  "urlCopied": "URL copied!",
+  "copyUrl": "Copy URL",
+  "pasteRedirectUrl": "Paste redirect URL",
+  "cancel": "Cancel",
+  "submit": "Submit",
+  "connectedAs": "Connected as {login}",
+  "@connectedAs": {
+    "placeholders": {
+      "login": {
+        "type": "String"
+      }
+    }
+  },
+  "connected": "Connected",
+  "modScopesStale": "New mod features need extra permissions. Log in again to grant them.",
+  "logInAgain": "Log in again",
+  "addAccount": "Add account",
+  "disconnect": "Disconnect",
+  "unknownError": "Unknown error"
 }

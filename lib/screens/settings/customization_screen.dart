@@ -165,12 +165,12 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
     final now = DateTime.now();
     final selected = await showChoiceDialog<String>(
       context,
-      title: 'Timestamp format',
+      title: context.l10n.timestampFormatTitle,
       value: _timestampFormat,
       height: 420,
       options: [
         for (final fmt in kTimestampFormats)
-          (fmt, fmt, 'e.g. ${formatTimestamp(now, fmt)}'),
+          (fmt, fmt, context.l10n.timestampExample(formatTimestamp(now, fmt))),
       ],
     );
     if (selected == null || selected == _timestampFormat) return;
@@ -186,7 +186,7 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return SettingsPage(
-      title: const Text('Appearance'),
+      title: Text(context.l10n.pageAppearance),
       body: ListView(
         children: [
           SettingAnchor(
@@ -202,15 +202,15 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
               onTap: () => _pickLanguage(context),
             ),
           ),
-          const SettingsSectionHeader('Theme'),
+          SettingsSectionHeader(context.l10n.sectionTheme),
           SettingAnchor(
             Setting.theme,
             child: ListTile(
               title: Text(Setting.theme.titleOf(context.l10n)),
               subtitle: Text(switch (_themeMode) {
-                ThemeMode.system => 'System',
-                ThemeMode.light => 'Light',
-                ThemeMode.dark => 'Dark',
+                ThemeMode.system => context.l10n.themeSystem,
+                ThemeMode.light => context.l10n.themeLight,
+                ThemeMode.dark => context.l10n.themeDark,
               }),
               trailing: const Icon(Icons.chevron_right),
               onTap: () => _pickTheme(context),
@@ -257,19 +257,21 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
               write: (p, v) => p.setTrueDark(v),
             ),
           ),
-          const SettingsSectionHeader('Layout'),
+          SettingsSectionHeader(context.l10n.sectionLayout),
           SettingAnchor(
             Setting.layout,
             child: ListTile(
               title: Text(Setting.layout.titleOf(context.l10n)),
               subtitle: Text(
                 _customLayoutEnabled
-                    ? 'Custom'
+                    ? context.l10n.layoutCustom
                     : switch (_layoutDensity) {
                         LayoutDensity.auto =>
-                          'Auto (${isCompactLayout(context) ? 'compact' : 'full'})',
-                        LayoutDensity.compact => 'Compact',
-                        LayoutDensity.full => 'Full',
+                          isCompactLayout(context)
+                              ? context.l10n.layoutAutoCompact
+                              : context.l10n.layoutAutoFull,
+                        LayoutDensity.compact => context.l10n.layoutCompact,
+                        LayoutDensity.full => context.l10n.layoutFull,
                       },
               ),
               trailing: const Icon(Icons.chevron_right),
@@ -280,12 +282,12 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
             Setting.liquidGlass,
             child: PrefsSwitchTile(
               title: Setting.liquidGlass.titleOf(context.l10n),
-              subtitle: 'Experimental',
+              subtitle: context.l10n.experimental,
               read: (p) => p.liquidGlass,
               write: (p, v) => p.setLiquidGlass(v),
             ),
           ),
-          const SettingsSectionHeader('Chat display'),
+          SettingsSectionHeader(context.l10n.sectionChatDisplay),
           SettingAnchor(
             Setting.chatFontSize,
             child: PrefsSliderTile(
@@ -322,7 +324,7 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
             Setting.checkered,
             child: PrefsSwitchTile(
               title: Setting.checkered.titleOf(context.l10n),
-              subtitle: 'Alternate row shading',
+              subtitle: context.l10n.checkeredHint,
               defaultValue: false,
               read: (p) => p.checkeredMessages,
               write: (p, v) => p.setCheckeredMessages(v),
@@ -337,7 +339,7 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
               write: (p, v) => p.setLineSeparator(v),
             ),
           ),
-          const SettingsSectionHeader('Display'),
+          SettingsSectionHeader(context.l10n.sectionDisplay),
           SettingAnchor(
             Setting.keepScreenOn,
             child: PrefsSwitchTile(
@@ -347,7 +349,7 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
               write: (p, v) => p.setKeepScreenOn(v),
             ),
           ),
-          const SettingsSectionHeader('Navigation'),
+          SettingsSectionHeader(context.l10n.sectionNavigation),
           SettingAnchor(
             Setting.fastChannelSwipe,
             child: PrefsSwitchTile(
@@ -406,10 +408,10 @@ class _ThemePickerSheet extends StatelessWidget {
 
   const _ThemePickerSheet({required this.current});
 
-  static const _options = <ThemeMode, (IconData, String)>{
-    ThemeMode.system: (Icons.brightness_auto, 'System'),
-    ThemeMode.light: (Icons.light_mode_outlined, 'Light'),
-    ThemeMode.dark: (Icons.dark_mode_outlined, 'Dark'),
+  static Map<ThemeMode, (IconData, String)> _options(AppLocalizations l) => {
+    ThemeMode.system: (Icons.brightness_auto, l.themeSystem),
+    ThemeMode.light: (Icons.light_mode_outlined, l.themeLight),
+    ThemeMode.dark: (Icons.dark_mode_outlined, l.themeDark),
   };
 
   @override
@@ -431,7 +433,7 @@ class _ThemePickerSheet extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 8),
-          for (final entry in _options.entries)
+          for (final entry in _options(context.l10n).entries)
             ListTile(
               leading: Icon(entry.value.$1),
               title: Text(entry.value.$2),
@@ -463,18 +465,16 @@ class _LayoutPickerSheet extends StatelessWidget {
     required this.onCustom,
   });
 
-  static const _options = <LayoutDensity, (IconData, String, String)>{
-    LayoutDensity.auto: (
-      Icons.brightness_auto,
-      'Auto',
-      'Compact on small phones',
-    ),
+  static Map<LayoutDensity, (IconData, String, String)> _options(
+    AppLocalizations l,
+  ) => {
+    LayoutDensity.auto: (Icons.brightness_auto, l.layoutAuto, l.layoutAutoHint),
     LayoutDensity.compact: (
       Icons.smartphone,
-      'Compact',
-      'Merged top row, tighter spacing',
+      l.layoutCompact,
+      l.layoutCompactHint,
     ),
-    LayoutDensity.full: (Icons.tablet, 'Full', 'Separate top bar and tabs'),
+    LayoutDensity.full: (Icons.tablet, l.layoutFull, l.layoutFullHint),
   };
 
   @override
@@ -496,7 +496,7 @@ class _LayoutPickerSheet extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 8),
-          for (final entry in _options.entries)
+          for (final entry in _options(context.l10n).entries)
             ListTile(
               enabled: !customEnabled,
               leading: Icon(entry.value.$1),
@@ -513,7 +513,7 @@ class _LayoutPickerSheet extends StatelessWidget {
           const Divider(),
           ListTile(
             leading: const Icon(Icons.tune),
-            title: const Text('Custom'),
+            title: Text(context.l10n.layoutCustom),
             trailing: customEnabled
                 ? Icon(
                     Icons.check,

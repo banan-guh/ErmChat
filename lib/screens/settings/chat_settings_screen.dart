@@ -80,38 +80,38 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
       _prefs?.imageEmbedEnabled ?? kImageEmbedEnabledDefault;
 
   String get _sharedChatModeLabel => switch (_sharedChatMode) {
-    'fade' => 'Fade',
-    'hide' => 'Hide',
-    _ => 'Spotlight',
+    'fade' => context.l10n.sharedChatFade,
+    'hide' => context.l10n.sharedChatHide,
+    _ => context.l10n.sharedChatSpotlight,
   };
 
   Future<void> _pickSharedChatMode() async {
     final selected = await showDialog<String>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Shared chat messages'),
+        title: Text(ctx.l10n.sharedChatTitle),
         content: RadioGroup<String>(
           groupValue: _sharedChatMode,
           onChanged: (v) {
             if (v != null) Navigator.pop(ctx, v);
           },
-          child: const Column(
+          child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               RadioListTile<String>(
                 value: 'spotlight',
-                title: Text('Spotlight'),
-                subtitle: Text('Labeled by channel'),
+                title: Text(ctx.l10n.sharedChatSpotlight),
+                subtitle: Text(ctx.l10n.sharedChatSpotlightHint),
               ),
               RadioListTile<String>(
                 value: 'fade',
-                title: Text('Fade'),
-                subtitle: Text('Dimmed'),
+                title: Text(ctx.l10n.sharedChatFade),
+                subtitle: Text(ctx.l10n.sharedChatFadeHint),
               ),
               RadioListTile<String>(
                 value: 'hide',
-                title: Text('Hide'),
-                subtitle: Text('Hidden'),
+                title: Text(ctx.l10n.sharedChatHide),
+                subtitle: Text(ctx.l10n.sharedChatHideHint),
               ),
             ],
           ),
@@ -128,20 +128,20 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
 
   String get _inlineEmbedsSubtitle {
     return switch ((_showGifs, _showImages)) {
-      (true, true) => 'Giphy, images',
-      (true, false) => 'Giphy',
-      (false, true) => 'Images',
-      _ => 'Off',
+      (true, true) => context.l10n.embedsGiphyImages,
+      (true, false) => context.l10n.embedsGiphy,
+      (false, true) => context.l10n.embedsImages,
+      _ => context.l10n.off,
     };
   }
 
   @override
   Widget build(BuildContext context) {
     return SettingsPage(
-      title: const Text('Chat'),
+      title: Text(context.l10n.pageChat),
       body: ListView(
         children: [
-          const SettingsSectionHeader('Messages'),
+          SettingsSectionHeader(context.l10n.sectionMessages),
           SettingAnchor(
             Setting.maxMessages,
             child: PrefsSliderTile(
@@ -197,7 +197,7 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
               ),
             ),
           ),
-          const SettingsSectionHeader('History'),
+          SettingsSectionHeader(context.l10n.sectionHistory),
           SettingAnchor(
             Setting.recentMessagesLimit,
             child: PrefsSliderTile(
@@ -217,7 +217,7 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
             child: SettingsNavTile(
               icon: Icons.history,
               title: Setting.recentMessagesSource.titleOf(context.l10n),
-              subtitle: 'Choose provider',
+              subtitle: context.l10n.chooseProvider,
               onTap: () => Navigator.push(
                 context,
                 MaterialPageRoute(
@@ -228,7 +228,7 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
               ),
             ),
           ),
-          const SettingsSectionHeader('Typing'),
+          SettingsSectionHeader(context.l10n.sectionTyping),
           SettingAnchor(
             Setting.preferEmotes,
             child: PrefsSwitchTile(
@@ -267,13 +267,13 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
                 },
               ),
             ),
-          const SettingsSectionHeader('Users'),
+          SettingsSectionHeader(context.l10n.sectionUsers),
           SettingAnchor(
             Setting.doubleTapCopy,
             child: PrefsSwitchTile(
               secondary: const Icon(Icons.content_copy),
               title: Setting.doubleTapCopy.titleOf(context.l10n),
-              subtitle: 'Delays opening the user card',
+              subtitle: context.l10n.delaysUserCard,
               defaultValue: false,
               read: (p) => p.doubleTapNameCopy,
               write: (p, v) => p.setDoubleTapNameCopy(v),
@@ -289,7 +289,7 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
               write: (p, v) => p.setSeventvNamePaints(v),
             ),
           ),
-          const SettingsSectionHeader('Connection'),
+          SettingsSectionHeader(context.l10n.sectionConnection),
           // The foreground service behind this is Android-only.
           if (!kIsWeb && Platform.isAndroid)
             SettingAnchor(
@@ -297,7 +297,7 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
               child: PrefsSwitchTile(
                 secondary: const Icon(Icons.wifi_tethering),
                 title: Setting.stayConnected.titleOf(context.l10n),
-                subtitle: 'Shows a persistent notification',
+                subtitle: context.l10n.persistentNotification,
                 defaultValue: false,
                 read: (p) => p.backgroundService,
                 write: (p, v) => p.setBackgroundService(v),
@@ -309,7 +309,9 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
             child: SettingsNavTile(
               icon: Icons.cloud,
               title: Setting.chatProxy.titleOf(context.l10n),
-              subtitle: (_prefs?.proxyEnabled ?? false) ? 'On' : 'Off',
+              subtitle: (_prefs?.proxyEnabled ?? false)
+                  ? context.l10n.on
+                  : context.l10n.off,
               // The proxy screen saves without announcing it; re-read on return.
               onTap: () => Navigator.push(
                 context,
@@ -353,7 +355,7 @@ class _MentionFormatTileState extends State<_MentionFormatTile> {
     final selected = await showDialog<String>(
       context: context,
       builder: (ctx) => SimpleDialog(
-        title: const Text('Mention format'),
+        title: Text(ctx.l10n.mentionFormatTitle),
         children: [
           RadioGroup<String>(
             groupValue: _format,

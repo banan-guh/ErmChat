@@ -123,12 +123,14 @@ class _PingsScreenState extends ConsumerState<PingsScreen> {
     );
     if (!mounted || saved == null) return;
     if (saved.deleted) {
-      final noun = rule.kind == PingRuleKind.message ? 'Keyword' : 'User';
+      final removed = rule.kind == PingRuleKind.message
+          ? context.l10n.keywordRemoved
+          : context.l10n.userRemoved;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('$noun removed'),
+          content: Text(removed),
           action: SnackBarAction(
-            label: 'Undo',
+            label: context.l10n.undo,
             onPressed: () {
               _manager.upsertRule(rule);
               _manager.save();
@@ -161,7 +163,7 @@ class _PingsScreenState extends ConsumerState<PingsScreen> {
     // Rules keep their notify setting; the bells show it's silenced.
     final paused = !pushOn || muted;
     return SettingsPage(
-      title: const Text('Highlights'),
+      title: Text(context.l10n.pageHighlights),
       body: ListenableBuilder(
         listenable: manager,
         builder: (context, _) {
@@ -206,11 +208,9 @@ class _PingsScreenState extends ConsumerState<PingsScreen> {
   /// Inset of the mute slider's track from the row's edges.
   static const _muteInset = 16.0;
 
-  static String _muteLabel(Duration d) => d.inMinutes < 60
-      ? '${d.inMinutes} min'
-      : d.inHours == 1
-      ? '1 hour'
-      : '${d.inHours} hours';
+  static String _muteLabel(AppLocalizations l, Duration d) => d.inMinutes < 60
+      ? l.durationMinutes(d.inMinutes)
+      : l.durationHours(d.inHours);
 
   void _mute(Duration d) {
     ref.read(notificationPauseProvider.notifier).pauseFor(d);
@@ -245,7 +245,9 @@ class _PingsScreenState extends ConsumerState<PingsScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              d == Duration.zero ? 'Nevermind...' : 'Mute for ${_muteLabel(d)}',
+              d == Duration.zero
+                  ? context.l10n.muteNevermind
+                  : context.l10n.muteFor(_muteLabel(context.l10n, d)),
               style: Theme.of(context).textTheme.bodyLarge,
             ),
             Opacity(
@@ -281,14 +283,14 @@ class _PingsScreenState extends ConsumerState<PingsScreen> {
     final drag = _muteDrag;
     final String status;
     if (!pushOn) {
-      status = 'Off';
+      status = context.l10n.off;
     } else if (showMute) {
       final time = MaterialLocalizations.of(
         context,
       ).formatTimeOfDay(TimeOfDay.fromDateTime(until.toLocal()));
-      status = 'Muted until $time';
+      status = context.l10n.mutedUntil(time);
     } else {
-      status = 'On';
+      status = context.l10n.on;
     }
     // The moon keeps its place in the tree while held, or the hold would end.
     final moon = GestureDetector(
@@ -311,7 +313,7 @@ class _PingsScreenState extends ConsumerState<PingsScreen> {
       onLongPressCancel: () => setState(() => _muteDrag = null),
       child: Semantics(
         button: true,
-        label: showMute ? 'Unmute' : 'Mute for 1 hour',
+        label: showMute ? context.l10n.unmute : context.l10n.muteForHour,
         child: InkWell(
           customBorder: const CircleBorder(),
           onTap: !canMute
@@ -396,8 +398,11 @@ class _PingsScreenState extends ConsumerState<PingsScreen> {
     ..hideCurrentSnackBar()
     ..showSnackBar(
       SnackBar(
-        content: const Text('Notifications need Stay connected in background'),
-        action: SnackBarAction(label: 'Turn on', onPressed: _enableKeepAlive),
+        content: Text(context.l10n.notificationsNeedBackground),
+        action: SnackBarAction(
+          label: context.l10n.turnOn,
+          onPressed: _enableKeepAlive,
+        ),
       ),
     );
 
@@ -405,9 +410,9 @@ class _PingsScreenState extends ConsumerState<PingsScreen> {
     ..hideCurrentSnackBar()
     ..showSnackBar(
       SnackBar(
-        content: const Text('Notifications are off'),
+        content: Text(context.l10n.notificationsOff),
         action: SnackBarAction(
-          label: 'Turn on',
+          label: context.l10n.turnOn,
           onPressed: () => _setPush(true),
         ),
       ),
@@ -429,7 +434,7 @@ class _PingsScreenState extends ConsumerState<PingsScreen> {
     bool paused,
     bool pushOn,
   ) => [
-    const SettingsSectionHeader('Mentions'),
+    SettingsSectionHeader(context.l10n.sectionMentions),
     for (final type in const ['username', 'reply', 'thread'])
       ...rules
           .where((r) => r.kind == PingRuleKind.message && r.type == type)
@@ -473,7 +478,7 @@ class _PingsScreenState extends ConsumerState<PingsScreen> {
       ))
         _tile(r, paused),
       _AddTile(
-        keywords ? 'Add keyword' : 'Add user',
+        keywords ? context.l10n.addKeyword : context.l10n.addUser,
         onTap: () => _edit(
           PingRule(id: '', kind: kind, wordBoundary: keywords),
           isNew: true,
@@ -488,7 +493,7 @@ class _PingsScreenState extends ConsumerState<PingsScreen> {
         .map((r) => _badgeLabel(r.pattern))
         .toList();
     return [
-      const SettingsSectionHeader('Events'),
+      SettingsSectionHeader(context.l10n.sectionEvents),
       for (final type in const ['firstMsg', 'redemption', 'elevated'])
         ...rules
             .where((r) => r.kind == PingRuleKind.message && r.type == type)
@@ -501,7 +506,9 @@ class _PingsScreenState extends ConsumerState<PingsScreen> {
             child: Icon(Icons.shield_outlined),
           ),
           title: Text(Setting.badges.titleOf(context.l10n)),
-          subtitle: Text(badgesOn.isEmpty ? 'None' : badgesOn.join(', ')),
+          subtitle: Text(
+            badgesOn.isEmpty ? context.l10n.none : badgesOn.join(', '),
+          ),
           trailing: const Icon(Icons.chevron_right),
           onTap: () => Navigator.push(
             context,
@@ -520,11 +527,11 @@ class _PingsScreenState extends ConsumerState<PingsScreen> {
       Setting.dontHighlight,
       child: SettingsSectionHeader(Setting.dontHighlight.titleOf(context.l10n)),
     ),
-    const _Caption('Shown, but never highlighted or notified.'),
+    _Caption(context.l10n.dontHighlightCaption),
     for (final r in rules.where((r) => r.kind == PingRuleKind.blacklist))
       _tile(r, false),
     _AddTile(
-      'Add user',
+      context.l10n.addUser,
       onTap: () => _edit(
         const PingRule(id: '', kind: PingRuleKind.blacklist),
         isNew: true,
@@ -551,7 +558,7 @@ class _PingsScreenState extends ConsumerState<PingsScreen> {
       opacity: _opacity,
     );
     return [
-      const SettingsSectionHeader('Appearance'),
+      SettingsSectionHeader(context.l10n.sectionAppearance),
       Padding(
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
         child: DecoratedBox(
@@ -629,7 +636,7 @@ class _BadgesPage extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final manager = ref.watch(pingManagerProvider);
     return SettingsPage(
-      title: const Text('Badges'),
+      title: Text(context.l10n.badgesTitle),
       body: ListenableBuilder(
         listenable: manager,
         builder: (context, _) => ListView(
@@ -720,7 +727,7 @@ class _RuleTile extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final scheme = Theme.of(context).colorScheme;
     final muted = rule.kind == PingRuleKind.blacklist;
-    final subtitle = _ruleSubtitle(rule);
+    final subtitle = _ruleSubtitle(context.l10n, rule);
     // An off rule greys everything but its switch.
     final dim = rule.enabled ? 1.0 : 0.38;
     final tile = ListTile(
@@ -743,7 +750,7 @@ class _RuleTile extends ConsumerWidget {
                 ),
         ),
       ),
-      title: Opacity(opacity: dim, child: Text(_ruleTitle(rule))),
+      title: Opacity(opacity: dim, child: Text(_ruleTitle(context.l10n, rule))),
       subtitle: subtitle == null
           ? null
           : Opacity(opacity: dim, child: Text(subtitle)),
@@ -834,9 +841,10 @@ const _builtinSettings = {
 };
 
 /// Editor notes for the builtins whose names undersell what they catch.
-const _builtinNotes = {
-  'redemption': 'Includes highlighted messages.',
-  'elevated': 'Paid messages pinned to chat.',
+String? _builtinNote(AppLocalizations l, String? type) => switch (type) {
+  'redemption' => l.redemptionNote,
+  'elevated' => l.elevatedNote,
+  _ => null,
 };
 
 String _badgeLabel(String id) => switch (id) {
@@ -845,20 +853,21 @@ String _badgeLabel(String id) => switch (id) {
   _ => id[0].toUpperCase() + id.substring(1),
 };
 
-String _ruleTitle(PingRule rule) => switch (rule.kind) {
+String _ruleTitle(AppLocalizations l, PingRule rule) => switch (rule.kind) {
   PingRuleKind.message when rule.type != 'custom' =>
-    _builtinSettings[rule.type]?.title ?? rule.type,
+    _builtinSettings[rule.type]?.titleOf(l) ?? rule.type,
   PingRuleKind.badge => _badgeLabel(rule.pattern),
   PingRuleKind.user || PingRuleKind.blacklist => '@${rule.pattern}',
   _ => rule.pattern,
 };
 
 /// Only what differs from the defaults (whole word, @mentions).
-String? _ruleSubtitle(PingRule rule) {
+String? _ruleSubtitle(AppLocalizations l, PingRule rule) {
   if (!_isListRule(rule)) return null;
   final parts = [
-    if (rule.kind == PingRuleKind.message && !rule.wordBoundary) 'Anywhere',
-    if (!rule.mention) 'Highlight only',
+    if (rule.kind == PingRuleKind.message && !rule.wordBoundary)
+      l.matchAnywhere,
+    if (!rule.mention) l.highlightOnly,
   ];
   return parts.isEmpty ? null : parts.join(' · ');
 }
@@ -1086,10 +1095,10 @@ class _RuleEditorState extends State<_RuleEditor> {
 
   String get _title => switch (_rule.kind) {
     PingRuleKind.message when _isKeyword =>
-      widget.isNew ? 'New keyword' : 'Edit keyword',
-    PingRuleKind.user ||
-    PingRuleKind.blacklist => widget.isNew ? 'New user' : 'Edit user',
-    _ => _ruleTitle(_rule),
+      widget.isNew ? context.l10n.newKeyword : context.l10n.editKeyword,
+    PingRuleKind.user || PingRuleKind.blacklist =>
+      widget.isNew ? context.l10n.newUser : context.l10n.editUser,
+    _ => _ruleTitle(context.l10n, _rule),
   };
 
   @override
@@ -1104,9 +1113,9 @@ class _RuleEditorState extends State<_RuleEditor> {
     final muted = theme.textTheme.bodyMedium?.copyWith(
       color: theme.colorScheme.onSurfaceVariant,
     );
-    final description = _builtinNotes[_rule.type];
+    final description = _builtinNote(context.l10n, _rule.type);
     final canSave = !_hasPattern || _pattern.isNotEmpty;
-    final saveLabel = Text(widget.isNew ? 'Add' : 'Save');
+    final saveLabel = Text(widget.isNew ? context.l10n.add : context.l10n.save);
     final sheet = widget.sheet;
     final body = SafeArea(
       top: false,
@@ -1130,7 +1139,9 @@ class _RuleEditorState extends State<_RuleEditor> {
               onSubmitted: (_) =>
                   widget.isNew && canSave ? _save() : Navigator.pop(context),
               decoration: InputDecoration(
-                labelText: _isKeyword ? 'Word or phrase' : 'Username',
+                labelText: _isKeyword
+                    ? context.l10n.wordOrPhrase
+                    : context.l10n.username,
                 prefixText: _isUserList ? '@' : null,
                 border: const OutlineInputBorder(),
               ),
@@ -1139,9 +1150,12 @@ class _RuleEditorState extends State<_RuleEditor> {
             const SizedBox(height: 16),
             SegmentedButton<bool>(
               showSelectedIcon: false,
-              segments: const [
-                ButtonSegment(value: true, label: Text('Whole word')),
-                ButtonSegment(value: false, label: Text('Anywhere')),
+              segments: [
+                ButtonSegment(value: true, label: Text(context.l10n.wholeWord)),
+                ButtonSegment(
+                  value: false,
+                  label: Text(context.l10n.matchAnywhere),
+                ),
               ],
               selected: {_wholeWord},
               onSelectionChanged: (s) => _set(() => _wholeWord = s.first),
@@ -1153,9 +1167,9 @@ class _RuleEditorState extends State<_RuleEditor> {
             const SizedBox(height: 16),
             SwitchListTile(
               contentPadding: EdgeInsets.zero,
-              title: const Text('Add to @mentions'),
+              title: Text(context.l10n.addToMentions),
               subtitle: _level == 2
-                  ? const Text('Always on while this notifies')
+                  ? Text(context.l10n.alwaysOnWhileNotifies)
                   : null,
               value: _level == 2 || _mention,
               // Notifying always adds to @mentions.
@@ -1166,12 +1180,12 @@ class _RuleEditorState extends State<_RuleEditor> {
             const SizedBox(height: 28),
             Row(
               children: [
-                Text('Color', style: theme.textTheme.titleSmall),
+                Text(context.l10n.color, style: theme.textTheme.titleSmall),
                 const Spacer(),
                 if (_color != null)
                   TextButton(
                     onPressed: () => _set(() => _color = null),
-                    child: const Text('Use default'),
+                    child: Text(context.l10n.useDefault),
                   ),
               ],
             ),
@@ -1196,7 +1210,7 @@ class _RuleEditorState extends State<_RuleEditor> {
                   side: BorderSide(color: theme.colorScheme.error),
                 ),
                 icon: const Icon(Icons.delete_outline),
-                label: const Text('Delete'),
+                label: Text(context.l10n.delete),
                 onPressed: () =>
                     Navigator.pop(context, const _EditResult(delete: true)),
               ),
@@ -1297,7 +1311,9 @@ class _RuleEditorState extends State<_RuleEditor> {
     final recent = widget.recent;
     final pattern = _rule.kind == PingRuleKind.badge ? _rule.pattern : _pattern;
     if (pattern.isEmpty) return const SizedBox.shrink();
-    if (recent.isEmpty) return Text('No recent messages', style: muted);
+    if (recent.isEmpty) {
+      return Text(context.l10n.noRecentMessages, style: muted);
+    }
     final keyword = _isKeyword
         ? PingManager.keywordRegExp(pattern, wholeWord: _wholeWord)
         : null;
@@ -1317,9 +1333,7 @@ class _RuleEditorState extends State<_RuleEditor> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Text(
-          n == 0
-              ? 'No recent matches'
-              : '$n recent ${n == 1 ? 'match' : 'matches'}',
+          context.l10n.recentMatches(n),
           style: n == 0 ? muted : theme.textTheme.titleSmall,
         ),
         if (n > 0) ...[
@@ -1418,9 +1432,10 @@ class _LevelSwitchState extends State<_LevelSwitch> {
   String get _name => _nameOf(_level);
 
   String _nameOf(int level) => switch (level) {
-    0 => 'Off',
-    1 => 'Highlight',
-    _ => widget.paused ? 'Notify (muted)' : 'Notify',
+    0 => context.l10n.levelOff,
+    1 => context.l10n.levelHighlight,
+    _ =>
+      widget.paused ? context.l10n.levelNotifyMuted : context.l10n.levelNotify,
   };
 
   @override
