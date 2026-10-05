@@ -198,7 +198,7 @@ class SettingsScreen extends StatelessWidget {
           if (twitchAuth.isConfigured)
             SettingsNavTile(
               icon: Icons.bug_report,
-              title: 'Report a bug',
+              title: 'Send feedback',
               onTap: () => _go(context, ReportBugScreen.new),
             ),
           SettingsNavTile(

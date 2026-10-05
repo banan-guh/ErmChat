@@ -10,36 +10,44 @@ void main() {
     kind: BugReportKind.crash,
     summary: '  App closes  ',
     whatHappened: 'It closed.',
-    expected: 'It stays open.',
     diagnostics: 'App: 0.9.0',
   );
 
   group('BugReport body', () {
-    test('assembles filled sections and skips template steps', () {
-      final body = report().buildBody();
+    test('assembles filled sections; steps only go with problems', () {
+      final r = report()
+        ..steps = 'Open chat'
+        ..screenshots.add('https://kappa.lol/abc');
+      final body = r.buildBody();
       expect(body, contains('**Type:** Crash'));
-      expect(body, contains('### What happened\n\nIt closed.'));
-      expect(body, contains('### Expected\n\nIt stays open.'));
-      expect(body, isNot(contains('Steps to reproduce')));
+      expect(body, contains('### Description\n\nIt closed.'));
+      expect(body, contains('### Steps to reproduce\n\nOpen chat'));
+      expect(body, contains('### Screenshots\n\n![](https://kappa.lol/abc)'));
       expect(body, contains('<details><summary>Diagnostics</summary>'));
       expect(body, contains('App: 0.9.0'));
+
+      final idea = (r..kind = BugReportKind.idea)..includeDiagnostics = false;
+      expect(idea.buildBody(), isNot(contains('Steps to reproduce')));
+      expect(idea.buildBody(), isNot(contains('Diagnostics')));
     });
 
-    test('includes edited steps and honors the diagnostics toggle', () {
-      final r = report()
-        ..steps = '1. Open chat\n2. Swipe'
-        ..includeDiagnostics = false;
-      final body = r.buildBody();
-      expect(body, contains('### Steps to reproduce\n\n1. Open chat'));
-      expect(body, isNot(contains('Diagnostics')));
-    });
-
-    test('requires summary and description', () {
-      expect(report().isSendable, isTrue);
+    test('only the title is required', () {
+      expect((report()..whatHappened = '').isSendable, isTrue);
       expect((report()..summary = ' ').isSendable, isFalse);
-      expect((report()..whatHappened = '').isSendable, isFalse);
       expect((report()..summary = 'x' * 201).isSendable, isFalse);
       expect(report().title, 'App closes');
+    });
+
+    test('drafts saved by older versions keep their text', () {
+      final old = BugReport.fromJson({
+        'id': 'id-12345678',
+        'createdAt': '2026-09-28T00:00:00.000Z',
+        'whatHappened': 'It closed.',
+        'steps': '1. \n2. \n3. ',
+        'expected': 'It stays open.',
+      })!;
+      expect(old.whatHappened, 'It closed.\n\nExpected: It stays open.');
+      expect(old.steps, '', reason: 'the untouched template is empty');
     });
 
     test('JSON round trip keeps every field', () {
@@ -47,7 +55,8 @@ void main() {
         ..status = BugReportStatus.sent
         ..issueNumber = 12
         ..issueUrl = 'https://github.com/o/r/issues/12'
-        ..attempts = 2;
+        ..attempts = 2
+        ..screenshots.add('https://kappa.lol/abc');
       final back = BugReport.fromJson(r.toJson())!;
       expect(back.toJson(), r.toJson());
       expect(BugReport.fromJson({'id': 'x'}), isNull);

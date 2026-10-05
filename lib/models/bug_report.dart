@@ -1,22 +1,26 @@
-/// What kind of problem a report describes. Rendered into the issue body.
+/// What a report is about. Rendered into the issue body.
 enum BugReportKind {
   bug('Bug'),
   crash('Crash'),
   visual('Visual glitch'),
   performance('Performance'),
+  idea('Idea'),
   other('Other');
 
   const BugReportKind(this.label);
 
   final String label;
+
+  /// Problem kinds, which take steps to reproduce.
+  bool get hasSteps => this != idea && this != other;
 }
 
 /// Where a report is in the outbox. Drafts stay local; queued reports send
 /// whenever the app can reach the report server; failed ones need an edit.
 enum BugReportStatus { draft, queued, sent, failed }
 
-/// Placeholder steps the editor pre-fills; untouched, they are not sent.
-const kBugReportStepsTemplate = '1. \n2. \n3. ';
+/// Steps template older drafts were saved with; it counts as empty.
+const _legacyStepsTemplate = '1. \n2. \n3. ';
 
 /// Server caps (ermchatbot `maxReportTitle` / `maxReportBody`).
 const kBugReportMaxTitle = 200;
@@ -31,8 +35,8 @@ class BugReport {
     this.kind = BugReportKind.bug,
     this.summary = '',
     this.whatHappened = '',
-    this.steps = kBugReportStepsTemplate,
-    this.expected = '',
+    this.steps = '',
+    List<String>? screenshots,
     this.includeDiagnostics = true,
     this.diagnostics = '',
     this.status = BugReportStatus.draft,
@@ -40,7 +44,7 @@ class BugReport {
     this.issueUrl,
     this.lastError,
     this.attempts = 0,
-  });
+  }) : screenshots = screenshots ?? [];
 
   final String id;
   final DateTime createdAt;
@@ -48,7 +52,9 @@ class BugReport {
   String summary;
   String whatHappened;
   String steps;
-  String expected;
+
+  /// Uploaded image links, shown under the description.
+  final List<String> screenshots;
   bool includeDiagnostics;
 
   /// Captured when the editor opens so the preview matches what is sent.
@@ -65,15 +71,14 @@ class BugReport {
 
   String get title => summary.trim();
 
-  /// Required fields filled and within the server caps.
+  /// Title filled and everything within the server caps.
   bool get isSendable =>
       title.isNotEmpty &&
       title.length <= kBugReportMaxTitle &&
-      whatHappened.trim().isNotEmpty &&
       buildBody().length <= kBugReportMaxBody;
 
   /// Markdown issue body assembled from the separate fields. Empty optional
-  /// sections are left out, and so are the untouched template steps.
+  /// sections are left out, and steps only go with problem kinds.
   String buildBody() {
     final b = StringBuffer('**Type:** ${kind.label}\n');
     void section(String heading, String text) {
@@ -82,11 +87,12 @@ class BugReport {
       b.write('\n### $heading\n\n$t\n');
     }
 
-    section('What happened', whatHappened);
-    if (steps.trim() != kBugReportStepsTemplate.trim()) {
-      section('Steps to reproduce', steps);
-    }
-    section('Expected', expected);
+    section('Description', whatHappened);
+    if (kind.hasSteps) section('Steps to reproduce', steps);
+    section(
+      'Screenshots',
+      [for (final url in screenshots) '![]($url)'].join('\n'),
+    );
     final diag = diagnostics.trim();
     if (includeDiagnostics && diag.isNotEmpty) {
       b.write(
@@ -104,7 +110,7 @@ class BugReport {
     'summary': summary,
     'whatHappened': whatHappened,
     'steps': steps,
-    'expected': expected,
+    'screenshots': screenshots,
     'includeDiagnostics': includeDiagnostics,
     'diagnostics': diagnostics,
     'status': status.name,
@@ -131,9 +137,19 @@ class BugReport {
       createdAt: created,
       kind: byName(BugReportKind.values, json['kind'], BugReportKind.bug),
       summary: json['summary'] as String? ?? '',
-      whatHappened: json['whatHappened'] as String? ?? '',
-      steps: json['steps'] as String? ?? kBugReportStepsTemplate,
-      expected: json['expected'] as String? ?? '',
+      whatHappened: _withLegacyExpected(
+        json['whatHappened'] as String? ?? '',
+        json['expected'] as String? ?? '',
+      ),
+      steps: switch (json['steps']) {
+        _legacyStepsTemplate => '',
+        final String s => s,
+        _ => '',
+      },
+      screenshots: [
+        for (final url in json['screenshots'] as List<dynamic>? ?? const [])
+          if (url is String) url,
+      ],
       includeDiagnostics: json['includeDiagnostics'] as bool? ?? true,
       diagnostics: json['diagnostics'] as String? ?? '',
       status: byName(
@@ -146,5 +162,14 @@ class BugReport {
       lastError: json['lastError'] as String?,
       attempts: json['attempts'] as int? ?? 0,
     );
+  }
+
+  // Older drafts had a separate "expected" field; keep its text.
+  static String _withLegacyExpected(String what, String expected) {
+    final e = expected.trim();
+    if (e.isEmpty) return what;
+    return what.trim().isEmpty
+        ? 'Expected: $e'
+        : '${what.trimRight()}\n\nExpected: $e';
   }
 }

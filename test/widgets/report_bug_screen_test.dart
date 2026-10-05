@@ -92,17 +92,16 @@ void main() {
 
   testWidgets('sending assembles the fields into one report', (tester) async {
     final draft = await openEditor(tester);
-    await tester.enterText(field('Summary *'), 'Header sticks');
-    await tester.enterText(field('What you expected'), 'It goes away');
     await scrollToSend(tester);
-    // Send stays disabled until the required fields are filled.
+    // Send stays disabled until there is a title.
     expect(tester.widget<FilledButton>(sendButton).onPressed, isNull);
     await tester.scrollUntilVisible(
-      field('What happened *'),
+      field('Title'),
       -200,
       scrollable: find.byType(Scrollable).first,
     );
-    await tester.enterText(field('What happened *'), 'It stayed');
+    await tester.enterText(field('Title'), 'Header sticks');
+    await tester.enterText(field('Description (optional)'), 'It stayed');
     await tester.pump();
     await scrollToSend(tester);
     expect(tester.widget<FilledButton>(sendButton).onPressed, isNotNull);
@@ -114,8 +113,7 @@ void main() {
     expect(bodies.single['id'], draft.id);
     expect(bodies.single['title'], 'Header sticks');
     final body = bodies.single['body'] as String;
-    expect(body, contains('### What happened\n\nIt stayed'));
-    expect(body, contains('### Expected\n\nIt goes away'));
+    expect(body, contains('### Description\n\nIt stayed'));
     expect(body, contains('App: 0.9.0'));
     expect(outbox.byId(draft.id)?.status, BugReportStatus.sent);
     // The editor closed back to the opener.
@@ -132,7 +130,7 @@ void main() {
 
     await tester.tap(find.text('open'));
     await tester.pumpAndSettle();
-    await tester.enterText(field('Summary *'), 'Half written');
+    await tester.enterText(field('Title'), 'Half written');
     await tester.pageBack();
     await tester.pumpAndSettle();
     await settleIo(tester);

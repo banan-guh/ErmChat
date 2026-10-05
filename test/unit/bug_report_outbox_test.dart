@@ -67,7 +67,7 @@ void main() {
     final body = jsonDecode(req.body) as Map<String, dynamic>;
     expect(body['id'], r.id);
     expect(body['title'], 'Crash on open');
-    expect(body['body'], contains('### What happened'));
+    expect(body['body'], contains('### Description'));
     expect(r.status, BugReportStatus.sent);
     expect(r.issueNumber, 7);
     expect(r.issueUrl, 'https://github.com/o/r/issues/7');

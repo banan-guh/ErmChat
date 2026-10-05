@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -11,8 +12,10 @@ import '../../models/bug_report.dart';
 import '../../models/emote_fetch_tier.dart';
 import '../../providers/feature_providers.dart';
 import '../../services/bug_report_outbox.dart';
+import '../../services/media_uploader.dart';
 import '../../util/date_format.dart';
 import '../../util/diagnostics_scrub.dart';
+import '../../util/friendly_error.dart';
 import '../../util/log.dart';
 import '../../util/prefs.dart';
 import 'settings_page.dart';
@@ -27,7 +30,7 @@ class ReportBugScreen extends ConsumerWidget {
     final outbox = ref.watch(bugReportOutboxProvider);
     final reports = outbox.reports;
     return SettingsPage(
-      title: const Text('Report a bug'),
+      title: const Text('Send feedback'),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => _newReport(context, outbox),
         icon: const Icon(Icons.add),
@@ -138,8 +141,9 @@ class _ReportTile extends StatelessWidget {
   }
 }
 
-/// Split-field report form. Fields assemble into one markdown issue body;
-/// leaving the screen keeps a draft whenever something was typed.
+/// Report form: title, type, then optional description, steps (problem
+/// kinds only) and screenshots. Leaving the screen keeps a draft whenever
+/// something was entered.
 class ReportEditorScreen extends ConsumerStatefulWidget {
   const ReportEditorScreen({super.key, required this.report});
 
@@ -153,47 +157,80 @@ class _ReportEditorScreenState extends ConsumerState<ReportEditorScreen> {
   late final _summary = TextEditingController(text: widget.report.summary);
   late final _what = TextEditingController(text: widget.report.whatHappened);
   late final _steps = TextEditingController(text: widget.report.steps);
-  late final _expected = TextEditingController(text: widget.report.expected);
   late BugReportKind _kind = widget.report.kind;
   late bool _includeDiagnostics = widget.report.includeDiagnostics;
+  late final _screenshots = [...widget.report.screenshots];
+  final _uploader = MediaUploader();
+  bool _uploading = false;
   bool _sent = false;
 
   @override
   void initState() {
     super.initState();
-    for (final c in [_summary, _what]) {
-      c.addListener(() => setState(() {}));
-    }
+    _summary.addListener(() => setState(() {}));
   }
 
   @override
   void dispose() {
-    for (final c in [_summary, _what, _steps, _expected]) {
+    for (final c in [_summary, _what, _steps]) {
       c.dispose();
     }
+    _uploader.close();
     super.dispose();
   }
 
-  BugReport _apply() => widget.report
-    ..summary = _summary.text
-    ..whatHappened = _what.text
-    ..steps = _steps.text
-    ..expected = _expected.text
-    ..kind = _kind
-    ..includeDiagnostics = _includeDiagnostics;
+  BugReport _apply() {
+    final r = widget.report
+      ..summary = _summary.text
+      ..whatHappened = _what.text
+      ..steps = _steps.text
+      ..kind = _kind
+      ..includeDiagnostics = _includeDiagnostics;
+    r.screenshots
+      ..clear()
+      ..addAll(_screenshots);
+    return r;
+  }
 
   bool get _hasContent =>
       _summary.text.trim().isNotEmpty ||
       _what.text.trim().isNotEmpty ||
-      _expected.text.trim().isNotEmpty ||
-      _steps.text.trim() != kBugReportStepsTemplate.trim();
+      _steps.text.trim().isNotEmpty ||
+      _screenshots.isNotEmpty;
+
+  Future<void> _addScreenshot() async {
+    final XFile? picked;
+    try {
+      picked = await ImagePicker().pickImage(source: ImageSource.gallery);
+    } catch (e) {
+      _snack('Could not open the gallery');
+      return;
+    }
+    if (picked == null || !mounted) return;
+    setState(() => _uploading = true);
+    try {
+      final result = await _uploader.uploadMedia(File(picked.path));
+      await _uploader.addRecent(result);
+      if (mounted) setState(() => _screenshots.add(result.imageLink));
+    } catch (e) {
+      logDebug('[Report] screenshot upload failed: $e');
+      _snack(friendlyError(e, fallback: 'Upload failed'));
+    } finally {
+      if (mounted) setState(() => _uploading = false);
+    }
+  }
+
+  void _snack(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
+  }
 
   Future<void> _send() async {
     final report = _apply();
     if (!report.isSendable) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Report is too long; trim some text')),
-      );
+      _snack('Report is too long; trim some text');
       return;
     }
     _sent = true;
@@ -209,13 +246,16 @@ class _ReportEditorScreenState extends ConsumerState<ReportEditorScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final caption = theme.textTheme.bodySmall?.copyWith(
+      color: theme.colorScheme.onSurfaceVariant,
+    );
     final diagnostics = widget.report.diagnostics.trim();
-    final canSend =
-        _summary.text.trim().isNotEmpty && _what.text.trim().isNotEmpty;
+    final canSend = _summary.text.trim().isNotEmpty && !_uploading;
     return PopScope(
       onPopInvokedWithResult: _onPop,
       child: SettingsPage(
-        title: const Text('Report a bug'),
+        title: const Text('Send feedback'),
         body: ListView(
           padding: const EdgeInsets.all(16),
           children: [
@@ -224,37 +264,69 @@ class _ReportEditorScreenState extends ConsumerState<ReportEditorScreen> {
               maxLength: kBugReportMaxTitle,
               textCapitalization: TextCapitalization.sentences,
               decoration: const InputDecoration(
-                labelText: 'Summary *',
-                hintText: 'One line describing the problem',
+                labelText: 'Title',
                 border: OutlineInputBorder(),
               ),
+            ),
+            Wrap(
+              spacing: 8,
+              runSpacing: 4,
+              children: [
+                for (final k in BugReportKind.values)
+                  ChoiceChip(
+                    label: Text(k.label),
+                    selected: _kind == k,
+                    onSelected: (_) => setState(() => _kind = k),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            _multiline(_what, 'Description (optional)', minLines: 3),
+            if (_kind.hasSteps) ...[
+              const SizedBox(height: 16),
+              _multiline(_steps, 'Steps to reproduce (optional)'),
+            ],
+            const SizedBox(height: 16),
+            Text('Screenshots (optional)', style: theme.textTheme.titleSmall),
+            const SizedBox(height: 4),
+            Text(
+              'Totally optional, most reports have none. kappa.lol links '
+              'in the description work too.',
+              style: caption,
             ),
             const SizedBox(height: 8),
-            DropdownButtonFormField<BugReportKind>(
-              initialValue: _kind,
-              decoration: const InputDecoration(
-                labelText: 'Type',
-                border: OutlineInputBorder(),
-              ),
-              items: [
-                for (final k in BugReportKind.values)
-                  DropdownMenuItem(value: k, child: Text(k.label)),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                for (final url in _screenshots)
+                  InputChip(
+                    avatar: const Icon(Icons.image_outlined),
+                    label: Text(
+                      Uri.tryParse(url)?.pathSegments.lastOrNull ?? url,
+                    ),
+                    onDeleted: () => setState(() => _screenshots.remove(url)),
+                  ),
+                if (_uploading)
+                  const SizedBox(
+                    width: 24,
+                    height: 24,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                else
+                  OutlinedButton.icon(
+                    onPressed: _addScreenshot,
+                    icon: const Icon(Icons.add_photo_alternate_outlined),
+                    label: const Text('Add screenshot'),
+                  ),
               ],
-              onChanged: (k) => setState(() => _kind = k ?? _kind),
             ),
-            const SizedBox(height: 16),
-            _multiline(_what, 'What happened *', minLines: 3),
-            const SizedBox(height: 16),
-            _multiline(_steps, 'Steps to reproduce'),
-            const SizedBox(height: 16),
-            _multiline(_expected, 'What you expected'),
             const SizedBox(height: 8),
             SwitchListTile(
               contentPadding: EdgeInsets.zero,
               title: const Text('Include diagnostics'),
-              subtitle: const Text(
-                'App version, device, settings, recent performance log',
-              ),
+              subtitle: const Text('App version, phone model and settings'),
               value: _includeDiagnostics,
               onChanged: diagnostics.isEmpty
                   ? null
@@ -287,7 +359,7 @@ class _ReportEditorScreenState extends ConsumerState<ReportEditorScreen> {
             Text(
               "Posted publicly on GitHub with your Twitch name. Offline? It "
               "sends once you're back online.",
-              style: Theme.of(context).textTheme.bodySmall,
+              style: theme.textTheme.bodySmall,
               textAlign: TextAlign.center,
             ),
           ],
@@ -366,13 +438,6 @@ Future<String> collectDiagnostics(BuildContext context) async {
         'font ${prefs.chatFontSize}, '
         'max messages ${prefs.maxMessagesPerChannel}',
       );
-  }
-  final perf = PerfLog.I.entries();
-  if (perf.isNotEmpty) {
-    lines
-      ..add('')
-      ..add('Recent performance log:')
-      ..addAll(perf.skip(perf.length > 30 ? perf.length - 30 : 0));
   }
   return scrubDiagnostics(lines.join('\n'));
 }
