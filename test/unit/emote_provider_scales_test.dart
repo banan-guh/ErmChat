@@ -185,7 +185,7 @@ void main() {
       }
     });
 
-    test('global keeps only default sets', () async {
+    test('global loads supporter-gated sets for everyone', () async {
       HttpOverrides.global = _FakeHttpOverrides({
         globalUrl: jsonEncode({
           'default_sets': [1],
@@ -212,7 +212,7 @@ void main() {
         }),
       });
       final result = await FfzEmoteProvider.fetchGlobal();
-      expect(result.map((e) => e.code), ['Open']);
+      expect(result.map((e) => e.code), ['Open', 'Gated']);
     });
 
     test('animated map marks animated and prefers animated art', () async {

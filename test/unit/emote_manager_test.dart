@@ -1232,6 +1232,7 @@ void main() {
       'emotes5_global': jsonEncode({
         'ts': DateTime.now().toIso8601String(),
         'tier': EmoteFetchTier.medium.index,
+        'v': 2,
         'emotes': _catalogJson(emotes, scope: EmoteScope.global),
       }),
     };
@@ -1737,6 +1738,7 @@ void main() {
       'emotes5_global': jsonEncode({
         'ts': DateTime.now().toIso8601String(),
         'tier': EmoteFetchTier.medium.index,
+        'v': 2,
         'emotes': _catalogJson(emotes, scope: EmoteScope.global),
       }),
     };
@@ -3137,7 +3139,7 @@ void main() {
     });
 
     test(
-      'BTTV prefix modifiers apply to the next emote, else read as text',
+      'BTTV prefix modifiers apply to the next emote, else draw as emotes',
       () {
         Emote bttv(String id, String code) => makeTestEmote(id: id, code: code);
         final emotes = _makeEmotes({
@@ -3169,10 +3171,18 @@ void main() {
         expect(spans.whereType<WidgetSpan>(), hasLength(2));
         expect(textOf(spans), isEmpty, reason: 'z! removes the gap');
 
-        expect(textOf(build('w! hello')), 'w! hello', reason: 'unattached');
-        spans = build('h! KEKW', on: false);
-        expect(textOf(spans), 'h! ', reason: 'off: the modifier is text');
+        spans = build('w! hello');
+        expect(textOf(spans), ' hello', reason: 'unattached: w! draws');
         expect(spans.whereType<WidgetSpan>(), hasLength(1));
+        spans = build('KEKW h!');
+        expect(
+          spans.whereType<WidgetSpan>(),
+          hasLength(2),
+          reason: 'trailing h! has nothing to apply to, so it draws',
+        );
+        spans = build('h! KEKW', on: false);
+        expect(textOf(spans), ' ', reason: 'off: h! draws as an emote');
+        expect(spans.whereType<WidgetSpan>(), hasLength(2));
       },
     );
 
@@ -4400,13 +4410,13 @@ void main() {
     });
   });
 
-  test('a cached FFZ modifier without flags refetches once', () async {
+  test('global caches from older fetch rules refetch once', () async {
     SharedPreferences.setMockInitialValues({});
     final dir = await Directory.systemTemp.createTemp('ermchat_ffz');
     EmoteMetaStore.I.overrideDirectory(dir);
     addTearDown(() => EmoteMetaStore.I.reset());
     addTearDown(() => dir.delete(recursive: true));
-    Future<bool> freshWith(int? effects) async {
+    Future<bool> freshWith(int? effects, {int? version = 2}) async {
       final modifier = Emote(
         id: '1',
         code: 'ffzX',
@@ -4419,6 +4429,7 @@ void main() {
         jsonEncode({
           'ts': DateTime.now().toIso8601String(),
           'tier': EmoteFetchTier.high.index,
+          'v': ?version,
           'emotes': EmoteCatalog(ffzGlobal: [modifier]).toJsonMap(),
         }),
       );
@@ -4431,6 +4442,11 @@ void main() {
 
     expect(await freshWith(null), isFalse, reason: 'cache from before flags');
     expect(await freshWith(3), isTrue);
+    expect(
+      await freshWith(3, version: null),
+      isFalse,
+      reason: 'cache from before FFZ supporter sets loaded for everyone',
+    );
   });
 
   group('persisted personal sets', () {

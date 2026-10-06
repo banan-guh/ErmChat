@@ -28,6 +28,12 @@ class EmotePersistence {
 
   Prefs? _prefs;
 
+  /// Bumped when the fetch rules change what the global catalog holds (2: FFZ
+  /// supporter sets load for everyone), so an older global cache refetches
+  /// once. Channel caches carry no version.
+  static const _globalVersion = 2;
+  static const _globalKey = 'emotes5_global';
+
   Future<Prefs> _getPrefs() async {
     _prefs ??= await Prefs.load();
     return _prefs!;
@@ -47,10 +53,13 @@ class EmotePersistence {
     try {
       // Decode off main isolate for smooth startup.
       final tierIndex = _tier().index;
+      final versioned = key == _globalKey;
       final parsed = await Isolate.run(() {
         final data = jsonDecode(raw) as Map<String, dynamic>;
         final catalog = EmoteCatalog.fromJsonMap(data['emotes']);
-        final tierMatches = data['tier'] is! int || data['tier'] == tierIndex;
+        final tierMatches =
+            (data['tier'] is! int || data['tier'] == tierIndex) &&
+            (!versioned || data['v'] == _globalVersion);
         return (
           catalog: catalog,
           tierMatches: tierMatches && !_hasFlaglessModifier(catalog),
@@ -125,6 +134,7 @@ class EmotePersistence {
       final data = {
         'ts': (savedAt ?? DateTime.now()).toIso8601String(),
         'tier': _tier().index,
+        if (key == _globalKey) 'v': _globalVersion,
         'emotes': saved.toJsonMap(),
       };
       await _metaStore.write(key, jsonEncode(data));

@@ -20,14 +20,10 @@ class FfzEmoteProvider {
     return Isolate.run(() {
       final data = jsonDecode(res.body) as Map<String, dynamic>;
       final sets = data['sets'] as Map<String, dynamic>? ?? {};
-      // Only default sets are usable by everyone; other sets are allowlisted
-      // per user (FFZ `users` map) and must not leak into the global list.
-      // Missing field keeps old behavior so an API change cannot wipe globals.
-      final defaultSets = data['default_sets'] as List<dynamic>?;
-      final allowed = defaultSets?.map((e) => e.toString()).toSet();
+      // Every global set loads for everyone, including the ones FFZ grants to
+      // named supporters (`users` map): other clients send them freely.
       final emotes = <Emote>[];
       for (final setEntry in sets.entries) {
-        if (allowed != null && !allowed.contains(setEntry.key)) continue;
         final setMap = setEntry.value as Map<String, dynamic>;
         final items = setMap['emoticons'] as List<dynamic>? ?? [];
         for (final item in items) {
