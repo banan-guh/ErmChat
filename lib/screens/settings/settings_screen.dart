@@ -15,6 +15,7 @@ import 'custom_layout_screen.dart';
 import 'customization_screen.dart';
 import 'emotes_settings_screen.dart';
 import 'inline_embeds_screen.dart';
+import 'language_screen.dart';
 import 'pings_screen.dart';
 import 'report_bug_screen.dart';
 import 'settings_page.dart';
@@ -149,6 +150,7 @@ class SettingsScreen extends StatelessWidget {
     SettingsPageId.uploader => const UploaderSettingsScreen(),
     SettingsPageId.account => _account(),
     SettingsPageId.about => _about(),
+    SettingsPageId.language => const LanguageScreen(),
   };
 
   @override
@@ -156,6 +158,13 @@ class SettingsScreen extends StatelessWidget {
     return SettingsPage(
       title: Text(context.l10n.settingsTitle),
       actions: [
+        // A symbol, so anyone stuck in a language they cannot read finds it.
+        IconButton(
+          icon: const Icon(Icons.translate),
+          tooltip: context.l10n.settingLanguage,
+          onPressed: () => _go(context, () => const LanguageScreen()),
+        ),
+        const SizedBox(width: 12),
         IconButton(
           icon: const Icon(Icons.search),
           tooltip: context.l10n.searchSettings,

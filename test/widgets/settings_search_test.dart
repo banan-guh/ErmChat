@@ -39,7 +39,8 @@ Widget? _page(SettingsPageId page) => switch (page) {
   SettingsPageId.uploader => const UploaderSettingsScreen(),
   SettingsPageId.channels ||
   SettingsPageId.account ||
-  SettingsPageId.about => null,
+  SettingsPageId.about ||
+  SettingsPageId.language => null,
 };
 
 Future<void> _pump(WidgetTester tester, Widget page) async {

@@ -20,7 +20,8 @@ enum SettingsPageId {
   tts('Tools › Text-to-speech'),
   uploader('Tools › Image uploader'),
   account('Account'),
-  about('About');
+  about('About'),
+  language('Language');
 
   const SettingsPageId(this.label);
   final String label;
@@ -41,6 +42,7 @@ extension SettingsPageIdL10n on SettingsPageId {
     SettingsPageId.uploader => l.pageUploader,
     SettingsPageId.account => l.pageAccount,
     SettingsPageId.about => l.pageAbout,
+    SettingsPageId.language => l.settingLanguage,
   };
 }
 
@@ -210,14 +212,15 @@ class Setting {
     keywords: 'version licenses',
     anchored: false,
   );
-
-  // ── Appearance ──────────────────────────────────────────────────────
   static const language = Setting(
     'language',
     'Language',
-    SettingsPageId.appearance,
+    SettingsPageId.language,
     keywords: 'translation locale',
+    anchored: false,
   );
+
+  // ── Appearance ──────────────────────────────────────────────────────
   static const theme = Setting(
     'theme',
     'Theme',
@@ -694,7 +697,6 @@ class Setting {
   /// Every searchable setting, in browsing order.
   static const all = [
     channels,
-    language,
     theme,
     accentColor,
     trueDark,
@@ -769,6 +771,7 @@ class Setting {
     recentUploads,
     account,
     about,
+    language,
   ];
 
   /// Settings that exist on this platform.

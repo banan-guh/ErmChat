@@ -41,61 +41,6 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
 
   ThemeMode get _themeMode => _prefs?.themeMode ?? ThemeMode.system;
 
-  /// Saved language tag; empty follows the system.
-  String get _locale => _prefs?.locale ?? '';
-
-  Future<void> _pickLanguage(BuildContext context) async {
-    final tag = await showModalBottomSheet<String>(
-      context: context,
-      useSafeArea: true,
-      builder: (sheetContext) => SafeArea(
-        top: false,
-        child: ListView(
-          shrinkWrap: true,
-          children: [
-            for (final tag in ['', ..._localeTags])
-              ListTile(
-                title: Text(
-                  tag.isEmpty
-                      ? sheetContext.l10n.languageSystem
-                      : _languageName(tag),
-                ),
-                trailing: tag == _locale
-                    ? Icon(
-                        Icons.check,
-                        color: Theme.of(sheetContext).colorScheme.primary,
-                      )
-                    : null,
-                onTap: () => Navigator.pop(sheetContext, tag),
-              ),
-          ],
-        ),
-      ),
-    );
-    if (tag == null || !mounted || tag == _locale) return;
-    final prefs = _prefs ?? await Prefs.load();
-    await prefs.setLocale(tag.isEmpty ? null : tag);
-    PrefsStore.instance.notifyChanged();
-    if (mounted) setState(() {});
-  }
-
-  /// Every shipped translation, as `pt_BR` style tags.
-  static final _localeTags = [
-    for (final l in AppLocalizations.supportedLocales)
-      [l.languageCode, ?l.countryCode].join('_'),
-  ];
-
-  /// Each language in its own words, so a reader finds theirs.
-  static String _languageName(String tag) => switch (tag) {
-    'en' => 'English',
-    'es' => 'Español',
-    'de' => 'Deutsch',
-    'fr' => 'Français',
-    'pt' || 'pt_BR' => 'Português',
-    'ja' => '日本語',
-    _ => tag,
-  };
-
   String get _accentKey => _prefs?.accentColor ?? kDefaultAccent;
 
   bool get _customLayoutEnabled => _prefs?.customLayoutEnabled ?? false;
@@ -189,21 +134,6 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
       title: Text(context.l10n.pageAppearance),
       body: ListView(
         children: [
-          SettingAnchor(
-            Setting.language,
-            child: ListTile(
-              // Findable by anyone stuck in a language they cannot read.
-              leading: const Icon(Icons.translate),
-              title: Text(context.l10n.settingLanguage),
-              subtitle: Text(
-                _locale.isEmpty
-                    ? context.l10n.languageSystem
-                    : _languageName(_locale),
-              ),
-              trailing: const Icon(Icons.chevron_right),
-              onTap: () => _pickLanguage(context),
-            ),
-          ),
           SettingsSectionHeader(context.l10n.sectionTheme),
           SettingAnchor(
             Setting.theme,
