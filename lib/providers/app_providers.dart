@@ -1,4 +1,4 @@
-import 'dart:ui' show PlatformDispatcher, Locale;
+import 'dart:ui' show PlatformDispatcher;
 
 import 'package:flutter/widgets.dart' show basicLocaleListResolution;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -10,7 +10,7 @@ import '../irc/join_rate_limiter.dart';
 import '../irc/proxy_config.dart';
 import '../irc/transport/read.dart';
 import '../irc/transport/write.dart';
-import '../l10n/app_localizations.dart';
+import '../l10n/l10n.dart';
 import '../services/emote_manager.dart';
 import '../services/ignore_manager.dart';
 import '../services/ping_manager.dart';
@@ -50,13 +50,12 @@ final prefsProvider = Provider<Prefs>((ref) {
 /// language pref per call so a runtime switch applies; null follows the system.
 final stringsProvider = Provider<AppLocalizations Function()>((ref) {
   return () {
-    final tag = Prefs.loaded?.locale;
-    final parts = (tag ?? '').split('_');
-    final chosen = parts.first.isEmpty
-        ? PlatformDispatcher.instance.locales
-        : [Locale(parts[0], parts.length > 1 ? parts[1] : null)];
+    final chosen = parseLocalePref(Prefs.loaded?.locale);
     return lookupAppLocalizations(
-      basicLocaleListResolution(chosen, AppLocalizations.supportedLocales),
+      basicLocaleListResolution(
+        chosen == null ? PlatformDispatcher.instance.locales : [chosen],
+        AppLocalizations.supportedLocales,
+      ),
     );
   };
 });

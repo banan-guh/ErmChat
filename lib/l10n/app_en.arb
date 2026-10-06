@@ -2819,5 +2819,13 @@
       }
     }
   },
-  "loginExpiredInSettings": "Login expired - reconnect your account in Settings"
+  "loginExpiredInSettings": "Login expired - reconnect your account in Settings",
+  "fgAliasOf": "alias of {name}",
+  "@fgAliasOf": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  }
 }

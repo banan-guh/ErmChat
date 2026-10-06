@@ -15,3 +15,10 @@ extension L10nContext on BuildContext {
 /// English strings for callers with no context or injected strings (tests,
 /// bare services). Lives here so non-UI layers need no Flutter import.
 AppLocalizations englishStrings() => lookupAppLocalizations(const Locale('en'));
+
+/// `pt_BR` style language pref to a [Locale]; null or empty follows the system.
+Locale? parseLocalePref(String? tag) {
+  if (tag == null || tag.isEmpty) return null;
+  final parts = tag.split('_');
+  return Locale(parts[0], parts.length > 1 ? parts[1] : null);
+}

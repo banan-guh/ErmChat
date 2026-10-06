@@ -751,7 +751,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     if (value) {
       _initForegroundService();
       if (_chat.names.isNotEmpty) {
-        startForegroundService(List.of(_chat.names));
+        startForegroundService(List.of(_chat.names), context.l10n);
       }
     } else {
       stopForegroundService();
@@ -827,7 +827,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     if (Platform.isAndroid) {
       if (state == AppLifecycleState.paused) {
         if (_backgroundService) {
-          startForegroundService(List.of(_chat.names));
+          startForegroundService(List.of(_chat.names), context.l10n);
         }
       } else if (state == AppLifecycleState.resumed) {
         if (_backgroundService) {

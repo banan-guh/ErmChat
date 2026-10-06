@@ -8,7 +8,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/misc.dart';
 import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
-import 'l10n/app_localizations.dart';
+import 'l10n/l10n.dart';
 import 'providers/app_providers.dart';
 import 'providers/feature_providers.dart';
 import 'irc/proxy_config.dart';
@@ -300,14 +300,14 @@ class _TwitchChatAppState extends State<TwitchChatApp> {
       final changed =
           _themeMode != prefs.themeMode ||
           _locale?.toLanguageTag() !=
-              _parseLocale(prefs.locale)?.toLanguageTag() ||
+              parseLocalePref(prefs.locale)?.toLanguageTag() ||
           _trueDark != prefs.trueDark ||
           _accentKey != prefs.accentColor ||
           _layoutDensity != prefs.layoutDensity ||
           _layoutOverrides != overrides ||
           _proxyConfig != proxy;
       _themeMode = prefs.themeMode;
-      _locale = _parseLocale(prefs.locale);
+      _locale = parseLocalePref(prefs.locale);
       if (_keepScreenOn != prefs.keepScreenOn) {
         _keepScreenOn = prefs.keepScreenOn;
         WakelockPlus.toggle(enable: prefs.keepScreenOn).ignore();
@@ -446,11 +446,4 @@ class _TwitchChatAppState extends State<TwitchChatApp> {
       ),
     );
   }
-}
-
-/// `pt_BR` style pref value to a [Locale]; null or empty follows the system.
-Locale? _parseLocale(String? tag) {
-  if (tag == null || tag.isEmpty) return null;
-  final parts = tag.split('_');
-  return Locale(parts[0], parts.length > 1 ? parts[1] : null);
 }

@@ -44,8 +44,9 @@ void initForegroundService([AppLocalizations? l]) {
 }
 
 Future<ServiceRequestResult> startForegroundService(
-  List<String> channelNames,
-) async {
+  List<String> channelNames, [
+  AppLocalizations? l,
+]) async {
   if (!Platform.isAndroid) return const ServiceRequestSuccess();
   if (channelNames.isEmpty) {
     return const ServiceRequestFailure(error: 'no channels');
@@ -53,7 +54,7 @@ Future<ServiceRequestResult> startForegroundService(
 
   // intentional, do not rm
   final title = 'g;pr[SomgomgAtYou';
-  final text = 'alias of glorpKaraoke';
+  final text = (l ?? englishStrings()).fgAliasOf('glorpKaraoke');
 
   if (await FlutterForegroundTask.isRunningService) {
     return FlutterForegroundTask.updateService(
