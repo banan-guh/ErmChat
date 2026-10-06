@@ -6,6 +6,7 @@ import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 import 'package:flutter/services.dart' show HapticFeedback;
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:url_launcher/url_launcher.dart';
+import '../l10n/l10n.dart';
 import '../models/moderation_entries.dart';
 import '../models/twitch_badge.dart';
 import '../models/twitch_message.dart';
@@ -270,10 +271,9 @@ class UserProfileSheetState extends State<UserProfileSheet> {
       final api = widget.twitchApi;
       final (profile, failure) = await api.isolateErrors(() async {
         final p = await api.getUserProfile(widget.twitchAuth, widget.username);
-        final failure = p != null
+        // Null with no profile means not found, resolved once mounted.
+        final failure = p != null || api.lastErrorStatus == null
             ? null
-            : api.lastErrorStatus == null
-            ? 'User not found'
             : api.friendlyLastError;
         return (p, failure);
       });
@@ -287,7 +287,7 @@ class UserProfileSheetState extends State<UserProfileSheet> {
         await (follow ?? _fetchFollowAge());
       } else {
         setState(() {
-          _error = failure;
+          _error = failure ?? context.l10n.userNotFound;
           _loading = false;
           _measureDirty = true;
         });
@@ -560,7 +560,7 @@ class UserProfileSheetState extends State<UserProfileSheet> {
     return FloatingActionButton(
       key: const ValueKey('user_history_scroll_down'),
       heroTag: 'user_history_scroll_down',
-      tooltip: 'Jump to latest',
+      tooltip: context.l10n.jumpToLatest,
       onPressed: _onArrowTap,
       child: const Icon(Icons.keyboard_arrow_down),
     );
@@ -570,7 +570,7 @@ class UserProfileSheetState extends State<UserProfileSheet> {
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
       child: Text(
-        'No recent messages from this user here yet',
+        context.l10n.noRecentUserMessages,
         style: TextStyle(
           fontSize: 13,
           color: theme.colorScheme.onSurfaceVariant,
@@ -611,7 +611,7 @@ class UserProfileSheetState extends State<UserProfileSheet> {
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  'Connect an account to see profile',
+                  context.l10n.connectToSeeProfile,
                   style: TextStyle(
                     fontSize: 13,
                     color: theme.colorScheme.onSurfaceVariant,
@@ -681,14 +681,20 @@ class UserProfileSheetState extends State<UserProfileSheet> {
                   Text(
                     _profile == null
                         ? ''
-                        : 'Created: ${_formatDate(_profile!['created_at'] as String? ?? '')}',
+                        : context.l10n.createdOn(
+                            _formatDate(
+                              _profile!['created_at'] as String? ?? '',
+                            ),
+                          ),
                     style: detailStyle,
                   ),
                   if (_showFollowLine)
                     Text(
                       _followDate == null
                           ? ''
-                          : 'Following since ${_formatDate(_followDate!)}',
+                          : context.l10n.followingSince(
+                              _formatDate(_followDate!),
+                            ),
                       style: detailStyle,
                     ),
                   if (widget.cardBadges.isNotEmpty) ...[
@@ -762,9 +768,9 @@ class UserProfileSheetState extends State<UserProfileSheet> {
     if (ban) {
       final reason = await showModTextDialog(
         context,
-        title: 'Ban ${widget.username}?',
-        label: 'Reason (optional)',
-        confirmLabel: 'Ban',
+        title: context.l10n.banUserTitle(widget.username),
+        label: context.l10n.reasonOptional,
+        confirmLabel: context.l10n.ban,
         allowEmpty: true,
       );
       if (reason == null || !mounted) return;
@@ -795,9 +801,9 @@ class UserProfileSheetState extends State<UserProfileSheet> {
     if (modActions == null || channel == null) return;
     final reason = await showModTextDialog(
       context,
-      title: 'Warn ${widget.username}?',
-      label: 'Reason (optional)',
-      confirmLabel: 'Warn',
+      title: context.l10n.warnUserTitle(widget.username),
+      label: context.l10n.reasonOptional,
+      confirmLabel: context.l10n.warn,
       allowEmpty: true,
     );
     if (reason == null || !mounted) return;
@@ -824,15 +830,16 @@ class UserProfileSheetState extends State<UserProfileSheet> {
     );
     if (!mounted) return;
     if (result.ok) {
-      AppSnack.show(context, 'Flag cleared for ${widget.displayName}');
+      AppSnack.show(context, context.l10n.flagClearedFor(widget.displayName));
     } else {
       showModError(context, result);
     }
   }
 
   String _recordSubtitle(String? reason, String moderator) {
-    if (reason != null && reason.isNotEmpty) return '"$reason" · by $moderator';
-    return 'by $moderator';
+    final by = context.l10n.byModerator(moderator);
+    if (reason != null && reason.isNotEmpty) return '"$reason" · $by';
+    return by;
   }
 
   // Display-only moderation record: active ban/timeout, warning history,
@@ -850,7 +857,9 @@ class UserProfileSheetState extends State<UserProfileSheet> {
           dense: true,
           visualDensity: VisualDensity.compact,
           leading: const Icon(Icons.gavel_outlined),
-          title: Text(ban.expiresAt == null ? 'Banned' : 'Timed out'),
+          title: Text(
+            ban.expiresAt == null ? context.l10n.banned : context.l10n.timedOut,
+          ),
           subtitle: Text(_recordSubtitle(ban.reason, ban.moderator)),
         ),
       if (warnings.isNotEmpty)
@@ -858,9 +867,7 @@ class UserProfileSheetState extends State<UserProfileSheet> {
           dense: true,
           visualDensity: VisualDensity.compact,
           leading: const Icon(Icons.warning_amber_outlined),
-          title: Text(
-            warnings.length == 1 ? '1 warning' : '${warnings.length} warnings',
-          ),
+          title: Text(context.l10n.warningCount(warnings.length)),
           subtitle: Text(
             _recordSubtitle(warnings.first.reason, warnings.first.moderator),
           ),
@@ -879,26 +886,26 @@ class UserProfileSheetState extends State<UserProfileSheet> {
 
   String _suspiciousTitle(String status) {
     final lower = status.toLowerCase();
-    if (lower.contains('restrict')) return 'Restricted user';
-    if (lower.contains('monitor')) return 'Monitored user';
-    if (lower.isEmpty) return 'Flagged user';
-    return 'Flagged user ($status)';
+    if (lower.contains('restrict')) return context.l10n.restrictedUser;
+    if (lower.contains('monitor')) return context.l10n.monitoredUser;
+    if (lower.isEmpty) return context.l10n.flaggedUser;
+    return context.l10n.flaggedUserStatus(status);
   }
 
   String _suspiciousSubtitle(SuspiciousInfo info) {
     final parts = <String>[];
     final evasion = info.banEvasion;
     if (evasion != null && evasion.isNotEmpty && evasion != 'unknown') {
-      parts.add('$evasion ban evasion');
+      parts.add(context.l10n.banEvasion(evasion));
     }
     if (info.sharedBanChannelIds.isNotEmpty) {
       final n = info.sharedBanChannelIds.length;
-      parts.add('banned in $n shared channel${n == 1 ? '' : 's'}');
+      parts.add(context.l10n.bannedInShared(n));
     }
     if (info.types.isNotEmpty) {
       parts.add(info.types.map((t) => t.replaceAll('_', ' ')).join(', '));
     }
-    if (parts.isEmpty) return 'Flagged';
+    if (parts.isEmpty) return context.l10n.flagged;
     return parts.join(' · ');
   }
 
@@ -919,24 +926,22 @@ class UserProfileSheetState extends State<UserProfileSheet> {
   Future<void> _blockUser() async {
     final userId = widget.userId ?? _profile?['id'] as String?;
     if (userId == null) {
-      AppSnack.show(context, 'Cannot block: user ID unknown');
+      AppSnack.show(context, context.l10n.cannotBlockNoId);
       return;
     }
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Block user'),
-        content: Text(
-          'Block ${widget.displayName}? They will not be able to whisper you or host your channel.',
-        ),
+        title: Text(ctx.l10n.blockUser),
+        content: Text(ctx.l10n.blockUserMessage(widget.displayName)),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
+            child: Text(ctx.l10n.cancel),
           ),
           FilledButton(
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Block'),
+            child: Text(ctx.l10n.block),
           ),
         ],
       ),
@@ -947,8 +952,8 @@ class UserProfileSheetState extends State<UserProfileSheet> {
     AppSnack.show(
       context,
       ok
-          ? '${widget.displayName} blocked'
-          : "Couldn't block: ${widget.twitchApi.friendlyLastError}",
+          ? context.l10n.userBlocked(widget.displayName)
+          : context.l10n.couldNotBlock(widget.twitchApi.friendlyLastError),
     );
     if (ok) widget.onUserBlocked?.call(widget.username);
     widget.onClose();
@@ -958,7 +963,7 @@ class UserProfileSheetState extends State<UserProfileSheet> {
     final url = Uri.parse('https://twitch.tv/${widget.username}/report');
     final ok = await launchUrl(url, mode: LaunchMode.externalApplication);
     if (!ok && mounted) {
-      AppSnack.show(context, 'Could not open the report page');
+      AppSnack.show(context, context.l10n.couldNotOpenReport);
     }
   }
 
@@ -968,49 +973,53 @@ class UserProfileSheetState extends State<UserProfileSheet> {
     final modActions = <SheetAction>[
       SheetAction(
         icon: Icons.timer_outlined,
-        label: 'Timeout',
+        label: context.l10n.timeout,
         onTap: _modTimeout,
       ),
       SheetAction(
         icon: Icons.gavel_outlined,
-        label: 'Ban',
+        label: context.l10n.ban,
         onTap: () => _modBan(ban: true),
       ),
       SheetAction(
         icon: Icons.undo_outlined,
-        label: 'Unban',
+        label: context.l10n.unban,
         onTap: () => _modBan(ban: false),
       ),
       SheetAction(
         icon: Icons.warning_amber_outlined,
-        label: 'Warn',
+        label: context.l10n.warn,
         onTap: _modWarn,
       ),
       if (widget.suspiciousInfo != null)
         SheetAction(
           icon: Icons.visibility_off_outlined,
-          label: 'Clear flag',
+          label: context.l10n.clearFlag,
           onTap: _clearSuspicious,
         ),
     ];
     final userActions = <SheetAction>[
       SheetAction(
         icon: Icons.alternate_email,
-        label: compact ? 'Mention' : 'Mention user',
+        label: compact ? context.l10n.mention : context.l10n.mentionUser,
         onTap: _mentionUser,
       ),
       SheetAction(
         icon: Icons.chat_bubble_outline,
-        label: compact ? 'Whisper' : 'Whisper user',
+        label: compact ? context.l10n.whisper : context.l10n.whisperUser,
         onTap: () {
           widget.onClose();
           widget.onWhisperUser?.call();
         },
       ),
-      SheetAction(icon: Icons.block, label: 'Block', onTap: _blockUser),
+      SheetAction(
+        icon: Icons.block,
+        label: context.l10n.block,
+        onTap: _blockUser,
+      ),
       SheetAction(
         icon: Icons.flag_outlined,
-        label: 'Report',
+        label: context.l10n.report,
         onTap: _reportUser,
       ),
     ];

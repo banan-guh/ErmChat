@@ -380,6 +380,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     sharedChatMode: () => ref.read(sharedChatModeProvider),
     namePaintService: () => _showNamePaints ? _sevenTvPaintService : null,
     copyMessage: _copyMessageToClipboard,
+    strings: () => context.l10n,
   );
 
   late final _mentions = MentionsPanels(

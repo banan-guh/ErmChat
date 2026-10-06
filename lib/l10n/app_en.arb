@@ -1116,5 +1116,127 @@
   "customLevels": "Custom levels.",
   "saveChanges": "Save changes",
   "noModActivity": "No moderation activity yet.",
-  "noModActivityHint": "Bans, timeouts and mod actions will show here."
+  "noModActivityHint": "Bans, timeouts and mod actions will show here.",
+  "userNotFound": "User not found",
+  "jumpToLatest": "Jump to latest",
+  "noRecentUserMessages": "No recent messages from this user here yet",
+  "connectToSeeProfile": "Connect an account to see profile",
+  "createdOn": "Created: {date}",
+  "@createdOn": {
+    "placeholders": {
+      "date": {
+        "type": "String"
+      }
+    }
+  },
+  "followingSince": "Following since {date}",
+  "@followingSince": {
+    "placeholders": {
+      "date": {
+        "type": "String"
+      }
+    }
+  },
+  "warnUserTitle": "Warn {login}?",
+  "@warnUserTitle": {
+    "placeholders": {
+      "login": {
+        "type": "String"
+      }
+    }
+  },
+  "warn": "Warn",
+  "flagClearedFor": "Flag cleared for {name}",
+  "@flagClearedFor": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "timedOut": "Timed out",
+  "restrictedUser": "Restricted user",
+  "monitoredUser": "Monitored user",
+  "flaggedUser": "Flagged user",
+  "flaggedUserStatus": "Flagged user ({status})",
+  "@flaggedUserStatus": {
+    "placeholders": {
+      "status": {
+        "type": "String"
+      }
+    }
+  },
+  "banEvasion": "{level} ban evasion",
+  "@banEvasion": {
+    "placeholders": {
+      "level": {
+        "type": "String"
+      }
+    }
+  },
+  "bannedInShared": "{count, plural, =1{banned in 1 shared channel} other{banned in {count} shared channels}}",
+  "@bannedInShared": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "cannotBlockNoId": "Cannot block: user ID unknown",
+  "blockUser": "Block user",
+  "blockUserMessage": "Block {name}? They will not be able to whisper you or host your channel.",
+  "@blockUserMessage": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "block": "Block",
+  "userBlocked": "{name} blocked",
+  "@userBlocked": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "couldNotBlock": "Couldn't block: {reason}",
+  "@couldNotBlock": {
+    "placeholders": {
+      "reason": {
+        "type": "String"
+      }
+    }
+  },
+  "couldNotOpenReport": "Could not open the report page",
+  "clearFlag": "Clear flag",
+  "mention": "Mention",
+  "mentionUser": "Mention user",
+  "whisper": "Whisper",
+  "whisperUser": "Whisper user",
+  "report": "Report",
+  "threadSavedEvicted": "Thread saved (oldest removed)",
+  "threadSaved": "Thread saved",
+  "threadUnsaved": "Thread unsaved",
+  "threadUnavailable": "Thread no longer available",
+  "threads": "Threads",
+  "tabThread": "Thread",
+  "tabActive": "Active",
+  "tabSaved": "Saved",
+  "noMessagesFound": "No messages found",
+  "joinChannelForThreads": "Join a channel to see threads",
+  "noActiveThreads": "No active threads",
+  "thread": "Thread",
+  "replyCount": "{count, plural, =1{1 reply} other{{count} replies}}",
+  "@replyCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "unsaveThread": "Unsave thread",
+  "saveThread": "Save thread",
+  "noSavedThreads": "No saved threads yet"
 }

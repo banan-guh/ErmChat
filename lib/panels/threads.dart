@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import '../chat/channel/threads.dart';
 import '../chat/chat.dart';
 import '../composer/composer_controller.dart';
+import '../l10n/l10n.dart';
 import '../models/twitch_message.dart';
 import '../services/saved_threads_store.dart';
 import '../widgets/seven_tv_paint_service.dart';
@@ -44,6 +45,7 @@ class ThreadPanels {
     required this.sharedChatMode,
     required this.namePaintService,
     required this.copyMessage,
+    required this.strings,
   }) {
     panelManager.onOpenThreadChanged = syncPinnedThread;
   }
@@ -69,6 +71,9 @@ class ThreadPanels {
   final String Function() sharedChatMode;
   final SevenTvPaintService? Function() namePaintService;
   final void Function(TwitchMessage msg) copyMessage;
+
+  /// Strings in the app language for notices raised outside a build.
+  final AppLocalizations Function() strings;
 
   final savedThreads = SavedThreadsStore();
   final threadLastSeen = <String, DateTime>{};
@@ -389,8 +394,8 @@ class ThreadPanels {
       markDirty();
       showNotice(
         saved
-            ? (willEvict ? 'Thread saved (oldest removed)' : 'Thread saved')
-            : 'Thread unsaved',
+            ? (willEvict ? strings().threadSavedEvicted : strings().threadSaved)
+            : strings().threadUnsaved,
       );
     }
   }
@@ -443,7 +448,7 @@ class ThreadPanels {
     target ??= msgs?.firstOrNull;
     target ??= resolveThreadRootMessage(channel, summary.rootId);
     if (target == null) {
-      showNotice('Thread no longer available');
+      showNotice(strings().threadUnavailable);
       return;
     }
     unawaited(showThreadView(target));
@@ -548,10 +553,10 @@ class ThreadPanels {
         context,
         leading: IconButton(
           icon: const Icon(Icons.close),
-          tooltip: 'Close',
+          tooltip: context.l10n.close,
           onPressed: closePanel,
         ),
-        title: 'Threads',
+        title: context.l10n.threads,
         tabs: (compact) => TabBar(
           controller: threadsTab(),
           // Full: a centered island. Compact: offsets the leading button so
@@ -564,10 +569,10 @@ class ThreadPanels {
           // narrow phones.
           isScrollable: true,
           tabAlignment: TabAlignment.center,
-          tabs: const [
-            Tab(text: 'Thread'),
-            Tab(text: 'Active'),
-            Tab(text: 'Saved'),
+          tabs: [
+            Tab(text: context.l10n.tabThread),
+            Tab(text: context.l10n.tabActive),
+            Tab(text: context.l10n.tabSaved),
           ],
         ),
       ),
@@ -603,7 +608,7 @@ class ThreadPanels {
                   menus.showPanelMessageMenu(context, msg),
               onCopyMessage: copyMessage,
               showReplyIndicators: false,
-              emptyText: 'No messages found',
+              emptyText: context.l10n.noMessagesFound,
             ),
             _activeThreadsList(context),
             _savedThreadsList(context),
@@ -619,12 +624,12 @@ class ThreadPanels {
       builder: (context, _, _) {
         final channel = selectedChannel() ?? panelManager.threadChannel;
         if (channel == null) {
-          return const Center(child: Text('Join a channel to see threads'));
+          return Center(child: Text(context.l10n.joinChannelForThreads));
         }
         final threads =
             chat.channelFor(channel)?.threads.activeThreads() ?? const [];
         if (threads.isEmpty) {
-          return const Center(child: Text('No active threads'));
+          return Center(child: Text(context.l10n.noActiveThreads));
         }
         final theme = Theme.of(context);
         return ListView.builder(
@@ -645,7 +650,7 @@ class ThreadPanels {
                 ? (display.displayName.isNotEmpty
                       ? display.displayName
                       : display.login)
-                : 'Thread';
+                : context.l10n.thread;
             final preview = display != null ? display.text : '';
             final saved = savedThreads.isSaved(channel, summary.rootId);
             return ListTile(
@@ -660,8 +665,7 @@ class ThreadPanels {
                 ),
               ),
               subtitle: Text(
-                '${summary.replyCount} '
-                '${summary.replyCount == 1 ? 'reply' : 'replies'}'
+                '${context.l10n.replyCount(summary.replyCount)}'
                 ' · ${formatTimestamp(summary.lastActivity, timestampFormat())}',
               ),
               trailing: display == null
@@ -670,7 +674,9 @@ class ThreadPanels {
                       icon: Icon(
                         saved ? Icons.bookmark : Icons.bookmark_border,
                       ),
-                      tooltip: saved ? 'Unsave thread' : 'Save thread',
+                      tooltip: saved
+                          ? context.l10n.unsaveThread
+                          : context.l10n.saveThread,
                       onPressed: () => toggleSaveThread(display),
                     ),
               onTap: () => openActiveThread(summary, channel),
@@ -687,7 +693,7 @@ class ThreadPanels {
       builder: (context, _, _) {
         final saved = savedThreads.threads;
         if (saved.isEmpty) {
-          return const Center(child: Text('No saved threads yet'));
+          return Center(child: Text(context.l10n.noSavedThreads));
         }
         return ListView.builder(
           itemCount: saved.length,
@@ -705,7 +711,7 @@ class ThreadPanels {
               subtitle: Text('#${entry.channel}'),
               trailing: IconButton(
                 icon: const Icon(Icons.bookmark),
-                tooltip: 'Unsave thread',
+                tooltip: context.l10n.unsaveThread,
                 onPressed: () => unsaveThread(entry),
               ),
               onTap: () => openSavedThread(entry),
@@ -723,7 +729,7 @@ class ThreadPanels {
     threadsListVersion.value++;
     if (isMounted()) {
       markDirty();
-      showNotice('Thread unsaved');
+      showNotice(strings().threadUnsaved);
     }
   }
 }
