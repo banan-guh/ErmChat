@@ -192,6 +192,8 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
           SettingAnchor(
             Setting.language,
             child: ListTile(
+              // Findable by anyone stuck in a language they cannot read.
+              leading: const Icon(Icons.translate),
               title: Text(context.l10n.settingLanguage),
               subtitle: Text(
                 _locale.isEmpty
