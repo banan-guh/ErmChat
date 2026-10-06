@@ -2827,5 +2827,33 @@
         "type": "String"
       }
     }
+  },
+  "statusConnected": "Connected",
+  "statusReconnected": "Reconnected",
+  "statusDisconnected": "Disconnected",
+  "statusReconnecting": "Chat reconnecting...",
+  "loadingChatHistory": "Loading chat history...",
+  "historyGapNote": "History: Not all messages retrieved",
+  "liveWithViewers": "Live with {viewers, plural, =1{1 viewer} other{{viewers} viewers}}",
+  "@liveWithViewers": {
+    "placeholders": {
+      "viewers": {
+        "type": "int"
+      }
+    }
+  },
+  "liveWithViewersFor": "Live with {viewers, plural, =1{1 viewer} other{{viewers} viewers}} for {hours}h {minutes}m",
+  "@liveWithViewersFor": {
+    "placeholders": {
+      "viewers": {
+        "type": "int"
+      },
+      "hours": {
+        "type": "int"
+      },
+      "minutes": {
+        "type": "int"
+      }
+    }
   }
 }

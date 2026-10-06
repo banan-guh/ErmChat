@@ -40,6 +40,17 @@ class MergeOutcome {
   final List<TwitchMessage> evicted;
 }
 
+/// Kernel-authored system rows. The app injects their display text, so the
+/// kernel folds by kind and never matches user-visible copy.
+enum SystemLine {
+  connected,
+  reconnected,
+  disconnected,
+  reconnecting,
+  loadingHistory,
+  historyGap,
+}
+
 /// One channel's message buffer and its laws: newest-first ordering, dedup,
 /// system-line folding, coalesced thread-aware truncation, and in-place
 /// mutations. Owns no policy: callers filter, rewrite, and evaluate pings
@@ -48,14 +59,21 @@ class Messages {
   Messages({
     required this.channel,
     DateTime Function()? now,
+    String Function(SystemLine line)? systemText,
     this.truncateCoalesceWindow = const Duration(milliseconds: 250),
-  }) : now = now ?? clock.now;
+  }) : now = now ?? clock.now,
+       systemText = systemText ?? _systemLineName;
 
   /// Channel this buffer belongs to. Stamped onto system rows because
   /// [TwitchMessage.channel] is final and downstream keys on it.
   final String channel;
   final DateTime Function() now;
+
+  /// Display text for kernel-authored rows, read when the row is inserted.
+  final String Function(SystemLine line) systemText;
   final Duration truncateCoalesceWindow;
+
+  static String _systemLineName(SystemLine line) => line.name;
 
   final List<TwitchMessage> _items = [];
   final Set<String> _seenIds = {};
@@ -88,27 +106,18 @@ class Messages {
 
   /// Connect-state rows carry a `sys_conn:<state>:<n>` id: unique per row, so
   /// two Reconnected lines never share a tile, while folding matches the state
-  /// prefix instead of user-visible copy. The map keys the incoming status
-  /// text to its state.
+  /// prefix instead of user-visible copy.
   static const _connIdPrefix = 'sys_conn:';
-  static const _statusStateByText = {
-    'Connected': 'connected',
-    'Connected to IRC': 'connected',
-    'Disconnected': 'disconnected',
-    'Reconnected': 'reconnected',
-    'Chat reconnecting...': 'reconnecting',
-  };
 
   /// Stable id for the loading-history row.
   static const loadingHistoryId = 'sys_loading';
-  static const _gapNoteText = 'History: Not all messages retrieved';
 
   static bool _isConnRow(TwitchMessage m) =>
       m.isSystem && (m.messageId?.startsWith(_connIdPrefix) ?? false);
-  static bool _isConn(TwitchMessage? m, String state) =>
+  static bool _isConn(TwitchMessage? m, SystemLine state) =>
       m != null &&
       m.isSystem &&
-      (m.messageId?.startsWith('$_connIdPrefix$state:') ?? false);
+      (m.messageId?.startsWith('$_connIdPrefix${state.name}:') ?? false);
 
   // ---- Reads ---------------------------------------------------------------
 
@@ -251,7 +260,7 @@ class Messages {
       _items.add(
         TwitchMessage(
           login: '',
-          text: _gapNoteText,
+          text: systemText(SystemLine.historyGap),
           isSystem: true,
           channel: channel,
           timestamp: oldestHistory.subtract(const Duration(milliseconds: 1)),
@@ -381,68 +390,72 @@ class Messages {
 
   // ---- System lines --------------------------------------------------------
 
-  /// Inserts a system row at the top, applying status folding (Connected /
-  /// Disconnected / Reconnected / reconnecting) and id-less text dedup.
-  /// Returns false when folding dropped it.
+  /// Inserts a connect-state row at the top with status folding: a repeat
+  /// connect reads as Reconnected, recoveries clear the outage marker, and
+  /// flapping folds. [status] is one of the four connect lines. Returns false
+  /// when folding dropped it.
+  bool addConnStatus(SystemLine status) {
+    assert(status.index <= SystemLine.reconnecting.index);
+    var resolved = status;
+    if (resolved == SystemLine.connected && _items.any(_isConnRow)) {
+      resolved = SystemLine.reconnected;
+    }
+    final top = _items.isEmpty ? null : _items.first;
+    if (resolved == SystemLine.reconnected) {
+      var newestRecovery = -1;
+      for (var i = 0; i < _items.length; i++) {
+        final m = _items[i];
+        if (_isConn(m, SystemLine.reconnected)) {
+          newestRecovery = i;
+          break;
+        }
+      }
+      // A recovery close to the previous one is the same outage flapping,
+      // not a new event. Chat since an older recovery keeps both lines.
+      final recentRecovery =
+          newestRecovery != -1 &&
+          now().difference(_items[newestRecovery].timestamp).abs() <=
+              _reconnectFoldWindow;
+      final hasActivity =
+          !recentRecovery &&
+          newestRecovery != -1 &&
+          _items.take(newestRecovery).any((m) => !_isConnRow(m));
+      // The transient outage marker never survives a recovery.
+      final before = _items.length;
+      _items.removeWhere(
+        (m) =>
+            _isConn(m, SystemLine.disconnected) ||
+            _isConn(m, SystemLine.reconnecting),
+      );
+      if (recentRecovery) {
+        if (_items.length != before) _bump();
+        return false;
+      }
+      if (!hasActivity) {
+        _items.removeWhere((m) => _isConn(m, SystemLine.reconnected));
+      }
+    } else if (resolved == SystemLine.reconnecting) {
+      if (_items.any((m) => _isConn(m, SystemLine.disconnected))) return false;
+      if (_isConn(top, SystemLine.reconnecting)) return false;
+    } else if (resolved == SystemLine.disconnected) {
+      if (_isConn(top, SystemLine.disconnected)) return false;
+      _items.removeWhere((m) => _isConn(m, SystemLine.reconnecting));
+    }
+    return _insertSystem(
+      systemText(resolved),
+      messageId: '$_connIdPrefix${resolved.name}:${_nextSystemMessageId++}',
+    );
+  }
+
+  /// Inserts a system row at the top with id-less text dedup. Returns false
+  /// when dedup dropped it.
   bool addSystem(String text, {Color? accent, String? messageId}) {
     if (messageId != null &&
         _items.any((m) => m.isSystem && m.messageId == messageId)) {
       return false;
     }
 
-    final state = _statusStateByText[text];
-    if (state != null) {
-      var resolved = state;
-      if (resolved == 'connected') {
-        final hasPriorStatus = _items.any(_isConnRow);
-        resolved = hasPriorStatus ? 'reconnected' : 'connected';
-        text = hasPriorStatus ? 'Reconnected' : 'Connected';
-      }
-      final top = _items.isEmpty ? null : _items.first;
-      if (resolved == 'reconnected') {
-        var newestRecovery = -1;
-        for (var i = 0; i < _items.length; i++) {
-          final m = _items[i];
-          if (_isConn(m, 'reconnected')) {
-            newestRecovery = i;
-            break;
-          }
-        }
-        // A recovery close to the previous one is the same outage flapping,
-        // not a new event. Chat since an older recovery keeps both lines.
-        final recentRecovery =
-            newestRecovery != -1 &&
-            now().difference(_items[newestRecovery].timestamp).abs() <=
-                _reconnectFoldWindow;
-        final hasActivity =
-            !recentRecovery &&
-            newestRecovery != -1 &&
-            _items.take(newestRecovery).any((m) => !_isConnRow(m));
-        // The transient outage marker never survives a recovery.
-        final before = _items.length;
-        _items.removeWhere(
-          (m) => _isConn(m, 'disconnected') || _isConn(m, 'reconnecting'),
-        );
-        if (recentRecovery) {
-          if (_items.length != before) _bump();
-          return false;
-        }
-        if (!hasActivity) {
-          _items.removeWhere((m) => _isConn(m, 'reconnected'));
-        }
-      } else if (resolved == 'disconnected' || resolved == 'reconnecting') {
-        if (resolved == 'reconnecting') {
-          if (_items.any((m) => _isConn(m, 'disconnected'))) return false;
-          if (_isConn(top, 'reconnecting')) return false;
-        } else {
-          if (_isConn(top, 'disconnected')) return false;
-          _items.removeWhere((m) => _isConn(m, 'reconnecting'));
-        }
-      }
-      messageId = '$_connIdPrefix$resolved:${_nextSystemMessageId++}';
-    }
-
-    if (messageId == null && state == null) {
+    if (messageId == null) {
       final at = now();
       for (final m in _items) {
         if (!m.isSystem || m.text != text) continue;
@@ -453,7 +466,10 @@ class Messages {
         }
       }
     }
+    return _insertSystem(text, accent: accent, messageId: messageId);
+  }
 
+  bool _insertSystem(String text, {Color? accent, String? messageId}) {
     _items.insert(
       0,
       TwitchMessage(
@@ -525,8 +541,10 @@ class Messages {
   /// Moves the newest connect-state system line back to the top.
   bool moveConnectedToTop() {
     if (_items.length < 2) return false;
-    var idx = _items.indexWhere((m) => _isConn(m, 'reconnected'));
-    idx = idx < 0 ? _items.indexWhere((m) => _isConn(m, 'connected')) : idx;
+    var idx = _items.indexWhere((m) => _isConn(m, SystemLine.reconnected));
+    idx = idx < 0
+        ? _items.indexWhere((m) => _isConn(m, SystemLine.connected))
+        : idx;
     if (idx <= 0) return false;
     final msg = _items.removeAt(idx);
     _items.insert(0, msg);

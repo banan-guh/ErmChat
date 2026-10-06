@@ -72,7 +72,7 @@ class HomeAppBar {
   final VoidCallback openSettings;
 
   bool _isChannelLive(String channel) =>
-      (chat.channelFor(channel)?.info.status ?? '').contains('Live');
+      chat.channelFor(channel)?.info.isLive ?? false;
 
   void _onBellPressed() {
     chat.clearAllUnread();

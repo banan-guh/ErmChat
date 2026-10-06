@@ -168,7 +168,7 @@ class UserSheets {
     final canModerate =
         channel != null &&
         chatConn.isModerationActive(channel) &&
-        (chat.channelFor(channel)?.info.status ?? '').contains('Live');
+        (chat.channelFor(channel)?.info.isLive ?? false);
     final login = session.login;
     final isSelf =
         login != null && username.toLowerCase() == login.toLowerCase();

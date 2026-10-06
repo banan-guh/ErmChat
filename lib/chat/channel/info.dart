@@ -11,10 +11,14 @@ class ChannelInfo {
   final ValueNotifier<int> statusVersion = ValueNotifier(0);
 
   String _status = '';
+  bool _isLive = false;
   String? _broadcasterId;
   bool _historyLoaded = false;
 
   String get status => _status;
+
+  /// Whether the stream is live, set alongside the display [status].
+  bool get isLive => _isLive;
   String? get broadcasterId => _broadcasterId;
   bool get historyLoaded => _historyLoaded;
 
@@ -24,9 +28,10 @@ class ChannelInfo {
 
   Set<String> failures() => Set.of(_loadFailures);
 
-  void setStatus(String next) {
-    if (_status == next) return;
+  void setStatus(String next, {bool live = false}) {
+    if (_status == next && _isLive == live) return;
     _status = next;
+    _isLive = live;
     statusVersion.value++;
   }
 

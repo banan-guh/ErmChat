@@ -921,15 +921,16 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 
   void _showBanner(String message) {
     if (!mounted) return;
-    if (message == 'Login expired') {
-      _chatNotice.show(
-        context.l10n.loginExpiredReconnect,
-        actionLabel: context.l10n.openAccount,
-        onAction: () => unawaited(_openSettings()),
-      );
-      return;
-    }
     _chatNotice.show(message);
+  }
+
+  void _showLoginExpired() {
+    if (!mounted) return;
+    _chatNotice.show(
+      context.l10n.loginExpiredReconnect,
+      actionLabel: context.l10n.openAccount,
+      onAction: () => unawaited(_openSettings()),
+    );
   }
 
   // ChatUiSignals forwarding: the pipeline pushes, the shell routes each
@@ -940,6 +941,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     _signalUnsubs.addAll([
       signals.focusComposer.add(_onFocusComposerSignal),
       signals.banner.add(_showBanner),
+      signals.loginExpired.add(_showLoginExpired),
       signals.whisper.add(_mentions.onWhisper),
       signals.userEmoteSets.add(_onUserEmoteSetsSignal),
       signals.whisperSystem.add(

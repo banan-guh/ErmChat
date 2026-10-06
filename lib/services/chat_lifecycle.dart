@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 
+import '../chat/channel/messages.dart' show SystemLine;
 import '../chat/chat.dart';
 import '../color_utils.dart' show Color;
 import '../client/session.dart';
@@ -48,7 +49,8 @@ class ChatLifecycle {
     required this.subscribeAll,
     required this.clearSelfBadges,
     required this.onSystemMessage,
-    required this.onBanner,
+    required this.onConnStatus,
+    required this.onLoginExpired,
     required this.onReconnected,
     required this.strings,
   });
@@ -80,7 +82,8 @@ class ChatLifecycle {
     String? messageId,
   })
   onSystemMessage;
-  final void Function(String message)? onBanner;
+  final void Function(String channel, SystemLine status) onConnStatus;
+  final VoidCallback? onLoginExpired;
   final VoidCallback? onReconnected;
 
   bool _wasConnected = false;
@@ -168,7 +171,7 @@ class ChatLifecycle {
   void _announceConnected(String channel) {
     if (!readiness.isChannelReady(channel)) return;
     if (readiness.acknowledgeConnected(channel)) {
-      onSystemMessage(channel, 'Connected');
+      onConnStatus(channel, SystemLine.connected);
     }
   }
 
@@ -314,7 +317,7 @@ class ChatLifecycle {
           // again.
           channelSetup.resetJoinFailureState();
           for (final channel in chat.names) {
-            onSystemMessage(channel, 'Disconnected');
+            onConnStatus(channel, SystemLine.disconnected);
           }
         }
       });
@@ -334,7 +337,7 @@ class ChatLifecycle {
             // Same ack as the JOIN-confirm path below: a flapping write
             // socket reports the same recovery, keep one line.
             if (readiness.acknowledgeConnected(channel)) {
-              onSystemMessage(channel, 'Reconnected');
+              onConnStatus(channel, SystemLine.reconnected);
             }
           }
           connectionStateNotifier.value++;
@@ -342,7 +345,7 @@ class ChatLifecycle {
             readiness.noteReadSocketDisconnected()) {
           connectionStateNotifier.value++;
           for (final channel in chat.names) {
-            onSystemMessage(channel, 'Chat reconnecting...');
+            onConnStatus(channel, SystemLine.reconnecting);
           }
         }
       });
@@ -624,6 +627,6 @@ class ChatLifecycle {
     for (final channel in chat.names) {
       onSystemMessage(channel, strings().loginExpiredInSettings);
     }
-    onBanner?.call('Login expired');
+    onLoginExpired?.call();
   }
 }

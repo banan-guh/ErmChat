@@ -3,6 +3,7 @@ import 'dart:ui' show PlatformDispatcher;
 import 'package:flutter/widgets.dart' show basicLocaleListResolution;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../chat/channel/messages.dart' show SystemLine;
 import '../chat/chat.dart';
 import '../client/session.dart';
 import '../eventsub/transport/connection.dart';
@@ -205,7 +206,20 @@ final ignoreManagerProvider = Provider<IgnoreManager>(
 );
 
 final chatProvider = Provider<Chat>((ref) {
-  final chat = Chat();
+  final strings = ref.read(stringsProvider);
+  final chat = Chat(
+    systemText: (line) {
+      final l = strings();
+      return switch (line) {
+        SystemLine.connected => l.statusConnected,
+        SystemLine.reconnected => l.statusReconnected,
+        SystemLine.disconnected => l.statusDisconnected,
+        SystemLine.reconnecting => l.statusReconnecting,
+        SystemLine.loadingHistory => l.loadingChatHistory,
+        SystemLine.historyGap => l.historyGapNote,
+      };
+    },
+  );
   ref.onDispose(chat.dispose);
   return chat;
 });

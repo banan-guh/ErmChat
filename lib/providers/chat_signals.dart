@@ -15,6 +15,7 @@ typedef WhisperSentSignal = ({String target, String message});
 class ChatUiSignals {
   final ChatVoidSignal focusComposer = ChatVoidSignal();
   final ChatSignal<String> banner = ChatSignal<String>();
+  final ChatVoidSignal loginExpired = ChatVoidSignal();
   final ChatSignal<TwitchMessage> whisper = ChatSignal<TwitchMessage>();
   final ChatSignal<UserEmoteSetsSignal> userEmoteSets =
       ChatSignal<UserEmoteSetsSignal>();
@@ -26,6 +27,7 @@ class ChatUiSignals {
   void dispose() {
     focusComposer.clear();
     banner.clear();
+    loginExpired.clear();
     whisper.clear();
     userEmoteSets.clear();
     whisperSystem.clear();

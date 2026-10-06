@@ -28,6 +28,7 @@ import 'package:ermchat/emotes/emote_catalog.dart';
 import 'package:ermchat/services/chat_connection_manager.dart';
 import 'package:ermchat/services/chat_channel_setup.dart';
 import 'package:ermchat/chat/chat.dart';
+import 'package:ermchat/chat/channel/messages.dart' show SystemLine;
 import 'package:ermchat/client/session.dart';
 import 'package:ermchat/services/emote_manager.dart';
 import 'package:ermchat/services/twitch_api.dart';
@@ -467,6 +468,7 @@ ChatConnectionManager _makeConn({
       bridge: ChatViewBridge(
         mentionsChannel: '@mentions',
         onSystemMessage: (c, t, {Color? accent, String? messageId}) {},
+        onConnStatus: (c, s) {},
         getSelectedChannel: () => null,
         getMaxMessagesPerChannel: () => maxMessages,
       ),
@@ -489,6 +491,7 @@ ChatConnectionManager _makeReconnectConn({
   Map<String, String>? chatStatus,
   void Function(String, String, {Color? accent, String? messageId})?
   onSystemMessage,
+  void Function(String, SystemLine)? onConnStatus,
   String? currentUserLogin,
   void Function(HypeTrainEvent event)? onHypeTrain,
   Future<void> Function(String?, List<String>)? onUserEmoteSets,
@@ -542,6 +545,7 @@ ChatConnectionManager _makeReconnectConn({
         mentionsChannel: '@mentions',
         onSystemMessage:
             onSystemMessage ?? (c, t, {Color? accent, String? messageId}) {},
+        onConnStatus: onConnStatus ?? (c, s) {},
         getSelectedChannel: () => null,
         getMaxMessagesPerChannel: () => 100,
       ),
@@ -2203,7 +2207,7 @@ void main() {
       await auth.switchTo('alice');
 
       var reconnects = 0;
-      final system = <String>[];
+      final system = <SystemLine>[];
       final chat = Chat();
       chat.ensure('test');
       chat.channelFor('test')?.info.setBroadcasterId('999');
@@ -2213,8 +2217,7 @@ void main() {
         irc: irc,
         ircRead: readConn,
         onReconnected: () => reconnects++,
-        onSystemMessage: (c, t, {Color? accent, String? messageId}) =>
-            system.add(t),
+        onConnStatus: (c, s) => system.add(s),
         currentUserLogin: 'alice',
         auth: auth,
         chat: chat,
@@ -2229,7 +2232,7 @@ void main() {
       readConn.confirmJoin('test');
       await Future<void>.delayed(Duration.zero);
       expect(reconnects, 0);
-      expect(system.where((t) => t == 'Connected'), hasLength(1));
+      expect(system.where((s) => s == SystemLine.connected), hasLength(1));
 
       // Alice's session state accrues.
       irc.handleLine('@room-id=1 :tmi.twitch.tv ROOMSTATE #test');
@@ -2268,7 +2271,7 @@ void main() {
       readConn.confirmJoin('test');
       await Future<void>.delayed(Duration.zero);
       expect(reconnects, 1);
-      expect(system.where((t) => t == 'Connected'), hasLength(2));
+      expect(system.where((s) => s == SystemLine.connected), hasLength(2));
 
       conn.dispose();
     });
@@ -3117,7 +3120,7 @@ void main() {
       'read outage surfaces as Chat reconnecting then Reconnected and stays silent before any join',
       () {
         fakeAsync((async) {
-          final messages = <(String, String)>[];
+          final messages = <(String, SystemLine)>[];
           final ircRead = _TestIrcRead();
           final irc = _TestIrc();
           final conn = _makeReconnectConn(
@@ -3127,27 +3130,26 @@ void main() {
             onReconnected: () {},
             channels: const ['test'],
             currentUserLogin: 'testuser',
-            onSystemMessage: (c, t, {Color? accent, String? messageId}) =>
-                messages.add((c, t)),
+            onConnStatus: (c, s) => messages.add((c, s)),
           );
           conn.connect();
           async.flushMicrotasks();
           ircRead.emitDisconnected();
           async.flushMicrotasks();
-          expect(messages, contains(('test', 'Chat reconnecting...')));
+          expect(messages, contains(('test', SystemLine.reconnecting)));
           ircRead.emitConnected();
           async.flushMicrotasks();
-          expect(messages, contains(('test', 'Reconnected')));
+          expect(messages, contains(('test', SystemLine.reconnected)));
           ircRead.emitConnected();
           async.flushMicrotasks();
           expect(
-            messages.where((m) => m.$2 == 'Reconnected').length,
+            messages.where((m) => m.$2 == SystemLine.reconnected).length,
             1,
             reason: 'repeated connected must not re-announce recovery',
           );
           conn.dispose();
 
-          final empty = <(String, String)>[];
+          final empty = <(String, Object)>[];
           final conn2 = _makeReconnectConn(
             eventSub: _NoopEventSub(),
             irc: _TestIrc(),
@@ -3157,6 +3159,7 @@ void main() {
             currentUserLogin: 'testuser',
             onSystemMessage: (c, t, {Color? accent, String? messageId}) =>
                 empty.add((c, t)),
+            onConnStatus: (c, s) => empty.add((c, s)),
           );
           conn2.connect();
           async.flushMicrotasks();

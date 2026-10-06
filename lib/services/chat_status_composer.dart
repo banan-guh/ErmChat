@@ -129,15 +129,15 @@ class ChatStatusComposer {
   void _applyStreamStatus(String channel, Map<String, dynamic>? stream) {
     final parts = <String>[];
     if (stream != null && stream['type'] == 'live') {
-      final viewers = stream['viewer_count'] ?? 0;
+      final viewers = (stream['viewer_count'] as num?)?.toInt() ?? 0;
       final started = stream['started_at'] as String?;
       if (started != null) {
         final dur = DateTime.now().difference(DateTime.parse(started));
         final h = dur.inHours;
         final m = dur.inMinutes.remainder(60);
-        parts.add('Live with $viewers viewers for ${h}h ${m}m');
+        parts.add(strings().liveWithViewersFor(viewers, h, m));
       } else {
-        parts.add('Live with $viewers viewers');
+        parts.add(strings().liveWithViewers(viewers));
       }
     }
     _streamStatusParts[channel] = parts;
@@ -166,7 +166,8 @@ class ChatStatusComposer {
     }
     parts.addAll(_streamStatusParts[channel] ?? const []);
     final newStatus = parts.isNotEmpty ? parts.join(' · ') : '';
-    chat.channelFor(channel)?.info.setStatus(newStatus);
+    final live = _streamStatusParts[channel]?.isNotEmpty ?? false;
+    chat.channelFor(channel)?.info.setStatus(newStatus, live: live);
   }
 
   void _startChatStatusTimer() {

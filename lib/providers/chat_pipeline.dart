@@ -65,7 +65,14 @@ final chatPipelineProvider = Provider<ChatConnectionManager>((ref) {
         getMaxMessagesPerChannel: () => ref.read(maxMessagesPerChannelProvider),
         onSystemMessage: (channel, text, {accent, messageId}) =>
             writeSystem(channel, text, accent: accent, messageId: messageId),
+        onConnStatus: (channel, status) => chat
+            .channelFor(channel)
+            ?.addConnStatus(
+              status,
+              maxMessages: ref.read(maxMessagesPerChannelProvider),
+            ),
         onBanner: signals.banner.emit,
+        onLoginExpired: signals.loginExpired.emit,
         onFocusComposer: signals.focusComposer.emit,
         strings: ref.read(stringsProvider),
       ),

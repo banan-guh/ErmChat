@@ -56,31 +56,31 @@ void main() {
       final chat = Chat();
       addTearDown(chat.dispose);
       final messages = chat.ensure('test').messages;
-      messages.addSystem('Connected');
-      messages.addSystem('Disconnected');
-      messages.addSystem('Chat reconnecting...');
-      expect(messages.addSystem('Connected'), isTrue);
-      expect(texts(messages), ['Reconnected', 'Connected']);
+      messages.addConnStatus(SystemLine.connected);
+      messages.addConnStatus(SystemLine.disconnected);
+      messages.addConnStatus(SystemLine.reconnecting);
+      expect(messages.addConnStatus(SystemLine.connected), isTrue);
+      expect(texts(messages), ['reconnected', 'connected']);
 
       // A second socket reporting recovery, more cycles and interleaved system
       // rows must not stack lines.
-      expect(messages.addSystem('Reconnected'), isFalse);
+      expect(messages.addConnStatus(SystemLine.reconnected), isFalse);
       for (var i = 0; i < 3; i++) {
-        messages.addSystem('Disconnected');
-        messages.addSystem('Connected');
-        messages.addSystem('Chat reconnecting...');
-        messages.addSystem('Reconnected');
+        messages.addConnStatus(SystemLine.disconnected);
+        messages.addConnStatus(SystemLine.connected);
+        messages.addConnStatus(SystemLine.reconnecting);
+        messages.addConnStatus(SystemLine.reconnected);
         messages.addSystem('Joined #test.');
       }
-      expect(count(messages, 'Reconnected'), 1);
-      expect(count(messages, 'Disconnected'), 0);
+      expect(count(messages, 'reconnected'), 1);
+      expect(count(messages, 'disconnected'), 0);
 
       final other = Chat();
       addTearDown(other.dispose);
       final open = other.ensure('test').messages;
-      open.addSystem('Disconnected');
-      expect(open.addSystem('Chat reconnecting...'), isFalse);
-      expect(texts(open), ['Disconnected']);
+      open.addConnStatus(SystemLine.disconnected);
+      expect(open.addConnStatus(SystemLine.reconnecting), isFalse);
+      expect(texts(open), ['disconnected']);
     });
 
     test('recoveries fold inside the window and split beyond it', () {
@@ -88,25 +88,25 @@ void main() {
       final chat = Chat(now: () => at);
       addTearDown(chat.dispose);
       final messages = chat.ensure('test').messages;
-      messages.addSystem('Connected');
+      messages.addConnStatus(SystemLine.connected);
       for (var i = 0; i < 5; i++) {
-        messages.addSystem('Chat reconnecting...');
-        messages.addSystem('Reconnected');
+        messages.addConnStatus(SystemLine.reconnecting);
+        messages.addConnStatus(SystemLine.reconnected);
         // Chat between flaps must not defeat the fold inside the window.
         messages.add(_live('m$i'), maxMessages: 100);
         at = at.add(const Duration(seconds: 3));
       }
-      expect(count(messages, 'Reconnected'), 1);
+      expect(count(messages, 'reconnected'), 1);
 
       at = at.add(const Duration(seconds: 31));
-      messages.addSystem('Disconnected');
-      expect(messages.addSystem('Reconnected'), isTrue);
-      expect(count(messages, 'Reconnected'), 2);
-      expect(count(messages, 'Disconnected'), 0);
+      messages.addConnStatus(SystemLine.disconnected);
+      expect(messages.addConnStatus(SystemLine.reconnected), isTrue);
+      expect(count(messages, 'reconnected'), 2);
+      expect(count(messages, 'disconnected'), 0);
       // Rows render through a tile cache keyed by id: a shared id drew the
       // older Reconnected line with the newer one's timestamp.
       final ids = messages.items
-          .where((e) => e.text == 'Reconnected')
+          .where((e) => e.text == 'reconnected')
           .map((e) => e.messageId)
           .toSet();
       expect(ids, hasLength(2), reason: 'each Reconnected row owns its id');
@@ -248,11 +248,10 @@ void main() {
       }
       expect(messages.byId('s1'), isNull);
       expect(messages.byId('lone'), isNull);
-      expect(
-        messages.chatRows.map((m) => m.messageId),
-        ['s3', 's2'],
-        reason: 'thread rows held past the cap show in the chat',
-      );
+      expect(messages.chatRows.map((m) => m.messageId), [
+        's3',
+        's2',
+      ], reason: 'thread rows held past the cap show in the chat');
     });
   });
 
@@ -378,7 +377,7 @@ void main() {
       addTearDown(chat.dispose);
       final channel = chat.ensure('test');
       final messages = channel.messages;
-      messages.addSystem('Connected');
+      messages.addConnStatus(SystemLine.connected);
       messages.addSystem('hello');
       // A copy change must not break the lookup: identity is the stable id.
       messages.items.last.text = 'Renamed';

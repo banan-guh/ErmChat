@@ -2,17 +2,24 @@ import 'package:flutter/foundation.dart';
 
 import '../models/twitch_message.dart';
 import 'channel/channel.dart';
+import 'channel/messages.dart' show SystemLine;
 import 'mentions.dart';
 
 /// Cross-channel chat root: registry and aggregate totals. Per-channel laws
 /// live in [Channel]; this owns ordering and drop paths. Identity lives in
 /// `Session`, outside the kernel.
 class Chat {
-  Chat({String mentionsChannel = '@mentions', DateTime Function()? now})
-    : _now = now ?? DateTime.now,
-      mentions = Mentions(channel: mentionsChannel, now: now);
+  Chat({
+    String mentionsChannel = '@mentions',
+    DateTime Function()? now,
+    this.systemText,
+  }) : _now = now ?? DateTime.now,
+       mentions = Mentions(channel: mentionsChannel, now: now);
 
   final DateTime Function() _now;
+
+  /// Display text for kernel-authored system rows in every channel.
+  final String Function(SystemLine line)? systemText;
 
   final Map<String, Channel> _channels = {};
   final List<String> _order = [];
@@ -52,7 +59,7 @@ class Chat {
   Channel ensure(String name) {
     final existing = _channels[name];
     if (existing != null) return existing;
-    final channel = Channel(name: name, now: _now);
+    final channel = Channel(name: name, now: _now, systemText: systemText);
     _channels[name] = channel;
     _order.add(name);
     return channel;

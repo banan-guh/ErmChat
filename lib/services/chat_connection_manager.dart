@@ -32,6 +32,7 @@ import '../services/seven_tv_consumer.dart';
 import '../services/chat_readiness.dart';
 import '../services/chat_lifecycle.dart';
 import '../services/chat_liveness.dart';
+import '../chat/channel/messages.dart' show SystemLine;
 import '../chat/chat.dart';
 import '../client/session.dart';
 
@@ -90,9 +91,11 @@ class ChatViewBridge {
   ChatViewBridge({
     required this.mentionsChannel,
     required this.onSystemMessage,
+    required this.onConnStatus,
     required this.getSelectedChannel,
     required this.getMaxMessagesPerChannel,
     this.onBanner,
+    this.onLoginExpired,
     this.onFocusComposer,
     this.strings = englishStrings,
   });
@@ -100,9 +103,13 @@ class ChatViewBridge {
   final String mentionsChannel;
   final void Function(String, String, {Color? accent, String? messageId})
   onSystemMessage;
+
+  /// Connect-state rows; the kernel folds them and supplies their text.
+  final void Function(String channel, SystemLine status) onConnStatus;
   final String? Function() getSelectedChannel;
   final int Function() getMaxMessagesPerChannel;
   final void Function(String message)? onBanner;
+  final VoidCallback? onLoginExpired;
   final void Function()? onFocusComposer;
 
   /// Current-language strings for system messages the pipeline composes.
@@ -328,7 +335,8 @@ class ChatConnectionManager {
     subscribeAll: _subscribeAll,
     clearSelfBadges: readDecoder.clearSelfBadges,
     onSystemMessage: config.bridge.onSystemMessage,
-    onBanner: config.bridge.onBanner,
+    onConnStatus: config.bridge.onConnStatus,
+    onLoginExpired: config.bridge.onLoginExpired,
     onReconnected: config.sinks.onReconnected,
     strings: config.bridge.strings,
   );
@@ -438,7 +446,7 @@ class ChatConnectionManager {
     if (config.services.irc.isConnected &&
         (config.chat.channelFor(channel)?.info.historyLoaded ?? false) &&
         _readiness.acknowledgeConnected(channel)) {
-      config.bridge.onSystemMessage(channel, 'Connected');
+      config.bridge.onConnStatus(channel, SystemLine.connected);
     }
   }
 

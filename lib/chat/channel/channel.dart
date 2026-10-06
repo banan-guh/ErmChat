@@ -39,13 +39,16 @@ class ReceiveResult {
 /// One joined channel: composition root for its single-concern owners.
 /// Ingest runs here so dedup, truncate, thread index, and unread stay atomic.
 class Channel {
-  Channel({required this.name, DateTime Function()? now})
-    : messages = Messages(channel: name, now: now),
-      threads = Threads(now: now),
-      unread = Unread(),
-      moderation = Moderation(now: now),
-      points = Points(),
-      info = ChannelInfo();
+  Channel({
+    required this.name,
+    DateTime Function()? now,
+    String Function(SystemLine line)? systemText,
+  }) : messages = Messages(channel: name, now: now, systemText: systemText),
+       threads = Threads(now: now),
+       unread = Unread(),
+       moderation = Moderation(now: now),
+       points = Points(),
+       info = ChannelInfo();
 
   final String name;
 
@@ -175,7 +178,7 @@ class Channel {
 
   /// Adds the loading-history line with a stable id so removal is exact.
   void addLoadingHistory() => messages.addSystem(
-    'Loading chat history...',
+    messages.systemText(SystemLine.loadingHistory),
     messageId: Messages.loadingHistoryId,
   );
 
@@ -219,6 +222,14 @@ class Channel {
     if (!messages.addSystem(text, accent: accent, messageId: messageId)) {
       return false;
     }
+    truncate(maxMessages);
+    return true;
+  }
+
+  /// Inserts a connect-state row (see [Messages.addConnStatus]) and prunes
+  /// the buffer in one step. Returns false when folding dropped it.
+  bool addConnStatus(SystemLine status, {required int maxMessages}) {
+    if (!messages.addConnStatus(status)) return false;
     truncate(maxMessages);
     return true;
   }
