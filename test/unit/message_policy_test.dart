@@ -143,27 +143,4 @@ void main() {
       expect(users.usersForChannel('ch'), containsAll(['loginname', 'FooBar']));
     });
   });
-
-  group('self rewrite', () {
-    test('rewrites self-authored system lines to first person', () {
-      session.apply('mylogin');
-      final message = msg(
-        'MyLogin was banned.',
-        login: 'MyLogin',
-        isSystem: true,
-      );
-      policy.applySelfRewrite(message);
-      expect(message.text, 'You were banned.');
-    });
-
-    test('leaves non-system and other users alone', () {
-      session.apply('mylogin');
-      final own = msg('MyLogin was here.', login: 'MyLogin');
-      policy.applySelfRewrite(own);
-      expect(own.text, 'MyLogin was here.');
-      final other = msg('Other was banned.', login: 'Other', isSystem: true);
-      policy.applySelfRewrite(other);
-      expect(other.text, 'Other was banned.');
-    });
-  });
 }

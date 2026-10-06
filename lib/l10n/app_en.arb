@@ -2855,5 +2855,78 @@
         "type": "int"
       }
     }
+  },
+  "userWasBanned": "{user} was banned",
+  "@userWasBanned": {
+    "placeholders": {
+      "user": {
+        "type": "String"
+      }
+    }
+  },
+  "userWasTimedOut": "{user} was timed out",
+  "@userWasTimedOut": {
+    "placeholders": {
+      "user": {
+        "type": "String"
+      }
+    }
+  },
+  "userWasTimedOutFor": "{user} was timed out for {duration}",
+  "@userWasTimedOutFor": {
+    "placeholders": {
+      "user": {
+        "type": "String"
+      },
+      "duration": {
+        "type": "String"
+      }
+    }
+  },
+  "announcementLabel": "Announcement",
+  "sevenTvSomeUser": "A user",
+  "sevenTvEmoteAdded": "{actor} added 7TV Emote {name}.",
+  "@sevenTvEmoteAdded": {
+    "placeholders": {
+      "actor": {
+        "type": "String"
+      },
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "sevenTvEmoteRemoved": "{actor} removed 7TV Emote {name}.",
+  "@sevenTvEmoteRemoved": {
+    "placeholders": {
+      "actor": {
+        "type": "String"
+      },
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "sevenTvEmoteRenamed": "{actor} renamed 7TV Emote {oldName} to {newName}.",
+  "@sevenTvEmoteRenamed": {
+    "placeholders": {
+      "actor": {
+        "type": "String"
+      },
+      "oldName": {
+        "type": "String"
+      },
+      "newName": {
+        "type": "String"
+      }
+    }
+  },
+  "sevenTvSetSwitched": "{actor} switched the active 7TV Emote Set.",
+  "@sevenTvSetSwitched": {
+    "placeholders": {
+      "actor": {
+        "type": "String"
+      }
+    }
   }
 }

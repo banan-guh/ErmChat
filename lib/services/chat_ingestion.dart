@@ -16,6 +16,7 @@ import '../irc/transport/read.dart' show IrcReadService;
 import '../irc/transport/write.dart' show IrcService;
 import '../chat/chat.dart';
 import '../client/session.dart';
+import '../l10n/l10n.dart';
 import 'chat_sender.dart';
 import 'emote_manager.dart';
 import 'ignore_manager.dart';
@@ -58,6 +59,7 @@ class ChatIngestion {
     required this.isJoinFailureNotified,
     this.pubSubPoints,
     required this.onSystemMessage,
+    this.strings = englishStrings,
     this.onAnalyticsMessage,
     this.onChatMessage,
     this.onMention,
@@ -114,6 +116,9 @@ class ChatIngestion {
     String? messageId,
   })
   onSystemMessage;
+
+  /// Current-language strings for app-authored notice labels.
+  final AppLocalizations Function() strings;
 
   final void Function(String channel, TwitchMessage msg)? onAnalyticsMessage;
   final void Function(String channel, TwitchMessage msg)? onChatMessage;
@@ -384,6 +389,7 @@ class ChatIngestion {
         buildUserNoticeText(
           msgId: event.msgId,
           displayName: event.displayName,
+          announcementLabel: strings().announcementLabel,
           systemMsg: event.systemMsg,
         ),
         accent: accent,
@@ -426,6 +432,7 @@ class ChatIngestion {
           text: buildUserNoticeText(
             msgId: event.msgId,
             displayName: event.displayName,
+            announcementLabel: strings().announcementLabel,
             systemMsg: event.systemMsg,
           ),
           channel: event.channel,

@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import '../l10n/l10n.dart';
 import '../emotes/emote.dart';
 import 'emote_manager.dart';
 import 'emote_providers/seven_tv_emotes.dart';
@@ -12,7 +13,10 @@ class SevenTvConsumer {
     required this.emoteManager,
     required this.sevenTvClient,
     required this.onSystemMessage,
+    this.strings = englishStrings,
   });
+
+  final AppLocalizations Function() strings;
 
   final EmoteManager emoteManager;
   final SevenTvEventClient? sevenTvClient;
@@ -89,17 +93,18 @@ class SevenTvConsumer {
       renamed: renamed,
     );
 
-    final actor = event.actor ?? 'A user';
+    final l = strings();
+    final actor = event.actor ?? l.sevenTvSomeUser;
     for (final e in event.added) {
-      onSystemMessage(channel, '$actor added 7TV Emote ${e.name}.');
+      onSystemMessage(channel, l.sevenTvEmoteAdded(actor, e.name));
     }
     for (final e in event.removed) {
-      onSystemMessage(channel, '$actor removed 7TV Emote ${e.name}.');
+      onSystemMessage(channel, l.sevenTvEmoteRemoved(actor, e.name));
     }
     for (final e in event.renamed) {
       onSystemMessage(
         channel,
-        '$actor renamed 7TV Emote ${e.oldName} to ${e.newName}.',
+        l.sevenTvEmoteRenamed(actor, e.oldName, e.newName),
       );
     }
   }
@@ -119,7 +124,10 @@ class SevenTvConsumer {
     // rendering until restart.
     unawaited(emoteManager.reconcileSevenTvChannel(channel));
 
-    final actor = event.actor ?? 'A user';
-    onSystemMessage(channel, '$actor switched the active 7TV Emote Set.');
+    final l = strings();
+    onSystemMessage(
+      channel,
+      l.sevenTvSetSwitched(event.actor ?? l.sevenTvSomeUser),
+    );
   }
 }

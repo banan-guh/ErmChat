@@ -152,11 +152,12 @@ void main() {
     });
 
     test('parses CLEARCHAT forms', () {
-      for (final (name, raw, text, channel) in [
+      for (final (name, raw, text, channel, own) in [
         (
           'timeout',
           '@ban-duration=300;target-user-id=974273622;$ts;historical=1 :tmi.twitch.tv CLEARCHAT #ermugo2 :ermugo1',
           'ermugo1 was timed out for 5m.',
+          null,
           null,
         ),
         (
@@ -164,11 +165,27 @@ void main() {
           '@target-user-id=974273622;$ts :tmi.twitch.tv CLEARCHAT #ermugo2 :ermugo1',
           'ermugo1 was banned.',
           null,
+          null,
+        ),
+        (
+          'own timeout reads in the second person',
+          '@ban-duration=300;target-user-id=974273622;$ts;historical=1 :tmi.twitch.tv CLEARCHAT #ermugo2 :ermugo1',
+          'You are timed out for 5m.',
+          null,
+          'ErmUgo1',
+        ),
+        (
+          'own ban reads in the second person',
+          '@target-user-id=974273622;$ts :tmi.twitch.tv CLEARCHAT #ermugo2 :ermugo1',
+          'You were banned.',
+          null,
+          'ermugo1',
         ),
         (
           'robotty form without trailing colon',
           '@ban-duration=300;target-user-id=974273622;$ts;historical=1 :tmi.twitch.tv CLEARCHAT #ermugo2 ermugo1',
           'ermugo1 was timed out for 5m.',
+          null,
           null,
         ),
         (
@@ -176,10 +193,15 @@ void main() {
           '@ban-duration=1;$ts :tmi.twitch.tv CLEARCHAT #ermugo2 :ermugo1',
           null,
           'ermugo2',
+          null,
         ),
       ]) {
         printOnFailure(name);
-        final msg = RecentMessagesService.parseIrcLine(raw, channel: channel)!;
+        final msg = RecentMessagesService.parseIrcLine(
+          raw,
+          channel: channel,
+          ownLogin: own,
+        )!;
         expect(msg.isSystem, isTrue);
         expect(msg.isHistory, isTrue);
         expect(msg.isBanNotice, isTrue);

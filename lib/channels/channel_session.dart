@@ -284,13 +284,18 @@ class ChannelSession extends ChangeNotifier {
     recentMessages = RecentMessagesService(
       config: recentMessagesConfig,
       strings: strings,
+      ownLogin: () => session.login,
     );
   }
 
   void setRecentMessagesMode(RecentMessagesConfig config) {
     if (recentMessagesService != null) return;
     recentMessagesConfig = config;
-    recentMessages = RecentMessagesService(config: config, strings: strings);
+    recentMessages = RecentMessagesService(
+      config: config,
+      strings: strings,
+      ownLogin: () => session.login,
+    );
     unawaited(Prefs.load().then((prefs) => config.toPrefs(prefs)));
   }
 

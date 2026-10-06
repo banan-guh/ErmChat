@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import '../l10n/l10n.dart';
+import '../util/mod_activity_format.dart' show banNoticeText;
 import '../util/constants.dart';
 import '../util/prefs.dart';
 import '../models/twitch_message.dart';
@@ -11,7 +12,7 @@ import '../util/log.dart';
 import '../irc/decode/codec.dart'
     show parseIrcBadges, parseIrcChatMessage, parseIrcEmotePositions;
 import '../irc/decode/copy.dart'
-    show buildBanText, buildUserNoticeText, userNoticeAccent, userNoticeLabelId;
+    show buildUserNoticeText, userNoticeAccent, userNoticeLabelId;
 import '../irc/message.dart' show IrcMessage, parseIrcMessage;
 
 /// Fetch failure. [definitive] = per-channel, no failover helps.
@@ -100,10 +101,16 @@ class RecentMessagesService {
     http.Client? client,
     RecentMessagesConfig? config,
     this.strings = englishStrings,
+    this.ownLogin = _noLogin,
   }) : _client = client, // ignore: prefer_initializing_formals
        _config = config ?? RecentMessagesConfig();
 
   final AppLocalizations Function() strings;
+
+  /// Signed-in login, so the user's own ban lines read in the second person.
+  final String? Function() ownLogin;
+
+  static String? _noLogin() => null;
 
   final http.Client? _client;
   final RecentMessagesConfig _config;
@@ -288,7 +295,12 @@ class RecentMessagesService {
         if (child != null) messages.add(child);
         final subChild = parseSubChildFromMsg(msg, channel: channel);
         if (subChild != null) messages.add(subChild);
-        final parsed = parseIrcLineFromMsg(msg, channel: channel);
+        final parsed = parseIrcLineFromMsg(
+          msg,
+          channel: channel,
+          l: strings(),
+          ownLogin: ownLogin(),
+        );
         if (parsed != null) messages.add(parsed);
       }
 
@@ -351,23 +363,31 @@ class RecentMessagesService {
     }
   }
 
-  static TwitchMessage? parseIrcLine(String raw, {String? channel}) {
+  static TwitchMessage? parseIrcLine(
+    String raw, {
+    String? channel,
+    AppLocalizations? l,
+    String? ownLogin,
+  }) {
     final msg = parseIrcMessage(raw);
-    return parseIrcLineFromMsg(msg, channel: channel);
+    return parseIrcLineFromMsg(msg, channel: channel, l: l, ownLogin: ownLogin);
   }
 
   static TwitchMessage? parseIrcLineFromMsg(
     IrcMessage? msg, {
     String? channel,
+    AppLocalizations? l,
+    String? ownLogin,
   }) {
     if (msg == null) return null;
+    l ??= englishStrings();
     switch (msg.command) {
       case 'PRIVMSG':
         return _parsePrivmsg(msg, channel);
       case 'CLEARCHAT':
-        return _parseClearChat(msg, channel);
+        return _parseClearChat(msg, channel, l, ownLogin);
       case 'USERNOTICE':
-        return _parseUserNotice(msg, channel);
+        return _parseUserNotice(msg, channel, l);
       case 'NOTICE':
         return _parseNotice(msg, channel);
       default:
@@ -413,7 +433,12 @@ class RecentMessagesService {
     return parsed;
   }
 
-  static TwitchMessage? _parseClearChat(IrcMessage msg, String? channel) {
+  static TwitchMessage? _parseClearChat(
+    IrcMessage msg,
+    String? channel,
+    AppLocalizations l,
+    String? ownLogin,
+  ) {
     // Robotty strips trailing colon.
     final targetUser =
         msg.trailing ?? (msg.params.length > 1 ? msg.params[1] : null);
@@ -430,10 +455,14 @@ class RecentMessagesService {
 
     return TwitchMessage(
       login: targetUser,
-      text: buildBanText(
-        user: targetUser,
-        isTimeout: isTimeout,
-        durationSec: durationSec,
+      text: l.banLine(
+        banNoticeText(
+          l,
+          user: targetUser,
+          isTimeout: isTimeout,
+          durationSec: durationSec,
+          self: targetUser.toLowerCase() == ownLogin?.toLowerCase(),
+        ),
       ),
       isSystem: true,
       isBanNotice: true,
@@ -443,7 +472,11 @@ class RecentMessagesService {
     );
   }
 
-  static TwitchMessage? _parseUserNotice(IrcMessage msg, String? channel) {
+  static TwitchMessage? _parseUserNotice(
+    IrcMessage msg,
+    String? channel,
+    AppLocalizations l,
+  ) {
     var msgId = msg.tags['msg-id'] ?? '';
     if (msgId.isEmpty) return null;
     // Drop mirrored shared-chat notices except announcements.
@@ -476,6 +509,7 @@ class RecentMessagesService {
       text: buildUserNoticeText(
         msgId: msgId,
         displayName: displayName,
+        announcementLabel: l.announcementLabel,
         systemMsg: systemMsg,
       ),
       isSystem: true,

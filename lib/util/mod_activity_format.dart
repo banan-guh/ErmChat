@@ -124,3 +124,22 @@ String formatTermAction(
             ? l.modActAddedBlockedUnnamed(mod)
             : l.modActRemovedBlockedUnnamed(mod));
 }
+
+/// Ban or timeout line without its closing period, for IRC CLEARCHAT rows.
+/// [self] reads in the second person.
+String banNoticeText(
+  AppLocalizations l, {
+  required String user,
+  required bool isTimeout,
+  int? durationSec,
+  bool self = false,
+}) {
+  if (!isTimeout) return self ? l.selfBanned : l.userWasBanned(user);
+  final duration = durationSec == null ? null : formatSeconds(durationSec);
+  if (self) {
+    return duration == null ? l.selfTimedOut : l.selfTimedOutFor(duration);
+  }
+  return duration == null
+      ? l.userWasTimedOut(user)
+      : l.userWasTimedOutFor(user, duration);
+}

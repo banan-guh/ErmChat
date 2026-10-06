@@ -72,16 +72,4 @@ class ChatMessagePolicy {
         : msg.login;
     userStore.addUser(channel, preferredName);
   }
-
-  /// Rewrites a self-authored history line from third person to first person.
-  void applySelfRewrite(TwitchMessage msg) {
-    final login = session.login;
-    if (!msg.isSystem || login == null) return;
-    if (msg.login.toLowerCase() != login.toLowerCase()) return;
-    msg.text = msg.text.replaceFirst(
-      RegExp(RegExp.escape(msg.login), caseSensitive: false),
-      'You',
-    );
-    msg.text = msg.text.replaceFirst('was', 'were');
-  }
 }

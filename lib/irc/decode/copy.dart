@@ -1,5 +1,4 @@
 import '../../color_utils.dart';
-import '../../util/duration_format.dart';
 
 /// Row accent for a USERNOTICE. Announcements use banner color; everything
 /// else uses PRIMARY purple.
@@ -18,27 +17,16 @@ String? userNoticeLabelId(String? rawId) {
   return '$rawId:label';
 }
 
-/// System-message text for USERNOTICE. Announcements use bare
-/// "Announcement" label; others use Twitch system-msg.
+/// System-message text for USERNOTICE. Announcements use the bare
+/// [announcementLabel]; others use Twitch system-msg.
 String buildUserNoticeText({
   required String msgId,
   required String displayName,
+  required String announcementLabel,
   String? systemMsg,
 }) {
-  if (msgId == 'announcement') return 'Announcement';
+  if (msgId == 'announcement') return announcementLabel;
   final base = systemMsg;
   if (base == null || base.isEmpty) return '$displayName $msgId.';
   return base;
-}
-
-/// Builds the system-message text for a CLEARCHAT ban/timeout.
-String buildBanText({
-  required String user,
-  required bool isTimeout,
-  int? durationSec,
-}) {
-  if (isTimeout) {
-    return '$user was timed out${durationSec != null ? ' for ${formatSeconds(durationSec)}' : ''}.';
-  }
-  return '$user was banned.';
 }

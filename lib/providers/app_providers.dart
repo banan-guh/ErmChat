@@ -180,7 +180,10 @@ final sevenTvPaintServiceProvider = Provider<SevenTvPaintService>((ref) {
 final userStoreProvider = Provider<UserStore>((ref) => UserStore());
 
 final recentMessagesServiceProvider = Provider<RecentMessagesService>(
-  (ref) => RecentMessagesService(strings: ref.read(stringsProvider)),
+  (ref) => RecentMessagesService(
+    strings: ref.read(stringsProvider),
+    ownLogin: () => ref.read(sessionProvider).login,
+  ),
 );
 
 final pipServiceProvider = Provider<PipService>((ref) {

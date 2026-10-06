@@ -290,6 +290,7 @@ class ChatConnectionManager {
     emoteManager: config.services.emoteManager,
     sevenTvClient: config.services.sevenTvClient,
     onSystemMessage: config.bridge.onSystemMessage,
+    strings: config.bridge.strings,
   );
 
   // Join-confirmation and read-socket-health state behind the readiness
@@ -366,6 +367,7 @@ class ChatConnectionManager {
     isModerationActive: (channel) => eventSubTopics.isModerationActive(channel),
     isJoinFailureNotified: _channelSetup.isJoinFailureNotified,
     onSystemMessage: config.bridge.onSystemMessage,
+    strings: config.bridge.strings,
     onAnalyticsMessage: config.sinks.onAnalyticsMessage,
     onChatMessage: config.sinks.onChatMessage,
     onMention: config.sinks.onMention,

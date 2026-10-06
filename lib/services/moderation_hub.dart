@@ -2,11 +2,10 @@ import '../chat/channel/moderation.dart';
 import '../chat/chat.dart';
 import '../client/session.dart';
 import '../eventsub/decode/events.dart';
-import '../irc/decode/copy.dart' show buildBanText;
 import '../l10n/l10n.dart';
 import '../util/duration_format.dart';
 import '../util/log.dart';
-import '../util/mod_activity_format.dart' show formatModActivity;
+import '../util/mod_activity_format.dart' show banNoticeText, formatModActivity;
 
 /// One IRC ban/timeout, tracked for stack folding: repeated identical
 /// moderation events inside the dedup window collapse into one system line
@@ -98,20 +97,16 @@ class ModerationHub {
     onAnalyticsModeration?.call(channel, isTimeout);
     final result = _processBanInChannel(channel, user, isTimeout);
     final isSelf = user.toLowerCase() == session.login?.toLowerCase();
-    final base = isSelf
-        ? (isTimeout
-              ? (duration != null
-                    ? strings().selfTimedOutFor(formatSeconds(duration))
-                    : strings().selfTimedOut)
-              : strings().selfBanned)
-        : buildBanText(user: user, isTimeout: isTimeout, durationSec: duration);
-    // buildBanText already ends with a period.
-    final trimmed = base.endsWith('.')
-        ? base.substring(0, base.length - 1)
-        : base;
+    final base = banNoticeText(
+      strings(),
+      user: user,
+      isTimeout: isTimeout,
+      durationSec: duration,
+      self: isSelf,
+    );
     final text = result.stackCount > 1
-        ? strings().banLineStacked(trimmed, result.stackCount)
-        : strings().banLine(trimmed);
+        ? strings().banLineStacked(base, result.stackCount)
+        : strings().banLine(base);
     logDebug('[Moderation] IRC ban system message: $text');
 
     if (result.stackCount > 1) {

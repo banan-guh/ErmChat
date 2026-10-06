@@ -71,7 +71,7 @@ class ChatHistoryController {
 
   /// Merges robotty history into the channel buffer (newest-first). Single
   /// owner for the history checklist: ignore and block filters, user learning,
-  /// the You/were rewrite, mention-only ping tint, then the chat root verb
+  /// mention-only ping tint, then the chat root verb
   /// which owns the mention mirror and the channel's dedup, id-less fold, sort,
   /// gap note, truncate, and thread index.
   void mergeHistory(String channel, List<TwitchMessage> history) {
@@ -86,7 +86,6 @@ class ChatHistoryController {
       if (!msg.isSystem && msg.login.isNotEmpty) {
         _policy.learnUser(channel, msg);
       }
-      _policy.applySelfRewrite(msg);
       _policy.applyPingHighlight(msg, mentionOnly: true);
       _stampEmoteResolution(msg, channel);
       prepared.add(msg);
