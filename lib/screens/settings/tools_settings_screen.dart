@@ -5,6 +5,7 @@ import '../../l10n/l10n.dart';
 import '../../services/analytics_service.dart';
 import '../../services/emote_images.dart';
 import '../../services/tts_controller.dart';
+import '../../util/prefs.dart';
 import 'analytics_screen.dart';
 import 'prefs_tiles.dart';
 import 'settings_page.dart';
@@ -29,6 +30,42 @@ class ToolsSettingsScreen extends StatelessWidget {
     this.images,
     this.onPipEnabledChanged,
   });
+
+  /// Both update toggles in one sheet; each saves as it flips.
+  Future<void> _showUpdateOptions(BuildContext context) async {
+    final prefs = await Prefs.load();
+    if (!context.mounted) return;
+    await showModalBottomSheet<void>(
+      context: context,
+      useSafeArea: true,
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (sheetContext, setState) => SafeArea(
+          top: false,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              CheckboxListTile(
+                title: Text(sheetContext.l10n.whatsNewToggle),
+                value: prefs.whatsNewEnabled,
+                onChanged: (v) async {
+                  await prefs.setWhatsNewEnabled(v ?? true);
+                  setState(() {});
+                },
+              ),
+              CheckboxListTile(
+                title: Text(sheetContext.l10n.settingCheckForUpdates),
+                value: prefs.updateCheckEnabled,
+                onChanged: (v) async {
+                  await prefs.setUpdateCheckEnabled(v ?? true);
+                  setState(() {});
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -81,6 +118,14 @@ class ToolsSettingsScreen extends StatelessWidget {
                 ),
               ),
             ),
+          SettingAnchor(
+            Setting.updates,
+            child: SettingsNavTile(
+              icon: Icons.system_update,
+              title: Setting.updates.titleOf(context.l10n),
+              onTap: () => _showUpdateOptions(context),
+            ),
+          ),
           if (Platform.isAndroid) ...[
             SettingsSectionHeader(context.l10n.sectionLivestreams),
             SettingAnchor(

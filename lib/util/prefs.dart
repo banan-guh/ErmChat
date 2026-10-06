@@ -100,6 +100,14 @@ class Prefs {
   static const _kShowInput = 'show_input';
   static const _kMentionFormat = 'mention_format';
   static const _kWelcomeSeen = 'welcome_seen';
+  static const _kWhatsNewEnabled = 'whats_new_enabled';
+  static const _kUpdateCheckEnabled = 'update_check_enabled';
+  static const _kLastSeenVersion = 'last_seen_version';
+  static const _kLastUpdateCheck = 'last_update_check';
+  static const _kNotifiedUpdate = 'notified_update_version';
+  static const _kAvailableUpdate = 'available_update_version';
+  static const _kArmWhatsNew = 'dev_arm_whats_new';
+  static const _kArmUpdate = 'dev_arm_update';
   static const _kAnalyticsEnabled = 'analytics_enabled';
   static const _kAnimateGifs = 'animate_gifs';
   static const _kFfzEffects = 'ffz_effects';
@@ -193,6 +201,51 @@ class Prefs {
       _p.setBool(_kAnalyticsEnabled, value);
 
   Future<void> setWelcomeSeen(bool value) => _p.setBool(_kWelcomeSeen, value);
+
+  bool get whatsNewEnabled => _p.getBool(_kWhatsNewEnabled) ?? true;
+
+  Future<void> setWhatsNewEnabled(bool value) =>
+      _p.setBool(_kWhatsNewEnabled, value);
+
+  bool get updateCheckEnabled => _p.getBool(_kUpdateCheckEnabled) ?? true;
+
+  Future<void> setUpdateCheckEnabled(bool value) =>
+      _p.setBool(_kUpdateCheckEnabled, value);
+
+  /// App version at the last launch; null before the first one.
+  String? get lastSeenVersion => _p.getString(_kLastSeenVersion);
+
+  Future<void> setLastSeenVersion(String value) =>
+      _p.setString(_kLastSeenVersion, value);
+
+  /// Epoch ms of the last store version check.
+  int? get lastUpdateCheck => _p.getInt(_kLastUpdateCheck);
+
+  Future<void> setLastUpdateCheck(int value) =>
+      _p.setInt(_kLastUpdateCheck, value);
+
+  /// Newer version the snackbar already announced.
+  String? get notifiedUpdate => _p.getString(_kNotifiedUpdate);
+
+  Future<void> setNotifiedUpdate(String value) =>
+      _p.setString(_kNotifiedUpdate, value);
+
+  /// Newer version the install's store serves, for the About banner.
+  String? get availableUpdate => _p.getString(_kAvailableUpdate);
+
+  Future<void> setAvailableUpdate(String? value) => value == null
+      ? _p.remove(_kAvailableUpdate)
+      : _p.setString(_kAvailableUpdate, value);
+
+  /// Dev: the next launch shows What's new regardless of version.
+  bool get armWhatsNew => _p.getBool(_kArmWhatsNew) ?? false;
+
+  Future<void> setArmWhatsNew(bool value) => _p.setBool(_kArmWhatsNew, value);
+
+  /// Dev: the next update check reports a fake newer version.
+  bool get armUpdate => _p.getBool(_kArmUpdate) ?? false;
+
+  Future<void> setArmUpdate(bool value) => _p.setBool(_kArmUpdate, value);
 
   bool get animateGifs => _p.getBool(_kAnimateGifs) ?? true;
 

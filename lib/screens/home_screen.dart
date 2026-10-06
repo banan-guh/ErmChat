@@ -3,6 +3,7 @@ import 'dart:io' show Platform;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import '../providers/app_providers.dart';
 import '../providers/channel_providers.dart';
 import '../providers/chat_pipeline.dart';
@@ -14,6 +15,7 @@ import '../l10n/l10n.dart';
 import '../models/twitch_message.dart';
 import '../util/chat_text.dart';
 import '../util/haptics.dart';
+import '../services/app_updates.dart';
 import '../services/twitch_api.dart';
 import '../services/twitch_auth.dart';
 import '../services/command_macros.dart';
@@ -44,6 +46,7 @@ import '../screens/settings/settings_screen.dart';
 import '../widgets/panel_manager.dart';
 import '../widgets/glass_chrome.dart';
 import '../widgets/welcome_dialog.dart';
+import '../widgets/whats_new_sheet.dart';
 import '../services/user_store.dart';
 import '../chat/chat.dart';
 import '../client/session.dart';
@@ -682,8 +685,47 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       onCommit: _handlePanelBack,
     );
     WidgetsBinding.instance.addObserver(_predictiveBackHandler);
-    WidgetsBinding.instance.addPostFrameCallback(
-      (_) => _maybeShowWelcomeDialog(),
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _maybeShowWelcomeDialog();
+      unawaited(_runAppUpdates());
+    });
+  }
+
+  /// What's new after an update, then the daily store version check. A
+  /// first install shows neither: it has no previous version.
+  Future<void> _runAppUpdates() async {
+    final info = await PackageInfo.fromPlatform();
+    final updates = ref.read(appUpdatesProvider);
+    final from = await updates.takeWhatsNew(info.version);
+    if (from != null) {
+      final notes = await bundledNotes(info.version);
+      if (!mounted) return;
+      if (notes.isNotEmpty) {
+        unawaited(
+          showWhatsNewSheet(
+            context,
+            title: context.l10n.whatsNewTitle,
+            notes: notes,
+            more: from.isEmpty ? null : updates.missedNotes(from, info.version),
+          ),
+        );
+      }
+    }
+    final source = updateSourceFor(info.installerStore, ios: Platform.isIOS);
+    final update = await updates.checkForUpdate(info.version, source);
+    if (update == null || !mounted) return;
+    AppSnack.show(
+      context,
+      context.l10n.updateAvailableSnack(update.version),
+      actionLabel: context.l10n.whatsNewAction,
+      onAction: () => showUpdateSheet(
+        context,
+        updates,
+        update,
+        source,
+        currentVersion: info.version,
+      ),
+      duration: const Duration(seconds: 8),
     );
   }
 

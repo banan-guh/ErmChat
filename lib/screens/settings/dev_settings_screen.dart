@@ -97,6 +97,24 @@ class _DevSettingsScreenState extends State<DevSettingsScreen> {
             onTap: () => _replayWelcomeScreen(context),
           ),
           const Divider(),
+          PrefsSwitchTile(
+            secondary: const Icon(Icons.new_releases_outlined),
+            title: "Arm What's new",
+            subtitle: 'Next launch shows it as if you just updated',
+            defaultValue: false,
+            read: (p) => p.armWhatsNew,
+            write: (p, v) => p.setArmWhatsNew(v),
+          ),
+          PrefsSwitchTile(
+            secondary: const Icon(Icons.system_update),
+            title: 'Arm update available',
+            subtitle:
+                'Next launch fakes a newer version: snackbar, sheet, About banner',
+            defaultValue: false,
+            read: (p) => p.armUpdate,
+            write: (p, v) => p.setArmUpdate(v),
+          ),
+          const Divider(),
           ListTile(
             leading: const Icon(Icons.receipt_long),
             title: const Text('Performance log'),

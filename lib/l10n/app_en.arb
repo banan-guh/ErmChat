@@ -2928,5 +2928,27 @@
         "type": "String"
       }
     }
-  }
+  },
+  "settingCheckForUpdates": "Check for updates",
+  "whatsNewToggle": "Show what's new after updating",
+  "whatsNewTitle": "What's new",
+  "whatsNewIn": "What's new in {version}",
+  "@whatsNewIn": {
+    "placeholders": {
+      "version": {
+        "type": "String"
+      }
+    }
+  },
+  "updateAvailableSnack": "Version {version} is out",
+  "@updateAvailableSnack": {
+    "placeholders": {
+      "version": {
+        "type": "String"
+      }
+    }
+  },
+  "whatsNewAction": "What's new?",
+  "getUpdate": "Get update",
+  "updateBanner": "New update available!"
 }

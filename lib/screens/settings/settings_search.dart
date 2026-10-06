@@ -150,6 +150,7 @@ class Setting {
     'uploader' => l.settingUploader,
     'analytics' => l.settingAnalytics,
     'pip' => l.settingPip,
+    'updates' => l.settingCheckForUpdates,
     'enable_tts' => l.settingEnableTts,
     'tts_engine' => l.settingTtsEngine,
     'tts_queue_mode' => l.settingTtsQueueMode,
@@ -635,6 +636,12 @@ class Setting {
     SettingsPageId.tools,
     keywords: 'stats',
   );
+  static const updates = Setting(
+    'updates',
+    'Check for updates',
+    SettingsPageId.tools,
+    keywords: "what's new changelog version",
+  );
   static const pip = Setting(
     'pip',
     'Picture-in-picture',
@@ -759,6 +766,7 @@ class Setting {
     tts,
     uploader,
     analytics,
+    updates,
     pip,
     enableTts,
     ttsEngine,

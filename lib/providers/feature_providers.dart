@@ -7,6 +7,7 @@ import '../models/twitch_message.dart';
 import '../report_config.dart';
 import '../services/bug_report_outbox.dart';
 import '../services/analytics_service.dart';
+import '../services/app_updates.dart';
 import '../services/chat_history_controller.dart';
 import '../services/command_handler.dart';
 import '../services/mod_actions.dart';
@@ -39,6 +40,13 @@ final analyticsServiceProvider = Provider<AnalyticsService>((ref) {
     service.dispose();
   });
   return service;
+});
+
+/// What's new after updating and the daily store version check.
+final appUpdatesProvider = Provider<AppUpdates>((ref) {
+  final updates = AppUpdates();
+  ref.onDispose(updates.dispose);
+  return updates;
 });
 
 final notificationServiceProvider = Provider<NotificationService>((ref) {
