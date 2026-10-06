@@ -71,9 +71,9 @@ class ChatHistoryController {
 
   /// Merges robotty history into the channel buffer (newest-first). Single
   /// owner for the history checklist: ignore and block filters, user learning,
-  /// mention-only ping tint, then the chat root verb
-  /// which owns the mention mirror and the channel's dedup, id-less fold, sort,
-  /// gap note, truncate, and thread index.
+  /// mention-only ping tint, then the chat root verb which owns the mention
+  /// mirror and the channel's dedup, id-less fold, sort, gap note, truncate,
+  /// and thread index.
   void mergeHistory(String channel, List<TwitchMessage> history) {
     // A channel removed while its history was in flight must not be
     // resurrected by the root verb's ensure.

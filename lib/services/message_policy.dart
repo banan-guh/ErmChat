@@ -5,16 +5,15 @@ import 'ping_manager.dart';
 import 'user_store.dart';
 
 /// Per-message ingest policy shared by the live and history paths: local
-/// ignores, Twitch blocks, keyword rules, ping highlighting, user learning, and
-/// the self-authored history rewrite. The live and history callers apply these
+/// ignores, Twitch blocks, keyword rules, ping highlighting, and user
+/// learning. The live and history callers apply these
 /// in their own order and keep the steps that differ between them.
 ///
 /// Preserved differences (not aligned; decide separately):
 /// - live rewrites keywords and overwrites any ping highlight; history only
 ///   backfills mention-tier highlights.
 /// - live gates on chat-ready and shared-chat hide; history does not.
-/// - history applies the self-authored You/were rewrite; live does not.
-/// - live pings then learns users; history learns, rewrites, then pings.
+/// - live pings then learns users; history learns, then pings.
 class ChatMessagePolicy {
   ChatMessagePolicy({
     required this.ignoreManager,
