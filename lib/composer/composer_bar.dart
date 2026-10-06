@@ -5,6 +5,7 @@ import '../panels/mod_panel.dart';
 import '../panels/search.dart';
 import '../widgets/message_input.dart';
 import 'composer_controller.dart';
+import '../l10n/l10n.dart';
 
 // Single key for measuring the composer (snackbar margin, video sizing).
 // Shared by the pill and the in-flow wrapper: keeping it on both lets the
@@ -76,7 +77,7 @@ class ComposerBar extends StatelessWidget {
                 },
                 onSubmitted: (_) => search.focusNode.unfocus(),
                 enabled: true,
-                hintText: 'Search...',
+                hintText: context.l10n.searchHint,
                 searchMode: true,
                 borderless: transparent,
                 prefixOverride: search.closeButton(),
@@ -89,7 +90,7 @@ class ComposerBar extends StatelessWidget {
                 onSend: mod.submitTerms,
                 onSubmitted: (_) => mod.submitTerms(),
                 enabled: true,
-                hintText: 'Block a word or phrase...',
+                hintText: context.l10n.blockTermHint,
                 searchMode: true,
                 borderless: transparent,
                 prefixOverride: mod.termsPrefixSlot(),
@@ -185,7 +186,7 @@ class _StatusRow extends StatelessWidget {
                         onTap: () =>
                             controller.chatConn.retryChannelData(channel),
                         child: Text(
-                          'Retry failed emotes/badges',
+                          context.l10n.retryFailedEmotes,
                           style: TextStyle(
                             fontSize: 12,
                             color: Theme.of(context).colorScheme.primary,

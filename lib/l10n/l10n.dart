@@ -9,5 +9,9 @@ extension L10nContext on BuildContext {
   /// are installed above (bare test harnesses).
   AppLocalizations get l10n =>
       Localizations.of<AppLocalizations>(this, AppLocalizations) ??
-      lookupAppLocalizations(const Locale('en'));
+      englishStrings();
 }
+
+/// English strings for callers with no context or injected strings (tests,
+/// bare services). Lives here so non-UI layers need no Flutter import.
+AppLocalizations englishStrings() => lookupAppLocalizations(const Locale('en'));

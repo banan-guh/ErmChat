@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../emotes/emote.dart';
+import '../l10n/l10n.dart';
 import '../emotes/emote_picker.dart';
 import '../providers/app_providers.dart';
 import '../providers/emote_providers.dart';
@@ -192,7 +193,12 @@ class EmoteMenuPanelWidgetState extends ConsumerState<EmoteMenuPanelWidget> {
                     child: TabbedLayout(
                       tabAlignment: Alignment.center,
                       tabBarColor: panelColor,
-                      tabs: const ['Recent', 'Subs', 'Channel', 'Global'],
+                      tabs: [
+                        context.l10n.emoteTabRecent,
+                        context.l10n.emoteTabSubs,
+                        context.l10n.emoteTabChannel,
+                        context.l10n.emoteTabGlobal,
+                      ],
                       selectedIndex: _emoteTabIndex,
                       onSelectedIndexChanged: (i) =>
                           setState(() => _emoteTabIndex = i),
@@ -235,7 +241,7 @@ class EmoteMenuPanelWidgetState extends ConsumerState<EmoteMenuPanelWidget> {
     if (_cachedRecentEmotes.isEmpty) {
       return _buildEmoteEmptyState(
         scrollController,
-        const Center(child: Text('No recently used emotes')),
+        Center(child: Text(context.l10n.noRecentEmotes)),
       );
     }
     return _buildEmoteGrid(_cachedRecentEmotes, scrollController);
@@ -256,7 +262,7 @@ class EmoteMenuPanelWidgetState extends ConsumerState<EmoteMenuPanelWidget> {
       }
       return _buildEmoteEmptyState(
         scrollController,
-        const Center(child: Text('No subscriber emotes available')),
+        Center(child: Text(context.l10n.noSubEmotes)),
       );
     }
     return _buildGroupedEmoteGrid(byChannel, scrollController);
@@ -268,7 +274,7 @@ class EmoteMenuPanelWidgetState extends ConsumerState<EmoteMenuPanelWidget> {
     if (byProvider.isEmpty) {
       return _buildEmoteEmptyState(
         scrollController,
-        const Center(child: Text('No channel emotes')),
+        Center(child: Text(context.l10n.noChannelEmotes)),
       );
     }
     return _buildGroupedEmoteGrid(byProvider, scrollController);
@@ -279,7 +285,7 @@ class EmoteMenuPanelWidgetState extends ConsumerState<EmoteMenuPanelWidget> {
     if (byProvider.isEmpty) {
       return _buildEmoteEmptyState(
         scrollController,
-        const Center(child: Text('No global emotes')),
+        Center(child: Text(context.l10n.noGlobalEmotes)),
       );
     }
     return _buildGroupedEmoteGrid(byProvider, scrollController);

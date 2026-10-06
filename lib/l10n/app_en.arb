@@ -1238,5 +1238,1586 @@
   },
   "unsaveThread": "Unsave thread",
   "saveThread": "Save thread",
-  "noSavedThreads": "No saved threads yet"
+  "noSavedThreads": "No saved threads yet",
+  "loadingEllipsis": "Loading...",
+  "uploadMedia": "Upload media",
+  "reloadEmotes": "Reload emotes",
+  "reconnect": "Reconnect",
+  "whispers": "Whispers",
+  "mentionsWhispers": "Mentions / Whispers",
+  "noMentionsOrWhispers": "No mentions or whispers",
+  "noWhispers": "No whispers",
+  "replyToMessage": "Reply to message",
+  "viewThread": "View thread",
+  "copyMessage": "Copy message",
+  "moreEllipsis": "More...",
+  "copyFullMessage": "Copy full message",
+  "searchFilters": "Search filters",
+  "filterHeader": "Filter",
+  "filterHide": "Hide",
+  "filterDim": "Dim",
+  "filterStream": "Stream",
+  "noMatches": "No matches",
+  "showChat": "Show chat",
+  "hideChat": "Hide chat",
+  "welcomeConfigure": "Configure Twitch credentials in Settings first",
+  "welcomeSignedIn": "Signed in as {login}",
+  "@welcomeSignedIn": {
+    "placeholders": {
+      "login": {
+        "type": "String"
+      }
+    }
+  },
+  "welcomePressPlus": "Press + to join a channel.",
+  "loginExpiredReconnect": "Login expired - reconnect your account",
+  "openAccount": "Open Account",
+  "messageCopied": "Message copied",
+  "paste": "Paste",
+  "join": "Join",
+  "channelNameHint": "channel name",
+  "welcomeTitle": "Welcome to ErmChat",
+  "welcomeBody": "Mention notifications are off by default. Turn on Mentions in Settings > Highlights to get a ping when someone mentions you in chat.",
+  "gotIt": "Got it",
+  "gallery": "Gallery",
+  "camera": "Camera",
+  "mediaPickerFailed": "Could not open media picker: {error}",
+  "@mediaPickerFailed": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
+  "uploadedLink": "Uploaded {link}",
+  "@uploadedLink": {
+    "placeholders": {
+      "link": {
+        "type": "String"
+      }
+    }
+  },
+  "uploadFailedFallback": "Upload failed. Check Tools > Image uploader.",
+  "typeMessageHint": "Type a message...",
+  "replyingTo": "Replying to @{user}",
+  "@replyingTo": {
+    "placeholders": {
+      "user": {
+        "type": "String"
+      }
+    }
+  },
+  "searchHint": "Search...",
+  "blockTermHint": "Block a word or phrase...",
+  "retryFailedEmotes": "Retry failed emotes/badges",
+  "connectToChat": "Connect an account to chat",
+  "whisperUsageNotice": "Type /w <username> <message> to whisper",
+  "whisperUsageHint": "Type /w <username> <message>",
+  "whisperToHint": "Whisper to {user}...",
+  "@whisperToHint": {
+    "placeholders": {
+      "user": {
+        "type": "String"
+      }
+    }
+  },
+  "timedOutCountdown": "Timed out: {time}",
+  "@timedOutCountdown": {
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "slowModeCountdown": "Slow mode: {time}",
+  "@slowModeCountdown": {
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "connectingHint": "Connecting...",
+  "reconnectingHint": "Reconnecting...",
+  "disconnectedHint": "Disconnected",
+  "replyToThreadHint": "Reply to thread...",
+  "selectThreadHint": "Select a thread to reply...",
+  "modViewOpenHint": "Mod view open",
+  "reloadStream": "Reload stream",
+  "showVideo": "Show video",
+  "audioOnly": "Audio only",
+  "theaterMode": "Theater mode",
+  "exitTheater": "Exit theater",
+  "closeStream": "Close stream",
+  "audioChannel": "Audio: {channel}",
+  "@audioChannel": {
+    "placeholders": {
+      "channel": {
+        "type": "String"
+      }
+    }
+  },
+  "search": "Search",
+  "toggleFullscreen": "Toggle fullscreen",
+  "toggleInput": "Toggle input",
+  "hideStream": "Hide stream",
+  "showStream": "Show stream",
+  "emoteTabRecent": "Recent",
+  "emoteTabSubs": "Subs",
+  "emoteTabChannel": "Channel",
+  "emoteTabGlobal": "Global",
+  "noRecentEmotes": "No recently used emotes",
+  "noSubEmotes": "No subscriber emotes available",
+  "noChannelEmotes": "No channel emotes",
+  "noGlobalEmotes": "No global emotes",
+  "minimize": "Minimize",
+  "pinned": "Pinned",
+  "pinnedBy": "by {name}",
+  "@pinnedBy": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "hypeTrain": "Hype Train",
+  "hypeTrainLevel": "Level {level}",
+  "@hypeTrainLevel": {
+    "placeholders": {
+      "level": {
+        "type": "int"
+      }
+    }
+  },
+  "hypeTrainProgress": "{progress} / {total} to next level",
+  "@hypeTrainProgress": {
+    "placeholders": {
+      "progress": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "hypeTrainTop": "Top: {top}",
+  "@hypeTrainTop": {
+    "placeholders": {
+      "top": {
+        "type": "String"
+      }
+    }
+  },
+  "hypeContributionBits": "{user} (Bits)",
+  "@hypeContributionBits": {
+    "placeholders": {
+      "user": {
+        "type": "String"
+      }
+    }
+  },
+  "hypeContributionSubs": "{user} (Subs)",
+  "@hypeContributionSubs": {
+    "placeholders": {
+      "user": {
+        "type": "String"
+      }
+    }
+  },
+  "readOnly": "Read-only",
+  "moreOptions": "+{count} more options",
+  "@moreOptions": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "moreOutcomes": "+{count} more outcomes",
+  "@moreOutcomes": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "predictionUsersPoints": "{users} users / {points} pts",
+  "@predictionUsersPoints": {
+    "placeholders": {
+      "users": {
+        "type": "int"
+      },
+      "points": {
+        "type": "int"
+      }
+    }
+  },
+  "useEmote": "Use emote",
+  "copy": "Copy",
+  "openLink": "Open link",
+  "openEmoteLink": "Open emote link",
+  "couldNotOpenUrl": "Could not open {url}",
+  "@couldNotOpenUrl": {
+    "placeholders": {
+      "url": {
+        "type": "String"
+      }
+    }
+  },
+  "twitchEmote": "Twitch Emote",
+  "twitchEmoteZeroWidth": "Twitch Emote (Zero Width)",
+  "emoteScopeGlobal": "Global",
+  "emoteScopeChannel": "Channel",
+  "emoteScopePersonal": "Personal",
+  "emoteKindLabel": "{provider} {scope} Emote",
+  "@emoteKindLabel": {
+    "placeholders": {
+      "provider": {
+        "type": "String"
+      },
+      "scope": {
+        "type": "String"
+      }
+    }
+  },
+  "emoteKindLabelZeroWidth": "{provider} {scope} Emote (Zero Width)",
+  "@emoteKindLabelZeroWidth": {
+    "placeholders": {
+      "provider": {
+        "type": "String"
+      },
+      "scope": {
+        "type": "String"
+      }
+    }
+  },
+  "emoteCreatedBy": "Created by {owner}",
+  "@emoteCreatedBy": {
+    "placeholders": {
+      "owner": {
+        "type": "String"
+      }
+    }
+  },
+  "emoteAliasOf": "Alias of {name}",
+  "@emoteAliasOf": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "replyingToUser": "Replying to @{user}: {preview}",
+  "@replyingToUser": {
+    "placeholders": {
+      "user": {
+        "type": "String"
+      },
+      "preview": {
+        "type": "String"
+      }
+    }
+  },
+  "unknownUser": "unknown",
+  "cantPreviewImage": "Can't preview ({reason})",
+  "@cantPreviewImage": {
+    "placeholders": {
+      "reason": {
+        "type": "String"
+      }
+    }
+  },
+  "imageFailedToLoad": "Image failed to load",
+  "dismissImage": "Dismiss image",
+  "expandImage": "Expand image",
+  "notifChannelDesc": "Notifications when someone mentions you in chat",
+  "notifPingedYou": "{user} pinged you in #{channel}",
+  "@notifPingedYou": {
+    "placeholders": {
+      "user": {
+        "type": "String"
+      },
+      "channel": {
+        "type": "String"
+      }
+    }
+  },
+  "notifWhisper": "{user} sent you a whisper",
+  "@notifWhisper": {
+    "placeholders": {
+      "user": {
+        "type": "String"
+      }
+    }
+  },
+  "notifWhisperSummary": "{user} (whisper): {body}",
+  "@notifWhisperSummary": {
+    "placeholders": {
+      "user": {
+        "type": "String"
+      },
+      "body": {
+        "type": "String"
+      }
+    }
+  },
+  "notifNewMentions": "You have new mentions",
+  "notifMentionCount": "{count, plural, =1{1 mention} other{{count} mentions}}",
+  "@notifMentionCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "fgChannelName": "Chat connection",
+  "fgChannelDesc": "Shown while chat stays connected in the background.",
+  "outboxSignInToSend": "Sign in to send",
+  "outboxWaitingConnection": "Waiting for connection",
+  "outboxSignInExpired": "Twitch sign-in expired; sign in again to send",
+  "outboxDailyLimit": "Daily report limit reached; will retry",
+  "outboxRejected": "Rejected by the server ({code})",
+  "@outboxRejected": {
+    "placeholders": {
+      "code": {
+        "type": "int"
+      }
+    }
+  },
+  "outboxServerUnavailable": "Server unavailable; will retry",
+  "emoteReloadFailed": "Emote reload failed",
+  "emotesReloaded": "Emotes reloaded",
+  "emotesFailedFor": "Emotes failed to load for {providers}",
+  "@emotesFailedFor": {
+    "placeholders": {
+      "providers": {
+        "type": "String"
+      }
+    }
+  },
+  "emoteSubEmotes": "sub emotes",
+  "loginAlreadyOpen": "A Twitch login is already open. Finish or close it first.",
+  "loginOpenFailed": "Couldn't open the Twitch login. Try again.",
+  "loginTimedOut": "The Twitch login timed out. Try again.",
+  "loginMismatch": "That login didn't match this attempt. Try logging in again.",
+  "loginNoToken": "Twitch didn't send a login. Try again.",
+  "loginDeclined": "You declined access on Twitch.",
+  "loginGenericFailed": "Twitch couldn't log you in. Try again.",
+  "errorGeneric": "Something went wrong. Try again.",
+  "errorNetwork": "Can't reach the server. Check your connection.",
+  "errorLoginExpired": "Your Twitch login expired. Log in again in Settings > Account.",
+  "errorNoPermission": "You don't have permission to do that.",
+  "errorNotFound": "Not found.",
+  "errorRateLimited": "Too many requests. Try again in a moment.",
+  "errorTwitchTrouble": "Twitch is having trouble. Try again later.",
+  "errorTwitchRequest": "Twitch request failed. Try again.",
+  "timeJustNow": "just now",
+  "timeMinutesAgo": "{count}m ago",
+  "@timeMinutesAgo": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "timeHoursAgo": "{count}h ago",
+  "@timeHoursAgo": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "timeDaysAgo": "{count}d ago",
+  "@timeDaysAgo": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "timeInSeconds": "in {count}s",
+  "@timeInSeconds": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "timeInMinutes": "in {count}m",
+  "@timeInMinutes": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "timeInHours": "in {count}h",
+  "@timeInHours": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "modActSomeone": "someone",
+  "modActReasonSuffix": ": \"{reason}\"",
+  "@modActReasonSuffix": {
+    "placeholders": {
+      "reason": {
+        "type": "String"
+      }
+    }
+  },
+  "modActDurationSuffix": " for {duration}",
+  "@modActDurationSuffix": {
+    "placeholders": {
+      "duration": {
+        "type": "String"
+      }
+    }
+  },
+  "modActBan": "{mod} banned {target}{reason}.",
+  "@modActBan": {
+    "placeholders": {
+      "mod": {
+        "type": "String"
+      },
+      "target": {
+        "type": "String"
+      },
+      "reason": {
+        "type": "String"
+      }
+    }
+  },
+  "modActTimeout": "{mod} timed out {target}{duration}{reason}.",
+  "@modActTimeout": {
+    "placeholders": {
+      "mod": {
+        "type": "String"
+      },
+      "target": {
+        "type": "String"
+      },
+      "duration": {
+        "type": "String"
+      },
+      "reason": {
+        "type": "String"
+      }
+    }
+  },
+  "modActUnban": "{mod} unbanned {target}.",
+  "@modActUnban": {
+    "placeholders": {
+      "mod": {
+        "type": "String"
+      },
+      "target": {
+        "type": "String"
+      }
+    }
+  },
+  "modActDelete": "{mod} deleted a message from {target}.",
+  "@modActDelete": {
+    "placeholders": {
+      "mod": {
+        "type": "String"
+      },
+      "target": {
+        "type": "String"
+      }
+    }
+  },
+  "modActClear": "{mod} cleared the chat.",
+  "@modActClear": {
+    "placeholders": {
+      "mod": {
+        "type": "String"
+      }
+    }
+  },
+  "modActMod": "{mod} modded {target}.",
+  "@modActMod": {
+    "placeholders": {
+      "mod": {
+        "type": "String"
+      },
+      "target": {
+        "type": "String"
+      }
+    }
+  },
+  "modActUnmod": "{mod} unmodded {target}.",
+  "@modActUnmod": {
+    "placeholders": {
+      "mod": {
+        "type": "String"
+      },
+      "target": {
+        "type": "String"
+      }
+    }
+  },
+  "modActVip": "{mod} added {target} as a VIP.",
+  "@modActVip": {
+    "placeholders": {
+      "mod": {
+        "type": "String"
+      },
+      "target": {
+        "type": "String"
+      }
+    }
+  },
+  "modActUnvip": "{mod} removed {target} as a VIP.",
+  "@modActUnvip": {
+    "placeholders": {
+      "mod": {
+        "type": "String"
+      },
+      "target": {
+        "type": "String"
+      }
+    }
+  },
+  "modActWarn": "{mod} warned {target}{reason}.",
+  "@modActWarn": {
+    "placeholders": {
+      "mod": {
+        "type": "String"
+      },
+      "target": {
+        "type": "String"
+      },
+      "reason": {
+        "type": "String"
+      }
+    }
+  },
+  "modActWarnAck": "{target} acknowledged a warning.",
+  "@modActWarnAck": {
+    "placeholders": {
+      "target": {
+        "type": "String"
+      }
+    }
+  },
+  "modActSlowOn": "{mod} enabled slow mode.",
+  "@modActSlowOn": {
+    "placeholders": {
+      "mod": {
+        "type": "String"
+      }
+    }
+  },
+  "modActSlowOff": "{mod} disabled slow mode.",
+  "@modActSlowOff": {
+    "placeholders": {
+      "mod": {
+        "type": "String"
+      }
+    }
+  },
+  "modActFollowersOn": "{mod} enabled followers-only mode.",
+  "@modActFollowersOn": {
+    "placeholders": {
+      "mod": {
+        "type": "String"
+      }
+    }
+  },
+  "modActFollowersOff": "{mod} disabled followers-only mode.",
+  "@modActFollowersOff": {
+    "placeholders": {
+      "mod": {
+        "type": "String"
+      }
+    }
+  },
+  "modActEmoteOnlyOn": "{mod} enabled emote-only mode.",
+  "@modActEmoteOnlyOn": {
+    "placeholders": {
+      "mod": {
+        "type": "String"
+      }
+    }
+  },
+  "modActEmoteOnlyOff": "{mod} disabled emote-only mode.",
+  "@modActEmoteOnlyOff": {
+    "placeholders": {
+      "mod": {
+        "type": "String"
+      }
+    }
+  },
+  "modActSubsOnlyOn": "{mod} enabled subscribers-only mode.",
+  "@modActSubsOnlyOn": {
+    "placeholders": {
+      "mod": {
+        "type": "String"
+      }
+    }
+  },
+  "modActSubsOnlyOff": "{mod} disabled subscribers-only mode.",
+  "@modActSubsOnlyOff": {
+    "placeholders": {
+      "mod": {
+        "type": "String"
+      }
+    }
+  },
+  "modActUniqueOn": "{mod} enabled unique chat.",
+  "@modActUniqueOn": {
+    "placeholders": {
+      "mod": {
+        "type": "String"
+      }
+    }
+  },
+  "modActUniqueOff": "{mod} disabled unique chat.",
+  "@modActUniqueOff": {
+    "placeholders": {
+      "mod": {
+        "type": "String"
+      }
+    }
+  },
+  "modActRaid": "{mod} started a raid.",
+  "@modActRaid": {
+    "placeholders": {
+      "mod": {
+        "type": "String"
+      }
+    }
+  },
+  "modActUnraid": "{mod} cancelled the raid.",
+  "@modActUnraid": {
+    "placeholders": {
+      "mod": {
+        "type": "String"
+      }
+    }
+  },
+  "modActShieldOn": "{mod} enabled Shield Mode.",
+  "@modActShieldOn": {
+    "placeholders": {
+      "mod": {
+        "type": "String"
+      }
+    }
+  },
+  "modActShieldOff": "{mod} disabled Shield Mode.",
+  "@modActShieldOff": {
+    "placeholders": {
+      "mod": {
+        "type": "String"
+      }
+    }
+  },
+  "modActShoutout": "{mod} shouted out {target}.",
+  "@modActShoutout": {
+    "placeholders": {
+      "mod": {
+        "type": "String"
+      },
+      "target": {
+        "type": "String"
+      }
+    }
+  },
+  "modActApproveUnban": "{mod} approved {target}'s unban request{reason}.",
+  "@modActApproveUnban": {
+    "placeholders": {
+      "mod": {
+        "type": "String"
+      },
+      "target": {
+        "type": "String"
+      },
+      "reason": {
+        "type": "String"
+      }
+    }
+  },
+  "modActDenyUnban": "{mod} denied {target}'s unban request{reason}.",
+  "@modActDenyUnban": {
+    "placeholders": {
+      "mod": {
+        "type": "String"
+      },
+      "target": {
+        "type": "String"
+      },
+      "reason": {
+        "type": "String"
+      }
+    }
+  },
+  "modActResolveUnban": "{mod} resolved {target}'s unban request{reason}.",
+  "@modActResolveUnban": {
+    "placeholders": {
+      "mod": {
+        "type": "String"
+      },
+      "target": {
+        "type": "String"
+      },
+      "reason": {
+        "type": "String"
+      }
+    }
+  },
+  "modActAutomod": "{mod} updated AutoMod settings.",
+  "@modActAutomod": {
+    "placeholders": {
+      "mod": {
+        "type": "String"
+      }
+    }
+  },
+  "modActSuspicious": "{mod} flagged {target}{reason}.",
+  "@modActSuspicious": {
+    "placeholders": {
+      "mod": {
+        "type": "String"
+      },
+      "target": {
+        "type": "String"
+      },
+      "reason": {
+        "type": "String"
+      }
+    }
+  },
+  "modActOther": "{mod} did {action}.",
+  "@modActOther": {
+    "placeholders": {
+      "mod": {
+        "type": "String"
+      },
+      "action": {
+        "type": "String"
+      }
+    }
+  },
+  "modActAddedBlockedOne": "{mod} added blocked term \"{term}\".",
+  "@modActAddedBlockedOne": {
+    "placeholders": {
+      "mod": {
+        "type": "String"
+      },
+      "term": {
+        "type": "String"
+      }
+    }
+  },
+  "modActAddedBlockedMany": "{mod} added {count} blocked terms.",
+  "@modActAddedBlockedMany": {
+    "placeholders": {
+      "mod": {
+        "type": "String"
+      },
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "modActAddedBlockedUnnamed": "{mod} added a blocked term.",
+  "@modActAddedBlockedUnnamed": {
+    "placeholders": {
+      "mod": {
+        "type": "String"
+      }
+    }
+  },
+  "modActRemovedBlockedOne": "{mod} removed blocked term \"{term}\".",
+  "@modActRemovedBlockedOne": {
+    "placeholders": {
+      "mod": {
+        "type": "String"
+      },
+      "term": {
+        "type": "String"
+      }
+    }
+  },
+  "modActRemovedBlockedMany": "{mod} removed {count} blocked terms.",
+  "@modActRemovedBlockedMany": {
+    "placeholders": {
+      "mod": {
+        "type": "String"
+      },
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "modActRemovedBlockedUnnamed": "{mod} removed a blocked term.",
+  "@modActRemovedBlockedUnnamed": {
+    "placeholders": {
+      "mod": {
+        "type": "String"
+      }
+    }
+  },
+  "modActAddedPermittedOne": "{mod} added permitted term \"{term}\".",
+  "@modActAddedPermittedOne": {
+    "placeholders": {
+      "mod": {
+        "type": "String"
+      },
+      "term": {
+        "type": "String"
+      }
+    }
+  },
+  "modActAddedPermittedMany": "{mod} added {count} permitted terms.",
+  "@modActAddedPermittedMany": {
+    "placeholders": {
+      "mod": {
+        "type": "String"
+      },
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "modActAddedPermittedUnnamed": "{mod} added a permitted term.",
+  "@modActAddedPermittedUnnamed": {
+    "placeholders": {
+      "mod": {
+        "type": "String"
+      }
+    }
+  },
+  "modActRemovedPermittedOne": "{mod} removed permitted term \"{term}\".",
+  "@modActRemovedPermittedOne": {
+    "placeholders": {
+      "mod": {
+        "type": "String"
+      },
+      "term": {
+        "type": "String"
+      }
+    }
+  },
+  "modActRemovedPermittedMany": "{mod} removed {count} permitted terms.",
+  "@modActRemovedPermittedMany": {
+    "placeholders": {
+      "mod": {
+        "type": "String"
+      },
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "modActRemovedPermittedUnnamed": "{mod} removed a permitted term.",
+  "@modActRemovedPermittedUnnamed": {
+    "placeholders": {
+      "mod": {
+        "type": "String"
+      }
+    }
+  },
+  "roomSlow": "Slow ({seconds}s)",
+  "@roomSlow": {
+    "placeholders": {
+      "seconds": {
+        "type": "int"
+      }
+    }
+  },
+  "roomFollowersOnly": "Followers-only",
+  "roomFollowersOnlyMinutes": "Followers-only ({minutes}m)",
+  "@roomFollowersOnlyMinutes": {
+    "placeholders": {
+      "minutes": {
+        "type": "String"
+      }
+    }
+  },
+  "roomEmoteOnly": "Emote-only",
+  "roomSubscribersOnly": "Subscribers-only",
+  "roomUniqueChat": "Unique chat",
+  "joinedChannel": "Joined #{channel}.",
+  "@joinedChannel": {
+    "placeholders": {
+      "channel": {
+        "type": "String"
+      }
+    }
+  },
+  "joinFailedSuspended": "Could not join #{channel}: the channel is suspended or deleted.",
+  "@joinFailedSuspended": {
+    "placeholders": {
+      "channel": {
+        "type": "String"
+      }
+    }
+  },
+  "joinFailedNoResponse": "Could not connect to channel #{channel}",
+  "@joinFailedNoResponse": {
+    "placeholders": {
+      "channel": {
+        "type": "String"
+      }
+    }
+  },
+  "connectAccountToChat": "Connect an account to chat",
+  "notConnectedNotSent": "Not connected: message not sent",
+  "ircMessageDeleted": "A message from {user} was deleted saying: \"{text}\".",
+  "@ircMessageDeleted": {
+    "placeholders": {
+      "user": {
+        "type": "String"
+      },
+      "text": {
+        "type": "String"
+      }
+    }
+  },
+  "chatWasCleared": "Chat was cleared.",
+  "selfTimedOutFor": "You are timed out for {duration}",
+  "@selfTimedOutFor": {
+    "placeholders": {
+      "duration": {
+        "type": "String"
+      }
+    }
+  },
+  "selfTimedOut": "You are timed out",
+  "selfBanned": "You were banned",
+  "banLineStacked": "{text} ({count} times).",
+  "@banLineStacked": {
+    "placeholders": {
+      "text": {
+        "type": "String"
+      },
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "banLine": "{text}.",
+  "@banLine": {
+    "placeholders": {
+      "text": {
+        "type": "String"
+      }
+    }
+  },
+  "quotedSuffix": ": \"{text}\"",
+  "@quotedSuffix": {
+    "placeholders": {
+      "text": {
+        "type": "String"
+      }
+    }
+  },
+  "forDuration": " for {duration}",
+  "@forDuration": {
+    "placeholders": {
+      "duration": {
+        "type": "String"
+      }
+    }
+  },
+  "modDeletedMessage": "{mod} deleted a message from {target}{body}.",
+  "@modDeletedMessage": {
+    "placeholders": {
+      "mod": {
+        "type": "String"
+      },
+      "target": {
+        "type": "String"
+      },
+      "body": {
+        "type": "String"
+      }
+    }
+  },
+  "selfTimedOutBy": "You were timed out{duration}{reason} by {mod}.",
+  "@selfTimedOutBy": {
+    "placeholders": {
+      "duration": {
+        "type": "String"
+      },
+      "reason": {
+        "type": "String"
+      },
+      "mod": {
+        "type": "String"
+      }
+    }
+  },
+  "selfBannedBy": "You were banned{reason} by {mod}.",
+  "@selfBannedBy": {
+    "placeholders": {
+      "reason": {
+        "type": "String"
+      },
+      "mod": {
+        "type": "String"
+      }
+    }
+  },
+  "modTimedOut": "{mod} timed out {target}{duration}{reason}.",
+  "@modTimedOut": {
+    "placeholders": {
+      "mod": {
+        "type": "String"
+      },
+      "target": {
+        "type": "String"
+      },
+      "duration": {
+        "type": "String"
+      },
+      "reason": {
+        "type": "String"
+      }
+    }
+  },
+  "modBanned": "{mod} banned {target}{reason}.",
+  "@modBanned": {
+    "placeholders": {
+      "mod": {
+        "type": "String"
+      },
+      "target": {
+        "type": "String"
+      },
+      "reason": {
+        "type": "String"
+      }
+    }
+  },
+  "selfUnbannedBy": "You were unbanned by {mod}.",
+  "@selfUnbannedBy": {
+    "placeholders": {
+      "mod": {
+        "type": "String"
+      }
+    }
+  },
+  "modUnbanned": "{mod} unbanned {target}.",
+  "@modUnbanned": {
+    "placeholders": {
+      "mod": {
+        "type": "String"
+      },
+      "target": {
+        "type": "String"
+      }
+    }
+  },
+  "modModded": "{mod} modded {target}.",
+  "@modModded": {
+    "placeholders": {
+      "mod": {
+        "type": "String"
+      },
+      "target": {
+        "type": "String"
+      }
+    }
+  },
+  "modUnmodded": "{mod} unmodded {target}.",
+  "@modUnmodded": {
+    "placeholders": {
+      "mod": {
+        "type": "String"
+      },
+      "target": {
+        "type": "String"
+      }
+    }
+  },
+  "modAddedVip": "{mod} added {target} as a VIP.",
+  "@modAddedVip": {
+    "placeholders": {
+      "mod": {
+        "type": "String"
+      },
+      "target": {
+        "type": "String"
+      }
+    }
+  },
+  "modRemovedVip": "{mod} removed {target} as a VIP.",
+  "@modRemovedVip": {
+    "placeholders": {
+      "mod": {
+        "type": "String"
+      },
+      "target": {
+        "type": "String"
+      }
+    }
+  },
+  "modWarned": "{mod} warned {target}{reason}.",
+  "@modWarned": {
+    "placeholders": {
+      "mod": {
+        "type": "String"
+      },
+      "target": {
+        "type": "String"
+      },
+      "reason": {
+        "type": "String"
+      }
+    }
+  },
+  "modApprovedUnbanRequest": "{mod} approved an unban request{reason}.",
+  "@modApprovedUnbanRequest": {
+    "placeholders": {
+      "mod": {
+        "type": "String"
+      },
+      "reason": {
+        "type": "String"
+      }
+    }
+  },
+  "modDeniedUnbanRequest": "{mod} denied an unban request{reason}.",
+  "@modDeniedUnbanRequest": {
+    "placeholders": {
+      "mod": {
+        "type": "String"
+      },
+      "reason": {
+        "type": "String"
+      }
+    }
+  },
+  "shoutedOutThisChannel": "{user} shouted out this channel.",
+  "@shoutedOutThisChannel": {
+    "placeholders": {
+      "user": {
+        "type": "String"
+      }
+    }
+  },
+  "requestedUnban": "{user} requested an unban.",
+  "@requestedUnban": {
+    "placeholders": {
+      "user": {
+        "type": "String"
+      }
+    }
+  },
+  "resolvedUnbanRequest": "{mod} resolved {user}'s unban request{resolution}.",
+  "@resolvedUnbanRequest": {
+    "placeholders": {
+      "mod": {
+        "type": "String"
+      },
+      "user": {
+        "type": "String"
+      },
+      "resolution": {
+        "type": "String"
+      }
+    }
+  },
+  "suspiciousStatusUpdated": "{mod} updated the suspicious status of {user}.",
+  "@suspiciousStatusUpdated": {
+    "placeholders": {
+      "mod": {
+        "type": "String"
+      },
+      "user": {
+        "type": "String"
+      }
+    }
+  },
+  "channelRewardFallback": "channel reward",
+  "redemptionCostBits": "({cost} bits)",
+  "@redemptionCostBits": {
+    "placeholders": {
+      "cost": {
+        "type": "int"
+      }
+    }
+  },
+  "redemptionCostPoints": "({cost} pts)",
+  "@redemptionCostPoints": {
+    "placeholders": {
+      "cost": {
+        "type": "int"
+      }
+    }
+  },
+  "userRedeemed": "{user} redeemed {reward}",
+  "@userRedeemed": {
+    "placeholders": {
+      "user": {
+        "type": "String"
+      },
+      "reward": {
+        "type": "String"
+      }
+    }
+  },
+  "redeemedReward": "Redeemed {reward}",
+  "@redeemedReward": {
+    "placeholders": {
+      "reward": {
+        "type": "String"
+      }
+    }
+  },
+  "someone": "Someone",
+  "historyLoadFailed": "Failed to load chat history",
+  "historyInvalidChannel": "Invalid channel name",
+  "historyChannelExcluded": "History unavailable: channel excluded from the history service",
+  "noChatHistory": "No chat history available",
+  "modErrorMissingScope": "Missing required scope. Re-login with your account and try again.",
+  "modErrorNoPermission": "You don't have permission to perform that action.",
+  "modErrorRateLimited": "You are being rate-limited. Try again in a moment.",
+  "actionBanUser": "ban user",
+  "actionUnbanUser": "unban user",
+  "actionWarnUser": "warn user",
+  "actionTimeoutUser": "timeout user",
+  "actionDeleteMessages": "delete chat messages",
+  "actionSendAnnouncement": "send announcement",
+  "actionSendShoutout": "send shoutout",
+  "actionAddModerator": "add channel moderator",
+  "actionRemoveModerator": "remove channel moderator",
+  "actionAddVip": "add VIP",
+  "actionRemoveVip": "remove VIP",
+  "actionUpdateChatSettings": "update chat settings",
+  "actionStartCommercial": "start commercial",
+  "actionStartRaid": "start a raid",
+  "actionCancelRaid": "cancel the raid",
+  "actionUpdateShieldMode": "update shield mode",
+  "actionCreateMarker": "create stream marker",
+  "actionCreatePoll": "create poll",
+  "actionCancelPoll": "cancel the poll",
+  "actionEndPoll": "end the poll",
+  "actionCreatePrediction": "create prediction",
+  "actionEndPrediction": "end the prediction",
+  "actionBlockUser": "block user",
+  "actionUnblockUser": "unblock user",
+  "actionSendWhisper": "send whisper",
+  "actionListModerators": "list moderators",
+  "actionListVips": "list VIPs",
+  "actionFetchPolls": "fetch polls",
+  "actionFetchPredictions": "fetch predictions",
+  "verbBan": "ban",
+  "verbWarn": "warn",
+  "verbTimeout": "timeout",
+  "modFailed": "Failed to {action} - {reason}",
+  "@modFailed": {
+    "placeholders": {
+      "action": {
+        "type": "String"
+      },
+      "reason": {
+        "type": "String"
+      }
+    }
+  },
+  "modCannotTargetSelf": "Failed to {action} - You cannot {verb} yourself.",
+  "@modCannotTargetSelf": {
+    "placeholders": {
+      "action": {
+        "type": "String"
+      },
+      "verb": {
+        "type": "String"
+      }
+    }
+  },
+  "modCannotTargetBroadcaster": "Failed to {action} - You cannot {verb} the broadcaster.",
+  "@modCannotTargetBroadcaster": {
+    "placeholders": {
+      "action": {
+        "type": "String"
+      },
+      "verb": {
+        "type": "String"
+      }
+    }
+  },
+  "usageWhisper": "Usage: /w <username> <message>",
+  "whisperSent": "Whisper sent.",
+  "commandLoginRequired": "You must be logged in to use the {cmd} command.",
+  "@commandLoginRequired": {
+    "placeholders": {
+      "cmd": {
+        "type": "String"
+      }
+    }
+  },
+  "accountUnresolved": "Couldn't resolve your account; try logging in again.",
+  "usageColor": "Usage: /color <color> - Color must be one of Twitch's supported colors (blue, blue_violet, cadet_blue, chocolate, coral, dodger_blue, firebrick, golden_rod, green, hot_pink, orange_red, red, sea_green, spring_green, yellow_green) or a hex code (#000000) if you have Turbo or Prime.",
+  "colorChanged": "Your color has been changed to {color}",
+  "@colorChanged": {
+    "placeholders": {
+      "color": {
+        "type": "String"
+      }
+    }
+  },
+  "colorChangeFailed": "Failed to change color to {color} - {reason}",
+  "@colorChangeFailed": {
+    "placeholders": {
+      "color": {
+        "type": "String"
+      },
+      "reason": {
+        "type": "String"
+      }
+    }
+  },
+  "usageUserReason": "Usage: {cmd} <username> [reason]",
+  "@usageUserReason": {
+    "placeholders": {
+      "cmd": {
+        "type": "String"
+      }
+    }
+  },
+  "usageUser": "Usage: {cmd} <username>",
+  "@usageUser": {
+    "placeholders": {
+      "cmd": {
+        "type": "String"
+      }
+    }
+  },
+  "userBanned": "{user} has been banned.",
+  "@userBanned": {
+    "placeholders": {
+      "user": {
+        "type": "String"
+      }
+    }
+  },
+  "userUnbanned": "{user} has been unbanned.",
+  "@userUnbanned": {
+    "placeholders": {
+      "user": {
+        "type": "String"
+      }
+    }
+  },
+  "userUntimedOut": "{user} has been untimed out.",
+  "@userUntimedOut": {
+    "placeholders": {
+      "user": {
+        "type": "String"
+      }
+    }
+  },
+  "userWarned": "{user} has been warned.",
+  "@userWarned": {
+    "placeholders": {
+      "user": {
+        "type": "String"
+      }
+    }
+  },
+  "usageTimeout": "Usage: /timeout <username> [duration] [reason] - Duration (default: 10m) must be a positive number with an optional unit (s, m, h, d, w); maximum is 2 weeks.",
+  "userTimedOut": "{user} timed out for {duration}.",
+  "@userTimedOut": {
+    "placeholders": {
+      "user": {
+        "type": "String"
+      },
+      "duration": {
+        "type": "String"
+      }
+    }
+  },
+  "usageDelete": "Usage: /delete <message_id>",
+  "messageDeleted": "Message deleted.",
+  "chatClearedByYou": "Chat cleared.",
+  "usageAnnounce": "Usage: {cmd} [color] <message>",
+  "@usageAnnounce": {
+    "placeholders": {
+      "cmd": {
+        "type": "String"
+      }
+    }
+  },
+  "usageShoutout": "Usage: /shoutout <username>",
+  "cmdShoutoutSent": "Sent shoutout to {user}",
+  "@cmdShoutoutSent": {
+    "placeholders": {
+      "user": {
+        "type": "String"
+      }
+    }
+  },
+  "moderatorAdded": "You have added {user} as a moderator of this channel.",
+  "@moderatorAdded": {
+    "placeholders": {
+      "user": {
+        "type": "String"
+      }
+    }
+  },
+  "moderatorRemoved": "You have removed {user} as a moderator of this channel.",
+  "@moderatorRemoved": {
+    "placeholders": {
+      "user": {
+        "type": "String"
+      }
+    }
+  },
+  "noModerators": "This channel does not have any moderators.",
+  "moderatorsList": "The moderators of this channel are {list}.",
+  "@moderatorsList": {
+    "placeholders": {
+      "list": {
+        "type": "String"
+      }
+    }
+  },
+  "vipAdded": "You have added {user} as a VIP of this channel.",
+  "@vipAdded": {
+    "placeholders": {
+      "user": {
+        "type": "String"
+      }
+    }
+  },
+  "vipRemoved": "You have removed {user} as a VIP of this channel.",
+  "@vipRemoved": {
+    "placeholders": {
+      "user": {
+        "type": "String"
+      }
+    }
+  },
+  "noVips": "This channel does not have any VIPs.",
+  "vipsList": "The VIPs of this channel are {list}.",
+  "@vipsList": {
+    "placeholders": {
+      "list": {
+        "type": "String"
+      }
+    }
+  },
+  "slowDisabled": "Slow mode disabled.",
+  "usageSlow": "Usage: /slow [duration] - Duration (default: 30s, e.g. 45, 2m) must be 1-120 seconds.",
+  "slowEnabled": "Slow mode enabled ({seconds}s).",
+  "@slowEnabled": {
+    "placeholders": {
+      "seconds": {
+        "type": "int"
+      }
+    }
+  },
+  "followersDisabled": "Followers-only mode disabled.",
+  "usageFollowers": "Usage: /followers [duration] - Duration must be a positive number with an optional unit (m, h, d, w); maximum is 3 months.",
+  "followersEnabled": "Followers-only mode enabled.",
+  "emoteOnlyEnabled": "Emote-only mode enabled.",
+  "emoteOnlyDisabled": "Emote-only mode disabled.",
+  "subsOnlyEnabled": "Subscribers-only mode enabled.",
+  "subsOnlyDisabled": "Subscribers-only mode disabled.",
+  "uniqueChatEnabled": "Unique-chat mode enabled.",
+  "uniqueChatDisabled": "Unique-chat mode disabled.",
+  "usageCommercial": "Usage: /commercial <length> - Valid lengths are 30, 60, 90, 120, 150 and 180 seconds.",
+  "commercialStarted": "Starting {length} second long commercial break.",
+  "@commercialStarted": {
+    "placeholders": {
+      "length": {
+        "type": "int"
+      }
+    }
+  },
+  "usageRaid": "Usage: /raid <username>",
+  "cmdRaidStarted": "You started to raid {user}.",
+  "@cmdRaidStarted": {
+    "placeholders": {
+      "user": {
+        "type": "String"
+      }
+    }
+  },
+  "cmdRaidCancelled": "You cancelled the raid.",
+  "shieldActivated": "Shield mode was activated.",
+  "shieldDeactivated": "Shield mode was deactivated.",
+  "cmdMarkerAdded": "Stream marker added.",
+  "usagePoll": "Usage: /poll [duration] <title> | <choice 1> | <choice 2> [| more] - Duration (default: 60s) must be 15-1800 seconds; 2-5 choices.",
+  "cmdPollStarted": "Poll started ({seconds}s).",
+  "@cmdPollStarted": {
+    "placeholders": {
+      "seconds": {
+        "type": "int"
+      }
+    }
+  },
+  "cmdNoActivePoll": "No poll is currently running.",
+  "cmdPollCancelled": "The poll was cancelled.",
+  "cmdPollEnded": "The poll has ended.",
+  "usagePrediction": "Usage: /prediction [window] <title> | <outcome 1> | <outcome 2> [| more] - Window (default: 60s) must be 30-1800 seconds; 2-10 outcomes.",
+  "predictionStarted": "Prediction started ({seconds}s).",
+  "@predictionStarted": {
+    "placeholders": {
+      "seconds": {
+        "type": "int"
+      }
+    }
+  },
+  "noActivePrediction": "No prediction is currently running.",
+  "cmdPredictionLocked": "Predictions are now locked.",
+  "cmdPredictionCancelled": "The prediction was cancelled and channel points were refunded.",
+  "usageResolvePrediction": "Usage: /resolveprediction <outcome number or exact title>",
+  "noOutcomeMatching": "No outcome matching \"{selector}\".",
+  "@noOutcomeMatching": {
+    "placeholders": {
+      "selector": {
+        "type": "String"
+      }
+    }
+  },
+  "cmdPredictionResolved": "The prediction was resolved: {title}.",
+  "@cmdPredictionResolved": {
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
+  "cmdUserBlocked": "You successfully blocked user {user}",
+  "@cmdUserBlocked": {
+    "placeholders": {
+      "user": {
+        "type": "String"
+      }
+    }
+  },
+  "userUnblocked": "You successfully unblocked user {user}",
+  "@userUnblocked": {
+    "placeholders": {
+      "user": {
+        "type": "String"
+      }
+    }
+  },
+  "unknownCommand": "{cmd} is not a known command",
+  "@unknownCommand": {
+    "placeholders": {
+      "cmd": {
+        "type": "String"
+      }
+    }
+  },
+  "commandFailed": "Command failed: {reason}",
+  "@commandFailed": {
+    "placeholders": {
+      "reason": {
+        "type": "String"
+      }
+    }
+  },
+  "loginExpiredInSettings": "Login expired - reconnect your account in Settings"
 }

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import '../l10n/l10n.dart';
 import '../twitch_config.dart';
 import '../util/constants.dart';
 import '../util/friendly_error.dart';
@@ -168,10 +169,12 @@ class TwitchApi {
 
   /// The last failure in words a person can act on: a known status first,
   /// then Twitch's own message (already plain English), then a generic line.
-  String get friendlyLastError =>
-      friendlyHttpStatus(lastErrorStatus) ??
-      lastHelixMessage ??
-      'Twitch request failed. Try again.';
+  String get friendlyLastError {
+    final l = strings?.call() ?? englishStrings();
+    return friendlyHttpStatus(lastErrorStatus, l) ??
+        lastHelixMessage ??
+        l.errorTwitchRequest;
+  }
 
   /// Runs [body] in its own error scope: the `last*` getters inside it see
   /// only failures from calls it made, so concurrent loads cannot read each
@@ -181,7 +184,10 @@ class TwitchApi {
 
   late http.Client _client;
 
-  TwitchApi({http.Client? client}) {
+  /// Strings for user-facing failure text; English when unset.
+  final AppLocalizations Function()? strings;
+
+  TwitchApi({http.Client? client, this.strings}) {
     _client = _TimeoutClient(client ?? http.Client());
   }
 

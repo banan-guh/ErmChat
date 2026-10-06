@@ -295,7 +295,7 @@ class UserProfileSheetState extends State<UserProfileSheet> {
     } catch (e) {
       if (!mounted) return;
       setState(() {
-        _error = friendlyError(e);
+        _error = friendlyError(e, l: context.l10n);
         _loading = false;
         _measureDirty = true;
       });

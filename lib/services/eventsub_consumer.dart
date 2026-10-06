@@ -6,6 +6,7 @@ import '../eventsub/decode/decoder.dart';
 import '../eventsub/decode/events.dart';
 import '../color_utils.dart' show Color;
 import '../eventsub/topics.dart';
+import '../l10n/l10n.dart';
 import '../util/mod_activity_format.dart' show formatModActivity;
 import 'moderation_hub.dart';
 
@@ -22,6 +23,7 @@ class EventSubConsumer {
     this.onHypeTrain,
     this.onPoll,
     this.onPrediction,
+    this.strings = englishStrings,
   });
 
   final Chat chat;
@@ -32,6 +34,7 @@ class EventSubConsumer {
   final void Function(HypeTrainEvent event)? onHypeTrain;
   final void Function(PollEvent event)? onPoll;
   final void Function(PredictionEvent event)? onPrediction;
+  final AppLocalizations Function() strings;
 
   bool _disposed = false;
   final _subscriptions = <StreamSubscription>[];
@@ -96,7 +99,7 @@ class EventSubConsumer {
       moderator: event.moderatorName,
     );
     chat.channelFor(event.channel)?.moderation.addFeed(entry);
-    onSystemMessage(event.channel, formatModActivity(entry));
+    onSystemMessage(event.channel, formatModActivity(entry, l: strings()));
   }
 
   void _onShoutoutEvent(ShoutoutEvent event) {
@@ -114,8 +117,8 @@ class EventSubConsumer {
     onSystemMessage(
       event.channel,
       created
-          ? formatModActivity(entry)
-          : '${event.fromLogin} shouted out this channel.',
+          ? formatModActivity(entry, l: strings())
+          : strings().shoutedOutThisChannel(event.fromLogin),
     );
   }
 
@@ -133,14 +136,14 @@ class EventSubConsumer {
         target: event.userLogin,
       );
       moderation?.addFeed(entry);
-      onSystemMessage(event.channel, formatModActivity(entry));
+      onSystemMessage(event.channel, formatModActivity(entry, l: strings()));
       return;
     }
     // channel.moderate already reported this warn with the same data.
     if (topics.isModerationActive(event.channel)) return;
     final user = event.userLogin;
     final reason = (event.reason != null && event.reason!.isNotEmpty)
-        ? ': "${event.reason}"'
+        ? strings().quotedSuffix(event.reason!)
         : '';
     if (user.isNotEmpty) {
       chat
@@ -168,8 +171,8 @@ class EventSubConsumer {
     onSystemMessage(
       event.channel,
       user.isEmpty
-          ? '${event.moderatorName} warned $user$reason.'
-          : formatModActivity(entry),
+          ? strings().modWarned(event.moderatorName, user, reason)
+          : formatModActivity(entry, l: strings()),
     );
   }
 
@@ -182,7 +185,7 @@ class EventSubConsumer {
     chat.channelFor(event.channel)?.moderation.touchInbox();
     final user = event.userLogin;
     if (event.kind == UnbanRequestKind.create) {
-      onSystemMessage(event.channel, '$user requested an unban.');
+      onSystemMessage(event.channel, strings().requestedUnban(user));
       return;
     }
     // channel.moderate reports approve/deny with the same data, so the resolve
@@ -190,7 +193,7 @@ class EventSubConsumer {
     if (topics.isModerationActive(event.channel)) return;
     final resolution =
         (event.resolutionText != null && event.resolutionText!.isNotEmpty)
-        ? ': "${event.resolutionText}"'
+        ? strings().quotedSuffix(event.resolutionText!)
         : '';
     final entry = ModActivityEntry(
       at: DateTime.now(),
@@ -204,8 +207,12 @@ class EventSubConsumer {
     onSystemMessage(
       event.channel,
       user.isEmpty
-          ? '${event.moderatorName} resolved $user\'s unban request$resolution.'
-          : formatModActivity(entry),
+          ? strings().resolvedUnbanRequest(
+              event.moderatorName,
+              user,
+              resolution,
+            )
+          : formatModActivity(entry, l: strings()),
     );
   }
 
@@ -228,7 +235,7 @@ class EventSubConsumer {
       terms: event.terms,
     );
     chat.channelFor(event.channel)?.moderation.addFeed(entry);
-    onSystemMessage(event.channel, formatModActivity(entry));
+    onSystemMessage(event.channel, formatModActivity(entry, l: strings()));
   }
 
   // AutoMod settings changes refresh the Setup tab and land in the feed.
@@ -244,7 +251,7 @@ class EventSubConsumer {
       moderator: event.moderatorName,
     );
     trustModeration?.addFeed(entry);
-    onSystemMessage(event.channel, formatModActivity(entry));
+    onSystemMessage(event.channel, formatModActivity(entry, l: strings()));
   }
 
   // Suspicious-user sightings build the per-user flag context (card, Users
@@ -283,7 +290,7 @@ class EventSubConsumer {
         );
     onSystemMessage(
       event.channel,
-      '${event.moderatorName} updated the suspicious status of $user.',
+      strings().suspiciousStatusUpdated(event.moderatorName, user),
     );
   }
 

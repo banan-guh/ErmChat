@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:flutter/services.dart';
 import 'package:flutter_tts/flutter_tts.dart';
+import '../l10n/l10n.dart';
 import '../models/twitch_message.dart';
 import '../util/prefs.dart';
 
@@ -49,7 +50,11 @@ class TtsController {
   // Test hook: forces the Android platform branch regardless of host OS.
   bool? overrideIsAndroid;
 
-  TtsController({FlutterTts? tts}) : _tts = tts ?? FlutterTts();
+  TtsController({FlutterTts? tts, AppLocalizations Function()? strings})
+    : _tts = tts ?? FlutterTts(),
+      _strings = strings ?? englishStrings;
+
+  final AppLocalizations Function() _strings;
 
   bool get isAvailable => _available;
   bool get enabled => _enabled;
@@ -131,10 +136,10 @@ class TtsController {
         } catch (_) {}
         // No way to enumerate: offer "use device default" so TTS still works.
         return [
-          const TtsOption(
+          TtsOption(
             id: defaultEngineId,
-            label: 'Device default',
-            raw: {},
+            label: _strings().ttsDeviceDefault,
+            raw: const {},
           ),
         ];
       } else if (useVoices) {
@@ -231,7 +236,7 @@ class TtsController {
       try {
         _selectedOption = TtsOption(
           id: voiceId,
-          label: voiceId == defaultEngineId ? 'Device default' : '',
+          label: voiceId == defaultEngineId ? _strings().ttsDeviceDefault : '',
           raw: Map<String, String>.from(
             jsonDecode(voiceRaw) as Map<dynamic, dynamic>,
           ),

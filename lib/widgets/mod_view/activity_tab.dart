@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../l10n/l10n.dart';
 import '../../util/date_format.dart';
 import '../../util/mod_activity_format.dart';
 import 'scope.dart';
@@ -76,8 +77,10 @@ class ActivityTab extends StatelessWidget {
                   color: scheme.onSurfaceVariant,
                 ),
               ),
-              title: Text(formatModActivity(entry)),
-              subtitle: Text('${entry.moderator} · ${formatAgo(entry.at)}'),
+              title: Text(formatModActivity(entry, l: context.l10n)),
+              subtitle: Text(
+                '${entry.moderator} · ${formatAgo(entry.at, l: context.l10n)}',
+              ),
             );
           },
         );

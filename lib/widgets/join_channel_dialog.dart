@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../l10n/l10n.dart';
 
 /// Asks for a channel name. [initial] prefills the field for an edit.
 void showJoinChannelDialog(
@@ -46,11 +47,13 @@ class _JoinChannelDialogState extends State<_JoinChannelDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: Text(_editing ? 'Edit channel' : 'Join channel'),
+      title: Text(
+        _editing ? context.l10n.editChannel : context.l10n.joinChannel,
+      ),
       content: TextField(
         controller: _controller,
-        decoration: const InputDecoration(
-          hintText: 'channel name',
+        decoration: InputDecoration(
+          hintText: context.l10n.channelNameHint,
           border: OutlineInputBorder(),
         ),
         autofocus: true,
@@ -59,11 +62,11 @@ class _JoinChannelDialogState extends State<_JoinChannelDialog> {
       actions: [
         TextButton(
           onPressed: () => Navigator.pop(context),
-          child: const Text('Cancel'),
+          child: Text(context.l10n.cancel),
         ),
         FilledButton(
           onPressed: () => _submit(context),
-          child: Text(_editing ? 'Save' : 'Join'),
+          child: Text(_editing ? context.l10n.save : context.l10n.join),
         ),
       ],
     );

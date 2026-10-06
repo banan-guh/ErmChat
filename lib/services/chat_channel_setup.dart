@@ -8,6 +8,7 @@ import 'package:http/http.dart' as http;
 import '../chat/chat.dart';
 import '../client/session.dart';
 import '../color_utils.dart' show Color;
+import '../l10n/l10n.dart';
 import '../util/constants.dart';
 import '../util/log.dart';
 import '../irc/decode/decoder.dart' show IrcChatDecoder;
@@ -50,6 +51,7 @@ class ChatChannelSetup {
     required this.connectionStateNotifier,
     this.onUserEmoteSets,
     required this.ensureCurrentUser,
+    this.strings = englishStrings,
   });
 
   final TwitchApi twitchApi;
@@ -84,6 +86,8 @@ class ChatChannelSetup {
   final Future<Map<String, dynamic>?> Function(TwitchAuth auth)
   ensureCurrentUser;
 
+  final AppLocalizations Function() strings;
+
   bool _disposed = false;
   final _httpClient = http.Client();
 
@@ -93,6 +97,7 @@ class ChatChannelSetup {
     twitchAuth: twitchAuth,
     chat: chat,
     session: session,
+    strings: strings,
   );
 
   /// In-flight 7TV ID lookups by Twitch channel id. Concurrent joins for the
@@ -423,7 +428,7 @@ class ChatChannelSetup {
     // A channel whose join previously failed just got in: announce the late
     // success and clear the failure state.
     if (_joinFailureNotified.remove(event.channel)) {
-      onSystemMessage(event.channel, 'Joined #${event.channel}.');
+      onSystemMessage(event.channel, strings().joinedChannel(event.channel));
     }
     _status.onRoomState(event.channel, event.tags);
     final roomId = event.tags['room-id'];
@@ -447,12 +452,14 @@ class ChatChannelSetup {
     if (_disposed) return;
     final text = switch (event.reason) {
       // A definitive server signal: the channel really is unavailable.
-      JoinFailureReason.suspended =>
-        'Could not join #${event.channel}: the channel is suspended or deleted.',
+      JoinFailureReason.suspended => strings().joinFailedSuspended(
+        event.channel,
+      ),
       // A missing JOIN echo is ambiguous (transient drop, not-yet-joined, or
       // genuinely gone); never claim nonexistence, just report the failure.
-      JoinFailureReason.noResponse =>
-        'Could not connect to channel #${event.channel}',
+      JoinFailureReason.noResponse => strings().joinFailedNoResponse(
+        event.channel,
+      ),
     };
     _joinFailureNotified.add(event.channel);
     onSystemMessage(event.channel, text);

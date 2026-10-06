@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import '../eventsub/decode/events.dart';
+import '../l10n/l10n.dart';
 
 /// Fixed cutout for broadcaster widget cards (poll/prediction/hype train).
 class ChatWidgetCutout extends StatelessWidget {
@@ -40,7 +41,7 @@ class ChatWidgetCutout extends StatelessWidget {
                 right: 2,
                 child: IconButton(
                   icon: const Icon(Icons.keyboard_arrow_down, size: 20),
-                  tooltip: 'Minimize',
+                  tooltip: context.l10n.minimize,
                   visualDensity: VisualDensity.compact,
                   onPressed: onMinimize,
                 ),
@@ -93,7 +94,7 @@ class ChatWidgetMinimizedBar extends StatelessWidget {
 
   static const double height = 36;
 
-  final String labels;
+  final String Function(AppLocalizations) labels;
   final VoidCallback onRestore;
 
   @override
@@ -118,14 +119,14 @@ class ChatWidgetMinimizedBar extends StatelessWidget {
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
-                  labels,
+                  labels(context.l10n),
                   style: theme.textTheme.labelMedium,
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
               IconButton(
                 icon: const Icon(Icons.keyboard_arrow_up, size: 20),
-                tooltip: 'Restore',
+                tooltip: context.l10n.restore,
                 visualDensity: VisualDensity.compact,
                 onPressed: onRestore,
               ),
@@ -189,11 +190,16 @@ class _HypeTrainCardState extends State<HypeTrainCard> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final l10n = context.l10n;
     final e = widget.event;
     final ratio = e.goal > 0 ? (e.progress / e.goal).clamp(0.0, 1.0) : 0.0;
     final top = e.topContributions
         .take(2)
-        .map((c) => '${c.userName} (${c.type == 'BITS' ? 'Bits' : 'Subs'})')
+        .map(
+          (c) => c.type == 'BITS'
+              ? l10n.hypeContributionBits(c.userName)
+              : l10n.hypeContributionSubs(c.userName),
+        )
         .join(', ');
     return Padding(
       padding: const EdgeInsets.fromLTRB(14, 10, 44, 16),
@@ -202,10 +208,10 @@ class _HypeTrainCardState extends State<HypeTrainCard> {
         children: [
           Row(
             children: [
-              Text('Hype Train', style: theme.textTheme.titleSmall),
+              Text(l10n.hypeTrain, style: theme.textTheme.titleSmall),
               const SizedBox(width: 8),
               Text(
-                'Level ${e.level}',
+                l10n.hypeTrainLevel(e.level),
                 style: theme.textTheme.labelSmall?.copyWith(
                   color: theme.colorScheme.primary,
                   fontWeight: FontWeight.w600,
@@ -226,13 +232,13 @@ class _HypeTrainCardState extends State<HypeTrainCard> {
           ),
           const SizedBox(height: 4),
           Text(
-            '${e.progress} / ${e.goal} to next level',
+            l10n.hypeTrainProgress(e.progress, e.goal),
             style: theme.textTheme.labelSmall,
           ),
           if (top.isNotEmpty) ...[
             const SizedBox(height: 2),
             Text(
-              'Top: $top',
+              l10n.hypeTrainTop(top),
               style: theme.textTheme.labelSmall,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
@@ -262,12 +268,12 @@ class PinnedMessageCard extends StatelessWidget {
             children: [
               Icon(Icons.push_pin, size: 16, color: theme.colorScheme.primary),
               const SizedBox(width: 6),
-              Text('Pinned', style: theme.textTheme.titleSmall),
+              Text(context.l10n.pinned, style: theme.textTheme.titleSmall),
               if (event.pinnedBy.isNotEmpty) ...[
                 const SizedBox(width: 8),
                 Flexible(
                   child: Text(
-                    'by ${event.pinnedBy}',
+                    context.l10n.pinnedBy(event.pinnedBy),
                     style: theme.textTheme.labelSmall?.copyWith(
                       color: theme.colorScheme.outline,
                     ),
@@ -317,10 +323,10 @@ class PollCard extends StatelessWidget {
         children: [
           Row(
             children: [
-              Text('Poll', style: theme.textTheme.titleSmall),
+              Text(context.l10n.poll, style: theme.textTheme.titleSmall),
               const SizedBox(width: 8),
               Text(
-                'Read-only',
+                context.l10n.readOnly,
                 style: theme.textTheme.labelSmall?.copyWith(
                   color: theme.colorScheme.outline,
                 ),
@@ -372,7 +378,7 @@ class PollCard extends StatelessWidget {
           ],
           if (event.choices.length > 2)
             Text(
-              '+${event.choices.length - 2} more options',
+              context.l10n.moreOptions(event.choices.length - 2),
               style: theme.textTheme.labelSmall,
             ),
         ],
@@ -398,10 +404,10 @@ class PredictionCard extends StatelessWidget {
         children: [
           Row(
             children: [
-              Text('Prediction', style: theme.textTheme.titleSmall),
+              Text(context.l10n.prediction, style: theme.textTheme.titleSmall),
               const SizedBox(width: 8),
               Text(
-                'Read-only',
+                context.l10n.readOnly,
                 style: theme.textTheme.labelSmall?.copyWith(
                   color: theme.colorScheme.outline,
                 ),
@@ -429,7 +435,10 @@ class PredictionCard extends StatelessWidget {
                 ),
                 const SizedBox(width: 8),
                 Text(
-                  '${outcome.users} users / ${outcome.channelPoints} pts',
+                  context.l10n.predictionUsersPoints(
+                    outcome.users,
+                    outcome.channelPoints,
+                  ),
                   style: theme.textTheme.labelSmall,
                 ),
               ],
@@ -438,7 +447,7 @@ class PredictionCard extends StatelessWidget {
           ],
           if (event.outcomes.length > 2)
             Text(
-              '+${event.outcomes.length - 2} more outcomes',
+              context.l10n.moreOutcomes(event.outcomes.length - 2),
               style: theme.textTheme.labelSmall,
             ),
         ],

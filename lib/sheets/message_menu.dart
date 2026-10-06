@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../l10n/l10n.dart';
 import '../models/twitch_message.dart';
 import '../util/chat_text.dart';
 import '../util/haptics.dart';
@@ -36,7 +37,7 @@ class MessageMenus {
             children: [
               ListTile(
                 leading: const Icon(Icons.reply),
-                title: const Text('Reply to message'),
+                title: Text(ctx.l10n.replyToMessage),
                 onTap: () {
                   Navigator.pop(ctx);
                   startReply(msg);
@@ -45,7 +46,7 @@ class MessageMenus {
               if (hasThread)
                 ListTile(
                   leading: const Icon(Icons.forum),
-                  title: const Text('View thread'),
+                  title: Text(ctx.l10n.viewThread),
                   onTap: () {
                     Navigator.pop(ctx);
                     unawaited(showThreadView(threadRoot));
@@ -53,7 +54,7 @@ class MessageMenus {
                 ),
               ListTile(
                 leading: const Icon(Icons.copy),
-                title: const Text('Copy message'),
+                title: Text(ctx.l10n.copyMessage),
                 onTap: () {
                   Clipboard.setData(
                     ClipboardData(text: copyableChatText(msg.text)),
@@ -63,7 +64,7 @@ class MessageMenus {
               ),
               ListTile(
                 leading: const Icon(Icons.more_horiz),
-                title: const Text('More...'),
+                title: Text(ctx.l10n.moreEllipsis),
                 onTap: () {
                   Navigator.pop(ctx);
                   showMoreMenu(context, msg);
@@ -88,7 +89,7 @@ class MessageMenus {
             children: [
               ListTile(
                 leading: const Icon(Icons.copy),
-                title: const Text('Copy message'),
+                title: Text(ctx.l10n.copyMessage),
                 onTap: () {
                   Clipboard.setData(
                     ClipboardData(text: copyableChatText(msg.text)),
@@ -98,7 +99,7 @@ class MessageMenus {
               ),
               ListTile(
                 leading: const Icon(Icons.more_horiz),
-                title: const Text('More...'),
+                title: Text(ctx.l10n.moreEllipsis),
                 onTap: () {
                   Navigator.pop(ctx);
                   showMoreMenu(context, msg);
@@ -120,7 +121,7 @@ class MessageMenus {
           children: [
             ListTile(
               leading: const Icon(Icons.copy_all),
-              title: const Text('Copy full message'),
+              title: Text(ctx.l10n.copyFullMessage),
               onTap: () {
                 final ts = prefs.showTimestamps
                     ? formatTimestamp(msg.timestamp, prefs.timestampFormat)
@@ -136,7 +137,7 @@ class MessageMenus {
             if (msg.messageId != null)
               ListTile(
                 leading: const Icon(Icons.copy),
-                title: const Text('Copy message ID'),
+                title: Text(ctx.l10n.copyMessageId),
                 onTap: () {
                   Clipboard.setData(ClipboardData(text: msg.messageId!));
                   Navigator.pop(ctx);

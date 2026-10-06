@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 
+import '../l10n/l10n.dart';
 import '../models/bug_report.dart';
 import '../util/log.dart';
 
@@ -23,7 +24,9 @@ class BugReportOutbox extends ChangeNotifier {
     this.secret = '',
     http.Client? client,
     Directory? directory,
-  }) : _client = client ?? http.Client(),
+    AppLocalizations Function()? strings,
+  }) : _strings = strings ?? englishStrings,
+       _client = client ?? http.Client(),
        _ownsClient = client == null,
        _dir = directory;
 
@@ -34,6 +37,7 @@ class BugReportOutbox extends ChangeNotifier {
   /// Current Twitch user token; null while signed out.
   final String? Function() accessToken;
 
+  final AppLocalizations Function() _strings;
   final http.Client _client;
   final bool _ownsClient;
   Directory? _dir;
@@ -125,7 +129,7 @@ class BugReportOutbox extends ChangeNotifier {
         if (r.status != BugReportStatus.queued) continue;
         final token = accessToken();
         if (token == null) {
-          r.lastError = 'Sign in to send';
+          r.lastError = _strings().outboxSignInToSend;
           break;
         }
         final wait = await _send(r, token);
@@ -167,7 +171,7 @@ class BugReportOutbox extends ChangeNotifier {
           )
           .timeout(sendTimeout);
     } catch (_) {
-      return _retryable(r, 'Waiting for connection');
+      return _retryable(r, _strings().outboxWaitingConnection);
     }
     final code = resp.statusCode;
     if (code == 200) {
@@ -184,21 +188,21 @@ class BugReportOutbox extends ChangeNotifier {
     final message = _decode(resp.body)['error'] as String?;
     if (code == 401) {
       // Stays queued; the next sign-in (auth change) flushes again.
-      r.lastError = 'Twitch sign-in expired; sign in again to send';
+      r.lastError = _strings().outboxSignInExpired;
       return null;
     }
     if (code == 429) {
-      r.lastError = 'Daily report limit reached; will retry';
+      r.lastError = _strings().outboxDailyLimit;
       final after = int.tryParse(resp.headers['retry-after'] ?? '');
       return Duration(seconds: after ?? 3600);
     }
     if (code >= 400 && code < 500) {
       r
         ..status = BugReportStatus.failed
-        ..lastError = message ?? 'Rejected by the server ($code)';
+        ..lastError = message ?? _strings().outboxRejected(code);
       return null;
     }
-    return _retryable(r, 'Server unavailable; will retry');
+    return _retryable(r, _strings().outboxServerUnavailable);
   }
 
   /// Backoff for transient failures: 1, 2, 4 ... minutes, capped at an hour.

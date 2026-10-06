@@ -92,6 +92,7 @@ class _AccountScreenState extends State<AccountScreen> {
       return;
     }
 
+    final l = context.l10n;
     final prefs = await Prefs.load();
     final useBrowserOAuth = prefs.useBrowserOAuth;
     if (useBrowserOAuth) {
@@ -100,7 +101,7 @@ class _AccountScreenState extends State<AccountScreen> {
       final starter = widget.oAuthStarter;
       final token = starter != null
           ? await starter()
-          : await TwitchOAuth.startFlow(ephemeral: ephemeral);
+          : await TwitchOAuth.startFlow(ephemeral: ephemeral, l: l);
 
       if (!mounted) return;
 
@@ -149,7 +150,7 @@ class _AccountScreenState extends State<AccountScreen> {
     if (error != null) {
       setState(() {
         _authState = _AuthState.error;
-        _authError = TwitchOAuth.describeError(error);
+        _authError = TwitchOAuth.describeError(error, context.l10n);
       });
       return;
     }
@@ -158,7 +159,7 @@ class _AccountScreenState extends State<AccountScreen> {
       if (state != _browserAuthState) {
         setState(() {
           _authState = _AuthState.error;
-          _authError = TwitchOAuth.stateMismatchError;
+          _authError = TwitchOAuth.stateMismatchError(context.l10n);
         });
         return;
       }

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
+import '../l10n/l10n.dart';
 import '../panels/mentions.dart';
 import '../panels/mod_panel.dart';
 import '../panels/threads.dart';
@@ -122,7 +123,9 @@ class HomeAppBar {
         final busy = _joinBusy();
         return IconButton(
           icon: busy ? _joinSpinner(context) : const Icon(Icons.add),
-          tooltip: busy ? 'Loading...' : 'Join channel',
+          tooltip: busy
+              ? context.l10n.loadingEllipsis
+              : context.l10n.joinChannel,
           onPressed: busy || chat.length >= kMaxChannels
               ? null
               : addChannelDialog,
@@ -147,7 +150,7 @@ class HomeAppBar {
       builder: (context, _) {
         if (_joinBusy()) return _joinSpinner(context);
         return Tooltip(
-          message: 'Join channel',
+          message: context.l10n.joinChannel,
           child: Icon(
             Icons.add,
             color: chat.length >= kMaxChannels
@@ -174,7 +177,7 @@ class HomeAppBar {
           Icons.notifications_active,
           color: chat.unreadMentions > 0 ? theme.colorScheme.error : null,
         ),
-        tooltip: 'Mentions',
+        tooltip: context.l10n.sectionMentions,
         onPressed: _onBellPressed,
       ),
     );
@@ -204,25 +207,25 @@ class HomeAppBar {
             break;
         }
       },
-      itemBuilder: (_) => [
-        const PopupMenuItem(
+      itemBuilder: (ctx) => [
+        PopupMenuItem(
           value: 'settings',
           child: Row(
             children: [
-              Icon(Icons.settings, size: 20),
-              SizedBox(width: 12),
-              Text('Settings'),
+              const Icon(Icons.settings, size: 20),
+              const SizedBox(width: 12),
+              Text(ctx.l10n.settingsTitle),
             ],
           ),
         ),
         const PopupMenuDivider(),
-        const PopupMenuItem(value: 'threads', child: Text('Threads')),
-        const PopupMenuItem(value: 'upload', child: Text('Upload media')),
-        const PopupMenuItem(
+        PopupMenuItem(value: 'threads', child: Text(ctx.l10n.threads)),
+        PopupMenuItem(value: 'upload', child: Text(ctx.l10n.uploadMedia)),
+        PopupMenuItem(
           value: 'reload_emotes',
-          child: Text('Reload emotes'),
+          child: Text(ctx.l10n.reloadEmotes),
         ),
-        const PopupMenuItem(value: 'reconnect', child: Text('Reconnect')),
+        PopupMenuItem(value: 'reconnect', child: Text(ctx.l10n.reconnect)),
       ],
       child: GestureDetector(
         onLongPress: openSettings,

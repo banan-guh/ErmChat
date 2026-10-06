@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../chat/chat.dart';
+import '../l10n/l10n.dart';
 import '../services/pip_service.dart';
 import '../services/stream_player_controller.dart';
 import '../util/insets.dart';
@@ -235,7 +236,9 @@ class StreamPanels {
           right: theaterChatVisible() ? panelW + 8 : 8,
           child: FloatingActionButton.small(
             heroTag: 'theater_chat_toggle',
-            tooltip: theaterChatVisible() ? 'Hide chat' : 'Show chat',
+            tooltip: theaterChatVisible()
+                ? context.l10n.hideChat
+                : context.l10n.showChat,
             onPressed: toggleTheaterChat,
             child: Icon(
               theaterChatVisible() ? Icons.visibility_off : Icons.visibility,

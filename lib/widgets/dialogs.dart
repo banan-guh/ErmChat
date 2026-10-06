@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../l10n/l10n.dart';
 
 /// Confirmation dialog with cancel and confirm actions. Returns true only when
 /// the user confirms; cancel and dismiss return false.
@@ -7,7 +8,7 @@ Future<bool> confirmDialog(
   required String title,
   String? message,
   required String confirmLabel,
-  String cancelLabel = 'Cancel',
+  String? cancelLabel,
   bool destructive = false,
 }) async {
   final ok = await showDialog<bool>(
@@ -18,7 +19,7 @@ Future<bool> confirmDialog(
       actions: [
         TextButton(
           onPressed: () => Navigator.pop(ctx, false),
-          child: Text(cancelLabel),
+          child: Text(cancelLabel ?? ctx.l10n.cancel),
         ),
         if (destructive)
           FilledButton(

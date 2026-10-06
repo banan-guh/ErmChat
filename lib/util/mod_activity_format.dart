@@ -1,94 +1,126 @@
 // One-line summaries for moderation feed entries. Pure data-to-text.
+
+import '../l10n/l10n.dart';
 import '../models/moderation_entries.dart' show ModActivityEntry;
 import 'duration_format.dart';
 
-String formatModActivity(ModActivityEntry entry) {
+String formatModActivity(ModActivityEntry entry, {AppLocalizations? l}) {
+  l ??= englishStrings();
   final mod = entry.moderator;
-  final target = entry.target ?? 'someone';
+  final target = entry.target ?? l.modActSomeone;
   final reason = (entry.reason != null && entry.reason!.isNotEmpty)
-      ? ': "${entry.reason}"'
+      ? l.modActReasonSuffix(entry.reason!)
       : '';
   final duration = entry.durationSeconds != null
-      ? ' for ${formatSeconds(entry.durationSeconds!)}'
+      ? l.modActDurationSuffix(formatSeconds(entry.durationSeconds!))
       : '';
   switch (entry.action) {
     case 'ban':
-      return '$mod banned $target$reason.';
+      return l.modActBan(mod, target, reason);
     case 'timeout':
-      return '$mod timed out $target$duration$reason.';
+      return l.modActTimeout(mod, target, duration, reason);
     case 'unban':
     case 'untimeout':
-      return '$mod unbanned $target.';
+      return l.modActUnban(mod, target);
     case 'delete':
-      return '$mod deleted a message from $target.';
+      return l.modActDelete(mod, target);
     case 'clear':
-      return '$mod cleared the chat.';
+      return l.modActClear(mod);
     case 'mod':
-      return '$mod modded $target.';
+      return l.modActMod(mod, target);
     case 'unmod':
-      return '$mod unmodded $target.';
+      return l.modActUnmod(mod, target);
     case 'vip':
-      return '$mod added $target as a VIP.';
+      return l.modActVip(mod, target);
     case 'unvip':
-      return '$mod removed $target as a VIP.';
+      return l.modActUnvip(mod, target);
     case 'warn':
-      return '$mod warned $target$reason.';
+      return l.modActWarn(mod, target, reason);
     case 'warn_ack':
-      return '$target acknowledged a warning.';
+      return l.modActWarnAck(target);
     case 'slow':
-      return '$mod enabled slow mode.';
+      return l.modActSlowOn(mod);
     case 'slowoff':
-      return '$mod disabled slow mode.';
+      return l.modActSlowOff(mod);
     case 'followers':
-      return '$mod enabled followers-only mode.';
+      return l.modActFollowersOn(mod);
     case 'followersoff':
-      return '$mod disabled followers-only mode.';
+      return l.modActFollowersOff(mod);
     case 'emoteonly':
-      return '$mod enabled emote-only mode.';
+      return l.modActEmoteOnlyOn(mod);
     case 'emoteonlyoff':
-      return '$mod disabled emote-only mode.';
+      return l.modActEmoteOnlyOff(mod);
     case 'subscribers':
-      return '$mod enabled subscribers-only mode.';
+      return l.modActSubsOnlyOn(mod);
     case 'subscribersoff':
-      return '$mod disabled subscribers-only mode.';
+      return l.modActSubsOnlyOff(mod);
     case 'uniquechat':
-      return '$mod enabled unique chat.';
+      return l.modActUniqueOn(mod);
     case 'uniquechatoff':
-      return '$mod disabled unique chat.';
+      return l.modActUniqueOff(mod);
     case 'raid':
-      return '$mod started a raid.';
+      return l.modActRaid(mod);
     case 'unraid':
-      return '$mod cancelled the raid.';
+      return l.modActUnraid(mod);
     case 'shield_on':
-      return '$mod enabled Shield Mode.';
+      return l.modActShieldOn(mod);
     case 'shield_off':
-      return '$mod disabled Shield Mode.';
+      return l.modActShieldOff(mod);
     case 'shoutout':
-      return '$mod shouted out $target.';
+      return l.modActShoutout(mod, target);
     case 'approve_unban_request':
-      return '$mod approved $target\'s unban request$reason.';
+      return l.modActApproveUnban(mod, target, reason);
     case 'deny_unban_request':
-      return '$mod denied $target\'s unban request$reason.';
+      return l.modActDenyUnban(mod, target, reason);
     case 'unban_resolved':
-      return '$mod resolved $target\'s unban request$reason.';
+      return l.modActResolveUnban(mod, target, reason);
     case 'automod_settings':
-      return '$mod updated AutoMod settings.';
+      return l.modActAutomod(mod);
     case 'suspicious_flag':
-      return '$mod flagged $target$reason.';
+      return l.modActSuspicious(mod, target, reason);
     case 'add_blocked_term':
     case 'remove_blocked_term':
     case 'add_permitted_term':
     case 'remove_permitted_term':
-      return formatTermAction(mod, entry.action, entry.terms);
+      return formatTermAction(mod, entry.action, entry.terms, l);
     default:
-      return '$mod did ${entry.action.replaceAll('_', ' ')}.';
+      return l.modActOther(mod, entry.action.replaceAll('_', ' '));
   }
 }
 
-String formatTermAction(String mod, String action, List<String> terms) {
-  final kind = action.contains('permitted') ? 'permitted term' : 'blocked term';
-  final verb = action.startsWith('add') ? 'added' : 'removed';
-  if (terms.length == 1) return '$mod $verb $kind "${terms.first}".';
-  if (terms.length > 1) return '$mod $verb ${terms.length} ${kind}s.';
-  return '$mod $verb a $kind.';
+String formatTermAction(
+  String mod,
+  String action,
+  List<String> terms,
+  AppLocalizations l,
+) {
+  final permitted = action.contains('permitted');
+  final added = action.startsWith('add');
+  if (terms.length == 1) {
+    final t = terms.first;
+    return permitted
+        ? (added
+              ? l.modActAddedPermittedOne(mod, t)
+              : l.modActRemovedPermittedOne(mod, t))
+        : (added
+              ? l.modActAddedBlockedOne(mod, t)
+              : l.modActRemovedBlockedOne(mod, t));
+  }
+  if (terms.length > 1) {
+    final n = terms.length;
+    return permitted
+        ? (added
+              ? l.modActAddedPermittedMany(mod, n)
+              : l.modActRemovedPermittedMany(mod, n))
+        : (added
+              ? l.modActAddedBlockedMany(mod, n)
+              : l.modActRemovedBlockedMany(mod, n));
+  }
+  return permitted
+      ? (added
+            ? l.modActAddedPermittedUnnamed(mod)
+            : l.modActRemovedPermittedUnnamed(mod))
+      : (added
+            ? l.modActAddedBlockedUnnamed(mod)
+            : l.modActRemovedBlockedUnnamed(mod));
 }

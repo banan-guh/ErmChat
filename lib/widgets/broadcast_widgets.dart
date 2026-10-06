@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../eventsub/decode/events.dart';
+import '../l10n/l10n.dart';
 import '../util/prefs.dart';
 import 'chat_widget_cutout.dart';
 
@@ -226,13 +227,13 @@ class BroadcastWidgets {
     return result;
   }
 
-  String labelsFor(String channel) {
-    final labels = <String>[];
-    if (pins.containsKey(channel)) labels.add('Pinned');
-    if (polls.containsKey(channel)) labels.add('Poll');
-    if (predictions.containsKey(channel)) labels.add('Prediction');
-    if (hypeTrains.containsKey(channel)) labels.add('Hype Train');
-    return labels.join(' / ');
+  String Function(AppLocalizations) labelsFor(String channel) {
+    final labels = <String Function(AppLocalizations)>[];
+    if (pins.containsKey(channel)) labels.add((l) => l.pinned);
+    if (polls.containsKey(channel)) labels.add((l) => l.poll);
+    if (predictions.containsKey(channel)) labels.add((l) => l.prediction);
+    if (hypeTrains.containsKey(channel)) labels.add((l) => l.hypeTrain);
+    return (l) => labels.map((label) => label(l)).join(' / ');
   }
 
   Widget? buildOverlay(

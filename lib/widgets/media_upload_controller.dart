@@ -7,6 +7,7 @@ import '../services/media_uploader.dart';
 import '../util/friendly_error.dart';
 import '../util/log.dart';
 import 'app_snack.dart';
+import '../l10n/l10n.dart';
 
 /// Notice sink for upload results. Home wires the inline notice bar;
 /// detached uses fall back to the overlay snackbar.
@@ -40,12 +41,12 @@ class MediaUploadController {
           children: [
             ListTile(
               leading: const Icon(Icons.photo_library_outlined),
-              title: const Text('Gallery'),
+              title: Text(ctx.l10n.gallery),
               onTap: () => Navigator.pop(ctx, ImageSource.gallery),
             ),
             ListTile(
               leading: const Icon(Icons.photo_camera_outlined),
-              title: const Text('Camera'),
+              title: Text(ctx.l10n.camera),
               onTap: () => Navigator.pop(ctx, ImageSource.camera),
             ),
           ],
@@ -60,7 +61,7 @@ class MediaUploadController {
       picked = await picker.pickImage(source: source);
     } catch (e) {
       if (context.mounted) {
-        _showSnack(context, 'Could not open media picker: $e');
+        _showSnack(context, context.l10n.mediaPickerFailed('$e'));
       }
       return;
     }
@@ -74,16 +75,13 @@ class MediaUploadController {
       await _uploader.addRecent(result);
       if (!context.mounted) return;
       Clipboard.setData(ClipboardData(text: result.imageLink));
-      _showSnack(context, 'Uploaded ${result.imageLink}');
+      _showSnack(context, context.l10n.uploadedLink(result.imageLink));
     } catch (e) {
       logDebug('[Upload] failed: $e');
       if (context.mounted) {
         _showSnack(
           context,
-          friendlyError(
-            e,
-            fallback: 'Upload failed. Check Tools > Image uploader.',
-          ),
+          friendlyError(e, fallback: context.l10n.uploadFailedFallback),
         );
       }
     } finally {

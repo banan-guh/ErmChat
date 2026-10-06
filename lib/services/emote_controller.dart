@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import '../l10n/l10n.dart';
 import '../models/emote_fetch_tier.dart';
 import '../chat/chat.dart';
 import '../util/connectivity.dart';
@@ -40,7 +41,10 @@ class EmoteController {
     required this.sevenTvClient,
     required this.applyAnimationsEnabled,
     required this.clearImageCache,
-  });
+    AppLocalizations Function()? strings,
+  }) : _strings = strings ?? englishStrings;
+
+  final AppLocalizations Function() _strings;
 
   final EmoteManager emoteManager;
   final TwitchApi twitchApi;
@@ -265,13 +269,13 @@ class EmoteController {
       }
       String message;
       if (!ok) {
-        message = 'Emote reload failed';
+        message = _strings().emoteReloadFailed;
       } else {
         final failed = emoteManager.takeFetchFailures();
-        if (subFailed) failed.add('sub emotes');
+        if (subFailed) failed.add(_strings().emoteSubEmotes);
         message = failed.isEmpty
-            ? 'Emotes reloaded'
-            : 'Emotes failed to load for ${failed.join(', ')}';
+            ? _strings().emotesReloaded
+            : _strings().emotesFailedFor(failed.join(', '));
       }
       signals.snack.emit(message);
     } finally {

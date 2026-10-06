@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart' show visibleForTesting;
 
 import '../client/session.dart';
+import '../l10n/l10n.dart';
 import '../irc/transport/write.dart' show IrcService;
 import '../models/twitch_message.dart';
 import 'command_macros.dart';
@@ -27,6 +28,7 @@ class ChatSender {
     this.onFocusComposer,
     this.onSendStateChanged,
     this.onMessageSent,
+    this.strings = englishStrings,
   });
 
   final IrcService irc;
@@ -55,6 +57,7 @@ class ChatSender {
 
   /// A chat line went out on the wire (not commands).
   final void Function(String channel)? onMessageSent;
+  final AppLocalizations Function() strings;
 
   // Self send-gates per channel: when your latest timeout there expires and
   // when Twitch last accepted one of your messages (the slow-mode cooldown
@@ -167,7 +170,7 @@ class ChatSender {
 
     final userLogin = session.login;
     if (userLogin == null) {
-      onBanner?.call('Connect an account to chat');
+      onBanner?.call(strings().connectAccountToChat);
       return;
     }
 
@@ -192,7 +195,7 @@ class ChatSender {
       );
       onMessageSent?.call(channel);
     } else {
-      onSystemMessage(channel, 'Not connected: message not sent');
+      onSystemMessage(channel, strings().notConnectedNotSent);
     }
   }
 

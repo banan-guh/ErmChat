@@ -3,6 +3,7 @@ import '../services/mod_actions.dart';
 import '../services/twitch_api.dart';
 import '../services/twitch_auth.dart';
 import '../irc/transport/write.dart';
+import '../l10n/l10n.dart';
 import '../util/duration_format.dart';
 import '../util/log.dart';
 
@@ -88,13 +89,57 @@ class CommandHandler {
     this.onUserBlocked,
     this.onUserUnblocked,
     ModActions? modActions,
+    this.strings = englishStrings,
   }) : modActions =
            modActions ??
            ModActions(
              twitchApi: twitchApi,
              getChannelUserIds: getChannelUserIds,
              getCurrentUserId: getCurrentUserId,
+             strings: strings,
            );
+
+  final AppLocalizations Function() strings;
+
+  // Action ids are English identifiers; this maps them to display phrases.
+  String _actionLabel(String action) {
+    final s = strings();
+    return switch (action) {
+      'ban user' => s.actionBanUser,
+      'unban user' => s.actionUnbanUser,
+      'warn user' => s.actionWarnUser,
+      'timeout user' => s.actionTimeoutUser,
+      'delete chat messages' => s.actionDeleteMessages,
+      'send announcement' => s.actionSendAnnouncement,
+      'send shoutout' => s.actionSendShoutout,
+      'add channel moderator' => s.actionAddModerator,
+      'remove channel moderator' => s.actionRemoveModerator,
+      'add VIP' => s.actionAddVip,
+      'remove VIP' => s.actionRemoveVip,
+      'update chat settings' => s.actionUpdateChatSettings,
+      'start commercial' => s.actionStartCommercial,
+      'start a raid' => s.actionStartRaid,
+      'cancel the raid' => s.actionCancelRaid,
+      'update shield mode' => s.actionUpdateShieldMode,
+      'create stream marker' => s.actionCreateMarker,
+      'create poll' => s.actionCreatePoll,
+      'cancel the poll' => s.actionCancelPoll,
+      'end the poll' => s.actionEndPoll,
+      'create prediction' => s.actionCreatePrediction,
+      'end the prediction' => s.actionEndPrediction,
+      'block user' => s.actionBlockUser,
+      'unblock user' => s.actionUnblockUser,
+      'send whisper' => s.actionSendWhisper,
+      'list moderators' => s.actionListModerators,
+      'list VIPs' => s.actionListVips,
+      'fetch polls' => s.actionFetchPolls,
+      'fetch predictions' => s.actionFetchPredictions,
+      _ => action,
+    };
+  }
+
+  String _failed(String action, String reason) =>
+      strings().modFailed(_actionLabel(action), reason);
 
   // Shares the ModActions cache so /w and /block reuse mod-path lookups.
   Future<String?> _resolveUserId(TwitchAuth auth, String login) =>
@@ -120,7 +165,7 @@ class CommandHandler {
     _moderationMessage(
       action,
       channel,
-      'Failed to $action - ${modActions.failureReason()}',
+      _failed(action, modActions.failureReason()),
     );
     return false;
   }
@@ -146,18 +191,26 @@ class CommandHandler {
 
   /// Maps a ModActions failure to the command's chat copy. [verb] renders the
   /// self/broadcaster guards ("You cannot ban yourself").
-  String _modCopy(
-    String action,
-    String verb,
-    ModResult result,
-  ) => switch (result.failure) {
-    ModFailure.unknownUser => 'No user matching that username.',
-    ModFailure.selfTarget => 'Failed to $action - You cannot $verb yourself.',
-    ModFailure.broadcasterTarget =>
-      'Failed to $action - You cannot $verb the broadcaster.',
-    ModFailure.notJoined => 'Channel not joined.',
-    _ =>
-      'Failed to $action - ${result.reason ?? 'An unknown error has occurred.'}',
+  String _modCopy(String action, String verb, ModResult result) =>
+      switch (result.failure) {
+        ModFailure.unknownUser => strings().modErrorUnknownUser,
+        ModFailure.selfTarget => strings().modCannotTargetSelf(
+          _actionLabel(action),
+          _verbLabel(verb),
+        ),
+        ModFailure.broadcasterTarget => strings().modCannotTargetBroadcaster(
+          _actionLabel(action),
+          _verbLabel(verb),
+        ),
+        ModFailure.notJoined => strings().modErrorNotJoined,
+        _ => _failed(action, result.reason ?? strings().modErrorUnknown),
+      };
+
+  String _verbLabel(String verb) => switch (verb) {
+    'ban' => strings().verbBan,
+    'warn' => strings().verbWarn,
+    'timeout' => strings().verbTimeout,
+    _ => verb,
   };
 
   /// /w is account-scoped (whispers are not bound to a channel) and is
@@ -171,12 +224,12 @@ class CommandHandler {
     final parts = text.split(_whitespaceRe);
     final args = parts.length > 1 ? parts.sublist(1) : [];
     if (args.length < 2) {
-      _whisperMessage(channel, 'Usage: /w <username> <message>');
+      _whisperMessage(channel, strings().usageWhisper);
       return;
     }
     final targetId = await _resolveUserId(auth, args[0]);
     if (targetId == null) {
-      _whisperMessage(channel, 'No user matching that username.');
+      _whisperMessage(channel, strings().modErrorUnknownUser);
       return;
     }
     final message = args.sublist(1).join(' ');
@@ -191,7 +244,7 @@ class CommandHandler {
       ),
     );
     if (ok) {
-      _whisperMessage(channel, 'Whisper sent.');
+      _whisperMessage(channel, strings().whisperSent);
       onWhisperSent?.call(args[0], message);
     }
   }
@@ -270,10 +323,7 @@ class CommandHandler {
     }
 
     if (!auth.isConfigured) {
-      addSystemMessage(
-        channel,
-        'You must be logged in to use the $cmd command.',
-      );
+      addSystemMessage(channel, strings().commandLoginRequired(cmd));
       return;
     }
     final broadcasterId = getChannelUserIds()[channel];
@@ -282,17 +332,14 @@ class CommandHandler {
       if (currentUserId == null) {
         // Whispers are account-scoped, not channel-scoped: this failure means
         // our own user id is unresolved, not that a channel is missing.
-        addSystemMessage(
-          channel,
-          "Couldn't resolve your account; try logging in again.",
-        );
+        addSystemMessage(channel, strings().accountUnresolved);
         return;
       }
       await _handleWhisper(text, channel, auth, currentUserId);
       return;
     }
     if (currentUserId == null || broadcasterId == null) {
-      addSystemMessage(channel, 'Channel not joined.');
+      addSystemMessage(channel, strings().modErrorNotJoined);
       return;
     }
 
@@ -300,10 +347,7 @@ class CommandHandler {
       switch (cmd) {
         case '/color':
           if (args.isEmpty) {
-            addSystemMessage(
-              channel,
-              "Usage: /color <color> - Color must be one of Twitch's supported colors (blue, blue_violet, cadet_blue, chocolate, coral, dodger_blue, firebrick, golden_rod, green, hot_pink, orange_red, red, sea_green, spring_green, yellow_green) or a hex code (#000000) if you have Turbo or Prime.",
-            );
+            addSystemMessage(channel, strings().usageColor);
             return;
           }
           final color = args.join(' ');
@@ -313,17 +357,17 @@ class CommandHandler {
             color: color,
           );
           if (ok) {
-            addSystemMessage(channel, 'Your color has been changed to $color');
+            addSystemMessage(channel, strings().colorChanged(color));
           } else {
             addSystemMessage(
               channel,
-              'Failed to change color to $color - ${modActions.failureReason()}',
+              strings().colorChangeFailed(color, modActions.failureReason()),
             );
           }
 
         case '/ban':
           if (args.isEmpty) {
-            addSystemMessage(channel, 'Usage: /ban <username> [reason]');
+            addSystemMessage(channel, strings().usageUserReason('/ban'));
             return;
           }
           final targetLogin = args[0];
@@ -335,7 +379,7 @@ class CommandHandler {
             reason: reason,
           );
           if (banResult.ok) {
-            addSystemMessage(channel, '$targetLogin has been banned.');
+            addSystemMessage(channel, strings().userBanned(targetLogin));
           } else {
             addSystemMessage(channel, _modCopy('ban user', 'ban', banResult));
           }
@@ -343,7 +387,7 @@ class CommandHandler {
         case '/unban':
         case '/untimeout':
           if (args.isEmpty) {
-            addSystemMessage(channel, 'Usage: $cmd <username>');
+            addSystemMessage(channel, strings().usageUser(cmd));
             return;
           }
           final unbanResult = await modActions.unbanUser(
@@ -355,8 +399,8 @@ class CommandHandler {
             addSystemMessage(
               channel,
               cmd == '/untimeout'
-                  ? '${args[0]} has been untimed out.'
-                  : '${args[0]} has been unbanned.',
+                  ? strings().userUntimedOut('${args[0]}')
+                  : strings().userUnbanned('${args[0]}'),
             );
           } else {
             addSystemMessage(channel, _modCopy('unban user', '', unbanResult));
@@ -364,7 +408,7 @@ class CommandHandler {
 
         case '/warn':
           if (args.isEmpty) {
-            addSystemMessage(channel, 'Usage: /warn <username> [reason]');
+            addSystemMessage(channel, strings().usageUserReason('/warn'));
             return;
           }
           final targetLogin = args[0];
@@ -376,7 +420,7 @@ class CommandHandler {
             reason: warnReason,
           );
           if (warnResult.ok) {
-            addSystemMessage(channel, '$targetLogin has been warned.');
+            addSystemMessage(channel, strings().userWarned(targetLogin));
           } else {
             addSystemMessage(
               channel,
@@ -386,10 +430,7 @@ class CommandHandler {
 
         case '/timeout':
           if (args.isEmpty) {
-            addSystemMessage(
-              channel,
-              'Usage: /timeout <username> [duration] [reason] - Duration (default: 10m) must be a positive number with an optional unit (s, m, h, d, w); maximum is 2 weeks.',
-            );
+            addSystemMessage(channel, strings().usageTimeout);
             return;
           }
           final targetLogin = args[0];
@@ -414,7 +455,7 @@ class CommandHandler {
           if (timeoutResult.ok) {
             addSystemMessage(
               channel,
-              '$targetLogin timed out for ${formatSeconds(duration)}.',
+              strings().userTimedOut(targetLogin, formatSeconds(duration)),
             );
           } else {
             addSystemMessage(
@@ -425,7 +466,7 @@ class CommandHandler {
 
         case '/delete':
           if (args.isEmpty) {
-            addSystemMessage(channel, 'Usage: /delete <message_id>');
+            addSystemMessage(channel, strings().usageDelete);
             return;
           }
           final deleteResult = await modActions.deleteMessage(
@@ -434,7 +475,7 @@ class CommandHandler {
             args[0],
           );
           if (deleteResult.ok) {
-            addSystemMessage(channel, 'Message deleted.');
+            addSystemMessage(channel, strings().messageDeleted);
           } else {
             addSystemMessage(
               channel,
@@ -445,7 +486,7 @@ class CommandHandler {
         case '/clear':
           final clearResult = await modActions.clearChat(auth, channel);
           if (clearResult.ok) {
-            addSystemMessage(channel, 'Chat cleared.');
+            addSystemMessage(channel, strings().chatClearedByYou);
           } else {
             addSystemMessage(
               channel,
@@ -459,7 +500,7 @@ class CommandHandler {
         case '/announceorange':
         case '/announcepurple':
           if (args.isEmpty) {
-            addSystemMessage(channel, 'Usage: $cmd [color] <message>');
+            addSystemMessage(channel, strings().usageAnnounce(cmd));
             return;
           }
           var color = switch (cmd) {
@@ -481,7 +522,7 @@ class CommandHandler {
             color = args[0].toLowerCase();
             message = args.sublist(1).join(' ');
             if (message.isEmpty) {
-              addSystemMessage(channel, 'Usage: /announce [color] <message>');
+              addSystemMessage(channel, strings().usageAnnounce('/announce'));
               return;
             }
           }
@@ -500,7 +541,7 @@ class CommandHandler {
 
         case '/shoutout':
           if (args.isEmpty) {
-            addSystemMessage(channel, 'Usage: /shoutout <username>');
+            addSystemMessage(channel, strings().usageShoutout);
             return;
           }
           final shoutoutResult = await modActions.sendShoutout(
@@ -509,7 +550,7 @@ class CommandHandler {
             login: args[0],
           );
           if (shoutoutResult.ok) {
-            addSystemMessage(channel, 'Sent shoutout to ${args[0]}');
+            addSystemMessage(channel, strings().cmdShoutoutSent('${args[0]}'));
           } else {
             addSystemMessage(
               channel,
@@ -520,7 +561,7 @@ class CommandHandler {
         case '/mod':
         case '/unmod':
           if (args.isEmpty) {
-            addSystemMessage(channel, 'Usage: $cmd <username>');
+            addSystemMessage(channel, strings().usageUser(cmd));
             return;
           }
           final isMod = cmd == '/mod';
@@ -534,8 +575,8 @@ class CommandHandler {
             addSystemMessage(
               channel,
               isMod
-                  ? 'You have added ${args[0]} as a moderator of this channel.'
-                  : 'You have removed ${args[0]} as a moderator of this channel.',
+                  ? strings().moderatorAdded('${args[0]}')
+                  : strings().moderatorRemoved('${args[0]}'),
             );
           } else {
             addSystemMessage(
@@ -553,24 +594,21 @@ class CommandHandler {
           if (twitchApi.lastErrorStatus != null) {
             addSystemMessage(
               channel,
-              'Failed to list moderators - ${modActions.failureReason()}',
+              _failed('list moderators', modActions.failureReason()),
             );
           } else if (list.isEmpty) {
-            addSystemMessage(
-              channel,
-              'This channel does not have any moderators.',
-            );
+            addSystemMessage(channel, strings().noModerators);
           } else {
             addSystemMessage(
               channel,
-              'The moderators of this channel are ${list.join(', ')}.',
+              strings().moderatorsList(list.join(', ')),
             );
           }
 
         case '/vip':
         case '/unvip':
           if (args.isEmpty) {
-            addSystemMessage(channel, 'Usage: $cmd <username>');
+            addSystemMessage(channel, strings().usageUser(cmd));
             return;
           }
           final isVip = cmd == '/vip';
@@ -584,8 +622,8 @@ class CommandHandler {
             addSystemMessage(
               channel,
               isVip
-                  ? 'You have added ${args[0]} as a VIP of this channel.'
-                  : 'You have removed ${args[0]} as a VIP of this channel.',
+                  ? strings().vipAdded('${args[0]}')
+                  : strings().vipRemoved('${args[0]}'),
             );
           } else {
             addSystemMessage(
@@ -599,15 +637,12 @@ class CommandHandler {
           if (twitchApi.lastErrorStatus != null) {
             addSystemMessage(
               channel,
-              'Failed to list VIPs - ${modActions.failureReason()}',
+              _failed('list VIPs', modActions.failureReason()),
             );
           } else if (list.isEmpty) {
-            addSystemMessage(channel, 'This channel does not have any VIPs.');
+            addSystemMessage(channel, strings().noVips);
           } else {
-            addSystemMessage(
-              channel,
-              'The VIPs of this channel are ${list.join(', ')}.',
-            );
+            addSystemMessage(channel, strings().vipsList(list.join(', ')));
           }
 
         case '/slow':
@@ -619,7 +654,7 @@ class CommandHandler {
               enabled: false,
             );
             if (slowOffResult.ok) {
-              addSystemMessage(channel, 'Slow mode disabled.');
+              addSystemMessage(channel, strings().slowDisabled);
             } else {
               addSystemMessage(
                 channel,
@@ -632,10 +667,7 @@ class CommandHandler {
               ? 30
               : _parseDurationSeconds(args.join(' '));
           if (slowSeconds == null || slowSeconds <= 0 || slowSeconds > 120) {
-            addSystemMessage(
-              channel,
-              'Usage: /slow [duration] - Duration (default: 30s, e.g. 45, 2m) must be 1-120 seconds.',
-            );
+            addSystemMessage(channel, strings().usageSlow);
             return;
           }
           final slowResult = await modActions.setSlowMode(
@@ -645,7 +677,7 @@ class CommandHandler {
             seconds: slowSeconds,
           );
           if (slowResult.ok) {
-            addSystemMessage(channel, 'Slow mode enabled (${slowSeconds}s).');
+            addSystemMessage(channel, strings().slowEnabled(slowSeconds));
           } else {
             addSystemMessage(
               channel,
@@ -662,7 +694,7 @@ class CommandHandler {
               enabled: false,
             );
             if (followersOffResult.ok) {
-              addSystemMessage(channel, 'Followers-only mode disabled.');
+              addSystemMessage(channel, strings().followersDisabled);
             } else {
               addSystemMessage(
                 channel,
@@ -675,10 +707,7 @@ class CommandHandler {
           if (args.isNotEmpty) {
             final seconds = _parseDurationSeconds(args.join(' '));
             if (seconds == null || seconds <= 0) {
-              addSystemMessage(
-                channel,
-                'Usage: /followers [duration] - Duration must be a positive number with an optional unit (m, h, d, w); maximum is 3 months.',
-              );
+              addSystemMessage(channel, strings().usageFollowers);
               return;
             }
             followerMinutes = (seconds / 60).ceil();
@@ -690,7 +719,7 @@ class CommandHandler {
             minutes: followerMinutes,
           );
           if (followersResult.ok) {
-            addSystemMessage(channel, 'Followers-only mode enabled.');
+            addSystemMessage(channel, strings().followersEnabled);
           } else {
             addSystemMessage(
               channel,
@@ -709,7 +738,7 @@ class CommandHandler {
           if (emoteOnlyResult.ok) {
             addSystemMessage(
               channel,
-              enable ? 'Emote-only mode enabled.' : 'Emote-only mode disabled.',
+              enable ? strings().emoteOnlyEnabled : strings().emoteOnlyDisabled,
             );
           } else {
             addSystemMessage(
@@ -729,9 +758,7 @@ class CommandHandler {
           if (subsResult.ok) {
             addSystemMessage(
               channel,
-              subsOnly
-                  ? 'Subscribers-only mode enabled.'
-                  : 'Subscribers-only mode disabled.',
+              subsOnly ? strings().subsOnlyEnabled : strings().subsOnlyDisabled,
             );
           } else {
             addSystemMessage(
@@ -754,8 +781,8 @@ class CommandHandler {
             addSystemMessage(
               channel,
               unique
-                  ? 'Unique-chat mode enabled.'
-                  : 'Unique-chat mode disabled.',
+                  ? strings().uniqueChatEnabled
+                  : strings().uniqueChatDisabled,
             );
           } else {
             addSystemMessage(
@@ -766,19 +793,13 @@ class CommandHandler {
 
         case '/commercial':
           if (args.isEmpty) {
-            addSystemMessage(
-              channel,
-              'Usage: /commercial <length> - Valid lengths are 30, 60, 90, 120, 150 and 180 seconds.',
-            );
+            addSystemMessage(channel, strings().usageCommercial);
             return;
           }
           final length = int.tryParse(args[0]);
           if (length == null ||
               !const {30, 60, 90, 120, 150, 180}.contains(length)) {
-            addSystemMessage(
-              channel,
-              'Usage: /commercial <length> - Valid lengths are 30, 60, 90, 120, 150 and 180 seconds.',
-            );
+            addSystemMessage(channel, strings().usageCommercial);
             return;
           }
           final commercialResult = await modActions.startCommercial(
@@ -787,10 +808,7 @@ class CommandHandler {
             length: length,
           );
           if (commercialResult.ok) {
-            addSystemMessage(
-              channel,
-              'Starting $length second long commercial break.',
-            );
+            addSystemMessage(channel, strings().commercialStarted(length));
           } else {
             addSystemMessage(
               channel,
@@ -800,7 +818,7 @@ class CommandHandler {
 
         case '/raid':
           if (args.isEmpty) {
-            addSystemMessage(channel, 'Usage: /raid <username>');
+            addSystemMessage(channel, strings().usageRaid);
             return;
           }
           final raidResult = await modActions.startRaid(
@@ -809,7 +827,7 @@ class CommandHandler {
             login: args[0],
           );
           if (raidResult.ok) {
-            addSystemMessage(channel, 'You started to raid ${args[0]}.');
+            addSystemMessage(channel, strings().cmdRaidStarted('${args[0]}'));
           } else {
             addSystemMessage(channel, _modCopy('start a raid', '', raidResult));
           }
@@ -817,7 +835,7 @@ class CommandHandler {
         case '/unraid':
           final unraidResult = await modActions.cancelRaid(auth, channel);
           if (unraidResult.ok) {
-            addSystemMessage(channel, 'You cancelled the raid.');
+            addSystemMessage(channel, strings().cmdRaidCancelled);
           } else {
             addSystemMessage(
               channel,
@@ -836,9 +854,7 @@ class CommandHandler {
           if (shieldResult.ok) {
             addSystemMessage(
               channel,
-              active
-                  ? 'Shield mode was activated.'
-                  : 'Shield mode was deactivated.',
+              active ? strings().shieldActivated : strings().shieldDeactivated,
             );
           } else {
             addSystemMessage(
@@ -854,7 +870,7 @@ class CommandHandler {
             description: args.join(' '),
           );
           if (markerResult.ok) {
-            addSystemMessage(channel, 'Stream marker added.');
+            addSystemMessage(channel, strings().cmdMarkerAdded);
           } else {
             addSystemMessage(
               channel,
@@ -863,9 +879,7 @@ class CommandHandler {
           }
 
         case '/poll':
-          const pollUsage =
-              'Usage: /poll [duration] <title> | <choice 1> | <choice 2> [| more] - '
-              'Duration (default: 60s) must be 15-1800 seconds; 2-5 choices.';
+          final pollUsage = strings().usagePoll;
           if (args.isEmpty) {
             addSystemMessage(channel, pollUsage);
             return;
@@ -892,7 +906,7 @@ class CommandHandler {
           if (pollResult.ok) {
             addSystemMessage(
               channel,
-              'Poll started (${parsedPoll.duration}s).',
+              strings().cmdPollStarted(parsedPoll.duration),
             );
           } else {
             addSystemMessage(channel, _modCopy('create poll', '', pollResult));
@@ -905,13 +919,13 @@ class CommandHandler {
           if (twitchApi.lastErrorStatus != null) {
             addSystemMessage(
               channel,
-              'Failed to fetch polls - ${modActions.failureReason()}',
+              _failed('fetch polls', modActions.failureReason()),
             );
             return;
           }
           final activePoll = polls.where((p) => p.isActive).firstOrNull;
           if (activePoll == null) {
-            addSystemMessage(channel, 'No poll is currently running.');
+            addSystemMessage(channel, strings().cmdNoActivePoll);
             return;
           }
           final pollAction = archivePoll ? 'cancel the poll' : 'end the poll';
@@ -924,16 +938,14 @@ class CommandHandler {
           if (endPollResult.ok) {
             addSystemMessage(
               channel,
-              archivePoll ? 'The poll was cancelled.' : 'The poll has ended.',
+              archivePoll ? strings().cmdPollCancelled : strings().cmdPollEnded,
             );
           } else {
             addSystemMessage(channel, _modCopy(pollAction, '', endPollResult));
           }
 
         case '/prediction':
-          const predictionUsage =
-              'Usage: /prediction [window] <title> | <outcome 1> | <outcome 2> [| more] - '
-              'Window (default: 60s) must be 30-1800 seconds; 2-10 outcomes.';
+          final predictionUsage = strings().usagePrediction;
           if (args.isEmpty) {
             addSystemMessage(channel, predictionUsage);
             return;
@@ -964,7 +976,7 @@ class CommandHandler {
           if (ok) {
             addSystemMessage(
               channel,
-              'Prediction started (${parsedPrediction.duration}s).',
+              strings().predictionStarted(parsedPrediction.duration),
             );
           }
 
@@ -975,7 +987,7 @@ class CommandHandler {
           if (twitchApi.lastErrorStatus != null) {
             addSystemMessage(
               channel,
-              'Failed to fetch predictions - ${modActions.failureReason()}',
+              _failed('fetch predictions', modActions.failureReason()),
             );
             return;
           }
@@ -984,7 +996,7 @@ class CommandHandler {
               .where((p) => wantLocked ? p.isActive : p.isOpen)
               .firstOrNull;
           if (open == null) {
-            addSystemMessage(channel, 'No prediction is currently running.');
+            addSystemMessage(channel, strings().noActivePrediction);
             return;
           }
 
@@ -993,29 +1005,25 @@ class CommandHandler {
           String? winningOutcomeId;
           if (cmd == '/lockprediction') {
             status = 'LOCKED';
-            successMsg = 'Predictions are now locked.';
+            successMsg = strings().cmdPredictionLocked;
           } else if (cmd == '/cancelprediction') {
             status = 'CANCELED';
-            successMsg =
-                'The prediction was cancelled and channel points were refunded.';
+            successMsg = strings().cmdPredictionCancelled;
           } else {
             // /resolveprediction <1-based index | exact outcome title>.
             if (args.isEmpty) {
-              addSystemMessage(
-                channel,
-                'Usage: /resolveprediction <outcome number or exact title>',
-              );
+              addSystemMessage(channel, strings().usageResolvePrediction);
               return;
             }
             final selector = args.join(' ').trim();
             final outcome = open.outcomeFor(selector);
             if (outcome == null) {
-              addSystemMessage(channel, 'No outcome matching "$selector".');
+              addSystemMessage(channel, strings().noOutcomeMatching(selector));
               return;
             }
             status = 'RESOLVED';
             winningOutcomeId = outcome.id;
-            successMsg = 'The prediction was resolved: ${outcome.title}.';
+            successMsg = strings().cmdPredictionResolved(outcome.title);
           }
           final endPredictionResult = await modActions.endPrediction(
             auth,
@@ -1036,12 +1044,12 @@ class CommandHandler {
         case '/block':
         case '/unblock':
           if (args.isEmpty) {
-            addSystemMessage(channel, 'Usage: $cmd <username>');
+            addSystemMessage(channel, strings().usageUser(cmd));
             return;
           }
           final targetId = await _resolveUserId(auth, args[0]);
           if (targetId == null) {
-            addSystemMessage(channel, 'No user matching that username.');
+            addSystemMessage(channel, strings().modErrorUnknownUser);
             return;
           }
           final isBlock = cmd == '/block';
@@ -1056,27 +1064,21 @@ class CommandHandler {
             final login = args[0].toLowerCase();
             if (isBlock) {
               onUserBlocked?.call(login);
-              addSystemMessage(
-                channel,
-                'You successfully blocked user ${args[0]}',
-              );
+              addSystemMessage(channel, strings().cmdUserBlocked('${args[0]}'));
             } else {
               onUserUnblocked?.call(login);
-              addSystemMessage(
-                channel,
-                'You successfully unblocked user ${args[0]}',
-              );
+              addSystemMessage(channel, strings().userUnblocked('${args[0]}'));
             }
           }
 
         default:
-          addSystemMessage(channel, '$cmd is not a known command');
+          addSystemMessage(channel, strings().unknownCommand(cmd));
       }
     } catch (e) {
       logDebug('[CommandHandler] $cmd failed: $e');
       addSystemMessage(
         channel,
-        'Command failed: ${modActions.failureReason()}',
+        strings().commandFailed(modActions.failureReason()),
       );
     }
   }

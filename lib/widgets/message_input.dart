@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import '../models/twitch_message.dart';
 import '../util/layout_density.dart';
 import '../util/thread_utils.dart';
+import '../l10n/l10n.dart';
 
 class MessageInput extends StatelessWidget {
   final TextEditingController controller;
@@ -54,7 +55,7 @@ class MessageInput extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final effectiveHint = hintText ?? 'Type a message...';
+    final effectiveHint = hintText ?? context.l10n.typeMessageHint;
     // Compact trims the field height and padding. The emote and send
     // buttons keep the full 48pt circle: their slot is only as tall as the
     // field, and the circle spills into the padding around it.
@@ -315,8 +316,9 @@ class _ReplyHeaderState extends State<ReplyHeader>
                           TextSpan(
                             children: [
                               TextSpan(
-                                text:
-                                    'Replying to @${widget.message.formattedUsername}',
+                                text: context.l10n.replyingTo(
+                                  widget.message.formattedUsername,
+                                ),
                                 style: TextStyle(
                                   fontSize: 16,
                                   fontWeight: FontWeight.w600,

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 
+import '../l10n/l10n.dart';
 import 'glass_chrome.dart';
 
 // Dropdown for search, mod view, and fullscreen, input, stream toggles.
@@ -77,22 +78,23 @@ class ChromeMenuButtonState extends State<ChromeMenuButton> {
         }
       },
       itemBuilder: (_) {
+        final l10n = context.l10n;
         final showMod = widget.showModView?.call() ?? false;
         final showStream = widget.showStreamToggle?.call() ?? false;
         final active = widget.streamActive?.call() ?? false;
         return [
           if (showMod)
-            const PopupMenuItem(value: 'modview', child: Text('Mod view')),
-          const PopupMenuItem(value: 'search', child: Text('Search')),
-          const PopupMenuItem(
+            PopupMenuItem(value: 'modview', child: Text(l10n.modView)),
+          PopupMenuItem(value: 'search', child: Text(l10n.search)),
+          PopupMenuItem(
             value: 'fullscreen',
-            child: Text('Toggle fullscreen'),
+            child: Text(l10n.toggleFullscreen),
           ),
-          const PopupMenuItem(value: 'input', child: Text('Toggle input')),
+          PopupMenuItem(value: 'input', child: Text(l10n.toggleInput)),
           if (showStream)
             PopupMenuItem(
               value: 'stream',
-              child: Text(active ? 'Hide stream' : 'Show stream'),
+              child: Text(active ? l10n.hideStream : l10n.showStream),
             ),
         ];
       },

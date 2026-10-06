@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 import '../color_utils.dart' show Color;
+import '../l10n/l10n.dart';
 import '../models/twitch_message.dart';
 import '../services/twitch_api.dart';
 import '../services/twitch_auth.dart';
@@ -93,6 +94,7 @@ class ChatViewBridge {
     required this.getMaxMessagesPerChannel,
     this.onBanner,
     this.onFocusComposer,
+    this.strings = englishStrings,
   });
 
   final String mentionsChannel;
@@ -102,6 +104,9 @@ class ChatViewBridge {
   final int Function() getMaxMessagesPerChannel;
   final void Function(String message)? onBanner;
   final void Function()? onFocusComposer;
+
+  /// Current-language strings for system messages the pipeline composes.
+  final AppLocalizations Function() strings;
 }
 
 /// Feature integrations: commands, reply state, analytics, TTS, EventSub
@@ -211,6 +216,7 @@ class ChatConnectionManager {
     getMacros: config.sinks.getMacros,
     onBanner: config.bridge.onBanner,
     onFocusComposer: config.bridge.onFocusComposer,
+    strings: config.bridge.strings,
     onSendStateChanged: () => connectionStateNotifier.value++,
     onMessageSent: (channel) {
       final channelId = config.chat.channelFor(channel)?.info.broadcasterId;
@@ -246,6 +252,7 @@ class ChatConnectionManager {
     onAnalyticsModeration: config.sinks.onAnalyticsModeration,
     onSelfTimeoutArmed: _sender.armTimeout,
     onSelfTimeoutCleared: _sender.clearTimeout,
+    strings: config.bridge.strings,
   );
 
   // PubSub redemption consumption: staged partners for IRC correlation
@@ -256,6 +263,7 @@ class ChatConnectionManager {
     isHiddenUser: (login) =>
         config.sinks.isBlocked?.call(login) == true ||
         config.services.ignoreManager?.isIgnored(login) == true,
+    strings: config.bridge.strings,
   );
 
   // EventSub consumption: typed decoder events applied to the chat kernel.
@@ -267,6 +275,7 @@ class ChatConnectionManager {
     onHypeTrain: config.sinks.onHypeTrain,
     onPoll: config.sinks.onPoll,
     onPrediction: config.sinks.onPrediction,
+    strings: config.bridge.strings,
   );
 
   // 7TV event consumption: socket events applied to the emote manager.
@@ -321,6 +330,7 @@ class ChatConnectionManager {
     onSystemMessage: config.bridge.onSystemMessage,
     onBanner: config.bridge.onBanner,
     onReconnected: config.sinks.onReconnected,
+    strings: config.bridge.strings,
   );
 
   // Chat-content routing (PRIVMSG/CLEARMSG/CLEARCHAT/clears/own echo).
@@ -376,6 +386,7 @@ class ChatConnectionManager {
     connectionStateNotifier: connectionStateNotifier,
     onUserEmoteSets: config.sinks.onUserEmoteSets,
     ensureCurrentUser: (auth) => _lifecycle.ensureCurrentUser(auth),
+    strings: config.bridge.strings,
   );
   final _ingestionSubs = <StreamSubscription<void>>[];
 

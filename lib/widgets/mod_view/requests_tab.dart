@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../services/twitch_api.dart';
+import '../../l10n/l10n.dart';
 import '../../util/date_format.dart';
 import 'scope.dart';
 import 'widgets.dart';
@@ -68,7 +69,7 @@ class _RequestsTabState extends State<RequestsTab>
               Text(
                 mod.l10n.requestStatus(
                   _statusLabel(request.status),
-                  formatAgoIso(request.createdAt),
+                  formatAgoIso(request.createdAt, l: context.l10n),
                 ),
               ),
               if (request.resolutionText?.isNotEmpty ?? false)
@@ -169,7 +170,7 @@ class _RequestsTabState extends State<RequestsTab>
                     ),
                     title: Text(request.userLogin),
                     subtitle: Text(
-                      '"${request.text}" · ${formatAgoIso(request.createdAt)}',
+                      '"${request.text}" · ${formatAgoIso(request.createdAt, l: context.l10n)}',
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                     ),

@@ -1,6 +1,8 @@
 import 'dart:io';
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 
+import '../l10n/l10n.dart';
+
 Future<void> requestForegroundPermissions() async {
   if (!Platform.isAndroid) return;
 
@@ -15,14 +17,15 @@ Future<void> requestForegroundPermissions() async {
   }
 }
 
-void initForegroundService() {
+void initForegroundService([AppLocalizations? l]) {
   if (!Platform.isAndroid) return;
+  l ??= englishStrings();
 
   FlutterForegroundTask.init(
     androidNotificationOptions: AndroidNotificationOptions(
       channelId: 'chat_background',
-      channelName: 'Chat connection',
-      channelDescription: 'Shown while chat stays connected in the background.',
+      channelName: l.fgChannelName,
+      channelDescription: l.fgChannelDesc,
       channelImportance: NotificationChannelImportance.LOW,
       onlyAlertOnce: true,
     ),

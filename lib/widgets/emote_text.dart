@@ -1,6 +1,7 @@
 import 'dart:math';
 
 import 'package:flutter/material.dart';
+import '../l10n/l10n.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/services.dart';
 import 'package:linkify/linkify.dart';
@@ -605,11 +606,13 @@ List<InlineSpan> parseTextWithLinks(
                     width: box,
                     height: box,
                     child: Center(
-                      child: Icon(
-                        Icons.image_outlined,
-                        size: 20.0 * scale,
-                        color: Colors.blue,
-                        semanticLabel: 'Expand image',
+                      child: Builder(
+                        builder: (context) => Icon(
+                          Icons.image_outlined,
+                          size: 20.0 * scale,
+                          color: Colors.blue,
+                          semanticLabel: context.l10n.expandImage,
+                        ),
                       ),
                     ),
                   ),

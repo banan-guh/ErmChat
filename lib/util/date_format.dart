@@ -1,3 +1,5 @@
+import '../l10n/l10n.dart';
+
 /// Formats [at] as an ISO-style date, `yyyy-MM-dd`.
 String formatYmd(DateTime at) =>
     '${at.year}-${at.month.toString().padLeft(2, '0')}-${at.day.toString().padLeft(2, '0')}';
@@ -8,27 +10,29 @@ String formatYmdHm(DateTime at) =>
 
 /// How long ago [at] was: `just now`, `5m ago`, `3h ago`, `2d ago`, or the
 /// date past 30 days.
-String formatAgo(DateTime at, {DateTime? now}) {
+String formatAgo(DateTime at, {DateTime? now, AppLocalizations? l}) {
+  l ??= englishStrings();
   final diff = (now ?? DateTime.now()).difference(at);
-  if (diff.inMinutes < 1) return 'just now';
-  if (diff.inHours < 1) return '${diff.inMinutes}m ago';
-  if (diff.inDays < 1) return '${diff.inHours}h ago';
-  if (diff.inDays < 30) return '${diff.inDays}d ago';
+  if (diff.inMinutes < 1) return l.timeJustNow;
+  if (diff.inHours < 1) return l.timeMinutesAgo(diff.inMinutes);
+  if (diff.inDays < 1) return l.timeHoursAgo(diff.inHours);
+  if (diff.inDays < 30) return l.timeDaysAgo(diff.inDays);
   return formatYmd(at);
 }
 
 /// [formatAgo] for an ISO timestamp; unparsable input comes back as is.
-String formatAgoIso(String iso) {
+String formatAgoIso(String iso, {AppLocalizations? l}) {
   final at = DateTime.tryParse(iso);
-  return at == null ? iso : formatAgo(at.toLocal());
+  return at == null ? iso : formatAgo(at.toLocal(), l: l);
 }
 
 /// How far ahead [at] is: `in 45s`, `in 5m`, `in 2h`, or the date and time
 /// past a day.
-String formatIn(DateTime at, {DateTime? now}) {
+String formatIn(DateTime at, {DateTime? now, AppLocalizations? l}) {
+  l ??= englishStrings();
   final diff = at.difference(now ?? DateTime.now());
-  if (diff.inMinutes < 1) return 'in ${diff.inSeconds.clamp(0, 59)}s';
-  if (diff.inHours < 1) return 'in ${diff.inMinutes}m';
-  if (diff.inDays < 1) return 'in ${diff.inHours}h';
+  if (diff.inMinutes < 1) return l.timeInSeconds(diff.inSeconds.clamp(0, 59));
+  if (diff.inHours < 1) return l.timeInMinutes(diff.inMinutes);
+  if (diff.inDays < 1) return l.timeInHours(diff.inHours);
   return formatYmdHm(at);
 }

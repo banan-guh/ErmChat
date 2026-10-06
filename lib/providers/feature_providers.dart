@@ -42,13 +42,13 @@ final analyticsServiceProvider = Provider<AnalyticsService>((ref) {
 });
 
 final notificationServiceProvider = Provider<NotificationService>((ref) {
-  final service = NotificationService();
+  final service = NotificationService(strings: ref.read(stringsProvider));
   ref.onDispose(service.dispose);
   return service;
 });
 
 final ttsControllerProvider = Provider<TtsController>((ref) {
-  final controller = TtsController();
+  final controller = TtsController(strings: ref.read(stringsProvider));
   ref.onDispose(controller.shutdown);
   return controller;
 });
@@ -59,6 +59,7 @@ final modActionsProvider = Provider<ModActions>((ref) {
     twitchApi: ref.read(twitchApiProvider),
     getChannelUserIds: ref.read(channelUserIdsProvider),
     getCurrentUserId: () => session.userId,
+    strings: ref.read(stringsProvider),
   );
 });
 
@@ -127,6 +128,7 @@ final commandHandlerProvider = Provider<CommandHandler>((ref) {
     modActions: ref.read(modActionsProvider),
     getChannelUserIds: ref.read(channelUserIdsProvider),
     getCurrentUserId: () => session.userId,
+    strings: ref.read(stringsProvider),
     getCurrentUserLogin: () => session.login,
     addSystemMessage: (channel, text) => chat
         .channelFor(channel)
@@ -235,6 +237,7 @@ final bugReportOutboxProvider = Provider<BugReportOutbox>((ref) {
     endpoint: ReportConfig.endpoint,
     secret: ReportConfig.secret,
     accessToken: () => auth.accessToken,
+    strings: ref.read(stringsProvider),
   );
   unawaited(outbox.load().then((_) => outbox.flush()));
   final connectivity = ref.read(connectivityServiceProvider);

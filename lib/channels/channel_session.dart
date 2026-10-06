@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import '../chat/chat.dart';
 import '../client/session.dart';
 import '../irc/transport/read.dart';
+import '../l10n/l10n.dart';
 import '../irc/transport/write.dart';
 import '../services/analytics_service.dart';
 import '../services/chat_connection_manager.dart';
@@ -41,6 +42,7 @@ class ChannelSession extends ChangeNotifier {
     required this.setSelectedChannel,
     required this.maxMessages,
     required this.recentMessagesLimit,
+    this.strings = englishStrings,
   });
 
   final Chat chat;
@@ -58,6 +60,7 @@ class ChannelSession extends ChangeNotifier {
   final String? Function() selectedChannel;
   final void Function(String? channel) setSelectedChannel;
   final int Function() maxMessages;
+  final AppLocalizations Function() strings;
   final int Function() recentMessagesLimit;
 
   bool _disposed = false;
@@ -127,7 +130,7 @@ class ChannelSession extends ChangeNotifier {
             if (_disposed || !chat.contains(name)) return;
             chat.channelFor(name)?.setHistoryLoaded(true);
             if (rows.isEmpty) {
-              _addSystemMessage(name, 'No chat history available');
+              _addSystemMessage(name, strings().noChatHistory);
             } else {
               history.mergeHistory(name, rows);
             }
@@ -141,7 +144,7 @@ class ChannelSession extends ChangeNotifier {
               name,
               e is RecentMessagesException
                   ? e.message
-                  : 'Failed to load chat history',
+                  : strings().historyLoadFailed,
             );
             maybeAddConnected(name);
           });
@@ -185,7 +188,7 @@ class ChannelSession extends ChangeNotifier {
           chat.channelFor(name)?.setHistoryLoaded(true);
           removeLoadingHistoryMessage(name);
           if (rows.isEmpty) {
-            _addSystemMessage(name, 'No chat history available');
+            _addSystemMessage(name, strings().noChatHistory);
           } else {
             history.mergeHistory(name, rows);
           }
@@ -200,7 +203,7 @@ class ChannelSession extends ChangeNotifier {
             name,
             e is RecentMessagesException
                 ? e.message
-                : 'Failed to load chat history',
+                : strings().historyLoadFailed,
           );
           notifyListeners();
           maybeAddConnected(name);
@@ -278,13 +281,16 @@ class ChannelSession extends ChangeNotifier {
     } catch (e) {
       logDebug('Failed to load recent-messages config: $e');
     }
-    recentMessages = RecentMessagesService(config: recentMessagesConfig);
+    recentMessages = RecentMessagesService(
+      config: recentMessagesConfig,
+      strings: strings,
+    );
   }
 
   void setRecentMessagesMode(RecentMessagesConfig config) {
     if (recentMessagesService != null) return;
     recentMessagesConfig = config;
-    recentMessages = RecentMessagesService(config: config);
+    recentMessages = RecentMessagesService(config: config, strings: strings);
     unawaited(Prefs.load().then((prefs) => config.toPrefs(prefs)));
   }
 

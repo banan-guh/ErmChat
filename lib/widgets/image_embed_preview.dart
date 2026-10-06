@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import '../l10n/l10n.dart';
 import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'package:http/http.dart' as http;
 
@@ -195,8 +196,9 @@ class _ImageEmbedPreviewState extends State<ImageEmbedPreview> {
   @override
   Widget build(BuildContext context) {
     final rejected = _rejected;
-    if (rejected != null) return _Notice('Can\'t preview ($rejected)');
-    if (_failed) return const _Notice('Image failed to load');
+    final l10n = context.l10n;
+    if (rejected != null) return _Notice(l10n.cantPreviewImage(rejected));
+    if (_failed) return _Notice(l10n.imageFailedToLoad);
     final bytes = _bytes;
     if (bytes == null) {
       if (!_fetching) {
@@ -222,7 +224,7 @@ class _ImageEmbedPreviewState extends State<ImageEmbedPreview> {
           gaplessPlayback: true,
           errorBuilder: (_, error, _) {
             logDebug('Image embed decode failed: ${widget.url} - $error');
-            return const _Notice('Image failed to load');
+            return _Notice(context.l10n.imageFailedToLoad);
           },
         ),
       ),

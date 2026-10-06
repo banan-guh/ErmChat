@@ -313,6 +313,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     computeThreadMessages: () => _threads.computeThreadMessages(),
     channelChatReady: () => _channelChatReady,
     showNotice: showNotice,
+    strings: () => context.l10n,
     emoteSheetOpen: () => _emoteSheetOpen,
     closeEmoteSheet: _closeEmoteSheet,
     showEmoteMenu: _showEmoteMenu,
@@ -711,7 +712,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     });
     if (!Platform.isAndroid) return;
     if (backgroundService) {
-      initForegroundService();
+      initForegroundService(mounted ? context.l10n : null);
     }
     if (mentionPush || whisperNotify) {
       _initNotificationInfra();
@@ -797,7 +798,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   }
 
   Future<void> _initForegroundService() async {
-    initForegroundService();
+    initForegroundService(context.l10n);
     await requestForegroundPermissions();
   }
 
@@ -922,8 +923,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     if (!mounted) return;
     if (message == 'Login expired') {
       _chatNotice.show(
-        'Login expired - reconnect your account',
-        actionLabel: 'Open Account',
+        context.l10n.loginExpiredReconnect,
+        actionLabel: context.l10n.openAccount,
         onAction: () => unawaited(_openSettings()),
       );
       return;
@@ -1407,8 +1408,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   void _copyMessageToClipboard(TwitchMessage msg) {
     Clipboard.setData(ClipboardData(text: copyableChatText(msg.text)));
     _chatNotice.show(
-      'Message copied',
-      actionLabel: 'Paste',
+      context.l10n.messageCopied,
+      actionLabel: context.l10n.paste,
       onAction: _pasteFromClipboard,
     );
   }
@@ -1416,7 +1417,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   void _copyEmail(String email) {
     Clipboard.setData(ClipboardData(text: email));
     if (!mounted) return;
-    _chatNotice.show('Copied $email');
+    _chatNotice.show(context.l10n.copiedValue(email));
   }
 
   /// Pastes the current clipboard text into the chat input at the cursor.

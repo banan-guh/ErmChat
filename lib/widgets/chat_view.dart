@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart' show defaultTargetPlatform;
 import 'package:flutter/material.dart';
+import '../l10n/l10n.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart'
     show Clipboard, ClipboardData, HapticFeedback;
@@ -53,7 +54,7 @@ class ChatView extends StatefulWidget {
 
   /// Off when thread callbacks are absent or every row is already a reply.
   final bool showReplyIndicators;
-  final String emptyText;
+  final String? emptyText;
   final ScrollPhysics? physics;
 
   /// Off in the mentions tab so deleted rows stay readable.
@@ -108,7 +109,7 @@ class ChatView extends StatefulWidget {
     this.onFindThreadRoot,
     this.onShowThreadView,
     this.showReplyIndicators = true,
-    this.emptyText = 'No messages yet',
+    this.emptyText,
     this.physics,
     this.fadeDeleted = true,
     this.showChannel = false,
@@ -219,7 +220,7 @@ class _ChatViewState extends State<ChatView>
     ProviderScope.containerOf(
       context,
       listen: false,
-    ).read(chatNoticeProvider).show('Copied $text');
+    ).read(chatNoticeProvider).show(context.l10n.copiedValue(text));
   }
 
   /// Pixels from the newest row above which the reader counts as scrolled up.
@@ -471,7 +472,7 @@ class _ChatViewState extends State<ChatView>
     // lets the sliver graft a stale row onto the empty state.
     final emptyMsg = TwitchMessage(
       login: '',
-      text: widget.emptyText,
+      text: widget.emptyText ?? context.l10n.noMessagesYet,
       isSystem: true,
       channel: widget.channel,
     );
@@ -982,7 +983,10 @@ class _ChatViewState extends State<ChatView>
             SizedBox(width: 4 * scale),
             Flexible(
               child: Text(
-                'Replying to @${msg.replyToUser ?? 'unknown'}: $preview',
+                context.l10n.replyingToUser(
+                  msg.replyToUser ?? context.l10n.unknownUser,
+                  preview,
+                ),
                 style: TextStyle(fontSize: 12 * scale, color: variant),
                 overflow: TextOverflow.ellipsis,
               ),

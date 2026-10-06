@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import '../l10n/l10n.dart';
 import '../util/constants.dart';
 import '../util/prefs.dart';
 import '../models/twitch_message.dart';
@@ -95,9 +96,14 @@ class RecentMessagesService {
       'https://recent-messages.zneix.eu/api/v2/recent-messages';
 
   /// Injectable HTTP client for tests.
-  RecentMessagesService({http.Client? client, RecentMessagesConfig? config})
-    : _client = client, // ignore: prefer_initializing_formals
-      _config = config ?? RecentMessagesConfig();
+  RecentMessagesService({
+    http.Client? client,
+    RecentMessagesConfig? config,
+    this.strings = englishStrings,
+  }) : _client = client, // ignore: prefer_initializing_formals
+       _config = config ?? RecentMessagesConfig();
+
+  final AppLocalizations Function() strings;
 
   final http.Client? _client;
   final RecentMessagesConfig _config;
@@ -202,7 +208,7 @@ class RecentMessagesService {
     if (staleFallback != null) return staleFallback;
     // All providers exhausted: surface last error or wrap.
     if (lastError is RecentMessagesException) throw lastError;
-    throw RecentMessagesException('Failed to load chat history');
+    throw RecentMessagesException(strings().historyLoadFailed);
   }
 
   /// True when [candidate] is newer than [current]. Non-empty beats empty,
@@ -238,10 +244,9 @@ class RecentMessagesService {
           // Non-JSON: generic message.
         }
         final message = switch (code) {
-          'invalid_channel_login' => 'Invalid channel name',
-          'channel_ignored' =>
-            'History unavailable: channel excluded from the history service',
-          _ => 'Failed to load chat history',
+          'invalid_channel_login' => strings().historyInvalidChannel,
+          'channel_ignored' => strings().historyChannelExcluded,
+          _ => strings().historyLoadFailed,
         };
         throw RecentMessagesException(
           message,

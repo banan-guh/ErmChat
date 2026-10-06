@@ -1,3 +1,6 @@
+import 'dart:ui' show PlatformDispatcher, Locale;
+
+import 'package:flutter/widgets.dart' show basicLocaleListResolution;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../chat/chat.dart';
@@ -7,6 +10,7 @@ import '../irc/join_rate_limiter.dart';
 import '../irc/proxy_config.dart';
 import '../irc/transport/read.dart';
 import '../irc/transport/write.dart';
+import '../l10n/app_localizations.dart';
 import '../services/emote_manager.dart';
 import '../services/ignore_manager.dart';
 import '../services/ping_manager.dart';
@@ -42,6 +46,21 @@ final prefsProvider = Provider<Prefs>((ref) {
   return prefs;
 });
 
+/// Current-language strings for services with no BuildContext. Reads the
+/// language pref per call so a runtime switch applies; null follows the system.
+final stringsProvider = Provider<AppLocalizations Function()>((ref) {
+  return () {
+    final tag = Prefs.loaded?.locale;
+    final parts = (tag ?? '').split('_');
+    final chosen = parts.first.isEmpty
+        ? PlatformDispatcher.instance.locales
+        : [Locale(parts[0], parts.length > 1 ? parts[1] : null)];
+    return lookupAppLocalizations(
+      basicLocaleListResolution(chosen, AppLocalizations.supportedLocales),
+    );
+  };
+});
+
 final connectivityServiceProvider = Provider<ConnectivityService>((ref) {
   final service = ConnectivityService();
   ref.onDispose(service.dispose);
@@ -49,7 +68,7 @@ final connectivityServiceProvider = Provider<ConnectivityService>((ref) {
 });
 
 final twitchApiProvider = Provider<TwitchApi>((ref) {
-  final api = TwitchApi();
+  final api = TwitchApi(strings: ref.read(stringsProvider));
   ref.onDispose(api.close);
   return api;
 });
@@ -161,7 +180,7 @@ final sevenTvPaintServiceProvider = Provider<SevenTvPaintService>((ref) {
 final userStoreProvider = Provider<UserStore>((ref) => UserStore());
 
 final recentMessagesServiceProvider = Provider<RecentMessagesService>(
-  (ref) => RecentMessagesService(),
+  (ref) => RecentMessagesService(strings: ref.read(stringsProvider)),
 );
 
 final pipServiceProvider = Provider<PipService>((ref) {

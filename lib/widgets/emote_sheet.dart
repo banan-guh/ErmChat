@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
+import '../l10n/l10n.dart';
 import 'app_snack.dart';
 import 'emote_scale_resolver.dart';
 import 'sheet_action_row.dart';
@@ -63,8 +64,9 @@ class _EmoteSheetState extends State<EmoteSheet>
   }
 
   String _typeLabel(Emote emote) {
+    final l10n = context.l10n;
     if (emote.type == EmoteType.twitch) {
-      return emote.isZeroWidth ? 'Twitch Emote (Zero Width)' : 'Twitch Emote';
+      return emote.isZeroWidth ? l10n.twitchEmoteZeroWidth : l10n.twitchEmote;
     }
     final provider = switch (emote.type) {
       EmoteType.bttv => 'BTTV',
@@ -73,22 +75,20 @@ class _EmoteSheetState extends State<EmoteSheet>
       EmoteType.twitch => 'Twitch',
     };
     final scope = switch (emote.scope) {
-      EmoteScope.global => 'Global',
-      EmoteScope.channel => 'Channel',
-      EmoteScope.personal => 'Personal',
+      EmoteScope.global => l10n.emoteScopeGlobal,
+      EmoteScope.channel => l10n.emoteScopeChannel,
+      EmoteScope.personal => l10n.emoteScopePersonal,
     };
-    var label = '$provider $scope Emote';
-    if (emote.isZeroWidth) {
-      label = '$label (Zero Width)';
-    }
-    return label;
+    return emote.isZeroWidth
+        ? l10n.emoteKindLabelZeroWidth(provider, scope)
+        : l10n.emoteKindLabel(provider, scope);
   }
 
   String? _ownerLabel(Emote emote) {
     if (emote.meta is TwitchMeta) return null;
     final owner = emote.meta.owner;
     if (owner == null) return null;
-    return 'Created by $owner';
+    return context.l10n.emoteCreatedBy(owner);
   }
 
   String _providerUrl(Emote emote) {
@@ -107,7 +107,7 @@ class _EmoteSheetState extends State<EmoteSheet>
       mode: LaunchMode.externalApplication,
     );
     if (!ok && mounted) {
-      AppSnack.show(context, 'Could not open $url');
+      AppSnack.show(context, context.l10n.couldNotOpenUrl(url));
     }
   }
 
@@ -125,7 +125,7 @@ class _EmoteSheetState extends State<EmoteSheet>
     final actions = <SheetAction>[
       SheetAction(
         icon: Icons.send,
-        label: 'Use emote',
+        label: context.l10n.useEmote,
         onTap: () {
           widget.onClose();
           widget.onUseEmote?.call(emote);
@@ -140,7 +140,7 @@ class _EmoteSheetState extends State<EmoteSheet>
       ),
       SheetAction(
         icon: Icons.copy,
-        label: 'Copy',
+        label: context.l10n.copy,
         onTap: () {
           Clipboard.setData(ClipboardData(text: emote.code));
           widget.onClose();
@@ -148,7 +148,7 @@ class _EmoteSheetState extends State<EmoteSheet>
       ),
       SheetAction(
         icon: Icons.open_in_new,
-        label: compact ? 'Open link' : 'Open emote link',
+        label: compact ? context.l10n.openLink : context.l10n.openEmoteLink,
         onTap: () => _openUrl(_providerUrl(emote)),
       ),
     ];
@@ -214,7 +214,7 @@ class _EmoteSheetState extends State<EmoteSheet>
                       if (emote.baseName != null) ...[
                         const SizedBox(height: 4),
                         Text(
-                          'Alias of ${emote.baseName}',
+                          context.l10n.emoteAliasOf(emote.baseName!),
                           textAlign: TextAlign.center,
                           style: subtitleStyle,
                         ),

@@ -1,3 +1,4 @@
+import '../l10n/l10n.dart';
 import '../models/point_rewards.dart';
 import '../models/polls.dart';
 import '../services/twitch_api.dart';
@@ -40,11 +41,13 @@ class ModActions {
     required this.twitchApi,
     required this.getChannelUserIds,
     required this.getCurrentUserId,
+    this.strings = englishStrings,
   });
 
   final TwitchApi twitchApi;
   final Map<String, String> Function() getChannelUserIds;
   final String? Function() getCurrentUserId;
+  final AppLocalizations Function() strings;
 
   final _userIdCache = <String, String>{};
 
@@ -62,15 +65,15 @@ class ModActions {
   String failureReason() {
     switch (twitchApi.lastErrorStatus) {
       case 401:
-        return 'Missing required scope. Re-login with your account and try again.';
+        return strings().modErrorMissingScope;
       case 403:
-        return "You don't have permission to perform that action.";
+        return strings().modErrorNoPermission;
       case 429:
-        return 'You are being rate-limited. Try again in a moment.';
+        return strings().modErrorRateLimited;
     }
     final message = twitchApi.lastHelixMessage;
     if (message != null && message.isNotEmpty) return message;
-    return 'An unknown error has occurred.';
+    return strings().modErrorUnknown;
   }
 
   /// Runs a Helix moderation call. False (or a throw) becomes an apiError;

@@ -67,6 +67,7 @@ final chatPipelineProvider = Provider<ChatConnectionManager>((ref) {
             writeSystem(channel, text, accent: accent, messageId: messageId),
         onBanner: signals.banner.emit,
         onFocusComposer: signals.focusComposer.emit,
+        strings: ref.read(stringsProvider),
       ),
       sinks: ChatSinks(
         onCommand: (text, channel, auth) async {
@@ -74,7 +75,8 @@ final chatPipelineProvider = Provider<ChatConnectionManager>((ref) {
             await ref.read(commandHandlerProvider).handle(text, channel, auth);
           } catch (e) {
             logDebug('[Command] $text failed: $e');
-            writeSystem(channel, 'Command failed. ${friendlyError(e)}');
+            final l = ref.read(stringsProvider)();
+            writeSystem(channel, l.commandFailed(friendlyError(e, l: l)));
           }
         },
         getReplyToMsg: () => ref.read(replyToProvider),

@@ -4,6 +4,7 @@ import 'dart:io' show Platform;
 import 'dart:math';
 import 'package:flutter/services.dart';
 import 'package:flutter_web_auth_2/flutter_web_auth_2.dart';
+import '../l10n/l10n.dart';
 import '../twitch_config.dart';
 
 /// A function that starts the OAuth flow and resolves with the access token
@@ -91,11 +92,15 @@ class TwitchOAuth {
   /// plain login form instead - used for the switch-account / re-auth path.
   /// On Android this is a no-op: the session-bound Custom Tab already keeps
   /// every navigation inside the tab regardless of cookies.
-  static Future<String?> startFlow({bool ephemeral = false}) async {
+  static Future<String?> startFlow({
+    bool ephemeral = false,
+    AppLocalizations? l,
+  }) async {
+    l ??= englishStrings();
     lastError = null;
     lastCancelled = false;
     if (_flowInProgress) {
-      lastError = 'A Twitch login is already open. Finish or close it first.';
+      lastError = l.loginAlreadyOpen;
       return null;
     }
 
@@ -112,7 +117,7 @@ class TwitchOAuth {
               options: FlutterWebAuth2Options(preferEphemeral: ephemeral),
             ).timeout(const Duration(minutes: 5));
 
-      return _extractToken(result, urlInfo.state);
+      return _extractToken(result, urlInfo.state, l);
     } on _LoginCancelled {
       lastCancelled = true;
       return null;
@@ -121,14 +126,14 @@ class TwitchOAuth {
       if (e.code == 'CANCELED') {
         lastCancelled = true;
       } else {
-        lastError = "Couldn't open the Twitch login. Try again.";
+        lastError = l.loginOpenFailed;
       }
       return null;
     } on TimeoutException {
-      lastError = 'The Twitch login timed out. Try again.';
+      lastError = l.loginTimedOut;
       return null;
     } catch (_) {
-      lastError = "Couldn't open the Twitch login. Try again.";
+      lastError = l.loginOpenFailed;
       return null;
     } finally {
       _flowInProgress = false;
@@ -179,40 +184,46 @@ class TwitchOAuth {
     return (url: url, state: state);
   }
 
-  static String? _extractToken(String resultUrl, String expectedState) {
+  static String? _extractToken(
+    String resultUrl,
+    String expectedState,
+    AppLocalizations l,
+  ) {
     final params = parseFragment(resultUrl);
     final error = params['error'];
     final token = params['access_token'];
     final state = params['state'];
 
     if (error != null) {
-      lastError = describeError(error);
+      lastError = describeError(error, l);
       return null;
     }
 
     if (token != null) {
       if (state != expectedState) {
-        lastError = stateMismatchError;
+        lastError = stateMismatchError(l);
         return null;
       }
       return token;
     }
 
-    lastError = noTokenError;
+    lastError = l.loginNoToken;
     return null;
   }
 
   // The state nonce guards against a forged redirect; to the user it just
   // means this attempt is stale.
-  static const stateMismatchError =
-      "That login didn't match this attempt. Try logging in again.";
-  static const noTokenError = "Twitch didn't send a login. Try again.";
+  static String stateMismatchError([AppLocalizations? l]) =>
+      (l ?? englishStrings()).loginMismatch;
 
   /// Plain sentence for an OAuth `error` code from the redirect.
-  static String describeError(String code) => switch (code) {
-    'access_denied' => 'You declined access on Twitch.',
-    _ => "Twitch couldn't log you in. Try again.",
-  };
+  static String describeError(String code, [AppLocalizations? l]) {
+    l ??= englishStrings();
+    return switch (code) {
+      'access_denied' => l.loginDeclined,
+      _ => l.loginGenericFailed,
+    };
+  }
 
   static String _randomState() {
     final random = Random.secure();

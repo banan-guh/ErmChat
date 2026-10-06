@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import '../chat/chat.dart';
 import '../client/session.dart';
 import '../composer/composer_controller.dart';
+import '../l10n/l10n.dart';
 import '../models/twitch_message.dart';
 import '../services/chat_connection_manager.dart';
 import '../services/link_whitelist.dart';
@@ -246,10 +247,10 @@ class MentionsPanels {
         context,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
-          tooltip: 'Back',
+          tooltip: context.l10n.back,
           onPressed: closePanel,
         ),
-        title: 'Mentions / Whispers',
+        title: context.l10n.mentionsWhispers,
         tabs: (compact) => TabBar(
           controller: mentionsTab(),
           // Full: a centered island. Compact: offsets the leading button so
@@ -257,9 +258,9 @@ class MentionsPanels {
           padding: compact
               ? const EdgeInsets.only(right: 40)
               : const EdgeInsets.symmetric(horizontal: 100),
-          tabs: const [
-            Tab(text: 'Mentions'),
-            Tab(text: 'Whispers'),
+          tabs: [
+            Tab(text: context.l10n.sectionMentions),
+            Tab(text: context.l10n.whispers),
           ],
         ),
       ),
@@ -299,7 +300,7 @@ class MentionsPanels {
               showReplyIndicators: false,
               fadeDeleted: false,
               showChannel: true,
-              emptyText: 'No mentions or whispers',
+              emptyText: context.l10n.noMentionsOrWhispers,
             ),
             ChatView(
               key: const ValueKey('whispers_panel'),
@@ -330,7 +331,7 @@ class MentionsPanels {
                   menus.showPanelMessageMenu(context, msg),
               onCopyMessage: copyMessage,
               showReplyIndicators: false,
-              emptyText: 'No whispers',
+              emptyText: context.l10n.noWhispers,
             ),
           ],
         ),

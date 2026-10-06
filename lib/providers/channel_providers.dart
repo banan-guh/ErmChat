@@ -31,6 +31,7 @@ final channelSessionProvider = Provider<ChannelSession>((ref) {
         ref.read(selectedChannelProvider.notifier).set(value),
     maxMessages: () => ref.read(maxMessagesPerChannelProvider),
     recentMessagesLimit: () => ref.read(recentMessagesLimitProvider),
+    strings: ref.read(stringsProvider),
   );
   ref.onDispose(session.dispose);
   return session;

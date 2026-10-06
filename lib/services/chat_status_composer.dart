@@ -2,6 +2,7 @@ import 'dart:async';
 
 import '../chat/chat.dart';
 import '../client/session.dart';
+import '../l10n/app_localizations.dart';
 import '../util/log.dart';
 import 'twitch_api.dart';
 import 'twitch_auth.dart';
@@ -14,12 +15,14 @@ class ChatStatusComposer {
     required this.twitchAuth,
     required this.chat,
     required this.session,
+    required this.strings,
   });
 
   final TwitchApi twitchApi;
   final TwitchAuth twitchAuth;
   final Chat chat;
   final Session session;
+  final AppLocalizations Function() strings;
 
   // Room-mode tags per channel from ROOMSTATE (merged across partial
   // updates); feeds the chat status splash. Stream info from the periodic
@@ -148,18 +151,18 @@ class ChatStatusComposer {
     final tags = _roomStateTags[channel];
     if (tags != null) {
       final slow = int.tryParse(tags['slow'] ?? '') ?? 0;
-      if (slow > 0) parts.add('Slow (${slow}s)');
+      if (slow > 0) parts.add(strings().roomSlow(slow));
       final followers = tags['followers-only'];
       if (followers != null && followers != '-1') {
         parts.add(
           followers == '0'
-              ? 'Followers-only'
-              : 'Followers-only (${followers}m)',
+              ? strings().roomFollowersOnly
+              : strings().roomFollowersOnlyMinutes(followers),
         );
       }
-      if (tags['emote-only'] == '1') parts.add('Emote-only');
-      if (tags['subs-only'] == '1') parts.add('Subscribers-only');
-      if (tags['r9k'] == '1') parts.add('Unique chat');
+      if (tags['emote-only'] == '1') parts.add(strings().roomEmoteOnly);
+      if (tags['subs-only'] == '1') parts.add(strings().roomSubscribersOnly);
+      if (tags['r9k'] == '1') parts.add(strings().roomUniqueChat);
     }
     parts.addAll(_streamStatusParts[channel] ?? const []);
     final newStatus = parts.isNotEmpty ? parts.join(' · ') : '';

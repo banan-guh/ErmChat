@@ -19,6 +19,7 @@ import '../util/haptics.dart';
 import '../util/log.dart';
 import '../widgets/panel_manager.dart';
 import 'autocomplete_revert.dart';
+import '../l10n/l10n.dart';
 
 // Input box state and send gating. Owns the text/focus controllers,
 // autocomplete, reply target, and cooldown countdown.
@@ -45,6 +46,7 @@ class ComposerController {
     required this.computeThreadMessages,
     required this.channelChatReady,
     required this.showNotice,
+    required this.strings,
     required this.emoteSheetOpen,
     required this.closeEmoteSheet,
     required this.showEmoteMenu,
@@ -79,6 +81,7 @@ class ComposerController {
   final List<TwitchMessage> Function() computeThreadMessages;
   final bool Function() channelChatReady;
   final void Function(String text) showNotice;
+  final AppLocalizations Function() strings;
   final bool Function() emoteSheetOpen;
   final Future<void> Function() closeEmoteSheet;
   final void Function() showEmoteMenu;
@@ -247,7 +250,7 @@ class ComposerController {
     if (text.isEmpty || channel == null) return;
 
     if (!twitchAuth.isConfigured) {
-      showNotice('Connect an account to chat');
+      showNotice(strings().connectToChat);
       return;
     }
 
@@ -271,7 +274,7 @@ class ComposerController {
           ),
         );
       } else {
-        showNotice('Type /w <username> <message> to whisper');
+        showNotice(strings().whisperUsageNotice);
       }
       return;
     }
@@ -352,9 +355,11 @@ class ComposerController {
     final channel = getSelectedChannel();
     if (channel == null || !chat.contains(channel)) return null;
     final timeout = chatConn.remainingSelfTimeout(channel);
-    if (timeout != null) return 'Timed out: ${formatSeconds(timeout)}';
+    if (timeout != null) {
+      return strings().timedOutCountdown(formatSeconds(timeout));
+    }
     final slow = chatConn.remainingSlowCooldown(channel);
-    if (slow != null) return 'Slow mode: ${formatSeconds(slow)}';
+    if (slow != null) return strings().slowModeCountdown(formatSeconds(slow));
     return null;
   }
 
@@ -374,27 +379,27 @@ class ComposerController {
   String? get hintText =>
       cooldownLabel.value ??
       (!twitchAuth.isConfigured
-          ? 'Connect an account to chat'
+          ? strings().connectToChat
           : switch ((
               chatConn.connectPhase,
               activePanel(),
               isWhispersTabActive(),
               channelChatReady(),
             )) {
-              (ChatPhase.connecting, _, _, _) => 'Connecting...',
-              (ChatPhase.reconnecting, _, _, _) => 'Reconnecting...',
+              (ChatPhase.connecting, _, _, _) => strings().connectingHint,
+              (ChatPhase.reconnecting, _, _, _) => strings().reconnectingHint,
               (ChatPhase.online, _, false, false)
                   when getSelectedChannel() != null =>
-                'Disconnected',
+                strings().disconnectedHint,
               (_, OverlayPanel.thread, _, _) when threadsTabIndex() == 0 =>
-                'Reply to thread...',
-              (_, OverlayPanel.thread, _, _) => 'Select a thread to reply...',
-              (_, OverlayPanel.modView, _, _) => 'Mod view open',
+                strings().replyToThreadHint,
+              (_, OverlayPanel.thread, _, _) => strings().selectThreadHint,
+              (_, OverlayPanel.modView, _, _) => strings().modViewOpenHint,
               (_, _, true, _) =>
                 whisperTarget() != null
-                    ? 'Whisper to ${whisperTarget()}...'
-                    : 'Type /w <username> <message>',
-              (_, OverlayPanel.mentions, _, _) => 'Type a message...',
+                    ? strings().whisperToHint(whisperTarget()!)
+                    : strings().whisperUsageHint,
+              (_, OverlayPanel.mentions, _, _) => strings().typeMessageHint,
               _ => null,
             });
 }

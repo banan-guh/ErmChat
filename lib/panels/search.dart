@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../chat/chat.dart';
+import '../l10n/l10n.dart';
 import '../models/twitch_message.dart';
 
 // Which fields the query matches against.
@@ -178,10 +179,10 @@ class SearchPanels {
   }
 
   // Empty-state copy: hide mode with a query shows matches or nothing.
-  String? emptyText(String channel) {
+  String? emptyText(String channel, AppLocalizations l10n) {
     final filter = stateFor(channel);
     if (open && filter.isActive && filter.display == ChatSearchDisplay.hide) {
-      return 'No matches';
+      return l10n.noMatches;
     }
     return null;
   }
@@ -338,7 +339,7 @@ class SearchPanels {
   Widget filterButton() {
     return Builder(
       builder: (context) => PopupMenuButton<String>(
-        tooltip: 'Search filters',
+        tooltip: context.l10n.searchFilters,
         padding: EdgeInsets.zero,
         // Top-anchored at button top minus menu height: opens upward,
         // above the keyboard. Top-down growth, like every popup.
@@ -351,45 +352,46 @@ class SearchPanels {
           final channel = selectedChannel();
           if (channel != null) _select(channel, value);
         },
-        itemBuilder: (_) {
+        itemBuilder: (ctx) {
+          final l10n = ctx.l10n;
           final filter = stateFor(selectedChannel() ?? '');
           return [
-            _menuHeader('Filter'),
+            _menuHeader(l10n.filterHeader),
             _menuRow(
               value: 'scope_all',
-              label: 'All',
+              label: l10n.filterAll,
               checked: filter.scope == ChatSearchScope.all,
             ),
             _menuRow(
               value: 'scope_messages',
-              label: 'Messages',
+              label: l10n.sectionMessages,
               checked: filter.scope == ChatSearchScope.messages,
             ),
             _menuRow(
               value: 'scope_chatters',
-              label: 'Users',
+              label: l10n.tabUsers,
               checked: filter.scope == ChatSearchScope.chatters,
             ),
             const PopupMenuDivider(height: _menuDivH),
             _menuRow(
               value: 'display_hide',
-              label: 'Hide',
+              label: l10n.filterHide,
               checked: filter.display == ChatSearchDisplay.hide,
             ),
             _menuRow(
               value: 'display_dim',
-              label: 'Dim',
+              label: l10n.filterDim,
               checked: filter.display == ChatSearchDisplay.dim,
             ),
             const PopupMenuDivider(height: _menuDivH),
             _menuRow(
               value: 'live_stream',
-              label: 'Stream',
+              label: l10n.filterStream,
               checked: filter.live == ChatSearchLive.stream,
             ),
             _menuRow(
               value: 'live_pause',
-              label: 'Pause',
+              label: l10n.pause,
               checked: filter.live == ChatSearchLive.pause,
             ),
           ];

@@ -2,6 +2,7 @@ import 'dart:async';
 
 import '../chat/chat.dart';
 import '../color_utils.dart' show Color;
+import '../l10n/l10n.dart';
 import '../models/point_rewards.dart';
 import '../models/twitch_message.dart';
 import '../util/log.dart';
@@ -22,6 +23,7 @@ class PubSubPointsConsumer {
     required this.getMaxMessages,
     this.isHiddenUser,
     this.clock,
+    this.strings = englishStrings,
   });
 
   final Chat chat;
@@ -30,6 +32,7 @@ class PubSubPointsConsumer {
   /// Blocked or ignored logins; their redemptions post nothing.
   final bool Function(String login)? isHiddenUser;
   final DateTime Function()? clock;
+  final AppLocalizations Function() strings;
 
   DateTime _now() => clock?.call() ?? DateTime.now();
 
@@ -178,12 +181,13 @@ class PubSubPointsConsumer {
   }) {
     final title = redemption.rewardTitle.isNotEmpty
         ? redemption.rewardTitle
-        : 'channel reward';
-    final unit = redemption.costInBits ? 'bits' : 'pts';
-    final cost = redemption.cost > 0 ? ' (${redemption.cost} $unit)' : '';
+        : strings().channelRewardFallback;
+    final cost = redemption.cost > 0
+        ? ' ${redemption.costInBits ? strings().redemptionCostBits(redemption.cost) : strings().redemptionCostPoints(redemption.cost)}'
+        : '';
     final text = withUser
-        ? '${_displayName(redemption)} redeemed $title$cost'
-        : 'Redeemed $title$cost';
+        ? strings().userRedeemed(_displayName(redemption), '$title$cost')
+        : strings().redeemedReward('$title$cost');
     final id = redemption.id.isNotEmpty
         ? 'redemp:${redemption.id}'
         : 'redemp:${redemption.rewardId}:${redemption.redeemedAt}';
@@ -203,11 +207,13 @@ class PubSubPointsConsumer {
     );
   }
 
-  static String _displayName(PointRedemption redemption) {
+  String _displayName(PointRedemption redemption) {
     if (redemption.userDisplayName.isNotEmpty) {
       return redemption.userDisplayName;
     }
-    return redemption.userLogin.isNotEmpty ? redemption.userLogin : 'Someone';
+    return redemption.userLogin.isNotEmpty
+        ? redemption.userLogin
+        : strings().someone;
   }
 
   static String _key(String channel, String rewardId) =>

@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../composer/composer_controller.dart';
+import '../l10n/l10n.dart';
 import '../models/twitch_message.dart';
 import '../panels/search.dart';
 import '../panels/threads.dart';
@@ -197,7 +198,9 @@ class ChannelPanels {
         messages: search.visibleMessages(channel),
         tileCache: tileCache,
         isDimmed: search.dimPredicate(channel),
-        emptyText: search.emptyText(channel) ?? 'No messages yet',
+        emptyText:
+            search.emptyText(channel, context.l10n) ??
+            context.l10n.noMessagesYet,
         atBottomNotifier: atBottomNotifier(channel),
         messageNotifier: active ? messageVersion : _emptyNotifier,
         scrollController: scrollCtrl(channel),
@@ -430,14 +433,15 @@ class ChannelPanels {
   Widget welcomeChatView(BuildContext context, {double topPadding = 0}) {
     final configured = twitchAuth.isConfigured;
     final login = twitchAuth.login;
-    final key = '$configured:$login';
+    final l10n = context.l10n;
+    final key = '$configured:$login:${l10n.localeName}';
     if (_welcomeMessagesKey != key) {
       _welcomeMessagesKey = key;
       _welcomeMessages = [
         if (!configured)
           TwitchMessage(
             login: '',
-            text: 'Configure Twitch credentials in Settings first',
+            text: l10n.welcomeConfigure,
             isSystem: true,
             messageId: 'welcome',
             channel: welcomeChannel,
@@ -446,14 +450,14 @@ class ChannelPanels {
           if (login != null)
             TwitchMessage(
               login: '',
-              text: 'Signed in as $login',
+              text: l10n.welcomeSignedIn(login),
               isSystem: true,
               messageId: 'welcome-signin',
               channel: welcomeChannel,
             ),
           TwitchMessage(
             login: '',
-            text: 'Press + to join a channel.',
+            text: l10n.welcomePressPlus,
             isSystem: true,
             messageId: 'welcome-join',
             channel: welcomeChannel,

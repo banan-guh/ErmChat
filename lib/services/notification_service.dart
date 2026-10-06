@@ -1,7 +1,13 @@
 import 'dart:async';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
+import '../l10n/l10n.dart';
+
 class NotificationService {
+  NotificationService({AppLocalizations Function()? strings})
+    : _strings = strings ?? englishStrings;
+
+  final AppLocalizations Function() _strings;
   final FlutterLocalNotificationsPlugin _plugin =
       FlutterLocalNotificationsPlugin();
   final _tapController = StreamController<String>.broadcast();
@@ -36,10 +42,11 @@ class NotificationService {
       _pendingLaunchChannel = details?.notificationResponse?.payload;
     }
 
-    const androidChannel = AndroidNotificationChannel(
+    final l = _strings();
+    final androidChannel = AndroidNotificationChannel(
       'chat_mentions',
-      'Mentions',
-      description: 'Notifications when someone mentions you in chat',
+      l.sectionMentions,
+      description: l.notifChannelDesc,
       importance: Importance.high,
       playSound: true,
       enableVibration: true,
@@ -84,7 +91,7 @@ class NotificationService {
     final body = _truncate(message);
     await _post(
       channel: channel,
-      title: '$userName pinged you in #$channel',
+      title: _strings().notifPingedYou(userName, channel),
       body: body,
       payload: channel,
       summaryLine: '$userName: $body',
@@ -98,10 +105,10 @@ class NotificationService {
     final body = _truncate(message);
     await _post(
       channel: null,
-      title: '$userName sent you a whisper',
+      title: _strings().notifWhisper(userName),
       body: body,
       payload: null,
-      summaryLine: '$userName (whisper): $body',
+      summaryLine: _strings().notifWhisperSummary(userName, body),
     );
   }
 
@@ -112,10 +119,11 @@ class NotificationService {
     required String? payload,
     required String summaryLine,
   }) async {
+    final l = _strings();
     final androidDetails = AndroidNotificationDetails(
       'chat_mentions',
-      'Mentions',
-      channelDescription: 'Notifications when someone mentions you in chat',
+      l.sectionMentions,
+      channelDescription: l.notifChannelDesc,
       importance: Importance.high,
       priority: Priority.high,
       showWhen: true,
@@ -155,18 +163,19 @@ class NotificationService {
       return;
     }
     final lines = [for (final id in _summaryOrder) _summaryLineById[id]!];
+    final l = _strings();
     final androidDetails = AndroidNotificationDetails(
       'chat_mentions',
-      'Mentions',
-      channelDescription: 'Notifications when someone mentions you in chat',
+      l.sectionMentions,
+      channelDescription: l.notifChannelDesc,
       importance: Importance.high,
       priority: Priority.high,
       groupKey: _groupKey,
       setAsGroupSummary: true,
       styleInformation: InboxStyleInformation(
         lines.length > 5 ? lines.sublist(lines.length - 5) : lines,
-        contentTitle: 'You have new mentions',
-        summaryText: '$_summaryTotal mentions',
+        contentTitle: l.notifNewMentions,
+        summaryText: l.notifMentionCount(_summaryTotal),
       ),
       // Summary alerts only; children stay silent.
       playSound: false,

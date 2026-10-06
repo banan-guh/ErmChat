@@ -3,6 +3,7 @@ import '../chat/chat.dart';
 import '../client/session.dart';
 import '../eventsub/decode/events.dart';
 import '../irc/decode/copy.dart' show buildBanText;
+import '../l10n/l10n.dart';
 import '../util/duration_format.dart';
 import '../util/log.dart';
 import '../util/mod_activity_format.dart' show formatModActivity;
@@ -35,6 +36,7 @@ class ModerationHub {
     this.onAnalyticsModeration,
     required this.onSelfTimeoutArmed,
     required this.onSelfTimeoutCleared,
+    this.strings = englishStrings,
   });
 
   final Chat chat;
@@ -48,6 +50,7 @@ class ModerationHub {
 
   /// Clears the manager-owned send gate on unban/untimeout.
   final void Function(String channel) onSelfTimeoutCleared;
+  final AppLocalizations Function() strings;
 
   final _recentBanMeta = <String, List<_BanMeta>>{};
   static const _banDedupWindowSeconds = 10;
@@ -65,10 +68,7 @@ class ModerationHub {
     // While channel.moderate v2 is active, deletions come from EventSub (with
     // moderator and body) - skip the IRC system line.
     if (found && !isModerationActive(channel)) {
-      onSystemMessage(
-        channel,
-        'A message from $user was deleted saying: "$text".',
-      );
+      onSystemMessage(channel, strings().ircMessageDeleted(user, text));
     }
   }
 
@@ -77,7 +77,7 @@ class ModerationHub {
     // moderator's name - skip the IRC copy.
     if (isModerationActive(channel)) return;
     chat.channelFor(channel)?.messages.markAllDeleted();
-    onSystemMessage(channel, 'Chat was cleared.');
+    onSystemMessage(channel, strings().chatWasCleared);
   }
 
   void onIrcBan({
@@ -100,17 +100,18 @@ class ModerationHub {
     final isSelf = user.toLowerCase() == session.login?.toLowerCase();
     final base = isSelf
         ? (isTimeout
-              ? 'You are timed out${duration != null ? ' for ${formatSeconds(duration)}' : ''}'
-              : 'You were banned')
+              ? (duration != null
+                    ? strings().selfTimedOutFor(formatSeconds(duration))
+                    : strings().selfTimedOut)
+              : strings().selfBanned)
         : buildBanText(user: user, isTimeout: isTimeout, durationSec: duration);
-    final stacked = result.stackCount > 1
-        ? ' (${result.stackCount} times)'
-        : '';
     // buildBanText already ends with a period.
     final trimmed = base.endsWith('.')
         ? base.substring(0, base.length - 1)
         : base;
-    final text = '$trimmed$stacked.';
+    final text = result.stackCount > 1
+        ? strings().banLineStacked(trimmed, result.stackCount)
+        : strings().banLine(trimmed);
     logDebug('[Moderation] IRC ban system message: $text');
 
     if (result.stackCount > 1) {
@@ -192,7 +193,7 @@ class ModerationHub {
         selfLogin != null &&
         target.toLowerCase() == selfLogin;
     final reason = (event.reason != null && event.reason!.isNotEmpty)
-        ? ': "${event.reason}"'
+        ? strings().quotedSuffix(event.reason!)
         : '';
 
     final entry = ModActivityEntry(
@@ -205,7 +206,7 @@ class ModerationHub {
       durationSeconds: event.durationSeconds,
       terms: event.terms,
     );
-    final line = formatModActivity(entry);
+    final line = formatModActivity(entry, l: strings());
     // A malformed event can omit the target; the formatter's 'someone'
     // fallback would replace the old literal "null", so keep that case.
     String lineOr(String raw) => target == null ? raw : line;
@@ -221,11 +222,11 @@ class ModerationHub {
         }
         final body =
             (event.messageBody != null && event.messageBody!.isNotEmpty)
-            ? ': "${event.messageBody}"'
+            ? strings().quotedSuffix(event.messageBody!)
             : '';
         onSystemMessage(
           event.channel,
-          '$mod deleted a message from $target$body.',
+          strings().modDeletedMessage(mod, '$target', body),
         );
         feed();
         break;
@@ -263,7 +264,7 @@ class ModerationHub {
               );
         }
         final duration = event.durationSeconds != null
-            ? ' for ${formatSeconds(event.durationSeconds!)}'
+            ? strings().forDuration(formatSeconds(event.durationSeconds!))
             : '';
         if (isSelfTarget &&
             event.action == ModerationAction.timeout &&
@@ -278,9 +279,13 @@ class ModerationHub {
         onSystemMessage(
           event.channel,
           isSelfTarget
-              ? 'You were ${event.action == ModerationAction.timeout ? 'timed out$duration' : 'banned'}$reason by $mod.'
+              ? (event.action == ModerationAction.timeout
+                    ? strings().selfTimedOutBy(duration, reason, mod)
+                    : strings().selfBannedBy(reason, mod))
               : lineOr(
-                  '$mod ${event.action == ModerationAction.timeout ? 'timed out' : 'banned'} $target$duration$reason.',
+                  event.action == ModerationAction.timeout
+                      ? strings().modTimedOut(mod, '$target', duration, reason)
+                      : strings().modBanned(mod, '$target', reason),
                 ),
         );
         feed();
@@ -294,27 +299,36 @@ class ModerationHub {
         onSystemMessage(
           event.channel,
           isSelfTarget
-              ? 'You were unbanned by $mod.'
-              : lineOr('$mod unbanned $target.'),
+              ? strings().selfUnbannedBy(mod)
+              : lineOr(strings().modUnbanned(mod, '$target')),
         );
         feed();
         break;
       case ModerationAction.mod:
-        onSystemMessage(event.channel, lineOr('$mod modded $target.'));
+        onSystemMessage(
+          event.channel,
+          lineOr(strings().modModded(mod, '$target')),
+        );
         feed();
         break;
       case ModerationAction.unmod:
-        onSystemMessage(event.channel, lineOr('$mod unmodded $target.'));
+        onSystemMessage(
+          event.channel,
+          lineOr(strings().modUnmodded(mod, '$target')),
+        );
         feed();
         break;
       case ModerationAction.vip:
-        onSystemMessage(event.channel, lineOr('$mod added $target as a VIP.'));
+        onSystemMessage(
+          event.channel,
+          lineOr(strings().modAddedVip(mod, '$target')),
+        );
         feed();
         break;
       case ModerationAction.unvip:
         onSystemMessage(
           event.channel,
-          lineOr('$mod removed $target as a VIP.'),
+          lineOr(strings().modRemovedVip(mod, '$target')),
         );
         feed();
         break;
@@ -333,7 +347,10 @@ class ModerationHub {
                 ),
               );
         }
-        onSystemMessage(event.channel, lineOr('$mod warned $target$reason.'));
+        onSystemMessage(
+          event.channel,
+          lineOr(strings().modWarned(mod, '$target', reason)),
+        );
         feed();
         break;
       case ModerationAction.slow:
@@ -365,7 +382,9 @@ class ModerationHub {
           event.channel,
           target != null && target.isNotEmpty
               ? line
-              : '$mod ${event.action == ModerationAction.approveUnbanRequest ? 'approved' : 'denied'} an unban request$reason.',
+              : event.action == ModerationAction.approveUnbanRequest
+              ? strings().modApprovedUnbanRequest(mod, reason)
+              : strings().modDeniedUnbanRequest(mod, reason),
         );
         break;
       case ModerationAction.unknown:

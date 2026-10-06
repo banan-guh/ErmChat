@@ -9,6 +9,7 @@ import 'package:webview_flutter_wkwebview/webview_flutter_wkwebview.dart';
 
 import '../services/stream_player_controller.dart';
 import '../util/log.dart';
+import '../l10n/l10n.dart';
 
 const _blankUrl = 'about:blank';
 
@@ -287,7 +288,7 @@ class _StreamPlayerViewState extends State<StreamPlayerView> {
         child: Center(
           child: TextButton.icon(
             icon: const Icon(Icons.refresh),
-            label: const Text('Reload stream'),
+            label: Text(context.l10n.reloadStream),
             onPressed: () {
               widget.controller.onRenderProcessGone();
               _reload();
@@ -312,14 +313,16 @@ class _StreamPlayerViewState extends State<StreamPlayerView> {
           children: [
             _overlayButton(
               icon: controller.isAudioOnly ? Icons.videocam : Icons.headphones,
-              tooltip: controller.isAudioOnly ? 'Show video' : 'Audio only',
+              tooltip: controller.isAudioOnly
+                  ? context.l10n.showVideo
+                  : context.l10n.audioOnly,
               onPressed: controller.toggleAudioOnly,
             ),
             const SizedBox(width: 6),
             if (Platform.isAndroid && controller.canPip)
               _overlayButton(
                 icon: Icons.picture_in_picture,
-                tooltip: 'Picture-in-picture',
+                tooltip: context.l10n.settingPip,
                 onPressed: () {
                   FocusScope.of(context).unfocus();
                   unawaited(controller.enterPip());
@@ -333,14 +336,14 @@ class _StreamPlayerViewState extends State<StreamPlayerView> {
                     ? Icons.fullscreen_exit
                     : Icons.fullscreen,
                 tooltip: controller.isTheaterMode
-                    ? 'Exit theater'
-                    : 'Theater mode',
+                    ? context.l10n.exitTheater
+                    : context.l10n.theaterMode,
                 onPressed: controller.toggleTheaterMode,
               ),
             if (landscape) const SizedBox(width: 6),
             _overlayButton(
               icon: Icons.close,
-              tooltip: 'Close stream',
+              tooltip: context.l10n.closeStream,
               onPressed: controller.closeStream,
             ),
           ],
@@ -397,19 +400,19 @@ class StreamAudioBar extends StatelessWidget {
             const SizedBox(width: 8),
             Expanded(
               child: Text(
-                'Audio: $channel',
+                context.l10n.audioChannel(channel),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
               ),
             ),
             IconButton(
               icon: const Icon(Icons.videocam, size: 20),
-              tooltip: 'Show video',
+              tooltip: context.l10n.showVideo,
               onPressed: controller.toggleAudioOnly,
             ),
             IconButton(
               icon: const Icon(Icons.close, size: 20),
-              tooltip: 'Close stream',
+              tooltip: context.l10n.closeStream,
               onPressed: controller.closeStream,
             ),
           ],

@@ -198,6 +198,7 @@ final emoteControllerProvider = Provider<EmoteController>((ref) {
     signals: ref.read(emoteSignalsProvider),
     getChannelUserIds: ref.read(channelUserIdsProvider),
     sevenTvClient: ref.read(sevenTvClientProvider),
+    strings: ref.read(stringsProvider),
     applyAnimationsEnabled: EmoteUrlProvider.applyGifsEnabled,
     clearImageCache: () {
       PaintingBinding.instance.imageCache.clear();

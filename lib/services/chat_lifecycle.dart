@@ -21,6 +21,7 @@ import '../services/seven_tv_event_client.dart';
 import '../services/twitch_api.dart';
 import '../services/twitch_auth.dart';
 import '../services/twitch_oauth.dart';
+import '../l10n/app_localizations.dart';
 import '../util/log.dart';
 
 /// Connection lifecycle: connect orchestration, socket status listeners,
@@ -49,8 +50,10 @@ class ChatLifecycle {
     required this.onSystemMessage,
     required this.onBanner,
     required this.onReconnected,
+    required this.strings,
   });
 
+  final AppLocalizations Function() strings;
   final IrcService irc;
   final IrcReadService ircRead;
   final IrcChatDecoder readDecoder;
@@ -619,10 +622,7 @@ class ChatLifecycle {
     }
     eventSubTopics.clearSessionState();
     for (final channel in chat.names) {
-      onSystemMessage(
-        channel,
-        'Login expired - reconnect your account in Settings',
-      );
+      onSystemMessage(channel, strings().loginExpiredInSettings);
     }
     onBanner?.call('Login expired');
   }

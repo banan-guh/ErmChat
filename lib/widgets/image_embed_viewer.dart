@@ -1,12 +1,13 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import '../l10n/l10n.dart';
 
 /// Full-screen viewer for an expanded chat image embed.
 Future<void> showImageEmbedViewer(BuildContext context, String url) {
   return showGeneralDialog(
     context: context,
     barrierDismissible: true,
-    barrierLabel: 'Dismiss image',
+    barrierLabel: context.l10n.dismissImage,
     barrierColor: Colors.black.withValues(alpha: 0.8),
     transitionDuration: const Duration(milliseconds: 150),
     pageBuilder: (_, _, _) => _ImageEmbedViewer(url: url),
@@ -119,7 +120,7 @@ class _ImageEmbedViewerState extends State<_ImageEmbedViewer>
                       ),
                       child: IconButton(
                         icon: const Icon(Icons.close, color: Colors.white),
-                        tooltip: 'Close',
+                        tooltip: context.l10n.close,
                         onPressed: () => Navigator.of(context).pop(),
                       ),
                     ),
