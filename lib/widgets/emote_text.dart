@@ -187,22 +187,32 @@ class EmoteText {
     }
 
     // BTTV prefix modifiers waiting for the emote they apply to, and their
-    // source text in case none follows.
+    // source segments in case none follows.
     var prefix = <Emote>[];
     var prefixEffects = 0;
-    var prefixText = '';
+    var prefixSegments = <_Segment>[];
+    // Unattached modifiers draw as the plain emotes they are.
     void dropPrefix() {
-      buffer += prefixText;
+      for (final s in prefixSegments) {
+        if (s is EmoteSegment) {
+          flushBase();
+          currentBase = _EmoteSpanData(base: s.emote);
+          currentBaseEnd = s.endIndex;
+        } else if (s is TextSegment) {
+          buffer += s.text;
+          pendingSpace = (pendingSpace ?? '') + s.text;
+        }
+      }
       prefix = [];
       prefixEffects = 0;
-      prefixText = '';
+      prefixSegments = [];
     }
 
     // Zero-width emotes overlay on preceding base; whitespace between is consumed.
     for (final seg in segments) {
       if (prefix.isNotEmpty) {
         if (seg is TextSegment && seg.text.trim().isEmpty) {
-          prefixText += seg.text;
+          prefixSegments.add(seg);
           continue;
         }
         if (seg is EmoteSegment && bttvModifierEffects(seg.emote) == 0) {
@@ -219,23 +229,17 @@ class EmoteText {
           currentBaseEnd = seg.endIndex;
           prefix = [];
           prefixEffects = 0;
-          prefixText = '';
+          prefixSegments = [];
           continue;
         }
         if (seg is! EmoteSegment) dropPrefix();
       }
       if (seg is EmoteSegment) {
-        final bttvFx = bttvModifierEffects(seg.emote);
+        final bttvFx = bttvModifiers ? bttvModifierEffects(seg.emote) : 0;
         if (bttvFx != 0) {
-          // BTTV modifiers never draw: off or unattached, they read as text.
-          if (bttvModifiers) {
-            prefix = [...prefix, seg.emote];
-            prefixEffects |= bttvFx;
-            prefixText += seg.emote.code;
-          } else {
-            buffer += seg.emote.code;
-            pendingSpace = null;
-          }
+          prefix = [...prefix, seg.emote];
+          prefixEffects |= bttvFx;
+          prefixSegments.add(seg);
           continue;
         }
       }
