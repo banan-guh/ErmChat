@@ -1,0 +1,4 @@
+- Search settings
+- Report bugs from the app
+- Highlights settings are readable now
+- Chatterino, DankChat and Chatsen badges
