@@ -289,13 +289,17 @@ class StreamPanels {
                 ),
                 GestureDetector(
                   behavior: HitTestBehavior.translucent,
+                  // Reads the live fraction, not this build's: several drag
+                  // updates can land before the next rebuild.
                   onHorizontalDragUpdate: (details) => setLocal(
                     () => streamPlayer.dragSplitFraction(
-                      (frac + details.delta.dx / maxWidth).clamp(0.2, maxFrac),
+                      (streamPlayer.splitFraction.clamp(0.2, maxFrac) +
+                              details.delta.dx / maxWidth)
+                          .clamp(0.2, maxFrac),
                     ),
                   ),
                   onHorizontalDragEnd: (_) =>
-                      streamPlayer.setSplitFraction(frac),
+                      streamPlayer.setSplitFraction(streamPlayer.splitFraction),
                   child: const SizedBox(
                     width: 16,
                     child: Center(
