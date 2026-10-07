@@ -509,6 +509,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     search: _search,
     composer: _composer,
     broadcastWidgets: _broadcastWidgets,
+    unpinFor: (channel) => _chatConn.isModerationActive(channel)
+        ? (pin) =>
+              _modActions.unpinMessage(_twitchAuth, pin.channel, pin.messageId)
+        : null,
     homeAppBar: _chrome,
     selectedChannel: () => ref.read(selectedChannelProvider),
     showTimestamps: () => _showTimestamps,

@@ -18,7 +18,7 @@ import '../util/prefs.dart';
 import '../widgets/broadcast_widgets.dart';
 import '../widgets/chat_notice_bar.dart';
 import 'app_providers.dart';
-import 'chat_pipeline.dart';
+import 'chat_signals.dart';
 import 'emote_providers.dart';
 import 'ui_state_providers.dart';
 
@@ -86,16 +86,10 @@ final twitchAuthProvider = Provider<TwitchAuth>((ref) {
 });
 
 /// Broadcast chat widgets (hype train, poll, prediction) plus test fakes.
-final Provider<BroadcastWidgets> broadcastWidgetsProvider = Provider((ref) {
+final broadcastWidgetsProvider = Provider<BroadcastWidgets>((ref) {
   final widgets = BroadcastWidgets(
     selectedChannel: () => ref.read(selectedChannelProvider),
     emotes: ref.read(emoteManagerProvider),
-    // Read at call time: the pipeline itself feeds pins into these widgets.
-    canModerate: (channel) =>
-        ref.read(chatPipelineProvider).isModerationActive(channel),
-    unpin: (pin) => ref
-        .read(modActionsProvider)
-        .unpinMessage(ref.read(twitchAuthProvider), pin.channel, pin.messageId),
   );
   ref.onDispose(widgets.dispose);
   return widgets;

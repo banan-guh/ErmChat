@@ -15,6 +15,8 @@ import '../services/twitch_auth.dart';
 import '../sheets/message_menu.dart';
 import '../sheets/user_sheet.dart';
 import '../util/insets.dart';
+import '../eventsub/decode/events.dart' show PinnedMessageEvent;
+import '../services/mod_actions.dart' show ModResult;
 import '../widgets/broadcast_widgets.dart';
 import '../widgets/chat_view.dart';
 import '../widgets/glass_chrome.dart';
@@ -41,6 +43,7 @@ class ChannelPanels {
     required this.search,
     required this.composer,
     required this.broadcastWidgets,
+    required this.unpinFor,
     required this.homeAppBar,
     required this.selectedChannel,
     required this.showTimestamps,
@@ -75,6 +78,13 @@ class ChannelPanels {
   final SearchPanels search;
   final ComposerController composer;
   final BroadcastWidgets broadcastWidgets;
+
+  /// The Unpin action for [channel]'s pin, or null when the user does not
+  /// moderate it.
+  final Future<ModResult> Function(PinnedMessageEvent pin)? Function(
+    String channel,
+  )
+  unpinFor;
   final HomeAppBar homeAppBar;
   final String? Function() selectedChannel;
   final bool Function() showTimestamps;
@@ -450,6 +460,7 @@ class ChannelPanels {
           channel,
           onMinimizeChanged: broadcastWidgets.setMinimized,
           glass: glass,
+          unpin: unpinFor(channel),
         ) ??
         const SizedBox.shrink();
     final names = chat.names;

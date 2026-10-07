@@ -11,18 +11,7 @@ import 'chat_widget_cutout.dart';
 
 // Chat overlay widgets (hype train, poll, prediction, pin) plus test fakes.
 class BroadcastWidgets {
-  BroadcastWidgets({
-    required this.selectedChannel,
-    this.emotes,
-    this.canModerate,
-    this.unpin,
-  });
-
-  /// Whether the user moderates a channel, which offers Unpin on its pin.
-  final bool Function(String channel)? canModerate;
-
-  /// Unpins a pin through Helix; the card leaves on Twitch's unpin event.
-  final Future<ModResult> Function(PinnedMessageEvent pin)? unpin;
+  BroadcastWidgets({required this.selectedChannel, this.emotes});
 
   /// Renders emotes in pinned messages; null shows plain text.
   final EmoteLookupSource? emotes;
@@ -248,7 +237,11 @@ class BroadcastWidgets {
     clampPage();
   }
 
-  List<Widget> pagesFor(String channel) {
+  /// [unpin], when the user moderates [channel], offers Unpin on its pin.
+  List<Widget> pagesFor(
+    String channel, {
+    Future<ModResult> Function(PinnedMessageEvent pin)? unpin,
+  }) {
     final result = <Widget>[];
     final pin = pins[channel];
     if (pin != null) {
@@ -258,11 +251,8 @@ class BroadcastWidgets {
           event: pin,
           emotes: emotes,
           onDismiss: () => dismissPin(channel),
-          onUnpin:
-              unpin != null &&
-                  pin.messageId.isNotEmpty &&
-                  (canModerate?.call(channel) ?? false)
-              ? () => unpin!(pin)
+          onUnpin: unpin != null && pin.messageId.isNotEmpty
+              ? () => unpin(pin)
               : null,
         ),
       );
@@ -289,8 +279,9 @@ class BroadcastWidgets {
     String channel, {
     required void Function(String, bool) onMinimizeChanged,
     bool glass = false,
+    Future<ModResult> Function(PinnedMessageEvent pin)? unpin,
   }) {
-    final pages = pagesFor(channel);
+    final pages = pagesFor(channel, unpin: unpin);
     if (pages.isEmpty) return null;
     if (widgetsMinimized[channel] ?? false) {
       return ChatWidgetMinimizedBar(
