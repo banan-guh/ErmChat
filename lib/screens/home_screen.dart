@@ -1455,9 +1455,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     super.dispose();
   }
 
-  // Tiny phones (iPhone 8 class, under 400pt tall in landscape) enter
-  // fullscreen on rotating to landscape, hiding the top bar; the floating
-  // menu's fullscreen toggle brings it back. Leaving restores the user's own
+  // Tiny phones (iPhone 8 and SE class, under 700pt on the long side; big
+  // phones can be as short in landscape, so height alone misleads) enter
+  // fullscreen in landscape, hiding the top bar; the floating menu's
+  // fullscreen toggle brings it back. Leaving restores the user's own
   // setting. Null while not in tiny landscape.
   bool? _fullscreenBeforeTiny;
 
@@ -1466,7 +1467,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     final tiny =
         MediaQuery.maybeOrientationOf(context) == Orientation.landscape &&
         size != null &&
-        size.height < 400;
+        size.longestSide < 700;
     if (tiny && _fullscreenBeforeTiny == null) {
       _fullscreenBeforeTiny = _isFullscreen;
       if (!_isFullscreen) setState(() => _isFullscreen = true);
