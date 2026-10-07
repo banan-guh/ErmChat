@@ -22,9 +22,8 @@ class ThreadEntry {
     replies.add(msg);
     final id = msg.messageId;
     if (id != null) _replyIds.add(id);
-    // TODO: stopgap cap. Saved threads hold their full log on disk, so the
-    // in-memory index can drop the oldest replies without losing data; revisit
-    // whether a sliding window is the right shape.
+    // Only saved threads outlive the channel buffer, and their full log is on
+    // disk (the thread view merges it), so dropping the oldest loses nothing.
     if (replies.length > maxRepliesPerThread) {
       final dropped = replies.removeAt(0);
       if (dropped.messageId != null) _replyIds.remove(dropped.messageId);
