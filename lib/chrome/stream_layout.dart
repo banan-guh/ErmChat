@@ -369,6 +369,12 @@ class StreamPanels {
     final channel = streamPlayer.currentChannel;
     final landscape =
         MediaQuery.orientationOf(context) == Orientation.landscape;
+    // Tiny phones in landscape (iPhone 8 class, about 375pt tall) drop the
+    // top bar outright, as the keyboard does; compact alone leaves too
+    // little chat. Bigger phones keep the compact bar.
+    final hideChrome =
+        hideChromeForKeyboard ||
+        (landscape && MediaQuery.sizeOf(context).height < 400);
     // System PiP window shows the whole activity, so collapse to video-only
     // (DankChat hides appbar/tabs/chat/input the same way). The app root draws
     // the player above routes; this stays black so one player holds the key.
@@ -387,12 +393,7 @@ class StreamPanels {
       return Column(
         children: [
           Expanded(
-            child: split(
-              context,
-              channel,
-              maxWidth,
-              hideChrome: hideChromeForKeyboard,
-            ),
+            child: split(context, channel, maxWidth, hideChrome: hideChrome),
           ),
         ],
       );
@@ -417,7 +418,7 @@ class StreamPanels {
     // and keyboard-collapse states keep the docked layout. With no channels
     // the card holds the app bar only (no tab strip) over the welcome view.
     final glass = liquidGlass && !MediaQuery.highContrastOf(context);
-    if (glass && !hideChromeForKeyboard && channel == null) {
+    if (glass && !hideChrome && channel == null) {
       final headerH = merged
           ? glassCompactHeaderHeight(context)
           : chat.names.isNotEmpty
@@ -455,13 +456,13 @@ class StreamPanels {
         AnimatedSize(
           duration: const Duration(milliseconds: 200),
           curve: Curves.easeInOut,
-          child: !isFullscreen() && !hideChromeForKeyboard && !merged
+          child: !isFullscreen() && !hideChrome && !merged
               ? homeAppBar.appBar(context)
               : const SizedBox.shrink(),
         ),
         channels.channelTabs(
           context,
-          hideChrome: hideChromeForKeyboard,
+          hideChrome: hideChrome,
           merged: merged,
           glassChrome: glass,
           // Merged, the strip starts under the status bar, not the app bar.
