@@ -402,7 +402,7 @@ class ComposerController {
                     ? strings().whisperToHint(whisperTarget()!)
                     : strings().whisperUsageHint,
               (_, OverlayPanel.mentions, _, _) => strings().typeMessageHint,
-              // Stream and room status ("Live · … · Slow (30s)") fills an
+              // Stream and room status ("Live with … · Slow (30s)") fills an
               // otherwise generic hint, so it costs no height of its own.
               _ => withStatus ? _channelStatus() : null,
             });
