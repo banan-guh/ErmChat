@@ -243,9 +243,7 @@ class BroadcastWidgets {
 
   String Function(AppLocalizations) labelsFor(String channel) {
     final labels = <String Function(AppLocalizations)>[];
-    // The pin's own text, so a minimized pin still reads.
-    final pin = pins[channel];
-    if (pin != null) labels.add((l) => pin.text.isEmpty ? l.pinned : pin.text);
+    if (pins.containsKey(channel)) labels.add((l) => l.pinned);
     if (polls.containsKey(channel)) labels.add((l) => l.poll);
     if (predictions.containsKey(channel)) labels.add((l) => l.prediction);
     if (hypeTrains.containsKey(channel)) labels.add((l) => l.hypeTrain);
@@ -263,6 +261,8 @@ class BroadcastWidgets {
       return ChatWidgetMinimizedBar(
         labels: labelsFor(channel),
         onRestore: () => onMinimizeChanged(channel, false),
+        pin: pins[channel],
+        emotes: emotes,
         glass: glass,
       );
     }

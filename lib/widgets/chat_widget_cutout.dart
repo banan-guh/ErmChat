@@ -28,8 +28,12 @@ class ChatWidgetCutout extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    Widget surface(Widget child) =>
-        _cardSurface(context, glass: glass, child: child);
+    // A tap anywhere collapses the cards to the minimized bar.
+    Widget surface(Widget child) => _cardSurface(
+      context,
+      glass: glass,
+      child: InkWell(onTap: onMinimize, child: child),
+    );
     final minimize = IconButton(
       icon: const Icon(Icons.keyboard_arrow_down, size: 20),
       tooltip: context.l10n.minimize,
@@ -125,7 +129,8 @@ Widget _cardSurface(
     );
   }
   return Material(
-    color: theme.colorScheme.surfaceContainerHighest,
+    // The top bar's color, so the cards read as part of the chrome.
+    color: theme.colorScheme.surfaceContainer,
     shape: RoundedRectangleBorder(
       borderRadius: BorderRadius.circular(12),
       side: BorderSide(color: theme.colorScheme.outlineVariant),
@@ -135,21 +140,26 @@ Widget _cardSurface(
   );
 }
 
-/// Collapsed cutout: slim row with active widget labels and restore button.
+/// Collapsed cutout: one row with the pin's message, or the active widget
+/// labels, and a restore button. A tap anywhere restores.
 class ChatWidgetMinimizedBar extends StatelessWidget {
   const ChatWidgetMinimizedBar({
     super.key,
     required this.labels,
     required this.onRestore,
+    this.pin,
+    this.emotes,
     this.glass = false,
   });
 
   final bool glass;
 
-  static const double height = 36;
+  static const double height = 40;
 
   final String Function(AppLocalizations) labels;
   final VoidCallback onRestore;
+  final PinnedMessageEvent? pin;
+  final EmoteLookupSource? emotes;
 
   @override
   Widget build(BuildContext context) {
@@ -167,17 +177,29 @@ class ChatWidgetMinimizedBar extends StatelessWidget {
               children: [
                 const SizedBox(width: 12),
                 Icon(
-                  Icons.insights_outlined,
+                  pin == null
+                      ? Icons.insights_outlined
+                      : Icons.push_pin_outlined,
                   size: 16,
-                  color: theme.colorScheme.primary,
+                  color: pin == null
+                      ? theme.colorScheme.primary
+                      : theme.colorScheme.onSurfaceVariant,
                 ),
                 const SizedBox(width: 8),
                 Expanded(
-                  child: Text(
-                    labels(context.l10n),
-                    style: theme.textTheme.labelMedium,
-                    overflow: TextOverflow.ellipsis,
-                  ),
+                  child: switch (pin) {
+                    final pin? => Text.rich(
+                      TextSpan(children: pinnedMessageSpans(pin, emotes)),
+                      style: theme.textTheme.bodyMedium,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    null => Text(
+                      labels(context.l10n),
+                      style: theme.textTheme.labelMedium,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  },
                 ),
                 IconButton(
                   icon: const Icon(Icons.keyboard_arrow_up, size: 20),
@@ -306,77 +328,66 @@ class _HypeTrainCardState extends State<HypeTrainCard> {
   }
 }
 
-/// The channel's pinned chat message.
-class PinnedMessageCard extends StatefulWidget {
+/// "sender: message" with emotes, shared by the pin card and the bar.
+List<InlineSpan> pinnedMessageSpans(
+  PinnedMessageEvent event,
+  EmoteLookupSource? emotes,
+) => [
+  if (event.senderName.isNotEmpty)
+    TextSpan(
+      text: '${event.senderName}: ',
+      style: const TextStyle(fontWeight: FontWeight.w600),
+    ),
+  if (emotes == null)
+    TextSpan(text: event.text)
+  else
+    ...EmoteText.build(
+      text: event.text,
+      twitchPositions: event.emotes,
+      channelEmotes: emotes.lookup(event.channel, event.senderId),
+      emoteImages: emotes.images,
+    ),
+];
+
+/// The channel's pinned chat message, in full: Twitch's muted "Pinned by"
+/// line over "sender: message".
+class PinnedMessageCard extends StatelessWidget {
   const PinnedMessageCard({super.key, required this.event, this.emotes});
 
   final PinnedMessageEvent event;
   final EmoteLookupSource? emotes;
 
   @override
-  State<PinnedMessageCard> createState() => _PinnedMessageCardState();
-}
-
-/// Twitch's pin layout: muted "Pinned by" line over the message, one line
-/// until a tap anywhere expands it.
-class _PinnedMessageCardState extends State<PinnedMessageCard> {
-  bool _expanded = false;
-
-  @override
   Widget build(BuildContext context) {
-    final event = widget.event;
     final theme = Theme.of(context);
     final muted = theme.colorScheme.onSurfaceVariant;
-    final source = widget.emotes;
-    return InkWell(
-      onTap: () => setState(() => _expanded = !_expanded),
-      child: AnimatedSize(
-        duration: const Duration(milliseconds: 150),
-        alignment: Alignment.topCenter,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(12, 8, 44, 8),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+    // Sized to the text on its own; scrolls inside the fixed-height pager.
+    return SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(12, 8, 44, 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
             children: [
-              Row(
-                children: [
-                  Icon(Icons.push_pin_outlined, size: 14, color: muted),
-                  const SizedBox(width: 6),
-                  Flexible(
-                    child: Text(
-                      event.pinnedBy.isEmpty
-                          ? context.l10n.pinned
-                          : context.l10n.pinnedBy(event.pinnedBy),
-                      style: theme.textTheme.labelMedium?.copyWith(
-                        color: muted,
-                      ),
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 2),
-              Text.rich(
-                TextSpan(
-                  children: source == null
-                      ? [TextSpan(text: event.text)]
-                      : EmoteText.build(
-                          text: event.text,
-                          twitchPositions: event.emotes,
-                          channelEmotes: source.lookup(
-                            event.channel,
-                            event.senderId,
-                          ),
-                          emoteImages: source.images,
-                        ),
+              Icon(Icons.push_pin_outlined, size: 14, color: muted),
+              const SizedBox(width: 6),
+              Flexible(
+                child: Text(
+                  event.pinnedBy.isEmpty
+                      ? context.l10n.pinned
+                      : context.l10n.pinnedBy(event.pinnedBy),
+                  style: theme.textTheme.labelMedium?.copyWith(color: muted),
+                  overflow: TextOverflow.ellipsis,
                 ),
-                style: theme.textTheme.bodyLarge,
-                maxLines: _expanded ? null : 1,
-                overflow: _expanded ? null : TextOverflow.ellipsis,
               ),
             ],
           ),
-        ),
+          const SizedBox(height: 2),
+          Text.rich(
+            TextSpan(children: pinnedMessageSpans(event, emotes)),
+            style: theme.textTheme.bodyLarge,
+          ),
+        ],
       ),
     );
   }
