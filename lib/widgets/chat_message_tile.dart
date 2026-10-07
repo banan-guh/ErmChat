@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../color_utils.dart';
+import '../l10n/l10n.dart';
 import '../models/twitch_message.dart';
 import 'seven_tv_paint_service.dart';
 import '../util/constants.dart';
@@ -313,10 +314,27 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
       // PubSub redemption headers carry the reward image inline, mirroring
       // DankChat's trailing ImageSpan. Broken images collapse to a gap.
       final redemptionImage = msg.redemptionImageUrl;
-      if (redemptionImage != null && redemptionImage.isNotEmpty) {
-        final size = 18.0 * s;
-        children = [
-          ...base,
+      final points = msg.redemptionPoints;
+      final cost = <InlineSpan>[
+        if (points != null) ...[
+          WidgetSpan(
+            alignment: PlaceholderAlignment.middle,
+            child: Padding(
+              padding: const EdgeInsets.only(left: 4, right: 2),
+              child: Icon(Icons.toll_outlined, size: 14 * s),
+            ),
+          ),
+          TextSpan(
+            text: '$points',
+            style: TextStyle(fontSize: 14 * s),
+          ),
+        ],
+      ];
+      final size = 18.0 * s;
+      final body = <InlineSpan>[
+        ...base,
+        ...cost,
+        if (redemptionImage != null && redemptionImage.isNotEmpty)
           WidgetSpan(
             alignment: PlaceholderAlignment.middle,
             child: Padding(
@@ -335,11 +353,19 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
               ),
             ),
           ),
-        ];
-      } else {
-        children = base;
-      }
-      semanticsLabel = msg.text;
+      ];
+      // Redemption headers read a touch bolder than other system rows.
+      children = (msg.messageId?.startsWith('redemp:') ?? false)
+          ? [
+              TextSpan(
+                style: const TextStyle(fontWeight: FontWeight.w500),
+                children: body,
+              ),
+            ]
+          : body;
+      semanticsLabel = points == null
+          ? msg.text
+          : '${msg.text} ${context.l10n.pointsValue(points)}';
       deleted = false;
     } else {
       final badges = widget.buildBadgeSpans(widget.channel, msg, badgeScale: s);

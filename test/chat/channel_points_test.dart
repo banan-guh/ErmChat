@@ -5,7 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 TwitchMessage row(String id, {bool system = false}) => TwitchMessage(
   login: system ? '' : 'fan',
-  text: system ? 'Fan redeemed Hydrate (500 pts)' : 'hello',
+  text: system ? 'Fan redeemed Hydrate' : 'hello',
   messageId: id,
   channel: 'shroud',
   isSystem: system,

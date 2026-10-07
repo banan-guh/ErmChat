@@ -102,6 +102,9 @@ class TwitchMessage {
   /// Reward image for PubSub redemption header rows. Null on every other row.
   final String? redemptionImageUrl;
 
+  /// Channel points cost on redemption header rows, drawn after a points icon.
+  final int? redemptionPoints;
+
   /// `pinned-chat-paid-amount` value on elevated (Hype Chat) messages.
   final String? pinnedPaidAmount;
 
@@ -165,6 +168,7 @@ class TwitchMessage {
     this.msgId,
     this.customRewardId,
     this.redemptionImageUrl,
+    this.redemptionPoints,
     this.pinnedPaidAmount,
     this.bitsAmount,
     this.userId,
@@ -203,6 +207,7 @@ class TwitchMessage {
     'msgId': msgId,
     'customRewardId': customRewardId,
     'redemptionImageUrl': redemptionImageUrl,
+    'redemptionPoints': redemptionPoints,
     'pinnedPaidAmount': pinnedPaidAmount,
     'bitsAmount': bitsAmount,
     'emotePositions': emotePositions?.map((e) => e.toJson()).toList(),
@@ -240,6 +245,7 @@ class TwitchMessage {
     msgId: json['msgId'] as String?,
     customRewardId: json['customRewardId'] as String?,
     redemptionImageUrl: json['redemptionImageUrl'] as String?,
+    redemptionPoints: (json['redemptionPoints'] as num?)?.toInt(),
     pinnedPaidAmount: json['pinnedPaidAmount'] as String?,
     bitsAmount: (json['bitsAmount'] as num?)?.toInt(),
     emotePositions: (json['emotePositions'] as List?)

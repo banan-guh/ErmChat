@@ -2434,14 +2434,6 @@
       }
     }
   },
-  "redemptionCostPoints": "({cost} pts)",
-  "@redemptionCostPoints": {
-    "placeholders": {
-      "cost": {
-        "type": "int"
-      }
-    }
-  },
   "userRedeemed": "{user} redeemed {reward}",
   "@userRedeemed": {
     "placeholders": {

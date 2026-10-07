@@ -390,9 +390,10 @@ void main() {
       final items = chat.channelFor('shroud')!.messages.items;
       expect(items, hasLength(1));
       expect(items.single.isSystem, isTrue);
-      expect(items.single.text, 'Fan redeemed Hydrate (500 pts)');
+      expect(items.single.text, 'Fan redeemed Hydrate');
       expect(items.single.messageId, 'redemp:r1');
       expect(items.single.redemptionImageUrl, 'https://cdn/x/4.png');
+      expect(items.single.redemptionPoints, 500);
 
       // Same redemption id dedups instead of stacking.
       source.add(
@@ -454,7 +455,7 @@ void main() {
       // Newest-first: chat line first, header directly above it in display.
       final items = chat.channelFor('shroud')!.messages.items;
       expect(items.map((m) => m.messageId), ['m1', 'redemp:r1']);
-      expect(items[1].text, 'Redeemed Hydrate (500 pts)');
+      expect(items[1].text, 'Redeemed Hydrate');
     });
 
     test('expired partners fall back instead of pairing', () async {

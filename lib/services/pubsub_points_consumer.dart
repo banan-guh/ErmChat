@@ -182,8 +182,13 @@ class PubSubPointsConsumer {
     final title = redemption.rewardTitle.isNotEmpty
         ? redemption.rewardTitle
         : strings().channelRewardFallback;
-    final cost = redemption.cost > 0
-        ? ' ${redemption.costInBits ? strings().redemptionCostBits(redemption.cost) : strings().redemptionCostPoints(redemption.cost)}'
+    // Points render as an icon plus the number in the tile; bits stay text.
+    final bits = redemption.cost > 0 && redemption.costInBits;
+    final points = redemption.cost > 0 && !redemption.costInBits
+        ? redemption.cost
+        : null;
+    final cost = bits
+        ? ' ${strings().redemptionCostBits(redemption.cost)}'
         : '';
     final text = withUser
         ? strings().userRedeemed(_displayName(redemption), '$title$cost')
@@ -204,6 +209,7 @@ class PubSubPointsConsumer {
       channel: channel,
       timestamp: timestamp,
       redemptionImageUrl: redemption.imageUrl,
+      redemptionPoints: points,
     );
   }
 
