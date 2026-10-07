@@ -270,21 +270,16 @@ class BroadcastWidgets {
     return result;
   }
 
-  String Function(AppLocalizations) labelsFor(String channel) {
-    final labels = <String Function(AppLocalizations)>[];
-    if (pins.containsKey(channel)) labels.add((l) => l.pinned);
-    if (polls.containsKey(channel)) labels.add((l) => l.poll);
-    if (predictions.containsKey(channel)) labels.add((l) => l.prediction);
-    final train = hypeTrains[channel];
-    if (train != null) {
-      labels.add(
-        (l) =>
-            '${l.hypeTrain} ${l.hypeTrainLevel(train.level)} · '
-            '${hypeTrainPercent(train)}%',
-      );
-    }
-    return (l) => labels.map((label) => label(l)).join(' / ');
-  }
+  List<_Card> _cardsFor(String channel) => [
+    if (pins.containsKey(channel)) _Card.pin,
+    if (polls.containsKey(channel)) _Card.poll,
+    if (predictions.containsKey(channel)) _Card.prediction,
+    if (hypeTrains.containsKey(channel)) _Card.hypeTrain,
+  ];
+
+  /// The card showing when each channel's cutout was minimized; the bar
+  /// previews it and restore returns to it.
+  final _focused = <String, _Card>{};
 
   Widget? buildOverlay(
     String channel, {
@@ -294,29 +289,69 @@ class BroadcastWidgets {
   }) {
     final pages = pagesFor(channel, unpin: unpin);
     if (pages.isEmpty) return null;
+    final cards = _cardsFor(channel);
+    final ctrl = pageCtrlFor(channel);
     if (widgetsMinimized[channel] ?? false) {
+      final focus = cards.contains(_focused[channel])
+          ? _focused[channel]!
+          : cards.first;
       return ChatWidgetMinimizedBar(
-        labels: labelsFor(channel),
-        onRestore: () => onMinimizeChanged(channel, false),
-        pin: pins[channel],
+        label: _labelFor(channel, focus),
+        icon: _iconFor(focus),
+        onRestore: () {
+          onMinimizeChanged(channel, false);
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (ctrl.positions.length == 1) {
+              ctrl.jumpToPage(_cardsFor(channel).indexOf(focus));
+            }
+          });
+        },
+        pin: focus == _Card.pin ? pins[channel] : null,
         emotes: emotes,
         glass: glass,
       );
     }
     return ChatWidgetCutout(
       pages: pages,
-      controller: pageCtrlFor(channel),
-      onMinimize: () => onMinimizeChanged(channel, true),
+      controller: ctrl,
+      onMinimize: () {
+        final now = _cardsFor(channel);
+        final page = ctrl.positions.length == 1 ? ctrl.page ?? 0 : 0.0;
+        if (now.isNotEmpty) {
+          _focused[channel] = now[page.round().clamp(0, now.length - 1)];
+        }
+        onMinimizeChanged(channel, true);
+      },
       glass: glass,
     );
   }
+
+  String Function(AppLocalizations) _labelFor(String channel, _Card card) =>
+      switch (card) {
+        _Card.pin => (l) => l.pinned,
+        _Card.poll => (_) => polls[channel]?.title ?? '',
+        _Card.prediction => (_) => predictions[channel]?.title ?? '',
+        _Card.hypeTrain => (l) {
+          final train = hypeTrains[channel];
+          if (train == null) return l.hypeTrain;
+          return '${l.hypeTrain} ${l.hypeTrainLevel(train.level)} · '
+              '${hypeTrainPercent(train)}%';
+        },
+      };
+
+  static IconData _iconFor(_Card card) => switch (card) {
+    _Card.pin => Icons.push_pin_outlined,
+    _Card.poll => Icons.poll_outlined,
+    _Card.prediction => Icons.emoji_events_outlined,
+    _Card.hypeTrain => Icons.train_outlined,
+  };
 
   void clampPage() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final channel = selectedChannel();
       if (!mounted || channel == null) return;
       final pageCtrl = pageCtrlFor(channel);
-      if (!pageCtrl.hasClients) return;
+      if (pageCtrl.positions.length != 1) return;
       final pages = pagesFor(channel).length;
       if (pages == 0) return;
       final idx = pageCtrl.page?.round() ?? 0;
@@ -334,6 +369,7 @@ class BroadcastWidgets {
     _pinExpiry.remove(channel)?.cancel();
     pins.remove(channel);
     widgetsMinimized.remove(channel);
+    _focused.remove(channel);
     _pageCtrls.remove(channel)?.dispose();
   }
 
@@ -342,3 +378,5 @@ class BroadcastWidgets {
     notifier.value++;
   }
 }
+
+enum _Card { pin, poll, prediction, hypeTrain }

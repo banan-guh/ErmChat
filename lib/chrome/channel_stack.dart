@@ -467,23 +467,25 @@ class ChannelPanels {
     final page = _swipePage.value;
     final left = page?.floor() ?? -1;
     final t = page == null ? 0.0 : page - left;
-    if (t < 0.001 || t > 0.999 || left < 0 || left + 1 >= names.length) {
-      final channel = selectedChannel();
-      return channel == null
-          ? const SizedBox.shrink()
-          : KeyedSubtree(key: ValueKey(channel), child: cards(channel));
-    }
+    final swiping =
+        t >= 0.001 && t <= 0.999 && left >= 0 && left + 1 < names.length;
+    final selected = selectedChannel();
+    final shown = swiping
+        ? [(names[left], -t), (names[left + 1], 1 - t)]
+        : [if (selected != null) (selected, 0.0)];
+    // One tree shape at rest and mid-swipe, keyed by channel, so a card
+    // keeps its state when a swipe starts instead of rebuilding.
     return LayoutBuilder(
       builder: (_, constraints) {
         final width = constraints.maxWidth;
         return ClipRect(
           child: Stack(
             children: [
-              for (final (i, dx) in [(left, -t), (left + 1, 1 - t)])
+              for (final (channel, dx) in shown)
                 Transform.translate(
-                  key: ValueKey(names[i]),
+                  key: ValueKey(channel),
                   offset: Offset(dx * width, 0),
-                  child: cards(names[i]),
+                  child: cards(channel),
                 ),
             ],
           ),

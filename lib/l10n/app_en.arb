@@ -1425,23 +1425,6 @@
       }
     }
   },
-  "readOnly": "Read-only",
-  "moreOptions": "+{count} more options",
-  "@moreOptions": {
-    "placeholders": {
-      "count": {
-        "type": "int"
-      }
-    }
-  },
-  "moreOutcomes": "+{count} more outcomes",
-  "@moreOutcomes": {
-    "placeholders": {
-      "count": {
-        "type": "int"
-      }
-    }
-  },
   "useEmote": "Use emote",
   "copy": "Copy",
   "openLink": "Open link",

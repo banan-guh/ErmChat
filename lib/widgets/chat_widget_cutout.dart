@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:intl/intl.dart';
 import '../eventsub/decode/events.dart';
 import '../l10n/l10n.dart';
@@ -9,8 +10,10 @@ import 'emote_text.dart';
 import 'glass_chrome.dart';
 import 'mod_view/dialogs.dart' show showModError;
 
-/// Fixed cutout for broadcaster widget cards (poll/prediction/hype train).
-class ChatWidgetCutout extends StatelessWidget {
+/// Cutout for chat widget cards (pin, poll, prediction, hype train). Each
+/// card sizes to its content up to [maxHeight], then scrolls. Several cards
+/// share a pager whose height follows the swipe between them.
+class ChatWidgetCutout extends StatefulWidget {
   const ChatWidgetCutout({
     super.key,
     required this.pages,
@@ -19,7 +22,7 @@ class ChatWidgetCutout extends StatelessWidget {
     this.glass = false,
   });
 
-  static const double height = 150;
+  static const double maxHeight = 220;
 
   final List<Widget> pages;
   final PageController controller;
@@ -29,21 +32,62 @@ class ChatWidgetCutout extends StatelessWidget {
   final bool glass;
 
   @override
+  State<ChatWidgetCutout> createState() => _ChatWidgetCutoutState();
+}
+
+class _ChatWidgetCutoutState extends State<ChatWidgetCutout> {
+  // Each page's natural height, reported as it lays out.
+  final _heights = <int, double>{};
+
+  @override
+  void didUpdateWidget(covariant ChatWidgetCutout oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.pages.length != widget.pages.length) _heights.clear();
+  }
+
+  void _report(int index, double height) {
+    if (_heights[index] == height) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && _heights[index] != height) {
+        setState(() => _heights[index] = height);
+      }
+    });
+  }
+
+  /// The pager's position; 0 until exactly one view is attached.
+  double get _page {
+    final c = widget.controller;
+    if (!c.hasClients || c.positions.length != 1) return 0;
+    return c.page ?? 0;
+  }
+
+  // Blends the two visible pages' heights by swipe progress.
+  double _pagerHeight() {
+    final page = _page;
+    final i = page.floor();
+    final fallback = _heights[page.round()] ?? 120;
+    final a = _heights[i] ?? fallback;
+    final b = _heights[i + 1] ?? a;
+    final h = a + (b - a) * (page - i);
+    return h.clamp(0, ChatWidgetCutout.maxHeight).toDouble();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final pages = widget.pages;
     // A tap anywhere collapses the cards to the minimized bar.
     Widget surface(Widget child) => _cardSurface(
       context,
-      glass: glass,
-      child: InkWell(onTap: onMinimize, child: child),
+      glass: widget.glass,
+      child: InkWell(onTap: widget.onMinimize, child: child),
     );
     final minimize = IconButton(
       icon: const Icon(Icons.keyboard_arrow_down, size: 20),
       tooltip: context.l10n.minimize,
       visualDensity: VisualDensity.compact,
-      onPressed: onMinimize,
+      onPressed: widget.onMinimize,
     );
-    // A lone card sizes to its content; only several share the pager.
     if (pages.length == 1) {
       final pin = pages.single is PinnedMessageCard;
       return Padding(
@@ -51,7 +95,12 @@ class ChatWidgetCutout extends StatelessWidget {
         child: surface(
           Stack(
             children: [
-              pages.single,
+              ConstrainedBox(
+                constraints: const BoxConstraints(
+                  maxHeight: ChatWidgetCutout.maxHeight,
+                ),
+                child: SingleChildScrollView(child: pages.single),
+              ),
               if (pin)
                 Positioned(
                   top: 0,
@@ -68,52 +117,85 @@ class ChatWidgetCutout extends StatelessWidget {
     }
     return Padding(
       padding: const EdgeInsets.fromLTRB(8, 0, 8, 6),
-      child: SizedBox(
-        height: height,
+      child: AnimatedBuilder(
+        animation: widget.controller,
+        builder: (context, child) =>
+            SizedBox(height: _pagerHeight(), child: child),
         child: surface(
           Stack(
             children: [
               PageView.builder(
-                controller: controller,
+                controller: widget.controller,
                 itemCount: pages.length,
-                itemBuilder: (context, index) => pages[index],
-              ),
-              Positioned(top: 2, right: 2, child: minimize),
-              if (pages.length > 1)
-                Positioned(
-                  left: 0,
-                  right: 0,
-                  bottom: 4,
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      for (var i = 0; i < pages.length; i++)
-                        AnimatedBuilder(
-                          animation: controller,
-                          builder: (context, _) {
-                            final active = (controller.page ?? 0).round() == i;
-                            return AnimatedContainer(
-                              duration: const Duration(milliseconds: 150),
-                              width: active ? 14 : 6,
-                              height: 6,
-                              margin: const EdgeInsets.symmetric(horizontal: 2),
-                              decoration: BoxDecoration(
-                                color: active
-                                    ? theme.colorScheme.primary
-                                    : theme.colorScheme.outlineVariant,
-                                borderRadius: BorderRadius.circular(3),
-                              ),
-                            );
-                          },
-                        ),
-                    ],
+                itemBuilder: (context, index) => SingleChildScrollView(
+                  child: _MeasureSize(
+                    onSize: (size) => _report(index, size.height),
+                    child: pages[index],
                   ),
                 ),
+              ),
+              Positioned(top: 2, right: 2, child: minimize),
+              Positioned(
+                left: 0,
+                right: 0,
+                bottom: 4,
+                child: AnimatedBuilder(
+                  animation: widget.controller,
+                  builder: (context, _) {
+                    final current = _page.round();
+                    return Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        for (var i = 0; i < pages.length; i++)
+                          AnimatedContainer(
+                            duration: const Duration(milliseconds: 150),
+                            width: i == current ? 14 : 6,
+                            height: 6,
+                            margin: const EdgeInsets.symmetric(horizontal: 2),
+                            decoration: BoxDecoration(
+                              color: i == current
+                                  ? theme.colorScheme.primary
+                                  : theme.colorScheme.outlineVariant,
+                              borderRadius: BorderRadius.circular(3),
+                            ),
+                          ),
+                      ],
+                    );
+                  },
+                ),
+              ),
             ],
           ),
         ),
       ),
     );
+  }
+}
+
+/// Reports its child's laid-out size.
+class _MeasureSize extends SingleChildRenderObjectWidget {
+  const _MeasureSize({required this.onSize, required super.child});
+
+  final ValueChanged<Size> onSize;
+
+  @override
+  RenderObject createRenderObject(BuildContext context) =>
+      _RenderMeasureSize(onSize);
+
+  @override
+  void updateRenderObject(BuildContext context, _RenderMeasureSize render) =>
+      render.onSize = onSize;
+}
+
+class _RenderMeasureSize extends RenderProxyBox {
+  _RenderMeasureSize(this.onSize);
+
+  ValueChanged<Size> onSize;
+
+  @override
+  void performLayout() {
+    super.performLayout();
+    onSize(size);
   }
 }
 
@@ -147,12 +229,14 @@ Widget _cardSurface(
   );
 }
 
-/// Collapsed cutout: one row with the pin's message, or the active widget
-/// labels, and a restore button. A tap anywhere restores.
+/// Collapsed cutout: one row previewing the card that was showing (the
+/// pin's message, or [icon] and [label]) and a restore button. A tap
+/// anywhere restores.
 class ChatWidgetMinimizedBar extends StatelessWidget {
   const ChatWidgetMinimizedBar({
     super.key,
-    required this.labels,
+    required this.label,
+    required this.icon,
     required this.onRestore,
     this.pin,
     this.emotes,
@@ -163,7 +247,8 @@ class ChatWidgetMinimizedBar extends StatelessWidget {
 
   static const double height = 40;
 
-  final String Function(AppLocalizations) labels;
+  final String Function(AppLocalizations) label;
+  final IconData icon;
   final VoidCallback onRestore;
   final PinnedMessageEvent? pin;
   final EmoteLookupSource? emotes;
@@ -184,9 +269,7 @@ class ChatWidgetMinimizedBar extends StatelessWidget {
               children: [
                 const SizedBox(width: 12),
                 Icon(
-                  pin == null
-                      ? Icons.insights_outlined
-                      : Icons.push_pin_outlined,
+                  pin == null ? icon : Icons.push_pin_outlined,
                   size: 16,
                   color: pin == null
                       ? theme.colorScheme.primary
@@ -202,8 +285,9 @@ class ChatWidgetMinimizedBar extends StatelessWidget {
                       overflow: TextOverflow.ellipsis,
                     ),
                     null => Text(
-                      labels(context.l10n),
+                      label(context.l10n),
                       style: theme.textTheme.labelMedium,
+                      maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
                   },
@@ -223,7 +307,6 @@ class ChatWidgetMinimizedBar extends StatelessWidget {
   }
 }
 
-/// Hype train progress card with a live countdown.
 /// Progress toward the next level, 0 to 1.
 double hypeTrainRatio(HypeTrainEvent e) =>
     e.goal > 0 ? (e.progress / e.goal).clamp(0.0, 1.0) : 0.0;
@@ -231,6 +314,7 @@ double hypeTrainRatio(HypeTrainEvent e) =>
 /// Rounded down, so 100 only shows once the level is full.
 int hypeTrainPercent(HypeTrainEvent e) => (hypeTrainRatio(e) * 100).floor();
 
+/// Hype train progress card with a live countdown.
 class HypeTrainCard extends StatefulWidget {
   const HypeTrainCard({super.key, required this.event});
 
@@ -433,10 +517,10 @@ class PinnedMessageCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final muted = theme.colorScheme.onSurfaceVariant;
-    // Sized to the text on its own; scrolls inside the fixed-height pager.
-    return SingleChildScrollView(
+    return Padding(
       padding: const EdgeInsets.fromLTRB(12, 8, 44, 8),
       child: Column(
+        mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
@@ -474,18 +558,7 @@ Widget _resultsHeader(BuildContext context, String label, String title) {
     mainAxisSize: MainAxisSize.min,
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [
-      Row(
-        children: [
-          Text(label, style: theme.textTheme.titleSmall),
-          const SizedBox(width: 8),
-          Text(
-            context.l10n.readOnly,
-            style: theme.textTheme.labelSmall?.copyWith(
-              color: theme.colorScheme.outline,
-            ),
-          ),
-        ],
-      ),
+      Text(label, style: theme.textTheme.titleSmall),
       const SizedBox(height: 2),
       Text(
         title,
@@ -530,6 +603,7 @@ class _ResultBar extends StatelessWidget {
         child: SizedBox(
           height: 24,
           child: Stack(
+            alignment: AlignmentDirectional.centerStart,
             children: [
               Positioned.fill(
                 child: ColoredBox(
@@ -586,7 +660,6 @@ class PollCard extends StatelessWidget {
       (m, c) => c.votes > m ? c.votes : m,
     );
     final votes = NumberFormat.compact();
-    final shown = event.choices.take(2).toList();
     return Padding(
       padding: const EdgeInsets.fromLTRB(14, 10, 44, 12),
       child: Column(
@@ -594,7 +667,7 @@ class PollCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _resultsHeader(context, context.l10n.poll, event.title),
-          for (final choice in shown)
+          for (final choice in event.choices)
             _ResultBar(
               title: choice.title,
               share: total > 0 ? choice.votes / total : 0,
@@ -609,11 +682,6 @@ class PollCard extends StatelessWidget {
                   color: theme.colorScheme.onSurfaceVariant,
                 ),
               ),
-            ),
-          if (event.choices.length > 2)
-            Text(
-              context.l10n.moreOptions(event.choices.length - 2),
-              style: theme.textTheme.labelSmall,
             ),
         ],
       ),
@@ -644,7 +712,6 @@ class PredictionCard extends StatelessWidget {
     final stat = theme.textTheme.labelSmall?.copyWith(
       color: theme.colorScheme.onSurfaceVariant,
     );
-    final shown = event.outcomes.take(2).toList();
     return Padding(
       padding: const EdgeInsets.fromLTRB(14, 10, 44, 12),
       child: Column(
@@ -652,7 +719,7 @@ class PredictionCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _resultsHeader(context, context.l10n.prediction, event.title),
-          for (final (i, outcome) in shown.indexed)
+          for (final (i, outcome) in event.outcomes.indexed)
             _ResultBar(
               title: outcome.title,
               share: total > 0 ? outcome.channelPoints / total : 0,
@@ -670,11 +737,6 @@ class PredictionCard extends StatelessWidget {
                   Text(compact.format(outcome.channelPoints), style: stat),
                 ],
               ),
-            ),
-          if (event.outcomes.length > 2)
-            Text(
-              context.l10n.moreOutcomes(event.outcomes.length - 2),
-              style: theme.textTheme.labelSmall,
             ),
         ],
       ),
