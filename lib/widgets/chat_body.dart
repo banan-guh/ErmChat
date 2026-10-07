@@ -290,7 +290,10 @@ class _ChatBodyState extends State<ChatBody>
       final target = _learnedH > 0 ? _learnedH : raw;
       if ((_liftH - target).abs() > 0.5) setState(() => _liftH = target);
     }
-    _settleTimer = Timer(const Duration(milliseconds: 120), () {
+    // A landed close settles fast so the dismiss unfocus follows promptly;
+    // the short wait still lets an IME switch (a blip to zero) reopen first.
+    final settle = Duration(milliseconds: raw <= 0.5 ? 40 : 120);
+    _settleTimer = Timer(settle, () {
       if (!mounted) return;
       _keyboardPump.stop();
       _glassFreeze.value = null;
