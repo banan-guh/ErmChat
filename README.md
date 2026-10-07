@@ -25,15 +25,12 @@
   <!-- Add appstore badge when listed (AppStore nobletrash38) -->
 </p>
 
-<!-- One-row table: GitHub scrolls wide tables sideways on small screens. -->
-<table align="center">
-  <tr>
-    <td><img src="fastlane/metadata/android/en-US/images/phoneScreenshots/screenshot1.jpeg" width="190" alt="Chat with a sub notice"></td>
-    <td><img src="fastlane/metadata/android/en-US/images/phoneScreenshots/screenshot2.jpeg" width="190" alt="Chat with the stream open"></td>
-    <td><img src="fastlane/metadata/android/en-US/images/phoneScreenshots/screenshot3.jpeg" width="190" alt="Chat with a deleted message and a timeout"></td>
-    <td><img src="fastlane/metadata/android/en-US/images/phoneScreenshots/screenshot4.jpeg" width="190" alt="Emote settings"></td>
-  </tr>
-</table>
+<p align="center">
+  <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/screenshot1.jpeg" width="190" alt="Chat with a sub notice">
+  <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/screenshot2.jpeg" width="190" alt="Chat with the stream open">
+  <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/screenshot3.jpeg" width="190" alt="Chat with a deleted message and a timeout">
+  <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/screenshot4.jpeg" width="190" alt="Emote settings">
+</p>
 
 ## Features
 
