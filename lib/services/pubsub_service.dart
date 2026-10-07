@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import '../eventsub/decode/events.dart';
 import '../models/point_rewards.dart';
+import '../models/twitch_message.dart' show EmotePosition;
 import '../util/connectivity.dart';
 import '../util/constants.dart';
 import '../util/log.dart';
@@ -433,19 +434,51 @@ class PubSubService {
         ? (user['display_name'] as String? ?? user['login'] as String? ?? '')
         : '';
     final content = message['content'];
+    final text = content is Map ? content['text'] as String? ?? '' : '';
+    final sender = message['sender'];
     final endsAt = (message['ends_at'] as num?)?.toInt() ?? 0;
     _pinnedController.add(
       PinnedMessageEvent(
         channel: channel,
         id: id,
-        senderName: nameOf(message['sender']),
-        text: content is Map ? content['text'] as String? ?? '' : '',
+        senderName: nameOf(sender),
+        senderId: sender is Map ? sender['id'] as String? ?? '' : '',
+        text: text,
+        emotes: content is Map
+            ? _fragmentEmotes(text, content['fragments'])
+            : const [],
         pinnedBy: nameOf(data['pinned_by']),
         endsAt: endsAt > 0
             ? DateTime.fromMillisecondsSinceEpoch(endsAt * 1000)
             : null,
       ),
     );
+  }
+
+  /// Twitch emote ranges from a pin's `fragments`, which concatenate to its
+  /// text; none when they do not.
+  static List<EmotePosition> _fragmentEmotes(String text, Object? fragments) {
+    if (fragments is! List) return const [];
+    final out = <EmotePosition>[];
+    var at = 0;
+    for (final f in fragments) {
+      if (f is! Map) return const [];
+      final part = f['text'] as String? ?? '';
+      final emote = f['emoticon'];
+      final id = emote is Map ? emote['emoticonID'] as String? : null;
+      if (id != null && part.isNotEmpty) {
+        out.add(
+          EmotePosition(
+            emoteId: id,
+            startIndex: at,
+            endIndex: at + part.length,
+            emoteCode: part,
+          ),
+        );
+      }
+      at += part.length;
+    }
+    return at == text.length ? out : const [];
   }
 
   void _scheduleReconnect() {

@@ -89,6 +89,7 @@ final twitchAuthProvider = Provider<TwitchAuth>((ref) {
 final broadcastWidgetsProvider = Provider<BroadcastWidgets>((ref) {
   final widgets = BroadcastWidgets(
     selectedChannel: () => ref.read(selectedChannelProvider),
+    emotes: ref.read(emoteManagerProvider),
   );
   ref.onDispose(widgets.dispose);
   return widgets;

@@ -109,6 +109,10 @@ class ChannelPanels {
   // changes in length, order, or membership, so reorder and same-length
   // part plus join can never serve stale pages or tabs.
   final _pageCache = <String, _CachedPage>{};
+
+  /// The channel pager's fractional page while it moves, so broadcast cards
+  /// slide with their channel instead of staying over the next one.
+  final _swipePage = ValueNotifier<double?>(null);
   final _tabCache = <String, Widget>{};
   List<String> _cachedChannels = const [];
 
@@ -334,55 +338,64 @@ class ChannelPanels {
             composer.clearSuggestions();
           },
           child: chat.names.isNotEmpty
-              ? TabbedLayout(
-                  tabs: chat.names,
-                  selectedIndex: chat.names.indexOf(selectedChannel() ?? ''),
-                  onSelectedIndexChanged: onChannelChanged,
-                  onFocusChanged: onChannelFocusChanged,
-                  onTabTapped: (index) {
-                    final channel = chat.names[index];
-                    final ctrl = scrollCtrl(channel);
-                    if (ctrl.hasClients) ctrl.jumpTo(0);
-                    atBottomNotifier(channel).value = true;
+              ? NotificationListener<ScrollUpdateNotification>(
+                  onNotification: (n) {
+                    final metrics = n.metrics;
+                    if (n.depth == 0 && metrics is PageMetrics) {
+                      _swipePage.value = metrics.page;
+                    }
+                    return false;
                   },
-                  showTabBar: !isFullscreen() && !hideChrome,
-                  fullscreen: isFullscreen(),
-                  chromeMenu: homeAppBar.chromeMenu(
-                    glass: glassOverlay || glassChrome,
+                  child: TabbedLayout(
+                    tabs: chat.names,
+                    selectedIndex: chat.names.indexOf(selectedChannel() ?? ''),
+                    onSelectedIndexChanged: onChannelChanged,
+                    onFocusChanged: onChannelFocusChanged,
+                    onTabTapped: (index) {
+                      final channel = chat.names[index];
+                      final ctrl = scrollCtrl(channel);
+                      if (ctrl.hasClients) ctrl.jumpTo(0);
+                      atBottomNotifier(channel).value = true;
+                    },
+                    showTabBar: !isFullscreen() && !hideChrome,
+                    fullscreen: isFullscreen(),
+                    chromeMenu: homeAppBar.chromeMenu(
+                      glass: glassOverlay || glassChrome,
+                    ),
+                    // Compact merges the app bar into the strip: join as the
+                    // last tab, the other actions pinned on the right.
+                    addTab: merged ? homeAppBar.joinTab() : null,
+                    onAddTab: homeAppBar.onJoinTab,
+                    stripTrailing: merged
+                        ? Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              homeAppBar.mentionsButton(context),
+                              homeAppBar.overflowMenu(context),
+                            ],
+                          )
+                        : null,
+                    stripTopInset: merged ? statusBarHeight(context) : 0,
+                    belowTabBar: belowTabBar,
+                    glassOverlay: glassOverlay,
+                    headerOverlay: glassHeader,
+                    overlayHeaderHeight: glassHeaderHeight,
+                    pageBuilder: (_, i) {
+                      final channel = chat.names[i];
+                      return _cachedPage(context, channel, glassTopPadding);
+                    },
+                    focusOnHalfDrag: true,
+                    fastSnap: fastSnap(),
+                    preloadAdjacentPages: true,
+                    tabBuilder: (_, i) {
+                      final channel = chat.names[i];
+                      final cached = _tabCache[channel];
+                      if (cached != null) return cached;
+                      final tab = _buildTab(channel);
+                      _tabCache[channel] = tab;
+                      return tab;
+                    },
                   ),
-                  // Compact merges the app bar into the strip: join as the
-                  // last tab, the other actions pinned on the right.
-                  addTab: merged ? homeAppBar.joinTab() : null,
-                  onAddTab: homeAppBar.onJoinTab,
-                  stripTrailing: merged
-                      ? Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            homeAppBar.mentionsButton(context),
-                            homeAppBar.overflowMenu(context),
-                          ],
-                        )
-                      : null,
-                  stripTopInset: merged ? statusBarHeight(context) : 0,
-                  belowTabBar: belowTabBar,
-                  glassOverlay: glassOverlay,
-                  headerOverlay: glassHeader,
-                  overlayHeaderHeight: glassHeaderHeight,
-                  pageBuilder: (_, i) {
-                    final channel = chat.names[i];
-                    return _cachedPage(context, channel, glassTopPadding);
-                  },
-                  focusOnHalfDrag: true,
-                  fastSnap: fastSnap(),
-                  preloadAdjacentPages: true,
-                  tabBuilder: (_, i) {
-                    final channel = chat.names[i];
-                    final cached = _tabCache[channel];
-                    if (cached != null) return cached;
-                    final tab = _buildTab(channel);
-                    _tabCache[channel] = tab;
-                    return tab;
-                  },
                 )
               : glassOverlay && glassHeader != null
               ? Stack(
@@ -414,19 +427,57 @@ class ChannelPanels {
             top: overlayTop,
             left: 0,
             right: 0,
-            child: ValueListenableBuilder<int>(
-              valueListenable: broadcastWidgets.notifier,
-              builder: (_, _, _) =>
-                  broadcastWidgets.buildOverlay(
-                    selectedChannel()!,
-                    onMinimizeChanged: (ch, minimized) {
-                      broadcastWidgets.setMinimized(ch, minimized);
-                    },
-                  ) ??
-                  const SizedBox.shrink(),
+            child: ListenableBuilder(
+              listenable: Listenable.merge([
+                broadcastWidgets.notifier,
+                selectedTabIndex,
+                _swipePage,
+              ]),
+              builder: (_, _) => _broadcastOverlay(
+                glassEnabled(context, glassOverlay || glassChrome),
+              ),
             ),
           ),
       ],
+    );
+  }
+
+  /// The selected channel's broadcast cards; mid-swipe, both channels' cards,
+  /// each offset with its page.
+  Widget _broadcastOverlay(bool glass) {
+    Widget cards(String channel) =>
+        broadcastWidgets.buildOverlay(
+          channel,
+          onMinimizeChanged: broadcastWidgets.setMinimized,
+          glass: glass,
+        ) ??
+        const SizedBox.shrink();
+    final names = chat.names;
+    final page = _swipePage.value;
+    final left = page?.floor() ?? -1;
+    final t = page == null ? 0.0 : page - left;
+    if (t < 0.001 || t > 0.999 || left < 0 || left + 1 >= names.length) {
+      final channel = selectedChannel();
+      return channel == null
+          ? const SizedBox.shrink()
+          : KeyedSubtree(key: ValueKey(channel), child: cards(channel));
+    }
+    return LayoutBuilder(
+      builder: (_, constraints) {
+        final width = constraints.maxWidth;
+        return ClipRect(
+          child: Stack(
+            children: [
+              for (final (i, dx) in [(left, -t), (left + 1, 1 - t)])
+                Transform.translate(
+                  key: ValueKey(names[i]),
+                  offset: Offset(dx * width, 0),
+                  child: cards(names[i]),
+                ),
+            ],
+          ),
+        );
+      },
     );
   }
 

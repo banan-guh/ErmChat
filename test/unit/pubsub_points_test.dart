@@ -218,8 +218,21 @@ void main() {
             'id': 'pin1',
             'pinned_by': {'login': 'moddy', 'display_name': 'Moddy'},
             'message': {
-              'sender': {'login': 'moddy', 'display_name': 'Moddy'},
-              'content': {'text': 'GET THE ADDON'},
+              'sender': {
+                'id': '974273622',
+                'login': 'moddy',
+                'display_name': 'Moddy',
+              },
+              'content': {
+                'text': 'GET THE ADDON Kappa',
+                'fragments': [
+                  {'text': 'GET THE ADDON '},
+                  {
+                    'text': 'Kappa',
+                    'emoticon': {'emoticonID': '25', 'emoticonSetID': '0'},
+                  },
+                ],
+              },
               'ends_at': 1791239991,
             },
           },
@@ -245,7 +258,16 @@ void main() {
       expect(prediction.outcomes.single.channelPoints, 500);
 
       expect(pins.first.senderName, 'Moddy');
-      expect(pins.first.text, 'GET THE ADDON');
+      expect(pins.first.text, 'GET THE ADDON Kappa');
+      expect(pins.first.senderId, '974273622');
+      expect(
+        [
+          for (final e in pins.first.emotes)
+            (e.emoteId, e.startIndex, e.endIndex),
+        ],
+        [('25', 14, 19)],
+        reason: 'fragment emotes map to text ranges',
+      );
       expect(pins.first.endsAt?.millisecondsSinceEpoch, 1791239991000);
       expect(pins.last.removed, isTrue);
       expect(pins.last.id, 'pin1');

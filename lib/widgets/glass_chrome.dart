@@ -301,6 +301,13 @@ Widget glassPill({required Widget child}) => GlassSurface(
   child: child,
 );
 
+// Floating broadcast cards (pins, polls, predictions) over the chat.
+Widget glassCard({required Widget child}) => GlassSurface(
+  settings: _pillSettings,
+  shape: const LiquidRoundedSuperellipse(borderRadius: 12),
+  child: child,
+);
+
 // Focus glow for the composer. The opaque field gets the framework focus
 // ring, but the borderless glass field has no outline to tint, so this
 // rings the shell (the pill, or the docked bar) in primary with a soft halo

@@ -176,7 +176,6 @@ class ChannelManager {
     if (clearedUnread > 0 && mentionPush()) {
       unawaited(notificationService.clearMentionNotifications(channel));
     }
-    broadcastWidgets.resetPage();
     selectedTabIndex.value = index;
     session.focusChannel(channel);
   }

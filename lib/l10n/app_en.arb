@@ -1372,7 +1372,7 @@
   "noGlobalEmotes": "No global emotes",
   "minimize": "Minimize",
   "pinned": "Pinned",
-  "pinnedBy": "by {name}",
+  "pinnedBy": "Pinned by {name}",
   "@pinnedBy": {
     "placeholders": {
       "name": {

@@ -4,12 +4,16 @@ import 'package:flutter/material.dart';
 
 import '../eventsub/decode/events.dart';
 import '../l10n/l10n.dart';
+import '../services/emote_manager.dart';
 import '../util/prefs.dart';
 import 'chat_widget_cutout.dart';
 
 // Chat overlay widgets (hype train, poll, prediction, pin) plus test fakes.
 class BroadcastWidgets {
-  BroadcastWidgets({required this.selectedChannel});
+  BroadcastWidgets({required this.selectedChannel, this.emotes});
+
+  /// Renders emotes in pinned messages; null shows plain text.
+  final EmoteLookupSource? emotes;
 
   final String? Function() selectedChannel;
   final notifier = ValueNotifier<int>(0);
@@ -22,7 +26,11 @@ class BroadcastWidgets {
   // Lapses timed pins, which get no unpin event.
   final _pinExpiry = <String, Timer>{};
   final widgetsMinimized = <String, bool>{};
-  final pageCtrl = PageController();
+  // One card pager per channel: two channels' cards show mid-swipe.
+  final _pageCtrls = <String, PageController>{};
+
+  PageController pageCtrlFor(String channel) =>
+      _pageCtrls.putIfAbsent(channel, PageController.new);
 
   Timer? _testWidgetsTimer;
   int _fakeLevel = 1;
@@ -43,7 +51,9 @@ class BroadcastWidgets {
     for (final t in _pinExpiry.values) {
       t.cancel();
     }
-    pageCtrl.dispose();
+    for (final c in _pageCtrls.values) {
+      c.dispose();
+    }
     notifier.dispose();
   }
 
@@ -217,7 +227,11 @@ class BroadcastWidgets {
   List<Widget> pagesFor(String channel) {
     final result = <Widget>[];
     final pin = pins[channel];
-    if (pin != null) result.add(PinnedMessageCard(event: pin));
+    if (pin != null) {
+      result.add(
+        PinnedMessageCard(key: ValueKey(pin.id), event: pin, emotes: emotes),
+      );
+    }
     final poll = polls[channel];
     if (poll != null) result.add(PollCard(event: poll));
     final prediction = predictions[channel];
@@ -229,7 +243,9 @@ class BroadcastWidgets {
 
   String Function(AppLocalizations) labelsFor(String channel) {
     final labels = <String Function(AppLocalizations)>[];
-    if (pins.containsKey(channel)) labels.add((l) => l.pinned);
+    // The pin's own text, so a minimized pin still reads.
+    final pin = pins[channel];
+    if (pin != null) labels.add((l) => pin.text.isEmpty ? l.pinned : pin.text);
     if (polls.containsKey(channel)) labels.add((l) => l.poll);
     if (predictions.containsKey(channel)) labels.add((l) => l.prediction);
     if (hypeTrains.containsKey(channel)) labels.add((l) => l.hypeTrain);
@@ -239,6 +255,7 @@ class BroadcastWidgets {
   Widget? buildOverlay(
     String channel, {
     required void Function(String, bool) onMinimizeChanged,
+    bool glass = false,
   }) {
     final pages = pagesFor(channel);
     if (pages.isEmpty) return null;
@@ -246,20 +263,23 @@ class BroadcastWidgets {
       return ChatWidgetMinimizedBar(
         labels: labelsFor(channel),
         onRestore: () => onMinimizeChanged(channel, false),
+        glass: glass,
       );
     }
     return ChatWidgetCutout(
       pages: pages,
-      controller: pageCtrl,
+      controller: pageCtrlFor(channel),
       onMinimize: () => onMinimizeChanged(channel, true),
+      glass: glass,
     );
   }
 
   void clampPage() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted || !pageCtrl.hasClients) return;
       final channel = selectedChannel();
-      if (channel == null) return;
+      if (!mounted || channel == null) return;
+      final pageCtrl = pageCtrlFor(channel);
+      if (!pageCtrl.hasClients) return;
       final pages = pagesFor(channel).length;
       if (pages == 0) return;
       final idx = pageCtrl.page?.round() ?? 0;
@@ -267,10 +287,6 @@ class BroadcastWidgets {
         pageCtrl.jumpToPage(pages - 1);
       }
     });
-  }
-
-  void resetPage() {
-    if (pageCtrl.hasClients) pageCtrl.jumpToPage(0);
   }
 
   // Drop all state for a removed channel.
@@ -281,6 +297,7 @@ class BroadcastWidgets {
     _pinExpiry.remove(channel)?.cancel();
     pins.remove(channel);
     widgetsMinimized.remove(channel);
+    _pageCtrls.remove(channel)?.dispose();
   }
 
   void setMinimized(String channel, bool minimized) {

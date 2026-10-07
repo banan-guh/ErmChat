@@ -2,6 +2,9 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import '../eventsub/decode/events.dart';
 import '../l10n/l10n.dart';
+import '../services/emote_manager.dart';
+import 'emote_text.dart';
+import 'glass_chrome.dart';
 
 /// Fixed cutout for broadcaster widget cards (poll/prediction/hype train).
 class ChatWidgetCutout extends StatelessWidget {
@@ -10,6 +13,7 @@ class ChatWidgetCutout extends StatelessWidget {
     required this.pages,
     required this.controller,
     required this.onMinimize,
+    this.glass = false,
   });
 
   static const double height = 150;
@@ -18,34 +22,52 @@ class ChatWidgetCutout extends StatelessWidget {
   final PageController controller;
   final VoidCallback onMinimize;
 
+  /// Glass layout: the cards float as glass instead of opaque surfaces.
+  final bool glass;
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    Widget surface(Widget child) =>
+        _cardSurface(context, glass: glass, child: child);
+    final minimize = IconButton(
+      icon: const Icon(Icons.keyboard_arrow_down, size: 20),
+      tooltip: context.l10n.minimize,
+      visualDensity: VisualDensity.compact,
+      onPressed: onMinimize,
+    );
+    // A lone pin is Twitch's slim card, sized to its text, not the pager.
+    if (pages.length == 1 && pages.single is PinnedMessageCard) {
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(8, 0, 8, 6),
+        child: surface(
+          Stack(
+            children: [
+              pages.single,
+              Positioned(
+                top: 0,
+                bottom: 0,
+                right: 2,
+                child: Center(child: minimize),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
     return Padding(
       padding: const EdgeInsets.fromLTRB(8, 0, 8, 6),
       child: SizedBox(
         height: height,
-        child: Material(
-          color: theme.colorScheme.surfaceContainerHighest,
-          borderRadius: BorderRadius.circular(12),
-          clipBehavior: Clip.hardEdge,
-          child: Stack(
+        child: surface(
+          Stack(
             children: [
               PageView.builder(
                 controller: controller,
                 itemCount: pages.length,
                 itemBuilder: (context, index) => pages[index],
               ),
-              Positioned(
-                top: 2,
-                right: 2,
-                child: IconButton(
-                  icon: const Icon(Icons.keyboard_arrow_down, size: 20),
-                  tooltip: context.l10n.minimize,
-                  visualDensity: VisualDensity.compact,
-                  onPressed: onMinimize,
-                ),
-              ),
+              Positioned(top: 2, right: 2, child: minimize),
               if (pages.length > 1)
                 Positioned(
                   left: 0,
@@ -84,13 +106,45 @@ class ChatWidgetCutout extends StatelessWidget {
   }
 }
 
+/// The cards' backing: glass in the glass layout, else an opaque rounded
+/// surface with Twitch's thin outline.
+Widget _cardSurface(
+  BuildContext context, {
+  required bool glass,
+  required Widget child,
+}) {
+  final theme = Theme.of(context);
+  if (glass) {
+    return glassCard(
+      child: Material(
+        type: MaterialType.transparency,
+        borderRadius: BorderRadius.circular(12),
+        clipBehavior: Clip.antiAlias,
+        child: child,
+      ),
+    );
+  }
+  return Material(
+    color: theme.colorScheme.surfaceContainerHighest,
+    shape: RoundedRectangleBorder(
+      borderRadius: BorderRadius.circular(12),
+      side: BorderSide(color: theme.colorScheme.outlineVariant),
+    ),
+    clipBehavior: Clip.antiAlias,
+    child: child,
+  );
+}
+
 /// Collapsed cutout: slim row with active widget labels and restore button.
 class ChatWidgetMinimizedBar extends StatelessWidget {
   const ChatWidgetMinimizedBar({
     super.key,
     required this.labels,
     required this.onRestore,
+    this.glass = false,
   });
+
+  final bool glass;
 
   static const double height = 36;
 
@@ -104,33 +158,35 @@ class ChatWidgetMinimizedBar extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(8, 0, 8, 6),
       child: SizedBox(
         height: height,
-        child: Material(
-          color: theme.colorScheme.surfaceContainerHighest,
-          borderRadius: BorderRadius.circular(10),
-          clipBehavior: Clip.hardEdge,
-          child: Row(
-            children: [
-              const SizedBox(width: 12),
-              Icon(
-                Icons.insights_outlined,
-                size: 16,
-                color: theme.colorScheme.primary,
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  labels(context.l10n),
-                  style: theme.textTheme.labelMedium,
-                  overflow: TextOverflow.ellipsis,
+        child: _cardSurface(
+          context,
+          glass: glass,
+          child: InkWell(
+            onTap: onRestore,
+            child: Row(
+              children: [
+                const SizedBox(width: 12),
+                Icon(
+                  Icons.insights_outlined,
+                  size: 16,
+                  color: theme.colorScheme.primary,
                 ),
-              ),
-              IconButton(
-                icon: const Icon(Icons.keyboard_arrow_up, size: 20),
-                tooltip: context.l10n.restore,
-                visualDensity: VisualDensity.compact,
-                onPressed: onRestore,
-              ),
-            ],
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    labels(context.l10n),
+                    style: theme.textTheme.labelMedium,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.keyboard_arrow_up, size: 20),
+                  tooltip: context.l10n.restore,
+                  visualDensity: VisualDensity.compact,
+                  onPressed: onRestore,
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -251,55 +307,76 @@ class _HypeTrainCardState extends State<HypeTrainCard> {
 }
 
 /// The channel's pinned chat message.
-class PinnedMessageCard extends StatelessWidget {
-  const PinnedMessageCard({super.key, required this.event});
+class PinnedMessageCard extends StatefulWidget {
+  const PinnedMessageCard({super.key, required this.event, this.emotes});
 
   final PinnedMessageEvent event;
+  final EmoteLookupSource? emotes;
+
+  @override
+  State<PinnedMessageCard> createState() => _PinnedMessageCardState();
+}
+
+/// Twitch's pin layout: muted "Pinned by" line over the message, one line
+/// until a tap anywhere expands it.
+class _PinnedMessageCardState extends State<PinnedMessageCard> {
+  bool _expanded = false;
 
   @override
   Widget build(BuildContext context) {
+    final event = widget.event;
     final theme = Theme.of(context);
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(14, 10, 44, 16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
+    final muted = theme.colorScheme.onSurfaceVariant;
+    final source = widget.emotes;
+    return InkWell(
+      onTap: () => setState(() => _expanded = !_expanded),
+      child: AnimatedSize(
+        duration: const Duration(milliseconds: 150),
+        alignment: Alignment.topCenter,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 8, 44, 8),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Icon(Icons.push_pin, size: 16, color: theme.colorScheme.primary),
-              const SizedBox(width: 6),
-              Text(context.l10n.pinned, style: theme.textTheme.titleSmall),
-              if (event.pinnedBy.isNotEmpty) ...[
-                const SizedBox(width: 8),
-                Flexible(
-                  child: Text(
-                    context.l10n.pinnedBy(event.pinnedBy),
-                    style: theme.textTheme.labelSmall?.copyWith(
-                      color: theme.colorScheme.outline,
+              Row(
+                children: [
+                  Icon(Icons.push_pin_outlined, size: 14, color: muted),
+                  const SizedBox(width: 6),
+                  Flexible(
+                    child: Text(
+                      event.pinnedBy.isEmpty
+                          ? context.l10n.pinned
+                          : context.l10n.pinnedBy(event.pinnedBy),
+                      style: theme.textTheme.labelMedium?.copyWith(
+                        color: muted,
+                      ),
+                      overflow: TextOverflow.ellipsis,
                     ),
-                    overflow: TextOverflow.ellipsis,
                   ),
+                ],
+              ),
+              const SizedBox(height: 2),
+              Text.rich(
+                TextSpan(
+                  children: source == null
+                      ? [TextSpan(text: event.text)]
+                      : EmoteText.build(
+                          text: event.text,
+                          twitchPositions: event.emotes,
+                          channelEmotes: source.lookup(
+                            event.channel,
+                            event.senderId,
+                          ),
+                          emoteImages: source.images,
+                        ),
                 ),
-              ],
+                style: theme.textTheme.bodyLarge,
+                maxLines: _expanded ? null : 1,
+                overflow: _expanded ? null : TextOverflow.ellipsis,
+              ),
             ],
           ),
-          const SizedBox(height: 6),
-          Text.rich(
-            TextSpan(
-              children: [
-                if (event.senderName.isNotEmpty)
-                  TextSpan(
-                    text: '${event.senderName}: ',
-                    style: const TextStyle(fontWeight: FontWeight.w600),
-                  ),
-                TextSpan(text: event.text),
-              ],
-            ),
-            style: theme.textTheme.bodySmall,
-            maxLines: 4,
-            overflow: TextOverflow.ellipsis,
-          ),
-        ],
+        ),
       ),
     );
   }

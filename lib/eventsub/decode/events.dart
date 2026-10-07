@@ -1,4 +1,5 @@
 import '../../models/point_rewards.dart';
+import '../../models/twitch_message.dart' show EmotePosition;
 
 /// channel.moderate v2 action. [unknown] is forward compatibility: the raw
 /// wire string lives on [ModerationEvent.rawAction].
@@ -338,7 +339,13 @@ class PinnedMessageEvent {
   /// Pin id, shared by the pin and its unpin.
   final String id;
   final String senderName;
+
+  /// Sender's Twitch id, for their personal 7TV emotes.
+  final String senderId;
   final String text;
+
+  /// Twitch emotes in [text]; third-party ones resolve at render.
+  final List<EmotePosition> emotes;
   final String pinnedBy;
   final DateTime? endsAt;
   final bool removed;
@@ -347,7 +354,9 @@ class PinnedMessageEvent {
     required this.channel,
     required this.id,
     this.senderName = '',
+    this.senderId = '',
     this.text = '',
+    this.emotes = const [],
     this.pinnedBy = '',
     this.endsAt,
     this.removed = false,
