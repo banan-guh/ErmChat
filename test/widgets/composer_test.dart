@@ -50,7 +50,7 @@ void main() {
             mentionsPanel: const SizedBox.shrink(),
             modViewPanel: const SizedBox.shrink(),
             emotePickerBuilder:
-                (_, {required sheetBoxHeight, required bottomInset}) =>
+                (_, {required sheetBoxHeight, required inset}) =>
                     const SizedBox.shrink(),
             autocomplete: const SizedBox.shrink(),
           ),

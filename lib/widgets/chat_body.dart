@@ -25,12 +25,12 @@ typedef ChatBodyBuilder =
     });
 
 /// Builds the emote picker overlay for the computed sheet box height,
-/// raised [bottomInset] off the bottom (above the glass pill).
+/// inset from the stack edges (above the glass pill, or into the chat pane).
 typedef EmotePickerBuilder =
     Widget Function(
       BuildContext context, {
       required double sheetBoxHeight,
-      required double bottomInset,
+      required EdgeInsets inset,
     });
 
 /// Below this box height the keyboard leaves too little room for the chrome,
@@ -71,6 +71,7 @@ class ChatBody extends StatefulWidget {
     this.replyHeader,
     this.isInPip = false,
     this.bodyReadsKeyboard = true,
+    this.composerInPane = false,
   });
 
   final ChatBodyBuilder bodyBuilder;
@@ -98,6 +99,11 @@ class ChatBody extends StatefulWidget {
   /// Whether [bodyBuilder] reads maxHeight, keyboardH and composerH. When
   /// false a keyboard gesture never rebuilds the body.
   final bool bodyReadsKeyboard;
+
+  /// Docks the composer under the chat pane (via [ComposerPaneSlot] in the
+  /// body) instead of across the full width, so a side-by-side stream keeps
+  /// the full height. Overlays anchored to the composer follow it.
+  final bool composerInPane;
 
   /// Reply target card floated above the composer. Null when not replying.
   final Widget? replyHeader;
@@ -357,6 +363,31 @@ class _ChatBodyState extends State<ChatBody>
     return full - _liftH - composerH;
   }
 
+  // Where the in-pane composer sits in the body stack: its side insets and
+  // its top's height above the stack bottom. Measured post-layout.
+  EdgeInsets _paneInsets = EdgeInsets.zero;
+
+  void _cachePaneInsets() {
+    if (!mounted || !widget.composerInPane) return;
+    final bar = inputBarKey.currentContext?.findRenderObject();
+    final stack = _chromeKey.currentContext?.findRenderObject();
+    if (bar is! RenderBox || stack is! RenderBox) return;
+    if (!bar.hasSize || !stack.hasSize) return;
+    final at = bar.localToGlobal(Offset.zero, ancestor: stack);
+    final insets = EdgeInsets.fromLTRB(
+      at.dx,
+      0,
+      stack.size.width - at.dx - bar.size.width,
+      stack.size.height - at.dy,
+    );
+    bool moved(double a, double b) => (a - b).abs() > 0.5;
+    if (moved(insets.left, _paneInsets.left) ||
+        moved(insets.right, _paneInsets.right) ||
+        moved(insets.bottom, _paneInsets.bottom)) {
+      setState(() => _paneInsets = insets);
+    }
+  }
+
   void _cacheComposerH() {
     if (!mounted || widget.composer == null) return;
     final h = inputBarKey.currentContext?.size?.height;
@@ -396,7 +427,10 @@ class _ChatBodyState extends State<ChatBody>
     // Cache the settled composer height after layout for keyboard-room
     // math; converges after one extra frame on height changes.
     if (composer != null) {
-      WidgetsBinding.instance.addPostFrameCallback((_) => _cacheComposerH());
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _cacheComposerH();
+        _cachePaneInsets();
+      });
     }
     if (widget.replyHeader != null) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _cacheReplyH());
@@ -411,7 +445,9 @@ class _ChatBodyState extends State<ChatBody>
     );
     // Glass pill footprint, shared with the list bottom padding upstream.
     // Independent of the keyboard, so focusing never reshapes the composer.
+    final pane = widget.composerInPane && composer != null && !widget.isInPip;
     final pill =
+        !pane &&
         widget.liquidGlass &&
         composer != null &&
         !widget.isInPip &&
@@ -479,11 +515,14 @@ class _ChatBodyState extends State<ChatBody>
       );
     }
     final body = _body!;
+    // Overlays anchored to the composer: above the pill or in-flow bar, or
+    // within the chat pane when the composer docks there.
+    final anchor = pane ? _paneInsets : EdgeInsets.only(bottom: clearance);
     final reply = Positioned(
       key: const ValueKey('reply_header'),
-      left: (pill ? kGlassComposerMargin : 8.0) - 4,
-      right: (pill ? kGlassComposerMargin : 8.0) - 4,
-      bottom: clearance,
+      left: anchor.left + (pill ? kGlassComposerMargin : 8.0) - 4,
+      right: anchor.right + (pill ? kGlassComposerMargin : 8.0) - 4,
+      bottom: anchor.bottom,
       child: NotificationListener<SizeChangedLayoutNotification>(
         onNotification: (_) {
           WidgetsBinding.instance.addPostFrameCallback((_) => _cacheReplyH());
@@ -499,12 +538,13 @@ class _ChatBodyState extends State<ChatBody>
     );
     // Autocomplete dropdown - floats above chat, anchored just above the
     // message input, 60% width like DankChat's popup.
+    final anchorW = size.width - anchor.left - anchor.right;
     final autocomplete = Positioned(
       key: const ValueKey('autocomplete'),
-      bottom: clearance,
-      left: 0,
+      bottom: anchor.bottom,
+      left: anchor.left,
       child: SizedBox(
-        width: (size.width * 0.6).clamp(0.0, 340.0),
+        width: (anchorW * 0.6).clamp(0.0, 340.0),
         child: ConstrainedBox(
           constraints: BoxConstraints(maxHeight: size.height * 0.25),
           child: widget.autocomplete,
@@ -517,9 +557,9 @@ class _ChatBodyState extends State<ChatBody>
         ? null
         : Positioned(
             key: const ValueKey('chat_notice'),
-            bottom: clearance,
-            left: 0,
-            right: 0,
+            bottom: anchor.bottom,
+            left: anchor.left,
+            right: anchor.right,
             child: widget.notice!,
           );
     // The composer, keyed so the field moves intact across the pill and
@@ -586,6 +626,31 @@ class _ChatBodyState extends State<ChatBody>
               ),
             ),
           );
+    // The composer docked under the chat pane. Same keys as the other two
+    // paths, and gated on !_pillShown, so only one copy mounts and focus
+    // survives the move.
+    final paneSlot = !pane || _pillShown
+        ? null
+        : Padding(
+            key: inputBarKey,
+            padding: EdgeInsets.only(bottom: bottomPad),
+            child: NotificationListener<SizeChangedLayoutNotification>(
+              onNotification: (_) {
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  _cacheComposerH();
+                  _cachePaneInsets();
+                });
+                return true;
+              },
+              child: SizeChangedLayoutNotifier(
+                child: ComposerFocusGlow(
+                  enabled: widget.liquidGlass,
+                  radius: 0,
+                  child: composerSlot(composer),
+                ),
+              ),
+            ),
+          );
     // No manual lift: the Scaffold shrank the body, so the composer sits
     // above the keyboard at settled constraints with no second animator
     // to cross the system motion. The key stays for post-layout measuring.
@@ -616,7 +681,11 @@ class _ChatBodyState extends State<ChatBody>
                           // sizing below measures the box as if the composer
                           // were in flow (opaque), then raises the picker
                           // above the pill without moving its top.
-                          final inFlowH = pill ? _composerH + bottomPad : 0.0;
+                          final inFlowH = pill
+                              ? _composerH + bottomPad
+                              : pane
+                              ? _paneInsets.bottom
+                              : 0.0;
                           final fullBoxH =
                               (_fullBoxHeight ?? constraints.maxHeight) -
                               statusBarH -
@@ -640,7 +709,7 @@ class _ChatBodyState extends State<ChatBody>
                           return Stack(
                             clipBehavior: Clip.hardEdge,
                             children: [
-                              body,
+                              ComposerPaneScope(slot: paneSlot, child: body),
                               reply,
                               widget.threadPanel,
                               widget.mentionsPanel,
@@ -648,7 +717,11 @@ class _ChatBodyState extends State<ChatBody>
                               widget.emotePickerBuilder(
                                 context,
                                 sheetBoxHeight: sheetBoxHeight,
-                                bottomInset: pill ? clearance : 0,
+                                inset: pane
+                                    ? _paneInsets
+                                    : EdgeInsets.only(
+                                        bottom: pill ? clearance : 0,
+                                      ),
                               ),
                               autocomplete,
                               ?notice,
@@ -667,15 +740,15 @@ class _ChatBodyState extends State<ChatBody>
           // pill and the in-flow never mount together: one shared inputBarKey
           // keeps the composer's FocusNode alive across the hand-off.
           Padding(
-            padding: EdgeInsets.only(bottom: pill ? 0.0 : bottomPad),
+            padding: EdgeInsets.only(bottom: pill || pane ? 0.0 : bottomPad),
             child: AnimatedSize(
               duration: const Duration(milliseconds: 220),
               curve: Curves.easeInOut,
               alignment: Alignment.bottomCenter,
               child: AnimatedOpacity(
                 duration: const Duration(milliseconds: 160),
-                opacity: !pill && composer != null ? 1.0 : 0.0,
-                child: pill || _pillShown || composer == null
+                opacity: !pill && !pane && composer != null ? 1.0 : 0.0,
+                child: pill || pane || _pillShown || composer == null
                     ? const SizedBox.shrink()
                     : Padding(
                         key: inputBarKey,
@@ -754,4 +827,30 @@ class _Eased {
     _startPending = false;
     _ctrl.dispose();
   }
+}
+
+/// Carries the docked composer from [ChatBody] down to the chat pane.
+class ComposerPaneScope extends InheritedWidget {
+  const ComposerPaneScope({
+    super.key,
+    required this.slot,
+    required super.child,
+  });
+
+  final Widget? slot;
+
+  @override
+  bool updateShouldNotify(ComposerPaneScope oldWidget) =>
+      slot != oldWidget.slot;
+}
+
+/// Where a side chat pane shows the docked composer; empty otherwise. Only
+/// this widget rebuilds when the composer does, not the pane around it.
+class ComposerPaneSlot extends StatelessWidget {
+  const ComposerPaneSlot({super.key});
+
+  @override
+  Widget build(BuildContext context) =>
+      context.dependOnInheritedWidgetOfExactType<ComposerPaneScope>()?.slot ??
+      const SizedBox.shrink();
 }

@@ -8,6 +8,7 @@ import '../services/pip_service.dart';
 import '../services/stream_player_controller.dart';
 import '../util/insets.dart';
 import '../util/layout_density.dart';
+import '../widgets/chat_body.dart' show ComposerPaneSlot;
 import '../widgets/glass_chrome.dart';
 import '../widgets/stream_player_view.dart';
 import 'channel_stack.dart';
@@ -223,10 +224,18 @@ class StreamPanels {
               color: scheme.surface.withValues(alpha: 0.92),
               child: SafeArea(
                 left: false,
-                child: channels.channelStack(
-                  context,
-                  hideChrome: true,
-                  overlayTop: 8,
+                bottom: false,
+                child: Column(
+                  children: [
+                    Expanded(
+                      child: channels.channelStack(
+                        context,
+                        hideChrome: true,
+                        overlayTop: 8,
+                      ),
+                    ),
+                    const ComposerPaneSlot(),
+                  ],
                 ),
               ),
             ),
@@ -286,16 +295,38 @@ class StreamPanels {
               ),
             ),
             Expanded(
-              child: channels.channelStack(
-                context,
-                hideChrome: false,
-                overlayTop: 50,
+              child: Column(
+                children: [
+                  Expanded(
+                    child: channels.channelStack(
+                      context,
+                      hideChrome: false,
+                      overlayTop: 50,
+                    ),
+                  ),
+                  const ComposerPaneSlot(),
+                ],
               ),
             ),
           ],
         );
       },
     );
+  }
+
+  /// Whether chat sits in a pane beside the stream (landscape theater with
+  /// chat shown, or split on a wide screen), matching [bodyColumn]. The
+  /// composer then docks under that pane so the stream keeps full height.
+  bool chatInPane(BuildContext context) {
+    if (streamPlayer.currentChannel == null ||
+        streamPlayer.isAudioOnly ||
+        streamPlayer.isInPip) {
+      return false;
+    }
+    final landscape =
+        MediaQuery.orientationOf(context) == Orientation.landscape;
+    if (streamPlayer.isTheaterMode && landscape) return theaterChatVisible();
+    return MediaQuery.sizeOf(context).width >= 600;
   }
 
   Widget bodyColumn(

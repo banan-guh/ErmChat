@@ -480,7 +480,7 @@ Widget noticeHarness(ChatNoticeController controller) {
         mentionsPanel: const SizedBox.shrink(),
         modViewPanel: const SizedBox.shrink(),
         emotePickerBuilder:
-            (context, {required sheetBoxHeight, required bottomInset}) =>
+            (context, {required sheetBoxHeight, required inset}) =>
                 const SizedBox.shrink(),
         autocomplete: const SizedBox.shrink(),
         emoteMaxFraction: 0.5,
@@ -556,9 +556,8 @@ Widget stackedPlayerHarness({required bool showVideo}) {
         threadPanel: const SizedBox.shrink(),
         mentionsPanel: const SizedBox.shrink(),
         modViewPanel: const SizedBox.shrink(),
-        emotePickerBuilder:
-            (_, {required sheetBoxHeight, required bottomInset}) =>
-                const SizedBox.shrink(),
+        emotePickerBuilder: (_, {required sheetBoxHeight, required inset}) =>
+            const SizedBox.shrink(),
         autocomplete: const SizedBox.shrink(),
         emoteMaxFraction: 0.6,
         composer: const SizedBox(height: 56),
@@ -584,7 +583,7 @@ Widget pipCollapseHarness({required bool isInPip}) {
         mentionsPanel: const SizedBox.shrink(),
         modViewPanel: const SizedBox.shrink(),
         emotePickerBuilder:
-            (context, {required sheetBoxHeight, required bottomInset}) =>
+            (context, {required sheetBoxHeight, required inset}) =>
                 const SizedBox.shrink(),
         autocomplete: const SizedBox.shrink(),
         emoteMaxFraction: 0.5,

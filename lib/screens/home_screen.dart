@@ -1693,6 +1693,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
             isInPip: _streamPlayer.isInPip,
             // Keyboard room only decides whether a stacked player hides.
             bodyReadsKeyboard: _streamPlayer.currentChannel != null,
+            composerInPane: _stream.chatInPane(context),
             bodyBuilder:
                 (
                   context, {
@@ -1730,10 +1731,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                   _userSheets.showUserProfile(context, login, null),
             ),
             emotePickerBuilder:
-                (context, {required sheetBoxHeight, required bottomInset}) =>
+                (context, {required sheetBoxHeight, required inset}) =>
                     _buildEmotePicker(
                       sheetBoxHeight: sheetBoxHeight,
-                      bottomInset: bottomInset,
+                      inset: inset,
                     ),
             autocomplete: ValueListenableBuilder<List<Suggestion>>(
               valueListenable: _composer.suggestions,
@@ -1775,13 +1776,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   /// then wide split, else the stacked portrait player above chat.
   Widget _buildEmotePicker({
     required double sheetBoxHeight,
-    required double bottomInset,
+    required EdgeInsets inset,
   }) {
     return Positioned(
       key: const ValueKey('emote_picker'),
-      bottom: bottomInset,
-      left: 0,
-      right: 0,
+      bottom: inset.bottom,
+      left: inset.left,
+      right: inset.right,
       height: sheetBoxHeight,
       child: ScaleTransition(
         scale: _panelScaleCtrl,

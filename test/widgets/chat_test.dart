@@ -219,7 +219,7 @@ void main() {
               mentionsPanel: const SizedBox.shrink(),
               modViewPanel: const SizedBox.shrink(),
               emotePickerBuilder:
-                  (_, {required sheetBoxHeight, required bottomInset}) =>
+                  (_, {required sheetBoxHeight, required inset}) =>
                       const SizedBox.shrink(),
               autocomplete: const SizedBox.shrink(),
               emoteMaxFraction: 0.6,
@@ -293,7 +293,7 @@ void main() {
               mentionsPanel: const SizedBox.shrink(),
               modViewPanel: const SizedBox.shrink(),
               emotePickerBuilder:
-                  (_, {required sheetBoxHeight, required bottomInset}) =>
+                  (_, {required sheetBoxHeight, required inset}) =>
                       const SizedBox.shrink(),
               autocomplete: const SizedBox.shrink(),
               emoteMaxFraction: 0.6,
@@ -526,7 +526,7 @@ void main() {
               mentionsPanel: const SizedBox.shrink(),
               modViewPanel: const SizedBox.shrink(),
               emotePickerBuilder:
-                  (_, {required sheetBoxHeight, required bottomInset}) =>
+                  (_, {required sheetBoxHeight, required inset}) =>
                       const SizedBox.shrink(),
               autocomplete: const SizedBox.shrink(),
             ),
@@ -588,7 +588,7 @@ void main() {
               mentionsPanel: const SizedBox.shrink(),
               modViewPanel: const SizedBox.shrink(),
               emotePickerBuilder:
-                  (_, {required sheetBoxHeight, required bottomInset}) =>
+                  (_, {required sheetBoxHeight, required inset}) =>
                       const SizedBox.shrink(),
               autocomplete: const SizedBox.shrink(),
             ),
@@ -693,7 +693,7 @@ void main() {
                   mentionsPanel: const SizedBox.shrink(),
                   modViewPanel: const SizedBox.shrink(),
                   emotePickerBuilder:
-                      (_, {required sheetBoxHeight, required bottomInset}) =>
+                      (_, {required sheetBoxHeight, required inset}) =>
                           const SizedBox.shrink(),
                   autocomplete: const SizedBox.shrink(),
                 ),

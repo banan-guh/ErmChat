@@ -205,7 +205,7 @@ void main() {
               mentionsPanel: const SizedBox.shrink(),
               modViewPanel: const SizedBox.shrink(),
               emotePickerBuilder:
-                  (context, {required sheetBoxHeight, required bottomInset}) {
+                  (context, {required sheetBoxHeight, required inset}) {
                     seenH = sheetBoxHeight;
                     return Positioned(
                       bottom: 0,
