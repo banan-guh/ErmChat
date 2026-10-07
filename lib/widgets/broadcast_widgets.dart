@@ -97,6 +97,7 @@ class BroadcastWidgets {
       if (pins[channel]?.id != event.id) return;
       _dropPin(channel);
     } else {
+      if (_dismissedPins.contains(event.id)) return;
       _pinExpiry.remove(channel)?.cancel();
       pins[channel] = event;
       final left = event.endsAt?.difference(DateTime.now());
@@ -109,6 +110,17 @@ class BroadcastWidgets {
     }
     notifier.value++;
     clampPage();
+  }
+
+  /// Pins the user closed; a repeat push of the same pin stays hidden.
+  final _dismissedPins = <String>{};
+
+  /// Hides [channel]'s current pin on this device; a new pin still shows.
+  void dismissPin(String channel) {
+    final pin = pins[channel];
+    if (pin == null) return;
+    _dismissedPins.add(pin.id);
+    _dropPin(channel);
   }
 
   void _dropPin(String channel) {
@@ -229,7 +241,12 @@ class BroadcastWidgets {
     final pin = pins[channel];
     if (pin != null) {
       result.add(
-        PinnedMessageCard(key: ValueKey(pin.id), event: pin, emotes: emotes),
+        PinnedMessageCard(
+          key: ValueKey(pin.id),
+          event: pin,
+          emotes: emotes,
+          onDismiss: () => dismissPin(channel),
+        ),
       );
     }
     final poll = polls[channel];
@@ -263,6 +280,7 @@ class BroadcastWidgets {
         onRestore: () => onMinimizeChanged(channel, false),
         pin: pins[channel],
         emotes: emotes,
+        onDismissPin: () => dismissPin(channel),
         glass: glass,
       );
     }

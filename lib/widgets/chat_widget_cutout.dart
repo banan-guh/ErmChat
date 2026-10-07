@@ -149,6 +149,7 @@ class ChatWidgetMinimizedBar extends StatelessWidget {
     required this.onRestore,
     this.pin,
     this.emotes,
+    this.onDismissPin,
     this.glass = false,
   });
 
@@ -160,6 +161,7 @@ class ChatWidgetMinimizedBar extends StatelessWidget {
   final VoidCallback onRestore;
   final PinnedMessageEvent? pin;
   final EmoteLookupSource? emotes;
+  final VoidCallback? onDismissPin;
 
   @override
   Widget build(BuildContext context) {
@@ -201,6 +203,8 @@ class ChatWidgetMinimizedBar extends StatelessWidget {
                     ),
                   },
                 ),
+                if (pin != null && onDismissPin != null)
+                  _DismissPinButton(onPressed: onDismissPin!),
                 IconButton(
                   icon: const Icon(Icons.keyboard_arrow_up, size: 20),
                   tooltip: context.l10n.restore,
@@ -328,6 +332,21 @@ class _HypeTrainCardState extends State<HypeTrainCard> {
   }
 }
 
+/// Closes the pin for this user only, like Twitch's "hide for me".
+class _DismissPinButton extends StatelessWidget {
+  const _DismissPinButton({required this.onPressed});
+
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) => IconButton(
+    icon: const Icon(Icons.close, size: 18),
+    tooltip: context.l10n.dismiss,
+    visualDensity: VisualDensity.compact,
+    onPressed: onPressed,
+  );
+}
+
 /// "sender: message" with emotes, shared by the pin card and the bar.
 List<InlineSpan> pinnedMessageSpans(
   PinnedMessageEvent event,
@@ -352,10 +371,18 @@ List<InlineSpan> pinnedMessageSpans(
 /// The channel's pinned chat message, in full: Twitch's muted "Pinned by"
 /// line over "sender: message".
 class PinnedMessageCard extends StatelessWidget {
-  const PinnedMessageCard({super.key, required this.event, this.emotes});
+  const PinnedMessageCard({
+    super.key,
+    required this.event,
+    this.emotes,
+    this.onDismiss,
+  });
 
   final PinnedMessageEvent event;
   final EmoteLookupSource? emotes;
+
+  /// Hides this pin on this device.
+  final VoidCallback? onDismiss;
 
   @override
   Widget build(BuildContext context) {
@@ -371,7 +398,7 @@ class PinnedMessageCard extends StatelessWidget {
             children: [
               Icon(Icons.push_pin_outlined, size: 14, color: muted),
               const SizedBox(width: 6),
-              Flexible(
+              Expanded(
                 child: Text(
                   event.pinnedBy.isEmpty
                       ? context.l10n.pinned
@@ -380,6 +407,7 @@ class PinnedMessageCard extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
+              if (onDismiss != null) _DismissPinButton(onPressed: onDismiss!),
             ],
           ),
           const SizedBox(height: 2),
