@@ -2799,19 +2799,21 @@
   "statusReconnecting": "Chat reconnecting...",
   "loadingChatHistory": "Loading chat history...",
   "historyGapNote": "History: Not all messages retrieved",
-  "liveWithViewers": "Live with {viewers, plural, =1{1 viewer} other{{viewers} viewers}}",
+  "liveWithViewers": "Live · {viewers, plural, =1{1 viewer} other{{viewers} viewers}}",
   "@liveWithViewers": {
     "placeholders": {
       "viewers": {
-        "type": "int"
+        "type": "int",
+        "format": "compact"
       }
     }
   },
-  "liveWithViewersFor": "Live with {viewers, plural, =1{1 viewer} other{{viewers} viewers}} for {hours}h {minutes}m",
+  "liveWithViewersFor": "Live · {viewers, plural, =1{1 viewer} other{{viewers} viewers}} · {hours}h {minutes}m",
   "@liveWithViewersFor": {
     "placeholders": {
       "viewers": {
-        "type": "int"
+        "type": "int",
+        "format": "compact"
       },
       "hours": {
         "type": "int"

@@ -97,17 +97,23 @@ class ComposerBar extends StatelessWidget {
                 suffixOverride: mod.termsSubmitSlot(),
               )
             else
-              MessageInput(
-                controller: controller.messageController,
-                focusNode: controller.focusNode,
-                onSend: controller.send,
-                onSendLongPress: controller.recallLastSent,
-                onTap: controller.onTapClearSuggestions,
-                onEmoteToggle: controller.toggleEmoteMenu,
-                enabled: controller.enabled,
-                hintText: controller.hintText,
-                inputFormatters: [controller.autocompleteRevert],
-                borderless: transparent,
+              // The hint carries the channel status, so it follows the
+              // selected channel and its status updates.
+              _ChannelListener(
+                controller: controller,
+                selectedTabIndex: selectedTabIndex,
+                builder: (context) => MessageInput(
+                  controller: controller.messageController,
+                  focusNode: controller.focusNode,
+                  onSend: controller.send,
+                  onSendLongPress: controller.recallLastSent,
+                  onTap: controller.onTapClearSuggestions,
+                  onEmoteToggle: controller.toggleEmoteMenu,
+                  enabled: controller.enabled,
+                  hintText: controller.hintText,
+                  inputFormatters: [controller.autocompleteRevert],
+                  borderless: transparent,
+                ),
               ),
             if (searchBorrowed || mod.termsChromeHidden)
               const SizedBox.shrink()
@@ -125,6 +131,40 @@ class ComposerBar extends StatelessWidget {
   }
 }
 
+/// Rebuilds [builder] when the selected channel or its info changes. The
+/// channel can change without a parent rebuild (the swipe path skips
+/// setState), so the notifiers bind to whatever channel is current.
+class _ChannelListener extends StatelessWidget {
+  const _ChannelListener({
+    required this.controller,
+    required this.selectedTabIndex,
+    required this.builder,
+  });
+
+  final ComposerController controller;
+  final ValueListenable<int> selectedTabIndex;
+  final WidgetBuilder builder;
+
+  @override
+  Widget build(BuildContext context) => ListenableBuilder(
+    listenable: selectedTabIndex,
+    builder: (context, _) {
+      final info = controller.chat
+          .channelFor(controller.selectedChannel ?? '')
+          ?.info;
+      return ListenableBuilder(
+        listenable: Listenable.merge([
+          info?.version ?? _emptyVersion,
+          info?.statusVersion ?? _emptyVersion,
+          controller.chat.loadFailedChannels,
+        ]),
+        builder: (context, _) => builder(context),
+      );
+    },
+  );
+}
+
+/// The retry link under the input when a channel's emotes failed to load.
 class _StatusRow extends StatelessWidget {
   const _StatusRow({required this.controller, required this.selectedTabIndex});
 
@@ -132,75 +172,35 @@ class _StatusRow extends StatelessWidget {
   final ValueListenable<int> selectedTabIndex;
 
   @override
-  Widget build(BuildContext context) {
-    // The selected channel can change without a parent rebuild (the swipe
-    // path skips setState), so re-read it inside the builder and bind the
-    // status notifier to whatever channel is current.
-    return ListenableBuilder(
-      listenable: selectedTabIndex,
-      builder: (context, _) {
-        final channel = controller.selectedChannel;
-        return ListenableBuilder(
-          listenable: Listenable.merge([
-            controller.chat.channelFor(channel ?? '')?.info.version ??
-                _emptyVersion,
-            controller.chat.channelFor(channel ?? '')?.info.statusVersion ??
-                _emptyVersion,
-            controller.chat.loadFailedChannels,
-          ]),
-          builder: (context, _) {
-            final status = channel == null
-                ? ''
-                : (controller.chat.channelFor(channel)?.info.status ?? '');
-            final hasStatus = status.isNotEmpty;
-            final hasLoadFailure =
-                channel != null &&
-                controller.chat.loadFailedChannels.value.contains(channel);
-            return AnimatedSize(
-              duration: const Duration(milliseconds: 300),
-              curve: Curves.easeInOut,
-              alignment: Alignment.topCenter,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  if (hasStatus)
-                    Padding(
-                      padding: const EdgeInsets.only(
-                        left: 12,
-                        right: 12,
-                        bottom: 4,
-                      ),
-                      child: Text(
-                        status,
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Theme.of(context).colorScheme.onSurfaceVariant,
-                        ),
-                        textAlign: TextAlign.center,
-                      ),
+  Widget build(BuildContext context) => _ChannelListener(
+    controller: controller,
+    selectedTabIndex: selectedTabIndex,
+    builder: (context) {
+      final channel = controller.selectedChannel;
+      final hasLoadFailure =
+          channel != null &&
+          controller.chat.loadFailedChannels.value.contains(channel);
+      return AnimatedSize(
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeInOut,
+        alignment: Alignment.topCenter,
+        child: !hasLoadFailure
+            ? const SizedBox(width: double.infinity)
+            : Padding(
+                padding: const EdgeInsets.only(bottom: 4),
+                child: InkWell(
+                  onTap: () => controller.chatConn.retryChannelData(channel),
+                  child: Text(
+                    context.l10n.retryFailedEmotes,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Theme.of(context).colorScheme.primary,
+                      decoration: TextDecoration.underline,
                     ),
-                  if (hasLoadFailure)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 4),
-                      child: InkWell(
-                        onTap: () =>
-                            controller.chatConn.retryChannelData(channel),
-                        child: Text(
-                          context.l10n.retryFailedEmotes,
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: Theme.of(context).colorScheme.primary,
-                            decoration: TextDecoration.underline,
-                          ),
-                        ),
-                      ),
-                    ),
-                ],
+                  ),
+                ),
               ),
-            );
-          },
-        );
-      },
-    );
-  }
+      );
+    },
+  );
 }

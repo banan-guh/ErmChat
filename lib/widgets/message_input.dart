@@ -103,6 +103,7 @@ class MessageInput extends StatelessWidget {
               // of a label (which sits high with no outline to notch into).
               labelText: borderless ? null : effectiveHint,
               hintText: borderless ? effectiveHint : null,
+              hintMaxLines: 1,
               border: borderless
                   ? InputBorder.none
                   : const OutlineInputBorder(),

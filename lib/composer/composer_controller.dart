@@ -400,6 +400,13 @@ class ComposerController {
                     ? strings().whisperToHint(whisperTarget()!)
                     : strings().whisperUsageHint,
               (_, OverlayPanel.mentions, _, _) => strings().typeMessageHint,
-              _ => null,
+              // Stream and room status ("Live · … · Slow mode 30s") fills an
+              // otherwise generic hint, so it costs no height of its own.
+              _ => _channelStatus(),
             });
+
+  String? _channelStatus() {
+    final status = chat.channelFor(getSelectedChannel() ?? '')?.info.status;
+    return status == null || status.isEmpty ? null : status;
+  }
 }
