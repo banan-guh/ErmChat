@@ -579,31 +579,25 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
                     },
                   ),
                   if (type == EmoteType.ffz && (enabled[type] ?? true))
-                    _subSwitch(
-                      context.l10n.ffzEffects,
-                      'ffzX, ffzW ...',
-                      _ffzEffects,
-                      (v) async {
-                        setState(() => _ffzEffects = v);
-                        setSheetState(() {});
-                        final prefs = await Prefs.load();
-                        await prefs.setFfzEffects(v);
-                        PrefsStore.instance.notifyChanged();
-                      },
-                    ),
+                    _subCheckbox(context.l10n.ffzEffects, _ffzEffects, (
+                      v,
+                    ) async {
+                      setState(() => _ffzEffects = v);
+                      setSheetState(() {});
+                      final prefs = await Prefs.load();
+                      await prefs.setFfzEffects(v);
+                      PrefsStore.instance.notifyChanged();
+                    }),
                   if (type == EmoteType.bttv && (enabled[type] ?? true))
-                    _subSwitch(
-                      context.l10n.bttvModifiers,
-                      'w!, h! ...',
-                      _bttvModifiers,
-                      (v) async {
-                        setState(() => _bttvModifiers = v);
-                        setSheetState(() {});
-                        final prefs = await Prefs.load();
-                        await prefs.setBttvModifiers(v);
-                        PrefsStore.instance.notifyChanged();
-                      },
-                    ),
+                    _subCheckbox(context.l10n.bttvModifiers, _bttvModifiers, (
+                      v,
+                    ) async {
+                      setState(() => _bttvModifiers = v);
+                      setSheetState(() {});
+                      final prefs = await Prefs.load();
+                      await prefs.setBttvModifiers(v);
+                      PrefsStore.instance.notifyChanged();
+                    }),
                 ],
                 const SizedBox(height: 8),
               ],
@@ -614,19 +608,15 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
     );
   }
 
-  Widget _subSwitch(
-    String title,
-    String subtitle,
-    bool value,
-    ValueChanged<bool> onChanged,
-  ) => SwitchListTile(
-    contentPadding: const EdgeInsets.only(left: 56, right: 24),
-    dense: true,
-    title: Text(title),
-    subtitle: Text(subtitle),
-    value: value,
-    onChanged: onChanged,
-  );
+  Widget _subCheckbox(String title, bool value, ValueChanged<bool> onChanged) =>
+      CheckboxListTile(
+        contentPadding: const EdgeInsets.only(left: 40, right: 24),
+        dense: true,
+        visualDensity: VisualDensity.compact,
+        title: Text(title),
+        value: value,
+        onChanged: (v) => onChanged(v ?? value),
+      );
 
   Widget _buildCacheFooter(BuildContext context) {
     final textStyle = Theme.of(context).textTheme.bodySmall?.copyWith(
