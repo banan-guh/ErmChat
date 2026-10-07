@@ -311,47 +311,40 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
                 ),
               ),
             ];
-      // PubSub redemption headers carry the reward image inline, mirroring
-      // DankChat's trailing ImageSpan. Broken images collapse to a gap.
+      // PubSub redemption headers: the reward image, then the cost, like
+      // DankChat. A missing or broken image falls back to a points glyph.
       final redemptionImage = msg.redemptionImageUrl;
       final points = msg.redemptionPoints;
-      final cost = <InlineSpan>[
-        if (points != null) ...[
+      final size = 18.0 * s;
+      final glyph = Icon(Icons.toll_outlined, size: 14 * s);
+      final image = redemptionImage != null && redemptionImage.isNotEmpty
+          ? CachedNetworkImage(
+              imageUrl: redemptionImage,
+              width: size,
+              height: size,
+              fit: BoxFit.contain,
+              fadeInDuration: Duration.zero,
+              placeholder: (_, _) => SizedBox(width: size, height: size),
+              errorWidget: (_, failedUrl, error) {
+                logDebug('Redemption image load failed: $failedUrl - $error');
+                return points != null ? glyph : SizedBox(width: size);
+              },
+            )
+          : null;
+      final body = <InlineSpan>[
+        ...base,
+        if (image != null || points != null)
           WidgetSpan(
             alignment: PlaceholderAlignment.middle,
             child: Padding(
               padding: const EdgeInsets.only(left: 4, right: 2),
-              child: Icon(Icons.toll_outlined, size: 14 * s),
+              child: image ?? glyph,
             ),
           ),
+        if (points != null)
           TextSpan(
             text: '$points',
             style: TextStyle(fontSize: 14 * s),
-          ),
-        ],
-      ];
-      final size = 18.0 * s;
-      final body = <InlineSpan>[
-        ...base,
-        ...cost,
-        if (redemptionImage != null && redemptionImage.isNotEmpty)
-          WidgetSpan(
-            alignment: PlaceholderAlignment.middle,
-            child: Padding(
-              padding: const EdgeInsets.only(left: 4),
-              child: CachedNetworkImage(
-                imageUrl: redemptionImage,
-                width: size,
-                height: size,
-                fit: BoxFit.contain,
-                fadeInDuration: Duration.zero,
-                placeholder: (_, _) => SizedBox(width: size, height: size),
-                errorWidget: (_, failedUrl, error) {
-                  logDebug('Redemption image load failed: $failedUrl - $error');
-                  return SizedBox(width: size, height: size);
-                },
-              ),
-            ),
           ),
       ];
       // Redemption headers read a touch bolder than other system rows.
