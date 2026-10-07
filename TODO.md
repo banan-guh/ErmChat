@@ -108,3 +108,9 @@ Skipped from the survey: emoji picker (the keyboard has one), follow/unfollow, p
 - more friendly err messages
 - input bar in threads/glass
 - system takes priority rather than user in highlights
+
+
+ideas:
+- anti-typo
+- anti-typo (manual) - swipe to send
+- auto-clap

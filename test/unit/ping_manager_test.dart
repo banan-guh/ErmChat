@@ -73,6 +73,7 @@ void main() {
         wordBoundary: true,
         enabled: false,
         notify: true,
+        tint: false,
         colorArgb: 0xFFE57373,
       );
       final decoded = decodeRules(encodeRules([rule]));
@@ -87,7 +88,9 @@ void main() {
             '[{"id":"old","kind":"message","type":"custom",'
             r'"pattern":"\\bKappa\\d+","isRegex":true,"caseSensitive":true}]',
       });
-      expect(m.rules.firstWhere((r) => r.id == 'old').pattern, r'\bKappa\d+');
+      final old = m.rules.firstWhere((r) => r.id == 'old');
+      expect(old.pattern, r'\bKappa\d+');
+      expect(old.tint, isTrue, reason: 'rules saved before tint still tint');
       expect(m.evaluate(msg('Kappa123')), isNull, reason: 'now plain text');
       expect(m.evaluate(msg(r'see \bkappa\d+')), isNotNull);
     });
@@ -192,6 +195,29 @@ void main() {
       expect(state?.types, {HighlightType.tint});
       expect(state?.hasMention, isFalse);
       expect(state?.notify, isFalse);
+    });
+
+    test('notify-only rules ping and fill @mentions without tinting', () async {
+      final m = await makeManager();
+      m.setAccount('me');
+      m.upsertRule(custom('KEKW').copyWith(notify: true, tint: false));
+      final state = m.evaluate(msg('KEKW'));
+      expect(state?.notify, isTrue);
+      expect(state?.hasMention, isTrue);
+      expect(state?.tinted, isFalse);
+
+      // A tinting rule on the same line colors it with its own color.
+      m.upsertRule(
+        const PingRule(
+          id: 'pog',
+          kind: PingRuleKind.message,
+          pattern: 'pog',
+          colorArgb: 0xFF64B5F6,
+        ),
+      );
+      final both = m.evaluate(msg('KEKW pog'));
+      expect(both?.tinted, isTrue);
+      expect(both?.customColor, const Color(0xFF64B5F6));
     });
   });
 

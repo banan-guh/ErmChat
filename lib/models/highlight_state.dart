@@ -25,11 +25,18 @@ class HighlightState {
   /// Whether any matching rule asked for a system notification.
   final bool notify;
 
+  /// The [types] whose rules color the row; null means all of them. Empty
+  /// when every match notifies without tinting.
+  final Set<HighlightType>? tinting;
+
   const HighlightState({
     required this.types,
     this.customColor,
     this.notify = false,
+    this.tinting,
   });
+
+  bool get tinted => (tinting ?? types).isNotEmpty;
 
   static const _mentionTypes = {
     HighlightType.username,
@@ -54,7 +61,12 @@ class HighlightState {
     HighlightType.username,
   ];
 
-  HighlightType get primary {
+  HighlightType get primary => _primaryOf(types);
+
+  /// The type whose palette entry colors the row.
+  HighlightType get tintPrimary => _primaryOf(tinting ?? types);
+
+  static HighlightType _primaryOf(Set<HighlightType> types) {
     for (final t in _priority.reversed) {
       if (types.contains(t)) return t;
     }

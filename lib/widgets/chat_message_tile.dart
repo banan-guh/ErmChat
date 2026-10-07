@@ -508,7 +508,7 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
       );
     }
     final highlight = msg.highlight;
-    if (highlight != null) {
+    if (highlight != null && highlight.tinted) {
       rowColor = highlightRowColor(
         highlight,
         rowColor,

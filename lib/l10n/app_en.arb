@@ -295,6 +295,7 @@
   "levelOff": "Off",
   "levelHighlight": "Highlight",
   "levelNotify": "Notify",
+  "levelNotifyOnly": "Notify only",
   "levelNotifyMuted": "Notify (muted)",
   "loginFailed": "Couldn't log in to Twitch. Try again.",
   "loginLinkMissing": "That link has no login in it. Copy the whole address from the browser, including the part after #.",

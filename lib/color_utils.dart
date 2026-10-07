@@ -214,7 +214,7 @@ Color highlightRowColor(
   final anchor = highlightAnchor(surface);
   final base =
       state.customColor ??
-      switch (state.primary) {
+      switch (state.tintPrimary) {
         HighlightType.username ||
         HighlightType.reply ||
         HighlightType.user ||

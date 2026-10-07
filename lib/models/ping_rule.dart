@@ -21,6 +21,9 @@ class PingRule {
   /// Keyword and user rules: false only tints, true also fills @mentions.
   final bool mention;
   final bool notify;
+
+  /// Matches color the row; false notifies without tinting chat.
+  final bool tint;
   final int? colorArgb;
 
   const PingRule({
@@ -32,6 +35,7 @@ class PingRule {
     this.enabled = true,
     this.mention = true,
     this.notify = false,
+    this.tint = true,
     this.colorArgb,
   });
 
@@ -41,6 +45,7 @@ class PingRule {
     bool? enabled,
     bool? mention,
     bool? notify,
+    bool? tint,
     int? colorArgb,
     bool clearColor = false,
   }) {
@@ -53,6 +58,7 @@ class PingRule {
       enabled: enabled ?? this.enabled,
       mention: mention ?? this.mention,
       notify: notify ?? this.notify,
+      tint: tint ?? this.tint,
       colorArgb: clearColor ? null : (colorArgb ?? this.colorArgb),
     );
   }
@@ -66,6 +72,7 @@ class PingRule {
     'enabled': enabled,
     'mention': mention,
     'notify': notify,
+    if (!tint) 'tint': false,
     if (colorArgb != null) 'color': colorArgb,
   };
 
@@ -84,6 +91,7 @@ class PingRule {
       enabled: json['enabled'] != false,
       mention: json['mention'] != false,
       notify: json['notify'] == true,
+      tint: json['tint'] != false,
       colorArgb: json['color'] is int ? json['color'] as int : null,
     );
   }
