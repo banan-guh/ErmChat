@@ -1463,8 +1463,16 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   /// layout renders, so only the landscape theater layout counts.
   void _syncSystemUiMode({bool force = false}) {
     if (!mounted) return;
+    // Phones in landscape go fullscreen on their own: every row of height
+    // counts. Tablets keep the system bars, since landscape is their default.
+    final size = MediaQuery.maybeSizeOf(context);
+    final phoneLandscape =
+        MediaQuery.maybeOrientationOf(context) == Orientation.landscape &&
+        size != null &&
+        size.shortestSide < 600;
     final immersive =
         _isFullscreen ||
+        phoneLandscape ||
         (_streamPlayer.isTheaterMode &&
             MediaQuery.maybeOrientationOf(context) == Orientation.landscape);
     if (immersive == _immersive && !force) return;
