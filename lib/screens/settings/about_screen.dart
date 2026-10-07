@@ -1,13 +1,9 @@
 import 'dart:async';
-import 'dart:io' show Platform;
 import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import '../../l10n/l10n.dart';
 import '../../util/log.dart';
-import '../../util/prefs.dart';
-import '../../services/app_updates.dart';
 import '../../services/fake_chat_feed.dart';
-import '../../widgets/whats_new_sheet.dart';
 import 'dev_settings_screen.dart';
 import 'settings_page.dart';
 
@@ -31,12 +27,6 @@ class _AboutScreenState extends State<AboutScreen> {
   String _version = 'Loading...';
   int _tapCount = 0;
 
-  /// Newer version the store serves, from the last update check.
-  String? _update;
-  UpdateSource? _source;
-  String _current = '';
-  AppUpdates? _updates;
-
   @override
   void initState() {
     super.initState();
@@ -46,28 +36,13 @@ class _AboutScreenState extends State<AboutScreen> {
   Future<void> _loadVersion() async {
     try {
       final info = await PackageInfo.fromPlatform();
-      final available = (await Prefs.load()).availableUpdate;
       if (mounted) {
-        setState(() {
-          _version = '${info.version}+${info.buildNumber}';
-          _current = info.version;
-          _source = updateSourceFor(info.installerStore, ios: Platform.isIOS);
-          if (available != null &&
-              compareVersions(available, info.version) > 0) {
-            _update = available;
-          }
-        });
+        setState(() => _version = '${info.version}+${info.buildNumber}');
       }
     } catch (_) {
       logDebug('[AboutScreen] failed to load package info');
       if (mounted) setState(() => _version = 'unknown');
     }
-  }
-
-  @override
-  void dispose() {
-    _updates?.dispose();
-    super.dispose();
   }
 
   void _handleTap() {
@@ -116,22 +91,6 @@ class _AboutScreenState extends State<AboutScreen> {
               ),
             ),
           ),
-          if (_update case final version?)
-            ListTile(
-              leading: Icon(
-                Icons.system_update,
-                color: Theme.of(context).colorScheme.primary,
-              ),
-              title: Text(context.l10n.updateBanner),
-              subtitle: Text(version),
-              onTap: () => showUpdateSheet(
-                context,
-                _updates ??= AppUpdates(),
-                AvailableUpdate(version),
-                _source,
-                currentVersion: _current,
-              ),
-            ),
           ListTile(
             leading: const Icon(Icons.description_outlined),
             title: Text(context.l10n.openSourceLicenses),

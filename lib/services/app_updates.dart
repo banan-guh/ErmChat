@@ -166,6 +166,7 @@ class AppUpdates {
       await prefs.setArmUpdate(false);
       final fake = _nextPatch(current);
       await prefs.setAvailableUpdate(fake);
+      await prefs.setDismissedUpdate(null);
       return AvailableUpdate(fake, armed: true);
     }
     final available = prefs.availableUpdate;

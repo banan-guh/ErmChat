@@ -109,7 +109,7 @@ class _DevSettingsScreenState extends State<DevSettingsScreen> {
             secondary: const Icon(Icons.system_update),
             title: 'Arm update available',
             subtitle:
-                'Next launch fakes a newer version: snackbar, sheet, About banner',
+                'Next launch fakes a newer version: snackbar, sheet, Settings banner',
             defaultValue: false,
             read: (p) => p.armUpdate,
             write: (p, v) => p.setArmUpdate(v),

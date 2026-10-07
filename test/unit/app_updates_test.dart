@@ -163,12 +163,14 @@ void main() {
     test('the dev arm fakes the next patch, offline, once', () async {
       final prefs = await Prefs.load();
       await prefs.setArmUpdate(true);
+      await prefs.setDismissedUpdate('0.9.8');
       fail = true;
       final fake = await updates.checkForUpdate('0.9.7', null);
       expect(fake?.version, '0.9.8');
       expect(fake?.armed, isTrue);
       expect(prefs.armUpdate, isFalse);
       expect(prefs.availableUpdate, '0.9.8', reason: 'banner shows it too');
+      expect(prefs.dismissedUpdate, isNull, reason: 'even after an X');
     });
   });
 

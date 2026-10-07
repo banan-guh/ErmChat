@@ -106,6 +106,7 @@ class Prefs {
   static const _kLastUpdateCheck = 'last_update_check';
   static const _kNotifiedUpdate = 'notified_update_version';
   static const _kAvailableUpdate = 'available_update_version';
+  static const _kDismissedUpdate = 'dismissed_update_version';
   static const _kArmWhatsNew = 'dev_arm_whats_new';
   static const _kArmUpdate = 'dev_arm_update';
   static const _kAnalyticsEnabled = 'analytics_enabled';
@@ -230,12 +231,19 @@ class Prefs {
   Future<void> setNotifiedUpdate(String value) =>
       _p.setString(_kNotifiedUpdate, value);
 
-  /// Newer version the install's store serves, for the About banner.
+  /// Newer version the install's store serves, for the Settings banner.
   String? get availableUpdate => _p.getString(_kAvailableUpdate);
 
   Future<void> setAvailableUpdate(String? value) => value == null
       ? _p.remove(_kAvailableUpdate)
       : _p.setString(_kAvailableUpdate, value);
+
+  /// Version whose Settings banner was dismissed; a newer one shows again.
+  String? get dismissedUpdate => _p.getString(_kDismissedUpdate);
+
+  Future<void> setDismissedUpdate(String? value) => value == null
+      ? _p.remove(_kDismissedUpdate)
+      : _p.setString(_kDismissedUpdate, value);
 
   /// Dev: the next launch shows What's new regardless of version.
   bool get armWhatsNew => _p.getBool(_kArmWhatsNew) ?? false;

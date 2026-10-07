@@ -24,6 +24,7 @@ import 'tools_settings_screen.dart';
 import 'tts_settings_screen.dart';
 import 'uploader_settings_screen.dart';
 import '../../services/recent_messages.dart';
+import '../../widgets/whats_new_sheet.dart';
 
 class SettingsScreen extends StatelessWidget {
   final TwitchAuth twitchAuth;
@@ -227,6 +228,7 @@ class SettingsScreen extends StatelessWidget {
             title: Setting.about.titleOf(context.l10n),
             onTap: () => _go(context, _about),
           ),
+          const UpdateBanner(),
         ],
       ),
     );
