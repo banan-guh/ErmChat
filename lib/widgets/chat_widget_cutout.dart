@@ -17,6 +17,8 @@ class ChatWidgetCutout extends StatefulWidget {
   const ChatWidgetCutout({
     super.key,
     required this.pages,
+    required this.ids,
+    required this.heights,
     required this.controller,
     required this.onMinimize,
     this.glass = false,
@@ -25,6 +27,13 @@ class ChatWidgetCutout extends StatefulWidget {
   static const double maxHeight = 220;
 
   final List<Widget> pages;
+
+  /// Identity per page, parallel to [pages], keying [heights].
+  final List<Object> ids;
+
+  /// Each card's natural height, kept by the caller so a rebuilt cutout
+  /// (restore, channel swipe) opens at the right size.
+  final Map<Object, double> heights;
   final PageController controller;
   final VoidCallback onMinimize;
 
@@ -36,38 +45,36 @@ class ChatWidgetCutout extends StatefulWidget {
 }
 
 class _ChatWidgetCutoutState extends State<ChatWidgetCutout> {
-  // Each page's natural height, reported as it lays out.
-  final _heights = <int, double>{};
-
-  @override
-  void didUpdateWidget(covariant ChatWidgetCutout oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.pages.length != widget.pages.length) _heights.clear();
+  double? _heightAt(int index) {
+    final ids = widget.ids;
+    return index >= 0 && index < ids.length ? widget.heights[ids[index]] : null;
   }
 
   void _report(int index, double height) {
-    if (_heights[index] == height) return;
+    if (_heightAt(index) == height) return;
+    final id = widget.ids[index];
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted && _heights[index] != height) {
-        setState(() => _heights[index] = height);
+      if (mounted && widget.heights[id] != height) {
+        setState(() => widget.heights[id] = height);
       }
     });
   }
 
-  /// The pager's position; 0 until exactly one view is attached.
+  /// The pager's position; its initial page until one view is attached.
   double get _page {
     final c = widget.controller;
-    if (!c.hasClients || c.positions.length != 1) return 0;
-    return c.page ?? 0;
+    if (c.positions.length != 1) return c.initialPage.toDouble();
+    return c.page ?? c.initialPage.toDouble();
   }
 
-  // Blends the two visible pages' heights by swipe progress.
-  double _pagerHeight() {
+  // Blends the two visible pages' heights by swipe progress. A page not
+  // measured yet borrows its neighbor's height.
+  double? _pagerHeight() {
     final page = _page;
     final i = page.floor();
-    final fallback = _heights[page.round()] ?? 120;
-    final a = _heights[i] ?? fallback;
-    final b = _heights[i + 1] ?? a;
+    final a = _heightAt(i) ?? _heightAt(i + 1);
+    final b = _heightAt(i + 1) ?? a;
+    if (a == null || b == null) return null;
     final h = a + (b - a) * (page - i);
     return h.clamp(0, ChatWidgetCutout.maxHeight).toDouble();
   }
@@ -119,8 +126,20 @@ class _ChatWidgetCutoutState extends State<ChatWidgetCutout> {
       padding: const EdgeInsets.fromLTRB(8, 0, 8, 6),
       child: AnimatedBuilder(
         animation: widget.controller,
-        builder: (context, child) =>
-            SizedBox(height: _pagerHeight(), child: child),
+        builder: (context, child) {
+          final height = _pagerHeight();
+          // Unmeasured, the cards lay out hidden for one frame rather than
+          // opening at a guess and snapping to size.
+          return height == null
+              ? Opacity(
+                  opacity: 0,
+                  child: SizedBox(
+                    height: ChatWidgetCutout.maxHeight,
+                    child: child,
+                  ),
+                )
+              : SizedBox(height: height, child: child);
+        },
         child: surface(
           Stack(
             children: [

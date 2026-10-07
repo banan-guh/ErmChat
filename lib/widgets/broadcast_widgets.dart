@@ -281,6 +281,10 @@ class BroadcastWidgets {
   /// previews it and restore returns to it.
   final _focused = <String, _Card>{};
 
+  // Measured card heights per channel; outlive the cutout so a restore
+  // opens at size.
+  final _cardHeights = <String, Map<Object, double>>{};
+
   Widget? buildOverlay(
     String channel, {
     required void Function(String, bool) onMinimizeChanged,
@@ -299,12 +303,13 @@ class BroadcastWidgets {
         label: _labelFor(channel, focus),
         icon: _iconFor(focus),
         onRestore: () {
+          // A fresh pager opens on the focused card instead of jumping there.
+          final old = _pageCtrls[channel];
+          _pageCtrls[channel] = PageController(
+            initialPage: cards.indexOf(focus),
+          );
           onMinimizeChanged(channel, false);
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (ctrl.positions.length == 1) {
-              ctrl.jumpToPage(_cardsFor(channel).indexOf(focus));
-            }
-          });
+          WidgetsBinding.instance.addPostFrameCallback((_) => old?.dispose());
         },
         pin: focus == _Card.pin ? pins[channel] : null,
         emotes: emotes,
@@ -313,6 +318,8 @@ class BroadcastWidgets {
     }
     return ChatWidgetCutout(
       pages: pages,
+      ids: cards,
+      heights: _cardHeights.putIfAbsent(channel, () => {}),
       controller: ctrl,
       onMinimize: () {
         final now = _cardsFor(channel);
@@ -370,6 +377,7 @@ class BroadcastWidgets {
     pins.remove(channel);
     widgetsMinimized.remove(channel);
     _focused.remove(channel);
+    _cardHeights.remove(channel);
     _pageCtrls.remove(channel)?.dispose();
   }
 
