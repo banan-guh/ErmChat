@@ -58,8 +58,12 @@ class BroadcastWidgets {
     notifier.dispose();
   }
 
+  // Live polls, predictions and hype trains are a dev opt-in until their
+  // cards are verified against real streams; pins always show.
+  static bool get _liveWidgets => Prefs.loaded?.liveChatWidgets ?? false;
+
   void onHypeTrain(HypeTrainEvent event) {
-    if (!mounted) return;
+    if (!mounted || !_liveWidgets) return;
     if (event.kind == HypeTrainKind.end) {
       hypeTrains.remove(event.channel);
     } else {
@@ -70,7 +74,7 @@ class BroadcastWidgets {
   }
 
   void onPoll(PollEvent event) {
-    if (!mounted) return;
+    if (!mounted || !_liveWidgets) return;
     if (event.kind == PollKind.end) {
       polls.remove(event.channel);
     } else {
@@ -81,7 +85,7 @@ class BroadcastWidgets {
   }
 
   void onPrediction(PredictionEvent event) {
-    if (!mounted) return;
+    if (!mounted || !_liveWidgets) return;
     if (event.kind == PredictionKind.end) {
       predictions.remove(event.channel);
     } else {

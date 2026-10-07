@@ -580,6 +580,7 @@ class Prefs {
   static const _kRecentUploads = 'recent_uploads';
   static const _kAnalyticsFilterStopwords = 'analytics_filter_stopwords';
   static const _kTestChatWidgets = 'test_chat_widgets';
+  static const _kLiveChatWidgets = 'dev_live_chat_widgets';
   static const _kUseBrowserOAuth = 'use_browser_oauth';
   static const _kKeyboardSettledHeight = 'keyboard_settled_h';
 
@@ -627,6 +628,12 @@ class Prefs {
 
   Future<void> setTestChatWidgets(bool value) =>
       _p.setBool(_kTestChatWidgets, value);
+
+  /// Dev: live poll, prediction and hype train cards. Pins always show.
+  bool get liveChatWidgets => _p.getBool(_kLiveChatWidgets) ?? false;
+
+  Future<void> setLiveChatWidgets(bool value) =>
+      _p.setBool(_kLiveChatWidgets, value);
 
   bool get useBrowserOAuth => _p.getBool(_kUseBrowserOAuth) ?? false;
 

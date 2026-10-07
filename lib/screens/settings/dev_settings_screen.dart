@@ -52,6 +52,15 @@ class _DevSettingsScreenState extends State<DevSettingsScreen> {
             write: (p, v) => p.setTestChatWidgets(v),
             onChanged: widget.onTestWidgetsChanged,
           ),
+          PrefsSwitchTile(
+            secondary: const Icon(Icons.how_to_vote_outlined),
+            title: 'Live chat widgets',
+            subtitle:
+                'Real polls, predictions and hype trains. Pins always show',
+            defaultValue: false,
+            read: (p) => p.liveChatWidgets,
+            write: (p, v) => p.setLiveChatWidgets(v),
+          ),
           if (widget.fakeChat case final fake?) ...[
             const Divider(),
             ListTile(
