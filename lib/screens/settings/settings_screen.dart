@@ -158,14 +158,13 @@ class SettingsScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return SettingsPage(
       title: Text(context.l10n.settingsTitle),
+      // A symbol, so anyone stuck in a language they cannot read finds it.
+      floatingActionButton: IconButton(
+        icon: const Icon(Icons.translate),
+        tooltip: context.l10n.settingLanguage,
+        onPressed: () => _go(context, () => const LanguageScreen()),
+      ),
       actions: [
-        // A symbol, so anyone stuck in a language they cannot read finds it.
-        IconButton(
-          icon: const Icon(Icons.translate),
-          tooltip: context.l10n.settingLanguage,
-          onPressed: () => _go(context, () => const LanguageScreen()),
-        ),
-        const SizedBox(width: 12),
         IconButton(
           icon: const Icon(Icons.search),
           tooltip: context.l10n.searchSettings,

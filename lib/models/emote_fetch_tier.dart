@@ -46,7 +46,7 @@ extension EmoteFetchTierX on EmoteFetchTier {
 const bytesPerMb = 1024 * 1024;
 
 /// Disk-cache cap in MB.
-const defaultEmoteCacheMb = 50;
+const defaultEmoteCacheMb = 100;
 const minEmoteCacheMb = 0;
 const maxEmoteCacheMb = 300;
 
