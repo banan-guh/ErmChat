@@ -85,7 +85,7 @@ jobs:
         run: flutter analyze
 
       - name: Test
-        run: flutter test
+        run: flutter test --reporter failures-only
 
   # --- JOB 1: ANDROID BUILD ---
   build-android:
