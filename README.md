@@ -16,6 +16,7 @@
   <a href="https://testflight.apple.com/join/NUUDJ5qY"><img src="https://img.shields.io/badge/iOS_beta-TestFlight-0D96F6" alt="iOS beta on TestFlight"></a>
   <a href="https://f-droid.org/"><img src="https://img.shields.io/badge/F--Droid-pending-lightgrey?logo=fdroid&logoColor=white" alt="F-Droid: pending"></a>
   <a href="https://discord.gg/ETUHUwTq25"><img src="https://img.shields.io/badge/Discord-join-5865F2?logo=discord&logoColor=white" alt="Discord"></a>
+  <a href="https://hosted.weblate.org/engage/ermchat/"><img src="https://hosted.weblate.org/widget/ermchat/svg-badge.svg" alt="Translation status"></a>
 </p>
 
 <p align="center">
@@ -87,6 +88,10 @@ No account needed to read chat anonymously, but signing in is recommended for th
 ## Privacy
 
 ErmChat communicates directly with Twitch servers, and uses (anonymous) emote providers / recent-messages for chat history. Media uploader is third-party. Details: [privacy policy](https://banan-guh.github.io/ErmChat/).
+
+## Translate
+
+ErmChat is translated on [Weblate](https://hosted.weblate.org/engage/ermchat/). Anyone can help: pick your language, or start a new one. Finished translations ship with the next release.
 
 ## Feedback
 
