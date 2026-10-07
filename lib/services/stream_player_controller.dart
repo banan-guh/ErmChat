@@ -27,7 +27,11 @@ class StreamPlayerController extends ChangeNotifier {
   /// the view (which owns the WebView) to consume it. Single slot: the
   /// window only offers one tap at a time in practice.
   String? _pendingPipAction;
-  double _splitFraction = 0.5;
+
+  /// Stream share of the side-by-side layout. Starts at 60/40 each launch;
+  /// a drag lasts for the session.
+  static const defaultSplitFraction = 0.6;
+  double _splitFraction = defaultSplitFraction;
   int _generation = 0;
 
   String? get currentChannel => _currentChannel;
@@ -52,7 +56,6 @@ class StreamPlayerController extends ChangeNotifier {
   Future<void> loadPrefs() async {
     final prefs = await Prefs.load();
     _pipEnabled = prefs.streamPipEnabled;
-    _splitFraction = prefs.streamSplitFraction.clamp(0.2, 0.8);
     notifyListeners();
   }
 
@@ -139,18 +142,13 @@ class StreamPlayerController extends ChangeNotifier {
     return action;
   }
 
-  /// Moves the split live during a drag: no save and no notify, so
-  /// rebuilds mid-drag read the current position. [setSplitFraction] commits.
+  /// Moves the split live during a drag without notifying, so rebuilds
+  /// mid-drag read the current position. [setSplitFraction] commits.
   void dragSplitFraction(double value) =>
       _splitFraction = value.clamp(0.2, 0.8);
 
   void setSplitFraction(double value) {
     _splitFraction = value.clamp(0.2, 0.8);
-    unawaited(
-      Prefs.load().then(
-        (prefs) => prefs.setStreamSplitFraction(_splitFraction),
-      ),
-    );
     notifyListeners();
   }
 }

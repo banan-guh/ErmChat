@@ -527,17 +527,11 @@ class Prefs {
 
   // ── Stream player ───────────────────────────────────────────────────
   static const _kStreamPipEnabled = 'stream_pip_enabled';
-  static const _kStreamSplitFraction = 'stream_split_fraction';
 
   bool get streamPipEnabled => _p.getBool(_kStreamPipEnabled) ?? false;
 
   Future<void> setStreamPipEnabled(bool value) =>
       _p.setBool(_kStreamPipEnabled, value);
-
-  double get streamSplitFraction => _p.getDouble(_kStreamSplitFraction) ?? 0.5;
-
-  Future<void> setStreamSplitFraction(double value) =>
-      _p.setDouble(_kStreamSplitFraction, value);
 
   // ── Recent messages backend ─────────────────────────────────────────
   static const _kRecentMessagesMode = 'recent_messages_mode';
