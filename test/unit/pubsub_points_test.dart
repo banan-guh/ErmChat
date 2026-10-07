@@ -8,6 +8,9 @@ import 'package:ermchat/models/twitch_message.dart';
 import 'package:ermchat/services/pubsub_points_consumer.dart';
 import 'package:ermchat/services/pubsub_service.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:web_socket_channel/web_socket_channel.dart';
+
+import '../helpers/fake_web_socket.dart';
 
 Map<String, dynamic> redemptionJson({
   String id = 'r1',
@@ -276,6 +279,22 @@ void main() {
       expect(count, 0);
     });
 
+    test('reconnect resubscribes in frames Twitch accepts', () async {
+      // Twitch silently drops the socket on a LISTEN frame over about 1 KB,
+      // which killed every widget topic after the first reconnect.
+      final socket = FakeWebSocketChannel();
+      final service = _FakeSocketPubSub(socket);
+      addTearDown(service.dispose);
+      for (var i = 0; i < 12; i++) {
+        service.seedTopic('channel$i', '${1468479097 + i}');
+      }
+      await service.connect();
+      expect(socket.sent, hasLength(12));
+      for (final frame in socket.sent) {
+        expect(utf8.encode(frame).length, lessThan(1000), reason: frame);
+      }
+    });
+
     test('listen is idempotent and unlisten drops the mapping', () {
       final service = PubSubService();
       addTearDown(service.dispose);
@@ -442,4 +461,13 @@ void main() {
       expect(consumer.takeStaged('shroud', 'rw1'), isNull);
     });
   });
+}
+
+class _FakeSocketPubSub extends PubSubService {
+  _FakeSocketPubSub(this.socket);
+
+  final FakeWebSocketChannel socket;
+
+  @override
+  WebSocketChannel openChannel() => socket;
 }

@@ -140,7 +140,7 @@ class PubSubService {
       _ensureConnectivityListener();
       disconnect(emitStatus: false);
       try {
-        _channel = WebSocketChannel.connect(Uri.parse(_wsUrl));
+        _channel = openChannel();
         await _waitForReady();
         _lastActivity = DateTime.now();
         _awaitingPong = false;
@@ -199,13 +199,16 @@ class PubSubService {
     }
   }
 
+  /// One LISTEN per channel: Twitch silently drops the socket on a frame over
+  /// about 1 KB, which all channels' topics together exceed.
   void _resubscribeAll() {
-    final topics = _topicsByChannel.values.expand((t) => t).toSet();
-    if (topics.isEmpty) return;
-    // DankChat batches 50 topics per LISTEN; channel counts here are small,
-    // so one frame suffices.
-    _sendSingle('LISTEN', topics.toList());
+    for (final topics in _topicsByChannel.values) {
+      _sendSingle('LISTEN', topics);
+    }
   }
+
+  @visibleForTesting
+  WebSocketChannel openChannel() => WebSocketChannel.connect(Uri.parse(_wsUrl));
 
   void _sendSingle(String type, List<String> topics) {
     final channel = _channel;
