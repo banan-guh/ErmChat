@@ -14,13 +14,14 @@
   <img src="https://img.shields.io/badge/platform-Android%20%7C%20iOS-blue" alt="Platforms">
   <a href="LICENSE"><img src="https://img.shields.io/github/license/banan-guh/ErmChat" alt="License"></a>
   <a href="https://testflight.apple.com/join/NUUDJ5qY"><img src="https://img.shields.io/badge/iOS_beta-TestFlight-0D96F6" alt="iOS beta on TestFlight"></a>
-  <a href="https://f-droid.org/"><img src="https://img.shields.io/badge/F--Droid-pending-lightgrey?logo=fdroid&logoColor=white" alt="F-Droid: pending"></a>
+  <a href="https://f-droid.org/packages/io.github.bananguh.ErmChat/"><img src="https://img.shields.io/f-droid/v/io.github.bananguh.ErmChat?logo=fdroid&logoColor=white" alt="F-Droid"></a>
   <a href="https://discord.gg/ETUHUwTq25"><img src="https://img.shields.io/badge/Discord-join-5865F2?logo=discord&logoColor=white" alt="Discord"></a>
   <a href="https://hosted.weblate.org/engage/ermchat/"><img src="https://hosted.weblate.org/widget/ermchat/svg-badge.svg" alt="Translation status"></a>
 </p>
 
 <p align="center">
   <a href="https://play.google.com/store/apps/details?id=io.github.bananguh.ErmChat"><img src="assets/badges/google-play.png" height="48" alt="Get it on Google Play"></a>
+  <a href="https://f-droid.org/packages/io.github.bananguh.ErmChat/"><img src="assets/badges/f-droid.png" height="64" alt="Get it on F-Droid"></a>
   <!-- Add appstore badge when listed (AppStore nobletrash38) -->
 </p>
 
@@ -79,7 +80,7 @@
 
 ## Install
 
-**Android:** get it on [Google Play](https://play.google.com/store/apps/details?id=io.github.bananguh.ErmChat), or download the universal APK from [Releases](https://github.com/banan-guh/ErmChat/releases/latest). Pending F-Droid.
+**Android:** get it on [Google Play](https://play.google.com/store/apps/details?id=io.github.bananguh.ErmChat), [F-Droid](https://f-droid.org/packages/io.github.bananguh.ErmChat/), or download the universal APK from [Releases](https://github.com/banan-guh/ErmChat/releases/latest).
 
 **iOS:** join the beta on [TestFlight](https://testflight.apple.com/join/NUUDJ5qY). You need TestFlight (obviously). An App Store release is planned.
 
