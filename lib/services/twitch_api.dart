@@ -1005,6 +1005,32 @@ class TwitchApi {
     return _deleteOk('deleteChatMessage', auth, uri, ok: const {204});
   }
 
+  /// Pins [messageId] until the stream ends; replaces any current mod pin.
+  Future<bool> pinChatMessage(
+    TwitchAuth auth, {
+    required String broadcasterId,
+    required String moderatorId,
+    required String messageId,
+  }) {
+    final uri = Uri.parse(
+      '$_base/chat/pins?broadcaster_id=$broadcasterId&moderator_id=$moderatorId&message_id=$messageId',
+    );
+    return _putOk('pinChatMessage', auth, uri, ok: const {204});
+  }
+
+  /// Unpins [messageId], the pinned chat message's own id.
+  Future<bool> unpinChatMessage(
+    TwitchAuth auth, {
+    required String broadcasterId,
+    required String moderatorId,
+    required String messageId,
+  }) {
+    final uri = Uri.parse(
+      '$_base/chat/pins?broadcaster_id=$broadcasterId&moderator_id=$moderatorId&message_id=$messageId',
+    );
+    return _deleteOk('unpinChatMessage', auth, uri, ok: const {204});
+  }
+
   Future<bool> sendChatAnnouncement(
     TwitchAuth auth, {
     required String broadcasterId,

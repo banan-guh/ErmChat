@@ -338,6 +338,9 @@ class PinnedMessageEvent {
 
   /// Pin id, shared by the pin and its unpin.
   final String id;
+
+  /// The pinned chat message's own id, which Helix unpins by.
+  final String messageId;
   final String senderName;
 
   /// Sender's Twitch id, for their personal 7TV emotes.
@@ -353,6 +356,7 @@ class PinnedMessageEvent {
   PinnedMessageEvent({
     required this.channel,
     required this.id,
+    this.messageId = '',
     this.senderName = '',
     this.senderId = '',
     this.text = '',

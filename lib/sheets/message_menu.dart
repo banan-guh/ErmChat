@@ -17,12 +17,18 @@ class MessageMenus {
     required this.findThreadRoot,
     required this.showThreadView,
     required this.startReply,
+    required this.canPin,
+    required this.pinMessage,
   });
 
   final Prefs prefs;
   final TwitchMessage? Function(TwitchMessage msg) findThreadRoot;
   final Future<void> Function(TwitchMessage root) showThreadView;
   final void Function(TwitchMessage msg) startReply;
+
+  /// Whether the user moderates [msg]'s channel, so it can be pinned.
+  final bool Function(TwitchMessage msg) canPin;
+  final void Function(BuildContext context, TwitchMessage msg) pinMessage;
 
   void showMessageMenu(BuildContext context, TwitchMessage msg) {
     iosHaptic(HapticFeedback.mediumImpact);
@@ -134,6 +140,15 @@ class MessageMenus {
                 Navigator.pop(ctx);
               },
             ),
+            if (msg.messageId != null && !msg.isSystem && canPin(msg))
+              ListTile(
+                leading: const Icon(Icons.push_pin_outlined),
+                title: Text(ctx.l10n.pinMessage),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  pinMessage(context, msg);
+                },
+              ),
             if (msg.messageId != null)
               ListTile(
                 leading: const Icon(Icons.copy),

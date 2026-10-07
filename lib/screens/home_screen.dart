@@ -78,6 +78,7 @@ import '../widgets/emote_menu_panel.dart';
 import '../widgets/message_builder.dart';
 import '../widgets/predictive_back_handler.dart';
 import '../widgets/join_channel_dialog.dart';
+import '../widgets/mod_view/dialogs.dart' show showModError;
 import '../services/fake_chat_feed.dart';
 import '../services/foreground_task.dart';
 
@@ -339,6 +340,16 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     showThreadView: (root) =>
         _threads.showThreadView(root, switchChannel: true),
     startReply: _composer.startReply,
+    canPin: (msg) =>
+        msg.channel != null && _chatConn.isModerationActive(msg.channel!),
+    pinMessage: (context, msg) async {
+      final result = await _modActions.pinMessage(
+        _twitchAuth,
+        msg.channel!,
+        msg.messageId!,
+      );
+      if (context.mounted) showModError(context, result);
+    },
   );
 
   late final UserSheets _userSheets = UserSheets(

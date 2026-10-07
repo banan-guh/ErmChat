@@ -556,6 +556,36 @@ class ModActions {
     );
   }
 
+  Future<ModResult> pinMessage(
+    TwitchAuth auth,
+    String channel,
+    String messageId,
+  ) => _idsAction(
+    channel,
+    'pin chat messages',
+    (broadcasterId, moderatorId) => twitchApi.pinChatMessage(
+      auth,
+      broadcasterId: broadcasterId,
+      moderatorId: moderatorId,
+      messageId: messageId,
+    ),
+  );
+
+  Future<ModResult> unpinMessage(
+    TwitchAuth auth,
+    String channel,
+    String messageId,
+  ) => _idsAction(
+    channel,
+    'unpin chat messages',
+    (broadcasterId, moderatorId) => twitchApi.unpinChatMessage(
+      auth,
+      broadcasterId: broadcasterId,
+      moderatorId: moderatorId,
+      messageId: messageId,
+    ),
+  );
+
   Future<ModResult> clearChat(TwitchAuth auth, String channel) async {
     return _idsAction(
       channel,

@@ -1371,6 +1371,8 @@
   "pinned": "Pinned",
   "pinnedBy": "Pinned by {name}",
   "pinHideForYourself": "Hide for yourself",
+  "pinMessage": "Pin message",
+  "unpinMessage": "Unpin",
   "@pinnedBy": {
     "placeholders": {
       "name": {

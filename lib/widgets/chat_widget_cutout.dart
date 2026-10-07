@@ -3,8 +3,10 @@ import 'package:flutter/material.dart';
 import '../eventsub/decode/events.dart';
 import '../l10n/l10n.dart';
 import '../services/emote_manager.dart';
+import '../services/mod_actions.dart' show ModResult;
 import 'emote_text.dart';
 import 'glass_chrome.dart';
+import 'mod_view/dialogs.dart' show showModError;
 
 /// Fixed cutout for broadcaster widget cards (poll/prediction/hype train).
 class ChatWidgetCutout extends StatelessWidget {
@@ -328,11 +330,13 @@ class _HypeTrainCardState extends State<HypeTrainCard> {
   }
 }
 
-/// The expanded pin's overflow menu: hide it for this user only.
+/// The expanded pin's overflow menu: Unpin for mods, and hide it for this
+/// user only.
 class _PinMenu extends StatelessWidget {
-  const _PinMenu({required this.onHide});
+  const _PinMenu({required this.onHide, this.onUnpin});
 
   final VoidCallback onHide;
+  final Future<ModResult> Function()? onUnpin;
 
   @override
   Widget build(BuildContext context) => PopupMenuButton<void>(
@@ -342,7 +346,15 @@ class _PinMenu extends StatelessWidget {
       visualDensity: VisualDensity.compact,
       tapTargetSize: MaterialTapTargetSize.shrinkWrap,
     ),
-    itemBuilder: (context) => [
+    itemBuilder: (menuContext) => [
+      if (onUnpin case final unpin?)
+        PopupMenuItem(
+          onTap: () async {
+            final result = await unpin();
+            if (context.mounted) showModError(context, result);
+          },
+          child: Text(context.l10n.unpinMessage),
+        ),
       PopupMenuItem(
         onTap: onHide,
         child: Text(context.l10n.pinHideForYourself),
@@ -380,6 +392,7 @@ class PinnedMessageCard extends StatelessWidget {
     required this.event,
     this.emotes,
     this.onDismiss,
+    this.onUnpin,
   });
 
   final PinnedMessageEvent event;
@@ -387,6 +400,9 @@ class PinnedMessageCard extends StatelessWidget {
 
   /// Hides this pin on this device.
   final VoidCallback? onDismiss;
+
+  /// Unpins for everyone; null unless the user moderates the channel.
+  final Future<ModResult> Function()? onUnpin;
 
   @override
   Widget build(BuildContext context) {
@@ -411,7 +427,8 @@ class PinnedMessageCard extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
-              if (onDismiss != null) _PinMenu(onHide: onDismiss!),
+              if (onDismiss != null)
+                _PinMenu(onHide: onDismiss!, onUnpin: onUnpin),
             ],
           ),
           const SizedBox(height: 2),

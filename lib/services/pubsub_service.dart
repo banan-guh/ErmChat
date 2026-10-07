@@ -441,6 +441,7 @@ class PubSubService {
       PinnedMessageEvent(
         channel: channel,
         id: id,
+        messageId: message['id'] as String? ?? '',
         senderName: nameOf(sender),
         senderId: sender is Map ? sender['id'] as String? ?? '' : '',
         text: text,

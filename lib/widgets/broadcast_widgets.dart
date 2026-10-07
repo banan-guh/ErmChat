@@ -5,12 +5,24 @@ import 'package:flutter/material.dart';
 import '../eventsub/decode/events.dart';
 import '../l10n/l10n.dart';
 import '../services/emote_manager.dart';
+import '../services/mod_actions.dart' show ModResult;
 import '../util/prefs.dart';
 import 'chat_widget_cutout.dart';
 
 // Chat overlay widgets (hype train, poll, prediction, pin) plus test fakes.
 class BroadcastWidgets {
-  BroadcastWidgets({required this.selectedChannel, this.emotes});
+  BroadcastWidgets({
+    required this.selectedChannel,
+    this.emotes,
+    this.canModerate,
+    this.unpin,
+  });
+
+  /// Whether the user moderates a channel, which offers Unpin on its pin.
+  final bool Function(String channel)? canModerate;
+
+  /// Unpins a pin through Helix; the card leaves on Twitch's unpin event.
+  final Future<ModResult> Function(PinnedMessageEvent pin)? unpin;
 
   /// Renders emotes in pinned messages; null shows plain text.
   final EmoteLookupSource? emotes;
@@ -246,6 +258,12 @@ class BroadcastWidgets {
           event: pin,
           emotes: emotes,
           onDismiss: () => dismissPin(channel),
+          onUnpin:
+              unpin != null &&
+                  pin.messageId.isNotEmpty &&
+                  (canModerate?.call(channel) ?? false)
+              ? () => unpin!(pin)
+              : null,
         ),
       );
     }

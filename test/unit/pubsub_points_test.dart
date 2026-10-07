@@ -218,6 +218,7 @@ void main() {
             'id': 'pin1',
             'pinned_by': {'login': 'moddy', 'display_name': 'Moddy'},
             'message': {
+              'id': '42a6d485-ceeb-4fb6-b592-fdb6cbb4db2d',
               'sender': {
                 'id': '974273622',
                 'login': 'moddy',
@@ -260,6 +261,7 @@ void main() {
       expect(pins.first.senderName, 'Moddy');
       expect(pins.first.text, 'GET THE ADDON Kappa');
       expect(pins.first.senderId, '974273622');
+      expect(pins.first.messageId, '42a6d485-ceeb-4fb6-b592-fdb6cbb4db2d');
       expect(
         [
           for (final e in pins.first.emotes)
