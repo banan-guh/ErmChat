@@ -21,16 +21,19 @@
 
 <p align="center">
   <a href="https://play.google.com/store/apps/details?id=io.github.bananguh.ErmChat"><img src="assets/badges/google-play.png" height="48" alt="Get it on Google Play"></a>
-  <a href="https://f-droid.org/packages/io.github.bananguh.ErmChat/"><img src="assets/badges/f-droid.png" height="64" alt="Get it on F-Droid"></a>
+  <a href="https://f-droid.org/packages/io.github.bananguh.ErmChat/"><img src="assets/badges/f-droid.png" height="48" alt="Get it on F-Droid"></a>
   <!-- Add appstore badge when listed (AppStore nobletrash38) -->
 </p>
 
-<p align="center">
-  <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/screenshot1.jpeg" width="190" alt="Chat with a sub notice">
-  <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/screenshot2.jpeg" width="190" alt="Chat with the stream open">
-  <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/screenshot3.jpeg" width="190" alt="Chat with a deleted message and a timeout">
-  <img src="fastlane/metadata/android/en-US/images/phoneScreenshots/screenshot4.jpeg" width="190" alt="Emote settings">
-</p>
+<!-- One-row table: GitHub scrolls wide tables sideways on small screens. -->
+<table align="center">
+  <tr>
+    <td><img src="fastlane/metadata/android/en-US/images/phoneScreenshots/screenshot1.jpeg" width="190" alt="Chat with a sub notice"></td>
+    <td><img src="fastlane/metadata/android/en-US/images/phoneScreenshots/screenshot2.jpeg" width="190" alt="Chat with the stream open"></td>
+    <td><img src="fastlane/metadata/android/en-US/images/phoneScreenshots/screenshot3.jpeg" width="190" alt="Chat with a deleted message and a timeout"></td>
+    <td><img src="fastlane/metadata/android/en-US/images/phoneScreenshots/screenshot4.jpeg" width="190" alt="Emote settings"></td>
+  </tr>
+</table>
 
 ## Features
 
