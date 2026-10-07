@@ -57,6 +57,10 @@ class ComposerBar extends StatelessWidget {
         dragTick,
       ]),
       builder: (context, _) {
+        // Landscape moves the channel status into the hint; portrait keeps
+        // it in the row under the input.
+        final landscape =
+            MediaQuery.orientationOf(context) == Orientation.landscape;
         // Search borrows the input box: same field, own controllers.
         // Reads the live channel per event so tab flips never leak.
         final searchBorrowed = search.open && search.selectedChannel() != null;
@@ -110,7 +114,7 @@ class ComposerBar extends StatelessWidget {
                   onTap: controller.onTapClearSuggestions,
                   onEmoteToggle: controller.toggleEmoteMenu,
                   enabled: controller.enabled,
-                  hintText: controller.hintText,
+                  hintText: controller.hintText(withStatus: landscape),
                   inputFormatters: [controller.autocompleteRevert],
                   borderless: transparent,
                 ),
@@ -121,6 +125,7 @@ class ComposerBar extends StatelessWidget {
               _StatusRow(
                 controller: controller,
                 selectedTabIndex: selectedTabIndex,
+                showStatus: !landscape,
               ),
           ],
         );
@@ -164,12 +169,18 @@ class _ChannelListener extends StatelessWidget {
   );
 }
 
-/// The retry link under the input when a channel's emotes failed to load.
+/// Under the input: the channel status (portrait only, see [showStatus])
+/// and a retry link when a channel's emotes failed to load.
 class _StatusRow extends StatelessWidget {
-  const _StatusRow({required this.controller, required this.selectedTabIndex});
+  const _StatusRow({
+    required this.controller,
+    required this.selectedTabIndex,
+    required this.showStatus,
+  });
 
   final ComposerController controller;
   final ValueListenable<int> selectedTabIndex;
+  final bool showStatus;
 
   @override
   Widget build(BuildContext context) => _ChannelListener(
@@ -177,6 +188,9 @@ class _StatusRow extends StatelessWidget {
     selectedTabIndex: selectedTabIndex,
     builder: (context) {
       final channel = controller.selectedChannel;
+      final status = !showStatus || channel == null
+          ? ''
+          : (controller.chat.channelFor(channel)?.info.status ?? '');
       final hasLoadFailure =
           channel != null &&
           controller.chat.loadFailedChannels.value.contains(channel);
@@ -184,9 +198,23 @@ class _StatusRow extends StatelessWidget {
         duration: const Duration(milliseconds: 300),
         curve: Curves.easeInOut,
         alignment: Alignment.topCenter,
-        child: !hasLoadFailure
-            ? const SizedBox(width: double.infinity)
-            : Padding(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (status.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(left: 12, right: 12, bottom: 4),
+                child: Text(
+                  status,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+              ),
+            if (hasLoadFailure)
+              Padding(
                 padding: const EdgeInsets.only(bottom: 4),
                 child: InkWell(
                   onTap: () => controller.chatConn.retryChannelData(channel),
@@ -200,6 +228,8 @@ class _StatusRow extends StatelessWidget {
                   ),
                 ),
               ),
+          ],
+        ),
       );
     },
   );

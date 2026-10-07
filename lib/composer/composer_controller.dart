@@ -376,7 +376,9 @@ class ComposerController {
       chatConn.isChatPipeConnected &&
       (isWhispersTabActive() || channelChatReady());
 
-  String? get hintText =>
+  /// [withStatus] lets the channel status fill the generic hint; landscape
+  /// uses it in place of the status row under the input.
+  String? hintText({bool withStatus = false}) =>
       cooldownLabel.value ??
       (!twitchAuth.isConfigured
           ? strings().connectToChat
@@ -400,9 +402,9 @@ class ComposerController {
                     ? strings().whisperToHint(whisperTarget()!)
                     : strings().whisperUsageHint,
               (_, OverlayPanel.mentions, _, _) => strings().typeMessageHint,
-              // Stream and room status ("Live · … · Slow mode 30s") fills an
+              // Stream and room status ("Live · … · Slow (30s)") fills an
               // otherwise generic hint, so it costs no height of its own.
-              _ => _channelStatus(),
+              _ => withStatus ? _channelStatus() : null,
             });
 
   String? _channelStatus() {
