@@ -10,6 +10,7 @@ import 'points_section.dart';
 import 'polls_predictions.dart';
 import 'scope.dart';
 import 'widgets.dart';
+import '../glass_chrome.dart';
 
 /// Channel-wide tools: stream actions for mods; bans, rosters, polls,
 /// predictions, and points for the broadcaster.
@@ -34,7 +35,10 @@ class ChannelTab extends StatelessWidget {
       );
     }
     return ListView(
-      padding: const EdgeInsets.fromLTRB(8, 4, 8, 24),
+      padding: glassListPadding(
+        context,
+        const EdgeInsets.fromLTRB(8, 4, 8, 24),
+      ),
       children: [
         if (owner) ...[
           BannedSection(mod: mod),

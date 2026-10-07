@@ -5,6 +5,7 @@ import '../../l10n/l10n.dart';
 import '../../util/date_format.dart';
 import 'scope.dart';
 import 'widgets.dart';
+import '../glass_chrome.dart';
 
 /// Unban requests, filtered by status.
 class RequestsTab extends ModTabWidget {
@@ -154,7 +155,10 @@ class _RequestsTabState extends State<RequestsTab>
               subtitle: _status == 'pending' ? mod.l10n.newRequestsHint : null,
             ),
             builder: (context, requests) => ListView.builder(
-              padding: const EdgeInsets.fromLTRB(8, 4, 8, 16),
+              padding: glassListPadding(
+                context,
+                const EdgeInsets.fromLTRB(8, 4, 8, 16),
+              ),
               itemCount: requests.length,
               itemBuilder: (_, i) {
                 final request = requests[i];

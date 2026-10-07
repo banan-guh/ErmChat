@@ -19,6 +19,7 @@ import '../widgets/chat_view.dart';
 import '../widgets/message_builder.dart';
 import '../widgets/panel_manager.dart';
 import '../widgets/tab_drag_focus.dart';
+import '../widgets/glass_chrome.dart';
 
 // Thread view, dashboard, and saved threads: data, open/show verbs,
 // and the thread panel builders.
@@ -633,6 +634,7 @@ class ThreadPanels {
         }
         final theme = Theme.of(context);
         return ListView.builder(
+          padding: glassListPadding(context),
           itemCount: threads.length,
           itemBuilder: (context, i) {
             final summary = threads[i];
@@ -696,6 +698,7 @@ class ThreadPanels {
           return Center(child: Text(context.l10n.noSavedThreads));
         }
         return ListView.builder(
+          padding: glassListPadding(context),
           itemCount: saved.length,
           itemBuilder: (context, i) {
             final entry = saved[i];

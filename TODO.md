@@ -64,21 +64,16 @@ Skipped from the survey: emoji picker (the keyboard has one), follow/unfollow, p
 - [ ] **VOD / clip chat replay** - past broadcasts + clips with synced read-only chat.
 - [ ] **iOS mention push** - android works, apple server doesn't exist yet.
 - [ ] **Notification tuning** - quiet hours, per-channel mutes, sender cooldowns, collapse sub train bursts.
-- [+] **EXIF strip before upload** - JPEGs re-encoded without metadata before upload, orientation baked in; other formats untouched.
-- [+] **Inline image embeds** - render image links posted in chat, off by default.
 - [ ] **Home screen widget / Live Activity** - track last watched channel.
 - [+] **Injectable TwitchBadgeService** - injected like EventSubService/IrcService (TwitchChatApp/HomeScreen params).
-- [-] **AVIF support** - 7tv uses AVIF. Skipped: no native decoder in the app and compatibility issues across devices. (for now)
-- [-] **Token refresh instead of re-auth every 60 days** - Access tokens expire roughly every 60 days; implement a refresh path instead of forcing full re-auth. Note: implicit-grant tokens (`response_type=token`) can't be refreshed - requires an auth flow change (e.g. device code grant). - too much of a security risk, discard.
 - [-] **Make select UI more friendly** - reference dankchat when selecting text. investigate far future.
 - [ ] **Configurable user-card history limit** - setting for how many recent messages the user card shows (currently fixed at 50).
 - [ ] **Stream player battery saver** - currently streams drink battery like no other. Native audio-only covers part of this.
 - [ ] **Extra search feats** - words to filter search
-- [ ] **Badge info**
-- [ ] **Bug reports via Discord/GitHub login** - replace the report-server flow, which doesn't work.
+- [ ] **More badges**
 - [+] **Friendly errors and sign-in retry** - cancelled login needs a restart; errors show codes, not what to do.
-- [+] **Highlights row controls** - bell and switch sit side by side with nothing saying which does what.
 - [+] **Channel emote picker layout** - organize channel emotes like the global ones.
+- [ ] check if emotes other than 7tv are actually fetched.
 
 ## Old backlog (Sep 18, unverified; some may already be fixed)
 
@@ -93,20 +88,16 @@ Skipped from the survey: emoji picker (the keyboard has one), follow/unfollow, p
 
 - borders flicker white when tabbing in -
 - notifs don't matter if no foreground in android (ios push notifs, change if server) - DO NOT do, adding server soon
-- optimize mod view eventually (currently sweeping it under the rug)
-- liquid glass?
-- review to see if emote mb cap is robust
-- fix sub emotes
-- emotes too eager to diff
+- emotes too eager to diff - lingering issue, rarer now
 - integrate ermchat-server better (retry)
 
-- troubleshoot lag on copy
-- empty input bar after update?? could not repro, weird bug
+- troubleshoot lag on copy - first pass couldn't find
+- empty input bar after update?? could not repro, weird bug. after this, nothing
 - collapse ci test successes
 
-- more friendly err messages
+- more friendly err messages - partly done, doublecheck
 - input bar in threads/glass
-- system takes priority rather than user in highlights
+- system takes priority rather than user in highlights - done
 
 
 ideas:

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../services/twitch_api.dart';
 import 'scope.dart';
 import 'widgets.dart';
+import '../glass_chrome.dart';
 
 /// AutoMod levels: a Twitch preset or per-category levels.
 class SetupTab extends ModTabWidget {
@@ -122,7 +123,10 @@ class _SetupTabState extends State<SetupTab> with ModTabState<SetupTab> {
         final saving = isBusy('save');
         final dirty = _dirty && !saving;
         return ListView(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+          padding: glassListPadding(
+            context,
+            const EdgeInsets.fromLTRB(16, 8, 16, 24),
+          ),
           children: [
             ModHint(mod.l10n.automodPresetHint),
             const SizedBox(height: 8),

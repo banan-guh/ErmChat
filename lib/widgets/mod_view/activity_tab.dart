@@ -5,6 +5,7 @@ import '../../util/date_format.dart';
 import '../../util/mod_activity_format.dart';
 import 'scope.dart';
 import 'widgets.dart';
+import '../glass_chrome.dart';
 
 IconData _activityIcon(String action) => switch (action) {
   'ban' || 'timeout' => Icons.gavel,
@@ -59,7 +60,10 @@ class ActivityTab extends StatelessWidget {
         if (feed.isEmpty) return empty;
         final scheme = Theme.of(context).colorScheme;
         return ListView.builder(
-          padding: const EdgeInsets.fromLTRB(8, 4, 8, 16),
+          padding: glassListPadding(
+            context,
+            const EdgeInsets.fromLTRB(8, 4, 8, 16),
+          ),
           itemCount: feed.length,
           itemBuilder: (context, i) {
             final entry = feed[i];

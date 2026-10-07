@@ -5,6 +5,7 @@ import '../../l10n/l10n.dart';
 import '../../util/date_format.dart';
 import 'scope.dart';
 import 'widgets.dart';
+import '../glass_chrome.dart';
 
 /// Bans, warnings, and flagged users seen this session.
 class UsersTab extends ModTabWidget {
@@ -79,7 +80,10 @@ class _UsersTabState extends State<UsersTab> with ModTabState<UsersTab> {
           ..sort((a, b) => b.at.compareTo(a.at));
         final flagged = moderation.suspicious.values.toList();
         return ListView(
-          padding: const EdgeInsets.fromLTRB(0, 4, 0, 24),
+          padding: glassListPadding(
+            context,
+            const EdgeInsets.fromLTRB(0, 4, 0, 24),
+          ),
           children: [
             // Bans seen this session; the Channel tab lists every ban.
             ModSectionHeader(mod.l10n.recentBansCount(bans.length)),

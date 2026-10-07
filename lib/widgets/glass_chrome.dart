@@ -83,6 +83,17 @@ class GlassChromeScope extends InheritedWidget {
       freeze != oldWidget.freeze;
 }
 
+/// [base] plus the pill clearance, for plain lists in the chat body (panels,
+/// mod view) so their last rows scroll clear of the composer like ChatView's.
+EdgeInsets glassListPadding(
+  BuildContext context, [
+  EdgeInsets base = EdgeInsets.zero,
+]) {
+  final scope = GlassChromeScope.maybeOf(context);
+  final extra = (scope?.bottomClearance ?? 0) + (scope?.listExtra ?? 0);
+  return base.copyWith(bottom: base.bottom + extra);
+}
+
 /// Snapshot of the chrome's boundary, taken on the last live frame.
 class GlassFreeze {
   const GlassFreeze(this.image, this.boundary, this.pixelRatio);

@@ -6,6 +6,7 @@ import '../../services/mod_actions.dart';
 import 'dialogs.dart';
 import 'scope.dart';
 import 'widgets.dart';
+import '../glass_chrome.dart';
 
 /// Chat mode toggles from ROOMSTATE, plus Shield mode from Helix.
 class ModesTab extends ModTabWidget {
@@ -202,7 +203,10 @@ class _ModesTabState extends State<ModesTab> with ModTabState<ModesTab> {
         final shield = _shield.value;
         final shieldError = _shield.error;
         return ListView(
-          padding: const EdgeInsets.fromLTRB(12, 8, 12, 24),
+          padding: glassListPadding(
+            context,
+            const EdgeInsets.fromLTRB(12, 8, 12, 24),
+          ),
           children: [
             if (!widget.moderationActive)
               ListTile(

@@ -4,6 +4,7 @@ import '../../services/twitch_api.dart';
 import '../../util/date_format.dart';
 import 'scope.dart';
 import 'widgets.dart';
+import '../glass_chrome.dart';
 
 /// Public blocked terms. New terms are typed into the borrowed composer.
 class TermsTab extends ModTabWidget {
@@ -55,7 +56,10 @@ class _TermsTabState extends State<TermsTab> with ModTabState<TermsTab> {
               subtitle: mod.l10n.wildcardHint,
             ),
             builder: (context, terms) => ListView.builder(
-              padding: const EdgeInsets.fromLTRB(8, 4, 8, 16),
+              padding: glassListPadding(
+                context,
+                const EdgeInsets.fromLTRB(8, 4, 8, 16),
+              ),
               itemCount: terms.length,
               itemBuilder: (_, i) {
                 final term = terms[i];

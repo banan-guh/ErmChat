@@ -6,6 +6,7 @@ import '../../l10n/l10n.dart';
 import 'dialogs.dart';
 import 'scope.dart';
 import 'widgets.dart';
+import '../glass_chrome.dart';
 
 /// AutoMod held-message queue with per-category filters.
 class QueueTab extends ModTabWidget {
@@ -140,7 +141,10 @@ class _QueueTabState extends State<QueueTab> with ModTabState<QueueTab> {
                       ),
                     )
                   : ListView.builder(
-                      padding: const EdgeInsets.fromLTRB(8, 4, 8, 16),
+                      padding: glassListPadding(
+                        context,
+                        const EdgeInsets.fromLTRB(8, 4, 8, 16),
+                      ),
                       itemCount: queue.length,
                       itemBuilder: (_, i) {
                         final held = queue[i];
