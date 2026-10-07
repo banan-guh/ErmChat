@@ -213,7 +213,9 @@ class StreamPanels {
     final panelW = (MediaQuery.sizeOf(context).width - 120).clamp(200.0, 320.0);
     return Stack(
       children: [
-        Positioned.fill(child: playerView(channel, fillPane: true)),
+        Positioned.fill(
+          child: _dismissesKeyboard(playerView(channel, fillPane: true)),
+        ),
         if (theaterChatVisible())
           Positioned(
             top: 0,
@@ -258,7 +260,14 @@ class StreamPanels {
     );
   }
 
-  Widget split(BuildContext context, String channel, double maxWidth) {
+  /// [hideChrome] drops the chat pane's app bar and tabs while the keyboard
+  /// leaves too little room, as portrait does.
+  Widget split(
+    BuildContext context,
+    String channel,
+    double maxWidth, {
+    bool hideChrome = false,
+  }) {
     return LayoutBuilder(
       builder: (context, constraints) {
         // Past 16:9 at full height the video only gains side bars, so the
@@ -274,7 +283,9 @@ class StreamPanels {
               children: [
                 SizedBox(
                   width: maxWidth * frac,
-                  child: playerView(channel, fillPane: true),
+                  child: _dismissesKeyboard(
+                    playerView(channel, fillPane: true),
+                  ),
                 ),
                 GestureDetector(
                   behavior: HitTestBehavior.translucent,
@@ -307,7 +318,7 @@ class StreamPanels {
                       Expanded(
                         child: channels.channelStack(
                           context,
-                          hideChrome: false,
+                          hideChrome: hideChrome,
                           overlayTop: 50,
                         ),
                       ),
@@ -322,6 +333,14 @@ class StreamPanels {
       },
     );
   }
+
+  // A tap on the stream also drops the keyboard, so a crowded landscape
+  // layout always has a way out (iOS has no back key). Taps still reach
+  // the player.
+  Widget _dismissesKeyboard(Widget child) => Listener(
+    onPointerDown: (_) => FocusManager.instance.primaryFocus?.unfocus(),
+    child: child,
+  );
 
   /// Whether chat sits in a pane beside the stream (landscape theater with
   /// chat shown, or split on a wide screen), matching [bodyColumn]. The
@@ -366,7 +385,16 @@ class StreamPanels {
     }
     if (channel != null && !streamPlayer.isAudioOnly && maxWidth >= 600) {
       return Column(
-        children: [Expanded(child: split(context, channel, maxWidth))],
+        children: [
+          Expanded(
+            child: split(
+              context,
+              channel,
+              maxWidth,
+              hideChrome: hideChromeForKeyboard,
+            ),
+          ),
+        ],
       );
     }
     // Compact folds the app bar into the tab strip. With no channels there
