@@ -1729,8 +1729,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
               onShowUser: (login) =>
                   _userSheets.showUserProfile(context, login, null),
             ),
-            emotePickerBuilder: (context, {required sheetBoxHeight}) =>
-                _buildEmotePicker(sheetBoxHeight: sheetBoxHeight),
+            emotePickerBuilder:
+                (context, {required sheetBoxHeight, required bottomInset}) =>
+                    _buildEmotePicker(
+                      sheetBoxHeight: sheetBoxHeight,
+                      bottomInset: bottomInset,
+                    ),
             autocomplete: ValueListenableBuilder<List<Suggestion>>(
               valueListenable: _composer.suggestions,
               builder: (_, suggestions, _) => AutocompleteDropdown(
@@ -1769,10 +1773,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 
   /// Stream layout selector (DankChat MainScreen): landscape theater first,
   /// then wide split, else the stacked portrait player above chat.
-  Widget _buildEmotePicker({required double sheetBoxHeight}) {
+  Widget _buildEmotePicker({
+    required double sheetBoxHeight,
+    required double bottomInset,
+  }) {
     return Positioned(
       key: const ValueKey('emote_picker'),
-      bottom: 0,
+      bottom: bottomInset,
       left: 0,
       right: 0,
       height: sheetBoxHeight,

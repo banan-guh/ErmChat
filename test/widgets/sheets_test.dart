@@ -204,27 +204,28 @@ void main() {
               threadPanel: const SizedBox.shrink(),
               mentionsPanel: const SizedBox.shrink(),
               modViewPanel: const SizedBox.shrink(),
-              emotePickerBuilder: (context, {required sheetBoxHeight}) {
-                seenH = sheetBoxHeight;
-                return Positioned(
-                  bottom: 0,
-                  left: 0,
-                  right: 0,
-                  height: sheetBoxHeight,
-                  child: DraggableScrollableSheet(
-                    controller: ctrl,
-                    initialChildSize: 0,
-                    minChildSize: 0,
-                    maxChildSize: 0.6,
-                    snap: true,
-                    builder: (context, scrollController) => ListView(
-                      key: const Key('sheet'),
-                      controller: scrollController,
-                      children: const [SizedBox(height: 2000)],
-                    ),
-                  ),
-                );
-              },
+              emotePickerBuilder:
+                  (context, {required sheetBoxHeight, required bottomInset}) {
+                    seenH = sheetBoxHeight;
+                    return Positioned(
+                      bottom: 0,
+                      left: 0,
+                      right: 0,
+                      height: sheetBoxHeight,
+                      child: DraggableScrollableSheet(
+                        controller: ctrl,
+                        initialChildSize: 0,
+                        minChildSize: 0,
+                        maxChildSize: 0.6,
+                        snap: true,
+                        builder: (context, scrollController) => ListView(
+                          key: const Key('sheet'),
+                          controller: scrollController,
+                          children: const [SizedBox(height: 2000)],
+                        ),
+                      ),
+                    );
+                  },
               autocomplete: const SizedBox.shrink(),
               emoteMaxFraction: 0.6,
               composer: const SizedBox(height: 56),

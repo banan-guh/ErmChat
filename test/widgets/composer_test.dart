@@ -49,8 +49,9 @@ void main() {
             threadPanel: const SizedBox.shrink(),
             mentionsPanel: const SizedBox.shrink(),
             modViewPanel: const SizedBox.shrink(),
-            emotePickerBuilder: (_, {required sheetBoxHeight}) =>
-                const SizedBox.shrink(),
+            emotePickerBuilder:
+                (_, {required sheetBoxHeight, required bottomInset}) =>
+                    const SizedBox.shrink(),
             autocomplete: const SizedBox.shrink(),
           ),
         ),

@@ -24,9 +24,14 @@ typedef ChatBodyBuilder =
       required double composerH,
     });
 
-/// Builds the emote picker overlay for the computed sheet box height.
+/// Builds the emote picker overlay for the computed sheet box height,
+/// raised [bottomInset] off the bottom (above the glass pill).
 typedef EmotePickerBuilder =
-    Widget Function(BuildContext context, {required double sheetBoxHeight});
+    Widget Function(
+      BuildContext context, {
+      required double sheetBoxHeight,
+      required double bottomInset,
+    });
 
 /// Below this box height the keyboard leaves too little room for the chrome,
 /// so the app bar and channel tabs collapse instantly (like DankChat) and the
@@ -607,20 +612,31 @@ class _ChatBodyState extends State<ChatBody>
                           if (_rawH <= 0.5) {
                             _fullBoxHeight = constraints.maxHeight;
                           }
+                          // The glass pill floats inside this box, so the
+                          // sizing below measures the box as if the composer
+                          // were in flow (opaque), then raises the picker
+                          // above the pill without moving its top.
+                          final inFlowH = pill ? _composerH + bottomPad : 0.0;
                           final fullBoxH =
                               (_fullBoxHeight ?? constraints.maxHeight) -
-                              statusBarH;
+                              statusBarH -
+                              inFlowH;
                           // Full-box canvas for the sheet: the Positioned box may
                           // run past the top of the shrunk Stack (clipped,
                           // harmless) so the Draggable fractions keep measuring
                           // against the full box and the sheet anchors to the
                           // bottom, above the keyboard.
                           final maxFitBoxH =
-                              (constraints.maxHeight - statusBarH) /
+                              (constraints.maxHeight - statusBarH - inFlowH) /
                               widget.emoteMaxFraction;
-                          final sheetBoxHeight = fullBoxH < maxFitBoxH
+                          final fitH = fullBoxH < maxFitBoxH
                               ? fullBoxH
                               : maxFitBoxH;
+                          final sheetBoxHeight = pill
+                              ? fitH -
+                                    (clearance - inFlowH) /
+                                        widget.emoteMaxFraction
+                              : fitH;
                           return Stack(
                             clipBehavior: Clip.hardEdge,
                             children: [
@@ -632,6 +648,7 @@ class _ChatBodyState extends State<ChatBody>
                               widget.emotePickerBuilder(
                                 context,
                                 sheetBoxHeight: sheetBoxHeight,
+                                bottomInset: pill ? clearance : 0,
                               ),
                               autocomplete,
                               ?notice,

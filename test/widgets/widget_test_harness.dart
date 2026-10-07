@@ -479,8 +479,9 @@ Widget noticeHarness(ChatNoticeController controller) {
         threadPanel: const SizedBox.shrink(),
         mentionsPanel: const SizedBox.shrink(),
         modViewPanel: const SizedBox.shrink(),
-        emotePickerBuilder: (context, {required sheetBoxHeight}) =>
-            const SizedBox.shrink(),
+        emotePickerBuilder:
+            (context, {required sheetBoxHeight, required bottomInset}) =>
+                const SizedBox.shrink(),
         autocomplete: const SizedBox.shrink(),
         emoteMaxFraction: 0.5,
         composer: const SizedBox(key: Key('notice-composer'), height: 56),
@@ -555,8 +556,9 @@ Widget stackedPlayerHarness({required bool showVideo}) {
         threadPanel: const SizedBox.shrink(),
         mentionsPanel: const SizedBox.shrink(),
         modViewPanel: const SizedBox.shrink(),
-        emotePickerBuilder: (_, {required sheetBoxHeight}) =>
-            const SizedBox.shrink(),
+        emotePickerBuilder:
+            (_, {required sheetBoxHeight, required bottomInset}) =>
+                const SizedBox.shrink(),
         autocomplete: const SizedBox.shrink(),
         emoteMaxFraction: 0.6,
         composer: const SizedBox(height: 56),
@@ -581,8 +583,9 @@ Widget pipCollapseHarness({required bool isInPip}) {
         threadPanel: const SizedBox(key: Key('pip-thread')),
         mentionsPanel: const SizedBox.shrink(),
         modViewPanel: const SizedBox.shrink(),
-        emotePickerBuilder: (context, {required sheetBoxHeight}) =>
-            const SizedBox.shrink(),
+        emotePickerBuilder:
+            (context, {required sheetBoxHeight, required bottomInset}) =>
+                const SizedBox.shrink(),
         autocomplete: const SizedBox.shrink(),
         emoteMaxFraction: 0.5,
         isInPip: isInPip,

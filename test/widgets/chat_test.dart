@@ -218,8 +218,9 @@ void main() {
               threadPanel: const SizedBox.shrink(),
               mentionsPanel: const SizedBox.shrink(),
               modViewPanel: const SizedBox.shrink(),
-              emotePickerBuilder: (_, {required sheetBoxHeight}) =>
-                  const SizedBox.shrink(),
+              emotePickerBuilder:
+                  (_, {required sheetBoxHeight, required bottomInset}) =>
+                      const SizedBox.shrink(),
               autocomplete: const SizedBox.shrink(),
               emoteMaxFraction: 0.6,
               composer: const SizedBox(height: 56),
@@ -291,8 +292,9 @@ void main() {
               threadPanel: const SizedBox.shrink(),
               mentionsPanel: const SizedBox.shrink(),
               modViewPanel: const SizedBox.shrink(),
-              emotePickerBuilder: (_, {required sheetBoxHeight}) =>
-                  const SizedBox.shrink(),
+              emotePickerBuilder:
+                  (_, {required sheetBoxHeight, required bottomInset}) =>
+                      const SizedBox.shrink(),
               autocomplete: const SizedBox.shrink(),
               emoteMaxFraction: 0.6,
               composer: const SizedBox(height: 56),
@@ -523,8 +525,9 @@ void main() {
               threadPanel: const SizedBox.shrink(),
               mentionsPanel: const SizedBox.shrink(),
               modViewPanel: const SizedBox.shrink(),
-              emotePickerBuilder: (_, {required sheetBoxHeight}) =>
-                  const SizedBox.shrink(),
+              emotePickerBuilder:
+                  (_, {required sheetBoxHeight, required bottomInset}) =>
+                      const SizedBox.shrink(),
               autocomplete: const SizedBox.shrink(),
             ),
           ),
@@ -584,8 +587,9 @@ void main() {
               threadPanel: const SizedBox.shrink(),
               mentionsPanel: const SizedBox.shrink(),
               modViewPanel: const SizedBox.shrink(),
-              emotePickerBuilder: (_, {required sheetBoxHeight}) =>
-                  const SizedBox.shrink(),
+              emotePickerBuilder:
+                  (_, {required sheetBoxHeight, required bottomInset}) =>
+                      const SizedBox.shrink(),
               autocomplete: const SizedBox.shrink(),
             ),
           ),
@@ -688,8 +692,9 @@ void main() {
                   threadPanel: const SizedBox.shrink(),
                   mentionsPanel: const SizedBox.shrink(),
                   modViewPanel: const SizedBox.shrink(),
-                  emotePickerBuilder: (_, {required sheetBoxHeight}) =>
-                      const SizedBox.shrink(),
+                  emotePickerBuilder:
+                      (_, {required sheetBoxHeight, required bottomInset}) =>
+                          const SizedBox.shrink(),
                   autocomplete: const SizedBox.shrink(),
                 ),
               );

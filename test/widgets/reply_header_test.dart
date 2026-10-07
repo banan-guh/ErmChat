@@ -36,8 +36,9 @@ void main() {
                 threadPanel: const SizedBox.shrink(),
                 mentionsPanel: const SizedBox.shrink(),
                 modViewPanel: const SizedBox.shrink(),
-                emotePickerBuilder: (_, {required sheetBoxHeight}) =>
-                    const SizedBox.shrink(),
+                emotePickerBuilder:
+                    (_, {required sheetBoxHeight, required bottomInset}) =>
+                        const SizedBox.shrink(),
                 autocomplete: const SizedBox.shrink(),
                 emoteMaxFraction: 0.5,
                 replyHeader: replyActive
@@ -105,28 +106,29 @@ void main() {
                 threadPanel: const SizedBox.shrink(),
                 mentionsPanel: const SizedBox.shrink(),
                 modViewPanel: const SizedBox.shrink(),
-                emotePickerBuilder: (_, {required sheetBoxHeight}) =>
-                    Positioned(
-                      bottom: 0,
-                      left: 0,
-                      right: 0,
-                      height: sheetBoxHeight,
-                      child: ScaleTransition(
-                        scale: const AlwaysStoppedAnimation(1.0),
-                        child: LayoutBuilder(
-                          builder: (context, constraints) => IgnorePointer(
-                            ignoring: false,
-                            child: DraggableScrollableSheet(
-                              controller: sheetCtrl,
-                              initialChildSize: 0.5,
-                              minChildSize: 0,
-                              maxChildSize: 0.5,
-                              builder: (_, _) => const SizedBox.shrink(),
+                emotePickerBuilder:
+                    (_, {required sheetBoxHeight, required bottomInset}) =>
+                        Positioned(
+                          bottom: 0,
+                          left: 0,
+                          right: 0,
+                          height: sheetBoxHeight,
+                          child: ScaleTransition(
+                            scale: const AlwaysStoppedAnimation(1.0),
+                            child: LayoutBuilder(
+                              builder: (context, constraints) => IgnorePointer(
+                                ignoring: false,
+                                child: DraggableScrollableSheet(
+                                  controller: sheetCtrl,
+                                  initialChildSize: 0.5,
+                                  minChildSize: 0,
+                                  maxChildSize: 0.5,
+                                  builder: (_, _) => const SizedBox.shrink(),
+                                ),
+                              ),
                             ),
                           ),
                         ),
-                      ),
-                    ),
                 autocomplete: const SizedBox.shrink(),
                 emoteMaxFraction: 0.5,
                 replyHeader: replyActive
