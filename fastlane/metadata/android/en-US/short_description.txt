@@ -1,1 +1,1 @@
-A Twitch chat client for mobile, inspired by DankChat
+A feature-packed Twitch chat client for mobile

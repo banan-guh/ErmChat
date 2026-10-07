@@ -1,4 +1,6 @@
-- Search settings
-- Report bugs from the app
-- Highlights settings are readable now
-- Chatterino, DankChat and Chatsen badges
+- Pinned messages (you can also pin / unpin!)
+- Live polls, predictions, hype trains
+- Notify only highlights alert without highlight
+- BTTV emote modifiers, FFZ effects, all FFZ global emotes
+- Translation support and a language picker
+- Update notices and what's new in settings

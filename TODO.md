@@ -58,10 +58,9 @@ Skipped from the survey: emoji picker (the keyboard has one), follow/unfollow, p
 ## Low Priority / Future
 
 - [+] **OS notifications + background** - background finished, notifs finished for android only, not apple.
-- [*] **Mod View v1 (Tiers 1+2)** - centralized ModActions service; mod rows in message menu + user card; chat mode toggles; mod/vip lists; AutoMod queue tab.
+- [*] **Mod View history** - investigate feasibility of history of mod actions
 - [ ] **Mod View: Channel Points reward CRUD** - create/edit/delete UI plus new TwitchApi write verbs (PATCH title/cost, POST create, DELETE). Read-only hardening already landed (cost/age rows, refund confirm, foreign 403 copy, pause notice).
 - [+] **Shared Chat** - mirror-only marking, sharedchatnotice unwrap/drop, source-channel emote scoping, lazy participant fetch, ping dedup
-- [+] **Spotlight** - global 3-way setting (spotlight/fade/hide) for shared-chat foreign messages; fade dims at 55% opacity, hide drops at ingestion
 - [ ] **VOD / clip chat replay** - past broadcasts + clips with synced read-only chat.
 - [ ] **iOS mention push** - android works, apple server doesn't exist yet.
 - [ ] **Notification tuning** - quiet hours, per-channel mutes, sender cooldowns, collapse sub train bursts.

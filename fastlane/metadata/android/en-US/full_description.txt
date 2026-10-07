@@ -1,1 +1,11 @@
-ErmChat is a DankChat-inspired chat client with more features and multi-platform. If you've had experience with other chat clients, this one is similar with fun features stapled onto it and less polish.
+A Twitch chat app for Android and iOS, inspired by DankChat.
+
+- Twitch, BTTV, FFZ and 7TV emotes, novel emote cache system
+- Saveable threads that don't decay hard
+- Multiple channels in swipeable tabs, multiple accounts
+- Pinned messages, polls, predictions and hype trains above chat
+- Custom highlights and mention notifications
+- (Almost) full mod view
+- Experimental liquid glass
+- Features you'd expect in other chat clients
+- Lots of customizability!
