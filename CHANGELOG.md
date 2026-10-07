@@ -4,3 +4,4 @@
 - BTTV emote modifiers, FFZ effects, all FFZ global emotes
 - Translation support and a language picker
 - Update notices and what's new in settings
+- Fix up fullscreen on smaller devices
