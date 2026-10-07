@@ -1442,17 +1442,6 @@
       }
     }
   },
-  "predictionUsersPoints": "{users} users / {points} pts",
-  "@predictionUsersPoints": {
-    "placeholders": {
-      "users": {
-        "type": "int"
-      },
-      "points": {
-        "type": "int"
-      }
-    }
-  },
   "useEmote": "Use emote",
   "copy": "Copy",
   "openLink": "Open link",

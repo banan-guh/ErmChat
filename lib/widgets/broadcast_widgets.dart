@@ -275,7 +275,14 @@ class BroadcastWidgets {
     if (pins.containsKey(channel)) labels.add((l) => l.pinned);
     if (polls.containsKey(channel)) labels.add((l) => l.poll);
     if (predictions.containsKey(channel)) labels.add((l) => l.prediction);
-    if (hypeTrains.containsKey(channel)) labels.add((l) => l.hypeTrain);
+    final train = hypeTrains[channel];
+    if (train != null) {
+      labels.add(
+        (l) =>
+            '${l.hypeTrain} ${l.hypeTrainLevel(train.level)} · '
+            '${hypeTrainPercent(train)}%',
+      );
+    }
     return (l) => labels.map((label) => label(l)).join(' / ');
   }
 

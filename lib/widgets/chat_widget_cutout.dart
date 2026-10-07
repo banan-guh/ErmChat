@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import '../eventsub/decode/events.dart';
 import '../l10n/l10n.dart';
 import '../services/emote_manager.dart';
@@ -42,20 +43,24 @@ class ChatWidgetCutout extends StatelessWidget {
       visualDensity: VisualDensity.compact,
       onPressed: onMinimize,
     );
-    // A lone pin is Twitch's slim card, sized to its text, not the pager.
-    if (pages.length == 1 && pages.single is PinnedMessageCard) {
+    // A lone card sizes to its content; only several share the pager.
+    if (pages.length == 1) {
+      final pin = pages.single is PinnedMessageCard;
       return Padding(
         padding: const EdgeInsets.fromLTRB(8, 0, 8, 6),
         child: surface(
           Stack(
             children: [
               pages.single,
-              Positioned(
-                top: 0,
-                bottom: 0,
-                right: 2,
-                child: Center(child: minimize),
-              ),
+              if (pin)
+                Positioned(
+                  top: 0,
+                  bottom: 0,
+                  right: 2,
+                  child: Center(child: minimize),
+                )
+              else
+                Positioned(top: 2, right: 2, child: minimize),
             ],
           ),
         ),
@@ -219,6 +224,13 @@ class ChatWidgetMinimizedBar extends StatelessWidget {
 }
 
 /// Hype train progress card with a live countdown.
+/// Progress toward the next level, 0 to 1.
+double hypeTrainRatio(HypeTrainEvent e) =>
+    e.goal > 0 ? (e.progress / e.goal).clamp(0.0, 1.0) : 0.0;
+
+/// Rounded down, so 100 only shows once the level is full.
+int hypeTrainPercent(HypeTrainEvent e) => (hypeTrainRatio(e) * 100).floor();
+
 class HypeTrainCard extends StatefulWidget {
   const HypeTrainCard({super.key, required this.event});
 
@@ -272,7 +284,7 @@ class _HypeTrainCardState extends State<HypeTrainCard> {
     final theme = Theme.of(context);
     final l10n = context.l10n;
     final e = widget.event;
-    final ratio = e.goal > 0 ? (e.progress / e.goal).clamp(0.0, 1.0) : 0.0;
+    final ratio = hypeTrainRatio(e);
     final top = e.topContributions
         .take(2)
         .map(
@@ -282,8 +294,9 @@ class _HypeTrainCardState extends State<HypeTrainCard> {
         )
         .join(', ');
     return Padding(
-      padding: const EdgeInsets.fromLTRB(14, 10, 44, 16),
+      padding: const EdgeInsets.fromLTRB(14, 10, 44, 12),
       child: Column(
+        mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
@@ -311,9 +324,21 @@ class _HypeTrainCardState extends State<HypeTrainCard> {
             child: LinearProgressIndicator(value: ratio, minHeight: 8),
           ),
           const SizedBox(height: 4),
-          Text(
-            l10n.hypeTrainProgress(e.progress, e.goal),
-            style: theme.textTheme.labelSmall,
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  l10n.hypeTrainProgress(e.progress, e.goal),
+                  style: theme.textTheme.labelSmall,
+                ),
+              ),
+              Text(
+                '${hypeTrainPercent(e)}%',
+                style: theme.textTheme.labelSmall?.copyWith(
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
           ),
           if (top.isNotEmpty) ...[
             const SizedBox(height: 2),
@@ -442,6 +467,110 @@ class PinnedMessageCard extends StatelessWidget {
   }
 }
 
+/// Title row shared by the poll and prediction cards.
+Widget _resultsHeader(BuildContext context, String label, String title) {
+  final theme = Theme.of(context);
+  return Column(
+    mainAxisSize: MainAxisSize.min,
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Row(
+        children: [
+          Text(label, style: theme.textTheme.titleSmall),
+          const SizedBox(width: 8),
+          Text(
+            context.l10n.readOnly,
+            style: theme.textTheme.labelSmall?.copyWith(
+              color: theme.colorScheme.outline,
+            ),
+          ),
+        ],
+      ),
+      const SizedBox(height: 2),
+      Text(
+        title,
+        style: theme.textTheme.labelMedium,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+      ),
+      const SizedBox(height: 6),
+    ],
+  );
+}
+
+/// One result: the option's share fills the row behind its title, with
+/// [trailing] stats and the percent on the right.
+class _ResultBar extends StatelessWidget {
+  const _ResultBar({
+    required this.title,
+    required this.share,
+    required this.color,
+    this.bold = false,
+    this.trailing,
+  });
+
+  final String title;
+
+  /// 0 to 1.
+  final double share;
+  final Color color;
+  final bool bold;
+  final Widget? trailing;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final style = theme.textTheme.labelMedium?.copyWith(
+      fontWeight: bold ? FontWeight.w700 : FontWeight.w500,
+    );
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(6),
+        child: SizedBox(
+          height: 24,
+          child: Stack(
+            children: [
+              Positioned.fill(
+                child: ColoredBox(
+                  color: theme.colorScheme.onSurface.withValues(alpha: 0.06),
+                ),
+              ),
+              Positioned.fill(
+                child: FractionallySizedBox(
+                  alignment: Alignment.centerLeft,
+                  widthFactor: share.clamp(0.0, 1.0),
+                  child: ColoredBox(color: color.withValues(alpha: 0.35)),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        title,
+                        style: style,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    if (trailing != null) ...[
+                      trailing!,
+                      const SizedBox(width: 8),
+                    ],
+                    Text('${(share * 100).round()}%', style: style),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 /// Read-only poll results card.
 class PollCard extends StatelessWidget {
   const PollCard({super.key, required this.event});
@@ -452,67 +581,35 @@ class PollCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final total = event.choices.fold<int>(0, (sum, c) => sum + c.votes);
+    final lead = event.choices.fold<int>(
+      0,
+      (m, c) => c.votes > m ? c.votes : m,
+    );
+    final votes = NumberFormat.compact();
     final shown = event.choices.take(2).toList();
     return Padding(
-      padding: const EdgeInsets.fromLTRB(14, 10, 44, 16),
+      padding: const EdgeInsets.fromLTRB(14, 10, 44, 12),
       child: Column(
+        mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              Text(context.l10n.poll, style: theme.textTheme.titleSmall),
-              const SizedBox(width: 8),
-              Text(
-                context.l10n.readOnly,
+          _resultsHeader(context, context.l10n.poll, event.title),
+          for (final choice in shown)
+            _ResultBar(
+              title: choice.title,
+              share: total > 0 ? choice.votes / total : 0,
+              // The leader stands out; ties all lead.
+              color: lead > 0 && choice.votes == lead
+                  ? theme.colorScheme.primary
+                  : theme.colorScheme.outline,
+              bold: lead > 0 && choice.votes == lead,
+              trailing: Text(
+                votes.format(choice.votes),
                 style: theme.textTheme.labelSmall?.copyWith(
-                  color: theme.colorScheme.outline,
+                  color: theme.colorScheme.onSurfaceVariant,
                 ),
               ),
-            ],
-          ),
-          const SizedBox(height: 2),
-          Text(
-            event.title,
-            style: theme.textTheme.labelMedium,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          ),
-          const SizedBox(height: 6),
-          for (final choice in shown) ...[
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    choice.title,
-                    style: theme.textTheme.labelSmall,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-                const SizedBox(width: 8),
-                SizedBox(
-                  width: 90,
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(3),
-                    child: LinearProgressIndicator(
-                      value: total > 0 ? choice.votes / total : 0,
-                      minHeight: 6,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 6),
-                SizedBox(
-                  width: 34,
-                  child: Text(
-                    '${total > 0 ? (choice.votes / total * 100).round() : 0}%',
-                    style: theme.textTheme.labelSmall,
-                    textAlign: TextAlign.end,
-                  ),
-                ),
-              ],
             ),
-            const SizedBox(height: 3),
-          ],
           if (event.choices.length > 2)
             Text(
               context.l10n.moreOptions(event.choices.length - 2),
@@ -524,6 +621,15 @@ class PollCard extends StatelessWidget {
   }
 }
 
+/// Twitch's prediction colors: blue, pink, then the rest of its palette.
+const _outcomeColors = [
+  Color(0xFF387AFF),
+  Color(0xFFF5009B),
+  Color(0xFF00C7AC),
+  Color(0xFFE0A800),
+  Color(0xFF9147FF),
+];
+
 /// Read-only prediction results card.
 class PredictionCard extends StatelessWidget {
   const PredictionCard({super.key, required this.event});
@@ -533,55 +639,38 @@ class PredictionCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final total = event.outcomes.fold<int>(0, (s, o) => s + o.channelPoints);
+    final compact = NumberFormat.compact();
+    final stat = theme.textTheme.labelSmall?.copyWith(
+      color: theme.colorScheme.onSurfaceVariant,
+    );
     final shown = event.outcomes.take(2).toList();
     return Padding(
-      padding: const EdgeInsets.fromLTRB(14, 10, 44, 16),
+      padding: const EdgeInsets.fromLTRB(14, 10, 44, 12),
       child: Column(
+        mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              Text(context.l10n.prediction, style: theme.textTheme.titleSmall),
-              const SizedBox(width: 8),
-              Text(
-                context.l10n.readOnly,
-                style: theme.textTheme.labelSmall?.copyWith(
-                  color: theme.colorScheme.outline,
-                ),
+          _resultsHeader(context, context.l10n.prediction, event.title),
+          for (final (i, outcome) in shown.indexed)
+            _ResultBar(
+              title: outcome.title,
+              share: total > 0 ? outcome.channelPoints / total : 0,
+              color: _outcomeColors[i % _outcomeColors.length],
+              bold: true,
+              trailing: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.people_outline, size: 12, color: stat?.color),
+                  const SizedBox(width: 2),
+                  Text(compact.format(outcome.users), style: stat),
+                  const SizedBox(width: 6),
+                  Icon(Icons.toll_outlined, size: 12, color: stat?.color),
+                  const SizedBox(width: 2),
+                  Text(compact.format(outcome.channelPoints), style: stat),
+                ],
               ),
-            ],
-          ),
-          const SizedBox(height: 2),
-          Text(
-            event.title,
-            style: theme.textTheme.labelMedium,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          ),
-          const SizedBox(height: 6),
-          for (final outcome in shown) ...[
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    outcome.title,
-                    style: theme.textTheme.labelSmall,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  context.l10n.predictionUsersPoints(
-                    outcome.users,
-                    outcome.channelPoints,
-                  ),
-                  style: theme.textTheme.labelSmall,
-                ),
-              ],
             ),
-            const SizedBox(height: 3),
-          ],
           if (event.outcomes.length > 2)
             Text(
               context.l10n.moreOutcomes(event.outcomes.length - 2),
