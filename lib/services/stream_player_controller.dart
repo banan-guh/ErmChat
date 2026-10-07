@@ -139,6 +139,11 @@ class StreamPlayerController extends ChangeNotifier {
     return action;
   }
 
+  /// Moves the split live during a drag: no save and no notify, so
+  /// rebuilds mid-drag read the current position. [setSplitFraction] commits.
+  void dragSplitFraction(double value) =>
+      _splitFraction = value.clamp(0.2, 0.8);
+
   void setSplitFraction(double value) {
     _splitFraction = value.clamp(0.2, 0.8);
     unawaited(

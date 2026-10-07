@@ -259,56 +259,65 @@ class StreamPanels {
   }
 
   Widget split(BuildContext context, String channel, double maxWidth) {
-    var dragFrac = streamPlayer.splitFraction;
-    return StatefulBuilder(
-      builder: (context, setLocal) {
-        return Row(
-          children: [
-            SizedBox(
-              width: maxWidth * dragFrac,
-              child: playerView(channel, fillPane: true),
-            ),
-            GestureDetector(
-              behavior: HitTestBehavior.translucent,
-              onHorizontalDragUpdate: (details) => setLocal(() {
-                dragFrac = (dragFrac + details.delta.dx / maxWidth).clamp(
-                  0.2,
-                  0.8,
-                );
-              }),
-              onHorizontalDragEnd: (_) =>
-                  streamPlayer.setSplitFraction(dragFrac),
-              child: const SizedBox(
-                width: 16,
-                child: Center(
-                  child: SizedBox(
-                    width: 4,
-                    height: 48,
-                    child: DecoratedBox(
-                      decoration: BoxDecoration(
-                        color: Colors.grey,
-                        borderRadius: BorderRadius.all(Radius.circular(2)),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // Past 16:9 at full height the video only gains side bars, so the
+        // player pane stops growing there.
+        final maxFrac = (constraints.maxHeight * 16 / 9 / maxWidth).clamp(
+          0.2,
+          0.8,
+        );
+        return StatefulBuilder(
+          builder: (context, setLocal) {
+            final frac = streamPlayer.splitFraction.clamp(0.2, maxFrac);
+            return Row(
+              children: [
+                SizedBox(
+                  width: maxWidth * frac,
+                  child: playerView(channel, fillPane: true),
+                ),
+                GestureDetector(
+                  behavior: HitTestBehavior.translucent,
+                  onHorizontalDragUpdate: (details) => setLocal(
+                    () => streamPlayer.dragSplitFraction(
+                      (frac + details.delta.dx / maxWidth).clamp(0.2, maxFrac),
+                    ),
+                  ),
+                  onHorizontalDragEnd: (_) =>
+                      streamPlayer.setSplitFraction(frac),
+                  child: const SizedBox(
+                    width: 16,
+                    child: Center(
+                      child: SizedBox(
+                        width: 4,
+                        height: 48,
+                        child: DecoratedBox(
+                          decoration: BoxDecoration(
+                            color: Colors.grey,
+                            borderRadius: BorderRadius.all(Radius.circular(2)),
+                          ),
+                        ),
                       ),
                     ),
                   ),
                 ),
-              ),
-            ),
-            Expanded(
-              child: Column(
-                children: [
-                  Expanded(
-                    child: channels.channelStack(
-                      context,
-                      hideChrome: false,
-                      overlayTop: 50,
-                    ),
+                Expanded(
+                  child: Column(
+                    children: [
+                      Expanded(
+                        child: channels.channelStack(
+                          context,
+                          hideChrome: false,
+                          overlayTop: 50,
+                        ),
+                      ),
+                      const ComposerPaneSlot(),
+                    ],
                   ),
-                  const ComposerPaneSlot(),
-                ],
-              ),
-            ),
-          ],
+                ),
+              ],
+            );
+          },
         );
       },
     );
