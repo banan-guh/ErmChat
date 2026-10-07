@@ -125,6 +125,15 @@ class MessageMenus {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            if (msg.messageId != null && !msg.isSystem && canPin(msg))
+              ListTile(
+                leading: const Icon(Icons.push_pin_outlined),
+                title: Text(ctx.l10n.pinMessage),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  pinMessage(context, msg);
+                },
+              ),
             ListTile(
               leading: const Icon(Icons.copy_all),
               title: Text(ctx.l10n.copyFullMessage),
@@ -140,15 +149,6 @@ class MessageMenus {
                 Navigator.pop(ctx);
               },
             ),
-            if (msg.messageId != null && !msg.isSystem && canPin(msg))
-              ListTile(
-                leading: const Icon(Icons.push_pin_outlined),
-                title: Text(ctx.l10n.pinMessage),
-                onTap: () {
-                  Navigator.pop(ctx);
-                  pinMessage(context, msg);
-                },
-              ),
             if (msg.messageId != null)
               ListTile(
                 leading: const Icon(Icons.copy),
