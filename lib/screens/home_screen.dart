@@ -670,6 +670,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     _pip.onPipAction = _pipActionHandler;
     _streamPlayer.addListener(_stream.onStreamPlayerChanged);
     _streamPlayer.addListener(_syncSystemUiMode);
+    // Launching in landscape gets no metrics change, so sync once up front.
+    WidgetsBinding.instance.addPostFrameCallback((_) => _syncSystemUiMode());
     _linkWhitelist.addListener(_onLinkWhitelistChanged);
     PrefsStore.instance.addListener(_onPrefsChanged);
     _loadNotificationSettings();
@@ -1453,6 +1455,28 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     super.dispose();
   }
 
+  // Tiny phones (iPhone 8 class, under 400pt tall in landscape) enter
+  // fullscreen on rotating to landscape, hiding the top bar; the floating
+  // menu's fullscreen toggle brings it back. Leaving restores the user's own
+  // setting. Null while not in tiny landscape.
+  bool? _fullscreenBeforeTiny;
+
+  void _syncTinyLandscape() {
+    final size = MediaQuery.maybeSizeOf(context);
+    final tiny =
+        MediaQuery.maybeOrientationOf(context) == Orientation.landscape &&
+        size != null &&
+        size.height < 400;
+    if (tiny && _fullscreenBeforeTiny == null) {
+      _fullscreenBeforeTiny = _isFullscreen;
+      if (!_isFullscreen) setState(() => _isFullscreen = true);
+    } else if (!tiny && _fullscreenBeforeTiny != null) {
+      final before = _fullscreenBeforeTiny!;
+      _fullscreenBeforeTiny = null;
+      if (_isFullscreen != before) setState(() => _isFullscreen = before);
+    }
+  }
+
   void _toggleFullscreen() {
     setState(() => _isFullscreen = !_isFullscreen);
     _syncSystemUiMode();
@@ -1463,6 +1487,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   /// layout renders, so only the landscape theater layout counts.
   void _syncSystemUiMode({bool force = false}) {
     if (!mounted) return;
+    _syncTinyLandscape();
     // Phones in landscape go fullscreen on their own: every row of height
     // counts. Tablets keep the system bars, since landscape is their default.
     final size = MediaQuery.maybeSizeOf(context);

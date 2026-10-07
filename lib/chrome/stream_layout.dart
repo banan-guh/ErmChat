@@ -369,12 +369,7 @@ class StreamPanels {
     final channel = streamPlayer.currentChannel;
     final landscape =
         MediaQuery.orientationOf(context) == Orientation.landscape;
-    // Tiny phones in landscape (iPhone 8 class, about 375pt tall) drop the
-    // top bar outright, as the keyboard does; compact alone leaves too
-    // little chat. Bigger phones keep the compact bar.
-    final hideChrome =
-        hideChromeForKeyboard ||
-        (landscape && MediaQuery.sizeOf(context).height < 400);
+    final hideChrome = hideChromeForKeyboard;
     // System PiP window shows the whole activity, so collapse to video-only
     // (DankChat hides appbar/tabs/chat/input the same way). The app root draws
     // the player above routes; this stays black so one player holds the key.
