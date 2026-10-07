@@ -53,6 +53,9 @@ class MessageInput extends StatelessWidget {
     return focusNode.hasFocus ? scheme.primary : scheme.onSurfaceVariant;
   }
 
+  /// Narrowest bar that still shows the emote button.
+  static const double minWidthForEmoteMenu = 240;
+
   @override
   Widget build(BuildContext context) {
     final effectiveHint = hintText ?? context.l10n.typeMessageHint;
@@ -64,114 +67,125 @@ class MessageInput extends StatelessWidget {
     final slotH = compact ? 40.0 : iconBox;
     final iconConstraints = BoxConstraints(minWidth: iconBox, minHeight: slotH);
     final gap = compact ? 2.0 : 4.0;
-    return Padding(
-      // In-flow the field sits flush under the list (top 0). In a glass
-      // pill it must breathe evenly or the text reads high in the pill.
-      padding: borderless
-          ? EdgeInsets.fromLTRB(8, gap, 8, gap)
-          : EdgeInsets.fromLTRB(8, 0, 8, gap * 2),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          TextField(
-            key: const Key('message_input'),
-            controller: controller,
-            focusNode: focusNode,
-            onTap: onTap,
-            onChanged: onChanged,
-            // Return sends instead of inserting a newline; the field still
-            // wraps up to maxLines. The no-op keeps the keyboard up.
-            keyboardType: TextInputType.text,
-            textInputAction: searchMode
-                ? TextInputAction.search
-                : TextInputAction.send,
-            onEditingComplete: () {},
-            onSubmitted: onSubmitted ?? (enabled ? (_) => onSend() : null),
-            inputFormatters: inputFormatters,
-            enabled: enabled,
-            minLines: 1,
-            maxLines: searchMode ? 1 : 6,
-            decoration: InputDecoration(
-              // Theme density would shift the text off the icon boxes'
-              // centerline. Compact drops the 48pt field minimum via isDense
-              // instead, so padding and the 40pt icons set the height.
-              visualDensity: VisualDensity.standard,
-              isDense: compact,
-              prefixIconConstraints: iconConstraints,
-              suffixIconConstraints: iconConstraints,
-              // Borderless glass mode uses a hint (always centered) instead
-              // of a label (which sits high with no outline to notch into).
-              labelText: borderless ? null : effectiveHint,
-              hintText: borderless ? effectiveHint : null,
-              hintMaxLines: 1,
-              border: borderless
-                  ? InputBorder.none
-                  : const OutlineInputBorder(),
-              // Null keeps the stock Material3 outline colors. An explicit
-              // OutlineInputBorder here overrides them, so toggling glass
-              // off would not restore the normal border.
-              enabledBorder: borderless ? InputBorder.none : null,
-              focusedBorder: borderless ? InputBorder.none : null,
-              contentPadding: borderless
-                  ? EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: compact ? 8 : 12,
-                    )
-                  : null,
-              prefixIcon:
-                  prefixOverride ??
-                  _IconSlot(
-                    height: slotH,
-                    child: Material(
-                      type: MaterialType.transparency,
-                      child: InkWell(
-                        borderRadius: BorderRadius.circular(iconBox / 2),
-                        onTap: onEmoteToggle,
-                        child: ListenableBuilder(
-                          listenable: focusNode,
-                          // Explicit size: a dense field shrinks its icons
-                          // to 18pt, and compact is dense.
-                          builder: (_, _) => Icon(
-                            Icons.emoji_emotions_outlined,
-                            size: 24,
-                            color: _inputAccent(context),
+    // A docked landscape bar beside a wide stream can be too narrow for the
+    // emote menu to fit a single row, so the button goes instead.
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final emoteFits = constraints.maxWidth >= minWidthForEmoteMenu;
+        return Padding(
+          // In-flow the field sits flush under the list (top 0). In a glass
+          // pill it must breathe evenly or the text reads high in the pill.
+          padding: borderless
+              ? EdgeInsets.fromLTRB(8, gap, 8, gap)
+              : EdgeInsets.fromLTRB(8, 0, 8, gap * 2),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                key: const Key('message_input'),
+                controller: controller,
+                focusNode: focusNode,
+                onTap: onTap,
+                onChanged: onChanged,
+                // Return sends instead of inserting a newline; the field still
+                // wraps up to maxLines. The no-op keeps the keyboard up.
+                keyboardType: TextInputType.text,
+                textInputAction: searchMode
+                    ? TextInputAction.search
+                    : TextInputAction.send,
+                onEditingComplete: () {},
+                onSubmitted: onSubmitted ?? (enabled ? (_) => onSend() : null),
+                inputFormatters: inputFormatters,
+                enabled: enabled,
+                minLines: 1,
+                maxLines: searchMode ? 1 : 6,
+                decoration: InputDecoration(
+                  // Theme density would shift the text off the icon boxes'
+                  // centerline. Compact drops the 48pt field minimum via isDense
+                  // instead, so padding and the 40pt icons set the height.
+                  visualDensity: VisualDensity.standard,
+                  isDense: compact,
+                  prefixIconConstraints: iconConstraints,
+                  suffixIconConstraints: iconConstraints,
+                  // Borderless glass mode uses a hint (always centered) instead
+                  // of a label (which sits high with no outline to notch into).
+                  labelText: borderless ? null : effectiveHint,
+                  hintText: borderless ? effectiveHint : null,
+                  hintMaxLines: 1,
+                  border: borderless
+                      ? InputBorder.none
+                      : const OutlineInputBorder(),
+                  // Null keeps the stock Material3 outline colors. An explicit
+                  // OutlineInputBorder here overrides them, so toggling glass
+                  // off would not restore the normal border.
+                  enabledBorder: borderless ? InputBorder.none : null,
+                  focusedBorder: borderless ? InputBorder.none : null,
+                  contentPadding: borderless
+                      ? EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: compact ? 8 : 12,
+                        )
+                      : null,
+                  prefixIcon:
+                      prefixOverride ??
+                      (!emoteFits
+                          ? null
+                          : _IconSlot(
+                              height: slotH,
+                              child: Material(
+                                type: MaterialType.transparency,
+                                child: InkWell(
+                                  borderRadius: BorderRadius.circular(
+                                    iconBox / 2,
+                                  ),
+                                  onTap: onEmoteToggle,
+                                  child: ListenableBuilder(
+                                    listenable: focusNode,
+                                    // Explicit size: a dense field shrinks its icons
+                                    // to 18pt, and compact is dense.
+                                    builder: (_, _) => Icon(
+                                      Icons.emoji_emotions_outlined,
+                                      size: 24,
+                                      color: _inputAccent(context),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            )),
+                  suffixIcon:
+                      suffixOverride ??
+                      _IconSlot(
+                        height: slotH,
+                        child: Material(
+                          type: MaterialType.transparency,
+                          child: InkWell(
+                            borderRadius: BorderRadius.circular(iconBox / 2),
+                            onTap: enabled ? onSend : null,
+                            onLongPress: enabled ? onSendLongPress : null,
+                            child: ListenableBuilder(
+                              listenable: focusNode,
+                              builder: (_, _) {
+                                final theme = Theme.of(context);
+                                return Icon(
+                                  Icons.send,
+                                  size: 24,
+                                  color: !enabled
+                                      ? theme.colorScheme.onSurface.withValues(
+                                          alpha: 0.38,
+                                        )
+                                      : _inputAccent(context),
+                                );
+                              },
+                            ),
                           ),
                         ),
                       ),
-                    ),
-                  ),
-              suffixIcon:
-                  suffixOverride ??
-                  _IconSlot(
-                    height: slotH,
-                    child: Material(
-                      type: MaterialType.transparency,
-                      child: InkWell(
-                        borderRadius: BorderRadius.circular(iconBox / 2),
-                        onTap: enabled ? onSend : null,
-                        onLongPress: enabled ? onSendLongPress : null,
-                        child: ListenableBuilder(
-                          listenable: focusNode,
-                          builder: (_, _) {
-                            final theme = Theme.of(context);
-                            return Icon(
-                              Icons.send,
-                              size: 24,
-                              color: !enabled
-                                  ? theme.colorScheme.onSurface.withValues(
-                                      alpha: 0.38,
-                                    )
-                                  : _inputAccent(context),
-                            );
-                          },
-                        ),
-                      ),
-                    ),
-                  ),
-            ),
+                ),
+              ),
+            ],
           ),
-        ],
-      ),
+        );
+      },
     );
   }
 }
