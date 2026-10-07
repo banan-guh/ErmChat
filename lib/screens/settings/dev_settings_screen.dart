@@ -57,7 +57,7 @@ class _DevSettingsScreenState extends State<DevSettingsScreen> {
             title: 'Live chat widgets',
             subtitle:
                 'Real polls, predictions and hype trains. Pins always show',
-            defaultValue: false,
+            defaultValue: true,
             read: (p) => p.liveChatWidgets,
             write: (p, v) => p.setLiveChatWidgets(v),
           ),

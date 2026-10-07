@@ -60,7 +60,7 @@ class BroadcastWidgets {
 
   // Live polls, predictions and hype trains are a dev opt-in until their
   // cards are verified against real streams; pins always show.
-  static bool get _liveWidgets => Prefs.loaded?.liveChatWidgets ?? false;
+  static bool get _liveWidgets => Prefs.loaded?.liveChatWidgets ?? true;
 
   void onHypeTrain(HypeTrainEvent event) {
     if (!mounted || !_liveWidgets) return;

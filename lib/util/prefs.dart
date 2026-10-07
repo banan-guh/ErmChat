@@ -630,7 +630,7 @@ class Prefs {
       _p.setBool(_kTestChatWidgets, value);
 
   /// Dev: live poll, prediction and hype train cards. Pins always show.
-  bool get liveChatWidgets => _p.getBool(_kLiveChatWidgets) ?? false;
+  bool get liveChatWidgets => _p.getBool(_kLiveChatWidgets) ?? true;
 
   Future<void> setLiveChatWidgets(bool value) =>
       _p.setBool(_kLiveChatWidgets, value);
