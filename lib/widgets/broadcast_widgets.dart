@@ -280,7 +280,6 @@ class BroadcastWidgets {
         onRestore: () => onMinimizeChanged(channel, false),
         pin: pins[channel],
         emotes: emotes,
-        onDismissPin: () => dismissPin(channel),
         glass: glass,
       );
     }

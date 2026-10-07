@@ -1370,6 +1370,7 @@
   "minimize": "Minimize",
   "pinned": "Pinned",
   "pinnedBy": "Pinned by {name}",
+  "pinHideForYourself": "Hide for yourself",
   "@pinnedBy": {
     "placeholders": {
       "name": {

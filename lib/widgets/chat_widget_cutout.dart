@@ -149,7 +149,6 @@ class ChatWidgetMinimizedBar extends StatelessWidget {
     required this.onRestore,
     this.pin,
     this.emotes,
-    this.onDismissPin,
     this.glass = false,
   });
 
@@ -161,7 +160,6 @@ class ChatWidgetMinimizedBar extends StatelessWidget {
   final VoidCallback onRestore;
   final PinnedMessageEvent? pin;
   final EmoteLookupSource? emotes;
-  final VoidCallback? onDismissPin;
 
   @override
   Widget build(BuildContext context) {
@@ -203,8 +201,6 @@ class ChatWidgetMinimizedBar extends StatelessWidget {
                     ),
                   },
                 ),
-                if (pin != null && onDismissPin != null)
-                  _DismissPinButton(onPressed: onDismissPin!),
                 IconButton(
                   icon: const Icon(Icons.keyboard_arrow_up, size: 20),
                   tooltip: context.l10n.restore,
@@ -332,18 +328,26 @@ class _HypeTrainCardState extends State<HypeTrainCard> {
   }
 }
 
-/// Closes the pin for this user only, like Twitch's "hide for me".
-class _DismissPinButton extends StatelessWidget {
-  const _DismissPinButton({required this.onPressed});
+/// The expanded pin's overflow menu: hide it for this user only.
+class _PinMenu extends StatelessWidget {
+  const _PinMenu({required this.onHide});
 
-  final VoidCallback onPressed;
+  final VoidCallback onHide;
 
   @override
-  Widget build(BuildContext context) => IconButton(
-    icon: const Icon(Icons.close, size: 18),
-    tooltip: context.l10n.dismiss,
-    visualDensity: VisualDensity.compact,
-    onPressed: onPressed,
+  Widget build(BuildContext context) => PopupMenuButton<void>(
+    icon: const Icon(Icons.more_vert, size: 18),
+    padding: EdgeInsets.zero,
+    style: IconButton.styleFrom(
+      visualDensity: VisualDensity.compact,
+      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+    ),
+    itemBuilder: (context) => [
+      PopupMenuItem(
+        onTap: onHide,
+        child: Text(context.l10n.pinHideForYourself),
+      ),
+    ],
   );
 }
 
@@ -407,7 +411,7 @@ class PinnedMessageCard extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
-              if (onDismiss != null) _DismissPinButton(onPressed: onDismiss!),
+              if (onDismiss != null) _PinMenu(onHide: onDismiss!),
             ],
           ),
           const SizedBox(height: 2),
