@@ -42,10 +42,10 @@ import '../util/constants.dart';
 import '../util/prefs.dart';
 import '../util/prefs_store.dart';
 import '../util/timestamp_formatter.dart';
+import '../screens/intro_screen.dart';
 import '../screens/settings/settings_screen.dart';
 import '../widgets/panel_manager.dart';
 import '../widgets/glass_chrome.dart';
-import '../widgets/welcome_dialog.dart';
 import '../widgets/whats_new_sheet.dart';
 import '../services/user_store.dart';
 import '../chat/chat.dart';
@@ -686,7 +686,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     );
     WidgetsBinding.instance.addObserver(_predictiveBackHandler);
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _maybeShowWelcomeDialog();
+      unawaited(_maybeShowIntro());
       unawaited(_runAppUpdates());
     });
   }
@@ -729,13 +729,25 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     );
   }
 
-  Future<void> _maybeShowWelcomeDialog() async {
-    if (!Platform.isAndroid) return;
+  /// The introduction, once per install, on phones only.
+  Future<void> _maybeShowIntro() async {
+    if (!Platform.isAndroid && !Platform.isIOS) return;
     final prefs = await Prefs.load();
     if (prefs.welcomeSeen) return;
     await prefs.setWelcomeSeen(true);
     if (!mounted) return;
-    showWelcomeDialog(context);
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        fullscreenDialog: true,
+        builder: (_) => IntroScreen(
+          twitchAuth: _twitchAuth,
+          onJoinChannel: _channelManager.addChannel,
+          mentionPush: ref.read(mentionPushProvider),
+          onMentionPushChanged: _setMentionPush,
+        ),
+      ),
+    );
   }
 
   Future<void> _loadNotificationSettings() async {

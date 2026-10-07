@@ -103,6 +103,7 @@ flutter:
     - assets/WAYTOOERM.webp
     - assets/erm_emote.png
     - CHANGELOG.md
+    - assets/intro/emote_settings.webp
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images

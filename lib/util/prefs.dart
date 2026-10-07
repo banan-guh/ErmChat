@@ -31,8 +31,22 @@ class Prefs {
   static Future<Prefs> load() async {
     final prefs = Prefs._(await SharedPreferences.getInstance());
     _loaded = prefs;
+    if (!_installChecked) {
+      _installChecked = true;
+      // Saved prefs on the first load mean an install from before the
+      // introduction, which must never show it. Fresh installs start empty.
+      final p = prefs._p;
+      if (p.getKeys().isNotEmpty && !p.containsKey(_kWelcomeSeen)) {
+        await p.setBool(_kWelcomeSeen, true);
+      }
+    }
     return prefs;
   }
+
+  static bool _installChecked = false;
+
+  @visibleForTesting
+  static void resetInstallCheck() => _installChecked = false;
 
   /// Escape hatch for APIs that must take the raw store (dynamic keys, key
   /// iteration). Prefer the typed accessors.

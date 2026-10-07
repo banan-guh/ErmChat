@@ -1276,9 +1276,6 @@
   "paste": "Paste",
   "join": "Join",
   "channelNameHint": "channel name",
-  "welcomeTitle": "Welcome to ErmChat",
-  "welcomeBody": "Mention notifications are off by default. Turn on Mentions in Settings > Highlights to get a ping when someone mentions you in chat.",
-  "gotIt": "Got it",
   "gallery": "Gallery",
   "camera": "Camera",
   "mediaPickerFailed": "Could not open media picker: {error}",
@@ -2950,5 +2947,29 @@
   },
   "whatsNewAction": "What's new?",
   "getUpdate": "Get update",
-  "updateBanner": "New update available!"
+  "updateBanner": "New update available!",
+  "introSkip": "Skip",
+  "introNext": "Next",
+  "introStart": "Start chatting",
+  "introWelcomeTitle": "Welcome to ErmChat",
+  "introLoginBody": "Log in to chat, or just read: everything except sending works without an account.",
+  "introLogIn": "Log in with Twitch",
+  "introLoggedIn": "Logged in as {name}",
+  "@introLoggedIn": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "introChannelsTitle": "Channels",
+  "introChannelsBody": "Join a channel to start. Swipe left and right to move between channels.",
+  "introMentionsTitle": "Mentions",
+  "introMentionsBody": "Get a ping when someone mentions you. More highlight rules live in Settings, under Highlights.",
+  "introMentionPings": "Mention pings",
+  "introEmotesTitle": "Emotes",
+  "introEmotesBody": "7TV, BTTV and FFZ emotes work out of the box, effects included. Tune how they load in Settings, under Emotes.",
+  "introEmoteFetching": "Fetching: how sharp emotes load",
+  "introEmoteDataSaver": "Data saver: lighter emotes on cellular",
+  "introEmoteCache": "Cache: how much space emotes keep"
 }

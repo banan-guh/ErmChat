@@ -10,6 +10,18 @@ import 'package:shared_preferences/shared_preferences.dart';
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
+  test('the introduction shows on fresh installs only', () async {
+    for (final (initial, want) in [
+      (<String, Object>{}, false),
+      (<String, Object>{'channels': '["forsen"]'}, true),
+      (<String, Object>{'welcome_seen': false}, false),
+    ]) {
+      SharedPreferences.setMockInitialValues(initial);
+      Prefs.resetInstallCheck();
+      expect((await Prefs.load()).welcomeSeen, want, reason: '$initial');
+    }
+  });
+
   test('versions compare numerically, ignoring v and build', () {
     for (final (a, b, want) in [
       ('0.9.10', '0.9.9', 1),

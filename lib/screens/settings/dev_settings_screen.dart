@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../util/log.dart';
@@ -8,7 +7,6 @@ import '../../models/emote_fetch_tier.dart';
 import '../../services/fake_chat_feed.dart';
 import '../../util/data_usage.dart';
 import '../../widgets/app_snack.dart';
-import '../../widgets/welcome_dialog.dart';
 import 'prefs_tiles.dart';
 import 'settings_page.dart';
 
@@ -31,12 +29,11 @@ class DevSettingsScreen extends StatefulWidget {
 }
 
 class _DevSettingsScreenState extends State<DevSettingsScreen> {
-  Future<void> _replayWelcomeScreen(BuildContext context) async {
-    if (kIsWeb) return;
+  Future<void> _replayIntro(BuildContext context) async {
     final prefs = await Prefs.load();
     await prefs.setWelcomeSeen(false);
     if (!context.mounted) return;
-    showWelcomeDialog(context);
+    AppSnack.show(context, 'The introduction shows on next launch');
   }
 
   @override
@@ -92,9 +89,9 @@ class _DevSettingsScreenState extends State<DevSettingsScreen> {
           const Divider(),
           ListTile(
             leading: const Icon(Icons.replay),
-            title: const Text('Replay welcome screen'),
-            subtitle: const Text('Show the first-launch popup again'),
-            onTap: () => _replayWelcomeScreen(context),
+            title: const Text('Replay introduction'),
+            subtitle: const Text('Shows it again on next launch'),
+            onTap: () => _replayIntro(context),
           ),
           const Divider(),
           PrefsSwitchTile(
