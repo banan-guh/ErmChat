@@ -79,6 +79,17 @@ void main() {
       ));
       expect(service.version, greaterThan(before));
 
+      // At most one lookup every 2 seconds, however fast users arrive.
+      service.resolveBadge('c');
+      async.elapse(const Duration(milliseconds: 300));
+      service.resolveBadge('d');
+      async.elapse(const Duration(milliseconds: 900));
+      expect(lookups, hasLength(1), reason: 'lookups within 2s');
+      async.elapse(const Duration(seconds: 1));
+      expect(lookups, hasLength(2));
+      expect(lookups.last, ['c', 'd']);
+      lookups.removeLast();
+
       // A miss is remembered for 30 minutes, then asked again.
       expect(service.resolveBadge('b'), isNull);
       async.elapse(const Duration(minutes: 29));

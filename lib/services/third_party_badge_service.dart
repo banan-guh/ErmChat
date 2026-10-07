@@ -36,12 +36,14 @@ class ThirdPartyBadgeService {
   bool _limerinoCatalogInflight = false;
   DateTime? _limerinoCatalogAt;
   DateTime? _limerinoBlockedUntil;
+  DateTime? _limerinoLastLookup;
   Duration _limerinoBackoff = Duration.zero;
 
   static const _limerinoApi = 'https://api.limerino.com/v1/badges';
   // Limits and cache lifetimes follow limerino.com/developers/badges.
   static const _limerinoBatchDelay = Duration(milliseconds: 250);
   static const _limerinoMaxBatch = 100;
+  static const _limerinoLookupGap = Duration(seconds: 2);
   static const _limerinoHitTtl = Duration(minutes: 10);
   static const _limerinoMissTtl = Duration(minutes: 30);
   static const _limerinoCatalogTtl = Duration(minutes: 10);
@@ -297,7 +299,13 @@ class ThirdPartyBadgeService {
 
   Future<void> _flushLimerino() async {
     if (_limerinoInflight || _limerinoPending.isEmpty) return;
-    final blocked = _limerinoBlockedUntil;
+    // Backoff, or the documented "at most one every 2 seconds" lookup pace.
+    final last = _limerinoLastLookup;
+    final paced = last?.add(_limerinoLookupGap);
+    final backoff = _limerinoBlockedUntil;
+    final blocked = paced == null || (backoff != null && backoff.isAfter(paced))
+        ? backoff
+        : paced;
     if (blocked != null && _now().isBefore(blocked)) {
       _limerinoFlushTimer ??= Timer(blocked.difference(_now()), () {
         _limerinoFlushTimer = null;
@@ -308,6 +316,7 @@ class ThirdPartyBadgeService {
     final batch = _limerinoPending.take(_limerinoMaxBatch).toList();
     _limerinoPending.removeAll(batch);
     _limerinoInflight = true;
+    _limerinoLastLookup = _now();
     var retry = false;
     try {
       final res = await _post(
