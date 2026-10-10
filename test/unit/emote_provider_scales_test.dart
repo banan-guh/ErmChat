@@ -393,6 +393,7 @@ void main() {
           item('f', 'Follower', emoteType: 'follower'),
           item('b', 'Bits', emoteType: 'bitstier'),
           item('p', 'Prime', emoteType: 'prime'),
+          item('h', 'HypeTrain', emoteType: 'hypetrain'),
           item('d', 'Default'),
           item('t', 'TierOnly', tier: 'notanumber'),
         ],
@@ -406,6 +407,9 @@ void main() {
       expect(metaOf('Follower').kind, TwitchEmoteKind.follower);
       expect(metaOf('Bits').kind, TwitchEmoteKind.bits);
       expect(metaOf('Prime').kind, TwitchEmoteKind.standard);
+      expect(metaOf('HypeTrain').kind, TwitchEmoteKind.standard);
+      expect(metaOf('HypeTrain').hypeTrain, isTrue);
+      expect(metaOf('Prime').hypeTrain, isFalse);
       expect(metaOf('Default').kind, TwitchEmoteKind.standard);
       expect(metaOf('TierOnly').kind, TwitchEmoteKind.sub);
       expect(metaOf('TierOnly').subTier, isNull);

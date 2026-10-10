@@ -215,6 +215,7 @@ class TwitchEmoteProvider {
       subTier: tier == null ? null : int.tryParse(tier),
       ownerChannel: ownerChannel,
       ownerId: ownerId,
+      hypeTrain: emoteType == 'hypetrain',
     );
   }
 

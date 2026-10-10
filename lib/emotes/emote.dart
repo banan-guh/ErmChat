@@ -173,6 +173,7 @@ sealed class EmoteMeta {
         subTier: (json['subTier'] as num?)?.toInt(),
         ownerChannel: json['ownerChannel'] as String?,
         ownerId: json['ownerId'] as String?,
+        hypeTrain: json['hypeTrain'] == true,
       ),
       EmoteType.bttv => const BttvMeta(),
       EmoteType.ffz => FfzMeta(
@@ -196,9 +197,14 @@ final class TwitchMeta extends EmoteMeta {
     this.subTier,
     this.ownerChannel,
     this.ownerId,
+    this.hypeTrain = false,
   });
 
   final TwitchEmoteKind kind;
+
+  /// A Hype Train reward (`emote_type: hypetrain`); the picker gives these
+  /// their own section.
+  final bool hypeTrain;
 
   /// Parsed from the API `tier` string; null when absent or unparseable.
   final int? subTier;
@@ -222,6 +228,7 @@ final class TwitchMeta extends EmoteMeta {
     'subTier': subTier,
     'ownerChannel': ownerChannel,
     'ownerId': ownerId,
+    if (hypeTrain) 'hypeTrain': true,
   };
 }
 

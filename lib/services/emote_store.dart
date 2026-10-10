@@ -548,17 +548,27 @@ class EmoteStore {
     channelTabEmotes(channel, personal: personal, unlocks: unlocks),
   );
 
-  // Provider sections in display order, each keeping the input order.
+  // Provider sections in display order, each keeping the input order. Hype
+  // Train rewards follow Twitch in their own section.
   static Map<String, List<Emote>> _byProvider(Iterable<Emote> emotes) {
     final grouped = <EmoteType, List<Emote>>{};
+    final hypeTrain = <Emote>[];
     for (final e in emotes) {
-      (grouped[e.type] ??= []).add(e);
+      if (e.meta case TwitchMeta(hypeTrain: true)) {
+        hypeTrain.add(e);
+      } else {
+        (grouped[e.type] ??= []).add(e);
+      }
     }
     final result = <String, List<Emote>>{};
     for (final t in _globalSortPriority.keys) {
       final list = grouped[t];
-      if (list == null || list.isEmpty) continue;
-      result[_globalProviderLabels[t] ?? ''] = list;
+      if (list != null && list.isNotEmpty) {
+        result[_globalProviderLabels[t] ?? ''] = list;
+      }
+      if (t == EmoteType.twitch && hypeTrain.isNotEmpty) {
+        result['Hype Train'] = hypeTrain;
+      }
     }
     return result;
   }
