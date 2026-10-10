@@ -115,8 +115,9 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
 
   // The name zone is hit-tested on the row, not a span recognizer, so it can
   // reach past the glyphs: everything left of the name (timestamp, badges),
-  // the name, and a margin around it.
-  final _paragraphKey = GlobalKey();
+  // the name, and a margin around it. The paragraph is looked up only on a
+  // tap, through the context of the Builder around it.
+  BuildContext? _paragraphContext;
   // Plain-text offset where the name (and its separator) ends; null for
   // system rows, which have no name.
   int? _nameEnd;
@@ -156,7 +157,10 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
   bool _hitsName(Offset globalPosition) {
     final end = _nameEnd;
     if (end == null || end == 0) return false;
-    final paragraph = _paragraphKey.currentContext?.findRenderObject();
+    final ctx = _paragraphContext;
+    final paragraph = ctx != null && ctx.mounted
+        ? ctx.findRenderObject()
+        : null;
     if (paragraph is! RenderParagraph || !paragraph.hasSize) return false;
     final boxes = paragraph.getBoxesForSelection(
       TextSelection(baseOffset: 0, extentOffset: end),
@@ -480,9 +484,13 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
 
     Widget child = Padding(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-      child: Text.rich(
-        key: _paragraphKey,
-        TextSpan(children: [?tsSpan, ...children], style: bodyTextStyle),
+      child: Builder(
+        builder: (context) {
+          _paragraphContext = context;
+          return Text.rich(
+            TextSpan(children: [?tsSpan, ...children], style: bodyTextStyle),
+          );
+        },
       ),
     );
 
