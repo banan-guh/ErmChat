@@ -161,7 +161,8 @@ class ThirdPartyBadgeService {
     }
   }
 
-  /// Loads the Chatterino, DankChat and Chatsen badge lists.
+  /// Loads the Chatterino, DankChat, Chatsen and Chatterino Homies badge
+  /// lists.
   Future<void> fetchListBadges() =>
       Future.wait([for (final p in _ListProvider.values) _fetchList(p)]);
 
@@ -186,16 +187,19 @@ class ThirdPartyBadgeService {
     Object? body,
   ) {
     final entries = switch (provider) {
-      _ListProvider.chatterino =>
+      _ListProvider.dankchat || _ListProvider.chatsen => body as List<dynamic>,
+      _ =>
         (body as Map<String, dynamic>)['badges'] as List<dynamic>? ?? const [],
-      _ => body as List<dynamic>,
     };
     final users = <String, ThirdPartyBadge>{};
     for (final raw in entries) {
       if (raw is! Map<String, dynamic>) continue;
       final (url, name) = switch (provider) {
         // 1x (18px wide) already fills the tiny badge slot.
-        _ListProvider.chatterino => (
+        _ListProvider.chatterino ||
+        _ListProvider.homies ||
+        _ListProvider.homiesLegacy ||
+        _ListProvider.homiesLegacy2 => (
           raw['image1'] as String?,
           raw['tooltip'] as String?,
         ),
@@ -213,7 +217,10 @@ class ThirdPartyBadgeService {
       };
       if (url == null || url.isEmpty) continue;
       final badge = (url: url, name: name ?? '');
-      for (final id in raw['users'] as List<dynamic>? ?? const []) {
+      // Homies names one user per entry; the rest list them.
+      final ids = raw['users'] as List<dynamic>? ?? [?raw['userId']];
+      for (final id in ids) {
+        if (id.toString().isEmpty) continue;
         users.putIfAbsent(id.toString(), () => badge);
       }
     }
@@ -439,7 +446,11 @@ class ThirdPartyBadgeService {
 enum _ListProvider {
   chatterino('https://api.chatterino.com/badges'),
   dankchat('https://flxrs.com/api/badges'),
-  chatsen('https://api.chatsen.app/account/badges');
+  chatsen('https://api.chatsen.app/account/badges'),
+  // Chatterino Homies: the live per-user API, then the fork's older lists.
+  homies('https://chatterinohomies.com/api/badges/list'),
+  homiesLegacy('https://itzalex.github.io/badges'),
+  homiesLegacy2('https://itzalex.github.io/badges2');
 
   const _ListProvider(this.url);
   final String url;

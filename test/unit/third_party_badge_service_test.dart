@@ -112,7 +112,7 @@ void main() {
     });
   });
 
-  test('Chatterino, DankChat and Chatsen lists parse and rank', () async {
+  test('Chatterino, DankChat, Chatsen and Homies lists parse and rank', () async {
     // Trimmed real payloads from each provider's badge endpoint.
     final bodies = {
       'api.chatterino.com': jsonEncode({
@@ -144,10 +144,42 @@ void main() {
           'users': ['73250113'],
         },
       ]),
+      'chatterinohomies.com': jsonEncode({
+        'badges': [
+          {
+            'badgeFileType': 'image/webp',
+            'badgeId': '68d98dd23d60203ffbfdce6a',
+            'image1':
+                'https://cdn.chatterinohomies.com/badges/90b5d49e/18.webp',
+            'image2':
+                'https://cdn.chatterinohomies.com/badges/90b5d49e/36.webp',
+            'image3':
+                'https://cdn.chatterinohomies.com/badges/90b5d49e/72.webp',
+            'tooltip': 'usVesper Badge',
+            'userId': '95700563',
+            'username': 'usVesper',
+          },
+        ],
+      }),
+      'itzalex.github.io/badges2': jsonEncode({
+        'badges': [
+          {
+            'tooltip': 'Homies Supporter',
+            'image1':
+                'https://itzalex.github.io/badgesusers/supporter/badge.png',
+            'users': [''],
+          },
+        ],
+      }),
     };
     final service = ThirdPartyBadgeService(
       client: MockClient(
-        (req) async => http.Response(bodies[req.url.host] ?? '', 200),
+        (req) async => http.Response(
+          bodies['${req.url.host}${req.url.path}'] ??
+              bodies[req.url.host] ??
+              '',
+          200,
+        ),
       ),
     );
     addTearDown(service.dispose);
@@ -169,6 +201,15 @@ void main() {
       service.resolveBadge('both')?.name,
       'Chatterino Top Donator',
       reason: 'Chatterino outranks DankChat',
+    );
+    expect(service.resolveBadge('95700563'), (
+      url: 'https://cdn.chatterinohomies.com/badges/90b5d49e/18.webp',
+      name: 'usVesper Badge',
+    ));
+    expect(
+      service.resolveBadge(''),
+      isNull,
+      reason: 'blank user ids in a Homies list',
     );
   });
 }
