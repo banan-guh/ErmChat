@@ -40,7 +40,8 @@ void main() {
   });
 
   Future<BugReport> openEditor(WidgetTester tester) async {
-    final draft = outbox.newDraft(diagnostics: 'App: 0.9.0');
+    final draft = outbox.newDraft(diagnostics: 'App: 0.9.0')
+      ..includeDiagnostics = true;
     await tester.pumpWidget(
       ProviderScope(
         overrides: [bugReportOutboxProvider.overrideWithValue(outbox)],
