@@ -186,7 +186,7 @@ void main() {
     await service.fetchListBadges();
 
     expect(service.resolveBadge('241105451'), (
-      url: 'https://fourtf.com/chatterino/badges/topd.png',
+      url: 'https://fourtf.com/chatterino/badges/topd3x.png',
       name: 'Chatterino Top Donator',
     ));
     expect(service.resolveBadge('147950640'), (
@@ -203,7 +203,7 @@ void main() {
       reason: 'Chatterino outranks DankChat',
     );
     expect(service.resolveBadge('95700563'), (
-      url: 'https://cdn.chatterinohomies.com/badges/90b5d49e/18.webp',
+      url: 'https://cdn.chatterinohomies.com/badges/90b5d49e/72.webp',
       name: 'usVesper Badge',
     ));
     expect(

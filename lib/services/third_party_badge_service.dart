@@ -106,7 +106,8 @@ class ThirdPartyBadgeService {
         final id = b['id']?.toString() ?? '';
         if (id.isEmpty) continue;
         final urls = b['urls'] as Map<String, dynamic>?;
-        final imageUrl = (urls?['2'] ?? urls?['1'] ?? b['image']) as String?;
+        final imageUrl =
+            (urls?['4'] ?? urls?['2'] ?? urls?['1'] ?? b['image']) as String?;
         if (imageUrl == null) continue;
         _ffzBadges[id] = _FfzBadge(
           id: id,
@@ -195,12 +196,12 @@ class ThirdPartyBadgeService {
     for (final raw in entries) {
       if (raw is! Map<String, dynamic>) continue;
       final (url, name) = switch (provider) {
-        // 1x (18px wide) already fills the tiny badge slot.
+        // Largest art throughout: the 18dp slot is ~54px on a 3x screen.
         _ListProvider.chatterino ||
         _ListProvider.homies ||
         _ListProvider.homiesLegacy ||
         _ListProvider.homiesLegacy2 => (
-          raw['image1'] as String?,
+          (raw['image3'] ?? raw['image2'] ?? raw['image1']) as String?,
           raw['tooltip'] as String?,
         ),
         _ListProvider.dankchat => (
@@ -209,7 +210,7 @@ class ThirdPartyBadgeService {
         ),
         _ListProvider.chatsen => (
           switch (raw['mipmap']) {
-            final List<dynamic> m when m.isNotEmpty => m.first as String?,
+            final List<dynamic> m when m.isNotEmpty => m.last as String?,
             _ => null,
           },
           raw['name'] as String?,
@@ -265,12 +266,13 @@ class ThirdPartyBadgeService {
       for (final f in host['files'] as List<dynamic>? ?? const [])
         if (f is Map<String, dynamic>) f['name'] as String? ?? '',
     ];
-    // 2x (36px) suits the 18dp badge slot; every badge ships a 2x.png.
-    final file = names.contains('2x.webp')
-        ? '2x.webp'
-        : names.contains('2x.png')
-        ? '2x.png'
-        : names.firstOrNull;
+    // 4x is sharp on dense screens; every badge ships a 2x.png fallback.
+    final file = const [
+      '4x.webp',
+      '4x.png',
+      '2x.webp',
+      '2x.png',
+    ].where(names.contains).followedBy(names).firstOrNull;
     if (file == null || file.isEmpty) return null;
     final base = hostUrl.startsWith('//') ? 'https:$hostUrl' : hostUrl;
     return (

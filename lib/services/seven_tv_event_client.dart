@@ -514,13 +514,16 @@ class SevenTvEventClient {
         final hostUrl = host['url'] as String? ?? '';
         final files = host['files'] as List<dynamic>? ?? [];
         String imageUrl = '';
-        for (final f in files) {
-          final file = f as Map<String, dynamic>;
-          final fileName = file['name'] as String?;
-          if (fileName != null && fileName.startsWith('2x.')) {
-            imageUrl = 'https:$hostUrl/$fileName';
-            break;
+        // 4x is sharp on dense screens; 2x when a badge lacks it.
+        for (final size in const ['4x.', '2x.']) {
+          for (final f in files) {
+            final fileName = (f as Map<String, dynamic>)['name'] as String?;
+            if (fileName != null && fileName.startsWith(size)) {
+              imageUrl = 'https:$hostUrl/$fileName';
+              break;
+            }
           }
+          if (imageUrl.isNotEmpty) break;
         }
         if (imageUrl.isEmpty && files.isNotEmpty) {
           final first = files.first as Map<String, dynamic>;
