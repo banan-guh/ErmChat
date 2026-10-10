@@ -3335,10 +3335,21 @@ void main() {
     expect(find.byKey(const Key('pip-composer')), findsNothing);
     expect(find.byKey(const Key('pip-thread')), findsNothing);
 
-    await tester.pumpWidget(pipCollapseHarness(isInPip: false));
+    BuildContext? body;
+    await tester.pumpWidget(
+      pipCollapseHarness(isInPip: false, onBodyContext: (c) => body ??= c),
+    );
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('pip-composer')), findsOneWidget);
     expect(find.byKey(const Key('pip-thread')), findsOneWidget);
+
+    // #13: cached channel pages hold the body context; a PiP round trip
+    // that remounted it left their user card and menu on a dead context.
+    await tester.pumpWidget(pipCollapseHarness(isInPip: true));
+    await tester.pumpAndSettle();
+    await tester.pumpWidget(pipCollapseHarness(isInPip: false));
+    await tester.pumpAndSettle();
+    expect(body!.mounted, isTrue, reason: 'PiP must not remount the body');
   });
 
   group('Background channel window', () {

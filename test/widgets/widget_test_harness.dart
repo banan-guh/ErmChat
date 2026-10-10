@@ -566,7 +566,10 @@ Widget stackedPlayerHarness({required bool showVideo}) {
   );
 }
 
-Widget pipCollapseHarness({required bool isInPip}) {
+Widget pipCollapseHarness({
+  required bool isInPip,
+  void Function(BuildContext)? onBodyContext,
+}) {
   return MaterialApp(
     home: Scaffold(
       body: ChatBody(
@@ -578,7 +581,10 @@ Widget pipCollapseHarness({required bool isInPip}) {
               required maxHeight,
               required keyboardH,
               required composerH,
-            }) => Container(key: const Key('pip-video')),
+            }) {
+              onBodyContext?.call(context);
+              return Container(key: const Key('pip-video'));
+            },
         threadPanel: const SizedBox(key: Key('pip-thread')),
         mentionsPanel: const SizedBox.shrink(),
         modViewPanel: const SizedBox.shrink(),

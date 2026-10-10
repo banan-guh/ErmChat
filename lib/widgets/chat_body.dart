@@ -155,6 +155,7 @@ class _ChatBodyState extends State<ChatBody>
   // Cached chat body and the inputs it was built from.
   Widget? _body;
   Object? _bodyInputs;
+  final _bodyKey = GlobalKey();
 
   // Measured reply header height. Added to the list clearance so rows clear
   // the floating card without the composer resizing.
@@ -502,8 +503,11 @@ class _ChatBodyState extends State<ChatBody>
       _bodyInputs = inputs;
       final (builder, hide, width, height, kb, bodyComposerH) = inputs;
       // Its own context, so MediaQuery reads inside the body rebuild it
-      // directly instead of going stale behind this cache.
+      // directly instead of going stale behind this cache. The key carries
+      // that context across the PiP reparent: cached channel pages and rows
+      // hold it, and a remount would leave them on a dead one.
       _body = Builder(
+        key: _bodyKey,
         builder: (context) => builder(
           context,
           hideChromeForKeyboard: hide,
