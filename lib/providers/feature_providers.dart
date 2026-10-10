@@ -248,7 +248,12 @@ final bugReportOutboxProvider = Provider<BugReportOutbox>((ref) {
     accessToken: () => auth.accessToken,
     strings: ref.read(stringsProvider),
   );
-  unawaited(outbox.load().then((_) => outbox.flush()));
+  unawaited(
+    outbox.load().then((_) async {
+      await outbox.flush();
+      await outbox.refreshStatus();
+    }),
+  );
   final connectivity = ref.read(connectivityServiceProvider);
   ref.listen(connectivityTickProvider, (_, _) {
     if (connectivity.isOnline) unawaited(outbox.flush());

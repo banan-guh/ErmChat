@@ -461,7 +461,7 @@
   "compactDensityHint": "Smaller buttons, list tiles and menus",
   "tighterChromeHint": "Closer app bar action padding",
   "newReport": "New report",
-  "reportsEmpty": "Reports are public on the ermchat GitHub. Drafts stay on this device, and sent reports wait here until the app can reach the server.",
+  "reportsEmpty": "Reports are public on the ermchat GitHub and Discord. Drafts stay on this device, and sent reports wait here until the app can reach the server.",
   "reportDraft": "Draft",
   "reportWaiting": "Waiting to send",
   "reportSent": "Sent",
@@ -493,16 +493,21 @@
   "reportScreenshotsHint": "Totally optional, most reports have none. kappa.lol links in the description work too.",
   "addScreenshot": "Add screenshot",
   "includeDiagnostics": "Include diagnostics",
-  "includeDiagnosticsHint": "App version, phone model and settings",
-  "previewDiagnostics": "Preview diagnostics",
   "send": "Send",
-  "reportPublicNote": "Posted publicly on GitHub with your Twitch name. Offline? It sends once you're back online.",
+  "reportPublicNote": "Posted publicly on GitHub and Discord with your Twitch name. Offline? It sends once you're back online.",
+  "issuePlanned": "Planned",
+  "issueFixed": "Fixed",
+  "issueWontFix": "Won't fix",
+  "reportReplies": "{count, plural, =1{1 reply} other{{count} replies}}",
+  "@reportReplies": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "kindBug": "Bug",
-  "kindCrash": "Crash",
-  "kindVisual": "Visual glitch",
-  "kindPerformance": "Performance",
-  "kindIdea": "Idea",
-  "kindOther": "Other",
+  "kindSuggestion": "Suggestion",
   "ttsNoEngine": "No TTS engine available. Install or enable one in your device's Text-to-speech settings, then enable again.",
   "ttsQueueModeTitle": "Message queue mode",
   "ttsQueue": "Queue",

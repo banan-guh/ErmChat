@@ -1,19 +1,7 @@
-/// What a report is about. Rendered into the issue body.
-enum BugReportKind {
-  bug('Bug'),
-  crash('Crash'),
-  visual('Visual glitch'),
-  performance('Performance'),
-  idea('Idea'),
-  other('Other');
-
-  const BugReportKind(this.label);
-
-  final String label;
-
-  /// Problem kinds, which take steps to reproduce.
-  bool get hasSteps => this != idea && this != other;
-}
+/// What a report is about. Sent by name; the server turns it into the
+/// issue label and forum tag. Only bugs take steps, screenshots and
+/// diagnostics.
+enum BugReportKind { bug, suggestion }
 
 /// Where a report is in the outbox. Drafts stay local; queued reports send
 /// whenever the app can reach the report server; failed ones need an edit.
@@ -44,6 +32,9 @@ class BugReport {
     this.issueUrl,
     this.lastError,
     this.attempts = 0,
+    this.issueStatus,
+    this.replies = 0,
+    this.seenReplies = 0,
   }) : screenshots = screenshots ?? [];
 
   final String id;
@@ -69,6 +60,16 @@ class BugReport {
   /// Consecutive retryable failures, driving the retry backoff.
   int attempts;
 
+  /// The sent issue's status as the server last reported it (open,
+  /// planned, fixed, wontfix); null until the first status check.
+  String? issueStatus;
+
+  /// Comments on the sent issue, and how many of them the user has seen.
+  int replies;
+  int seenReplies;
+
+  bool get hasNewReplies => replies > seenReplies;
+
   String get title => summary.trim();
 
   /// Title filled and everything within the server caps.
@@ -78,9 +79,9 @@ class BugReport {
       buildBody().length <= kBugReportMaxBody;
 
   /// Markdown issue body assembled from the separate fields. Empty optional
-  /// sections are left out, and steps only go with problem kinds.
+  /// sections are left out, and the bug-only fields only go with bugs.
   String buildBody() {
-    final b = StringBuffer('**Type:** ${kind.label}\n');
+    final b = StringBuffer();
     void section(String heading, String text) {
       final t = text.trim();
       if (t.isEmpty) return;
@@ -88,7 +89,8 @@ class BugReport {
     }
 
     section('Description', whatHappened);
-    if (kind.hasSteps) section('Steps to reproduce', steps);
+    if (kind != BugReportKind.bug) return b.toString();
+    section('Steps to reproduce', steps);
     section(
       'Screenshots',
       [for (final url in screenshots) '![]($url)'].join('\n'),
@@ -118,6 +120,9 @@ class BugReport {
     'issueUrl': issueUrl,
     'lastError': lastError,
     'attempts': attempts,
+    'issueStatus': issueStatus,
+    'replies': replies,
+    'seenReplies': seenReplies,
   };
 
   /// Null when [json] is not a report (corrupt file entries are skipped).
@@ -135,7 +140,11 @@ class BugReport {
     return BugReport(
       id: id,
       createdAt: created,
-      kind: byName(BugReportKind.values, json['kind'], BugReportKind.bug),
+      // Older drafts had finer kinds; "idea" became a suggestion and the
+      // rest were all problems.
+      kind: json['kind'] == 'idea'
+          ? BugReportKind.suggestion
+          : byName(BugReportKind.values, json['kind'], BugReportKind.bug),
       summary: json['summary'] as String? ?? '',
       whatHappened: _withLegacyExpected(
         json['whatHappened'] as String? ?? '',
@@ -161,6 +170,9 @@ class BugReport {
       issueUrl: json['issueUrl'] as String?,
       lastError: json['lastError'] as String?,
       attempts: json['attempts'] as int? ?? 0,
+      issueStatus: json['issueStatus'] as String?,
+      replies: json['replies'] as int? ?? 0,
+      seenReplies: json['seenReplies'] as int? ?? 0,
     );
   }
 

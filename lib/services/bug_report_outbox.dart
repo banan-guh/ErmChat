@@ -25,7 +25,9 @@ class BugReportOutbox extends ChangeNotifier {
     http.Client? client,
     Directory? directory,
     AppLocalizations Function()? strings,
-  }) : _strings = strings ?? englishStrings,
+    DateTime Function()? now,
+  }) : _now = now ?? DateTime.now,
+       _strings = strings ?? englishStrings,
        _client = client ?? http.Client(),
        _ownsClient = client == null,
        _dir = directory;
@@ -37,6 +39,7 @@ class BugReportOutbox extends ChangeNotifier {
   /// Current Twitch user token; null while signed out.
   final String? Function() accessToken;
 
+  final DateTime Function() _now;
   final AppLocalizations Function() _strings;
   final http.Client _client;
   final bool _ownsClient;
@@ -48,12 +51,16 @@ class BugReportOutbox extends ChangeNotifier {
   bool _flushing = false;
   bool _disposed = false;
   Timer? _retryTimer;
+  DateTime? _statusCheckedAt;
 
   /// Covers a free-tier server waking from sleep (about a minute).
   static const sendTimeout = Duration(seconds: 90);
 
   /// Sent reports kept for the history list.
   static const maxSentKept = 50;
+
+  /// Minimum gap between status checks of sent reports.
+  static const statusInterval = Duration(minutes: 5);
 
   List<BugReport> get reports => List.unmodifiable(_reports);
 
@@ -149,6 +156,65 @@ class BugReportOutbox extends ChangeNotifier {
     }
   }
 
+  /// Updates sent reports with their issue's status and reply count, at
+  /// most once per [statusInterval]. Reports whose issue was deleted leave
+  /// the list. Failures are silent; the next call tries again.
+  Future<void> refreshStatus() async {
+    final now = _now();
+    final last = _statusCheckedAt;
+    if (_disposed || endpoint.isEmpty) return;
+    if (last != null && now.difference(last) < statusInterval) return;
+    final token = accessToken();
+    final sent = {
+      for (final r in _reports)
+        if (r.status == BugReportStatus.sent) r.id: r,
+    };
+    if (token == null || sent.isEmpty) return;
+    _statusCheckedAt = now;
+    final List<dynamic> states;
+    try {
+      final resp = await _client
+          .post(
+            Uri.parse('$endpoint/status'),
+            headers: {
+              'Authorization': 'Bearer $token',
+              'Content-Type': 'application/json',
+              if (secret.isNotEmpty) 'X-Report-Secret': secret,
+            },
+            body: jsonEncode({'ids': sent.keys.toList()}),
+          )
+          .timeout(sendTimeout);
+      if (resp.statusCode != 200) return;
+      states = _decode(resp.body)['reports'] as List<dynamic>? ?? const [];
+    } catch (e) {
+      logDebug('[BugReportOutbox] status check failed: $e');
+      return;
+    }
+    if (_disposed) return;
+    for (final s in states.whereType<Map<String, dynamic>>()) {
+      final r = sent[s['id']];
+      if (r == null) continue;
+      if (s['gone'] == true) {
+        _reports.remove(r);
+        continue;
+      }
+      r
+        ..issueStatus = s['status'] as String? ?? r.issueStatus
+        ..replies = s['replies'] as int? ?? r.replies;
+    }
+    _notify();
+    await _persist();
+  }
+
+  /// Marks a sent report's replies as read.
+  Future<void> markSeen(String id) async {
+    final r = byId(id);
+    if (r == null || !r.hasNewReplies) return;
+    r.seenReplies = r.replies;
+    _notify();
+    await _persist();
+  }
+
   /// Sends one report and records the outcome on it. Returns how long to
   /// wait before retrying, or null when the report reached a final state
   /// (or needs the user, like an expired sign-in).
@@ -166,6 +232,7 @@ class BugReportOutbox extends ChangeNotifier {
             body: jsonEncode({
               'id': r.id,
               'title': r.title,
+              'kind': r.kind.name,
               'body': r.buildBody(),
             }),
           )

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -21,12 +22,24 @@ import '../../util/log.dart';
 import '../../util/prefs.dart';
 import 'settings_page.dart';
 
-/// Report outbox: drafts, reports waiting to send, and sent history.
-class ReportBugScreen extends ConsumerWidget {
+/// Report outbox: drafts, reports waiting to send, and sent history with
+/// each issue's status, checked again on open.
+class ReportBugScreen extends ConsumerStatefulWidget {
   const ReportBugScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<ReportBugScreen> createState() => _ReportBugScreenState();
+}
+
+class _ReportBugScreenState extends ConsumerState<ReportBugScreen> {
+  @override
+  void initState() {
+    super.initState();
+    unawaited(ref.read(bugReportOutboxProvider).refreshStatus());
+  }
+
+  @override
+  Widget build(BuildContext context) {
     ref.watch(bugReportOutboxTickProvider);
     final outbox = ref.watch(bugReportOutboxProvider);
     final reports = outbox.reports;
@@ -54,9 +67,7 @@ class ReportBugScreen extends ConsumerWidget {
                   _ReportTile(
                     report: r,
                     onTap: () => _open(context, outbox, r),
-                    onDelete: r.status == BugReportStatus.sent
-                        ? null
-                        : () => outbox.delete(r.id),
+                    onDelete: () => outbox.delete(r.id),
                   ),
               ],
             ),
@@ -75,6 +86,7 @@ class ReportBugScreen extends ConsumerWidget {
 
   void _open(BuildContext context, BugReportOutbox outbox, BugReport r) {
     if (r.status == BugReportStatus.sent) {
+      unawaited(outbox.markSeen(r.id));
       final url = r.issueUrl;
       if (url != null) {
         launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
@@ -89,11 +101,15 @@ class ReportBugScreen extends ConsumerWidget {
 }
 
 class _ReportTile extends StatelessWidget {
-  const _ReportTile({required this.report, required this.onTap, this.onDelete});
+  const _ReportTile({
+    required this.report,
+    required this.onTap,
+    required this.onDelete,
+  });
 
   final BugReport report;
   final VoidCallback onTap;
-  final VoidCallback? onDelete;
+  final VoidCallback onDelete;
 
   @override
   Widget build(BuildContext context) {
@@ -110,11 +126,22 @@ class _ReportTile extends StatelessWidget {
         report.lastError ?? context.l10n.reportWaiting,
       ),
       BugReportStatus.sent => (
-        Icons.check_circle,
-        scheme.primary,
-        report.issueNumber == null
-            ? context.l10n.reportSent
-            : context.l10n.reportSentAs(report.issueNumber!),
+        switch (report.issueStatus) {
+          'planned' => Icons.event_note,
+          'fixed' => Icons.task_alt,
+          'wontfix' => Icons.do_not_disturb_on_outlined,
+          _ => Icons.check_circle,
+        },
+        report.issueStatus == 'wontfix'
+            ? scheme.onSurfaceVariant
+            : scheme.primary,
+        [
+          report.issueNumber == null
+              ? context.l10n.reportSent
+              : context.l10n.reportSentAs(report.issueNumber!),
+          ?_issueStatusLabel(context.l10n, report.issueStatus),
+          if (report.replies > 0) context.l10n.reportReplies(report.replies),
+        ].join(' · '),
       ),
       BugReportStatus.failed => (
         Icons.error,
@@ -125,28 +152,29 @@ class _ReportTile extends StatelessWidget {
       ),
     };
     return ListTile(
-      leading: Icon(icon, color: color),
+      leading: Badge(
+        isLabelVisible: report.hasNewReplies,
+        child: Icon(icon, color: color),
+      ),
       title: Text(
         report.title.isEmpty ? context.l10n.untitledReport : report.title,
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
       ),
       subtitle: Text('$status · ${formatYmd(report.createdAt)}'),
-      trailing: onDelete == null
-          ? null
-          : IconButton(
-              icon: const Icon(Icons.delete_outline),
-              tooltip: context.l10n.delete,
-              onPressed: onDelete,
-            ),
+      trailing: IconButton(
+        icon: const Icon(Icons.delete_outline),
+        tooltip: context.l10n.delete,
+        onPressed: onDelete,
+      ),
       onTap: onTap,
     );
   }
 }
 
-/// Report form: title, type, then optional description, steps (problem
-/// kinds only) and screenshots. Leaving the screen keeps a draft whenever
-/// something was entered.
+/// Report form: title, type, then optional description, and for bugs
+/// steps, screenshots and diagnostics. Leaving the screen keeps a draft
+/// whenever something was entered.
 class ReportEditorScreen extends ConsumerStatefulWidget {
   const ReportEditorScreen({super.key, required this.report});
 
@@ -256,6 +284,7 @@ class _ReportEditorScreenState extends ConsumerState<ReportEditorScreen> {
     );
     final diagnostics = widget.report.diagnostics.trim();
     final canSend = _summary.text.trim().isNotEmpty && !_uploading;
+    final isBug = _kind == BugReportKind.bug;
     return PopScope(
       onPopInvokedWithResult: _onPop,
       child: SettingsPage(
@@ -280,78 +309,73 @@ class _ReportEditorScreenState extends ConsumerState<ReportEditorScreen> {
                   ChoiceChip(
                     label: Text(_kindLabel(context.l10n, k)),
                     selected: _kind == k,
-                    onSelected: (_) => setState(() => _kind = k),
+                    onSelected: (_) => setState(() {
+                      _kind = k;
+                      if (k == BugReportKind.bug) _includeDiagnostics = true;
+                    }),
                   ),
               ],
             ),
             const SizedBox(height: 16),
             _multiline(_what, context.l10n.reportDescription, minLines: 3),
-            if (_kind.hasSteps) ...[
+            if (isBug) ...[
               const SizedBox(height: 16),
               _multiline(_steps, context.l10n.reportSteps),
-            ],
-            const SizedBox(height: 16),
-            Text(
-              context.l10n.reportScreenshots,
-              style: theme.textTheme.titleSmall,
-            ),
-            const SizedBox(height: 4),
-            Text(context.l10n.reportScreenshotsHint, style: caption),
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              crossAxisAlignment: WrapCrossAlignment.center,
-              children: [
-                for (final url in _screenshots)
-                  InputChip(
-                    avatar: const Icon(Icons.image_outlined),
-                    label: Text(
-                      Uri.tryParse(url)?.pathSegments.lastOrNull ?? url,
-                    ),
-                    onDeleted: () => setState(() => _screenshots.remove(url)),
-                  ),
-                if (_uploading)
-                  const SizedBox(
-                    width: 24,
-                    height: 24,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                else
-                  OutlinedButton.icon(
-                    onPressed: _addScreenshot,
-                    icon: const Icon(Icons.add_photo_alternate_outlined),
-                    label: Text(context.l10n.addScreenshot),
-                  ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            SwitchListTile(
-              contentPadding: EdgeInsets.zero,
-              title: Text(context.l10n.includeDiagnostics),
-              subtitle: Text(context.l10n.includeDiagnosticsHint),
-              value: _includeDiagnostics,
-              onChanged: diagnostics.isEmpty
-                  ? null
-                  : (v) => setState(() => _includeDiagnostics = v),
-            ),
-            if (_includeDiagnostics && diagnostics.isNotEmpty)
-              ExpansionTile(
-                tilePadding: EdgeInsets.zero,
-                title: Text(context.l10n.previewDiagnostics),
+              const SizedBox(height: 16),
+              Text(
+                context.l10n.reportScreenshots,
+                style: theme.textTheme.titleSmall,
+              ),
+              const SizedBox(height: 4),
+              Text(context.l10n.reportScreenshotsHint, style: caption),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                crossAxisAlignment: WrapCrossAlignment.center,
                 children: [
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: SelectableText(
-                      diagnostics,
-                      style: const TextStyle(
-                        fontFamily: 'monospace',
-                        fontSize: 12,
+                  for (final url in _screenshots)
+                    InputChip(
+                      avatar: const Icon(Icons.image_outlined),
+                      label: Text(
+                        Uri.tryParse(url)?.pathSegments.lastOrNull ?? url,
                       ),
+                      onDeleted: () => setState(() => _screenshots.remove(url)),
                     ),
-                  ),
+                  if (_uploading)
+                    const SizedBox(
+                      width: 24,
+                      height: 24,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  else
+                    OutlinedButton.icon(
+                      onPressed: _addScreenshot,
+                      icon: const Icon(Icons.add_photo_alternate_outlined),
+                      label: Text(context.l10n.addScreenshot),
+                    ),
                 ],
               ),
+              const SizedBox(height: 8),
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: Text(context.l10n.includeDiagnostics),
+                // The exact text that gets sent.
+                subtitle: diagnostics.isEmpty
+                    ? null
+                    : Text(
+                        diagnostics,
+                        style: const TextStyle(
+                          fontFamily: 'monospace',
+                          fontSize: 12,
+                        ),
+                      ),
+                value: _includeDiagnostics,
+                onChanged: diagnostics.isEmpty
+                    ? null
+                    : (v) => setState(() => _includeDiagnostics = v),
+              ),
+            ],
             const SizedBox(height: 24),
             FilledButton.icon(
               onPressed: canSend ? _send : null,
@@ -388,13 +412,19 @@ class _ReportEditorScreenState extends ConsumerState<ReportEditorScreen> {
   );
 }
 
+/// Null for "open" (the plain sent state) and for values this build
+/// does not know.
+String? _issueStatusLabel(AppLocalizations l, String? status) =>
+    switch (status) {
+      'planned' => l.issuePlanned,
+      'fixed' => l.issueFixed,
+      'wontfix' => l.issueWontFix,
+      _ => null,
+    };
+
 String _kindLabel(AppLocalizations l, BugReportKind k) => switch (k) {
   BugReportKind.bug => l.kindBug,
-  BugReportKind.crash => l.kindCrash,
-  BugReportKind.visual => l.kindVisual,
-  BugReportKind.performance => l.kindPerformance,
-  BugReportKind.idea => l.kindIdea,
-  BugReportKind.other => l.kindOther,
+  BugReportKind.suggestion => l.kindSuggestion,
 };
 
 const _deviceChannel = MethodChannel('ermchat/device');

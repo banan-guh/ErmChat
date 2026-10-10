@@ -142,4 +142,59 @@ void main() {
     expect(second.byId(q.id)?.status, BugReportStatus.sent);
     expect(second.byId(d.id)?.status, BugReportStatus.draft);
   });
+
+  test('status check updates sent reports, drops deleted ones', () async {
+    var clock = DateTime(2026, 10, 9);
+    var issue = 0;
+    late String keptId, deletedId;
+    final o = BugReportOutbox(
+      endpoint: 'https://bot.test/report',
+      accessToken: () => 'tok',
+      directory: dir,
+      now: () => clock,
+      client: MockClient((req) async {
+        requests.add(req);
+        if (!req.url.path.endsWith('/status')) return ok(++issue);
+        return http.Response(
+          jsonEncode({
+            'reports': [
+              {'id': keptId, 'status': 'fixed', 'replies': 2},
+              {'id': deletedId, 'gone': true},
+            ],
+          }),
+          200,
+        );
+      }),
+    );
+    outboxes.add(o);
+    final kept = draft(o);
+    final deleted = draft(o);
+    keptId = kept.id;
+    deletedId = deleted.id;
+    await o.submit(kept);
+    await o.submit(deleted);
+    final unsent = draft(o);
+    await o.saveDraft(unsent);
+    requests.clear();
+
+    await o.refreshStatus();
+    expect(
+      jsonDecode(requests.single.body)['ids'],
+      unorderedEquals([kept.id, deleted.id]),
+      reason: 'only sent reports have an issue to check',
+    );
+    expect(kept.issueStatus, 'fixed');
+    expect(kept.hasNewReplies, isTrue);
+    expect(o.byId(deleted.id), isNull);
+    expect(o.byId(unsent.id), isNotNull);
+
+    await o.markSeen(kept.id);
+    expect(kept.hasNewReplies, isFalse);
+
+    await o.refreshStatus();
+    expect(requests, hasLength(1), reason: 'throttled');
+    clock = clock.add(BugReportOutbox.statusInterval);
+    await o.refreshStatus();
+    expect(requests, hasLength(2));
+  });
 }
