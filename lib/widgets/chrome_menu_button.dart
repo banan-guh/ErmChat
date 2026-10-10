@@ -4,6 +4,15 @@ import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 import '../l10n/l10n.dart';
 import 'glass_chrome.dart';
 
+/// Side of the dropdown trigger, and its corner radius. The chat widget
+/// cards sit concentric around it: their corner is this radius plus their
+/// inset.
+const double kChromeMenuSize = 28;
+const double kChromeMenuRadius = 8;
+
+/// The trigger's gap from the top and right of the chat pages.
+const double kChromeMenuMargin = 8;
+
 // Dropdown for search, mod view, and fullscreen, input, stream toggles.
 class ChromeMenuButton extends StatefulWidget {
   final VoidCallback onToggleFullscreen;
@@ -98,19 +107,27 @@ class ChromeMenuButtonState extends State<ChromeMenuButton> {
             ),
         ];
       },
+      // Fixed size in both styles; a border would otherwise grow the box.
       child: widget.glass
           ? GlassSurface(
-              shape: const LiquidRoundedSuperellipse(borderRadius: 8),
+              shape: const LiquidRoundedSuperellipse(
+                borderRadius: kChromeMenuRadius,
+              ),
               quality: GlassQuality.minimal,
-              child: Padding(padding: const EdgeInsets.all(4), child: arrow),
+              child: SizedBox.square(
+                dimension: kChromeMenuSize,
+                child: Center(child: arrow),
+              ),
             )
           : Container(
+              width: kChromeMenuSize,
+              height: kChromeMenuSize,
+              alignment: Alignment.center,
               decoration: BoxDecoration(
                 color: theme.colorScheme.surfaceContainerHighest,
-                borderRadius: BorderRadius.circular(8),
+                borderRadius: BorderRadius.circular(kChromeMenuRadius),
                 border: Border.all(color: theme.colorScheme.outlineVariant),
               ),
-              padding: const EdgeInsets.all(4),
               child: arrow,
             ),
     );

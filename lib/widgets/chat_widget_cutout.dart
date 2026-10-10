@@ -6,9 +6,51 @@ import '../eventsub/decode/events.dart';
 import '../l10n/l10n.dart';
 import '../services/emote_manager.dart';
 import '../services/mod_actions.dart' show ModResult;
+import 'chrome_menu_button.dart';
 import 'emote_text.dart';
 import 'glass_chrome.dart';
 import 'mod_view/dialogs.dart' show showModError;
+import 'tabbed_layout.dart';
+
+// The cards wrap the chrome menu trigger in their top-right corner, inset
+// [TabbedLayout.cardInset] all round. Their own controls line up left of it
+// in one row of trigger-sized buttons: the header row.
+const double _inset = TabbedLayout.cardInset;
+const double _controlSize = kChromeMenuSize;
+
+/// Card edge to the collapse control: the trigger plus its gaps.
+const double _controlRight = _inset + kChromeMenuSize + _inset;
+
+/// Card edge to the left end of the controls, which header text stops at.
+const double _controlsWidth = _controlRight + _controlSize;
+
+/// Gap under the cards.
+const double _bottomGap = 6;
+
+final _controlStyle = IconButton.styleFrom(
+  fixedSize: const Size.square(_controlSize),
+  minimumSize: Size.zero,
+  padding: EdgeInsets.zero,
+  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+);
+
+/// A card's top row, level with the trigger. [actions] sit just left of the
+/// collapse control, which the cutout draws; [right] is the card's own
+/// right padding, already clear.
+Widget _cardHeader({
+  required Widget child,
+  List<Widget> actions = const [],
+  required double right,
+}) => SizedBox(
+  height: _controlSize,
+  child: Row(
+    children: [
+      Expanded(child: child),
+      ...actions,
+      SizedBox(width: _controlsWidth - right),
+    ],
+  ),
+);
 
 /// Cutout for chat widget cards (pin, poll, prediction, hype train). Each
 /// card sizes to its content up to [maxHeight], then scrolls. Several cards
@@ -21,10 +63,14 @@ class ChatWidgetCutout extends StatefulWidget {
     required this.heights,
     required this.controller,
     required this.onMinimize,
+    this.room = double.infinity,
     this.glass = false,
   });
 
   static const double maxHeight = 220;
+
+  /// Height left below the cards' top; they never run past it.
+  final double room;
 
   final List<Widget> pages;
 
@@ -45,6 +91,10 @@ class ChatWidgetCutout extends StatefulWidget {
 }
 
 class _ChatWidgetCutoutState extends State<ChatWidgetCutout> {
+  double get _cap => (widget.room - _bottomGap)
+      .clamp(0.0, ChatWidgetCutout.maxHeight)
+      .toDouble();
+
   double? _heightAt(int index) {
     final ids = widget.ids;
     return index >= 0 && index < ids.length ? widget.heights[ids[index]] : null;
@@ -76,7 +126,7 @@ class _ChatWidgetCutoutState extends State<ChatWidgetCutout> {
     final b = _heightAt(i + 1) ?? a;
     if (a == null || b == null) return null;
     final h = a + (b - a) * (page - i);
-    return h.clamp(0, ChatWidgetCutout.maxHeight).toDouble();
+    return h.clamp(0, _cap).toDouble();
   }
 
   @override
@@ -89,41 +139,39 @@ class _ChatWidgetCutoutState extends State<ChatWidgetCutout> {
       glass: widget.glass,
       child: InkWell(onTap: widget.onMinimize, child: child),
     );
-    final minimize = IconButton(
-      icon: const Icon(Icons.keyboard_arrow_down, size: 20),
-      tooltip: context.l10n.minimize,
-      visualDensity: VisualDensity.compact,
-      onPressed: widget.onMinimize,
+    final minimize = Positioned(
+      top: _inset,
+      right: _controlRight,
+      child: IconButton(
+        icon: const Icon(Icons.keyboard_arrow_down, size: 20),
+        tooltip: context.l10n.minimize,
+        style: _controlStyle,
+        onPressed: widget.onMinimize,
+      ),
     );
     if (pages.length == 1) {
-      final pin = pages.single is PinnedMessageCard;
       return Padding(
-        padding: const EdgeInsets.fromLTRB(8, 0, 8, 6),
+        padding: const EdgeInsets.only(bottom: _bottomGap),
         child: surface(
           Stack(
             children: [
               ConstrainedBox(
-                constraints: const BoxConstraints(
-                  maxHeight: ChatWidgetCutout.maxHeight,
+                constraints: BoxConstraints(maxHeight: _cap),
+                child: SingleChildScrollView(
+                  child: _MeasureSize(
+                    onSize: (size) => _report(0, size.height),
+                    child: pages.single,
+                  ),
                 ),
-                child: SingleChildScrollView(child: pages.single),
               ),
-              if (pin)
-                Positioned(
-                  top: 0,
-                  bottom: 0,
-                  right: 2,
-                  child: Center(child: minimize),
-                )
-              else
-                Positioned(top: 2, right: 2, child: minimize),
+              minimize,
             ],
           ),
         ),
       );
     }
     return Padding(
-      padding: const EdgeInsets.fromLTRB(8, 0, 8, 6),
+      padding: const EdgeInsets.only(bottom: _bottomGap),
       child: AnimatedBuilder(
         animation: widget.controller,
         builder: (context, child) {
@@ -133,10 +181,7 @@ class _ChatWidgetCutoutState extends State<ChatWidgetCutout> {
           return height == null
               ? Opacity(
                   opacity: 0,
-                  child: SizedBox(
-                    height: ChatWidgetCutout.maxHeight,
-                    child: child,
-                  ),
+                  child: SizedBox(height: _cap, child: child),
                 )
               : SizedBox(height: height, child: child);
         },
@@ -153,7 +198,7 @@ class _ChatWidgetCutoutState extends State<ChatWidgetCutout> {
                   ),
                 ),
               ),
-              Positioned(top: 2, right: 2, child: minimize),
+              minimize,
               Positioned(
                 left: 0,
                 right: 0,
@@ -264,7 +309,8 @@ class ChatWidgetMinimizedBar extends StatelessWidget {
 
   final bool glass;
 
-  static const double height = 40;
+  /// The trigger plus its inset above and below, so it sits centered.
+  static const double height = _inset + _controlSize + _inset;
 
   final String Function(AppLocalizations) label;
   final IconData icon;
@@ -276,7 +322,7 @@ class ChatWidgetMinimizedBar extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Padding(
-      padding: const EdgeInsets.fromLTRB(8, 0, 8, 6),
+      padding: const EdgeInsets.only(bottom: _bottomGap),
       child: SizedBox(
         height: height,
         child: _cardSurface(
@@ -314,9 +360,10 @@ class ChatWidgetMinimizedBar extends StatelessWidget {
                 IconButton(
                   icon: const Icon(Icons.keyboard_arrow_up, size: 20),
                   tooltip: context.l10n.restore,
-                  visualDensity: VisualDensity.compact,
+                  style: _controlStyle,
                   onPressed: onRestore,
                 ),
+                const SizedBox(width: _controlRight),
               ],
             ),
           ),
@@ -397,31 +444,34 @@ class _HypeTrainCardState extends State<HypeTrainCard> {
         )
         .join(', ');
     return Padding(
-      padding: const EdgeInsets.fromLTRB(14, 10, 44, 12),
+      padding: const EdgeInsets.fromLTRB(14, _inset, 12, 12),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              Text(l10n.hypeTrain, style: theme.textTheme.titleSmall),
-              const SizedBox(width: 8),
-              Text(
-                l10n.hypeTrainLevel(e.level),
-                style: theme.textTheme.labelSmall?.copyWith(
-                  color: theme.colorScheme.primary,
-                  fontWeight: FontWeight.w600,
+          _cardHeader(
+            right: 12,
+            child: Row(
+              children: [
+                Text(l10n.hypeTrain, style: theme.textTheme.titleSmall),
+                const SizedBox(width: 8),
+                Text(
+                  l10n.hypeTrainLevel(e.level),
+                  style: theme.textTheme.labelSmall?.copyWith(
+                    color: theme.colorScheme.primary,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
-              ),
-              const Spacer(),
-              ValueListenableBuilder<String>(
-                valueListenable: _remainingNotifier,
-                builder: (_, value, _) =>
-                    Text(value, style: theme.textTheme.labelSmall),
-              ),
-            ],
+                const Spacer(),
+                ValueListenableBuilder<String>(
+                  valueListenable: _remainingNotifier,
+                  builder: (_, value, _) =>
+                      Text(value, style: theme.textTheme.labelSmall),
+                ),
+              ],
+            ),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 4),
           ClipRRect(
             borderRadius: BorderRadius.circular(4),
             child: LinearProgressIndicator(value: ratio, minHeight: 8),
@@ -470,10 +520,7 @@ class _PinMenu extends StatelessWidget {
   Widget build(BuildContext context) => PopupMenuButton<void>(
     icon: const Icon(Icons.more_vert, size: 18),
     padding: EdgeInsets.zero,
-    style: IconButton.styleFrom(
-      visualDensity: VisualDensity.compact,
-      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-    ),
+    style: _controlStyle,
     itemBuilder: (menuContext) => [
       if (onUnpin case final unpin?)
         PopupMenuItem(
@@ -537,29 +584,33 @@ class PinnedMessageCard extends StatelessWidget {
     final theme = Theme.of(context);
     final muted = theme.colorScheme.onSurfaceVariant;
     return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 8, 44, 8),
+      padding: const EdgeInsets.fromLTRB(12, _inset, 12, 8),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              Icon(Icons.push_pin_outlined, size: 14, color: muted),
-              const SizedBox(width: 6),
-              Expanded(
-                child: Text(
-                  event.pinnedBy.isEmpty
-                      ? context.l10n.pinned
-                      : context.l10n.pinnedBy(event.pinnedBy),
-                  style: theme.textTheme.labelMedium?.copyWith(color: muted),
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
+          _cardHeader(
+            right: 12,
+            actions: [
               if (onDismiss != null)
                 _PinMenu(onHide: onDismiss!, onUnpin: onUnpin),
             ],
+            child: Row(
+              children: [
+                Icon(Icons.push_pin_outlined, size: 14, color: muted),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    event.pinnedBy.isEmpty
+                        ? context.l10n.pinned
+                        : context.l10n.pinnedBy(event.pinnedBy),
+                    style: theme.textTheme.labelMedium?.copyWith(color: muted),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ),
           ),
-          const SizedBox(height: 2),
           Text.rich(
             TextSpan(children: pinnedMessageSpans(event, emotes)),
             style: theme.textTheme.bodyLarge,
@@ -570,15 +621,17 @@ class PinnedMessageCard extends StatelessWidget {
   }
 }
 
-/// Title row shared by the poll and prediction cards.
+/// Label row and title shared by the poll and prediction cards.
 Widget _resultsHeader(BuildContext context, String label, String title) {
   final theme = Theme.of(context);
   return Column(
     mainAxisSize: MainAxisSize.min,
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [
-      Text(label, style: theme.textTheme.titleSmall),
-      const SizedBox(height: 2),
+      _cardHeader(
+        right: 12,
+        child: Text(label, style: theme.textTheme.titleSmall),
+      ),
       Text(
         title,
         style: theme.textTheme.labelMedium,
@@ -680,7 +733,7 @@ class PollCard extends StatelessWidget {
     );
     final votes = NumberFormat.compact();
     return Padding(
-      padding: const EdgeInsets.fromLTRB(14, 10, 44, 12),
+      padding: const EdgeInsets.fromLTRB(14, _inset, 12, 12),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -732,7 +785,7 @@ class PredictionCard extends StatelessWidget {
       color: theme.colorScheme.onSurfaceVariant,
     );
     return Padding(
-      padding: const EdgeInsets.fromLTRB(14, 10, 44, 12),
+      padding: const EdgeInsets.fromLTRB(14, _inset, 12, 12),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,

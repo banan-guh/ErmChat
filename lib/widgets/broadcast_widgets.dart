@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math';
 
 import 'package:flutter/material.dart';
 
@@ -285,8 +286,16 @@ class BroadcastWidgets {
   // opens at size.
   final _cardHeights = <String, Map<Object, double>>{};
 
+  /// Channels whose cards the user restored while [buildOverlay] had folded
+  /// them for room; cleared once the room is back.
+  final _keptOpen = <String>{};
+
+  /// [room] is the height left below the cards' top. Cards that would take
+  /// more than half of it (the keyboard is up) fold to the bar until the
+  /// user restores them; open, they never run past it.
   Widget? buildOverlay(
     String channel, {
+    required double room,
     required void Function(String, bool) onMinimizeChanged,
     bool glass = false,
     Future<ModResult> Function(PinnedMessageEvent pin)? unpin,
@@ -295,7 +304,12 @@ class BroadcastWidgets {
     if (pages.isEmpty) return null;
     final cards = _cardsFor(channel);
     final ctrl = pageCtrlFor(channel);
-    if (widgetsMinimized[channel] ?? false) {
+    final heights = _cardHeights.putIfAbsent(channel, () => {});
+    final tallest = cards.map((c) => heights[c] ?? 0.0).fold(0.0, max);
+    final cramped = tallest > room / 2;
+    if (!cramped) _keptOpen.remove(channel);
+    if ((widgetsMinimized[channel] ?? false) ||
+        (cramped && !_keptOpen.contains(channel))) {
       final focus = cards.contains(_focused[channel])
           ? _focused[channel]!
           : cards.first;
@@ -308,6 +322,7 @@ class BroadcastWidgets {
           _pageCtrls[channel] = PageController(
             initialPage: cards.indexOf(focus),
           );
+          if (cramped) _keptOpen.add(channel);
           onMinimizeChanged(channel, false);
           WidgetsBinding.instance.addPostFrameCallback((_) => old?.dispose());
         },
@@ -319,7 +334,8 @@ class BroadcastWidgets {
     return ChatWidgetCutout(
       pages: pages,
       ids: cards,
-      heights: _cardHeights.putIfAbsent(channel, () => {}),
+      heights: heights,
+      room: room,
       controller: ctrl,
       onMinimize: () {
         final now = _cardsFor(channel);
@@ -377,6 +393,7 @@ class BroadcastWidgets {
     pins.remove(channel);
     widgetsMinimized.remove(channel);
     _focused.remove(channel);
+    _keptOpen.remove(channel);
     _cardHeights.remove(channel);
     _pageCtrls.remove(channel)?.dispose();
   }

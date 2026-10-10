@@ -1,5 +1,8 @@
 import 'package:ermchat/eventsub/decode/events.dart';
+import 'package:ermchat/l10n/app_localizations.dart';
 import 'package:ermchat/widgets/broadcast_widgets.dart';
+import 'package:ermchat/widgets/chat_widget_cutout.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -39,4 +42,58 @@ void main() {
       expect(widgets.pins['c']?.id, 'd', reason: 'a new pin after a dismiss');
     },
   );
+
+  testWidgets('cards fold for the keyboard until restored (#17)', (
+    tester,
+  ) async {
+    final widgets = BroadcastWidgets(selectedChannel: () => 'c');
+    addTearDown(widgets.dispose);
+    widgets.onPinned(PinnedMessageEvent(channel: 'c', id: 'a', text: 'hi'));
+    final room = ValueNotifier(600.0);
+    await tester.pumpWidget(
+      MaterialApp(
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        home: Scaffold(
+          body: ListenableBuilder(
+            listenable: Listenable.merge([room, widgets.notifier]),
+            builder: (_, _) =>
+                widgets.buildOverlay(
+                  'c',
+                  room: room.value,
+                  onMinimizeChanged: widgets.setMinimized,
+                ) ??
+                const SizedBox(),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    expect(find.byType(ChatWidgetCutout), findsOneWidget);
+
+    room.value = 40;
+    await tester.pump();
+    expect(
+      find.byType(ChatWidgetMinimizedBar),
+      findsOneWidget,
+      reason: 'the keyboard leaves no room for the card',
+    );
+
+    await tester.tap(find.byType(IconButton));
+    await tester.pump();
+    expect(
+      find.byType(ChatWidgetCutout),
+      findsOneWidget,
+      reason: 'a restore while cramped stays open',
+    );
+
+    room.value = 600;
+    await tester.pump();
+    room.value = 40;
+    await tester.pump();
+    expect(
+      find.byType(ChatWidgetMinimizedBar),
+      findsOneWidget,
+      reason: 'the next keyboard folds it again',
+    );
+  });
 }

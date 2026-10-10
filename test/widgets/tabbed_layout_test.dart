@@ -730,4 +730,39 @@ void main() {
       expect(reported, [2]);
     });
   });
+
+  testWidgets('swiping the cards overlay never reads as a channel swipe', (
+    tester,
+  ) async {
+    final pages = <double?>[];
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: NotificationListener<ScrollUpdateNotification>(
+            onNotification: (n) {
+              if (n.metrics is PageMetrics) {
+                pages.add((n.metrics as PageMetrics).page);
+              }
+              return false;
+            },
+            child: TabbedLayout(
+              tabs: const ['a', 'b'],
+              selectedIndex: 0,
+              onSelectedIndexChanged: (_) {},
+              pageBuilder: (_, i) => const SizedBox.expand(),
+              pagesOverlay: SizedBox(
+                key: const Key('cards'),
+                height: 100,
+                child: PageView(children: const [Text('1'), Text('2')]),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.drag(find.byKey(const Key('cards')), const Offset(-600, 0));
+    await tester.pumpAndSettle();
+    expect(find.text('2'), findsOneWidget);
+    expect(pages, isEmpty, reason: 'card pages moved the channel overlay');
+  });
 }

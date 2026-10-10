@@ -6,7 +6,6 @@ import '../chat/chat.dart';
 import '../l10n/l10n.dart';
 import '../services/pip_service.dart';
 import '../services/stream_player_controller.dart';
-import '../util/insets.dart';
 import '../util/layout_density.dart';
 import '../widgets/chat_body.dart' show ComposerPaneSlot;
 import '../widgets/glass_chrome.dart';
@@ -91,8 +90,6 @@ class StreamPanels {
     required this.toggleTheaterChat,
     required this.onChannelChanged,
   });
-
-  static const audioBarHeight = 56.0;
 
   // Clipped-alive video strip when the keyboard hides the picture.
   static const hiddenVideoHeight = 1.0;
@@ -230,11 +227,7 @@ class StreamPanels {
                 child: Column(
                   children: [
                     Expanded(
-                      child: channels.channelStack(
-                        context,
-                        hideChrome: true,
-                        overlayTop: 8,
-                      ),
+                      child: channels.channelStack(context, hideChrome: true),
                     ),
                     const ComposerPaneSlot(),
                   ],
@@ -323,7 +316,6 @@ class StreamPanels {
                         child: channels.channelStack(
                           context,
                           hideChrome: hideChrome,
-                          overlayTop: 50,
                         ),
                       ),
                       const ComposerPaneSlot(),
@@ -431,7 +423,6 @@ class StreamPanels {
             context,
             hideChrome: false,
             merged: merged,
-            overlayTop: isFullscreen() ? 8 : headerH + 8,
             belowTabBar: null,
             glassOverlay: true,
             glassHeader: merged
@@ -443,13 +434,6 @@ class StreamPanels {
         ],
       );
     }
-    final showPlayerVideo =
-        showVideo && channel != null && !streamPlayer.isAudioOnly;
-    final aboveTabsH = channel == null
-        ? 0.0
-        : showPlayerVideo
-        ? maxWidth * 9 / 16
-        : audioBarHeight + hiddenVideoHeight;
     return Column(
       children: [
         AnimatedSize(
@@ -464,8 +448,6 @@ class StreamPanels {
           hideChrome: hideChrome,
           merged: merged,
           glassChrome: glass,
-          // Merged, the strip starts under the status bar, not the app bar.
-          overlayTop: (merged ? statusBarHeight(context) : 0) + 50 + aboveTabsH,
           belowTabBar: channel == null
               ? null
               : stackedPlayer(channel, showVideo),

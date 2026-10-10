@@ -303,7 +303,6 @@ class ChannelPanels {
     BuildContext context, {
     required bool hideChrome,
     bool merged = false,
-    double overlayTop = 50,
     Widget? belowTabBar,
     bool glassOverlay = false,
     bool glassChrome = false,
@@ -316,7 +315,6 @@ class ChannelPanels {
         context,
         hideChrome: hideChrome,
         merged: merged,
-        overlayTop: overlayTop,
         belowTabBar: belowTabBar,
         glassOverlay: glassOverlay,
         glassChrome: glassChrome,
@@ -331,7 +329,6 @@ class ChannelPanels {
     BuildContext context, {
     required bool hideChrome,
     bool merged = false,
-    required double overlayTop,
     Widget? belowTabBar,
     bool glassOverlay = false,
     bool glassChrome = false,
@@ -372,6 +369,21 @@ class ChannelPanels {
                     chromeMenu: homeAppBar.chromeMenu(
                       glass: glassOverlay || glassChrome,
                     ),
+                    pagesOverlay: selectedChannel() == null
+                        ? null
+                        : ListenableBuilder(
+                            listenable: Listenable.merge([
+                              broadcastWidgets.notifier,
+                              selectedTabIndex,
+                              _swipePage,
+                            ]),
+                            builder: (_, _) => _broadcastOverlay(
+                              glassEnabled(
+                                context,
+                                glassOverlay || glassChrome,
+                              ),
+                            ),
+                          ),
                     // Compact merges the app bar into the strip: join as the
                     // last tab, the other actions pinned on the right.
                     addTab: merged ? homeAppBar.joinTab() : null,
@@ -432,22 +444,6 @@ class ChannelPanels {
                 )
               : welcomeChatView(context),
         ),
-        if (selectedChannel() != null)
-          Positioned(
-            top: overlayTop,
-            left: 0,
-            right: 0,
-            child: ListenableBuilder(
-              listenable: Listenable.merge([
-                broadcastWidgets.notifier,
-                selectedTabIndex,
-                _swipePage,
-              ]),
-              builder: (_, _) => _broadcastOverlay(
-                glassEnabled(context, glassOverlay || glassChrome),
-              ),
-            ),
-          ),
       ],
     );
   }
@@ -455,14 +451,18 @@ class ChannelPanels {
   /// The selected channel's broadcast cards; mid-swipe, both channels' cards,
   /// each offset with its page.
   Widget _broadcastOverlay(bool glass) {
-    Widget cards(String channel) =>
-        broadcastWidgets.buildOverlay(
-          channel,
-          onMinimizeChanged: broadcastWidgets.setMinimized,
-          glass: glass,
-          unpin: unpinFor(channel),
-        ) ??
-        const SizedBox.shrink();
+    Widget cards(String channel, double room) => Padding(
+      padding: const EdgeInsets.symmetric(horizontal: TabbedLayout.cardInset),
+      child:
+          broadcastWidgets.buildOverlay(
+            channel,
+            room: room,
+            onMinimizeChanged: broadcastWidgets.setMinimized,
+            glass: glass,
+            unpin: unpinFor(channel),
+          ) ??
+          const SizedBox.shrink(),
+    );
     final names = chat.names;
     final page = _swipePage.value;
     final left = page?.floor() ?? -1;
@@ -485,7 +485,7 @@ class ChannelPanels {
                 Transform.translate(
                   key: ValueKey(channel),
                   offset: Offset(dx * width, 0),
-                  child: cards(channel),
+                  child: cards(channel, constraints.maxHeight),
                 ),
             ],
           ),

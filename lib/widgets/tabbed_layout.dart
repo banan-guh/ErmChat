@@ -3,6 +3,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/scheduler.dart';
 
 import '../util/insets.dart';
+import 'chrome_menu_button.dart';
 import 'glass_chrome.dart';
 
 // M3 Expressive fastSpatial spring (stiffness 800), critically damped.
@@ -113,6 +114,14 @@ class TabbedLayout extends StatefulWidget {
   /// Overlay anchored top-right below tab strip (hidden-chrome menu).
   final Widget? chromeMenu;
 
+  /// Cards over the top of the pages (pin, poll, prediction, hype train),
+  /// laid out with [chromeMenu] so their corner wraps it concentrically.
+  /// Gets the height left below its top, for keyboard-aware sizing.
+  final Widget? pagesOverlay;
+
+  /// Gap between the [pagesOverlay] cards and the menu trigger, all round.
+  static const double cardInset = kChromeMenuMargin / 2;
+
   /// Trailing action tab after the channels (compact layout's join button).
   /// It has no page: swipes never reach it and a tap runs [onAddTab]
   /// without moving the selection.
@@ -156,6 +165,7 @@ class TabbedLayout extends StatefulWidget {
     this.showTabBar = true,
     this.fullscreen = false,
     this.chromeMenu,
+    this.pagesOverlay,
     this.addTab,
     this.onAddTab,
     this.stripTrailing,
@@ -582,6 +592,15 @@ class TabbedLayoutState extends State<TabbedLayout>
     // full-height behind the floating header block.
     final overlay = _overlayBranch(context);
     _overlayBuilt = overlay;
+    final menuTop =
+        (widget.fullscreen
+            ? 0.0
+            : overlay
+            ? widget.overlayHeaderHeight
+            : widget.showTabBar
+            ? 0.0
+            : statusBarHeight(context)) +
+        kChromeMenuMargin;
     final pages = Stack(
       key: _pagesKey,
       children: [
@@ -626,18 +645,30 @@ class TabbedLayoutState extends State<TabbedLayout>
           width: rightExclude,
           child: const EdgeExclusionZone(),
         ),
+        if (widget.pagesOverlay != null)
+          AnimatedPositioned(
+            duration: const Duration(milliseconds: 200),
+            curve: Curves.easeInOut,
+            top: menuTop - TabbedLayout.cardInset,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            // The cards' own scrolling stays inside: ancestors read page
+            // scrolls as channel swipes.
+            child: NotificationListener<ScrollNotification>(
+              onNotification: (_) => true,
+              child: Align(
+                alignment: Alignment.topCenter,
+                child: widget.pagesOverlay,
+              ),
+            ),
+          ),
         if (widget.chromeMenu != null)
           AnimatedPositioned(
             duration: const Duration(milliseconds: 200),
             curve: Curves.easeInOut,
-            top: widget.fullscreen
-                ? 8.0
-                : overlay
-                ? widget.overlayHeaderHeight + 8
-                : widget.showTabBar
-                ? 8.0
-                : statusBarHeight(context) + 8,
-            right: 8,
+            top: menuTop,
+            right: kChromeMenuMargin,
             child: widget.chromeMenu!,
           ),
       ],
