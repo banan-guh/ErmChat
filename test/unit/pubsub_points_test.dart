@@ -239,6 +239,21 @@ void main() {
           },
         }),
       );
+      // #14: a Hype Chat rides the same topic and replaced the mod pin.
+      service.feedText(
+        messageFrame('pinned-chat-updates-v1.23161357', {
+          'type': 'pin-message',
+          'data': {
+            'id': 'paid1',
+            'message': {
+              'id': 'hype-msg',
+              'sender': {'id': '1', 'display_name': 'Rando'},
+              'content': {'text': 'paid message'},
+              'type': 'PAID',
+            },
+          },
+        }),
+      );
       service.feedText(
         messageFrame('pinned-chat-updates-v1.23161357', {
           'type': 'unpin-message',
@@ -271,6 +286,7 @@ void main() {
         reason: 'fragment emotes map to text ranges',
       );
       expect(pins.first.endsAt?.millisecondsSinceEpoch, 1791239991000);
+      expect(pins, hasLength(2), reason: 'a PAID pin is not the mod pin');
       expect(pins.last.removed, isTrue);
       expect(pins.last.id, 'pin1');
     });

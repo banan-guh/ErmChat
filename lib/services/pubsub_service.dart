@@ -430,6 +430,8 @@ class PubSubService {
     if (type != 'pin-message') return;
     final message = data['message'];
     if (message is! Map<String, dynamic>) return;
+    // Hype Chats ride this topic as PAID pins; the card is the mod pin.
+    if (message['type'] == 'PAID') return;
     String nameOf(Object? user) => user is Map
         ? (user['display_name'] as String? ?? user['login'] as String? ?? '')
         : '';
