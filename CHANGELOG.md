@@ -1,7 +1,7 @@
-- Pinned messages (you can also pin / unpin!)
-- Live polls, predictions, hype trains
-- Notify only highlights alert without highlight
-- BTTV emote modifiers, FFZ effects, all FFZ global emotes
-- Translation support and a language picker
-- Update notices and what's new in settings
-- Fix up fullscreen on smaller devices
+- Made send feedback less scary
+- Fixed ui for pubsub
+- hype train emote section
+- chatterino homies badges
+- higher res badges
+- fix user profile not showing on tap after pip
+- fix pinned msgs showing wrong pin
