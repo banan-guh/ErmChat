@@ -16,6 +16,7 @@ void main() {
   group('BugReport body', () {
     test('assembles filled sections; bug-only fields only go with bugs', () {
       final r = report()
+        ..includeDiagnostics = true
         ..steps = 'Open chat'
         ..screenshots.add('https://kappa.lol/abc');
       final body = r.buildBody();

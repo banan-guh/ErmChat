@@ -25,7 +25,7 @@ class BugReport {
     this.whatHappened = '',
     this.steps = '',
     List<String>? screenshots,
-    this.includeDiagnostics = true,
+    this.includeDiagnostics = false,
     this.diagnostics = '',
     this.status = BugReportStatus.draft,
     this.issueNumber,
@@ -159,7 +159,7 @@ class BugReport {
         for (final url in json['screenshots'] as List<dynamic>? ?? const [])
           if (url is String) url,
       ],
-      includeDiagnostics: json['includeDiagnostics'] as bool? ?? true,
+      includeDiagnostics: json['includeDiagnostics'] as bool? ?? false,
       diagnostics: json['diagnostics'] as String? ?? '',
       status: byName(
         BugReportStatus.values,

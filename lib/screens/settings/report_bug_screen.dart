@@ -311,7 +311,6 @@ class _ReportEditorScreenState extends ConsumerState<ReportEditorScreen> {
                     selected: _kind == k,
                     onSelected: (_) => setState(() {
                       _kind = k;
-                      if (k == BugReportKind.bug) _includeDiagnostics = true;
                     }),
                   ),
               ],
