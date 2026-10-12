@@ -3,7 +3,7 @@
 # Usage: tool/perf_run.sh [seconds=60] [label]
 # Needs a build with --dart-define=ERMCHAT_PERF=true for the probe lines.
 set -euo pipefail
-PKG=io.github.bananguh.ErmChat
+PKG=io.github.bananguh.ErmChat.debug
 SECS=${1:-60}
 LABEL=${2:-run}
 PID=$(adb shell pidof "$PKG" | tr -d '\r')

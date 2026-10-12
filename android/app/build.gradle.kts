@@ -38,6 +38,7 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        manifestPlaceholders["appLabel"] = "ErmChat"
     }
 
     signingConfigs {
@@ -50,6 +51,16 @@ android {
     }
 
     buildTypes {
+        // Debug and profile share one dev install beside the release build,
+        // so `flutter run` never uninstalls it (and wipes its data) over a key
+        // or version clash. Profile is set here too: Flutter copies it from
+        // debug before this block runs.
+        for (name in listOf("debug", "profile")) {
+            getByName(name) {
+                applicationIdSuffix = ".debug"
+                manifestPlaceholders["appLabel"] = "ErmChat Dev"
+            }
+        }
         release {
             signingConfig = signingConfigs.getByName("release")
             // R8 strips unused JVM-side code (embedding + plugins); smaller
