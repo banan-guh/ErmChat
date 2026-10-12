@@ -5,39 +5,20 @@ import android.app.PendingIntent
 import android.app.PictureInPictureParams
 import android.app.RemoteAction
 import android.content.BroadcastReceiver
-import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.graphics.drawable.Icon
-import android.net.Uri
 import android.os.Build
-import android.os.Bundle
 import android.util.Rational
 
-import androidx.browser.customtabs.CustomTabsClient
-import androidx.browser.customtabs.CustomTabsIntent
-import androidx.browser.customtabs.CustomTabsServiceConnection
-import androidx.browser.customtabs.CustomTabsSession
 import androidx.core.content.ContextCompat
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : FlutterActivity() {
-    private val channelName = "ermchat/oauth"
-    private var methodChannel: MethodChannel? = null
-    private var customTabsSession: CustomTabsSession? = null
-    private var pendingUrl: String? = null
-    private var pendingRedirect: String? = null
-
-    // Login tab bookkeeping: the redirect lands in onNewIntent before
-    // onResume, so resuming with a launched tab and no redirect means the
-    // user closed the tab. Dart gets onCancel and can retry at once.
-    private var oauthPending = false
-    private var oauthLeftApp = false
-
     // TTS engine selection is delegated to the system "Text-to-speech output"
     // screen (same as dankchat's ACTION_INSTALL_TTS_DATA flow), so we only need
     // an intent to open it.
@@ -81,29 +62,6 @@ class MainActivity : FlutterActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
-        methodChannel =
-            MethodChannel(flutterEngine.dartExecutor.binaryMessenger, channelName)
-        methodChannel?.setMethodCallHandler { call, result ->
-            when (call.method) {
-                "launchCustomTab" -> {
-                    val url = call.argument<String>("url")
-                    if (url == null) {
-                        result.error("NO_URL", "No url provided", null)
-                    } else {
-                        oauthPending = true
-                        oauthLeftApp = false
-                        launchInCustomTab(url)
-                        result.success(null)
-                    }
-                }
-                else -> result.notImplemented()
-            }
-        }
-        // A deep link that arrived before the engine was ready (cold start).
-        pendingRedirect?.let {
-            methodChannel?.invokeMethod("onRedirect", it)
-            pendingRedirect = null
-        }
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, deviceChannelName)
             .setMethodCallHandler { call, result ->
                 when (call.method) {
@@ -150,29 +108,6 @@ class MainActivity : FlutterActivity() {
                 else -> result.notImplemented()
             }
         }
-    }
-
-    override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
-        handleOAuthIntent(intent)
-    }
-
-    override fun onPause() {
-        super.onPause()
-        if (oauthPending) oauthLeftApp = true
-    }
-
-    override fun onResume() {
-        super.onResume()
-        if (oauthPending && oauthLeftApp) {
-            oauthPending = false
-            methodChannel?.invokeMethod("onCancel", null)
-        }
-    }
-
-    override fun onNewIntent(intent: Intent) {
-        super.onNewIntent(intent)
-        handleOAuthIntent(intent)
     }
 
     // Both overloads: the single-arg version is deprecated since API 26 and
@@ -278,56 +213,5 @@ class MainActivity : FlutterActivity() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
         return RemoteAction(Icon.createWithResource(this, res), label, label, pending)
-    }
-
-    private fun handleOAuthIntent(intent: Intent) {
-        val data = intent.data
-        if (data != null && data.scheme == "ermchat") {
-            oauthPending = false
-            if (methodChannel != null) {
-                methodChannel?.invokeMethod("onRedirect", data.toString())
-            } else {
-                pendingRedirect = data.toString()
-            }
-        }
-    }
-
-    private fun launchInCustomTab(url: String) {
-        val pkg = CustomTabsClient.getPackageName(this, null)
-        if (pkg == null) {
-            // No browser supports Custom Tabs: fall back to a plain view intent.
-            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
-            return
-        }
-        pendingUrl = url
-        CustomTabsClient.bindCustomTabsService(
-            this,
-            pkg,
-            object : CustomTabsServiceConnection() {
-                override fun onCustomTabsServiceConnected(
-                    name: ComponentName,
-                    client: CustomTabsClient,
-                ) {
-                    client.warmup(0)
-                    customTabsSession = client.newSession(null)
-                    val toLaunch = pendingUrl ?: return
-                    pendingUrl = null
-                    // A session-bound CustomTabsIntent forces every navigation
-                    // inside this tab to stay in the tab, even for URLs the OS
-                    // would otherwise hand to a verified native app (e.g. the
-                    // Twitch app owning id.twitch.tv). Documented Custom Tabs
-                    // behavior; this is what keeps the whole OAuth flow
-                    // (including the "not you? log out" interstitial) in the
-                    // browser instead of kicking out to the Twitch app.
-                    val intent =
-                        CustomTabsIntent.Builder(customTabsSession!!).build()
-                    intent.launchUrl(this@MainActivity, Uri.parse(toLaunch))
-                }
-
-                override fun onServiceDisconnected(name: ComponentName) {
-                    customTabsSession = null
-                }
-            },
-        )
     }
 }

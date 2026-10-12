@@ -1576,7 +1576,6 @@
   "emoteSubEmotes": "sub emotes",
   "loginAlreadyOpen": "A Twitch login is already open. Finish or close it first.",
   "loginOpenFailed": "Couldn't open the Twitch login. Try again.",
-  "loginTimedOut": "The Twitch login timed out. Try again.",
   "loginMismatch": "That login didn't match this attempt. Try logging in again.",
   "loginNoToken": "Twitch didn't send a login. Try again.",
   "loginDeclined": "You declined access on Twitch.",

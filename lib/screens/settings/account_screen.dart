@@ -11,6 +11,7 @@ import '../../util/prefs.dart';
 import '../../widgets/app_snack.dart';
 import '../../widgets/dialogs.dart';
 import 'settings_page.dart';
+import 'twitch_login_page.dart';
 
 enum _AuthState { idle, waiting, success, error, needsSetup, pasteToken }
 
@@ -81,7 +82,7 @@ class _AccountScreenState extends State<AccountScreen> {
     super.dispose();
   }
 
-  Future<void> _startOAuth({bool ephemeral = false}) async {
+  Future<void> _startOAuth({bool forceVerify = false}) async {
     setState(() {
       _authState = _AuthState.waiting;
       _authError = null;
@@ -93,6 +94,7 @@ class _AccountScreenState extends State<AccountScreen> {
     }
 
     final l = context.l10n;
+    final present = TwitchLoginPage.presenter(context);
     final prefs = await Prefs.load();
     final useBrowserOAuth = prefs.useBrowserOAuth;
     if (useBrowserOAuth) {
@@ -101,7 +103,11 @@ class _AccountScreenState extends State<AccountScreen> {
       final starter = widget.oAuthStarter;
       final token = starter != null
           ? await starter()
-          : await TwitchOAuth.startFlow(ephemeral: ephemeral, l: l);
+          : await TwitchOAuth.startFlow(
+              present: present,
+              forceVerify: forceVerify,
+              l: l,
+            );
 
       if (!mounted) return;
 
@@ -497,7 +503,7 @@ class _AccountScreenState extends State<AccountScreen> {
                       listenable: widget.twitchAuth,
                       builder: (context, _) {
                         return OutlinedButton.icon(
-                          onPressed: () => _startOAuth(ephemeral: true),
+                          onPressed: () => _startOAuth(forceVerify: true),
                           icon: const Icon(Icons.person_add),
                           label: Text(
                             widget.twitchAuth.scopeStale

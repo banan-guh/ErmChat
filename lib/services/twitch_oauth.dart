@@ -1,9 +1,5 @@
-import 'dart:async';
 import 'dart:convert';
-import 'dart:io' show Platform;
 import 'dart:math';
-import 'package:flutter/services.dart';
-import 'package:flutter_web_auth_2/flutter_web_auth_2.dart';
 import '../l10n/l10n.dart';
 import '../twitch_config.dart';
 
@@ -12,9 +8,12 @@ import '../twitch_config.dart';
 /// and account screens can inject a mocked flow without importing each other.
 typedef OAuthStarter = Future<String?> Function();
 
+/// Shows the Twitch authorize page at a URL and resolves with the redirect
+/// URL once Twitch sends the user back, or null if they closed the login.
+typedef LoginPresenter = Future<String?> Function(String authUrl);
+
 class TwitchOAuth {
   static const _authorizeUrl = 'https://id.twitch.tv/oauth2/authorize';
-  static const _channel = MethodChannel('ermchat/oauth');
 
   /// Every scope a fresh login grants. Single source of truth for the auth
   /// URL; [missingScopes] diffs it against validate output for the re-auth
@@ -85,15 +84,13 @@ class TwitchOAuth {
   static bool lastCancelled = false;
   static bool _flowInProgress = false;
 
-  /// Starts the OAuth flow. Set [ephemeral] to launch the login in an
-  /// incognito-style session with no shared cookies. That skips Twitch's
-  /// "hi again, [user] - not you? log out" interstitial (which can hand the
-  /// flow off to the installed Twitch app via Android App Links) and shows the
-  /// plain login form instead - used for the switch-account / re-auth path.
-  /// On Android this is a no-op: the session-bound Custom Tab already keeps
-  /// every navigation inside the tab regardless of cookies.
+  /// Starts the OAuth flow, showing the authorize page through [present].
+  /// Set [forceVerify] to make Twitch show its authorize page (with "not
+  /// you?") even when the login session would otherwise redirect straight
+  /// back: the add-account and re-auth paths need a choice of user.
   static Future<String?> startFlow({
-    bool ephemeral = false,
+    required LoginPresenter present,
+    bool forceVerify = false,
     AppLocalizations? l,
   }) async {
     l ??= englishStrings();
@@ -104,34 +101,17 @@ class TwitchOAuth {
       return null;
     }
 
-    final urlInfo = generateAuthUrl();
+    final urlInfo = generateAuthUrl(forceVerify: forceVerify);
     if (urlInfo == null) return null;
 
     _flowInProgress = true;
     try {
-      final result = Platform.isAndroid
-          ? await _authenticateAndroid(urlInfo.url)
-          : await FlutterWebAuth2.authenticate(
-              url: urlInfo.url,
-              callbackUrlScheme: TwitchConfig.callbackUrlScheme,
-              options: FlutterWebAuth2Options(preferEphemeral: ephemeral),
-            ).timeout(const Duration(minutes: 5));
-
-      return _extractToken(result, urlInfo.state, l);
-    } on _LoginCancelled {
-      lastCancelled = true;
-      return null;
-    } on PlatformException catch (e) {
-      // flutter_web_auth_2 reports a closed login sheet as CANCELED.
-      if (e.code == 'CANCELED') {
+      final result = await present(urlInfo.url);
+      if (result == null) {
         lastCancelled = true;
-      } else {
-        lastError = l.loginOpenFailed;
+        return null;
       }
-      return null;
-    } on TimeoutException {
-      lastError = l.loginTimedOut;
-      return null;
+      return _extractToken(result, urlInfo.state, l);
     } catch (_) {
       lastError = l.loginOpenFailed;
       return null;
@@ -140,36 +120,15 @@ class TwitchOAuth {
     }
   }
 
-  // Android: the native side (MainActivity) launches the auth URL in a
-  // session-bound Custom Tab so nothing inside it can hand off to a verified
-  // native app, and delivers the redirect back via MainActivity.onNewIntent.
-  static Future<String> _authenticateAndroid(String url) {
-    final completer = Completer<String>();
-    Timer? timeoutTimer;
+  /// Whether a navigation is Twitch handing the token back. The login
+  /// WebView catches it before it loads, so the token never reaches a
+  /// custom URL scheme another app could claim.
+  static bool isRedirect(String url) =>
+      url.startsWith(TwitchConfig.redirectUri);
 
-    _channel.setMethodCallHandler((call) async {
-      if (completer.isCompleted) return;
-      if (call.method == 'onRedirect') {
-        timeoutTimer?.cancel();
-        completer.complete(call.arguments as String);
-      } else if (call.method == 'onCancel') {
-        // The user came back without finishing; free the flow for a retry.
-        timeoutTimer?.cancel();
-        completer.completeError(const _LoginCancelled());
-      }
-    });
-
-    timeoutTimer = Timer(const Duration(minutes: 5), () {
-      if (!completer.isCompleted) {
-        completer.completeError(TimeoutException('Authorization timed out.'));
-      }
-    });
-
-    unawaited(_channel.invokeMethod('launchCustomTab', {'url': url}));
-    return completer.future;
-  }
-
-  static ({String url, String state})? generateAuthUrl() {
+  static ({String url, String state})? generateAuthUrl({
+    bool forceVerify = false,
+  }) {
     if (!TwitchConfig.isConfigured) return null;
 
     final state = _randomState();
@@ -180,7 +139,7 @@ class TwitchOAuth {
         '&response_type=token'
         '&scope=${requiredScopes.join('+')}'
         '&state=$state'
-        '&force_verify=true';
+        '${forceVerify ? '&force_verify=true' : ''}';
     return (url: url, state: state);
   }
 
@@ -237,9 +196,4 @@ class TwitchOAuth {
     if (fragment.isEmpty) return {};
     return Uri.splitQueryString(fragment);
   }
-}
-
-/// The login tab was closed before Twitch redirected back.
-class _LoginCancelled implements Exception {
-  const _LoginCancelled();
 }

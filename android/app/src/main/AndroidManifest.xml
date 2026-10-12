@@ -30,15 +30,6 @@
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
-            <!-- OAuth callback: MainActivity handles the ermchat:// deep link
-                 itself (singleTop + empty task affinity so onNewIntent fires on
-                 the existing activity) and forwards it to the Dart side. -->
-            <intent-filter android:label="ermchat_oauth">
-                <action android:name="android.intent.action.VIEW" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="ermchat" />
-            </intent-filter>
         </activity>
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->

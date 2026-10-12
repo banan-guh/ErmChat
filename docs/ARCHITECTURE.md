@@ -247,10 +247,8 @@ flowchart TD
 %%{init: {"flowchart": {"useMaxWidth": true, "nodeSpacing": 20, "rankSpacing": 30, "padding": 6}, "themeVariables": {"fontSize": "14px"}}}%%
 flowchart TD
   account["AccountScreen"] -->|startFlow| oauth["TwitchOAuth"]
-  oauth -->|Android Custom Tab| native["MainActivity via ermchat/oauth MethodChannel"]
-  oauth -->|iOS| webauth["flutter_web_auth_2"]
-  native -->|access token| oauth
-  webauth -->|access token| oauth
+  oauth -->|LoginPresenter| webview["TwitchLoginPage in-app WebView"]
+  webview -->|redirect URL| oauth
   account -->|setCredentials / switchTo / switchToAnonymous / removeAccount| auth["TwitchAuth ChangeNotifier"]
   auth -->|accounts registry + active login| secure["FlutterSecureStorage"]
   auth -->|active tokens / login / userId| lifecycle["ChatLifecycle"]
@@ -414,7 +412,7 @@ Every entry calls a public method on the child; none reaches into private state.
 | `emote_decode` | `lib/widgets/emote_decode.dart` | Pure image decode and format sniffing for emote bytes; render-side, in the UI layer. |
 | `TwitchApi` | `lib/services/twitch_api.dart` | Helix REST client: users, streams, badges, moderation, EventSub subscription creation, points. |
 | `TwitchAuth` | `lib/services/twitch_auth.dart` | Multi-account registry in secure storage plus the active account credentials. |
-| `TwitchOAuth` | `lib/services/twitch_oauth.dart` | OAuth flow (Android MainActivity Custom Tab, iOS `flutter_web_auth_2`), scopes, state validation. |
+| `TwitchOAuth` | `lib/services/twitch_oauth.dart` | OAuth flow (authorize page shown by `TwitchLoginPage`'s in-app WebView), scopes, state validation. |
 | `Session` | `lib/client/session.dart` | Active identity (login/userId) with a `version` notifier; identity only, no chat state. |
 | `ModActions` | `lib/services/mod_actions.dart` | Helix moderation verbs: ban/timeout, delete, warn, shield, shoutout, terms, points rewards. |
 | `CommandHandler` | `lib/services/command_handler.dart` | Slash-command routing to `ModActions`, Helix, and the IRC write socket. |
