@@ -89,24 +89,30 @@ void main() {
 
     stream = live('s1', '2026-10-13T09:00:00Z');
     await poll();
-    expect(rows(), ['sys_stream:s1:start|Stream started · Speedrun · Zelda']);
-    final start = chat.channelFor('test')!.messages.items.single;
+    expect(rows(), [
+      'sys_stream:s1:start:info|Speedrun - Zelda',
+      'sys_stream:s1:start|Stream',
+    ], reason: 'label row with title and game under it');
+    final start = chat
+        .channelFor('test')!
+        .messages
+        .byId('sys_stream:s1:start')!;
     expect(start.timestamp.toUtc(), DateTime.utc(2026, 10, 13, 9));
 
     await poll();
-    expect(rows(), hasLength(1), reason: 'same id never repeats the start');
+    expect(rows(), hasLength(2), reason: 'same id never repeats the start');
 
     stream = null;
     await poll();
-    expect(rows(), hasLength(1), reason: 'one empty poll may be a failure');
+    expect(rows(), hasLength(2), reason: 'one empty poll may be a failure');
     await poll();
-    expect(rows(), contains('sys_stream:s1:end|Stream ended · 3h1m'));
+    expect(rows(), contains('sys_stream:s1:end|Stream ended - 3h1m'));
     await poll();
-    expect(rows(), hasLength(2), reason: 'end writes once');
+    expect(rows(), hasLength(3), reason: 'end writes once');
 
     stream = live('s2', '2026-10-13T13:00:00Z');
     await poll();
-    expect(rows(), hasLength(3));
+    expect(rows(), hasLength(5));
     expect(rows().first, startsWith('sys_stream:s2:start'));
   });
 
@@ -119,7 +125,10 @@ void main() {
       rows().where((r) => r.startsWith('sys_stream:s1:end')),
       hasLength(1),
     );
-    expect(rows().where((r) => r.contains('s2:start')), hasLength(1));
+    expect(
+      rows().where((r) => r.startsWith('sys_stream:s2:start|')),
+      hasLength(1),
+    );
   });
 
   test('restart mid-stream does not repeat the start', () async {
@@ -140,7 +149,7 @@ void main() {
 
     await poll(const Duration(hours: 5));
     await poll();
-    expect(rows(), ['sys_stream:s1:end|Stream ended · 3h0m']);
+    expect(rows(), ['sys_stream:s1:end|Stream ended - 3h0m']);
     expect(
       chat.channelFor('test')!.messages.items.single.timestamp.toUtc(),
       lastSeen.toUtc(),

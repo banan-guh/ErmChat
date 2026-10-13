@@ -2826,7 +2826,7 @@
       }
     }
   },
-  "streamStarted": "Stream started",
+  "streamStarted": "Stream",
   "streamEnded": "Stream ended",
   "streamDurationHm": "{hours}h{minutes}m",
   "@streamDurationHm": {

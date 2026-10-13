@@ -29,6 +29,9 @@ const officialColors = [
 /// Announcement banner colors mapped from msg-param-color tag values.
 /// PRIMARY/PURPLE is muted toward dankchat sub purple (S~0.47): same hue
 /// at 60% saturation so row tints stay calm after contrast equalization.
+/// Accent for stream started/ended rows: Twitch's live red.
+const streamAccent = Color(0xFFE91916);
+
 const announcementColors = <String, Color>{
   'PRIMARY': Color(0xFF7C47D1),
   'BLUE': Color(0xFF1F69FF),

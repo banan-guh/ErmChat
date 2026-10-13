@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../chat/channel/channel.dart';
 import '../chat/chat.dart';
 import '../client/session.dart';
+import '../color_utils.dart' show streamAccent;
 import '../l10n/app_localizations.dart';
 import '../util/log.dart';
 import 'twitch_api.dart';
@@ -192,12 +193,25 @@ class ChatStatusComposer {
             if ((stream[k] as String?)?.trim() case final v? when v.isNotEmpty)
               v,
         ];
-        target.addSystemMessageAt(
-          [strings().streamStarted, ...details].join(' · '),
+        // Announcement layout: the "Stream" label, then title and game on the
+        // row under it (1 ms newer sorts it below the label).
+        final at = startedAt?.toLocal() ?? now;
+        final added = target.addSystemMessageAt(
+          strings().streamStarted,
           messageId: 'sys_stream:$id:start',
-          at: startedAt?.toLocal() ?? now,
+          at: at,
+          accent: streamAccent,
           maxMessages: getMaxMessages(),
         );
+        if (added && details.isNotEmpty) {
+          target.addSystemMessageAt(
+            details.join(' - '),
+            messageId: 'sys_stream:$id:start:info',
+            at: at.add(const Duration(milliseconds: 1)),
+            accent: streamAccent,
+            maxMessages: getMaxMessages(),
+          );
+        }
       }
       await prefs.setString(
         _markerKey(userId),
@@ -246,9 +260,10 @@ class ChatStatusComposer {
           : strings().streamDurationM(d.inMinutes);
     }
     target.addSystemMessageAt(
-      [strings().streamEnded, ?duration].join(' · '),
+      [strings().streamEnded, ?duration].join(' - '),
       messageId: 'sys_stream:${marker.id}:end',
       at: marker.seenAt,
+      accent: streamAccent,
       maxMessages: getMaxMessages(),
     );
   }

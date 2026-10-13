@@ -233,8 +233,14 @@ class Channel {
     required String messageId,
     required DateTime at,
     required int maxMessages,
+    Color? accent,
   }) {
-    if (!messages.addSystemAt(text, messageId: messageId, at: at)) {
+    if (!messages.addSystemAt(
+      text,
+      messageId: messageId,
+      at: at,
+      accent: accent,
+    )) {
       return false;
     }
     truncate(maxMessages);
