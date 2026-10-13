@@ -7,6 +7,7 @@ bool wordMatches(String text, String name) {
   if (name.isEmpty) return false;
   final lower = name.toLowerCase();
   final lowerText = text.toLowerCase();
+  if (!lowerText.contains(lower)) return false;
   for (final w in lowerText.split(_wordSplitRe)) {
     if (w == '@$lower' || w == lower) return true;
   }
