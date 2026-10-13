@@ -33,8 +33,8 @@ class StreamPlayerController extends ChangeNotifier {
   static const defaultSplitFraction = 0.6;
   double _splitFraction = defaultSplitFraction;
 
-  /// Portrait player height as a multiple of its 16:9 height. Starts at 1
-  /// each launch; a drag lasts for the session. The layout caps it further.
+  /// Portrait player height as a multiple of its 16:9 height, half to full.
+  /// Starts at 1 each launch; a drag lasts for the session.
   double _stackedScale = 1.0;
   int _generation = 0;
 
@@ -158,10 +158,10 @@ class StreamPlayerController extends ChangeNotifier {
   }
 
   /// Portrait counterpart of [dragSplitFraction]; [setStackedScale] commits.
-  void dragStackedScale(double value) => _stackedScale = value.clamp(0.5, 3.0);
+  void dragStackedScale(double value) => _stackedScale = value.clamp(0.5, 1.0);
 
   void setStackedScale(double value) {
-    _stackedScale = value.clamp(0.5, 3.0);
+    _stackedScale = value.clamp(0.5, 1.0);
     notifyListeners();
   }
 }

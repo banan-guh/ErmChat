@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
@@ -40,8 +39,9 @@ bool shouldShowStreamVideo({
 // Visibility/Offstage here: a PlatformView going offstage in the same
 // frame the Scaffold resizes for the keyboard red-screens the body.
 //
-// [scale] stretches the 16:9 height (half to 60% of the screen); with
-// [onResize] set, a handle under the video drags it.
+// [scale] shrinks the 16:9 height (half to full, never taller, so no
+// letterbox bars); with [onResize] set, a grip on the video's bottom edge
+// drags it.
 Widget buildStackedPlayer({
   required bool show,
   required Widget video,
@@ -57,47 +57,49 @@ Widget buildStackedPlayer({
           ? maxW
           : MediaQuery.sizeOf(context).width;
       final base = w * 9 / 16;
-      final maxScale = math.max(
-        0.5,
-        MediaQuery.sizeOf(context).height * 0.6 / base,
-      );
-      final h = base * scale.clamp(0.5, maxScale);
+      final h = base * scale.clamp(0.5, 1.0);
       return Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           SizedBox(
             width: w,
             height: show ? h : StreamPanels.hiddenVideoHeight,
-            child: ClipRect(
-              child: OverflowBox(
-                maxWidth: w,
-                maxHeight: h,
-                alignment: Alignment.topCenter,
-                child: SizedBox(width: w, height: h, child: video),
-              ),
-            ),
-          ),
-          if (show && onResize != null)
-            GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onVerticalDragUpdate: (details) =>
-                  onResize((h + details.delta.dy) / base),
-              onVerticalDragEnd: (_) => onResizeEnd?.call(),
-              child: SizedBox(
-                width: w,
-                height: 14,
-                child: Center(
-                  child: Container(
-                    width: 36,
-                    height: 4,
-                    decoration: const BoxDecoration(
-                      color: Colors.grey,
-                      borderRadius: BorderRadius.all(Radius.circular(2)),
-                    ),
+            child: Stack(
+              children: [
+                ClipRect(
+                  child: OverflowBox(
+                    maxWidth: w,
+                    maxHeight: h,
+                    alignment: Alignment.topCenter,
+                    child: SizedBox(width: w, height: h, child: video),
                   ),
                 ),
-              ),
+                if (show && onResize != null)
+                  Positioned(
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    height: 16,
+                    child: GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onVerticalDragUpdate: (details) =>
+                          onResize((h + details.delta.dy) / base),
+                      onVerticalDragEnd: (_) => onResizeEnd?.call(),
+                      child: Center(
+                        child: Container(
+                          width: 36,
+                          height: 4,
+                          decoration: const BoxDecoration(
+                            color: Colors.grey,
+                            borderRadius: BorderRadius.all(Radius.circular(2)),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
             ),
+          ),
           if (!show) audioBar,
         ],
       );
