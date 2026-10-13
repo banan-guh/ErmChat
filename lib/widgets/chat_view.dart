@@ -207,20 +207,22 @@ class _ChatHoldBouncingPhysics extends BouncingScrollPhysics
 
 class _ChatViewState extends State<ChatView>
     with AutomaticKeepAliveClientMixin {
-  /// Copies the sender in the mention format pref and confirms in the chat
-  /// notice bar.
+  /// Copies the sender in the mention format pref, trailing space included
+  /// like an inserted emote, and confirms in the chat notice bar with Paste.
   Future<void> _copyUsername(TwitchMessage msg) async {
     final prefs = await Prefs.load();
-    final text = formatMention(
-      prefs.mentionFormat,
-      mentionName(msg),
-    ).trimRight();
+    final text = formatMention(prefs.mentionFormat, mentionName(msg));
     await Clipboard.setData(ClipboardData(text: text));
     if (!mounted) return;
-    ProviderScope.containerOf(
+    final notice = ProviderScope.containerOf(
       context,
       listen: false,
-    ).read(chatNoticeProvider).show(context.l10n.copiedValue(text));
+    ).read(chatNoticeProvider);
+    notice.show(
+      context.l10n.copiedValue(text.trimRight()),
+      actionLabel: context.l10n.paste,
+      onAction: notice.paste,
+    );
   }
 
   /// Pixels from the newest row above which the reader counts as scrolled up.

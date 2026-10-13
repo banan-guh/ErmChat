@@ -207,6 +207,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   final _atBottomNotifiers = <String, ValueNotifier<bool>>{};
   ChatNoticeController get _chatNotice => ref.read(chatNoticeProvider);
 
+  // Held so dispose can unregister paste without touching ref.
+  ChatNoticeController? _pasteHost;
+
   late final ChatUiSignals _signals = ref.read(chatUiSignalsProvider);
 
   final _signalUnsubs = <void Function()>[];
@@ -612,6 +615,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   @override
   void initState() {
     super.initState();
+    _pasteHost = _chatNotice..paste = _pasteFromClipboard;
     unawaited(_ttsController.init());
     unawaited(PerfLog.I.init());
     DataUsageStats.I.start();
@@ -1402,6 +1406,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 
   @override
   void dispose() {
+    _pasteHost?.paste = null;
     widget.routeObserver?.unsubscribe(this);
     _fakeChat.dispose();
     _isMobile.dispose();
@@ -1515,7 +1520,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     _chatNotice.show(
       context.l10n.messageCopied,
       actionLabel: context.l10n.paste,
-      onAction: _pasteFromClipboard,
+      onAction: _chatNotice.paste,
     );
   }
 

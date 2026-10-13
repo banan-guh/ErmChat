@@ -21,6 +21,10 @@ class ChatNoticeController extends ChangeNotifier {
 
   ChatBarNotice? get current => _current;
 
+  /// Inserts the clipboard into the chat input. Set by the screen that owns
+  /// the composer, so any copy notice can offer Paste.
+  VoidCallback? paste;
+
   void show(
     String message, {
     String? actionLabel,
