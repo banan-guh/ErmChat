@@ -18,6 +18,14 @@ if (keystorePropertiesFile.exists()) {
     keystoreProperties.load(FileInputStream(keystorePropertiesFile))
 }
 
+// Opt-in per machine: `ermchat.devAppId=true` in android/local.properties.
+val localProperties = Properties()
+val localPropertiesFile = rootProject.file("local.properties")
+if (localPropertiesFile.exists()) {
+    localProperties.load(FileInputStream(localPropertiesFile))
+}
+val devAppId = localProperties.getProperty("ermchat.devAppId") == "true"
+
 android {
     namespace = "io.github.bananguh.ErmChat"
     compileSdk = flutter.compileSdkVersion
@@ -51,14 +59,16 @@ android {
     }
 
     buildTypes {
-        // Debug and profile share one dev install beside the release build,
-        // so `flutter run` never uninstalls it (and wipes its data) over a key
-        // or version clash. Profile is set here too: Flutter copies it from
-        // debug before this block runs.
-        for (name in listOf("debug", "profile")) {
-            getByName(name) {
-                applicationIdSuffix = ".debug"
-                manifestPlaceholders["appLabel"] = "ErmChat Dev"
+        // With devAppId, debug and profile share one dev install beside the
+        // release build, so `flutter run` never uninstalls it (and wipes its
+        // data) over a key or version clash. Profile is set here too: Flutter
+        // copies it from debug before this block runs.
+        if (devAppId) {
+            for (name in listOf("debug", "profile")) {
+                getByName(name) {
+                    applicationIdSuffix = ".debug"
+                    manifestPlaceholders["appLabel"] = "ErmChat Dev"
+                }
             }
         }
         release {
