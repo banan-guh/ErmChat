@@ -1,3 +1,5 @@
+import 'dart:collection';
+
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../color_utils.dart';
@@ -64,10 +66,10 @@ class MessageBuilder {
     this.animateGifs = true,
   }) : linkWhitelist = linkWhitelist ?? LinkWhitelist.instance;
 
-  // Render memos live here, not on the messages: the buffer stays plain data,
-  // and a message dropping out of the buffer releases its spans with it.
-  final _bodyCache = Expando<_BodySpans>();
-  final _badgeCache = Expando<_BadgeSpans>();
+  // Render memos live here, not on the messages: the buffer stays plain data.
+  // Each is a bounded LRU, so scrolling a long buffer keeps only recent spans.
+  final _bodyCache = _SpanLru<_BodySpans>();
+  final _badgeCache = _SpanLru<_BadgeSpans>();
 
   /// Inputs the cached spans depend on. Emote tokens bake onto the message
   /// at ingest, so catalog changes never invalidate spans here; only badge
@@ -107,7 +109,7 @@ class MessageBuilder {
       return _recolor(fresh, _textStyle(msg, surface, textScale));
     }
     final key = _spanKey(textScale);
-    var cached = _bodyCache[msg];
+    var cached = _bodyCache.get(msg);
     if (cached == null ||
         cached.key != key ||
         !identical(cached.tokens, msg.emoteTokens)) {
@@ -119,7 +121,7 @@ class MessageBuilder {
         if (!colored) return fresh;
         return _recolor(fresh, _textStyle(msg, surface, textScale));
       }
-      cached = _bodyCache[msg] = _BodySpans(fresh, key, msg.emoteTokens);
+      cached = _bodyCache.put(msg, _BodySpans(fresh, key, msg.emoteTokens));
     }
     return colored ? _cachedColored(cached, msg, surface) : cached.spans;
   }
@@ -149,7 +151,7 @@ class MessageBuilder {
   /// Whether [spans] is the shared cached body list for [msg], so the tile
   /// knows not to own (and dispose) it.
   bool bodyIsCached(TwitchMessage msg, List<InlineSpan> spans) {
-    final cached = _bodyCache[msg];
+    final cached = _bodyCache.get(msg);
     return cached != null &&
         (identical(cached.spans, spans) || identical(cached.colored, spans));
   }
@@ -344,10 +346,10 @@ class MessageBuilder {
       badgeService.version,
       badgeScale,
     );
-    final cached = _badgeCache[msg];
+    final cached = _badgeCache.get(msg);
     if (cached != null && cached.key == key) return cached.spans;
     final spans = _computeBadgeSpans(channel, msg, badgeScale);
-    _badgeCache[msg] = _BadgeSpans(spans, key);
+    _badgeCache.put(msg, _BadgeSpans(spans, key));
     return spans;
   }
 
@@ -461,6 +463,26 @@ typedef _SpanKey = ({
   bool bttvModifiers,
   double scale,
 });
+
+/// Identity-keyed LRU of render memos, evicting the least recently used past
+/// [cap] entries.
+class _SpanLru<V> {
+  static const cap = 1000;
+  final _map = LinkedHashMap<TwitchMessage, V>.identity();
+
+  V? get(TwitchMessage msg) {
+    final v = _map.remove(msg);
+    if (v != null) _map[msg] = v;
+    return v;
+  }
+
+  V put(TwitchMessage msg, V value) {
+    _map.remove(msg);
+    _map[msg] = value;
+    if (_map.length > cap) _map.remove(_map.keys.first);
+    return value;
+  }
+}
 
 class _BodySpans {
   _BodySpans(this.spans, this.key, this.tokens);
