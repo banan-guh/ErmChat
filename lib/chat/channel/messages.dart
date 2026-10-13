@@ -1,4 +1,5 @@
 import 'dart:collection';
+import 'dart:math' show max, min;
 import 'dart:ui' show Color;
 
 import 'package:clock/clock.dart';
@@ -52,7 +53,7 @@ enum SystemLine {
 }
 
 /// One channel's message buffer and its laws: newest-first ordering, dedup,
-/// system-line folding, coalesced thread-aware truncation, and in-place
+/// system-line folding, slack-batched thread-aware truncation, and in-place
 /// mutations. Owns no policy: callers filter, rewrite, and evaluate pings
 /// before handing a message or batch in.
 class Messages {
@@ -60,7 +61,6 @@ class Messages {
     required this.channel,
     DateTime Function()? now,
     String Function(SystemLine line)? systemText,
-    this.truncateCoalesceWindow = const Duration(milliseconds: 250),
   }) : now = now ?? clock.now,
        systemText = systemText ?? _systemLineName;
 
@@ -71,14 +71,23 @@ class Messages {
 
   /// Display text for kernel-authored rows, read when the row is inserted.
   final String Function(SystemLine line) systemText;
-  final Duration truncateCoalesceWindow;
 
   static String _systemLineName(SystemLine line) => line.name;
 
   final List<TwitchMessage> _items = [];
   // Every buffered row carrying an id, for O(1) dedup and lookup.
   final Map<String, TwitchMessage> _byId = {};
-  DateTime? _lastTruncateAt;
+
+  // Buffer cap from the latest mutation, so [chatRows] never shows more than
+  // it between trims. Zero until the first capped call.
+  int _cap = 0;
+
+  // Visible rows beyond [_cap] at the last trim (thread rows kept in view).
+  int _chatExtra = 0;
+
+  // Rows retained by the last trim. Thread-exempt rows can hold the buffer
+  // above the cap, so the next trim waits for slack past this, not the cap.
+  int _retainedAtTrim = 0;
 
   // Oldest row inside the message limit at the last truncate. Older rows are
   // kept only for their threads. Null when nothing is held past the limit.
@@ -95,7 +104,10 @@ class Messages {
   /// is not a generic event bus.
   final MessageMutations mutations = MessageMutations();
 
-  static const _truncateHardCapFactor = 2;
+  // Live trims wait until the buffer is this far past the cap, then trim back
+  // to it, so a full buffer pays one trim per slack rows instead of one per
+  // message. Small caps scale down to a quarter of the cap.
+  static int _slackFor(int maxMessages) => min(256, max(1, maxMessages ~/ 4));
   static const _systemDedupWindow = Duration(seconds: 10);
 
   /// A recovery announced within this window of the previous one is the same
@@ -137,9 +149,10 @@ class Messages {
 
   int get _chatLength {
     final end = _limitEnd;
-    if (end == null) return _items.length;
+    final visible = _cap <= 0 ? _items.length : _cap + _chatExtra;
+    if (end == null) return min(_items.length, visible);
     if (_chatLengthAt == version.value && _chatLengthOf == _items.length) {
-      return _chatLengthMemo;
+      return min(_chatLengthMemo, visible);
     }
     _chatLengthAt = version.value;
     _chatLengthOf = _items.length;
@@ -151,7 +164,7 @@ class Messages {
         break;
       }
     }
-    return _chatLengthMemo;
+    return min(_chatLengthMemo, visible);
   }
 
   bool containsId(String id) => _byId.containsKey(id);
@@ -160,7 +173,7 @@ class Messages {
 
   // ---- Live ingest ---------------------------------------------------------
 
-  /// Dedup by message id, insert at the top, and coalesced-truncate. Returns
+  /// Dedup by message id, insert at the top, and slack-truncate. Returns
   /// whether the row was inserted plus anything trimmed out. Exemptions are
   /// built lazily: [buildExemptions] runs only when a truncate pass runs,
   /// never on the steady-state path.
@@ -388,6 +401,7 @@ class Messages {
       _items.addAll(added);
       _sortNewestFirst();
     }
+    _cap = maxMessages;
     if (_items.length > maxMessages) {
       for (var i = maxMessages; i < _items.length; i++) {
         _unindex(_items[i]);
@@ -656,8 +670,12 @@ class Messages {
     TruncateExemptions Function()? buildExemptions,
   ]) {
     if (maxMessages <= 0) return const <TwitchMessage>[];
-    if (_items.length <= maxMessages) return const <TwitchMessage>[];
-    _lastTruncateAt = now();
+    _cap = maxMessages;
+    if (_items.length <= maxMessages) {
+      _retainedAtTrim = 0;
+      _chatExtra = 0;
+      return const <TwitchMessage>[];
+    }
     final exemptions = buildExemptions?.call() ?? TruncateExemptions.empty;
 
     // Fast path: without reply rows or exemptions nothing is pinned, so the
@@ -673,6 +691,8 @@ class Messages {
       }
       _items.removeRange(maxMessages, _items.length);
       _limitEnd = null;
+      _chatExtra = 0;
+      _retainedAtTrim = _items.length;
       return evicted;
     }
 
@@ -758,6 +778,7 @@ class Messages {
     final evicted = <TwitchMessage>[];
     int kept = 0;
     TwitchMessage? limitEnd;
+    var limitEndLen = 0;
     final activeKept = <String, int>{};
     for (int i = 0; i < _items.length; i++) {
       final m = _items[i];
@@ -775,6 +796,7 @@ class Messages {
         if (keep) {
           kept++;
           limitEnd = m;
+          limitEndLen = retained.length + 1;
         }
       } else {
         final key = threadKeyFor(m, parentOf);
@@ -787,6 +809,7 @@ class Messages {
         if (keep) {
           kept++;
           limitEnd = m;
+          limitEndLen = retained.length + 1;
         }
       }
       if (keep) {
@@ -801,6 +824,11 @@ class Messages {
       ..clear()
       ..addAll(retained);
     _limitEnd = kept >= maxMessages ? limitEnd : null;
+    _chatExtra = max(
+      0,
+      (_limitEnd == null ? _items.length : limitEndLen) - maxMessages,
+    );
+    _retainedAtTrim = _items.length;
     _chatLengthAt = -1;
     return evicted;
   }
@@ -810,15 +838,10 @@ class Messages {
     TruncateExemptions Function()? buildExemptions,
   ) {
     if (maxMessages <= 0) return const <TwitchMessage>[];
-    if (_items.length <= maxMessages) return const <TwitchMessage>[];
-    final t = now();
-    final last = _lastTruncateAt;
-    final sinceLast = last == null ? null : t.difference(last);
-    final overHardCap = _items.length > maxMessages * _truncateHardCapFactor;
-    if (sinceLast != null &&
-        sinceLast < truncateCoalesceWindow &&
-        !overHardCap) {
-      return const [];
+    _cap = maxMessages;
+    final floor = max(maxMessages, _retainedAtTrim);
+    if (_items.length <= floor + _slackFor(maxMessages)) {
+      return const <TwitchMessage>[];
     }
     return truncate(maxMessages, buildExemptions);
   }

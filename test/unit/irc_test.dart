@@ -434,13 +434,12 @@ ChatConnectionManager _makeConn({
   required Map<String, List<TwitchMessage>> channelMessages,
   required int maxMessages,
   EmoteManager? emoteManager,
-  DateTime Function()? truncateNow,
   IrcService? irc,
   IrcReadService? ircRead,
   JoinRateLimiter? joinBudget,
 }) {
   final api = TwitchApi(client: http.Client());
-  final chat = Chat(now: truncateNow);
+  final chat = Chat();
   final session = Session();
   chat.ensure('test');
   for (final entry in channelMessages.entries) {
@@ -2009,71 +2008,31 @@ void main() {
     });
   });
 
-  group('truncate coalescing', () {
-    test(
-      'defers within the window, runs after it, forces on hard cap and stays bounded',
-      () {
-        var t = DateTime(2026, 1, 1, 12);
-        Map<String, List<TwitchMessage>> fresh() =>
-            <String, List<TwitchMessage>>{
-              'test': List.generate(
-                11,
-                (i) => _msg('m${10 - i}', 'msg ${10 - i}'),
-              ),
-            };
+  group('truncate slack', () {
+    test('live messages trim to the cap only once past the slack', () {
+      final conn = _makeConn(
+        channelMessages: <String, List<TwitchMessage>>{
+          'test': List.generate(11, (i) => _msg('m${10 - i}', 'msg ${10 - i}')),
+        },
+        maxMessages: 10,
+      );
+      final messages = conn.chat.channelFor('test')!.messages;
+      conn.chat.channelFor('test')!.truncate(10);
+      expect(messages.length, 10);
 
-        var msgs = fresh();
-        var conn = _makeConn(
-          channelMessages: msgs,
-          maxMessages: 10,
-          truncateNow: () => t,
-        );
-        conn.chat.channelFor('test')!.truncate(10);
-        t = t.add(const Duration(milliseconds: 100));
-        conn.onMessage(_msg('new1', 'new one'));
-        expect(conn.chat.channelFor('test')!.messages.length, 11);
+      // Cap 10 gives slack 2: the buffer may hold 12 before a trim runs.
+      conn.onMessage(_msg('b1', 'burst 1'));
+      conn.onMessage(_msg('b2', 'burst 2'));
+      expect(
+        messages.length,
+        12,
+        reason: 'inside the slack, live messages do not trim per message',
+      );
+      expect(messages.chatRows.length, 10, reason: 'chat never shows past cap');
 
-        t = DateTime(2026, 1, 1, 12);
-        msgs = fresh();
-        conn = _makeConn(
-          channelMessages: msgs,
-          maxMessages: 10,
-          truncateNow: () => t,
-        );
-        conn.chat.channelFor('test')!.truncate(10);
-        t = t.add(const Duration(milliseconds: 300));
-        conn.onMessage(_msg('new1', 'new one'));
-        expect(conn.chat.channelFor('test')!.messages.length, 10);
-
-        t = DateTime(2026, 1, 1, 12);
-        msgs = fresh();
-        conn = _makeConn(
-          channelMessages: msgs,
-          maxMessages: 10,
-          truncateNow: () => t,
-        );
-        conn.chat.channelFor('test')!.truncate(10);
-        t = t.add(const Duration(milliseconds: 100));
-        for (var i = 1; i <= 11; i++) {
-          conn.onMessage(_msg('b$i', 'burst $i'));
-        }
-        expect(conn.chat.channelFor('test')!.messages.length, 10);
-
-        t = DateTime(2026, 1, 1, 12);
-        msgs = fresh();
-        conn = _makeConn(
-          channelMessages: msgs,
-          maxMessages: 10,
-          truncateNow: () => t,
-        );
-        conn.chat.channelFor('test')!.truncate(10);
-        t = t.add(const Duration(milliseconds: 100));
-        for (var i = 1; i <= 4; i++) {
-          conn.onMessage(_msg('b$i', 'burst $i'));
-        }
-        expect(conn.chat.channelFor('test')!.messages.length, 14);
-      },
-    );
+      conn.onMessage(_msg('b3', 'burst 3'));
+      expect(messages.length, 10, reason: 'past the slack, trim back to cap');
+    });
   });
 
   group('own message tags', () {

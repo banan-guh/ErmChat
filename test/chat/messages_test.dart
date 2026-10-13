@@ -242,6 +242,7 @@ void main() {
         messages.add(m, maxMessages: 2, buildExemptions: build);
       }
 
+      messages.truncate(2, build);
       expect(builds, greaterThan(0));
       for (final id in ['r1', 'c1', 'c2', 'r2', 'c3', 's3', 's2']) {
         expect(messages.byId(id), isNotNull, reason: id);
@@ -255,38 +256,36 @@ void main() {
     });
   });
 
-  group('Messages.truncate coalescing', () {
-    test('coalesce window is per channel', () {
-      var t = DateTime(2026, 1, 1);
-      DateTime now() => t;
-      final a = Messages(channel: 'a', now: now);
-      final b = Messages(channel: 'b', now: now);
-      addTearDown(a.dispose);
-      addTearDown(b.dispose);
-      TwitchMessage filler(String id, String channel) => TwitchMessage(
-        login: 'z',
-        text: 'filler $id',
-        messageId: id,
-        channel: channel,
-      );
-
-      for (var i = 0; i < 6; i++) {
-        a.add(filler('a$i', 'a'), maxMessages: 5);
-      }
-      expect(a.items.length, 5);
-      // Same instant: b still gets its own pass instead of sharing a's timer.
-      for (var i = 0; i < 6; i++) {
-        b.add(filler('b$i', 'b'), maxMessages: 5);
-      }
-      expect(b.items.length, 5);
-      // Immediate repeat on a is coalesced away: over budget, no pass runs.
-      a.add(filler('a6', 'a'), maxMessages: 5);
-      expect(a.items.length, 6);
-      // Past the window the next add truncates again.
-      t = t.add(const Duration(seconds: 1));
-      a.add(filler('a7', 'a'), maxMessages: 5);
-      expect(a.items.length, 5);
-    });
+  group('Messages.truncate slack', () {
+    test(
+      'live trims wait for slack past the cap and chat never shows more',
+      () {
+        final m = Messages(channel: 'a');
+        addTearDown(m.dispose);
+        // Cap 8 gives slack 2: trims run once the buffer holds more than 10.
+        for (var i = 0; i < 10; i++) {
+          m.add(_live('m$i'), maxMessages: 8);
+        }
+        expect(
+          m.items.length,
+          10,
+          reason: 'within the slack, a full buffer does not trim per message',
+        );
+        expect(
+          m.chatRows.length,
+          8,
+          reason: 'rows past the cap are never visible between trims',
+        );
+        expect(m.chatRows.first.messageId, 'm9');
+        m.add(_live('m10'), maxMessages: 8);
+        expect(
+          m.items.length,
+          8,
+          reason: 'crossing the slack trims to the cap',
+        );
+        expect(m.chatRows.length, 8);
+      },
+    );
   });
 
   group('Messages.truncate fast path', () {
@@ -298,6 +297,7 @@ void main() {
         m.add(_live('m$i'), maxMessages: 5);
         t = t.add(const Duration(seconds: 1));
       }
+      m.truncate(5);
       expect(m.items.map((e) => e.messageId).toList(), [
         'm7',
         'm6',

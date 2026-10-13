@@ -2497,10 +2497,8 @@ void main() {
           findsOneWidget,
         );
 
-        // Emit new messages that push the thread past the limit. Truncation
-        // coalesces inside a 250ms wall-clock window, but crossing the 2x hard
-        // cap forces the thread-aware pass on the same insert, so the pass is
-        // deterministic without depending on real elapsed time.
+        // Emit enough messages to cross the trim slack, which runs the
+        // thread-aware pass on the same insert.
         for (int i = 1; i <= 10; i++) {
           ircRead.emitMessage(
             TwitchMessage(
