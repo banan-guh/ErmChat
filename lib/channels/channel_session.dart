@@ -152,7 +152,7 @@ class ChannelSession extends ChangeNotifier {
     }
   }
 
-  /// Archived rows first (when enabled), then the network history, which
+  /// Archived rows first (when an archive is wired), then the network history, which
   /// dedups against them by id.
   Future<List<TwitchMessage>> _fetchHistory(String name) {
     Future<List<TwitchMessage>> fetch() => recentMessages.fetchRecentPreferWarm(

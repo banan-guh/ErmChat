@@ -58,7 +58,7 @@ class ChatHistoryController {
   final int Function() recentMessagesLimit;
   final bool Function(String login)? isBlocked;
 
-  /// Null unless the history archive is enabled.
+  /// Null when no archive is wired (tests).
   final Archive? archive;
 
   final ChatMessagePolicy _policy;
@@ -111,7 +111,7 @@ class ChatHistoryController {
   /// Fills the channel buffer with its newest archived rows before the
   /// network history lands, so a cold start shows chat from disk. Rows go
   /// through [chat]'s history verb directly, so the later robotty merge dedups
-  /// them by id. Does nothing when the archive is off.
+  /// them by id. Does nothing without an archive.
   Future<void> restoreFromArchive(String channel) async {
     final reader = archive?.reader;
     if (reader == null) return;

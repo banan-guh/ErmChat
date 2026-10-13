@@ -17,7 +17,7 @@ import 'history_scrubber.dart';
 import 'message_builder.dart';
 
 /// Prototype of the windowed history list over [FakeHistory] data, shown for
-/// the fake channels when `ERMCHAT_FAKE_HISTORY` is on.
+/// the fake channels in non-release builds.
 ///
 /// One reversed `CustomScrollView` with a `center` sliver. The center sliver
 /// holds items older than [_anchor], the sliver before it holds newer items.

@@ -1,14 +1,16 @@
+import 'package:flutter/foundation.dart' show kReleaseMode;
+
 import '../models/twitch_message.dart';
 import 'history_timeline.dart';
 
 /// Procedural chat archive for the windowed list prototype, compiled in only
-/// with `--dart-define=ERMCHAT_FAKE_HISTORY=true`. Rows derive from
+/// in debug and profile builds, never in release. Rows derive from
 /// (channel, row index) alone, so millions of rows cost no memory. Row 0 is
 /// the oldest; [loadBlock] mimics the future archive's block reads.
 class FakeHistory {
   FakeHistory._();
 
-  static const bool enabled = bool.fromEnvironment('ERMCHAT_FAKE_HISTORY');
+  static const bool enabled = !kReleaseMode;
 
   static const String testChannel = '_testchannel';
   static const String denseChannel = '_testdense';

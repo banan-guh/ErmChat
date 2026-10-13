@@ -122,9 +122,8 @@ final chatHistoryControllerProvider = Provider<ChatHistoryController>((ref) {
   return controller;
 });
 
-/// The history archive, or null unless built with `ERMCHAT_ARCHIVE=true`.
+/// The history archive. Nullable so tests can inject none.
 final archiveProvider = Provider<Archive?>((ref) {
-  if (!Archive.enabled) return null;
   final archive = Archive.inAppSupport();
   ref.onDispose(archive.dispose);
   return archive;

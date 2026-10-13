@@ -1,3 +1,5 @@
+import '../util/fake_history.dart';
+
 /// Join-confirmation and read-socket-health state. Owns the per-channel
 /// readiness sets and outage flags, answering the manager's readiness
 /// queries through injected connection predicates.
@@ -23,6 +25,9 @@ class ChatReadiness {
   // fresh or reconnected read socket may not have processed its JOINs yet,
   // and the local echo of our own messages rides it.
   final _readJoinedChannels = <String>{};
+  // Channels whose JOIN timed out or was refused on the read socket. They
+  // stop counting as loading until a ROOMSTATE confirms them.
+  final _joinFailedChannels = <String>{};
   bool _readEverConnected = false;
   bool _wasReadDisconnected = false;
   bool _everConnected = false;
@@ -35,11 +40,19 @@ class ChatReadiness {
   bool get readEverConnected => _readEverConnected;
 
   bool isChannelReady(String channel) {
+    // Prototype channels never JOIN, so they are ready by construction.
+    if (FakeHistory.isFake(channel)) return true;
     if (!readExpected() && !readConnected()) {
       return writeConnected() && _joinedChannels.contains(channel);
     }
     return _readJoinedChannels.contains(channel);
   }
+
+  /// Whether the channel's JOIN gave up waiting and is still unconfirmed.
+  bool isJoinFailed(String channel) => _joinFailedChannels.contains(channel);
+
+  /// Records an unconfirmed or refused JOIN; true when newly recorded.
+  bool noteJoinFailed(String channel) => _joinFailedChannels.add(channel);
 
   void noteWriteSocketConnected() => _everConnected = true;
 
@@ -58,6 +71,7 @@ class ChatReadiness {
     _wasReadDisconnected = true;
     _connectedAcked.clear();
     _readJoinedChannels.clear();
+    _joinFailedChannels.clear();
     return true;
   }
 
@@ -70,18 +84,23 @@ class ChatReadiness {
 
   /// Records a read ROOMSTATE: confirms the JOIN, returning whether the
   /// channel was newly confirmed.
-  bool noteReadRoomState(String channel) => _readJoinedChannels.add(channel);
+  bool noteReadRoomState(String channel) {
+    _joinFailedChannels.remove(channel);
+    return _readJoinedChannels.add(channel);
+  }
 
   bool noteWriteRoomState(String channel) => _joinedChannels.add(channel);
 
   void resetForAccountSwitch() {
     _joinedChannels.clear();
     _connectedAcked.clear();
+    _joinFailedChannels.clear();
   }
 
   /// Drops a channel's JOIN confirmations so a re-subscribe re-earns them.
   void forgetChannel(String channel) {
     _joinedChannels.remove(channel);
     _readJoinedChannels.remove(channel);
+    _joinFailedChannels.remove(channel);
   }
 }

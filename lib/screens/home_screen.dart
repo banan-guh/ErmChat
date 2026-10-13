@@ -1270,7 +1270,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   bool get _chatLoading {
     if (_chatConn.connectPhase != ChatPhase.online) return true;
     for (final channel in _chat.names) {
-      if (!_chatConn.isChannelChatReady(channel)) return true;
+      if (!_chatConn.isChannelChatReady(channel) &&
+          !_chatConn.isChannelJoinFailed(channel)) {
+        return true;
+      }
     }
     return false;
   }

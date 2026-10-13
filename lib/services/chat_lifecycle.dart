@@ -117,6 +117,7 @@ class ChatLifecycle {
   StreamSubscription<void>? ircAuthFailedSub;
   StreamSubscription<void>? ircReadAuthFailedSub;
   StreamSubscription<IrcJoinFailureEvent>? _ircJoinFailedSub;
+  StreamSubscription<String>? _ircJoinTimedOutSub;
   StreamSubscription<IrcRoomStateEvent>? _readRoomStateSub;
   StreamSubscription<IrcRoomStateEvent>? _writeRoomStateSub;
   StreamSubscription<(String, bool)>? _readSelfModSub;
@@ -137,6 +138,7 @@ class ChatLifecycle {
     ircAuthFailedSub?.cancel();
     ircReadAuthFailedSub?.cancel();
     _ircJoinFailedSub?.cancel();
+    _ircJoinTimedOutSub?.cancel();
     _readRoomStateSub?.cancel();
     _writeRoomStateSub?.cancel();
     _readSelfModSub?.cancel();
@@ -193,6 +195,20 @@ class ChatLifecycle {
       _ircJoinFailedSub = ircRead.onJoinFailed.listen((event) {
         if (_disposed) return;
         channelSetup.handleJoinFailed(event);
+        if (readiness.noteJoinFailed(event.channel)) {
+          connectionStateNotifier.value++;
+        }
+      });
+
+      // A JOIN unconfirmed past the timeout stops the loading spinner and
+      // posts one notice; the transport keeps retrying.
+      _ircJoinTimedOutSub?.cancel();
+      _ircJoinTimedOutSub = ircRead.onJoinTimedOut.listen((channel) {
+        if (_disposed) return;
+        channelSetup.handleJoinTimedOut(channel);
+        if (readiness.noteJoinFailed(channel)) {
+          connectionStateNotifier.value++;
+        }
       });
 
       // The read socket is the sole JOINer: its ROOMSTATE resolves room status

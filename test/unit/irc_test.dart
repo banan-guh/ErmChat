@@ -301,6 +301,13 @@ class _NoopIrcRead extends IrcReadService {
   }
 }
 
+class _JoinRecordingRead extends _TestIrcRead {
+  final joins = <String>[];
+
+  @override
+  void join(String channel) => joins.add(channel);
+}
+
 class _TestIrcRead extends IrcReadService {
   final _statusCtrl = StreamController<IrcConnectionStatus>.broadcast(
     sync: true,
@@ -1364,6 +1371,68 @@ void main() {
         channel.dispose();
       });
     });
+
+    test('an unconfirmed JOIN times out once while retries continue', () {
+      fakeAsync((async) {
+        final channel = FakeWebSocketChannel(autoPong: true);
+        final service = _TestService([channel]);
+        final timedOut = <String>[];
+        service.onJoinTimedOut.listen(timedOut.add);
+        service.connect(username: 'user', accessToken: 'token');
+        async.flushMicrotasks();
+
+        service.join('ghost');
+        async.flushMicrotasks();
+        async.elapse(const Duration(seconds: 9));
+        expect(timedOut, isEmpty, reason: 'still inside the join timeout');
+
+        async.elapse(const Duration(seconds: 2));
+        expect(timedOut, ['ghost']);
+
+        // Sweep re-JOINs and slow retries must not re-report.
+        async.elapse(const Duration(minutes: 8));
+        expect(timedOut, ['ghost'], reason: 'one report per channel');
+        expect(
+          channel.sent.where((l) => l == 'JOIN #ghost').length,
+          greaterThan(1),
+          reason: 'retries continue after the timeout',
+        );
+
+        service.dispose();
+        channel.dispose();
+      });
+    });
+
+    test('a ROOMSTATE or PART before the timeout cancels its timer', () {
+      fakeAsync((async) {
+        final channel = FakeWebSocketChannel(autoPong: true);
+        final service = _TestService([channel]);
+        final timedOut = <String>[];
+        service.onJoinTimedOut.listen(timedOut.add);
+        service.connect(username: 'user', accessToken: 'token');
+        async.flushMicrotasks();
+
+        service.join('ok');
+        service.join('gone');
+        async.flushMicrotasks();
+        channel.push('@room-id=1 :tmi.twitch.tv ROOMSTATE #ok');
+        async.flushMicrotasks();
+        service.part('gone');
+        async.elapse(const Duration(seconds: 15));
+        expect(
+          timedOut,
+          isEmpty,
+          reason: 'confirmed and parted never time out',
+        );
+
+        service.join('late');
+        async.flushMicrotasks();
+        service.dispose();
+        async.elapse(const Duration(seconds: 15));
+        expect(timedOut, isEmpty, reason: 'dispose cancels the pending timer');
+        channel.dispose();
+      });
+    });
   });
 
   group('connectivity accelerator', () {
@@ -2352,6 +2421,68 @@ void main() {
       expect(messages[1], contains('#bar'));
       expect(messages.join(' '), isNot(contains('exist')));
       setup.dispose();
+    });
+
+    test('join timeout posts one retry line, the later failure stays quiet, '
+        'and a ROOMSTATE announces the join', () {
+      final messages = <String>[];
+      final api = TwitchApi(client: http.Client());
+      final setup = ChatChannelSetup(
+        twitchApi: api,
+        eventSubDecoder: EventSubDecoder(Stream<Map<String, dynamic>>.empty()),
+        eventSubTopics: EventSubTopics(
+          twitchApi: api,
+          twitchAuth: TwitchAuth(),
+          session: Session(),
+          chat: Chat(),
+          eventSub: EventSubService(),
+        ),
+        irc: IrcService(),
+        ircRead: IrcReadService(),
+        readDecoder: IrcChatDecoder(IrcReadService().onIrcMessage),
+        badgeService: TwitchBadgeService(),
+        emoteManager: EmoteManager(),
+        twitchAuth: TwitchAuth(),
+        userStore: UserStore(),
+        chat: Chat(),
+        session: Session(),
+        onSystemMessage: (c, t, {Color? accent, String? messageId}) =>
+            messages.add(t),
+        connectionStateNotifier: ValueNotifier(0),
+        ensureCurrentUser: (_) async => null,
+      );
+      setup.handleJoinTimedOut('ghost');
+      setup.handleJoinTimedOut('ghost');
+      setup.handleJoinFailed(
+        IrcJoinFailureEvent(
+          channel: 'ghost',
+          reason: JoinFailureReason.noResponse,
+        ),
+      );
+      expect(messages, hasLength(1), reason: 'one notice per failed join');
+      expect(messages.single, contains('#ghost'));
+
+      setup.handleRoomState(
+        IrcRoomStateEvent(channel: 'ghost', tags: const {'room-id': '1'}),
+      );
+      expect(messages, hasLength(2));
+      expect(messages.last, contains('Joined #ghost'));
+      setup.dispose();
+    });
+
+    test('prototype channels are ready without any IRC JOIN', () async {
+      final read = _JoinRecordingRead();
+      final conn = _makeReconnectConn(
+        eventSub: _NoopEventSub(),
+        irc: _TestIrc(),
+        ircRead: read,
+        onReconnected: () {},
+        channels: const ['_testchannel'],
+      );
+      await conn.subscribeChannel('_testchannel');
+      expect(conn.isChannelChatReady('_testchannel'), isTrue);
+      expect(read.joins, isEmpty, reason: 'fake channels never reach IRC');
+      conn.dispose();
     });
 
     test('write-socket send rejections surface as system messages', () async {

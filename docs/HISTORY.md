@@ -212,7 +212,7 @@ Current estimate about 0.9 to 1 KB per row; target 350 to 450 bytes.
 
 ## Prototype
 
-Debug-only, behind a dart-define. Data is generated procedurally from the row index,
+Debug and profile builds only, never release. Data is generated procedurally from the row index,
 never stored, so millions of rows cost no memory.
 
 - `_testchannel`: "testuser: testing" every 10 minutes for a month, plus a few fake

@@ -522,6 +522,10 @@ class ChatConnectionManager {
   /// that genuinely have no read socket never block on it.
   bool isChannelChatReady(String channel) => _readiness.isChannelReady(channel);
 
+  /// Whether the channel's JOIN went unconfirmed past the timeout (or was
+  /// refused) and is still retrying; the view stops spinning for it.
+  bool isChannelJoinFailed(String channel) => _readiness.isJoinFailed(channel);
+
   Future<void> connect() => _lifecycle.connect();
 
   void _setupSubscriptions() {

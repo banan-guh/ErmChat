@@ -15,9 +15,6 @@ class Archive {
     : writer = ArchiveWriter(store),
       reader = ArchiveReader(store);
 
-  /// Live wiring is off unless built with `--dart-define=ERMCHAT_ARCHIVE=true`.
-  static const bool enabled = bool.fromEnvironment('ERMCHAT_ARCHIVE');
-
   /// Opens `archive.db` in the app support directory.
   factory Archive.inAppSupport() => Archive(_openDefault());
 

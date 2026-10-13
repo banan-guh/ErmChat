@@ -2144,7 +2144,15 @@
       }
     }
   },
-  "connectAccountToChat": "Connect an account to chat",
+  "joinTimedOutRetrying": "Couldn't join #{channel}, retrying",
+  "@joinTimedOutRetrying": {
+    "placeholders": {
+      "channel": {
+        "type": "String"
+      }
+    }
+  },
+  "connectAccountToChat":"Connect an account to chat",
   "notConnectedNotSent": "Not connected: message not sent",
   "ircMessageDeleted": "A message from {user} was deleted saying: \"{text}\".",
   "@ircMessageDeleted": {

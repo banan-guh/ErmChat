@@ -434,6 +434,13 @@ class ChatChannelSetup {
     return true;
   }
 
+  /// Posts the one "couldn't join, retrying" line for a JOIN that went
+  /// unconfirmed past the timeout. A later ROOMSTATE announces the join.
+  void handleJoinTimedOut(String channel) {
+    if (_disposed || !_joinFailureNotified.add(channel)) return;
+    onSystemMessage(channel, strings().joinTimedOutRetrying(channel));
+  }
+
   /// JOIN-failure handler for the write socket (the one ROOMSTATE gates sends
   /// on): suspended/deleted channels get an explicit refusal notice;
   /// everything else surfaces after the fast rejoin sweep gave up. The base
@@ -441,6 +448,11 @@ class ChatChannelSetup {
   /// and that it keeps trying.
   void handleJoinFailed(IrcJoinFailureEvent event) {
     if (_disposed) return;
+    // The earlier timeout notice already said this; do not repeat it.
+    if (event.reason == JoinFailureReason.noResponse &&
+        _joinFailureNotified.contains(event.channel)) {
+      return;
+    }
     final text = switch (event.reason) {
       // A definitive server signal: the channel really is unavailable.
       JoinFailureReason.suspended => strings().joinFailedSuspended(

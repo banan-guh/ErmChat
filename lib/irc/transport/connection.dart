@@ -50,6 +50,9 @@ abstract class IrcConnection {
   // this window is re-sent (up to a few rounds, then we stop nagging).
   static const _joinConfirmInterval = Duration(seconds: 10);
   static const _joinSweepMaxRounds = 4;
+  // A JOIN still unconfirmed this long after its first send is reported once
+  // through [onJoinTimedOut]; the sweep and slow retry keep going regardless.
+  static const _joinTimeout = Duration(seconds: 10);
 
   final ConnectivityService? connectivityService;
   final IrcSocketRole role;
@@ -104,6 +107,11 @@ abstract class IrcConnection {
   final _joinPending = <String>{};
   // Channels the server confirmed via ROOMSTATE for this socket.
   final _joinConfirmed = <String>{};
+  // One timer per channel from its first JOIN on this socket, cancelled by the
+  // confirmation, part, or teardown. Channels that already timed out do not
+  // restart it, so retries never re-report.
+  final _joinTimeoutTimers = <String, Timer>{};
+  final _joinTimedOut = <String>{};
   Timer? _joinSweepTimer;
   int _joinSweepRound = 0;
   // Channels the server explicitly refused (msg_channel_suspended). Excluded
@@ -149,6 +157,15 @@ abstract class IrcConnection {
   /// after the fast sweep exhausted its rounds. Emitted once per channel per
   /// socket lifetime; a later ROOMSTATE confirmation supersedes it.
   Stream<IrcJoinFailureEvent> get onJoinFailed => _joinFailedController.stream;
+
+  final _joinTimedOutController = StreamController<String>.broadcast(
+    sync: true,
+  );
+
+  /// Emits a channel whose first JOIN went unconfirmed for [_joinTimeout],
+  /// once per channel per socket lifetime. Retries continue; a later
+  /// ROOMSTATE confirms the channel as usual.
+  Stream<String> get onJoinTimedOut => _joinTimedOutController.stream;
 
   final _ircMessageController = StreamController<IrcMessage>.broadcast(
     sync: true,
@@ -478,6 +495,8 @@ abstract class IrcConnection {
     _joinPending.clear();
     _joinConfirmed.clear();
     _joinFailed.clear();
+    _cancelJoinTimeouts();
+    _joinTimedOut.clear();
     _joinSweepRound = 0;
   }
 
@@ -604,6 +623,8 @@ abstract class IrcConnection {
         if (_channels.contains(channel)) {
           _joinPending.remove(channel);
           _joinConfirmed.add(channel);
+          _joinTimeoutTimers.remove(channel)?.cancel();
+          _joinTimedOut.remove(channel);
         }
       }
 
@@ -678,6 +699,8 @@ abstract class IrcConnection {
     _joinBudget.removeEntry(channel);
     _joinBudget.forget(channel);
     _joinFailed.remove(channel);
+    _joinTimeoutTimers.remove(channel)?.cancel();
+    _joinTimedOut.remove(channel);
     if (this.channel != null) {
       sendLine('PART #$channel');
     }
@@ -706,7 +729,37 @@ abstract class IrcConnection {
     PerfLog.I.record('JOINQ', '[$debugPrefix] send $line');
     sendLine(line);
     _joinPending.addAll(channels);
+    for (final c in channels) {
+      _armJoinTimeout(c);
+    }
     return true;
+  }
+
+  void _armJoinTimeout(String channel) {
+    if (_joinTimedOut.contains(channel) ||
+        _joinTimeoutTimers.containsKey(channel) ||
+        _joinConfirmed.contains(channel)) {
+      return;
+    }
+    _joinTimeoutTimers[channel] = Timer(_joinTimeout, () {
+      _joinTimeoutTimers.remove(channel);
+      if (_disposed ||
+          !_channels.contains(channel) ||
+          _joinConfirmed.contains(channel) ||
+          _joinFailed.contains(channel)) {
+        return;
+      }
+      _joinTimedOut.add(channel);
+      logDebug('[$debugPrefix] join timed out: $channel');
+      _joinTimedOutController.add(channel);
+    });
+  }
+
+  void _cancelJoinTimeouts() {
+    for (final t in _joinTimeoutTimers.values) {
+      t.cancel();
+    }
+    _joinTimeoutTimers.clear();
   }
 
   /// Watches for JOINs the server never confirmed (no ROOMSTATE echoed back).
@@ -826,6 +879,7 @@ abstract class IrcConnection {
     _connectivityListener = null;
     _statusController.close();
     _joinFailedController.close();
+    _joinTimedOutController.close();
     _ircMessageController.close();
     _authFailedController.close();
   }
