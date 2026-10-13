@@ -277,14 +277,7 @@ class ThreadPanels {
   // [newOnly] stops at the last mirrored head (live inserts land on top);
   // history merges insert mid-buffer, so they pass false for a full pass.
   void syncSavedWithChannel(String channel, {bool newOnly = false}) {
-    var hasSaved = false;
-    for (final t in savedThreads.threads) {
-      if (t.channel == channel) {
-        hasSaved = true;
-        break;
-      }
-    }
-    if (!hasSaved) {
+    if (!savedThreads.hasChannel(channel)) {
       _syncedHead.remove(channel);
       return;
     }

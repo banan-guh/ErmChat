@@ -108,6 +108,9 @@ class SavedThreadsStore {
     (t) => t.channel == channel.toLowerCase() && t.rootId == rootId,
   );
 
+  /// Whether any saved thread belongs to [channel] (stored lowercase).
+  bool hasChannel(String channel) => _threads.any((t) => t.channel == channel);
+
   Set<String> get keys => {for (final t in _threads) t.key};
 
   /// Test seam: override blob directory.
