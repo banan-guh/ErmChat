@@ -349,17 +349,19 @@ class RecentMessagesService {
   /// Ban sweep: deletes prior messages from banned user.
   @visibleForTesting
   static void applyBanSweep(List<TwitchMessage> messages) {
+    final latestBan = <String, DateTime>{};
     for (final msg in messages) {
-      if (msg.isBanNotice && msg.login.isNotEmpty) {
-        final targetUser = msg.login;
-        for (final other in messages) {
-          if (!other.isSystem &&
-              other.login == targetUser &&
-              !msg.timestamp.isBefore(other.timestamp)) {
-            other.deleted = true;
-          }
-        }
+      if (!msg.isBanNotice || msg.login.isEmpty) continue;
+      final seen = latestBan[msg.login];
+      if (seen == null || msg.timestamp.isAfter(seen)) {
+        latestBan[msg.login] = msg.timestamp;
       }
+    }
+    if (latestBan.isEmpty) return;
+    for (final other in messages) {
+      if (other.isSystem) continue;
+      final ban = latestBan[other.login];
+      if (ban != null && !ban.isBefore(other.timestamp)) other.deleted = true;
     }
   }
 

@@ -451,6 +451,18 @@ void main() {
       ]);
     });
 
+    test('repeat bans reach back from the latest one', () {
+      final messages = [
+        message('m1', 'forsen', 0),
+        system('forsen timed out 1', 'forsen', 2, ban: true),
+        message('m2', 'forsen', 3),
+        system('forsen timed out 2', 'forsen', 4, ban: true),
+        message('m3', 'forsen', 5),
+      ];
+      RecentMessagesService.applyBanSweep(messages);
+      expect(messages.map((m) => m.deleted), [true, false, true, false, false]);
+    });
+
     test('CLEARMSG target ids drive per-message deletion', () {
       expect(
         RecentMessagesService.clearMsgTargetId(
