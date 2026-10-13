@@ -9,6 +9,7 @@ import '../util/constants.dart';
 import '../util/prefs.dart';
 import '../models/twitch_message.dart';
 import '../color_utils.dart';
+import '../util/fake_history.dart';
 import '../util/log.dart';
 import '../irc/decode/codec.dart'
     show parseIrcBadges, parseIrcChatMessage, parseIrcEmotePositions;
@@ -176,6 +177,7 @@ class RecentMessagesService {
     String channel, {
     int limit = 100,
   }) async {
+    if (FakeHistory.isFake(channel)) return const [];
     final path =
         '/${Uri.encodeComponent(channel.toLowerCase())}'
         '?limit=${limit.clamp(1, 800)}';

@@ -10,6 +10,7 @@ import '../client/session.dart';
 import '../color_utils.dart' show Color;
 import '../l10n/l10n.dart';
 import '../util/constants.dart';
+import '../util/fake_history.dart';
 import '../util/log.dart';
 import '../irc/decode/decoder.dart' show IrcChatDecoder;
 import '../irc/decode/events.dart' show IrcRoomStateEvent;
@@ -177,6 +178,8 @@ class ChatChannelSetup {
   // ---- Subscriptions -------------------------------------------------------
 
   Future<void> subscribeChannel(String channelName) async {
+    // Prototype channels never reach IRC, EventSub or Helix.
+    if (FakeHistory.isFake(channelName)) return;
     // Only the read socket JOINs: Twitch delivers chat on the socket that sent
     // JOIN, and PRIVMSG sends fine without joining. Joining on the write socket
     // too just wastes the 20/10s budget and (when the limiter was shared) raced

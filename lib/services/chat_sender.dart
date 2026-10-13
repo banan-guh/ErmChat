@@ -7,6 +7,7 @@ import '../models/twitch_message.dart';
 import 'command_macros.dart';
 import 'twitch_auth.dart';
 import '../util/chat_text.dart';
+import '../util/fake_history.dart';
 
 /// Owns the outbound send path and its send gates: macro expansion, slash
 /// dispatch, the duplicate-message bypass, and the self-timeout / slow-mode
@@ -143,6 +144,7 @@ class ChatSender {
     String channel, {
     TwitchMessage? replyTo,
   }) async {
+    if (FakeHistory.isFake(channel)) return;
     final auth = twitchAuth;
     final reply = replyTo ?? getReplyToMsg();
 

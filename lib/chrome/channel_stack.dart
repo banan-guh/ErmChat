@@ -18,7 +18,9 @@ import '../util/insets.dart';
 import '../eventsub/decode/events.dart' show PinnedMessageEvent;
 import '../services/mod_actions.dart' show ModResult;
 import '../widgets/broadcast_widgets.dart';
+import '../util/fake_history.dart';
 import '../widgets/chat_view.dart';
+import '../widgets/fake_history_view.dart';
 import '../widgets/glass_chrome.dart';
 import '../widgets/message_builder.dart';
 import '../widgets/tabbed_layout.dart';
@@ -195,6 +197,17 @@ class ChannelPanels {
     String channel, [
     double topPadding = 0,
   ]) {
+    if (FakeHistory.isFake(channel)) {
+      return FakeHistoryView(
+        channel: channel,
+        messageBuilder: messageBuilder,
+        topPadding: topPadding,
+        showTimestamp: showTimestamps(),
+        timestampFormat: timestampFormat(),
+        textScale: chatFontSize() / 14.0,
+        lineSeparator: lineSeparator(),
+      );
+    }
     final infoVersion =
         chat.channelFor(channel)?.info.version ?? _emptyNotifier;
     final messageVersion =

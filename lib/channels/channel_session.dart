@@ -16,6 +16,7 @@ import '../services/stream_player_controller.dart';
 import '../services/twitch_badge_service.dart';
 import '../services/user_store.dart';
 import '../util/constants.dart';
+import '../util/fake_history.dart';
 import '../util/log.dart';
 import '../util/prefs.dart';
 
@@ -226,8 +227,10 @@ class ChannelSession extends ChangeNotifier {
     chatConn.forgetChannel(channel);
     analytics.resetChannel(channel);
     if (streamPlayer.currentChannel == channel) streamPlayer.closeStream();
-    irc.part(channel);
-    ircRead.part(channel);
+    if (!FakeHistory.isFake(channel)) {
+      irc.part(channel);
+      ircRead.part(channel);
+    }
     emoteManager.evictChannel(channel);
     badgeService.clearChannel(channel);
     chat.channelFor(channel)?.clearHeldModeration();
