@@ -220,12 +220,14 @@ class Messages {
 
     final inserted = <TwitchMessage>[];
     final insertedIds = <String?>{};
+    // System rows by text, built on the first id-less system row so the dedup
+    // check is a lookup instead of a scan of the whole buffer.
+    Map<String, List<DateTime>>? systemTimes;
     for (final msg in prepared) {
       final id = msg.messageId;
-      if (id == null &&
-          msg.isSystem &&
-          _isDuplicateIdlessSystemRow(_items, inserted, msg)) {
-        continue;
+      if (id == null && msg.isSystem) {
+        systemTimes ??= _systemTimesByText();
+        if (_isDuplicateSystemEvent(systemTimes, msg)) continue;
       }
       final isNew =
           id == null ||
@@ -237,6 +239,9 @@ class Messages {
         }
         _items.add(msg);
         inserted.add(msg);
+        if (msg.isSystem) {
+          systemTimes?.putIfAbsent(msg.text, () => []).add(msg.timestamp);
+        }
       }
     }
 
@@ -834,24 +839,28 @@ class Messages {
       ..addAll(sorted);
   }
 
-  bool _isDuplicateIdlessSystemRow(
-    List<TwitchMessage> existing,
-    List<TwitchMessage> inserted,
-    TwitchMessage candidate,
-  ) {
-    for (final row in existing) {
-      if (_isSameSystemEvent(row, candidate)) return true;
+  Map<String, List<DateTime>> _systemTimesByText() {
+    final byText = <String, List<DateTime>>{};
+    for (final row in _items) {
+      if (row.isSystem) {
+        byText.putIfAbsent(row.text, () => []).add(row.timestamp);
+      }
     }
-    for (final row in inserted) {
-      if (_isSameSystemEvent(row, candidate)) return true;
-    }
-    return false;
+    return byText;
   }
 
-  bool _isSameSystemEvent(TwitchMessage a, TwitchMessage b) {
-    return a.isSystem &&
-        a.text == b.text &&
-        a.timestamp.difference(b.timestamp).abs() <= _systemDedupWindow;
+  bool _isDuplicateSystemEvent(
+    Map<String, List<DateTime>> systemTimes,
+    TwitchMessage candidate,
+  ) {
+    final times = systemTimes[candidate.text];
+    if (times == null) return false;
+    for (final t in times) {
+      if (t.difference(candidate.timestamp).abs() <= _systemDedupWindow) {
+        return true;
+      }
+    }
+    return false;
   }
 
   // ---- Signals -------------------------------------------------------------
