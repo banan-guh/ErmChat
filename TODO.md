@@ -32,6 +32,19 @@ Picked for a mobile chat client from Chatterino, DankChat, Chatsen, Frosty, Lime
 
 Skipped from the survey: emoji picker (the keyboard has one), follow/unfollow, prediction betting, poll voting, auto-claim (private API only), revealing deleted messages, desktop-only tools (file logging, keyboard mod mode, JSON themes, filter languages), video-app features (VOD downloads, casting, multiview, native quality player).
 
+## History archive (docs/HISTORY.md)
+
+- [*] **Archive is always on** - every install writes history now; finish the feature before tagging a release.
+- [ ] **Windowed list on the archive** - swap the prototype's fake blocks for real archive reads, then replace ChatView scrolling.
+- [ ] **Streams screen** - waveform cards per stream, opened from stream rows and the rail bubble.
+- [ ] **VOD view** - embed `video=` with chat replay from the archive.
+- [ ] **Drop ids after 24h** - keep only reply-referenced ids in `ref_ids`.
+- [ ] **Archive dedup window** - only the last ~4096 ids per channel are checked on write.
+- [ ] **Restore order** - one isolate for all channels, selected channel first.
+- [ ] **"No chat history" after restore** - shows when robotty is empty even if rows were restored.
+- [ ] **Message memory diet** - flags int, int timestamps, shared UserState.
+- [ ] **Per-account WebView profiles** - one profile per account, sign-out fallback on old WebViews.
+
 ## Medium Priority
 
 - [ ] **Documentation** - architecture, data flow, key design decisions, non-obvious logic.
