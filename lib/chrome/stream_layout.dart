@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
@@ -22,9 +23,10 @@ bool shouldShowStreamVideo({
   required double keyboardH,
   required double inputH,
   required double chatFontSize,
+  double stackedScale = 1.0,
 }) {
   if (keyboardH <= 0) return true;
-  final streamH = maxWidth * 9 / 16;
+  final streamH = maxWidth * 9 / 16 * stackedScale;
   // Body constraints already exclude the keyboard (Scaffold resizes),
   // so maxHeight is the visible room; never subtract keyboardH again.
   return maxHeight - streamH - inputH >= chatFontSize * 9;
@@ -37,10 +39,16 @@ bool shouldShowStreamVideo({
 // audio keeps playing and the PlatformView never resizes). Never use
 // Visibility/Offstage here: a PlatformView going offstage in the same
 // frame the Scaffold resizes for the keyboard red-screens the body.
+//
+// [scale] stretches the 16:9 height (half to 60% of the screen); with
+// [onResize] set, a handle under the video drags it.
 Widget buildStackedPlayer({
   required bool show,
   required Widget video,
   required Widget audioBar,
+  double scale = 1.0,
+  void Function(double scale)? onResize,
+  VoidCallback? onResizeEnd,
 }) {
   return LayoutBuilder(
     builder: (context, constraints) {
@@ -48,7 +56,12 @@ Widget buildStackedPlayer({
       final w = maxW.isFinite && maxW > 0
           ? maxW
           : MediaQuery.sizeOf(context).width;
-      final h = w * 9 / 16;
+      final base = w * 9 / 16;
+      final maxScale = math.max(
+        0.5,
+        MediaQuery.sizeOf(context).height * 0.6 / base,
+      );
+      final h = base * scale.clamp(0.5, maxScale);
       return Column(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -64,6 +77,27 @@ Widget buildStackedPlayer({
               ),
             ),
           ),
+          if (show && onResize != null)
+            GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onVerticalDragUpdate: (details) =>
+                  onResize((h + details.delta.dy) / base),
+              onVerticalDragEnd: (_) => onResizeEnd?.call(),
+              child: SizedBox(
+                width: w,
+                height: 14,
+                child: Center(
+                  child: Container(
+                    width: 36,
+                    height: 4,
+                    decoration: const BoxDecoration(
+                      color: Colors.grey,
+                      borderRadius: BorderRadius.all(Radius.circular(2)),
+                    ),
+                  ),
+                ),
+              ),
+            ),
           if (!show) audioBar,
         ],
       );
@@ -168,6 +202,7 @@ class StreamPanels {
       keyboardH: keyboardH,
       inputH: inputH,
       chatFontSize: chatFontSize(),
+      stackedScale: streamPlayer.stackedScale,
     );
   }
 
@@ -192,13 +227,20 @@ class StreamPanels {
     // fillPane so the inner video is an exact w x h box in both branches;
     // the wrapper only changes the outer clip height, never the WebView.
     final video = playerView(channel, fillPane: true, visible: show);
-    return buildStackedPlayer(
-      show: show,
-      video: video,
-      audioBar: StreamAudioBar(
-        key: ValueKey('audio:$channel'),
-        controller: streamPlayer,
-        channel: channel,
+    return StatefulBuilder(
+      builder: (context, setLocal) => buildStackedPlayer(
+        show: show,
+        video: video,
+        audioBar: StreamAudioBar(
+          key: ValueKey('audio:$channel'),
+          controller: streamPlayer,
+          channel: channel,
+        ),
+        scale: streamPlayer.stackedScale,
+        onResize: (scale) =>
+            setLocal(() => streamPlayer.dragStackedScale(scale)),
+        onResizeEnd: () =>
+            streamPlayer.setStackedScale(streamPlayer.stackedScale),
       ),
     );
   }
