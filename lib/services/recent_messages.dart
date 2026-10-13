@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:isolate';
 
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
@@ -30,6 +31,13 @@ class RecentMessagesException implements Exception {
   @override
   String toString() => message;
 }
+
+/// One decoded history response; [note] is the informational error text.
+typedef HistoryBatch = ({
+  List<TwitchMessage> messages,
+  bool joined,
+  String? note,
+});
 
 /// Recent-messages backend selector.
 enum RecentMessagesMode { auto, robotty, zneix, custom }
@@ -262,57 +270,105 @@ class RecentMessagesService {
         );
       }
 
-      final body = jsonDecode(res.body) as Map<String, dynamic>;
-      // Informational error_code on 200; not-joined means stale history.
-      final joined = body['error_code'] != 'channel_not_joined';
-      if (body['error_code'] is String) {
-        logDebug(
-          '[RecentMessages] $channel: ${body['error']} '
-          '(${body['error_code']})',
-        );
-      }
-      final rawMessages = body['messages'] as List<dynamic>?;
-      if (rawMessages == null || rawMessages.isEmpty) {
-        return (messages: const <TwitchMessage>[], joined: joined);
-      }
-
-      final messages = <TwitchMessage>[];
-      final clearMsgTargets = <String>{};
-      for (final raw in rawMessages) {
-        final rawLine = raw as String;
-        final msg = parseIrcMessage(rawLine);
-        if (msg == null) continue;
-        // CLEARMSG: mark target deleted (applied after batch).
-        if (msg.command == 'CLEARMSG') {
-          final target = msg.tags['target-msg-id'];
-          if (target != null && target.isNotEmpty) {
-            clearMsgTargets.add(target);
-          }
-          continue;
-        }
-        // Announcement/sub notices render as child + label.
-        final child = parseAnnouncementChildFromMsg(msg, channel: channel);
-        if (child != null) messages.add(child);
-        final subChild = parseSubChildFromMsg(msg, channel: channel);
-        if (subChild != null) messages.add(subChild);
-        final parsed = parseIrcLineFromMsg(
-          msg,
-          channel: channel,
-          l: strings(),
-          ownLogin: ownLogin(),
-        );
-        if (parsed != null) messages.add(parsed);
-      }
-
-      // Ban sweep: only ban/timeout targets, not announcements.
-      applyBanSweep(messages);
-      applyMessageDeletions(messages, clearMsgTargets);
-
-      messages.sort((a, b) => a.timestamp.compareTo(b.timestamp));
-      return (messages: messages, joined: joined);
+      final batch = await parseBody(
+        res.bodyBytes,
+        channel,
+        strings(),
+        ownLogin(),
+      );
+      final note = batch.note;
+      if (note != null) logDebug('[RecentMessages] $channel: $note');
+      return (messages: batch.messages, joined: batch.joined);
     } finally {
       ownClient?.close();
     }
+  }
+
+  /// Message-line count at which a batch decodes in its own isolate.
+  static const isolateLineThreshold = 200;
+
+  /// Parses a 200 response body. Batches of [threshold] lines or more run in
+  /// one isolate; the arguments are plain values so the closure captures no
+  /// service state.
+  @visibleForTesting
+  static Future<HistoryBatch> parseBody(
+    Uint8List bytes,
+    String channel,
+    AppLocalizations l,
+    String? ownLogin, {
+    int threshold = isolateLineThreshold,
+  }) {
+    if (_countLines(bytes) < threshold) {
+      return Future.value(decodeBody(bytes, channel, l, ownLogin));
+    }
+    return Isolate.run(() => decodeBody(bytes, channel, l, ownLogin));
+  }
+
+  /// Counts array elements by their `","` separators, which occur unescaped
+  /// only between JSON strings.
+  static int _countLines(Uint8List bytes) {
+    var n = 1;
+    for (var i = 0; i + 2 < bytes.length; i++) {
+      if (bytes[i] == 0x22 && bytes[i + 1] == 0x2C && bytes[i + 2] == 0x22) {
+        n++;
+      }
+    }
+    return n;
+  }
+
+  /// Decodes, parses, sweeps and sorts one history response.
+  @visibleForTesting
+  static HistoryBatch decodeBody(
+    Uint8List bytes,
+    String channel,
+    AppLocalizations l,
+    String? ownLogin,
+  ) {
+    final body = jsonDecode(utf8.decode(bytes)) as Map<String, dynamic>;
+    // Informational error_code on 200; not-joined means stale history.
+    final joined = body['error_code'] != 'channel_not_joined';
+    final note = body['error_code'] is String
+        ? '${body['error']} (${body['error_code']})'
+        : null;
+    final rawMessages = body['messages'] as List<dynamic>?;
+    if (rawMessages == null || rawMessages.isEmpty) {
+      return (messages: <TwitchMessage>[], joined: joined, note: note);
+    }
+
+    final messages = <TwitchMessage>[];
+    final clearMsgTargets = <String>{};
+    for (final raw in rawMessages) {
+      final rawLine = raw as String;
+      final msg = parseIrcMessage(rawLine);
+      if (msg == null) continue;
+      // CLEARMSG: mark target deleted (applied after batch).
+      if (msg.command == 'CLEARMSG') {
+        final target = msg.tags['target-msg-id'];
+        if (target != null && target.isNotEmpty) {
+          clearMsgTargets.add(target);
+        }
+        continue;
+      }
+      // Announcement/sub notices render as child + label.
+      final child = parseAnnouncementChildFromMsg(msg, channel: channel);
+      if (child != null) messages.add(child);
+      final subChild = parseSubChildFromMsg(msg, channel: channel);
+      if (subChild != null) messages.add(subChild);
+      final parsed = parseIrcLineFromMsg(
+        msg,
+        channel: channel,
+        l: l,
+        ownLogin: ownLogin,
+      );
+      if (parsed != null) messages.add(parsed);
+    }
+
+    // Ban sweep: only ban/timeout targets, not announcements.
+    applyBanSweep(messages);
+    applyMessageDeletions(messages, clearMsgTargets);
+
+    messages.sort((a, b) => a.timestamp.compareTo(b.timestamp));
+    return (messages: messages, joined: joined, note: note);
   }
 
   /// Extracts deleted message id from CLEARMSG line.

@@ -3,6 +3,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:ermchat/models/twitch_message.dart';
 import 'package:ermchat/services/recent_messages.dart';
 import 'dart:convert';
+import 'dart:typed_data';
+import 'package:ermchat/l10n/l10n.dart';
 import 'package:http/testing.dart';
 import 'package:ermchat/services/mod_actions.dart';
 import 'package:ermchat/services/twitch_api.dart';
@@ -486,6 +488,51 @@ void main() {
       final messages = [message('m1', 'a', 0), message('m2', 'b', 0)];
       RecentMessagesService.applyMessageDeletions(messages, ['m2']);
       expect(messages.map((m) => m.deleted), [false, true]);
+    });
+
+    test('isolate batch decode matches the inline decode', () async {
+      const room = 'tmi.twitch.tv';
+      final lines = <String>[
+        for (var i = 0; i < 40; i++)
+          '@display-name=User$i;color=#FF0000;id=id-$i;user-id=$i;'
+              'badges=moderator/1;rm-received-ts=${1700000000000 + i * 1000} '
+              ':user$i!user$i@user$i.$room PRIVMSG #xqc :hello é\u{1F600} $i',
+        '@login=user3;target-msg-id=id-5 :$room CLEARMSG #xqc :hello 5',
+        '@ban-duration=600;rm-received-ts=1700000041000 '
+            ':$room CLEARCHAT #xqc :user7',
+        '@msg-id=announcement;login=mod;display-name=Mod;id=a1;'
+            'msg-param-color=PRIMARY;rm-received-ts=1700000042000 '
+            ':$room USERNOTICE #xqc :read the rules',
+        '@msg-id=resub;login=sub1;display-name=Sub1;id=s1;'
+            'system-msg=Sub1\\ssubscribed;rm-received-ts=1700000043000 '
+            ':$room USERNOTICE #xqc :thanks',
+        'not an irc line',
+      ];
+      final bytes = Uint8List.fromList(
+        utf8.encode(jsonEncode({'messages': lines})),
+      );
+      final l = englishStrings();
+      final inline = await RecentMessagesService.parseBody(
+        bytes,
+        'xqc',
+        l,
+        'user9',
+        threshold: 1 << 30,
+      );
+      final isolated = await RecentMessagesService.parseBody(
+        bytes,
+        'xqc',
+        l,
+        'user9',
+        threshold: 0,
+      );
+
+      expect(inline.messages.length, greaterThan(40));
+      expect(inline.messages.any((m) => m.deleted), isTrue);
+      expect(inline.joined, isolated.joined);
+      expect(isolated.messages.map((m) => m.toJson()).toList(), [
+        for (final m in inline.messages) m.toJson(),
+      ]);
     });
   });
   late TwitchAuth auth;
