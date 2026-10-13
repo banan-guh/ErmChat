@@ -6,8 +6,6 @@ import 'messages.dart' show TruncateExemptions;
 /// One tracked reply thread: the pinned root (null when the root was never
 /// seen) plus replies still present in the channel buffer.
 class ThreadEntry {
-  static const maxRepliesPerThread = 1000;
-
   TwitchMessage? root;
   DateTime lastActivity = DateTime.now();
   final List<TwitchMessage> replies = [];
@@ -22,12 +20,6 @@ class ThreadEntry {
     replies.add(msg);
     final id = msg.messageId;
     if (id != null) _replyIds.add(id);
-    // Only saved threads outlive the channel buffer, and their full log is on
-    // disk (the thread view merges it), so dropping the oldest loses nothing.
-    if (replies.length > maxRepliesPerThread) {
-      final dropped = replies.removeAt(0);
-      if (dropped.messageId != null) _replyIds.remove(dropped.messageId);
-    }
   }
 
   void removeReply(TwitchMessage msg) {

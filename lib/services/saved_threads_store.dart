@@ -97,6 +97,16 @@ class SavedThreadsStore {
   Timer? _flushTimer;
   final Set<String> _dirty = {};
 
+  // Open while load() runs: disk writes wait on it, and saves made meanwhile
+  // merge into the loaded list instead of being replaced by it.
+  Completer<void>? _loading;
+  final Set<String> _removedWhileLoading = {};
+  // False when an index exists but cannot be read (primary and backup). The
+  // index is then never rewritten, so a read failure cannot shrink it.
+  bool _indexTrusted = true;
+  // Disk work runs one task at a time so writes to a file never interleave.
+  Future<void> _ioQueue = Future.value();
+
   List<SavedThread> get threads => List.unmodifiable(_threads);
 
   List<TwitchMessage> messagesFor(String channel, String rootId) =>
@@ -178,6 +188,7 @@ class SavedThreadsStore {
     }
     _messages[entry.key] = List.of(messages);
     _messageIds[entry.key] = _idsOf(messages);
+    _removedWhileLoading.remove(entry.key);
     _markDirty(entry);
     unawaited(_writeIndex());
     return true;
@@ -257,97 +268,165 @@ class SavedThreadsStore {
     }
   }
 
-  Future<void> _writeIndex() async {
-    try {
-      final dir = await _resolveDir();
-      if (dir == null) return;
-      final file = File('${dir.path}${Platform.pathSeparator}index.json');
-      await file.writeAsString(
-        jsonEncode([for (final t in _threads) t.toJson()]),
-      );
-    } catch (_) {}
+  /// Test seam: resolves once queued index and file writes finish.
+  @visibleForTesting
+  Future<void> flushIo() => _ioQueue;
+
+  Future<void> _enqueue(Future<void> Function() task) {
+    return _ioQueue = _ioQueue.then((_) async {
+      await _loading?.future;
+      try {
+        await task();
+      } catch (_) {}
+    });
   }
 
-  Future<void> _writeThread(SavedThread t) async {
-    try {
-      final dir = await _resolveDir();
-      if (dir == null) return;
-      final file = File(
-        '${dir.path}${Platform.pathSeparator}${_safeFileName(t)}',
-      );
-      final log = _messages[t.key] ?? const [];
-      await file.writeAsString(jsonEncode([for (final m in log) m.toJson()]));
-    } catch (_) {}
+  File _file(Directory dir, String name) =>
+      File('${dir.path}${Platform.pathSeparator}$name');
+
+  // Writes a temp file, then renames it over [target], so a kill mid-write
+  // never leaves a truncated target. The previous version stays as .bak.
+  static Future<void> _atomicWrite(File target, String content) async {
+    final tmp = File('${target.path}.tmp');
+    await tmp.writeAsString(content, flush: true);
+    if (await target.exists()) await target.rename('${target.path}.bak');
+    await tmp.rename(target.path);
   }
 
-  Future<void> _deleteFile(SavedThread t) async {
-    try {
+  // Decoded JSON list from [file], falling back to its .bak. Null when
+  // neither is readable.
+  static Future<List?> _readList(File file) async {
+    for (final f in [file, File('${file.path}.bak')]) {
+      try {
+        if (await f.exists()) return jsonDecode(await f.readAsString()) as List;
+      } catch (_) {}
+    }
+    return null;
+  }
+
+  Future<void> _writeIndex() => _enqueue(() async {
+    if (!_indexTrusted) return;
+    final dir = await _resolveDir();
+    if (dir == null) return;
+    await _atomicWrite(
+      _file(dir, 'index.json'),
+      jsonEncode([for (final t in _threads) t.toJson()]),
+    );
+  });
+
+  Future<void> _writeThread(SavedThread t) => _enqueue(() async {
+    final dir = await _resolveDir();
+    final log = _messages[t.key];
+    if (dir == null || log == null) return;
+    await _atomicWrite(
+      _file(dir, _safeFileName(t)),
+      jsonEncode([for (final m in log) m.toJson()]),
+    );
+  });
+
+  Future<void> _deleteFile(SavedThread t) {
+    if (_loading != null) _removedWhileLoading.add(t.key);
+    return _enqueue(() async {
       final dir = await _resolveDir();
       if (dir == null) return;
-      final file = File(
-        '${dir.path}${Platform.pathSeparator}${_safeFileName(t)}',
-      );
-      if (await file.exists()) await file.delete();
-    } catch (_) {}
+      for (final suffix in const ['', '.bak', '.tmp']) {
+        final file = _file(dir, '${_safeFileName(t)}$suffix');
+        if (await file.exists()) await file.delete();
+      }
+    });
   }
 
   /// Loads index + thread files, migrating the legacy prefs snapshots once.
+  /// Saves made while loading are kept and merged ahead of the loaded list.
   Future<void> load() async {
-    await _migrateFromPrefs();
+    final gate = _loading = Completer<void>();
     try {
-      final dir = await _resolveDir();
-      if (dir == null) return;
-      final indexFile = File('${dir.path}${Platform.pathSeparator}index.json');
-      if (!await indexFile.exists()) return;
-      final raw = await indexFile.readAsString();
-      final list = jsonDecode(raw) as List;
-      final next = <SavedThread>[];
-      for (final item in list) {
+      await _loadFromDisk();
+    } catch (_) {
+      // Corrupt storage never blocks startup; the store keeps what it has.
+    } finally {
+      _loading = null;
+      _removedWhileLoading.clear();
+      gate.complete();
+    }
+  }
+
+  Future<void> _loadFromDisk() async {
+    await _migrateFromPrefs();
+    final dir = await _resolveDir();
+    if (dir == null) return;
+    final indexFile = _file(dir, 'index.json');
+    final list = await _readList(indexFile);
+    if (list == null) {
+      if (await indexFile.exists() ||
+          await File('${indexFile.path}.bak').exists()) {
+        _indexTrusted = false;
+      }
+      return;
+    }
+    final loaded = <SavedThread>[];
+    for (final item in list) {
+      try {
+        if (item is! Map) continue;
+        final entry = SavedThread.fromJson(Map<String, dynamic>.from(item));
+        if (entry == null) continue;
+        if (loaded.any((t) => t.key == entry.key)) continue;
+        loaded.add(entry);
+        if (loaded.length >= maxSavedThreads) break;
+      } catch (_) {
+        continue;
+      }
+    }
+    final disk = <String, List<TwitchMessage>>{};
+    for (final t in loaded) {
+      if (_removedWhileLoading.contains(t.key)) continue;
+      final mlist = await _readList(_file(dir, _safeFileName(t)));
+      if (mlist == null) continue;
+      final msgs = <TwitchMessage>[];
+      for (final m in mlist) {
         try {
-          if (item is! Map) continue;
-          final entry = SavedThread.fromJson(Map<String, dynamic>.from(item));
-          if (entry == null) continue;
-          if (next.any(
-            (t) => t.channel == entry.channel && t.rootId == entry.rootId,
-          )) {
-            continue;
-          }
-          next.add(entry);
-          if (next.length >= maxSavedThreads) break;
+          if (m is! Map) continue;
+          msgs.add(TwitchMessage.fromJson(Map<String, dynamic>.from(m)));
         } catch (_) {
           continue;
         }
       }
-      _threads
-        ..clear()
-        ..addAll(next);
-      _messages.clear();
-      _messageIds.clear();
-      for (final t in _threads) {
-        try {
-          final file = File(
-            '${dir.path}${Platform.pathSeparator}${_safeFileName(t)}',
-          );
-          if (!await file.exists()) continue;
-          final mraw = await file.readAsString();
-          final mlist = jsonDecode(mraw) as List;
-          final msgs = <TwitchMessage>[];
-          for (final m in mlist) {
-            try {
-              if (m is! Map) continue;
-              msgs.add(TwitchMessage.fromJson(Map<String, dynamic>.from(m)));
-            } catch (_) {
-              continue;
-            }
-          }
-          msgs.sort((a, b) => b.timestamp.compareTo(a.timestamp));
-          _messages[t.key] = msgs;
-          _messageIds[t.key] = _idsOf(msgs);
-        } catch (_) {
-          continue;
-        }
+      disk[t.key] = msgs;
+    }
+
+    // Everything in memory now was saved during load and wins over disk.
+    final early = {for (final t in _threads) t.key};
+    final merged = [..._threads];
+    for (final t in loaded) {
+      if (early.contains(t.key) || _removedWhileLoading.contains(t.key)) {
+        continue;
       }
-    } catch (_) {}
+      merged.add(t);
+    }
+    for (final evicted in merged.skip(maxSavedThreads)) {
+      _messages.remove(evicted.key);
+      _messageIds.remove(evicted.key);
+      _dirty.remove(evicted.key);
+      unawaited(_deleteFile(evicted));
+    }
+    _threads
+      ..clear()
+      ..addAll(merged.take(maxSavedThreads));
+    for (final t in _threads) {
+      final fromDisk = disk[t.key];
+      if (fromDisk == null) continue;
+      final msgs = _messages[t.key] ?? [];
+      final ids = _messageIds[t.key] ?? _idsOf(msgs);
+      for (final m in fromDisk) {
+        if (m.messageId == null || ids.add(m.messageId!)) msgs.add(m);
+      }
+      msgs.sort((a, b) => b.timestamp.compareTo(a.timestamp));
+      _messages[t.key] = msgs;
+      _messageIds[t.key] = ids;
+    }
+    if (early.isNotEmpty || _removedWhileLoading.isNotEmpty) {
+      unawaited(_writeIndex());
+    }
   }
 
   Future<void> _migrateFromPrefs() async {
@@ -355,12 +434,16 @@ class SavedThreadsStore {
       final prefs = await Prefs.load();
       final raw = prefs.savedThreads;
       if (raw == null || raw.isEmpty) return;
-      decode(raw);
-      await prefs.removeSavedThreads();
-      await _writeIndex();
-      for (final t in _threads) {
-        await _writeThread(t);
+      final dir = await _resolveDir();
+      if (dir == null) return;
+      final indexFile = _file(dir, 'index.json');
+      if (!await indexFile.exists()) {
+        await _atomicWrite(
+          indexFile,
+          (SavedThreadsStore()..decode(raw)).encode(),
+        );
       }
+      await prefs.removeSavedThreads();
     } catch (_) {}
   }
 

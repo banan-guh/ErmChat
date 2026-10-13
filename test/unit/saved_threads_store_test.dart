@@ -105,6 +105,87 @@ void main() {
     });
   });
 
+  group('SavedThreadsStore durability', () {
+    late Directory dir;
+    setUp(() async {
+      dir = await Directory.systemTemp.createTemp('saved_threads_dur');
+    });
+    tearDown(() => dir.delete(recursive: true));
+
+    File at(String name) => File('${dir.path}${Platform.pathSeparator}$name');
+
+    Future<void> saveTwice() async {
+      final store = SavedThreadsStore()..overrideDirectory(dir);
+      final root = _msg('r1', 'forsen');
+      store.toggle(SavedThread.fromMessage(root, 'r1'), [root]);
+      await store.flush();
+      store.toggle(SavedThread.fromMessage(_msg('r9', 'forsen'), 'r9'));
+      store.appendMessage(_msg('c1', 'forsen', rootId: 'r1'));
+      await store.flush();
+      await store.flushIo();
+    }
+
+    test('truncated index and thread file recover from backups', () async {
+      await saveTwice();
+      await at('index.json').writeAsString('[{"channel": "fors');
+      await at('forsen__r1.json').writeAsString('[{"login": "al');
+
+      final other = SavedThreadsStore()..overrideDirectory(dir);
+      await other.load();
+      expect(other.isSaved('forsen', 'r1'), isTrue, reason: 'index backup');
+      expect(
+        other.messagesFor('forsen', 'r1').map((m) => m.messageId),
+        contains('r1'),
+        reason: 'thread backup',
+      );
+    });
+
+    test('unreadable index is never rewritten', () async {
+      await saveTwice();
+      await at('index.json').writeAsString('garbage');
+      await at('index.json.bak').writeAsString('garbage');
+
+      final other = SavedThreadsStore()..overrideDirectory(dir);
+      await other.load();
+      other.toggle(SavedThread.fromMessage(_msg('r2', 'forsen'), 'r2'));
+      await other.flushIo();
+      expect(await at('index.json').readAsString(), 'garbage');
+    });
+
+    test('a save during load survives the load', () async {
+      await saveTwice();
+      final other = SavedThreadsStore()..overrideDirectory(dir);
+      final loading = other.load();
+      other.toggle(SavedThread.fromMessage(_msg('r2', 'forsen'), 'r2'));
+      await loading;
+      await other.flush();
+      await other.flushIo();
+      expect(other.isSaved('forsen', 'r1'), isTrue);
+      expect(other.isSaved('forsen', 'r2'), isTrue);
+
+      final reloaded = SavedThreadsStore()..overrideDirectory(dir);
+      await reloaded.load();
+      expect(reloaded.keys, {'forsen:r1', 'forsen:r2', 'forsen:r9'});
+    });
+
+    test('a stale partial temp file never shadows the target', () async {
+      await saveTwice();
+      await at('index.json.tmp').writeAsString('[{"channel": "x');
+      await at('forsen__r1.json.tmp').writeAsString('[{"login');
+
+      final other = SavedThreadsStore()..overrideDirectory(dir);
+      await other.load();
+      expect(other.messagesFor('forsen', 'r1'), hasLength(2));
+      other.toggle(SavedThread.fromMessage(_msg('r2', 'forsen'), 'r2'));
+      other.appendMessage(_msg('c2', 'forsen', rootId: 'r1'));
+      await other.flush();
+      await other.flushIo();
+      expect(at('index.json.tmp').existsSync(), isFalse);
+      expect(at('forsen__r1.json.tmp').existsSync(), isFalse);
+      jsonDecode(await at('forsen__r1.json').readAsString());
+    });
+  });
+
   group('TwitchMessage JSON', () {
     test('round-trips render fields', () {
       final msg = TwitchMessage(
