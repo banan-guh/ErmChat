@@ -87,6 +87,7 @@ Skipped from the survey: emoji picker (the keyboard has one), follow/unfollow, p
 ## SMALL bugs
 
 - borders flicker white when tabbing in -
+- ios: tapping "replying to" highlights only that block, not the whole row
 - notifs don't matter if no foreground in android (ios push notifs, change if server) - DO NOT do, adding server soon
 - emotes too eager to diff - lingering issue, rarer now
 - integrate ermchat-server better (retry)
