@@ -345,6 +345,9 @@ class PinnedMessageEvent {
 
   /// Sender's Twitch id, for their personal 7TV emotes.
   final String senderId;
+
+  /// Sender's chat color (hex), null when unknown.
+  final String? senderColor;
   final String text;
 
   /// Twitch emotes in [text]; third-party ones resolve at render.
@@ -359,12 +362,27 @@ class PinnedMessageEvent {
     this.messageId = '',
     this.senderName = '',
     this.senderId = '',
+    this.senderColor,
     this.text = '',
     this.emotes = const [],
     this.pinnedBy = '',
     this.endsAt,
     this.removed = false,
   });
+
+  PinnedMessageEvent withSenderColor(String? color) => PinnedMessageEvent(
+    channel: channel,
+    id: id,
+    messageId: messageId,
+    senderName: senderName,
+    senderId: senderId,
+    senderColor: color,
+    text: text,
+    emotes: emotes,
+    pinnedBy: pinnedBy,
+    endsAt: endsAt,
+    removed: removed,
+  );
 }
 
 /// A channel poll event. [kind] is begin, progress, or end.

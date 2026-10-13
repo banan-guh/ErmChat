@@ -12,10 +12,18 @@ import 'chat_widget_cutout.dart';
 
 // Chat overlay widgets (hype train, poll, prediction, pin) plus test fakes.
 class BroadcastWidgets {
-  BroadcastWidgets({required this.selectedChannel, this.emotes});
+  BroadcastWidgets({
+    required this.selectedChannel,
+    this.emotes,
+    this.messageColor,
+  });
 
   /// Renders emotes in pinned messages; null shows plain text.
   final EmoteLookupSource? emotes;
+
+  /// Chat color of a buffered message, which colors a pin's sender when the
+  /// pin itself carries none.
+  final String? Function(String channel, String messageId)? messageColor;
 
   final String? Function() selectedChannel;
   final notifier = ValueNotifier<int>(0);
@@ -105,7 +113,9 @@ class BroadcastWidgets {
     } else {
       if (_dismissedPins.contains(event.id)) return;
       _pinExpiry.remove(channel)?.cancel();
-      pins[channel] = event;
+      pins[channel] = event.senderColor != null
+          ? event
+          : event.withSenderColor(messageColor?.call(channel, event.messageId));
       final left = event.endsAt?.difference(DateTime.now());
       if (left != null) {
         _pinExpiry[channel] = Timer(

@@ -446,6 +446,7 @@ class PubSubService {
         messageId: message['id'] as String? ?? '',
         senderName: nameOf(sender),
         senderId: sender is Map ? sender['id'] as String? ?? '' : '',
+        senderColor: sender is Map ? sender['chat_color'] as String? : null,
         text: text,
         emotes: content is Map
             ? _fragmentEmotes(text, content['fragments'])

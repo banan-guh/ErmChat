@@ -90,6 +90,8 @@ final broadcastWidgetsProvider = Provider<BroadcastWidgets>((ref) {
   final widgets = BroadcastWidgets(
     selectedChannel: () => ref.read(selectedChannelProvider),
     emotes: ref.read(emoteManagerProvider),
+    messageColor: (channel, id) =>
+        ref.read(chatProvider).channelFor(channel)?.messages.byId(id)?.color,
   );
   ref.onDispose(widgets.dispose);
   return widgets;

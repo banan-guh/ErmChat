@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:intl/intl.dart';
+import '../color_utils.dart';
 import '../eventsub/decode/events.dart';
 import '../l10n/l10n.dart';
 import '../services/emote_manager.dart';
@@ -344,7 +345,9 @@ class ChatWidgetMinimizedBar extends StatelessWidget {
                 Expanded(
                   child: switch (pin) {
                     final pin? => Text.rich(
-                      TextSpan(children: pinnedMessageSpans(pin, emotes)),
+                      TextSpan(
+                        children: pinnedMessageSpans(context, pin, emotes),
+                      ),
                       style: theme.textTheme.bodyMedium,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
@@ -521,6 +524,9 @@ class _PinMenu extends StatelessWidget {
     icon: const Icon(Icons.more_vert, size: 18),
     padding: EdgeInsets.zero,
     style: _controlStyle,
+    popUpAnimationStyle: const AnimationStyle(
+      duration: Duration(milliseconds: 175),
+    ),
     itemBuilder: (menuContext) => [
       if (onUnpin case final unpin?)
         PopupMenuItem(
@@ -540,13 +546,20 @@ class _PinMenu extends StatelessWidget {
 
 /// "sender: message" with emotes, shared by the pin card and the bar.
 List<InlineSpan> pinnedMessageSpans(
+  BuildContext context,
   PinnedMessageEvent event,
   EmoteLookupSource? emotes,
 ) => [
   if (event.senderName.isNotEmpty)
     TextSpan(
       text: '${event.senderName}: ',
-      style: const TextStyle(fontWeight: FontWeight.w600),
+      style: TextStyle(
+        fontWeight: FontWeight.w600,
+        color: parseColor(
+          event.senderColor,
+          background: Theme.of(context).colorScheme.surface,
+        ),
+      ),
     ),
   if (emotes == null)
     TextSpan(text: event.text)
@@ -612,7 +625,7 @@ class PinnedMessageCard extends StatelessWidget {
             ),
           ),
           Text.rich(
-            TextSpan(children: pinnedMessageSpans(event, emotes)),
+            TextSpan(children: pinnedMessageSpans(context, event, emotes)),
             style: theme.textTheme.bodyLarge,
           ),
         ],
