@@ -420,7 +420,6 @@ class Prefs {
   static const _kEmoteProvidersDisabled = 'emote_providers_disabled';
   static const _kEmoteAllowUnlisted7tv = 'emote_7tv_allow_unlisted';
   static const _kRecentEmotes = 'recent_emotes';
-  static const _kEmoteUsage = 'emote_usage';
   static const _kEmoteGcMigratedV1 = 'emote_gc_migrated_v1';
   static const _kEmoteGcMigratedV2 = 'emote_gc_migrated_v2';
 
@@ -455,10 +454,6 @@ class Prefs {
 
   Future<void> setRecentEmotes(String value) =>
       _p.setString(_kRecentEmotes, value);
-
-  String? get emoteUsage => _p.getString(_kEmoteUsage);
-
-  Future<void> setEmoteUsage(String value) => _p.setString(_kEmoteUsage, value);
 
   bool get emoteGcMigratedV1 => _p.getBool(_kEmoteGcMigratedV1) ?? false;
 

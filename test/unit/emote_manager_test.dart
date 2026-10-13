@@ -2513,6 +2513,15 @@ void main() {
   });
 
   group('cache cap + usage registry', () {
+    // The usage registry persists through the meta store; a fresh directory
+    // keeps one test's registry out of the next.
+    setUp(() async {
+      final dir = await Directory.systemTemp.createTemp('ermchat_usage');
+      EmoteMetaStore.I.overrideDirectory(dir);
+      addTearDown(() => EmoteMetaStore.I.reset());
+      addTearDown(() => dir.delete(recursive: true));
+    });
+
     Future<EmoteManager> makeManager({
       required DateTime Function() clock,
       int cacheCapMb = defaultEmoteCacheMb,
@@ -2573,9 +2582,8 @@ void main() {
         manager.markEmoteViewed(makeEmotes(1)[0]);
         await manager.flushUsageForTesting();
 
-        final prefs = await SharedPreferences.getInstance();
         expect(
-          prefs.getString('emote_usage'),
+          await EmoteMetaStore.I.read('emote_usage'),
           contains('https://example.com/e0.png'),
         );
 
@@ -2603,17 +2611,14 @@ void main() {
       final emotes = makeEmotes(3);
       manager.markEmoteViewed(emotes[0]);
       // Immediately after the first touch, nothing is persisted yet.
-      var prefs = await SharedPreferences.getInstance();
-      expect(prefs.getString('emote_usage'), isNull);
+      expect(await EmoteMetaStore.I.read('emote_usage'), isNull);
 
       // A burst of touches within the debounce window lands as one write.
       manager.markEmoteViewed(emotes[1]);
       manager.markEmoteViewed(emotes[2]);
-      prefs = await SharedPreferences.getInstance();
-      expect(prefs.getString('emote_usage'), isNull);
+      expect(await EmoteMetaStore.I.read('emote_usage'), isNull);
       await Future<void>.delayed(const Duration(milliseconds: 150));
-      prefs = await SharedPreferences.getInstance();
-      final persisted = prefs.getString('emote_usage');
+      final persisted = await EmoteMetaStore.I.read('emote_usage');
       expect(persisted, contains('https://example.com/e0.png'));
       expect(persisted, contains('https://example.com/e1.png'));
       expect(persisted, contains('https://example.com/e2.png'));
@@ -2639,9 +2644,8 @@ void main() {
         manager.markEmoteViewed(emote);
         await Future<void>.delayed(const Duration(milliseconds: 20));
       }
-      final prefs = await SharedPreferences.getInstance();
       expect(
-        prefs.getString('emote_usage'),
+        await EmoteMetaStore.I.read('emote_usage'),
         contains('https://example.com/e0.png'),
         reason: 'continuous touches postponed the flush indefinitely',
       );

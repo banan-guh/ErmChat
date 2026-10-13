@@ -14,7 +14,9 @@ class EmoteMetaStore {
 
   // Cache keys moved through emotes3_ and emotes4_ to emotes5_ as the catalog
   // shape changed, so legacy prefixes still map to files during migration.
-  static const _prefixes = ['emotes3_', 'emotes4_', 'emotes5_'];
+  // emote_usage is the usage registry, too large and too often written for
+  // prefs.
+  static const _prefixes = ['emotes3_', 'emotes4_', 'emotes5_', 'emote_usage'];
   static const _dirName = 'emote_meta';
 
   Directory? _dir;

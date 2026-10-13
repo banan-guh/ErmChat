@@ -7,6 +7,7 @@ import '../emotes/emote.dart';
 import '../emotes/emote_picker.dart';
 import '../util/log.dart';
 import '../util/prefs.dart';
+import 'emote_meta_store.dart';
 
 /// Eviction-priority contract the image byte cache reads.
 ///
@@ -182,7 +183,11 @@ class EmoteUsageRegistry implements EmoteImagePolicy {
     required this._capacity,
     DateTime Function()? now,
     this._flushDelay = _defaultFlushDelay,
-  }) : _now = now ?? DateTime.now;
+    EmoteMetaStore? store,
+  }) : _now = now ?? DateTime.now,
+       _store = store ?? EmoteMetaStore.I;
+
+  static const _usageKey = 'emote_usage';
 
   static const _usageMinEntries = 300;
   static const _maxRecent = 100;
@@ -194,12 +199,13 @@ class EmoteUsageRegistry implements EmoteImagePolicy {
 
   // How long view-touch flushes wait for quiet before persisting. The emote
   // menu marks dozens of cells viewed on open; the debounce collapses that
-  // burst into a single prefs write.
+  // burst into a single file write.
   static const _defaultFlushDelay = Duration(milliseconds: 250);
 
   final int Function() _capacity;
   final DateTime Function() _now;
   final Duration _flushDelay;
+  final EmoteMetaStore _store;
 
   Prefs? _prefs;
   bool _usageLoaded = false;
@@ -295,7 +301,8 @@ class EmoteUsageRegistry implements EmoteImagePolicy {
     if (_usageLoaded) return;
     _usageLoaded = true;
     final prefs = await _getPrefs();
-    final raw = prefs.emoteUsage;
+    await _store.migrateFromPrefs(prefs.raw);
+    final raw = await _store.read(_usageKey);
     if (raw != null) {
       try {
         final data = jsonDecode(raw) as Map<String, dynamic>;
@@ -342,7 +349,6 @@ class EmoteUsageRegistry implements EmoteImagePolicy {
         _emoteUsage.remove(entry.key);
       }
     }
-    final prefs = await _getPrefs();
     final data = <String, dynamic>{
       'v': 2,
       'e': {
@@ -351,7 +357,7 @@ class EmoteUsageRegistry implements EmoteImagePolicy {
       },
     };
     final encoded = await Isolate.run(() => jsonEncode(data));
-    await prefs.setEmoteUsage(encoded);
+    await _store.write(_usageKey, encoded);
   }
 
   /// Loads the persisted usage registry. Safe to call from cache setup.
