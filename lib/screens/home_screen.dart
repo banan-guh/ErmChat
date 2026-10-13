@@ -735,8 +735,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     final source = updateSourceFor(info.installerStore, ios: Platform.isIOS);
     final update = await updates.checkForUpdate(info.version, source);
     if (update == null || !mounted) return;
-    AppSnack.show(
-      context,
+    _chatNotice.show(
       context.l10n.updateAvailableSnack(update.version),
       actionLabel: context.l10n.whatsNewAction,
       onAction: () => showUpdateSheet(
@@ -747,6 +746,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
         currentVersion: info.version,
       ),
       duration: const Duration(seconds: 8),
+      queue: true,
     );
   }
 
@@ -999,6 +999,26 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     _chatNotice.show(message);
   }
 
+  // The grant predates a scope added since: nudge a re-login once per stale
+  // spell, or the account's own emotes silently stop loading.
+  bool _scopeNoticeShown = false;
+
+  void _syncScopeNotice() {
+    if (!_twitchAuth.scopeStale) {
+      _scopeNoticeShown = false;
+      return;
+    }
+    if (_scopeNoticeShown || !mounted) return;
+    _scopeNoticeShown = true;
+    _chatNotice.show(
+      context.l10n.newPermissionsNotice,
+      actionLabel: context.l10n.logInAgain,
+      onAction: () => unawaited(_openSettings()),
+      duration: const Duration(seconds: 8),
+      queue: true,
+    );
+  }
+
   void _showLoginExpired() {
     if (!mounted) return;
     _chatNotice.show(
@@ -1185,6 +1205,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   }
 
   void _onAuthChanged() {
+    _syncScopeNotice();
     _mod.refreshOnData(null);
     final switched =
         _session.login?.toLowerCase() != _twitchAuth.login?.toLowerCase();
@@ -1552,7 +1573,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     // would raise the keyboard over the settings page.
     _search.focusNode.unfocus();
     // Pop notices and overlay snackbars on screen change.
-    _chatNotice.dismiss();
+    _chatNotice.clear();
     if (mounted) AppSnack.clear(context);
     await Navigator.push(
       context,

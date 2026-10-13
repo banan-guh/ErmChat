@@ -334,6 +334,7 @@
   "connected": "Connected",
   "modScopesStale": "New mod features need extra permissions. Log in again to grant them.",
   "logInAgain": "Log in again",
+  "newPermissionsNotice": "Stale permissions, log in again",
   "addAccount": "Add account",
   "disconnect": "Disconnect",
   "unknownError": "Unknown error",

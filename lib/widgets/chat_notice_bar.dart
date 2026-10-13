@@ -6,7 +6,8 @@ import 'app_snack.dart';
 
 // Inline chat notice: lives in the chat column above the composer, so it
 // tracks keyboard and composer height changes by layout instead of a
-// frozen snackbar margin. Single-notice replace policy with auto-dismiss.
+// frozen snackbar margin. A new notice replaces the current one unless it
+// asks to queue; each auto-dismisses.
 class ChatBarNotice {
   const ChatBarNotice(this.message, {this.actionLabel, this.onAction});
 
@@ -18,6 +19,7 @@ class ChatBarNotice {
 class ChatNoticeController extends ChangeNotifier {
   ChatBarNotice? _current;
   Timer? _timer;
+  final _queue = <(ChatBarNotice, Duration)>[];
 
   ChatBarNotice? get current => _current;
 
@@ -30,23 +32,47 @@ class ChatNoticeController extends ChangeNotifier {
     String? actionLabel,
     VoidCallback? onAction,
     Duration duration = AppSnack.defaultDuration,
+    bool queue = false,
   }) {
-    _timer?.cancel();
-    _current = ChatBarNotice(
+    final notice = ChatBarNotice(
       message,
       actionLabel: actionLabel,
       onAction: onAction,
     );
+    // Startup notices land at unpredictable times; queued ones wait their
+    // turn instead of wiping each other out.
+    if (queue && _current != null) {
+      _queue.add((notice, duration));
+      return;
+    }
+    _present(notice, duration);
+  }
+
+  void _present(ChatBarNotice notice, Duration duration) {
+    _timer?.cancel();
+    _current = notice;
     notifyListeners();
     _timer = Timer(duration, dismiss);
   }
 
+  /// Ends the current notice; the next queued one, if any, takes its place.
   void dismiss() {
     _timer?.cancel();
     _timer = null;
+    if (_queue.isNotEmpty) {
+      final (notice, duration) = _queue.removeAt(0);
+      _present(notice, duration);
+      return;
+    }
     if (_current == null) return;
     _current = null;
     notifyListeners();
+  }
+
+  /// Drops the current notice and everything queued (screen change).
+  void clear() {
+    _queue.clear();
+    dismiss();
   }
 
   @override
