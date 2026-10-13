@@ -76,7 +76,8 @@ class Messages {
   static String _systemLineName(SystemLine line) => line.name;
 
   final List<TwitchMessage> _items = [];
-  final Set<String> _seenIds = {};
+  // Every buffered row carrying an id, for O(1) dedup and lookup.
+  final Map<String, TwitchMessage> _byId = {};
   DateTime? _lastTruncateAt;
 
   // Oldest row inside the message limit at the last truncate. Older rows are
@@ -153,14 +154,9 @@ class Messages {
     return _chatLengthMemo;
   }
 
-  bool containsId(String id) => _seenIds.contains(id);
+  bool containsId(String id) => _byId.containsKey(id);
 
-  TwitchMessage? byId(String id) {
-    for (final m in _items) {
-      if (m.messageId == id) return m;
-    }
-    return null;
-  }
+  TwitchMessage? byId(String id) => _byId[id];
 
   // ---- Live ingest ---------------------------------------------------------
 
@@ -174,11 +170,11 @@ class Messages {
     TruncateExemptions Function()? buildExemptions,
   }) {
     final id = msg.messageId;
-    if (id != null && _seenIds.contains(id)) {
+    if (id != null && _byId.containsKey(id)) {
       return const BufferChange();
     }
     _items.insert(0, msg);
-    if (id != null) _seenIds.add(id);
+    if (id != null) _byId[id] = msg;
     final evicted = _maybeTruncate(maxMessages, buildExemptions);
     _bump();
     return BufferChange(inserted: true, evicted: evicted);
@@ -194,13 +190,13 @@ class Messages {
     TruncateExemptions Function()? buildExemptions,
   }) {
     final id = msg.messageId;
-    if (id != null && _seenIds.contains(id)) {
+    if (id != null && _byId.containsKey(id)) {
       return const BufferChange();
     }
     final target = _items.indexWhere((m) => m.messageId == targetId);
     if (target < 0) return const BufferChange();
     _items.insert(target + 1, msg);
-    if (id != null) _seenIds.add(id);
+    if (id != null) _byId[id] = msg;
     final evicted = _maybeTruncate(maxMessages, buildExemptions);
     _bump();
     return BufferChange(inserted: true, evicted: evicted);
@@ -235,11 +231,13 @@ class Messages {
           id == null ||
           (!existingIds.contains(id) && !insertedIds.contains(id));
       if (isNew) {
-        if (id != null) insertedIds.add(id);
+        if (id != null) {
+          insertedIds.add(id);
+          _byId[id] = msg;
+        }
         _items.add(msg);
         inserted.add(msg);
       }
-      if (id != null) _seenIds.add(id);
     }
 
     if (hasExistingNonSystem &&
@@ -369,20 +367,22 @@ class Messages {
   /// id, sort newest-first, cap. No signals beyond [version].
   void mergeMentions(List<TwitchMessage> msgs, {required int maxMessages}) {
     if (msgs.isEmpty) return;
-    final seen = {
-      for (final m in _items)
-        if (m.messageId != null) m.messageId!,
-    };
     final added = <TwitchMessage>[];
     for (final msg in msgs) {
       final id = msg.messageId;
-      if (id != null && !seen.add(id)) continue;
+      if (id != null) {
+        if (_byId.containsKey(id)) continue;
+        _byId[id] = msg;
+      }
       added.add(msg);
     }
     if (added.isEmpty) return;
     _items.addAll(added);
     _sortNewestFirst();
     if (_items.length > maxMessages) {
+      for (var i = maxMessages; i < _items.length; i++) {
+        _unindex(_items[i]);
+      }
       _items.removeRange(maxMessages, _items.length);
     }
     _bump();
@@ -422,7 +422,7 @@ class Messages {
           _items.take(newestRecovery).any((m) => !_isConnRow(m));
       // The transient outage marker never survives a recovery.
       final before = _items.length;
-      _items.removeWhere(
+      _removeRows(
         (m) =>
             _isConn(m, SystemLine.disconnected) ||
             _isConn(m, SystemLine.reconnecting),
@@ -432,14 +432,14 @@ class Messages {
         return false;
       }
       if (!hasActivity) {
-        _items.removeWhere((m) => _isConn(m, SystemLine.reconnected));
+        _removeRows((m) => _isConn(m, SystemLine.reconnected));
       }
     } else if (resolved == SystemLine.reconnecting) {
       if (_items.any((m) => _isConn(m, SystemLine.disconnected))) return false;
       if (_isConn(top, SystemLine.reconnecting)) return false;
     } else if (resolved == SystemLine.disconnected) {
       if (_isConn(top, SystemLine.disconnected)) return false;
-      _items.removeWhere((m) => _isConn(m, SystemLine.reconnecting));
+      _removeRows((m) => _isConn(m, SystemLine.reconnecting));
     }
     return _insertSystem(
       systemText(resolved),
@@ -470,18 +470,17 @@ class Messages {
   }
 
   bool _insertSystem(String text, {Color? accent, String? messageId}) {
-    _items.insert(
-      0,
-      TwitchMessage(
-        login: '',
-        text: text,
-        messageId: messageId ?? 'sys_${_nextSystemMessageId++}',
-        isSystem: true,
-        systemAccent: accent,
-        channel: channel,
-        timestamp: now(),
-      ),
+    final row = TwitchMessage(
+      login: '',
+      text: text,
+      messageId: messageId ?? 'sys_${_nextSystemMessageId++}',
+      isSystem: true,
+      systemAccent: accent,
+      channel: channel,
+      timestamp: now(),
     );
+    _items.insert(0, row);
+    _byId[row.messageId!] = row;
     _bump();
     return true;
   }
@@ -498,42 +497,49 @@ class Messages {
         return true;
       }
     }
-    _items.insert(
-      0,
-      TwitchMessage(
-        login: '',
-        text: text,
-        messageId: messageId,
-        isSystem: true,
-        systemAccent: accent,
-        channel: channel,
-      ),
+    final row = TwitchMessage(
+      login: '',
+      text: text,
+      messageId: messageId,
+      isSystem: true,
+      systemAccent: accent,
+      channel: channel,
     );
+    _items.insert(0, row);
+    _byId[messageId] = row;
     _noteMutation(messageId);
     return true;
   }
 
   /// Removes the system row carrying [messageId]. Returns true when one went.
   bool removeSystem(String messageId) {
-    final before = _items.length;
-    _items.removeWhere((m) => m.isSystem && m.messageId == messageId);
-    final changed = _items.length != before;
+    final changed =
+        _removeRows((m) => m.isSystem && m.messageId == messageId) > 0;
     if (changed) _bump();
     return changed;
   }
 
   /// Removes every row matching [test]. Returns the number removed.
   int removeWhere(bool Function(TwitchMessage) test) {
+    final removed = _removeRows(test);
+    if (removed > 0) _bump();
+    return removed;
+  }
+
+  int _removeRows(bool Function(TwitchMessage) test) {
     final before = _items.length;
     _items.removeWhere((m) {
       if (!test(m)) return false;
-      final id = m.messageId;
-      if (id != null) _seenIds.remove(id);
+      _unindex(m);
       return true;
     });
-    final removed = before - _items.length;
-    if (removed > 0) _bump();
-    return removed;
+    return before - _items.length;
+  }
+
+  // Drops [m] from the id map unless a different row now holds its id.
+  void _unindex(TwitchMessage m) {
+    final id = m.messageId;
+    if (id != null && identical(_byId[id], m)) _byId.remove(id);
   }
 
   bool removeLoadingHistory() => removeSystem(loadingHistoryId);
@@ -640,8 +646,7 @@ class Messages {
         !_hasThreadRows()) {
       final evicted = <TwitchMessage>[];
       for (int i = maxMessages; i < _items.length; i++) {
-        final id = _items[i].messageId;
-        if (id != null) _seenIds.remove(id);
+        _unindex(_items[i]);
         evicted.add(_items[i]);
       }
       _items.removeRange(maxMessages, _items.length);
@@ -765,7 +770,7 @@ class Messages {
       if (keep) {
         retained.add(m);
       } else if (id != null) {
-        _seenIds.remove(id);
+        _unindex(m);
         evicted.add(m);
       }
     }
@@ -847,7 +852,7 @@ class Messages {
     version.dispose();
     mutations.dispose();
     _items.clear();
-    _seenIds.clear();
+    _byId.clear();
   }
 }
 
