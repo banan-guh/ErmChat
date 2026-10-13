@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:typed_data';
 
+import 'package:clock/clock.dart';
 import 'package:ermchat/emotes/emote.dart';
 import 'package:ermchat/emotes/emote_catalog.dart';
 import 'package:ermchat/emotes/emote_picker.dart';
@@ -68,6 +69,93 @@ void main() {
 
   tearDown(() {
     EmoteUrlProvider.debugFetchOverride = null;
+    EmoteUrlProvider.loadBackoff.clear();
+  });
+
+  test('failed urls back off: permanent long, transient doubling to a cap', () {
+    var t = DateTime(2026, 1, 1);
+    withClock(Clock(() => t), () {
+      final backoff = EmoteLoadBackoff();
+      backoff.record('gone', permanent: true);
+      backoff.record('flaky', permanent: false);
+      expect(backoff.isBlocked('gone'), isTrue);
+      expect(backoff.isBlocked('other'), isFalse);
+
+      t = t.add(const Duration(minutes: 1));
+      expect(
+        backoff.isBlocked('flaky'),
+        isFalse,
+        reason: 'a transient failure retries after the short base delay',
+      );
+      expect(
+        backoff.isBlocked('gone'),
+        isTrue,
+        reason: 'a permanent failure waits far longer than a transient one',
+      );
+
+      backoff.record('flaky', permanent: false);
+      t = t.add(const Duration(seconds: 60));
+      expect(
+        backoff.isBlocked('flaky'),
+        isTrue,
+        reason: 'the second consecutive failure doubles the delay',
+      );
+      for (var i = 0; i < 10; i++) {
+        backoff.record('flaky', permanent: false);
+      }
+      t = t.add(EmoteLoadBackoff.transientCap);
+      expect(
+        backoff.isBlocked('flaky'),
+        isFalse,
+        reason: 'transient delay never exceeds the cap',
+      );
+
+      t = t.add(EmoteLoadBackoff.permanentDelay);
+      expect(backoff.isBlocked('gone'), isFalse);
+
+      for (var i = 0; i < EmoteLoadBackoff.maxEntries + 5; i++) {
+        backoff.record('u$i', permanent: true);
+      }
+      expect(
+        backoff.isBlocked('u0'),
+        isFalse,
+        reason: 'the oldest records drop once the map is full',
+      );
+      expect(backoff.isBlocked('u${EmoteLoadBackoff.maxEntries + 4}'), isTrue);
+    });
+  });
+
+  testWidgets('a failed url is not refetched while backed off', (tester) async {
+    var fetches = 0;
+    EmoteUrlProvider.debugFetchOverride = (_) async {
+      fetches++;
+      throw StateError('404');
+    };
+    const url = 'https://inline.test/dead.png';
+    Future<void> mount() async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: InlineEmoteView(
+            url: url,
+            width: 28,
+            height: 28,
+            images: _images,
+          ),
+        ),
+      );
+      await _pumpUntilLoaded(tester);
+    }
+
+    await mount();
+    expect(fetches, 1);
+    await tester.pumpWidget(const SizedBox());
+    await mount();
+    expect(fetches, 1, reason: 'a rebuilt row must not refetch a dead emote');
+
+    EmoteUrlProvider.loadBackoff.clear();
+    await tester.pumpWidget(const SizedBox());
+    await mount();
+    expect(fetches, 2, reason: 'clearing the record (emote reload) retries');
   });
 
   testWidgets('shows the band while loading and after a url change', (

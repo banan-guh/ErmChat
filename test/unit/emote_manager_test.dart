@@ -238,6 +238,7 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   setUp(() {
+    EmoteUrlProvider.loadBackoff.clear();
     EmoteUrlProvider.debugFetchOverride = null;
     EmoteUrlProvider.debugWebpEngineFailAfter = -1;
   });
@@ -765,7 +766,9 @@ void main() {
       expect(find.byType(RawImage), findsNWidgets(2));
     });
 
-    testWidgets('a failed fetch retries on the next widget', (tester) async {
+    testWidgets('a failed fetch backs off until the emotes reload', (
+      tester,
+    ) async {
       final gif = File('test/fixtures/7tv_kiss_2x.gif').readAsBytesSync();
       var fetches = 0;
       EmoteUrlProvider.debugFetchOverride = (url) async {
@@ -777,8 +780,13 @@ void main() {
       await pumpEmote(tester, errorWidget: const Icon(Icons.error));
       expect(find.byType(Icon), findsOneWidget);
 
-      // A fresh widget for the same URL must retry (failed completers are
-      // not cached).
+      await tester.pumpWidget(const MaterialApp(home: SizedBox.shrink()));
+      await tester.pump();
+      await pumpEmote(tester, errorWidget: const Icon(Icons.error));
+      expect(fetches, 1, reason: 'a backed-off url is not refetched');
+      expect(find.byType(Icon), findsOneWidget);
+
+      EmoteUrlProvider.loadBackoff.clear();
       await tester.pumpWidget(const MaterialApp(home: SizedBox.shrink()));
       await tester.pump();
       await pumpEmote(tester);

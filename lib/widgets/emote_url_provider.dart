@@ -2,9 +2,12 @@ import 'dart:async';
 import 'dart:collection';
 import 'dart:ui' as ui;
 
+import 'package:clock/clock.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/painting.dart';
 import 'package:flutter/scheduler.dart';
+import 'package:flutter_cache_manager/flutter_cache_manager.dart'
+    show HttpExceptionWithStatus;
 
 import '../emotes/emote.dart';
 import '../util/log.dart';
@@ -32,6 +35,51 @@ int _emotesStartStaggerUs(String url) => (url.hashCode & 0x7fffffff) % 50000;
 bool emoteUsesCustomLoop(Emote emote, {required bool animateGifs}) =>
     emote.isAnimated && (!animateGifs || emote.type != EmoteType.twitch);
 
+/// Per-URL memory of failed emote loads, so a dead URL is not refetched by
+/// every row that builds it. A permanent failure (404, 410, undecodable bytes)
+/// waits [permanentDelay]; a transient one starts at [transientBase] and
+/// doubles per consecutive failure up to [transientCap]. Bounded to
+/// [maxEntries], oldest first. Time comes from `package:clock`.
+class EmoteLoadBackoff {
+  static const permanentDelay = Duration(minutes: 30);
+  static const transientBase = Duration(seconds: 45);
+  static const transientCap = Duration(minutes: 10);
+  static const maxEntries = 512;
+
+  final Map<String, ({DateTime until, int strikes})> _entries = {};
+
+  /// Whether [url] failed recently enough that it must not be fetched yet.
+  bool isBlocked(String url) {
+    final entry = _entries[url];
+    return entry != null && clock.now().isBefore(entry.until);
+  }
+
+  void record(String url, {required bool permanent}) {
+    final strikes = (_entries.remove(url)?.strikes ?? 0) + 1;
+    final delay = permanent
+        ? permanentDelay
+        : Duration(
+            seconds:
+                (transientBase.inSeconds * (1 << (strikes - 1).clamp(0, 16)))
+                    .clamp(0, transientCap.inSeconds),
+          );
+    _entries[url] = (until: clock.now().add(delay), strikes: strikes);
+    while (_entries.length > maxEntries) {
+      _entries.remove(_entries.keys.first);
+    }
+  }
+
+  /// Forgets [url] after a good load, so a later failure starts from the base.
+  void forget(String url) => _entries.remove(url);
+
+  void clear() => _entries.clear();
+}
+
+/// Thrown instead of fetching while [EmoteLoadBackoff] blocks a URL.
+class _BackedOff implements Exception {
+  const _BackedOff();
+}
+
 /// ImageProvider for emote URLs. Keyed by [url] for shared decode/playback. Animated WebP streams from the engine; the pure-Dart compositor is a crash-only fallback.
 class EmoteUrlProvider extends ImageProvider<EmoteUrlProvider> {
   EmoteUrlProvider(this.url, {required this.images});
@@ -47,6 +95,9 @@ class EmoteUrlProvider extends ImageProvider<EmoteUrlProvider> {
 
   final String url;
   final EmoteImages images;
+
+  /// Failed loads by URL; cleared when emotes reload.
+  static final EmoteLoadBackoff loadBackoff = EmoteLoadBackoff();
 
   @override
   Future<EmoteUrlProvider> obtainKey(ImageConfiguration configuration) =>
@@ -449,8 +500,15 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
   }
 
   Future<void> _load() async {
+    var fetched = false;
     try {
+      if (EmoteUrlProvider.loadBackoff.isBlocked(url)) {
+        // Deferred so the error reaches listeners attached after construction.
+        await Future<void>.value();
+        throw const _BackedOff();
+      }
       final bytes = await _fetchBytes();
+      fetched = true;
       if (_disposed) return;
       final format = sniffEmoteFormat(bytes);
       _isAnimatedGif = format == EmoteFormat.gif;
@@ -473,8 +531,21 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
         // freezing is a scheduling decision, not a load branch.
         await _loadSingleFrame(bytes);
       }
+      EmoteUrlProvider.loadBackoff.forget(url);
     } on Object catch (error, stack) {
       _reportQuietly(error, stack);
+      if (error is! _BackedOff && (!_disposed || !fetched)) {
+        // A gone URL or bytes that will not decode never recover; a stalled
+        // decode, timeout, socket error or 5xx might.
+        final gone =
+            error is HttpExceptionWithStatus &&
+            (error.statusCode == 404 || error.statusCode == 410);
+        final undecodable = fetched && error is! TimeoutException;
+        EmoteUrlProvider.loadBackoff.record(
+          url,
+          permanent: gone || undecodable,
+        );
+      }
       // Evict on error: ImageCache keeps stale errors forever otherwise, and
       // drop the live entry so a retry builds a fresh completer instead of
       // reusing this failed one.

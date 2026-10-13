@@ -1045,7 +1045,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
         (s) => _mentions.onWhisperSent(s.target, s.message),
       ),
       emoteSignals.snack.add(_chatNotice.show),
-      emoteSignals.busy.add((value) => _networkBusy.value = value),
+      emoteSignals.busy.add((value) {
+        _networkBusy.value = value;
+        EmoteUrlProvider.loadBackoff.clear();
+      }),
     ]);
   }
 
