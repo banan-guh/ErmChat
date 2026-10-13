@@ -226,6 +226,21 @@ class Channel {
     return true;
   }
 
+  /// Inserts a system row at its [at] position (see [Messages.addSystemAt])
+  /// and prunes the buffer in one step. Returns false for a repeated id.
+  bool addSystemMessageAt(
+    String text, {
+    required String messageId,
+    required DateTime at,
+    required int maxMessages,
+  }) {
+    if (!messages.addSystemAt(text, messageId: messageId, at: at)) {
+      return false;
+    }
+    truncate(maxMessages);
+    return true;
+  }
+
   /// Inserts a connect-state row (see [Messages.addConnStatus]) and prunes
   /// the buffer in one step. Returns false when folding dropped it.
   bool addConnStatus(SystemLine status, {required int maxMessages}) {

@@ -1,5 +1,10 @@
 import 'dart:async';
+import 'dart:convert';
 
+import 'package:clock/clock.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+import '../chat/channel/channel.dart';
 import '../chat/chat.dart';
 import '../client/session.dart';
 import '../l10n/app_localizations.dart';
@@ -16,13 +21,17 @@ class ChatStatusComposer {
     required this.chat,
     required this.session,
     required this.strings,
-  });
+    required this.getMaxMessages,
+    DateTime Function()? now,
+  }) : _now = now ?? clock.now;
 
   final TwitchApi twitchApi;
   final TwitchAuth twitchAuth;
   final Chat chat;
   final Session session;
   final AppLocalizations Function() strings;
+  final int Function() getMaxMessages;
+  final DateTime Function() _now;
 
   // Room-mode tags per channel from ROOMSTATE (merged across partial
   // updates); feeds the chat status splash. Stream info from the periodic
@@ -102,6 +111,7 @@ class ChatStatusComposer {
       return;
     }
     _applyStreamStatus(channel, stream);
+    await _applyStreamMarkers({userId: (channel, stream)});
   }
 
   Future<void> fetchAllChatStatus() async {
@@ -124,6 +134,123 @@ class ChatStatusComposer {
       final userId = chat.channelFor(channel)?.info.broadcasterId;
       _applyStreamStatus(channel, userId != null ? streams[userId] : null);
     }
+    final polls = <String, (String, Map<String, dynamic>?)>{};
+    for (final channel in _chatStatusChannels) {
+      final id = chat.channelFor(channel)?.info.broadcasterId;
+      if (id != null) polls[id] = (channel, streams[id]);
+    }
+    await _applyStreamMarkers(polls);
+  }
+
+  // Consecutive offline polls per broadcaster. One empty poll can be a failed
+  // request (getStreams returns {} on error), so an end needs two.
+  final _offlinePolls = <String, int>{};
+
+  static String _markerKey(String userId) => 'stream_marker.$userId';
+
+  /// Writes "Stream started" and "Stream ended" rows from stream transitions.
+  /// The last seen stream (id, started_at, last live poll) persists per
+  /// broadcaster so a restart neither repeats a start nor loses an end. A
+  /// start sits at its `started_at` position even when that is older than the
+  /// buffer; truncation drops it with the other old rows.
+  Future<void> _applyStreamMarkers(
+    Map<String, (String, Map<String, dynamic>?)> polls,
+  ) async {
+    final SharedPreferences prefs;
+    try {
+      prefs = await SharedPreferences.getInstance();
+    } catch (e) {
+      logDebug('[ChatConn] stream markers skipped: $e');
+      return;
+    }
+    final now = _now();
+    for (final MapEntry(key: userId, value: (channel, stream))
+        in polls.entries) {
+      final target = chat.channelFor(channel);
+      if (target == null) continue;
+      final saved = _readMarker(prefs, userId);
+      final id = stream?['id'] as String?;
+      final live = stream != null && stream['type'] == 'live' && id != null;
+      if (!live) {
+        if (saved == null) continue;
+        final polls = (_offlinePolls[userId] ?? 0) + 1;
+        _offlinePolls[userId] = polls;
+        if (polls < 2) continue;
+        _offlinePolls.remove(userId);
+        _writeEnded(target, saved);
+        await prefs.remove(_markerKey(userId));
+        continue;
+      }
+      _offlinePolls.remove(userId);
+      if (saved != null && saved.id != id) _writeEnded(target, saved);
+      final startedAt = DateTime.tryParse(
+        stream['started_at'] as String? ?? '',
+      );
+      if (saved?.id != id) {
+        final details = [
+          for (final k in const ['title', 'game_name'])
+            if ((stream[k] as String?)?.trim() case final v? when v.isNotEmpty)
+              v,
+        ];
+        target.addSystemMessageAt(
+          [strings().streamStarted, ...details].join(' · '),
+          messageId: 'sys_stream:$id:start',
+          at: startedAt?.toLocal() ?? now,
+          maxMessages: getMaxMessages(),
+        );
+      }
+      await prefs.setString(
+        _markerKey(userId),
+        jsonEncode({
+          'id': id,
+          'startedAt': startedAt?.toIso8601String(),
+          'seenAt': now.toIso8601String(),
+        }),
+      );
+    }
+  }
+
+  ({String id, DateTime? startedAt, DateTime seenAt})? _readMarker(
+    SharedPreferences prefs,
+    String userId,
+  ) {
+    final raw = prefs.getString(_markerKey(userId));
+    if (raw == null) return null;
+    try {
+      final m = jsonDecode(raw) as Map;
+      final seenAt = DateTime.tryParse(m['seenAt'] as String? ?? '');
+      final id = m['id'] as String?;
+      if (id == null || seenAt == null) return null;
+      return (
+        id: id,
+        startedAt: DateTime.tryParse(m['startedAt'] as String? ?? ''),
+        seenAt: seenAt.toLocal(),
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  // The end sits at the last poll that saw the stream live; the duration is
+  // omitted when the start time is unknown.
+  void _writeEnded(
+    Channel target,
+    ({String id, DateTime? startedAt, DateTime seenAt}) marker,
+  ) {
+    final started = marker.startedAt;
+    String? duration;
+    if (started != null && marker.seenAt.isAfter(started)) {
+      final d = marker.seenAt.difference(started);
+      duration = d.inHours > 0
+          ? strings().streamDurationHm(d.inHours, d.inMinutes.remainder(60))
+          : strings().streamDurationM(d.inMinutes);
+    }
+    target.addSystemMessageAt(
+      [strings().streamEnded, ?duration].join(' · '),
+      messageId: 'sys_stream:${marker.id}:end',
+      at: marker.seenAt,
+      maxMessages: getMaxMessages(),
+    );
   }
 
   void _applyStreamStatus(String channel, Map<String, dynamic>? stream) {

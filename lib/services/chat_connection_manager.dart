@@ -394,6 +394,7 @@ class ChatConnectionManager {
     connectionStateNotifier: connectionStateNotifier,
     ensureCurrentUser: (auth) => _lifecycle.ensureCurrentUser(auth),
     strings: config.bridge.strings,
+    getMaxMessages: config.bridge.getMaxMessagesPerChannel,
   );
   final _ingestionSubs = <StreamSubscription<void>>[];
 

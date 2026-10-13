@@ -52,6 +52,31 @@ void main() {
       expect(messages.items.first.messageId, startsWith('sys_'));
     });
 
+    test('addSystemAt lands by timestamp and dedups by id', () {
+      final chat = Chat();
+      addTearDown(chat.dispose);
+      final messages = chat.ensure('test').messages;
+      final t = DateTime.utc(2026, 1, 1, 12);
+      TwitchMessage at(String id, int min) => TwitchMessage(
+        login: 'a',
+        text: id,
+        messageId: id,
+        channel: 'test',
+        timestamp: t.add(Duration(minutes: min)),
+      );
+      messages.add(at('old', 0), maxMessages: 100);
+      messages.add(at('new', 10), maxMessages: 100);
+      final mid = t.add(const Duration(minutes: 5));
+      expect(messages.addSystemAt('mid', messageId: 'sys_a', at: mid), isTrue);
+      expect(texts(messages), ['new', 'mid', 'old']);
+      expect(
+        messages.addSystemAt('mid', messageId: 'sys_a', at: t),
+        isFalse,
+        reason: 'a repeated id never stacks',
+      );
+      expect(texts(messages), hasLength(3));
+    });
+
     test('reconnect markers fold into a single Reconnected line', () {
       final chat = Chat();
       addTearDown(chat.dispose);

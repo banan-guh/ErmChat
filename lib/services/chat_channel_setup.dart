@@ -52,7 +52,10 @@ class ChatChannelSetup {
     required this.connectionStateNotifier,
     required this.ensureCurrentUser,
     this.strings = englishStrings,
+    this.getMaxMessages = _unboundedMessages,
   });
+
+  static int _unboundedMessages() => 1 << 30;
 
   final TwitchApi twitchApi;
   final EventSubDecoder eventSubDecoder;
@@ -86,6 +89,7 @@ class ChatChannelSetup {
   ensureCurrentUser;
 
   final AppLocalizations Function() strings;
+  final int Function() getMaxMessages;
 
   bool _disposed = false;
   final _httpClient = http.Client();
@@ -97,6 +101,7 @@ class ChatChannelSetup {
     chat: chat,
     session: session,
     strings: strings,
+    getMaxMessages: getMaxMessages,
   );
 
   /// In-flight 7TV ID lookups by Twitch channel id. Concurrent joins for the

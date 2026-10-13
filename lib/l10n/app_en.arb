@@ -2826,6 +2826,27 @@
       }
     }
   },
+  "streamStarted": "Stream started",
+  "streamEnded": "Stream ended",
+  "streamDurationHm": "{hours}h{minutes}m",
+  "@streamDurationHm": {
+    "placeholders": {
+      "hours": {
+        "type": "int"
+      },
+      "minutes": {
+        "type": "int"
+      }
+    }
+  },
+  "streamDurationM": "{minutes}m",
+  "@streamDurationM": {
+    "placeholders": {
+      "minutes": {
+        "type": "int"
+      }
+    }
+  },
   "userWasBanned": "{user} was banned",
   "@userWasBanned": {
     "placeholders": {

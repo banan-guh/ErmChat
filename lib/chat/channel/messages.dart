@@ -521,6 +521,35 @@ class Messages {
     return true;
   }
 
+  /// Inserts a system row carrying [messageId] at its [at] position in the
+  /// newest-first buffer, so a row reporting a past event lands among the
+  /// chat of that time. Returns false when the id is already present.
+  bool addSystemAt(
+    String text, {
+    required String messageId,
+    required DateTime at,
+    Color? accent,
+  }) {
+    if (_byId.containsKey(messageId)) return false;
+    final row = TwitchMessage(
+      login: '',
+      text: text,
+      messageId: messageId,
+      isSystem: true,
+      systemAccent: accent,
+      channel: channel,
+      timestamp: at,
+    );
+    var i = 0;
+    while (i < _items.length && !_items[i].timestamp.isBefore(at)) {
+      i++;
+    }
+    _items.insert(i, row);
+    _byId[messageId] = row;
+    _bump();
+    return true;
+  }
+
   /// Updates the system row carrying [messageId] in place, inserting it when
   /// absent. Bumps [version] and emits the id in both cases; callers must
   /// not bump or evict again. Returns true when the buffer changed.
