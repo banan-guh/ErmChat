@@ -122,7 +122,10 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
   // system rows, which have no name.
   int? _nameEnd;
   // Holds a name tap for the double-tap window when double tap is wired.
-  Timer? _nameTapTimer;
+  // Shared by every tile: a tap on another name replaces the pending one,
+  // so two quick taps on different names open one panel, not two.
+  static Timer? _nameTapTimer;
+  static _ChatMessageTileState? _nameTapTile;
 
   static const _nameSlopX = 12.0;
   static const _nameSlopY = 6.0;
@@ -152,7 +155,7 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
   /// state, fresh tiles start collapsed. Never persisted.
   final _expandedEmbeds = <String>{};
 
-  static const _doubleTapThreshold = Duration(milliseconds: 300);
+  static const _doubleTapThreshold = Duration(milliseconds: 200);
 
   bool _hitsName(Offset globalPosition) {
     final end = _nameEnd;
@@ -187,10 +190,12 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
       final onDoubleTapUser = widget.onDoubleTapUser;
       if (onDoubleTapUser == null) {
         open();
-      } else if (_nameTapTimer?.isActive ?? false) {
+      } else if (_nameTapTile == this && (_nameTapTimer?.isActive ?? false)) {
         _nameTapTimer!.cancel();
         onDoubleTapUser();
       } else {
+        _nameTapTimer?.cancel();
+        _nameTapTile = this;
         _nameTapTimer = Timer(_doubleTapThreshold, open);
       }
       return;
@@ -281,7 +286,10 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
     _paintNotifier = null;
     _disposeSpans(_ownedBodySpans);
     _ownedBodySpans = null;
-    _nameTapTimer?.cancel();
+    if (_nameTapTile == this) {
+      _nameTapTimer?.cancel();
+      _nameTapTile = null;
+    }
     super.dispose();
   }
 
