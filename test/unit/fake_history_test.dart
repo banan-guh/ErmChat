@@ -17,4 +17,19 @@ void main() {
       reason: 'row times must increase with the index',
     );
   });
+
+  test('rowAtTime inverts timeOf across the testchannel gap', () {
+    const ch = FakeHistory.testChannel;
+    final last = FakeHistory.rowCount(ch) - 1;
+    var widest = Duration.zero;
+    for (var r = 1; r <= last; r++) {
+      final d = FakeHistory.timeOf(
+        ch,
+        r,
+      ).difference(FakeHistory.timeOf(ch, r - 1));
+      if (d > widest) widest = d;
+      expect(FakeHistory.rowAtTime(ch, FakeHistory.timeOf(ch, r)), r);
+    }
+    expect(widest, greaterThan(const Duration(days: 3)), reason: 'no gap');
+  });
 }

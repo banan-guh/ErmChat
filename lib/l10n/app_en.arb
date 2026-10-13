@@ -2965,5 +2965,68 @@
   "introEmotesBody": "7TV, BTTV and FFZ emotes work out of the box, effects included. Tune how they load in Settings, under Emotes.",
   "introEmoteFetching": "Fetching: how sharp emotes load",
   "introEmoteDataSaver": "Data saver: lighter emotes on cellular",
-  "introEmoteCache": "Cache: how much space emotes keep"
+  "introEmoteCache": "Cache: how much space emotes keep",
+  "historyStreamStarted": "Stream\n{title} - {game}",
+  "@historyStreamStarted": {
+    "placeholders": {
+      "title": {
+        "type": "String"
+      },
+      "game": {
+        "type": "String"
+      }
+    }
+  },
+  "historyStreamEnded": "Stream ended - {length}",
+  "@historyStreamEnded": {
+    "placeholders": {
+      "length": {
+        "type": "String"
+      }
+    }
+  },
+  "historyNothingRecorded": "{range} - nothing recorded",
+  "@historyNothingRecorded": {
+    "placeholders": {
+      "range": {
+        "type": "String"
+      }
+    }
+  },
+  "historyDateRange": "{from} to {to}",
+  "@historyDateRange": {
+    "placeholders": {
+      "from": {
+        "type": "String"
+      },
+      "to": {
+        "type": "String"
+      }
+    }
+  },
+  "historyScrubberBubble": "{day} · {time}",
+  "@historyScrubberBubble": {
+    "placeholders": {
+      "day": {
+        "type": "String"
+      },
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "historyScrubberBubbleStream": "{day} · {title} · {time}",
+  "@historyScrubberBubbleStream": {
+    "placeholders": {
+      "day": {
+        "type": "String"
+      },
+      "title": {
+        "type": "String"
+      },
+      "time": {
+        "type": "String"
+      }
+    }
+  }
 }

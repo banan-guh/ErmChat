@@ -1,13 +1,5 @@
 import '../models/twitch_message.dart';
-
-/// A fake broadcast, used later to drive stream system rows.
-class FakeStream {
-  const FakeStream(this.start, this.end, this.title);
-
-  final DateTime start;
-  final DateTime end;
-  final String title;
-}
+import 'history_timeline.dart';
 
 /// Procedural chat archive for the windowed list prototype, compiled in only
 /// with `--dart-define=ERMCHAT_FAKE_HISTORY=true`. Rows derive from
@@ -44,48 +36,84 @@ class FakeHistory {
   static Duration _step(String channel) =>
       channel == denseChannel ? _denseStep : _testStep;
 
+  /// `_testchannel` records nothing for [_gapLength] starting [_gapAt] after
+  /// the archive start, long enough to span whole local days.
+  static const Duration _gapAt = Duration(days: 18, hours: 12);
+  static const Duration _gapLength = Duration(days: 4, hours: 7);
+
+  static Duration _gap(String channel) =>
+      channel == denseChannel ? Duration.zero : _gapLength;
+
   static int rowCount(String channel) =>
-      _span.inMilliseconds ~/ _step(channel).inMilliseconds;
+      (_span - _gap(channel)).inMilliseconds ~/ _step(channel).inMilliseconds;
+
+  /// First row after the gap in `_testchannel`; the dense channel has no gap.
+  static int get _gapRow => _gapAt.inMilliseconds ~/ _testStep.inMilliseconds;
+
+  /// Fixed clock of the prototype: the end of the archive.
+  static DateTime get now => _end;
+
+  /// Oldest retained time for [channel].
+  static DateTime startOf(String channel) => _start(channel);
+
+  /// Message counts per bucket, derived from the generated rows.
+  static const ActivityIndex activity = _FakeActivity();
 
   static int blockCount(String channel) =>
       (rowCount(channel) + blockSize - 1) ~/ blockSize;
 
-  static DateTime _start(String channel) =>
-      _end.subtract(_step(channel) * rowCount(channel));
+  static DateTime _start(String channel) => _end.subtract(_span);
 
-  /// Row time: a fixed step plus a deterministic jitter below the step.
+  /// Row time: a fixed step plus a deterministic jitter below the step, and
+  /// the gap added to rows after it.
   static DateTime timeOf(String channel, int row) {
     final step = _step(channel);
     final jitter = channel == denseChannel
         ? _mix(_seed, row) % (step.inMilliseconds - 100)
         : 0;
-    return _start(channel).add(step * row).add(Duration(milliseconds: jitter));
+    final skip = row >= _gapRow ? _gap(channel) : Duration.zero;
+    return _start(
+      channel,
+    ).add(step * row).add(skip).add(Duration(milliseconds: jitter));
   }
 
-  /// First row at or after [time], clamped to the archive.
+  /// First row at or after [time], clamped to the archive; a time inside the
+  /// gap maps to the first row after it.
   static int rowAtTime(String channel, DateTime time) {
-    final ms = time.difference(_start(channel)).inMilliseconds;
-    return (ms ~/ _step(channel).inMilliseconds).clamp(0, rowCount(channel));
+    var ms = time.difference(_start(channel)).inMilliseconds;
+    final gap = _gap(channel).inMilliseconds;
+    if (gap > 0) {
+      final at = _gapAt.inMilliseconds;
+      if (ms >= at + gap) {
+        ms -= gap;
+      } else if (ms > at) {
+        ms = at;
+      }
+    }
+    final step = _step(channel).inMilliseconds;
+    return ((ms + step - 1) ~/ step).clamp(0, rowCount(channel));
   }
 
   /// Fake broadcasts for [channel], oldest first; empty for the dense one.
-  static List<FakeStream> streams(String channel) {
+  static List<HistoryStream> streams(String channel) {
     if (channel != testChannel) return const [];
     const plan = [
-      (27.0, 4.0, 'Fake stream one'),
-      (21.5, 6.0, 'Late night fake stream'),
-      (14.2, 3.5, 'Fake stream three'),
-      (6.8, 8.0, 'Marathon fake stream'),
-      (1.3, 2.5, 'Short fake stream'),
+      (27.0, 4.0, 'Fake stream one', 'Just Chatting'),
+      (21.5, 6.0, 'Late night fake stream', 'Minecraft'),
+      (14.2, 3.5, 'Fake stream three', 'Elden Ring'),
+      (6.8, 8.0, 'Marathon fake stream', 'Just Chatting'),
+      (1.3, 2.5, 'Short fake stream', 'Chess'),
     ];
     return [
-      for (final (daysAgo, hours, title) in plan)
-        FakeStream(
-          _end.subtract(Duration(minutes: (daysAgo * 1440).round())),
-          _end.subtract(
+      for (final (i, (daysAgo, hours, title, game)) in plan.indexed)
+        HistoryStream(
+          id: 'fake-stream-${i + 1}',
+          start: _end.subtract(Duration(minutes: (daysAgo * 1440).round())),
+          end: _end.subtract(
             Duration(minutes: (daysAgo * 1440).round() - (hours * 60).round()),
           ),
-          title,
+          title: title,
+          game: game,
         ),
     ];
   }
@@ -219,5 +247,29 @@ class FakeHistory {
     h = (h * 0x297A2D39) & 0xFFFFFFFF;
     h ^= h >>> 15;
     return h;
+  }
+}
+
+/// Counts rows per bucket from the generated timeline.
+class _FakeActivity implements ActivityIndex {
+  const _FakeActivity();
+
+  @override
+  List<int> counts(
+    String channel,
+    DateTime from,
+    DateTime to,
+    Duration bucket,
+  ) {
+    final n = ((to.difference(from).inMilliseconds) / bucket.inMilliseconds)
+        .ceil();
+    final out = List<int>.filled(n, 0);
+    var prev = FakeHistory.rowAtTime(channel, from);
+    for (var i = 0; i < n; i++) {
+      final next = FakeHistory.rowAtTime(channel, from.add(bucket * (i + 1)));
+      out[i] = next - prev;
+      prev = next;
+    }
+    return out;
   }
 }
