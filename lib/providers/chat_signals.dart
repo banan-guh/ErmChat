@@ -5,7 +5,6 @@ import '../util/signal.dart';
 
 export '../util/signal.dart' show ChatSignal, ChatVoidSignal;
 
-typedef UserEmoteSetsSignal = ({String? channel, List<String> ids});
 typedef WhisperSystemSignal = ({String channel, String text});
 typedef WhisperSentSignal = ({String target, String message});
 
@@ -17,8 +16,6 @@ class ChatUiSignals {
   final ChatSignal<String> banner = ChatSignal<String>();
   final ChatVoidSignal loginExpired = ChatVoidSignal();
   final ChatSignal<TwitchMessage> whisper = ChatSignal<TwitchMessage>();
-  final ChatSignal<UserEmoteSetsSignal> userEmoteSets =
-      ChatSignal<UserEmoteSetsSignal>();
   final ChatSignal<WhisperSystemSignal> whisperSystem =
       ChatSignal<WhisperSystemSignal>();
   final ChatSignal<WhisperSentSignal> whisperSent =
@@ -29,7 +26,6 @@ class ChatUiSignals {
     banner.clear();
     loginExpired.clear();
     whisper.clear();
-    userEmoteSets.clear();
     whisperSystem.clear();
     whisperSent.clear();
   }

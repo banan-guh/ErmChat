@@ -172,7 +172,7 @@ flowchart TD
   ingestion["ChatIngestion"] -->|markEmoteViewed / matchEmotes| em
   applier["EmoteController"] -->|tier / cacheCapMb / reload| em
   applier -->|applyAnimationsEnabled / clearImageCache| render["widgets render ports"]
-  home["HomeScreen"] -->|preloadGlobalEmotes / user emote sets| em
+  home["HomeScreen"] -->|preloadGlobalEmotes| em
 
   em -->|catalog state / EmoteChange| store["EmoteStore"]
   store -->|addListener| bridge["EmoteStoreNotifier -> emoteStateProvider"]
@@ -400,7 +400,7 @@ Every entry calls a public method on the child; none reaches into private state.
 | `EmoteFetcher` | `lib/services/emote_fetcher.dart` | Fetch policy and per-provider producers (Twitch/BTTV/FFZ/7TV); returns commits to the store. |
 | `EmoteUsageRegistry` | `lib/services/emote_usage_registry.dart` | Usage history and recents; doubles as the image eviction policy. |
 | `SevenTvPersonalSets` | `lib/services/seven_tv_personal_sets.dart` | Viewer and foreign 7TV personal set fetch and state. |
-| `TwitchEmoteSets` | `lib/services/twitch_emote_sets.dart` | Twitch account emote sets: subscriber emotes plus channel-points unlocks. |
+| `TwitchEmoteSets` | `lib/services/twitch_emote_sets.dart` | The account's own Twitch emotes from Helix `chat/emotes/user`: subs, follower, bits, plus unlocks (Hype Train, Prime, limited-time). |
 | `EmotePersistence` | `lib/services/emote_persistence.dart` | Global/channel catalog read and write as file blobs via `EmoteMetaStore`. |
 | `EmoteImages` | `lib/services/emote_images.dart` | Image byte owner: capped disk repo, precache, migration, overflow serving. |
 | `EmoteVisibility` | `lib/services/emote_visibility.dart` | Provider enable/disable and unlisted-7TV prefs; mirrored into the store. |

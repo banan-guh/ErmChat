@@ -66,6 +66,8 @@ class TwitchOAuth {
     // Broadcaster-only channel points tab.
     'channel:read:redemptions',
     'channel:manage:redemptions',
+    // The account's own emotes (subs, follower, unlocks, Hype Train).
+    'user:read:emotes',
   ];
 
   /// Required scopes absent from a validate [granted] list.

@@ -136,10 +136,10 @@ class EmoteManager implements EmoteLookupSource {
     Future<Map<String, String>> Function(TwitchAuth auth, List<String> ids)?
     resolveOwnerLogins,
     Future<Map<String, List<Emote>>> Function(
-      List<String> setIds, {
+      String userId, {
       String? accessToken,
     })?
-    fetchUserEmoteSets,
+    fetchUserEmotes,
     this.getChannelUserIds,
   }) : _store = store ?? EmoteStore(),
        _ownsStore = store == null,
@@ -190,7 +190,7 @@ class EmoteManager implements EmoteLookupSource {
           sevenTvOwnedSetIds: sevenTvOwnedSetIdsFetcher,
           sevenTvEmoteSetFetcher: sevenTvEmoteSetFetcher,
           resolveOwnerLogins: resolveOwnerLogins,
-          fetchUserEmoteSets: fetchUserEmoteSets,
+          fetchUserEmotes: fetchUserEmotes,
         );
     _ownsFetcher = fetcher == null;
 
@@ -689,12 +689,12 @@ class EmoteManager implements EmoteLookupSource {
   Future<void> storeUserTwitchEmotes(Map<String, List<Emote>> perChannel) =>
       _twitchSets.storeUserTwitchEmotes(perChannel);
 
-  /// Loads subscriber emotes: fetch, resolve owners, fan into channels.
-  Future<void> loadUserEmoteSets(
-    List<String> emoteSetIds,
+  /// Loads the account's Twitch emotes once; later calls re-attach them to
+  /// newly joined channels.
+  Future<void> loadUserEmotes(
     TwitchAuth auth,
     Map<String, String> openChannelUserIds,
-  ) => _twitchSets.loadUserEmoteSets(emoteSetIds, auth, openChannelUserIds);
+  ) => _twitchSets.loadUserEmotes(auth, openChannelUserIds);
 
   /// Clears per-account emote state (account switch).
   void resetUserEmoteState() {
@@ -702,12 +702,11 @@ class EmoteManager implements EmoteLookupSource {
     _twitchSets.resetUserEmoteState();
   }
 
-  /// Re-fetches subscriber emotes for the ids already known from a prior
-  /// USERSTATE/GLOBALUSERSTATE.
-  Future<void> reloadUserEmoteSets(
+  /// Re-fetches the account's Twitch emotes (manual emote reload).
+  Future<void> reloadUserEmotes(
     TwitchAuth auth,
     Map<String, String> openChannelUserIds,
-  ) => _twitchSets.reloadUserEmoteSets(auth, openChannelUserIds);
+  ) => _twitchSets.reloadUserEmotes(auth, openChannelUserIds);
 
   /// Loads channel emotes. [force] skips cache, fetches from network.
   Future<void> resolveEmotes(

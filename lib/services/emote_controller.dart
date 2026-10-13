@@ -253,15 +253,12 @@ class EmoteController {
         emoteManager.notifyCatalogChanged();
       }
       final ok = await refreshAfterAuth(force: true);
-      // Subscriber emotes aren't covered by the global/channel refresh; re-fetch
-      // the sets already known from a prior USERSTATE.
+      // The account's own emotes aren't covered by the global/channel
+      // refresh; re-fetch them.
       var subFailed = false;
       if (ok && twitchAuth.isConfigured) {
         try {
-          await emoteManager.reloadUserEmoteSets(
-            twitchAuth,
-            getChannelUserIds(),
-          );
+          await emoteManager.reloadUserEmotes(twitchAuth, getChannelUserIds());
         } catch (e) {
           subFailed = true;
           logDebug('runRefresh: sub emote reload failed: $e');
@@ -283,32 +280,11 @@ class EmoteController {
     }
   }
 
-  // Loads the account's subscriber emotes from the IRC emote-sets tag
-  // (GLOBALUSERSTATE/USERSTATE), the authoritative source of which emote sets
-  // the account can use (the Helix /chat/emotes/user endpoint omits certain
-  // grants, e.g. bot accounts). USERSTATE is channel-scoped; GLOBALUSERSTATE
-  // (null channel) is the account-wide union. The actual fetch, owner-login
-  // resolution, and per-channel storage all live in EmoteManager (the emote
-  // daemon); this is a thin forwarder so HomeScreen stays out of emote state.
-  Future<void> loadUserEmoteSets(
-    String? channel,
-    List<String> emoteSetIds,
-  ) async {
-    if (!twitchAuth.isConfigured) return;
-    await emoteManager.loadUserEmoteSets(
-      emoteSetIds,
-      twitchAuth,
-      getChannelUserIds(),
-    );
-  }
-
   // Re-join may have opened channels whose sub-emote owners were previously
   // unknown; heal their labels in the emote daemon (no re-fetch needed).
   Future<void> refreshSubEmoteOwners() async {
     if (twitchAuth.isConfigured) {
-      unawaited(
-        emoteManager.loadUserEmoteSets([], twitchAuth, getChannelUserIds()),
-      );
+      unawaited(emoteManager.loadUserEmotes(twitchAuth, getChannelUserIds()));
     }
   }
 }

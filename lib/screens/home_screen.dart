@@ -1018,7 +1018,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       signals.banner.add(_showBanner),
       signals.loginExpired.add(_showLoginExpired),
       signals.whisper.add(_mentions.onWhisper),
-      signals.userEmoteSets.add(_onUserEmoteSetsSignal),
       signals.whisperSystem.add(
         (s) => _mentions.addWhisperSystemMessage(s.channel, s.text),
       ),
@@ -1031,9 +1030,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   }
 
   void _onFocusComposerSignal() => _composer.focus();
-
-  void _onUserEmoteSetsSignal(UserEmoteSetsSignal signal) =>
-      unawaited(_emotes.loadUserEmoteSets(signal.channel, signal.ids));
 
   void _onChannelContent(String channel) {
     if (channel == selectedChannel) _composer.refreshCooldown();

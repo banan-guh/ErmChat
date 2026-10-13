@@ -19,7 +19,8 @@ class IrcChatDecoder {
     bool isReadSocket = true,
   }) : _nickProvider = nickProvider, // ignore: prefer_initializing_formals
        _debugPrefix = debugPrefix, // ignore: prefer_initializing_formals
-       _isReadSocket = isReadSocket { // ignore: prefer_initializing_formals
+       // ignore: prefer_initializing_formals
+       _isReadSocket = isReadSocket {
     _subscription = source.listen(_handle);
   }
 
@@ -52,8 +53,6 @@ class IrcChatDecoder {
   final _whisperController = StreamController<TwitchMessage>.broadcast(
     sync: true,
   );
-  final _emoteSetsController =
-      StreamController<(String?, List<String>)>.broadcast(sync: true);
   final _selfModController = StreamController<(String, bool)>.broadcast(
     sync: true,
   );
@@ -71,8 +70,6 @@ class IrcChatDecoder {
   Stream<TwitchMessage> get onMessage => _messageController.stream;
   Stream<UserNoticeEvent> get onUserNotice => _userNoticeController.stream;
   Stream<TwitchMessage> get onWhisper => _whisperController.stream;
-  Stream<(String?, List<String>)> get onUserEmoteSets =>
-      _emoteSetsController.stream;
   Stream<IrcMessage> get onOwnMessage => _ownMessageController.stream;
 
   /// Channel USERSTATE role: whether the user moderates (or owns) it. Sent
@@ -208,7 +205,6 @@ class IrcChatDecoder {
   }
 
   void _handleUserState(IrcMessage msg) {
-    final emoteSets = msg.tags['emote-sets'];
     final badges = parseIrcBadges(msg.tags['badges']);
     final mod = msg.tags['mod'];
     if (msg.command == 'USERSTATE' && mod != null) {
@@ -218,20 +214,9 @@ class IrcChatDecoder {
         _selfModController.add((channel, mod == '1' || owner));
       }
     }
-    if ((emoteSets == null || emoteSets.isEmpty) && badges == null) return;
+    if (badges == null) return;
     final channel = msg.command == 'USERSTATE' ? _channelNameOf(msg) : null;
-    if (emoteSets != null && emoteSets.isNotEmpty) {
-      final ids = emoteSets
-          .split(',')
-          .where((id) => id.trim().isNotEmpty)
-          .toList();
-      if (ids.isNotEmpty) {
-        _emoteSetsController.add((channel, ids));
-      }
-    }
-    if (badges != null) {
-      selfBadges[channel] = badges.map((b) => b.setId).toSet();
-    }
+    selfBadges[channel] = badges.map((b) => b.setId).toSet();
   }
 
   void _handleRoomState(IrcMessage msg) {
@@ -331,7 +316,6 @@ class IrcChatDecoder {
     _clearController.close();
     _roomStateController.close();
     _whisperController.close();
-    _emoteSetsController.close();
     _selfModController.close();
   }
 }

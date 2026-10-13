@@ -49,7 +49,6 @@ class ChatChannelSetup {
     required this.chat,
     required this.onSystemMessage,
     required this.connectionStateNotifier,
-    this.onUserEmoteSets,
     required this.ensureCurrentUser,
     this.strings = englishStrings,
   });
@@ -79,7 +78,6 @@ class ChatChannelSetup {
   })
   onSystemMessage;
   final ValueNotifier<int> connectionStateNotifier;
-  final Future<void> Function(String?, List<String>)? onUserEmoteSets;
 
   /// Current-user lookup shared with the manager's connect path; the single
   /// in-flight dedup lives there.
@@ -118,21 +116,9 @@ class ChatChannelSetup {
   // confirmation clears the entry and announces the (late) success.
   final _joinFailureNotified = <String>{};
 
-  StreamSubscription<(String?, List<String>)>? _emoteSetsSub;
-
-  void attach() {
-    _emoteSetsSub?.cancel();
-    _emoteSetsSub = readDecoder.onUserEmoteSets.listen((event) {
-      if (_disposed || onUserEmoteSets == null) return;
-      final (channel, ids) = event;
-      unawaited(onUserEmoteSets!(channel, ids));
-    });
-  }
-
   void dispose() {
     _disposed = true;
     _status.dispose();
-    _emoteSetsSub?.cancel();
     // Release any anonymous channel-user-ID waiters so their timeout timers
     // don't outlive the manager (and don't trip widget-test teardown).
     for (final waiters in _roomIdWaiters.values) {
@@ -220,13 +206,10 @@ class ChatChannelSetup {
       } catch (_) {
         logDebug('[ChatConn] pubsub listen failed for $channelName');
       }
-      // Subs fetched before this id resolved are retained by the manager;
-      // re-attach them now that the channel is known. Reuses the reconnect
-      // heal path (empty id list means "no new sets, just re-store").
+      // The first join fetches the account's own emotes; later joins
+      // attach the fetched ones to this channel.
       unawaited(
-        emoteManager.loadUserEmoteSets(const [], auth, {
-          channelName: channelUserId,
-        }),
+        emoteManager.loadUserEmotes(auth, {channelName: channelUserId}),
       );
       // Map before any await below: a resubscribe completing in the gap
       // would otherwise deliver events with no channel and drop them.

@@ -2195,10 +2195,12 @@ void main() {
     );
 
     test('loadUserEmoteSets stores owner-less unlocks globally', () async {
-      final auth = TwitchAuth()..accessToken = 'tok';
+      final auth = TwitchAuth()
+        ..accessToken = 'tok'
+        ..userId = 'me';
       final manager = EmoteManager(
         fetchStagger: Duration.zero,
-        fetchUserEmoteSets: (ids, {accessToken}) async => {
+        fetchUserEmotes: (userId, {accessToken}) async => {
           '': [unlockedEmote()],
           'ownerA': [ownedSubEmote()],
         },
@@ -2207,7 +2209,7 @@ void main() {
         },
       );
 
-      await manager.loadUserEmoteSets(['s1'], auth, {'chanA': 'ownerA'});
+      await manager.loadUserEmotes(auth, {'chanA': 'ownerA'});
 
       // Unlock renders through the global lookup in every channel.
       expect(manager.byCode('chanA')?.byCode['PrimePride']?.id, 'u1');
@@ -2220,10 +2222,12 @@ void main() {
     test(
       'loadUserEmoteSets routes owned standard grants to global unlocks',
       () async {
-        final auth = TwitchAuth()..accessToken = 'tok';
+        final auth = TwitchAuth()
+          ..accessToken = 'tok'
+          ..userId = 'me';
         final manager = EmoteManager(
           fetchStagger: Duration.zero,
-          fetchUserEmoteSets: (ids, {accessToken}) async => {
+          fetchUserEmotes: (userId, {accessToken}) async => {
             'ownerE': [
               makeTestEmote(
                 id: 'ev1',
@@ -2237,11 +2241,7 @@ void main() {
           resolveOwnerLogins: (a, ids) async => {},
         );
 
-        await manager.loadUserEmoteSets(
-          ['s1'],
-          auth,
-          {'chanA': 'idA', 'chanB': 'idB'},
-        );
+        await manager.loadUserEmotes(auth, {'chanA': 'idA', 'chanB': 'idB'});
 
         // Account-wide grant lives in Global, in no channel tab or sub group.
         expect(
@@ -2276,10 +2276,12 @@ void main() {
 
     test('unlockable-only sets are marked fetched', () async {
       var fetchCalls = 0;
-      final auth = TwitchAuth()..accessToken = 'tok';
+      final auth = TwitchAuth()
+        ..accessToken = 'tok'
+        ..userId = 'me';
       final manager = EmoteManager(
         fetchStagger: Duration.zero,
-        fetchUserEmoteSets: (ids, {accessToken}) async {
+        fetchUserEmotes: (userId, {accessToken}) async {
           fetchCalls++;
           return {
             '': [unlockedEmote()],
@@ -2288,8 +2290,8 @@ void main() {
         resolveOwnerLogins: (a, ids) async => {},
       );
 
-      await manager.loadUserEmoteSets(['s1'], auth, {'chanA': 'ownerA'});
-      await manager.loadUserEmoteSets(['s1'], auth, {'chanA': 'ownerA'});
+      await manager.loadUserEmotes(auth, {'chanA': 'ownerA'});
+      await manager.loadUserEmotes(auth, {'chanA': 'ownerA'});
 
       expect(fetchCalls, 1);
       expect(manager.byCode('chanA')?.byCode['PrimePride']?.id, 'u1');
@@ -2297,11 +2299,13 @@ void main() {
 
     test('unchanged reconnect heal emits no store changes', () async {
       SharedPreferences.setMockInitialValues({});
-      final auth = TwitchAuth()..accessToken = 'tok';
+      final auth = TwitchAuth()
+        ..accessToken = 'tok'
+        ..userId = 'me';
       var fetchCalls = 0;
       final manager = EmoteManager(
         fetchStagger: Duration.zero,
-        fetchUserEmoteSets: (ids, {accessToken}) async {
+        fetchUserEmotes: (userId, {accessToken}) async {
           fetchCalls++;
           return {
             'ownerA': [
@@ -2325,11 +2329,11 @@ void main() {
       final changes = <EmoteChange>[];
       manager.store.addListener(changes.add);
 
-      await manager.loadUserEmoteSets(['s1'], auth, {'chanA': 'ownerA'});
+      await manager.loadUserEmotes(auth, {'chanA': 'ownerA'});
       final version = manager.version;
       changes.clear();
 
-      await manager.loadUserEmoteSets([], auth, {'chanA': 'ownerA'});
+      await manager.loadUserEmotes(auth, {'chanA': 'ownerA'});
 
       expect(fetchCalls, 1);
       expect(changes, isEmpty);
@@ -2338,13 +2342,15 @@ void main() {
 
     test('unlocks do not suppress the global preload', () async {
       SharedPreferences.setMockInitialValues({});
-      final auth = TwitchAuth()..accessToken = 'tok';
+      final auth = TwitchAuth()
+        ..accessToken = 'tok'
+        ..userId = 'me';
       var globalFetches = 0;
       final manager = EmoteManager(
         fetchStagger: Duration.zero,
         tier: EmoteFetchTier.medium,
         removeCachedFile: (url) async {},
-        fetchUserEmoteSets: (ids, {accessToken}) async => {
+        fetchUserEmotes: (userId, {accessToken}) async => {
           '': [unlockedEmote()],
         },
         resolveOwnerLogins: (a, ids) async => {},
@@ -2354,7 +2360,7 @@ void main() {
         },
       );
 
-      await manager.loadUserEmoteSets(['s1'], auth, {'chanA': 'ownerA'});
+      await manager.loadUserEmotes(auth, {'chanA': 'ownerA'});
       expect(manager.hasGlobalCache, isFalse);
 
       await manager.preloadGlobalEmotes();
@@ -2364,16 +2370,18 @@ void main() {
     });
 
     test('resetUserEmoteState clears unlocked global emotes', () async {
-      final auth = TwitchAuth()..accessToken = 'tok';
+      final auth = TwitchAuth()
+        ..accessToken = 'tok'
+        ..userId = 'me';
       final manager = EmoteManager(
         fetchStagger: Duration.zero,
-        fetchUserEmoteSets: (ids, {accessToken}) async => {
+        fetchUserEmotes: (userId, {accessToken}) async => {
           '': [unlockedEmote()],
         },
         resolveOwnerLogins: (a, ids) async => {},
       );
 
-      await manager.loadUserEmoteSets(['s1'], auth, {'chanA': 'ownerA'});
+      await manager.loadUserEmotes(auth, {'chanA': 'ownerA'});
       expect(manager.byCode('chanA')?.byCode['PrimePride'], isNotNull);
 
       manager.resetUserEmoteState();
@@ -2382,11 +2390,13 @@ void main() {
     });
 
     test('reconnect heals unresolved owner labels without re-fetching', () async {
-      final auth = TwitchAuth()..accessToken = 'tok';
+      final auth = TwitchAuth()
+        ..accessToken = 'tok'
+        ..userId = 'me';
       var resolveCalls = 0;
       final manager = EmoteManager(
         fetchStagger: Duration.zero,
-        fetchUserEmoteSets: (ids, {accessToken}) async => {
+        fetchUserEmotes: (userId, {accessToken}) async => {
           'ownerA': [
             makeTestEmote(
               id: 'x',
@@ -2419,11 +2429,11 @@ void main() {
       );
 
       // First connect: no channels open, resolution unavailable -> nothing stored.
-      await manager.loadUserEmoteSets(['s1', 's2'], auth, {});
+      await manager.loadUserEmotes(auth, {});
       expect(manager.subscriberEmotesByChannel(), isEmpty);
 
       // Reconnect: channels now open (ownerA seeded, ownerB resolved via API).
-      await manager.loadUserEmoteSets([], auth, {
+      await manager.loadUserEmotes(auth, {
         'chanA': 'ownerA',
         'chanB': 'ownerB',
       });
@@ -2436,11 +2446,13 @@ void main() {
     test(
       'subs fetched before a channel id resolves attach once it does',
       () async {
-        final auth = TwitchAuth()..accessToken = 'tok';
+        final auth = TwitchAuth()
+          ..accessToken = 'tok'
+          ..userId = 'me';
         var channels = <String, String>{};
         final manager = EmoteManager(
           fetchStagger: Duration.zero,
-          fetchUserEmoteSets: (ids, {accessToken}) async {
+          fetchUserEmotes: (userId, {accessToken}) async {
             // The channel joins and its id resolves while the fetch is in flight.
             channels = {'chanA': 'ownerA'};
             return {
@@ -2463,7 +2475,7 @@ void main() {
 
         // USERSTATE arrives with no channel id yet; the live read at store time
         // still finds chanA.
-        await manager.loadUserEmoteSets(['s1'], auth, {});
+        await manager.loadUserEmotes(auth, {});
         final byChannel = manager.subscriberEmotesByChannel();
         expect(byChannel.keys, ['chanA']);
         expect(byChannel['chanA']!.single.code, 'X');

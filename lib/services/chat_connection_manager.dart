@@ -124,7 +124,6 @@ class ChatSinks {
     required this.onCommand,
     required this.getReplyToMsg,
     required this.setReplyToMsg,
-    this.onUserEmoteSets,
     this.onReconnected,
     this.onMention,
     this.onWhisper,
@@ -144,7 +143,6 @@ class ChatSinks {
   final void Function(String, String, TwitchAuth) onCommand;
   final TwitchMessage? Function() getReplyToMsg;
   final void Function(TwitchMessage?) setReplyToMsg;
-  final Future<void> Function(String?, List<String>)? onUserEmoteSets;
   final VoidCallback? onReconnected;
   final void Function(String channel, TwitchMessage msg)? onMention;
   final void Function(TwitchMessage msg)? onWhisper;
@@ -394,7 +392,6 @@ class ChatConnectionManager {
     session: config.session,
     onSystemMessage: config.bridge.onSystemMessage,
     connectionStateNotifier: connectionStateNotifier,
-    onUserEmoteSets: config.sinks.onUserEmoteSets,
     ensureCurrentUser: (auth) => _lifecycle.ensureCurrentUser(auth),
     strings: config.bridge.strings,
   );
@@ -532,8 +529,6 @@ class ChatConnectionManager {
     _ingestionSubs
       ..clear()
       ..addAll(_ingestion.attach());
-
-    _channelSetup.attach();
 
     final pubSub = config.services.pubSub;
     if (pubSub != null) {

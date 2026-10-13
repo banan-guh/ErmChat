@@ -92,10 +92,10 @@ class EmoteFetcher {
   final Future<Map<String, String>> Function(TwitchAuth auth, List<String> ids)
   _resolveOwnerLogins;
   final Future<Map<String, List<Emote>>> Function(
-    List<String> setIds, {
+    String userId, {
     String? accessToken,
   })
-  _fetchUserEmoteSets;
+  _fetchUserEmotes;
 
   EmoteFetcher({
     required DateTime Function() now,
@@ -112,10 +112,10 @@ class EmoteFetcher {
     Future<Map<String, String>> Function(TwitchAuth auth, List<String> ids)?
     resolveOwnerLogins,
     Future<Map<String, List<Emote>>> Function(
-      List<String> setIds, {
+      String userId, {
       String? accessToken,
     })?
-    fetchUserEmoteSets,
+    fetchUserEmotes,
   }) : _connectivityProbe = probe,
        _sevenTvChannelFetcher =
            sevenTvChannelFetcher ??
@@ -130,13 +130,8 @@ class EmoteFetcher {
            ((String setId) => SevenTvEmoteProvider.fetchEmoteSet(setId)),
        _resolveOwnerLogins =
            resolveOwnerLogins ?? TwitchApi().getUserLoginsByIds,
-       _fetchUserEmoteSets =
-           fetchUserEmoteSets ??
-           ((List<String> ids, {String? accessToken}) =>
-               TwitchEmoteProvider.fetchEmoteSets(
-                 ids,
-                 accessToken: accessToken,
-               )) {
+       _fetchUserEmotes =
+           fetchUserEmotes ?? TwitchEmoteProvider.fetchUserEmotes {
     _now = now;
     _tier = tier;
     _isProviderEnabled = isProviderEnabled;
@@ -456,11 +451,11 @@ class EmoteFetcher {
   Future<List<String>> fetchSevenTvOwnedSetIds(String twitchId) =>
       _sevenTvOwnedSetIds(twitchId);
 
-  /// Fetches Twitch emote sets by id (subscriber bootstrap).
-  Future<Map<String, List<Emote>>> fetchUserEmoteSets(
-    List<String> setIds, {
+  /// Fetches every Twitch emote the account can use, keyed by owner id.
+  Future<Map<String, List<Emote>>> fetchUserEmotes(
+    String userId, {
     String? accessToken,
-  }) => _fetchUserEmoteSets(setIds, accessToken: accessToken);
+  }) => _fetchUserEmotes(userId, accessToken: accessToken);
 
   /// Resolves sub-emote owner ids to Twitch logins.
   Future<Map<String, String>> resolveOwnerLogins(

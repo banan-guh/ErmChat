@@ -88,8 +88,6 @@ final chatPipelineProvider = Provider<ChatConnectionManager>((ref) {
         },
         getReplyToMsg: () => ref.read(replyToProvider),
         setReplyToMsg: (value) => ref.read(replyToProvider.notifier).set(value),
-        onUserEmoteSets: (channel, ids) async =>
-            signals.userEmoteSets.emit((channel: channel, ids: ids)),
         onReconnected: () {
           ref.read(chatHistoryControllerProvider).refetchAll();
           ref.read(reconnectedTickProvider.notifier).bump();

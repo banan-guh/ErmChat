@@ -69,34 +69,36 @@ class TwitchEmoteProvider {
     });
   }
 
-  static Future<Map<String, List<Emote>>> fetchEmoteSets(
-    List<String> emoteSetIds, {
+  /// Every Twitch emote [userId] can use (Helix `chat/emotes/user`, needs
+  /// `user:read:emotes`), keyed by owner id. Unlocks with no channel owner
+  /// (Prime, Turbo, Hype Train, limited-time globals) key under ''. The
+  /// global set itself is skipped: the global catalog already has it.
+  static Future<Map<String, List<Emote>>> fetchUserEmotes(
+    String userId, {
     String? accessToken,
   }) async {
     final headers = <String, String>{'Client-ID': TwitchConfig.clientId};
     if (accessToken != null) {
       headers['Authorization'] = 'Bearer $accessToken';
     }
-    // Chunk to 25 emote_set_id params per request.
-    const chunkSize = 25;
     final bodies = <String>[];
-    for (var i = 0; i < emoteSetIds.length; i += chunkSize) {
-      var end = i + chunkSize;
-      if (end > emoteSetIds.length) end = emoteSetIds.length;
-      final chunk = emoteSetIds.sublist(i, end);
-      final query = chunk.map((id) => 'emote_set_id=$id').join('&');
+    String? cursor;
+    do {
       final uri = Uri.parse(
-        'https://api.twitch.tv/helix/chat/emotes/set?$query',
+        'https://api.twitch.tv/helix/chat/emotes/user?user_id=$userId'
+        '${cursor != null ? '&after=$cursor' : ''}',
       );
       final res = await http.get(uri, headers: headers).timeout(httpTimeout);
       throwOnTransientHttpError(res.statusCode, uri);
       DataUsageStats.I.recordJson(res.bodyBytes.length);
       if (res.statusCode != 200) {
-        logDebug('Twitch emote set error: ${res.statusCode} ${res.body}');
-        continue;
+        logDebug('Twitch user emotes error: ${res.statusCode} ${res.body}');
+        break;
       }
       bodies.add(res.body);
-    }
+      final page = jsonDecode(res.body)['pagination'];
+      cursor = page is Map ? page['cursor'] as String? : null;
+    } while (cursor != null && cursor.isNotEmpty);
     if (bodies.isEmpty) return {};
     // Decode off main isolate (payload comparable to global set).
     return Isolate.run(() {
@@ -107,8 +109,12 @@ class TwitchEmoteProvider {
         for (final item in items) {
           final id = item['id'] as String?;
           final name = item['name'] as String?;
-          final ownerId = item['owner_id'] as String?;
           if (id == null || name == null) continue;
+          if (item['emote_set_id'] == '0') continue;
+          final rawOwner = item['owner_id'] as String?;
+          final ownerId = rawOwner == '0' || rawOwner == 'twitch'
+              ? null
+              : rawOwner;
           final formats =
               (item['format'] as List<dynamic>?)?.cast<String>() ?? [];
           final isAnimated = formats.contains('animated');

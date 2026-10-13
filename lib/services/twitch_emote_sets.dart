@@ -5,8 +5,9 @@ import 'emote_fetcher.dart';
 import 'emote_store.dart';
 import 'twitch_auth.dart';
 
-/// Twitch per-account emote sets: subscriber emotes granted by the IRC
-/// emote-sets path plus owner-less unlocks (Prime/Turbo/2FA/Hype Train).
+/// Twitch per-account emotes from Helix `chat/emotes/user`: subscriber,
+/// follower and bits emotes plus owner-less unlocks (Prime/Turbo/2FA/Hype
+/// Train/limited-time globals).
 ///
 /// Owns the fetch bookkeeping (fetched ids, in-flight ids, owner logins) and
 /// fans resolved subscriber emotes into the store's per-channel lists.
@@ -29,11 +30,10 @@ class TwitchEmoteSets {
 
   String? accessToken;
 
-  // Emote-set ids already fetched via the IRC emote-sets path, so repeated
-  // USERSTATE (per channel join / message send) doesn't refetch them.
-  final Set<String> _fetchedEmoteSetIds = {};
-  // Set ids currently in flight; dropped on failure so the next event retries.
-  final Set<String> _inflightEmoteSetIds = {};
+  // The account's emotes are fetched once per account; later loads only
+  // re-attach them to newly joined channels.
+  bool _fetched = false;
+  bool _inflight = false;
   // owner id -> login, built up across resolves and reused between reconnects.
   final Map<String, String> _emoteOwnerLogins = {};
   // Last fetched locked user emote sets keyed by owner id. Kept in memory
@@ -41,7 +41,7 @@ class TwitchEmoteSets {
   // re-fetching. Word-matchable grants bypass this cache for the global
   // unlock overlay instead.
   final Map<String, List<Emote>> _fetchedSubEmotesByOwner = {};
-  // Owner-less Twitch unlocks from the IRC emote-sets path (per-account
+  // Owner-less Twitch unlocks from the user emotes fetch (per-account
   // Prime/Turbo/2FA/Hype Train emotes). Merged into the global lookup.
   final _unlockedTwitchEmotes = <String, Emote>{};
   // Ids from the global unlockable catalogue (broadcaster_id=0). Per-account
@@ -58,7 +58,7 @@ class TwitchEmoteSets {
   /// Whether a subscriber-emote fetch is currently in flight. The subs tab
   /// shows a spinner (not the empty text) while true, so a slow fetch never
   /// reads as "no subscriber emotes".
-  bool get subEmoteFetchInFlight => _inflightEmoteSetIds.isNotEmpty;
+  bool get subEmoteFetchInFlight => _inflight;
 
   /// Applies the account catalogue unlock ids from a global fetch. Empty
   /// leaves the retained ids untouched.
@@ -85,40 +85,33 @@ class TwitchEmoteSets {
   Map<String, String> _openChannels(Map<String, String> fallback) =>
       getChannelUserIds?.call() ?? fallback;
 
-  /// Loads subscriber emotes: fetch, resolve owners, fan into channels.
-  Future<void> loadUserEmoteSets(
-    List<String> emoteSetIds,
+  /// Loads the account's Twitch emotes once, then on later calls only
+  /// re-attaches them to channels joined since (owner logins healed).
+  Future<void> loadUserEmotes(
     TwitchAuth auth,
     Map<String, String> openChannelUserIds,
   ) async {
     if (_tier() == EmoteFetchTier.nothing) return;
-    // Skip "0" (Twitch global, already loaded).
-    final newSetIds = emoteSetIds
-        .where(
-          (id) =>
-              id != '0' &&
-              !_fetchedEmoteSetIds.contains(id) &&
-              !_inflightEmoteSetIds.contains(id),
-        )
-        .toList();
-    if (newSetIds.isEmpty) {
-      // No new sets, but heal owner labels and attach to late channels.
+    final userId = auth.userId;
+    if (_fetched || _inflight || userId == null || userId.isEmpty) {
       final channels = _openChannels(openChannelUserIds);
       await _resolveOwners(auth, channels);
       await _reStoreCachedSubs(channels);
       return;
     }
-    _inflightEmoteSetIds.addAll(newSetIds);
+    _inflight = true;
     // Subs tab spins (not empty-text) while the fetch below is in flight.
     // Rendered rows ignore the emit; live surfaces re-read.
     _store.notifyCatalogChanged();
     try {
-      final byOwner = await _fetcher.fetchUserEmoteSets(
-        newSetIds,
+      final byOwner = await _fetcher.fetchUserEmotes(
+        userId,
         accessToken: auth.accessToken,
       );
       final perOwner = <String, List<Emote>>{};
       final unlocked = <Emote>[];
+      // A refetch replaces the cache, so lapsed subs drop out.
+      _fetchedSubEmotesByOwner.clear();
       for (final entry in byOwner.entries) {
         if (entry.key.isEmpty) {
           // Owner-less sets are global unlocks, not channel subs.
@@ -146,52 +139,44 @@ class TwitchEmoteSets {
         }
       }
       if (unlocked.isNotEmpty) _storeUnlockedGlobalEmotes(unlocked);
-      _fetchedEmoteSetIds.addAll(newSetIds);
+      _fetched = true;
       if (perOwner.isEmpty) {
-        logDebug(
-          'loadUserEmoteSets: ${newSetIds.length} sets fetched, no channel emotes',
-        );
+        logDebug('loadUserEmotes: fetched, no channel emotes');
         return;
       }
       final channels = _openChannels(openChannelUserIds);
       await _resolveOwners(auth, channels, ownerIds: perOwner.keys);
       final targets = channels.keys.toList();
       if (targets.isEmpty) {
-        logDebug('loadUserEmoteSets: no channel targets');
+        logDebug('loadUserEmotes: no channel targets');
         return;
       }
       final perChannel = _buildPerChannelEmotes(perOwner, targets);
       await storeUserTwitchEmotes(perChannel);
     } catch (e) {
-      logDebug('loadUserEmoteSets failed: $e');
+      logDebug('loadUserEmotes failed: $e');
     } finally {
-      // Keep fetched ids; failed ones retry on next USERSTATE.
-      _inflightEmoteSetIds.removeAll(
-        newSetIds.where((id) => !_fetchedEmoteSetIds.contains(id)),
-      );
+      // A failed fetch leaves _fetched false, so the next load retries.
+      _inflight = false;
     }
   }
 
-  /// Re-fetches subscriber emotes for the ids already known from a prior
-  /// USERSTATE/GLOBALUSERSTATE. The manual emote reload would otherwise drop
-  /// subs until the next IRC USERSTATE arrives, so call this from that path.
-  Future<void> reloadUserEmoteSets(
+  /// Re-fetches the account's emotes (manual emote reload).
+  Future<void> reloadUserEmotes(
     TwitchAuth auth,
     Map<String, String> openChannelUserIds,
   ) async {
-    if (_tier() == EmoteFetchTier.nothing) return;
-    if (_fetchedEmoteSetIds.isEmpty) return;
-    final ids = _fetchedEmoteSetIds.toList();
-    _fetchedEmoteSetIds.clear();
-    await loadUserEmoteSets(ids, auth, openChannelUserIds);
+    if (_tier() == EmoteFetchTier.nothing || _inflight) return;
+    _fetched = false;
+    await loadUserEmotes(auth, openChannelUserIds);
   }
 
   /// Clears per-account emote state (account switch). Unlocks are per-account:
   /// they are dropped from the global Twitch list they merged into, matched by
   /// id plus by code for empty-id entries.
   void resetUserEmoteState() {
-    _fetchedEmoteSetIds.clear();
-    _inflightEmoteSetIds.clear();
+    _fetched = false;
+    _inflight = false;
     _emoteOwnerLogins.clear();
     _fetchedSubEmotesByOwner.clear();
     final removedIds = <String>{..._unlockedTwitchEmotes.keys};

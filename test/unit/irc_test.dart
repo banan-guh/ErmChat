@@ -415,8 +415,7 @@ class _CachedEmoteManager extends EmoteManager {
   String? getSevenTvUserId(String channel) => 'user1';
 
   @override
-  Future<void> loadUserEmoteSets(
-    List<String> emoteSetIds,
+  Future<void> loadUserEmotes(
     TwitchAuth auth,
     Map<String, String> openChannelUserIds,
   ) async {}
@@ -494,7 +493,6 @@ ChatConnectionManager _makeReconnectConn({
   void Function(String, SystemLine)? onConnStatus,
   String? currentUserLogin,
   void Function(HypeTrainEvent event)? onHypeTrain,
-  Future<void> Function(String?, List<String>)? onUserEmoteSets,
   TwitchAuth? auth,
   Chat? chat,
   Map<String, String>? channelUserIds,
@@ -555,7 +553,6 @@ ChatConnectionManager _makeReconnectConn({
         setReplyToMsg: (v) {},
         onReconnected: onReconnected,
         onHypeTrain: onHypeTrain,
-        onUserEmoteSets: onUserEmoteSets,
       ),
     ),
   );
@@ -1474,12 +1471,10 @@ void main() {
   });
 
   group('USERSTATE / GLOBALUSERSTATE', () {
-    test('report the mod role and emote-sets, never chat messages', () async {
+    test('report the mod role, never chat messages', () async {
       final roles = <(String, bool)>[];
-      final sets = <(String?, List<String>)>[];
       var messageCount = 0;
       decoder.onSelfModerator.listen(roles.add);
-      decoder.onUserEmoteSets.listen(sets.add);
       decoder.onMessage.listen((_) => messageCount++);
 
       service.handleLine(
@@ -1491,18 +1486,9 @@ void main() {
       );
       // GLOBALUSERSTATE carries no channel, so no role change.
       service.handleLine('@badges=;mod=0 :tmi.twitch.tv GLOBALUSERSTATE');
-      service.handleLine(
-        '@emote-sets=0,123456789,987654321 :tmi.twitch.tv GLOBALUSERSTATE',
-      );
-      service.handleLine(
-        '@emote-sets=300374079,0 :tmi.twitch.tv USERSTATE #xqc',
-      );
       await flush();
 
       expect(roles, [('xqc', true), ('xqc', false), ('me', true)]);
-      expect(sets.map((e) => e.$1), [null, 'xqc']);
-      expect(sets[0].$2, ['0', '123456789', '987654321']);
-      expect(sets[1].$2, ['300374079', '0']);
       expect(messageCount, 0);
     });
   });
@@ -3168,28 +3154,6 @@ void main() {
         });
       },
     );
-  });
-
-  group('IRC emote-sets', () {
-    test('forwards GLOBALUSERSTATE emote-sets to onUserEmoteSets', () async {
-      const line = '@emote-sets=0,123456789 :tmi.twitch.tv GLOBALUSERSTATE';
-      final received = <(String?, List<String>)>[];
-      final irc = _TestIrc();
-      final ircRead = _TestIrcRead();
-      final conn = _makeReconnectConn(
-        eventSub: _NoopEventSub(),
-        irc: irc,
-        ircRead: ircRead,
-        onReconnected: () {},
-        onUserEmoteSets: (channel, ids) async => received.add((channel, ids)),
-      );
-      await conn.connect();
-      ircRead.handleLine(line);
-      irc.handleLine(line);
-      await Future<void>.delayed(Duration.zero);
-      expect(received.single.$2, <String>['0', '123456789']);
-      conn.dispose();
-    });
   });
 
   group('message emote precache', () {
