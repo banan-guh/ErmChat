@@ -381,7 +381,8 @@ class StreamPanels {
   );
 
   /// Whether chat sits in a pane beside the stream (landscape theater with
-  /// chat shown, or split on a wide screen), matching [bodyColumn]. The
+  /// chat shown, or split in landscape or on a wide screen), matching
+  /// [bodyColumn]. The
   /// composer then docks under that pane so the stream keeps full height.
   bool chatInPane(BuildContext context) {
     if (streamPlayer.currentChannel == null ||
@@ -392,7 +393,7 @@ class StreamPanels {
     final landscape =
         MediaQuery.orientationOf(context) == Orientation.landscape;
     if (streamPlayer.isTheaterMode && landscape) return theaterChatVisible();
-    return MediaQuery.sizeOf(context).width >= 600;
+    return landscape || MediaQuery.sizeOf(context).width >= 600;
   }
 
   Widget bodyColumn(
@@ -422,7 +423,11 @@ class StreamPanels {
         landscape) {
       return Column(children: [Expanded(child: theater(context, channel))]);
     }
-    if (channel != null && !streamPlayer.isAudioOnly && maxWidth >= 600) {
+    // Landscape always splits: on a narrow phone (iPhone SE, 568pt) a
+    // stacked 16:9 player would fill the whole height and hide chat.
+    if (channel != null &&
+        !streamPlayer.isAudioOnly &&
+        (landscape || maxWidth >= 600)) {
       return Column(
         children: [
           Expanded(
