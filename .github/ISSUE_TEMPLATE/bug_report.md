@@ -15,5 +15,5 @@ Tip: reporting from the app (Settings > Send feedback) adds your app version and
 **How do you make it happen?** (optional)
 
 
-**App version and phone** (optional)
+**Screenshots, app version, phone** (optional)
 
