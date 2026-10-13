@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import '../emotes/emote.dart';
 import '../models/emote_fetch_tier.dart';
 import '../util/log.dart';
@@ -92,8 +94,7 @@ class TwitchEmoteSets {
     Map<String, String> openChannelUserIds,
   ) async {
     if (_tier() == EmoteFetchTier.nothing) return;
-    final userId = auth.userId;
-    if (_fetched || _inflight || userId == null || userId.isEmpty) {
+    if (_fetched || _inflight) {
       final channels = _openChannels(openChannelUserIds);
       await _resolveOwners(auth, channels);
       await _reStoreCachedSubs(channels);
@@ -104,6 +105,10 @@ class TwitchEmoteSets {
     // Rendered rows ignore the emit; live surfaces re-read.
     _store.notifyCatalogChanged();
     try {
+      // A fresh login joins channels before its identity resolves; wait for
+      // it rather than skip, since nothing else retries the fetch.
+      final userId = auth.userId ?? await _awaitUserId(auth);
+      if (userId == null || userId.isEmpty) return;
       final byOwner = await _fetcher.fetchUserEmotes(
         userId,
         accessToken: auth.accessToken,
@@ -159,6 +164,21 @@ class TwitchEmoteSets {
       // A failed fetch leaves _fetched false, so the next load retries.
       _inflight = false;
     }
+  }
+
+  static const _userIdWait = Duration(seconds: 15);
+
+  Future<String?> _awaitUserId(TwitchAuth auth) {
+    final done = Completer<String?>();
+    void check() {
+      final id = auth.userId;
+      if (id != null && id.isNotEmpty && !done.isCompleted) done.complete(id);
+    }
+
+    auth.addListener(check);
+    return done.future
+        .timeout(_userIdWait, onTimeout: () => null)
+        .whenComplete(() => auth.removeListener(check));
   }
 
   /// Re-fetches the account's emotes (manual emote reload).

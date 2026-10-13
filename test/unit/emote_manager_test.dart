@@ -2297,6 +2297,32 @@ void main() {
       expect(manager.byCode('chanA')?.byCode['PrimePride']?.id, 'u1');
     });
 
+    // Regression: a fresh login joins channels before its user id resolves,
+    // and the fetch was skipped with nothing to retry it.
+    test('user emotes wait for the user id instead of skipping', () async {
+      final auth = TwitchAuth()..accessToken = 'tok';
+      final fetchedFor = <String>[];
+      final manager = EmoteManager(
+        fetchStagger: Duration.zero,
+        fetchUserEmotes: (userId, {accessToken}) async {
+          fetchedFor.add(userId);
+          return {
+            '': [unlockedEmote()],
+          };
+        },
+        resolveOwnerLogins: (a, ids) async => {},
+      );
+
+      final load = manager.loadUserEmotes(auth, {'chanA': 'ownerA'});
+      await pumpEventQueue();
+      expect(fetchedFor, isEmpty);
+
+      auth.setUser('me', 'me-id', resolvedWithToken: 'tok');
+      await load;
+      expect(fetchedFor, ['me-id']);
+      expect(manager.byCode('chanA')?.byCode['PrimePride']?.id, 'u1');
+    });
+
     test('unchanged reconnect heal emits no store changes', () async {
       SharedPreferences.setMockInitialValues({});
       final auth = TwitchAuth()
