@@ -377,8 +377,12 @@ class Messages {
       added.add(msg);
     }
     if (added.isEmpty) return;
-    _items.addAll(added);
-    _sortNewestFirst();
+    if (_headsBuffer(added)) {
+      _items.insertAll(0, added);
+    } else {
+      _items.addAll(added);
+      _sortNewestFirst();
+    }
     if (_items.length > maxMessages) {
       for (var i = maxMessages; i < _items.length; i++) {
         _unindex(_items[i]);
@@ -386,6 +390,19 @@ class Messages {
       _items.removeRange(maxMessages, _items.length);
     }
     _bump();
+  }
+
+  // Whether [added] already sits where the stable sort would put it: newest
+  // first among itself and strictly newer than the top row (a tie keeps the
+  // resident row first), so it can go in front without a sort.
+  bool _headsBuffer(List<TwitchMessage> added) {
+    for (var i = 1; i < added.length; i++) {
+      if (added[i - 1].timestamp.compareTo(added[i].timestamp) < 0) {
+        return false;
+      }
+    }
+    return _items.isEmpty ||
+        added.last.timestamp.compareTo(_items.first.timestamp) > 0;
   }
 
   // ---- System lines --------------------------------------------------------

@@ -509,4 +509,29 @@ void main() {
       expect(allCount, 1);
     });
   });
+
+  group('Messages.mergeMentions', () {
+    TwitchMessage at(String id, int sec) => TwitchMessage(
+      login: 'alice',
+      text: id,
+      messageId: id,
+      channel: 'test',
+      timestamp: DateTime(2026, 1, 1, 0, 0, sec),
+    );
+    List<String?> ids(Messages m) => m.items.map((e) => e.messageId).toList();
+
+    test('live mentions go on top, ties keep the resident row first', () {
+      final m = Messages(channel: '@mentions');
+      addTearDown(m.dispose);
+      m.mergeMentions([at('a', 1)], maxMessages: 3);
+      m.mergeMentions([at('b', 2)], maxMessages: 3);
+      m.mergeMentions([at('c', 2)], maxMessages: 3);
+      expect(ids(m), ['b', 'c', 'a'], reason: 'tie sorts behind the resident');
+      m.mergeMentions([at('b', 5)], maxMessages: 3);
+      expect(ids(m), ['b', 'c', 'a'], reason: 'duplicate id is dropped');
+      m.mergeMentions([at('d', 3), at('e', 3), at('f', 4)], maxMessages: 4);
+      expect(ids(m), ['f', 'd', 'e', 'b'], reason: 'unsorted batch, capped');
+      expect(m.containsId('a'), isFalse, reason: 'capped rows leave the map');
+    });
+  });
 }
