@@ -10,7 +10,8 @@ test cannot see (ownership, purity, provider size) is enforced in review.
 ## Target dependency direction
 
 ```
-transport / codec   lib/irc, lib/eventsub/transport, lib/eventsub/decode
+transport / codec   lib/irc, lib/eventsub/transport, lib/eventsub/decode,
+                    lib/archive
         |
       kernel         lib/chat
         |

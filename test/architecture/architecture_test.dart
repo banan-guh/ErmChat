@@ -16,6 +16,7 @@ void main() {
       'irc/decode/',
       'eventsub/transport/',
       'eventsub/decode/',
+      'archive/',
     ];
     const forbidden = [
       'services/',
