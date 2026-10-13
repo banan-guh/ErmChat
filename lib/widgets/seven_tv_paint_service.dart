@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:isolate';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart';
@@ -7,7 +8,9 @@ import 'package:flutter/material.dart'
     show Color, Matrix4, Offset, Shader, Size;
 import 'package:http/http.dart' as http;
 import '../util/log.dart';
+import '../services/emote_meta_store.dart';
 import '../services/seven_tv_event_client.dart';
+import 'emote_effect.dart';
 
 class SevenTvPaintStop {
   final double at;
@@ -91,12 +94,28 @@ class SevenTvImagePaintLayer extends SevenTvPaintLayer {
   const SevenTvImagePaintLayer({required this.images, required super.opacity});
 
   /// Picks smallest texture >=56px tall (for ~3x DPR crispness), falling
-  /// back to largest.
+  /// back to largest. Animated WebP wins, then GIF, then stills; AVIF is
+  /// skipped since Flutter cannot decode it.
   SevenTvPaintImage? pickVariant() {
-    if (images.isEmpty) return null;
+    int rank(SevenTvPaintImage img) {
+      final name = img.url.split('/').last;
+      final still = name.contains('_static');
+      if (name.endsWith('.avif')) return -1;
+      if (name.endsWith('.webp')) return still ? 2 : 0;
+      if (name.endsWith('.gif')) return 1;
+      return 3;
+    }
+
+    var bestRank = -1;
+    for (final img in images) {
+      final r = rank(img);
+      if (r >= 0 && (bestRank < 0 || r < bestRank)) bestRank = r;
+    }
+    if (bestRank < 0) return null;
     SevenTvPaintImage? best;
     SevenTvPaintImage? largest;
     for (final img in images) {
+      if (rank(img) != bestRank) continue;
       if (largest == null || img.height > largest.height) largest = img;
       if (img.height >= 56 && (best == null || img.height < best.height)) {
         best = img;
@@ -147,6 +166,65 @@ class SevenTvPaint {
       return best.color.withValues(alpha: layer.opacity);
     }
     return null;
+  }
+}
+
+/// A decoded paint image: one frame for stills, every frame for animated
+/// ones. While anything listens, an animated texture follows the shared
+/// [EmoteEffectClock] and notifies only when its frame changes.
+class _PaintTexture extends ChangeNotifier {
+  _PaintTexture(this.frames, this.endsMs)
+    : bytes = frames.fold(0, (sum, f) => sum + f.width * f.height * 4);
+
+  final List<ui.Image> frames;
+
+  /// Cumulative frame end times; the last is the loop length.
+  final List<int> endsMs;
+  final int bytes;
+  int _index = 0;
+  bool _following = false;
+
+  bool get animated => frames.length > 1 && endsMs.last > 0;
+  ui.Image get current => frames[_index];
+
+  void _onClock() {
+    final t = (EmoteEffectClock.instance.seconds * 1000).floor() % endsMs.last;
+    var i = 0;
+    while (i < endsMs.length - 1 && endsMs[i] <= t) {
+      i++;
+    }
+    if (i == _index) return;
+    _index = i;
+    notifyListeners();
+  }
+
+  @override
+  void addListener(VoidCallback listener) {
+    super.addListener(listener);
+    if (animated && !_following) {
+      _following = true;
+      EmoteEffectClock.instance.addListener(_onClock);
+    }
+  }
+
+  @override
+  void removeListener(VoidCallback listener) {
+    super.removeListener(listener);
+    if (!hasListeners) _unfollow();
+  }
+
+  void _unfollow() {
+    if (!_following) return;
+    _following = false;
+    EmoteEffectClock.instance.removeListener(_onClock);
+  }
+
+  /// Frees the frames; names still listening rebuild on the next revision.
+  void release() {
+    _unfollow();
+    for (final frame in frames) {
+      frame.dispose();
+    }
   }
 }
 
@@ -286,7 +364,11 @@ class SevenTvPaintService extends ChangeNotifier {
 
   static const _maxCachedPaintImages = 50;
 
-  final _images = <String, ui.Image?>{};
+  // Decoded frames are raw RGBA; animated paints run to dozens of frames.
+  static const _maxPaintImageBytes = 24 << 20;
+  static const _maxPaintFrames = 150;
+  int _imageBytes = 0;
+  final _images = <String, _PaintTexture>{};
   final _imageInflight = <String>{};
   final _imageAccessOrder = <String>[];
 
@@ -296,6 +378,7 @@ class SevenTvPaintService extends ChangeNotifier {
     Future<Map<String, dynamic>?> Function(String query)? gqlQuery,
     Future<Uint8List> Function(Uri uri)? fetchBytes,
     DateTime Function()? now,
+    this._store,
   }) : _gqlQuery = gqlQuery ?? _defaultGqlQuery,
        _fetchBytes = fetchBytes ?? _defaultFetchBytes,
        _now = now ?? DateTime.now;
@@ -346,6 +429,7 @@ class SevenTvPaintService extends ChangeNotifier {
           }
         }
       }
+      if (changed) _scheduleUsersSave();
       if (changed && _enabled) {
         unawaited(_ensurePaint(event.cosmeticId));
         notifyListeners();
@@ -353,9 +437,79 @@ class SevenTvPaintService extends ChangeNotifier {
     });
   }
 
-  /// Downloads the catalog once per session; failures allow retry.
+  // ---- Disk cache ----------------------------------------------------------
+
+  // The catalog and known user paints persist so a cold start paints names
+  // from the first row instead of flicking them over once 7TV answers.
+  static const _catalogKey = 'seventv_paints_catalog';
+  static const _usersKey = 'seventv_paints_users';
+  static const _usersSaveDelay = Duration(seconds: 10);
+
+  /// Null keeps everything in memory (tests).
+  final EmoteMetaStore? _store;
+  bool _restored = false;
+  Timer? _usersSaveTimer;
+
+  Future<void> _restore() async {
+    final store = _store;
+    if (_restored || store == null) return;
+    _restored = true;
+    try {
+      final catalog = await store.read(_catalogKey);
+      if (catalog != null && _paintsById.isEmpty) {
+        final list = await Isolate.run(() => jsonDecode(catalog) as List);
+        _addCatalog(list);
+      }
+      final users = await store.read(_usersKey);
+      if (users != null) {
+        final map = jsonDecode(users) as Map<String, dynamic>;
+        for (final entry in map.entries) {
+          final value = entry.value as List;
+          _assignments.putIfAbsent(
+            entry.key,
+            () => (
+              paintId: value[0] as String,
+              at: DateTime.fromMillisecondsSinceEpoch(value[1] as int),
+            ),
+          );
+        }
+        _refreshAllUserNotifiers();
+      }
+    } catch (e) {
+      logDebug('7TV paint cache restore failed: $e');
+    }
+  }
+
+  void _scheduleUsersSave() {
+    if (_store == null) return;
+    _usersSaveTimer ??= Timer(_usersSaveDelay, () {
+      _usersSaveTimer = null;
+      final encoded = jsonEncode({
+        for (final entry in _assignments.entries)
+          entry.key: [
+            entry.value.paintId,
+            entry.value.at.millisecondsSinceEpoch,
+          ],
+      });
+      unawaited(_store.write(_usersKey, encoded));
+    });
+  }
+
+  /// Downloads the catalog once per session; failures allow retry. The disk
+  /// copy lands first.
   Future<void> ensureCatalog() {
-    return _catalogFuture ??= _fetchCatalog();
+    return _catalogFuture ??= _restore().then((_) => _fetchCatalog());
+  }
+
+  void _addCatalog(List<dynamic> list) {
+    final parsed = <String, SevenTvPaint>{};
+    for (final item in list) {
+      final paint = _parsePaint(item as Map<String, dynamic>);
+      if (paint != null) parsed[paint.id] = paint;
+    }
+    _paintsById.addAll(parsed);
+    notifyListeners();
+    _refreshAllUserNotifiers();
   }
 
   Future<void> _fetchCatalog() async {
@@ -364,14 +518,12 @@ class SevenTvPaintService extends ChangeNotifier {
       final root = data?['paints'] as Map<String, dynamic>?;
       final list = root?['paints'] as List<dynamic>?;
       if (list == null) return;
-      final parsed = <String, SevenTvPaint>{};
-      for (final item in list) {
-        final paint = _parsePaint(item as Map<String, dynamic>);
-        if (paint != null) parsed[paint.id] = paint;
+      _addCatalog(list);
+      final store = _store;
+      if (store != null) {
+        final encoded = await Isolate.run(() => jsonEncode(list));
+        await store.write(_catalogKey, encoded);
       }
-      _paintsById.addAll(parsed);
-      notifyListeners();
-      _refreshAllUserNotifiers();
     } catch (e) {
       logDebug('7TV paint catalog fetch failed: $e');
       _catalogFuture = null;
@@ -384,14 +536,18 @@ class SevenTvPaintService extends ChangeNotifier {
     if (!_enabled || userId == null || userId.isEmpty) return null;
     final now = _now();
     _pruneStaleUserMaps(now);
+    final backoff = _backoffUntil[userId];
+    final backedOff = backoff != null && now.isBefore(backoff);
     final assignment = _assignments[userId];
     if (assignment != null) {
-      if (now.difference(assignment.at) <= _userTtl) {
-        final paint = _paintsById[assignment.paintId];
-        if (paint == null) unawaited(_ensurePaint(assignment.paintId));
-        return paint;
+      final paint = _paintsById[assignment.paintId];
+      if (paint == null) unawaited(_ensurePaint(assignment.paintId));
+      // A stale paint keeps showing while it refreshes, so a restored cold
+      // start never drops back to a plain name.
+      if (now.difference(assignment.at) > _userTtl && !backedOff) {
+        requestUser(userId);
       }
-      _assignments.remove(userId);
+      return paint;
     }
     if (_pendingUsers.contains(userId)) return null;
     final negAt = _negative[userId];
@@ -399,8 +555,7 @@ class SevenTvPaintService extends ChangeNotifier {
       if (now.difference(negAt) <= _negativeTtl) return null;
       _negative.remove(userId);
     }
-    final backoff = _backoffUntil[userId];
-    if (backoff != null && now.isBefore(backoff)) return null;
+    if (backedOff) return null;
     requestUser(userId);
     return null;
   }
@@ -461,6 +616,7 @@ class SevenTvPaintService extends ChangeNotifier {
             (style?['activePaint'] as Map<String, dynamic>?)?['id'] as String?;
         if (paintId == null || paintId.isEmpty) {
           _negative[entry.value] = now;
+          if (_assignments.remove(entry.value) != null) changed = true;
         } else {
           _assignments[entry.value] = (paintId: paintId, at: now);
           unawaited(_ensurePaint(paintId));
@@ -468,7 +624,10 @@ class SevenTvPaintService extends ChangeNotifier {
         }
         _refreshUserNotifier(entry.value);
       }
-      if (changed) notifyListeners();
+      if (changed) {
+        notifyListeners();
+        _scheduleUsersSave();
+      }
     } finally {
       _resolvingBatch = false;
       if (_pendingUsers.isNotEmpty) _scheduleFlush();
@@ -618,8 +777,7 @@ class SevenTvPaintService extends ChangeNotifier {
     return Color(packed);
   }
 
-  /// Resolved texture for an image layer. Returns null until loaded.
-  ui.Image? imageFor(SevenTvImagePaintLayer layer) {
+  _PaintTexture? _textureFor(SevenTvImagePaintLayer layer) {
     final variant = layer.pickVariant();
     if (variant == null) return null;
     final cached = _images[variant.url];
@@ -634,22 +792,54 @@ class SevenTvPaintService extends ChangeNotifier {
     return null;
   }
 
+  /// Resolved texture (current frame) for an image layer. Null until loaded.
+  ui.Image? imageFor(SevenTvImagePaintLayer layer) =>
+      _textureFor(layer)?.current;
+
+  /// Notifies when [paint]'s image advances a frame; null for stills and
+  /// non-image paints.
+  Listenable? frameTicker(SevenTvPaint paint) {
+    final layer = paint.layers.firstOrNull;
+    if (layer is! SevenTvImagePaintLayer) return null;
+    final texture = _textureFor(layer);
+    return texture != null && texture.animated ? texture : null;
+  }
+
   Future<void> _loadImage(SevenTvPaintImage variant) async {
     ui.Codec? codec;
+    final frames = <ui.Image>[];
     try {
       final bytes = await _fetchBytes(Uri.parse(variant.url));
       codec = await ui.instantiateImageCodec(bytes);
-      final frame = await codec.getNextFrame();
-      _images[variant.url] = frame.image;
+      final count = math.min(codec.frameCount, _maxPaintFrames);
+      final endsMs = <int>[];
+      var at = 0;
+      for (var i = 0; i < count; i++) {
+        final frame = await codec.getNextFrame();
+        frames.add(frame.image);
+        // Browsers stretch near-zero GIF delays to 100ms; match them.
+        final ms = frame.duration.inMilliseconds;
+        at += ms < 20 ? 100 : ms;
+        endsMs.add(at);
+      }
+      final texture = _PaintTexture(frames, endsMs);
+      _images[variant.url] = texture;
+      _imageBytes += texture.bytes;
       _imageAccessOrder.add(variant.url);
-      while (_imageAccessOrder.length > _maxCachedPaintImages) {
-        final oldest = _imageAccessOrder.removeAt(0);
-        _images.remove(oldest)?.dispose();
+      while (_imageAccessOrder.length > 1 &&
+          (_imageAccessOrder.length > _maxCachedPaintImages ||
+              _imageBytes > _maxPaintImageBytes)) {
+        final oldest = _images.remove(_imageAccessOrder.removeAt(0));
+        if (oldest == null) continue;
+        _imageBytes -= oldest.bytes;
+        oldest.release();
       }
       if (_enabled) imageRevision.value++;
     } catch (e) {
       logDebug('7TV paint image failed: ${variant.url}: $e');
-      _images.remove(variant.url);
+      for (final frame in frames) {
+        frame.dispose();
+      }
     } finally {
       codec?.dispose();
       _imageInflight.remove(variant.url);
@@ -843,11 +1033,13 @@ class SevenTvPaintService extends ChangeNotifier {
   void dispose() {
     _flushTimer?.cancel();
     _entitlementSub?.cancel();
+    _usersSaveTimer?.cancel();
     _userNotifiers.clear();
-    for (final img in _images.values) {
-      img?.dispose();
+    for (final texture in _images.values) {
+      texture.release();
     }
     _images.clear();
+    _imageBytes = 0;
     _imageAccessOrder.clear();
     imageRevision.dispose();
     super.dispose();

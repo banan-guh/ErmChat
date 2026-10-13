@@ -12,6 +12,7 @@ import '../irc/proxy_config.dart';
 import '../irc/transport/read.dart';
 import '../irc/transport/write.dart';
 import '../l10n/l10n.dart';
+import '../services/emote_meta_store.dart';
 import '../services/emote_manager.dart';
 import '../services/ignore_manager.dart';
 import '../services/ping_manager.dart';
@@ -172,7 +173,7 @@ final thirdPartyBadgeServiceProvider = Provider<ThirdPartyBadgeService>((ref) {
 });
 
 final sevenTvPaintServiceProvider = Provider<SevenTvPaintService>((ref) {
-  final service = SevenTvPaintService();
+  final service = SevenTvPaintService(store: EmoteMetaStore.I);
   ref.onDispose(service.dispose);
   return service;
 });
