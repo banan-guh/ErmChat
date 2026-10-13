@@ -1,7 +1,5 @@
-- Made send feedback less scary
-- Fixed ui for pubsub
-- hype train emote section
-- chatterino homies badges
-- higher res badges
-- fix user profile not showing on tap after pip
-- fix pinned msgs showing wrong pin
+- Faster in-app Twitch login (you'll be prompted to relogin)
+- Unlocked global and Hype Train emotes work
+- Animated 7TV paints
+- resizable stream in portrait
+- landscape split on small phones fixed
