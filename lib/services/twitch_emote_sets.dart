@@ -166,19 +166,21 @@ class TwitchEmoteSets {
     }
   }
 
-  static const _userIdWait = Duration(seconds: 15);
+  // Pending wait for the user id; an account reset releases it with null.
+  Completer<String?>? _userIdWaiter;
 
   Future<String?> _awaitUserId(TwitchAuth auth) {
-    final done = Completer<String?>();
+    final done = _userIdWaiter = Completer<String?>();
     void check() {
       final id = auth.userId;
       if (id != null && id.isNotEmpty && !done.isCompleted) done.complete(id);
     }
 
     auth.addListener(check);
-    return done.future
-        .timeout(_userIdWait, onTimeout: () => null)
-        .whenComplete(() => auth.removeListener(check));
+    return done.future.whenComplete(() {
+      auth.removeListener(check);
+      if (identical(_userIdWaiter, done)) _userIdWaiter = null;
+    });
   }
 
   /// Re-fetches the account's emotes (manual emote reload).
@@ -197,6 +199,8 @@ class TwitchEmoteSets {
   void resetUserEmoteState() {
     _fetched = false;
     _inflight = false;
+    final waiter = _userIdWaiter;
+    if (waiter != null && !waiter.isCompleted) waiter.complete(null);
     _emoteOwnerLogins.clear();
     _fetchedSubEmotesByOwner.clear();
     final removedIds = <String>{..._unlockedTwitchEmotes.keys};
