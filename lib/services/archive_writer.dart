@@ -1,0 +1,202 @@
+import 'dart:async';
+import 'dart:isolate';
+import 'dart:typed_data';
+
+import '../archive/archive_block.dart';
+import '../archive/archive_io.dart';
+import '../archive/archive_row.dart';
+import '../archive/archive_users.dart';
+import '../models/twitch_message.dart';
+import '../util/log.dart';
+import 'archive_adapter.dart';
+import 'archive_store.dart';
+
+Future<Uint8List> encodeOffIsolate(List<ArchiveRow> rows) =>
+    Isolate.run(() => ArchiveBlock.encode(rows));
+
+class _Chan {
+  UserTables? tables;
+  Future<void>? loading;
+  final waiting = <TwitchMessage>[];
+  final tail = <ArchiveRow>[];
+
+  /// Recent message ids (insertion ordered): the unsealed tail plus the
+  /// newest sealed block, so a row arriving twice is stored once.
+  final ids = <String>{};
+  Timer? timer;
+  Future<void> chain = Future.value();
+}
+
+/// Appends accepted messages to an in-memory tail per channel and seals the
+/// tail into one block every [sealCount] rows or [sealAfter] after its first
+/// row. Encoding runs off the UI isolate and each block is written in one
+/// transaction with its minute counts. Nothing waits for lifecycle events: a
+/// kill loses at most the unsealed tail.
+class ArchiveWriter {
+  ArchiveWriter(
+    this._store, {
+    this.sealCount = 256,
+    this.sealAfter = const Duration(seconds: 30),
+    this.createTimer = Timer.new,
+    this.encode = encodeOffIsolate,
+  });
+
+  /// Message ids remembered per channel for dedup.
+  static const int idWindow = 4096;
+
+  /// Messages parked per channel while the user tables load.
+  static const int maxWaiting = 1024;
+
+  final Future<ArchiveStore?> _store;
+  final int sealCount;
+  final Duration sealAfter;
+
+  /// Injectable so tests fire the seal timer by hand.
+  final Timer Function(Duration, void Function()) createTimer;
+
+  /// Packs one tail; off the UI isolate by default.
+  final Future<Uint8List> Function(List<ArchiveRow> rows) encode;
+  final Map<String, _Chan> _chans = {};
+  bool _disposed = false;
+
+  /// Queues [msg] for [channel]. Never throws and never blocks the caller.
+  void add(String channel, TwitchMessage msg) {
+    if (_disposed) {
+      return;
+    }
+    final c = _chans.putIfAbsent(channel, _Chan.new);
+    if (c.tables == null) {
+      if (c.waiting.length < maxWaiting) {
+        c.waiting.add(msg);
+      }
+      c.loading ??= _load(channel, c);
+      return;
+    }
+    _append(channel, c, msg);
+  }
+
+  Future<void> _load(String channel, _Chan c) async {
+    try {
+      final store = await _store;
+      if (store == null) {
+        c.waiting.clear();
+        return;
+      }
+      final tables = await store.tables(channel);
+      for (final b in await store.newestBlocks(channel, 1)) {
+        try {
+          for (final r in ArchiveBlock.decode(b.data)) {
+            final id = r.messageId;
+            if (id != null) {
+              c.ids.add(id);
+            }
+          }
+        } on ArchiveFormatException {
+          continue;
+        }
+        break;
+      }
+      c.tables = tables;
+      final queued = List.of(c.waiting);
+      c.waiting.clear();
+      for (final m in queued) {
+        _append(channel, c, m);
+      }
+    } catch (e) {
+      logDebug('[ArchiveWriter] load failed for $channel: $e');
+    } finally {
+      c.loading = null;
+    }
+  }
+
+  void _append(String channel, _Chan c, TwitchMessage msg) {
+    final id = msg.messageId;
+    if (id != null) {
+      if (!c.ids.add(id)) {
+        return;
+      }
+      if (c.ids.length > idWindow) {
+        c.ids.remove(c.ids.first);
+      }
+    }
+    c.tail.add(ArchiveAdapter(c.tables!).toRow(msg));
+    if (c.tail.length >= sealCount) {
+      _seal(channel, c);
+    } else {
+      c.timer ??= createTimer(sealAfter, () => _seal(channel, c));
+    }
+  }
+
+  void _seal(String channel, _Chan c) {
+    c.timer?.cancel();
+    c.timer = null;
+    if (c.tail.isEmpty) {
+      return;
+    }
+    final rows = List.of(c.tail);
+    c.tail.clear();
+    c.chain = c.chain.then((_) => _write(channel, rows));
+  }
+
+  Future<void> _write(String channel, List<ArchiveRow> rows) async {
+    try {
+      final data = await encode(rows);
+      final store = await _store;
+      if (store == null) {
+        return;
+      }
+      var start = rows.first.timestampMs;
+      var end = start;
+      final minutes = <int, int>{};
+      for (final r in rows) {
+        final t = r.timestampMs;
+        if (t < start) start = t;
+        if (t > end) end = t;
+        minutes.update(t ~/ 60000, (n) => n + 1, ifAbsent: () => 1);
+      }
+      await store.appendBlock(
+        channel: channel,
+        startTs: start,
+        endTs: end,
+        count: rows.length,
+        data: data,
+        minutes: minutes,
+      );
+      await store.pruneIfDue();
+    } catch (e) {
+      logDebug('[ArchiveWriter] seal failed for $channel: $e');
+    }
+  }
+
+  /// Completes when every load and queued seal has finished.
+  Future<void> settled() async {
+    for (final c in _chans.values) {
+      await c.loading;
+      await c.chain;
+    }
+  }
+
+  /// Seals every tail now and waits for the writes.
+  Future<void> flush() async {
+    for (final c in _chans.values) {
+      await c.loading;
+    }
+    for (final e in _chans.entries) {
+      _seal(e.key, e.value);
+    }
+    await settled();
+  }
+
+  /// Seals what is pending, then closes the store.
+  Future<void> dispose() async {
+    if (_disposed) {
+      return;
+    }
+    await flush();
+    _disposed = true;
+    for (final c in _chans.values) {
+      c.timer?.cancel();
+    }
+    await (await _store)?.close();
+  }
+}

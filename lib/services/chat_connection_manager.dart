@@ -132,6 +132,7 @@ class ChatSinks {
     this.isBlocked,
     this.getSharedChatMode,
     this.onAnalyticsMessage,
+    this.onArchiveMessage,
     this.onAnalyticsModeration,
     this.onHypeTrain,
     this.onPoll,
@@ -151,6 +152,7 @@ class ChatSinks {
   final bool Function(String login)? isBlocked;
   final String Function()? getSharedChatMode;
   final void Function(String channel, TwitchMessage msg)? onAnalyticsMessage;
+  final void Function(String channel, TwitchMessage msg)? onArchiveMessage;
   final void Function(String channel, bool isTimeout)? onAnalyticsModeration;
   final void Function(HypeTrainEvent event)? onHypeTrain;
   final void Function(PollEvent event)? onPoll;
@@ -367,6 +369,7 @@ class ChatConnectionManager {
     onSystemMessage: config.bridge.onSystemMessage,
     strings: config.bridge.strings,
     onAnalyticsMessage: config.sinks.onAnalyticsMessage,
+    onArchiveMessage: config.sinks.onArchiveMessage,
     onChatMessage: config.sinks.onChatMessage,
     onMention: config.sinks.onMention,
     onWhisper: config.sinks.onWhisper,

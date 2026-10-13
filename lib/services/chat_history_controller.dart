@@ -6,6 +6,7 @@ import '../emotes/emote.dart';
 import '../models/twitch_message.dart';
 import '../util/log.dart';
 import '../util/signal.dart';
+import 'archive.dart';
 import 'emote_manager.dart';
 import 'emote_store.dart';
 import 'ignore_manager.dart';
@@ -32,6 +33,7 @@ class ChatHistoryController {
     required this.recentMessagesLimit,
     this.isBlocked,
     ChatSignal<bool>? emoteReloading,
+    this.archive,
   }) : _policy = ChatMessagePolicy(
          ignoreManager: ignoreManager,
          pingManager: pingManager,
@@ -55,6 +57,9 @@ class ChatHistoryController {
   final int Function() maxMessages;
   final int Function() recentMessagesLimit;
   final bool Function(String login)? isBlocked;
+
+  /// Null unless the history archive is enabled.
+  final Archive? archive;
 
   final ChatMessagePolicy _policy;
   final _refetchingChannels = <String>{};
@@ -90,13 +95,42 @@ class ChatHistoryController {
       _stampEmoteResolution(msg, channel);
       prepared.add(msg);
     }
-    chat.receiveHistory(
+    final inserted = chat.receiveHistory(
       channel,
       prepared,
       rawHistory: history,
       maxMessages: maxMessages(),
       ownLogin: session.login,
     );
+    // Gap rows from robotty join the archive; restored rows were deduped out.
+    for (final msg in inserted) {
+      archive?.writer.add(channel, msg);
+    }
+  }
+
+  /// Fills the channel buffer with its newest archived rows before the
+  /// network history lands, so a cold start shows chat from disk. Rows go
+  /// through [chat]'s history verb directly, so the later robotty merge dedups
+  /// them by id. Does nothing when the archive is off.
+  Future<void> restoreFromArchive(String channel) async {
+    final reader = archive?.reader;
+    if (reader == null) return;
+    try {
+      final rows = await reader.newestRows(channel, maxMessages());
+      if (rows.isEmpty || !chat.contains(channel)) return;
+      for (final msg in rows) {
+        _stampEmoteResolution(msg, channel);
+      }
+      chat.receiveHistory(
+        channel,
+        rows,
+        rawHistory: rows,
+        maxMessages: maxMessages(),
+        ownLogin: session.login,
+      );
+    } catch (e) {
+      logDebug('[ChatHistoryController] archive restore failed: $e');
+    }
   }
 
   /// Parses [msg]'s emotes once at merge time and stores them on the

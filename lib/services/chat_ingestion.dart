@@ -61,6 +61,7 @@ class ChatIngestion {
     required this.onSystemMessage,
     this.strings = englishStrings,
     this.onAnalyticsMessage,
+    this.onArchiveMessage,
     this.onChatMessage,
     this.onMention,
     this.onWhisper,
@@ -121,6 +122,7 @@ class ChatIngestion {
   final AppLocalizations Function() strings;
 
   final void Function(String channel, TwitchMessage msg)? onAnalyticsMessage;
+  final void Function(String channel, TwitchMessage msg)? onArchiveMessage;
   final void Function(String channel, TwitchMessage msg)? onChatMessage;
   final void Function(String channel, TwitchMessage msg)? onMention;
   final void Function(TwitchMessage msg)? onWhisper;
@@ -313,6 +315,7 @@ class ChatIngestion {
     }
 
     onAnalyticsMessage?.call(channel, msg);
+    onArchiveMessage?.call(channel, msg);
 
     if (msg.sourceBroadcasterId != null && !msg.isHistory) {
       unawaited(_ensureSourceChannelData(msg.sourceBroadcasterId!));
@@ -532,6 +535,7 @@ class ChatIngestion {
     // Counted after the dedup gate: the read socket and the write echo carry
     // the same message, so counting before the insert would double it.
     onAnalyticsMessage?.call(channel, msg);
+    onArchiveMessage?.call(channel, msg);
 
     precacheMessageEmotes(msg);
     // Own messages arrive on the read socket (not the channel echo), so they

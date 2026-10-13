@@ -7,6 +7,7 @@ import '../models/twitch_message.dart';
 import '../report_config.dart';
 import '../services/bug_report_outbox.dart';
 import '../services/analytics_service.dart';
+import '../services/archive.dart';
 import '../services/app_updates.dart';
 import '../services/chat_history_controller.dart';
 import '../services/command_handler.dart';
@@ -115,9 +116,18 @@ final chatHistoryControllerProvider = Provider<ChatHistoryController>((ref) {
     isBlocked: (login) =>
         ref.read(blockedLoginsProvider).contains(login.toLowerCase()),
     emoteReloading: ref.read(emoteSignalsProvider).busy,
+    archive: ref.read(archiveProvider),
   );
   ref.onDispose(controller.dispose);
   return controller;
+});
+
+/// The history archive, or null unless built with `ERMCHAT_ARCHIVE=true`.
+final archiveProvider = Provider<Archive?>((ref) {
+  if (!Archive.enabled) return null;
+  final archive = Archive.inAppSupport();
+  ref.onDispose(archive.dispose);
+  return archive;
 });
 
 /// Slash-command handler. It owns no resources; whisper routing emits

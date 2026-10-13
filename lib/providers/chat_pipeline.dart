@@ -21,6 +21,7 @@ final chatPipelineProvider = Provider<ChatConnectionManager>((ref) {
   final chat = ref.read(chatProvider);
   final session = ref.read(sessionProvider);
   final signals = ref.read(chatUiSignalsProvider);
+  final archive = ref.read(archiveProvider);
 
   // Kernel system-line write plus truncate, shared by every system sink.
   void writeSystem(
@@ -102,6 +103,9 @@ final chatPipelineProvider = Provider<ChatConnectionManager>((ref) {
         getSharedChatMode: () => ref.read(sharedChatModeProvider),
         onAnalyticsMessage: (channel, msg) =>
             ref.read(analyticsServiceProvider).recordMessage(channel, msg),
+        onArchiveMessage: archive == null
+            ? null
+            : (channel, msg) => archive.writer.add(channel, msg),
         onAnalyticsModeration: (channel, isTimeout) => ref
             .read(analyticsServiceProvider)
             .recordModeration(channel, isTimeout),

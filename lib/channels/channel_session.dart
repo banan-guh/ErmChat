@@ -6,6 +6,7 @@ import '../chat/chat.dart';
 import '../client/session.dart';
 import '../irc/transport/read.dart';
 import '../l10n/l10n.dart';
+import '../models/twitch_message.dart';
 import '../irc/transport/write.dart';
 import '../services/analytics_service.dart';
 import '../services/chat_connection_manager.dart';
@@ -125,8 +126,7 @@ class ChannelSession extends ChangeNotifier {
     notifyListeners();
     for (final name in saved) {
       subscribeChannel(name);
-      recentMessages
-          .fetchRecentPreferWarm(name, limit: recentMessagesLimit())
+      _fetchHistory(name)
           .then((rows) {
             if (_disposed || !chat.contains(name)) return;
             chat.channelFor(name)?.setHistoryLoaded(true);
@@ -150,6 +150,18 @@ class ChannelSession extends ChangeNotifier {
             maybeAddConnected(name);
           });
     }
+  }
+
+  /// Archived rows first (when enabled), then the network history, which
+  /// dedups against them by id.
+  Future<List<TwitchMessage>> _fetchHistory(String name) {
+    Future<List<TwitchMessage>> fetch() => recentMessages.fetchRecentPreferWarm(
+      name,
+      limit: recentMessagesLimit(),
+    );
+    return history.archive == null
+        ? fetch()
+        : history.restoreFromArchive(name).then((_) => fetch());
   }
 
   void maybeAddConnected(String channel) {
@@ -182,8 +194,7 @@ class ChannelSession extends ChangeNotifier {
 
     chat.channelFor(name)?.addLoadingHistory();
 
-    recentMessages
-        .fetchRecentPreferWarm(name, limit: recentMessagesLimit())
+    _fetchHistory(name)
         .then((rows) {
           if (_disposed || !chat.contains(name)) return;
           chat.channelFor(name)?.setHistoryLoaded(true);
