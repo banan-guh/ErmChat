@@ -36,6 +36,8 @@ class TwitchEmoteSets {
   // re-attach them to newly joined channels.
   bool _fetched = false;
   bool _inflight = false;
+  // Token the fetch ran with: a re-login (new scopes, same account) refetches.
+  String? _fetchedToken;
   // owner id -> login, built up across resolves and reused between reconnects.
   final Map<String, String> _emoteOwnerLogins = {};
   // Last fetched locked user emote sets keyed by owner id. Kept in memory
@@ -94,6 +96,7 @@ class TwitchEmoteSets {
     Map<String, String> openChannelUserIds,
   ) async {
     if (_tier() == EmoteFetchTier.nothing) return;
+    if (_fetched && _fetchedToken != auth.accessToken) _fetched = false;
     if (_fetched || _inflight) {
       final channels = _openChannels(openChannelUserIds);
       await _resolveOwners(auth, channels);
@@ -145,6 +148,7 @@ class TwitchEmoteSets {
       }
       if (unlocked.isNotEmpty) _storeUnlockedGlobalEmotes(unlocked);
       _fetched = true;
+      _fetchedToken = auth.accessToken;
       if (perOwner.isEmpty) {
         logDebug('loadUserEmotes: fetched, no channel emotes');
         return;
