@@ -893,9 +893,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.paused) {
       _releaseDecodedImages();
-      // A paused app may be killed without warning; save stats and threads.
+      // A paused app may be killed without warning; save stats, threads and
+      // the unsealed chat history.
       unawaited(_analytics.flush());
       unawaited(_threads.persistSaved());
+      final archive = ref.read(archiveProvider);
+      if (archive != null) unawaited(archive.writer.flush());
     }
     // Inactive is still on screen (notification shade, system dialog), so
     // only a hidden app counts as backgrounded for notifications.
