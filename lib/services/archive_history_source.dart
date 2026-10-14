@@ -30,9 +30,15 @@ class ArchiveHistorySource implements HistorySource {
   Future<List<TwitchMessage>> around(DateTime time) =>
       reader.rowsNear(channel, time, before: 1, after: 1);
 
+  /// Reads from a day ahead: row times come from Twitch's clock, which can
+  /// run ahead of the phone's.
   @override
-  Future<List<TwitchMessage>> newest() =>
-      reader.rowsNear(channel, _now(), before: 2, after: 0);
+  Future<List<TwitchMessage>> newest() => reader.rowsNear(
+    channel,
+    _now().add(const Duration(days: 1)),
+    before: 2,
+    after: 0,
+  );
 
   @override
   Future<List<HistoryStream>> streams() =>

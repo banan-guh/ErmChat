@@ -77,7 +77,11 @@ class ModerationHub {
     final sink = onArchiveModeration;
     final items = chat.channelFor(channel)?.messages.items;
     if (sink == null || items == null || items.isEmpty) return;
-    sink(channel, login?.toLowerCase(), items.last.timestamp, DateTime.now());
+    // Row times are Twitch's clock; the newest row covers a phone behind it.
+    final now = DateTime.now();
+    final newest = items.first.timestamp;
+    final to = newest.isAfter(now) ? newest : now;
+    sink(channel, login?.toLowerCase(), items.last.timestamp, to);
   }
 
   final _recentBanMeta = <String, List<_BanMeta>>{};
