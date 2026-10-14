@@ -349,6 +349,8 @@ class ChatLifecycle {
         if (_disposed) return;
         if (status == IrcConnectionStatus.connected &&
             readiness.noteReadSocketRecovered()) {
+          // Chat arrives on this socket, so its outage is the gap to refill.
+          onReconnected?.call();
           for (final channel in chat.names) {
             // Same ack as the JOIN-confirm path below: a flapping write
             // socket reports the same recovery, keep one line.
