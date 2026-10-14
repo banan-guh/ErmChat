@@ -2,6 +2,7 @@ import 'package:ermchat/l10n/l10n.dart';
 import 'package:ermchat/models/twitch_message.dart';
 import 'package:ermchat/services/emote_manager.dart';
 import 'package:ermchat/util/fake_history.dart';
+import 'package:ermchat/util/history_timeline.dart';
 import 'package:ermchat/widgets/chat_message_tile.dart';
 import 'package:ermchat/widgets/chat_rows.dart';
 import 'package:ermchat/widgets/glass_chrome.dart';
@@ -16,10 +17,25 @@ import 'package:flutter_test/flutter_test.dart';
 const double _inset = 50;
 const String _ch = FakeHistory.testChannel;
 
+/// Has no rail on the first read, like an archive with nothing sealed yet.
+class _EmptyFirstRail extends FakeHistorySource {
+  _EmptyFirstRail(super.channel);
+
+  bool _first = true;
+
+  @override
+  Future<ActivityRail?> rail(List<HistoryStream> streams) async {
+    if (!_first) return super.rail(streams);
+    _first = false;
+    return null;
+  }
+}
+
 Future<void> _pumpView(
   WidgetTester tester, {
   List<TwitchMessage> Function()? live,
   Listenable? liveVersion,
+  FakeHistorySource? source,
 }) async {
   FakeHistory.loadDelay = Duration.zero;
   tester.view.physicalSize = const Size(400, 800);
@@ -40,7 +56,7 @@ Future<void> _pumpView(
       home: Scaffold(
         body: HistoryView(
           channel: _ch,
-          source: FakeHistorySource(_ch),
+          source: source ?? FakeHistorySource(_ch),
           rows: ChatRows(
             channel: _ch,
             messageBuilder: builder,
@@ -343,7 +359,8 @@ void main() {
   testWidgets('scroll past the oldest row after a rail jump to the top', (
     tester,
   ) async {
-    await _pumpView(tester);
+    // A fresh archive has no rail at first paint; scrolling builds it later.
+    await _pumpView(tester, source: _EmptyFirstRail(_ch));
     // Long flings up bring the rail in.
     final list = find.byType(CustomScrollView);
     bool railShown() =>

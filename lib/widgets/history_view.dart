@@ -207,6 +207,7 @@ class _HistoryViewState extends State<HistoryView> {
   Timer? _idleTimer;
   int _idleDeadline = 0;
   bool _railDragging = false;
+  bool _railBuilding = false;
   bool _scrolled = false;
   ({DateTime time, Future<List<TwitchMessage>> rows})? _prefetched;
   bool _prefetching = false;
@@ -1079,18 +1080,29 @@ class _HistoryViewState extends State<HistoryView> {
 
   // ---- Rail ----------------------------------------------------------------
 
-  /// Builds the activity-weighted rail model.
+  /// Builds the activity-weighted rail model. A fresh archive has no sealed
+  /// minutes yet, so a missing or bucket-old rail rebuilds on later scrolls.
   Future<void> _buildRail() async {
-    if (!mounted || _railReady.value != null) return;
-    final rail = await widget.source.rail(_window.streams);
-    if (!mounted) return;
-    _railReady.value = rail;
+    if (!mounted || _railBuilding) return;
+    final rail = _railReady.value;
+    if (rail != null &&
+        widget.source.now().difference(rail.to) < ActivityRail.defaultBucket) {
+      return;
+    }
+    _railBuilding = true;
+    try {
+      final next = await widget.source.rail(_window.streams);
+      if (mounted && next != null) _railReady.value = next;
+    } finally {
+      _railBuilding = false;
+    }
   }
 
   /// Follows the list on scroll: shows the rail after a long scroll up and
   /// keeps the thumb on the viewport's time while visible.
   void _updateRail() {
     _peek.value = false;
+    if (_firstPainted) _buildRail();
     final rail = _railReady.value;
     if (rail == null || _railDragging) return;
     final row = _window.at(_viewportPos());
