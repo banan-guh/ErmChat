@@ -70,27 +70,6 @@ void main() {
       expect(store.threads, isEmpty);
     });
 
-    test('decode round-trips and drops corrupt rows', () {
-      final entry = SavedThread.fromMessage(_msg('r1', 'forsen'), 'r1');
-      final good = jsonEncode(entry.toJson());
-
-      final other = SavedThreadsStore()..decode('[$good]');
-      expect(other.isSaved('forsen', 'r1'), isTrue);
-      expect(other.threads.single.author, 'Alice');
-
-      final inputs = {
-        'not json{{{': 0,
-        '[$good, 42, {"channel": 7, "rootId": ["x"]}, '
-                '{"channel": "", "rootId": ""}]':
-            1,
-        '[{"channel": "forsen", "rootId": "r1", "savedAt": "not-a-date"}]': 0,
-      };
-      inputs.forEach((raw, kept) {
-        final store = SavedThreadsStore()..decode(raw);
-        expect(store.threads, hasLength(kept), reason: raw);
-      });
-    });
-
     test('caps at 50, evicting the oldest', () {
       final store = SavedThreadsStore();
       for (var i = 0; i < 55; i++) {
@@ -120,14 +99,12 @@ void main() {
 
   group('SavedThreadsStore in the archive db', () {
     late Directory dir;
-    late Directory legacy;
     final open = <ArchiveStore>[];
 
     setUpAll(sqfliteFfiInit);
 
     setUp(() async {
       dir = await Directory.systemTemp.createTemp('saved_threads_db');
-      legacy = Directory('${dir.path}/saved_threads');
     });
 
     tearDown(() async {
@@ -158,7 +135,6 @@ void main() {
       Timer Function(Duration, void Function())? createTimer,
     }) => SavedThreadsStore(
       store: Future.value(db),
-      legacyDir: legacy,
       createTimer: createTimer ?? Timer.new,
     );
 
@@ -293,95 +269,14 @@ void main() {
       expect(msgs.first.messageId, 'm299');
     });
 
-    group('legacy JSON migration', () {
-      File at(String name) => File('${legacy.path}/$name');
-
-      Future<void> writeThread(String name, List<TwitchMessage> log) =>
-          at(name).writeAsString(jsonEncode([for (final m in log) m.toJson()]));
-
-      Future<void> writeLegacy() async {
-        await legacy.create(recursive: true);
-        final entries = [
-          for (final id in ['a', 'b', 'c', 'd'])
-            SavedThread.fromMessage(
-              _msg(id, 'forsen', seconds: 1),
-              id,
-              now: _t0,
-            ),
-        ];
-        await at(
-          'index.json',
-        ).writeAsString(jsonEncode([for (final e in entries) e.toJson()]));
-        await writeThread('forsen__a.json', [
-          _msg('a', 'forsen'),
-          _msg('a1', 'forsen', rootId: 'a', seconds: 1),
-        ]);
-        // Truncated primary with a valid backup.
-        await at('forsen__b.json').writeAsString('[{"login": "al');
-        await writeThread('forsen__b.json.bak', [_msg('b', 'forsen')]);
-        // Unreadable, no backup: the bookmark migrates with an empty log.
-        await at('forsen__c.json').writeAsString('garbage');
-        await writeThread('forsen__d.json', [_msg('d', 'forsen')]);
-      }
-
-      test(
-        'imports everything readable once, then deletes the files',
-        () async {
-          await writeLegacy();
-          final db = await openDb();
-
-          final first = storeOn(db);
-          await first.load();
-          await first.flushIo();
-          expect(first.keys, {'forsen:a', 'forsen:b', 'forsen:c', 'forsen:d'});
-          expect(first.messagesFor('forsen', 'a'), hasLength(2));
-          expect(
-            first.messagesFor('forsen', 'b').single.messageId,
-            'b',
-            reason: 'backup file',
-          );
-          expect(first.messagesFor('forsen', 'c'), isEmpty);
-          expect(legacy.existsSync(), isTrue, reason: 'kept for one launch');
-
-          // Later edits to the files are ignored: the marker makes it a no-op.
-          await at('index.json').writeAsString(
-            jsonEncode([
-              SavedThread.fromMessage(_msg('e', 'forsen'), 'e').toJson(),
-            ]),
-          );
-          final second = storeOn(db);
-          await second.load();
-          await second.flushIo();
-          expect(second.keys, first.keys);
-          expect(await rows(db, 'forsen', 'a'), 2);
-          expect(legacy.existsSync(), isFalse, reason: 'deleted next launch');
-
-          final third = storeOn(db);
-          await third.load();
-          expect(third.keys, first.keys);
-        },
-      );
-
-      test('an unreadable index is kept and never marked done', () async {
-        await legacy.create(recursive: true);
-        await at('index.json').writeAsString('garbage');
-        final db = await openDb();
-
-        final store = storeOn(db);
-        await store.load();
-        expect(store.threads, isEmpty);
-        expect(at('index.json').existsSync(), isTrue);
-        expect(await db.hasMeta('saved_threads_json_migrated'), isFalse);
-      });
-
-      test('with no database the files still load for the session', () async {
-        await writeLegacy();
-        final store = storeOn(null);
-        await store.load();
-        expect(store.keys, hasLength(4));
-        expect(store.messagesFor('forsen', 'a'), hasLength(2));
-        expect(legacy.existsSync(), isTrue);
-      });
+    test('no database: saves work in memory for the session', () async {
+      final store = storeOn(null);
+      await store.load();
+      final root = _msg('r1', 'forsen');
+      store.toggle(SavedThread.fromMessage(root, 'r1'), [root]);
+      await store.flush();
+      expect(store.isSaved('forsen', 'r1'), isTrue);
+      expect(store.messagesFor('forsen', 'r1'), hasLength(1));
     });
 
     test('a version 1 archive keeps its blocks under the new schema', () async {

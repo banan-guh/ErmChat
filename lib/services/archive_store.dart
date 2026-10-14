@@ -176,8 +176,6 @@ class ArchiveStore {
            channel TEXT NOT NULL, root_id TEXT NOT NULL,
            message_id TEXT NOT NULL, ts INTEGER NOT NULL, data BLOB NOT NULL,
            PRIMARY KEY(channel, root_id, message_id)) WITHOUT ROWID''',
-      '''CREATE TABLE meta(
-           key TEXT PRIMARY KEY, value TEXT NOT NULL) WITHOUT ROWID''',
     ];
     for (final sql in statements) {
       await db.execute(sql);
@@ -532,32 +530,6 @@ class ArchiveStore {
         }
         await b.commit(noResult: true);
       });
-
-  /// Stores imported threads and sets the [marker] meta key in one
-  /// transaction. Rows already present are kept.
-  Future<void> importThreads(
-    List<StoredThread> threads,
-    List<StoredThreadMessage> messages,
-    String marker,
-  ) => _db.transaction((txn) async {
-    final b = txn.batch();
-    for (final t in threads) {
-      _insertThread(b, t, ConflictAlgorithm.ignore);
-    }
-    for (final m in messages) {
-      _insertMessage(b, m);
-    }
-    b.insert('meta', {
-      'key': marker,
-      'value': '1',
-    }, conflictAlgorithm: ConflictAlgorithm.replace);
-    await b.commit(noResult: true);
-  });
-
-  Future<bool> hasMeta(String key) async => (await _db.rawQuery(
-    'SELECT 1 FROM meta WHERE key = ?',
-    [key],
-  )).isNotEmpty;
 
   static void _deleteThread(Batch b, String channel, String rootId) {
     final args = [channel, rootId];

@@ -564,7 +564,6 @@ class Prefs {
   static const _kKeywordReplacements = 'keyword_replacements_v1';
   static const _kPingRules = 'ping_rules_v1';
   static const _kLegacyAltPings = 'alt_pings';
-  static const _kSavedThreads = 'saved_threads_v1';
   static const _kUploaderConfig = 'uploader_config';
   static const _kRecentUploads = 'recent_uploads';
   static const _kAnalyticsFilterStopwords = 'analytics_filter_stopwords';
@@ -590,10 +589,6 @@ class Prefs {
   bool get hasLegacyAltPings => _p.containsKey(_kLegacyAltPings);
 
   Future<void> removeLegacyAltPings() => _p.remove(_kLegacyAltPings);
-
-  String? get savedThreads => _p.getString(_kSavedThreads);
-
-  Future<void> removeSavedThreads() => _p.remove(_kSavedThreads);
 
   String? get uploaderConfig => _p.getString(_kUploaderConfig);
 

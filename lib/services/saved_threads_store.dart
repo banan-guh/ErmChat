@@ -1,14 +1,11 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
 import 'dart:isolate';
 
 import 'package:flutter/foundation.dart';
-import 'package:path_provider/path_provider.dart';
 
 import '../models/twitch_message.dart';
 import '../util/log.dart';
-import '../util/prefs.dart';
 import 'archive_store.dart';
 
 // Global cap; evicts the oldest-saved entry first. Saved threads themselves
@@ -57,31 +54,6 @@ class SavedThread {
       savedAt: now ?? DateTime.now(),
     );
   }
-
-  Map<String, dynamic> toJson() => {
-    'channel': channel,
-    'rootId': rootId,
-    'login': login,
-    'author': author,
-    'preview': preview,
-    'savedAt': savedAt.toUtc().toIso8601String(),
-  };
-
-  static SavedThread? fromJson(Map<String, dynamic> json) {
-    final channel = (json['channel'] as String? ?? '').toLowerCase();
-    final rootId = json['rootId'] as String? ?? '';
-    if (channel.isEmpty || rootId.isEmpty) return null;
-    final savedAt = DateTime.tryParse(json['savedAt'] as String? ?? '');
-    if (savedAt == null) return null;
-    return SavedThread(
-      channel: channel,
-      rootId: rootId,
-      login: json['login'] as String? ?? '',
-      author: json['author'] as String? ?? '',
-      preview: json['preview'] as String? ?? '',
-      savedAt: savedAt,
-    );
-  }
 }
 
 // In-memory bookmark list plus the full per-thread message logs, persisted
@@ -97,17 +69,14 @@ class SavedThread {
 class SavedThreadsStore {
   SavedThreadsStore({
     Future<ArchiveStore?>? store,
-    this._legacyDir,
     this._createTimer = Timer.new,
   }) : _store = store ?? Future.value(null);
 
-  static const _migratedKey = 'saved_threads_json_migrated';
   static const _flushDelay = Duration(seconds: 1);
   // Message bytes above which load decodes in an isolate.
   static const _isolateBytes = 64 * 1024;
 
   final Future<ArchiveStore?> _store;
-  final Directory? _legacyDir;
   final Timer Function(Duration, void Function()) _createTimer;
 
   final List<SavedThread> _threads = [];
@@ -297,10 +266,9 @@ class SavedThreadsStore {
     });
   }
 
-  /// Loads saved threads from the archive, importing the legacy JSON store
-  /// once first. Saves made while loading are kept and merged ahead of the
-  /// loaded list. With no database the legacy files are read into memory and
-  /// nothing persists this session.
+  /// Loads saved threads from the archive. Saves made while loading are kept
+  /// and merged ahead of the loaded list. With no database saved threads live
+  /// in memory for the session only.
   Future<void> load() async {
     final gate = _loading = Completer<void>();
     try {
@@ -317,16 +285,13 @@ class SavedThreadsStore {
 
   Future<void> _load() async {
     final db = await _store;
-    final legacy = _legacyDir ?? await _resolveLegacyDir();
     final List<SavedThread> loaded;
     final Map<String, List<TwitchMessage>> disk;
     if (db == null) {
-      logDebug('[SavedThreads] archive unavailable, reading JSON files');
-      final old = await _readLegacy(legacy);
-      loaded = old.threads;
-      disk = old.messages;
+      logDebug('[SavedThreads] archive unavailable, memory only');
+      loaded = const [];
+      disk = const {};
     } else {
-      await _importLegacy(db, legacy);
       (loaded, disk) = await _readDb(db);
     }
 
@@ -397,170 +362,4 @@ class SavedThreadsStore {
       return null;
     }
   }
-
-  Future<Directory?> _resolveLegacyDir() async {
-    try {
-      final docs = await getApplicationDocumentsDirectory();
-      return Directory('${docs.path}${Platform.pathSeparator}saved_threads');
-    } catch (_) {
-      return null;
-    }
-  }
-
-  // One-time import of the JSON store (and the older prefs snapshot) into the
-  // db, in one transaction that also records the marker. The files stay for
-  // one more launch; the launch after the marker exists deletes them.
-  Future<void> _importLegacy(ArchiveStore db, Directory? dir) async {
-    if (await db.hasMeta(_migratedKey)) {
-      try {
-        if (dir != null && await dir.exists()) {
-          await dir.delete(recursive: true);
-        }
-      } catch (e) {
-        logDebug('[SavedThreads] legacy cleanup failed: $e');
-      }
-      return;
-    }
-    if (dir == null) return;
-    final old = await _readLegacy(dir);
-    if (old.unreadable) {
-      logDebug('[SavedThreads] legacy index unreadable, import skipped');
-      return;
-    }
-    await db.importThreads(
-      [for (final t in old.threads) _stored(t)],
-      [
-        for (final t in old.threads)
-          for (final m in old.messages[t.key] ?? const <TwitchMessage>[])
-            _row(t, m),
-      ],
-      _migratedKey,
-    );
-    if (old.fromPrefs) {
-      try {
-        await (await Prefs.load()).removeSavedThreads();
-      } catch (_) {}
-    }
-  }
-
-  // Decoded JSON list from [file], falling back to its .bak. Null when
-  // neither is readable.
-  static Future<List?> _readList(File file) async {
-    for (final f in [file, File('${file.path}.bak')]) {
-      try {
-        if (await f.exists()) return jsonDecode(await f.readAsString()) as List;
-      } catch (_) {}
-    }
-    return null;
-  }
-
-  static String _legacyFileName(SavedThread t) {
-    final channel = t.channel.replaceAll(RegExp(r'[^a-z0-9_]'), '_');
-    final root = t.rootId.replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '_');
-    return '${channel}__$root.json';
-  }
-
-  // Reads the legacy index and thread files. Unreadable thread files are
-  // skipped; an index that exists but cannot be read sets `unreadable`. With
-  // no index file the pre-file prefs snapshot is used when present.
-  Future<_Legacy> _readLegacy(Directory? dir) async {
-    if (dir == null) return _Legacy();
-    final indexFile = File('${dir.path}${Platform.pathSeparator}index.json');
-    final list = await _readList(indexFile);
-    if (list == null) {
-      if (await indexFile.exists() ||
-          await File('${indexFile.path}.bak').exists()) {
-        return _Legacy(unreadable: true);
-      }
-      try {
-        final raw = (await Prefs.load()).savedThreads;
-        if (raw == null || raw.isEmpty) return _Legacy();
-        final old = SavedThreadsStore()..decode(raw);
-        return _Legacy(threads: [...old._threads], fromPrefs: true);
-      } catch (_) {
-        return _Legacy();
-      }
-    }
-    final result = _Legacy();
-    for (final item in list) {
-      try {
-        if (item is! Map) continue;
-        final entry = SavedThread.fromJson(Map<String, dynamic>.from(item));
-        if (entry == null) continue;
-        if (result.threads.any((t) => t.key == entry.key)) continue;
-        result.threads.add(entry);
-        if (result.threads.length >= maxSavedThreads) break;
-      } catch (_) {
-        continue;
-      }
-    }
-    for (final t in result.threads) {
-      final mlist = await _readList(
-        File('${dir.path}${Platform.pathSeparator}${_legacyFileName(t)}'),
-      );
-      if (mlist == null) {
-        logDebug('[SavedThreads] skipped unreadable ${t.key}');
-        continue;
-      }
-      result.messages[t.key] = [
-        for (final m in mlist)
-          if (m is Map) ?_fromLegacyMap(m),
-      ];
-    }
-    return result;
-  }
-
-  static TwitchMessage? _fromLegacyMap(Map m) {
-    try {
-      return TwitchMessage.fromJson(Map<String, dynamic>.from(m));
-    } catch (_) {
-      return null;
-    }
-  }
-
-  /// Parses a legacy bookmark list (the prefs snapshot) into the store.
-  void decode(String? raw) {
-    final next = <SavedThread>[];
-    if (raw != null && raw.isNotEmpty) {
-      try {
-        final list = jsonDecode(raw) as List;
-        for (final item in list) {
-          try {
-            if (item is! Map) continue;
-            final entry = SavedThread.fromJson(Map<String, dynamic>.from(item));
-            if (entry == null) continue;
-            if (next.any(
-              (t) => t.channel == entry.channel && t.rootId == entry.rootId,
-            )) {
-              continue;
-            }
-            next.add(entry);
-          } catch (_) {
-            continue;
-          }
-          if (next.length >= maxSavedThreads) break;
-        }
-      } catch (_) {
-        return;
-      }
-    }
-    _threads
-      ..clear()
-      ..addAll(next);
-  }
-}
-
-// What the legacy JSON store (or prefs snapshot) held.
-class _Legacy {
-  _Legacy({
-    List<SavedThread>? threads,
-    this.fromPrefs = false,
-    this.unreadable = false,
-  }) : threads = threads ?? [],
-       messages = {};
-
-  final List<SavedThread> threads;
-  final Map<String, List<TwitchMessage>> messages;
-  final bool fromPrefs;
-  final bool unreadable;
 }

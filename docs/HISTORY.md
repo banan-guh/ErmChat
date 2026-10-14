@@ -14,7 +14,7 @@ Done:
   restore before robotty. Always on: every install archives now.
 - Live stream rows (announcement layout, purple tint), deduped by Helix stream id.
 - History parsing in an isolate; join timeout with "Couldn't join, retrying".
-- Saved threads live in the archive database (see Saved threads).
+- Saved threads live in the archive database, with no migration from the old JSON store (see Saved threads).
 
 Next, in order:
 
@@ -103,7 +103,7 @@ Rules:
   `users`, `looks`, `ref_ids` (referenced message ids), `streams` (stream id, channel,
   started_at, ended_at, title, game, vod id), `minute_counts(channel, minute, count)`
   for the scrubber and waveforms, `pins` (pinned days), and the saved thread tables
-  (`saved_threads`, `thread_messages`, `meta`).
+  (`saved_threads`, `thread_messages`).
 - Package: see Open questions.
 
 ## Writes and kill safety
@@ -214,8 +214,8 @@ Clickable, colored system rows. No dividers, no buttons.
 ## Saved threads
 
 - Stored in the archive database (schema version 2): `saved_threads` (one bookmark row
-  per thread), `thread_messages` (one row per message, `TwitchMessage.toJson` as bytes),
-  and `meta`. A thread can outlive retention and span many days, so these tables are
+  per thread) and `thread_messages` (one row per message, `TwitchMessage.toJson` as
+  bytes). A thread can outlive retention and span many days, so these tables are
   separate from blocks and retention never touches them. The 50-thread cap evicts the
   oldest saved.
 - Save, unsave and eviction write at once in a transaction. A new reply queues one row;
@@ -223,13 +223,9 @@ Clickable, colored system rows. No dividers, no buttons.
   join the timer) and on app pause. A crash loses at most the unflushed rows.
 - Load reads the rows and decodes off the UI isolate when large. Saves made during load
   merge into the loaded list.
-- Migration, once, at load: `saved_threads/index.json` and every thread file (falling
-  back to `.bak`, then the older prefs snapshot) are imported in one transaction that
-  also sets the `meta` marker `saved_threads_json_migrated`. Unreadable thread files are
-  logged and skipped; an unreadable index is left alone and retried. The files stay for
-  one launch; the next launch with the marker deletes the directory.
-- If the database cannot open, the JSON files are read into memory and nothing persists
-  that session; the files are untouched, so the import runs once the database opens.
+- No migration from the old JSON store: upgrading users start with an empty saved list
+  and the old files are ignored. If the database cannot open, saved threads live in
+  memory for the session only.
 
 ## Memory diet for `TwitchMessage`
 
