@@ -291,6 +291,9 @@ class ChannelPanels {
     return _FocusGatedBuilder(
       listenable: state?.info.version ?? _emptyNotifier,
       builder: (_, active) => HistoryView(
+        // The pager reuses page slots across channels when tabs close or
+        // reorder; the window belongs to one channel.
+        key: ValueKey(channel),
         channel: channel,
         source: source,
         debugControls: fake,
