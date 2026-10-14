@@ -3033,19 +3033,5 @@
         "type": "String"
       }
     }
-  },
-  "historyScrubberBubbleStream": "{day} · {title} · {time}",
-  "@historyScrubberBubbleStream": {
-    "placeholders": {
-      "day": {
-        "type": "String"
-      },
-      "title": {
-        "type": "String"
-      },
-      "time": {
-        "type": "String"
-      }
-    }
   }
 }
