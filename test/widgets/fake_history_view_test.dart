@@ -1,6 +1,7 @@
 import 'package:ermchat/l10n/l10n.dart';
 import 'package:ermchat/services/emote_manager.dart';
 import 'package:ermchat/util/fake_history.dart';
+import 'package:ermchat/widgets/chat_message_tile.dart';
 import 'package:ermchat/widgets/fake_history_view.dart';
 import 'package:ermchat/widgets/history_scrubber.dart';
 import 'package:ermchat/widgets/message_builder.dart';
@@ -107,30 +108,29 @@ void main() {
     );
   });
 
-  testWidgets('stream row tap does nothing when its window is loaded', (
+  testWidgets('repeat jump does nothing when its window is loaded', (
     tester,
   ) async {
     await _pumpView(tester);
     await tester.tap(find.text('7d'));
     await _settle(tester);
-    final stream = find.byKey(const ValueKey<String>('ss-fake-stream-4'));
     final list = find.byType(CustomScrollView);
-    // Bring the marker into view, then tap it to re-center the list.
-    await tester.drag(list, const Offset(0, -500));
-    await _settle(tester);
-    await tester.tap(stream);
-    await _settle(tester);
-    final centered = tester.getTopLeft(stream).dy;
-    // A second tap targets the same anchor and window.
+    final row = find.byType(ChatMessageTile).first;
+    final key = tester.widget<ChatMessageTile>(row).message.messageId!;
+    final target = find.byWidgetPredicate(
+      (w) => w is ChatMessageTile && w.message.messageId == key,
+    );
+    final landed = tester.getTopLeft(target).dy;
+    // A second jump targets the same anchor and window.
     await tester.drag(list, const Offset(0, -200));
     await _settle(tester);
-    expect(tester.getTopLeft(stream).dy, isNot(centered));
-    await tester.tap(stream);
+    expect(tester.getTopLeft(target).dy, isNot(landed));
+    await tester.tap(find.text('7d'));
     await _settle(tester);
     expect(
-      tester.getTopLeft(stream).dy,
-      centered,
-      reason: 'the second tap left the list where it was',
+      tester.getTopLeft(target).dy,
+      landed,
+      reason: 'the second jump left the list where it was',
     );
   });
 }

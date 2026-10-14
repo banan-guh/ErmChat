@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:intl/intl.dart';
-import '../color_utils.dart' show accentRowColor, streamAccent;
+import '../color_utils.dart' show streamAccent;
 import '../l10n/l10n.dart';
 import '../models/twitch_message.dart';
 import '../util/fake_history.dart';
@@ -595,18 +595,6 @@ class _FakeHistoryViewState extends State<FakeHistoryView> {
     _bumpIdle();
   }
 
-  void _onMarkerTap(HistoryMarker m) {
-    final stream = m.stream;
-    if (stream != null) {
-      _jumpToRow(
-        FakeHistory.rowAtTime(widget.channel, stream.start),
-        fraction: 0.5,
-      );
-    } else {
-      _peekRail(m.time);
-    }
-  }
-
   // ---- Build ---------------------------------------------------------------
 
   TwitchMessage? _msg(int row) {
@@ -623,7 +611,6 @@ class _FakeHistoryViewState extends State<FakeHistoryView> {
   }
 
   Widget _markerRow(BuildContext context, HistoryMarker m) {
-    final scheme = Theme.of(context).colorScheme;
     final l10n = context.l10n;
     final locale = Localizations.localeOf(context).toString();
     if (_fmtLocale != locale) {
@@ -656,74 +643,80 @@ class _FakeHistoryViewState extends State<FakeHistoryView> {
                 ),
         );
     }
-    // Same tint as a live system row with an accent; the text stays plain.
-    // The row owns its Material so the ripple draws above the tint.
-    final surface = Theme.of(context).scaffoldBackgroundColor;
-    return KeyedSubtree(
+    // A real system row, so it carries the timestamp, font and tint of live
+    // system lines. Stream rows take no tap until the Streams screen exists;
+    // day and empty rows bring up the rail at their time.
+    final tile = KeyedSubtree(
       key: ValueKey<String>(m.key),
-      child: ColoredBox(
-        color: tint == null ? surface : accentRowColor(tint, surface, 0.6),
-        child: Material(
-          type: MaterialType.transparency,
-          child: InkWell(
-            onTap: () => _onMarkerTap(m),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-              child: Text(
-                text,
-                style: TextStyle(
-                  fontSize: 14 * widget.textScale,
-                  fontWeight: FontWeight.w600,
-                  color: scheme.onSurfaceVariant,
-                ),
-              ),
-            ),
-          ),
+      child: _tile(
+        context,
+        TwitchMessage(
+          login: '',
+          text: text,
+          isSystem: true,
+          systemAccent: tint,
+          messageId: m.key,
+          channel: widget.channel,
+          timestamp: m.time,
         ),
       ),
+    );
+    if (stream != null) return tile;
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () => _peekRail(m.time),
+      child: tile,
     );
   }
 
   Widget _row(BuildContext context, int row) {
     final msg = _msg(row);
     if (msg == null) return const SizedBox.shrink();
-    final b = widget.messageBuilder;
-    final variant = Theme.of(context).colorScheme.onSurfaceVariant;
     return KeyedSubtree(
       key: ValueKey<String>(msg.messageId!),
-      child: RepaintBoundary(
-        child: ChatMessageTile(
-          message: msg,
-          channel: widget.channel,
-          surface: Theme.of(context).scaffoldBackgroundColor,
-          textScale: widget.textScale,
-          showTimestamp: widget.showTimestamp,
-          timestampFormat: widget.timestampFormat,
-          lineSeparator: widget.lineSeparator,
-          isAlternateBackground: row.isEven,
-          buildBadgeSpans: b.buildBadgeSpans,
-          buildMessageSpans: b.buildMessageSpans,
-          bodyIsCached: b.bodyIsCached,
-          replyIndicator: msg.replyToUser == null
-              ? null
-              : Padding(
-                  padding: const EdgeInsets.only(left: 12, top: 2),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(Icons.reply, size: 16, color: variant),
-                      const SizedBox(width: 4),
-                      Flexible(
-                        child: Text(
-                          'Replying to ${msg.replyToUser}: ${msg.replyToText}',
-                          style: TextStyle(fontSize: 12, color: variant),
-                          overflow: TextOverflow.ellipsis,
-                        ),
+      child: _tile(context, msg, alternate: row.isEven),
+    );
+  }
+
+  Widget _tile(
+    BuildContext context,
+    TwitchMessage msg, {
+    bool alternate = false,
+  }) {
+    final b = widget.messageBuilder;
+    final variant = Theme.of(context).colorScheme.onSurfaceVariant;
+    return RepaintBoundary(
+      child: ChatMessageTile(
+        message: msg,
+        channel: widget.channel,
+        surface: Theme.of(context).scaffoldBackgroundColor,
+        textScale: widget.textScale,
+        showTimestamp: widget.showTimestamp,
+        timestampFormat: widget.timestampFormat,
+        lineSeparator: widget.lineSeparator,
+        isAlternateBackground: alternate,
+        buildBadgeSpans: b.buildBadgeSpans,
+        buildMessageSpans: b.buildMessageSpans,
+        bodyIsCached: b.bodyIsCached,
+        replyIndicator: msg.replyToUser == null
+            ? null
+            : Padding(
+                padding: const EdgeInsets.only(left: 12, top: 2),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.reply, size: 16, color: variant),
+                    const SizedBox(width: 4),
+                    Flexible(
+                      child: Text(
+                        'Replying to ${msg.replyToUser}: ${msg.replyToText}',
+                        style: TextStyle(fontSize: 12, color: variant),
+                        overflow: TextOverflow.ellipsis,
                       ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
-        ),
+              ),
       ),
     );
   }
