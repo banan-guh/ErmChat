@@ -247,10 +247,10 @@ class SavedThreadsStore {
   }
 
   // The first change arms the write and later ones join it, so a busy thread
-  // still reaches disk every few seconds instead of waiting for a quiet one.
+  // still reaches disk every second instead of waiting for a quiet one.
   void _markDirty(SavedThread t) {
     _dirty.add(t.key);
-    _flushTimer ??= Timer(const Duration(seconds: 3), () {
+    _flushTimer ??= Timer(const Duration(seconds: 1), () {
       unawaited(flush());
     });
   }

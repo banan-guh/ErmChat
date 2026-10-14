@@ -213,7 +213,7 @@ Clickable, colored system rows. No dividers, no buttons.
 
 - Today: JSON files in `saved_threads/`. Fixed after v0.9.10: atomic writes (temp file
   then rename) with `.bak` recovery, no index write before load finishes, no 1000-reply
-  cap, writes within 3 s of a change and on app pause.
+  cap, writes within 1 s of a change and on app pause.
 - With the archive: a thread can outlive retention and span many days, so day pins do
   not cover it. Its rows go into their own blocks tagged with the thread (channel and
   root id), exempt from retention, plus a thread pin row.
