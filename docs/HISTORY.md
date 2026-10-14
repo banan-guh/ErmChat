@@ -2,7 +2,29 @@
 
 Spec for persistent chat history: a local archive of every message the app receives,
 scrollable back up to a month, with stream markers, a stream map, and VOD replay.
-Status: approved design, prototype first. Ships as a version bump.
+Status: in progress, see Progress. Ships as a version bump.
+
+## Progress
+
+Done:
+
+- Prototype windowed list on generated data: go (60 fps on device). Markers, scrubber
+  rail, rail jumps clamp at both ends.
+- Block codec (`lib/archive/`), SQLite storage, writer, reader, retention, cold start
+  restore before robotty. Always on: every install archives now.
+- Live stream rows (announcement layout, purple tint), deduped by Helix stream id.
+- History parsing in an isolate; join timeout with "Couldn't join, retrying".
+
+Next, in order:
+
+1. Windowed list reads the archive instead of generated data, then replaces ChatView
+   scrolling.
+2. Streams screen.
+3. VOD view.
+4. Memory diet, ids dropped after 24h, saved-thread migration.
+
+Loose ends are tracked in TODO.md under "History archive". Do not tag a release while
+the archive is on but the list cannot read it.
 
 ## Goals
 
@@ -233,10 +255,8 @@ Independent of all phases: per-account WebView profiles.
 
 ## Open questions
 
-- SQLite package: `sqflite` uses the platform SQLite (no bundled binary, safe for
-  F-Droid) but crosses a platform channel per call; `sqlite3` with
-  `sqlite3_flutter_libs` is faster but bundles a native library whose F-Droid status
-  needs checking.
+- SQLite package: decided `sqflite` (platform SQLite, no bundled binary, F-Droid safe).
+  Revisit `sqlite3` only if platform-channel cost shows up in profiles.
 - Lazy tokenizing: stored token references remove most of the need; the user has
   concerns to share.
 - Server archive (ermchat-server): per channel, not per user, with a rolling window.
