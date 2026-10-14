@@ -188,6 +188,107 @@ void main() {
     );
   });
 
+  testWidgets('a live buffer above the window cap keeps following', (
+    tester,
+  ) async {
+    const limit = 4000;
+    final version = ValueNotifier(0);
+    addTearDown(version.dispose);
+    final buffer = <TwitchMessage>[];
+    var n = 0;
+    void arrive(int count) {
+      for (var i = 0; i < count; i++) {
+        n++;
+        buffer.insert(
+          0,
+          TwitchMessage(
+            login: 'live',
+            text: 'live $n',
+            messageId: 'live-$n',
+            channel: _ch,
+            timestamp: FakeHistory.now.add(Duration(milliseconds: 100 * n)),
+          ),
+        );
+      }
+      if (buffer.length > limit) buffer.removeRange(limit, buffer.length);
+      version.value++;
+    }
+
+    arrive(limit);
+    await _pumpView(tester, live: () => buffer, liveVersion: version);
+    await _settle(tester);
+    // Enough arrivals to re-anchor and trim several times.
+    for (var i = 0; i < 200; i++) {
+      arrive(10);
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    await _settle(tester);
+    expect(
+      tester.getBottomLeft(_tile(buffer.first.messageId!)).dy,
+      moreOrLessEquals(
+        tester.getRect(find.byType(CustomScrollView)).bottom -
+            kOpaqueComposerGap,
+        epsilon: 1,
+      ),
+      reason: 'a trim into the live rows broke the live sync',
+    );
+  });
+
+  testWidgets('a drag held at the bottom while rows arrive keeps following', (
+    tester,
+  ) async {
+    final version = ValueNotifier(0);
+    addTearDown(version.dispose);
+    final buffer = <TwitchMessage>[];
+    var n = 0;
+    void arrive() {
+      n++;
+      buffer.insert(
+        0,
+        TwitchMessage(
+          login: 'live',
+          text: 'live $n',
+          messageId: 'live-$n',
+          channel: _ch,
+          timestamp: FakeHistory.now.add(Duration(seconds: n)),
+        ),
+      );
+      version.value++;
+    }
+
+    for (var i = 0; i < 60; i++) {
+      arrive();
+    }
+    await _pumpView(tester, live: () => buffer, liveVersion: version);
+    await _settle(tester);
+    final list = find.byType(CustomScrollView);
+    final g = await tester.startGesture(tester.getCenter(list));
+    for (var i = 0; i < 10; i++) {
+      await g.moveBy(const Offset(0, 40));
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    for (var i = 0; i < 20; i++) {
+      await g.moveBy(const Offset(0, -40));
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    for (var i = 0; i < 3; i++) {
+      arrive();
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+    await g.up();
+    await _settle(tester);
+    arrive();
+    await tester.pump();
+    expect(
+      tester.getBottomLeft(_tile(buffer.first.messageId!)).dy,
+      moreOrLessEquals(
+        tester.getRect(list).bottom - kOpaqueComposerGap,
+        epsilon: 1,
+      ),
+      reason: 'released at the bottom but stopped following',
+    );
+  });
+
   testWidgets('scrolling down from history reattaches the live rows', (
     tester,
   ) async {

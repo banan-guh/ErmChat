@@ -348,9 +348,10 @@ class _HistoryViewState extends State<HistoryView> {
 
   /// Mirrors the newest-row-in-view state to [HistoryView.atBottomNotifier].
   void _setAtBottom(bool value) {
-    if (value == _atBottom) return;
-    _atBottom = value;
     final n = widget.atBottomNotifier;
+    // A fresh view may inherit a stale false from the shared notifier.
+    if (value == _atBottom && (n == null || n.value == value)) return;
+    _atBottom = value;
     if (n != null && n.value != value) {
       n.value = value;
       widget.onScrollActivity?.call(widget.channel);
@@ -614,7 +615,8 @@ class _HistoryViewState extends State<HistoryView> {
     // The buffer only drops rows at its old end, so its oldest row sits at
     // or after the last sync's start.
     int? k;
-    for (var p = _liveStart; p < w.end; p++) {
+    final start = _liveStart < w.first ? w.first : _liveStart;
+    for (var p = start; p < w.end; p++) {
       if (identical(w[p], oldest)) {
         k = p;
         break;
@@ -764,14 +766,15 @@ class _HistoryViewState extends State<HistoryView> {
     if (n.depth != 0) return false;
     _scheduleGateSync();
     _syncAtBottom(n.metrics);
-    if ((n is ScrollStartNotification && n.dragDetails != null) ||
-        (n is ScrollUpdateNotification && n.dragDetails != null)) {
-      _follow = false;
-    } else if (n is ScrollEndNotification) {
-      final m = n.metrics;
-      if (_window.atNewest && m.pixels <= m.minScrollExtent + _followEps) {
-        _follow = true;
-      }
+    final m = n.metrics;
+    final atEnd =
+        _window.atNewest && m.pixels <= m.minScrollExtent + _followEps;
+    // A finger held at the newest row keeps following, so arrivals during
+    // the drag cannot leave it above the bottom on release.
+    if (n is ScrollUpdateNotification && n.dragDetails != null) {
+      _follow = atEnd;
+    } else if (n is ScrollEndNotification && atEnd) {
+      _follow = true;
     }
     return false;
   }
@@ -890,7 +893,13 @@ class _HistoryViewState extends State<HistoryView> {
       final dropOlder = v - w.first >= w.end - v;
       if (dropOlder) {
         final to = w.first + _trimChunk;
-        if (v - to < _keepNear || to > _anchor) return;
+        // The live rows stay whole, so a buffer above the cap keeps its
+        // mirror; [_syncLive] matches from [_liveStart].
+        if (v - to < _keepNear ||
+            to > _anchor ||
+            (_liveAttached && to > _liveStart)) {
+          return;
+        }
         w.trimBefore(to);
       } else {
         final from = w.end - _trimChunk;
