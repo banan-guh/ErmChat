@@ -394,6 +394,43 @@ void main() {
       expect(channel.threads.threadFor('h0'), isNull);
       expect(channel.messages.length, 3);
     });
+
+    test('a fetch reaching back past the newest held row notes no gap', () {
+      TwitchMessage row(String? id, int minute) => TwitchMessage(
+        login: 'bob',
+        text: 'm$minute',
+        messageId: id,
+        channel: 'test',
+        timestamp: DateTime.utc(2026, 1, 1, 0, minute),
+      );
+      int gaps(Messages m) => m.items.where((r) => r.isSystem).length;
+      for (final (name, from, gap) in [
+        ('overlap', 2, false),
+        ('after', 5, true),
+      ]) {
+        final chat = Chat();
+        addTearDown(chat.dispose);
+        final channel = chat.ensure('test');
+        // Archived rows older than a day carry no ids.
+        final archived = [for (var i = 0; i < 4; i++) row(null, i)];
+        chat.receiveHistory(
+          'test',
+          archived,
+          rawHistory: archived,
+          maxMessages: 100,
+          ownLogin: null,
+        );
+        final fetched = [for (var i = from; i < from + 4; i++) row('h$i', i)];
+        chat.receiveHistory(
+          'test',
+          fetched,
+          rawHistory: fetched,
+          maxMessages: 100,
+          ownLogin: null,
+        );
+        expect(gaps(channel.messages), gap ? 1 : 0, reason: name);
+      }
+    });
   });
 
   group('status lines are id-keyed', () {

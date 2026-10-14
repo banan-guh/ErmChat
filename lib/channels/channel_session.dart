@@ -159,9 +159,14 @@ class ChannelSession extends ChangeNotifier {
       name,
       limit: recentMessagesLimit(),
     );
-    return history.archive == null
-        ? fetch()
-        : history.restoreFromArchive(name).then((_) => fetch());
+    if (history.archive == null) return fetch();
+    // Both start now; the network rows wait for the archived ones only so the
+    // merge sees them.
+    final network = fetch();
+    return Future.wait<Object?>([
+      history.restoreFromArchive(name),
+      network,
+    ]).then((_) => network);
   }
 
   void maybeAddConnected(String channel) {

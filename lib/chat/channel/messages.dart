@@ -230,6 +230,15 @@ class Messages {
     if (prepared.isEmpty) return const MergeOutcome(inserted: [], evicted: []);
     final existingIds = _items.map((m) => m.messageId).toSet();
     final hasExistingNonSystem = _items.any((m) => !m.isSystem);
+    // Newest held chat row: a fetch reaching back to it overlaps in time
+    // even when ids cannot match (archived rows drop theirs).
+    DateTime? newestHeld;
+    for (final m in _items) {
+      if (!m.isSystem) {
+        newestHeld = m.timestamp;
+        break;
+      }
+    }
 
     final inserted = <TwitchMessage>[];
     final insertedIds = <String?>{};
@@ -264,7 +273,9 @@ class Messages {
         // an ignored row that overlapped the buffer must still suppress the
         // gap note.
         !rawHistory.any(
-          (m) => m.messageId != null && existingIds.contains(m.messageId),
+          (m) =>
+              (m.messageId != null && existingIds.contains(m.messageId)) ||
+              (!m.isSystem && !m.timestamp.isAfter(newestHeld!)),
         )) {
       // Timestamp comes from the oldest raw row, not the oldest prepared
       // row: an ignored oldest row must still anchor the note below it.
