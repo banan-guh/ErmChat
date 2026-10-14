@@ -211,13 +211,17 @@ Clickable, colored system rows. No dividers, no buttons.
 
 ## Saved threads
 
-- Today: JSON files in `saved_threads/`, rewritten in place. Known ways to lose data:
-  non-atomic writes, a failed index read that later overwrites the index, a save during
-  startup load, the 50-thread cap.
-- Interim: atomic writes (temp file then rename), no index write before load finishes,
-  a backup index, no 1000-reply cap.
-- With the archive: a saved thread is a pin on its rows. The JSON store migrates once
-  and is removed.
+- Today: JSON files in `saved_threads/`. Fixed after v0.9.10: atomic writes (temp file
+  then rename) with `.bak` recovery, no index write before load finishes, no 1000-reply
+  cap, writes within 3 s of a change and on app pause.
+- With the archive: a thread can outlive retention and span many days, so day pins do
+  not cover it. Its rows go into their own blocks tagged with the thread (channel and
+  root id), exempt from retention, plus a thread pin row.
+- Migration, once: read `index.json` and every thread file (falling back to `.bak`),
+  write all of it into the archive in one transaction, record it as done. Keep the JSON
+  files for one more launch, then delete them. Unreadable files are logged and skipped;
+  everything readable is migrated. Test: a JSON store migrates fully, and a second run
+  is a no-op.
 
 ## Memory diet for `TwitchMessage`
 
