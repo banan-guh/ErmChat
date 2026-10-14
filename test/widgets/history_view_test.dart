@@ -1,4 +1,5 @@
 import 'package:ermchat/l10n/l10n.dart';
+import 'package:ermchat/models/twitch_message.dart';
 import 'package:ermchat/services/emote_manager.dart';
 import 'package:ermchat/util/fake_history.dart';
 import 'package:ermchat/widgets/chat_message_tile.dart';
@@ -13,7 +14,11 @@ import 'package:flutter_test/flutter_test.dart';
 const double _inset = 50;
 const String _ch = FakeHistory.testChannel;
 
-Future<void> _pumpView(WidgetTester tester) async {
+Future<void> _pumpView(
+  WidgetTester tester, {
+  List<TwitchMessage> Function()? live,
+  Listenable? liveVersion,
+}) async {
   FakeHistory.loadDelay = Duration.zero;
   tester.view.physicalSize = const Size(400, 800);
   tester.view.devicePixelRatio = 1;
@@ -35,6 +40,8 @@ Future<void> _pumpView(WidgetTester tester) async {
           channel: _ch,
           source: FakeHistorySource(_ch),
           debugControls: true,
+          live: live,
+          liveVersion: liveVersion,
           messageBuilder: builder,
           topPadding: _inset,
         ),
@@ -73,7 +80,151 @@ Future<void> _settle(WidgetTester tester) async {
   }
 }
 
+Finder _tile(String id) => find.byWidgetPredicate(
+  (w) => w is ChatMessageTile && w.message.messageId == id,
+);
+
 void main() {
+  testWidgets('live rows: follow pins newest, a paused reader stays still', (
+    tester,
+  ) async {
+    final version = ValueNotifier(0);
+    addTearDown(version.dispose);
+    final buffer = <TwitchMessage>[];
+    var n = 0;
+    TwitchMessage row([String? id]) => TwitchMessage(
+      login: 'live',
+      text: 'live ${n++}',
+      messageId: id ?? 'live-$n',
+      channel: _ch,
+      timestamp: FakeHistory.now.add(Duration(seconds: n)),
+    );
+    void arrive(int count) {
+      for (var i = 0; i < count; i++) {
+        buffer.insert(0, row());
+      }
+      version.value++;
+    }
+
+    arrive(30);
+    await _pumpView(tester, live: () => buffer, liveVersion: version);
+    await _settle(tester);
+    final bottom = tester.getRect(find.byType(CustomScrollView)).bottom;
+    expect(
+      tester.getBottomLeft(_tile(buffer.first.messageId!)).dy,
+      moreOrLessEquals(bottom, epsilon: 1),
+      reason: 'the newest live row starts at the bottom',
+    );
+
+    arrive(3);
+    await tester.pump();
+    expect(
+      tester.getBottomLeft(_tile(buffer.first.messageId!)).dy,
+      moreOrLessEquals(bottom, epsilon: 1),
+      reason: 'following keeps the newest row at the bottom',
+    );
+
+    await tester.drag(find.byType(CustomScrollView), const Offset(0, 300));
+    await _settle(tester);
+    // The reader's row: a live row near the middle of the viewport.
+    final view = tester.getRect(find.byType(CustomScrollView));
+    final at = buffer.indexWhere((m) {
+      final f = _tile(m.messageId!);
+      return f.evaluate().isNotEmpty &&
+          (tester.getCenter(f).dy - view.center.dy).abs() < 40;
+    });
+    expect(at, greaterThan(0), reason: 'no live row mid-viewport');
+    final reading = buffer[at].messageId!;
+    final y = tester.getTopLeft(_tile(reading)).dy;
+    arrive(3);
+    await tester.pump();
+    expect(
+      tester.getTopLeft(_tile(reading)).dy,
+      y,
+      reason: 'arrivals below a paused reader moved the row being read',
+    );
+
+    // A late row lands just older than the row being read.
+    final late = TwitchMessage(
+      login: 'live',
+      text: 'late one',
+      messageId: 'late',
+      channel: _ch,
+      timestamp: buffer[at + 4].timestamp,
+    );
+    buffer.insert(at + 4, late);
+    version.value++;
+    await tester.pump();
+    expect(_tile('late'), findsOneWidget);
+    expect(
+      tester.getTopLeft(_tile(reading)).dy,
+      y,
+      reason: 'a middle insert moved the row being read',
+    );
+
+    await tester.fling(
+      find.byType(CustomScrollView),
+      const Offset(0, -2000),
+      4000,
+    );
+    await _settle(tester);
+    arrive(1);
+    await tester.pump();
+    expect(
+      tester.getBottomLeft(_tile(buffer.first.messageId!)).dy,
+      moreOrLessEquals(bottom, epsilon: 1),
+      reason: 'resting on the newest row resumes following',
+    );
+  });
+
+  testWidgets('scrolling down from history reattaches the live rows', (
+    tester,
+  ) async {
+    final version = ValueNotifier(0);
+    addTearDown(version.dispose);
+    final buffer = [
+      for (var i = 20; i > 0; i--)
+        TwitchMessage(
+          login: 'live',
+          text: 'live $i',
+          messageId: 'live-$i',
+          channel: _ch,
+          timestamp: FakeHistory.now.add(Duration(seconds: i)),
+        ),
+    ];
+    await _pumpView(tester, live: () => buffer, liveVersion: version);
+    await tester.tap(find.text('1d'));
+    await _settle(tester);
+    expect(_tile('live-20'), findsNothing);
+    final list = find.byType(CustomScrollView);
+    for (var i = 0; i < 30 && _tile('live-20').evaluate().isEmpty; i++) {
+      await tester.fling(list, const Offset(0, -600), 6000);
+      await _settle(tester);
+    }
+    expect(
+      _tile('live-20'),
+      findsOneWidget,
+      reason: 'the newest live row never came back',
+    );
+    buffer.insert(
+      0,
+      TwitchMessage(
+        login: 'live',
+        text: 'live 21',
+        messageId: 'live-21',
+        channel: _ch,
+        timestamp: FakeHistory.now.add(const Duration(seconds: 21)),
+      ),
+    );
+    version.value++;
+    await tester.pump();
+    expect(
+      tester.getBottomLeft(_tile('live-21')).dy,
+      moreOrLessEquals(tester.getRect(list).bottom, epsilon: 1),
+      reason: 'resting on the reattached tail follows new rows',
+    );
+  });
+
   testWidgets('scroll past the oldest row after a rail jump to the top', (
     tester,
   ) async {

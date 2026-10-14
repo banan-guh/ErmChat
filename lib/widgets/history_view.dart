@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart' show defaultTargetPlatform;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/scheduler.dart';
@@ -28,6 +29,12 @@ import 'message_builder.dart';
 /// viewport and `correctBy` keeps the content still, so the far ends can trim
 /// without moving anything on screen. A time rail ([HistoryScrubber]) fades
 /// in after a long scroll and jumps through [_jumpTo].
+///
+/// Live rows continue the source at the newest end. Arrivals append below
+/// the anchor, so nothing on screen moves; while following, the physics pins
+/// the list to the newest row in the same layout. Any other buffer change
+/// replaces the live tail, and a hold on the row at the viewport's bottom
+/// edge keeps that row still.
 class HistoryView extends StatefulWidget {
   const HistoryView({
     super.key,
@@ -40,6 +47,8 @@ class HistoryView extends StatefulWidget {
     this.textScale = 1.0,
     this.lineSeparator = false,
     this.debugControls = false,
+    this.live,
+    this.liveVersion,
   });
 
   final String channel;
@@ -54,6 +63,13 @@ class HistoryView extends StatefulWidget {
   /// Jump buttons and window stats over the list, for the prototype channels.
   final bool debugControls;
 
+  /// The live buffer, newest first, continuing past the source's newest row.
+  /// Null when the source has no live chat.
+  final List<TwitchMessage> Function()? live;
+
+  /// Bumps whenever [live] changes.
+  final Listenable? liveVersion;
+
   @override
   State<HistoryView> createState() => _HistoryViewState();
 }
@@ -67,6 +83,51 @@ class _Item {
   final int pos;
   final HistoryMarker? marker;
   final bool start;
+}
+
+/// Lets the view correct the offset in the layout that applies new content:
+/// pinned to the newest row while following, or holding a row in place.
+mixin _HoldPhysicsMixin on ScrollPhysics {
+  double? Function(ScrollMetrics) get resolve;
+
+  @override
+  double adjustPositionForNewDimensions({
+    required ScrollMetrics oldPosition,
+    required ScrollMetrics newPosition,
+    required bool isScrolling,
+    required double velocity,
+  }) =>
+      resolve(newPosition) ??
+      super.adjustPositionForNewDimensions(
+        oldPosition: oldPosition,
+        newPosition: newPosition,
+        isScrolling: isScrolling,
+        velocity: velocity,
+      );
+}
+
+class _HoldClampingPhysics extends ClampingScrollPhysics
+    with _HoldPhysicsMixin {
+  const _HoldClampingPhysics({super.parent, required this.resolve});
+
+  @override
+  final double? Function(ScrollMetrics) resolve;
+
+  @override
+  _HoldClampingPhysics applyTo(ScrollPhysics? ancestor) =>
+      _HoldClampingPhysics(parent: buildParent(ancestor), resolve: resolve);
+}
+
+class _HoldBouncingPhysics extends BouncingScrollPhysics
+    with _HoldPhysicsMixin {
+  const _HoldBouncingPhysics({super.parent, required this.resolve});
+
+  @override
+  final double? Function(ScrollMetrics) resolve;
+
+  @override
+  _HoldBouncingPhysics applyTo(ScrollPhysics? ancestor) =>
+      _HoldBouncingPhysics(parent: buildParent(ancestor), resolve: resolve);
 }
 
 class _HistoryViewState extends State<HistoryView> {
@@ -126,6 +187,22 @@ class _HistoryViewState extends State<HistoryView> {
   /// Position at the boundary: older rows sit above it, this row and newer
   /// below.
   int _anchor = 0;
+
+  /// The window ends in the live buffer; rows from [_liveStart] on mirror it.
+  /// Rows before [_liveStart] left the buffer but stay until trimmed.
+  bool _liveAttached = false;
+  int _liveStart = 0;
+
+  /// Sticks to the newest row as rows arrive. Only a user drag clears it;
+  /// coming to rest on the newest row sets it again.
+  bool _follow = true;
+
+  /// Row to keep still through the next layout: its key, the scroll
+  /// coordinate of its bottom edge before the change, and its height. Sizes
+  /// cannot be read during the layout that resolves the hold, so the height
+  /// comes along.
+  ({String key, double coord, double height})? _hold;
+  static const double _followEps = 0.5;
   int _epoch = 0;
   bool _maintainScheduled = false;
   bool _firstPainted = false;
@@ -141,7 +218,18 @@ class _HistoryViewState extends State<HistoryView> {
     if (PerfProbe.enabled) {
       SchedulerBinding.instance.addTimingsCallback(_onTimings);
     }
+    widget.liveVersion?.addListener(_onLive);
     _start();
+  }
+
+  @override
+  void didUpdateWidget(HistoryView old) {
+    super.didUpdateWidget(old);
+    if (old.liveVersion != widget.liveVersion) {
+      old.liveVersion?.removeListener(_onLive);
+      widget.liveVersion?.addListener(_onLive);
+      _onLive();
+    }
   }
 
   /// Loads streams first so the first rows already carry their markers.
@@ -154,6 +242,7 @@ class _HistoryViewState extends State<HistoryView> {
 
   @override
   void dispose() {
+    widget.liveVersion?.removeListener(_onLive);
     if (identical(_active, this)) _active = null;
     if (PerfProbe.enabled) {
       SchedulerBinding.instance.removeTimingsCallback(_onTimings);
@@ -206,6 +295,8 @@ class _HistoryViewState extends State<HistoryView> {
     final epoch = ++_epoch;
     _loadingOlder = false;
     _loadingNewer = false;
+    _follow = time == null;
+    _hold = null;
     final sw = Stopwatch()..start();
     final source = widget.source;
     final loaded =
@@ -242,7 +333,8 @@ class _HistoryViewState extends State<HistoryView> {
           if (head < _minOlderItems) _window.markOldest();
         }
       }
-      if (time == null) _window.atNewest = true;
+      _liveAttached = false;
+      if (time == null) _attachLive();
       final target = time == null ? _window.end : _window.positionAt(time);
       // At the oldest end the anchor moves newer so the older sliver stays
       // long enough; the list then rests on the oldest row.
@@ -277,6 +369,20 @@ class _HistoryViewState extends State<HistoryView> {
     });
   }
 
+  /// Adds items for positions [from] on to the newer sliver, after rows
+  /// appended below an anchor at or before [from].
+  void _appendItems(int from) {
+    final w = _window;
+    final newer = _newerItems;
+    for (var p = from; p < w.end; p++) {
+      final ms = w.markersAt(p);
+      for (var k = 0; k < ms.length; k++) {
+        newer.add(_Item(p, ms[k], k == 0));
+      }
+      newer.add(_Item(p, null, ms.isEmpty));
+    }
+  }
+
   /// Rebuilds both item lists from the window and the anchor.
   void _rebuildItems() {
     final w = _window;
@@ -303,6 +409,172 @@ class _HistoryViewState extends State<HistoryView> {
   void _jumpDaysAgo(int days) {
     final t = widget.source.now().subtract(Duration(days: days));
     _jumpTo(t, fraction: 0.5);
+  }
+
+  // ---- Live ----------------------------------------------------------------
+
+  /// Ends the window in the live buffer. Call inside setState; the window
+  /// counts as newest even without a live buffer.
+  void _attachLive() {
+    _window.atNewest = true;
+    if (widget.live == null) return;
+    _liveAttached = true;
+    _liveStart = _window.end;
+    _syncLive();
+  }
+
+  void _onLive() {
+    if (!mounted || !_liveAttached) return;
+    setState(_syncLive);
+    _scheduleMaintain();
+  }
+
+  /// Mirrors the live buffer into the window's tail. Arrivals append; any
+  /// other change replaces the tail from the first row that differs, holding
+  /// the row on screen. Call inside setState.
+  void _syncLive() {
+    final rows = widget.live?.call();
+    if (rows == null || rows.isEmpty) return;
+    final w = _window;
+    final oldest = rows[rows.length - 1];
+    // The buffer only drops rows at its old end, so its oldest row sits at
+    // or after the last sync's start.
+    int? k;
+    for (var p = _liveStart; p < w.end; p++) {
+      if (identical(w[p], oldest)) {
+        k = p;
+        break;
+      }
+    }
+    if (k == null) {
+      // Older rows joined the buffer (a history merge), or it is new to the
+      // window: everything from its oldest time comes from the buffer.
+      final from = w.positionAt(oldest.timestamp);
+      _liveStart = from;
+      _replaceFrom(from, rows, rows.length - 1);
+      return;
+    }
+    _liveStart = k;
+    var p = k;
+    var j = rows.length - 1;
+    while (p < w.end && j >= 0 && identical(w[p], rows[j])) {
+      p++;
+      j--;
+    }
+    if (p == w.end) {
+      if (j < 0) return;
+      final from = w.end;
+      w.append([for (var i = j; i >= 0; i--) rows[i]]);
+      w.atNewest = true;
+      if (_anchor <= from) _appendItems(from);
+      return;
+    }
+    _replaceFrom(p, rows, j);
+  }
+
+  /// Replaces window rows from [from] on with [rows] from index [j] down to
+  /// the newest, holding the row on screen unless following.
+  void _replaceFrom(int from, List<TwitchMessage> rows, int j) {
+    final w = _window;
+    if (!_follow) _captureHold();
+    w.trimFrom(from);
+    w.append([for (var i = j; i >= 0; i--) rows[i]]);
+    w.atNewest = true;
+    _anchor = _anchor.clamp(w.first, w.end);
+    _rebuildItems();
+    // Equal-height changes leave the extents alone; this makes the viewport
+    // run the physics anyway, so the hold applies.
+    if (_hold != null) _pos?.correctBy(0);
+  }
+
+  /// Records the row at the viewport's bottom edge, for [_resolve].
+  void _captureHold() {
+    final pos = _pos;
+    if (pos == null || !pos.hasPixels) return;
+    final edge = pos.pixels;
+    for (final older in const [true, false]) {
+      final sliver = _sliver(older ? _olderKey : _newerKey);
+      final items = older ? _olderItems : _newerItems;
+      for (
+        RenderBox? c = sliver?.firstChild;
+        c != null;
+        c = sliver!.childAfter(c)
+      ) {
+        final pd = c.parentData! as SliverMultiBoxAdaptorParentData;
+        final i = pd.index;
+        final offset = pd.layoutOffset;
+        if (i == null || offset == null || i >= items.length) continue;
+        final item = items[i];
+        if (item.marker != null) continue;
+        final bottom = older ? offset : -(offset + c.size.height);
+        final top = older ? offset + c.size.height : -offset;
+        if (bottom <= edge && top > edge) {
+          final row = _window.at(item.pos);
+          if (row == null) return;
+          _hold = (
+            key: HistoryWindow.keyOf(row),
+            coord: bottom,
+            height: c.size.height,
+          );
+          return;
+        }
+      }
+    }
+  }
+
+  /// Scroll coordinate of the bottom edge of the row keyed [key] and
+  /// [height], from the current layout. Reads layout offsets only, so it is
+  /// safe during the viewport's layout.
+  double? _coordOf(String key, double height) {
+    for (final older in const [true, false]) {
+      final sliver = _sliver(older ? _olderKey : _newerKey);
+      final items = older ? _olderItems : _newerItems;
+      for (
+        RenderBox? c = sliver?.firstChild;
+        c != null;
+        c = sliver!.childAfter(c)
+      ) {
+        final pd = c.parentData! as SliverMultiBoxAdaptorParentData;
+        final i = pd.index;
+        final offset = pd.layoutOffset;
+        if (i == null || offset == null || i >= items.length) continue;
+        final item = items[i];
+        if (item.marker != null) continue;
+        final row = _window.at(item.pos);
+        if (row != null && HistoryWindow.keyOf(row) == key) {
+          return older ? offset : -(offset + height);
+        }
+      }
+    }
+    return null;
+  }
+
+  /// Physics hook, run in the layout that applies new content.
+  double? _resolve(ScrollMetrics m) {
+    if (_follow && _liveAttached) return m.minScrollExtent;
+    final hold = _hold;
+    if (hold == null) return null;
+    _hold = null;
+    final now = _coordOf(hold.key, hold.height);
+    if (now == null) return null;
+    return (m.pixels + now - hold.coord).clamp(
+      m.minScrollExtent,
+      m.maxScrollExtent,
+    );
+  }
+
+  bool _onScrollNotification(ScrollNotification n) {
+    if (n.depth != 0) return false;
+    if ((n is ScrollStartNotification && n.dragDetails != null) ||
+        (n is ScrollUpdateNotification && n.dragDetails != null)) {
+      _follow = false;
+    } else if (n is ScrollEndNotification) {
+      final m = n.metrics;
+      if (_liveAttached && m.pixels <= m.minScrollExtent + _followEps) {
+        _follow = true;
+      }
+    }
+    return false;
   }
 
   // ---- Maintenance ---------------------------------------------------------
@@ -381,7 +653,7 @@ class _HistoryViewState extends State<HistoryView> {
     }
     if (_window[_window.end - 1].timestamp != edge) return;
     setState(() {
-      if (_window.append(rows) == 0) _window.atNewest = true;
+      if (_window.append(rows) == 0) _attachLive();
       _trim();
       _rebuildItems();
     });
@@ -412,6 +684,7 @@ class _HistoryViewState extends State<HistoryView> {
         final from = w.end - _trimChunk;
         if (from - v < _keepNear || from < _anchor) return;
         w.trimFrom(from);
+        _liveAttached = false;
       }
       _count('hdrop');
     }
@@ -754,33 +1027,42 @@ class _HistoryViewState extends State<HistoryView> {
       children: [
         Padding(
           padding: EdgeInsets.only(bottom: bottom),
-          child: CustomScrollView(
-            controller: _controller,
-            reverse: true,
-            center: _olderKey,
-            slivers: [
-              SliverList(
-                key: _newerKey,
-                delegate: SliverChildBuilderDelegate(
-                  (ctx, j) => _item(ctx, _newerItems, j),
-                  childCount: _newerItems.length,
-                  addAutomaticKeepAlives: false,
-                  addRepaintBoundaries: false,
-                  addSemanticIndexes: false,
+          child: NotificationListener<ScrollNotification>(
+            onNotification: _onScrollNotification,
+            child: CustomScrollView(
+              controller: _controller,
+              physics: defaultTargetPlatform == TargetPlatform.iOS
+                  ? _HoldBouncingPhysics(
+                      parent: const AlwaysScrollableScrollPhysics(),
+                      resolve: _resolve,
+                    )
+                  : _HoldClampingPhysics(resolve: _resolve),
+              reverse: true,
+              center: _olderKey,
+              slivers: [
+                SliverList(
+                  key: _newerKey,
+                  delegate: SliverChildBuilderDelegate(
+                    (ctx, j) => _item(ctx, _newerItems, j),
+                    childCount: _newerItems.length,
+                    addAutomaticKeepAlives: false,
+                    addRepaintBoundaries: false,
+                    addSemanticIndexes: false,
+                  ),
                 ),
-              ),
-              SliverList(
-                key: _olderKey,
-                delegate: SliverChildBuilderDelegate(
-                  (ctx, j) => _item(ctx, _olderItems, j),
-                  childCount: _olderItems.length,
-                  addAutomaticKeepAlives: false,
-                  addRepaintBoundaries: false,
-                  addSemanticIndexes: false,
+                SliverList(
+                  key: _olderKey,
+                  delegate: SliverChildBuilderDelegate(
+                    (ctx, j) => _item(ctx, _olderItems, j),
+                    childCount: _olderItems.length,
+                    addAutomaticKeepAlives: false,
+                    addRepaintBoundaries: false,
+                    addSemanticIndexes: false,
+                  ),
                 ),
-              ),
-              SliverToBoxAdapter(child: SizedBox(height: widget.topPadding)),
-            ],
+                SliverToBoxAdapter(child: SizedBox(height: widget.topPadding)),
+              ],
+            ),
           ),
         ),
         Positioned(
