@@ -46,7 +46,7 @@ Non-goals for v1: a server archive (later, see Open questions), search, semantic
 | Cold start | Restore the newest window per channel from disk, then fill the gap from robotty. |
 | Windowed list | One scroll view over a sliding window of decoded rows, re-anchored as you move. |
 | System messages | Clickable stream started/ended rows and day markers past 24h. |
-| Scrubber | Time rail that appears after scrolling about 500 messages up. |
+| Scrubber | Time rail that appears 100 messages or 1 hour up, whichever comes first. |
 | Streams screen | One card per stream with a chat activity waveform you can scrub. |
 | VOD view | Twitch embed with `video=`, chat replayed from the archive. |
 
@@ -181,7 +181,7 @@ Clickable, colored system rows. No dividers, no buttons.
 
 ## Scrubber
 
-- Appears after scrolling about 500 messages up, or after a hard fling. Fades after
+- Appears 100 messages or 1 hour behind newest, whichever comes first. Fades after
   about 1.5 s idle. Never permanent.
 - The rail maps time over the retained month, weighted by activity: offline hours
   shrink, streams get most of the length.

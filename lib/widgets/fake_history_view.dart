@@ -90,11 +90,9 @@ class _FakeHistoryViewState extends State<FakeHistoryView> {
 
   /// The rail appears once the viewport is this many rows or this much time
   /// behind newest, whichever comes first.
-  static const int _railAfterRows = 200;
-  static const Duration _railAfterAge = Duration(minutes: 30);
+  static const int _railAfterRows = 100;
+  static const Duration _railAfterAge = Duration(hours: 1);
 
-  /// Ballistic speed (px/s) that counts as a hard fling.
-  static const double _railFlingSpeed = 3000;
   static const int _railIdleMs = 1500;
   static const Duration _railBucket = Duration(minutes: 5);
 
@@ -360,7 +358,7 @@ class _FakeHistoryViewState extends State<FakeHistoryView> {
     if (_hiBlock < _loBlock) return;
     if (_scrolled) {
       _scrolled = false;
-      _updateRail(pos);
+      _updateRail();
     }
     final ahead = pos.viewportDimension * 4;
     if (pos.maxScrollExtent - pos.pixels < ahead && _loBlock > 0) {
@@ -420,6 +418,10 @@ class _FakeHistoryViewState extends State<FakeHistoryView> {
     final older = p > 0;
     final sliver = _sliver(older ? _olderKey : _newerKey);
     final edge = older ? p : -p;
+    final items = older ? _olderItems : _newerItems;
+    // At the list's very end the edge sits exactly on the last built row's
+    // far side, so no row crosses it; that last row is the viewport row.
+    int? last;
     for (
       RenderBox? c = sliver?.firstChild;
       c != null;
@@ -428,13 +430,11 @@ class _FakeHistoryViewState extends State<FakeHistoryView> {
       final pd = c.parentData! as SliverMultiBoxAdaptorParentData;
       final offset = pd.layoutOffset;
       final index = pd.index;
-      if (offset == null || index == null) continue;
-      final items = older ? _olderItems : _newerItems;
-      if (offset + c.size.height > edge && index < items.length) {
-        return items[index].row;
-      }
+      if (offset == null || index == null || index >= items.length) continue;
+      if (offset + c.size.height > edge) return items[index].row;
+      last = items[index].row;
     }
-    return _anchor;
+    return last ?? _anchor;
   }
 
   RenderSliverMultiBoxAdaptor? _sliver(GlobalKey key) {
@@ -524,26 +524,20 @@ class _FakeHistoryViewState extends State<FakeHistoryView> {
     );
   }
 
-  /// Follows the list on scroll: shows the rail after a long scroll up or a
-  /// hard fling and keeps the thumb on the viewport's time while visible.
-  void _updateRail(ScrollPosition pos) {
+  /// Follows the list on scroll: shows the rail after a long scroll up and
+  /// keeps the thumb on the viewport's time while visible.
+  void _updateRail() {
     _peek.value = false;
     final rail = _railReady.value;
     if (rail == null || _railDragging) return;
     final row = _viewportRow();
     if (!_railVisible.value) {
-      // ignore: invalid_use_of_protected_member, invalid_use_of_visible_for_testing_member
-      final activity = pos.activity;
-      final fling =
-          activity is BallisticScrollActivity &&
-          activity.velocity.abs() > _railFlingSpeed;
       final behind = _total - row;
       final age = FakeHistory.timeOf(
         widget.channel,
         _total - 1,
       ).difference(FakeHistory.timeOf(widget.channel, row));
-      if (behind < (fling ? _railAfterRows ~/ 5 : _railAfterRows) &&
-          age < _railAfterAge) {
+      if (behind < _railAfterRows && age < _railAfterAge) {
         return;
       }
       _railVisible.value = true;
