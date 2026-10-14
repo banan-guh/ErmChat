@@ -6,6 +6,7 @@ import 'package:intl/intl.dart';
 import '../color_utils.dart' show streamAccent;
 import '../l10n/l10n.dart';
 import '../models/twitch_message.dart';
+import '../sheets/history_marker_sheet.dart';
 import '../util/fake_history.dart';
 import '../util/history_timeline.dart';
 import '../util/log.dart';
@@ -653,7 +654,8 @@ class _FakeHistoryViewState extends State<FakeHistoryView> {
         );
     }
     // A real system row, so it carries the timestamp, font and tint of live
-    // system lines. A tap brings up the rail at the marker's time.
+    // system lines. A tap opens the marker sheet; empty stretches bring up the
+    // rail at the marker's time.
     return KeyedSubtree(
       key: ValueKey<String>(m.key),
       child: _tile(
@@ -667,7 +669,13 @@ class _FakeHistoryViewState extends State<FakeHistoryView> {
           channel: widget.channel,
           timestamp: m.time,
         ),
-        onTap: () => _peekRail(m.time),
+        onTap: m.kind == HistoryMarkerKind.emptyStretch
+            ? () => _peekRail(m.time)
+            : () => showHistoryMarkerSheet(
+                context,
+                title: text,
+                stream: m.kind != HistoryMarkerKind.day,
+              ),
       ),
     );
   }

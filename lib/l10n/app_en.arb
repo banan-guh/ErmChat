@@ -3001,6 +3001,9 @@
       }
     }
   },
+  "historyWatchVod": "Watch VOD",
+  "historyOpenStreamMap": "Open stream map",
+  "historySaveDay": "Save this day",
   "historyNothingRecorded": "{range} - nothing recorded",
   "@historyNothingRecorded": {
     "placeholders": {
