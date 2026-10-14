@@ -87,8 +87,10 @@ class _FakeHistoryViewState extends State<FakeHistoryView> {
   /// Rows kept on each side of the viewport when trimming.
   static const int _keepNear = 500;
 
-  /// Rows scrolled up from newest before the rail appears.
-  static const int _railAfterRows = 500;
+  /// The rail appears once the viewport is this many rows or this much time
+  /// behind newest, whichever comes first.
+  static const int _railAfterRows = 200;
+  static const Duration _railAfterAge = Duration(minutes: 30);
 
   /// Ballistic speed (px/s) that counts as a hard fling.
   static const double _railFlingSpeed = 3000;
@@ -535,7 +537,14 @@ class _FakeHistoryViewState extends State<FakeHistoryView> {
           activity is BallisticScrollActivity &&
           activity.velocity.abs() > _railFlingSpeed;
       final behind = _total - row;
-      if (behind < (fling ? _railAfterRows ~/ 5 : _railAfterRows)) return;
+      final age = FakeHistory.timeOf(
+        widget.channel,
+        _total - 1,
+      ).difference(FakeHistory.timeOf(widget.channel, row));
+      if (behind < (fling ? _railAfterRows ~/ 5 : _railAfterRows) &&
+          age < _railAfterAge) {
+        return;
+      }
       _railVisible.value = true;
     }
     _thumb.value = rail.positionOf(FakeHistory.timeOf(widget.channel, row));
