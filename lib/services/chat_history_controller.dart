@@ -83,18 +83,7 @@ class ChatHistoryController {
     // A channel removed while its history was in flight must not be
     // resurrected by the root verb's ensure.
     if (!chat.contains(channel)) return;
-    final prepared = <TwitchMessage>[];
-    for (final msg in history) {
-      if (_policy.shouldDropForIgnore(msg)) continue;
-      if (_policy.shouldDropForBlockedUser(msg)) continue;
-      if (_policy.shouldDropForBlockedPhrase(msg)) continue;
-      if (!msg.isSystem && msg.login.isNotEmpty) {
-        _policy.learnUser(channel, msg);
-      }
-      _policy.applyPingHighlight(msg, mentionOnly: true);
-      _stampEmoteResolution(msg, channel);
-      prepared.add(msg);
-    }
+    final prepared = _prepare(channel, history);
     final inserted = chat.receiveHistory(
       channel,
       prepared,
@@ -109,8 +98,8 @@ class ChatHistoryController {
   }
 
   /// Fills the channel buffer with its newest archived rows before the
-  /// network history lands, so a cold start shows chat from disk. Rows go
-  /// through [chat]'s history verb directly, so the later robotty merge dedups
+  /// network history lands, so a cold start shows chat from disk. Rows pass
+  /// the same filters as robotty history, and the later robotty merge dedups
   /// them by id. Does nothing without an archive.
   Future<void> restoreFromArchive(String channel) async {
     final reader = archive?.reader;
@@ -118,12 +107,9 @@ class ChatHistoryController {
     try {
       final rows = await reader.newestRows(channel, maxMessages());
       if (rows.isEmpty || !chat.contains(channel)) return;
-      for (final msg in rows) {
-        _stampEmoteResolution(msg, channel);
-      }
       chat.receiveHistory(
         channel,
-        rows,
+        _prepare(channel, rows),
         rawHistory: rows,
         maxMessages: maxMessages(),
         ownLogin: session.login,
@@ -131,6 +117,24 @@ class ChatHistoryController {
     } catch (e) {
       logDebug('[ChatHistoryController] archive restore failed: $e');
     }
+  }
+
+  /// [history] minus ignored and blocked rows, with senders learned, mention
+  /// tint applied and emotes stamped.
+  List<TwitchMessage> _prepare(String channel, List<TwitchMessage> history) {
+    final prepared = <TwitchMessage>[];
+    for (final msg in history) {
+      if (_policy.shouldDropForIgnore(msg)) continue;
+      if (_policy.shouldDropForBlockedUser(msg)) continue;
+      if (_policy.shouldDropForBlockedPhrase(msg)) continue;
+      if (!msg.isSystem && msg.login.isNotEmpty) {
+        _policy.learnUser(channel, msg);
+      }
+      _policy.applyPingHighlight(msg, mentionOnly: true);
+      _stampEmoteResolution(msg, channel);
+      prepared.add(msg);
+    }
+    return prepared;
   }
 
   /// Parses [msg]'s emotes once at merge time and stores them on the
