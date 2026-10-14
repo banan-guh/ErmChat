@@ -162,9 +162,15 @@ class ThreadPanels {
   }) async {
     final channel = rootMsg.channel;
     if (channel == null) return;
-    await panelManager.closePanel();
-    if (!isMounted()) {
-      return;
+    // Picking a thread from the open dashboard swaps it in place; the sheet
+    // only closes and reopens when it was closed or the channel changes.
+    final inPlace =
+        panelManager.activePanel == OverlayPanel.thread &&
+        !panelManager.emoteSheetOpen &&
+        (!switchChannel || selectedChannel() == channel);
+    if (!inPlace) {
+      await panelManager.closePanel();
+      if (!isMounted()) return;
     }
     tabDragFocus.reset();
     if (switchChannel && selectedChannel() != channel) {
@@ -188,6 +194,7 @@ class ThreadPanels {
     // animateTo would flash the strip swiping over from Active/Saved.
     // jumpTo (not a bare index set) so the warp swallows travel updates.
     tabDragFocus.jumpTo(0);
+    if (inPlace) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (isMounted()) {
         panelManager.animateRatio(
