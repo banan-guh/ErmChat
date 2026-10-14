@@ -197,6 +197,13 @@ class ArchiveReader {
     final tables = await store.tables(channel);
     final adapter = ArchiveAdapter(tables);
     final decoded = await decode([for (final b in blocks) b.data]);
+    var lo = blocks.first.startTs;
+    var hi = blocks.first.endTs;
+    for (final b in blocks) {
+      if (b.startTs < lo) lo = b.startTs;
+      if (b.endTs > hi) hi = b.endTs;
+    }
+    final cleared = await store.moderation(channel, lo, hi);
     final out = <ArchiveWindowBlock>[];
     for (var i = 0; i < blocks.length; i++) {
       final rows = decoded[i];
@@ -208,6 +215,17 @@ class ArchiveReader {
       final messages = [
         for (final r in rows) adapter.fromRow(r, channel, asHistory: asHistory),
       ];
+      for (final c in cleared) {
+        for (final m in messages) {
+          final ts = m.timestamp.millisecondsSinceEpoch;
+          if (!m.isSystem &&
+              ts >= c.fromTs &&
+              ts <= c.toTs &&
+              (c.login == null || c.login == m.login)) {
+            m.deleted = true;
+          }
+        }
+      }
       _sortStable(messages);
       out.add(
         ArchiveWindowBlock(

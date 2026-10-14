@@ -135,6 +135,7 @@ class ChatSinks {
     this.onArchiveMessage,
     this.onArchiveStreamSeen,
     this.onArchiveStreamEnded,
+    this.onArchiveModeration,
     this.onAnalyticsModeration,
     this.onHypeTrain,
     this.onPoll,
@@ -164,6 +165,13 @@ class ChatSinks {
   )?
   onArchiveStreamSeen;
   final void Function(String id, DateTime endedAt)? onArchiveStreamEnded;
+  final void Function(
+    String channel,
+    String? login,
+    DateTime from,
+    DateTime to,
+  )?
+  onArchiveModeration;
   final void Function(String channel, bool isTimeout)? onAnalyticsModeration;
   final void Function(HypeTrainEvent event)? onHypeTrain;
   final void Function(PollEvent event)? onPoll;
@@ -268,6 +276,7 @@ class ChatConnectionManager {
     isModerationActive: eventSubTopics.isModerationActive,
     onSystemMessage: config.bridge.onSystemMessage,
     onAnalyticsModeration: config.sinks.onAnalyticsModeration,
+    onArchiveModeration: config.sinks.onArchiveModeration,
     onSelfTimeoutArmed: _sender.armTimeout,
     onSelfTimeoutCleared: _sender.clearTimeout,
     strings: config.bridge.strings,

@@ -33,6 +33,7 @@ class ModerationHub {
     required this.isModerationActive,
     required this.onSystemMessage,
     this.onAnalyticsModeration,
+    this.onArchiveModeration,
     required this.onSelfTimeoutArmed,
     required this.onSelfTimeoutCleared,
     this.strings = englishStrings,
@@ -44,12 +45,40 @@ class ModerationHub {
   final void Function(String channel, String text) onSystemMessage;
   final void Function(String channel, bool isTimeout)? onAnalyticsModeration;
 
+  /// Deletes for the history archive: rows by [login] (everyone when null)
+  /// from [from] to [to]. Archived rows never change, so these apply on read.
+  final void Function(
+    String channel,
+    String? login,
+    DateTime from,
+    DateTime to,
+  )?
+  onArchiveModeration;
+
   /// Arms the manager-owned send gate when our own timeout lands.
   final void Function(String channel, DateTime until) onSelfTimeoutArmed;
 
   /// Clears the manager-owned send gate on unban/untimeout.
   final void Function(String channel) onSelfTimeoutCleared;
   final AppLocalizations Function() strings;
+
+  /// Archives a delete of the row [messageId], before the kernel marks it.
+  void _archiveDelete(String channel, String messageId) {
+    final sink = onArchiveModeration;
+    if (sink == null) return;
+    final msg = chat.channelFor(channel)?.messages.byId(messageId);
+    if (msg == null || msg.isSystem) return;
+    sink(channel, msg.login, msg.timestamp, msg.timestamp);
+  }
+
+  /// Archives a clear of [login] (everyone when null) over what the buffer
+  /// holds, the same rows the kernel marks.
+  void _archiveClear(String channel, String? login) {
+    final sink = onArchiveModeration;
+    final items = chat.channelFor(channel)?.messages.items;
+    if (sink == null || items == null || items.isEmpty) return;
+    sink(channel, login?.toLowerCase(), items.last.timestamp, DateTime.now());
+  }
 
   final _recentBanMeta = <String, List<_BanMeta>>{};
   static const _banDedupWindowSeconds = 10;
@@ -62,6 +91,7 @@ class ModerationHub {
     required String user,
     required String text,
   }) {
+    if (!isModerationActive(channel)) _archiveDelete(channel, messageId);
     final found =
         chat.channelFor(channel)?.messages.markDeleted(messageId) ?? false;
     // While channel.moderate v2 is active, deletions come from EventSub (with
@@ -75,6 +105,7 @@ class ModerationHub {
     // With channel.moderate active, clears come from EventSub with the
     // moderator's name - skip the IRC copy.
     if (isModerationActive(channel)) return;
+    _archiveClear(channel, null);
     chat.channelFor(channel)?.messages.markAllDeleted();
     onSystemMessage(channel, strings().chatWasCleared);
   }
@@ -88,6 +119,7 @@ class ModerationHub {
     logDebug(
       '[Moderation] IRC ban received: user=$user channel=$channel isTimeout=$isTimeout',
     );
+    if (!isModerationActive(channel)) _archiveClear(channel, user);
     chat.channelFor(channel)?.messages.markUserDeleted(user);
     _armSelfTimeout(channel, user, isTimeout, duration);
     // While channel.moderate v2 is active, the EventSub copy reports analytics
@@ -210,6 +242,7 @@ class ModerationHub {
     switch (event.action) {
       case ModerationAction.delete:
         if (event.messageId != null) {
+          _archiveDelete(event.channel, event.messageId!);
           chat
               .channelFor(event.channel)
               ?.messages
@@ -226,6 +259,7 @@ class ModerationHub {
         feed();
         break;
       case ModerationAction.clear:
+        _archiveClear(event.channel, null);
         chat.channelFor(event.channel)?.messages.markAllDeleted();
         onSystemMessage(event.channel, line);
         feed();
@@ -237,6 +271,7 @@ class ModerationHub {
           event.action == ModerationAction.timeout,
         );
         if (target != null) {
+          _archiveClear(event.channel, target);
           chat.channelFor(event.channel)?.messages.markUserDeleted(target);
           chat
               .channelFor(event.channel)

@@ -58,12 +58,28 @@ class Archive {
   Future<void> endStream(String id, DateTime endedAt) =>
       _quiet((s) => s.endStream(id, endedAt.millisecondsSinceEpoch));
 
+  /// Records rows by [login] (everyone when null) from [from] to [to] as
+  /// deleted, for rows already sealed. Never throws.
+  Future<void> recordModeration(
+    String channel,
+    String? login,
+    DateTime from,
+    DateTime to,
+  ) => _quiet(
+    (s) => s.addModeration(
+      channel,
+      login,
+      from.millisecondsSinceEpoch,
+      to.millisecondsSinceEpoch,
+    ),
+  );
+
   Future<void> _quiet(Future<void> Function(ArchiveStore s) write) async {
     try {
       final s = await store;
       if (s != null) await write(s);
     } catch (e) {
-      logDebug('[Archive] stream write failed: $e');
+      logDebug('[Archive] write failed: $e');
     }
   }
 

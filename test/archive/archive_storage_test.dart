@@ -470,6 +470,40 @@ void main() {
     },
   );
 
+  test('moderation after a seal shows on read, scoped to its rows', () async {
+    final store = await _open(_newPath());
+    final writer = _writer(store, sealCount: 4);
+    for (var i = 0; i < 8; i++) {
+      writer.add(_channel, _msg(i, login: i.isEven ? 'troll' : 'alice'));
+    }
+    await writer.flush();
+    // A ban covering rows 0-5 and a single delete of alice's row 7.
+    await store.addModeration(
+      _channel,
+      'troll',
+      _t0.millisecondsSinceEpoch,
+      _t0.add(const Duration(seconds: 5)).millisecondsSinceEpoch,
+    );
+    await store.addModeration(
+      _channel,
+      'alice',
+      _t0.add(const Duration(seconds: 7)).millisecondsSinceEpoch,
+      _t0.add(const Duration(seconds: 7)).millisecondsSinceEpoch,
+    );
+    final rows = await _reader(
+      store,
+    ).rowsNear(_channel, _t0, before: 0, after: 4);
+    expect(
+      [
+        for (final m in rows)
+          if (m.deleted) m.text.split(' ').last,
+      ],
+      ['0', '2', '4', '7'],
+      reason: 'row 6 is after the ban; alice rows 1-5 were never deleted',
+    );
+    await store.close();
+  });
+
   test('block encode, write and read timings', () async {
     final store = await _open(_newPath());
     final writer = ArchiveWriter(Future.value(store));

@@ -302,6 +302,11 @@ void main() {
               'CREATE TABLE minute_counts(channel TEXT NOT NULL, '
               'minute INTEGER NOT NULL, count INTEGER NOT NULL)',
             );
+            await db.execute(
+              'CREATE TABLE streams(stream_id TEXT PRIMARY KEY, '
+              'channel TEXT NOT NULL, started_at INTEGER NOT NULL, '
+              'ended_at INTEGER, title TEXT, game TEXT, vod_id TEXT)',
+            );
             await db.insert('blocks', {
               'channel': 'forsen',
               'start_ts': DateTime.now().millisecondsSinceEpoch,
@@ -319,6 +324,12 @@ void main() {
       expect(blocks.single.count, 3);
       expect(blocks.single.data, [1, 2, 3]);
       expect(await db.savedThreads(), isEmpty);
+      await db.addModeration('forsen', 'troll', 0, 1);
+      expect(
+        await db.moderation('forsen', 0, 1),
+        hasLength(1),
+        reason: 'the upgrade must add the moderation table',
+      );
 
       final store = storeOn(db);
       store.toggle(SavedThread.fromMessage(_msg('r1', 'forsen'), 'r1'));

@@ -82,7 +82,7 @@ class _ChannelTables {
 class ArchiveStore {
   ArchiveStore._(this._db, this._now);
 
-  static const int schemaVersion = 2;
+  static const int schemaVersion = 3;
   static const Duration retention = Duration(days: 30);
   static const Duration pruneEvery = Duration(hours: 1);
 
@@ -161,6 +161,7 @@ class ArchiveStore {
       await db.execute(sql);
     }
     await _createThreads(db);
+    await _createModeration(db);
   }
 
   /// Saved threads live in their own tables, so block retention never
@@ -182,11 +183,26 @@ class ArchiveStore {
     }
   }
 
+  /// Deletes that land after their rows sealed. Blocks never change, so a
+  /// read applies these on decode; the table stays empty for channels
+  /// without late moderation. A null login clears every chatter.
+  static Future<void> _createModeration(Database db) async {
+    await db.execute('''CREATE TABLE moderation(
+           channel TEXT NOT NULL, login TEXT,
+           from_ts INTEGER NOT NULL, to_ts INTEGER NOT NULL)''');
+    await db.execute(
+      'CREATE INDEX moderation_by_end ON moderation(channel, to_ts)',
+    );
+  }
+
   /// Schema upgrade hook: add one `if (from < n)` step per version bump.
   /// Version 1 data is never touched; each step only adds tables.
   static Future<void> migrate(Database db, int from, int to) async {
     if (from < 2) {
       await _createThreads(db);
+    }
+    if (from < 3) {
+      await _createModeration(db);
     }
   }
 
@@ -365,7 +381,55 @@ class ArchiveStore {
     [endedTs, id],
   );
 
+  /// Marks rows by [login] (every chatter when null) from [fromTs] to
+  /// [toTs] (epoch ms, inclusive) deleted.
+  Future<void> addModeration(
+    String channel,
+    String? login,
+    int fromTs,
+    int toTs,
+  ) async {
+    await _db.insert('moderation', {
+      'channel': channel,
+      'login': login,
+      'from_ts': fromTs,
+      'to_ts': toTs,
+    });
+    _moderated[channel] = Future.value(true);
+  }
+
   // ---- Reads ---------------------------------------------------------------
+
+  /// Channels known to have moderation rows, so decoding a clean channel
+  /// never queries the table.
+  final Map<String, Future<bool>> _moderated = {};
+
+  /// Moderation ranges of [channel] overlapping [fromTs]..[toTs].
+  Future<List<({String? login, int fromTs, int toTs})>> moderation(
+    String channel,
+    int fromTs,
+    int toTs,
+  ) async {
+    final any = await (_moderated[channel] ??= _db
+        .rawQuery('SELECT 1 FROM moderation WHERE channel = ? LIMIT 1', [
+          channel,
+        ])
+        .then((r) => r.isNotEmpty));
+    if (!any) return const [];
+    final r = await _db.rawQuery(
+      'SELECT login, from_ts, to_ts FROM moderation '
+      'WHERE channel = ? AND to_ts >= ? AND from_ts <= ?',
+      [channel, fromTs, toTs],
+    );
+    return [
+      for (final row in r)
+        (
+          login: row['login'] as String?,
+          fromTs: row['from_ts']! as int,
+          toTs: row['to_ts']! as int,
+        ),
+    ];
+  }
 
   static StoredBlock _block(Map<String, Object?> r) => StoredBlock(
     key: r['id']! as int,
@@ -708,7 +772,7 @@ class ArchiveStore {
     return prune(now);
   }
 
-  /// Deletes blocks, minute counts and ended broadcasts older than
+  /// Deletes blocks, minute counts, moderation and ended broadcasts older than
   /// [retention] relative to [now], except blocks and counts overlapping a
   /// pin. Returns blocks deleted.
   Future<int> prune(DateTime now) async {
@@ -728,6 +792,7 @@ class ArchiveStore {
         [cutoff ~/ 60000],
       );
       await txn.rawDelete('DELETE FROM streams WHERE ended_at < ?', [cutoff]);
+      await txn.rawDelete('DELETE FROM moderation WHERE to_ts < ?', [cutoff]);
       return deleted;
     });
   }

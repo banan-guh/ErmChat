@@ -13,6 +13,7 @@ void main() {
   late Map<String, DateTime> armed;
   late Set<String> cleared;
   late bool moderationActive;
+  late List<String> archived;
   late ModerationHub hub;
 
   setUp(() {
@@ -24,12 +25,15 @@ void main() {
     armed = {};
     cleared = {};
     moderationActive = false;
+    archived = [];
     hub = ModerationHub(
       chat: chat,
       session: session,
       isModerationActive: (_) => moderationActive,
       onSystemMessage: (c, t) => lines.add((c, t)),
       onAnalyticsModeration: (c, isTimeout) => analytics.add((c, isTimeout)),
+      onArchiveModeration: (c, login, from, to) =>
+          archived.add('$c $login ${from.toUtc()}'),
       onSelfTimeoutArmed: (c, until) => armed[c] = until,
       onSelfTimeoutCleared: (c) => cleared.add(c),
     );
@@ -48,6 +52,18 @@ void main() {
   });
 
   test('a ban reported by both sources counts analytics once', () {
+    chat.receive(
+      'test',
+      TwitchMessage(
+        login: 'spammer',
+        text: 'buy followers',
+        messageId: 'm1',
+        timestamp: DateTime.utc(2026, 10, 13, 12),
+      ),
+      maxMessages: 100,
+      isSelected: true,
+      ownLogin: null,
+    );
     moderationActive = true;
     hub.onModeration(
       ModerationEvent(
@@ -66,6 +82,9 @@ void main() {
     );
     expect(analytics, [('test', false)]);
     expect(lines.where((l) => l.$2.contains('banned')), hasLength(1));
+    expect(archived, [
+      'test spammer 2026-10-13 12:00:00.000Z',
+    ], reason: 'one archived clear per ban, from the oldest buffered row');
   });
 
   test('self timeout arms from the IRC copy even while moderate is active', () {
