@@ -15,17 +15,21 @@ Done:
 - Live stream rows (announcement layout, purple tint), deduped by Helix stream id.
 - History parsing in an isolate; join timeout with "Couldn't join, retrying".
 - Saved threads live in the archive database, with no migration from the old JSON store (see Saved threads).
+- Channel pages run on the windowed list: archive reads cut at block seams, the live
+  buffer continues it at the newest end. Search, mentions and thread panels stay on
+  `ChatView`. Streams are recorded from the poll; moderation that lands after a seal
+  is stored in a sparse `moderation` table and applied on read.
 
 Next, in order:
 
-1. Windowed list reads the archive instead of generated data, then replaces ChatView
-   scrolling.
-2. Streams screen.
-3. VOD view.
-4. Memory diet, ids dropped after 24h.
+1. Device pass on the windowed list (60 fps, cold start, real archive sizes).
+2. Threads and mentions read from the archive.
+3. Streams screen.
+4. VOD view.
+5. Memory diet, ids dropped after 24h.
 
-Loose ends are tracked in TODO.md under "History archive". Do not tag a release while
-the archive is on but the list cannot read it.
+Loose ends are tracked in TODO.md under "History archive". Do not tag a release before
+the device pass.
 
 ## Goals
 

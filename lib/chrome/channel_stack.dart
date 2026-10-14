@@ -9,6 +9,8 @@ import '../models/twitch_message.dart';
 import '../panels/search.dart';
 import '../panels/threads.dart';
 import '../chat/chat.dart';
+import '../services/archive_history_source.dart';
+import '../services/archive_reader.dart';
 import '../services/link_whitelist.dart';
 import '../widgets/seven_tv_paint_service.dart';
 import '../services/twitch_auth.dart';
@@ -19,6 +21,8 @@ import '../eventsub/decode/events.dart' show PinnedMessageEvent;
 import '../services/mod_actions.dart' show ModResult;
 import '../widgets/broadcast_widgets.dart';
 import '../util/fake_history.dart';
+import '../util/history_timeline.dart';
+import '../widgets/chat_rows.dart';
 import '../widgets/chat_view.dart';
 import '../widgets/glass_chrome.dart';
 import '../widgets/history_view.dart';
@@ -63,6 +67,7 @@ class ChannelPanels {
     required this.messageNotifier,
     required this.atBottomNotifier,
     required this.scrollCtrl,
+    this.archiveReader,
   });
 
   static const welcomeChannel = '__welcome__';
@@ -105,6 +110,13 @@ class ChannelPanels {
   final ValueNotifier<int> Function(String channel) messageNotifier;
   final ValueNotifier<bool> Function(String channel) atBottomNotifier;
   final ScrollController Function(String channel) scrollCtrl;
+
+  /// Reads channel history for the windowed list; null keeps every page on
+  /// [ChatView] over the live buffer.
+  final ArchiveReader? archiveReader;
+
+  /// History sources by channel, so a rebuilt page keeps its source.
+  final _sources = <String, HistorySource>{};
 
   late final Listenable _tabSharedMerge = Listenable.merge([
     selectedTabIndex,
@@ -197,18 +209,9 @@ class ChannelPanels {
     String channel, [
     double topPadding = 0,
   ]) {
-    if (FakeHistory.isFake(channel)) {
-      return HistoryView(
-        channel: channel,
-        source: FakeHistorySource(channel),
-        debugControls: true,
-        messageBuilder: messageBuilder,
-        topPadding: topPadding,
-        showTimestamp: showTimestamps(),
-        timestampFormat: timestampFormat(),
-        textScale: chatFontSize() / 14.0,
-        lineSeparator: lineSeparator(),
-      );
+    final history = _historySource(channel);
+    if (history != null && !search.open) {
+      return _historyPage(context, channel, history, topPadding);
     }
     final infoVersion =
         chat.channelFor(channel)?.info.version ?? _emptyNotifier;
@@ -255,6 +258,73 @@ class ChannelPanels {
         onShowThreadView: (msg) => threads.showThreadView(msg),
         keepAlive: false,
         keepPosition: !search.open,
+        keyboardDismissBehavior: (!kIsWeb && Platform.isIOS)
+            ? ScrollViewKeyboardDismissBehavior.onDrag
+            : ScrollViewKeyboardDismissBehavior.manual,
+      ),
+    );
+  }
+
+  /// The history source for [channel]'s page: generated rows for the
+  /// prototype channels, the archive for the rest, null without an archive.
+  HistorySource? _historySource(String channel) {
+    if (FakeHistory.isFake(channel)) {
+      return _sources[channel] ??= FakeHistorySource(channel);
+    }
+    final reader = archiveReader;
+    if (reader == null) return null;
+    return _sources[channel] ??= ArchiveHistorySource(channel, reader);
+  }
+
+  /// [channel]'s page as the windowed history list continuing into the live
+  /// buffer. Info bumps (settings that change tiles) rebuild it; the list
+  /// follows the buffer itself, and only while its page is active.
+  Widget _historyPage(
+    BuildContext context,
+    String channel,
+    HistorySource source,
+    double topPadding,
+  ) {
+    final fake = FakeHistory.isFake(channel);
+    final state = chat.channelFor(channel);
+    final messages = state?.messages;
+    return _FocusGatedBuilder(
+      listenable: state?.info.version ?? _emptyNotifier,
+      builder: (_, active) => HistoryView(
+        channel: channel,
+        source: source,
+        debugControls: fake,
+        live: messages == null ? null : () => messages.chatRows,
+        liveVersion: active ? messages?.version : null,
+        rows: ChatRows(
+          channel: channel,
+          messageBuilder: messageBuilder,
+          linkWhitelist: linkWhitelist,
+          showTimestamp: showTimestamps(),
+          timestampFormat: timestampFormat(),
+          checkeredMessages: checkeredMessages(),
+          highlightOpacity: highlightOpacity(),
+          lineSeparator: lineSeparator(),
+          sharedChatMode: sharedChatMode(),
+          paintService: showNamePaints() ? paintService : null,
+          onShowUserProfile: (login, userId, {displayName}) =>
+              userSheets.showUserProfile(
+                context,
+                login,
+                userId,
+                displayName: displayName,
+              ),
+          onShowMessageMenu: (msg) => menus.showMessageMenu(context, msg),
+          onCopyMessage: copyMessage,
+          onFindThreadRoot: threads.findThreadRoot,
+          onShowThreadView: (msg) => threads.showThreadView(msg),
+        ),
+        textScale: chatFontSize() / 14.0,
+        topPadding: topPadding,
+        tileCache: tileCache,
+        atBottomNotifier: atBottomNotifier(channel),
+        onScrollActivity: chat.clearUnread,
+        emptyText: fake ? null : context.l10n.noMessagesYet,
         keyboardDismissBehavior: (!kIsWeb && Platform.isIOS)
             ? ScrollViewKeyboardDismissBehavior.onDrag
             : ScrollViewKeyboardDismissBehavior.manual,
@@ -375,6 +445,8 @@ class ChannelPanels {
                     onFocusChanged: onChannelFocusChanged,
                     onTabTapped: (index) {
                       final channel = chat.names[index];
+                      // ChatView rests on the newest row at 0; a history
+                      // page jumps itself when the notifier turns true.
                       final ctrl = scrollCtrl(channel);
                       if (ctrl.hasClients) ctrl.jumpTo(0);
                       atBottomNotifier(channel).value = true;

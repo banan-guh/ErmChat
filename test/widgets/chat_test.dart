@@ -1,6 +1,11 @@
 import 'widget_test_harness.dart';
 import '../helpers.dart';
 
+/// The channel chat list, whichever list implements it: the only reversed
+/// scroll view on screen.
+Finder _chatList() =>
+    find.byWidgetPredicate((w) => w is ScrollView && w.reverse);
+
 void main() {
   setUp(() {
     SharedPreferences.setMockInitialValues({});
@@ -2513,9 +2518,14 @@ void main() {
         }
         await tester.pump();
 
-        // Thread should now be removed - pushed past maxMessages=10.
-        expect(find.textContaining('thread root'), findsNothing);
-        expect(find.textContaining('thread reply'), findsNothing);
+        // Thread should now be removed from the buffer - pushed past
+        // maxMessages=10. The channel page keeps rows that left the buffer
+        // as history, so the buffer is where truncation shows.
+        final rows = ProviderScope.containerOf(
+          tester.element(find.byType(HomeScreen)),
+        ).read(chatProvider).channelFor(channel)!.messages.chatRows;
+        expect(rows.where((m) => m.text == 'thread root'), isEmpty);
+        expect(rows.where((m) => m.text == 'thread reply'), isEmpty);
       }
     });
   });
@@ -2559,7 +2569,7 @@ void main() {
         await tester.pump();
 
         // Scroll up - FAB appears (with reverse:true, drag DOWN = scroll UP)
-        await tester.drag(find.byType(ListView).first, const Offset(0, 500));
+        await tester.drag(_chatList().first, const Offset(0, 500));
         await tester.pump();
         await tester.pump();
         expect(find.byIcon(Icons.keyboard_arrow_down), findsOneWidget);
@@ -2934,15 +2944,12 @@ void main() {
     await tester.pump();
     await joinChannel(tester, 'a');
     await joinChannel(tester, 'b');
-    await tester.drag(find.byType(ListView).first, const Offset(0, 300));
+    await tester.drag(_chatList().first, const Offset(0, 300));
     await tester.pumpAndSettle();
 
     ScrollableState chat() => tester.state<ScrollableState>(
       find
-          .descendant(
-            of: find.byType(ListView).first,
-            matching: find.byType(Scrollable),
-          )
+          .descendant(of: _chatList().first, matching: find.byType(Scrollable))
           .first,
     );
     double? page() =>

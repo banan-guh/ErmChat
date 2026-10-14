@@ -35,7 +35,8 @@ Skipped from the survey: emoji picker (the keyboard has one), follow/unfollow, p
 ## History archive (docs/HISTORY.md)
 
 - [*] **Archive is always on** - every install writes history now; finish the feature before tagging a release.
-- [ ] **Windowed list on the archive** - swap the prototype's fake blocks for real archive reads, then replace ChatView scrolling.
+- [+] **Windowed list on the archive** - channel pages scroll from live chat into the archive.
+- [ ] **Threads and mentions from history** - open any thread or mention from the archive.
 - [ ] **Streams screen** - waveform cards per stream, opened from stream rows and the rail bubble.
 - [ ] **VOD view** - embed `video=` with chat replay from the archive.
 - [ ] **Drop ids after 24h** - keep only reply-referenced ids in `ref_ids`.

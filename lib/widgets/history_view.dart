@@ -12,11 +12,10 @@ import '../util/history_timeline.dart';
 import '../util/history_window.dart';
 import '../util/log.dart';
 import '../util/perf_probe.dart';
-import '../util/timestamp_formatter.dart';
 import 'chat_message_tile.dart';
+import 'chat_rows.dart';
 import 'glass_chrome.dart';
 import 'history_scrubber.dart';
-import 'message_builder.dart';
 
 /// Windowed history list over a [HistorySource].
 ///
@@ -40,25 +39,31 @@ class HistoryView extends StatefulWidget {
     super.key,
     required this.channel,
     required this.source,
-    required this.messageBuilder,
-    this.topPadding = 0,
-    this.showTimestamp = true,
-    this.timestampFormat = kDefaultTimestampFormat,
+    required this.rows,
     this.textScale = 1.0,
-    this.lineSeparator = false,
+    this.topPadding = 0,
     this.debugControls = false,
     this.live,
     this.liveVersion,
+    this.tileCache,
+    this.atBottomNotifier,
+    this.onScrollActivity,
+    this.scrollFabHeroTag,
+    this.keyboardDismissBehavior = ScrollViewKeyboardDismissBehavior.manual,
+    this.emptyText,
   });
 
   final String channel;
   final HistorySource source;
-  final MessageBuilder messageBuilder;
-  final double topPadding;
-  final bool showTimestamp;
-  final String timestampFormat;
+
+  /// Builds message rows the way the chat lists do.
+  final ChatRows rows;
+
+  /// Chat font scale; the system text scale multiplies in.
   final double textScale;
-  final bool lineSeparator;
+
+  /// Clearance above the oldest row, below a floating header.
+  final double topPadding;
 
   /// Jump buttons and window stats over the list, for the prototype channels.
   final bool debugControls;
@@ -69,6 +74,24 @@ class HistoryView extends StatefulWidget {
 
   /// Bumps whenever [live] changes.
   final Listenable? liveVersion;
+
+  /// Tile caches by channel, then message id; the owner evicts edited rows
+  /// and may drop a channel's map. Null builds rows fresh.
+  final Map<String, Map<String?, Widget>>? tileCache;
+
+  /// True while the newest row is in view. Set true from outside (a tab tap)
+  /// to jump to the newest row.
+  final ValueNotifier<bool>? atBottomNotifier;
+
+  /// Called with [channel] whenever [atBottomNotifier] flips.
+  final void Function(String channel)? onScrollActivity;
+
+  /// Hero tag for the scroll-down FAB. Defaults to [channel]-keyed.
+  final String? scrollFabHeroTag;
+  final ScrollViewKeyboardDismissBehavior keyboardDismissBehavior;
+
+  /// Shown when there is nothing to show; null shows nothing.
+  final String? emptyText;
 
   @override
   State<HistoryView> createState() => _HistoryViewState();
@@ -203,6 +226,21 @@ class _HistoryViewState extends State<HistoryView> {
   /// comes along.
   ({String key, double coord, double height})? _hold;
   static const double _followEps = 0.5;
+
+  /// Tile cache bound, like [ChatView]'s.
+  static const int _maxCachedTiles = 300;
+
+  /// Live row gates, re-checked against the viewport after each layout.
+  final Set<RowGateState> _gates = {};
+  bool _gateSyncScheduled = false;
+
+  /// Mirror of what this view last wrote to [HistoryView.atBottomNotifier],
+  /// so an outside write reads as a request to jump.
+  bool _atBottom = true;
+  double _systemScale = 1;
+
+  /// The first window is in, so an empty one means nothing to show.
+  bool _loaded = false;
   int _epoch = 0;
   bool _maintainScheduled = false;
   bool _firstPainted = false;
@@ -219,7 +257,31 @@ class _HistoryViewState extends State<HistoryView> {
       SchedulerBinding.instance.addTimingsCallback(_onTimings);
     }
     widget.liveVersion?.addListener(_onLive);
-    _start();
+    widget.atBottomNotifier?.addListener(_onAtBottomRequest);
+  }
+
+  @override
+  void deactivate() {
+    // Ancestor lookups still work here, unlike in dispose.
+    _saveReading();
+    super.deactivate();
+  }
+
+  bool _started = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (!_started) {
+      _started = true;
+      _start();
+    }
+    final scale = MediaQuery.textScalerOf(context).scale(1.0);
+    if (scale != _systemScale) {
+      _systemScale = scale;
+      // Pixel-sized tiles would otherwise survive the scale change.
+      widget.tileCache?.clear();
+    }
   }
 
   @override
@@ -230,19 +292,115 @@ class _HistoryViewState extends State<HistoryView> {
       widget.liveVersion?.addListener(_onLive);
       _onLive();
     }
+    if (old.atBottomNotifier != widget.atBottomNotifier) {
+      old.atBottomNotifier?.removeListener(_onAtBottomRequest);
+      widget.atBottomNotifier?.addListener(_onAtBottomRequest);
+    }
   }
 
-  /// Loads streams first so the first rows already carry their markers.
-  Future<void> _start() async {
-    final streams = await widget.source.streams();
-    if (!mounted) return;
-    _window.streams = streams;
-    await _jumpTo(null);
+  /// Opens at the saved reading position or the newest row. Streams load
+  /// alongside and mark the rows once in, so they never hold up the rows.
+  void _start() {
+    final saved = _readSaved();
+    if (saved == null) {
+      _jumpTo(null);
+    } else {
+      _jumpTo(saved.time, offset: saved.offset);
+    }
+    widget.source.streams().then((streams) {
+      if (!mounted || streams.isEmpty) return;
+      setState(() {
+        _window.setStreams(streams);
+        _rebuildItems();
+      });
+    });
+  }
+
+  // ---- Reading position ----------------------------------------------------
+
+  /// Where the reader was when the page unmounted: the row at the viewport's
+  /// bottom edge and how far its top sat above that edge. Nothing is saved
+  /// while following, so the page comes back at the newest row.
+  void _saveReading() {
+    final bucket = PageStorage.maybeOf(context);
+    if (bucket == null) return;
+    ({DateTime time, double offset})? reading;
+    final pos = _pos;
+    if (!_follow && pos != null && pos.hasPixels) {
+      final row = _rowAtEdge();
+      if (row != null) {
+        reading = (time: row.row.timestamp, offset: row.top - pos.pixels);
+      }
+    }
+    bucket.writeState(context, reading, identifier: _storageId);
+  }
+
+  ({DateTime time, double offset})? _readSaved() {
+    final saved = PageStorage.maybeOf(
+      context,
+    )?.readState(context, identifier: _storageId);
+    return saved is ({DateTime time, double offset}) ? saved : null;
+  }
+
+  String get _storageId => 'history:${widget.channel}';
+
+  // ---- Bottom --------------------------------------------------------------
+
+  /// Mirrors the newest-row-in-view state to [HistoryView.atBottomNotifier].
+  void _setAtBottom(bool value) {
+    if (value == _atBottom) return;
+    _atBottom = value;
+    final n = widget.atBottomNotifier;
+    if (n != null && n.value != value) {
+      n.value = value;
+      widget.onScrollActivity?.call(widget.channel);
+    }
+  }
+
+  void _syncAtBottom(ScrollMetrics m) => _setAtBottom(
+    _window.atNewest && m.pixels <= m.minScrollExtent + _followEps,
+  );
+
+  /// An outside write of true (a tab tap) asks for the newest row.
+  void _onAtBottomRequest() {
+    final n = widget.atBottomNotifier;
+    if (n != null && n.value && !_atBottom) _jumpToNewest();
+  }
+
+  /// Back to the newest row: a scroll when it is already near, otherwise a
+  /// fresh window.
+  void _jumpToNewest() {
+    _follow = true;
+    _atBottom = true;
+    widget.atBottomNotifier?.value = true;
+    widget.onScrollActivity?.call(widget.channel);
+    final pos = _pos;
+    if (_window.atNewest &&
+        pos != null &&
+        pos.hasContentDimensions &&
+        pos.pixels - pos.minScrollExtent < pos.viewportDimension * 4) {
+      pos.jumpTo(pos.minScrollExtent);
+      return;
+    }
+    _jumpTo(null);
+  }
+
+  // ---- Gates ---------------------------------------------------------------
+
+  void _scheduleGateSync() {
+    if (_gateSyncScheduled) return;
+    _gateSyncScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _gateSyncScheduled = false;
+      final pos = _pos;
+      if (mounted && pos != null) syncRowGates(_gates, pos);
+    });
   }
 
   @override
   void dispose() {
     widget.liveVersion?.removeListener(_onLive);
+    widget.atBottomNotifier?.removeListener(_onAtBottomRequest);
     if (identical(_active, this)) _active = null;
     if (PerfProbe.enabled) {
       SchedulerBinding.instance.removeTimingsCallback(_onTimings);
@@ -290,6 +448,7 @@ class _HistoryViewState extends State<HistoryView> {
   Future<void> _jumpTo(
     DateTime? time, {
     double fraction = 0,
+    double offset = 0,
     Future<List<TwitchMessage>>? rows,
   }) async {
     final epoch = ++_epoch;
@@ -299,8 +458,13 @@ class _HistoryViewState extends State<HistoryView> {
     _hold = null;
     final sw = Stopwatch()..start();
     final source = widget.source;
-    final loaded =
-        await (rows ?? (time == null ? source.newest() : source.around(time)));
+    // With a live buffer the newest rows are on hand; history prepends as it
+    // reads, so the archive never holds up live chat.
+    final liveFirst = time == null && rows == null && widget.live != null;
+    final loaded = liveFirst
+        ? const <TwitchMessage>[]
+        : await (rows ??
+              (time == null ? source.newest() : source.around(time)));
     if (!mounted || epoch != _epoch) return;
     // A target near the oldest row needs the rows above it before the anchor
     // can sit there; otherwise the older sliver could not span the viewport.
@@ -318,7 +482,8 @@ class _HistoryViewState extends State<HistoryView> {
       // already sees the new content at the new offset.
       pos.jumpTo(pos.pixels);
       pos.correctPixels(
-        pos.hasViewportDimension ? -pos.viewportDimension * fraction : 0,
+        -offset -
+            (pos.hasViewportDimension ? pos.viewportDimension * fraction : 0),
       );
       // correctPixels notifies nothing and an unchanged window rebuilds no
       // child, so a jump to the current anchor would never lay out.
@@ -326,6 +491,7 @@ class _HistoryViewState extends State<HistoryView> {
     }
     var pinOldest = false;
     setState(() {
+      _loaded = true;
       _window.reset(loaded);
       if (olderRows.isNotEmpty || time != null) {
         if (_window.prepend(olderRows) == 0 && time != null) {
@@ -356,7 +522,7 @@ class _HistoryViewState extends State<HistoryView> {
         final ms = _open.elapsedMilliseconds;
         _log('first rows painted ${widget.channel} in ${ms}ms');
         // After the first paint, so the activity scan never delays it.
-        Future<void>(_buildRail);
+        _buildRail();
       }
       final p = _pos;
       if (p != null && p.hasContentDimensions) {
@@ -364,6 +530,7 @@ class _HistoryViewState extends State<HistoryView> {
             ? p.maxScrollExtent
             : p.pixels.clamp(p.minScrollExtent, p.maxScrollExtent);
         if (clamped != p.pixels) p.jumpTo(clamped);
+        _syncAtBottom(p);
       }
       _scheduleMaintain();
     });
@@ -420,19 +587,26 @@ class _HistoryViewState extends State<HistoryView> {
     if (widget.live == null) return;
     _liveAttached = true;
     _liveStart = _window.end;
-    _syncLive();
+    _syncLive(attaching: true);
   }
 
   void _onLive() {
     if (!mounted || !_liveAttached) return;
     setState(_syncLive);
     _scheduleMaintain();
+    final pos = _pos;
+    if (pos != null && pos.hasContentDimensions) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        final p = _pos;
+        if (mounted && p != null && p.hasContentDimensions) _syncAtBottom(p);
+      });
+    }
   }
 
   /// Mirrors the live buffer into the window's tail. Arrivals append; any
   /// other change replaces the tail from the first row that differs, holding
   /// the row on screen. Call inside setState.
-  void _syncLive() {
+  void _syncLive({bool attaching = false}) {
     final rows = widget.live?.call();
     if (rows == null || rows.isEmpty) return;
     final w = _window;
@@ -447,6 +621,22 @@ class _HistoryViewState extends State<HistoryView> {
       }
     }
     if (k == null) {
+      // The buffer moved past every row synced before (the page sat
+      // inactive): rows between may only be in the archive. Following
+      // starts over at the newest rows; a reader detaches and scrolling
+      // down reads them back.
+      if (!attaching &&
+          !w.isEmpty &&
+          oldest.timestamp.isAfter(w[w.end - 1].timestamp)) {
+        _liveAttached = false;
+        w.atNewest = false;
+        if (_follow) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) _jumpTo(null);
+          });
+        }
+        return;
+      }
       // Older rows joined the buffer (a history merge), or it is new to the
       // window: everything from its oldest time comes from the buffer.
       final from = w.positionAt(oldest.timestamp);
@@ -489,8 +679,20 @@ class _HistoryViewState extends State<HistoryView> {
 
   /// Records the row at the viewport's bottom edge, for [_resolve].
   void _captureHold() {
+    final at = _rowAtEdge();
+    if (at == null) return;
+    _hold = (
+      key: HistoryWindow.keyOf(at.row),
+      coord: at.bottom,
+      height: at.top - at.bottom,
+    );
+  }
+
+  /// The row crossing the viewport's bottom edge, with the scroll
+  /// coordinates of its edges, from the last layout.
+  ({TwitchMessage row, double bottom, double top})? _rowAtEdge() {
     final pos = _pos;
-    if (pos == null || !pos.hasPixels) return;
+    if (pos == null || !pos.hasPixels) return null;
     final edge = pos.pixels;
     for (final older in const [true, false]) {
       final sliver = _sliver(older ? _olderKey : _newerKey);
@@ -510,16 +712,11 @@ class _HistoryViewState extends State<HistoryView> {
         final top = older ? offset + c.size.height : -offset;
         if (bottom <= edge && top > edge) {
           final row = _window.at(item.pos);
-          if (row == null) return;
-          _hold = (
-            key: HistoryWindow.keyOf(row),
-            coord: bottom,
-            height: c.size.height,
-          );
-          return;
+          return row == null ? null : (row: row, bottom: bottom, top: top);
         }
       }
     }
+    return null;
   }
 
   /// Scroll coordinate of the bottom edge of the row keyed [key] and
@@ -551,7 +748,7 @@ class _HistoryViewState extends State<HistoryView> {
 
   /// Physics hook, run in the layout that applies new content.
   double? _resolve(ScrollMetrics m) {
-    if (_follow && _liveAttached) return m.minScrollExtent;
+    if (_follow && _window.atNewest) return m.minScrollExtent;
     final hold = _hold;
     if (hold == null) return null;
     _hold = null;
@@ -565,12 +762,14 @@ class _HistoryViewState extends State<HistoryView> {
 
   bool _onScrollNotification(ScrollNotification n) {
     if (n.depth != 0) return false;
+    _scheduleGateSync();
+    _syncAtBottom(n.metrics);
     if ((n is ScrollStartNotification && n.dragDetails != null) ||
         (n is ScrollUpdateNotification && n.dragDetails != null)) {
       _follow = false;
     } else if (n is ScrollEndNotification) {
       final m = n.metrics;
-      if (_liveAttached && m.pixels <= m.minScrollExtent + _followEps) {
+      if (_window.atNewest && m.pixels <= m.minScrollExtent + _followEps) {
         _follow = true;
       }
     }
@@ -592,7 +791,10 @@ class _HistoryViewState extends State<HistoryView> {
   void _maintain() {
     final pos = _pos;
     if (pos == null || !pos.hasPixels || !pos.hasContentDimensions) return;
-    if (_window.isEmpty) return;
+    if (_window.isEmpty) {
+      if (!_window.atOldest) _loadOlder();
+      return;
+    }
     if (_scrolled) {
       _scrolled = false;
       _updateRail();
@@ -611,13 +813,15 @@ class _HistoryViewState extends State<HistoryView> {
     if (_loadingOlder) return;
     _loadingOlder = true;
     final epoch = _epoch;
-    final edge = _window[_window.first].timestamp;
-    var rows = await widget.source.older(edge);
+    final edge = _window.isEmpty ? null : _window[_window.first].timestamp;
+    var rows = await (edge == null
+        ? widget.source.newest()
+        : widget.source.older(edge));
     if (!mounted || epoch != _epoch) return;
     _loadingOlder = false;
     // The read can return only rows already held when several share the
     // edge's timestamp; step past them once before calling it the oldest.
-    if (rows.isNotEmpty && !_hasFresh(rows)) {
+    if (edge != null && rows.isNotEmpty && !_hasFresh(rows)) {
       _loadingOlder = true;
       rows = await widget.source.older(
         edge.subtract(const Duration(milliseconds: 1)),
@@ -625,9 +829,17 @@ class _HistoryViewState extends State<HistoryView> {
       if (!mounted || epoch != _epoch) return;
       _loadingOlder = false;
     }
-    if (_window[_window.first].timestamp != edge) return;
+    final first = _window.isEmpty ? null : _window[_window.first].timestamp;
+    if (edge != null && first != edge) return;
+    // Live rows may have landed while reading; older rows stay older.
+    final fresh = first == null
+        ? rows
+        : [
+            for (final r in rows)
+              if (!r.timestamp.isAfter(first)) r,
+          ];
     setState(() {
-      if (_window.prepend(rows) == 0) _window.markOldest();
+      if (_window.prepend(fresh) == 0) _window.markOldest();
       _trim();
       _rebuildItems();
     });
@@ -947,7 +1159,7 @@ class _HistoryViewState extends State<HistoryView> {
           channel: widget.channel,
           timestamp: m.time,
         ),
-        onTap: m.kind == HistoryMarkerKind.emptyStretch
+        m.kind == HistoryMarkerKind.emptyStretch
             ? () => _peekRail(m.time)
             : () => showHistoryMarkerSheet(
                 context,
@@ -961,112 +1173,155 @@ class _HistoryViewState extends State<HistoryView> {
   Widget _row(BuildContext context, int pos) {
     final msg = _window.at(pos);
     if (msg == null) return const SizedBox.shrink();
-    return KeyedSubtree(
-      key: ValueKey<String>(HistoryWindow.keyOf(msg)),
-      child: _tile(context, msg, alternate: pos.isEven),
+    final key = HistoryWindow.keyOf(msg);
+    _scheduleGateSync();
+    return RowGate(
+      key: ValueKey<String>(key),
+      gates: _gates,
+      child: _cachedTile(context, msg, key, pos.isEven),
     );
   }
 
-  Widget _tile(
+  /// The row's tile from the cache, touched on use so eviction drops rows
+  /// scrolled away from, or a fresh one cached under its message id.
+  Widget _cachedTile(
     BuildContext context,
-    TwitchMessage msg, {
-    bool alternate = false,
-    VoidCallback? onTap,
-  }) {
-    final b = widget.messageBuilder;
-    final variant = Theme.of(context).colorScheme.onSurfaceVariant;
+    TwitchMessage msg,
+    String key,
+    bool alternate,
+  ) {
+    final cache = widget.tileCache?.putIfAbsent(widget.channel, () => {});
+    final id = msg.messageId;
+    final hit = id == null ? null : cache?.remove(id);
+    if (hit != null) {
+      cache![id] = hit;
+      return hit;
+    }
+    final tile = widget.rows.tile(
+      context,
+      msg,
+      alternate: alternate,
+      scale: widget.textScale * _systemScale,
+      surface: Theme.of(context).scaffoldBackgroundColor,
+    );
+    if (cache != null && id != null) {
+      cache[id] = tile;
+      if (cache.length > _maxCachedTiles) cache.remove(cache.keys.first);
+    }
+    return tile;
+  }
+
+  /// A derived marker row, styled like a live system line and tappable.
+  Widget _tile(BuildContext context, TwitchMessage msg, VoidCallback onTap) {
+    final r = widget.rows;
+    final b = r.messageBuilder;
     return RepaintBoundary(
       child: ChatMessageTile(
         message: msg,
         channel: widget.channel,
         surface: Theme.of(context).scaffoldBackgroundColor,
-        textScale: widget.textScale,
-        showTimestamp: widget.showTimestamp,
-        timestampFormat: widget.timestampFormat,
-        lineSeparator: widget.lineSeparator,
-        isAlternateBackground: alternate,
+        textScale: widget.textScale * _systemScale,
+        showTimestamp: r.showTimestamp,
+        timestampFormat: r.timestampFormat,
+        lineSeparator: r.lineSeparator,
         buildBadgeSpans: b.buildBadgeSpans,
         buildMessageSpans: b.buildMessageSpans,
         bodyIsCached: b.bodyIsCached,
         onTap: onTap,
-        replyIndicator: msg.replyToUser == null
-            ? null
-            : Padding(
-                padding: const EdgeInsets.only(left: 12, top: 2),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.reply, size: 16, color: variant),
-                    const SizedBox(width: 4),
-                    Flexible(
-                      child: Text(
-                        'Replying to ${msg.replyToUser}: ${msg.replyToText}',
-                        style: TextStyle(fontSize: 12, color: variant),
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
       ),
     );
   }
 
+  /// The empty-state line, at the bottom like the first live row would be.
+  Widget _empty(BuildContext context) => widget.rows.tile(
+    context,
+    TwitchMessage(
+      login: '',
+      text: widget.emptyText!,
+      isSystem: true,
+      channel: widget.channel,
+    ),
+    alternate: false,
+    scale: widget.textScale * _systemScale,
+    surface: Theme.of(context).scaffoldBackgroundColor,
+  );
+
   @override
   Widget build(BuildContext context) {
     final scope = GlassChromeScope.maybeOf(context);
+    final glass = (scope?.bottomClearance ?? 0) > 0.5;
+    // Opaque in-flow composer sits flush under the list, so keep a small
+    // fixed gap above it. Glass mode clears the measured pill instead, and
+    // rows scroll on behind it.
+    final pill = glass ? scope!.bottomClearance : 0.0;
     final bottom =
-        ((scope?.bottomClearance ?? 0) > 0.5
-            ? scope!.bottomClearance
-            : kOpaqueComposerGap) +
-        (scope?.listExtra ?? 0);
+        (glass ? pill : kOpaqueComposerGap) + (scope?.listExtra ?? 0);
     _status =
         'win ${_window.length}  ${_window.first}-${_window.end}  '
         'anchor $_anchor';
-    return Stack(
-      children: [
-        Padding(
-          padding: EdgeInsets.only(bottom: bottom),
-          child: NotificationListener<ScrollNotification>(
-            onNotification: _onScrollNotification,
-            child: CustomScrollView(
-              controller: _controller,
-              physics: defaultTargetPlatform == TargetPlatform.iOS
-                  ? _HoldBouncingPhysics(
-                      parent: const AlwaysScrollableScrollPhysics(),
-                      resolve: _resolve,
-                    )
-                  : _HoldClampingPhysics(resolve: _resolve),
-              reverse: true,
-              center: _olderKey,
-              slivers: [
-                SliverList(
-                  key: _newerKey,
-                  delegate: SliverChildBuilderDelegate(
-                    (ctx, j) => _item(ctx, _newerItems, j),
-                    childCount: _newerItems.length,
-                    addAutomaticKeepAlives: false,
-                    addRepaintBoundaries: false,
-                    addSemanticIndexes: false,
-                  ),
-                ),
-                SliverList(
-                  key: _olderKey,
-                  delegate: SliverChildBuilderDelegate(
-                    (ctx, j) => _item(ctx, _olderItems, j),
-                    childCount: _olderItems.length,
-                    addAutomaticKeepAlives: false,
-                    addRepaintBoundaries: false,
-                    addSemanticIndexes: false,
-                  ),
-                ),
-                SliverToBoxAdapter(child: SizedBox(height: widget.topPadding)),
-              ],
+    final empty = _window.isEmpty && widget.emptyText != null && _loaded;
+    Widget list = NotificationListener<ScrollMetricsNotification>(
+      // A viewport resize (keyboard) moves rows in or out of view without a
+      // scroll.
+      onNotification: (_) {
+        _scheduleGateSync();
+        return false;
+      },
+      child: NotificationListener<ScrollNotification>(
+        onNotification: _onScrollNotification,
+        child: CustomScrollView(
+          controller: _controller,
+          physics: defaultTargetPlatform == TargetPlatform.iOS
+              ? _HoldBouncingPhysics(
+                  parent: const AlwaysScrollableScrollPhysics(),
+                  resolve: _resolve,
+                )
+              : _HoldClampingPhysics(resolve: _resolve),
+          reverse: true,
+          center: _olderKey,
+          keyboardDismissBehavior: widget.keyboardDismissBehavior,
+          slivers: [
+            SliverToBoxAdapter(child: SizedBox(height: bottom)),
+            if (empty) SliverToBoxAdapter(child: _empty(context)),
+            SliverList(
+              key: _newerKey,
+              delegate: SliverChildBuilderDelegate(
+                (ctx, j) => _item(ctx, _newerItems, j),
+                childCount: _newerItems.length,
+                addAutomaticKeepAlives: false,
+                addRepaintBoundaries: false,
+                addSemanticIndexes: false,
+              ),
             ),
-          ),
+            SliverList(
+              key: _olderKey,
+              delegate: SliverChildBuilderDelegate(
+                (ctx, j) => _item(ctx, _olderItems, j),
+                childCount: _olderItems.length,
+                addAutomaticKeepAlives: false,
+                addRepaintBoundaries: false,
+                addSemanticIndexes: false,
+              ),
+            ),
+            SliverToBoxAdapter(child: SizedBox(height: widget.topPadding)),
+          ],
         ),
+      ),
+    );
+    // iOS: a tap on empty chat space dismisses the keyboard. Rows are
+    // InkWells, so their own taps win the arena and never dismiss.
+    if (defaultTargetPlatform == TargetPlatform.iOS) {
+      list = GestureDetector(
+        onTap: () => FocusManager.instance.primaryFocus?.unfocus(),
+        child: list,
+      );
+    }
+    return Stack(
+      clipBehavior: Clip.hardEdge,
+      children: [
+        list,
         Positioned(
-          top: widget.topPadding + 56,
+          top: widget.topPadding + (widget.debugControls ? 56 : 8),
           right: 0,
           bottom: bottom + 8,
           child: ValueListenableBuilder<ActivityRail?>(
@@ -1084,6 +1339,21 @@ class _HistoryViewState extends State<HistoryView> {
                   ),
           ),
         ),
+        if (widget.atBottomNotifier case final atBottom?)
+          ValueListenableBuilder<bool>(
+            valueListenable: atBottom,
+            builder: (_, value, _) => Positioned(
+              right: 16,
+              bottom: 16 + pill,
+              child: ScrollDownButton(
+                atBottom: value,
+                glass: glass,
+                heroTag:
+                    widget.scrollFabHeroTag ?? 'scroll_down_${widget.channel}',
+                onPressed: _jumpToNewest,
+              ),
+            ),
+          ),
         if (widget.debugControls)
           Positioned(
             top: widget.topPadding + 4,

@@ -3,6 +3,8 @@ import 'package:ermchat/models/twitch_message.dart';
 import 'package:ermchat/services/emote_manager.dart';
 import 'package:ermchat/util/fake_history.dart';
 import 'package:ermchat/widgets/chat_message_tile.dart';
+import 'package:ermchat/widgets/chat_rows.dart';
+import 'package:ermchat/widgets/glass_chrome.dart';
 import 'package:ermchat/widgets/history_view.dart';
 import 'package:ermchat/widgets/history_scrubber.dart';
 import 'package:ermchat/widgets/message_builder.dart';
@@ -39,10 +41,14 @@ Future<void> _pumpView(
         body: HistoryView(
           channel: _ch,
           source: FakeHistorySource(_ch),
+          rows: ChatRows(
+            channel: _ch,
+            messageBuilder: builder,
+            onShowUserProfile: (_, _, {displayName}) {},
+          ),
           debugControls: true,
           live: live,
           liveVersion: liveVersion,
-          messageBuilder: builder,
           topPadding: _inset,
         ),
       ),
@@ -59,7 +65,10 @@ Future<void> _pumpView(
   var bottom = double.negativeInfinity;
   final keys = <String>{};
   final scrollable = tester.getRect(find.byType(CustomScrollView));
-  for (final e in find.byType(KeyedSubtree).evaluate()) {
+  final keyed = find.byWidgetPredicate(
+    (w) => w is KeyedSubtree || w is RowGate,
+  );
+  for (final e in keyed.evaluate()) {
     final key = e.widget.key;
     if (key is! ValueKey<String>) continue;
     final box = e.renderObject;
@@ -109,7 +118,9 @@ void main() {
     arrive(30);
     await _pumpView(tester, live: () => buffer, liveVersion: version);
     await _settle(tester);
-    final bottom = tester.getRect(find.byType(CustomScrollView)).bottom;
+    final bottom =
+        tester.getRect(find.byType(CustomScrollView)).bottom -
+        kOpaqueComposerGap;
     expect(
       tester.getBottomLeft(_tile(buffer.first.messageId!)).dy,
       moreOrLessEquals(bottom, epsilon: 1),
@@ -220,7 +231,10 @@ void main() {
     await tester.pump();
     expect(
       tester.getBottomLeft(_tile('live-21')).dy,
-      moreOrLessEquals(tester.getRect(list).bottom, epsilon: 1),
+      moreOrLessEquals(
+        tester.getRect(list).bottom - kOpaqueComposerGap,
+        epsilon: 1,
+      ),
       reason: 'resting on the reattached tail follows new rows',
     );
   });
@@ -231,15 +245,22 @@ void main() {
     await _pumpView(tester);
     // Long flings up bring the rail in.
     final list = find.byType(CustomScrollView);
-    for (
-      var i = 0;
-      i < 40 && find.byType(HistoryScrubber).evaluate().isEmpty;
-      i++
-    ) {
+    bool railShown() =>
+        find.byType(HistoryScrubber).evaluate().isNotEmpty &&
+        tester
+                .widget<AnimatedOpacity>(
+                  find.descendant(
+                    of: find.byType(HistoryScrubber),
+                    matching: find.byType(AnimatedOpacity),
+                  ),
+                )
+                .opacity ==
+            1;
+    for (var i = 0; i < 40 && !railShown(); i++) {
       await tester.fling(list, const Offset(0, 600), 6000);
       await _settle(tester);
     }
-    expect(find.byType(HistoryScrubber), findsOneWidget);
+    expect(railShown(), isTrue, reason: 'flings never brought the rail in');
     // Drag the thumb past the top of the rail: a jump to row 0.
     await tester.drag(find.byType(HistoryScrubber), const Offset(0, -3000));
     await _settle(tester);

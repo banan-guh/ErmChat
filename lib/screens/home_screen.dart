@@ -534,6 +534,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     messageNotifier: _messageNotifier,
     atBottomNotifier: _atBottomNotifier,
     scrollCtrl: _scrollCtrl,
+    archiveReader: ref.read(archiveProvider)?.reader,
   );
 
   late final StreamPanels _stream = StreamPanels(

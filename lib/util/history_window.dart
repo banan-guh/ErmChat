@@ -14,8 +14,15 @@ class HistoryWindow {
   final LocalTime _local;
   static DateTime _deviceLocal(DateTime t) => t.toLocal();
 
-  /// Broadcasts for stream markers; set before rows attach.
-  List<HistoryStream> streams = const [];
+  /// Broadcasts for stream markers.
+  List<HistoryStream> _streams = const [];
+  List<HistoryStream> get streams => _streams;
+
+  /// Replaces the broadcasts and re-marks every row.
+  void setStreams(List<HistoryStream> streams) {
+    _streams = streams;
+    _mark(_base, end);
+  }
 
   final List<TwitchMessage> _rows = [];
   final Set<String> _keys = {};
@@ -136,7 +143,7 @@ class HistoryWindow {
   /// Marks the first row as the oldest and gives it its leading markers.
   void markOldest() {
     atOldest = true;
-    _mark(_base, _base + 1);
+    if (_rows.isNotEmpty) _mark(_base, _base + 1);
   }
 
   /// Recomputes markers for positions in [from]..[to). The first row gets
@@ -151,7 +158,7 @@ class HistoryWindow {
         prev: p == _base ? null : _rows[p - 1 - _base].timestamp,
         time: _rows[p - _base].timestamp,
         now: clock,
-        streams: streams,
+        streams: _streams,
         local: _local,
       );
       if (m.isNotEmpty) _markers[p] = m;

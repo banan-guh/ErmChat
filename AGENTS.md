@@ -27,7 +27,8 @@ dart format <files>      # only the files you changed, never `.`
 - Message tokens parse once at ingest onto `TwitchMessage.emoteTokens` and freeze; `MessageBuilder` caches spans per message keyed on badge/link/gif prefs only. Typing, picker, and menus read the live mixer.
 - Emote playback: animated non-Twitch emotes (and frozen stills) run through `EmoteUrlProvider`'s custom loop on one shared tick (`runOnTick`) at `EmoteUrlProvider.frameRate`, set by `EmoteFrameRatePolicy`. Playing Twitch GIFs use the stock `Image` and pause only through `TickerMode` (`EmoteUrlProvider.playing`). Per-frame work joins the shared tick; never add a timer per emote.
 - Settings search: each settings tile takes its title from a `Setting` in `lib/screens/settings/settings_search.dart` and wraps in `SettingAnchor`. Add new settings there too; `settings_search_test` fails when a declared setting is missing from its page.
-- `ChatView` reuses rows across inserts via `findChildIndexCallback`, limited to slots from the last layout (flutter#153922 crash). Removing it rebuilds every visible row per message. Rows outside the viewport freeze their emotes through `_RowGate`.
+- Channel pages are `HistoryView`: a windowed list over the archive (`HistorySource`) that continues into the live buffer. Arrivals append below the anchor so nothing on screen moves; other buffer changes hold the row at the viewport edge. Search mode, mentions and thread panels use `ChatView`; both build rows through `ChatRows`.
+- `ChatView` reuses rows across inserts via `findChildIndexCallback`, limited to slots from the last layout (flutter#153922 crash). Removing it rebuilds every visible row per message. Rows outside the viewport freeze their emotes through `RowGate`.
 
 ## Architecture rules
 

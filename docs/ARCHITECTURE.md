@@ -77,7 +77,7 @@ flowchart TD
 
 | Edge | Where | Why |
 |---|---|---|
-| widgets -> providers | `emote_menu_panel.dart`, `chat_view.dart` | The emote menu reads the emote and app providers; `ChatView` reads `chatNoticeProvider` for the copy notice. |
+| widgets -> providers | `emote_menu_panel.dart`, `chat_rows.dart` | The emote menu reads the emote and app providers; `ChatRows` reads `chatNoticeProvider` for the copy notice. |
 | channels -> UI | `channel_manager.dart` | `ChannelManager` takes `ComposerController`, `ThreadPanels`, and `BroadcastWidgets` as constructor deps. |
 | eventsub -> services, kernel | `eventsub/topics.dart` | `EventSubTopics` holds `TwitchApi`, `TwitchAuth`, `Chat`, and `Session` to create subscriptions. |
 | panels <-> composer | `composer_bar.dart`, `mentions.dart`, `threads.dart`, `mod_panel.dart` | `ComposerBar` opens the mod and search panels; the panels write into `ComposerController`. |
