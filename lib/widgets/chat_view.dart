@@ -2,21 +2,12 @@ import 'package:flutter/foundation.dart' show defaultTargetPlatform;
 import 'package:flutter/material.dart';
 import '../l10n/l10n.dart';
 import 'package:flutter/rendering.dart';
-import 'package:flutter/services.dart'
-    show Clipboard, ClipboardData, HapticFeedback;
-import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 import '../models/twitch_message.dart';
-import '../providers/feature_providers.dart' show chatNoticeProvider;
-import '../util/mention.dart';
-import '../util/prefs.dart';
-import '../util/thread_utils.dart';
+import 'chat_rows.dart';
 import 'glass_chrome.dart';
 import 'seven_tv_paint_service.dart';
 import '../util/timestamp_formatter.dart';
-import '../util/haptics.dart';
 import '../widgets/chat_message_tile.dart';
-import '../widgets/emote_text.dart';
 import '../widgets/message_builder.dart';
 import '../services/link_whitelist.dart';
 
@@ -207,24 +198,6 @@ class _ChatHoldBouncingPhysics extends BouncingScrollPhysics
 
 class _ChatViewState extends State<ChatView>
     with AutomaticKeepAliveClientMixin {
-  /// Copies the sender in the mention format pref, trailing space included
-  /// like an inserted emote, and confirms in the chat notice bar with Paste.
-  Future<void> _copyUsername(TwitchMessage msg) async {
-    final prefs = await Prefs.load();
-    final text = formatMention(prefs.mentionFormat, mentionName(msg));
-    await Clipboard.setData(ClipboardData(text: text));
-    if (!mounted) return;
-    final notice = ProviderScope.containerOf(
-      context,
-      listen: false,
-    ).read(chatNoticeProvider);
-    notice.show(
-      context.l10n.copiedValue(text.trimRight()),
-      actionLabel: context.l10n.paste,
-      onAction: notice.paste,
-    );
-  }
-
   /// Pixels from the newest row above which the reader counts as scrolled up.
   static const double _followEps = 0.5;
 
@@ -250,7 +223,7 @@ class _ChatViewState extends State<ChatView>
   final Set<int> _claimedSlots = {};
 
   /// Live row gates, re-checked against the viewport after each layout.
-  final Set<_RowGateState> _gates = {};
+  final Set<RowGateState> _gates = {};
   bool _gateSyncScheduled = false;
 
   // Metrics seen by the last gate sync; a repeat notification for the same
@@ -375,34 +348,12 @@ class _ChatViewState extends State<ChatView>
             return Positioned(
               right: 16,
               bottom: 16 + _effBottom,
-              child: AnimatedSwitcher(
-                duration: const Duration(milliseconds: 100),
-                transitionBuilder: (child, animation) =>
-                    FadeTransition(opacity: animation, child: child),
-                child: atBottom
-                    ? const SizedBox.shrink()
-                    : _effBottom > 0.5
-                    ? GlassIconButton(
-                        key: const ValueKey('scroll_down'),
-                        icon: const Icon(Icons.keyboard_arrow_down),
-                        shape: GlassIconButtonShape.roundedSquare,
-                        onPressed: () {
-                          iosHaptic(HapticFeedback.lightImpact);
-                          _jumpToBottom();
-                        },
-                        quality: GlassQuality.minimal,
-                      )
-                    : FloatingActionButton(
-                        key: const ValueKey('scroll_down'),
-                        heroTag:
-                            widget.scrollFabHeroTag ??
-                            'scroll_down_${widget.channel}',
-                        onPressed: () {
-                          iosHaptic(HapticFeedback.lightImpact);
-                          _jumpToBottom();
-                        },
-                        child: const Icon(Icons.keyboard_arrow_down),
-                      ),
+              child: ScrollDownButton(
+                atBottom: atBottom,
+                glass: _effBottom > 0.5,
+                heroTag:
+                    widget.scrollFabHeroTag ?? 'scroll_down_${widget.channel}',
+                onPressed: _jumpToBottom,
               ),
             );
           },
@@ -452,7 +403,7 @@ class _ChatViewState extends State<ChatView>
         itemBuilder: (ctx, i) {
           _noteBuiltIndex(i);
           _scheduleGateSync();
-          return _RowGate(
+          return RowGate(
             key: _messageKey(msgs[i]),
             gates: _gates,
             child: _buildTile(
@@ -641,13 +592,7 @@ class _ChatViewState extends State<ChatView>
     _lastGateExtentInside = pos.extentInside;
     _lastGateExtentAfter = pos.extentAfter;
     _lastGateAxis = pos.axisDirection;
-    final extent = viewport.size.height;
-    for (final gate in _gates) {
-      final box = gate.context.findRenderObject();
-      if (box is! RenderBox || !box.attached || !box.hasSize) continue;
-      final top = box.localToGlobal(Offset.zero, ancestor: viewport).dy;
-      gate.visible.value = top < extent && top + box.size.height > 0;
-    }
+    syncRowGates(_gates, pos);
   }
 
   /// Applies the scroll state for a user or ballistic update and mirrors it to
@@ -841,8 +786,6 @@ class _ChatViewState extends State<ChatView>
     bool doCheckered,
   ) {
     final msg = msgs[i];
-    // Use the row's own channel for badge/emote resolution.
-    final tileChannel = msg.channel ?? widget.channel;
 
     // DankChat-style: parity assigned once per message via global counter, cached.
     // Cache holds the undimmed tile; dim wraps per build so queries never
@@ -859,66 +802,28 @@ class _ChatViewState extends State<ChatView>
       return _maybeDim(cached, msg, surface);
     }
     final parity = doCheckered ? (++ChatView._checkerSeq).isEven : i.isEven;
-
-    // System rows take no taps, reply line, paint, or embeds; the tile reads
-    // their body from systemBodyBuilder.
-    final chatRow = !msg.isSystem;
-    final body = ChatMessageTile(
-      message: msg,
-      channel: tileChannel,
-      surface: surface,
-      textScale: s,
+    final tile = ChatRows(
+      channel: widget.channel,
+      messageBuilder: widget.messageBuilder,
+      onShowUserProfile: widget.onShowUserProfile,
+      onShowMessageMenu: widget.onShowMessageMenu,
+      onCopyMessage: widget.onCopyMessage,
+      onFindThreadRoot: widget.onFindThreadRoot,
+      onShowThreadView: widget.onShowThreadView,
+      showReplyIndicators: widget.showReplyIndicators,
+      fadeDeleted: widget.fadeDeleted,
+      showChannel: widget.showChannel,
       showTimestamp: widget.showTimestamp,
       timestampFormat: widget.timestampFormat,
-      buildBadgeSpans: widget.messageBuilder.buildBadgeSpans,
-      buildMessageSpans: widget.messageBuilder.buildMessageSpans,
-      bodyIsCached: widget.messageBuilder.bodyIsCached,
-      systemBodyBuilder: (msg, scale) => parseTextWithLinks(
-        msg.text,
-        linkWhitelist: widget.linkWhitelist?.entries,
-        onEmailTap: widget.messageBuilder.onEmailTap,
-      ),
-      onTapUser: chatRow
-          ? (login, userId) => widget.onShowUserProfile(
-              login,
-              userId,
-              displayName: msg.displayName,
-            )
-          : null,
-      onDoubleTapUser: chatRow && widget.messageBuilder.doubleTapNameCopy
-          ? () => _copyUsername(msg)
-          : null,
-      onLongPress: chatRow && widget.onShowMessageMenu != null
-          ? () => widget.onShowMessageMenu!(msg)
-          : null,
-      onDoubleTap: chatRow && widget.onCopyMessage != null
-          ? () => widget.onCopyMessage!(msg)
-          : null,
-      replyIndicator:
-          chatRow &&
-              widget.showReplyIndicators &&
-              widget.onFindThreadRoot != null &&
-              widget.onShowThreadView != null &&
-              msg.replyToUser != null
-          ? _buildReplyIndicator(context, msg, s)
-          : null,
       checkeredMessages: widget.checkeredMessages,
       highlightOpacity: widget.highlightOpacity,
       lineSeparator: widget.lineSeparator,
-      isAlternateBackground: parity,
-      fadeDeleted: widget.fadeDeleted,
       sharedChatMode: widget.sharedChatMode,
-      showChannel: widget.showChannel,
-      paintService: chatRow ? widget.paintService : null,
-      showImages: chatRow && widget.messageBuilder.showImages,
-      imageHeight: widget.messageBuilder.imageHeight,
-      linkWhitelist:
-          widget.linkWhitelist?.entries ??
-          widget.messageBuilder.linkWhitelist.entries,
-    );
+      paintService: widget.paintService,
+      linkWhitelist: widget.linkWhitelist,
+    ).tile(context, msg, alternate: parity, scale: s, surface: surface);
 
     // Key by messageId for rematch on index shifts; cached tiles short-circuit.
-    final tile = RepaintBoundary(child: body);
     if (cache != null && msg.messageId != null) {
       cache[msg.messageId!] = tile;
       // Mark the freshly cached row as live for this frame. The eviction check
@@ -963,84 +868,4 @@ class _ChatViewState extends State<ChatView>
 
   static String _anonKey(TwitchMessage msg) =>
       'anon-${msg.timestamp.microsecondsSinceEpoch}-${msg.login}-${msg.text.hashCode}';
-
-  Widget _buildReplyIndicator(
-    BuildContext context,
-    TwitchMessage msg,
-    double scale,
-  ) {
-    final preview = formatReplyPreview(msg.replyToText ?? '');
-    final variant = Theme.of(context).colorScheme.onSurfaceVariant;
-    return Padding(
-      padding: const EdgeInsets.only(left: 12, top: 2),
-      child: InkWell(
-        onTap: () {
-          final root = widget.onFindThreadRoot?.call(msg);
-          if (root != null) widget.onShowThreadView?.call(root);
-        },
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.reply, size: 16 * scale, color: variant),
-            SizedBox(width: 4 * scale),
-            Flexible(
-              child: Text(
-                context.l10n.replyingToUser(
-                  msg.replyToUser ?? context.l10n.unknownUser,
-                  preview,
-                ),
-                style: TextStyle(fontSize: 12 * scale, color: variant),
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-/// Chat row that pauses its emotes while it sits outside the viewport.
-/// Starts enabled so a row built offscreen still decodes its first frame.
-class _RowGate extends StatefulWidget {
-  const _RowGate({super.key, required this.gates, required this.child});
-
-  final Set<_RowGateState> gates;
-  final Widget child;
-
-  @override
-  State<_RowGate> createState() => _RowGateState();
-}
-
-class _RowGateState extends State<_RowGate> {
-  final ValueNotifier<bool> visible = ValueNotifier(true);
-
-  @override
-  void initState() {
-    super.initState();
-    widget.gates.add(this);
-  }
-
-  @override
-  void didUpdateWidget(_RowGate oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (!identical(oldWidget.gates, widget.gates)) {
-      oldWidget.gates.remove(this);
-      widget.gates.add(this);
-    }
-  }
-
-  @override
-  void dispose() {
-    widget.gates.remove(this);
-    visible.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) => ValueListenableBuilder<bool>(
-    valueListenable: visible,
-    builder: (_, on, child) => TickerMode(enabled: on, child: child!),
-    child: widget.child,
-  );
 }

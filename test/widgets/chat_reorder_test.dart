@@ -2,6 +2,7 @@ import 'package:ermchat/models/twitch_message.dart';
 import 'package:ermchat/services/emote_manager.dart';
 import 'package:ermchat/services/third_party_badge_service.dart';
 import 'package:ermchat/services/twitch_badge_service.dart';
+import 'package:ermchat/widgets/chat_rows.dart';
 import 'package:ermchat/widgets/chat_view.dart';
 import 'package:ermchat/widgets/message_builder.dart';
 import 'package:flutter/material.dart';
@@ -198,7 +199,7 @@ void main() {
       var frozen = 0;
       // Cache extent rows count as offstage, so include them explicitly.
       final rows = find.byWidgetPredicate(
-        (w) => w.runtimeType.toString() == '_RowGate',
+        (w) => w is RowGate,
         skipOffstage: false,
       );
       for (final e in rows.evaluate()) {
