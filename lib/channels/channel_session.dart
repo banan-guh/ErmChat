@@ -131,7 +131,7 @@ class ChannelSession extends ChangeNotifier {
             if (_disposed || !chat.contains(name)) return;
             chat.channelFor(name)?.setHistoryLoaded(true);
             if (rows.isEmpty) {
-              _addSystemMessage(name, strings().noChatHistory);
+              _noteEmptyHistory(name);
             } else {
               history.mergeHistory(name, rows);
             }
@@ -200,7 +200,7 @@ class ChannelSession extends ChangeNotifier {
           chat.channelFor(name)?.setHistoryLoaded(true);
           removeLoadingHistoryMessage(name);
           if (rows.isEmpty) {
-            _addSystemMessage(name, strings().noChatHistory);
+            _noteEmptyHistory(name);
           } else {
             history.mergeHistory(name, rows);
           }
@@ -311,6 +311,20 @@ class ChannelSession extends ChangeNotifier {
       ownLogin: () => session.login,
     );
     unawaited(Prefs.load().then((prefs) => config.toPrefs(prefs)));
+  }
+
+  // Empty fetch after a restore: robotty filled nothing since the archive, so
+  // mark a gap instead of "no history". Partial fetches mark theirs in merge.
+  // TODO: mark a likely gap when the newest restored row is older than
+  // robotty's retention window, without adding a row on every launch.
+  void _noteEmptyHistory(String channel) {
+    final restored =
+        chat.channelFor(channel)?.messages.items.any((m) => !m.isSystem) ??
+        false;
+    _addSystemMessage(
+      channel,
+      restored ? strings().historyGapNote : strings().noChatHistory,
+    );
   }
 
   void _addSystemMessage(String channel, String text) {

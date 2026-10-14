@@ -41,7 +41,6 @@ Skipped from the survey: emoji picker (the keyboard has one), follow/unfollow, p
 - [ ] **Drop ids after 24h** - keep only reply-referenced ids in `ref_ids`.
 - [ ] **Archive dedup window** - only the last ~4096 ids per channel are checked on write.
 - [ ] **Restore order** - one isolate for all channels, selected channel first.
-- [ ] **"No chat history" after restore** - shows when robotty is empty even if rows were restored.
 - [ ] **Message memory diet** - flags int, int timestamps, shared UserState.
 - [ ] **Per-account WebView profiles** - one profile per account, sign-out fallback on old WebViews.
 
