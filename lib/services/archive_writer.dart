@@ -20,6 +20,9 @@ class _Chan {
   final waiting = <TwitchMessage>[];
   final tail = <ArchiveRow>[];
 
+  /// The tail's messages plus those of seals still writing, oldest first.
+  final unsealed = <TwitchMessage>[];
+
   /// Recent message ids (insertion ordered): the unsealed tail plus the
   /// newest sealed block, so a row arriving twice is stored once.
   final ids = <String>{};
@@ -120,6 +123,7 @@ class ArchiveWriter {
       }
     }
     c.tail.add(ArchiveAdapter(c.tables!).toRow(msg));
+    c.unsealed.add(msg);
     if (c.tail.length >= sealCount) {
       _seal(channel, c);
     } else {
@@ -135,7 +139,19 @@ class ArchiveWriter {
     }
     final rows = List.of(c.tail);
     c.tail.clear();
-    c.chain = c.chain.then((_) => _write(channel, rows));
+    c.chain = c.chain.then((_) async {
+      await _write(channel, rows);
+      // Readable from the store now, or lost to a failed write.
+      c.unsealed.removeRange(0, rows.length);
+    });
+  }
+
+  /// Messages of [channel] not yet readable from the store, oldest first:
+  /// parked, in the tail, or in a seal still writing.
+  List<TwitchMessage> unsealed(String channel) {
+    final c = _chans[channel];
+    if (c == null) return const [];
+    return [...c.waiting, ...c.unsealed];
   }
 
   Future<void> _write(String channel, List<ArchiveRow> rows) async {

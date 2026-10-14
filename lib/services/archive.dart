@@ -11,9 +11,9 @@ import 'archive_writer.dart';
 /// store opens lazily on first use; if it cannot open (for example after a
 /// downgrade) the archive logs once and acts empty, and chat is unaffected.
 class Archive {
-  Archive(this.store)
-    : writer = ArchiveWriter(store),
-      reader = ArchiveReader(store);
+  Archive(this.store) : writer = ArchiveWriter(store) {
+    reader = ArchiveReader(store, unsealed: writer.unsealed);
+  }
 
   /// The shared store; null once resolved when it could not open. Saved
   /// threads persist through it.
@@ -23,7 +23,7 @@ class Archive {
   factory Archive.inAppSupport() => Archive(_openDefault());
 
   final ArchiveWriter writer;
-  final ArchiveReader reader;
+  late final ArchiveReader reader;
 
   static Future<ArchiveStore?> _openDefault() async {
     try {
@@ -65,14 +65,17 @@ class Archive {
     String? login,
     DateTime from,
     DateTime to,
-  ) => _quiet(
-    (s) => s.addModeration(
-      channel,
-      login,
-      from.millisecondsSinceEpoch,
-      to.millisecondsSinceEpoch,
-    ),
-  );
+  ) {
+    reader.clears.emit((channel, (login: login, from: from, to: to)));
+    return _quiet(
+      (s) => s.addModeration(
+        channel,
+        login,
+        from.millisecondsSinceEpoch,
+        to.millisecondsSinceEpoch,
+      ),
+    );
+  }
 
   Future<void> _quiet(Future<void> Function(ArchiveStore s) write) async {
     try {

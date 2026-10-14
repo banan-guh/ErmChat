@@ -7,6 +7,7 @@ import '../archive/archive_row.dart';
 import '../models/twitch_message.dart';
 import '../util/history_timeline.dart';
 import '../util/log.dart';
+import '../util/signal.dart';
 import 'archive_adapter.dart';
 import 'archive_store.dart';
 
@@ -54,7 +55,21 @@ List<List<ArchiveRow>?> decodeBlocks(List<Uint8List> blocks) => [
 /// Reads blocks from the archive, decodes them off the UI isolate, and
 /// returns [TwitchMessage]s. A block that fails to decode is skipped.
 class ArchiveReader {
-  ArchiveReader(this._store, {this.decode = decodeOffIsolate});
+  ArchiveReader(
+    this._store, {
+    this.decode = decodeOffIsolate,
+    this.unsealed = _none,
+  });
+
+  static List<TwitchMessage> _none(String channel) => const [];
+
+  /// Deletes recorded after rows were read, by channel, for readers that
+  /// hold rows.
+  final clears = ChatSignal<(String, HistoryClear)>();
+
+  /// Rows the writer holds that no block has yet; reads include them so a
+  /// row is never missing between the store and the live buffer.
+  final List<TwitchMessage> Function(String channel) unsealed;
 
   final Future<ArchiveStore?> _store;
 
@@ -113,14 +128,21 @@ class ArchiveReader {
       before,
       after,
     );
-    final floor = near.floorTs;
-    final ceil = near.ceilTs;
+    final at = time.millisecondsSinceEpoch;
+    // With nothing asked for on a side, the read stops at [time] there.
+    final floor = before > 0 ? near.floorTs : at - 1;
+    final ceil = after > 0 ? near.ceilTs : at + 1;
+    bool inRange(TwitchMessage m) {
+      final ts = m.timestamp.millisecondsSinceEpoch;
+      return (floor == null || ts > floor) && (ceil == null || ts < ceil);
+    }
+
     final rows = [
       for (final b in await _decodeAll(channel, near.blocks))
         for (final m in b.rows)
-          if ((floor == null || m.timestamp.millisecondsSinceEpoch > floor) &&
-              (ceil == null || m.timestamp.millisecondsSinceEpoch < ceil))
-            m,
+          if (inRange(m)) m,
+      for (final m in unsealed(channel))
+        if (inRange(m)) m,
     ];
     _sortStable(rows);
     return rows;

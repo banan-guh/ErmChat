@@ -63,7 +63,14 @@ abstract interface class HistorySource {
 
   /// The rail over the retained range, or null when nothing is retained.
   Future<ActivityRail?> rail(List<HistoryStream> streams);
+
+  /// Calls [onClear] for each delete that lands after rows were read: rows
+  /// by `login` (everyone when null) from `from` to `to`. Returns the
+  /// unsubscribe.
+  void Function() watchClears(void Function(HistoryClear clear) onClear);
 }
+
+typedef HistoryClear = ({String? login, DateTime from, DateTime to});
 
 /// Calendar day number (days since 1970-01-01) of a wall-clock time. Plain
 /// date arithmetic, so a 23 or 25 hour day counts as one day.

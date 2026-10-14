@@ -41,6 +41,12 @@ class ArchiveHistorySource implements HistorySource {
   );
 
   @override
+  void Function() watchClears(void Function(HistoryClear clear) onClear) =>
+      reader.clears.add((e) {
+        if (e.$1 == channel) onClear(e.$2);
+      });
+
+  @override
   Future<List<HistoryStream>> streams() =>
       reader.streams(channel, _now().subtract(ArchiveStore.retention), _now());
 

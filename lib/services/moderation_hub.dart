@@ -72,17 +72,24 @@ class ModerationHub {
   }
 
   /// Archives a clear of [login] (everyone when null) over what the buffer
-  /// holds, the same rows the kernel marks.
+  /// holds and at least the last [_clearReach], so history read above the
+  /// buffer fades too.
   void _archiveClear(String channel, String? login) {
     final sink = onArchiveModeration;
-    final items = chat.channelFor(channel)?.messages.items;
-    if (sink == null || items == null || items.isEmpty) return;
-    // Row times are Twitch's clock; the newest row covers a phone behind it.
+    if (sink == null) return;
+    final items = chat.channelFor(channel)?.messages.items ?? const [];
     final now = DateTime.now();
-    final newest = items.first.timestamp;
-    final to = newest.isAfter(now) ? newest : now;
-    sink(channel, login?.toLowerCase(), items.last.timestamp, to);
+    var from = now.subtract(_clearReach);
+    var to = now;
+    if (items.isNotEmpty) {
+      if (items.last.timestamp.isBefore(from)) from = items.last.timestamp;
+      // Row times are Twitch's clock; the newest row covers a phone behind.
+      if (items.first.timestamp.isAfter(to)) to = items.first.timestamp;
+    }
+    sink(channel, login?.toLowerCase(), from, to);
   }
+
+  static const _clearReach = Duration(hours: 1);
 
   final _recentBanMeta = <String, List<_BanMeta>>{};
   static const _banDedupWindowSeconds = 10;

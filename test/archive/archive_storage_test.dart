@@ -79,10 +79,12 @@ ArchiveWriter _writer(
   encode: (rows) async => ArchiveBlock.encode(rows),
 );
 
-ArchiveReader _reader(ArchiveStore store) => ArchiveReader(
-  Future.value(store),
-  decode: (blocks) async => decodeBlocks(blocks),
-);
+ArchiveReader _reader(ArchiveStore store, {ArchiveWriter? writer}) =>
+    ArchiveReader(
+      Future.value(store),
+      decode: (blocks) async => decodeBlocks(blocks),
+      unsealed: writer?.unsealed ?? (_) => const [],
+    );
 
 void main() {
   setUpAll(() {
@@ -439,14 +441,19 @@ void main() {
         writer.add(_channel, _msg(i, tsMs: ts(i)));
       }
       await writer.flush();
+      // Rows 23-25 stay in the writer's tail, not yet in any block.
+      for (var i = 23; i < 26; i++) {
+        writer.add(_channel, _msg(i, tsMs: ts(i)));
+      }
+      await writer.settled();
       final source = ArchiveHistorySource(
         _channel,
-        _reader(store),
+        _reader(store, writer: writer),
         now: () => _t0.add(const Duration(hours: 1)),
       );
       final expected = [
         for (final i in [
-          for (var i = 0; i < 23; i++) i,
+          for (var i = 0; i < 26; i++) i,
         ]..sort((a, b) => ts(a).compareTo(ts(b))))
           _id(i),
       ];
