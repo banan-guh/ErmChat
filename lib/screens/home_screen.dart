@@ -1,9 +1,11 @@
 import 'dart:async';
 import 'dart:io' show Platform;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:package_info_plus/package_info_plus.dart';
+
 import '../providers/app_providers.dart';
 import '../providers/channel_providers.dart';
 import '../providers/chat_pipeline.dart';
@@ -535,7 +537,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     atBottomNotifier: _atBottomNotifier,
     scrollCtrl: _scrollCtrl,
     archiveReader: ref.read(archiveProvider)?.reader,
+    emotesVersion: _emotesVersion,
   );
+
+  /// Emote catalog version for history pages; deltas leave it alone.
+  final _emotesVersion = ValueNotifier<int>(0);
 
   late final StreamPanels _stream = StreamPanels(
     streamPlayer: _streamPlayer,
@@ -1439,6 +1445,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     widget.routeObserver?.unsubscribe(this);
     _fakeChat.dispose();
     _isMobile.dispose();
+    _emotesVersion.dispose();
     DataUsageStats.I.dispose();
     for (final unsubscribe in _signalUnsubs) {
       unsubscribe();
@@ -1696,7 +1703,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     // Provider-owned shared objects observed as Riverpod state. These replace
     // the manual addListener/removeListener pairs; ref.listen auto-cancels.
     // Rendered rows ignore emote changes (tokens bake at ingest); typing,
-    // picker, and menus read the live mixer themselves, so no fan-out here.
+    // picker, and menus read the live mixer themselves. Only history pages
+    // hear catalog commits, to heal rows read before a catalog landed.
+    ref.listen(emoteStateProvider, (_, next) {
+      _emotesVersion.value = next.version;
+    });
     ref.listen(twitchAuthTickProvider, (_, _) => _onAuthChanged());
     ref.listen(connectivityTickProvider, (_, _) => _onConnectivityChanged());
     ref.listen(connectionStateProvider, (_, _) => _onConnectionChanged());

@@ -2,6 +2,7 @@ import 'dart:collection';
 
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+
 import '../color_utils.dart';
 import '../emotes/emote.dart';
 import '../models/twitch_badge.dart';
@@ -198,13 +199,18 @@ class MessageBuilder {
         ? badgeService.resolveChannelLogin(msg.sourceBroadcasterId!) ?? channel
         : channel;
     // Tokens baked at ingest: the row renders what it arrived with, never
-    // recomputed. Null (restored threads) parses once against the live
-    // mixer here and sticks. System rows parse to null and fall back to the
-    // live lookup below.
-    final resolved = msg.emoteTokens ??= emoteSource.parseMessageEmotes(
-      msg,
-      lookupChannel: lookupChannel,
-    );
+    // recomputed. Null (restored threads, archive rows) parses once against
+    // the live mixer here and sticks, partial while catalogs are still
+    // landing so a later commit can heal it. System rows parse to null and
+    // fall back to the live lookup below.
+    var resolved = msg.emoteTokens;
+    if (resolved == null && !msg.isSystem) {
+      resolved = msg.emoteTokens = emoteSource.parseMessageEmotes(
+        msg,
+        lookupChannel: lookupChannel,
+      );
+      msg.emotesPartial = !emoteSource.catalogComplete(lookupChannel);
+    }
     final channelEmotes = resolved == null
         ? emoteSource.lookup(lookupChannel, msg.userId)
         : null;

@@ -68,6 +68,7 @@ class ChannelPanels {
     required this.atBottomNotifier,
     required this.scrollCtrl,
     this.archiveReader,
+    this.emotesVersion,
   });
 
   static const welcomeChannel = '__welcome__';
@@ -114,6 +115,9 @@ class ChannelPanels {
   /// Reads channel history for the windowed list; null keeps every page on
   /// [ChatView] over the live buffer.
   final ArchiveReader? archiveReader;
+
+  /// Emote catalog version, for history rows read before a catalog landed.
+  final Listenable? emotesVersion;
 
   /// History sources by channel, so a rebuilt page keeps its source.
   final _sources = <String, HistorySource>{};
@@ -299,6 +303,7 @@ class ChannelPanels {
         debugControls: fake,
         live: messages == null ? null : () => messages.chatRows,
         liveVersion: active ? messages?.version : null,
+        emotesVersion: emotesVersion,
         rows: ChatRows(
           channel: channel,
           messageBuilder: messageBuilder,

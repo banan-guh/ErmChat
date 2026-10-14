@@ -1,9 +1,11 @@
 import 'dart:async';
+
 import 'package:flutter/foundation.dart' show defaultTargetPlatform;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:intl/intl.dart';
+
 import '../color_utils.dart' show streamAccent;
 import '../l10n/l10n.dart';
 import '../models/twitch_message.dart';
@@ -45,6 +47,7 @@ class HistoryView extends StatefulWidget {
     this.debugControls = false,
     this.live,
     this.liveVersion,
+    this.emotesVersion,
     this.tileCache,
     this.atBottomNotifier,
     this.onScrollActivity,
@@ -74,6 +77,10 @@ class HistoryView extends StatefulWidget {
 
   /// Bumps whenever [live] changes.
   final Listenable? liveVersion;
+
+  /// Bumps when an emote catalog lands, so source rows parsed before it
+  /// re-parse. Live rows heal through their buffer.
+  final Listenable? emotesVersion;
 
   /// Tile caches by channel, then message id; the owner evicts edited rows
   /// and may drop a channel's map. Null builds rows fresh.
@@ -257,8 +264,12 @@ class _HistoryViewState extends State<HistoryView> {
       SchedulerBinding.instance.addTimingsCallback(_onTimings);
     }
     widget.liveVersion?.addListener(_onLive);
+    widget.emotesVersion?.addListener(_onEmotes);
     widget.atBottomNotifier?.addListener(_onAtBottomRequest);
+    _unwatchClears = widget.source.watchClears(_onClear);
   }
+
+  void Function()? _unwatchClears;
 
   @override
   void deactivate() {
@@ -291,6 +302,10 @@ class _HistoryViewState extends State<HistoryView> {
       old.liveVersion?.removeListener(_onLive);
       widget.liveVersion?.addListener(_onLive);
       _onLive();
+    }
+    if (old.emotesVersion != widget.emotesVersion) {
+      old.emotesVersion?.removeListener(_onEmotes);
+      widget.emotesVersion?.addListener(_onEmotes);
     }
     if (old.atBottomNotifier != widget.atBottomNotifier) {
       old.atBottomNotifier?.removeListener(_onAtBottomRequest);
@@ -401,7 +416,9 @@ class _HistoryViewState extends State<HistoryView> {
   @override
   void dispose() {
     widget.liveVersion?.removeListener(_onLive);
+    widget.emotesVersion?.removeListener(_onEmotes);
     widget.atBottomNotifier?.removeListener(_onAtBottomRequest);
+    _unwatchClears?.call();
     if (identical(_active, this)) _active = null;
     if (PerfProbe.enabled) {
       SchedulerBinding.instance.removeTimingsCallback(_onTimings);
@@ -593,7 +610,16 @@ class _HistoryViewState extends State<HistoryView> {
 
   void _onLive() {
     if (!mounted || !_liveAttached) return;
-    setState(_syncLive);
+    setState(() {
+      _syncLive();
+      // A reader scrolled up keeps a window, not every arrival: past the cap
+      // the newest rows detach and read back from the source on the way down.
+      final n = _window.length;
+      if (!_follow && n > _cap) {
+        _trim();
+        if (_window.length != n) _rebuildItems();
+      }
+    });
     _scheduleMaintain();
     final pos = _pos;
     if (pos != null && pos.hasContentDimensions) {
@@ -602,6 +628,51 @@ class _HistoryViewState extends State<HistoryView> {
         if (mounted && p != null && p.hasContentDimensions) _syncAtBottom(p);
       });
     }
+  }
+
+  /// Fades held rows a late delete covers. Runs after the moderation call
+  /// returns, so buffer rows are the kernel's to mark and stay untouched
+  /// here.
+  void _onClear(HistoryClear clear) {
+    scheduleMicrotask(() {
+      if (!mounted) return;
+      final w = _window;
+      final cache = widget.tileCache?[widget.channel];
+      var hit = false;
+      for (var p = w.first; p < w.end; p++) {
+        final m = w[p];
+        if (m.isSystem ||
+            m.deleted ||
+            m.timestamp.isBefore(clear.from) ||
+            m.timestamp.isAfter(clear.to) ||
+            (clear.login != null && m.login != clear.login)) {
+          continue;
+        }
+        m.deleted = true;
+        cache?.remove(m.messageId);
+        hit = true;
+      }
+      if (hit) setState(() {});
+    });
+  }
+
+  /// Clears the tokens of source rows parsed while catalogs were landing, so
+  /// their next build parses against the fuller catalog.
+  void _onEmotes() {
+    if (!mounted) return;
+    final w = _window;
+    final cache = widget.tileCache?[widget.channel];
+    final end = _liveAttached && _liveStart < w.end ? _liveStart : w.end;
+    var healed = false;
+    for (var p = w.first; p < end; p++) {
+      final m = w[p];
+      if (!m.emotesPartial) continue;
+      m.emotesPartial = false;
+      m.emoteTokens = null;
+      cache?.remove(m.messageId);
+      healed = true;
+    }
+    if (healed) setState(() {});
   }
 
   /// Mirrors the live buffer into the window's tail. Arrivals append; any

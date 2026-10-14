@@ -46,6 +46,9 @@ abstract interface class EmoteLookupSource {
     TwitchMessage msg, {
     required String lookupChannel,
   });
+
+  /// Whether the global and [channel] catalogs have both landed.
+  bool catalogComplete(String channel);
 }
 
 /// Coordinator and single doorway for the emote area.
@@ -482,6 +485,7 @@ class EmoteManager implements EmoteLookupSource {
   bool get hasGlobalCache => _store.hasGlobalCache;
 
   /// Whether a parse for [channel] sees the full global and channel catalog.
+  @override
   bool catalogComplete(String channel) => _store.catalogComplete(channel);
 
   Map<String, List<Emote>> subscriberEmotesByChannel() =>
