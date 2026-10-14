@@ -11,9 +11,13 @@ import 'archive_writer.dart';
 /// store opens lazily on first use; if it cannot open (for example after a
 /// downgrade) the archive logs once and acts empty, and chat is unaffected.
 class Archive {
-  Archive(Future<ArchiveStore?> store)
+  Archive(this.store)
     : writer = ArchiveWriter(store),
       reader = ArchiveReader(store);
+
+  /// The shared store; null once resolved when it could not open. Saved
+  /// threads persist through it.
+  final Future<ArchiveStore?> store;
 
   /// Opens `archive.db` in the app support directory.
   factory Archive.inAppSupport() => Archive(_openDefault());

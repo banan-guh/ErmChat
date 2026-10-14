@@ -1,22 +1,56 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'package:ermchat/models/twitch_badge.dart';
 import 'package:ermchat/models/twitch_message.dart';
+import 'package:ermchat/services/archive_store.dart';
 import 'package:ermchat/services/saved_threads_store.dart';
 
-TwitchMessage _msg(String id, String channel, {String? rootId}) =>
-    TwitchMessage(
-      login: 'alice',
-      displayName: 'Alice',
-      text: 'hello world $id',
-      messageId: id,
-      channel: channel,
-      replyToParentId: rootId,
-      replyThreadRootId: rootId,
-    );
+final _t0 = DateTime.utc(2026, 10, 1, 12);
+
+TwitchMessage _msg(
+  String id,
+  String channel, {
+  String? rootId,
+  int seconds = 0,
+  String? text,
+}) => TwitchMessage(
+  login: 'alice',
+  displayName: 'Alice',
+  text: text ?? 'hello world $id',
+  messageId: id,
+  channel: channel,
+  replyToParentId: rootId,
+  replyThreadRootId: rootId,
+  timestamp: _t0.add(Duration(seconds: seconds)),
+);
+
+class _ManualTimer implements Timer {
+  _ManualTimer(this.callback);
+
+  final void Function() callback;
+  bool cancelled = false;
+  bool fired = false;
+
+  void fire() {
+    fired = true;
+    callback();
+  }
+
+  @override
+  void cancel() => cancelled = true;
+
+  @override
+  bool get isActive => !cancelled && !fired;
+
+  @override
+  int get tick => fired ? 1 : 0;
+}
 
 void main() {
   group('SavedThreadsStore', () {
@@ -37,11 +71,10 @@ void main() {
     });
 
     test('decode round-trips and drops corrupt rows', () {
-      final source = SavedThreadsStore();
-      source.toggle(SavedThread.fromMessage(_msg('r1', 'forsen'), 'r1'));
-      final good = jsonEncode(source.threads.single.toJson());
+      final entry = SavedThread.fromMessage(_msg('r1', 'forsen'), 'r1');
+      final good = jsonEncode(entry.toJson());
 
-      final other = SavedThreadsStore()..decode(source.encode());
+      final other = SavedThreadsStore()..decode('[$good]');
       expect(other.isSaved('forsen', 'r1'), isTrue);
       expect(other.threads.single.author, 'Alice');
 
@@ -83,106 +116,319 @@ void main() {
       expect(store.appendMessage(_msg('c2', 'forsen', rootId: 'r1')), isFalse);
       expect(store.appendMessage(_msg('x', 'other')), isFalse);
     });
-
-    test('persists the full log to disk and reloads it', () async {
-      final dir = await Directory.systemTemp.createTemp('saved_threads');
-      try {
-        final store = SavedThreadsStore()..overrideDirectory(dir);
-        final root = _msg('r1', 'forsen');
-        store.toggle(SavedThread.fromMessage(root, 'r1'), [root]);
-        store.appendMessage(_msg('c1', 'forsen', rootId: 'r1'));
-        await store.flush();
-
-        final other = SavedThreadsStore()..overrideDirectory(dir);
-        await other.load();
-        expect(other.isSaved('forsen', 'r1'), isTrue);
-        final msgs = other.messagesFor('forsen', 'r1');
-        expect(msgs.map((m) => m.messageId), containsAll(['r1', 'c1']));
-        expect(msgs.first.text, contains('hello world'));
-      } finally {
-        await dir.delete(recursive: true);
-      }
-    });
   });
 
-  group('SavedThreadsStore durability', () {
+  group('SavedThreadsStore in the archive db', () {
     late Directory dir;
+    late Directory legacy;
+    final open = <ArchiveStore>[];
+
+    setUpAll(sqfliteFfiInit);
+
     setUp(() async {
-      dir = await Directory.systemTemp.createTemp('saved_threads_dur');
+      dir = await Directory.systemTemp.createTemp('saved_threads_db');
+      legacy = Directory('${dir.path}/saved_threads');
     });
-    tearDown(() => dir.delete(recursive: true));
 
-    File at(String name) => File('${dir.path}${Platform.pathSeparator}$name');
+    tearDown(() async {
+      for (final db in open) {
+        await db.close();
+      }
+      open.clear();
+      await dir.delete(recursive: true);
+    });
 
-    Future<void> saveTwice() async {
-      final store = SavedThreadsStore()..overrideDirectory(dir);
-      final root = _msg('r1', 'forsen');
-      store.toggle(SavedThread.fromMessage(root, 'r1'), [root]);
-      await store.flush();
-      store.toggle(SavedThread.fromMessage(_msg('r9', 'forsen'), 'r9'));
-      store.appendMessage(_msg('c1', 'forsen', rootId: 'r1'));
-      await store.flush();
-      await store.flushIo();
+    String path() => '${dir.path}/archive.db';
+
+    Future<ArchiveStore> openDb() async {
+      final db = await ArchiveStore.open(path(), factory: databaseFactoryFfi);
+      open.add(db);
+      return db;
     }
 
-    test('truncated index and thread file recover from backups', () async {
-      await saveTwice();
-      await at('index.json').writeAsString('[{"channel": "fors');
-      await at('forsen__r1.json').writeAsString('[{"login": "al');
+    // Closing the db is the crash: nothing queued in memory reaches it.
+    Future<ArchiveStore> reopen(ArchiveStore db) async {
+      await db.close();
+      open.remove(db);
+      return openDb();
+    }
 
-      final other = SavedThreadsStore()..overrideDirectory(dir);
+    SavedThreadsStore storeOn(
+      ArchiveStore? db, {
+      Timer Function(Duration, void Function())? createTimer,
+    }) => SavedThreadsStore(
+      store: Future.value(db),
+      legacyDir: legacy,
+      createTimer: createTimer ?? Timer.new,
+    );
+
+    Future<int> rows(ArchiveStore db, String channel, String root) async =>
+        (await db.threadMessages(channel, root)).length;
+
+    test('saves, appends and reloads the full log', () async {
+      final db = await openDb();
+      final store = storeOn(db);
+      final root = _msg('r1', 'forsen');
+      store.toggle(SavedThread.fromMessage(root, 'r1'), [root]);
+      store.appendMessage(_msg('c1', 'forsen', rootId: 'r1', seconds: 1));
+      await store.flush();
+
+      final other = storeOn(db);
       await other.load();
-      expect(other.isSaved('forsen', 'r1'), isTrue, reason: 'index backup');
-      expect(
-        other.messagesFor('forsen', 'r1').map((m) => m.messageId),
-        contains('r1'),
-        reason: 'thread backup',
-      );
+      expect(other.isSaved('forsen', 'r1'), isTrue);
+      final msgs = other.messagesFor('forsen', 'r1');
+      expect(msgs.map((m) => m.messageId), [
+        'c1',
+        'r1',
+      ], reason: 'newest first');
+      expect(msgs.last.text, 'hello world r1');
     });
 
-    test('unreadable index is never rewritten', () async {
-      await saveTwice();
-      await at('index.json').writeAsString('garbage');
-      await at('index.json.bak').writeAsString('garbage');
+    test('appends join one timer and write in one flush', () async {
+      final db = await openDb();
+      final timers = <_ManualTimer>[];
+      final store = storeOn(
+        db,
+        createTimer: (d, cb) {
+          final t = _ManualTimer(cb);
+          timers.add(t);
+          return t;
+        },
+      );
+      final root = _msg('r1', 'forsen');
+      store.toggle(SavedThread.fromMessage(root, 'r1'), [root]);
+      await store.flushIo();
+      for (var i = 0; i < 5; i++) {
+        store.appendMessage(_msg('c$i', 'forsen', rootId: 'r1', seconds: i));
+      }
+      expect(timers, hasLength(1), reason: 'later changes join the timer');
+      expect(timers.single.isActive, isTrue);
+      expect(await rows(db, 'forsen', 'r1'), 1, reason: 'nothing written yet');
 
-      final other = SavedThreadsStore()..overrideDirectory(dir);
-      await other.load();
-      other.toggle(SavedThread.fromMessage(_msg('r2', 'forsen'), 'r2'));
-      await other.flushIo();
-      expect(await at('index.json').readAsString(), 'garbage');
+      timers.single.fire();
+      await store.flushIo();
+      expect(await rows(db, 'forsen', 'r1'), 6);
+    });
+
+    test('a crash before the flush loses only the unflushed rows', () async {
+      var db = await openDb();
+      final store = storeOn(db);
+      final root = _msg('r1', 'forsen');
+      store.toggle(SavedThread.fromMessage(root, 'r1'), [root]);
+      store.appendMessage(_msg('c1', 'forsen', rootId: 'r1', seconds: 1));
+      await store.flush();
+      store.appendMessage(_msg('c2', 'forsen', rootId: 'r1', seconds: 2));
+
+      db = await reopen(db);
+      final ids = (await db.threadMessages(
+        'forsen',
+        'r1',
+      )).map((r) => r.messageId);
+      expect(ids, unorderedEquals(['r1', 'c1']));
+    });
+
+    test('remove deletes the thread and its rows', () async {
+      final db = await openDb();
+      final store = storeOn(db);
+      final root = _msg('r1', 'forsen');
+      store.toggle(SavedThread.fromMessage(root, 'r1'), [root]);
+      store.toggle(SavedThread.fromMessage(_msg('r2', 'forsen'), 'r2'), [
+        _msg('r2', 'forsen'),
+      ]);
+      await store.flushIo();
+      expect(store.remove('forsen', 'r1'), isTrue);
+      await store.flushIo();
+
+      expect((await db.savedThreads()).map((t) => t.rootId), ['r2']);
+      expect(await rows(db, 'forsen', 'r1'), 0);
+      expect(await rows(db, 'forsen', 'r2'), 1);
+    });
+
+    test('eviction past the cap deletes the evicted rows', () async {
+      final db = await openDb();
+      final store = storeOn(db);
+      for (var i = 0; i < maxSavedThreads + 1; i++) {
+        final m = _msg('r$i', 'forsen', seconds: i);
+        store.toggle(SavedThread.fromMessage(m, 'r$i', now: m.timestamp), [m]);
+      }
+      await store.flushIo();
+      expect(await db.savedThreads(), hasLength(maxSavedThreads));
+      expect(await rows(db, 'forsen', 'r0'), 0);
     });
 
     test('a save during load survives the load', () async {
-      await saveTwice();
-      final other = SavedThreadsStore()..overrideDirectory(dir);
+      final db = await openDb();
+      final seed = storeOn(db);
+      final root = _msg('r1', 'forsen');
+      seed.toggle(SavedThread.fromMessage(root, 'r1'), [root]);
+      seed.toggle(SavedThread.fromMessage(_msg('r9', 'forsen'), 'r9'));
+      await seed.flushIo();
+
+      final other = storeOn(db);
       final loading = other.load();
       other.toggle(SavedThread.fromMessage(_msg('r2', 'forsen'), 'r2'));
       await loading;
-      await other.flush();
       await other.flushIo();
-      expect(other.isSaved('forsen', 'r1'), isTrue);
-      expect(other.isSaved('forsen', 'r2'), isTrue);
+      expect(other.keys, {'forsen:r1', 'forsen:r2', 'forsen:r9'});
 
-      final reloaded = SavedThreadsStore()..overrideDirectory(dir);
+      final reloaded = storeOn(db);
       await reloaded.load();
       expect(reloaded.keys, {'forsen:r1', 'forsen:r2', 'forsen:r9'});
     });
 
-    test('a stale partial temp file never shadows the target', () async {
-      await saveTwice();
-      await at('index.json.tmp').writeAsString('[{"channel": "x');
-      await at('forsen__r1.json.tmp').writeAsString('[{"login');
+    test('a large thread decodes off the isolate intact', () async {
+      final db = await openDb();
+      final store = storeOn(db);
+      final log = [
+        for (var i = 0; i < 300; i++)
+          _msg('m$i', 'forsen', seconds: i, text: 'x' * 300),
+      ];
+      store.toggle(SavedThread.fromMessage(log.first, 'm0'), log);
+      await store.flushIo();
 
-      final other = SavedThreadsStore()..overrideDirectory(dir);
+      final other = storeOn(db);
       await other.load();
-      expect(other.messagesFor('forsen', 'r1'), hasLength(2));
-      other.toggle(SavedThread.fromMessage(_msg('r2', 'forsen'), 'r2'));
-      other.appendMessage(_msg('c2', 'forsen', rootId: 'r1'));
-      await other.flush();
-      await other.flushIo();
-      expect(at('index.json.tmp').existsSync(), isFalse);
-      expect(at('forsen__r1.json.tmp').existsSync(), isFalse);
-      jsonDecode(await at('forsen__r1.json').readAsString());
+      final msgs = other.messagesFor('forsen', 'm0');
+      expect(msgs, hasLength(300));
+      expect(msgs.first.messageId, 'm299');
+    });
+
+    group('legacy JSON migration', () {
+      File at(String name) => File('${legacy.path}/$name');
+
+      Future<void> writeThread(String name, List<TwitchMessage> log) =>
+          at(name).writeAsString(jsonEncode([for (final m in log) m.toJson()]));
+
+      Future<void> writeLegacy() async {
+        await legacy.create(recursive: true);
+        final entries = [
+          for (final id in ['a', 'b', 'c', 'd'])
+            SavedThread.fromMessage(
+              _msg(id, 'forsen', seconds: 1),
+              id,
+              now: _t0,
+            ),
+        ];
+        await at(
+          'index.json',
+        ).writeAsString(jsonEncode([for (final e in entries) e.toJson()]));
+        await writeThread('forsen__a.json', [
+          _msg('a', 'forsen'),
+          _msg('a1', 'forsen', rootId: 'a', seconds: 1),
+        ]);
+        // Truncated primary with a valid backup.
+        await at('forsen__b.json').writeAsString('[{"login": "al');
+        await writeThread('forsen__b.json.bak', [_msg('b', 'forsen')]);
+        // Unreadable, no backup: the bookmark migrates with an empty log.
+        await at('forsen__c.json').writeAsString('garbage');
+        await writeThread('forsen__d.json', [_msg('d', 'forsen')]);
+      }
+
+      test(
+        'imports everything readable once, then deletes the files',
+        () async {
+          await writeLegacy();
+          final db = await openDb();
+
+          final first = storeOn(db);
+          await first.load();
+          await first.flushIo();
+          expect(first.keys, {'forsen:a', 'forsen:b', 'forsen:c', 'forsen:d'});
+          expect(first.messagesFor('forsen', 'a'), hasLength(2));
+          expect(
+            first.messagesFor('forsen', 'b').single.messageId,
+            'b',
+            reason: 'backup file',
+          );
+          expect(first.messagesFor('forsen', 'c'), isEmpty);
+          expect(legacy.existsSync(), isTrue, reason: 'kept for one launch');
+
+          // Later edits to the files are ignored: the marker makes it a no-op.
+          await at('index.json').writeAsString(
+            jsonEncode([
+              SavedThread.fromMessage(_msg('e', 'forsen'), 'e').toJson(),
+            ]),
+          );
+          final second = storeOn(db);
+          await second.load();
+          await second.flushIo();
+          expect(second.keys, first.keys);
+          expect(await rows(db, 'forsen', 'a'), 2);
+          expect(legacy.existsSync(), isFalse, reason: 'deleted next launch');
+
+          final third = storeOn(db);
+          await third.load();
+          expect(third.keys, first.keys);
+        },
+      );
+
+      test('an unreadable index is kept and never marked done', () async {
+        await legacy.create(recursive: true);
+        await at('index.json').writeAsString('garbage');
+        final db = await openDb();
+
+        final store = storeOn(db);
+        await store.load();
+        expect(store.threads, isEmpty);
+        expect(at('index.json').existsSync(), isTrue);
+        expect(await db.hasMeta('saved_threads_json_migrated'), isFalse);
+      });
+
+      test('with no database the files still load for the session', () async {
+        await writeLegacy();
+        final store = storeOn(null);
+        await store.load();
+        expect(store.keys, hasLength(4));
+        expect(store.messagesFor('forsen', 'a'), hasLength(2));
+        expect(legacy.existsSync(), isTrue);
+      });
+    });
+
+    test('a version 1 archive keeps its blocks under the new schema', () async {
+      final v1 = path();
+      final old = await databaseFactoryFfi.openDatabase(
+        v1,
+        options: OpenDatabaseOptions(
+          version: 1,
+          onCreate: (db, _) async {
+            await db.execute(
+              'CREATE TABLE blocks(id INTEGER PRIMARY KEY AUTOINCREMENT, '
+              'channel TEXT NOT NULL, start_ts INTEGER NOT NULL, '
+              'end_ts INTEGER NOT NULL, count INTEGER NOT NULL, '
+              'data BLOB NOT NULL)',
+            );
+            // Retention runs on open and reads these.
+            await db.execute(
+              'CREATE TABLE pins(channel TEXT NOT NULL, '
+              'start_ts INTEGER NOT NULL, end_ts INTEGER NOT NULL, '
+              'kind TEXT NOT NULL)',
+            );
+            await db.execute(
+              'CREATE TABLE minute_counts(channel TEXT NOT NULL, '
+              'minute INTEGER NOT NULL, count INTEGER NOT NULL)',
+            );
+            await db.insert('blocks', {
+              'channel': 'forsen',
+              'start_ts': DateTime.now().millisecondsSinceEpoch,
+              'end_ts': DateTime.now().millisecondsSinceEpoch,
+              'count': 3,
+              'data': Uint8List.fromList([1, 2, 3]),
+            });
+          },
+        ),
+      );
+      await old.close();
+
+      final db = await openDb();
+      final blocks = await db.newestBlocks('forsen', 1);
+      expect(blocks.single.count, 3);
+      expect(blocks.single.data, [1, 2, 3]);
+      expect(await db.savedThreads(), isEmpty);
+
+      final store = storeOn(db);
+      store.toggle(SavedThread.fromMessage(_msg('r1', 'forsen'), 'r1'));
+      await store.flushIo();
+      expect(await db.savedThreads(), hasLength(1));
     });
   });
 

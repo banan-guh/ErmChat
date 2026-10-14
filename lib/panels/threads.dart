@@ -8,6 +8,7 @@ import '../chat/chat.dart';
 import '../composer/composer_controller.dart';
 import '../l10n/l10n.dart';
 import '../models/twitch_message.dart';
+import '../services/archive_store.dart';
 import '../services/saved_threads_store.dart';
 import '../widgets/seven_tv_paint_service.dart';
 import '../sheets/message_menu.dart';
@@ -47,7 +48,8 @@ class ThreadPanels {
     required this.namePaintService,
     required this.copyMessage,
     required this.strings,
-  }) {
+    Future<ArchiveStore?>? archiveStore,
+  }) : savedThreads = SavedThreadsStore(store: archiveStore) {
     panelManager.onOpenThreadChanged = syncPinnedThread;
   }
 
@@ -76,7 +78,7 @@ class ThreadPanels {
   /// Strings in the app language for notices raised outside a build.
   final AppLocalizations Function() strings;
 
-  final savedThreads = SavedThreadsStore();
+  final SavedThreadsStore savedThreads;
   final threadLastSeen = <String, DateTime>{};
   final threadsListVersion = ValueNotifier(0);
   final threadMsgCount = ValueNotifier(0);

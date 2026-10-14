@@ -399,6 +399,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     namePaintService: () => _showNamePaints ? _sevenTvPaintService : null,
     copyMessage: _copyMessageToClipboard,
     strings: () => context.l10n,
+    archiveStore: ref.read(archiveProvider)?.store,
   );
 
   late final _mentions = MentionsPanels(

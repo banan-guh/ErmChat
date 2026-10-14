@@ -330,7 +330,7 @@ flowchart LR
   ignore["IgnoreManager"] --> prefs
   uploader["MediaUploader"] --> prefs
   stream["StreamPlayerController"] --> prefs
-  threads -->|saved thread metadata + logs| appfiles["App documents files: saved_threads/*.json"]
+  threads -->|saved thread metadata + logs| appfiles["Archive database: saved_threads, thread_messages"]
   notif -->|mention/whisper local notifications| home
 ```
 
@@ -418,7 +418,7 @@ Every entry calls a public method on the child; none reaches into private state.
 | `CommandHandler` | `lib/services/command_handler.dart` | Slash-command routing to `ModActions`, Helix, and the IRC write socket. |
 | `ChannelManager` | `lib/channels/channel_manager.dart` | Channel membership, join/leave, history backfill, selection commit, join-progress system lines. |
 | `RecentMessagesService` | `lib/services/recent_messages.dart` | Fetches robotty/zneix recent-message history with provider failover. |
-| `SavedThreadsStore` | `lib/services/saved_threads_store.dart` | File-backed saved-thread metadata and full per-thread message logs. |
+| `SavedThreadsStore` | `lib/services/saved_threads_store.dart` | Archive-database-backed saved-thread metadata and full per-thread message logs. |
 | `PingManager` | `lib/services/ping_manager.dart` | Highlight/mention rules, own-message participation, display-name tracking. |
 | `IgnoreManager` | `lib/services/ignore_manager.dart` | Ignored users and keyword block/rewrite rules applied before pings. |
 | `LinkWhitelist` | `lib/services/link_whitelist.dart` | Domain/TLD allow list gating link previews and click handling. |

@@ -14,6 +14,7 @@ Done:
   restore before robotty. Always on: every install archives now.
 - Live stream rows (announcement layout, purple tint), deduped by Helix stream id.
 - History parsing in an isolate; join timeout with "Couldn't join, retrying".
+- Saved threads live in the archive database (see Saved threads).
 
 Next, in order:
 
@@ -21,7 +22,7 @@ Next, in order:
    scrolling.
 2. Streams screen.
 3. VOD view.
-4. Memory diet, ids dropped after 24h, saved-thread migration.
+4. Memory diet, ids dropped after 24h.
 
 Loose ends are tracked in TODO.md under "History archive". Do not tag a release while
 the archive is on but the list cannot read it.
@@ -101,7 +102,8 @@ Rules:
 - Tables: `blocks(channel, start_ts, end_ts, count, data BLOB)` keyed for time seeks,
   `users`, `looks`, `ref_ids` (referenced message ids), `streams` (stream id, channel,
   started_at, ended_at, title, game, vod id), `minute_counts(channel, minute, count)`
-  for the scrubber and waveforms, `pins` (pinned days and saved thread rows).
+  for the scrubber and waveforms, `pins` (pinned days), and the saved thread tables
+  (`saved_threads`, `thread_messages`, `meta`).
 - Package: see Open questions.
 
 ## Writes and kill safety
@@ -114,7 +116,7 @@ Rules:
 ## Retention
 
 - Rolling 30 days per channel.
-- A day can be pinned (kept forever). Saved threads become pins on their rows.
+- A day can be pinned (kept forever). Saved threads are kept forever in their own tables.
 - Optional later: strip rows older than N days down to text, time, user and reply links
   (about 30% smaller). Not in v1.
 - Expected size at 32 bytes per message: a busy channel (100k messages a day) is about
@@ -211,17 +213,23 @@ Clickable, colored system rows. No dividers, no buttons.
 
 ## Saved threads
 
-- Today: JSON files in `saved_threads/`. Fixed after v0.9.10: atomic writes (temp file
-  then rename) with `.bak` recovery, no index write before load finishes, no 1000-reply
-  cap, writes within 1 s of a change and on app pause.
-- With the archive: a thread can outlive retention and span many days, so day pins do
-  not cover it. Its rows go into their own blocks tagged with the thread (channel and
-  root id), exempt from retention, plus a thread pin row.
-- Migration, once: read `index.json` and every thread file (falling back to `.bak`),
-  write all of it into the archive in one transaction, record it as done. Keep the JSON
-  files for one more launch, then delete them. Unreadable files are logged and skipped;
-  everything readable is migrated. Test: a JSON store migrates fully, and a second run
-  is a no-op.
+- Stored in the archive database (schema version 2): `saved_threads` (one bookmark row
+  per thread), `thread_messages` (one row per message, `TwitchMessage.toJson` as bytes),
+  and `meta`. A thread can outlive retention and span many days, so these tables are
+  separate from blocks and retention never touches them. The 50-thread cap evicts the
+  oldest saved.
+- Save, unsave and eviction write at once in a transaction. A new reply queues one row;
+  queued rows flush in one transaction within 1 s of the first change (later changes
+  join the timer) and on app pause. A crash loses at most the unflushed rows.
+- Load reads the rows and decodes off the UI isolate when large. Saves made during load
+  merge into the loaded list.
+- Migration, once, at load: `saved_threads/index.json` and every thread file (falling
+  back to `.bak`, then the older prefs snapshot) are imported in one transaction that
+  also sets the `meta` marker `saved_threads_json_migrated`. Unreadable thread files are
+  logged and skipped; an unreadable index is left alone and retried. The files stay for
+  one launch; the next launch with the marker deletes the directory.
+- If the database cannot open, the JSON files are read into memory and nothing persists
+  that session; the files are untouched, so the import runs once the database opens.
 
 ## Memory diet for `TwitchMessage`
 
@@ -253,7 +261,7 @@ never stored, so millions of rows cost no memory.
 2. Archive: block codec, storage, writes, retention, cold start restore with gap fill.
 3. System messages, scrubber, Streams screen.
 4. VOD view.
-5. Memory diet and saved-thread migration.
+5. Memory diet.
 
 Independent of all phases: per-account WebView profiles.
 

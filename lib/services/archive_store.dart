@@ -23,6 +23,42 @@ class StoredBlock {
   final Uint8List data;
 }
 
+/// A saved thread's bookmark row.
+class StoredThread {
+  const StoredThread({
+    required this.channel,
+    required this.rootId,
+    required this.login,
+    required this.author,
+    required this.preview,
+    required this.savedAtMs,
+  });
+
+  final String channel;
+  final String rootId;
+  final String login;
+  final String author;
+  final String preview;
+  final int savedAtMs;
+}
+
+/// One encoded message of a saved thread.
+class StoredThreadMessage {
+  const StoredThreadMessage({
+    required this.channel,
+    required this.rootId,
+    required this.messageId,
+    required this.ts,
+    required this.data,
+  });
+
+  final String channel;
+  final String rootId;
+  final String messageId;
+  final int ts;
+  final Uint8List data;
+}
+
 class _ChannelTables {
   _ChannelTables(this.tables)
     : whoSaved = tables.whos.length,
@@ -46,7 +82,7 @@ class _ChannelTables {
 class ArchiveStore {
   ArchiveStore._(this._db, this._now);
 
-  static const int schemaVersion = 1;
+  static const int schemaVersion = 2;
   static const Duration retention = Duration(days: 30);
   static const Duration pruneEvery = Duration(hours: 1);
 
@@ -124,10 +160,37 @@ class ArchiveStore {
     for (final sql in statements) {
       await db.execute(sql);
     }
+    await _createThreads(db);
+  }
+
+  /// Saved threads live in their own tables, so block retention never
+  /// touches them. One row per message keeps an append a small insert.
+  static Future<void> _createThreads(Database db) async {
+    const statements = [
+      '''CREATE TABLE saved_threads(
+           channel TEXT NOT NULL, root_id TEXT NOT NULL,
+           login TEXT NOT NULL, author TEXT NOT NULL, preview TEXT NOT NULL,
+           saved_at INTEGER NOT NULL,
+           PRIMARY KEY(channel, root_id)) WITHOUT ROWID''',
+      '''CREATE TABLE thread_messages(
+           channel TEXT NOT NULL, root_id TEXT NOT NULL,
+           message_id TEXT NOT NULL, ts INTEGER NOT NULL, data BLOB NOT NULL,
+           PRIMARY KEY(channel, root_id, message_id)) WITHOUT ROWID''',
+      '''CREATE TABLE meta(
+           key TEXT PRIMARY KEY, value TEXT NOT NULL) WITHOUT ROWID''',
+    ];
+    for (final sql in statements) {
+      await db.execute(sql);
+    }
   }
 
   /// Schema upgrade hook: add one `if (from < n)` step per version bump.
-  static Future<void> migrate(Database db, int from, int to) async {}
+  /// Version 1 data is never touched; each step only adds tables.
+  static Future<void> migrate(Database db, int from, int to) async {
+    if (from < 2) {
+      await _createThreads(db);
+    }
+  }
 
   Future<void> close() => _db.close();
 
@@ -389,6 +452,143 @@ class ArchiveStore {
         (minute: row['minute']! as int, count: row['count']! as int),
     ];
   }
+
+  // ---- Saved threads -------------------------------------------------------
+
+  /// All saved thread bookmarks, newest saved first.
+  Future<List<StoredThread>> savedThreads() async {
+    final r = await _db.rawQuery(
+      'SELECT channel, root_id, login, author, preview, saved_at '
+      'FROM saved_threads ORDER BY saved_at DESC, channel, root_id',
+    );
+    return [
+      for (final row in r)
+        StoredThread(
+          channel: row['channel']! as String,
+          rootId: row['root_id']! as String,
+          login: row['login']! as String,
+          author: row['author']! as String,
+          preview: row['preview']! as String,
+          savedAtMs: row['saved_at']! as int,
+        ),
+    ];
+  }
+
+  /// Message rows of one thread, newest first.
+  Future<List<StoredThreadMessage>> threadMessages(
+    String channel,
+    String rootId,
+  ) async {
+    final r = await _db.rawQuery(
+      'SELECT message_id, ts, data FROM thread_messages '
+      'WHERE channel = ? AND root_id = ? ORDER BY ts DESC',
+      [channel, rootId],
+    );
+    return [
+      for (final row in r)
+        StoredThreadMessage(
+          channel: channel,
+          rootId: rootId,
+          messageId: row['message_id']! as String,
+          ts: row['ts']! as int,
+          data: row['data']! as Uint8List,
+        ),
+    ];
+  }
+
+  /// Saves [thread] with exactly [messages], replacing any earlier rows, in
+  /// one transaction. Threads in [evict] are deleted in the same one.
+  Future<void> putThread(
+    StoredThread thread,
+    List<StoredThreadMessage> messages, {
+    Iterable<(String, String)> evict = const [],
+  }) => _db.transaction((txn) async {
+    final b = txn.batch();
+    for (final (channel, rootId) in evict) {
+      _deleteThread(b, channel, rootId);
+    }
+    _deleteThread(b, thread.channel, thread.rootId);
+    _insertThread(b, thread, ConflictAlgorithm.replace);
+    for (final m in messages) {
+      _insertMessage(b, m);
+    }
+    await b.commit(noResult: true);
+  });
+
+  /// Deletes a thread's bookmark and all its message rows.
+  Future<void> deleteThread(String channel, String rootId) =>
+      _db.transaction((txn) async {
+        final b = txn.batch();
+        _deleteThread(b, channel, rootId);
+        await b.commit(noResult: true);
+      });
+
+  /// Inserts new message rows in one transaction; an existing id is kept.
+  Future<void> appendThreadMessages(List<StoredThreadMessage> rows) =>
+      _db.transaction((txn) async {
+        final b = txn.batch();
+        for (final m in rows) {
+          _insertMessage(b, m);
+        }
+        await b.commit(noResult: true);
+      });
+
+  /// Stores imported threads and sets the [marker] meta key in one
+  /// transaction. Rows already present are kept.
+  Future<void> importThreads(
+    List<StoredThread> threads,
+    List<StoredThreadMessage> messages,
+    String marker,
+  ) => _db.transaction((txn) async {
+    final b = txn.batch();
+    for (final t in threads) {
+      _insertThread(b, t, ConflictAlgorithm.ignore);
+    }
+    for (final m in messages) {
+      _insertMessage(b, m);
+    }
+    b.insert('meta', {
+      'key': marker,
+      'value': '1',
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
+    await b.commit(noResult: true);
+  });
+
+  Future<bool> hasMeta(String key) async => (await _db.rawQuery(
+    'SELECT 1 FROM meta WHERE key = ?',
+    [key],
+  )).isNotEmpty;
+
+  static void _deleteThread(Batch b, String channel, String rootId) {
+    final args = [channel, rootId];
+    b.rawDelete(
+      'DELETE FROM thread_messages WHERE channel = ? AND root_id = ?',
+      args,
+    );
+    b.rawDelete(
+      'DELETE FROM saved_threads WHERE channel = ? AND root_id = ?',
+      args,
+    );
+  }
+
+  static void _insertThread(Batch b, StoredThread t, ConflictAlgorithm c) =>
+      b.insert('saved_threads', {
+        'channel': t.channel,
+        'root_id': t.rootId,
+        'login': t.login,
+        'author': t.author,
+        'preview': t.preview,
+        'saved_at': t.savedAtMs,
+      }, conflictAlgorithm: c);
+
+  static void _insertMessage(Batch b, StoredThreadMessage m) =>
+      b.insert('thread_messages', {
+        'channel': m.channel,
+        'root_id': m.rootId,
+        'message_id': m.messageId,
+        'ts': m.ts,
+        'data': m.data,
+      }, conflictAlgorithm: ConflictAlgorithm.ignore);
 
   // ---- Retention -----------------------------------------------------------
 
