@@ -154,14 +154,29 @@ class HistoryWindow {
     for (var p = from; p < to; p++) {
       _markers.remove(p);
       if (p == _base && !atOldest) continue;
-      final m = markersBefore(
-        prev: p == _base ? null : _rows[p - 1 - _base].timestamp,
-        time: _rows[p - _base].timestamp,
-        now: clock,
-        streams: _streams,
-        local: _local,
-      );
+      final m = [
+        for (final k in markersBefore(
+          prev: p == _base ? null : _rows[p - 1 - _base].timestamp,
+          time: _rows[p - _base].timestamp,
+          now: clock,
+          streams: _streams,
+          local: _local,
+        ))
+          if (!_hasStreamRow(k)) k,
+      ];
       if (m.isNotEmpty) _markers[p] = m;
     }
   }
+
+  /// Whether the chat's own stream start or end row for [m] is held, which
+  /// then stands in for the marker.
+  bool _hasStreamRow(HistoryMarker m) => switch (m.kind) {
+    HistoryMarkerKind.streamStart => _keys.contains(
+      'sys_stream:${m.stream!.id}:start',
+    ),
+    HistoryMarkerKind.streamEnd => _keys.contains(
+      'sys_stream:${m.stream!.id}:end',
+    ),
+    _ => false,
+  };
 }

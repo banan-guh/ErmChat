@@ -181,6 +181,7 @@ class ArchiveReader {
           end: r.endedTs == null ? now : at(r.endedTs!),
           title: r.title ?? '',
           game: r.game ?? '',
+          live: r.endedTs == null,
         ),
     ];
   }
@@ -203,7 +204,13 @@ class ArchiveReader {
       if (b.startTs < lo) lo = b.startTs;
       if (b.endTs > hi) hi = b.endTs;
     }
-    final cleared = await store.moderation(channel, lo, hi);
+    // Ranges per login (null = whole chat), so a channel with many bans
+    // checks each row against its own sender's ranges only.
+    final cleared = <String?, List<({int fromTs, int toTs})>>{};
+    for (final c in await store.moderation(channel, lo, hi)) {
+      (cleared[c.login] ??= []).add((fromTs: c.fromTs, toTs: c.toTs));
+    }
+    final all = cleared[null] ?? const [];
     final out = <ArchiveWindowBlock>[];
     for (var i = 0; i < blocks.length; i++) {
       final rows = decoded[i];
@@ -215,15 +222,14 @@ class ArchiveReader {
       final messages = [
         for (final r in rows) adapter.fromRow(r, channel, asHistory: asHistory),
       ];
-      for (final c in cleared) {
-        for (final m in messages) {
-          final ts = m.timestamp.millisecondsSinceEpoch;
-          if (!m.isSystem &&
-              ts >= c.fromTs &&
-              ts <= c.toTs &&
-              (c.login == null || c.login == m.login)) {
-            m.deleted = true;
-          }
+      for (final m in messages) {
+        // The reconnect grey marks a catch-up in the session it happened.
+        m.isBackfill = false;
+        if (m.isSystem || m.deleted || cleared.isEmpty) continue;
+        final ts = m.timestamp.millisecondsSinceEpoch;
+        bool hit(({int fromTs, int toTs}) c) => ts >= c.fromTs && ts <= c.toTs;
+        if (all.any(hit) || (cleared[m.login]?.any(hit) ?? false)) {
+          m.deleted = true;
         }
       }
       _sortStable(messages);

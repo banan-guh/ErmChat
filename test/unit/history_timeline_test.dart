@@ -110,18 +110,30 @@ void main() {
       final times = [
         for (var h = 8; h <= 16; h++) DateTime.utc(2026, 10, 5, h, 30),
       ];
-      final found = <String>[];
-      for (var i = 0; i < times.length; i++) {
-        final m = markersBefore(
-          prev: i == 0 ? null : times[i - 1],
-          time: times[i],
-          now: now,
-          streams: [stream],
-          local: fixedOffset(0),
-        );
-        found.addAll(keys(m.where((x) => x.stream != null).toList()));
-      }
-      expect(found, ['ss-s1', 'se-s1'], reason: 'one row per stream id');
+      List<String> found(HistoryStream s) => [
+        for (var i = 0; i < times.length; i++)
+          ...keys(
+            markersBefore(
+              prev: i == 0 ? null : times[i - 1],
+              time: times[i],
+              now: now,
+              streams: [s],
+              local: fixedOffset(0),
+            ).where((x) => x.stream != null).toList(),
+          ),
+      ];
+      expect(found(stream), ['ss-s1', 'se-s1'], reason: 'one row per stream');
+      final live = HistoryStream(
+        id: 's1',
+        start: stream.start,
+        end: stream.end,
+        title: 't',
+        game: 'g',
+        live: true,
+      );
+      expect(found(live), [
+        'ss-s1',
+      ], reason: 'a live stream ended mid-chat at the time it was read');
     });
 
     test('length formats as hours and minutes', () {

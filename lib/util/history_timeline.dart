@@ -18,11 +18,15 @@ class HistoryStream {
     required this.end,
     required this.title,
     required this.game,
+    this.live = false,
   });
 
   final String id;
   final DateTime start;
+
+  /// When [live], the time the stream was read, not an end.
   final DateTime end;
+  final bool live;
   final String title;
   final String game;
 }
@@ -138,7 +142,7 @@ List<HistoryMarker> markersBefore({
         ),
       );
     }
-    if (_between(prev, s.end, time)) {
+    if (!s.live && _between(prev, s.end, time)) {
       events.add(
         HistoryMarker(
           kind: HistoryMarkerKind.streamEnd,
