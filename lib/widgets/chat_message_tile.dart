@@ -46,6 +46,9 @@ class ChatMessageTile extends StatefulWidget {
   final VoidCallback? onDoubleTapUser;
   final VoidCallback? onLongPress;
   final VoidCallback? onDoubleTap;
+
+  /// Single tap anywhere on the row, with the row's ripple.
+  final VoidCallback? onTap;
   final Widget? replyIndicator;
   final bool showTimestamp;
   final String timestampFormat;
@@ -90,6 +93,7 @@ class ChatMessageTile extends StatefulWidget {
     this.onDoubleTapUser,
     this.onLongPress,
     this.onDoubleTap,
+    this.onTap,
     this.replyIndicator,
     this.showTimestamp = true,
     this.timestampFormat = kDefaultTimestampFormat,
@@ -587,10 +591,11 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
 
     if (widget.onLongPress != null ||
         widget.onDoubleTap != null ||
+        widget.onTap != null ||
         widget.onTapUser != null) {
       child = InkWell(
         onTapUp: _handleTapUp,
-        onTap: () {},
+        onTap: widget.onTap ?? () {},
         onLongPress: widget.onLongPress,
         child: child,
       );

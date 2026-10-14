@@ -644,9 +644,8 @@ class _FakeHistoryViewState extends State<FakeHistoryView> {
         );
     }
     // A real system row, so it carries the timestamp, font and tint of live
-    // system lines. Stream rows take no tap until the Streams screen exists;
-    // day and empty rows bring up the rail at their time.
-    final tile = KeyedSubtree(
+    // system lines. A tap brings up the rail at the marker's time.
+    return KeyedSubtree(
       key: ValueKey<String>(m.key),
       child: _tile(
         context,
@@ -659,13 +658,8 @@ class _FakeHistoryViewState extends State<FakeHistoryView> {
           channel: widget.channel,
           timestamp: m.time,
         ),
+        onTap: () => _peekRail(m.time),
       ),
-    );
-    if (stream != null) return tile;
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: () => _peekRail(m.time),
-      child: tile,
     );
   }
 
@@ -682,6 +676,7 @@ class _FakeHistoryViewState extends State<FakeHistoryView> {
     BuildContext context,
     TwitchMessage msg, {
     bool alternate = false,
+    VoidCallback? onTap,
   }) {
     final b = widget.messageBuilder;
     final variant = Theme.of(context).colorScheme.onSurfaceVariant;
@@ -698,6 +693,7 @@ class _FakeHistoryViewState extends State<FakeHistoryView> {
         buildBadgeSpans: b.buildBadgeSpans,
         buildMessageSpans: b.buildMessageSpans,
         bodyIsCached: b.bodyIsCached,
+        onTap: onTap,
         replyIndicator: msg.replyToUser == null
             ? null
             : Padding(

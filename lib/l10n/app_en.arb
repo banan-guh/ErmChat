@@ -2835,6 +2835,14 @@
     }
   },
   "streamStarted": "Stream",
+  "streamStartedWith": "Stream: {details}",
+  "@streamStartedWith": {
+    "placeholders": {
+      "details": {
+        "type": "String"
+      }
+    }
+  },
   "streamEnded": "Stream ended",
   "streamDurationHm": "{hours}h{minutes}m",
   "@streamDurationHm": {
@@ -2974,7 +2982,7 @@
   "introEmoteFetching": "Fetching: how sharp emotes load",
   "introEmoteDataSaver": "Data saver: lighter emotes on cellular",
   "introEmoteCache": "Cache: how much space emotes keep",
-  "historyStreamStarted": "Stream\n{title} - {game}",
+  "historyStreamStarted": "Stream: {title} - {game}",
   "@historyStreamStarted": {
     "placeholders": {
       "title": {

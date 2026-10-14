@@ -193,25 +193,15 @@ class ChatStatusComposer {
             if ((stream[k] as String?)?.trim() case final v? when v.isNotEmpty)
               v,
         ];
-        // Announcement layout: the "Stream" label, then title and game on the
-        // row under it (1 ms newer sorts it below the label).
-        final at = startedAt?.toLocal() ?? now;
-        final added = target.addSystemMessageAt(
-          strings().streamStarted,
+        target.addSystemMessageAt(
+          details.isEmpty
+              ? strings().streamStarted
+              : strings().streamStartedWith(details.join(' - ')),
           messageId: 'sys_stream:$id:start',
-          at: at,
+          at: startedAt?.toLocal() ?? now,
           accent: streamAccent,
           maxMessages: getMaxMessages(),
         );
-        if (added && details.isNotEmpty) {
-          target.addSystemMessageAt(
-            details.join(' - '),
-            messageId: 'sys_stream:$id:start:info',
-            at: at.add(const Duration(milliseconds: 1)),
-            accent: streamAccent,
-            maxMessages: getMaxMessages(),
-          );
-        }
       }
       await prefs.setString(
         _markerKey(userId),
