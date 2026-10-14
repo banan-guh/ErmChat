@@ -16,6 +16,7 @@ void main() {
   late DateTime clockNow;
   late Map<String, dynamic>? stream;
   late ChatStatusComposer composer;
+  final archived = <String>[];
 
   ChatStatusComposer build() {
     final api = TwitchApi(
@@ -36,6 +37,10 @@ void main() {
       strings: AppLocalizationsEn.new,
       getMaxMessages: () => 1000,
       now: () => clockNow,
+      onStreamSeen: (channel, id, startedAt, title, game) =>
+          archived.add('seen $channel $id ${startedAt.toUtc()} $title $game'),
+      onStreamEnded: (id, endedAt) =>
+          archived.add('ended $id ${endedAt.toUtc()}'),
     )..startFor('test');
   }
 
@@ -75,6 +80,7 @@ void main() {
     chat.ensure('test').info.setBroadcasterId('42');
     clockNow = DateTime.utc(2026, 10, 13, 12);
     stream = null;
+    archived.clear();
     composer = build();
   });
 
@@ -111,6 +117,11 @@ void main() {
     await poll();
     expect(rows(), hasLength(3));
     expect(rows().first, startsWith('sys_stream:s2:start'));
+    expect(archived.toSet(), {
+      'seen test s1 2026-10-13 09:00:00.000Z Speedrun Zelda',
+      'ended s1 2026-10-13 12:01:30.000Z',
+      'seen test s2 2026-10-13 13:00:00.000Z Speedrun Zelda',
+    }, reason: 'the archive must get each stream and its end');
   });
 
   test('a new id while live closes the old stream first', () async {

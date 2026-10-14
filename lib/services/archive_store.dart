@@ -329,6 +329,10 @@ class ArchiveStore {
     saved.whoSaved = whoTo;
     saved.lookSaved = lookTo;
     saved.stateSaved = stateTo;
+    final span = _maxSpan[channel];
+    if (span != null && endTs - startTs > span) {
+      _maxSpan[channel] = endTs - startTs;
+    }
   }
 
   /// Keeps [startTs]..[endTs] (epoch ms, inclusive) out of retention pruning.
@@ -339,6 +343,27 @@ class ArchiveStore {
         'end_ts': endTs,
         'kind': kind,
       }, conflictAlgorithm: ConflictAlgorithm.ignore);
+
+  /// Records a broadcast once; later calls for the same [id] change nothing.
+  Future<void> putStream({
+    required String channel,
+    required String id,
+    required int startedTs,
+    String? title,
+    String? game,
+  }) => _db.insert('streams', {
+    'stream_id': id,
+    'channel': channel,
+    'started_at': startedTs,
+    'title': title,
+    'game': game,
+  }, conflictAlgorithm: ConflictAlgorithm.ignore);
+
+  /// Sets the end of the broadcast [id] (epoch ms).
+  Future<void> endStream(String id, int endedTs) => _db.rawUpdate(
+    'UPDATE streams SET ended_at = ? WHERE stream_id = ?',
+    [endedTs, id],
+  );
 
   // ---- Reads ---------------------------------------------------------------
 
@@ -426,6 +451,88 @@ class ArchiveStore {
     return [...older.reversed.map(_block), a, ...newer.map(_block)];
   }
 
+  /// Widest block per channel (end minus start, ms), so a lookup for blocks
+  /// spanning a time can stay on the start index. Never shrinks; a stale
+  /// value only widens the scan.
+  final Map<String, int> _maxSpan = {};
+
+  Future<int> _spanOf(String channel) async {
+    final known = _maxSpan[channel];
+    if (known != null) return known;
+    final r = await _db.rawQuery(
+      'SELECT MAX(end_ts - start_ts) AS span FROM blocks WHERE channel = ?',
+      [channel],
+    );
+    return _maxSpan[channel] = (r.first['span'] as int?) ?? 0;
+  }
+
+  /// Every block holding rows at [timeMs], up to [before] blocks ending
+  /// earlier and up to [after] starting later, oldest first. Block time
+  /// ranges can overlap, so a block left out may still hold rows near the
+  /// ones returned: only rows after [floorTs] and before [ceilTs] are
+  /// complete. A null bound means nothing lies beyond it.
+  Future<({List<StoredBlock> blocks, int? floorTs, int? ceilTs})> blocksNear(
+    String channel,
+    int timeMs,
+    int before,
+    int after,
+  ) async {
+    final span = await _spanOf(channel);
+    final spanning = await _db.rawQuery(
+      'SELECT $_cols FROM blocks WHERE channel = ? AND start_ts >= ? '
+      'AND start_ts <= ? AND end_ts >= ?',
+      [channel, timeMs - span, timeMs, timeMs],
+    );
+    // Equal bounds would cut every row of the last block taken, so blocks
+    // sharing the edge value join the take.
+    Future<(List<Map<String, Object?>>, int?)> side(
+      String where,
+      String order,
+      String edge,
+      int n,
+    ) async {
+      if (n <= 0) return (const <Map<String, Object?>>[], null);
+      final rows = await _db.rawQuery(
+        'SELECT $_cols FROM blocks WHERE channel = ? AND $where '
+        'ORDER BY $order LIMIT ?',
+        [channel, timeMs, n + 8],
+      );
+      var take = rows.length < n ? rows.length : n;
+      while (take < rows.length && rows[take][edge] == rows[take - 1][edge]) {
+        take++;
+      }
+      return (
+        rows.sublist(0, take),
+        take < rows.length ? rows[take][edge] as int : null,
+      );
+    }
+
+    final (older, floor) = await side(
+      'end_ts < ?',
+      'end_ts DESC, id DESC',
+      'end_ts',
+      before,
+    );
+    final (newer, ceil) = await side(
+      'start_ts > ?',
+      'start_ts, id',
+      'start_ts',
+      after,
+    );
+    final blocks = [
+      ...older.reversed.map(_block),
+      ...spanning.map(_block),
+      ...newer.map(_block),
+    ];
+    // A block ending before [timeMs] may sit beyond the floor; with no older
+    // block taken, everything older is unread.
+    return (
+      blocks: blocks,
+      floorTs: before > 0 ? floor : (blocks.isEmpty ? null : timeMs - 1),
+      ceilTs: after > 0 ? ceil : (blocks.isEmpty ? null : timeMs + 1),
+    );
+  }
+
   Future<StoredBlock?> blockAt(String channel, int key) async {
     final r = await _db.rawQuery(
       'SELECT $_cols FROM blocks WHERE channel = ? AND id = ?',
@@ -448,6 +555,32 @@ class ArchiveStore {
     return [
       for (final row in r)
         (minute: row['minute']! as int, count: row['count']! as int),
+    ];
+  }
+
+  /// Broadcasts of [channel] still live or ended at or after [fromTs],
+  /// oldest first. A live one has a null end.
+  Future<
+    List<
+      ({String id, int startedTs, int? endedTs, String? title, String? game})
+    >
+  >
+  streams(String channel, int fromTs) async {
+    final r = await _db.rawQuery(
+      'SELECT stream_id, started_at, ended_at, title, game FROM streams '
+      'WHERE channel = ? AND (ended_at IS NULL OR ended_at >= ?) '
+      'ORDER BY started_at',
+      [channel, fromTs],
+    );
+    return [
+      for (final row in r)
+        (
+          id: row['stream_id']! as String,
+          startedTs: row['started_at']! as int,
+          endedTs: row['ended_at'] as int?,
+          title: row['title'] as String?,
+          game: row['game'] as String?,
+        ),
     ];
   }
 
@@ -575,8 +708,9 @@ class ArchiveStore {
     return prune(now);
   }
 
-  /// Deletes blocks and minute counts older than [retention] relative to
-  /// [now], except ranges overlapping a pin. Returns blocks deleted.
+  /// Deletes blocks, minute counts and ended broadcasts older than
+  /// [retention] relative to [now], except blocks and counts overlapping a
+  /// pin. Returns blocks deleted.
   Future<int> prune(DateTime now) async {
     final cutoff = now.toUtc().subtract(retention).millisecondsSinceEpoch;
     return _db.transaction((txn) async {
@@ -593,6 +727,7 @@ class ArchiveStore {
         'AND p.end_ts >= minute_counts.minute * 60000)',
         [cutoff ~/ 60000],
       );
+      await txn.rawDelete('DELETE FROM streams WHERE ended_at < ?', [cutoff]);
       return deleted;
     });
   }

@@ -106,6 +106,16 @@ final chatPipelineProvider = Provider<ChatConnectionManager>((ref) {
         onArchiveMessage: archive == null
             ? null
             : (channel, msg) => archive.writer.add(channel, msg),
+        onArchiveStreamSeen: archive == null
+            ? null
+            : (channel, id, startedAt, title, game) => archive.recordStream(
+                channel: channel,
+                id: id,
+                startedAt: startedAt,
+                title: title,
+                game: game,
+              ),
+        onArchiveStreamEnded: archive?.endStream,
         onAnalyticsModeration: (channel, isTimeout) => ref
             .read(analyticsServiceProvider)
             .recordModeration(channel, isTimeout),

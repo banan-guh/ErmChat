@@ -37,5 +37,35 @@ class Archive {
     }
   }
 
+  /// Records a broadcast seen live. Never throws.
+  Future<void> recordStream({
+    required String channel,
+    required String id,
+    required DateTime startedAt,
+    String? title,
+    String? game,
+  }) => _quiet(
+    (s) => s.putStream(
+      channel: channel,
+      id: id,
+      startedTs: startedAt.millisecondsSinceEpoch,
+      title: title,
+      game: game,
+    ),
+  );
+
+  /// Records the end of broadcast [id]. Never throws.
+  Future<void> endStream(String id, DateTime endedAt) =>
+      _quiet((s) => s.endStream(id, endedAt.millisecondsSinceEpoch));
+
+  Future<void> _quiet(Future<void> Function(ArchiveStore s) write) async {
+    try {
+      final s = await store;
+      if (s != null) await write(s);
+    } catch (e) {
+      logDebug('[Archive] stream write failed: $e');
+    }
+  }
+
   Future<void> dispose() => writer.dispose();
 }

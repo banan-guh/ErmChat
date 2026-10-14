@@ -53,6 +53,8 @@ class ChatChannelSetup {
     required this.ensureCurrentUser,
     this.strings = englishStrings,
     this.getMaxMessages = _unboundedMessages,
+    this.onStreamSeen,
+    this.onStreamEnded,
   });
 
   static int _unboundedMessages() => 1 << 30;
@@ -91,6 +93,17 @@ class ChatChannelSetup {
   final AppLocalizations Function() strings;
   final int Function() getMaxMessages;
 
+  /// Broadcast sightings and ends for the history archive.
+  final void Function(
+    String channel,
+    String id,
+    DateTime startedAt,
+    String? title,
+    String? game,
+  )?
+  onStreamSeen;
+  final void Function(String id, DateTime endedAt)? onStreamEnded;
+
   bool _disposed = false;
   final _httpClient = http.Client();
 
@@ -102,6 +115,8 @@ class ChatChannelSetup {
     session: session,
     strings: strings,
     getMaxMessages: getMaxMessages,
+    onStreamSeen: onStreamSeen,
+    onStreamEnded: onStreamEnded,
   );
 
   /// In-flight 7TV ID lookups by Twitch channel id. Concurrent joins for the

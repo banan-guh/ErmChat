@@ -8,9 +8,11 @@ import 'package:ermchat/color_utils.dart';
 import 'package:ermchat/models/twitch_badge.dart';
 import 'package:ermchat/models/twitch_message.dart';
 import 'package:ermchat/services/archive_adapter.dart';
+import 'package:ermchat/services/archive_history_source.dart';
 import 'package:ermchat/services/archive_reader.dart';
 import 'package:ermchat/services/archive_store.dart';
 import 'package:ermchat/services/archive_writer.dart';
+import 'package:ermchat/util/history_window.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
@@ -346,6 +348,26 @@ void main() {
       [DateTime.utc(2026, 8, 5, 22), DateTime.utc(2026, 9, 25)],
       reason: 'the block overlapping the pinned day survives',
     );
+    await store.putStream(
+      channel: _channel,
+      id: 'old',
+      startedTs: DateTime.utc(2026, 8, 1).millisecondsSinceEpoch,
+    );
+    await store.endStream(
+      'old',
+      DateTime.utc(2026, 8, 1, 3).millisecondsSinceEpoch,
+    );
+    await store.putStream(
+      channel: _channel,
+      id: 'live',
+      startedTs: DateTime.utc(2026, 8, 1).millisecondsSinceEpoch,
+    );
+    await store.prune(now);
+    expect(
+      [for (final s in await store.streams(_channel, 0)) s.id],
+      ['live'],
+      reason: 'an ended broadcast past retention goes, a live one stays',
+    );
     await put(DateTime.utc(2026, 8, 2), DateTime.utc(2026, 8, 2, 1));
     now = now.add(const Duration(minutes: 30));
     expect(await store.pruneIfDue(), 0, reason: 'at most hourly');
@@ -402,6 +424,51 @@ void main() {
     expect(all.length, 3, reason: 'the damaged block is skipped');
     await store.close();
   });
+
+  test(
+    'paging the archive both ways yields every row once, in order',
+    () async {
+      final store = await _open(_newPath());
+      final writer = _writer(store, sealCount: 5);
+      // Rows 10-12 share one millisecond and straddle a block seam; row 21
+      // arrives late with an older timestamp, so two blocks overlap in time.
+      int ts(int i) =>
+          _t0.millisecondsSinceEpoch +
+          (i >= 10 && i <= 12 ? 10000 : (i == 21 ? 14500 : i * 1000));
+      for (var i = 0; i < 23; i++) {
+        writer.add(_channel, _msg(i, tsMs: ts(i)));
+      }
+      await writer.flush();
+      final source = ArchiveHistorySource(
+        _channel,
+        _reader(store),
+        now: () => _t0.add(const Duration(hours: 1)),
+      );
+      final expected = [
+        for (final i in [
+          for (var i = 0; i < 23; i++) i,
+        ]..sort((a, b) => ts(a).compareTo(ts(b))))
+          _id(i),
+      ];
+
+      final w = HistoryWindow(now: source.now)..reset(await source.newest());
+      while (w.prepend(await source.older(w[w.first].timestamp)) > 0) {}
+      expect(
+        [for (var p = w.first; p < w.end; p++) w[p].messageId]..sort(),
+        [...expected]..sort(),
+        reason: 'walking older lost or repeated a row',
+      );
+
+      w.reset(await source.around(_t0));
+      while (w.append(await source.newer(w[w.end - 1].timestamp)) > 0) {}
+      expect(
+        [for (var p = w.first; p < w.end; p++) w[p].messageId]..sort(),
+        [...expected]..sort(),
+        reason: 'walking newer lost or repeated a row',
+      );
+      await store.close();
+    },
+  );
 
   test('block encode, write and read timings', () async {
     final store = await _open(_newPath());

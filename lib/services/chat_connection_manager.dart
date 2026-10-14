@@ -133,6 +133,8 @@ class ChatSinks {
     this.getSharedChatMode,
     this.onAnalyticsMessage,
     this.onArchiveMessage,
+    this.onArchiveStreamSeen,
+    this.onArchiveStreamEnded,
     this.onAnalyticsModeration,
     this.onHypeTrain,
     this.onPoll,
@@ -153,6 +155,15 @@ class ChatSinks {
   final String Function()? getSharedChatMode;
   final void Function(String channel, TwitchMessage msg)? onAnalyticsMessage;
   final void Function(String channel, TwitchMessage msg)? onArchiveMessage;
+  final void Function(
+    String channel,
+    String id,
+    DateTime startedAt,
+    String? title,
+    String? game,
+  )?
+  onArchiveStreamSeen;
+  final void Function(String id, DateTime endedAt)? onArchiveStreamEnded;
   final void Function(String channel, bool isTimeout)? onAnalyticsModeration;
   final void Function(HypeTrainEvent event)? onHypeTrain;
   final void Function(PollEvent event)? onPoll;
@@ -398,6 +409,8 @@ class ChatConnectionManager {
     ensureCurrentUser: (auth) => _lifecycle.ensureCurrentUser(auth),
     strings: config.bridge.strings,
     getMaxMessages: config.bridge.getMaxMessagesPerChannel,
+    onStreamSeen: config.sinks.onArchiveStreamSeen,
+    onStreamEnded: config.sinks.onArchiveStreamEnded,
   );
   final _ingestionSubs = <StreamSubscription<void>>[];
 

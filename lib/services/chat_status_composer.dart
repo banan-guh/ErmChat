@@ -23,6 +23,8 @@ class ChatStatusComposer {
     required this.session,
     required this.strings,
     required this.getMaxMessages,
+    this.onStreamSeen,
+    this.onStreamEnded,
     DateTime Function()? now,
   }) : _now = now ?? clock.now;
 
@@ -32,6 +34,19 @@ class ChatStatusComposer {
   final Session session;
   final AppLocalizations Function() strings;
   final int Function() getMaxMessages;
+
+  /// Every poll that sees [channel] live, for the history archive.
+  final void Function(
+    String channel,
+    String id,
+    DateTime startedAt,
+    String? title,
+    String? game,
+  )?
+  onStreamSeen;
+
+  /// A broadcast's end, at the last poll that saw it live.
+  final void Function(String id, DateTime endedAt)? onStreamEnded;
   final DateTime Function() _now;
 
   // Room-mode tags per channel from ROOMSTATE (merged across partial
@@ -187,6 +202,13 @@ class ChatStatusComposer {
       final startedAt = DateTime.tryParse(
         stream['started_at'] as String? ?? '',
       );
+      onStreamSeen?.call(
+        channel,
+        id,
+        startedAt ?? now,
+        (stream['title'] as String?)?.trim(),
+        (stream['game_name'] as String?)?.trim(),
+      );
       if (saved?.id != id) {
         final details = [
           for (final k in const ['title', 'game_name'])
@@ -241,6 +263,7 @@ class ChatStatusComposer {
     Channel target,
     ({String id, DateTime? startedAt, DateTime seenAt}) marker,
   ) {
+    onStreamEnded?.call(marker.id, marker.seenAt);
     final started = marker.startedAt;
     String? duration;
     if (started != null && marker.seenAt.isAfter(started)) {

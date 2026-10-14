@@ -5,6 +5,7 @@ import '../archive/archive_block.dart';
 import '../archive/archive_io.dart';
 import '../archive/archive_row.dart';
 import '../models/twitch_message.dart';
+import '../util/history_timeline.dart';
 import '../util/log.dart';
 import 'archive_adapter.dart';
 import 'archive_store.dart';
@@ -93,6 +94,38 @@ class ArchiveReader {
     return _decodeAll(channel, blocks);
   }
 
+  /// Rows of every block at [time] plus [before] blocks older and [after]
+  /// newer, oldest first, cut to the range those blocks cover completely
+  /// (see [ArchiveStore.blocksNear]).
+  Future<List<TwitchMessage>> rowsNear(
+    String channel,
+    DateTime time, {
+    required int before,
+    required int after,
+  }) async {
+    final store = await _store;
+    if (store == null) {
+      return const [];
+    }
+    final near = await store.blocksNear(
+      channel,
+      time.millisecondsSinceEpoch,
+      before,
+      after,
+    );
+    final floor = near.floorTs;
+    final ceil = near.ceilTs;
+    final rows = [
+      for (final b in await _decodeAll(channel, near.blocks))
+        for (final m in b.rows)
+          if ((floor == null || m.timestamp.millisecondsSinceEpoch > floor) &&
+              (ceil == null || m.timestamp.millisecondsSinceEpoch < ceil))
+            m,
+    ];
+    _sortStable(rows);
+    return rows;
+  }
+
   Future<ArchiveWindowBlock?> blockAt(String channel, int blockKey) async {
     final store = await _store;
     final block = await store?.blockAt(channel, blockKey);
@@ -123,6 +156,31 @@ class ArchiveReader {
         MinuteCount(
           DateTime.fromMillisecondsSinceEpoch(c.minute * 60000, isUtc: true),
           c.count,
+        ),
+    ];
+  }
+
+  /// Broadcasts still live or ended at or after [from], oldest first. A live
+  /// one ends at [now].
+  Future<List<HistoryStream>> streams(
+    String channel,
+    DateTime from,
+    DateTime now,
+  ) async {
+    final store = await _store;
+    if (store == null) {
+      return const [];
+    }
+    final rows = await store.streams(channel, from.millisecondsSinceEpoch);
+    DateTime at(int ms) => DateTime.fromMillisecondsSinceEpoch(ms, isUtc: true);
+    return [
+      for (final r in rows)
+        HistoryStream(
+          id: r.id,
+          start: at(r.startedTs),
+          end: r.endedTs == null ? now : at(r.endedTs!),
+          title: r.title ?? '',
+          game: r.game ?? '',
         ),
     ];
   }
