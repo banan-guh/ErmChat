@@ -518,21 +518,10 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
     var rowColor = widget.surface;
     final tintAnchor = highlightAnchor(widget.surface);
     if (msg.systemAccent != null) {
-      // Blue/purple announcement hues read a touch louder than their measured
-      // brightness even after equalization, so damp them slightly more.
-      final accentHue = HSLColor.fromColor(msg.systemAccent!).hue;
-      final strength = (accentHue >= 210 && accentHue <= 300)
-          ? highlightStrength * 0.85
-          : highlightStrength;
-      final tint = matchTintContrast(
+      rowColor = accentRowColor(
         msg.systemAccent!,
         rowColor,
-        tintAnchor,
-        strength: strength,
-      );
-      rowColor = Color.alphaBlend(
-        tint.withValues(alpha: widget.highlightOpacity),
-        rowColor,
+        widget.highlightOpacity,
       );
     }
     if (msg.isFirstMessage) {

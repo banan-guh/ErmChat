@@ -29,8 +29,9 @@ const officialColors = [
 /// Announcement banner colors mapped from msg-param-color tag values.
 /// PRIMARY/PURPLE is muted toward dankchat sub purple (S~0.47): same hue
 /// at 60% saturation so row tints stay calm after contrast equalization.
-/// Accent for stream started/ended rows: Twitch's live red.
-const streamAccent = Color(0xFFE91916);
+/// Accent for stream started/ended rows: Twitch purple, kept apart from
+/// [announcementColors] so the two can diverge.
+const streamAccent = Color(0xFF7C47D1);
 
 const announcementColors = <String, Color>{
   'PRIMARY': Color(0xFF7C47D1),
@@ -168,6 +169,22 @@ Color matchTintContrast(
     }
   }
   return best;
+}
+
+/// [surface] with a system row's [accent] tinted over it at [opacity]. Blue
+/// and purple hues read louder than they measure, so they are damped more.
+Color accentRowColor(Color accent, Color surface, double opacity) {
+  final hue = HSLColor.fromColor(accent).hue;
+  final strength = (hue >= 210 && hue <= 300)
+      ? highlightStrength * 0.85
+      : highlightStrength;
+  final tint = matchTintContrast(
+    accent,
+    surface,
+    highlightAnchor(surface),
+    strength: strength,
+  );
+  return Color.alphaBlend(tint.withValues(alpha: opacity), surface);
 }
 
 /// Built-in highlight palette, dark then light themes. Order:

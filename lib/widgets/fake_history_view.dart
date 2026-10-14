@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:intl/intl.dart';
-import '../color_utils.dart' show streamAccent;
+import '../color_utils.dart' show accentRowColor, streamAccent;
 import '../l10n/l10n.dart';
 import '../models/twitch_message.dart';
 import '../util/fake_history.dart';
@@ -78,6 +78,11 @@ class _FakeHistoryViewState extends State<FakeHistoryView> {
 
   /// Rows between viewport and anchor that trigger a re-anchor.
   static const int _reanchorRows = 800;
+
+  /// Items the older sliver keeps so it always spans more than a viewport. The
+  /// viewport floors its scroll max at the anchor, so a shorter older sliver
+  /// would let the list scroll past the oldest row into empty space.
+  static const int _minOlderItems = 80;
 
   /// Rows kept on each side of the viewport when trimming.
   static const int _keepNear = 500;
@@ -220,7 +225,17 @@ class _FakeHistoryViewState extends State<FakeHistoryView> {
       pos.correctPixels(
         pos.hasViewportDimension ? -pos.viewportDimension * fraction : 0,
       );
+      // correctPixels notifies nothing and an unchanged window rebuilds no
+      // child, so a jump to the current anchor would never lay out.
+      _sliver(_olderKey)?.markNeedsLayout();
     }
+    // A target within the first rows moves the anchor newer so the older
+    // sliver stays long enough; the list then rests on the oldest row.
+    final hiRow = ((hi + 1) * _bs).clamp(0, _total);
+    final anchor = lo == 0 && target < _minOlderItems
+        ? _minOlderItems.clamp(0, hiRow)
+        : target;
+    final pinOldest = anchor > target;
     setState(() {
       _blocks.clear();
       for (var b = lo; b <= hi; b++) {
@@ -228,7 +243,7 @@ class _FakeHistoryViewState extends State<FakeHistoryView> {
       }
       _loBlock = lo;
       _hiBlock = hi;
-      _anchor = target;
+      _anchor = anchor;
       _rebuildItems();
     });
     _count('hjump');
@@ -248,7 +263,9 @@ class _FakeHistoryViewState extends State<FakeHistoryView> {
       }
       final p = _pos;
       if (p != null && p.hasContentDimensions) {
-        final clamped = p.pixels.clamp(p.minScrollExtent, p.maxScrollExtent);
+        final clamped = pinOldest
+            ? p.maxScrollExtent
+            : p.pixels.clamp(p.minScrollExtent, p.maxScrollExtent);
         if (clamped != p.pixels) p.jumpTo(clamped);
       }
       _scheduleMaintain();
@@ -449,6 +466,8 @@ class _FakeHistoryViewState extends State<FakeHistoryView> {
     final index = pd?.index;
     final offset = pd?.layoutOffset;
     if (index == null || offset == null) return;
+    // The older sliver must keep enough items to span the viewport.
+    if (older && items.length - index < _minOlderItems) return;
     final target = items[index];
     // Older: the first row's near edge becomes the boundary, rows between
     // move to the newer sliver, so pixels drop by that offset. Newer is the
@@ -614,19 +633,18 @@ class _FakeHistoryViewState extends State<FakeHistoryView> {
     }
     final stream = m.stream;
     final String text;
-    final Color color;
+    Color? tint;
     switch (m.kind) {
       case HistoryMarkerKind.streamStart:
         text = l10n.historyStreamStarted(stream!.title, stream.game);
-        color = streamAccent;
+        tint = streamAccent;
       case HistoryMarkerKind.streamEnd:
         text = l10n.historyStreamEnded(
           formatStreamLength(stream!.end.difference(stream.start)),
         );
-        color = streamAccent;
+        tint = streamAccent;
       case HistoryMarkerKind.day:
         text = _dayFmt!.format(dayFromNumber(m.firstDay));
-        color = scheme.secondary;
       case HistoryMarkerKind.emptyStretch:
         final from = _shortDayFmt!.format(dayFromNumber(m.firstDay));
         text = l10n.historyNothingRecorded(
@@ -637,25 +655,27 @@ class _FakeHistoryViewState extends State<FakeHistoryView> {
                   _shortDayFmt!.format(dayFromNumber(m.lastDay)),
                 ),
         );
-        color = scheme.onSurfaceVariant;
     }
+    // Same tint as a live system row with an accent; the text stays plain.
+    // The row owns its Material so the ripple draws above the tint.
+    final surface = Theme.of(context).scaffoldBackgroundColor;
     return KeyedSubtree(
       key: ValueKey<String>(m.key),
-      child: InkWell(
-        onTap: () => _onMarkerTap(m),
-        child: Ink(
-          // Stream rows tint like the live announcement-style block.
-          color: color == streamAccent
-              ? streamAccent.withValues(alpha: 0.15)
-              : null,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-            child: Text(
-              text,
-              style: TextStyle(
-                fontSize: 14 * widget.textScale,
-                fontWeight: FontWeight.w600,
-                color: color,
+      child: ColoredBox(
+        color: tint == null ? surface : accentRowColor(tint, surface, 0.6),
+        child: Material(
+          type: MaterialType.transparency,
+          child: InkWell(
+            onTap: () => _onMarkerTap(m),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              child: Text(
+                text,
+                style: TextStyle(
+                  fontSize: 14 * widget.textScale,
+                  fontWeight: FontWeight.w600,
+                  color: scheme.onSurfaceVariant,
+                ),
               ),
             ),
           ),
