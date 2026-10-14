@@ -2,7 +2,7 @@ import 'package:ermchat/l10n/l10n.dart';
 import 'package:ermchat/services/emote_manager.dart';
 import 'package:ermchat/util/fake_history.dart';
 import 'package:ermchat/widgets/chat_message_tile.dart';
-import 'package:ermchat/widgets/fake_history_view.dart';
+import 'package:ermchat/widgets/history_view.dart';
 import 'package:ermchat/widgets/history_scrubber.dart';
 import 'package:ermchat/widgets/message_builder.dart';
 import 'package:ermchat/services/twitch_badge_service.dart';
@@ -31,8 +31,10 @@ Future<void> _pumpView(WidgetTester tester) async {
       localizationsDelegates: AppLocalizations.localizationsDelegates,
       supportedLocales: AppLocalizations.supportedLocales,
       home: Scaffold(
-        body: FakeHistoryView(
+        body: HistoryView(
           channel: _ch,
+          source: FakeHistorySource(_ch),
+          debugControls: true,
           messageBuilder: builder,
           topPadding: _inset,
         ),

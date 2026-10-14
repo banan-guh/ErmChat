@@ -7,8 +7,8 @@ import '../color_utils.dart' show streamAccent;
 import '../l10n/l10n.dart';
 import '../models/twitch_message.dart';
 import '../sheets/history_marker_sheet.dart';
-import '../util/fake_history.dart';
 import '../util/history_timeline.dart';
+import '../util/history_window.dart';
 import '../util/log.dart';
 import '../util/perf_probe.dart';
 import '../util/timestamp_formatter.dart';
@@ -17,32 +17,33 @@ import 'glass_chrome.dart';
 import 'history_scrubber.dart';
 import 'message_builder.dart';
 
-/// Prototype of the windowed history list over [FakeHistory] data, shown for
-/// the fake channels in non-release builds.
+/// Windowed history list over a [HistorySource].
 ///
 /// One reversed `CustomScrollView` with a `center` sliver. The center sliver
 /// holds items older than [_anchor], the sliver before it holds newer items.
 /// An item is a row or a derived marker (stream start/end, day, empty
-/// stretch) that sits before its row in time; markers are computed per block
-/// from row times, so a block load, trim or re-anchor never duplicates them.
-/// Blocks load at the edge being approached and drop from the far edge. When
-/// the viewport drifts [_reanchorRows] items from the anchor, the anchor moves
-/// to the viewport and `correctBy` keeps the content still, so the far ends
-/// can trim without moving anything on screen. A time rail ([HistoryScrubber])
-/// fades in after a long scroll and jumps through [_jumpToRow].
-class FakeHistoryView extends StatefulWidget {
-  const FakeHistoryView({
+/// stretch) that sits before its row in time. Rows load at the edge being
+/// approached and drop from the far edge ([HistoryWindow]). When the viewport
+/// drifts [_reanchorItems] items from the anchor, the anchor moves to the
+/// viewport and `correctBy` keeps the content still, so the far ends can trim
+/// without moving anything on screen. A time rail ([HistoryScrubber]) fades
+/// in after a long scroll and jumps through [_jumpTo].
+class HistoryView extends StatefulWidget {
+  const HistoryView({
     super.key,
     required this.channel,
+    required this.source,
     required this.messageBuilder,
     this.topPadding = 0,
     this.showTimestamp = true,
     this.timestampFormat = kDefaultTimestampFormat,
     this.textScale = 1.0,
     this.lineSeparator = false,
+    this.debugControls = false,
   });
 
   final String channel;
+  final HistorySource source;
   final MessageBuilder messageBuilder;
   final double topPadding;
   final bool showTimestamp;
@@ -50,35 +51,32 @@ class FakeHistoryView extends StatefulWidget {
   final double textScale;
   final bool lineSeparator;
 
+  /// Jump buttons and window stats over the list, for the prototype channels.
+  final bool debugControls;
+
   @override
-  State<FakeHistoryView> createState() => _FakeHistoryViewState();
+  State<HistoryView> createState() => _HistoryViewState();
 }
 
-/// A decoded block with its derived markers, keyed by the row they precede.
-class _Block {
-  const _Block(this.rows, this.markers);
-
-  final List<TwitchMessage> rows;
-  final Map<int, List<HistoryMarker>> markers;
-}
-
-/// One list item: a row, or a marker before [row]. [start] is true for the
-/// item the sliver may begin at when the anchor moves: the first of a row's
+/// One list item: a row at [pos], or a marker before it. [start] is true for
+/// the item a sliver may begin at when the anchor moves: the first of a row's
 /// group in time order (newer sliver) or the row itself (older sliver).
 class _Item {
-  const _Item(this.row, this.marker, this.start);
+  const _Item(this.pos, this.marker, this.start);
 
-  final int row;
+  final int pos;
   final HistoryMarker? marker;
   final bool start;
 }
 
-class _FakeHistoryViewState extends State<FakeHistoryView> {
+class _HistoryViewState extends State<HistoryView> {
   static const int _cap = 3000;
-  static const int _bs = FakeHistory.blockSize;
 
-  /// Rows between viewport and anchor that trigger a re-anchor.
-  static const int _reanchorRows = 800;
+  /// Rows trimmed at once from a far end.
+  static const int _trimChunk = 256;
+
+  /// Items between viewport and anchor that trigger a re-anchor.
+  static const int _reanchorItems = 800;
 
   /// Items the older sliver keeps so it always spans more than a viewport. The
   /// viewport floors its scroll max at the anchor, so a shorter older sliver
@@ -94,24 +92,19 @@ class _FakeHistoryViewState extends State<FakeHistoryView> {
   static const Duration _railAfterAge = Duration(hours: 1);
 
   static const int _railIdleMs = 1500;
-  static const Duration _railBucket = Duration(minutes: 5);
-
-  /// Decoded landing blocks kept from rail drags.
-  static const int _prefetchKeep = 4;
 
   static final Map<String, int> _counters = {};
-  static final Map<String, ActivityRail> _rails = {};
-  static _FakeHistoryViewState? _active;
+  static _HistoryViewState? _active;
 
   final ScrollController _controller = ScrollController();
   final GlobalKey _olderKey = GlobalKey();
   final GlobalKey _newerKey = GlobalKey();
-  final Map<int, _Block> _blocks = {};
-  final Map<int, Future<_Block>> _prefetched = {};
-  final Set<int> _inFlight = {};
+  late final HistoryWindow _window = HistoryWindow(now: widget.source.now);
   final Stopwatch _open = Stopwatch()..start();
   List<_Item> _newerItems = const [];
   List<_Item> _olderItems = const [];
+  bool _loadingOlder = false;
+  bool _loadingNewer = false;
 
   // Rail state. Notifiers drive the scrubber so showing, hiding and moving
   // the thumb never rebuild the list.
@@ -124,30 +117,19 @@ class _FakeHistoryViewState extends State<FakeHistoryView> {
   int _idleDeadline = 0;
   bool _railDragging = false;
   bool _scrolled = false;
-  int _lastPrefetch = -1;
+  ({DateTime time, Future<List<TwitchMessage>> rows})? _prefetched;
+  bool _prefetching = false;
   String? _fmtLocale;
   DateFormat? _dayFmt;
   DateFormat? _shortDayFmt;
 
-  late final int _total = FakeHistory.rowCount(widget.channel);
-  late final int _lastBlock = FakeHistory.blockCount(widget.channel) - 1;
-  late final List<HistoryStream> _streams = FakeHistory.streams(widget.channel);
-
-  /// Loaded block range, inclusive; empty while [_hiBlock] < [_loBlock].
-  int _loBlock = 0;
-  int _hiBlock = -1;
-
-  /// Row at the boundary: older rows sit above it, this row and newer below.
+  /// Position at the boundary: older rows sit above it, this row and newer
+  /// below.
   int _anchor = 0;
   int _epoch = 0;
   bool _maintainScheduled = false;
   bool _firstPainted = false;
   String _status = '';
-
-  int get _loRow => _loBlock * _bs;
-  int get _hiRow =>
-      _hiBlock < _loBlock ? _loRow : ((_hiBlock + 1) * _bs).clamp(0, _total);
-  int get _windowRows => _hiRow - _loRow;
 
   @override
   void initState() {
@@ -155,11 +137,19 @@ class _FakeHistoryViewState extends State<FakeHistoryView> {
     _controller.addListener(_onScroll);
     _active = this;
     PerfProbe.counters(_counters);
-    PerfProbe.gauge('hwin', () => _active?._windowRows ?? 0);
+    PerfProbe.gauge('hwin', () => _active?._window.length ?? 0);
     if (PerfProbe.enabled) {
       SchedulerBinding.instance.addTimingsCallback(_onTimings);
     }
-    _jumpToRow(_total);
+    _start();
+  }
+
+  /// Loads streams first so the first rows already carry their markers.
+  Future<void> _start() async {
+    final streams = await widget.source.streams();
+    if (!mounted) return;
+    _window.streams = streams;
+    await _jumpTo(null);
   }
 
   @override
@@ -203,21 +193,34 @@ class _FakeHistoryViewState extends State<FakeHistoryView> {
 
   // ---- Jumps ---------------------------------------------------------------
 
-  /// Replaces the window with blocks around [row] and puts the boundary there:
-  /// older rows above, [row] and newer below. Awaits the blocks first so the
-  /// old content stays up until the new content is ready.
-  Future<void> _jumpToRow(int row, {double fraction = 0}) async {
+  /// Replaces the window with rows around [time] (the newest rows when null)
+  /// and puts the boundary there: older rows above, the first row at or after
+  /// [time] and newer below, [fraction] of the viewport up from the bottom.
+  /// Awaits the rows first so the old content stays up until the new content
+  /// is ready.
+  Future<void> _jumpTo(
+    DateTime? time, {
+    double fraction = 0,
+    Future<List<TwitchMessage>>? rows,
+  }) async {
     final epoch = ++_epoch;
-    _inFlight.clear();
-    final target = row.clamp(0, _total);
-    final tb = (target >= _total ? _total - 1 : target) ~/ _bs;
-    final lo = (tb - 1).clamp(0, _lastBlock);
-    final hi = (tb + 1).clamp(0, _lastBlock);
+    _loadingOlder = false;
+    _loadingNewer = false;
     final sw = Stopwatch()..start();
-    final loaded = await Future.wait([
-      for (var b = lo; b <= hi; b++) _fetch(b),
-    ]);
+    final source = widget.source;
+    final loaded =
+        await (rows ?? (time == null ? source.newest() : source.around(time)));
     if (!mounted || epoch != _epoch) return;
+    // A target near the oldest row needs the rows above it before the anchor
+    // can sit there; otherwise the older sliver could not span the viewport.
+    var olderRows = const <TwitchMessage>[];
+    if (loaded.isNotEmpty && time != null) {
+      final before = loaded.where((m) => m.timestamp.isBefore(time)).length;
+      if (before < _minOlderItems) {
+        olderRows = await source.older(loaded.first.timestamp);
+        if (!mounted || epoch != _epoch) return;
+      }
+    }
     final pos = _pos;
     if (pos != null && pos.hasPixels) {
       // Stops any fling, then sets the offset silently so the next layout
@@ -230,28 +233,29 @@ class _FakeHistoryViewState extends State<FakeHistoryView> {
       // child, so a jump to the current anchor would never lay out.
       _sliver(_olderKey)?.markNeedsLayout();
     }
-    // A target within the first rows moves the anchor newer so the older
-    // sliver stays long enough; the list then rests on the oldest row.
-    final hiRow = ((hi + 1) * _bs).clamp(0, _total);
-    final anchor = lo == 0 && target < _minOlderItems
-        ? _minOlderItems.clamp(0, hiRow)
-        : target;
-    final pinOldest = anchor > target;
+    var pinOldest = false;
     setState(() {
-      _blocks.clear();
-      for (var b = lo; b <= hi; b++) {
-        _blocks[b] = loaded[b - lo];
+      _window.reset(loaded);
+      if (olderRows.isNotEmpty || time != null) {
+        if (_window.prepend(olderRows) == 0 && time != null) {
+          final head = _window.positionAt(time) - _window.first;
+          if (head < _minOlderItems) _window.markOldest();
+        }
       }
-      _loBlock = lo;
-      _hiBlock = hi;
-      _anchor = anchor;
+      if (time == null) _window.atNewest = true;
+      final target = time == null ? _window.end : _window.positionAt(time);
+      // At the oldest end the anchor moves newer so the older sliver stays
+      // long enough; the list then rests on the oldest row.
+      _anchor = _window.atOldest && target - _window.first < _minOlderItems
+          ? (_window.first + _minOlderItems).clamp(_window.first, _window.end)
+          : target;
+      pinOldest = _anchor > target;
       _rebuildItems();
     });
     _count('hjump');
-    _count('hblk', hi - lo + 1);
     _log(
-      'jump row=$target blocks=$lo-$hi load=${sw.elapsedMilliseconds}ms '
-      'win=$_windowRows',
+      'jump ${time ?? 'newest'} rows=${_window.length} '
+      'load=${sw.elapsedMilliseconds}ms',
     );
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
@@ -273,71 +277,32 @@ class _FakeHistoryViewState extends State<FakeHistoryView> {
     });
   }
 
-  /// Decodes block [b] with its markers, or takes the one a rail drag already
-  /// started. The first row's predecessor time comes from the archive; a real
-  /// block stores it in its header.
-  Future<_Block> _fetch(int b) => _prefetched.remove(b) ?? _decode(b);
-
-  Future<_Block> _decode(int b) async {
-    final rows = await FakeHistory.loadBlock(widget.channel, b);
-    final first = b * _bs;
-    DateTime? prev = first == 0
-        ? null
-        : FakeHistory.timeOf(widget.channel, first - 1);
-    final markers = <int, List<HistoryMarker>>{};
-    for (var i = 0; i < rows.length; i++) {
-      final time = rows[i].timestamp;
-      final m = markersBefore(
-        prev: prev,
-        time: time,
-        now: FakeHistory.now,
-        streams: _streams,
-      );
-      if (m.isNotEmpty) markers[first + i] = m;
-      prev = time;
-    }
-    return _Block(rows, markers);
-  }
-
-  /// Starts decoding the block a rail drag would land in.
-  void _prefetch(int block) {
-    if (block == _lastPrefetch) return;
-    _lastPrefetch = block;
-    if (_blocks.containsKey(block) || _prefetched.containsKey(block)) return;
-    _prefetched[block] = _decode(block);
-    while (_prefetched.length > _prefetchKeep) {
-      _prefetched.remove(_prefetched.keys.first);
-    }
-  }
-
-  /// Rebuilds both item lists from the loaded blocks and the anchor.
+  /// Rebuilds both item lists from the window and the anchor.
   void _rebuildItems() {
+    final w = _window;
     final newer = <_Item>[];
-    for (var r = _anchor; r < _hiRow; r++) {
-      final ms = _markersOf(r);
+    for (var p = _anchor; p < w.end; p++) {
+      final ms = w.markersAt(p);
       for (var k = 0; k < ms.length; k++) {
-        newer.add(_Item(r, ms[k], k == 0));
+        newer.add(_Item(p, ms[k], k == 0));
       }
-      newer.add(_Item(r, null, ms.isEmpty));
+      newer.add(_Item(p, null, ms.isEmpty));
     }
     final older = <_Item>[];
-    for (var r = _anchor - 1; r >= _loRow; r--) {
-      older.add(_Item(r, null, true));
-      final ms = _markersOf(r);
+    for (var p = _anchor - 1; p >= w.first; p--) {
+      older.add(_Item(p, null, true));
+      final ms = w.markersAt(p);
       for (var k = ms.length - 1; k >= 0; k--) {
-        older.add(_Item(r, ms[k], false));
+        older.add(_Item(p, ms[k], false));
       }
     }
     _newerItems = newer;
     _olderItems = older;
   }
 
-  List<HistoryMarker> _markersOf(int row) =>
-      _blocks[row ~/ _bs]?.markers[row] ?? const [];
-
   void _jumpDaysAgo(int days) {
-    final t = DateTime.now().subtract(Duration(days: days));
-    _jumpToRow(FakeHistory.rowAtTime(widget.channel, t), fraction: 0.5);
+    final t = widget.source.now().subtract(Duration(days: days));
+    _jumpTo(t, fraction: 0.5);
   }
 
   // ---- Maintenance ---------------------------------------------------------
@@ -355,34 +320,42 @@ class _FakeHistoryViewState extends State<FakeHistoryView> {
   void _maintain() {
     final pos = _pos;
     if (pos == null || !pos.hasPixels || !pos.hasContentDimensions) return;
-    if (_hiBlock < _loBlock) return;
+    if (_window.isEmpty) return;
     if (_scrolled) {
       _scrolled = false;
       _updateRail();
     }
     final ahead = pos.viewportDimension * 4;
-    if (pos.maxScrollExtent - pos.pixels < ahead && _loBlock > 0) {
-      _load(_loBlock - 1);
+    if (pos.maxScrollExtent - pos.pixels < ahead && !_window.atOldest) {
+      _loadOlder();
     }
-    if (pos.pixels - pos.minScrollExtent < ahead && _hiBlock < _lastBlock) {
-      _load(_hiBlock + 1);
+    if (pos.pixels - pos.minScrollExtent < ahead && !_window.atNewest) {
+      _loadNewer();
     }
     _maybeReanchor(pos);
   }
 
-  Future<void> _load(int block) async {
-    if (_blocks.containsKey(block) || !_inFlight.add(block)) return;
+  Future<void> _loadOlder() async {
+    if (_loadingOlder) return;
+    _loadingOlder = true;
     final epoch = _epoch;
-    final loaded = await _fetch(block);
-    _inFlight.remove(block);
+    final edge = _window[_window.first].timestamp;
+    var rows = await widget.source.older(edge);
     if (!mounted || epoch != _epoch) return;
-    // The window moved or trimmed while loading; only adjacent blocks attach.
-    final adjacent = block == _loBlock - 1 || block == _hiBlock + 1;
-    if (!adjacent) return;
+    _loadingOlder = false;
+    // The read can return only rows already held when several share the
+    // edge's timestamp; step past them once before calling it the oldest.
+    if (rows.isNotEmpty && !_hasFresh(rows)) {
+      _loadingOlder = true;
+      rows = await widget.source.older(
+        edge.subtract(const Duration(milliseconds: 1)),
+      );
+      if (!mounted || epoch != _epoch) return;
+      _loadingOlder = false;
+    }
+    if (_window[_window.first].timestamp != edge) return;
     setState(() {
-      _blocks[block] = loaded;
-      if (block < _loBlock) _loBlock = block;
-      if (block > _hiBlock) _hiBlock = block;
+      if (_window.prepend(rows) == 0) _window.markOldest();
       _trim();
       _rebuildItems();
     });
@@ -390,28 +363,63 @@ class _FakeHistoryViewState extends State<FakeHistoryView> {
     _scheduleMaintain();
   }
 
-  /// Drops far-end blocks while the window exceeds the cap. Only blocks fully
+  Future<void> _loadNewer() async {
+    if (_loadingNewer) return;
+    _loadingNewer = true;
+    final epoch = _epoch;
+    final edge = _window[_window.end - 1].timestamp;
+    var rows = await widget.source.newer(edge);
+    if (!mounted || epoch != _epoch) return;
+    _loadingNewer = false;
+    if (rows.isNotEmpty && !_hasFresh(rows)) {
+      _loadingNewer = true;
+      rows = await widget.source.newer(
+        edge.add(const Duration(milliseconds: 1)),
+      );
+      if (!mounted || epoch != _epoch) return;
+      _loadingNewer = false;
+    }
+    if (_window[_window.end - 1].timestamp != edge) return;
+    setState(() {
+      if (_window.append(rows) == 0) _window.atNewest = true;
+      _trim();
+      _rebuildItems();
+    });
+    _count('hblk');
+    _scheduleMaintain();
+  }
+
+  bool _hasFresh(List<TwitchMessage> rows) {
+    final w = _window;
+    final held = {
+      for (var p = w.first; p < w.end; p++) HistoryWindow.keyOf(w[p]),
+    };
+    return rows.any((r) => !held.contains(HistoryWindow.keyOf(r)));
+  }
+
+  /// Drops far-end rows while the window exceeds the cap. Only rows fully
   /// beyond the anchor go, and only when the viewport is clear of them.
   void _trim() {
-    final v = _viewportRow();
-    while (_windowRows > _cap) {
-      final dropOlder = v - _loRow >= _hiRow - v;
+    final v = _viewportPos();
+    final w = _window;
+    while (w.length > _cap) {
+      final dropOlder = v - w.first >= w.end - v;
       if (dropOlder) {
-        if (v - _loRow < _keepNear + _bs || (_loBlock + 1) * _bs > _anchor) {
-          return;
-        }
-        _blocks.remove(_loBlock++);
+        final to = w.first + _trimChunk;
+        if (v - to < _keepNear || to > _anchor) return;
+        w.trimBefore(to);
       } else {
-        if (_hiRow - v < _keepNear + _bs || _hiBlock * _bs < _anchor) return;
-        _blocks.remove(_hiBlock--);
+        final from = w.end - _trimChunk;
+        if (from - v < _keepNear || from < _anchor) return;
+        w.trimFrom(from);
       }
       _count('hdrop');
     }
   }
 
-  /// Row at the viewport's bottom edge, from the last layout; the anchor when
-  /// nothing is built.
-  int _viewportRow() {
+  /// Position at the viewport's bottom edge, from the last layout; the anchor
+  /// when nothing is built.
+  int _viewportPos() {
     final pos = _pos;
     if (pos == null || !pos.hasPixels) return _anchor;
     final p = pos.pixels;
@@ -431,8 +439,8 @@ class _FakeHistoryViewState extends State<FakeHistoryView> {
       final offset = pd.layoutOffset;
       final index = pd.index;
       if (offset == null || index == null || index >= items.length) continue;
-      if (offset + c.size.height > edge) return items[index].row;
-      last = items[index].row;
+      if (offset + c.size.height > edge) return items[index].pos;
+      last = items[index].pos;
     }
     return last ?? _anchor;
   }
@@ -452,7 +460,7 @@ class _FakeHistoryViewState extends State<FakeHistoryView> {
     if (first == null) return;
     final firstIndex =
         (first.parentData! as SliverMultiBoxAdaptorParentData).index;
-    if (firstIndex == null || firstIndex < _reanchorRows) return;
+    if (firstIndex == null || firstIndex < _reanchorItems) return;
     // Markers cannot start a sliver: the boundary sits between whole row
     // groups, so skip ahead to the first group start.
     RenderBox? child = first;
@@ -493,35 +501,25 @@ class _FakeHistoryViewState extends State<FakeHistoryView> {
       pos.correctBy(correction);
     }
     setState(() {
-      _anchor = older ? target.row + 1 : target.row;
+      _anchor = older ? target.pos + 1 : target.pos;
       _trim();
       _rebuildItems();
     });
     _count('hanc');
     _log(
-      're-anchor to row $_anchor shift=${offset.round()}px win=$_windowRows',
+      're-anchor to $_anchor shift=${offset.round()}px win=${_window.length}',
     );
     _scheduleMaintain();
   }
 
   // ---- Rail ----------------------------------------------------------------
 
-  /// Builds (once per channel) the activity-weighted rail model.
-  void _buildRail() {
+  /// Builds the activity-weighted rail model.
+  Future<void> _buildRail() async {
     if (!mounted || _railReady.value != null) return;
-    final ch = widget.channel;
-    _railReady.value = _rails[ch] ??= ActivityRail(
-      from: FakeHistory.startOf(ch),
-      to: FakeHistory.now,
-      bucket: _railBucket,
-      counts: FakeHistory.activity.counts(
-        ch,
-        FakeHistory.startOf(ch),
-        FakeHistory.now,
-        _railBucket,
-      ),
-      streams: _streams,
-    );
+    final rail = await widget.source.rail(_window.streams);
+    if (!mounted) return;
+    _railReady.value = rail;
   }
 
   /// Follows the list on scroll: shows the rail after a long scroll up and
@@ -530,19 +528,19 @@ class _FakeHistoryViewState extends State<FakeHistoryView> {
     _peek.value = false;
     final rail = _railReady.value;
     if (rail == null || _railDragging) return;
-    final row = _viewportRow();
+    final row = _window.at(_viewportPos());
+    if (row == null) return;
     if (!_railVisible.value) {
-      final behind = _total - row;
-      final age = FakeHistory.timeOf(
-        widget.channel,
-        _total - 1,
-      ).difference(FakeHistory.timeOf(widget.channel, row));
-      if (behind < _railAfterRows && age < _railAfterAge) {
-        return;
+      final w = _window;
+      // Off the newest end of the window the viewport is surely far back.
+      if (w.atNewest) {
+        final behind = w.end - _viewportPos();
+        final age = w[w.end - 1].timestamp.difference(row.timestamp);
+        if (behind < _railAfterRows && age < _railAfterAge) return;
       }
       _railVisible.value = true;
     }
-    _thumb.value = rail.positionOf(FakeHistory.timeOf(widget.channel, row));
+    _thumb.value = rail.positionOf(row.timestamp);
     _bumpIdle();
   }
 
@@ -567,8 +565,7 @@ class _FakeHistoryViewState extends State<FakeHistoryView> {
     }
   }
 
-  int _rowAtRail(double pos) =>
-      FakeHistory.rowAtTime(widget.channel, _railReady.value!.timeAt(pos));
+  DateTime _timeAtRail(double pos) => _railReady.value!.timeAt(pos);
 
   void _onRailDragStart() {
     _railDragging = true;
@@ -576,17 +573,36 @@ class _FakeHistoryViewState extends State<FakeHistoryView> {
     _bumpIdle();
   }
 
+  /// Starts reading where the drag would land when no read is in flight, so
+  /// the release usually finds its rows decoded.
   void _onRailDrag(double pos) {
     _bumpIdle();
-    final row = _rowAtRail(pos);
-    _prefetch((row >= _total ? _total - 1 : row) ~/ _bs);
+    if (_prefetching) return;
+    _prefetching = true;
+    final t = _timeAtRail(pos);
+    final rows = widget.source.around(t)
+      ..whenComplete(() => _prefetching = false);
+    _prefetched = (time: t, rows: rows);
   }
 
-  void _onRailDragEnd(double pos) {
+  Future<void> _onRailDragEnd(double pos) async {
     _railDragging = false;
-    _lastPrefetch = -1;
     _bumpIdle();
-    _jumpToRow(_rowAtRail(pos), fraction: 0.5);
+    final t = _timeAtRail(pos);
+    final pre = _prefetched;
+    _prefetched = null;
+    Future<List<TwitchMessage>>? rows;
+    if (pre != null) {
+      final got = await pre.rows;
+      if (!mounted) return;
+      // Reuse the prefetch when the release lands inside what it read.
+      if (got.isNotEmpty &&
+          !t.isBefore(got.first.timestamp) &&
+          !t.isAfter(got.last.timestamp)) {
+        rows = Future.value(got);
+      }
+    }
+    _jumpTo(t, fraction: 0.5, rows: rows);
   }
 
   /// Shows the rail with its bubble at [time], for a tapped day marker.
@@ -601,16 +617,11 @@ class _FakeHistoryViewState extends State<FakeHistoryView> {
 
   // ---- Build ---------------------------------------------------------------
 
-  TwitchMessage? _msg(int row) {
-    final block = _blocks[row ~/ _bs];
-    return block?.rows[row % _bs];
-  }
-
   Widget _item(BuildContext context, List<_Item> items, int j) {
     final item = items[j];
     final marker = item.marker;
     return marker == null
-        ? _row(context, item.row)
+        ? _row(context, item.pos)
         : _markerRow(context, marker);
   }
 
@@ -674,12 +685,12 @@ class _FakeHistoryViewState extends State<FakeHistoryView> {
     );
   }
 
-  Widget _row(BuildContext context, int row) {
-    final msg = _msg(row);
+  Widget _row(BuildContext context, int pos) {
+    final msg = _window.at(pos);
     if (msg == null) return const SizedBox.shrink();
     return KeyedSubtree(
-      key: ValueKey<String>(msg.messageId!),
-      child: _tile(context, msg, alternate: row.isEven),
+      key: ValueKey<String>(HistoryWindow.keyOf(msg)),
+      child: _tile(context, msg, alternate: pos.isEven),
     );
   }
 
@@ -736,7 +747,9 @@ class _FakeHistoryViewState extends State<FakeHistoryView> {
             ? scope!.bottomClearance
             : kOpaqueComposerGap) +
         (scope?.listExtra ?? 0);
-    _status = 'win $_windowRows  blocks $_loBlock-$_hiBlock  anchor $_anchor';
+    _status =
+        'win ${_window.length}  ${_window.first}-${_window.end}  '
+        'anchor $_anchor';
     return Stack(
       children: [
         Padding(
@@ -789,12 +802,13 @@ class _FakeHistoryViewState extends State<FakeHistoryView> {
                   ),
           ),
         ),
-        Positioned(
-          top: widget.topPadding + 4,
-          left: 4,
-          right: 4,
-          child: _controls(context),
-        ),
+        if (widget.debugControls)
+          Positioned(
+            top: widget.topPadding + 4,
+            left: 4,
+            right: 4,
+            child: _controls(context),
+          ),
       ],
     );
   }
@@ -817,7 +831,7 @@ class _FakeHistoryViewState extends State<FakeHistoryView> {
       children: [
         Row(
           children: [
-            button('newest', () => _jumpToRow(_total)),
+            button('newest', () => _jumpTo(null)),
             for (final d in const [1, 3, 7, 14, 29])
               button('${d}d', () => _jumpDaysAgo(d)),
           ],
@@ -827,7 +841,7 @@ class _FakeHistoryViewState extends State<FakeHistoryView> {
           padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
           color: scheme.surfaceContainerHighest.withValues(alpha: 0.9),
           child: Text(
-            '${widget.channel} (fake)  $_status',
+            '${widget.channel}  $_status',
             style: const TextStyle(fontSize: 10),
           ),
         ),

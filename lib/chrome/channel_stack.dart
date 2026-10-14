@@ -20,8 +20,8 @@ import '../services/mod_actions.dart' show ModResult;
 import '../widgets/broadcast_widgets.dart';
 import '../util/fake_history.dart';
 import '../widgets/chat_view.dart';
-import '../widgets/fake_history_view.dart';
 import '../widgets/glass_chrome.dart';
+import '../widgets/history_view.dart';
 import '../widgets/message_builder.dart';
 import '../widgets/tabbed_layout.dart';
 import 'home_app_bar.dart';
@@ -198,8 +198,10 @@ class ChannelPanels {
     double topPadding = 0,
   ]) {
     if (FakeHistory.isFake(channel)) {
-      return FakeHistoryView(
+      return HistoryView(
         channel: channel,
+        source: FakeHistorySource(channel),
+        debugControls: true,
         messageBuilder: messageBuilder,
         topPadding: topPadding,
         showTimestamp: showTimestamps(),

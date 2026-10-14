@@ -5,9 +5,9 @@ void main() {
   test('rows are a pure function of channel and index', () async {
     FakeHistory.loadDelay = Duration.zero;
     const ch = FakeHistory.denseChannel;
-    final block = await FakeHistory.loadBlock(ch, 40);
-    expect(block, hasLength(FakeHistory.blockSize));
     final row = FakeHistory.blockSize * 40 + 17;
+    final block = await FakeHistory.rows(ch, row - 17, row + 239);
+    expect(block, hasLength(FakeHistory.blockSize));
     final again = FakeHistory.rowAt(ch, row);
     expect(block[17].text, again.text, reason: 'text differs between calls');
     expect(block[17].timestamp, again.timestamp);

@@ -1,6 +1,8 @@
 import 'dart:math' as math;
 import 'dart:typed_data';
 
+import '../models/twitch_message.dart';
+
 /// Wall-clock time for an instant. The default is the device timezone; tests
 /// pass a fixed or DST-switching offset. Only the date and time fields of the
 /// result are read.
@@ -31,6 +33,32 @@ abstract interface class ActivityIndex {
   /// Messages per [bucket] over [from] to [to] (the last bucket may be
   /// partial). A zero is a bucket with nothing recorded.
   List<int> counts(String channel, DateTime from, DateTime to, Duration bucket);
+}
+
+/// Where the windowed history list reads rows: the archive, or generated rows
+/// for the prototype channels. Reads return rows oldest first and may repeat
+/// rows the list already holds; the list drops those by key.
+abstract interface class HistorySource {
+  /// The source's clock; day markers and the rail end read it.
+  DateTime now();
+
+  /// About a block of rows at or before [time]. Empty past the oldest.
+  Future<List<TwitchMessage>> older(DateTime time);
+
+  /// About a block of rows at or after [time]. Empty past the newest.
+  Future<List<TwitchMessage>> newer(DateTime time);
+
+  /// Rows on both sides of [time].
+  Future<List<TwitchMessage>> around(DateTime time);
+
+  /// The newest rows.
+  Future<List<TwitchMessage>> newest();
+
+  /// Broadcasts over the retained range, oldest first.
+  Future<List<HistoryStream>> streams();
+
+  /// The rail over the retained range, or null when nothing is retained.
+  Future<ActivityRail?> rail(List<HistoryStream> streams);
 }
 
 /// Calendar day number (days since 1970-01-01) of a wall-clock time. Plain
@@ -216,6 +244,9 @@ class ActivityRail {
       for (final s in streams) RailSpan(positionOf(s.start), positionOf(s.end)),
     ];
   }
+
+  /// Bucket width sources build rails with.
+  static const Duration defaultBucket = Duration(minutes: 5);
 
   /// Rail weight of a bucket with no messages, against 1 for a single message.
   static const double gapWeight = 0.05;

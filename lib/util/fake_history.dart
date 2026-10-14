@@ -6,7 +6,7 @@ import 'history_timeline.dart';
 /// Procedural chat archive for the windowed list prototype, compiled in only
 /// in debug and profile builds, never in release. Rows derive from
 /// (channel, row index) alone, so millions of rows cost no memory. Row 0 is
-/// the oldest; [loadBlock] mimics the future archive's block reads.
+/// the oldest; [FakeHistorySource] reads it like the archive.
 class FakeHistory {
   FakeHistory._();
 
@@ -60,9 +60,6 @@ class FakeHistory {
 
   /// Message counts per bucket, derived from the generated rows.
   static const ActivityIndex activity = _FakeActivity();
-
-  static int blockCount(String channel) =>
-      (rowCount(channel) + blockSize - 1) ~/ blockSize;
 
   static DateTime _start(String channel) => _end.subtract(_span);
 
@@ -120,17 +117,17 @@ class FakeHistory {
     ];
   }
 
-  /// Decodes block [blockIndex] after [loadDelay]; empty past the archive.
-  static Future<List<TwitchMessage>> loadBlock(
+  /// Rows [from] up to [to] (clamped to the archive) after [loadDelay].
+  static Future<List<TwitchMessage>> rows(
     String channel,
-    int blockIndex,
+    int from,
+    int to,
   ) async {
     if (loadDelay > Duration.zero) await Future<void>.delayed(loadDelay);
     final total = rowCount(channel);
-    final first = blockIndex * blockSize;
-    if (blockIndex < 0 || first >= total) return const [];
-    final last = first + blockSize < total ? first + blockSize : total;
-    return [for (var i = first; i < last; i++) rowAt(channel, i)];
+    final a = from.clamp(0, total);
+    final b = to.clamp(a, total);
+    return [for (var i = a; i < b; i++) rowAt(channel, i)];
   }
 
   static TwitchMessage rowAt(String channel, int row) {
@@ -249,6 +246,65 @@ class FakeHistory {
     h = (h * 0x297A2D39) & 0xFFFFFFFF;
     h ^= h >>> 15;
     return h;
+  }
+}
+
+/// [HistorySource] over the generated rows of one prototype channel.
+class FakeHistorySource implements HistorySource {
+  FakeHistorySource(this.channel);
+
+  final String channel;
+  static const int _bs = FakeHistory.blockSize;
+
+  @override
+  DateTime now() => FakeHistory.now;
+
+  @override
+  Future<List<TwitchMessage>> older(DateTime time) {
+    final end = FakeHistory.rowAtTime(
+      channel,
+      time.add(const Duration(milliseconds: 1)),
+    );
+    return FakeHistory.rows(channel, end - _bs, end);
+  }
+
+  @override
+  Future<List<TwitchMessage>> newer(DateTime time) {
+    final start = FakeHistory.rowAtTime(channel, time);
+    return FakeHistory.rows(channel, start, start + _bs);
+  }
+
+  @override
+  Future<List<TwitchMessage>> around(DateTime time) {
+    final row = FakeHistory.rowAtTime(channel, time);
+    return FakeHistory.rows(channel, row - _bs * 3 ~/ 2, row + _bs * 3 ~/ 2);
+  }
+
+  @override
+  Future<List<TwitchMessage>> newest() {
+    final total = FakeHistory.rowCount(channel);
+    return FakeHistory.rows(channel, total - _bs * 2, total);
+  }
+
+  @override
+  Future<List<HistoryStream>> streams() async => FakeHistory.streams(channel);
+
+  @override
+  Future<ActivityRail?> rail(List<HistoryStream> streams) async {
+    final from = FakeHistory.startOf(channel);
+    const bucket = ActivityRail.defaultBucket;
+    return ActivityRail(
+      from: from,
+      to: FakeHistory.now,
+      bucket: bucket,
+      counts: FakeHistory.activity.counts(
+        channel,
+        from,
+        FakeHistory.now,
+        bucket,
+      ),
+      streams: streams,
+    );
   }
 }
 
