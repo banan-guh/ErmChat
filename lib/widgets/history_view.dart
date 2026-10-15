@@ -490,6 +490,20 @@ class _HistoryViewState extends State<HistoryView> {
     _jumpTo(null);
   }
 
+  /// Whether every row fits on screen at the newest end, so the list has one
+  /// rest: its bottom padding alone would leave a few pixels to drag through.
+  bool _fits(ScrollPosition p) {
+    if (!_window.atOldest || !_window.atNewest) return false;
+    final older = _sliver(_olderKey)?.geometry?.scrollExtent;
+    return older != null &&
+        older + widget.topPadding <=
+            p.minScrollExtent + p.viewportDimension + _followEps;
+  }
+
+  /// Where the oldest row rests: the top, or the one rest of a list that fits.
+  double _oldestEnd(ScrollPosition p) =>
+      _fits(p) ? p.minScrollExtent : p.maxScrollExtent;
+
   /// Keeps a jump to either end on it for a few frames. Extents past the
   /// built rows are estimates until those rows lay out, so the first jump can
   /// fall short or overshoot. A new jump or a touch ends it.
@@ -500,7 +514,7 @@ class _HistoryViewState extends State<HistoryView> {
       if (!mounted || epoch != _epoch || p == null) return;
       if (!p.hasContentDimensions || p.isScrollingNotifier.value) return;
       if (!oldest && !_follow) return;
-      final end = oldest ? p.maxScrollExtent : p.minScrollExtent;
+      final end = oldest ? _oldestEnd(p) : p.minScrollExtent;
       if ((p.pixels - end).abs() <= _followEps) return;
       p.jumpTo(end);
       if (tries > 1) _settleAtEnd(oldest: oldest, tries: tries - 1);
@@ -650,7 +664,7 @@ class _HistoryViewState extends State<HistoryView> {
       final p = _pos;
       if (p != null && p.hasContentDimensions) {
         final clamped = pinOldest
-            ? p.maxScrollExtent
+            ? _oldestEnd(p)
             : p.pixels.clamp(p.minScrollExtent, p.maxScrollExtent);
         if (clamped != p.pixels) p.jumpTo(clamped);
         _snapToNewest(p);
@@ -953,8 +967,15 @@ class _HistoryViewState extends State<HistoryView> {
     // the drag cannot leave it above the bottom on release.
     if (n is ScrollUpdateNotification && n.dragDetails != null) {
       _follow = atEnd;
-    } else if (n is ScrollEndNotification && atEnd) {
-      _follow = true;
+    } else if (n is ScrollEndNotification) {
+      if (atEnd) {
+        _follow = true;
+      } else if (_pos case final p? when _fits(p)) {
+        _follow = true;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted && _follow) _snapToNewest(p);
+        });
+      }
     }
     _syncAtBottom(m);
     return false;

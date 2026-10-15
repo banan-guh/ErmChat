@@ -17,6 +17,63 @@ import 'package:flutter_test/flutter_test.dart';
 const double _inset = 50;
 const String _ch = FakeHistory.testChannel;
 
+/// A channel with only [n] rows, half an hour apart: less than a screen.
+class _SmallSource implements HistorySource {
+  _SmallSource(int n)
+    : rows = [
+        for (var i = 0; i < n; i++)
+          TwitchMessage(
+            login: 'small',
+            text: 'small $i',
+            messageId: 'small-$i',
+            channel: _ch,
+            timestamp: _t0.add(Duration(minutes: 30 * i)),
+          ),
+      ];
+
+  static final DateTime _t0 = DateTime.utc(2026, 10, 14, 10);
+  final List<TwitchMessage> rows;
+
+  @override
+  DateTime now() => rows.last.timestamp.add(const Duration(minutes: 30));
+
+  @override
+  Future<List<TwitchMessage>> older(DateTime time) async => [
+    for (final r in rows)
+      if (!r.timestamp.isAfter(time)) r,
+  ];
+
+  @override
+  Future<List<TwitchMessage>> newer(DateTime time) async => [
+    for (final r in rows)
+      if (!r.timestamp.isBefore(time)) r,
+  ];
+
+  @override
+  Future<List<TwitchMessage>> around(DateTime time) async => rows;
+
+  @override
+  Future<List<TwitchMessage>> newest() async => rows;
+
+  @override
+  Future<List<HistoryStream>> streams() async => const [];
+
+  @override
+  Future<ActivityRail?> rail(List<HistoryStream> streams) async => ActivityRail(
+    from: rows.first.timestamp,
+    to: now(),
+    bucket: const Duration(minutes: 30),
+    counts: List.filled(rows.length + 1, 1),
+  );
+
+  @override
+  void Function() watchClears(void Function(HistoryClear clear) onClear) =>
+      () {};
+
+  @override
+  void Function() watchStreams(void Function() onChange) => () {};
+}
+
 /// Has no rail on the first read, like an archive with nothing sealed yet.
 class _EmptyFirstRail extends FakeHistorySource {
   _EmptyFirstRail(super.channel);
@@ -35,7 +92,8 @@ Future<void> _pumpView(
   WidgetTester tester, {
   List<TwitchMessage> Function()? live,
   Listenable? liveVersion,
-  FakeHistorySource? source,
+  HistorySource? source,
+  ValueNotifier<bool>? atBottom,
 }) async {
   FakeHistory.loadDelay = Duration.zero;
   tester.view.physicalSize = const Size(400, 800);
@@ -63,6 +121,7 @@ Future<void> _pumpView(
             onShowUserProfile: (_, _, {displayName}) {},
           ),
           debugControls: true,
+          atBottomNotifier: atBottom,
           live: live,
           liveVersion: liveVersion,
           topPadding: _inset,
@@ -104,6 +163,18 @@ Future<void> _settle(WidgetTester tester) async {
     await tester.pump(const Duration(milliseconds: 100));
   }
 }
+
+bool _railShown(WidgetTester tester) =>
+    find.byType(HistoryScrubber).evaluate().isNotEmpty &&
+    tester
+            .widget<AnimatedOpacity>(
+              find.descendant(
+                of: find.byType(HistoryScrubber),
+                matching: find.byType(AnimatedOpacity),
+              ),
+            )
+            .opacity ==
+        1;
 
 Finder _tile(String id) => find.byWidgetPredicate(
   (w) => w is ChatMessageTile && w.message.messageId == id,
@@ -363,17 +434,7 @@ void main() {
     await _pumpView(tester, source: _EmptyFirstRail(_ch));
     // Long flings up bring the rail in.
     final list = find.byType(CustomScrollView);
-    bool railShown() =>
-        find.byType(HistoryScrubber).evaluate().isNotEmpty &&
-        tester
-                .widget<AnimatedOpacity>(
-                  find.descendant(
-                    of: find.byType(HistoryScrubber),
-                    matching: find.byType(AnimatedOpacity),
-                  ),
-                )
-                .opacity ==
-            1;
+    bool railShown() => _railShown(tester);
     for (var i = 0; i < 40 && !railShown(); i++) {
       await tester.fling(list, const Offset(0, 600), 6000);
       await _settle(tester);
@@ -418,6 +479,36 @@ void main() {
       moreOrLessEquals(pos.minScrollExtent, epsilon: 0.5),
       reason: 'the jump to the bottom stopped short of the newest row',
     );
+  });
+
+  testWidgets('a channel shorter than the screen rests above the composer', (
+    tester,
+  ) async {
+    final atBottom = ValueNotifier(true);
+    addTearDown(atBottom.dispose);
+    await _pumpView(tester, source: _SmallSource(12), atBottom: atBottom);
+    await _settle(tester);
+    final list = find.byType(CustomScrollView);
+    final bottom = tester.getRect(list).bottom - kOpaqueComposerGap;
+    double newestBottom() => tester.getBottomLeft(_tile('small-11')).dy;
+    expect(newestBottom(), moreOrLessEquals(bottom, epsilon: 1));
+    // Every way to an end lands in the same place: a drag, and the rail.
+    await tester.drag(list, const Offset(0, 400));
+    await _settle(tester);
+    expect(newestBottom(), moreOrLessEquals(bottom, epsilon: 1));
+    expect(atBottom.value, isTrue, reason: 'a drag showed the button');
+    // Thirty minutes apart, the rows are old enough to bring the rail in.
+    await tester.drag(list, const Offset(0, 60));
+    await tester.pump();
+    expect(_railShown(tester), isTrue, reason: 'the rail never came in');
+    await tester.drag(find.byType(HistoryScrubber), const Offset(0, -3000));
+    await _settle(tester);
+    expect(
+      newestBottom(),
+      moreOrLessEquals(bottom, epsilon: 1),
+      reason: 'the rail jump to the top hid the newest row',
+    );
+    expect(atBottom.value, isTrue, reason: 'the top jump left it paused');
   });
 
   testWidgets('a re-anchor moves visible rows instead of rebuilding them', (
