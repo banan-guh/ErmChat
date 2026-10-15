@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' show max;
 
 import 'package:flutter/foundation.dart' show defaultTargetPlatform;
 import 'package:flutter/material.dart';
@@ -16,6 +17,8 @@ import '../util/log.dart';
 import '../util/perf_probe.dart';
 import 'chat_message_tile.dart';
 import 'chat_rows.dart';
+import 'chat_widget_cutout.dart' show ChatWidgetMinimizedBar;
+import 'chrome_menu_button.dart' show kChromeMenuMargin;
 import 'glass_chrome.dart';
 import 'history_scrubber.dart';
 
@@ -183,6 +186,9 @@ class _HistoryViewState extends State<HistoryView> {
   static const Duration _railAfterAge = Duration(hours: 1);
 
   static const int _railIdleMs = 1500;
+
+  /// The scroll-down button's height, a standard FAB.
+  static const double _fabSize = 56;
 
   static final Map<String, int> _counters = {};
   static _HistoryViewState? _active;
@@ -374,9 +380,21 @@ class _HistoryViewState extends State<HistoryView> {
     }
   }
 
+  /// Following counts as at the bottom, so the button never flashes while a
+  /// rejoin or layout is still bringing the newest row in.
   void _syncAtBottom(ScrollMetrics m) => _setAtBottom(
-    _window.atNewest && m.pixels <= m.minScrollExtent + _followEps,
+    _follow || (_window.atNewest && m.pixels <= m.minScrollExtent + _followEps),
   );
+
+  /// Puts a following list back on the newest row when a layout left it
+  /// short of the end.
+  void _snapToNewest(ScrollPosition p) {
+    if (_follow &&
+        _window.atNewest &&
+        p.pixels > p.minScrollExtent + _followEps) {
+      p.jumpTo(p.minScrollExtent);
+    }
+  }
 
   /// An outside write of true (a tab tap) asks for the newest row.
   void _onAtBottomRequest() {
@@ -547,6 +565,7 @@ class _HistoryViewState extends State<HistoryView> {
             ? p.maxScrollExtent
             : p.pixels.clamp(p.minScrollExtent, p.maxScrollExtent);
         if (clamped != p.pixels) p.jumpTo(clamped);
+        _snapToNewest(p);
         _syncAtBottom(p);
       }
       _scheduleMaintain();
@@ -624,7 +643,9 @@ class _HistoryViewState extends State<HistoryView> {
     if (pos != null && pos.hasContentDimensions) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         final p = _pos;
-        if (mounted && p != null && p.hasContentDimensions) _syncAtBottom(p);
+        if (!mounted || p == null || !p.hasContentDimensions) return;
+        _snapToNewest(p);
+        _syncAtBottom(p);
       });
     }
   }
@@ -835,7 +856,6 @@ class _HistoryViewState extends State<HistoryView> {
   bool _onScrollNotification(ScrollNotification n) {
     if (n.depth != 0) return false;
     _scheduleGateSync();
-    _syncAtBottom(n.metrics);
     final m = n.metrics;
     final atEnd =
         _window.atNewest && m.pixels <= m.minScrollExtent + _followEps;
@@ -846,6 +866,7 @@ class _HistoryViewState extends State<HistoryView> {
     } else if (n is ScrollEndNotification && atEnd) {
       _follow = true;
     }
+    _syncAtBottom(m);
     return false;
   }
 
@@ -1412,10 +1433,17 @@ class _HistoryViewState extends State<HistoryView> {
       clipBehavior: Clip.hardEdge,
       children: [
         list,
+        // Clear of the menu trigger and the minimized cards bar beside it at
+        // the top, and of the scroll-down button, which shows whenever the
+        // rail does, at the bottom.
         Positioned(
-          top: widget.topPadding + (widget.debugControls ? 56 : 8),
+          top:
+              widget.topPadding +
+              (widget.debugControls
+                  ? 56
+                  : kChromeMenuMargin + ChatWidgetMinimizedBar.height + 8),
           right: 0,
-          bottom: bottom + 8,
+          bottom: max(bottom, 16 + pill + _fabSize) + 8,
           child: ValueListenableBuilder<ActivityRail?>(
             valueListenable: _railReady,
             builder: (context, rail, _) => rail == null

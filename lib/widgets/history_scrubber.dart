@@ -46,6 +46,10 @@ class _HistoryScrubberState extends State<HistoryScrubber>
     with SingleTickerProviderStateMixin {
   static const double _width = 40;
 
+  /// Shorter than this (stream and keyboard up), the rail cannot pick a
+  /// stretch, so it hides.
+  static const double _minHeight = 160;
+
   /// Rail center, in from the right edge.
   static const double _inset = 12;
   static const Duration _fade = Duration(milliseconds: 200);
@@ -151,7 +155,8 @@ class _HistoryScrubberState extends State<HistoryScrubber>
         width: _width,
         child: LayoutBuilder(
           builder: (context, box) {
-            _height = box.maxHeight <= 0 ? 1 : box.maxHeight;
+            if (box.maxHeight < _minHeight) return const SizedBox.shrink();
+            _height = box.maxHeight;
             return GestureDetector(
               behavior: HitTestBehavior.opaque,
               onVerticalDragStart: _start,
