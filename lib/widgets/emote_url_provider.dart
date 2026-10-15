@@ -11,6 +11,7 @@ import 'package:flutter_cache_manager/flutter_cache_manager.dart'
 
 import '../emotes/emote.dart';
 import '../util/log.dart';
+import '../util/set_notifier.dart';
 import '../util/webp_anim.dart';
 import '../services/emote_images.dart';
 import 'emote_decode.dart';
@@ -160,7 +161,7 @@ class EmoteUrlProvider extends ImageProvider<EmoteUrlProvider> {
 
   /// [animating] as a listenable, for stock-provider emotes (playing Twitch
   /// GIFs) that pause through [TickerMode] instead of the custom loop.
-  static final ValueNotifier<bool> playing = ValueNotifier(true);
+  static final SetValueNotifier<bool> playing = SetValueNotifier(true);
 
   /// Sets [frameRate], freezing or resuming live completers when it crosses 0.
   static void applyFrameRate(int fps) {

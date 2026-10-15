@@ -8,6 +8,7 @@ import '../emotes/emote_picker.dart';
 import '../models/emote_fetch_tier.dart';
 import '../util/log.dart';
 import '../util/prefs.dart';
+import '../util/set_notifier.dart';
 import 'emote_cache_manager.dart';
 import 'emote_probe_memo.dart';
 import 'emote_usage_registry.dart';
@@ -61,7 +62,7 @@ class EmoteImages {
   EmoteFetchTier get tier => _tier;
 
   /// Bumped when the tier or a cached URL changes, so render layers recompute.
-  final ValueNotifier<int> scaleRevision = ValueNotifier<int>(0);
+  final SetValueNotifier<int> scaleRevision = SetValueNotifier<int>(0);
 
   /// Called after a precache download lands, so the owner can prune dominated
   /// lower scales for [emote].
