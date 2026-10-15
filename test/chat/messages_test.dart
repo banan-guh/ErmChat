@@ -433,6 +433,108 @@ void main() {
     });
   });
 
+  group('history gaps', () {
+    TwitchMessage row(String id, int minute) => TwitchMessage(
+      login: 'bob',
+      text: 'm$minute',
+      messageId: id,
+      channel: 'test',
+      timestamp: DateTime.utc(2026, 1, 1, 0, minute),
+    );
+    List<TwitchMessage> fetch(int from, int to) => [
+      for (var i = from; i < to; i++) row('r$i', i),
+    ];
+    List<TwitchMessage> merge(Chat chat, List<TwitchMessage> rows) =>
+        chat.receiveHistory(
+          'test',
+          rows,
+          rawHistory: rows,
+          maxMessages: 100,
+          ownLogin: null,
+        );
+    List<TwitchMessage> notes(Chat chat) => [
+      for (final m in chat.channelFor('test')!.messages.items)
+        if (m.messageId?.startsWith(Messages.historyGapIdPrefix) ?? false) m,
+    ];
+
+    test('a gap note is keyed by its time and returned as inserted', () {
+      final chat = Chat();
+      addTearDown(chat.dispose);
+      chat.ensure('test');
+      expect(merge(chat, fetch(0, 4)), hasLength(4));
+      final inserted = merge(chat, fetch(10, 14));
+      final note = notes(chat).single;
+      expect(
+        inserted,
+        contains(same(note)),
+        reason: 'the archive only keeps inserted rows',
+      );
+      expect(note.isSystem, isTrue);
+      expect(
+        note.timestamp,
+        DateTime.utc(
+          2026,
+          1,
+          1,
+          0,
+          10,
+        ).subtract(const Duration(milliseconds: 1)),
+        reason: 'the note sits just before the first fetched row',
+      );
+      expect(
+        note.messageId,
+        '${Messages.historyGapIdPrefix}${note.timestamp.millisecondsSinceEpoch}',
+      );
+    });
+
+    test('gap notes: one per gap, none without held chat', () {
+      for (final (name, fetches, want) in [
+        ('first fetch into an empty buffer', [(0, 4)], 0),
+        ('overlapping fetches', [(0, 4), (2, 8)], 0),
+        ('a fetch after a gap', [(0, 4), (10, 14)], 1),
+        ('the same late fetch twice', [(0, 4), (10, 14), (10, 14)], 1),
+        ('two separate gaps', [(0, 4), (10, 14), (20, 24)], 2),
+      ]) {
+        final chat = Chat();
+        addTearDown(chat.dispose);
+        chat.ensure('test');
+        for (final (from, to) in fetches) {
+          merge(chat, fetch(from, to));
+        }
+        expect(notes(chat), hasLength(want), reason: name);
+      }
+    });
+
+    test('an archived gap note restored on a cold start is not doubled', () {
+      final chat = Chat();
+      addTearDown(chat.dispose);
+      chat.ensure('test');
+      merge(chat, fetch(0, 4));
+      merge(chat, fetch(10, 14));
+      final note = notes(chat).single;
+      // The cold start restores what the archive held, note included, and
+      // the same network rows arrive again.
+      final restored = Chat();
+      addTearDown(restored.dispose);
+      restored.ensure('test');
+      final archived = [
+        ...fetch(0, 4),
+        TwitchMessage(
+          login: '',
+          text: note.text,
+          isSystem: true,
+          messageId: note.messageId,
+          channel: 'test',
+          timestamp: note.timestamp,
+        ),
+        ...fetch(10, 14),
+      ];
+      merge(restored, archived);
+      merge(restored, fetch(10, 14));
+      expect(notes(restored), hasLength(1));
+    });
+  });
+
   group('status lines are id-keyed', () {
     test('connect and loading rows are found by id after a rename', () {
       final chat = Chat();

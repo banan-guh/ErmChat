@@ -125,6 +125,10 @@ class Messages {
   /// Stable id for the loading-history row.
   static const loadingHistoryId = 'sys_loading';
 
+  /// Id prefix of "not all messages retrieved" notes; the rest is the epoch
+  /// ms they sit at.
+  static const historyGapIdPrefix = 'sys_gap:';
+
   static bool _isConnRow(TwitchMessage m) =>
       m.isSystem && (m.messageId?.startsWith(_connIdPrefix) ?? false);
   static bool _isConn(TwitchMessage? m, SystemLine state) =>
@@ -284,15 +288,23 @@ class Messages {
       final oldestHistory = anchor
           .map((m) => m.timestamp)
           .reduce((a, b) => a.isBefore(b) ? a : b);
-      _items.add(
-        TwitchMessage(
+      // Keyed by time and returned as inserted, so the archive keeps it and
+      // scrolling back through history still shows the gap.
+      final at = oldestHistory.subtract(const Duration(milliseconds: 1));
+      final id = '$historyGapIdPrefix${at.millisecondsSinceEpoch}';
+      if (!_byId.containsKey(id)) {
+        final note = TwitchMessage(
           login: '',
           text: systemText(SystemLine.historyGap),
           isSystem: true,
+          messageId: id,
           channel: channel,
-          timestamp: oldestHistory.subtract(const Duration(milliseconds: 1)),
-        ),
-      );
+          timestamp: at,
+        );
+        _items.add(note);
+        _byId[id] = note;
+        inserted.add(note);
+      }
     }
 
     _sortNewestFirst();
