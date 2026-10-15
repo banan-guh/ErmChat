@@ -230,11 +230,7 @@ class ArchiveStore {
 
   Future<_ChannelTables> _loadTables(String channel) async {
     final t = UserTables();
-    final args = [channel];
-    for (final r in await _db.rawQuery(
-      'SELECT user_id, login, display_name FROM users WHERE channel = ? ORDER BY id',
-      args,
-    )) {
+    await _pages('users', 'user_id, login, display_name', channel, (r) {
       t.internWho(
         Who(
           userId: r['user_id']! as String,
@@ -242,11 +238,8 @@ class ArchiveStore {
           displayName: r['display_name'] as String?,
         ),
       );
-    }
-    for (final r in await _db.rawQuery(
-      'SELECT color, badges, extra FROM looks WHERE channel = ? ORDER BY id',
-      args,
-    )) {
+    });
+    await _pages('looks', 'color, badges, extra', channel, (r) {
       final extra = r['extra'] as String?;
       t.internLook(
         Look(
@@ -260,14 +253,34 @@ class ArchiveStore {
                 ],
         ),
       );
-    }
-    for (final r in await _db.rawQuery(
-      'SELECT who, look FROM user_states WHERE channel = ? ORDER BY id',
-      args,
-    )) {
+    });
+    await _pages('user_states', 'who, look', channel, (r) {
       t.internState(r['who']! as int, r['look']! as int);
-    }
+    });
     return _ChannelTables(t);
+  }
+
+  /// Rows of a per-channel [table] in id order, read in pages: a busy channel
+  /// keeps tens of thousands of chatters, and one result that size stalls the
+  /// UI isolate while it decodes.
+  Future<void> _pages(
+    String table,
+    String cols,
+    String channel,
+    void Function(Map<String, Object?> row) each,
+  ) async {
+    const page = 2000;
+    var after = -1;
+    while (true) {
+      final rows = await _db.rawQuery(
+        'SELECT id, $cols FROM $table WHERE channel = ? AND id > ? '
+        'ORDER BY id LIMIT $page',
+        [channel, after],
+      );
+      rows.forEach(each);
+      if (rows.length < page) return;
+      after = rows.last['id']! as int;
+    }
   }
 
   // ---- Writes --------------------------------------------------------------
@@ -613,16 +626,19 @@ class ArchiveStore {
     return r.isEmpty ? null : _block(r.first);
   }
 
-  /// Per-minute row counts for epoch minutes in [fromMinute]..[toMinute].
+  /// Row counts for epoch minutes in [fromMinute]..[toMinute], summed per
+  /// [per] minutes; each entry's minute starts its group.
   Future<List<({int minute, int count})>> minuteCounts(
     String channel,
     int fromMinute,
-    int toMinute,
-  ) async {
+    int toMinute, {
+    int per = 1,
+  }) async {
     final r = await _db.rawQuery(
-      'SELECT minute, count FROM minute_counts '
-      'WHERE channel = ? AND minute >= ? AND minute <= ? ORDER BY minute',
-      [channel, fromMinute, toMinute],
+      'SELECT minute / ? * ? AS minute, SUM(count) AS count FROM minute_counts '
+      'WHERE channel = ? AND minute >= ? AND minute <= ? '
+      'GROUP BY minute / ? ORDER BY minute',
+      [per, per, channel, fromMinute, toMinute, per],
     );
     return [
       for (final row in r)

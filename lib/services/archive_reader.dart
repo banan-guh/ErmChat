@@ -158,12 +158,13 @@ class ArchiveReader {
     return decoded.isEmpty ? null : decoded.first;
   }
 
-  /// Minute buckets with rows between [from] and [to], oldest first.
+  /// Buckets of [per] with rows between [from] and [to], oldest first.
   Future<List<MinuteCount>> minuteCounts(
     String channel,
     DateTime from,
-    DateTime to,
-  ) async {
+    DateTime to, {
+    Duration per = const Duration(minutes: 1),
+  }) async {
     final store = await _store;
     if (store == null) {
       return const [];
@@ -172,6 +173,7 @@ class ArchiveReader {
       channel,
       from.millisecondsSinceEpoch ~/ 60000,
       to.millisecondsSinceEpoch ~/ 60000,
+      per: per.inMinutes,
     );
     return [
       for (final c in counts)

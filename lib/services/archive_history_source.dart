@@ -53,14 +53,15 @@ class ArchiveHistorySource implements HistorySource {
   @override
   Future<ActivityRail?> rail(List<HistoryStream> streams) async {
     final to = _now().toUtc();
+    const bucket = ActivityRail.defaultBucket;
     final counts = await reader.minuteCounts(
       channel,
       to.subtract(ArchiveStore.retention),
       to,
+      per: bucket,
     );
     if (counts.isEmpty) return null;
     final from = counts.first.minute;
-    const bucket = ActivityRail.defaultBucket;
     final buckets = List<int>.filled(
       (to.difference(from).inMilliseconds / bucket.inMilliseconds).ceil() + 1,
       0,

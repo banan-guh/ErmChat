@@ -540,8 +540,6 @@ class _HistoryViewState extends State<HistoryView> {
         _firstPainted = true;
         final ms = _open.elapsedMilliseconds;
         _log('first rows painted ${widget.channel} in ${ms}ms');
-        // After the first paint, so the activity scan never delays it.
-        _buildRail();
       }
       final p = _pos;
       if (p != null && p.hasContentDimensions) {
@@ -1080,8 +1078,9 @@ class _HistoryViewState extends State<HistoryView> {
 
   // ---- Rail ----------------------------------------------------------------
 
-  /// Builds the activity-weighted rail model. A fresh archive has no sealed
-  /// minutes yet, so a missing or bucket-old rail rebuilds on later scrolls.
+  /// Builds the activity-weighted rail model on the first scroll, so opening
+  /// a page never waits on it. A fresh archive has no sealed minutes yet, so
+  /// a missing or bucket-old rail rebuilds on later scrolls.
   Future<void> _buildRail() async {
     if (!mounted || _railBuilding) return;
     final rail = _railReady.value;
@@ -1184,6 +1183,7 @@ class _HistoryViewState extends State<HistoryView> {
 
   /// Shows the rail with its bubble at [time], for a tapped day marker.
   void _peekRail(DateTime time) {
+    _buildRail();
     final rail = _railReady.value;
     if (rail == null) return;
     _thumb.value = rail.positionOf(time);
