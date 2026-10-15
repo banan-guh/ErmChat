@@ -1317,8 +1317,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       kImageEmbedHeightMin,
       kImageEmbedHeightMax,
     );
-    final maxCapChanged =
-        ref.read(maxMessagesPerChannelProvider) != prefs.maxMessagesPerChannel;
     final recentLimitChanged =
         ref.read(recentMessagesLimitProvider) != prefs.recentMessagesLimit;
     final sharedChatChanged =
@@ -1345,7 +1343,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     // Every field apply() writes; any change keeps the rebuild.
     final fieldsChanged =
         appearanceChanged ||
-        maxCapChanged ||
         recentLimitChanged ||
         sharedChatChanged ||
         _replyToRoot != prefs.replyToThreadRoot ||
@@ -1358,9 +1355,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       // Providers cannot change during initState; none of these touch the
       // chrome, so the async pass sets them a beat later.
       if (!initial) {
-        ref
-            .read(maxMessagesPerChannelProvider.notifier)
-            .set(prefs.maxMessagesPerChannel);
         ref
             .read(recentMessagesLimitProvider.notifier)
             .set(prefs.recentMessagesLimit);
@@ -1402,13 +1396,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     _sevenTvPaintService.enabled = _showNamePaints;
     if (animateChanged) EmoteUrlProvider.applyGifsEnabled(_animateGifs);
     if (initial) return;
-    if (maxCapChanged) {
-      // Drop a lowering cap without waiting for the next incoming message.
-      for (final channel in List.of(_chat.names)) {
-        _channelManager.truncateChannel(channel);
-        _chat.channelFor(channel)?.info.touch();
-      }
-    }
     if (appearanceChanged || sharedChatChanged) {
       _tileCache.clear();
       for (final channel in List.of(_chat.names)) {

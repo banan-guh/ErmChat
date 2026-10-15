@@ -38,6 +38,11 @@ const kMaxMessagesPerChannelValues = <int>[
 /// Default max-messages-per-channel. Must be in [kMaxMessagesPerChannelValues].
 const kMaxMessagesPerChannelDefault = 500;
 
+/// Rows each channel's live buffer keeps. Fixed: history past it reads from
+/// the archive, so the max messages setting no longer applies. Covers
+/// robotty's 800-row fetch, which dedups against the buffer.
+const kLiveBufferMessages = 1000;
+
 /// Max joined channels. Restore path is exempt so existing users keep theirs.
 const kMaxChannels = 100;
 

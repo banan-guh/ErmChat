@@ -130,6 +130,49 @@ void main() {
       expect(channel.threads.activeThreads(), isEmpty);
     });
 
+    test('a thread stays until pushed past the limit', () {
+      final chat = Chat();
+      addTearDown(chat.dispose);
+      final t0 = DateTime(2026, 1, 1, 12);
+      TwitchMessage at(TwitchMessage m, int minute) => TwitchMessage(
+        login: m.login,
+        text: m.text,
+        messageId: m.messageId,
+        channel: 'test',
+        replyToParentId: m.replyToParentId,
+        replyThreadRootId: m.replyThreadRootId,
+        timestamp: t0.add(Duration(minutes: minute)),
+      );
+      final history = [
+        at(_root('p3'), 0),
+        at(_reply('c3', 'p3'), 1),
+        for (var i = 0; i < 9; i++) at(_filler('h$i'), 2 + i),
+      ];
+      chat.receiveHistory(
+        'test',
+        history,
+        rawHistory: history,
+        maxMessages: 10,
+        ownLogin: null,
+      );
+      Set<String?> ids() => {
+        for (final m in chat.channelFor('test')!.messages.items) m.messageId,
+      };
+      expect(ids(), containsAll(['p3', 'c3']), reason: 'within the limit');
+      // Enough arrivals to cross the trim slack and run the thread pass.
+      for (var i = 0; i < 10; i++) {
+        chat.receive(
+          'test',
+          at(_filler('new$i'), 20 + i),
+          maxMessages: 10,
+          isSelected: true,
+          ownLogin: null,
+        );
+      }
+      expect(ids(), isNot(contains('p3')), reason: 'pushed past the limit');
+      expect(ids(), isNot(contains('c3')));
+    });
+
     test('saved threads survive truncation past the window', () {
       final chat = Chat();
       addTearDown(chat.dispose);

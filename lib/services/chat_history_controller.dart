@@ -111,6 +111,10 @@ class ChatHistoryController {
     if (note != null) archive?.writer.add(channel, note);
   }
 
+  /// Rows a cold start restores per channel: enough to fill a screen and
+  /// overlap robotty's fetch. The list reads anything older from the archive.
+  static const int restoreRows = 200;
+
   /// Fills the channel buffer with its newest archived rows before the
   /// network history lands, so a cold start shows chat from disk. Rows pass
   /// the same filters as robotty history, and the later robotty merge dedups
@@ -119,7 +123,7 @@ class ChatHistoryController {
     final reader = archive?.reader;
     if (reader == null) return;
     try {
-      final rows = await reader.newestRows(channel, maxMessages());
+      final rows = await reader.newestRows(channel, restoreRows);
       if (rows.isEmpty || !chat.contains(channel)) return;
       chat.receiveHistory(
         channel,

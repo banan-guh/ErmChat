@@ -142,9 +142,12 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
       body: ListView(
         children: [
           SettingsSectionHeader(context.l10n.sectionMessages),
+          // Detached: the live buffer is fixed and history reads from the
+          // archive. Shows the size in use.
           SettingAnchor(
             Setting.maxMessages,
             child: PrefsSliderTile(
+              enabled: false,
               label: (v) =>
                   '${Setting.maxMessages.titleOf(context.l10n)}: '
                   '${kMaxMessagesPerChannelValues[v.round()]}',
@@ -155,7 +158,7 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
               defaultValue: _stepIndexFor(
                 kMaxMessagesPerChannelDefault,
               ).toDouble(),
-              read: (p) => _stepIndexFor(p.maxMessagesPerChannel).toDouble(),
+              read: (_) => _stepIndexFor(kLiveBufferMessages).toDouble(),
               write: (p, v) => p.setMaxMessagesPerChannel(
                 kMaxMessagesPerChannelValues[v.round()],
               ),

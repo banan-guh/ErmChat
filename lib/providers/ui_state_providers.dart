@@ -26,9 +26,7 @@ final selectedChannelProvider =
 
 class MaxMessagesNotifier extends Notifier<int> {
   @override
-  int build() => kMaxMessagesPerChannelDefault;
-
-  void set(int value) => state = value;
+  int build() => kLiveBufferMessages;
 }
 
 final maxMessagesPerChannelProvider =

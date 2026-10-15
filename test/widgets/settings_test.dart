@@ -325,11 +325,13 @@ void main() {
       expect(find.text('h:mm a', skipOffstage: false), findsOneWidget);
     });
 
-    testWidgets('max messages slider is log-scaled and snaps to steps', (
+    testWidgets('max messages slider is detached and shows the fixed buffer', (
       WidgetTester tester,
     ) async {
-      // Legacy value between steps snaps to the nearest log-scale step.
-      SharedPreferences.setMockInitialValues({'max_messages_per_channel': 275});
+      // A stored value from before the buffer was fixed changes nothing.
+      SharedPreferences.setMockInitialValues({
+        'max_messages_per_channel': 5000,
+      });
 
       await tester.pumpWidget(
         MaterialApp(key: UniqueKey(), home: ChatSettingsScreen()),
@@ -338,22 +340,14 @@ void main() {
       await tester.pump();
 
       expect(
-        find.text('Max messages per channel: 300', skipOffstage: false),
+        find.text(
+          'Max messages per channel: $kLiveBufferMessages',
+          skipOffstage: false,
+        ),
         findsOneWidget,
       );
-
-      // Tap the far right of the track: snaps to the max step (5000).
-      final rect = tester.getRect(find.byType(Slider).first);
-      await tester.tapAt(Offset(rect.right - 4, rect.center.dy));
-      await tester.pump();
-      await tester.pump();
-
-      expect(
-        find.text('Max messages per channel: 5000', skipOffstage: false),
-        findsOneWidget,
-      );
-      final prefs = await SharedPreferences.getInstance();
-      expect(prefs.getInt('max_messages_per_channel'), 5000);
+      final slider = tester.widget<Slider>(find.byType(Slider).first);
+      expect(slider.onChanged, isNull, reason: 'the slider must be greyed out');
     });
 
     testWidgets(
