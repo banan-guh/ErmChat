@@ -161,34 +161,36 @@ class ArchiveFindSource implements HistorySource {
   @override
   Future<List<HistoryStream>> streams() async => const [];
 
-  /// Weighs each bucket by the candidate blocks that cover it, since counting
-  /// matches would decode every block.
+  /// Gives every match an equal share of the rail, like a plain scrollbar
+  /// over the results.
   @override
   Future<ActivityRail?> rail(List<HistoryStream> streams) async {
-    final spans = await reader.findSpans(terms, test, channels: channels);
-    if (spans.isEmpty) return null;
+    final times = await reader.findTimes(terms, test, channels: channels);
+    if (times.isEmpty) return null;
     final to = _now().toUtc();
     const bucket = ActivityRail.defaultBucket;
     final ms = bucket.inMilliseconds;
-    final first = spans
-        .map((s) => s.$1)
-        .reduce((a, b) => a.isBefore(b) ? a : b);
     final from = DateTime.fromMillisecondsSinceEpoch(
-      first.millisecondsSinceEpoch ~/ ms * ms,
+      times.first.millisecondsSinceEpoch ~/ ms * ms,
       isUtc: true,
     );
     final buckets = List<int>.filled(
       (to.difference(from).inMilliseconds / ms).ceil() + 1,
       0,
     );
-    int index(DateTime t) =>
-        (t.difference(from).inMilliseconds ~/ ms).clamp(0, buckets.length - 1);
-    for (final (start, end) in spans) {
-      for (var i = index(start); i <= index(end); i++) {
-        buckets[i]++;
-      }
+    for (final t in times) {
+      buckets[(t.difference(from).inMilliseconds ~/ ms).clamp(
+        0,
+        buckets.length - 1,
+      )]++;
     }
-    return ActivityRail(from: from, to: to, bucket: bucket, counts: buckets);
+    return ActivityRail(
+      from: from,
+      to: to,
+      bucket: bucket,
+      counts: buckets,
+      byCount: true,
+    );
   }
 
   @override

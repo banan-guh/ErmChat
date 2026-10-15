@@ -206,8 +206,9 @@ class RailSpan {
 
 /// Maps time over the retained range to a 0..1 rail position, weighted by
 /// activity: empty buckets shrink to a sliver, busy buckets and stream buckets
-/// get length. Built once per channel; lookups are O(1) or O(log n) and
-/// allocate nothing.
+/// get length. With `byCount`, each message gets equal length and empty
+/// time none, like a plain scrollbar over a results list. Built once per
+/// list; lookups are O(1) or O(log n) and allocate nothing.
 class ActivityRail {
   ActivityRail({
     required this.from,
@@ -216,6 +217,7 @@ class ActivityRail {
     required List<int> counts,
     this.streams = const [],
     this.local = _deviceLocal,
+    bool byCount = false,
   }) : _bucketMs = bucket.inMilliseconds,
        _n = counts.length {
     final cum = Float64List(_n + 1);
@@ -230,7 +232,9 @@ class ActivityRail {
     var sum = 0.0;
     for (var i = 0; i < _n; i++) {
       final c = counts[i];
-      sum += c == 0
+      sum += byCount
+          ? c
+          : c == 0
           ? gapWeight
           : (1 + math.log(c)) * (inStream[i] == 1 ? 3 : 1);
       cum[i] = sum;

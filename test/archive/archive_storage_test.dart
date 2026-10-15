@@ -767,7 +767,7 @@ void main() {
       await store.close();
     });
 
-    test('the search rail marks where matches lie', () async {
+    test('the search rail gives each match an equal share', () async {
       final store = await _open(_newPath());
       final writer = _writer(store, sealCount: 2);
       const hour = 3600 * 1000;
@@ -794,9 +794,9 @@ void main() {
       final rail = (await source('pog').rail(const []))!;
       expect(rail.from.isAfter(_t0), isFalse);
       expect(
-        rail.gaps.length,
-        1,
-        reason: 'the chat-only middle is one hollow stretch',
+        rail.positionOf(_t0.add(const Duration(hours: 1))),
+        closeTo(0.5, 0.01),
+        reason: 'each match gets half; the chat-only middle gets none',
       );
       expect(await source('nothing').rail(const []), isNull);
       await store.close();

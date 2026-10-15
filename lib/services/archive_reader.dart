@@ -435,10 +435,9 @@ class ArchiveReader {
         : unique.sublist(0, limit);
   }
 
-  /// Where rows [find] would return lie: the time spans of blocks that may
-  /// hold one, plus the times of matching unsealed rows. Decodes nothing, so
-  /// a common query maps its whole archive cheaply.
-  Future<List<(DateTime, DateTime)>> findSpans(
+  /// Times of every row [find] would return, oldest first. Decodes every
+  /// block [terms] allows, so callers build it once, off the first paint.
+  Future<List<DateTime>> findTimes(
     ArchiveTerms terms,
     bool Function(TwitchMessage m) test, {
     List<String>? channels,
@@ -446,14 +445,31 @@ class ArchiveReader {
     final store = await _store;
     if (store == null) return const [];
     final names = channels ?? await store.channels();
-    DateTime at(int ms) => DateTime.fromMillisecondsSinceEpoch(ms, isUtc: true);
-    return [
-      for (final b in await _candidates(store, names, terms))
-        (at(b.start), at(b.end)),
-      for (final c in names)
-        for (final m in unsealed(c))
-          if (test(m)) (m.timestamp, m.timestamp),
-    ];
+    final blocks = await _candidates(store, names, terms);
+    final seen = <String>{};
+    final out = <DateTime>[];
+    void add(TwitchMessage m) {
+      if (!test(m)) return;
+      final id = m.messageId;
+      if (id == null || seen.add(id)) out.add(m.timestamp);
+    }
+
+    for (var i = 0; i < blocks.length; i += 8) {
+      final batch = blocks.sublist(i, min(i + 8, blocks.length));
+      for (final c in {for (final b in batch) b.channel}) {
+        final stored = await store.blocksByKey([
+          for (final b in batch)
+            if (b.channel == c) b.id,
+        ]);
+        for (final d in await _decodeAll(c, stored)) {
+          d.rows.forEach(add);
+        }
+      }
+    }
+    for (final c in names) {
+      unsealed(c).forEach(add);
+    }
+    return out..sort();
   }
 
   /// Blocks of [channels] that may hold rows [terms] looks for.
