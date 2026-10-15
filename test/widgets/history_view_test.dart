@@ -400,6 +400,52 @@ void main() {
     );
   });
 
+  testWidgets('a re-anchor moves visible rows instead of rebuilding them', (
+    tester,
+  ) async {
+    await _pumpView(tester);
+    final pos = tester
+        .state<ScrollableState>(find.byType(Scrollable).first)
+        .position;
+    Map<String, (Element, double)> visible() => {
+      for (final e in find.byType(RowGate).evaluate())
+        if (e.widget.key case ValueKey<String>(
+          :final value,
+        ) when (e.renderObject! as RenderBox).attached)
+          value: (e, tester.getTopLeft(find.byWidget(e.widget)).dy),
+    };
+    final gesture = await tester.startGesture(const Offset(200, 400));
+    var reanchored = false;
+    for (var i = 0; i < 2000 && !reanchored; i++) {
+      final before = visible();
+      final px = pos.pixels;
+      await gesture.moveBy(const Offset(0, 30));
+      await tester.pump(const Duration(milliseconds: 16));
+      await tester.runAsync(() => Future<void>.delayed(Duration.zero));
+      if (pos.pixels > px - 1000) continue;
+      // The correction landed; the next layout applies the new anchor.
+      reanchored = true;
+      await tester.pump(const Duration(milliseconds: 16));
+      final after = visible();
+      final both = before.keys.where(after.containsKey).toList();
+      expect(both, isNotEmpty);
+      for (final k in both) {
+        expect(
+          identical(after[k]!.$1, before[k]!.$1),
+          isTrue,
+          reason: 'row $k was rebuilt by the re-anchor',
+        );
+        expect(
+          after[k]!.$2,
+          moreOrLessEquals(before[k]!.$2 + 30, epsilon: 0.5),
+          reason: 'row $k moved on screen',
+        );
+      }
+    }
+    await gesture.up();
+    expect(reanchored, isTrue, reason: 'the drag never re-anchored');
+  });
+
   testWidgets('repeat jump does nothing when its window is loaded', (
     tester,
   ) async {

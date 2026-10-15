@@ -163,6 +163,62 @@ class _HoldBouncingPhysics extends BouncingScrollPhysics
       _HoldBouncingPhysics(parent: buildParent(ancestor), resolve: resolve);
 }
 
+/// Rows a re-anchor shifted within one sliver: each row's new index by its
+/// key, and the layout offset at each new index. Live for the one rebuild
+/// and layout that apply the re-anchor.
+class _Moves {
+  final Map<String, int> indexOf = {};
+  final Map<int, double> offsets = {};
+
+  int? find(Key key) => key is ValueKey<String> ? indexOf[key.value] : null;
+
+  void clear() {
+    indexOf.clear();
+    offsets.clear();
+  }
+}
+
+/// A [SliverList] that restores the offsets of rows [_Moves] shifted. A
+/// moved child otherwise keeps no offset unless its new slot held a child
+/// last layout, and the sliver drops it or fails hit testing on it
+/// (flutter#153922).
+class _MovingSliverList extends SliverList {
+  const _MovingSliverList({
+    super.key,
+    required super.delegate,
+    required this.moves,
+  });
+
+  final _Moves moves;
+
+  @override
+  RenderSliverList createRenderObject(BuildContext context) =>
+      _RenderMovingSliverList(
+        childManager: context as SliverMultiBoxAdaptorElement,
+        moves: moves,
+      );
+}
+
+class _RenderMovingSliverList extends RenderSliverList {
+  _RenderMovingSliverList({required super.childManager, required this.moves});
+
+  final _Moves moves;
+
+  @override
+  void performLayout() {
+    final offsets = moves.offsets;
+    if (offsets.isNotEmpty) {
+      for (RenderBox? c = firstChild; c != null; c = childAfter(c)) {
+        final d = c.parentData! as SliverMultiBoxAdaptorParentData;
+        final o = offsets[d.index];
+        if (o != null) d.layoutOffset = o;
+      }
+      offsets.clear();
+    }
+    super.performLayout();
+  }
+}
+
 class _HistoryViewState extends State<HistoryView> {
   static const int _cap = 3000;
 
@@ -196,6 +252,8 @@ class _HistoryViewState extends State<HistoryView> {
   final ScrollController _controller = ScrollController();
   final GlobalKey _olderKey = GlobalKey();
   final GlobalKey _newerKey = GlobalKey();
+  final _Moves _olderMoves = _Moves();
+  final _Moves _newerMoves = _Moves();
   late final HistoryWindow _window = HistoryWindow(now: widget.source.now);
   final Stopwatch _open = Stopwatch()..start();
   List<_Item> _newerItems = const [];
@@ -1094,6 +1152,19 @@ class _HistoryViewState extends State<HistoryView> {
     } else {
       pos.correctBy(correction);
     }
+    // The built rows from the target on keep their sliver and shift down by
+    // the target's index and offset; handing both over lets the sliver move
+    // them instead of rebuilding every visible row.
+    final moves = older ? _olderMoves : _newerMoves;
+    for (RenderBox? c = child; c != null; c = sliver!.childAfter(c)) {
+      final d = c.parentData! as SliverMultiBoxAdaptorParentData;
+      final i = d.index;
+      final o = d.layoutOffset;
+      if (i == null || o == null || i >= items.length) continue;
+      moves.indexOf[_itemKey(items[i])] = i - index;
+      moves.offsets[i - index] = o - offset;
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) => moves.clear());
     setState(() {
       _anchor = older ? target.pos + 1 : target.pos;
       _trim();
@@ -1223,6 +1294,10 @@ class _HistoryViewState extends State<HistoryView> {
   }
 
   // ---- Build ---------------------------------------------------------------
+
+  /// The key [_item] gives the item's widget.
+  String _itemKey(_Item item) =>
+      item.marker?.key ?? HistoryWindow.keyOf(_window[item.pos]);
 
   Widget _item(BuildContext context, List<_Item> items, int j) {
     final item = items[j];
@@ -1405,21 +1480,25 @@ class _HistoryViewState extends State<HistoryView> {
           slivers: [
             SliverToBoxAdapter(child: SizedBox(height: bottom)),
             if (empty) SliverToBoxAdapter(child: _empty(context)),
-            SliverList(
+            _MovingSliverList(
               key: _newerKey,
+              moves: _newerMoves,
               delegate: SliverChildBuilderDelegate(
                 (ctx, j) => _item(ctx, _newerItems, j),
                 childCount: _newerItems.length,
+                findChildIndexCallback: _newerMoves.find,
                 addAutomaticKeepAlives: false,
                 addRepaintBoundaries: false,
                 addSemanticIndexes: false,
               ),
             ),
-            SliverList(
+            _MovingSliverList(
               key: _olderKey,
+              moves: _olderMoves,
               delegate: SliverChildBuilderDelegate(
                 (ctx, j) => _item(ctx, _olderItems, j),
                 childCount: _olderItems.length,
+                findChildIndexCallback: _olderMoves.find,
                 addAutomaticKeepAlives: false,
                 addRepaintBoundaries: false,
                 addSemanticIndexes: false,
