@@ -5,9 +5,7 @@ import 'package:flutter/material.dart';
 import '../chat/chat.dart';
 import '../l10n/l10n.dart';
 import '../models/twitch_message.dart';
-
-// Which fields the query matches against.
-enum ChatSearchScope { all, messages, chatters }
+import '../util/chat_search.dart';
 
 // Hide drops non-matches; dim fades them in place.
 enum ChatSearchDisplay { hide, dim }
@@ -49,25 +47,6 @@ class ChatSearchFilter {
 // Case-insensitive substring match. System rows never match.
 bool searchMatches(TwitchMessage msg, ChatSearchFilter filter) =>
     searchMatchesLower(msg, filter.query.trim().toLowerCase(), filter.scope);
-
-// Hoisted-query variant for per-tile loops; avoids re-lowercasing per row.
-bool searchMatchesLower(
-  TwitchMessage msg,
-  String qLower,
-  ChatSearchScope scope,
-) {
-  if (qLower.isEmpty) return true;
-  if (msg.isSystem) return false;
-  final inText = msg.text.toLowerCase().contains(qLower);
-  final inUser =
-      msg.login.toLowerCase().contains(qLower) ||
-      msg.displayName.toLowerCase().contains(qLower);
-  return switch (scope) {
-    ChatSearchScope.messages => inText,
-    ChatSearchScope.chatters => inUser,
-    ChatSearchScope.all => inText || inUser,
-  };
-}
 
 // Per-channel view-only search. Kernel lists are never touched;
 // ChatView gets a filtered copy and the tile cache stays valid.

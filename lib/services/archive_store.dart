@@ -226,13 +226,15 @@ class ArchiveStore {
 
   /// The search index: a vocabulary shared by every channel, stored as
   /// deflated runs of new words (`first` is the id of a run's first word),
-  /// and per block the ids of the words it holds (`blocks.words`, null until
-  /// indexed). About 12% on top of the blocks.
+  /// and per block the ids of the words it holds (`blocks.words`) and of the
+  /// users who wrote in it (`blocks.senders`, `users` ids), both null until
+  /// indexed.
   static Future<void> _createSearchIndex(Database db) async {
     await db.execute(
       'CREATE TABLE vocab(first INTEGER PRIMARY KEY, words BLOB NOT NULL)',
     );
     await db.execute('ALTER TABLE blocks ADD COLUMN words BLOB');
+    await db.execute('ALTER TABLE blocks ADD COLUMN senders BLOB');
   }
 
   /// Stored definitions of [keys] in [channel], as JSON by key. Missing keys
@@ -371,6 +373,7 @@ class ArchiveStore {
     Map<String, String> emoteDefs = const {},
     Set<String> refIds = const {},
     Set<String>? words,
+    Set<int>? senders,
   }) => _withVocab((v) async {
     await tables(channel);
     final saved = await _tables[channel]!;
@@ -429,6 +432,7 @@ class ArchiveStore {
           'data': data,
           'refs': 1,
           'words': ids == null ? null : encodeWordList(ids),
+          'senders': senders == null ? null : encodeWordList(senders),
         });
         for (final id in refIds) {
           b.insert('ref_ids', {
@@ -501,15 +505,29 @@ class ArchiveStore {
     var done = 0;
     while (true) {
       final r = await _db.rawQuery(
-        'SELECT id, data FROM blocks WHERE words IS NULL LIMIT 64',
+        'SELECT id, channel, data FROM blocks '
+        'WHERE words IS NULL OR senders IS NULL LIMIT 64',
       );
       if (r.isEmpty) return done;
-      final sets = await _wordsOffIsolate([
+      final found = await _wordsOffIsolate([
         for (final row in r) row['data']! as Uint8List,
       ]);
+      // Rows name user states; the index keeps who wrote.
+      final senders = <Uint8List>[];
+      for (var i = 0; i < r.length; i++) {
+        final t = await tables(r[i]['channel']! as String);
+        senders.add(
+          encodeWordList({
+            for (final s in found[i].states)
+              if (s >= 0 && s < t.states.length) t.states[s].who,
+          }),
+        );
+      }
       await _withVocab((v) async {
         final first = v.length;
-        final lists = [for (final s in sets) encodeWordList(v.assign(s))];
+        final lists = [
+          for (final f in found) encodeWordList(v.assign(f.words)),
+        ];
         try {
           await _db.transaction((txn) async {
             final b = txn.batch();
@@ -520,10 +538,10 @@ class ArchiveStore {
               });
             }
             for (var i = 0; i < r.length; i++) {
-              b.rawUpdate('UPDATE blocks SET words = ? WHERE id = ?', [
-                lists[i],
-                r[i]['id'],
-              ]);
+              b.rawUpdate(
+                'UPDATE blocks SET words = ?, senders = ? WHERE id = ?',
+                [lists[i], senders[i], r[i]['id']],
+              );
             }
             await b.commit(noResult: true);
           });
@@ -536,54 +554,62 @@ class ArchiveStore {
     }
   }
 
-  static Future<List<Set<String>>> _wordsOffIsolate(List<Uint8List> blocks) =>
-      Isolate.run(() => blockWords(blocks));
+  static Future<List<({Set<String> words, Set<int> states})>> _wordsOffIsolate(
+    List<Uint8List> blocks,
+  ) => Isolate.run(() => blockWords(blocks));
 
-  /// Blocks of [channel] that may hold every one of [tokens] (each a
-  /// substring of some word), newest first, ending at or before [beforeTs]
-  /// when given. Blocks not yet indexed are always included.
-  Future<List<int>> searchBlocks(
-    String channel,
-    List<String> tokens, {
-    int? beforeTs,
-  }) async {
+  /// Vocabulary ids of every word containing each of [tokens].
+  Future<List<Set<int>>> wordIds(List<String> tokens) async {
     final v = await (_vocab ??= _loadVocab());
-    final want = [
+    return [
       for (final t in tokens)
         {
           for (var i = 0; i < v.words.length; i++)
             if (v.words[i].contains(t)) i,
         },
     ];
-    if (want.any((s) => s.isEmpty)) {
-      // A token in no word can still sit in an unindexed block.
-      final r = await _db.rawQuery(
-        'SELECT id FROM blocks WHERE channel = ? AND words IS NULL '
-        '${beforeTs == null ? '' : 'AND start_ts <= $beforeTs '}'
-        'ORDER BY end_ts DESC, id DESC',
-        [channel],
-      );
-      return [for (final row in r) row['id']! as int];
-    }
+  }
+
+  /// Blocks of [channel] that may hold a match: every set of [words] has an
+  /// id in the block, or one of [senders] wrote in it. Blocks not yet
+  /// indexed always qualify. Newest first, ending at or before [beforeTs];
+  /// with [afterTs], oldest first from blocks ending at or after it.
+  Future<List<int>> searchBlocks(
+    String channel, {
+    List<Set<int>>? words,
+    Set<int>? senders,
+    int? beforeTs,
+    int? afterTs,
+  }) async {
+    if (words == null && senders == null) return const [];
+    final where = [
+      'channel = ?',
+      if (beforeTs != null) 'start_ts <= $beforeTs',
+      if (afterTs != null) 'end_ts >= $afterTs',
+    ].join(' AND ');
+    final order = afterTs != null ? 'start_ts, id' : 'end_ts DESC, id DESC';
     final r = await _db.rawQuery(
-      'SELECT id, words FROM blocks WHERE channel = ? '
-      '${beforeTs == null ? '' : 'AND start_ts <= $beforeTs '}'
-      'ORDER BY end_ts DESC, id DESC',
+      'SELECT id, words, senders FROM blocks WHERE $where ORDER BY $order',
       [channel],
     );
-    final ids = [for (final row in r) row['id']! as int];
-    final lists = [for (final row in r) row['words'] as Uint8List?];
-    final hit = await _matchOffIsolate(lists, want);
+    final hit = await _matchOffIsolate(
+      [for (final row in r) row['words'] as Uint8List?],
+      [for (final row in r) row['senders'] as Uint8List?],
+      words,
+      senders,
+    );
     return [
-      for (var i = 0; i < ids.length; i++)
-        if (hit[i]) ids[i],
+      for (var i = 0; i < r.length; i++)
+        if (hit[i]) r[i]['id']! as int,
     ];
   }
 
   static Future<List<bool>> _matchOffIsolate(
-    List<Uint8List?> lists,
-    List<Set<int>> want,
-  ) => Isolate.run(() => matchWordLists(lists, want));
+    List<Uint8List?> words,
+    List<Uint8List?> senders,
+    List<Set<int>>? wantWords,
+    Set<int>? wantSenders,
+  ) => Isolate.run(() => matchBlocks(words, senders, wantWords, wantSenders));
 
   /// Blocks by key, in the order given; missing keys are skipped.
   Future<List<StoredBlock>> blocksByKey(List<int> keys) async {
@@ -1421,32 +1447,53 @@ class _Vocab {
   }
 }
 
-/// The distinct search words of each block; empty for a damaged one.
-List<Set<String>> blockWords(List<Uint8List> blocks) => [
+/// Each block's distinct search words and the user states that wrote it;
+/// empty for a damaged one.
+List<({Set<String> words, Set<int> states})> blockWords(
+  List<Uint8List> blocks,
+) => [
   for (final b in blocks)
     () {
       try {
-        return {
-          for (final r in ArchiveBlock.decode(b))
-            if (!r.isSystem) ...searchWords(r.text),
-        };
+        final words = <String>{};
+        final states = <int>{};
+        for (final r in ArchiveBlock.decode(b)) {
+          if (r.isSystem) continue;
+          words.addAll(searchWords(r.text));
+          states.add(r.user);
+        }
+        return (words: words, states: states);
       } on ArchiveFormatException {
-        return <String>{};
+        return (words: <String>{}, states: <int>{});
       }
     }(),
 ];
 
-/// Whether each word list holds an id from every set in [want]. A missing
-/// or damaged list matches, so unindexed blocks are always searched.
-List<bool> matchWordLists(List<Uint8List?> lists, List<Set<int>> want) => [
-  for (final l in lists)
-    () {
-      if (l == null) return true;
-      try {
-        final ids = decodeWordList(l).toSet();
-        return want.every((s) => s.any(ids.contains));
-      } on ArchiveFormatException {
-        return true;
-      }
-    }(),
-];
+/// Whether each block may hold a match (see [ArchiveStore.searchBlocks]).
+/// A missing or damaged list matches, so unindexed blocks are searched.
+List<bool> matchBlocks(
+  List<Uint8List?> words,
+  List<Uint8List?> senders,
+  List<Set<int>>? wantWords,
+  Set<int>? wantSenders,
+) {
+  bool has(Uint8List? list, bool Function(Set<int> ids) test) {
+    if (list == null) return true;
+    try {
+      return test(decodeWordList(list).toSet());
+    } on ArchiveFormatException {
+      return true;
+    }
+  }
+
+  return [
+    for (var i = 0; i < words.length; i++)
+      (wantWords != null &&
+              has(
+                words[i],
+                (ids) => wantWords.every((s) => s.any(ids.contains)),
+              )) ||
+          (wantSenders != null &&
+              has(senders[i], (ids) => wantSenders.any(ids.contains))),
+  ];
+}

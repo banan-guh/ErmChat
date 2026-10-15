@@ -8,6 +8,7 @@ import '../archive/archive_row.dart';
 import '../archive/archive_words.dart';
 import '../emotes/emote.dart';
 import '../models/twitch_message.dart';
+import '../util/chat_search.dart';
 import '../util/history_timeline.dart';
 import '../util/log.dart';
 import '../util/signal.dart';
@@ -307,40 +308,64 @@ class ArchiveReader {
     return cache;
   }
 
-  /// Messages of [channel] whose text contains [query] (case-insensitive),
-  /// newest first, at most [limit], older than [before] when given (to page
-  /// on). Only blocks the word index allows are decoded.
+  /// Messages of [channel] matching [query] in [scope] (see
+  /// [searchMatchesLower]), at most [limit]. Newest first, older than
+  /// [before] when given; with [after], the oldest at or after it. Only
+  /// blocks the index allows are decoded.
   Future<List<TwitchMessage>> search(
     String channel,
     String query, {
+    ChatSearchScope scope = ChatSearchScope.messages,
     int limit = 100,
     DateTime? before,
+    DateTime? after,
   }) async {
     final q = query.trim().toLowerCase();
-    final tokens = searchWords(q).toSet().toList();
     final store = await _store;
-    if (store == null || tokens.isEmpty || limit <= 0) return const [];
+    if (store == null || q.isEmpty || limit <= 0) return const [];
     final beforeMs = before?.millisecondsSinceEpoch;
-    bool hit(TwitchMessage m) =>
-        !m.isSystem &&
-        (beforeMs == null || m.timestamp.millisecondsSinceEpoch < beforeMs) &&
-        m.text.toLowerCase().contains(q);
+    final afterMs = after?.millisecondsSinceEpoch;
+    bool hit(TwitchMessage m) {
+      final t = m.timestamp.millisecondsSinceEpoch;
+      return (beforeMs == null || t < beforeMs) &&
+          (afterMs == null || t >= afterMs) &&
+          searchMatchesLower(m, q, scope);
+    }
+
+    final tokens = searchWords(q).toSet().toList();
+    final words = scope == ChatSearchScope.chatters || tokens.isEmpty
+        ? null
+        : await store.wordIds(tokens);
+    Set<int>? senders;
+    if (scope != ChatSearchScope.messages) {
+      final t = await store.tables(channel);
+      final who = {
+        for (var i = 0; i < t.whos.length; i++)
+          if (t.whos[i].login.toLowerCase().contains(q) ||
+              (t.whos[i].displayName?.toLowerCase().contains(q) ?? false))
+            i,
+      };
+      if (who.isNotEmpty) senders = who;
+    }
     final out = <TwitchMessage>[
-      for (final m in unsealed(channel).reversed)
+      for (final m in unsealed(channel))
         if (hit(m)) m,
     ];
-    final keys = await store.searchBlocks(channel, tokens, beforeTs: beforeMs);
-    // Newest blocks first, a few at a time, until the page is full.
+    final keys = await store.searchBlocks(
+      channel,
+      words: words,
+      senders: senders,
+      beforeTs: beforeMs,
+      afterTs: afterMs,
+    );
+    // Blocks nearest the start point first, a few at a time, until full.
     for (var i = 0; i < keys.length && out.length < limit; i += 8) {
       final blocks = await store.blocksByKey(
         keys.sublist(i, i + 8 > keys.length ? keys.length : i + 8),
       );
-      final rows = [
-        for (final b in await _decodeAll(channel, blocks))
-          for (final m in b.rows)
-            if (hit(m)) m,
-      ]..sort((a, b) => b.timestamp.compareTo(a.timestamp));
-      out.addAll(rows);
+      for (final b in await _decodeAll(channel, blocks)) {
+        out.addAll(b.rows.where(hit));
+      }
     }
     // Unsealed rows can repeat a sealed one mid-seal.
     final seen = <String>{};
@@ -348,7 +373,10 @@ class ArchiveReader {
       for (final m in out)
         if (m.messageId == null || seen.add(m.messageId!)) m,
     ]..sort((a, b) => b.timestamp.compareTo(a.timestamp));
-    return unique.length > limit ? unique.sublist(0, limit) : unique;
+    if (unique.length <= limit) return unique;
+    return after != null
+        ? unique.sublist(unique.length - limit)
+        : unique.sublist(0, limit);
   }
 
   /// Sort by time, keeping arrival order for equal timestamps (List.sort is

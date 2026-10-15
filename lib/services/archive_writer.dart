@@ -180,6 +180,7 @@ class ArchiveWriter {
       if (store == null) {
         return;
       }
+      final tables = await store.tables(channel);
       var start = rows.first.timestampMs;
       var end = start;
       final minutes = <int, int>{};
@@ -203,6 +204,11 @@ class ArchiveWriter {
         words: {
           for (final r in rows)
             if (!r.isSystem) ...searchWords(r.text),
+        },
+        senders: {
+          for (final r in rows)
+            if (!r.isSystem && r.user < tables.states.length)
+              tables.states[r.user].who,
         },
       );
       await store.pruneIfDue();

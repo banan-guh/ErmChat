@@ -10,6 +10,7 @@ import 'package:ermchat/composer/suggestion.dart';
 import 'package:ermchat/models/twitch_badge.dart';
 import 'package:ermchat/models/twitch_message.dart';
 import 'package:ermchat/panels/search.dart';
+import 'package:ermchat/util/chat_search.dart';
 import 'package:ermchat/services/twitch_auth.dart';
 import 'package:ermchat/util/mention.dart';
 import 'package:ermchat/util/duration_format.dart';

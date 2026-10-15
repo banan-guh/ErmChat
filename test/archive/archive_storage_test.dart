@@ -13,6 +13,7 @@ import 'package:ermchat/services/archive_history_source.dart';
 import 'package:ermchat/services/archive_reader.dart';
 import 'package:ermchat/services/archive_store.dart';
 import 'package:ermchat/services/archive_writer.dart';
+import 'package:ermchat/util/chat_search.dart';
 import 'package:ermchat/util/history_window.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -412,6 +413,7 @@ void main() {
     await db.execute('ALTER TABLE blocks DROP COLUMN stripped');
     await db.execute('DROP TABLE vocab');
     await db.execute('ALTER TABLE blocks DROP COLUMN words');
+    await db.execute('ALTER TABLE blocks DROP COLUMN senders');
     await db.setVersion(3);
     await db.close();
 
@@ -660,6 +662,42 @@ void main() {
         await store.close();
       },
     );
+
+    test('scopes match text, chatters or both; after pages forward', () async {
+      final path = _newPath();
+      final store = await _open(path);
+      final writer = _writer(store, sealCount: 4);
+      // 'neuro' as a word in one row, as a chatter in another.
+      for (var i = 0; i < 12; i++) {
+        final login = i == 9 ? 'neurofan' : 'alice';
+        writer.add(
+          _channel,
+          _msg(i, login: login)..text = i == 2 ? 'neuro is live' : 'chat $i',
+        );
+        if (i == 0) await writer.settled();
+      }
+      await writer.flush();
+      final reader = _reader(store);
+      Future<List<String>> find(ChatSearchScope scope) async => [
+        for (final m in await reader.search(_channel, 'NEURO', scope: scope))
+          '${m.login}: ${m.text}',
+      ];
+      expect(await find(ChatSearchScope.messages), ['alice: neuro is live']);
+      expect(await find(ChatSearchScope.chatters), ['neurofan: chat 9']);
+      expect(await find(ChatSearchScope.all), [
+        'neurofan: chat 9',
+        'alice: neuro is live',
+      ]);
+      // Forward from row 5: the oldest matches first, newest-first order.
+      final later = await reader.search(
+        _channel,
+        'chat',
+        after: _msg(5).timestamp,
+        limit: 3,
+      );
+      expect([for (final m in later) m.text], ['chat 7', 'chat 6', 'chat 5']);
+      await store.close();
+    });
 
     test('unindexed blocks are searched, then indexed', () async {
       final path = _newPath();
