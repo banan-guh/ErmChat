@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:ermchat/archive/archive_block.dart';
 import 'package:ermchat/archive/archive_users.dart';
 import 'package:ermchat/color_utils.dart';
+import 'package:ermchat/emotes/emote.dart';
 import 'package:ermchat/models/twitch_badge.dart';
 import 'package:ermchat/models/twitch_message.dart';
 import 'package:ermchat/services/archive_adapter.dart';
@@ -333,6 +334,109 @@ void main() {
         [for (final b in want.badges ?? const <MessageBadge>[]) b.versionId],
       );
     }
+    await store.close();
+  });
+
+  test('third-party emotes read back as they were stored', () async {
+    final path = _newPath();
+    var store = await _open(path);
+    final writer = _writer(store);
+    Emote cat(String code, {double aspect = 1.0}) => Emote(
+      id: '01F6',
+      code: code,
+      meta: SevenTvMeta(baseName: 'catJAM', aspectRatio: aspect),
+      scales: {EmoteScale.large: 'https://cdn.7tv.app/emote/01F6/4x.webp'},
+      scope: EmoteScope.channel,
+      isAnimated: true,
+    );
+    TwitchMessage msg(
+      int i,
+      String text,
+      List<EmoteToken>? tokens, {
+      bool partial = false,
+    }) => _msg(i, tsMs: _t0.millisecondsSinceEpoch + i * 1000)
+      ..text = text
+      ..emoteTokens = tokens
+      ..emotesPartial = partial;
+    EmoteToken tok(Emote e, int start) => EmoteToken(
+      emote: e,
+      text: e.code,
+      start: start,
+      end: start + e.code.length,
+    );
+    writer.add(
+      _channel,
+      msg(0, 'catJAM hi catJAM', [
+        tok(cat('catJAM', aspect: 1.5), 0),
+        tok(cat('catJAM', aspect: 1.5), 10),
+      ]),
+    );
+    // The channel later renamed the alias; both versions stay.
+    writer.add(_channel, msg(1, 'vibe', [tok(cat('vibe'), 0)]));
+    // Parsed before the catalogs landed: parses again on read.
+    writer.add(_channel, msg(2, 'catJAM', const [], partial: true));
+    // Parsed, nothing third-party: comes back parsed and empty.
+    writer.add(_channel, msg(3, 'hello', const []));
+    await writer.flush();
+    await store.close();
+
+    // A restart, with no emote catalog anywhere on the read side.
+    store = await _open(path);
+    final rows = await _reader(store).newestRows(_channel, 10);
+    expect(rows, hasLength(4));
+    List<(String, int, double, bool)>? shape(TwitchMessage m) => [
+      for (final t in m.emoteTokens ?? const <EmoteToken>[])
+        (t.emote!.code, t.start, t.emote!.aspectRatio, t.emote!.isAnimated),
+    ];
+    expect(shape(rows[0]), [
+      ('catJAM', 0, 1.5, true),
+      ('catJAM', 10, 1.5, true),
+    ], reason: 'the emote as it was, without today\'s catalog');
+    expect(shape(rows[1]), [('vibe', 0, 1.0, true)]);
+    expect(rows[2].emoteTokens, isNull, reason: 'a partial parse re-parses');
+    expect(rows[3].emoteTokens, isEmpty);
+    await store.close();
+  });
+
+  test('a schema 3 archive upgrades and keeps its rows', () async {
+    final path = _newPath();
+    var store = await _open(path);
+    var writer = _writer(store);
+    writer.add(_channel, _msg(0));
+    await writer.flush();
+    await store.close();
+    // Back to schema 3: no emote_defs table.
+    final db = await databaseFactoryFfi.openDatabase(path);
+    await db.execute('DROP TABLE emote_defs');
+    await db.setVersion(3);
+    await db.close();
+
+    store = await _open(path);
+    writer = _writer(store);
+    writer.add(
+      _channel,
+      _msg(1)
+        ..text = 'catJAM'
+        ..emoteTokens = [
+          EmoteToken(
+            emote: const Emote(
+              id: '01F6',
+              code: 'catJAM',
+              meta: SevenTvMeta(),
+              scales: {
+                EmoteScale.large: 'https://cdn.7tv.app/emote/01F6/4x.webp',
+              },
+            ),
+            text: 'catJAM',
+            start: 0,
+            end: 6,
+          ),
+        ],
+    );
+    await writer.flush();
+    final rows = await _reader(store).newestRows(_channel, 10);
+    expect([for (final r in rows) r.messageId], [_id(0), _id(1)]);
+    expect(rows[1].emoteTokens?.single.emote?.id, '01F6');
     await store.close();
   });
 

@@ -1,9 +1,11 @@
+import 'dart:convert';
 import 'dart:isolate';
 import 'dart:typed_data';
 
 import '../archive/archive_block.dart';
 import '../archive/archive_io.dart';
 import '../archive/archive_row.dart';
+import '../emotes/emote.dart';
 import '../models/twitch_message.dart';
 import '../util/history_timeline.dart';
 import '../util/log.dart';
@@ -66,6 +68,9 @@ class ArchiveReader {
   /// Deletes recorded after rows were read, by channel, for readers that
   /// hold rows.
   final clears = ChatSignal<(String, HistoryClear)>();
+
+  /// Stored emote definitions by channel, then key; one instance per key.
+  final Map<String, Map<String, Emote>> _defs = {};
 
   /// A broadcast started, ended, or reopened, in some channel.
   final streamsChanged = ChatVoidSignal();
@@ -238,6 +243,7 @@ class ArchiveReader {
       (cleared[c.login] ??= []).add((fromTs: c.fromTs, toTs: c.toTs));
     }
     final all = cleared[null] ?? const [];
+    final defs = await _defsFor(channel, decoded);
     final out = <ArchiveWindowBlock>[];
     for (var i = 0; i < blocks.length; i++) {
       final rows = decoded[i];
@@ -247,7 +253,8 @@ class ArchiveReader {
         continue;
       }
       final messages = [
-        for (final r in rows) adapter.fromRow(r, channel, asHistory: asHistory),
+        for (final r in rows)
+          adapter.fromRow(r, channel, asHistory: asHistory, defs: defs),
       ];
       for (final m in messages) {
         // The reconnect grey marks a catch-up in the session it happened.
@@ -270,6 +277,33 @@ class ArchiveReader {
       );
     }
     return out;
+  }
+
+  /// The emote definitions [decoded] rows reference, read once per key.
+  Future<Map<String, Emote>> _defsFor(
+    String channel,
+    List<List<ArchiveRow>?> decoded,
+  ) async {
+    final cache = _defs.putIfAbsent(channel, () => {});
+    final missing = <String>{
+      for (final rows in decoded)
+        for (final r in rows ?? const <ArchiveRow>[])
+          for (final t in r.tokens)
+            if (!cache.containsKey(t.key)) t.key,
+    };
+    if (missing.isEmpty) return cache;
+    final store = (await _store)!;
+    for (final MapEntry(:key, :value) in (await store.emoteDefs(
+      channel,
+      missing,
+    )).entries) {
+      try {
+        cache[key] = Emote.fromJson(jsonDecode(value) as Map<String, dynamic>);
+      } on Object catch (e) {
+        logDebug('[ArchiveReader] bad emote def $key: $e');
+      }
+    }
+    return cache;
   }
 
   /// Sort by time, keeping arrival order for equal timestamps (List.sort is

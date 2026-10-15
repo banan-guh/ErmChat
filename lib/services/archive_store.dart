@@ -83,7 +83,7 @@ class _ChannelTables {
 class ArchiveStore {
   ArchiveStore._(this._db, this._now);
 
-  static const int schemaVersion = 3;
+  static const int schemaVersion = 4;
   static const Duration retention = Duration(days: 30);
   static const Duration pruneEvery = Duration(hours: 1);
 
@@ -163,6 +163,7 @@ class ArchiveStore {
     }
     await _createThreads(db);
     await _createModeration(db);
+    await _createEmoteDefs(db);
   }
 
   /// Saved threads live in their own tables, so block retention never
@@ -196,6 +197,37 @@ class ArchiveStore {
     );
   }
 
+  /// Third-party emotes as they were when first archived, so history shows
+  /// an emote after its set drops or renames it. Written once per key
+  /// ([ArchiveToken.key]) and never pruned: a channel uses thousands at most.
+  static Future<void> _createEmoteDefs(Database db) =>
+      db.execute('''CREATE TABLE emote_defs(
+         channel TEXT NOT NULL, key TEXT NOT NULL, json TEXT NOT NULL,
+         PRIMARY KEY(channel, key)) WITHOUT ROWID''');
+
+  /// Stored definitions of [keys] in [channel], as JSON by key. Missing keys
+  /// are left out.
+  Future<Map<String, String>> emoteDefs(
+    String channel,
+    Iterable<String> keys,
+  ) async {
+    final all = keys.toList();
+    final out = <String, String>{};
+    // SQLite caps bound parameters; stay well under it.
+    for (var i = 0; i < all.length; i += 500) {
+      final part = all.sublist(i, i + 500 > all.length ? all.length : i + 500);
+      final r = await _db.rawQuery(
+        'SELECT key, json FROM emote_defs WHERE channel = ? AND key IN '
+        '(${List.filled(part.length, '?').join(', ')})',
+        [channel, ...part],
+      );
+      for (final row in r) {
+        out[row['key']! as String] = row['json']! as String;
+      }
+    }
+    return out;
+  }
+
   /// Schema upgrade hook: add one `if (from < n)` step per version bump.
   /// Version 1 data is never touched; each step only adds tables.
   static Future<void> migrate(Database db, int from, int to) async {
@@ -204,6 +236,9 @@ class ArchiveStore {
     }
     if (from < 3) {
       await _createModeration(db);
+    }
+    if (from < 4) {
+      await _createEmoteDefs(db);
     }
   }
 
@@ -294,6 +329,7 @@ class ArchiveStore {
     required int count,
     required Uint8List data,
     required Map<int, int> minutes,
+    Map<String, String> emoteDefs = const {},
   }) async {
     await tables(channel);
     final saved = await _tables[channel]!;
@@ -342,6 +378,13 @@ class ArchiveStore {
         'count': count,
         'data': data,
       });
+      for (final e in emoteDefs.entries) {
+        b.insert('emote_defs', {
+          'channel': channel,
+          'key': e.key,
+          'json': e.value,
+        }, conflictAlgorithm: ConflictAlgorithm.ignore);
+      }
       for (final e in minutes.entries) {
         b.rawInsert(
           'INSERT OR IGNORE INTO minute_counts(channel, minute, count) VALUES(?, ?, 0)',

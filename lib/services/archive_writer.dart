@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:isolate';
 import 'dart:typed_data';
 
@@ -26,6 +27,11 @@ class _Chan {
   /// Recent message ids (insertion ordered): the unsealed tail plus the
   /// newest sealed block, so a row arriving twice is stored once.
   final ids = <String>{};
+
+  /// Emote definitions the tail uses that no seal has sent yet, as JSON by
+  /// key, and the keys sent this session.
+  final defs = <String, String>{};
+  final sentDefs = <String>{};
   Timer? timer;
   Future<void> chain = Future.value();
 }
@@ -123,6 +129,11 @@ class ArchiveWriter {
       }
     }
     c.tail.add(ArchiveAdapter(c.tables!).toRow(msg));
+    for (final t in ArchiveAdapter.storedTokens(msg) ?? const []) {
+      final key = ArchiveAdapter.defKey(t.emote!);
+      if (c.sentDefs.contains(key) || c.defs.containsKey(key)) continue;
+      c.defs[key] = jsonEncode(t.emote!.toJson());
+    }
     c.unsealed.add(msg);
     if (c.tail.length >= sealCount) {
       _seal(channel, c);
@@ -139,8 +150,11 @@ class ArchiveWriter {
     }
     final rows = List.of(c.tail);
     c.tail.clear();
+    final defs = Map.of(c.defs);
+    c.sentDefs.addAll(defs.keys);
+    c.defs.clear();
     c.chain = c.chain.then((_) async {
-      await _write(channel, rows);
+      await _write(channel, rows, defs);
       // Readable from the store now, or lost to a failed write.
       c.unsealed.removeRange(0, rows.length);
     });
@@ -154,7 +168,11 @@ class ArchiveWriter {
     return [...c.waiting, ...c.unsealed];
   }
 
-  Future<void> _write(String channel, List<ArchiveRow> rows) async {
+  Future<void> _write(
+    String channel,
+    List<ArchiveRow> rows,
+    Map<String, String> defs,
+  ) async {
     try {
       final data = await encode(rows);
       final store = await _store;
@@ -177,6 +195,7 @@ class ArchiveWriter {
         count: rows.length,
         data: data,
         minutes: minutes,
+        emoteDefs: defs,
       );
       await store.pruneIfDue();
     } catch (e) {

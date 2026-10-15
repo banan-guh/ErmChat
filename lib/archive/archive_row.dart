@@ -18,6 +18,27 @@ class ArchiveEmote {
   int get hashCode => Object.hash(id, start, end);
 }
 
+/// A 7TV, BTTV or FFZ emote occurrence: the key of its stored definition
+/// (provider, id and code, so a renamed alias stays its own version) plus
+/// its position in the message text.
+class ArchiveToken {
+  const ArchiveToken(this.key, this.start, this.end);
+
+  final String key;
+  final int start;
+  final int end;
+
+  @override
+  bool operator ==(Object other) =>
+      other is ArchiveToken &&
+      other.key == key &&
+      other.start == start &&
+      other.end == end;
+
+  @override
+  int get hashCode => Object.hash(key, start, end);
+}
+
 /// One archived message. Name, color and badges live in the user tables and
 /// are reached through [user], an id from `UserTables.internState`.
 class ArchiveRow {
@@ -43,6 +64,8 @@ class ArchiveRow {
     this.sourceBroadcasterId,
     this.sourceMessageId,
     this.emotes = const [],
+    this.tokens = const [],
+    this.tokensStored = false,
     this.extraTags = const [],
   });
 
@@ -72,6 +95,12 @@ class ArchiveRow {
   final String? sourceMessageId;
   final List<ArchiveEmote> emotes;
 
+  /// Third-party emotes as parsed when the message arrived. Only meaningful
+  /// when [tokensStored]; otherwise the row was parsed before its catalogs
+  /// landed (or never), and a read parses it against today's catalogs.
+  final List<ArchiveToken> tokens;
+  final bool tokensStored;
+
   /// Tags no field above covers, kept so unknown data is never lost.
   final List<(String, String)> extraTags;
 
@@ -99,6 +128,8 @@ class ArchiveRow {
       other.sourceBroadcasterId == sourceBroadcasterId &&
       other.sourceMessageId == sourceMessageId &&
       _listEq(other.emotes, emotes) &&
+      other.tokensStored == tokensStored &&
+      _listEq(other.tokens, tokens) &&
       _listEq(other.extraTags, extraTags);
 
   @override

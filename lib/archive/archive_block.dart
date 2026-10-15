@@ -13,7 +13,8 @@ import 'archive_row.dart';
 class ArchiveBlock {
   const ArchiveBlock._();
 
-  static const int version = 1;
+  /// Version 2 adds third-party emote tokens; version 1 blocks still decode.
+  static const int version = 2;
 
   /// Rows past this count are refused on decode as corrupt.
   static const int maxRows = 1 << 16;
@@ -30,7 +31,12 @@ class ArchiveBlock {
   static const _bitSourceMessage = 1 << 9;
   static const _bitEmotes = 1 << 10;
   static const _bitTags = 1 << 11;
-  static const _knownBits = (1 << 12) - 1;
+  static const _bitTokens = 1 << 12;
+  static const _knownBitsV1 = (1 << 12) - 1;
+  static const _knownBits = (1 << 13) - 1;
+
+  /// Flag bit: the row's emote tokens were stored (version 2).
+  static const _flagTokens = 0x80;
 
   static const _refLiteral = 0;
   static const _refSameAsParent = 1;
@@ -49,6 +55,7 @@ class ArchiveBlock {
     final emoteCol = ByteWriter();
     final tagCol = ByteWriter();
     final tagVals = ByteWriter();
+    final tokenCol = ByteWriter();
     final msgIds = _DictWriter();
     final replyUsers = _DictWriter();
     final rewards = _DictWriter();
@@ -56,6 +63,7 @@ class ArchiveBlock {
     final sourceBroadcasters = _DictWriter();
     final emoteIds = _DictWriter();
     final tagKeys = _DictWriter();
+    final tokenKeys = _DictWriter();
 
     final rowOfId = <String, int>{};
     for (var i = 0; i < rows.length; i++) {
@@ -76,7 +84,8 @@ class ArchiveBlock {
             (r.deleted ? 8 : 0) |
             (r.isFirstMessage ? 16 : 0) |
             (r.isBackfill ? 32 : 0) |
-            (r.isHistory ? 64 : 0),
+            (r.isHistory ? 64 : 0) |
+            (r.tokensStored ? _flagTokens : 0),
       );
       var p = 0;
       if (r.messageId != null) p |= _bitMessageId;
@@ -91,6 +100,7 @@ class ArchiveBlock {
       if (r.sourceMessageId != null) p |= _bitSourceMessage;
       if (r.emotes.isNotEmpty) p |= _bitEmotes;
       if (r.extraTags.isNotEmpty) p |= _bitTags;
+      if (r.tokens.isNotEmpty) p |= _bitTokens;
       presence.varint(p);
       user.varint(r.user);
       final text = utf8.encode(r.text);
@@ -139,6 +149,16 @@ class ArchiveBlock {
           tagVals.string(v);
         }
       }
+      if (r.tokens.isNotEmpty) {
+        tokenCol.varint(r.tokens.length);
+        var prevEnd = 0;
+        for (final t in r.tokens) {
+          tokenKeys.add(t.key);
+          tokenCol.zigzag(t.start - prevEnd);
+          tokenCol.zigzag(t.end - t.start);
+          prevEnd = t.end;
+        }
+      }
     }
 
     final payload = ByteWriter()..varint(rows.length);
@@ -171,14 +191,20 @@ class ArchiveBlock {
         ..section(d.codes)
         ..section(d.strings);
     }
+    // Version 2 appends after the version 1 layout.
+    payload
+      ..section(tokenCol)
+      ..section(tokenKeys.codes)
+      ..section(tokenKeys.strings);
     return packPayload(version, payload.takeBytes());
   }
 
   /// Throws [ArchiveFormatException] on truncated, corrupt, or unknown data.
   static List<ArchiveRow> decode(Uint8List data) {
-    final raw = unpackPayload(version, data, 'block');
+    final v = data.isNotEmpty && data[0] == 1 ? 1 : version;
+    final raw = unpackPayload(v, data, 'block');
     try {
-      return _decodePayload(raw);
+      return _decodePayload(raw, v);
     } on ArchiveFormatException {
       rethrow;
     } on Object {
@@ -186,7 +212,7 @@ class ArchiveBlock {
     }
   }
 
-  static List<ArchiveRow> _decodePayload(Uint8List raw) {
+  static List<ArchiveRow> _decodePayload(Uint8List raw, int v) {
     final r = ByteReader(raw);
     final count = r.varint();
     if (count > maxRows) {
@@ -212,6 +238,11 @@ class ArchiveBlock {
     final sourceBroadcasters = dict();
     final emoteIds = dict();
     final tagKeys = dict();
+    final v2 = v >= 2;
+    final tokenCol = v2 ? r.section() : ByteReader(Uint8List(0));
+    final tokenKeys = v2 ? dict() : _DictReader.empty();
+    final known = v2 ? _knownBits : _knownBitsV1;
+    final flagMask = v2 ? 0x7f | _flagTokens : 0x7f;
     if (count > flags.remaining) {
       throw const ArchiveFormatException('implausible row count');
     }
@@ -228,7 +259,7 @@ class ArchiveBlock {
       final stamp = prevTs += ts.zigzag();
       final f = flags.byte();
       final p = presence.varint();
-      if (p & ~_knownBits != 0 || f & 0x80 != 0) {
+      if (p & ~known != 0 || f & ~flagMask != 0) {
         throw const ArchiveFormatException('unknown field bits');
       }
       final userRef = user.varint();
@@ -294,6 +325,22 @@ class ArchiveBlock {
           tags.add((tagKeys.read(), tagVals.string()));
         }
       }
+      var tokens = const <ArchiveToken>[];
+      if (p & _bitTokens != 0) {
+        final n = tokenCol.varint();
+        if (n == 0 || n > tokenCol.remaining) {
+          throw const ArchiveFormatException('bad token count');
+        }
+        tokens = [];
+        var prevEnd = 0;
+        for (var t = 0; t < n; t++) {
+          final key = tokenKeys.read();
+          final start = prevEnd + tokenCol.zigzag();
+          final end = start + tokenCol.zigzag();
+          tokens.add(ArchiveToken(key, start, end));
+          prevEnd = end;
+        }
+      }
       builders.add(
         (parent, root) => ArchiveRow(
           timestampMs: stamp,
@@ -315,6 +362,8 @@ class ArchiveBlock {
           sourceBroadcasterId: sourceBroadcaster,
           sourceMessageId: sourceId,
           emotes: emotes,
+          tokens: tokens,
+          tokensStored: f & _flagTokens != 0,
           extraTags: tags,
           replyParentId: parent,
           threadRootId: root,
@@ -334,6 +383,7 @@ class ArchiveBlock {
       emoteCol,
       tagCol,
       tagVals,
+      tokenCol,
     ]) {
       if (s.remaining != 0) {
         throw const ArchiveFormatException('trailing data in column');
@@ -452,6 +502,10 @@ class _DictWriter {
 
 class _DictReader {
   _DictReader(this._codes, this._strings);
+
+  /// For a column a version lacks.
+  _DictReader.empty()
+    : this(ByteReader(Uint8List(0)), ByteReader(Uint8List(0)));
 
   final ByteReader _codes;
   final ByteReader _strings;
