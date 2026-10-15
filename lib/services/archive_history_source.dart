@@ -86,22 +86,41 @@ class ArchiveHistorySource implements HistorySource {
   }
 }
 
-/// [HistorySource] over the matches of one search in one channel's archive,
-/// so the history list pages through results like through chat. The rail
-/// shows where matches lie; streams are left out.
-class ArchiveSearchSource implements HistorySource {
-  ArchiveSearchSource(
-    this.channel,
-    this.reader, {
-    required this.query,
-    required this.scope,
+/// [HistorySource] over the archived rows passing [test] in [channels]
+/// (every channel when null), so the history list pages through matches
+/// like through chat. The rail shows where matches lie; streams are left
+/// out.
+class ArchiveFindSource implements HistorySource {
+  ArchiveFindSource(
+    this.reader,
+    this.terms,
+    this.test, {
+    this.channels,
     DateTime Function()? now,
   }) : _now = now ?? clock.now;
 
-  final String channel;
+  /// [channel]'s matches of [query] in [scope] (see [searchMatchesLower]).
+  factory ArchiveFindSource.search(
+    String channel,
+    ArchiveReader reader, {
+    required String query,
+    required ChatSearchScope scope,
+    DateTime Function()? now,
+  }) {
+    final q = query.trim().toLowerCase();
+    return ArchiveFindSource(
+      reader,
+      ArchiveTerms.search(q, scope),
+      (m) => searchMatchesLower(m, q, scope),
+      channels: [channel],
+      now: now,
+    );
+  }
+
   final ArchiveReader reader;
-  final String query;
-  final ChatSearchScope scope;
+  final ArchiveTerms terms;
+  final bool Function(TwitchMessage m) test;
+  final List<String>? channels;
   final DateTime Function() _now;
 
   static const int _page = 100;
@@ -109,25 +128,24 @@ class ArchiveSearchSource implements HistorySource {
   @override
   DateTime now() => _now();
 
-  @override
-  Future<List<TwitchMessage>> older(DateTime time) async =>
-      (await reader.search(
-        channel,
-        query,
-        scope: scope,
-        limit: _page,
-        before: time.add(const Duration(milliseconds: 1)),
-      )).reversed.toList();
+  Future<List<TwitchMessage>> _find({
+    DateTime? before,
+    DateTime? after,
+  }) async => (await reader.find(
+    terms,
+    test,
+    channels: channels,
+    limit: _page,
+    before: before,
+    after: after,
+  )).reversed.toList();
 
   @override
-  Future<List<TwitchMessage>> newer(DateTime time) async =>
-      (await reader.search(
-        channel,
-        query,
-        scope: scope,
-        limit: _page,
-        after: time,
-      )).reversed.toList();
+  Future<List<TwitchMessage>> older(DateTime time) =>
+      _find(before: time.add(const Duration(milliseconds: 1)));
+
+  @override
+  Future<List<TwitchMessage>> newer(DateTime time) => _find(after: time);
 
   @override
   Future<List<TwitchMessage>> around(DateTime time) async {
@@ -138,12 +156,7 @@ class ArchiveSearchSource implements HistorySource {
   }
 
   @override
-  Future<List<TwitchMessage>> newest() async => (await reader.search(
-    channel,
-    query,
-    scope: scope,
-    limit: _page,
-  )).reversed.toList();
+  Future<List<TwitchMessage>> newest() => _find();
 
   @override
   Future<List<HistoryStream>> streams() async => const [];
@@ -152,7 +165,7 @@ class ArchiveSearchSource implements HistorySource {
   /// matches would decode every block.
   @override
   Future<ActivityRail?> rail(List<HistoryStream> streams) async {
-    final spans = await reader.searchSpans(channel, query, scope: scope);
+    final spans = await reader.findSpans(terms, test, channels: channels);
     if (spans.isEmpty) return null;
     final to = _now().toUtc();
     const bucket = ActivityRail.defaultBucket;
@@ -181,7 +194,7 @@ class ArchiveSearchSource implements HistorySource {
   @override
   void Function() watchClears(void Function(HistoryClear clear) onClear) =>
       reader.clears.add((e) {
-        if (e.$1 == channel) onClear(e.$2);
+        if (channels?.contains(e.$1) ?? true) onClear(e.$2);
       });
 
   @override

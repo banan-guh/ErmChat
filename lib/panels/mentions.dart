@@ -9,13 +9,18 @@ import '../composer/composer_controller.dart';
 import '../l10n/l10n.dart';
 import '../models/twitch_message.dart';
 import '../services/chat_connection_manager.dart';
+import '../services/archive_history_source.dart';
+import '../services/archive_reader.dart';
 import '../services/link_whitelist.dart';
+import '../services/ping_manager.dart';
 import '../services/twitch_auth.dart';
 import '../sheets/message_menu.dart';
 import '../sheets/user_sheet.dart';
 import '../util/constants.dart' show kWhispersChannel;
 import '../util/haptics.dart';
+import '../widgets/chat_rows.dart';
 import '../widgets/chat_view.dart';
+import '../widgets/history_view.dart';
 import '../widgets/message_builder.dart';
 import '../widgets/panel_manager.dart';
 import '../widgets/seven_tv_paint_service.dart';
@@ -48,6 +53,9 @@ class MentionsPanels {
     required this.sharedChatMode,
     required this.copyMessage,
     required this.namePaintService,
+    required this.pingManager,
+    this.archiveReader,
+    this.emotesVersion,
   });
 
   final PanelManager panelManager;
@@ -74,6 +82,11 @@ class MentionsPanels {
   final String Function() sharedChatMode;
   final void Function(TwitchMessage msg) copyMessage;
   final SevenTvPaintService? Function() namePaintService;
+  final PingManager pingManager;
+
+  /// Null without an archive: the panel shows the mentions buffer only.
+  final ArchiveReader? archiveReader;
+  final Listenable? emotesVersion;
 
   final whispers = <TwitchMessage>[];
   int unreadWhispers = 0;
@@ -229,6 +242,68 @@ class MentionsPanels {
     composer.focus();
   }
 
+  /// Mentions across every channel's archive, newest at the bottom, with
+  /// the mentions buffer joining live. The archive narrows by the rules'
+  /// words and chatters; [PingManager.evaluate] decides each row. Null
+  /// without an archive.
+  Widget? _archivedMentions(BuildContext context) {
+    final reader = archiveReader;
+    if (reader == null) return null;
+    final terms = pingManager.mentionTerms();
+    bool isMention(TwitchMessage m) {
+      final h = pingManager.evaluate(m);
+      if (h == null || !h.hasMention) return false;
+      // Archived rows come back without their highlight.
+      m.highlight ??= h;
+      return true;
+    }
+
+    return HistoryView(
+      // Changed rules or another account start a new list.
+      key: ValueKey(
+        'mentions|${session.login}|${terms.texts.join('\u0000')}|'
+        '${terms.logins.join(',')}',
+      ),
+      channel: mentionsChannel,
+      source: ArchiveFindSource(
+        reader,
+        ArchiveTerms(
+          texts: terms.texts,
+          sender: terms.logins.isEmpty
+              ? null
+              : (login, _) => terms.logins.contains(login.toLowerCase()),
+        ),
+        isMention,
+      ),
+      emptyStretches: false,
+      live: () => chat.mentions.messages.chatRows,
+      liveVersion: chat.mentions.version,
+      emotesVersion: emotesVersion,
+      rows: ChatRows(
+        channel: mentionsChannel,
+        messageBuilder: messageBuilder,
+        linkWhitelist: LinkWhitelist.instance,
+        showTimestamp: showTimestamps(),
+        timestampFormat: timestampFormat(),
+        checkeredMessages: checkeredMessages(),
+        highlightOpacity: highlightOpacity(),
+        lineSeparator: lineSeparator(),
+        sharedChatMode: sharedChatMode(),
+        paintService: namePaintService(),
+        onShowUserProfile: (login, userId, {displayName}) => userSheets
+            .showUserProfile(context, login, userId, displayName: displayName),
+        onShowMessageMenu: (msg) => menus.showPanelMessageMenu(context, msg),
+        onCopyMessage: copyMessage,
+        showReplyIndicators: false,
+        fadeDeleted: false,
+        showChannel: true,
+      ),
+      textScale: chatFontSize() / 14.0,
+      scrollFabHeroTag: 'scroll_down_mentions',
+      emptyText: context.l10n.noMentionsOrWhispers,
+    );
+  }
+
   Widget mentionsPanel(
     BuildContext context, {
     required Widget Function({
@@ -269,39 +344,40 @@ class MentionsPanels {
         child: TabBarView(
           controller: mentionsTab(),
           children: [
-            ChatView(
-              key: const ValueKey('mentions_panel'),
-              channel: mentionsChannel,
-              messages: chat.mentions.items,
-              atBottomNotifier: mentionsAtBottom,
-              messageNotifier: mentionsMsgCount,
-              scrollController: mentionsPanelScrollCtrl,
-              messageBuilder: messageBuilder,
-              linkWhitelist: LinkWhitelist.instance,
-              showTimestamp: showTimestamps(),
-              timestampFormat: timestampFormat(),
-              chatFontScale: chatFontSize() / 14.0,
-              checkeredMessages: checkeredMessages(),
-              highlightOpacity: highlightOpacity(),
-              lineSeparator: lineSeparator(),
-              sharedChatMode: sharedChatMode(),
-              paintService: namePaintService(),
-              physics: const ClampingScrollPhysics(),
-              onShowUserProfile: (login, userId, {displayName}) =>
-                  userSheets.showUserProfile(
-                    context,
-                    login,
-                    userId,
-                    displayName: displayName,
-                  ),
-              onShowMessageMenu: (msg) =>
-                  menus.showPanelMessageMenu(context, msg),
-              onCopyMessage: copyMessage,
-              showReplyIndicators: false,
-              fadeDeleted: false,
-              showChannel: true,
-              emptyText: context.l10n.noMentionsOrWhispers,
-            ),
+            _archivedMentions(context) ??
+                ChatView(
+                  key: const ValueKey('mentions_panel'),
+                  channel: mentionsChannel,
+                  messages: chat.mentions.items,
+                  atBottomNotifier: mentionsAtBottom,
+                  messageNotifier: mentionsMsgCount,
+                  scrollController: mentionsPanelScrollCtrl,
+                  messageBuilder: messageBuilder,
+                  linkWhitelist: LinkWhitelist.instance,
+                  showTimestamp: showTimestamps(),
+                  timestampFormat: timestampFormat(),
+                  chatFontScale: chatFontSize() / 14.0,
+                  checkeredMessages: checkeredMessages(),
+                  highlightOpacity: highlightOpacity(),
+                  lineSeparator: lineSeparator(),
+                  sharedChatMode: sharedChatMode(),
+                  paintService: namePaintService(),
+                  physics: const ClampingScrollPhysics(),
+                  onShowUserProfile: (login, userId, {displayName}) =>
+                      userSheets.showUserProfile(
+                        context,
+                        login,
+                        userId,
+                        displayName: displayName,
+                      ),
+                  onShowMessageMenu: (msg) =>
+                      menus.showPanelMessageMenu(context, msg),
+                  onCopyMessage: copyMessage,
+                  showReplyIndicators: false,
+                  fadeDeleted: false,
+                  showChannel: true,
+                  emptyText: context.l10n.noMentionsOrWhispers,
+                ),
             ChatView(
               key: const ValueKey('whispers_panel'),
               channel: kWhispersChannel,

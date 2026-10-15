@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:isolate';
+import 'dart:math';
 import 'dart:typed_data';
 
 import '../archive/archive_block.dart';
@@ -58,6 +59,27 @@ List<List<ArchiveRow>?> decodeBlocks(List<Uint8List> blocks) => [
 
 /// Reads blocks from the archive, decodes them off the UI isolate, and
 /// returns [TwitchMessage]s. A block that fails to decode is skipped.
+/// What an archive lookup decodes: blocks holding every word of one of
+/// [texts] (as substrings of indexed words), or a row by a chatter
+/// [sender] accepts.
+class ArchiveTerms {
+  const ArchiveTerms({this.texts = const [], this.sender});
+
+  /// Terms for the lowercased query [q] in [scope] (see
+  /// [searchMatchesLower]).
+  factory ArchiveTerms.search(String q, ChatSearchScope scope) => ArchiveTerms(
+    texts: [if (scope != ChatSearchScope.chatters) q],
+    sender: scope == ChatSearchScope.messages
+        ? null
+        : (login, displayName) =>
+              login.toLowerCase().contains(q) ||
+              (displayName?.toLowerCase().contains(q) ?? false),
+  );
+
+  final List<String> texts;
+  final bool Function(String login, String? displayName)? sender;
+}
+
 class ArchiveReader {
   ArchiveReader(
     this._store, {
@@ -319,41 +341,86 @@ class ArchiveReader {
     int limit = 100,
     DateTime? before,
     DateTime? after,
-  }) async {
+  }) {
     final q = query.trim().toLowerCase();
+    if (q.isEmpty) return Future.value(const []);
+    return find(
+      ArchiveTerms.search(q, scope),
+      (m) => searchMatchesLower(m, q, scope),
+      channels: [channel],
+      limit: limit,
+      before: before,
+      after: after,
+    );
+  }
+
+  /// Rows passing [test] in [channels] (every archived channel when null),
+  /// at most [limit], newest first; older than [before] when given, with
+  /// [after] the oldest at or after it. Only blocks [terms] allows are
+  /// decoded, nearest the start point first.
+  Future<List<TwitchMessage>> find(
+    ArchiveTerms terms,
+    bool Function(TwitchMessage m) test, {
+    List<String>? channels,
+    int limit = 100,
+    DateTime? before,
+    DateTime? after,
+  }) async {
     final store = await _store;
-    if (store == null || q.isEmpty || limit <= 0) return const [];
+    if (store == null || limit <= 0) return const [];
     final beforeMs = before?.millisecondsSinceEpoch;
     final afterMs = after?.millisecondsSinceEpoch;
     bool hit(TwitchMessage m) {
       final t = m.timestamp.millisecondsSinceEpoch;
       return (beforeMs == null || t < beforeMs) &&
           (afterMs == null || t >= afterMs) &&
-          searchMatchesLower(m, q, scope);
+          test(m);
     }
 
+    final names = channels ?? await store.channels();
     final out = <TwitchMessage>[
-      for (final m in unsealed(channel))
-        if (hit(m)) m,
+      for (final c in names)
+        for (final m in unsealed(c))
+          if (hit(m)) m,
     ];
-    final keys = [
-      for (final b in await _candidates(
+    final blocks = [
+      ...await _candidates(
         store,
-        channel,
-        q,
-        scope,
+        names,
+        terms,
         beforeTs: beforeMs,
         afterTs: afterMs,
-      ))
-        b.id,
+      ),
     ];
-    // Blocks nearest the start point first, a few at a time, until full.
-    for (var i = 0; i < keys.length && out.length < limit; i += 8) {
-      final blocks = await store.blocksByKey(
-        keys.sublist(i, i + 8 > keys.length ? keys.length : i + 8),
-      );
-      for (final b in await _decodeAll(channel, blocks)) {
-        out.addAll(b.rows.where(hit));
+    final forward = after != null;
+    blocks.sort(
+      forward
+          ? (a, b) => a.start.compareTo(b.start)
+          : (a, b) => b.end.compareTo(a.end),
+    );
+    // The [limit]th match from the start point; a block starting past it
+    // holds nothing nearer.
+    int? edge() {
+      if (out.length < limit) return null;
+      final ts = [for (final m in out) m.timestamp.millisecondsSinceEpoch]
+        ..sort();
+      return forward ? ts[limit - 1] : ts[ts.length - limit];
+    }
+
+    for (var i = 0; i < blocks.length; i += 8) {
+      final e = edge();
+      if (e != null && (forward ? blocks[i].start > e : blocks[i].end < e)) {
+        break;
+      }
+      final batch = blocks.sublist(i, min(i + 8, blocks.length));
+      for (final c in {for (final b in batch) b.channel}) {
+        final stored = await store.blocksByKey([
+          for (final b in batch)
+            if (b.channel == c) b.id,
+        ]);
+        for (final d in await _decodeAll(c, stored)) {
+          out.addAll(d.rows.where(hit));
+        }
       }
     }
     // Unsealed rows can repeat a sealed one mid-seal.
@@ -363,58 +430,60 @@ class ArchiveReader {
         if (m.messageId == null || seen.add(m.messageId!)) m,
     ]..sort((a, b) => b.timestamp.compareTo(a.timestamp));
     if (unique.length <= limit) return unique;
-    return after != null
+    return forward
         ? unique.sublist(unique.length - limit)
         : unique.sublist(0, limit);
   }
 
-  /// Where matches of [query] lie: the time spans of blocks that may hold one,
-  /// plus the times of matching unsealed rows. Decodes nothing, so a common
-  /// query maps its whole archive cheaply.
-  Future<List<(DateTime, DateTime)>> searchSpans(
-    String channel,
-    String query, {
-    ChatSearchScope scope = ChatSearchScope.messages,
+  /// Where rows [find] would return lie: the time spans of blocks that may
+  /// hold one, plus the times of matching unsealed rows. Decodes nothing, so
+  /// a common query maps its whole archive cheaply.
+  Future<List<(DateTime, DateTime)>> findSpans(
+    ArchiveTerms terms,
+    bool Function(TwitchMessage m) test, {
+    List<String>? channels,
   }) async {
-    final q = query.trim().toLowerCase();
     final store = await _store;
-    if (store == null || q.isEmpty) return const [];
+    if (store == null) return const [];
+    final names = channels ?? await store.channels();
     DateTime at(int ms) => DateTime.fromMillisecondsSinceEpoch(ms, isUtc: true);
     return [
-      for (final b in await _candidates(store, channel, q, scope))
+      for (final b in await _candidates(store, names, terms))
         (at(b.start), at(b.end)),
-      for (final m in unsealed(channel))
-        if (searchMatchesLower(m, q, scope)) (m.timestamp, m.timestamp),
+      for (final c in names)
+        for (final m in unsealed(c))
+          if (test(m)) (m.timestamp, m.timestamp),
     ];
   }
 
-  /// Blocks of [channel] that may match the lowercased query [q].
-  Future<List<({int id, int start, int end})>> _candidates(
+  /// Blocks of [channels] that may hold rows [terms] looks for.
+  Future<List<({String channel, int id, int start, int end})>> _candidates(
     ArchiveStore store,
-    String channel,
-    String q,
-    ChatSearchScope scope, {
+    List<String> channels,
+    ArchiveTerms terms, {
     int? beforeTs,
     int? afterTs,
   }) async {
-    final tokens = searchWords(q).toSet().toList();
-    final words = scope == ChatSearchScope.chatters || tokens.isEmpty
-        ? null
-        : await store.wordIds(tokens);
-    Set<int>? senders;
-    if (scope != ChatSearchScope.messages) {
-      final t = await store.tables(channel);
-      final who = {
-        for (var i = 0; i < t.whos.length; i++)
-          if (t.whos[i].login.toLowerCase().contains(q) ||
-              (t.whos[i].displayName?.toLowerCase().contains(q) ?? false))
-            i,
-      };
-      if (who.isNotEmpty) senders = who;
+    final words = <List<Set<int>>>[];
+    for (final text in terms.texts) {
+      final tokens = searchWords(text).toSet().toList();
+      if (tokens.isNotEmpty) words.add(await store.wordIds(tokens));
+    }
+    final sender = terms.sender;
+    final senders = <String, Set<int>>{};
+    if (sender != null) {
+      for (final channel in channels) {
+        final t = await store.tables(channel);
+        final who = {
+          for (var i = 0; i < t.whos.length; i++)
+            if (sender(t.whos[i].login, t.whos[i].displayName)) i,
+        };
+        if (who.isNotEmpty) senders[channel] = who;
+      }
     }
     return store.searchBlocks(
-      channel,
-      words: words,
+      channels,
+      words: words.isEmpty ? null : words,
       senders: senders,
       beforeTs: beforeTs,
       afterTs: afterTs,

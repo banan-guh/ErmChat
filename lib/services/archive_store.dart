@@ -570,40 +570,40 @@ class ArchiveStore {
     ];
   }
 
-  /// Blocks of [channel] that may hold a match: every set of [words] has an
-  /// id in the block, or one of [senders] wrote in it. Blocks not yet
-  /// indexed always qualify. Newest first, ending at or before [beforeTs];
-  /// with [afterTs], oldest first from blocks ending at or after it. Each
-  /// comes with its time span (epoch ms).
-  Future<List<({int id, int start, int end})>> searchBlocks(
-    String channel, {
-    List<Set<int>>? words,
-    Set<int>? senders,
+  /// Blocks of [channels] that may hold a match: for one entry of [words],
+  /// every set has an id in the block, or one of the channel's [senders]
+  /// wrote in it. Blocks not yet indexed always qualify. Ending at or before
+  /// [beforeTs] and at or after [afterTs], with each block's time span
+  /// (epoch ms).
+  Future<List<({String channel, int id, int start, int end})>> searchBlocks(
+    List<String> channels, {
+    List<List<Set<int>>>? words,
+    Map<String, Set<int>> senders = const {},
     int? beforeTs,
     int? afterTs,
   }) async {
-    if (words == null && senders == null) return const [];
+    if (channels.isEmpty || words == null && senders.isEmpty) return const [];
     final where = [
-      'channel = ?',
+      'channel IN (${List.filled(channels.length, '?').join(', ')})',
       if (beforeTs != null) 'start_ts <= $beforeTs',
       if (afterTs != null) 'end_ts >= $afterTs',
     ].join(' AND ');
-    final order = afterTs != null ? 'start_ts, id' : 'end_ts DESC, id DESC';
     final r = await _db.rawQuery(
-      'SELECT id, start_ts, end_ts, words, senders FROM blocks '
-      'WHERE $where ORDER BY $order',
-      [channel],
+      'SELECT channel, id, start_ts, end_ts, words, senders FROM blocks '
+      'WHERE $where',
+      channels,
     );
     final hit = await _matchOffIsolate(
       [for (final row in r) row['words'] as Uint8List?],
       [for (final row in r) row['senders'] as Uint8List?],
       words,
-      senders,
+      [for (final row in r) senders[row['channel']]],
     );
     return [
       for (var i = 0; i < r.length; i++)
         if (hit[i])
           (
+            channel: r[i]['channel']! as String,
             id: r[i]['id']! as int,
             start: r[i]['start_ts']! as int,
             end: r[i]['end_ts']! as int,
@@ -614,9 +614,15 @@ class ArchiveStore {
   static Future<List<bool>> _matchOffIsolate(
     List<Uint8List?> words,
     List<Uint8List?> senders,
-    List<Set<int>>? wantWords,
-    Set<int>? wantSenders,
+    List<List<Set<int>>>? wantWords,
+    List<Set<int>?> wantSenders,
   ) => Isolate.run(() => matchBlocks(words, senders, wantWords, wantSenders));
+
+  /// Channels with archived blocks.
+  Future<List<String>> channels() async => [
+    for (final r in await _db.rawQuery('SELECT DISTINCT channel FROM blocks'))
+      r['channel']! as String,
+  ];
 
   /// Blocks by key, in the order given; missing keys are skipped.
   Future<List<StoredBlock>> blocksByKey(List<int> keys) async {
@@ -1476,13 +1482,14 @@ List<({Set<String> words, Set<int> states})> blockWords(
     }(),
 ];
 
-/// Whether each block may hold a match (see [ArchiveStore.searchBlocks]).
-/// A missing or damaged list matches, so unindexed blocks are searched.
+/// Whether each block may hold a match (see [ArchiveStore.searchBlocks]);
+/// [wantSenders] is per block. A missing or damaged list matches, so
+/// unindexed blocks are searched.
 List<bool> matchBlocks(
   List<Uint8List?> words,
   List<Uint8List?> senders,
-  List<Set<int>>? wantWords,
-  Set<int>? wantSenders,
+  List<List<Set<int>>>? wantWords,
+  List<Set<int>?> wantSenders,
 ) {
   bool has(Uint8List? list, bool Function(Set<int> ids) test) {
     if (list == null) return true;
@@ -1498,9 +1505,11 @@ List<bool> matchBlocks(
       (wantWords != null &&
               has(
                 words[i],
-                (ids) => wantWords.every((s) => s.any(ids.contains)),
+                (ids) => wantWords.any(
+                  (all) => all.every((s) => s.any(ids.contains)),
+                ),
               )) ||
-          (wantSenders != null &&
-              has(senders[i], (ids) => wantSenders.any(ids.contains))),
+          (wantSenders[i] != null &&
+              has(senders[i], (ids) => wantSenders[i]!.any(ids.contains))),
   ];
 }

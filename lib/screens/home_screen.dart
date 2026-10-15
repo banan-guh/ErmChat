@@ -429,6 +429,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     sharedChatMode: () => ref.read(sharedChatModeProvider),
     copyMessage: _copyMessageToClipboard,
     namePaintService: () => _showNamePaints ? _sevenTvPaintService : null,
+    pingManager: _pingManager,
+    archiveReader: ref.read(archiveProvider)?.reader,
+    emotesVersion: _emotesVersion,
   );
 
   late final _search = SearchPanels(

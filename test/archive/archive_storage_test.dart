@@ -707,7 +707,7 @@ void main() {
         if (i == 0) await writer.settled();
       }
       await writer.flush();
-      final source = ArchiveSearchSource(
+      final source = ArchiveFindSource.search(
         _channel,
         _reader(store),
         query: 'pog',
@@ -728,6 +728,45 @@ void main() {
       await store.close();
     });
 
+    test('a find across channels keeps the newest matches', () async {
+      final store = await _open(_newPath());
+      final writer = _writer(store, sealCount: 16);
+      final t = _t0.millisecondsSinceEpoch;
+      // 'other' posts every 20s, all matches: one block spans 300s.
+      // [_channel] posts every second; its recent "meh" blocks pass the
+      // index but match nothing, and its matches sit at 150..187s.
+      for (var s = 0; s < 300; s++) {
+        if (s % 20 == 0) {
+          writer.add(
+            'other',
+            _msg(1000 + s, tsMs: t + s * 1000)..text = 'me $s',
+          );
+        }
+        writer.add(
+          _channel,
+          _msg(s, tsMs: t + s * 1000)
+            ..text = s >= 150 && s <= 187 ? 'me $s' : 'meh',
+        );
+        if (s == 0) await writer.settled();
+      }
+      writer.add('other', _msg(1300, tsMs: t + 300 * 1000)..text = 'me 300');
+      await writer.flush();
+      final found = await _reader(store).find(
+        const ArchiveTerms(texts: ['me']),
+        (m) => m.text.startsWith('me '),
+        limit: 10,
+      );
+      expect(
+        [for (final m in found) m.text],
+        [
+          for (var s = 300; s >= 200; s -= 20) 'me $s',
+          for (var s = 187; s >= 184; s--) 'me $s',
+        ],
+        reason: 'a newer match in an undecoded block was skipped',
+      );
+      await store.close();
+    });
+
     test('the search rail marks where matches lie', () async {
       final store = await _open(_newPath());
       final writer = _writer(store, sealCount: 2);
@@ -745,7 +784,7 @@ void main() {
         if (i == 0) await writer.settled();
       }
       await writer.flush();
-      ArchiveSearchSource source(String q) => ArchiveSearchSource(
+      ArchiveFindSource source(String q) => ArchiveFindSource.search(
         _channel,
         _reader(store),
         query: q,

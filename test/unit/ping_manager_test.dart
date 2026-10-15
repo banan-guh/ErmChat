@@ -369,6 +369,49 @@ void main() {
     );
   });
 
+  test('mention terms cover every mention evaluate finds', () async {
+    final m = await makeManager();
+    m.setAccount('me');
+    m.setOwnDisplayName('Mé');
+    for (final r in const [
+      PingRule(id: 'c1', kind: PingRuleKind.message, pattern: 'ermchat'),
+      PingRule(
+        id: 'c2',
+        kind: PingRuleKind.message,
+        pattern: 'tint only',
+        mention: false,
+      ),
+      PingRule(id: 'u1', kind: PingRuleKind.user, pattern: 'Friend'),
+    ]) {
+      m.upsertRule(r);
+    }
+    final terms = m.mentionTerms();
+    bool covered(TwitchMessage x) =>
+        terms.texts.any(
+          (t) => x.text.toLowerCase().contains(t.toLowerCase()),
+        ) ||
+        terms.logins.contains(x.login.toLowerCase());
+    final rows = [
+      msg('hi me'),
+      msg('hi mé'),
+      msg('@me sure', replyToUser: 'me', replyToParentId: 'p1'),
+      msg('try ERMCHAT'),
+      msg('a tint only text'),
+      msg('anything', login: 'friend'),
+      msg('nothing here'),
+    ];
+    for (final x in rows) {
+      if (m.evaluate(x)?.hasMention ?? false) {
+        expect(covered(x), isTrue, reason: 'archive lookup misses "${x.text}"');
+      }
+    }
+    expect(
+      covered(msg('a tint only text')),
+      isFalse,
+      reason: 'non-mention rules do not widen the lookup',
+    );
+  });
+
   test('notify aggregates and mention tier wins priority', () async {
     final m = await makeManager();
     m.setAccount('forsen');

@@ -269,6 +269,34 @@ class PingManager extends ChangeNotifier {
     );
   }
 
+  /// What a row needs to be a mention: text holding one of [texts], or a
+  /// sender in [logins]. A superset for an archive lookup to narrow by;
+  /// [evaluate] decides. Replies carry the parent's `@login`, so the
+  /// username covers the reply rules too.
+  ({List<String> texts, Set<String> logins}) mentionTerms() {
+    final texts = <String>[];
+    final logins = <String>{};
+    final login = _login;
+    for (final rule in _rules) {
+      if (!rule.enabled) continue;
+      switch (rule.kind) {
+        case PingRuleKind.message:
+          switch (rule.type) {
+            case 'username' || 'reply' || 'thread':
+              if (login != null && login.isNotEmpty) texts.add(login);
+              final name = _displayName;
+              if (rule.type == 'username' && name != null) texts.add(name);
+            case 'custom' when rule.mention && rule.pattern.isNotEmpty:
+              texts.add(rule.pattern);
+          }
+        case PingRuleKind.user when rule.mention && rule.pattern.isNotEmpty:
+          logins.add(_lowerPattern(rule));
+        default:
+      }
+    }
+    return (texts: texts, logins: logins);
+  }
+
   bool _isBlacklisted(String login) {
     for (final rule in _rules) {
       if (rule.kind == PingRuleKind.blacklist &&

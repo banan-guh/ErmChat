@@ -385,7 +385,7 @@ class ChannelPanels {
       // A new query or scope starts a new list.
       key: ValueKey('search|$channel|${scope.name}|$q'),
       channel: channel,
-      source: ArchiveSearchSource(channel, reader, query: q, scope: scope),
+      source: ArchiveFindSource.search(channel, reader, query: q, scope: scope),
       emptyStretches: false,
       live: messages == null
           ? null
