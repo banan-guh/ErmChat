@@ -158,7 +158,10 @@ class ChatHistoryController {
   /// Parses [msg]'s emotes once at merge time and stores them on the
   /// message, so scrolling back renders what history arrived with.
   void _stampEmoteResolution(TwitchMessage msg, String channel) {
-    if (msg.isSystem) return;
+    // Archived rows keep the emotes they were stored with.
+    if (msg.isSystem || (msg.emoteTokens != null && !msg.emotesPartial)) {
+      return;
+    }
     final parsed = _parseForChannel(msg, channel);
     msg.emoteTokens = parsed.tokens;
     msg.emotesPartial = !parsed.complete;

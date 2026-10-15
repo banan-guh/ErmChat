@@ -341,6 +341,51 @@ void main() {
     );
   });
 
+  test('a cold start keeps the emotes rows were archived with', () async {
+    sqfliteFfiInit();
+    final dir = await Directory.systemTemp.createTemp('tokens');
+    addTearDown(() => dir.delete(recursive: true));
+    final store = await ArchiveStore.open(
+      '${dir.path}/archive.db',
+      factory: databaseFactoryFfi,
+    );
+    addTearDown(store.close);
+    final archive = Archive(Future.value(store));
+    archive.writer.add(
+      'ch',
+      TwitchMessage(
+          login: 'alice',
+          text: 'catJAM',
+          messageId: '00000001-0b7d-4c55-9a10-6d2e8f4b7a01',
+          channel: 'ch',
+          userId: '42',
+          timestamp: DateTime.utc(2026, 10, 15, 12),
+        )
+        ..emoteTokens = [
+          EmoteToken(
+            emote: sevenTv('01F6', 'catJAM'),
+            text: 'catJAM',
+            start: 0,
+            end: 6,
+          ),
+        ],
+    );
+    await archive.writer.flush();
+    // The app starts with no catalog yet: a fresh parse would find nothing.
+    final emotes = EmoteManager();
+    addTearDown(emotes.dispose);
+    final chat = Chat();
+    addTearDown(chat.dispose);
+    chat.ensure('ch');
+    final controller = _controller(chat, emotes, archive: archive);
+    addTearDown(controller.dispose);
+    await controller.restoreFromArchive('ch');
+    final row = chat.channelFor('ch')!.messages.items.single;
+    expect(row.emoteTokens?.map((t) => t.emote?.id), [
+      '01F6',
+    ], reason: 'the restore re-parsed over the stored emotes');
+  });
+
   test('dispose detaches the catalog listener', () {
     final chat = Chat();
     addTearDown(chat.dispose);
