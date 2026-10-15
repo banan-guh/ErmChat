@@ -1,3 +1,5 @@
+import 'dart:collection';
+
 import 'package:ermchat/chat/channel/messages.dart';
 import 'package:ermchat/l10n/l10n.dart';
 import 'package:ermchat/models/twitch_message.dart';
@@ -17,6 +19,30 @@ import 'package:flutter_test/flutter_test.dart';
 
 const double _inset = 50;
 const String _ch = FakeHistory.testChannel;
+
+/// A tile cache that counts the tiles built into it.
+class _CountingTiles extends MapBase<String?, Widget> {
+  final _tiles = <String?, Widget>{};
+  int built = 0;
+
+  @override
+  Widget? operator [](Object? key) => _tiles[key];
+
+  @override
+  void operator []=(String? key, Widget value) {
+    built++;
+    _tiles[key] = value;
+  }
+
+  @override
+  void clear() => _tiles.clear();
+
+  @override
+  Iterable<String?> get keys => _tiles.keys;
+
+  @override
+  Widget? remove(Object? key) => _tiles.remove(key);
+}
 
 /// Rows, streams, clears and stream changes a test scripts. [small] is a
 /// channel of [n] rows half an hour apart: less than a screen.
@@ -118,6 +144,7 @@ Future<void> _pumpView(
   Listenable? liveVersion,
   HistorySource? source,
   ValueNotifier<bool>? atBottom,
+  Map<String, Map<String?, Widget>>? tileCache,
 }) async {
   FakeHistory.loadDelay = Duration.zero;
   tester.view.physicalSize = const Size(400, 800);
@@ -145,6 +172,7 @@ Future<void> _pumpView(
             onShowUserProfile: (_, _, {displayName}) {},
           ),
           debugControls: true,
+          tileCache: tileCache,
           atBottomNotifier: atBottom,
           live: live,
           liveVersion: liveVersion,
@@ -740,6 +768,51 @@ void main() {
       expect(atBottom[to].value, isTrue, reason: 'round $round: button shows');
     }
     expect(flashes, [0, 0], reason: 'the button flashed during a switch');
+  });
+
+  testWidgets('thousands of rows landing while following build one screen', (
+    tester,
+  ) async {
+    final version = ValueNotifier(0);
+    addTearDown(version.dispose);
+    final buffer = <TwitchMessage>[];
+    var n = 0;
+    void arrive(int count) {
+      for (var i = 0; i < count; i++) {
+        n++;
+        buffer.insert(
+          0,
+          TwitchMessage(
+            login: 'live',
+            text: 'live $n',
+            messageId: 'live-$n',
+            channel: _ch,
+            timestamp: FakeHistory.now.add(Duration(seconds: n)),
+          ),
+        );
+      }
+      version.value++;
+    }
+
+    final tiles = _CountingTiles();
+    arrive(5);
+    await _pumpView(
+      tester,
+      live: () => buffer,
+      liveVersion: version,
+      tileCache: {_ch: tiles},
+    );
+    await _settle(tester);
+    // A history restore landing at once, like a busy channel's on startup.
+    tiles.built = 0;
+    arrive(3000);
+    await tester.pump();
+    expect(
+      tiles.built,
+      lessThan(200),
+      reason: 'the frame laid out the whole batch to reach the newest row',
+    );
+    expect(_tile('live-$n'), findsOneWidget, reason: 'newest row not shown');
   });
 
   testWidgets('a re-anchor moves visible rows instead of rebuilding them', (

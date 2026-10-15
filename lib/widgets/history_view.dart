@@ -853,10 +853,25 @@ class _HistoryViewState extends State<HistoryView> {
       final from = w.end;
       w.append([for (var i = j; i >= 0; i--) rows[i]]);
       w.atNewest = true;
-      if (_anchor <= from) _appendItems(from);
+      if (_followAnchorFar()) {
+        _rebuildItems();
+      } else if (_anchor <= from) {
+        _appendItems(from);
+      }
       return;
     }
     _replaceFrom(p, rows, j);
+  }
+
+  /// While following, moves the anchor to the newest row once more than a
+  /// re-anchor's worth of rows sit past it. A batch of thousands (a history
+  /// restore landing on a page) would otherwise fill the newer sliver, and
+  /// pinning to the newest row lays out every one of them in one frame.
+  /// Returns whether it moved; the caller rebuilds the items.
+  bool _followAnchorFar() {
+    if (!_follow || _window.end - _anchor <= _reanchorItems) return false;
+    _anchor = _window.end;
+    return true;
   }
 
   /// Replaces window rows from [from] on with [rows] from index [j] down to
@@ -868,6 +883,7 @@ class _HistoryViewState extends State<HistoryView> {
     w.append([for (var i = j; i >= 0; i--) rows[i]]);
     w.atNewest = true;
     _anchor = _anchor.clamp(w.first, w.end);
+    _followAnchorFar();
     _rebuildItems();
     // Equal-height changes leave the extents alone; this makes the viewport
     // run the physics anyway, so the hold applies.
