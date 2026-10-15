@@ -1,3 +1,5 @@
+import 'dart:math';
+
 import 'package:clock/clock.dart';
 
 import '../models/twitch_message.dart';
@@ -170,19 +172,14 @@ class ArchiveFindSource implements HistorySource {
     final to = _now().toUtc();
     const bucket = ActivityRail.defaultBucket;
     final ms = bucket.inMilliseconds;
-    final from = DateTime.fromMillisecondsSinceEpoch(
-      times.first.millisecondsSinceEpoch ~/ ms * ms,
-      isUtc: true,
-    );
+    final first = times.reduce(min) ~/ ms * ms;
+    final from = DateTime.fromMillisecondsSinceEpoch(first, isUtc: true);
     final buckets = List<int>.filled(
-      (to.difference(from).inMilliseconds / ms).ceil() + 1,
+      (to.millisecondsSinceEpoch - first) ~/ ms + 2,
       0,
     );
     for (final t in times) {
-      buckets[(t.difference(from).inMilliseconds ~/ ms).clamp(
-        0,
-        buckets.length - 1,
-      )]++;
+      buckets[((t - first) ~/ ms).clamp(0, buckets.length - 1)]++;
     }
     return ActivityRail(
       from: from,

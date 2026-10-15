@@ -84,7 +84,7 @@ ArchiveWriter _writer(
 ArchiveReader _reader(ArchiveStore store, {ArchiveWriter? writer}) =>
     ArchiveReader(
       Future.value(store),
-      decode: (blocks) async => decodeBlocks(blocks),
+      decode: (blocks, keep) async => decodeBlocks(blocks, keep),
       unsealed: writer?.unsealed ?? (_) => const [],
     );
 
@@ -623,9 +623,9 @@ void main() {
         var decoded = 0;
         final reader = ArchiveReader(
           Future.value(store),
-          decode: (blocks) async {
+          decode: (blocks, keep) async {
             decoded += blocks.length;
-            return decodeBlocks(blocks);
+            return decodeBlocks(blocks, keep);
           },
           unsealed: writer.unsealed,
         );

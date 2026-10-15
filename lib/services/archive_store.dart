@@ -560,15 +560,15 @@ class ArchiveStore {
 
   /// Vocabulary ids of every word containing each of [tokens].
   Future<List<Set<int>>> wordIds(List<String> tokens) async {
-    final v = await (_vocab ??= _loadVocab());
-    return [
-      for (final t in tokens)
-        {
-          for (var i = 0; i < v.words.length; i++)
-            if (v.words[i].contains(t)) i,
-        },
-    ];
+    final (joined, starts) = (await (_vocab ??= _loadVocab())).joined();
+    return _containingOffIsolate(joined, starts, tokens);
   }
+
+  static Future<List<Set<int>>> _containingOffIsolate(
+    String joined,
+    Int32List starts,
+    List<String> tokens,
+  ) => Isolate.run(() => wordsContaining(joined, starts, tokens));
 
   /// Blocks of [channels] that may hold a match: for one entry of [words],
   /// every set has an id in the block, or one of the channel's [senders]
@@ -1457,8 +1457,61 @@ class _Vocab {
       ids.remove(words[i]);
     }
     words.length = length;
+    _joined = null;
+  }
+
+  // Every word joined by newlines with each word's offset: one flat string
+  // and one typed list cross to an isolate cheaply. Rebuilt when words
+  // change.
+  String? _joined;
+  Int32List _starts = Int32List(0);
+
+  /// [words] as a newline-joined string and each word's offset in it.
+  (String, Int32List) joined() {
+    var joined = _joined;
+    if (joined == null || _starts.length != words.length) {
+      joined = _joined = words.join('\n');
+      _starts = Int32List(words.length);
+      var at = 0;
+      for (var i = 0; i < words.length; i++) {
+        _starts[i] = at;
+        at += words[i].length + 1;
+      }
+    }
+    return (joined, _starts);
   }
 }
+
+/// Per token (none holding a newline), the ids of the words in [joined]
+/// (see [_Vocab.joined]) that contain it.
+List<Set<int>> wordsContaining(
+  String joined,
+  Int32List starts,
+  List<String> tokens,
+) => [
+  for (final t in tokens)
+    () {
+      final out = <int>{};
+      var p = joined.indexOf(t);
+      while (p >= 0) {
+        // The word holding offset p: the last start at or before it.
+        var lo = 0;
+        var hi = starts.length;
+        while (hi - lo > 1) {
+          final mid = (lo + hi) >> 1;
+          if (starts[mid] <= p) {
+            lo = mid;
+          } else {
+            hi = mid;
+          }
+        }
+        out.add(lo);
+        if (lo + 1 >= starts.length) break;
+        p = joined.indexOf(t, starts[lo + 1]);
+      }
+      return out;
+    }(),
+];
 
 /// Each block's distinct search words and the user states that wrote it;
 /// empty for a damaged one.

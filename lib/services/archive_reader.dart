@@ -42,23 +42,56 @@ class MinuteCount {
   final int count;
 }
 
-/// Decodes packed blocks; a damaged block yields null instead of throwing.
-Future<List<List<ArchiveRow>?>> decodeOffIsolate(List<Uint8List> blocks) =>
-    Isolate.run(() => decodeBlocks(blocks));
+/// Lowercased texts and sender states a row may match by, and the times
+/// (epoch ms, inclusive) it must fall in (see [decodeBlocks]).
+typedef ArchiveRowFilter = ({
+  List<String> texts,
+  Set<int> states,
+  int? fromMs,
+  int? toMs,
+});
 
-List<List<ArchiveRow>?> decodeBlocks(List<Uint8List> blocks) => [
+/// Decodes packed blocks; a damaged block yields null instead of throwing.
+Future<List<List<ArchiveRow>?>> decodeOffIsolate(
+  List<Uint8List> blocks,
+  ArchiveRowFilter? keep,
+) => Isolate.run(() => decodeBlocks(blocks, keep));
+
+/// Rows of each block, or null for a damaged one. With [keep], only chat
+/// rows in its times whose lowercased text holds one of its texts or whose
+/// sender state it lists.
+List<List<ArchiveRow>?> decodeBlocks(
+  List<Uint8List> blocks, [
+  ArchiveRowFilter? keep,
+]) => [
   for (final b in blocks)
     () {
       try {
-        return ArchiveBlock.decode(b);
+        final rows = ArchiveBlock.decode(b);
+        return keep == null
+            ? rows
+            : [
+                for (final r in rows)
+                  if (_rowMatches(r, keep)) r,
+              ];
       } on ArchiveFormatException {
         return null;
       }
     }(),
 ];
 
-/// Reads blocks from the archive, decodes them off the UI isolate, and
-/// returns [TwitchMessage]s. A block that fails to decode is skipped.
+bool _rowMatches(ArchiveRow r, ArchiveRowFilter f) =>
+    !r.isSystem &&
+    (f.fromMs == null || r.timestampMs >= f.fromMs!) &&
+    (f.toMs == null || r.timestampMs <= f.toMs!) &&
+    (f.states.contains(r.user) || f.texts.any(r.text.toLowerCase().contains));
+
+/// Times (epoch ms) of the rows in [blocks] [keep] accepts.
+List<int> matchTimes(List<Uint8List> blocks, ArchiveRowFilter keep) => [
+  for (final rows in decodeBlocks(blocks, keep))
+    for (final r in rows ?? const <ArchiveRow>[]) r.timestampMs,
+];
+
 /// What an archive lookup decodes: blocks holding every word of one of
 /// [texts] (as substrings of indexed words), or a row by a chatter
 /// [sender] accepts.
@@ -80,6 +113,8 @@ class ArchiveTerms {
   final bool Function(String login, String? displayName)? sender;
 }
 
+/// Reads blocks from the archive, decodes them off the UI isolate, and
+/// returns [TwitchMessage]s. A block that fails to decode is skipped.
 class ArchiveReader {
   ArchiveReader(
     this._store, {
@@ -105,8 +140,13 @@ class ArchiveReader {
 
   final Future<ArchiveStore?> _store;
 
-  /// Unpacks blocks; off the UI isolate by default.
-  final Future<List<List<ArchiveRow>?>> Function(List<Uint8List> blocks) decode;
+  /// Unpacks blocks, keeping only rows a filter allows (see
+  /// [decodeBlocks]); off the UI isolate by default.
+  final Future<List<List<ArchiveRow>?>> Function(
+    List<Uint8List> blocks,
+    ArchiveRowFilter? keep,
+  )
+  decode;
 
   /// The newest [limit] rows of [channel], oldest first, for cold start.
   Future<List<TwitchMessage>> newestRows(String channel, int limit) async {
@@ -246,6 +286,7 @@ class ArchiveReader {
     String channel,
     List<StoredBlock> blocks, {
     bool asHistory = false,
+    ArchiveRowFilter? keep,
   }) async {
     if (blocks.isEmpty) {
       return const [];
@@ -253,7 +294,8 @@ class ArchiveReader {
     final store = (await _store)!;
     final tables = await store.tables(channel);
     final adapter = ArchiveAdapter(tables);
-    final decoded = await decode([for (final b in blocks) b.data]);
+    final data = [for (final b in blocks) b.data];
+    final decoded = await decode(data, keep);
     var lo = blocks.first.startTs;
     var hi = blocks.first.endTs;
     for (final b in blocks) {
@@ -393,6 +435,7 @@ class ArchiveReader {
       ),
     ];
     final forward = after != null;
+    final lastMs = beforeMs == null ? null : beforeMs - 1;
     blocks.sort(
       forward
           ? (a, b) => a.start.compareTo(b.start)
@@ -407,18 +450,29 @@ class ArchiveReader {
       return forward ? ts[limit - 1] : ts[ts.length - limit];
     }
 
-    for (var i = 0; i < blocks.length; i += 8) {
+    // Batches grow from one block, so a common word stops early and a rare
+    // one soon reads eight at a time.
+    final filters = <String, ArchiveRowFilter>{};
+    for (var i = 0, n = 1; i < blocks.length; i += n, n = min(n * 2, 8)) {
       final e = edge();
       if (e != null && (forward ? blocks[i].start > e : blocks[i].end < e)) {
         break;
       }
-      final batch = blocks.sublist(i, min(i + 8, blocks.length));
+      final batch = blocks.sublist(i, min(i + n, blocks.length));
       for (final c in {for (final b in batch) b.channel}) {
         final stored = await store.blocksByKey([
           for (final b in batch)
             if (b.channel == c) b.id,
         ]);
-        for (final d in await _decodeAll(c, stored)) {
+        final f = filters[c] ??= await _filter(store, c, terms);
+        // Rows past the [limit]th match so far cannot make the page.
+        final keep = (
+          texts: f.texts,
+          states: f.states,
+          fromMs: forward ? afterMs : _bound(afterMs, e, max),
+          toMs: forward ? _bound(lastMs, e, min) : lastMs,
+        );
+        for (final d in await _decodeAll(c, stored, keep: keep)) {
           out.addAll(d.rows.where(hit));
         }
       }
@@ -435,9 +489,12 @@ class ArchiveReader {
         : unique.sublist(0, limit);
   }
 
-  /// Times of every row [find] would return, oldest first. Decodes every
-  /// block [terms] allows, so callers build it once, off the first paint.
-  Future<List<DateTime>> findTimes(
+  /// Times (epoch ms, in no order) of the rows [terms] describes: chat rows whose
+  /// text holds one of its texts, or whose sender it accepts. Decodes every
+  /// allowed block and matches off the UI isolate, so it skips [test]
+  /// (unsealed rows aside) and the moderation [find] applies; close enough
+  /// for a scrollbar.
+  Future<List<int>> findTimes(
     ArchiveTerms terms,
     bool Function(TwitchMessage m) test, {
     List<String>? channels,
@@ -446,31 +503,60 @@ class ArchiveReader {
     if (store == null) return const [];
     final names = channels ?? await store.channels();
     final blocks = await _candidates(store, names, terms);
-    final seen = <String>{};
-    final out = <DateTime>[];
-    void add(TwitchMessage m) {
-      if (!test(m)) return;
-      final id = m.messageId;
-      if (id == null || seen.add(id)) out.add(m.timestamp);
-    }
-
-    for (var i = 0; i < blocks.length; i += 8) {
-      final batch = blocks.sublist(i, min(i + 8, blocks.length));
-      for (final c in {for (final b in batch) b.channel}) {
-        final stored = await store.blocksByKey([
-          for (final b in batch)
-            if (b.channel == c) b.id,
-        ]);
-        for (final d in await _decodeAll(c, stored)) {
-          d.rows.forEach(add);
-        }
-      }
+    final out = <int>[];
+    for (final c in {for (final b in blocks) b.channel}) {
+      final keep = await _filter(store, c, terms);
+      final stored = await store.blocksByKey([
+        for (final b in blocks)
+          if (b.channel == c) b.id,
+      ]);
+      final data = [for (final b in stored) b.data];
+      out.addAll(await _matchTimesOffIsolate(data, keep));
     }
     for (final c in names) {
-      unsealed(c).forEach(add);
+      for (final m in unsealed(c)) {
+        if (test(m)) out.add(m.timestamp.millisecondsSinceEpoch);
+      }
     }
-    return out..sort();
+    return out;
   }
+
+  static int? _bound(int? a, int? b, int Function(int, int) pick) =>
+      a == null ? b : (b == null ? a : pick(a, b));
+
+  /// The row-level form of [terms] in [channel]: lowercased texts, and the
+  /// sender states it accepts.
+  Future<ArchiveRowFilter> _filter(
+    ArchiveStore store,
+    String channel,
+    ArchiveTerms terms,
+  ) async {
+    final texts = [for (final t in terms.texts) t.toLowerCase()];
+    final sender = terms.sender;
+    if (sender == null) {
+      return (texts: texts, states: const <int>{}, fromMs: null, toMs: null);
+    }
+    final t = await store.tables(channel);
+    return (
+      fromMs: null,
+      toMs: null,
+      texts: texts,
+      states: {
+        for (var i = 0; i < t.states.length; i++)
+          if (sender(
+            t.whos[t.states[i].who].login,
+            t.whos[t.states[i].who].displayName,
+          ))
+            i,
+      },
+    );
+  }
+
+  /// A static hop, so the isolate closure captures only its arguments.
+  static Future<List<int>> _matchTimesOffIsolate(
+    List<Uint8List> blocks,
+    ArchiveRowFilter keep,
+  ) => Isolate.run(() => matchTimes(blocks, keep));
 
   /// Blocks of [channels] that may hold rows [terms] looks for.
   Future<List<({String channel, int id, int start, int end})>> _candidates(
