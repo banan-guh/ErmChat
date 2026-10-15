@@ -139,6 +139,7 @@ List<HistoryMarker> markersBefore({
   required DateTime now,
   List<HistoryStream> streams = const [],
   LocalTime local = _deviceLocal,
+  bool emptyStretches = true,
 }) {
   final out = <HistoryMarker>[];
   final events = <HistoryMarker>[];
@@ -170,7 +171,7 @@ List<HistoryMarker> markersBefore({
     final d = dayNumber(local(time));
     final p = prev == null ? null : dayNumber(local(prev));
     if (p == null || d != p) {
-      if (p != null && d - p > 1) {
+      if (emptyStretches && p != null && d - p > 1) {
         out.add(
           HistoryMarker(
             kind: HistoryMarkerKind.emptyStretch,

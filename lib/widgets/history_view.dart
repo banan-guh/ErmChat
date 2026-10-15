@@ -57,6 +57,8 @@ class HistoryView extends StatefulWidget {
     this.scrollFabHeroTag,
     this.keyboardDismissBehavior = ScrollViewKeyboardDismissBehavior.manual,
     this.emptyText,
+    this.emptyStretches = true,
+    this.jumpRequest,
   });
 
   final String channel;
@@ -102,6 +104,13 @@ class HistoryView extends StatefulWidget {
 
   /// Shown when there is nothing to show; null shows nothing.
   final String? emptyText;
+
+  /// Marks whole days with nothing recorded; off for search results.
+  final bool emptyStretches;
+
+  /// A time to show, centered (a tapped search result). Consumed and reset
+  /// to null on open or whenever it is set.
+  final ValueNotifier<DateTime?>? jumpRequest;
 
   @override
   State<HistoryView> createState() => _HistoryViewState();
@@ -257,7 +266,10 @@ class _HistoryViewState extends State<HistoryView> {
   final GlobalKey _newerKey = GlobalKey();
   final _Moves _olderMoves = _Moves();
   final _Moves _newerMoves = _Moves();
-  late final HistoryWindow _window = HistoryWindow(now: widget.source.now);
+  late final HistoryWindow _window = HistoryWindow(
+    now: widget.source.now,
+    emptyStretches: widget.emptyStretches,
+  );
   final Stopwatch _open = Stopwatch()..start();
   List<_Item> _newerItems = const [];
   List<_Item> _olderItems = const [];
@@ -334,6 +346,7 @@ class _HistoryViewState extends State<HistoryView> {
     widget.liveVersion?.addListener(_onLive);
     widget.emotesVersion?.addListener(_onEmotes);
     widget.atBottomNotifier?.addListener(_onAtBottomRequest);
+    widget.jumpRequest?.addListener(_onJumpRequest);
     _unwatchClears = widget.source.watchClears(_onClear);
     _unwatchStreams = widget.source.watchStreams(_loadStreams);
   }
@@ -377,6 +390,10 @@ class _HistoryViewState extends State<HistoryView> {
       old.emotesVersion?.removeListener(_onEmotes);
       widget.emotesVersion?.addListener(_onEmotes);
     }
+    if (old.jumpRequest != widget.jumpRequest) {
+      old.jumpRequest?.removeListener(_onJumpRequest);
+      widget.jumpRequest?.addListener(_onJumpRequest);
+    }
     if (old.atBottomNotifier != widget.atBottomNotifier) {
       old.atBottomNotifier?.removeListener(_onAtBottomRequest);
       widget.atBottomNotifier?.addListener(_onAtBottomRequest);
@@ -387,7 +404,11 @@ class _HistoryViewState extends State<HistoryView> {
   /// alongside and mark the rows once in, so they never hold up the rows.
   void _start() {
     final saved = _readSaved();
-    if (saved == null) {
+    final request = widget.jumpRequest?.value;
+    if (request != null) {
+      widget.jumpRequest!.value = null;
+      _jumpTo(request, fraction: 0.5);
+    } else if (saved == null) {
       _jumpTo(null);
     } else {
       _jumpTo(saved.time, offset: saved.offset);
@@ -465,6 +486,13 @@ class _HistoryViewState extends State<HistoryView> {
     }
   }
 
+  void _onJumpRequest() {
+    final time = widget.jumpRequest?.value;
+    if (time == null || !mounted) return;
+    widget.jumpRequest!.value = null;
+    _jumpTo(time, fraction: 0.5);
+  }
+
   /// An outside write of true (a tab tap) asks for the newest row.
   void _onAtBottomRequest() {
     final n = widget.atBottomNotifier;
@@ -538,6 +566,7 @@ class _HistoryViewState extends State<HistoryView> {
     widget.liveVersion?.removeListener(_onLive);
     widget.emotesVersion?.removeListener(_onEmotes);
     widget.atBottomNotifier?.removeListener(_onAtBottomRequest);
+    widget.jumpRequest?.removeListener(_onJumpRequest);
     _unwatchClears?.call();
     _unwatchStreams?.call();
     if (identical(_active, this)) _active = null;

@@ -145,6 +145,7 @@ Future<void> _pumpView(
   HistorySource? source,
   ValueNotifier<bool>? atBottom,
   Map<String, Map<String?, Widget>>? tileCache,
+  ValueNotifier<DateTime?>? jumpRequest,
 }) async {
   FakeHistory.loadDelay = Duration.zero;
   tester.view.physicalSize = const Size(400, 800);
@@ -173,6 +174,7 @@ Future<void> _pumpView(
           ),
           debugControls: true,
           tileCache: tileCache,
+          jumpRequest: jumpRequest,
           atBottomNotifier: atBottom,
           live: live,
           liveVersion: liveVersion,
@@ -813,6 +815,21 @@ void main() {
       reason: 'the frame laid out the whole batch to reach the newest row',
     );
     expect(_tile('live-$n'), findsOneWidget, reason: 'newest row not shown');
+  });
+
+  testWidgets('a jump request shows that message, on open or later', (
+    tester,
+  ) async {
+    final jump = ValueNotifier<DateTime?>(FakeHistory.timeOf(_ch, 1000));
+    addTearDown(jump.dispose);
+    await _pumpView(tester, jumpRequest: jump);
+    await _settle(tester);
+    expect(_items(tester).keys, contains('$_ch-1000'), reason: 'on open');
+    expect(jump.value, isNull, reason: 'the request is consumed');
+    jump.value = FakeHistory.timeOf(_ch, 200);
+    await _settle(tester);
+    expect(_items(tester).keys, contains('$_ch-200'), reason: 'while open');
+    expect(jump.value, isNull);
   });
 
   testWidgets('a re-anchor moves visible rows instead of rebuilding them', (

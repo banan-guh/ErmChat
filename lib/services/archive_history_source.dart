@@ -1,6 +1,7 @@
 import 'package:clock/clock.dart';
 
 import '../models/twitch_message.dart';
+import '../util/chat_search.dart';
 import '../util/history_timeline.dart';
 import 'archive_reader.dart';
 import 'archive_store.dart';
@@ -83,4 +84,79 @@ class ArchiveHistorySource implements HistorySource {
       streams: streams,
     );
   }
+}
+
+/// [HistorySource] over the matches of one search in one channel's archive,
+/// so the history list pages through results like through chat. No streams
+/// or rail: results are not a timeline of the channel.
+class ArchiveSearchSource implements HistorySource {
+  ArchiveSearchSource(
+    this.channel,
+    this.reader, {
+    required this.query,
+    required this.scope,
+    DateTime Function()? now,
+  }) : _now = now ?? clock.now;
+
+  final String channel;
+  final ArchiveReader reader;
+  final String query;
+  final ChatSearchScope scope;
+  final DateTime Function() _now;
+
+  static const int _page = 100;
+
+  @override
+  DateTime now() => _now();
+
+  @override
+  Future<List<TwitchMessage>> older(DateTime time) async =>
+      (await reader.search(
+        channel,
+        query,
+        scope: scope,
+        limit: _page,
+        before: time.add(const Duration(milliseconds: 1)),
+      )).reversed.toList();
+
+  @override
+  Future<List<TwitchMessage>> newer(DateTime time) async =>
+      (await reader.search(
+        channel,
+        query,
+        scope: scope,
+        limit: _page,
+        after: time,
+      )).reversed.toList();
+
+  @override
+  Future<List<TwitchMessage>> around(DateTime time) async {
+    final before = await older(time);
+    final after = await newer(time);
+    final seen = {for (final m in before) m};
+    return [...before, ...after.where((m) => !seen.contains(m))];
+  }
+
+  @override
+  Future<List<TwitchMessage>> newest() async => (await reader.search(
+    channel,
+    query,
+    scope: scope,
+    limit: _page,
+  )).reversed.toList();
+
+  @override
+  Future<List<HistoryStream>> streams() async => const [];
+
+  @override
+  Future<ActivityRail?> rail(List<HistoryStream> streams) async => null;
+
+  @override
+  void Function() watchClears(void Function(HistoryClear clear) onClear) =>
+      reader.clears.add((e) {
+        if (e.$1 == channel) onClear(e.$2);
+      });
+
+  @override
+  void Function() watchStreams(void Function() onChange) => () {};
 }

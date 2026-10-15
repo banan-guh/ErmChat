@@ -6,8 +6,15 @@ import 'history_timeline.dart';
 /// or trim at either end, so list items can key on them; [reset] starts a
 /// fresh run. Markers derive per position from the previous row's time.
 class HistoryWindow {
-  HistoryWindow({required this.now, LocalTime? local})
-    : _local = local ?? _deviceLocal;
+  HistoryWindow({
+    required this.now,
+    LocalTime? local,
+    this.emptyStretches = true,
+  }) : _local = local ?? _deviceLocal;
+
+  /// Marks whole days with nothing recorded. Off for search results, where
+  /// a day without a match is not a day without chat.
+  final bool emptyStretches;
 
   /// Clock for day markers (only rows older than a day get one).
   final DateTime Function() now;
@@ -161,6 +168,7 @@ class HistoryWindow {
           now: clock,
           streams: _streams,
           local: _local,
+          emptyStretches: emptyStretches,
         ))
           if (!_hasStreamRow(k)) k,
       ];

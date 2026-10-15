@@ -26,6 +26,7 @@ class ChatRows {
     required this.messageBuilder,
     required this.onShowUserProfile,
     this.onShowMessageMenu,
+    this.onTapMessage,
     this.onCopyMessage,
     this.onFindThreadRoot,
     this.onShowThreadView,
@@ -51,6 +52,9 @@ class ChatRows {
 
   /// Null disables the long-press message menu.
   final void Function(TwitchMessage)? onShowMessageMenu;
+
+  /// A tap on a row's body; search results jump to the message.
+  final void Function(TwitchMessage)? onTapMessage;
 
   /// Null disables copy-on-double-tap for chat messages.
   final void Function(TwitchMessage)? onCopyMessage;
@@ -115,6 +119,7 @@ class ChatRows {
       onLongPress: chatRow && onShowMessageMenu != null
           ? () => onShowMessageMenu!(msg)
           : null,
+      onTap: chatRow && onTapMessage != null ? () => onTapMessage!(msg) : null,
       onDoubleTap: chatRow && onCopyMessage != null
           ? () => onCopyMessage!(msg)
           : null,

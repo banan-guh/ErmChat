@@ -699,6 +699,35 @@ void main() {
       await store.close();
     });
 
+    test('the search source pages through every match once', () async {
+      final store = await _open(_newPath());
+      final writer = _writer(store, sealCount: 16);
+      for (var i = 0; i < 400; i++) {
+        writer.add(_channel, _msg(i)..text = i % 3 == 0 ? 'pog $i' : 'chat');
+        if (i == 0) await writer.settled();
+      }
+      await writer.flush();
+      final source = ArchiveSearchSource(
+        _channel,
+        _reader(store),
+        query: 'pog',
+        scope: ChatSearchScope.messages,
+      );
+      final w = HistoryWindow(now: source.now)..reset(await source.newest());
+      expect(w.length, 100, reason: 'a page');
+      while (w.prepend(await source.older(w[w.first].timestamp)) > 0) {}
+      expect(
+        [for (var p = w.first; p < w.end; p++) w[p].text],
+        [for (var i = 0; i < 400; i += 3) 'pog $i'],
+        reason: 'a match lost, repeated or out of order',
+      );
+      // Forward from the middle reaches the newest match.
+      w.reset(await source.around(_msg(150).timestamp));
+      while (w.append(await source.newer(w[w.end - 1].timestamp)) > 0) {}
+      expect(w[w.end - 1].text, 'pog 399');
+      await store.close();
+    });
+
     test('unindexed blocks are searched, then indexed', () async {
       final path = _newPath();
       final (store, _) = await fill(path);

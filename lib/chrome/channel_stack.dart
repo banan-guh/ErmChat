@@ -20,6 +20,7 @@ import '../util/insets.dart';
 import '../eventsub/decode/events.dart' show PinnedMessageEvent;
 import '../services/mod_actions.dart' show ModResult;
 import '../widgets/broadcast_widgets.dart';
+import '../util/chat_search.dart';
 import '../util/fake_history.dart';
 import '../util/history_timeline.dart';
 import '../widgets/chat_rows.dart';
@@ -121,6 +122,12 @@ class ChannelPanels {
 
   /// History sources by channel, so a rebuilt page keeps its source.
   final _sources = <String, HistorySource>{};
+
+  /// A time each channel's history page should show next: a tapped search
+  /// result. The page consumes it.
+  final _jumps = <String, ValueNotifier<DateTime?>>{};
+  ValueNotifier<DateTime?> _jumpFor(String channel) =>
+      _jumps.putIfAbsent(channel, () => ValueNotifier(null));
 
   late final Listenable _tabSharedMerge = Listenable.merge([
     selectedTabIndex,
@@ -229,43 +236,50 @@ class ChannelPanels {
         messageVersion,
         search.channelVersion(channel),
       ]),
-      builder: (_, active) => ChatView(
-        channel: channel,
-        messages: search.visibleMessages(channel),
-        tileCache: tileCache,
-        isDimmed: search.dimPredicate(channel),
-        emptyText:
-            search.emptyText(channel, context.l10n) ??
-            context.l10n.noMessagesYet,
-        atBottomNotifier: atBottomNotifier(channel),
-        messageNotifier: active ? messageVersion : _emptyNotifier,
-        scrollController: scrollCtrl(channel),
-        messageBuilder: messageBuilder,
-        linkWhitelist: linkWhitelist,
-        showTimestamp: showTimestamps(),
-        timestampFormat: timestampFormat(),
-        chatFontScale: chatFontSize() / 14.0,
-        checkeredMessages: checkeredMessages(),
-        highlightOpacity: highlightOpacity(),
-        lineSeparator: lineSeparator(),
-        sharedChatMode: sharedChatMode(),
-        paintService: showNamePaints() ? paintService : null,
-        topOverlayPadding: topPadding,
-        onShowUserProfile: (login, userId, {displayName}) => userSheets
-            .showUserProfile(context, login, userId, displayName: displayName),
-        onShowMessageMenu: (msg) => menus.showMessageMenu(context, msg),
-        onCopyMessage: copyMessage,
-        onScrollActivity: (c) {
-          chat.clearUnread(c);
-        },
-        onFindThreadRoot: threads.findThreadRoot,
-        onShowThreadView: (msg) => threads.showThreadView(msg),
-        keepAlive: false,
-        keepPosition: !search.open,
-        keyboardDismissBehavior: (!kIsWeb && Platform.isIOS)
-            ? ScrollViewKeyboardDismissBehavior.onDrag
-            : ScrollViewKeyboardDismissBehavior.manual,
-      ),
+      builder: (_, active) =>
+          _searchResults(context, channel, topPadding, active) ??
+          ChatView(
+            channel: channel,
+            messages: search.visibleMessages(channel),
+            tileCache: tileCache,
+            isDimmed: search.dimPredicate(channel),
+            emptyText:
+                search.emptyText(channel, context.l10n) ??
+                context.l10n.noMessagesYet,
+            atBottomNotifier: atBottomNotifier(channel),
+            messageNotifier: active ? messageVersion : _emptyNotifier,
+            scrollController: scrollCtrl(channel),
+            messageBuilder: messageBuilder,
+            linkWhitelist: linkWhitelist,
+            showTimestamp: showTimestamps(),
+            timestampFormat: timestampFormat(),
+            chatFontScale: chatFontSize() / 14.0,
+            checkeredMessages: checkeredMessages(),
+            highlightOpacity: highlightOpacity(),
+            lineSeparator: lineSeparator(),
+            sharedChatMode: sharedChatMode(),
+            paintService: showNamePaints() ? paintService : null,
+            topOverlayPadding: topPadding,
+            onShowUserProfile: (login, userId, {displayName}) =>
+                userSheets.showUserProfile(
+                  context,
+                  login,
+                  userId,
+                  displayName: displayName,
+                ),
+            onShowMessageMenu: (msg) => menus.showMessageMenu(context, msg),
+            onCopyMessage: copyMessage,
+            onScrollActivity: (c) {
+              chat.clearUnread(c);
+            },
+            onFindThreadRoot: threads.findThreadRoot,
+            onShowThreadView: (msg) => threads.showThreadView(msg),
+            keepAlive: false,
+            keepPosition: !search.open,
+            keyboardDismissBehavior: (!kIsWeb && Platform.isIOS)
+                ? ScrollViewKeyboardDismissBehavior.onDrag
+                : ScrollViewKeyboardDismissBehavior.manual,
+          ),
     );
   }
 
@@ -304,29 +318,8 @@ class ChannelPanels {
         live: messages == null ? null : () => messages.chatRows,
         liveVersion: active ? messages?.version : null,
         emotesVersion: emotesVersion,
-        rows: ChatRows(
-          channel: channel,
-          messageBuilder: messageBuilder,
-          linkWhitelist: linkWhitelist,
-          showTimestamp: showTimestamps(),
-          timestampFormat: timestampFormat(),
-          checkeredMessages: checkeredMessages(),
-          highlightOpacity: highlightOpacity(),
-          lineSeparator: lineSeparator(),
-          sharedChatMode: sharedChatMode(),
-          paintService: showNamePaints() ? paintService : null,
-          onShowUserProfile: (login, userId, {displayName}) =>
-              userSheets.showUserProfile(
-                context,
-                login,
-                userId,
-                displayName: displayName,
-              ),
-          onShowMessageMenu: (msg) => menus.showMessageMenu(context, msg),
-          onCopyMessage: copyMessage,
-          onFindThreadRoot: threads.findThreadRoot,
-          onShowThreadView: (msg) => threads.showThreadView(msg),
-        ),
+        jumpRequest: _jumpFor(channel),
+        rows: _rows(context, channel),
         textScale: chatFontSize() / 14.0,
         topPadding: topPadding,
         tileCache: tileCache,
@@ -337,6 +330,87 @@ class ChannelPanels {
             ? ScrollViewKeyboardDismissBehavior.onDrag
             : ScrollViewKeyboardDismissBehavior.manual,
       ),
+    );
+  }
+
+  /// [channel]'s rows as both history pages draw them.
+  ChatRows _rows(
+    BuildContext context,
+    String channel, {
+    void Function(TwitchMessage msg)? onTapMessage,
+  }) => ChatRows(
+    channel: channel,
+    messageBuilder: messageBuilder,
+    linkWhitelist: linkWhitelist,
+    showTimestamp: showTimestamps(),
+    timestampFormat: timestampFormat(),
+    checkeredMessages: checkeredMessages(),
+    highlightOpacity: highlightOpacity(),
+    lineSeparator: lineSeparator(),
+    sharedChatMode: sharedChatMode(),
+    paintService: showNamePaints() ? paintService : null,
+    onShowUserProfile: (login, userId, {displayName}) => userSheets
+        .showUserProfile(context, login, userId, displayName: displayName),
+    onShowMessageMenu: (msg) => menus.showMessageMenu(context, msg),
+    onCopyMessage: copyMessage,
+    onFindThreadRoot: threads.findThreadRoot,
+    onShowThreadView: (msg) => threads.showThreadView(msg),
+    onTapMessage: onTapMessage,
+  );
+
+  /// [channel]'s search as a history list of matches over the whole archive,
+  /// newest at the bottom and live matches joining it. A tap closes search
+  /// and shows the message in the channel's history. Null when the buffer
+  /// filter applies instead: dim or paused (both need every buffer row), no
+  /// query, or no archive.
+  Widget? _searchResults(
+    BuildContext context,
+    String channel,
+    double topPadding,
+    bool active,
+  ) {
+    final reader = archiveReader;
+    final filter = search.stateFor(channel);
+    if (reader == null ||
+        FakeHistory.isFake(channel) ||
+        !filter.isActive ||
+        filter.display != ChatSearchDisplay.hide ||
+        filter.live != ChatSearchLive.stream) {
+      return null;
+    }
+    final q = filter.query.trim().toLowerCase();
+    final scope = filter.scope;
+    final messages = chat.channelFor(channel)?.messages;
+    return HistoryView(
+      // A new query or scope starts a new list.
+      key: ValueKey('search|$channel|${scope.name}|$q'),
+      channel: channel,
+      source: ArchiveSearchSource(channel, reader, query: q, scope: scope),
+      emptyStretches: false,
+      live: messages == null
+          ? null
+          : () => [
+              for (final m in messages.chatRows)
+                if (searchMatchesLower(m, q, scope)) m,
+            ],
+      liveVersion: active ? messages?.version : null,
+      emotesVersion: emotesVersion,
+      rows: _rows(
+        context,
+        channel,
+        onTapMessage: (msg) {
+          search.closeSearch();
+          _jumpFor(channel).value = msg.timestamp;
+        },
+      ),
+      textScale: chatFontSize() / 14.0,
+      topPadding: topPadding,
+      tileCache: tileCache,
+      atBottomNotifier: atBottomNotifier(channel),
+      emptyText: context.l10n.noMatches,
+      keyboardDismissBehavior: (!kIsWeb && Platform.isIOS)
+          ? ScrollViewKeyboardDismissBehavior.onDrag
+          : ScrollViewKeyboardDismissBehavior.manual,
     );
   }
 
