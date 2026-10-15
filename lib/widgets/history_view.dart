@@ -274,9 +274,11 @@ class _HistoryViewState extends State<HistoryView> {
     widget.emotesVersion?.addListener(_onEmotes);
     widget.atBottomNotifier?.addListener(_onAtBottomRequest);
     _unwatchClears = widget.source.watchClears(_onClear);
+    _unwatchStreams = widget.source.watchStreams(_loadStreams);
   }
 
   void Function()? _unwatchClears;
+  void Function()? _unwatchStreams;
 
   @override
   void deactivate() {
@@ -329,8 +331,14 @@ class _HistoryViewState extends State<HistoryView> {
     } else {
       _jumpTo(saved.time, offset: saved.offset);
     }
+    _loadStreams();
+  }
+
+  /// Reads the broadcasts and re-marks the rows; again whenever one starts,
+  /// ends or reopens, so a page never keeps a stale end.
+  void _loadStreams() {
     widget.source.streams().then((streams) {
-      if (!mounted || streams.isEmpty) return;
+      if (!mounted || (streams.isEmpty && _window.streams.isEmpty)) return;
       setState(() {
         _window.setStreams(streams);
         _rebuildItems();
@@ -438,6 +446,7 @@ class _HistoryViewState extends State<HistoryView> {
     widget.emotesVersion?.removeListener(_onEmotes);
     widget.atBottomNotifier?.removeListener(_onAtBottomRequest);
     _unwatchClears?.call();
+    _unwatchStreams?.call();
     if (identical(_active, this)) _active = null;
     if (PerfProbe.enabled) {
       SchedulerBinding.instance.removeTimingsCallback(_onTimings);

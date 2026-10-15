@@ -44,19 +44,22 @@ class Archive {
     required DateTime startedAt,
     String? title,
     String? game,
-  }) => _quiet(
-    (s) => s.putStream(
+  }) => _quiet((s) async {
+    final changed = await s.putStream(
       channel: channel,
       id: id,
       startedTs: startedAt.millisecondsSinceEpoch,
       title: title,
       game: game,
-    ),
-  );
+    );
+    if (changed) reader.streamsChanged.emit();
+  });
 
   /// Records the end of broadcast [id]. Never throws.
-  Future<void> endStream(String id, DateTime endedAt) =>
-      _quiet((s) => s.endStream(id, endedAt.millisecondsSinceEpoch));
+  Future<void> endStream(String id, DateTime endedAt) => _quiet((s) async {
+    await s.endStream(id, endedAt.millisecondsSinceEpoch);
+    reader.streamsChanged.emit();
+  });
 
   /// Records rows by [login] (everyone when null) from [from] to [to] as
   /// deleted, for rows already sealed. Never throws.

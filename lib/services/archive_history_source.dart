@@ -47,6 +47,10 @@ class ArchiveHistorySource implements HistorySource {
       });
 
   @override
+  void Function() watchStreams(void Function() onChange) =>
+      reader.streamsChanged.add(onChange);
+
+  @override
   Future<List<HistoryStream>> streams() =>
       reader.streams(channel, _now().subtract(ArchiveStore.retention), _now());
 

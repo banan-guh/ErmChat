@@ -371,11 +371,20 @@ void main() {
       reason: 'an ended broadcast past retention goes, a live one stays',
     );
     await store.endStream('live', now.millisecondsSinceEpoch);
-    await store.putStream(channel: _channel, id: 'live', startedTs: 0);
+    expect(
+      await store.putStream(channel: _channel, id: 'live', startedTs: 0),
+      isTrue,
+      reason: 'a reopen is a change open pages must reload for',
+    );
     expect(
       (await store.streams(_channel, 0)).single.endedTs,
       isNull,
       reason: 'an ended id seen live again reopens',
+    );
+    expect(
+      await store.putStream(channel: _channel, id: 'live', startedTs: 0),
+      isFalse,
+      reason: 'a poll of a live stream changes nothing',
     );
     await put(DateTime.utc(2026, 8, 2), DateTime.utc(2026, 8, 2, 1));
     now = now.add(const Duration(minutes: 30));

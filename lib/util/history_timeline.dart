@@ -68,6 +68,10 @@ abstract interface class HistorySource {
   /// by `login` (everyone when null) from `from` to `to`. Returns the
   /// unsubscribe.
   void Function() watchClears(void Function(HistoryClear clear) onClear);
+
+  /// Calls [onChange] when [streams] may read differently. Returns the
+  /// unsubscribe.
+  void Function() watchStreams(void Function() onChange);
 }
 
 typedef HistoryClear = ({String? login, DateTime from, DateTime to});

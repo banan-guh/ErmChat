@@ -375,25 +375,34 @@ class ArchiveStore {
 
   /// Records a broadcast seen live. A later call for the same [id] only
   /// clears its end, since Helix listing it live means it has not ended.
-  Future<void> putStream({
+  /// Returns whether anything changed.
+  Future<bool> putStream({
     required String channel,
     required String id,
     required int startedTs,
     String? title,
     String? game,
   }) async {
-    final b = _db.batch()
-      ..insert('streams', {
-        'stream_id': id,
-        'channel': channel,
-        'started_at': startedTs,
-        'title': title,
-        'game': game,
-      }, conflictAlgorithm: ConflictAlgorithm.ignore)
-      ..rawUpdate('UPDATE streams SET ended_at = NULL WHERE stream_id = ?', [
-        id,
-      ]);
-    await b.commit(noResult: true);
+    final held = await _db.rawQuery(
+      'SELECT ended_at FROM streams WHERE stream_id = ?',
+      [id],
+    );
+    if (held.isNotEmpty) {
+      if (held.first['ended_at'] == null) return false;
+      await _db.rawUpdate(
+        'UPDATE streams SET ended_at = NULL WHERE stream_id = ?',
+        [id],
+      );
+      return true;
+    }
+    await _db.insert('streams', {
+      'stream_id': id,
+      'channel': channel,
+      'started_at': startedTs,
+      'title': title,
+      'game': game,
+    }, conflictAlgorithm: ConflictAlgorithm.ignore);
+    return true;
   }
 
   /// Sets the end of the broadcast [id] (epoch ms).

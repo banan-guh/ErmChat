@@ -67,6 +67,9 @@ class ArchiveReader {
   /// hold rows.
   final clears = ChatSignal<(String, HistoryClear)>();
 
+  /// A broadcast started, ended, or reopened, in some channel.
+  final streamsChanged = ChatVoidSignal();
+
   /// Rows the writer holds that no block has yet; reads include them so a
   /// row is never missing between the store and the live buffer.
   final List<TwitchMessage> Function(String channel) unsealed;

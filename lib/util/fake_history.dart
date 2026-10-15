@@ -310,6 +310,9 @@ class FakeHistorySource implements HistorySource {
   @override
   void Function() watchClears(void Function(HistoryClear clear) onClear) =>
       () {};
+
+  @override
+  void Function() watchStreams(void Function() onChange) => () {};
 }
 
 /// Counts rows per bucket from the generated timeline.
