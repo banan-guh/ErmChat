@@ -4,7 +4,11 @@ import 'dart:typed_data';
 
 import 'package:sqflite/sqflite.dart';
 
+import '../archive/archive_block.dart';
+import '../archive/archive_io.dart';
+import '../archive/archive_row.dart';
 import '../archive/archive_users.dart';
+import '../util/log.dart';
 
 /// One sealed block as stored: metadata plus the packed `ArchiveBlock` bytes.
 class StoredBlock {
@@ -242,7 +246,10 @@ class ArchiveStore {
     }
   }
 
-  Future<void> close() => _db.close();
+  Future<void> close() async {
+    await _compacting;
+    await _db.close();
+  }
 
   /// Journal mode, exposed so tests can assert WAL.
   Future<String> journalMode() async {
@@ -844,7 +851,110 @@ class ArchiveStore {
       return 0;
     }
     _lastPrune = now;
-    return prune(now);
+    final deleted = await prune(now);
+    // A long gap leaves seconds of merging; nothing waits on it.
+    _compacting ??= compact(now)
+        .then<void>(
+          (_) {},
+          onError: (Object e) {
+            logDebug('[ArchiveStore] compaction failed: $e');
+          },
+        )
+        .whenComplete(() => _compacting = null);
+    return deleted;
+  }
+
+  Future<void>? _compacting;
+
+  /// Blocks this old or older may merge; newer ones are still the writer's
+  /// recent past and stay as sealed.
+  static const Duration compactAfter = Duration(hours: 1);
+
+  /// Rows a merged block holds at most, the writer's seal size.
+  static const int compactRows = 256;
+
+  // Static, so the isolate's closure captures only the blocks, not the store.
+  static Future<List<Uint8List?>> _mergeOffIsolate(
+    List<List<Uint8List>> data,
+  ) => Isolate.run(() => mergeBlocks(data));
+
+  /// Merges runs of small blocks into blocks of up to [compactRows]. The 30 s
+  /// seal leaves quiet channels with blocks of a handful of rows, which
+  /// compress poorly and cost a table row each. Only blocks next to each
+  /// other in time order merge, so no merged block overlaps a full one.
+  /// Rows, their order within the run, and every count keep. Returns blocks
+  /// merged away.
+  Future<int> compact(DateTime now) async {
+    final before = now.toUtc().subtract(compactAfter).millisecondsSinceEpoch;
+    final groups = <List<int>>[];
+    final channels = await _db.rawQuery('SELECT DISTINCT channel FROM blocks');
+    for (final c in channels) {
+      final blocks = await _db.rawQuery(
+        'SELECT id, count FROM blocks WHERE channel = ? AND end_ts < ? '
+        'ORDER BY start_ts, id',
+        [c['channel'], before],
+      );
+      var run = <int>[];
+      var rows = 0;
+      void close() {
+        if (run.length > 1) groups.add(run);
+        run = [];
+        rows = 0;
+      }
+
+      for (final b in blocks) {
+        final n = b['count']! as int;
+        if (n >= compactRows) {
+          close();
+          continue;
+        }
+        if (rows + n > compactRows) close();
+        run.add(b['id']! as int);
+        rows += n;
+      }
+      close();
+    }
+    if (groups.isEmpty) return 0;
+    final data = <List<Uint8List>>[];
+    for (final g in groups) {
+      final r = await _db.rawQuery(
+        'SELECT id, data FROM blocks WHERE id IN '
+        '(${List.filled(g.length, '?').join(', ')})',
+        g,
+      );
+      final byId = {for (final row in r) row['id']! as int: row['data']!};
+      data.add([for (final id in g) byId[id]! as Uint8List]);
+    }
+    final merged = await _mergeOffIsolate(data);
+    var removed = 0;
+    for (var i = 0; i < groups.length; i++) {
+      final m = merged[i];
+      if (m == null) continue;
+      final g = groups[i];
+      final marks = List.filled(g.length, '?').join(', ');
+      final ok = await _db.transaction((txn) async {
+        final span = await txn.rawQuery(
+          'SELECT channel, MIN(start_ts) AS s, MAX(end_ts) AS e, '
+          'SUM(count) AS n, COUNT(*) AS k FROM blocks WHERE id IN ($marks)',
+          g,
+        );
+        final row = span.first;
+        // A block gone since the scan (a prune) leaves the run alone.
+        if (row['k'] != g.length) return false;
+        await txn.rawDelete('DELETE FROM blocks WHERE id IN ($marks)', g);
+        await txn.insert('blocks', {
+          'channel': row['channel'],
+          'start_ts': row['s'],
+          'end_ts': row['e'],
+          'count': row['n'],
+          'data': m,
+        });
+        _maxSpan.remove(row['channel']);
+        return true;
+      });
+      if (ok) removed += g.length - 1;
+    }
+    return removed;
   }
 
   /// Deletes blocks, minute counts, moderation and ended broadcasts older than
@@ -915,3 +1025,18 @@ UserTables parseJoinedTables(
   }
   return t;
 }
+
+/// Each group of packed blocks merged into one block in the given order, or
+/// null for a group with a block that fails to decode.
+List<Uint8List?> mergeBlocks(List<List<Uint8List>> groups) => [
+  for (final g in groups)
+    () {
+      try {
+        return ArchiveBlock.encode([
+          for (final b in g) ...ArchiveBlock.decode(b),
+        ]);
+      } on ArchiveFormatException {
+        return null;
+      }
+    }(),
+];

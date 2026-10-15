@@ -440,6 +440,78 @@ void main() {
     await store.close();
   });
 
+  test('compaction merges old small blocks and keeps every row', () async {
+    // The clock sits two hours after the first rows.
+    final store = await _open(
+      _newPath(),
+      now: () => _t0.add(const Duration(hours: 2)),
+    );
+    final timers = <_ManualTimer>[];
+    final writer = _writer(store, timers: timers);
+    var i = 0;
+    Future<void> seal(int rows, {Duration at = Duration.zero}) async {
+      for (var k = 0; k < rows; k++, i++) {
+        writer.add(
+          _channel,
+          _msg(i, tsMs: _t0.add(at).millisecondsSinceEpoch + i * 1000),
+        );
+      }
+      await writer.settled();
+      if (rows < 256) timers.last.fire();
+      await writer.settled();
+    }
+
+    // Old: 30 quiet seals of 5 rows, a full block, 3 more small ones.
+    for (var k = 0; k < 30; k++) {
+      await seal(5);
+    }
+    await seal(256);
+    for (var k = 0; k < 3; k++) {
+      await seal(5);
+    }
+    // Recent: small, but under an hour old.
+    await seal(5, at: const Duration(minutes: 90));
+    Future<List<String?>> ids() async => [
+      for (final m in await _reader(store).newestRows(_channel, 10000))
+        m.messageId,
+    ];
+    Future<int> blocks() async =>
+        (await store.newestBlocks(_channel, 10000)).length;
+    Future<int> bytes() async => [
+      for (final b in await store.newestBlocks(_channel, 10000)) b.data.length,
+    ].fold<int>(0, (a, b) => a + b);
+    final rowsBefore = await ids();
+    final bytesBefore = await bytes();
+    final minutesBefore = await _reader(
+      store,
+    ).minuteCounts(_channel, _t0, _t0.add(const Duration(hours: 3)));
+    expect(await blocks(), 35);
+
+    // 30 small merge into one (29 gone); the full block stands apart; the
+    // 3 after it merge (2 gone); the recent one waits.
+    expect(await store.compact(_t0.add(const Duration(hours: 2))), 31);
+    expect(await blocks(), 1 + 1 + 1 + 1);
+    expect(await ids(), rowsBefore, reason: 'a row moved, went or doubled');
+    expect(
+      (await _reader(store).minuteCounts(
+        _channel,
+        _t0,
+        _t0.add(const Duration(hours: 3)),
+      )).map((m) => (m.minute, m.count)),
+      minutesBefore.map((m) => (m.minute, m.count)),
+    );
+    expect(await bytes(), lessThan(bytesBefore));
+    final rows = await _reader(store).newestRows(_channel, 10000);
+    expect(rows.first.text, _msg(0).text);
+    expect(rows.first.login, 'alice');
+    expect(
+      await store.compact(_t0.add(const Duration(hours: 2))),
+      0,
+      reason: 'a second pass finds nothing to merge',
+    );
+    await store.close();
+  });
+
   test('a message id is stored once, also across a restart', () async {
     final path = _newPath();
     var store = await _open(path);
