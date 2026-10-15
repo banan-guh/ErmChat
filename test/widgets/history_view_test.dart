@@ -1,3 +1,4 @@
+import 'package:ermchat/chat/channel/messages.dart';
 import 'package:ermchat/l10n/l10n.dart';
 import 'package:ermchat/models/twitch_message.dart';
 import 'package:ermchat/services/emote_manager.dart';
@@ -17,9 +18,12 @@ import 'package:flutter_test/flutter_test.dart';
 const double _inset = 50;
 const String _ch = FakeHistory.testChannel;
 
-/// A channel with only [n] rows, half an hour apart: less than a screen.
-class _SmallSource implements HistorySource {
-  _SmallSource(int n)
+/// Rows, streams, clears and stream changes a test scripts. [small] is a
+/// channel of [n] rows half an hour apart: less than a screen.
+class _ListSource implements HistorySource {
+  _ListSource(this.rows);
+
+  _ListSource.small(int n)
     : rows = [
         for (var i = 0; i < n; i++)
           TwitchMessage(
@@ -27,12 +31,27 @@ class _SmallSource implements HistorySource {
             text: 'small $i',
             messageId: 'small-$i',
             channel: _ch,
-            timestamp: _t0.add(Duration(minutes: 30 * i)),
+            timestamp: t0.add(Duration(minutes: 30 * i)),
           ),
       ];
 
-  static final DateTime _t0 = DateTime.utc(2026, 10, 14, 10);
+  static final DateTime t0 = DateTime.utc(2026, 10, 14, 10);
   final List<TwitchMessage> rows;
+  List<HistoryStream> streamList = const [];
+  final List<void Function(HistoryClear)> _clears = [];
+  final List<void Function()> _streamWatchers = [];
+
+  void clear(HistoryClear c) {
+    for (final f in _clears) {
+      f(c);
+    }
+  }
+
+  void streamsChanged() {
+    for (final f in _streamWatchers) {
+      f();
+    }
+  }
 
   @override
   DateTime now() => rows.last.timestamp.add(const Duration(minutes: 30));
@@ -56,7 +75,7 @@ class _SmallSource implements HistorySource {
   Future<List<TwitchMessage>> newest() async => rows;
 
   @override
-  Future<List<HistoryStream>> streams() async => const [];
+  Future<List<HistoryStream>> streams() async => streamList;
 
   @override
   Future<ActivityRail?> rail(List<HistoryStream> streams) async => ActivityRail(
@@ -67,11 +86,16 @@ class _SmallSource implements HistorySource {
   );
 
   @override
-  void Function() watchClears(void Function(HistoryClear clear) onClear) =>
-      () {};
+  void Function() watchClears(void Function(HistoryClear clear) onClear) {
+    _clears.add(onClear);
+    return () => _clears.remove(onClear);
+  }
 
   @override
-  void Function() watchStreams(void Function() onChange) => () {};
+  void Function() watchStreams(void Function() onChange) {
+    _streamWatchers.add(onChange);
+    return () => _streamWatchers.remove(onChange);
+  }
 }
 
 /// Has no rail on the first read, like an archive with nothing sealed yet.
@@ -486,7 +510,7 @@ void main() {
   ) async {
     final atBottom = ValueNotifier(true);
     addTearDown(atBottom.dispose);
-    await _pumpView(tester, source: _SmallSource(12), atBottom: atBottom);
+    await _pumpView(tester, source: _ListSource.small(12), atBottom: atBottom);
     await _settle(tester);
     final list = find.byType(CustomScrollView);
     final bottom = tester.getRect(list).bottom - kOpaqueComposerGap;
@@ -509,6 +533,213 @@ void main() {
       reason: 'the rail jump to the top hid the newest row',
     );
     expect(atBottom.value, isTrue, reason: 'the top jump left it paused');
+  });
+
+  testWidgets('a late clear fades held rows in its range, by its chatter', (
+    tester,
+  ) async {
+    TwitchMessage row(int i, String login) => TwitchMessage(
+      login: login,
+      text: '$login $i',
+      messageId: 'c$i',
+      channel: _ch,
+      timestamp: _ListSource.t0.add(Duration(minutes: i)),
+    );
+    final source = _ListSource([
+      for (var i = 0; i < 12; i++) row(i, i.isEven ? 'spam' : 'fine'),
+    ]);
+    await _pumpView(tester, source: source);
+    await _settle(tester);
+    source.clear((
+      login: 'spam',
+      from: _ListSource.t0.add(const Duration(minutes: 4)),
+      to: _ListSource.t0.add(const Duration(minutes: 8)),
+    ));
+    await tester.pump();
+    expect(
+      {
+        for (final r in source.rows)
+          if (r.deleted) r.messageId,
+      },
+      {'c4', 'c6', 'c8'},
+      reason: 'only the chatter\'s rows inside the range fade',
+    );
+    expect(
+      tester.widget<ChatMessageTile>(_tile('c6')).message.deleted,
+      isTrue,
+      reason: 'the visible tile kept its old look',
+    );
+  });
+
+  testWidgets('a stream that reopens drops its stale end marker', (
+    tester,
+  ) async {
+    final source = _ListSource.small(10);
+    final t0 = _ListSource.t0;
+    HistoryStream stream({required bool live}) => HistoryStream(
+      id: 's1',
+      start: t0.add(const Duration(minutes: 45)),
+      end: live ? source.now() : t0.add(const Duration(minutes: 135)),
+      title: 'Speedrun',
+      game: 'Zelda',
+      live: live,
+    );
+    source.streamList = [stream(live: false)];
+    await _pumpView(tester, source: source);
+    await _settle(tester);
+    expect(find.textContaining('Stream ended'), findsOneWidget);
+    source.streamList = [stream(live: true)];
+    source.streamsChanged();
+    await _settle(tester);
+    expect(
+      find.textContaining('Stream ended'),
+      findsNothing,
+      reason: 'the page kept the end the archive took back',
+    );
+    expect(find.textContaining('Speedrun'), findsOneWidget);
+  });
+
+  testWidgets('a gap note held by the archive and the buffer shows once', (
+    tester,
+  ) async {
+    final source = _ListSource.small(6);
+    final at = source.rows[3].timestamp.subtract(
+      const Duration(milliseconds: 1),
+    );
+    TwitchMessage note() => TwitchMessage(
+      login: '',
+      text: 'History: Not all messages retrieved',
+      isSystem: true,
+      messageId: '${Messages.historyGapIdPrefix}${at.millisecondsSinceEpoch}',
+      channel: _ch,
+      timestamp: at,
+    );
+    source.rows.insert(3, note());
+    // The live buffer, newest first, still holds its own copy.
+    final buffer = [
+      for (final r in source.rows.reversed)
+        if (r.isSystem) note() else r,
+    ];
+    await _pumpView(tester, source: source, live: () => buffer);
+    await _settle(tester);
+    expect(find.textContaining('Not all messages retrieved'), findsOneWidget);
+  });
+
+  testWidgets('switching channels comes back at the bottom, no button', (
+    tester,
+  ) async {
+    FakeHistory.loadDelay = Duration.zero;
+    tester.view.physicalSize = const Size(400, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final em = EmoteManager();
+    addTearDown(em.dispose);
+    final builder = MessageBuilder(
+      emoteSource: em,
+      badgeService: TwitchBadgeService(),
+      thirdPartyBadgeService: ThirdPartyBadgeService(),
+      onShowEmoteSheet: (_) {},
+    );
+    const channels = [FakeHistory.testChannel, FakeHistory.denseChannel];
+    final page = ValueNotifier(0);
+    addTearDown(page.dispose);
+    final versions = [ValueNotifier(0), ValueNotifier(0)];
+    final atBottom = [ValueNotifier(true), ValueNotifier(true)];
+    final flashes = [0, 0];
+    for (var i = 0; i < 2; i++) {
+      addTearDown(versions[i].dispose);
+      addTearDown(atBottom[i].dispose);
+      atBottom[i].addListener(() {
+        if (!atBottom[i].value) flashes[i]++;
+      });
+    }
+    // Each channel's buffer, newest first, capped like the kernel's.
+    final buffers = [<TwitchMessage>[], <TwitchMessage>[]];
+    var n = 0;
+    void arrive(int i, int count) {
+      for (var k = 0; k < count; k++) {
+        n++;
+        buffers[i].insert(
+          0,
+          TwitchMessage(
+            login: 'live',
+            text: 'live $n',
+            messageId: 'live-$n',
+            channel: channels[i],
+            timestamp: FakeHistory.now.add(Duration(seconds: n)),
+          ),
+        );
+      }
+      if (buffers[i].length > 50) buffers[i].removeRange(50, buffers[i].length);
+      versions[i].value++;
+    }
+
+    arrive(0, 20);
+    arrive(1, 20);
+    await tester.pumpWidget(
+      MaterialApp(
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: Scaffold(
+          body: PageView(
+            onPageChanged: (i) => page.value = i,
+            children: [
+              for (var i = 0; i < 2; i++)
+                ValueListenableBuilder<int>(
+                  valueListenable: page,
+                  // Like the app, only the active page follows its buffer.
+                  builder: (_, active, _) => HistoryView(
+                    key: ValueKey(channels[i]),
+                    channel: channels[i],
+                    source: FakeHistorySource(channels[i]),
+                    rows: ChatRows(
+                      channel: channels[i],
+                      messageBuilder: builder,
+                      onShowUserProfile: (_, _, {displayName}) {},
+                    ),
+                    atBottomNotifier: atBottom[i],
+                    live: () => buffers[i],
+                    liveVersion: active == i ? versions[i] : null,
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+    await _settle(tester);
+    ScrollPosition posOf(int i) => tester
+        .state<ScrollableState>(
+          find
+              .descendant(
+                of: find.byKey(ValueKey(channels[i])),
+                matching: find.byType(Scrollable),
+              )
+              .first,
+        )
+        .position;
+    for (var round = 0; round < 3; round++) {
+      final from = round.isEven ? 0 : 1;
+      final to = 1 - from;
+      await tester.fling(
+        find.byType(PageView),
+        Offset(from == 0 ? -300 : 300, 0),
+        2000,
+      );
+      await _settle(tester);
+      // The page left behind keeps getting chat, past its whole buffer.
+      arrive(from, 80);
+      arrive(to, 3);
+      await _settle(tester);
+      final pos = posOf(to);
+      expect(
+        pos.pixels,
+        moreOrLessEquals(pos.minScrollExtent, epsilon: 0.5),
+        reason: 'round $round: landed above the bottom of ${channels[to]}',
+      );
+      expect(atBottom[to].value, isTrue, reason: 'round $round: button shows');
+    }
+    expect(flashes, [0, 0], reason: 'the button flashed during a switch');
   });
 
   testWidgets('a re-anchor moves visible rows instead of rebuilding them', (

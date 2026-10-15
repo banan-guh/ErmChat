@@ -522,6 +522,13 @@ void main() {
         ]..sort((a, b) => ts(a).compareTo(ts(b))))
           _id(i),
       ];
+      // Rows sharing a millisecond may come in either order; the rest must
+      // be in time order.
+      List<int> times(HistoryWindow w) => [
+        for (var p = w.first; p < w.end; p++)
+          w[p].timestamp.millisecondsSinceEpoch,
+      ];
+      final sortedTimes = [for (var i = 0; i < 26; i++) ts(i)]..sort();
 
       final w = HistoryWindow(now: source.now)..reset(await source.newest());
       while (w.prepend(await source.older(w[w.first].timestamp)) > 0) {}
@@ -530,6 +537,7 @@ void main() {
         [...expected]..sort(),
         reason: 'walking older lost or repeated a row',
       );
+      expect(times(w), sortedTimes, reason: 'walking older broke time order');
 
       w.reset(await source.around(_t0));
       while (w.append(await source.newer(w[w.end - 1].timestamp)) > 0) {}
@@ -538,6 +546,7 @@ void main() {
         [...expected]..sort(),
         reason: 'walking newer lost or repeated a row',
       );
+      expect(times(w), sortedTimes, reason: 'walking newer broke time order');
       await store.close();
     },
   );
