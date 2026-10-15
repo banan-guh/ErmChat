@@ -287,6 +287,55 @@ void main() {
     },
   );
 
+  test('user tables load back across id pages after a restart', () async {
+    final path = _newPath();
+    var store = await _open(path);
+    final writer = _writer(store);
+    // More chatters than one 5000-id page, with and without display names,
+    // colors and extras.
+    TwitchMessage msg(int i) => TwitchMessage(
+      login: 'user$i',
+      displayName: i % 3 == 0 ? 'User$i' : 'user$i',
+      text: 'hi $i',
+      messageId: _id(i),
+      channel: _channel,
+      userId: '${5000000 + i}',
+      color: i % 4 == 0
+          ? null
+          : '#00FF${(i % 256).toRadixString(16).padLeft(2, '0')}',
+      timestamp: _t0.add(Duration(seconds: i)),
+      badges: [
+        if (i.isEven) MessageBadge(setId: 'subscriber', versionId: '${i % 12}'),
+      ],
+    );
+    const n = 12000;
+    writer.add(_channel, msg(0));
+    await writer.settled();
+    for (var i = 1; i < n; i++) {
+      writer.add(_channel, msg(i));
+    }
+    await writer.flush();
+    await store.close();
+
+    store = await _open(path);
+    final rows = await _reader(store).newestRows(_channel, n);
+    expect(rows.length, n);
+    for (final i in [0, 1, 3, 4999, 5000, 5001, 9999, 11999]) {
+      final want = msg(i);
+      final got = rows[i];
+      expect(
+        (got.login, got.displayName, got.userId, got.color),
+        (want.login, want.displayName, want.userId, want.color),
+        reason: 'row $i read back with the wrong user',
+      );
+      expect(
+        [for (final b in got.badges ?? const <MessageBadge>[]) b.versionId],
+        [for (final b in want.badges ?? const <MessageBadge>[]) b.versionId],
+      );
+    }
+    await store.close();
+  });
+
   test('a message id is stored once, also across a restart', () async {
     final path = _newPath();
     var store = await _open(path);

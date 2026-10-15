@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:isolate';
 import 'dart:typed_data';
 
 import 'package:sqflite/sqflite.dart';
@@ -228,59 +229,57 @@ class ArchiveStore {
     }
   }
 
+  /// Reads the three tables as a few joined strings and parses them on a
+  /// background isolate. A busy channel keeps tens of thousands of chatters;
+  /// row by row, decoding the query results alone stalls the UI isolate for
+  /// seconds at startup.
   Future<_ChannelTables> _loadTables(String channel) async {
-    final t = UserTables();
-    await _pages('users', 'user_id, login, display_name', channel, (r) {
-      t.internWho(
-        Who(
-          userId: r['user_id']! as String,
-          login: r['login']! as String,
-          displayName: r['display_name'] as String?,
-        ),
-      );
-    });
-    await _pages('looks', 'color, badges, extra', channel, (r) {
-      final extra = r['extra'] as String?;
-      t.internLook(
-        Look(
-          color: r['color'] as String?,
-          badges: r['badges']! as String,
-          extra: extra == null
-              ? const []
-              : [
-                  for (final pair in jsonDecode(extra) as List)
-                    ((pair as List)[0] as String, pair[1] as String),
-                ],
-        ),
-      );
-    });
-    await _pages('user_states', 'who, look', channel, (r) {
-      t.internState(r['who']! as int, r['look']! as int);
-    });
-    return _ChannelTables(t);
+    final users = await _joined(
+      channel,
+      'users',
+      "id || char(31) || user_id || char(31) || login || char(31) || "
+          "ifnull(display_name, '') || char(31) || (display_name IS NULL)",
+    );
+    final looks = await _joined(
+      channel,
+      'looks',
+      "id || char(31) || ifnull(color, '') || char(31) || (color IS NULL) || "
+          "char(31) || badges || char(31) || ifnull(extra, '')",
+    );
+    final states = await _joined(
+      channel,
+      'user_states',
+      'id || char(31) || who || char(31) || look',
+    );
+    return _ChannelTables(
+      await Isolate.run(() => parseJoinedTables(users, looks, states)),
+    );
   }
 
-  /// Rows of a per-channel [table] in id order, read in pages: a busy channel
-  /// keeps tens of thousands of chatters, and one result that size stalls the
-  /// UI isolate while it decodes.
-  Future<void> _pages(
-    String table,
-    String cols,
+  /// [expr] for every row of a per-channel [table], fields split by char 31
+  /// and rows by char 30, one string per range of ids. Ranges keep each
+  /// string far below Android's 2 MB cursor window.
+  Future<List<String>> _joined(
     String channel,
-    void Function(Map<String, Object?> row) each,
+    String table,
+    String expr,
   ) async {
-    const page = 2000;
-    var after = -1;
-    while (true) {
-      final rows = await _db.rawQuery(
-        'SELECT id, $cols FROM $table WHERE channel = ? AND id > ? '
-        'ORDER BY id LIMIT $page',
-        [channel, after],
+    const page = 5000;
+    final top = await _db.rawQuery(
+      'SELECT max(id) AS top FROM $table WHERE channel = ?',
+      [channel],
+    );
+    final max = top.first['top'] as int?;
+    final out = <String>[];
+    for (var from = 0; max != null && from <= max; from += page) {
+      final r = await _db.rawQuery(
+        'SELECT group_concat($expr, char(30)) AS g FROM $table '
+        'WHERE channel = ? AND id >= ? AND id < ?',
+        [channel, from, from + page],
       );
-      rows.forEach(each);
-      if (rows.length < page) return;
-      after = rows.last['id']! as int;
+      if (r.first['g'] case final String g) out.add(g);
     }
+    return out;
   }
 
   // ---- Writes --------------------------------------------------------------
@@ -829,4 +828,47 @@ class ArchiveStore {
       return deleted;
     });
   }
+}
+
+/// Rebuilds the user tables from joined table strings, interning in id
+/// order so every id lands at its saved index.
+UserTables parseJoinedTables(
+  List<String> users,
+  List<String> looks,
+  List<String> states,
+) {
+  List<List<String>> rows(List<String> joined) {
+    final out = [
+      for (final g in joined)
+        for (final row in g.split('\u001e')) row.split('\u001f'),
+    ];
+    out.sort((a, b) => int.parse(a[0]).compareTo(int.parse(b[0])));
+    return out;
+  }
+
+  final t = UserTables();
+  for (final r in rows(users)) {
+    t.internWho(
+      Who(userId: r[1], login: r[2], displayName: r[4] == '1' ? null : r[3]),
+    );
+  }
+  for (final r in rows(looks)) {
+    final extra = r[4];
+    t.internLook(
+      Look(
+        color: r[2] == '1' ? null : r[1],
+        badges: r[3],
+        extra: extra.isEmpty
+            ? const []
+            : [
+                for (final pair in jsonDecode(extra) as List)
+                  ((pair as List)[0] as String, pair[1] as String),
+              ],
+      ),
+    );
+  }
+  for (final r in rows(states)) {
+    t.internState(int.parse(r[1]), int.parse(r[2]));
+  }
+  return t;
 }
