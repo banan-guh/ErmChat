@@ -7,6 +7,7 @@ import '../archive/archive_block.dart';
 import '../archive/archive_io.dart';
 import '../archive/archive_row.dart';
 import '../archive/archive_users.dart';
+import '../archive/archive_words.dart';
 import '../models/twitch_message.dart';
 import '../util/log.dart';
 import 'archive_adapter.dart';
@@ -198,6 +199,10 @@ class ArchiveWriter {
         emoteDefs: defs,
         refIds: {
           for (final r in rows) ...[?r.replyParentId, ?r.threadRootId],
+        },
+        words: {
+          for (final r in rows)
+            if (!r.isSystem) ...searchWords(r.text),
         },
       );
       await store.pruneIfDue();

@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import '../archive/archive_block.dart';
 import '../archive/archive_io.dart';
 import '../archive/archive_row.dart';
+import '../archive/archive_words.dart';
 import '../emotes/emote.dart';
 import '../models/twitch_message.dart';
 import '../util/history_timeline.dart';
@@ -304,6 +305,50 @@ class ArchiveReader {
       }
     }
     return cache;
+  }
+
+  /// Messages of [channel] whose text contains [query] (case-insensitive),
+  /// newest first, at most [limit], older than [before] when given (to page
+  /// on). Only blocks the word index allows are decoded.
+  Future<List<TwitchMessage>> search(
+    String channel,
+    String query, {
+    int limit = 100,
+    DateTime? before,
+  }) async {
+    final q = query.trim().toLowerCase();
+    final tokens = searchWords(q).toSet().toList();
+    final store = await _store;
+    if (store == null || tokens.isEmpty || limit <= 0) return const [];
+    final beforeMs = before?.millisecondsSinceEpoch;
+    bool hit(TwitchMessage m) =>
+        !m.isSystem &&
+        (beforeMs == null || m.timestamp.millisecondsSinceEpoch < beforeMs) &&
+        m.text.toLowerCase().contains(q);
+    final out = <TwitchMessage>[
+      for (final m in unsealed(channel).reversed)
+        if (hit(m)) m,
+    ];
+    final keys = await store.searchBlocks(channel, tokens, beforeTs: beforeMs);
+    // Newest blocks first, a few at a time, until the page is full.
+    for (var i = 0; i < keys.length && out.length < limit; i += 8) {
+      final blocks = await store.blocksByKey(
+        keys.sublist(i, i + 8 > keys.length ? keys.length : i + 8),
+      );
+      final rows = [
+        for (final b in await _decodeAll(channel, blocks))
+          for (final m in b.rows)
+            if (hit(m)) m,
+      ]..sort((a, b) => b.timestamp.compareTo(a.timestamp));
+      out.addAll(rows);
+    }
+    // Unsealed rows can repeat a sealed one mid-seal.
+    final seen = <String>{};
+    final unique = [
+      for (final m in out)
+        if (m.messageId == null || seen.add(m.messageId!)) m,
+    ]..sort((a, b) => b.timestamp.compareTo(a.timestamp));
+    return unique.length > limit ? unique.sublist(0, limit) : unique;
   }
 
   /// Sort by time, keeping arrival order for equal timestamps (List.sort is

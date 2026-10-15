@@ -8,6 +8,7 @@ import '../archive/archive_block.dart';
 import '../archive/archive_io.dart';
 import '../archive/archive_row.dart';
 import '../archive/archive_users.dart';
+import '../archive/archive_words.dart';
 import '../util/log.dart';
 
 /// One sealed block as stored: metadata plus the packed `ArchiveBlock` bytes.
@@ -87,7 +88,7 @@ class _ChannelTables {
 class ArchiveStore {
   ArchiveStore._(this._db, this._now);
 
-  static const int schemaVersion = 5;
+  static const int schemaVersion = 6;
   static const Duration retention = Duration(days: 30);
   static const Duration pruneEvery = Duration(hours: 1);
 
@@ -169,6 +170,7 @@ class ArchiveStore {
     await _createModeration(db);
     await _createEmoteDefs(db);
     await _addBlockFlags(db);
+    await _createSearchIndex(db);
   }
 
   /// Saved threads live in their own tables, so block retention never
@@ -222,6 +224,17 @@ class ArchiveStore {
     );
   }
 
+  /// The search index: a vocabulary shared by every channel, stored as
+  /// deflated runs of new words (`first` is the id of a run's first word),
+  /// and per block the ids of the words it holds (`blocks.words`, null until
+  /// indexed). About 12% on top of the blocks.
+  static Future<void> _createSearchIndex(Database db) async {
+    await db.execute(
+      'CREATE TABLE vocab(first INTEGER PRIMARY KEY, words BLOB NOT NULL)',
+    );
+    await db.execute('ALTER TABLE blocks ADD COLUMN words BLOB');
+  }
+
   /// Stored definitions of [keys] in [channel], as JSON by key. Missing keys
   /// are left out.
   Future<Map<String, String>> emoteDefs(
@@ -259,6 +272,9 @@ class ArchiveStore {
     }
     if (from < 5) {
       await _addBlockFlags(db);
+    }
+    if (from < 6) {
+      await _createSearchIndex(db);
     }
   }
 
@@ -354,80 +370,95 @@ class ArchiveStore {
     required Map<int, int> minutes,
     Map<String, String> emoteDefs = const {},
     Set<String> refIds = const {},
-  }) async {
+    Set<String>? words,
+  }) => _withVocab((v) async {
     await tables(channel);
     final saved = await _tables[channel]!;
     final t = saved.tables;
     final whoTo = t.whos.length;
     final lookTo = t.looks.length;
     final stateTo = t.states.length;
-    await _db.transaction((txn) async {
-      final b = txn.batch();
-      for (var i = saved.whoSaved; i < whoTo; i++) {
-        final w = t.whos[i];
-        b.insert('users', {
+    final first = v.length;
+    final ids = words == null ? null : v.assign(words);
+    try {
+      await _db.transaction((txn) async {
+        final b = txn.batch();
+        if (v.length > first) {
+          b.insert('vocab', {
+            'first': first,
+            'words': encodeVocabChunk(v.words.sublist(first)),
+          });
+        }
+        for (var i = saved.whoSaved; i < whoTo; i++) {
+          final w = t.whos[i];
+          b.insert('users', {
+            'channel': channel,
+            'id': i,
+            'user_id': w.userId,
+            'login': w.login,
+            'display_name': w.displayName,
+          });
+        }
+        for (var i = saved.lookSaved; i < lookTo; i++) {
+          final l = t.looks[i];
+          b.insert('looks', {
+            'channel': channel,
+            'id': i,
+            'color': l.color,
+            'badges': l.badges,
+            'extra': l.extra.isEmpty
+                ? null
+                : jsonEncode([
+                    for (final (k, v) in l.extra) [k, v],
+                  ]),
+          });
+        }
+        for (var i = saved.stateSaved; i < stateTo; i++) {
+          b.insert('user_states', {
+            'channel': channel,
+            'id': i,
+            'who': t.states[i].who,
+            'look': t.states[i].look,
+          });
+        }
+        b.insert('blocks', {
           'channel': channel,
-          'id': i,
-          'user_id': w.userId,
-          'login': w.login,
-          'display_name': w.displayName,
+          'start_ts': startTs,
+          'end_ts': endTs,
+          'count': count,
+          'data': data,
+          'refs': 1,
+          'words': ids == null ? null : encodeWordList(ids),
         });
-      }
-      for (var i = saved.lookSaved; i < lookTo; i++) {
-        final l = t.looks[i];
-        b.insert('looks', {
-          'channel': channel,
-          'id': i,
-          'color': l.color,
-          'badges': l.badges,
-          'extra': l.extra.isEmpty
-              ? null
-              : jsonEncode([
-                  for (final (k, v) in l.extra) [k, v],
-                ]),
-        });
-      }
-      for (var i = saved.stateSaved; i < stateTo; i++) {
-        b.insert('user_states', {
-          'channel': channel,
-          'id': i,
-          'who': t.states[i].who,
-          'look': t.states[i].look,
-        });
-      }
-      b.insert('blocks', {
-        'channel': channel,
-        'start_ts': startTs,
-        'end_ts': endTs,
-        'count': count,
-        'data': data,
-        'refs': 1,
+        for (final id in refIds) {
+          b.insert('ref_ids', {
+            'channel': channel,
+            'message_id': id,
+          }, conflictAlgorithm: ConflictAlgorithm.ignore);
+        }
+        for (final e in emoteDefs.entries) {
+          b.insert('emote_defs', {
+            'channel': channel,
+            'key': e.key,
+            'json': e.value,
+          }, conflictAlgorithm: ConflictAlgorithm.ignore);
+        }
+        for (final e in minutes.entries) {
+          b.rawInsert(
+            'INSERT OR IGNORE INTO minute_counts(channel, minute, count) VALUES(?, ?, 0)',
+            [channel, e.key],
+          );
+          b.rawUpdate(
+            'UPDATE minute_counts SET count = count + ? WHERE channel = ? AND minute = ?',
+            [e.value, channel, e.key],
+          );
+        }
+        await b.commit(noResult: true);
       });
-      for (final id in refIds) {
-        b.insert('ref_ids', {
-          'channel': channel,
-          'message_id': id,
-        }, conflictAlgorithm: ConflictAlgorithm.ignore);
-      }
-      for (final e in emoteDefs.entries) {
-        b.insert('emote_defs', {
-          'channel': channel,
-          'key': e.key,
-          'json': e.value,
-        }, conflictAlgorithm: ConflictAlgorithm.ignore);
-      }
-      for (final e in minutes.entries) {
-        b.rawInsert(
-          'INSERT OR IGNORE INTO minute_counts(channel, minute, count) VALUES(?, ?, 0)',
-          [channel, e.key],
-        );
-        b.rawUpdate(
-          'UPDATE minute_counts SET count = count + ? WHERE channel = ? AND minute = ?',
-          [e.value, channel, e.key],
-        );
-      }
-      await b.commit(noResult: true);
-    });
+    } catch (_) {
+      v.truncate(first);
+      rethrow;
+    }
     saved.whoSaved = whoTo;
     saved.lookSaved = lookTo;
     saved.stateSaved = stateTo;
@@ -435,6 +466,135 @@ class ArchiveStore {
     if (span != null && endTs - startTs > span) {
       _maxSpan[channel] = endTs - startTs;
     }
+  });
+
+  // ---- Search index --------------------------------------------------------
+
+  Future<_Vocab>? _vocab;
+  Future<void> _vocabLock = Future.value();
+
+  /// Runs [body] with the vocabulary, one at a time, so word ids are handed
+  /// out once and a failed write takes back its new words.
+  Future<T> _withVocab<T>(Future<T> Function(_Vocab v) body) {
+    final run = _vocabLock.then(
+      (_) async => body(await (_vocab ??= _loadVocab())),
+    );
+    _vocabLock = run.then<void>((_) {}, onError: (_) {});
+    return run;
+  }
+
+  Future<_Vocab> _loadVocab() async {
+    final r = await _db.rawQuery(
+      'SELECT first, words FROM vocab ORDER BY first',
+    );
+    return _vocabOffIsolate([
+      for (final row in r) (row['first']! as int, row['words']! as Uint8List),
+    ]);
+  }
+
+  static Future<_Vocab> _vocabOffIsolate(List<(int, Uint8List)> chunks) =>
+      Isolate.run(() => _Vocab.fromChunks(chunks));
+
+  /// Indexes blocks sealed before the index existed, or merged since.
+  /// Returns blocks indexed.
+  Future<int> backfillWords() async {
+    var done = 0;
+    while (true) {
+      final r = await _db.rawQuery(
+        'SELECT id, data FROM blocks WHERE words IS NULL LIMIT 64',
+      );
+      if (r.isEmpty) return done;
+      final sets = await _wordsOffIsolate([
+        for (final row in r) row['data']! as Uint8List,
+      ]);
+      await _withVocab((v) async {
+        final first = v.length;
+        final lists = [for (final s in sets) encodeWordList(v.assign(s))];
+        try {
+          await _db.transaction((txn) async {
+            final b = txn.batch();
+            if (v.length > first) {
+              b.insert('vocab', {
+                'first': first,
+                'words': encodeVocabChunk(v.words.sublist(first)),
+              });
+            }
+            for (var i = 0; i < r.length; i++) {
+              b.rawUpdate('UPDATE blocks SET words = ? WHERE id = ?', [
+                lists[i],
+                r[i]['id'],
+              ]);
+            }
+            await b.commit(noResult: true);
+          });
+        } catch (_) {
+          v.truncate(first);
+          rethrow;
+        }
+      });
+      done += r.length;
+    }
+  }
+
+  static Future<List<Set<String>>> _wordsOffIsolate(List<Uint8List> blocks) =>
+      Isolate.run(() => blockWords(blocks));
+
+  /// Blocks of [channel] that may hold every one of [tokens] (each a
+  /// substring of some word), newest first, ending at or before [beforeTs]
+  /// when given. Blocks not yet indexed are always included.
+  Future<List<int>> searchBlocks(
+    String channel,
+    List<String> tokens, {
+    int? beforeTs,
+  }) async {
+    final v = await (_vocab ??= _loadVocab());
+    final want = [
+      for (final t in tokens)
+        {
+          for (var i = 0; i < v.words.length; i++)
+            if (v.words[i].contains(t)) i,
+        },
+    ];
+    if (want.any((s) => s.isEmpty)) {
+      // A token in no word can still sit in an unindexed block.
+      final r = await _db.rawQuery(
+        'SELECT id FROM blocks WHERE channel = ? AND words IS NULL '
+        '${beforeTs == null ? '' : 'AND start_ts <= $beforeTs '}'
+        'ORDER BY end_ts DESC, id DESC',
+        [channel],
+      );
+      return [for (final row in r) row['id']! as int];
+    }
+    final r = await _db.rawQuery(
+      'SELECT id, words FROM blocks WHERE channel = ? '
+      '${beforeTs == null ? '' : 'AND start_ts <= $beforeTs '}'
+      'ORDER BY end_ts DESC, id DESC',
+      [channel],
+    );
+    final ids = [for (final row in r) row['id']! as int];
+    final lists = [for (final row in r) row['words'] as Uint8List?];
+    final hit = await _matchOffIsolate(lists, want);
+    return [
+      for (var i = 0; i < ids.length; i++)
+        if (hit[i]) ids[i],
+    ];
+  }
+
+  static Future<List<bool>> _matchOffIsolate(
+    List<Uint8List?> lists,
+    List<Set<int>> want,
+  ) => Isolate.run(() => matchWordLists(lists, want));
+
+  /// Blocks by key, in the order given; missing keys are skipped.
+  Future<List<StoredBlock>> blocksByKey(List<int> keys) async {
+    if (keys.isEmpty) return const [];
+    final r = await _db.rawQuery(
+      'SELECT $_cols FROM blocks WHERE id IN '
+      '(${List.filled(keys.length, '?').join(', ')})',
+      keys,
+    );
+    final byKey = {for (final row in r) row['id']! as int: _block(row)};
+    return [for (final k in keys) ?byKey[k]];
   }
 
   /// Keeps [startTs]..[endTs] (epoch ms, inclusive) out of retention pruning.
@@ -896,6 +1056,7 @@ class ArchiveStore {
     await compact(now);
     await backfillRefs();
     await strip();
+    await backfillWords();
   }
 
   /// Message ids kept per channel, newest first. Robotty's fetch (800) and
@@ -1212,6 +1373,80 @@ List<Uint8List?> stripBlocks(List<Uint8List> blocks, Set<String> keep) => [
         ]);
       } on ArchiveFormatException {
         return null;
+      }
+    }(),
+];
+
+/// The search vocabulary in memory: words in id order and their ids.
+class _Vocab {
+  _Vocab();
+
+  /// Rebuilds from stored runs. A run that overlaps one before it skips the
+  /// overlap; a gap pads with empty words, so ids stay where they were.
+  factory _Vocab.fromChunks(List<(int, Uint8List)> chunks) {
+    final v = _Vocab();
+    for (final (first, data) in chunks) {
+      while (v.words.length < first) {
+        v.words.add('');
+      }
+      final run = decodeVocabChunk(data);
+      for (var i = v.words.length - first; i < run.length; i++) {
+        v.ids[run[i]] = v.words.length;
+        v.words.add(run[i]);
+      }
+    }
+    return v;
+  }
+
+  final List<String> words = [];
+  final Map<String, int> ids = {};
+
+  int get length => words.length;
+
+  /// Ids of [ws], adding the new ones.
+  List<int> assign(Iterable<String> ws) => [
+    for (final w in ws)
+      ids.putIfAbsent(w, () {
+        words.add(w);
+        return words.length - 1;
+      }),
+  ];
+
+  /// Drops words from id [length] on, after a write that added them failed.
+  void truncate(int length) {
+    for (var i = length; i < words.length; i++) {
+      ids.remove(words[i]);
+    }
+    words.length = length;
+  }
+}
+
+/// The distinct search words of each block; empty for a damaged one.
+List<Set<String>> blockWords(List<Uint8List> blocks) => [
+  for (final b in blocks)
+    () {
+      try {
+        return {
+          for (final r in ArchiveBlock.decode(b))
+            if (!r.isSystem) ...searchWords(r.text),
+        };
+      } on ArchiveFormatException {
+        return <String>{};
+      }
+    }(),
+];
+
+/// Whether each word list holds an id from every set in [want]. A missing
+/// or damaged list matches, so unindexed blocks are always searched.
+List<bool> matchWordLists(List<Uint8List?> lists, List<Set<int>> want) => [
+  for (final l in lists)
+    () {
+      if (l == null) return true;
+      try {
+        final ids = decodeWordList(l).toSet();
+        return want.every((s) => s.any(ids.contains));
+      } on ArchiveFormatException {
+        return true;
       }
     }(),
 ];

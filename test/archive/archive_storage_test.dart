@@ -410,6 +410,8 @@ void main() {
     await db.execute('DROP TABLE emote_defs');
     await db.execute('ALTER TABLE blocks DROP COLUMN refs');
     await db.execute('ALTER TABLE blocks DROP COLUMN stripped');
+    await db.execute('DROP TABLE vocab');
+    await db.execute('ALTER TABLE blocks DROP COLUMN words');
     await db.setVersion(3);
     await db.close();
 
@@ -585,6 +587,116 @@ void main() {
       );
       expect(all[11].messageId, isNull);
       await store.close();
+    });
+  });
+
+  group('search', () {
+    // Blocks of 4 rows; one word per block says where it is.
+    const texts = [
+      'catJAM vibing', 'hello chat', 'nothing here', 'more nothing', //
+      'gg wp', 'Neuro sama', 'filler', 'filler', //
+      'catjam again', 'hello there', 'filler', 'filler', //
+      'just filler', 'filler', 'filler', 'filler',
+    ];
+
+    Future<(ArchiveStore, ArchiveWriter)> fill(String path) async {
+      final store = await _open(path);
+      final writer = _writer(store, sealCount: 4);
+      for (var i = 0; i < texts.length; i++) {
+        writer.add(_channel, _msg(i)..text = texts[i]);
+        if (i == 0) await writer.settled();
+      }
+      await writer.flush();
+      return (store, writer);
+    }
+
+    List<String> textsOf(List<TwitchMessage> rows) => [
+      for (final m in rows) m.text,
+    ];
+
+    test(
+      'finds substrings of words, newest first, decoding only hits',
+      () async {
+        final (store, writer) = await fill(_newPath());
+        var decoded = 0;
+        final reader = ArchiveReader(
+          Future.value(store),
+          decode: (blocks) async {
+            decoded += blocks.length;
+            return decodeBlocks(blocks);
+          },
+          unsealed: writer.unsealed,
+        );
+        expect(textsOf(await reader.search(_channel, 'CAT')), [
+          'catjam again',
+          'catJAM vibing',
+        ], reason: 'case-insensitive, inside a word, newest first');
+        expect(decoded, 2, reason: 'blocks without the word were decoded');
+        expect(textsOf(await reader.search(_channel, 'hello th')), [
+          'hello there',
+        ], reason: 'every word must be present, then the text must match');
+        expect(await reader.search(_channel, 'zebra'), isEmpty);
+        expect(await reader.search(_channel, '!!'), isEmpty);
+        // Paging: the next page starts below the oldest row shown.
+        final first = await reader.search(_channel, 'filler', limit: 3);
+        expect(first, hasLength(3));
+        final next = await reader.search(
+          _channel,
+          'filler',
+          before: first.last.timestamp,
+        );
+        expect(
+          [...first, ...next].map((m) => m.messageId).toSet(),
+          hasLength(8),
+          reason: 'pages overlapped or skipped a row',
+        );
+        // Rows still in the writer's tail are found too.
+        writer.add(_channel, _msg(100)..text = 'catJAM fresh');
+        await writer.settled();
+        expect(
+          textsOf(await reader.search(_channel, 'catjam')).first,
+          'catJAM fresh',
+        );
+        await store.close();
+      },
+    );
+
+    test('unindexed blocks are searched, then indexed', () async {
+      final path = _newPath();
+      final (store, _) = await fill(path);
+      final db = await databaseFactoryFfi.openDatabase(
+        path,
+        options: OpenDatabaseOptions(singleInstance: false),
+      );
+      await db.execute('UPDATE blocks SET words = NULL');
+      await db.close();
+      final reader = _reader(store);
+      expect(textsOf(await reader.search(_channel, 'neuro')), ['Neuro sama']);
+      expect(await store.backfillWords(), 4);
+      expect(textsOf(await reader.search(_channel, 'neuro')), ['Neuro sama']);
+      await store.close();
+    });
+
+    test('the vocabulary keeps its ids across a restart', () async {
+      final path = _newPath();
+      final (store, _) = await fill(path);
+      await store.close();
+      final again = await _open(path);
+      final writer = _writer(again, sealCount: 4);
+      // New words after the restart must not take ids the old ones hold.
+      for (var i = 0; i < 4; i++) {
+        writer.add(_channel, _msg(200 + i)..text = 'pogchamp $i');
+        if (i == 0) await writer.settled();
+      }
+      await writer.flush();
+      final reader = _reader(again);
+      expect(textsOf(await reader.search(_channel, 'neuro')), ['Neuro sama']);
+      expect(await reader.search(_channel, 'pogchamp'), hasLength(4));
+      expect(textsOf(await reader.search(_channel, 'catjam')), [
+        'catjam again',
+        'catJAM vibing',
+      ]);
+      await again.close();
     });
   });
 
