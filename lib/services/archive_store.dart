@@ -87,7 +87,7 @@ class _ChannelTables {
 class ArchiveStore {
   ArchiveStore._(this._db, this._now);
 
-  static const int schemaVersion = 4;
+  static const int schemaVersion = 5;
   static const Duration retention = Duration(days: 30);
   static const Duration pruneEvery = Duration(hours: 1);
 
@@ -168,6 +168,7 @@ class ArchiveStore {
     await _createThreads(db);
     await _createModeration(db);
     await _createEmoteDefs(db);
+    await _addBlockFlags(db);
   }
 
   /// Saved threads live in their own tables, so block retention never
@@ -209,6 +210,18 @@ class ArchiveStore {
          channel TEXT NOT NULL, key TEXT NOT NULL, json TEXT NOT NULL,
          PRIMARY KEY(channel, key)) WITHOUT ROWID''');
 
+  /// Per block: `refs` once its reply parent and root ids are in `ref_ids`
+  /// (new blocks at seal, older ones by [backfillRefs]), and `stripped`
+  /// once its message ids are gone ([strip]).
+  static Future<void> _addBlockFlags(Database db) async {
+    await db.execute(
+      'ALTER TABLE blocks ADD COLUMN refs INTEGER NOT NULL DEFAULT 0',
+    );
+    await db.execute(
+      'ALTER TABLE blocks ADD COLUMN stripped INTEGER NOT NULL DEFAULT 0',
+    );
+  }
+
   /// Stored definitions of [keys] in [channel], as JSON by key. Missing keys
   /// are left out.
   Future<Map<String, String>> emoteDefs(
@@ -243,6 +256,9 @@ class ArchiveStore {
     }
     if (from < 4) {
       await _createEmoteDefs(db);
+    }
+    if (from < 5) {
+      await _addBlockFlags(db);
     }
   }
 
@@ -337,6 +353,7 @@ class ArchiveStore {
     required Uint8List data,
     required Map<int, int> minutes,
     Map<String, String> emoteDefs = const {},
+    Set<String> refIds = const {},
   }) async {
     await tables(channel);
     final saved = await _tables[channel]!;
@@ -384,7 +401,14 @@ class ArchiveStore {
         'end_ts': endTs,
         'count': count,
         'data': data,
+        'refs': 1,
       });
+      for (final id in refIds) {
+        b.insert('ref_ids', {
+          'channel': channel,
+          'message_id': id,
+        }, conflictAlgorithm: ConflictAlgorithm.ignore);
+      }
       for (final e in emoteDefs.entries) {
         b.insert('emote_defs', {
           'channel': channel,
@@ -853,11 +877,11 @@ class ArchiveStore {
     _lastPrune = now;
     final deleted = await prune(now);
     // A long gap leaves seconds of merging; nothing waits on it.
-    _compacting ??= compact(now)
+    _compacting ??= _upkeep(now)
         .then<void>(
           (_) {},
           onError: (Object e) {
-            logDebug('[ArchiveStore] compaction failed: $e');
+            logDebug('[ArchiveStore] upkeep failed: $e');
           },
         )
         .whenComplete(() => _compacting = null);
@@ -865,6 +889,120 @@ class ArchiveStore {
   }
 
   Future<void>? _compacting;
+
+  /// Background upkeep after a prune: merge small blocks, record reply
+  /// references of blocks sealed before `ref_ids` was kept, then strip ids.
+  Future<void> _upkeep(DateTime now) async {
+    await compact(now);
+    await backfillRefs();
+    await strip();
+  }
+
+  /// Message ids kept per channel, newest first. Robotty's fetch (800) and
+  /// the live buffer dedup by id, and replies and mod actions need them;
+  /// past this only reply roots and parents keep theirs.
+  static const int keepIdRows = 1000;
+
+  /// Records the reply parent and root ids of blocks sealed before they were
+  /// kept at seal. Returns blocks done.
+  Future<int> backfillRefs() async {
+    var done = 0;
+    while (true) {
+      final r = await _db.rawQuery(
+        'SELECT id, channel, data FROM blocks WHERE refs = 0 LIMIT 64',
+      );
+      if (r.isEmpty) return done;
+      final refs = await _refsOffIsolate([
+        for (final row in r) row['data']! as Uint8List,
+      ]);
+      await _db.transaction((txn) async {
+        final b = txn.batch();
+        for (var i = 0; i < r.length; i++) {
+          for (final id in refs[i]) {
+            b.insert('ref_ids', {
+              'channel': r[i]['channel'],
+              'message_id': id,
+            }, conflictAlgorithm: ConflictAlgorithm.ignore);
+          }
+          b.rawUpdate('UPDATE blocks SET refs = 1 WHERE id = ?', [r[i]['id']]);
+        }
+        await b.commit(noResult: true);
+      });
+      done += r.length;
+    }
+  }
+
+  /// Drops message ids from blocks wholly past the newest [keepIdRows] rows
+  /// of their channel, keeping every id a reply references. A channel with
+  /// references not yet recorded waits. Returns blocks stripped.
+  Future<int> strip() async {
+    var stripped = 0;
+    final channels = await _db.rawQuery(
+      'SELECT channel, MIN(refs) AS r FROM blocks GROUP BY channel',
+    );
+    for (final c in channels) {
+      if (c['r'] != 1) continue;
+      final channel = c['channel']! as String;
+      final blocks = await _db.rawQuery(
+        'SELECT id, count, stripped FROM blocks WHERE channel = ? '
+        'ORDER BY end_ts DESC, id DESC',
+        [channel],
+      );
+      final targets = <int>[];
+      var newer = 0;
+      for (final b in blocks) {
+        if (newer >= keepIdRows && b['stripped'] == 0) {
+          targets.add(b['id']! as int);
+        }
+        newer += b['count']! as int;
+      }
+      if (targets.isEmpty) continue;
+      final keep = {
+        for (final r in await _db.rawQuery(
+          'SELECT message_id FROM ref_ids WHERE channel = ?',
+          [channel],
+        ))
+          r['message_id']! as String,
+      };
+      for (var i = 0; i < targets.length; i += 64) {
+        final part = targets.sublist(
+          i,
+          i + 64 > targets.length ? targets.length : i + 64,
+        );
+        final r = await _db.rawQuery(
+          'SELECT id, data FROM blocks WHERE id IN '
+          '(${List.filled(part.length, '?').join(', ')})',
+          part,
+        );
+        final out = await _stripOffIsolate([
+          for (final row in r) row['data']! as Uint8List,
+        ], keep);
+        await _db.transaction((txn) async {
+          final b = txn.batch();
+          for (var k = 0; k < r.length; k++) {
+            final data = out[k];
+            if (data == null) continue;
+            b.rawUpdate(
+              'UPDATE blocks SET data = ?, stripped = 1 '
+              'WHERE id = ? AND stripped = 0',
+              [data, r[k]['id']],
+            );
+            stripped++;
+          }
+          await b.commit(noResult: true);
+        });
+      }
+    }
+    return stripped;
+  }
+
+  static Future<List<Set<String>>> _refsOffIsolate(List<Uint8List> blocks) =>
+      Isolate.run(() => blockRefs(blocks));
+
+  static Future<List<Uint8List?>> _stripOffIsolate(
+    List<Uint8List> blocks,
+    Set<String> keep,
+  ) => Isolate.run(() => stripBlocks(blocks, keep));
 
   /// Blocks this old or older may merge; newer ones are still the writer's
   /// recent past and stay as sealed.
@@ -935,7 +1073,8 @@ class ArchiveStore {
       final ok = await _db.transaction((txn) async {
         final span = await txn.rawQuery(
           'SELECT channel, MIN(start_ts) AS s, MAX(end_ts) AS e, '
-          'SUM(count) AS n, COUNT(*) AS k FROM blocks WHERE id IN ($marks)',
+          'SUM(count) AS n, COUNT(*) AS k, MIN(refs) AS r, '
+          'MIN(stripped) AS x FROM blocks WHERE id IN ($marks)',
           g,
         );
         final row = span.first;
@@ -948,6 +1087,9 @@ class ArchiveStore {
           'end_ts': row['e'],
           'count': row['n'],
           'data': m,
+          // A merge keeps the least done of its sources' upkeep.
+          'refs': row['r'],
+          'stripped': row['x'],
         });
         _maxSpan.remove(row['channel']);
         return true;
@@ -1034,6 +1176,39 @@ List<Uint8List?> mergeBlocks(List<List<Uint8List>> groups) => [
       try {
         return ArchiveBlock.encode([
           for (final b in g) ...ArchiveBlock.decode(b),
+        ]);
+      } on ArchiveFormatException {
+        return null;
+      }
+    }(),
+];
+
+/// Reply parent and root ids each block references; empty for a damaged one.
+List<Set<String>> blockRefs(List<Uint8List> blocks) => [
+  for (final b in blocks)
+    () {
+      try {
+        return {
+          for (final r in ArchiveBlock.decode(b)) ...[
+            ?r.replyParentId,
+            ?r.threadRootId,
+          ],
+        };
+      } on ArchiveFormatException {
+        return <String>{};
+      }
+    }(),
+];
+
+/// Each block re-packed without message ids outside [keep] and without
+/// shared-chat source ids, or null for a damaged one.
+List<Uint8List?> stripBlocks(List<Uint8List> blocks, Set<String> keep) => [
+  for (final b in blocks)
+    () {
+      try {
+        return ArchiveBlock.encode([
+          for (final r in ArchiveBlock.decode(b))
+            r.withoutIds(keep: keep.contains(r.messageId)),
         ]);
       } on ArchiveFormatException {
         return null;

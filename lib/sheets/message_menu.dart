@@ -41,7 +41,9 @@ class MessageMenus {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
+              // Old history rows keep no message id to reply to.
               ListTile(
+                enabled: msg.messageId != null,
                 leading: const Icon(Icons.reply),
                 title: Text(ctx.l10n.replyToMessage),
                 onTap: () {

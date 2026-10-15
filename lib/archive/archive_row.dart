@@ -104,6 +104,35 @@ class ArchiveRow {
   /// Tags no field above covers, kept so unknown data is never lost.
   final List<(String, String)> extraTags;
 
+  /// This row with its message id dropped unless [keep], and its shared-chat
+  /// source id dropped. Reply references stay so replies still find kept
+  /// parents.
+  ArchiveRow withoutIds({required bool keep}) => ArchiveRow(
+    timestampMs: timestampMs,
+    text: text,
+    user: user,
+    isSystem: isSystem,
+    isAction: isAction,
+    isBanNotice: isBanNotice,
+    deleted: deleted,
+    isFirstMessage: isFirstMessage,
+    isBackfill: isBackfill,
+    isHistory: isHistory,
+    messageId: keep ? messageId : null,
+    replyParentId: replyParentId,
+    threadRootId: threadRootId,
+    replyToUser: replyToUser,
+    msgId: msgId,
+    customRewardId: customRewardId,
+    bitsAmount: bitsAmount,
+    pinnedPaidAmount: pinnedPaidAmount,
+    sourceBroadcasterId: sourceBroadcasterId,
+    emotes: emotes,
+    tokens: tokens,
+    tokensStored: tokensStored,
+    extraTags: extraTags,
+  );
+
   @override
   bool operator ==(Object other) =>
       other is ArchiveRow &&

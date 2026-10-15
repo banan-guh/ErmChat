@@ -405,9 +405,11 @@ void main() {
     writer.add(_channel, _msg(0));
     await writer.flush();
     await store.close();
-    // Back to schema 3: no emote_defs table.
+    // Back to schema 3: no emote_defs table, no block upkeep flags.
     final db = await databaseFactoryFfi.openDatabase(path);
     await db.execute('DROP TABLE emote_defs');
+    await db.execute('ALTER TABLE blocks DROP COLUMN refs');
+    await db.execute('ALTER TABLE blocks DROP COLUMN stripped');
     await db.setVersion(3);
     await db.close();
 
@@ -510,6 +512,80 @@ void main() {
       reason: 'a second pass finds nothing to merge',
     );
     await store.close();
+  });
+
+  group('id stripping', () {
+    // 1500 rows in 256-row blocks; the newest reply points at row 10.
+    Future<ArchiveStore> fill(String path) async {
+      final store = await _open(path);
+      final writer = _writer(store);
+      writer.add(_channel, _msg(0));
+      await writer.settled();
+      for (var i = 1; i < 1500; i++) {
+        final m = _msg(i);
+        if (i == 1499) {
+          m
+            ..replyToParentId = _id(10)
+            ..replyThreadRootId = _id(10);
+        }
+        writer.add(_channel, m);
+      }
+      await writer.flush();
+      return store;
+    }
+
+    Future<List<TwitchMessage>> rows(ArchiveStore store) =>
+        _reader(store).newestRows(_channel, 10000);
+
+    test('drops ids past the newest 1000 rows, keeps reply parents', () async {
+      final store = await fill(_newPath());
+      final before = [
+        for (final b in await store.newestBlocks(_channel, 10000))
+          b.data.length,
+      ].fold<int>(0, (a, b) => a + b);
+      // Blocks of 256 from the newest: 220, 256, 256, 256 keep (988 rows
+      // newer than the next), so only the oldest block is wholly past 1000.
+      expect(await store.strip(), 1);
+      final all = await rows(store);
+      expect(all, hasLength(1500), reason: 'stripping lost rows');
+      for (var i = 0; i < 1500; i++) {
+        final want = i < 256 && i != 10 ? null : _id(i);
+        expect(all[i].messageId, want, reason: 'row $i');
+      }
+      expect(all.last.replyToParentId, _id(10));
+      final after = [
+        for (final b in await store.newestBlocks(_channel, 10000))
+          b.data.length,
+      ].fold<int>(0, (a, b) => a + b);
+      expect(after, lessThan(before));
+      expect(await store.strip(), 0, reason: 'stripping runs once per block');
+      await store.close();
+    });
+
+    test('waits for older blocks\' references before stripping', () async {
+      final path = _newPath();
+      final store = await fill(path);
+      // As sealed before references were recorded. A second connection, so
+      // closing it leaves the store's open.
+      final db = await databaseFactoryFfi.openDatabase(
+        path,
+        options: OpenDatabaseOptions(singleInstance: false),
+      );
+      await db.execute('UPDATE blocks SET refs = 0');
+      await db.execute('DELETE FROM ref_ids');
+      await db.close();
+      expect(await store.strip(), 0, reason: 'a reply parent could be lost');
+      expect(await store.backfillRefs(), 6);
+      expect(await store.strip(), 1);
+      final all = await rows(store);
+      expect(
+        all[10].messageId,
+        _id(10),
+        reason: 'the reply parent kept its id',
+      );
+      expect(all[11].messageId, isNull);
+      await store.close();
+    });
   });
 
   test('a message id is stored once, also across a restart', () async {

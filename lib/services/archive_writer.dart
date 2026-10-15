@@ -196,6 +196,9 @@ class ArchiveWriter {
         data: data,
         minutes: minutes,
         emoteDefs: defs,
+        refIds: {
+          for (final r in rows) ...[?r.replyParentId, ?r.threadRootId],
+        },
       );
       await store.pruneIfDue();
     } catch (e) {
