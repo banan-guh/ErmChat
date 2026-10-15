@@ -292,7 +292,7 @@ class Messages {
       // scrolling back through history still shows the gap.
       final at = oldestHistory.subtract(const Duration(milliseconds: 1));
       final id = '$historyGapIdPrefix${at.millisecondsSinceEpoch}';
-      if (!_byId.containsKey(id)) {
+      if (!_byId.containsKey(id) && _chatBefore(at)) {
         final note = TwitchMessage(
           login: '',
           text: systemText(SystemLine.historyGap),
@@ -598,6 +598,43 @@ class Messages {
     _noteMutation(messageId);
     return true;
   }
+
+  /// Notes a gap at [at] after a history fetch failed: messages from before
+  /// then may be missing. Nothing when no chat sits before [at], or when the
+  /// last thing before it is already a gap note, so a fetch failing again at
+  /// the same place adds no second note. Returns the note added.
+  TwitchMessage? noteHistoryGap(DateTime at) {
+    if (!_chatBefore(at)) return null;
+    final id = '$historyGapIdPrefix${at.millisecondsSinceEpoch}';
+    if (_byId.containsKey(id)) return null;
+    final note = TwitchMessage(
+      login: '',
+      text: systemText(SystemLine.historyGap),
+      isSystem: true,
+      messageId: id,
+      channel: channel,
+      timestamp: at,
+    );
+    _items.add(note);
+    _byId[id] = note;
+    _sortNewestFirst();
+    _bump();
+    return note;
+  }
+
+  /// Whether the last chat or gap note at or before [at] is chat, so a note
+  /// there would mark a new place.
+  bool _chatBefore(DateTime at) {
+    for (final m in _items) {
+      if (m.timestamp.isAfter(at)) continue;
+      if (_isGapNote(m)) return false;
+      if (!m.isSystem) return true;
+    }
+    return false;
+  }
+
+  static bool _isGapNote(TwitchMessage m) =>
+      m.isSystem && (m.messageId?.startsWith(historyGapIdPrefix) ?? false);
 
   /// Removes the system row carrying [messageId]. Returns true when one went.
   bool removeSystem(String messageId) {

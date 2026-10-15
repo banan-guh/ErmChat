@@ -505,6 +505,81 @@ void main() {
       }
     });
 
+    test('a failed fetch notes its gap once per place', () {
+      DateTime t(int minute) => DateTime.utc(2026, 1, 1, 0, minute);
+      void live(Chat chat, int minute) => chat.receive(
+        'test',
+        row('c$minute', minute),
+        maxMessages: 100,
+        isSelected: true,
+        ownLogin: null,
+      );
+      for (final (name, script, want) in [
+        ('nothing held yet', [('fail', 5)], <int>[]),
+        ('chat before the failure', [('chat', 1), ('fail', 5)], [5]),
+        (
+          'failing again with no chat between',
+          [('chat', 1), ('fail', 5), ('fail', 9), ('fail', 12)],
+          [5],
+        ),
+        (
+          'chat between two failures',
+          [('chat', 1), ('fail', 5), ('chat', 7), ('fail', 9)],
+          [5, 9],
+        ),
+        (
+          'live rows already past the failure point',
+          [('chat', 1), ('chat', 6), ('fail', 5)],
+          [5],
+        ),
+        (
+          'a fetch gap, then a failure after its rows',
+          [('chat', 1), ('chat', 3), ('fetch', 20), ('fail', 30)],
+          [19, 30],
+        ),
+        (
+          'a failure, then a fetch that cannot reach back',
+          [('chat', 1), ('fail', 5), ('fetch', 20)],
+          [5],
+        ),
+      ]) {
+        final chat = Chat();
+        addTearDown(chat.dispose);
+        chat.ensure('test');
+        final messages = chat.channelFor('test')!.messages;
+        for (final (step, minute) in script) {
+          switch (step) {
+            case 'chat':
+              live(chat, minute);
+            case 'fetch':
+              merge(chat, [row('f$minute', minute)]);
+            case 'fail':
+              messages.noteHistoryGap(t(minute));
+          }
+        }
+        expect(
+          [for (final n in notes(chat).reversed) n.timestamp.minute],
+          want,
+          reason: name,
+        );
+      }
+      // The note sits between the rows it separates, not after live rows.
+      final chat = Chat();
+      addTearDown(chat.dispose);
+      chat.ensure('test');
+      live(chat, 1);
+      live(chat, 6);
+      chat.channelFor('test')!.messages.noteHistoryGap(t(5));
+      expect(
+        [for (final m in chat.channelFor('test')!.messages.items) m.messageId],
+        [
+          'c6',
+          '${Messages.historyGapIdPrefix}${t(5).millisecondsSinceEpoch}',
+          'c1',
+        ],
+      );
+    });
+
     test('an archived gap note restored on a cold start is not doubled', () {
       final chat = Chat();
       addTearDown(chat.dispose);

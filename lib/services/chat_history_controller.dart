@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import 'package:clock/clock.dart';
+
 import '../chat/chat.dart';
 import '../client/session.dart';
 import '../emotes/emote.dart';
@@ -34,7 +36,9 @@ class ChatHistoryController {
     this.isBlocked,
     ChatSignal<bool>? emoteReloading,
     this.archive,
-  }) : _policy = ChatMessagePolicy(
+    DateTime Function()? now,
+  }) : now = now ?? clock.now,
+       _policy = ChatMessagePolicy(
          ignoreManager: ignoreManager,
          pingManager: pingManager,
          userStore: userStore,
@@ -60,6 +64,9 @@ class ChatHistoryController {
 
   /// Null when no archive is wired (tests).
   final Archive? archive;
+
+  /// Clock for where a failed fetch notes its gap.
+  final DateTime Function() now;
 
   final ChatMessagePolicy _policy;
   final _refetchingChannels = <String>{};
@@ -95,6 +102,13 @@ class ChatHistoryController {
     for (final msg in inserted) {
       archive?.writer.add(channel, msg);
     }
+  }
+
+  /// Notes that messages before [at], when a failed fetch started, may be
+  /// missing, once per place, and archives the note like fetched rows.
+  void noteFetchFailed(String channel, DateTime at) {
+    final note = chat.channelFor(channel)?.messages.noteHistoryGap(at);
+    if (note != null) archive?.writer.add(channel, note);
   }
 
   /// Fills the channel buffer with its newest archived rows before the
@@ -264,6 +278,7 @@ class ChatHistoryController {
       return;
     }
     _refetchingChannels.add(channel);
+    final at = now();
     try {
       final history = await recentMessages.fetchRecent(
         channel,
@@ -282,6 +297,7 @@ class ChatHistoryController {
       logDebug(
         '[ChatHistoryController] history re-fetch failed for $channel: $e',
       );
+      noteFetchFailed(channel, at);
     } finally {
       _refetchingChannels.remove(channel);
     }

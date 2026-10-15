@@ -126,6 +126,7 @@ class ChannelSession extends ChangeNotifier {
     notifyListeners();
     for (final name in saved) {
       subscribeChannel(name);
+      final at = history.now();
       _fetchHistory(name)
           .then((rows) {
             if (_disposed || !chat.contains(name)) return;
@@ -141,6 +142,7 @@ class ChannelSession extends ChangeNotifier {
           .catchError((e) {
             if (_disposed || !chat.contains(name)) return;
             chat.channelFor(name)?.setHistoryLoaded(true);
+            history.noteFetchFailed(name, at);
             _addSystemMessage(
               name,
               e is RecentMessagesException
@@ -199,6 +201,7 @@ class ChannelSession extends ChangeNotifier {
 
     chat.channelFor(name)?.addLoadingHistory();
 
+    final at = history.now();
     _fetchHistory(name)
         .then((rows) {
           if (_disposed || !chat.contains(name)) return;
@@ -216,6 +219,7 @@ class ChannelSession extends ChangeNotifier {
           if (_disposed || !chat.contains(name)) return;
           chat.channelFor(name)?.setHistoryLoaded(true);
           removeLoadingHistoryMessage(name);
+          history.noteFetchFailed(name, at);
           _addSystemMessage(
             name,
             e is RecentMessagesException

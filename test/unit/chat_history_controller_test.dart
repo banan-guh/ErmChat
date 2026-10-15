@@ -17,6 +17,8 @@ import 'package:ermchat/services/twitch_badge_service.dart';
 import 'package:ermchat/services/user_store.dart';
 import 'package:ermchat/util/signal.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 Emote sevenTv(String id, String code) => Emote(
@@ -40,10 +42,12 @@ ChatHistoryController _controller(
   EmoteManager emotes, {
   ChatSignal<bool>? emoteReloading,
   Archive? archive,
+  RecentMessagesService? recent,
+  DateTime Function()? now,
 }) => ChatHistoryController(
   chat: chat,
   session: Session(),
-  recentMessages: RecentMessagesService(),
+  recentMessages: recent ?? RecentMessagesService(),
   ignoreManager: IgnoreManager(),
   pingManager: PingManager(),
   userStore: UserStore(),
@@ -53,6 +57,7 @@ ChatHistoryController _controller(
   recentMessagesLimit: () => 100,
   emoteReloading: emoteReloading,
   archive: archive,
+  now: now,
 );
 
 void main() {
@@ -275,6 +280,65 @@ void main() {
     controller.mergeHistory('ch', rows(30, 35));
     expect(gaps(chat), hasLength(1));
     await store.close();
+  });
+
+  test('a failing refetch notes its gap once and archives it', () async {
+    sqfliteFfiInit();
+    final dir = await Directory.systemTemp.createTemp('gapfail');
+    addTearDown(() => dir.delete(recursive: true));
+    final store = await ArchiveStore.open(
+      '${dir.path}/archive.db',
+      factory: databaseFactoryFfi,
+    );
+    addTearDown(store.close);
+    final archive = Archive(Future.value(store));
+    final emotes = EmoteManager();
+    addTearDown(emotes.dispose);
+    final chat = Chat();
+    addTearDown(chat.dispose);
+    final channel = chat.ensure('ch');
+    var clockNow = DateTime.utc(2026, 10, 15, 12, 10);
+    final controller = _controller(
+      chat,
+      emotes,
+      archive: archive,
+      now: () => clockNow,
+      // Every provider is down.
+      recent: RecentMessagesService(
+        client: MockClient((_) async => http.Response('down', 503)),
+      ),
+    );
+    addTearDown(controller.dispose);
+    controller.mergeHistory('ch', [
+      for (var i = 0; i < 3; i++)
+        TwitchMessage(
+          login: 'alice',
+          text: 'm$i',
+          messageId: '0000000$i-0b7d-4c55-9a10-6d2e8f4b7a01',
+          channel: 'ch',
+          userId: '42',
+          timestamp: DateTime.utc(2026, 10, 15, 12, i),
+        ),
+    ]);
+    channel.setHistoryLoaded(true);
+
+    // A flapping connection: three reconnects fail with no chat between.
+    for (var k = 0; k < 3; k++) {
+      await controller.refetchHistory('ch');
+      clockNow = clockNow.add(const Duration(minutes: 1));
+    }
+    bool isGap(TwitchMessage m) =>
+        m.messageId?.startsWith(Messages.historyGapIdPrefix) ?? false;
+    final notes = channel.messages.items.where(isGap).toList();
+    expect(notes, hasLength(1), reason: 'one place, one note');
+    expect(notes.single.timestamp, DateTime.utc(2026, 10, 15, 12, 10));
+    await archive.writer.flush();
+    final stored = await archive.reader.newestRows('ch', 100);
+    expect(
+      stored.where(isGap),
+      hasLength(1),
+      reason: 'history must still show the gap after the buffer trims it',
+    );
   });
 
   test('dispose detaches the catalog listener', () {
