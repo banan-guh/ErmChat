@@ -87,8 +87,8 @@ class ArchiveHistorySource implements HistorySource {
 }
 
 /// [HistorySource] over the matches of one search in one channel's archive,
-/// so the history list pages through results like through chat. No streams
-/// or rail: results are not a timeline of the channel.
+/// so the history list pages through results like through chat. The rail
+/// shows where matches lie; streams are left out.
 class ArchiveSearchSource implements HistorySource {
   ArchiveSearchSource(
     this.channel,
@@ -148,8 +148,35 @@ class ArchiveSearchSource implements HistorySource {
   @override
   Future<List<HistoryStream>> streams() async => const [];
 
+  /// Weighs each bucket by the candidate blocks that cover it, since counting
+  /// matches would decode every block.
   @override
-  Future<ActivityRail?> rail(List<HistoryStream> streams) async => null;
+  Future<ActivityRail?> rail(List<HistoryStream> streams) async {
+    final spans = await reader.searchSpans(channel, query, scope: scope);
+    if (spans.isEmpty) return null;
+    final to = _now().toUtc();
+    const bucket = ActivityRail.defaultBucket;
+    final ms = bucket.inMilliseconds;
+    final first = spans
+        .map((s) => s.$1)
+        .reduce((a, b) => a.isBefore(b) ? a : b);
+    final from = DateTime.fromMillisecondsSinceEpoch(
+      first.millisecondsSinceEpoch ~/ ms * ms,
+      isUtc: true,
+    );
+    final buckets = List<int>.filled(
+      (to.difference(from).inMilliseconds / ms).ceil() + 1,
+      0,
+    );
+    int index(DateTime t) =>
+        (t.difference(from).inMilliseconds ~/ ms).clamp(0, buckets.length - 1);
+    for (final (start, end) in spans) {
+      for (var i = index(start); i <= index(end); i++) {
+        buckets[i]++;
+      }
+    }
+    return ActivityRail(from: from, to: to, bucket: bucket, counts: buckets);
+  }
 
   @override
   void Function() watchClears(void Function(HistoryClear clear) onClear) =>

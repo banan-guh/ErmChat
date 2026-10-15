@@ -332,32 +332,21 @@ class ArchiveReader {
           searchMatchesLower(m, q, scope);
     }
 
-    final tokens = searchWords(q).toSet().toList();
-    final words = scope == ChatSearchScope.chatters || tokens.isEmpty
-        ? null
-        : await store.wordIds(tokens);
-    Set<int>? senders;
-    if (scope != ChatSearchScope.messages) {
-      final t = await store.tables(channel);
-      final who = {
-        for (var i = 0; i < t.whos.length; i++)
-          if (t.whos[i].login.toLowerCase().contains(q) ||
-              (t.whos[i].displayName?.toLowerCase().contains(q) ?? false))
-            i,
-      };
-      if (who.isNotEmpty) senders = who;
-    }
     final out = <TwitchMessage>[
       for (final m in unsealed(channel))
         if (hit(m)) m,
     ];
-    final keys = await store.searchBlocks(
-      channel,
-      words: words,
-      senders: senders,
-      beforeTs: beforeMs,
-      afterTs: afterMs,
-    );
+    final keys = [
+      for (final b in await _candidates(
+        store,
+        channel,
+        q,
+        scope,
+        beforeTs: beforeMs,
+        afterTs: afterMs,
+      ))
+        b.id,
+    ];
     // Blocks nearest the start point first, a few at a time, until full.
     for (var i = 0; i < keys.length && out.length < limit; i += 8) {
       final blocks = await store.blocksByKey(
@@ -377,6 +366,59 @@ class ArchiveReader {
     return after != null
         ? unique.sublist(unique.length - limit)
         : unique.sublist(0, limit);
+  }
+
+  /// Where matches of [query] lie: the time spans of blocks that may hold one,
+  /// plus the times of matching unsealed rows. Decodes nothing, so a common
+  /// query maps its whole archive cheaply.
+  Future<List<(DateTime, DateTime)>> searchSpans(
+    String channel,
+    String query, {
+    ChatSearchScope scope = ChatSearchScope.messages,
+  }) async {
+    final q = query.trim().toLowerCase();
+    final store = await _store;
+    if (store == null || q.isEmpty) return const [];
+    DateTime at(int ms) => DateTime.fromMillisecondsSinceEpoch(ms, isUtc: true);
+    return [
+      for (final b in await _candidates(store, channel, q, scope))
+        (at(b.start), at(b.end)),
+      for (final m in unsealed(channel))
+        if (searchMatchesLower(m, q, scope)) (m.timestamp, m.timestamp),
+    ];
+  }
+
+  /// Blocks of [channel] that may match the lowercased query [q].
+  Future<List<({int id, int start, int end})>> _candidates(
+    ArchiveStore store,
+    String channel,
+    String q,
+    ChatSearchScope scope, {
+    int? beforeTs,
+    int? afterTs,
+  }) async {
+    final tokens = searchWords(q).toSet().toList();
+    final words = scope == ChatSearchScope.chatters || tokens.isEmpty
+        ? null
+        : await store.wordIds(tokens);
+    Set<int>? senders;
+    if (scope != ChatSearchScope.messages) {
+      final t = await store.tables(channel);
+      final who = {
+        for (var i = 0; i < t.whos.length; i++)
+          if (t.whos[i].login.toLowerCase().contains(q) ||
+              (t.whos[i].displayName?.toLowerCase().contains(q) ?? false))
+            i,
+      };
+      if (who.isNotEmpty) senders = who;
+    }
+    return store.searchBlocks(
+      channel,
+      words: words,
+      senders: senders,
+      beforeTs: beforeTs,
+      afterTs: afterTs,
+    );
   }
 
   /// Sort by time, keeping arrival order for equal timestamps (List.sort is

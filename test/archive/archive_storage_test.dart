@@ -728,6 +728,41 @@ void main() {
       await store.close();
     });
 
+    test('the search rail marks where matches lie', () async {
+      final store = await _open(_newPath());
+      final writer = _writer(store, sealCount: 2);
+      const hour = 3600 * 1000;
+      final t = _t0.millisecondsSinceEpoch;
+      for (final (i, text, ts) in [
+        (0, 'pog early', t),
+        (1, 'chat', t + 1000),
+        (2, 'chat', t + 5 * hour),
+        (3, 'chat', t + 5 * hour + 1000),
+        (4, 'pog late', t + 10 * hour),
+        (5, 'chat', t + 10 * hour + 1000),
+      ]) {
+        writer.add(_channel, _msg(i, tsMs: ts)..text = text);
+        if (i == 0) await writer.settled();
+      }
+      await writer.flush();
+      ArchiveSearchSource source(String q) => ArchiveSearchSource(
+        _channel,
+        _reader(store),
+        query: q,
+        scope: ChatSearchScope.messages,
+        now: () => _t0.add(const Duration(hours: 10, minutes: 1)),
+      );
+      final rail = (await source('pog').rail(const []))!;
+      expect(rail.from.isAfter(_t0), isFalse);
+      expect(
+        rail.gaps.length,
+        1,
+        reason: 'the chat-only middle is one hollow stretch',
+      );
+      expect(await source('nothing').rail(const []), isNull);
+      await store.close();
+    });
+
     test('unindexed blocks are searched, then indexed', () async {
       final path = _newPath();
       final (store, _) = await fill(path);

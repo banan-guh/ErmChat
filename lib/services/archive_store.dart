@@ -573,8 +573,9 @@ class ArchiveStore {
   /// Blocks of [channel] that may hold a match: every set of [words] has an
   /// id in the block, or one of [senders] wrote in it. Blocks not yet
   /// indexed always qualify. Newest first, ending at or before [beforeTs];
-  /// with [afterTs], oldest first from blocks ending at or after it.
-  Future<List<int>> searchBlocks(
+  /// with [afterTs], oldest first from blocks ending at or after it. Each
+  /// comes with its time span (epoch ms).
+  Future<List<({int id, int start, int end})>> searchBlocks(
     String channel, {
     List<Set<int>>? words,
     Set<int>? senders,
@@ -589,7 +590,8 @@ class ArchiveStore {
     ].join(' AND ');
     final order = afterTs != null ? 'start_ts, id' : 'end_ts DESC, id DESC';
     final r = await _db.rawQuery(
-      'SELECT id, words, senders FROM blocks WHERE $where ORDER BY $order',
+      'SELECT id, start_ts, end_ts, words, senders FROM blocks '
+      'WHERE $where ORDER BY $order',
       [channel],
     );
     final hit = await _matchOffIsolate(
@@ -600,7 +602,12 @@ class ArchiveStore {
     );
     return [
       for (var i = 0; i < r.length; i++)
-        if (hit[i]) r[i]['id']! as int,
+        if (hit[i])
+          (
+            id: r[i]['id']! as int,
+            start: r[i]['start_ts']! as int,
+            end: r[i]['end_ts']! as int,
+          ),
     ];
   }
 
