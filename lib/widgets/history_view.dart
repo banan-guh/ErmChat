@@ -243,6 +243,9 @@ class _HistoryViewState extends State<HistoryView> {
 
   static const int _railIdleMs = 1500;
 
+  /// Rail positions this close to an end jump to that end of the list.
+  static const double _railEndSnap = 0.01;
+
   /// The scroll-down button's height, a standard FAB.
   static const double _fabSize = 56;
 
@@ -481,9 +484,27 @@ class _HistoryViewState extends State<HistoryView> {
         pos.hasContentDimensions &&
         pos.pixels - pos.minScrollExtent < pos.viewportDimension * 4) {
       pos.jumpTo(pos.minScrollExtent);
+      _settleAtEnd(oldest: false);
       return;
     }
     _jumpTo(null);
+  }
+
+  /// Keeps a jump to either end on it for a few frames. Extents past the
+  /// built rows are estimates until those rows lay out, so the first jump can
+  /// fall short or overshoot. A new jump or a touch ends it.
+  void _settleAtEnd({required bool oldest, int tries = 4}) {
+    final epoch = _epoch;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final p = _pos;
+      if (!mounted || epoch != _epoch || p == null) return;
+      if (!p.hasContentDimensions || p.isScrollingNotifier.value) return;
+      if (!oldest && !_follow) return;
+      final end = oldest ? p.maxScrollExtent : p.minScrollExtent;
+      if ((p.pixels - end).abs() <= _followEps) return;
+      p.jumpTo(end);
+      if (tries > 1) _settleAtEnd(oldest: oldest, tries: tries - 1);
+    });
   }
 
   // ---- Gates ---------------------------------------------------------------
@@ -634,6 +655,8 @@ class _HistoryViewState extends State<HistoryView> {
         if (clamped != p.pixels) p.jumpTo(clamped);
         _snapToNewest(p);
         _syncAtBottom(p);
+        if (pinOldest) _settleAtEnd(oldest: true);
+        if (time == null) _settleAtEnd(oldest: false);
       }
       _scheduleMaintain();
     });
@@ -1069,12 +1092,12 @@ class _HistoryViewState extends State<HistoryView> {
     }
   }
 
-  /// Position at the viewport's bottom edge, from the last layout; the anchor
-  /// when nothing is built.
-  int _viewportPos() {
+  /// Position at the viewport's bottom edge, or [up] pixels above it, from
+  /// the last layout; the anchor when nothing is built.
+  int _viewportPos([double up = 0]) {
     final pos = _pos;
     if (pos == null || !pos.hasPixels) return _anchor;
-    final p = pos.pixels;
+    final p = pos.pixels + up;
     final older = p > 0;
     final sliver = _sliver(older ? _olderKey : _newerKey);
     final edge = older ? p : -p;
@@ -1205,7 +1228,9 @@ class _HistoryViewState extends State<HistoryView> {
     if (_firstPainted) _buildRail();
     final rail = _railReady.value;
     if (rail == null || _railDragging) return;
-    final row = _window.at(_viewportPos());
+    final pos = _pos!;
+    // The middle row, where a rail jump puts its target.
+    final row = _window.at(_viewportPos(pos.viewportDimension / 2));
     if (row == null) return;
     if (!_railVisible.value) {
       final w = _window;
@@ -1265,9 +1290,17 @@ class _HistoryViewState extends State<HistoryView> {
   Future<void> _onRailDragEnd(double pos) async {
     _railDragging = false;
     _bumpIdle();
-    final t = _timeAtRail(pos);
     final pre = _prefetched;
     _prefetched = null;
+    // The rail's ends mean the list's ends: the newest row, following, or
+    // the oldest row at the top, not whatever sits mid-screen at that time.
+    if (pos >= 1 - _railEndSnap) {
+      _jumpToNewest();
+      return;
+    }
+    final t = pos <= _railEndSnap
+        ? DateTime.fromMillisecondsSinceEpoch(0, isUtc: true)
+        : _timeAtRail(pos);
     Future<List<TwitchMessage>>? rows;
     if (pre != null) {
       final got = await pre.rows;

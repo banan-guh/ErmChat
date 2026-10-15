@@ -387,6 +387,12 @@ void main() {
       contains('$_ch-0'),
       reason: 'the jump must land on the oldest row',
     );
+    final top = tester.getRect(list).top + _inset;
+    expect(
+      _items(tester).top,
+      moreOrLessEquals(top, epsilon: 1),
+      reason: 'the jump to the top over- or undershot',
+    );
     // Dragging further toward older rows must not reveal empty space.
     for (var i = 0; i < 4; i++) {
       await tester.drag(list, const Offset(0, 700));
@@ -397,6 +403,20 @@ void main() {
       it.top,
       lessThanOrEqualTo(_inset + 1),
       reason: 'scrolled past the oldest row into empty space',
+    );
+    // From the top, the rail's bottom end goes back to the newest row.
+    await tester.drag(list, const Offset(0, -300));
+    await tester.pump();
+    expect(railShown(), isTrue, reason: 'a scroll at the top hid the rail');
+    await tester.drag(find.byType(HistoryScrubber), const Offset(0, 3000));
+    await _settle(tester);
+    final pos = tester
+        .state<ScrollableState>(find.byType(Scrollable).first)
+        .position;
+    expect(
+      pos.pixels,
+      moreOrLessEquals(pos.minScrollExtent, epsilon: 0.5),
+      reason: 'the jump to the bottom stopped short of the newest row',
     );
   });
 
