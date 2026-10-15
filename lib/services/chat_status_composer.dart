@@ -158,17 +158,18 @@ class ChatStatusComposer {
     await _applyStreamMarkers(polls);
   }
 
-  // Consecutive offline polls per broadcaster. One empty poll can be a failed
-  // request (getStreams returns {} on error), so an end needs two.
+  // Consecutive offline polls per broadcaster. Helix can briefly list a live
+  // stream as gone, so an end needs two.
   final _offlinePolls = <String, int>{};
 
   static String _markerKey(String userId) => 'stream_marker.$userId';
 
   /// Writes "Stream started" and "Stream ended" rows from stream transitions.
-  /// The last seen stream (id, started_at, last live poll) persists per
-  /// broadcaster so a restart neither repeats a start nor loses an end. A
-  /// start sits at its `started_at` position even when that is older than the
-  /// buffer; truncation drops it with the other old rows.
+  /// The last seen stream (id, started_at, last live poll, ended) persists per
+  /// broadcaster so a restart neither repeats a start nor loses an end, and an
+  /// ended id seen live again takes its end back. A start sits at its
+  /// `started_at` position even when that is older than the buffer;
+  /// truncation drops it with the other old rows.
   Future<void> _applyStreamMarkers(
     Map<String, (String, Map<String, dynamic>?)> polls,
   ) async {
@@ -188,17 +189,30 @@ class ChatStatusComposer {
       final id = stream?['id'] as String?;
       final live = stream != null && stream['type'] == 'live' && id != null;
       if (!live) {
-        if (saved == null) continue;
+        if (saved == null || saved.ended) continue;
         final polls = (_offlinePolls[userId] ?? 0) + 1;
         _offlinePolls[userId] = polls;
         if (polls < 2) continue;
         _offlinePolls.remove(userId);
         _writeEnded(target, saved);
-        await prefs.remove(_markerKey(userId));
+        await prefs.setString(
+          _markerKey(userId),
+          jsonEncode({
+            'id': saved.id,
+            'startedAt': saved.startedAt?.toIso8601String(),
+            'seenAt': saved.seenAt.toIso8601String(),
+            'ended': true,
+          }),
+        );
         continue;
       }
       _offlinePolls.remove(userId);
-      if (saved != null && saved.id != id) _writeEnded(target, saved);
+      if (saved != null && saved.id != id && !saved.ended) {
+        _writeEnded(target, saved);
+      }
+      if (saved != null && saved.id == id && saved.ended) {
+        target.messages.removeSystem('sys_stream:$id:end');
+      }
       final startedAt = DateTime.tryParse(
         stream['started_at'] as String? ?? '',
       );
@@ -236,7 +250,7 @@ class ChatStatusComposer {
     }
   }
 
-  ({String id, DateTime? startedAt, DateTime seenAt})? _readMarker(
+  ({String id, DateTime? startedAt, DateTime seenAt, bool ended})? _readMarker(
     SharedPreferences prefs,
     String userId,
   ) {
@@ -251,6 +265,7 @@ class ChatStatusComposer {
         id: id,
         startedAt: DateTime.tryParse(m['startedAt'] as String? ?? ''),
         seenAt: seenAt.toLocal(),
+        ended: m['ended'] == true,
       );
     } catch (_) {
       return null;
@@ -261,7 +276,7 @@ class ChatStatusComposer {
   // omitted when the start time is unknown.
   void _writeEnded(
     Channel target,
-    ({String id, DateTime? startedAt, DateTime seenAt}) marker,
+    ({String id, DateTime? startedAt, DateTime seenAt, bool ended}) marker,
   ) {
     onStreamEnded?.call(marker.id, marker.seenAt);
     final started = marker.startedAt;

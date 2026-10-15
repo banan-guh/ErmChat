@@ -405,13 +405,15 @@ class TwitchApi {
     return res != null;
   }
 
+  /// The live stream, or null when offline. Throws when the request fails,
+  /// so a failure never reads as offline.
   Future<Map<String, dynamic>?> getStreamInfo(
     TwitchAuth auth,
     String broadcasterId,
   ) async {
     final uri = Uri.parse('$_base/streams?user_id=$broadcasterId');
     final res = await _get('getStreamInfo', auth, uri);
-    if (res == null) return null;
+    if (res == null) throw http.ClientException('getStreamInfo failed', uri);
     try {
       final data = jsonDecode(res.body) as Map;
       final list = data['data'] as List;
@@ -419,10 +421,12 @@ class TwitchApi {
       return list[0] as Map<String, dynamic>;
     } catch (e) {
       _setError('getStreamInfo: bad response');
-      return null;
+      throw http.ClientException('getStreamInfo: bad response', uri);
     }
   }
 
+  /// Live streams by broadcaster id; offline ones are missing. Throws when
+  /// the request fails, so a failure never reads as offline.
   Future<Map<String, Map<String, dynamic>>> getStreams(
     TwitchAuth auth,
     List<String> broadcasterIds,
@@ -434,7 +438,7 @@ class TwitchApi {
     final query = broadcasterIds.map((id) => 'user_id=$id').join('&');
     final uri = Uri.parse('$_base/streams?$query');
     final res = await _get('getStreams', auth, uri);
-    if (res == null) return {};
+    if (res == null) throw http.ClientException('getStreams failed', uri);
     try {
       final data = jsonDecode(res.body) as Map;
       final list = data['data'] as List;
@@ -447,7 +451,7 @@ class TwitchApi {
       return byId;
     } catch (e) {
       _setError('getStreams: bad response');
-      return {};
+      throw http.ClientException('getStreams: bad response', uri);
     }
   }
 

@@ -370,6 +370,13 @@ void main() {
       ['live'],
       reason: 'an ended broadcast past retention goes, a live one stays',
     );
+    await store.endStream('live', now.millisecondsSinceEpoch);
+    await store.putStream(channel: _channel, id: 'live', startedTs: 0);
+    expect(
+      (await store.streams(_channel, 0)).single.endedTs,
+      isNull,
+      reason: 'an ended id seen live again reopens',
+    );
     await put(DateTime.utc(2026, 8, 2), DateTime.utc(2026, 8, 2, 1));
     now = now.add(const Duration(minutes: 30));
     expect(await store.pruneIfDue(), 0, reason: 'at most hourly');

@@ -15,6 +15,7 @@ void main() {
   late Chat chat;
   late DateTime clockNow;
   late Map<String, dynamic>? stream;
+  late int status;
   late ChatStatusComposer composer;
   final archived = <String>[];
 
@@ -25,7 +26,7 @@ void main() {
           jsonEncode({
             'data': [?stream],
           }),
-          200,
+          status,
         ),
       ),
     );
@@ -80,6 +81,7 @@ void main() {
     chat.ensure('test').info.setBroadcasterId('42');
     clockNow = DateTime.utc(2026, 10, 13, 12);
     stream = null;
+    status = 200;
     archived.clear();
     composer = build();
   });
@@ -139,11 +141,32 @@ void main() {
     );
   });
 
+  test('an ended id seen live again takes back its end', () async {
+    stream = live('s1', '2026-10-13T09:00:00Z');
+    await poll();
+    stream = null;
+    await poll();
+    await poll();
+    expect(rows(), contains(startsWith('sys_stream:s1:end')));
+    stream = live('s1', '2026-10-13T09:00:00Z');
+    await poll();
+    expect(rows(), [
+      'sys_stream:s1:start|Stream: Speedrun - Zelda',
+    ], reason: 'Helix listed it live, so it never ended or restarted');
+  });
+
   test('restart mid-stream does not repeat the start', () async {
     stream = live('s1', '2026-10-13T09:00:00Z');
     await poll();
     restart();
 
+    // Helix fails while the token refreshes after the restart.
+    status = 401;
+    await composer.fetchChatStatus('test');
+    await poll();
+    await poll();
+    expect(rows(), isEmpty, reason: 'failed polls are not offline polls');
+    status = 200;
     await poll();
     expect(rows(), isEmpty, reason: 'persisted id marks the start as written');
   });

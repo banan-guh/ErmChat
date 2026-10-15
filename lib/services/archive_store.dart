@@ -360,20 +360,28 @@ class ArchiveStore {
         'kind': kind,
       }, conflictAlgorithm: ConflictAlgorithm.ignore);
 
-  /// Records a broadcast once; later calls for the same [id] change nothing.
+  /// Records a broadcast seen live. A later call for the same [id] only
+  /// clears its end, since Helix listing it live means it has not ended.
   Future<void> putStream({
     required String channel,
     required String id,
     required int startedTs,
     String? title,
     String? game,
-  }) => _db.insert('streams', {
-    'stream_id': id,
-    'channel': channel,
-    'started_at': startedTs,
-    'title': title,
-    'game': game,
-  }, conflictAlgorithm: ConflictAlgorithm.ignore);
+  }) async {
+    final b = _db.batch()
+      ..insert('streams', {
+        'stream_id': id,
+        'channel': channel,
+        'started_at': startedTs,
+        'title': title,
+        'game': game,
+      }, conflictAlgorithm: ConflictAlgorithm.ignore)
+      ..rawUpdate('UPDATE streams SET ended_at = NULL WHERE stream_id = ?', [
+        id,
+      ]);
+    await b.commit(noResult: true);
+  }
 
   /// Sets the end of the broadcast [id] (epoch ms).
   Future<void> endStream(String id, int endedTs) => _db.rawUpdate(
