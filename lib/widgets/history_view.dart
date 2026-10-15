@@ -220,13 +220,13 @@ class _RenderMovingSliverList extends RenderSliverList {
 }
 
 class _HistoryViewState extends State<HistoryView> {
-  static const int _cap = 3000;
+  static const int _cap = 1200;
 
   /// Rows trimmed at once from a far end.
   static const int _trimChunk = 256;
 
   /// Items between viewport and anchor that trigger a re-anchor.
-  static const int _reanchorItems = 800;
+  static const int _reanchorItems = 400;
 
   /// Items the older sliver keeps so it always spans more than a viewport. The
   /// viewport floors its scroll max at the anchor, so a shorter older sliver
@@ -234,7 +234,7 @@ class _HistoryViewState extends State<HistoryView> {
   static const int _minOlderItems = 80;
 
   /// Rows kept on each side of the viewport when trimming.
-  static const int _keepNear = 500;
+  static const int _keepNear = 300;
 
   /// The rail appears once the viewport is this many rows or this much time
   /// behind newest, whichever comes first.
