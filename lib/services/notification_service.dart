@@ -12,11 +12,18 @@ class NotificationService {
       FlutterLocalNotificationsPlugin();
   final _tapController = StreamController<String>.broadcast();
   String? _pendingLaunchChannel;
+  bool _launchChecked = false;
   // Monotonic suffix for distinct IDs within the same second.
   int _idSeq = 0;
 
   Stream<String> get onNotificationTap => _tapController.stream;
-  String? get pendingLaunchChannel => _pendingLaunchChannel;
+
+  /// The channel whose notification launched the app, once per launch.
+  String? takePendingLaunchChannel() {
+    final channel = _pendingLaunchChannel;
+    _pendingLaunchChannel = null;
+    return channel;
+  }
 
   Future<void> init() async {
     const androidSettings = AndroidInitializationSettings(
@@ -37,9 +44,13 @@ class NotificationService {
       onDidReceiveNotificationResponse: _onResponse,
     );
 
-    final details = await _plugin.getNotificationAppLaunchDetails();
-    if (details?.didNotificationLaunchApp == true) {
-      _pendingLaunchChannel = details?.notificationResponse?.payload;
+    // Launch details stay set for the whole process; read them once.
+    if (!_launchChecked) {
+      _launchChecked = true;
+      final details = await _plugin.getNotificationAppLaunchDetails();
+      if (details?.didNotificationLaunchApp == true) {
+        _pendingLaunchChannel = details?.notificationResponse?.payload;
+      }
     }
 
     final l = _strings();

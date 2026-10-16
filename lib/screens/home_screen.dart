@@ -811,14 +811,17 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   }
 
   void _initNotificationInfra() {
-    _notificationService.init();
     _notificationTapSub ??= _notificationService.onNotificationTap.listen(
       _onNotificationTap,
     );
-    final pendingChannel = _notificationService.pendingLaunchChannel;
-    if (pendingChannel != null) {
-      _navigateToChannel(pendingChannel);
-    }
+    unawaited(
+      _notificationService.init().then((_) {
+        final pendingChannel = _notificationService.takePendingLaunchChannel();
+        if (pendingChannel != null && mounted) {
+          _navigateToChannel(pendingChannel);
+        }
+      }),
+    );
     _notificationService.clearMentionNotifications();
   }
 
