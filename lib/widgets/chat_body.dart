@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart';
 
 import '../composer/composer_bar.dart';
 import '../util/insets.dart';
@@ -185,22 +184,8 @@ class _ChatBodyState extends State<ChatBody>
   // first tick of an open, the real one once it settles, zero once closed.
   double _liftH = 0;
 
-  // Holds from the first keyboard tick until it settles, so glass surfaces
-  // paint a snapshot instead of a live backdrop while the chat moves.
-  final _glassFreeze = ValueNotifier<GlassFreeze?>(null);
   final _chromeKey = GlobalKey();
   final _composerKey = GlobalKey();
-  ui.Image? _frozenImage;
-  // Frees the snapshot once the surfaces' fade back to live glass is done.
-  // Frame-timed like that fade, so a stall in frames (app hidden) cannot
-  // dispose an image a surface still paints.
-  late final _release =
-      AnimationController(
-        vsync: this,
-        duration: const Duration(milliseconds: 400),
-      )..addStatusListener((s) {
-        if (s == AnimationStatus.completed) _releaseFrozen();
-      });
   double _learnedH = 0;
   // A composer tap after the keyboard closes asks for it again before the
   // IME's first tick lands, so the pending settle must not unfocus.
@@ -272,9 +257,6 @@ class _ChatBodyState extends State<ChatBody>
     _settleTimer?.cancel();
     _pillHideTimer?.cancel();
     _keyboardPump.dispose();
-    _release.dispose();
-    _frozenImage?.dispose();
-    _glassFreeze.dispose();
     _bottomPad.dispose();
     _clearance.dispose();
     super.dispose();
@@ -292,7 +274,6 @@ class _ChatBodyState extends State<ChatBody>
     if (raw > 0.5) _keyboardEngaged = true;
     _settleTimer?.cancel();
     if (!_keyboardPump.isActive) _keyboardPump.start();
-    if (widget.liquidGlass) _freezeGlass();
     if (raw <= 0.5) {
       _retapped = false;
       if (_liftH != 0) setState(() => _liftH = 0);
@@ -308,8 +289,6 @@ class _ChatBodyState extends State<ChatBody>
     _settleTimer = Timer(settle, () {
       if (!mounted) return;
       _keyboardPump.stop();
-      _glassFreeze.value = null;
-      if (_frozenImage != null) _release.forward(from: 0);
       // Unfocusing mid-animation races the IME and the next open overshoots,
       // so it waits for the close to settle; a reopen cancels it.
       if (_rawH <= 0.5) {
@@ -324,36 +303,6 @@ class _ChatBodyState extends State<ChatBody>
       }
       if ((_liftH - _rawH).abs() > 0.5) setState(() => _liftH = _rawH);
     });
-  }
-
-  void _releaseFrozen() {
-    _frozenImage?.dispose();
-    _frozenImage = null;
-  }
-
-  // Snapshots the last frame: between ticks nothing is dirty yet, so the
-  // boundary's layer still holds it. A fade still running shows in the
-  // snapshot, so a new gesture picks up exactly what is on screen.
-  void _freezeGlass() {
-    if (_glassFreeze.value != null) return;
-    _release.stop();
-    final boundary =
-        _chromeKey.currentContext?.findRenderObject() as RenderRepaintBoundary?;
-    if (boundary == null || !boundary.hasSize) return;
-    var dirty = false;
-    assert(() {
-      dirty = boundary.debugNeedsPaint;
-      return true;
-    }());
-    if (dirty) return;
-    final pr = _view.devicePixelRatio;
-    final old = _frozenImage;
-    final image = _frozenImage = boundary.toImageSync(pixelRatio: pr);
-    _glassFreeze.value = GlassFreeze(image, boundary, pr);
-    // The surfaces switched images above; the old one goes after a frame.
-    if (old != null) {
-      WidgetsBinding.instance.addPostFrameCallback((_) => old.dispose());
-    }
   }
 
   /// Room above the composer the keyboard decisions read: the settled open
@@ -666,9 +615,6 @@ class _ChatBodyState extends State<ChatBody>
               : GlassChromeScope(
                   bottomClearance: clearance,
                   listExtra: widget.replyHeader != null ? _replyH : 0,
-                  freeze: _glassFreeze,
-                  // The glass freeze snapshots this boundary. The fill makes
-                  // the snapshot opaque, matching the Scaffold behind it.
                   child: RepaintBoundary(
                     key: _chromeKey,
                     child: ColoredBox(

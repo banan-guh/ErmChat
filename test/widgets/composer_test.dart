@@ -222,43 +222,6 @@ void main() {
     });
   }
 
-  // The glass freeze snapshots the whole chat on the first keyboard tick.
-  // Opaque has no glass to feed, so it must never pay for that snapshot; in
-  // glass the snapshot must outlive a frame stall (app hidden) mid fade.
-  for (final glass in [false, true]) {
-    testWidgets('keyboard gesture snapshot (glass=$glass)', (tester) async {
-      final focus = FocusNode();
-      addTearDown(focus.dispose);
-      tester.view.physicalSize = const Size(400, 800);
-      tester.view.devicePixelRatio = 1;
-      addTearDown(tester.view.reset);
-      await pumpBody(tester, liquidGlass: glass, focus: focus);
-      await tester.pumpAndSettle();
-      final scope = tester.widget<GlassChromeScope>(
-        find.byType(GlassChromeScope),
-      );
-      var snapshots = 0;
-      scope.freeze!.addListener(() {
-        if (scope.freeze!.value != null) snapshots++;
-      });
-
-      for (final kb in [0.0, 300.0]) {
-        for (var i = 1; i <= 10; i++) {
-          tester.view.viewInsets = FakeViewPadding(
-            bottom: kb == 0 ? 30.0 * i : 300 - 30.0 * i,
-          );
-          await tester.pump(const Duration(milliseconds: 8));
-        }
-        // One long pump: timers run, but only one frame paints.
-        await tester.pump(const Duration(milliseconds: 600));
-        await tester.pumpAndSettle();
-      }
-
-      expect(snapshots, glass ? 2 : 0, reason: 'one snapshot per gesture');
-      expect(tester.takeException(), isNull);
-    });
-  }
-
   Future<void> moveKeyboard(WidgetTester tester, List<double> insets) async {
     for (final kb in insets) {
       tester.view.viewInsets = FakeViewPadding(bottom: kb);

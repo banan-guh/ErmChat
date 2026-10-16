@@ -1,6 +1,3 @@
-import 'dart:ui' as ui;
-
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 
@@ -54,15 +51,10 @@ class GlassChromeScope extends InheritedWidget {
     super.key,
     required this.bottomClearance,
     this.listExtra = 0,
-    this.freeze,
     required super.child,
   });
 
   final double bottomClearance;
-
-  /// Non-null while the keyboard animates. Glass surfaces paint their crop
-  /// of the snapshot instead of a live backdrop (see [GlassSurface]).
-  final ValueListenable<GlassFreeze?>? freeze;
 
   /// Extra bottom padding the scrolling lists add on top of [bottomClearance]
   /// without moving the scroll-down button. Used for overlays that float above
@@ -72,15 +64,10 @@ class GlassChromeScope extends InheritedWidget {
   static GlassChromeScope? maybeOf(BuildContext context) =>
       context.dependOnInheritedWidgetOfExactType<GlassChromeScope>();
 
-  /// The freeze signal, without subscribing to clearance changes.
-  static ValueListenable<GlassFreeze?>? freezeOf(BuildContext context) =>
-      context.getInheritedWidgetOfExactType<GlassChromeScope>()?.freeze;
-
   @override
   bool updateShouldNotify(GlassChromeScope oldWidget) =>
       bottomClearance != oldWidget.bottomClearance ||
-      listExtra != oldWidget.listExtra ||
-      freeze != oldWidget.freeze;
+      listExtra != oldWidget.listExtra;
 }
 
 /// [base] plus the pill clearance, for plain lists in the chat body (panels,
@@ -94,22 +81,8 @@ EdgeInsets glassListPadding(
   return base.copyWith(bottom: base.bottom + extra);
 }
 
-/// Snapshot of the chrome's boundary, taken on the last live frame.
-class GlassFreeze {
-  const GlassFreeze(this.image, this.boundary, this.pixelRatio);
-
-  final ui.Image image;
-  final RenderBox boundary;
-  final double pixelRatio;
-}
-
 /// Glass drawn as a background layer behind [child].
-///
-/// A live backdrop makes the GPU copy everything under it every frame, and
-/// the keyboard animation moves the whole chat under the glass. While the
-/// scope holds a [GlassFreeze], the surface paints its crop of that snapshot
-/// instead, then fades it out over the live glass once the freeze lifts.
-class GlassSurface extends StatefulWidget {
+class GlassSurface extends StatelessWidget {
   const GlassSurface({
     super.key,
     required this.shape,
@@ -126,122 +99,20 @@ class GlassSurface extends StatefulWidget {
   final Widget child;
 
   @override
-  State<GlassSurface> createState() => _GlassSurfaceState();
-}
-
-class _GlassSurfaceState extends State<GlassSurface>
-    with SingleTickerProviderStateMixin {
-  ValueListenable<GlassFreeze?>? _freeze;
-  GlassFreeze? _shown;
-  Rect? _src;
-  late final _fade = AnimationController(
-    vsync: this,
-    duration: const Duration(milliseconds: 220),
-  )..addStatusListener(_onFadeStatus);
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    final freeze = GlassChromeScope.freezeOf(context);
-    if (freeze == _freeze) return;
-    _freeze?.removeListener(_onFreeze);
-    _freeze = freeze?..addListener(_onFreeze);
-  }
-
-  @override
-  void dispose() {
-    _freeze?.removeListener(_onFreeze);
-    _fade.dispose();
-    super.dispose();
-  }
-
-  // Runs before the next layout, so this box still sits where the snapshot
-  // saw it.
-  void _onFreeze() {
-    final f = _freeze!.value;
-    if (f == null) {
-      if (_shown != null) _fade.reverse(from: 1);
-      setState(() {});
-      return;
-    }
-    final box = context.findRenderObject() as RenderBox?;
-    if (box == null || !box.hasSize || !f.boundary.attached) return;
-    _src = box.localToGlobal(Offset.zero, ancestor: f.boundary) & box.size;
-    _shown = f;
-    _fade.value = 1;
-    setState(() {});
-  }
-
-  void _onFadeStatus(AnimationStatus status) {
-    if (status == AnimationStatus.dismissed && mounted) {
-      setState(() => _shown = null);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final shown = _shown;
-    final frozen = shown != null && _freeze?.value == shown;
-    return Stack(
-      children: [
-        Positioned.fill(
-          child: Offstage(
-            offstage: frozen,
-            child: GlassContainer(
-              quality: widget.quality,
-              settings: widget.settings,
-              useOwnLayer: widget.quality != GlassQuality.minimal,
-              shape: widget.shape,
-              child: const SizedBox.expand(),
-            ),
-          ),
+  Widget build(BuildContext context) => Stack(
+    children: [
+      Positioned.fill(
+        child: GlassContainer(
+          quality: quality,
+          settings: settings,
+          useOwnLayer: quality != GlassQuality.minimal,
+          shape: shape,
+          child: const SizedBox.expand(),
         ),
-        Positioned.fill(
-          child: IgnorePointer(
-            child: CustomPaint(
-              painter: shown == null
-                  ? null
-                  : _FrozenGlassPainter(shown, _src!, widget.shape, _fade),
-            ),
-          ),
-        ),
-        widget.child,
-      ],
-    );
-  }
-}
-
-class _FrozenGlassPainter extends CustomPainter {
-  _FrozenGlassPainter(this.freeze, this.src, this.shape, this.opacity)
-    : super(repaint: opacity);
-
-  final GlassFreeze freeze;
-  final Rect src;
-  final LiquidShape shape;
-  final Animation<double> opacity;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final pr = freeze.pixelRatio;
-    final image = freeze.image;
-    final s = src.intersect(
-      Rect.fromLTWH(0, 0, image.width / pr, image.height / pr),
-    );
-    if (s.isEmpty) return;
-    canvas.save();
-    canvas.clipPath(shape.getOuterPath(Offset.zero & size));
-    canvas.drawImageRect(
-      image,
-      Rect.fromLTRB(s.left * pr, s.top * pr, s.right * pr, s.bottom * pr),
-      s.shift(-src.topLeft),
-      Paint()..color = Color.fromRGBO(0, 0, 0, opacity.value),
-    );
-    canvas.restore();
-  }
-
-  @override
-  bool shouldRepaint(_FrozenGlassPainter old) =>
-      freeze != old.freeze || src != old.src || shape != old.shape;
+      ),
+      child,
+    ],
+  );
 }
 
 // Styled glass: thickness refracts rows scrolling underneath so light
