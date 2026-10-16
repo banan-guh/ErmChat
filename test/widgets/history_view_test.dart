@@ -519,6 +519,11 @@ void main() {
       lessThanOrEqualTo(_inset + 1),
       reason: 'scrolled past the oldest row into empty space',
     );
+    double thumb() => tester
+        .widget<HistoryScrubber>(find.byType(HistoryScrubber))
+        .thumb
+        .value;
+    expect(thumb(), 0, reason: 'the thumb stopped short of the rail top');
     // From the top, the rail's bottom end goes back to the newest row.
     await tester.drag(list, const Offset(0, -300));
     await tester.pump();
@@ -533,6 +538,10 @@ void main() {
       moreOrLessEquals(pos.minScrollExtent, epsilon: 0.5),
       reason: 'the jump to the bottom stopped short of the newest row',
     );
+    await tester.drag(list, const Offset(0, 300));
+    await tester.drag(list, const Offset(0, -600));
+    await _settle(tester);
+    expect(thumb(), 1, reason: 'the thumb stopped short of the rail bottom');
   });
 
   testWidgets('a channel shorter than the screen rests above the composer', (

@@ -331,7 +331,12 @@ class _HistoryViewState extends State<HistoryView> {
   int _epoch = 0;
   bool _maintainScheduled = false;
   bool _firstPainted = false;
+  bool _blankReported = false;
   String _status = '';
+
+  /// Frame timings of the first moments after opening, for one log line.
+  void Function(List<FrameTiming>)? _openTimings;
+  Timer? _openProbe;
 
   @override
   void initState() {
@@ -349,6 +354,41 @@ class _HistoryViewState extends State<HistoryView> {
     widget.jumpRequest?.addListener(_onJumpRequest);
     _unwatchClears = widget.source.watchClears(_onClear);
     _unwatchStreams = widget.source.watchStreams(_loadStreams);
+    if (debugLogEnabled) _probeOpen();
+  }
+
+  /// Logs the frames of the first moments after opening: how many ran long,
+  /// the worst build and raster, and how many images were already decoded,
+  /// which is none after a return from the background.
+  void _probeOpen() {
+    final images = PaintingBinding.instance.imageCache.currentSize;
+    var frames = 0, slow = 0, build = 0, raster = 0;
+    void onTimings(List<FrameTiming> timings) {
+      for (final t in timings) {
+        frames++;
+        if (t.totalSpan.inMilliseconds > 16) slow++;
+        build = max(build, t.buildDuration.inMilliseconds);
+        raster = max(raster, t.rasterDuration.inMilliseconds);
+      }
+    }
+
+    _openTimings = onTimings;
+    SchedulerBinding.instance.addTimingsCallback(onTimings);
+    _openProbe = Timer(const Duration(milliseconds: 1500), () {
+      _endOpenProbe();
+      _log(
+        'open ${widget.channel}: frames=$frames slow=$slow '
+        'worst build=${build}ms raster=${raster}ms images=$images',
+      );
+    });
+  }
+
+  void _endOpenProbe() {
+    _openProbe?.cancel();
+    _openProbe = null;
+    final cb = _openTimings;
+    _openTimings = null;
+    if (cb != null) SchedulerBinding.instance.removeTimingsCallback(cb);
   }
 
   void Function()? _unwatchClears;
@@ -574,6 +614,7 @@ class _HistoryViewState extends State<HistoryView> {
       SchedulerBinding.instance.removeTimingsCallback(_onTimings);
     }
     _idleTimer?.cancel();
+    _endOpenProbe();
     _controller.dispose();
     _railReady.dispose();
     _thumb.dispose();
@@ -601,6 +642,13 @@ class _HistoryViewState extends State<HistoryView> {
   void _log(String message) {
     logDebug('[hist] $message');
     if (PerfProbe.enabled) PerfLog.I.record('HIST', message);
+  }
+
+  /// Logs a state the list should never reach, under its own tag so one
+  /// filter finds every report.
+  void _warn(String message) {
+    logDebug('[hist!] ${widget.channel}: $message');
+    if (PerfProbe.enabled) PerfLog.I.record('HIST!', message);
   }
 
   ScrollPosition? get _pos =>
@@ -1048,6 +1096,7 @@ class _HistoryViewState extends State<HistoryView> {
     if (_scrolled) {
       _scrolled = false;
       _updateRail();
+      _checkBlank(pos);
     }
     final ahead = pos.viewportDimension * 4;
     if (pos.maxScrollExtent - pos.pixels < ahead && !_window.atOldest) {
@@ -1186,6 +1235,30 @@ class _HistoryViewState extends State<HistoryView> {
     return last ?? _anchor;
   }
 
+  /// Reports once when neither sliver paints a row though the window holds
+  /// some, with the extents that explain the blank.
+  void _checkBlank(ScrollPosition pos) {
+    final older = _sliver(_olderKey)?.geometry;
+    final newer = _sliver(_newerKey)?.geometry;
+    final blank =
+        _window.length > 0 &&
+        (older?.paintExtent ?? 0) == 0 &&
+        (newer?.paintExtent ?? 0) == 0;
+    if (blank && !_blankReported) {
+      _warn(
+        'blank viewport px=${pos.pixels.round()} '
+        'ext=${pos.minScrollExtent.round()}..${pos.maxScrollExtent.round()} '
+        'vp=${pos.viewportDimension.round()} '
+        'older=${older?.scrollExtent.round()}/${_olderItems.length} '
+        'newer=${newer?.scrollExtent.round()}/${_newerItems.length} '
+        'win=${_window.first}..${_window.end} anchor=$_anchor '
+        'oldest=${_window.atOldest} newest=${_window.atNewest} '
+        'loading=$_loadingOlder/$_loadingNewer',
+      );
+    }
+    _blankReported = blank;
+  }
+
   RenderSliverMultiBoxAdaptor? _sliver(GlobalKey key) {
     final ro = key.currentContext?.findRenderObject();
     return ro is RenderSliverMultiBoxAdaptor ? ro : null;
@@ -1308,8 +1381,25 @@ class _HistoryViewState extends State<HistoryView> {
       }
       _railVisible.value = true;
     }
-    _thumb.value = rail.positionOf(row.timestamp);
+    _thumb.value = _viewportRailPos(rail, pos) ?? _thumb.value;
     _bumpIdle();
+  }
+
+  /// The viewport's rail position, as a scrollbar maps it: the top row's at
+  /// the oldest end, the bottom row's at the newest, and in between the
+  /// point [p] of the way down whose row sits at [p]. A rail jump to [p]
+  /// places its row there too.
+  double? _viewportRailPos(ActivityRail rail, ScrollPosition pos) {
+    final w = _window;
+    final top = w.at(_viewportPos(pos.viewportDimension));
+    final bottom = w.at(_viewportPos());
+    if (top == null || bottom == null) return null;
+    if (w.atNewest && pos.pixels - pos.minScrollExtent <= _followEps) return 1;
+    if (w.atOldest && _oldestEnd(pos) - pos.pixels <= _followEps) return 0;
+    final a = rail.positionOf(top.timestamp);
+    final b = rail.positionOf(bottom.timestamp);
+    final span = 1 - (b - a);
+    return span <= 0 ? (a + b) / 2 : (a / span).clamp(a, b);
   }
 
   /// Extends the fade deadline. One timer re-arms itself, so scroll frames
@@ -1367,7 +1457,8 @@ class _HistoryViewState extends State<HistoryView> {
     final t = pos <= _railEndSnap
         ? DateTime.fromMillisecondsSinceEpoch(0, isUtc: true)
         : _timeAtRail(pos);
-    Future<List<TwitchMessage>>? rows;
+    final epoch = _epoch;
+    List<TwitchMessage>? rows;
     if (pre != null) {
       final got = await pre.rows;
       if (!mounted) return;
@@ -1375,10 +1466,38 @@ class _HistoryViewState extends State<HistoryView> {
       if (got.isNotEmpty &&
           !t.isBefore(got.first.timestamp) &&
           !t.isAfter(got.last.timestamp)) {
-        rows = Future.value(got);
+        rows = got;
       }
     }
-    _jumpTo(t, fraction: 0.5, rows: rows);
+    rows ??= await widget.source.around(t);
+    if (!mounted || epoch != _epoch || _railDragging) return;
+    // A time between rows lands on the nearer row, not always the next one.
+    final next = rows.indexWhere((m) => !m.timestamp.isBefore(t));
+    final prev = (next < 0 ? rows.length : next) - 1;
+    var land = t;
+    if (prev >= 0 &&
+        (next < 0 ||
+            t.difference(rows[prev].timestamp) <
+                rows[next].timestamp.difference(t))) {
+      land = rows[prev].timestamp;
+    } else if (next >= 0) {
+      land = rows[next].timestamp;
+    }
+    await _jumpTo(land, fraction: 1 - pos, rows: Future.value(rows));
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final rail = _railReady.value;
+      final p = _pos;
+      if (!mounted || rail == null || p == null || _railDragging) return;
+      final landed = _viewportRailPos(rail, p);
+      if (landed == null) return;
+      _thumb.value = landed;
+      if ((landed - pos).abs() > 0.02) {
+        _warn(
+          'rail release ${pos.toStringAsFixed(3)} landed '
+          '${landed.toStringAsFixed(3)} (asked $t, row $land)',
+        );
+      }
+    });
   }
 
   /// Shows the rail with its bubble at [time], for a tapped day marker.
