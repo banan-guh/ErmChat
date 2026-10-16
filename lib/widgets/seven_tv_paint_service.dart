@@ -568,6 +568,7 @@ class SevenTvPaintService extends ChangeNotifier {
   }
 
   void _scheduleFlush() {
+    if (_disposed) return;
     _flushTimer ??= Timer(_batchDelay, () {
       _flushTimer = null;
       unawaited(_flush());
@@ -834,7 +835,7 @@ class SevenTvPaintService extends ChangeNotifier {
         _imageBytes -= oldest.bytes;
         oldest.release();
       }
-      if (_enabled) imageRevision.value++;
+      if (_enabled && !_disposed) imageRevision.value++;
     } catch (e) {
       logDebug('7TV paint image failed: ${variant.url}: $e');
       for (final frame in frames) {
@@ -1029,8 +1030,17 @@ class SevenTvPaintService extends ChangeNotifier {
     _assignments[userId] = (paintId: paintId, at: _now());
   }
 
+  // Fetches still in flight at dispose land after it.
+  bool _disposed = false;
+
+  @override
+  void notifyListeners() {
+    if (!_disposed) super.notifyListeners();
+  }
+
   @override
   void dispose() {
+    _disposed = true;
     _flushTimer?.cancel();
     _entitlementSub?.cancel();
     _usersSaveTimer?.cancel();
