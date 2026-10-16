@@ -124,6 +124,40 @@ class _ListSource implements HistorySource {
   }
 }
 
+/// [rows] read in 256-row blocks, the way the archive reads: around a time
+/// gives its block and the next, older gives the block holding the time, up
+/// to and including it.
+class _BlockSource extends _ListSource {
+  _BlockSource(super.rows);
+
+  static const int _block = 256;
+
+  int _blockOf(DateTime t) {
+    final i = rows.lastIndexWhere((r) => !r.timestamp.isAfter(t));
+    return i < 0 ? 0 : i ~/ _block;
+  }
+
+  List<TwitchMessage> _blocks(int from, int to) => rows.sublist(
+    (from * _block).clamp(0, rows.length),
+    (to * _block).clamp(0, rows.length),
+  );
+
+  @override
+  Future<List<TwitchMessage>> around(DateTime time) async {
+    final b = _blockOf(time);
+    return _blocks(b, b + 2);
+  }
+
+  @override
+  Future<List<TwitchMessage>> older(DateTime time) async {
+    final b = _blockOf(time);
+    return [
+      for (final r in _blocks(b, b + 1))
+        if (!r.timestamp.isAfter(time)) r,
+    ];
+  }
+}
+
 /// Has no rail on the first read, like an archive with nothing sealed yet.
 class _EmptyFirstRail extends FakeHistorySource {
   _EmptyFirstRail(super.channel);
@@ -613,23 +647,15 @@ void main() {
     final bottom = tester.getRect(list).bottom - kOpaqueComposerGap;
     double newestBottom() => tester.getBottomLeft(_tile('small-11')).dy;
     expect(newestBottom(), moreOrLessEquals(bottom, epsilon: 1));
-    // Every way to an end lands in the same place: a drag, and the rail.
+    // A drag past the end lands back in the same place.
     await tester.drag(list, const Offset(0, 400));
     await _settle(tester);
     expect(newestBottom(), moreOrLessEquals(bottom, epsilon: 1));
     expect(atBottom.value, isTrue, reason: 'a drag showed the button');
-    // Thirty minutes apart, the rows are old enough to bring the rail in.
+    // A dozen rows never bring the rail in, however old.
     await tester.drag(list, const Offset(0, 60));
     await tester.pump();
-    expect(_railShown(tester), isTrue, reason: 'the rail never came in');
-    await tester.drag(find.byType(HistoryScrubber), const Offset(0, -3000));
-    await _settle(tester);
-    expect(
-      newestBottom(),
-      moreOrLessEquals(bottom, epsilon: 1),
-      reason: 'the rail jump to the top hid the newest row',
-    );
-    expect(atBottom.value, isTrue, reason: 'the top jump left it paused');
+    expect(_railShown(tester), isFalse, reason: 'the rail came in');
   });
 
   testWidgets('a late clear fades held rows in its range, by its chatter', (
@@ -897,6 +923,38 @@ void main() {
     await _settle(tester);
     expect(_items(tester).keys, contains('$_ch-200'), reason: 'while open');
     expect(jump.value, isNull);
+  });
+
+  testWidgets('a jump just past a block start keeps the rows above it', (
+    tester,
+  ) async {
+    // Reads come in 256-row blocks like the archive's, and a read for older
+    // rows includes its own time. The jump's first look above the loaded
+    // block found only that block's first row and took it for the oldest.
+    final rows = [
+      for (var i = 0; i < 1000; i++)
+        TwitchMessage(
+          login: 'b',
+          text: 'block row $i',
+          messageId: 'b-$i',
+          channel: _ch,
+          timestamp: _ListSource.t0.add(Duration(minutes: i)),
+        ),
+    ];
+    final jump = ValueNotifier<DateTime?>(rows[266].timestamp);
+    addTearDown(jump.dispose);
+    await _pumpView(tester, source: _BlockSource(rows), jumpRequest: jump);
+    await _settle(tester);
+    expect(_items(tester).keys, contains('b-266'));
+    final list = find.byType(CustomScrollView);
+    for (var i = 0; i < 6; i++) {
+      await tester.drag(list, const Offset(0, 700));
+      await _settle(tester);
+    }
+    final above = _items(
+      tester,
+    ).keys.any((k) => int.parse(k.split('-').last) < 256);
+    expect(above, isTrue, reason: 'the rows above the block were lost');
   });
 
   testWidgets('a re-anchor moves visible rows instead of rebuilding them', (

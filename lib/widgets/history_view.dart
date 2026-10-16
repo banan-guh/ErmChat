@@ -245,10 +245,8 @@ class _HistoryViewState extends State<HistoryView> {
   /// Rows kept on each side of the viewport when trimming.
   static const int _keepNear = 300;
 
-  /// The rail appears once the viewport is this many rows or this much time
-  /// behind newest, whichever comes first.
+  /// The rail appears once the viewport is this many rows behind newest.
   static const int _railAfterRows = 100;
-  static const Duration _railAfterAge = Duration(hours: 1);
 
   static const int _railIdleMs = 1500;
 
@@ -707,11 +705,22 @@ class _HistoryViewState extends State<HistoryView> {
     // A target near the oldest row needs the rows above it before the anchor
     // can sit there; otherwise the older sliver could not span the viewport.
     var olderRows = const <TwitchMessage>[];
+    var askedOlder = false;
     if (loaded.isNotEmpty && time != null) {
       final before = loaded.where((m) => m.timestamp.isBefore(time)).length;
       if (before < _minOlderItems) {
+        // The read can return only rows already loaded when several share
+        // the first one's timestamp; step past them before trusting it.
+        final held = {for (final m in loaded) HistoryWindow.keyOf(m)};
+        askedOlder = true;
         olderRows = await source.older(loaded.first.timestamp);
         if (!mounted || epoch != _epoch) return;
+        if (olderRows.every((m) => held.contains(HistoryWindow.keyOf(m)))) {
+          olderRows = await source.older(
+            loaded.first.timestamp.subtract(const Duration(milliseconds: 1)),
+          );
+          if (!mounted || epoch != _epoch) return;
+        }
       }
     }
     final pos = _pos;
@@ -732,9 +741,11 @@ class _HistoryViewState extends State<HistoryView> {
       _loaded = true;
       _window.reset(loaded);
       if (olderRows.isNotEmpty || time != null) {
-        if (_window.prepend(olderRows) == 0 && time != null) {
-          final head = _window.positionAt(time) - _window.first;
-          if (head < _minOlderItems) _window.markOldest();
+        // Only a read that found nothing older makes this the oldest end.
+        if (_window.prepend(olderRows) == 0 &&
+            askedOlder &&
+            olderRows.isEmpty) {
+          _window.markOldest();
         }
       }
       _liveAttached = false;
@@ -1399,11 +1410,7 @@ class _HistoryViewState extends State<HistoryView> {
     if (!_railVisible.value) {
       final w = _window;
       // Off the newest end of the window the viewport is surely far back.
-      if (w.atNewest) {
-        final behind = w.end - _viewportPos();
-        final age = w[w.end - 1].timestamp.difference(row.timestamp);
-        if (behind < _railAfterRows && age < _railAfterAge) return;
-      }
+      if (w.atNewest && w.end - _viewportPos() < _railAfterRows) return;
       _railVisible.value = true;
     }
     _fitScale(rail, row.timestamp);
