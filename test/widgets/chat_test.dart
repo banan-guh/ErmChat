@@ -2803,8 +2803,9 @@ void main() {
       await joinChannel(tester, 'alpha');
       await joinChannel(tester, 'beta');
       await tester.pumpAndSettle();
+      // The join tab counts as the last tab.
       final bar0 = tester.widget<TabBar>(find.byType(TabBar).first);
-      expect(bar0.controller!.length, 2);
+      expect(bar0.controller!.length, 3);
       expect(bar0.controller!.index, 1);
 
       await joinChannel(tester, 'gamma');
@@ -2812,7 +2813,7 @@ void main() {
       await tester.pump();
       // A regression lands on the neighbor (beta, index 1) instead.
       final bar1 = tester.widget<TabBar>(find.byType(TabBar).first);
-      expect(bar1.controller!.length, 3);
+      expect(bar1.controller!.length, 4);
       expect(bar1.controller!.index, 2);
     });
 

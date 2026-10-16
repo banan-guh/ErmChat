@@ -6,7 +6,6 @@ import '../chat/chat.dart';
 import '../l10n/l10n.dart';
 import '../services/pip_service.dart';
 import '../services/stream_player_controller.dart';
-import '../util/layout_density.dart';
 import '../widgets/chat_body.dart' show ComposerPaneSlot;
 import '../widgets/glass_chrome.dart';
 import '../widgets/stream_player_view.dart';
@@ -438,13 +437,9 @@ class StreamPanels {
         ],
       );
     }
-    // Compact folds the app bar into the tab strip. With no channels there
+    // The app bar's actions live in the tab strip. With no channels there
     // is no strip, so the welcome view keeps the app bar.
-    final overrides = layoutOverridesOf(context);
-    final compact = isCompactLayout(context);
-    final merged =
-        overrides.resolve(overrides.mergeAppBar, compact) &&
-        chat.names.isNotEmpty;
+    final merged = chat.names.isNotEmpty;
     final showVideo =
         channel == null ||
         showStreamVideo(
@@ -461,8 +456,6 @@ class StreamPanels {
     if (glass && !hideChrome && channel == null) {
       final headerH = merged
           ? glassCompactHeaderHeight(context)
-          : chat.names.isNotEmpty
-          ? glassHeaderHeight(context)
           : glassWelcomeHeaderHeight(context);
       // The pill clearance reaches the lists through GlassChromeScope, not
       // this call, so pages stay cached while the safe area animates.

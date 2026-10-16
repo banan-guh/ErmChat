@@ -336,7 +336,6 @@ class Prefs {
 
   // ── Custom layout overrides ─────────────────────────────────────────
   static const _kCustomLayoutEnabled = 'custom_layout_enabled';
-  static const _kOverrideMergeAppBar = 'override_merge_app_bar';
   static const _kOverrideFoldPanelHeaders = 'override_fold_panel_headers';
   static const _kOverrideTightComposer = 'override_tight_composer';
   static const _kOverrideSheetActionRow = 'override_sheet_action_row';
@@ -347,11 +346,6 @@ class Prefs {
 
   Future<void> setCustomLayoutEnabled(bool value) =>
       _p.setBool(_kCustomLayoutEnabled, value);
-
-  bool get overrideMergeAppBar => _p.getBool(_kOverrideMergeAppBar) ?? true;
-
-  Future<void> setOverrideMergeAppBar(bool value) =>
-      _p.setBool(_kOverrideMergeAppBar, value);
 
   bool get overrideFoldPanelHeaders =>
       _p.getBool(_kOverrideFoldPanelHeaders) ?? true;

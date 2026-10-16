@@ -48,16 +48,6 @@ class _CustomLayoutScreenState extends State<CustomLayoutScreen> {
           ),
           const Divider(),
           SettingAnchor(
-            Setting.mergeAppBar,
-            child: PrefsSwitchTile(
-              enabled: _enabled,
-              title: Setting.mergeAppBar.titleOf(context.l10n),
-              subtitle: context.l10n.mergeAppBarHint,
-              read: (p) => p.overrideMergeAppBar,
-              write: (p, v) => p.setOverrideMergeAppBar(v),
-            ),
-          ),
-          SettingAnchor(
             Setting.foldPanelTitles,
             child: PrefsSwitchTile(
               enabled: _enabled,

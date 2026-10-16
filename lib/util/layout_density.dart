@@ -22,7 +22,6 @@ bool resolveCompact(LayoutDensity density, Size size) => switch (density) {
 class LayoutOverrides {
   const LayoutOverrides({
     this.enabled = false,
-    this.mergeAppBar = true,
     this.foldPanelHeaders = true,
     this.tightComposer = true,
     this.sheetActionRow = false,
@@ -32,9 +31,6 @@ class LayoutOverrides {
 
   /// Master switch: when false the individual switches are ignored.
   final bool enabled;
-
-  /// Fold the app bar into the channel tab strip.
-  final bool mergeAppBar;
 
   /// Fold panel titles into their tab row instead of stacking a title row.
   final bool foldPanelHeaders;
@@ -64,7 +60,6 @@ class LayoutOverrides {
   bool operator ==(Object other) =>
       other is LayoutOverrides &&
       other.enabled == enabled &&
-      other.mergeAppBar == mergeAppBar &&
       other.foldPanelHeaders == foldPanelHeaders &&
       other.tightComposer == tightComposer &&
       other.sheetActionRow == sheetActionRow &&
@@ -74,7 +69,6 @@ class LayoutOverrides {
   @override
   int get hashCode => Object.hash(
     enabled,
-    mergeAppBar,
     foldPanelHeaders,
     tightComposer,
     sheetActionRow,

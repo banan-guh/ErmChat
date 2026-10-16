@@ -14,10 +14,6 @@ const double kGlassComposerRadius = 20.0;
 // Gap the list keeps above the in-flow composer when the glass pill is off.
 const double kOpaqueComposerGap = 4.0;
 
-// Full overlay header height: status bar plus app bar row plus tab strip.
-double glassHeaderHeight(BuildContext context) =>
-    statusBarHeight(context) + kGlassAppBarHeight + kGlassTabStripHeight;
-
 // Compact header height: status bar plus the merged tab strip, which
 // carries the app bar actions, so there is no app bar row.
 double glassCompactHeaderHeight(BuildContext context) =>

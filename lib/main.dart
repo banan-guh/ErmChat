@@ -289,7 +289,6 @@ class _TwitchChatAppState extends State<TwitchChatApp> {
       final prefs = await Prefs.load();
       final overrides = LayoutOverrides(
         enabled: prefs.customLayoutEnabled,
-        mergeAppBar: prefs.overrideMergeAppBar,
         foldPanelHeaders: prefs.overrideFoldPanelHeaders,
         tightComposer: prefs.overrideTightComposer,
         sheetActionRow: prefs.overrideSheetActionRow,

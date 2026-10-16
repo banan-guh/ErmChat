@@ -100,7 +100,6 @@ class Setting {
     'keep_screen_on' => l.settingKeepScreenOn,
     'fast_channel_swipe' => l.settingFastChannelSwipe,
     'custom_layout' => l.settingCustomLayout,
-    'merge_app_bar' => l.settingMergeAppBar,
     'fold_panel_titles' => l.settingFoldPanelTitles,
     'tighter_composer' => l.settingTighterComposer,
     'horizontal_sheet_actions' => l.settingHorizontalSheetActions,
@@ -311,11 +310,6 @@ class Setting {
   static const customLayout = Setting(
     'custom_layout',
     'Enable custom layout',
-    SettingsPageId.customLayout,
-  );
-  static const mergeAppBar = Setting(
-    'merge_app_bar',
-    'Merge app bar into tabs',
     SettingsPageId.customLayout,
   );
   static const foldPanelTitles = Setting(
@@ -718,7 +712,6 @@ class Setting {
     keepScreenOn,
     fastChannelSwipe,
     customLayout,
-    mergeAppBar,
     foldPanelTitles,
     tighterComposer,
     horizontalSheetActions,

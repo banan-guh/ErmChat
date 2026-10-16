@@ -45,9 +45,6 @@ void main() {
     );
     await tester.pump();
 
-    // No channels yet: the welcome view keeps the app bar in both modes.
-    expect(find.text('ErmChat'), findsOneWidget);
-
     await tester.tap(find.byIcon(Icons.add));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField).last, 'testchannel');
@@ -85,22 +82,21 @@ void main() {
 
   testWidgets('overrides apply only with custom layout on', (tester) async {
     await pumpJoined(tester, glass: false, density: LayoutDensity.compact);
-    expect(find.text('ErmChat'), findsNothing);
 
-    // Master off: the override is ignored and compact still merges.
+    // Master off: the override is ignored and compact still folds titles.
     final prefs = await Prefs.load();
-    await prefs.setOverrideMergeAppBar(false);
-    await settlePrefs(tester);
-    expect(find.text('ErmChat'), findsNothing);
-
-    await prefs.setCustomLayoutEnabled(true);
     await prefs.setOverrideFoldPanelHeaders(false);
     await settlePrefs(tester);
-    expect(find.text('ErmChat'), findsOneWidget);
-    expect(inStrip(find.byIcon(Icons.add)), findsNothing);
-    expect(inStrip(find.byIcon(Icons.notifications_active)), findsNothing);
+    final bell = inStrip(find.byIcon(Icons.notifications_active));
+    await tester.tap(bell);
+    await tester.pumpAndSettle();
+    expect(find.text('Mentions / Whispers'), findsNothing);
+    await tester.pageBack();
+    await tester.pumpAndSettle();
 
-    await tester.tap(find.byIcon(Icons.notifications_active));
+    await prefs.setCustomLayoutEnabled(true);
+    await settlePrefs(tester);
+    await tester.tap(bell);
     await tester.pumpAndSettle();
     expect(find.text('Mentions / Whispers'), findsOneWidget);
   });
@@ -110,7 +106,6 @@ void main() {
         '(glass=$glass)', (tester) async {
       await pumpJoined(tester, glass: glass, density: LayoutDensity.compact);
 
-      expect(find.text('ErmChat'), findsNothing);
       expect(inStrip(find.byIcon(Icons.add)), findsOneWidget);
       expect(inStrip(find.byIcon(Icons.notifications_active)), findsOneWidget);
       expect(inStrip(find.byIcon(Icons.more_vert)), findsOneWidget);
@@ -139,26 +134,13 @@ void main() {
       );
     });
 
-    testWidgets('full keeps the separate app bar until override merges it '
-        '(glass=$glass)', (tester) async {
+    testWidgets('full keeps the app bar in the strip (glass=$glass)', (
+      tester,
+    ) async {
       await pumpJoined(tester, glass: glass, density: LayoutDensity.full);
 
-      expect(find.text('ErmChat'), findsOneWidget);
-      expect(inStrip(find.byIcon(Icons.add)), findsNothing);
-      expect(inStrip(find.byIcon(Icons.notifications_active)), findsNothing);
-
-      await tester.tap(find.byIcon(Icons.notifications_active));
-      await tester.pumpAndSettle();
-      expect(find.text('Mentions / Whispers'), findsOneWidget);
-      await tester.pageBack();
-      await tester.pumpAndSettle();
-
-      final prefs = await Prefs.load();
-      await prefs.setCustomLayoutEnabled(true);
-      await prefs.setOverrideMergeAppBar(true);
-      await settlePrefs(tester);
-      expect(find.text('ErmChat'), findsNothing);
       expect(inStrip(find.byIcon(Icons.add)), findsOneWidget);
+      expect(inStrip(find.byIcon(Icons.notifications_active)), findsOneWidget);
     });
 
     testWidgets('flipping density keeps the channel and focus (glass=$glass)', (
@@ -178,8 +160,6 @@ void main() {
         LayoutDensity.compact,
       ]) {
         await setDensity(tester, density);
-        final compact = density == LayoutDensity.compact;
-        expect(find.text('ErmChat'), compact ? findsNothing : findsOneWidget);
         expect(
           find.descendant(
             of: find.byType(TabBar),
