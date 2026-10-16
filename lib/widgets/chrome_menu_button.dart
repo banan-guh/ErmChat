@@ -113,7 +113,7 @@ class ChromeMenuButtonState extends State<ChromeMenuButton> {
               shape: const LiquidRoundedSuperellipse(
                 borderRadius: kChromeMenuRadius,
               ),
-              quality: GlassQuality.minimal,
+              settings: kGlassPillSettings,
               child: SizedBox.square(
                 dimension: kChromeMenuSize,
                 child: Center(child: arrow),

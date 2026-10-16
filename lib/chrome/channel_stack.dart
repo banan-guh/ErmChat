@@ -601,12 +601,10 @@ class ChannelPanels {
                       top: -kGlassEdgeBleed,
                       left: -kGlassEdgeBleed,
                       right: -kGlassEdgeBleed,
-                      child: glassHeaderSlot(
+                      child: glassHeaderBar(
                         hidden: isFullscreen(),
-                        child: glassBar(
-                          dark: Theme.of(context).brightness == Brightness.dark,
-                          child: glassHeader,
-                        ),
+                        dark: Theme.of(context).brightness == Brightness.dark,
+                        child: glassHeader,
                       ),
                     ),
                   ],

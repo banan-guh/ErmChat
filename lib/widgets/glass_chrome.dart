@@ -122,15 +122,18 @@ class GlassSurface extends StatelessWidget {
 /// Header glass, brightness-aware: a neutral tint whose alpha is the
 /// opacity lever on the premium path. (standardOpacityMultiplier is
 /// standard-path only and does nothing here, so it stays unset.)
-LiquidGlassSettings _barSettings(bool dark) => LiquidGlassSettings(
-  thickness: 28,
-  blur: 12,
-  lightIntensity: 0.1,
-  fresnelStrength: 1.5,
-  glassColor: dark ? const Color(0x59000000) : const Color(0x59FFFFFF),
-);
+LiquidGlassSettings _barSettings(bool dark, double visibility) =>
+    LiquidGlassSettings(
+      thickness: 28,
+      blur: 12,
+      lightIntensity: 0.1,
+      fresnelStrength: 1.5,
+      glassColor: dark ? const Color(0x59000000) : const Color(0x59FFFFFF),
+      visibility: visibility,
+    );
 
-const _pillSettings = LiquidGlassSettings(
+/// The pill's material, shared by the small chrome tiles.
+const kGlassPillSettings = LiquidGlassSettings(
   thickness: 22,
   blur: 10,
   lightIntensity: 0.1,
@@ -140,52 +143,57 @@ const _pillSettings = LiquidGlassSettings(
   saturation: 1.0,
 );
 
-// Full-bleed header fusing the app bar and the tab strip. The container
-// extends past the screen on the top and sides (content is counter-padded
-// by the same amount) so only the bottom rim draws across the chat.
-Widget glassBar({required Widget child, required bool dark}) => GlassSurface(
-  settings: _barSettings(dark),
-  shape: const LiquidRoundedSuperellipse(borderRadius: 0),
-  child: Padding(
-    padding: const EdgeInsets.fromLTRB(
-      kGlassEdgeBleed,
-      kGlassEdgeBleed,
-      kGlassEdgeBleed,
-      0,
+/// Full-bleed header fusing the app bar and the tab strip. The glass
+/// extends past the screen on the top and sides (content is counter-padded
+/// by the same amount) so only the bottom rim draws across the chat.
+///
+/// While [hidden] (fullscreen) it slides up and fades out, then goes
+/// offstage so it captures no backdrop. The fade runs through the glass's
+/// visibility and the content's own opacity, never an opacity above the
+/// glass, which would keep it out of a [GlassBackdropGroup].
+Widget glassHeaderBar({
+  required bool hidden,
+  required bool dark,
+  required Widget child,
+}) => IgnorePointer(
+  ignoring: hidden,
+  child: TweenAnimationBuilder<double>(
+    tween: Tween(end: hidden ? 0 : 1),
+    duration: const Duration(milliseconds: 200),
+    curve: Curves.easeInOut,
+    child: Padding(
+      padding: const EdgeInsets.fromLTRB(
+        kGlassEdgeBleed,
+        kGlassEdgeBleed,
+        kGlassEdgeBleed,
+        0,
+      ),
+      child: child,
     ),
-    child: child,
+    builder: (context, shown, child) => Offstage(
+      offstage: shown == 0,
+      child: FractionalTranslation(
+        translation: Offset(0, shown - 1),
+        child: GlassSurface(
+          settings: _barSettings(dark, shown),
+          shape: const LiquidRoundedSuperellipse(borderRadius: 0),
+          child: Opacity(opacity: shown, child: child),
+        ),
+      ),
+    ),
   ),
 );
 
-/// Slides a floating glass header up and out while [hidden] (fullscreen).
-/// The fade reaches zero opacity, where nothing paints, so a hidden header
-/// captures no backdrop.
-Widget glassHeaderSlot({required bool hidden, required Widget child}) =>
-    IgnorePointer(
-      ignoring: hidden,
-      child: AnimatedSlide(
-        duration: const Duration(milliseconds: 200),
-        curve: Curves.easeInOut,
-        offset: hidden ? const Offset(0, -1) : Offset.zero,
-        child: AnimatedOpacity(
-          duration: const Duration(milliseconds: 200),
-          curve: Curves.easeInOut,
-          opacity: hidden ? 0 : 1,
-          child: child,
-        ),
-      ),
-    );
-
 // Floating composer pill.
 Widget glassPill({required Widget child}) => GlassSurface(
-  settings: _pillSettings,
+  settings: kGlassPillSettings,
   shape: const LiquidRoundedSuperellipse(borderRadius: kGlassComposerRadius),
   child: child,
 );
 
 // Floating broadcast cards (pins, polls, predictions) over the chat.
 Widget glassCard({required Widget child}) => GlassSurface(
-  settings: _pillSettings,
+  settings: kGlassPillSettings,
   shape: const LiquidRoundedSuperellipse(borderRadius: 12),
   child: child,
 );

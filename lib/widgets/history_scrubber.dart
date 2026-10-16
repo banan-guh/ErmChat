@@ -484,13 +484,18 @@ class _HistoryScrubberState extends State<HistoryScrubber>
                       tween: Tween(end: tab ? 1 : 0),
                       duration: _fade,
                       curve: Curves.easeOutCubic,
-                      builder: (context, foot, _) => Positioned(
-                        right: 0,
-                        left: 0,
-                        bottom: 0,
-                        height: math.max(out * full, foot * tabH),
-                        child: _surface(scheme, out),
-                      ),
+                      builder: (context, foot, _) {
+                        final height = math.max(out * full, foot * tabH);
+                        // An empty dock mounts no glass.
+                        if (height == 0) return const SizedBox.shrink();
+                        return Positioned(
+                          right: 0,
+                          left: 0,
+                          bottom: 0,
+                          height: height,
+                          child: _surface(scheme, out),
+                        );
+                      },
                     ),
                   ),
                   Column(
@@ -529,13 +534,18 @@ class _HistoryScrubberState extends State<HistoryScrubber>
           alignment: Alignment.centerLeft,
           minWidth: box.maxWidth + _radius,
           maxWidth: box.maxWidth + _radius,
-          child: GlassSurface(
-            shape: LiquidVerticalRoundedSuperellipse(
-              topRadius: _radius * (1 - out),
-              bottomRadius: _radius,
+          // Out of the header's backdrop group: mid-swipe the next page's
+          // rows paint after this dock, and a shared read would miss them.
+          child: GlassBackdropGroup(
+            enabled: false,
+            child: GlassSurface(
+              shape: LiquidVerticalRoundedSuperellipse(
+                topRadius: _radius * (1 - out),
+                bottomRadius: _radius,
+              ),
+              settings: kGlassPillSettings,
+              child: const SizedBox.expand(),
             ),
-            quality: GlassQuality.minimal,
-            child: const SizedBox.expand(),
           ),
         ),
       );

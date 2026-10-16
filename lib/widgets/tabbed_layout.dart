@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/scheduler.dart';
+import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 
 import '../util/insets.dart';
 import 'chrome_menu_button.dart';
@@ -676,17 +677,19 @@ class TabbedLayoutState extends State<TabbedLayout>
 
     // App bar plus tab strip fuse into one floating card
     // above the full-height pages; rows slide underneath the blur.
+    // The header, the cards and the menu trigger read the backdrop once
+    // between them; each paints after every page, so all see the rows.
     if (overlay) {
-      return Stack(
-        children: [
-          Positioned.fill(child: pages),
-          Positioned(
-            top: -kGlassEdgeBleed,
-            left: -kGlassEdgeBleed,
-            right: -kGlassEdgeBleed,
-            child: glassHeaderSlot(
-              hidden: !widget.showTabBar,
-              child: glassBar(
+      return GlassBackdropGroup(
+        child: Stack(
+          children: [
+            Positioned.fill(child: pages),
+            Positioned(
+              top: -kGlassEdgeBleed,
+              left: -kGlassEdgeBleed,
+              right: -kGlassEdgeBleed,
+              child: glassHeaderBar(
+                hidden: !widget.showTabBar,
                 dark: Theme.of(context).brightness == Brightness.dark,
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
@@ -697,8 +700,8 @@ class TabbedLayoutState extends State<TabbedLayout>
                 ),
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       );
     }
 
