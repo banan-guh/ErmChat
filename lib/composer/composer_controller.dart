@@ -170,6 +170,7 @@ class ComposerController {
     }
     final channel = getSelectedChannel();
     if (channel == null) {
+      clearSuggestions();
       return;
     }
 

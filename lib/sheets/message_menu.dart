@@ -145,7 +145,9 @@ class MessageMenus {
                     : '';
                 Clipboard.setData(
                   ClipboardData(
-                    text: '$ts ${msg.formattedUsername}: ${msg.text}',
+                    text:
+                        '${ts.isEmpty ? '' : '$ts '}'
+                        '${msg.formattedUsername}: ${msg.text}',
                   ),
                 );
                 Navigator.pop(ctx);

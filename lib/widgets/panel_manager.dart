@@ -186,6 +186,8 @@ class PanelManager {
           onSnap();
         }
       },
+      // A cancelled drag would otherwise leave the sheet mid-way.
+      onVerticalDragCancel: onSnap,
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
