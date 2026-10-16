@@ -53,9 +53,6 @@ class TwitchEmoteProvider {
       headers['Authorization'] = 'Bearer $accessToken';
     }
     final res = await http.get(uri, headers: headers).timeout(httpTimeout);
-    logDebug(
-      'Twitch emotes $uri: ${res.statusCode} - ${res.body.length} bytes',
-    );
     throwOnTransientHttpError(res.statusCode, uri);
     DataUsageStats.I.recordJson(res.bodyBytes.length);
     if (res.statusCode != 200) return [];
@@ -176,7 +173,6 @@ class TwitchEmoteProvider {
         ),
       );
     }
-    logDebug('Twitch parsed ${emotes.length} emotes');
     return emotes;
   }
 

@@ -150,14 +150,12 @@ class TwitchEmoteSets {
       _fetched = true;
       _fetchedToken = auth.accessToken;
       if (perOwner.isEmpty) {
-        logDebug('loadUserEmotes: fetched, no channel emotes');
         return;
       }
       final channels = _openChannels(openChannelUserIds);
       await _resolveOwners(auth, channels, ownerIds: perOwner.keys);
       final targets = channels.keys.toList();
       if (targets.isEmpty) {
-        logDebug('loadUserEmotes: no channel targets');
         return;
       }
       final perChannel = _buildPerChannelEmotes(perOwner, targets);

@@ -248,10 +248,6 @@ class ChatChannelSetup {
       );
 
       emoteManager.accessToken = auth.accessToken;
-      logDebug(
-        'subscribeChannel $channelName userId=$channelUserId '
-        'hasToken=${auth.accessToken != null} resolved=${emoteManager.emotesResolved(channelName)}',
-      );
       if (!emoteManager.emotesResolved(channelName)) {
         emoteManager.markEmotesResolved(channelName);
         unawaited(
@@ -374,9 +370,6 @@ class ChatChannelSetup {
     _sevenTvSubscribed[twitchChannelId] = (
       userId: finalUserId,
       emoteSetId: finalEmoteSetId,
-    );
-    logDebug(
-      '[7TV] subscribed channel=$channelName emoteSetId=$finalEmoteSetId userId=$finalUserId',
     );
   }
 

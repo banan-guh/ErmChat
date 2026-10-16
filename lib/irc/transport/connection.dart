@@ -218,7 +218,6 @@ abstract class IrcConnection {
       // Credentials only apply to a socket we are about to authenticate;
       // adopting new ones on a live socket (authenticated as the previous
       // account) would make the stored state lie about the connection.
-      logDebug('[$debugPrefix] already connected, skipping reconnect');
       return Future.value();
     }
     this.username = username.toLowerCase();
@@ -302,10 +301,6 @@ abstract class IrcConnection {
         sendLine('CAP REQ :twitch.tv/tags twitch.tv/commands');
         sendLine('PASS oauth:$token');
         sendLine('NICK $username');
-        logDebug(
-          '[$debugPrefix] connected, queueing '
-          '${_channels.length} channels: $_channels',
-        );
         // Route the re-JOINs through the limiter: a burst of JOINs right
         // after connect is exactly what Twitch drops. The ROOMSTATE sweep
         // re-sends anything the server never confirmed.
@@ -686,13 +681,11 @@ abstract class IrcConnection {
   set awaitingPong(bool value) => _awaitingPong = value;
 
   void join(String channel) {
-    logDebug('[$debugPrefix] join channel=$channel');
     _channels.add(channel);
     _queueJoin(channel);
   }
 
   void part(String channel) {
-    logDebug('[$debugPrefix] part channel=$channel');
     _channels.remove(channel);
     _joinConfirmed.remove(channel);
     _joinPending.remove(channel);
@@ -793,10 +786,6 @@ abstract class IrcConnection {
       _stopJoinSweep();
       return;
     }
-    logDebug(
-      '[$debugPrefix] rejoin sweep $_joinSweepRound '
-      'unconfirmed: $unconfirmed',
-    );
     for (final ch in unconfirmed) {
       _queueJoin(ch, force: true);
     }
@@ -837,7 +826,6 @@ abstract class IrcConnection {
         _stopJoinRetry();
         return;
       }
-      logDebug('[$debugPrefix] slow join retry: $pending');
       for (final ch in pending) {
         _queueJoin(ch, force: true);
       }

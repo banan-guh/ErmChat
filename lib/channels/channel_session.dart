@@ -230,7 +230,6 @@ class ChannelSession extends ChangeNotifier {
           maybeAddConnected(name);
         });
 
-    logDebug('[HomeScreen] joining channel: $name');
     await subscribeChannel(name);
     chatConn.focusChannel(name);
     if (!_disposed) notifyListeners();
