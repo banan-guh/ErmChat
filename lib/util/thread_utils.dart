@@ -5,7 +5,12 @@ final _wsCollapseRe = RegExp(r'\s+');
 /// Single-line reply preview: trims, collapses runs, truncates.
 String formatReplyPreview(String text, {int maxLen = 60}) {
   final collapsed = text.trim().replaceAll(_wsCollapseRe, ' ');
-  if (collapsed.length > maxLen) return '${collapsed.substring(0, maxLen)}...';
+  if (collapsed.length > maxLen) {
+    // Never split a surrogate pair; a lone half crashes text layout.
+    final high = collapsed.codeUnitAt(maxLen - 1);
+    final end = high >= 0xD800 && high <= 0xDBFF ? maxLen - 1 : maxLen;
+    return '${collapsed.substring(0, end)}...';
+  }
   return collapsed;
 }
 

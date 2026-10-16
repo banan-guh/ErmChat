@@ -78,14 +78,12 @@ class HistoryWindow {
   /// Attaches [rows] (oldest first) before the first row, skipping rows
   /// already held. Returns how many attached.
   int prepend(List<TwitchMessage> rows) {
+    // A page can repeat a row (an unsealed copy of a sealed one).
     final fresh = [
       for (final r in rows)
-        if (!_keys.contains(keyOf(r))) r,
+        if (_keys.add(keyOf(r))) r,
     ];
     if (fresh.isEmpty) return 0;
-    for (final r in fresh) {
-      _keys.add(keyOf(r));
-    }
     final oldFirst = _base;
     _rows.insertAll(0, fresh);
     _base -= fresh.length;

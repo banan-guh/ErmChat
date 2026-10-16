@@ -27,7 +27,7 @@ class PerfProbe {
 
   /// Adds a counter map logged and cleared every window.
   static void counters(Map<String, int> map) {
-    if (enabled) _counters.add(map);
+    if (enabled && !_counters.contains(map)) _counters.add(map);
   }
 
   /// Adds a value sampled into every log line.

@@ -592,6 +592,7 @@ class Messages {
       isSystem: true,
       systemAccent: accent,
       channel: channel,
+      timestamp: now(),
     );
     _items.insert(0, row);
     _byId[messageId] = row;
