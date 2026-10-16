@@ -99,6 +99,8 @@ class ChatLiveness {
         ircRead.connect(
           username: anonymous ? anonymousNick(2) : username,
           accessToken: accessToken,
+          // The proxy rejects anonymous nicks.
+          useProxy: !anonymous,
         ),
       );
     }
