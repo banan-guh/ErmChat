@@ -230,7 +230,7 @@ class SafeEmailLinkifier extends Linkifier {
   );
   static final _whitespace = RegExp(r'\s');
   static final _schemeInToken = RegExp(r'://');
-  static final _mailtoPrefix = RegExp(r'mailto:');
+  static final _mailtoPrefix = RegExp(r'mailto:', caseSensitive: false);
 
   @override
   List<LinkifyElement> parse(elements, options) {

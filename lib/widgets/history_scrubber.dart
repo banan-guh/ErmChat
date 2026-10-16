@@ -290,8 +290,8 @@ class _HistoryScrubberState extends State<HistoryScrubber>
       _clearExclusion();
       return;
     }
-    final center =
-        _buttonRoom + widget.thumb.value * (box.size.height - _buttonRoom);
+    // The bar's own height, without the days button and the newest tab.
+    final center = _buttonRoom + widget.thumb.value * _height;
     final sent = _sentCenter;
     if (identical(_excluding, this) &&
         sent != null &&
