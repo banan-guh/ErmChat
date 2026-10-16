@@ -158,6 +158,8 @@ class PubSubService {
         _armPing();
       } catch (e) {
         logDebug('PubSub connect error: $e');
+        // A timed-out handshake must not leave its socket open.
+        _channel?.sink.close();
         _channel = null;
         _streamSub = null;
         _scheduleReconnect();

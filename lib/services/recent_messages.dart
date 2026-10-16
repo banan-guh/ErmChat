@@ -138,7 +138,8 @@ class RecentMessagesService {
     for (final channel in channels) {
       final key = channel.toLowerCase();
       if (_warmed.containsKey(key)) continue;
-      _warmed[key] = service.fetchRecent(channel, limit: limit);
+      // A failure before anyone awaits it must not surface as unhandled.
+      _warmed[key] = service.fetchRecent(channel, limit: limit)..ignore();
       armed++;
     }
     if (armed > 0) {
