@@ -235,12 +235,18 @@ class MentionsPanels {
   void showWhispersForUser(String login) {
     whisperTarget = login;
     if (panelManager.activePanel != OverlayPanel.mentions) {
-      unawaited(showMentionsView());
+      // Opening the panel unfocuses the composer, so focus after it.
+      unawaited(
+        showMentionsView().then((_) {
+          if (isMounted()) composer.focus();
+        }),
+      );
+    } else {
+      composer.focus();
     }
     mentionsTab().animateTo(1);
     chat.markWhispersSeen(unreadWhispers);
     unreadWhispers = 0;
-    composer.focus();
   }
 
   /// Mentions across every channel's archive, newest at the bottom, with

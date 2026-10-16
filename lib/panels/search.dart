@@ -245,8 +245,9 @@ class SearchPanels {
     if (v != null) {
       WidgetsBinding.instance.addPostFrameCallback((_) => v.dispose());
     }
-    // Leaving the last channel strands the bar, so drop it quietly.
-    if (chat.names.isEmpty && open) {
+    // Leaving the last channel strands the bar, so drop it quietly. The
+    // channel itself leaves the chat a frame later.
+    if (chat.names.every((c) => c == channel) && open) {
       open = false;
       field.clear();
       focusNode.unfocus();
