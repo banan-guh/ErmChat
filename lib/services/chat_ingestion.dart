@@ -6,6 +6,7 @@ import '../models/emote_fetch_tier.dart';
 import '../models/twitch_message.dart';
 import '../util/constants.dart' show kWhispersChannel;
 import '../util/perf_probe.dart';
+import '../util/log.dart';
 import '../irc/decode/codec.dart' show parseIrcChatMessage;
 import '../irc/decode/copy.dart'
     show buildUserNoticeText, userNoticeAccent, userNoticeLabelId;
@@ -354,7 +355,11 @@ class ChatIngestion {
     final login = badgeService.resolveChannelLogin(broadcasterId);
     if (login == null || login.isEmpty) return;
     if (!emoteManager.hasChannelCache(login)) {
-      await emoteManager.resolveEmotes(login, broadcasterId);
+      try {
+        await emoteManager.resolveEmotes(login, broadcasterId);
+      } catch (e) {
+        logDebug('[ChatIngestion] source emotes failed for $login: $e');
+      }
     }
   }
 

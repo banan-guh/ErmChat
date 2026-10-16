@@ -335,7 +335,15 @@ class CommandHandler {
         addSystemMessage(channel, strings().accountUnresolved);
         return;
       }
-      await _handleWhisper(text, channel, auth, currentUserId);
+      try {
+        await _handleWhisper(text, channel, auth, currentUserId);
+      } catch (e) {
+        logDebug('[CommandHandler] $cmd failed: $e');
+        addSystemMessage(
+          channel,
+          strings().commandFailed(modActions.failureReason()),
+        );
+      }
       return;
     }
     if (currentUserId == null || broadcasterId == null) {

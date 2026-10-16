@@ -300,9 +300,9 @@ class ChatStatusComposer {
     final parts = <String>[];
     if (stream != null && stream['type'] == 'live') {
       final viewers = (stream['viewer_count'] as num?)?.toInt() ?? 0;
-      final started = stream['started_at'] as String?;
+      final started = DateTime.tryParse(stream['started_at'] as String? ?? '');
       if (started != null) {
-        final dur = DateTime.now().difference(DateTime.parse(started));
+        final dur = _now().difference(started);
         final h = dur.inHours;
         final m = dur.inMinutes.remainder(60);
         parts.add(strings().liveWithViewersFor(viewers, h, m));
