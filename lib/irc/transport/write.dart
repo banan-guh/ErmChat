@@ -1,5 +1,7 @@
 import 'connection.dart';
 
+final _lineBreakRe = RegExp(r'[\r\n]+');
+
 /// Chat write socket: sends PRIVMSG and emits raw frames. Stays join-free;
 /// the read socket ([IrcReadService]) owns every JOIN.
 class IrcService extends IrcConnection {
@@ -18,7 +20,9 @@ class IrcService extends IrcConnection {
     final tag = replyParentMessageId != null
         ? '@reply-parent-msg-id=$replyParentMessageId '
         : '';
-    final msg = '${tag}PRIVMSG #$channelName :$text';
+    // A line break would end the command and send the rest as raw IRC.
+    final line = text.replaceAll(_lineBreakRe, ' ');
+    final msg = '${tag}PRIVMSG #$channelName :$line';
     sendLine(msg);
   }
 }
