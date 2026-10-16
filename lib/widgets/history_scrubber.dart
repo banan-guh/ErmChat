@@ -153,6 +153,9 @@ class _HistoryScrubberState extends State<HistoryScrubber>
   /// The dock's head, the days button.
   static const double _buttonRoom = 40;
 
+  /// The dock's corner radius.
+  static const double _radius = 20;
+
   /// The dock's foot, the scroll-down button's height.
   static const double _tab = 56;
 
@@ -519,12 +522,21 @@ class _HistoryScrubberState extends State<HistoryScrubber>
   /// like the bottom.
   Widget _surface(ColorScheme scheme, double out) {
     if (widget.glass) {
-      return const Padding(
-        padding: EdgeInsets.only(right: 4),
-        child: GlassSurface(
-          shape: LiquidRoundedSuperellipse(borderRadius: 22),
-          quality: GlassQuality.minimal,
-          child: SizedBox.expand(),
+      // Glass rounds both corners of a side alike, so the surface runs past
+      // the screen edge by its radius and only the left corners show.
+      return LayoutBuilder(
+        builder: (context, box) => OverflowBox(
+          alignment: Alignment.centerLeft,
+          minWidth: box.maxWidth + _radius,
+          maxWidth: box.maxWidth + _radius,
+          child: GlassSurface(
+            shape: LiquidVerticalRoundedSuperellipse(
+              topRadius: _radius * (1 - out),
+              bottomRadius: _radius,
+            ),
+            quality: GlassQuality.minimal,
+            child: const SizedBox.expand(),
+          ),
         ),
       );
     }
@@ -532,8 +544,8 @@ class _HistoryScrubberState extends State<HistoryScrubber>
       decoration: BoxDecoration(
         color: scheme.surfaceContainerHigh.withValues(alpha: 0.92),
         borderRadius: BorderRadius.only(
-          topLeft: Radius.circular(20 * (1 - out)),
-          bottomLeft: const Radius.circular(20),
+          topLeft: Radius.circular(_radius * (1 - out)),
+          bottomLeft: const Radius.circular(_radius),
         ),
         boxShadow: [
           BoxShadow(color: scheme.shadow.withValues(alpha: 0.2), blurRadius: 8),
@@ -576,7 +588,9 @@ class _HistoryScrubberState extends State<HistoryScrubber>
   Widget _newestTab(ColorScheme scheme) => Material(
     type: MaterialType.transparency,
     child: InkWell(
-      borderRadius: const BorderRadius.horizontal(left: Radius.circular(20)),
+      borderRadius: const BorderRadius.horizontal(
+        left: Radius.circular(_radius),
+      ),
       onTap: () {
         HapticFeedback.lightImpact();
         widget.onNewest?.call();
