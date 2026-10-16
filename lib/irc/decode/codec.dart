@@ -44,7 +44,9 @@ List<EmotePosition>? parseIrcEmotePositions(
   for (final entry in raw) {
     final utf16Start = lookup(entry.startCp);
     final utf16End = lookup(entry.endCp);
-    if (utf16Start < 0 || utf16End > baseText.length) continue;
+    if (utf16Start < 0 || utf16End < utf16Start || utf16End > baseText.length) {
+      continue;
+    }
     final emoteCode = baseText.substring(utf16Start, utf16End);
     final adjStart = utf16Start - prefixLen;
     final adjEnd = utf16End - prefixLen;
@@ -94,7 +96,9 @@ List<GifAttachment>? parseIrcGifPositions(
     if (!url.startsWith('https://')) continue;
     final utf16Start = lookup(start);
     final utf16End = lookup(end + 1);
-    if (utf16Start < 0 || utf16End > baseText.length) continue;
+    if (utf16Start < 0 || utf16End < utf16Start || utf16End > baseText.length) {
+      continue;
+    }
     final adjStart = utf16Start - prefixLen;
     final adjEnd = utf16End - prefixLen;
     if (adjStart < 0 || adjEnd > strippedText.length) continue;
