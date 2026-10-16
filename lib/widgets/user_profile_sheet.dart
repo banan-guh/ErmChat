@@ -960,7 +960,10 @@ class UserProfileSheetState extends State<UserProfileSheet> {
       ),
     );
     if (confirmed != true || !mounted) return;
-    final ok = await widget.twitchApi.blockUser(widget.twitchAuth, userId);
+    // Offline or timed out, the request throws instead of returning false.
+    final ok = await widget.twitchApi
+        .blockUser(widget.twitchAuth, userId)
+        .catchError((Object _) => false);
     if (!mounted) return;
     AppSnack.show(
       context,

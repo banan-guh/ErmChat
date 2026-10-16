@@ -97,7 +97,7 @@ class _StreamPlayerViewState extends State<StreamPlayerView> {
               },
             ),
           );
-    unawaited(_applyPlatformFlags());
+    unawaited(_applyPlatformFlags().catchError((Object _) {}));
     _reload();
   }
 
@@ -221,9 +221,9 @@ class _StreamPlayerViewState extends State<StreamPlayerView> {
       _resumeTimer = Timer(const Duration(milliseconds: 100), () {
         if (!mounted) return;
         unawaited(
-          _webController.runJavaScript(
-            "document.querySelector('video')?.play()",
-          ),
+          _webController
+              .runJavaScript("document.querySelector('video')?.play()")
+              .catchError((Object _) {}),
         );
       });
     }

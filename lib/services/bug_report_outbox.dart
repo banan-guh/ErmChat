@@ -81,8 +81,13 @@ class BugReportOutbox extends ChangeNotifier {
       if (list is! List) return;
       for (final item in list) {
         if (item is! Map) continue;
-        final r = BugReport.fromJson(Map<String, dynamic>.from(item));
-        if (r != null) _reports.add(r);
+        // One mistyped entry must not drop the reports after it.
+        try {
+          final r = BugReport.fromJson(Map<String, dynamic>.from(item));
+          if (r != null) _reports.add(r);
+        } catch (e) {
+          logDebug('[BugReportOutbox] skipped a corrupt report: $e');
+        }
       }
       _notify();
     } catch (e) {
