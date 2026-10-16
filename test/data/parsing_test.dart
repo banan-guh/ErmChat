@@ -661,6 +661,28 @@ void main() {
     });
   });
 
+  // /streams pages at 20 by default, so live channels past the page read
+  // as offline and their streams "ended".
+  test('getStreams asks full pages, 100 ids at a time', () async {
+    final requests = <Uri>[];
+    final api = TwitchApi(
+      client: MockClient((request) async {
+        requests.add(request.url);
+        final data = [
+          for (final id in request.url.queryParametersAll['user_id']!)
+            {'user_id': id, 'type': 'live'},
+        ];
+        return http.Response(jsonEncode({'data': data}), 200);
+      }),
+    );
+    final live = await api.getStreams(auth, [
+      for (var i = 0; i < 150; i++) '$i',
+    ]);
+    expect(live.length, 150);
+    expect(requests.length, 2);
+    expect(requests.map((u) => u.queryParameters['first']), ['100', '100']);
+  });
+
   group('getUserLoginsByIds', () {
     test('maps ids to logins with GET /helix/users?id=', () async {
       late http.Request captured;

@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math' show min;
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import '../l10n/l10n.dart';
@@ -435,24 +436,31 @@ class TwitchApi {
       _clearError();
       return {};
     }
-    final query = broadcasterIds.map((id) => 'user_id=$id').join('&');
-    final uri = Uri.parse('$_base/streams?$query');
-    final res = await _get('getStreams', auth, uri);
-    if (res == null) throw http.ClientException('getStreams failed', uri);
-    try {
-      final data = jsonDecode(res.body) as Map;
-      final list = data['data'] as List;
-      final byId = <String, Map<String, dynamic>>{};
-      for (final item in list) {
-        final m = item as Map<String, dynamic>;
-        final id = m['user_id'] as String?;
-        if (id != null) byId[id] = m;
+    final byId = <String, Map<String, dynamic>>{};
+    // Helix takes 100 ids a request and pages at 20 by default; a live
+    // channel cut from the page would read as offline.
+    const chunkSize = 100;
+    final ids = broadcasterIds.toSet().toList();
+    for (var i = 0; i < ids.length; i += chunkSize) {
+      final chunk = ids.sublist(i, min(i + chunkSize, ids.length));
+      final query = chunk.map((id) => 'user_id=$id').join('&');
+      final uri = Uri.parse('$_base/streams?first=$chunkSize&$query');
+      final res = await _get('getStreams', auth, uri);
+      if (res == null) throw http.ClientException('getStreams failed', uri);
+      try {
+        final data = jsonDecode(res.body) as Map;
+        final list = data['data'] as List;
+        for (final item in list) {
+          final m = item as Map<String, dynamic>;
+          final id = m['user_id'] as String?;
+          if (id != null) byId[id] = m;
+        }
+      } catch (e) {
+        _setError('getStreams: bad response');
+        throw http.ClientException('getStreams: bad response', uri);
       }
-      return byId;
-    } catch (e) {
-      _setError('getStreams: bad response');
-      throw http.ClientException('getStreams: bad response', uri);
     }
+    return byId;
   }
 
   Future<Map<String, dynamic>?> getUserProfile(
