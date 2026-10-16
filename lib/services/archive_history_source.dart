@@ -169,7 +169,13 @@ class ArchiveFindSource implements HistorySource {
   Future<ActivityRail?> rail(List<HistoryStream> streams) async {
     final times = await reader.findTimes(terms, test, channels: channels);
     if (times.isEmpty) return null;
-    final to = _now().toUtc();
+    // Twitch's clock can run ahead of the phone's, so a match may land
+    // after now; the rail then ends at the match.
+    final now = _now().toUtc();
+    final last = times.reduce(max);
+    final to = last > now.millisecondsSinceEpoch
+        ? DateTime.fromMillisecondsSinceEpoch(last, isUtc: true)
+        : now;
     const bucket = ActivityRail.defaultBucket;
     final ms = bucket.inMilliseconds;
     final first = times.reduce(min) ~/ ms * ms;
