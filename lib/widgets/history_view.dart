@@ -779,6 +779,9 @@ class _HistoryViewState extends State<HistoryView> {
         if (clamped != p.pixels) p.jumpTo(clamped);
         _snapToNewest(p);
         _syncAtBottom(p);
+        if (_railReady.value != null && !_railDragging) {
+          _thumb.value = _viewportRailPos(_scale.value, p) ?? _thumb.value;
+        }
         if (pinOldest) _settleAtEnd(oldest: true);
         if (time == null) _settleAtEnd(oldest: false);
       }

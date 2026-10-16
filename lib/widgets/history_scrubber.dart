@@ -12,9 +12,9 @@ import '../l10n/l10n.dart';
 import '../util/history_timeline.dart';
 
 /// Time rail for the history list. A calendar rail shows [window] of plain
-/// time with a grab handle; tapping the handle slides the bar left and opens
-/// a compartment of days beside it, one row per day, where a tap jumps to
-/// that day. A results rail is a plain scrollbar.
+/// time with a grab handle and a days button above it, which slides the bar
+/// left and opens a compartment of days beside it, one row per day, where a
+/// tap jumps to that day. A results rail is a plain scrollbar.
 ///
 /// It only reports times and positions; the list owner moves [thumb] while
 /// the list scrolls and performs the jumps. Visibility, thumb and bubble run
@@ -121,12 +121,15 @@ class _HistoryScrubberState extends State<HistoryScrubber>
   /// Bar center, in from the bar's right edge.
   static const double _inset = 12;
 
-  /// Day row widths: an empty day to the busiest.
-  static const double _rowMin = 28;
-  static const double _rowMax = 48;
+  /// Day row width.
+  static const double _row = 44;
 
   /// Width the days compartment adds, rows plus margins.
-  static const double _daysWidth = _rowMax + 12;
+  static const double _daysWidth = _row + 12;
+
+  /// The days button, and the room above the bar it sits in.
+  static const double _buttonSize = 24;
+  static const double _buttonRoom = 36;
 
   /// Movement before a touch counts as a drag rather than a tap.
   static const double _slop = 6;
@@ -259,7 +262,8 @@ class _HistoryScrubberState extends State<HistoryScrubber>
       _clearExclusion();
       return;
     }
-    final center = widget.thumb.value * box.size.height;
+    final center =
+        _buttonRoom + widget.thumb.value * (box.size.height - _buttonRoom);
     final sent = _sentCenter;
     if (identical(_excluding, this) &&
         sent != null &&
@@ -354,7 +358,7 @@ class _HistoryScrubberState extends State<HistoryScrubber>
   }
 
   /// A tap: a day when the compartment is out (anywhere else closes it),
-  /// otherwise the old place marker or the handle, which opens the days.
+  /// otherwise the old place marker.
   void _tap(Offset at) {
     if (widget.panel.value) {
       final width = _barWidth + _daysWidth;
@@ -367,16 +371,7 @@ class _HistoryScrubberState extends State<HistoryScrubber>
       return;
     }
     final old = _oldPlaceY();
-    if (old != null && (old - at.dy).abs() < _reach) {
-      widget.onBack();
-      return;
-    }
-    final handle = widget.thumb.value * _height;
-    if ((handle - at.dy).abs() < _reach &&
-        HistoryScrubber.hasDays(widget.rail)) {
-      HapticFeedback.selectionClick();
-      widget.panel.value = true;
-    }
+    if (old != null && (old - at.dy).abs() < _reach) widget.onBack();
   }
 
   @override
@@ -409,63 +404,17 @@ class _HistoryScrubberState extends State<HistoryScrubber>
         child: LayoutBuilder(
           builder: (context, box) {
             if (box.maxHeight < _minHeight) return const SizedBox.shrink();
-            if (box.maxHeight != _height) {
-              _height = box.maxHeight;
+            final barH = box.maxHeight - _buttonRoom;
+            if (barH != _height) {
+              _height = barH;
               _days = null;
             }
-            return RawGestureDetector(
-              behavior: HitTestBehavior.opaque,
-              gestures: {
-                _EagerPan: GestureRecognizerFactoryWithHandlers<_EagerPan>(
-                  _EagerPan.new,
-                  (r) => r
-                    ..onStart = _onDown
-                    ..onUpdate = _update
-                    ..onEnd = _end
-                    ..onCancel = _end,
-                ),
-              },
-              child: Stack(
-                clipBehavior: Clip.none,
-                children: [
-                  Positioned.fill(
-                    child: CustomPaint(
-                      painter: _RailPainter(
-                        rail: widget.rail,
-                        scale: widget.scale,
-                        thumb: widget.thumb,
-                        oldPlace: widget.oldPlace,
-                        active: _activeCurve,
-                        open: _openCurve,
-                        inset: _inset,
-                        daysWidth: _daysWidth,
-                        track: scheme.onSurface,
-                        accent: scheme.primary,
-                        glyph: scheme.onPrimary,
-                        stream: streamAccent,
-                        shadow: scheme.shadow,
-                      ),
-                    ),
-                  ),
-                  _daysCompartment(context, scheme),
-                  ListenableBuilder(
-                    listenable: Listenable.merge([
-                      widget.thumb,
-                      widget.scale,
-                      _active,
-                    ]),
-                    builder: (context, _) => Positioned.fill(
-                      child: Stack(
-                        clipBehavior: Clip.none,
-                        children: [
-                          _barLabels(context, scheme),
-                          _bubble(context, scheme),
-                        ],
-                      ),
-                    ),
-                  ),
-                ],
-              ),
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                SizedBox(height: _buttonRoom, child: _daysButton(scheme)),
+                Expanded(child: _bar(scheme)),
+              ],
             );
           },
         ),
@@ -473,9 +422,96 @@ class _HistoryScrubberState extends State<HistoryScrubber>
     );
   }
 
-  /// The days, sliding in from the right edge: one rounded row per day, as
-  /// wide as its share of the busiest, labeled with its date (and month on
-  /// the first row and each month's first day), the list's day highlighted.
+  /// Opens and closes the days, beside the bar's top end.
+  Widget _daysButton(ColorScheme scheme) {
+    if (!HistoryScrubber.hasDays(widget.rail)) return const SizedBox.shrink();
+    return AnimatedBuilder(
+      animation: _openCurve,
+      builder: (context, _) => Align(
+        alignment: Alignment.topRight,
+        child: Padding(
+          padding: EdgeInsets.only(
+            right: _daysWidth * _openCurve.value + _inset - _buttonSize / 2,
+          ),
+          child: SizedBox.square(
+            dimension: _buttonSize,
+            child: Material(
+              color: widget.panel.value
+                  ? scheme.primary
+                  : scheme.surfaceContainerHighest,
+              shape: const CircleBorder(),
+              clipBehavior: Clip.antiAlias,
+              child: InkWell(
+                onTap: () {
+                  HapticFeedback.selectionClick();
+                  widget.panel.value = !widget.panel.value;
+                },
+                child: Icon(
+                  Icons.calendar_month,
+                  size: 16,
+                  color: widget.panel.value
+                      ? scheme.onPrimary
+                      : scheme.onSurfaceVariant,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _bar(ColorScheme scheme) => RawGestureDetector(
+    behavior: HitTestBehavior.opaque,
+    gestures: {
+      _EagerPan: GestureRecognizerFactoryWithHandlers<_EagerPan>(
+        _EagerPan.new,
+        (r) => r
+          ..onStart = _onDown
+          ..onUpdate = _update
+          ..onEnd = _end
+          ..onCancel = _end,
+      ),
+    },
+    child: Stack(
+      clipBehavior: Clip.none,
+      children: [
+        Positioned.fill(
+          child: CustomPaint(
+            painter: _RailPainter(
+              rail: widget.rail,
+              scale: widget.scale,
+              thumb: widget.thumb,
+              oldPlace: widget.oldPlace,
+              active: _activeCurve,
+              open: _openCurve,
+              inset: _inset,
+              daysWidth: _daysWidth,
+              track: scheme.onSurface,
+              accent: scheme.primary,
+              glyph: scheme.onPrimary,
+              stream: streamAccent,
+              shadow: scheme.shadow,
+            ),
+          ),
+        ),
+        _daysCompartment(context, scheme),
+        ListenableBuilder(
+          listenable: Listenable.merge([widget.thumb, widget.scale, _active]),
+          builder: (context, _) => Positioned.fill(
+            child: Stack(
+              clipBehavior: Clip.none,
+              children: [_barLabels(context, scheme), _bubble(context, scheme)],
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
+
+  /// The days, sliding in from the right edge: one rounded row per day,
+  /// labeled with its date (and month on the first row and each month's
+  /// first day), the list's day highlighted.
   Widget _daysCompartment(BuildContext context, ColorScheme scheme) =>
       ListenableBuilder(
         listenable: Listenable.merge([_openCurve, widget.thumb, widget.scale]),
@@ -483,10 +519,6 @@ class _HistoryScrubberState extends State<HistoryScrubber>
           final o = _openCurve.value;
           if (o == 0) return const SizedBox.shrink();
           final d = _layout;
-          final busiest = math.max(
-            1,
-            d.days.fold<int>(0, (a, x) => math.max(a, x.count)),
-          );
           final current = dayNumber(widget.rail.local(_handleTime));
           final gap = math.min(3.0, d.dayH * 0.2);
           final style = Theme.of(context).textTheme.labelSmall;
@@ -503,7 +535,7 @@ class _HistoryScrubberState extends State<HistoryScrubber>
                 right: 6,
                 top: d.top + i * d.dayH + gap / 2,
                 height: d.dayH - gap,
-                width: _rowMin + (_rowMax - _rowMin) * day.count / busiest,
+                width: _row,
                 child: DecoratedBox(
                   decoration: BoxDecoration(
                     color: on
@@ -831,18 +863,19 @@ class _RailPainter extends CustomPainter {
       _paintMarker(canvas, x - 7, s.positionOf(old) * h);
     }
 
-    // A map pin on its side: the head on the bar, the point toward the
+    // A map pin on its side, its point on the bar and its head toward the
     // list.
     final r = ui.lerpDouble(7, 9, t)!;
     final cy = (thumb.value * h).clamp(r, h - r);
     const reach = 2.2;
+    final hx = x - r * reach;
     final a = math.acos(1 / reach);
     final pin = Path()
-      ..moveTo(x - r * reach, cy)
-      ..lineTo(x + r * math.cos(math.pi + a), cy + r * math.sin(math.pi + a))
+      ..moveTo(x, cy)
+      ..lineTo(hx + r * math.cos(a), cy + r * math.sin(a))
       ..arcTo(
-        Rect.fromCircle(center: Offset(x, cy), radius: r),
-        math.pi + a,
+        Rect.fromCircle(center: Offset(hx, cy), radius: r),
+        a,
         2 * math.pi - 2 * a,
         false,
       )
@@ -851,7 +884,7 @@ class _RailPainter extends CustomPainter {
       canvas.drawShadow(pin, shadow.withValues(alpha: t), 3, false);
     }
     canvas.drawPath(pin, Paint()..color = accent);
-    canvas.drawCircle(Offset(x, cy), r * 0.38, Paint()..color = glyph);
+    canvas.drawCircle(Offset(hx, cy), r * 0.38, Paint()..color = glyph);
   }
 
   /// A filled tag, a rounded box pointing at [tip]: where the list was.

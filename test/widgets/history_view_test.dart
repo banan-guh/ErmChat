@@ -245,14 +245,17 @@ Future<void> _pumpView(
   return (top: top, bottom: bottom, keys: keys);
 }
 
-/// Taps the rail's handle, which opens the days.
-Future<void> _tapHandle(WidgetTester tester) async {
-  final rail = tester.getRect(find.byType(HistoryScrubber));
-  final y = tester
-      .widget<HistoryScrubber>(find.byType(HistoryScrubber))
-      .thumb
-      .value;
-  await tester.tapAt(Offset(rail.right - 12, rail.top + y * rail.height));
+/// Opens the days from the rail's button. The test's jump buttons cover
+/// the rail's top, so the tap goes straight to the button.
+Future<void> _openDays(WidgetTester tester) async {
+  tester
+      .widget<InkWell>(
+        find.ancestor(
+          of: find.byIcon(Icons.calendar_month),
+          matching: find.byType(InkWell),
+        ),
+      )
+      .onTap!();
   await _settle(tester);
 }
 
@@ -264,7 +267,8 @@ Future<void> _tapDay(WidgetTester tester, int i) async {
       .rail
       .days
       .length;
-  final dayH = (rail.height / n).clamp(0.0, 40.0);
+  // The days button takes the rail's top 36.
+  final dayH = ((rail.height - 36) / n).clamp(0.0, 40.0);
   final row = i < 0 ? n + i : i;
   await tester.tapAt(
     Offset(rail.right - 20, rail.bottom - (n - row - 0.5) * dayH),
@@ -279,9 +283,9 @@ Future<void> _scrub(WidgetTester tester, List<Offset> steps) async {
       .widget<HistoryScrubber>(find.byType(HistoryScrubber))
       .thumb
       .value;
-  final grab = await tester.startGesture(
-    Offset(rail.right - 12, rail.top + y * rail.height),
-  );
+  final at = Offset(rail.right - 12, rail.top + 36 + y * (rail.height - 36));
+  // ignore: avoid_print
+  final grab = await tester.startGesture(at);
   for (final step in steps) {
     await grab.moveBy(step);
     await tester.pump(const Duration(milliseconds: 16));
@@ -575,12 +579,12 @@ void main() {
     expect(railShown(), isTrue, reason: 'flings never brought the rail in');
     // A tap on the dimmed list closes the days without moving it.
     final before = _items(tester).keys;
-    await _tapHandle(tester);
+    await _openDays(tester);
     await tester.tapAt(tester.getRect(list).topLeft + const Offset(40, 300));
     await _settle(tester);
     expect(_items(tester).keys, before, reason: 'closing the days jumped');
     // The bar spans the last days; the oldest row is the first day's.
-    await _tapHandle(tester);
+    await _openDays(tester);
     await _tapDay(tester, 0);
     expect(
       _items(tester).keys,
@@ -614,12 +618,7 @@ void main() {
     await tester.drag(list, const Offset(0, -300));
     await tester.pump();
     expect(railShown(), isTrue, reason: 'a scroll at the top hid the rail');
-    // Clear of the test's jump buttons over the rail's top.
-    for (var i = 0; i < 3; i++) {
-      await tester.drag(list, const Offset(0, -1500));
-      await tester.pump();
-    }
-    await _tapHandle(tester);
+    await _openDays(tester);
     await _tapDay(tester, -1);
     await _scrub(tester, const [Offset(0, 20), Offset(0, 3000)]);
     final pos = tester
