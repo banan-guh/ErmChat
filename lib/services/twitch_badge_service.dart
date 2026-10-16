@@ -48,6 +48,8 @@ class TwitchBadgeService {
       }
       _globalBadges.addAll(sets);
       _globalFetched = true;
+      // Span caches keyed on the version drop their badge-less rows.
+      _version++;
     }();
     try {
       await _inflightGlobal!;
@@ -87,6 +89,7 @@ class TwitchBadgeService {
     if (sets.isNotEmpty) {
       _channelBadges[channel] = sets;
       _channelBadgesFetched.add(channel);
+      _version++;
     }
   }
 

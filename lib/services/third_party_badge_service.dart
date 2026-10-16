@@ -33,6 +33,8 @@ class ThirdPartyBadgeService {
   bool _limerinoEnabled = false;
   Timer? _limerinoFlushTimer;
   bool _limerinoInflight = false;
+  // A lookup in flight at dispose would otherwise re-arm its retry.
+  bool _disposed = false;
   bool _limerinoCatalogInflight = false;
   DateTime? _limerinoCatalogAt;
   DateTime? _limerinoBlockedUntil;
@@ -96,7 +98,7 @@ class ThirdPartyBadgeService {
     _ffzInflight = true;
     try {
       final uri = Uri.parse('https://api.frankerfacez.com/v1/badges/ids');
-      final res = await http.get(uri).timeout(httpTimeout);
+      final res = await _get(uri);
       if (res.statusCode != 200) return;
       final data = jsonDecode(res.body) as Map<String, dynamic>;
 
@@ -138,7 +140,7 @@ class ThirdPartyBadgeService {
     _bttvInflight = true;
     try {
       final uri = Uri.parse('https://api.betterttv.net/3/cached/badges/twitch');
-      final res = await http.get(uri).timeout(httpTimeout);
+      final res = await _get(uri);
       if (res.statusCode != 200) return;
       final list = jsonDecode(res.body) as List<dynamic>? ?? [];
       for (final entry in list) {
@@ -241,12 +243,13 @@ class ThirdPartyBadgeService {
     try {
       final res = await _get(Uri.parse(_limerinoApi));
       if (res.statusCode != 200) return;
-      _limerinoCatalogAt = _now();
       final data = jsonDecode(res.body) as Map<String, dynamic>;
       for (final raw in data['badges'] as List<dynamic>? ?? const []) {
         final badge = _parseLimerinoBadge(raw);
         if (badge != null) _limerinoBadges[badge.$1] = badge.$2;
       }
+      // Only a parsed catalog counts as fresh; a bad body retries.
+      _limerinoCatalogAt = _now();
       _version++;
     } catch (e) {
       logDebug('Limerino badge catalog error: $e');
@@ -307,7 +310,7 @@ class ThirdPartyBadgeService {
   }
 
   Future<void> _flushLimerino() async {
-    if (_limerinoInflight || _limerinoPending.isEmpty) return;
+    if (_disposed || _limerinoInflight || _limerinoPending.isEmpty) return;
     // Backoff, or the documented "at most one every 2 seconds" lookup pace.
     final last = _limerinoLastLookup;
     final paced = last?.add(_limerinoLookupGap);
@@ -428,6 +431,7 @@ class ThirdPartyBadgeService {
   }
 
   void dispose() {
+    _disposed = true;
     _limerinoFlushTimer?.cancel();
     _limerinoFlushTimer = null;
     _limerinoPending.clear();
