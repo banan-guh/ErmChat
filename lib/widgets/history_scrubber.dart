@@ -831,37 +831,27 @@ class _RailPainter extends CustomPainter {
       _paintMarker(canvas, x - 7, s.positionOf(old) * h);
     }
 
-    final tw = ui.lerpDouble(20, 26, t)!;
-    final th = ui.lerpDouble(44, 52, t)!;
-    final cy = (thumb.value * h).clamp(th / 2, h - th / 2);
-    final rect = RRect.fromRectAndRadius(
-      Rect.fromCenter(center: Offset(x, cy), width: tw, height: th),
-      Radius.circular(tw / 2),
-    );
-    if (t > 0) {
-      canvas.drawShadow(
-        Path()..addRRect(rect),
-        shadow.withValues(alpha: t),
-        3,
+    // A map pin on its side: the head on the bar, the point toward the
+    // list.
+    final r = ui.lerpDouble(7, 9, t)!;
+    final cy = (thumb.value * h).clamp(r, h - r);
+    const reach = 2.2;
+    final a = math.acos(1 / reach);
+    final pin = Path()
+      ..moveTo(x - r * reach, cy)
+      ..lineTo(x + r * math.cos(math.pi + a), cy + r * math.sin(math.pi + a))
+      ..arcTo(
+        Rect.fromCircle(center: Offset(x, cy), radius: r),
+        math.pi + a,
+        2 * math.pi - 2 * a,
         false,
-      );
+      )
+      ..close();
+    if (t > 0) {
+      canvas.drawShadow(pin, shadow.withValues(alpha: t), 3, false);
     }
-    canvas.drawRRect(rect, Paint()..color = accent);
-    final chevron = Paint()
-      ..color = glyph
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 2
-      ..strokeCap = StrokeCap.round
-      ..strokeJoin = StrokeJoin.round;
-    for (final dir in const [-1.0, 1.0]) {
-      canvas.drawPath(
-        Path()
-          ..moveTo(x - 4, cy + dir * 5)
-          ..lineTo(x, cy + dir * 9)
-          ..lineTo(x + 4, cy + dir * 5),
-        chevron,
-      );
-    }
+    canvas.drawPath(pin, Paint()..color = accent);
+    canvas.drawCircle(Offset(x, cy), r * 0.38, Paint()..color = glyph);
   }
 
   /// A filled tag, a rounded box pointing at [tip]: where the list was.
