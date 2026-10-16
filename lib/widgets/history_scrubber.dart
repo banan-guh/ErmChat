@@ -150,9 +150,8 @@ class _HistoryScrubberState extends State<HistoryScrubber>
   /// Width the days compartment adds, rows plus margins.
   static const double _daysWidth = _row + 12;
 
-  /// The days button, and the room above the bar it sits in.
-  static const double _buttonSize = 24;
-  static const double _buttonRoom = 36;
+  /// The dock's head, the days button.
+  static const double _buttonRoom = 40;
 
   /// The dock's foot, the scroll-down button's height.
   static const double _tab = 56;
@@ -508,8 +507,10 @@ class _HistoryScrubberState extends State<HistoryScrubber>
                               color: scheme.surfaceContainerHigh.withValues(
                                 alpha: 0.92,
                               ),
-                              borderRadius: const BorderRadius.horizontal(
-                                left: Radius.circular(20),
+                              // Square at the top, where it runs into the
+                              // corner behind the menu trigger.
+                              borderRadius: const BorderRadius.only(
+                                bottomLeft: Radius.circular(20),
                               ),
                               boxShadow: [
                                 BoxShadow(
@@ -544,37 +545,27 @@ class _HistoryScrubberState extends State<HistoryScrubber>
     );
   }
 
-  /// Opens and closes the days, on the bar's axis under the menu trigger.
+  /// Opens and closes the days, at the dock's head under the menu trigger,
+  /// like the newest tab at its foot.
   Widget _daysButton(ColorScheme scheme) {
     if (!HistoryScrubber.hasDays(widget.rail)) return const SizedBox.shrink();
-    return AnimatedBuilder(
-      animation: _openCurve,
-      builder: (context, _) => Align(
-        alignment: Alignment.centerRight,
+    return Material(
+      type: MaterialType.transparency,
+      child: InkWell(
+        onTap: () {
+          HapticFeedback.selectionClick();
+          widget.panel.value = !widget.panel.value;
+        },
         child: Padding(
-          padding: EdgeInsets.only(
-            right: _daysWidth * _openCurve.value + _inset - _buttonSize / 2,
-          ),
-          child: SizedBox.square(
-            dimension: _buttonSize,
-            child: Material(
-              color: widget.panel.value
-                  ? scheme.primary
-                  : scheme.surfaceContainerHighest,
-              shape: const CircleBorder(),
-              clipBehavior: Clip.antiAlias,
-              child: InkWell(
-                onTap: () {
-                  HapticFeedback.selectionClick();
-                  widget.panel.value = !widget.panel.value;
-                },
-                child: Icon(
-                  Icons.calendar_month,
-                  size: 15,
-                  color: widget.panel.value
-                      ? scheme.onPrimary
-                      : scheme.onSurfaceVariant,
-                ),
+          padding: const EdgeInsets.only(right: _inset - 10),
+          child: Align(
+            alignment: Alignment.centerRight,
+            child: ValueListenableBuilder<bool>(
+              valueListenable: widget.panel,
+              builder: (context, open, _) => Icon(
+                open ? Icons.close : Icons.calendar_month,
+                size: 20,
+                color: open ? scheme.primary : scheme.onSurfaceVariant,
               ),
             ),
           ),
@@ -868,7 +859,7 @@ class _HistoryScrubberState extends State<HistoryScrubber>
 
 /// Paints the bar: a slim track that breaks into dots over an hour or more
 /// with nothing said, stream spans in [stream], the old place marker, and a
-/// pin in [accent] for where the list is. It slides left by [daysWidth] as
+/// round knob in [accent] for where the list is. It slides left by [daysWidth] as
 /// the days come out ([open]).
 class _RailPainter extends CustomPainter {
   _RailPainter({
@@ -989,37 +980,28 @@ class _RailPainter extends CustomPainter {
       bar(s.positionOf(st.start), s.positionOf(st.end), live);
     }
 
+    // The knob and the old place marker stop the same distance short of
+    // the ends, so a marker for an end sits level with the knob there.
+    final r = ui.lerpDouble(7, 9, t)!;
+    double rest(double y) => y.clamp(r, h - r);
     final old = oldPlace.value;
     if (old != null && !old.isBefore(s.from) && !old.isAfter(s.to)) {
-      _paintMarker(canvas, x - 12, s.positionOf(old) * h, alpha);
+      _paintMarker(canvas, x - r - 3, rest(s.positionOf(old) * h), alpha);
     }
 
-    // A map pin on its side, head toward the list and point toward the
-    // edge, centered on the bar like a pin on a route.
-    final r = ui.lerpDouble(7, 9, t)!;
-    final cy = (thumb.value * h).clamp(r, h - r);
-    const reach = 2.2;
-    final hx = x - (r * reach - r) / 2;
-    final a = math.acos(1 / reach);
-    final pin = Path()
-      ..moveTo(hx + r * reach, cy)
-      ..lineTo(hx + r * math.cos(a), cy + r * math.sin(a))
-      ..arcTo(
-        Rect.fromCircle(center: Offset(hx, cy), radius: r),
-        a,
-        2 * math.pi - 2 * a,
-        false,
-      )
-      ..close();
-    if (t > 0) {
-      canvas.drawShadow(pin, shadow.withValues(alpha: t * alpha), 3, false);
-    }
-    canvas.drawPath(pin, Paint()..color = accent.withValues(alpha: alpha));
-    canvas.drawCircle(
-      Offset(hx, cy),
-      r * 0.38,
-      Paint()..color = glyph.withValues(alpha: alpha),
+    final knob = Rect.fromCircle(
+      center: Offset(x, rest(thumb.value * h)),
+      radius: r,
     );
+    if (t > 0) {
+      canvas.drawShadow(
+        Path()..addOval(knob),
+        shadow.withValues(alpha: t * alpha),
+        3,
+        false,
+      );
+    }
+    canvas.drawOval(knob, Paint()..color = accent.withValues(alpha: alpha));
   }
 
   /// A filled tag, a rounded box pointing at [tip]: where the list was.

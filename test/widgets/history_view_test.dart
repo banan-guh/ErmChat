@@ -260,8 +260,8 @@ Future<void> _tapDay(WidgetTester tester, int i) async {
       .rail
       .days
       .length;
-  // The days button takes the rail's top 36.
-  final dayH = ((rail.height - 36) / n).clamp(0.0, 40.0);
+  // The days button takes the rail's top 40.
+  final dayH = ((rail.height - 40) / n).clamp(0.0, 40.0);
   final row = i < 0 ? n + i : i;
   await tester.tapAt(
     Offset(rail.right - 20, rail.bottom - (n - row - 0.5) * dayH),
@@ -277,7 +277,7 @@ Future<void> _scrub(WidgetTester tester, List<Offset> steps) async {
       .thumb
       .value;
   final grab = await tester.startGesture(
-    Offset(rail.right - 22, rail.top + 36 + y * (rail.height - 36)),
+    Offset(rail.right - 22, rail.top + 40 + y * (rail.height - 40)),
   );
   for (final step in steps) {
     await grab.moveBy(step);

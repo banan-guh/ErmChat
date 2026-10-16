@@ -88,10 +88,9 @@ class HomeAppBar {
   /// Tiny arrow anchored top-right just below the channel tab strip (see
   /// TabbedLayout). Always visible so the top bar / input can be toggled back
   /// even in fullscreen.
-  Widget chromeMenu({bool glass = false, VoidCallback? onCalendar}) {
+  Widget chromeMenu({bool glass = false}) {
     return ChromeMenuButton(
       glass: glass,
-      onCalendar: onCalendar,
       onToggleFullscreen: toggleFullscreen,
       onToggleInput: toggleInput,
       onToggleStream: toggleStream,

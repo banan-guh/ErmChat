@@ -59,7 +59,6 @@ class HistoryView extends StatefulWidget {
     this.emptyText,
     this.emptyStretches = true,
     this.jumpRequest,
-    this.calendarRequest,
   });
 
   final String channel;
@@ -112,10 +111,6 @@ class HistoryView extends StatefulWidget {
   /// A time to show, centered (a tapped search result). Consumed and reset
   /// to null on open or whenever it is set.
   final ValueNotifier<DateTime?>? jumpRequest;
-
-  /// Set true (the menu's calendar) to open the rail's days; consumed and
-  /// reset to false.
-  final ValueNotifier<bool>? calendarRequest;
 
   @override
   State<HistoryView> createState() => _HistoryViewState();
@@ -350,6 +345,12 @@ class _HistoryViewState extends State<HistoryView> {
   bool _maintainScheduled = false;
   bool _firstPainted = false;
   bool _blankReported = false;
+
+  /// Cache extent while a jump to the oldest end lays out: the rows above
+  /// the anchor all build, so the end lands exact instead of on an estimate
+  /// it then corrects in view.
+  ScrollCacheExtent? _endCache;
+  static const _endCacheExtent = ScrollCacheExtent.pixels(4000);
   String _status = '';
 
   /// Frame timings of the first moments after opening, for one log line.
@@ -370,7 +371,6 @@ class _HistoryViewState extends State<HistoryView> {
     widget.emotesVersion?.addListener(_onEmotes);
     widget.atBottomNotifier?.addListener(_onAtBottomRequest);
     widget.jumpRequest?.addListener(_onJumpRequest);
-    widget.calendarRequest?.addListener(_onCalendarRequest);
     _unwatchClears = widget.source.watchClears(_onClear);
     _unwatchStreams = widget.source.watchStreams(_loadStreams);
     if (debugLogEnabled) _probeOpen();
@@ -452,10 +452,6 @@ class _HistoryViewState extends State<HistoryView> {
     if (old.jumpRequest != widget.jumpRequest) {
       old.jumpRequest?.removeListener(_onJumpRequest);
       widget.jumpRequest?.addListener(_onJumpRequest);
-    }
-    if (old.calendarRequest != widget.calendarRequest) {
-      old.calendarRequest?.removeListener(_onCalendarRequest);
-      widget.calendarRequest?.addListener(_onCalendarRequest);
     }
     if (old.atBottomNotifier != widget.atBottomNotifier) {
       old.atBottomNotifier?.removeListener(_onAtBottomRequest);
@@ -556,19 +552,6 @@ class _HistoryViewState extends State<HistoryView> {
     _jumpTo(time, fraction: 0.5);
   }
 
-  /// Opens the days, building the rail first when no scroll has yet.
-  Future<void> _onCalendarRequest() async {
-    final r = widget.calendarRequest;
-    if (r == null || !r.value || !mounted) return;
-    r.value = false;
-    await _buildRail();
-    final rail = _railReady.value;
-    if (!mounted || rail == null || !HistoryScrubber.hasDays(rail)) return;
-    _railVisible.value = true;
-    _panel.value = true;
-    _bumpIdle();
-  }
-
   /// An outside write of true (a tab tap) asks for the newest row.
   void _onAtBottomRequest() {
     final n = widget.atBottomNotifier;
@@ -619,14 +602,25 @@ class _HistoryViewState extends State<HistoryView> {
   void _settleAtEnd({required bool oldest, int tries = 4}) {
     final epoch = _epoch;
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
       final p = _pos;
-      if (!mounted || epoch != _epoch || p == null) return;
-      if (!p.hasContentDimensions || p.isScrollingNotifier.value) return;
-      if (!oldest && !_follow) return;
-      final end = oldest ? _oldestEnd(p) : p.minScrollExtent;
-      if ((p.pixels - end).abs() <= _followEps) return;
-      p.jumpTo(end);
-      if (tries > 1) _settleAtEnd(oldest: oldest, tries: tries - 1);
+      var again = false;
+      if (epoch == _epoch &&
+          p != null &&
+          p.hasContentDimensions &&
+          !p.isScrollingNotifier.value &&
+          (oldest || _follow)) {
+        final end = oldest ? _oldestEnd(p) : p.minScrollExtent;
+        if ((p.pixels - end).abs() > _followEps) {
+          p.jumpTo(end);
+          again = tries > 1;
+        }
+      }
+      if (again) {
+        _settleAtEnd(oldest: oldest, tries: tries - 1);
+      } else if (oldest && _endCache != null) {
+        setState(() => _endCache = null);
+      }
     });
   }
 
@@ -648,7 +642,6 @@ class _HistoryViewState extends State<HistoryView> {
     widget.emotesVersion?.removeListener(_onEmotes);
     widget.atBottomNotifier?.removeListener(_onAtBottomRequest);
     widget.jumpRequest?.removeListener(_onJumpRequest);
-    widget.calendarRequest?.removeListener(_onCalendarRequest);
     _unwatchClears?.call();
     _unwatchStreams?.call();
     if (identical(_active, this)) _active = null;
@@ -786,6 +779,7 @@ class _HistoryViewState extends State<HistoryView> {
           ? (_window.first + _minOlderItems).clamp(_window.first, _window.end)
           : target;
       pinOldest = _anchor > target;
+      if (pinOldest) _endCache = _endCacheExtent;
       _rebuildItems();
     });
     _count('hjump');
@@ -1856,6 +1850,7 @@ class _HistoryViewState extends State<HistoryView> {
                 )
               : _HoldClampingPhysics(resolve: _resolve),
           reverse: true,
+          scrollCacheExtent: _endCache,
           center: _olderKey,
           keyboardDismissBehavior: widget.keyboardDismissBehavior,
           slivers: [

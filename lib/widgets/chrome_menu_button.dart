@@ -24,9 +24,6 @@ class ChromeMenuButton extends StatefulWidget {
   final bool Function()? showModView;
   final VoidCallback? onToggleSearch;
 
-  /// Opens the channel page's days.
-  final VoidCallback? onCalendar;
-
   /// Glass tile trigger to match the floating glass header.
   final bool glass;
 
@@ -40,7 +37,6 @@ class ChromeMenuButton extends StatefulWidget {
     this.onShowModView,
     this.showModView,
     this.onToggleSearch,
-    this.onCalendar,
     this.glass = false,
   });
 
@@ -79,9 +75,6 @@ class ChromeMenuButtonState extends State<ChromeMenuButton> {
           case 'search':
             widget.onToggleSearch?.call();
             break;
-          case 'calendar':
-            widget.onCalendar?.call();
-            break;
           case 'fullscreen':
             widget.onToggleFullscreen();
             break;
@@ -102,11 +95,6 @@ class ChromeMenuButtonState extends State<ChromeMenuButton> {
           if (showMod)
             PopupMenuItem(value: 'modview', child: Text(l10n.modView)),
           PopupMenuItem(value: 'search', child: Text(l10n.search)),
-          if (widget.onCalendar != null)
-            PopupMenuItem(
-              value: 'calendar',
-              child: Text(l10n.historyCalendar),
-            ),
           PopupMenuItem(
             value: 'fullscreen',
             child: Text(l10n.toggleFullscreen),
