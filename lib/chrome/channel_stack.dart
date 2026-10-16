@@ -570,8 +570,9 @@ class ChannelPanels {
                         ? Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              homeAppBar.mentionsButton(context),
-                              homeAppBar.overflowMenu(context),
+                              homeAppBar.mentionsButton(context, small: true),
+                              homeAppBar.overflowMenu(context, small: true),
+                              homeAppBar.settingsButton(context, small: true),
                             ],
                           )
                         : null,

@@ -169,11 +169,27 @@ class HomeAppBar {
     addChannelDialog();
   }
 
-  Widget mentionsButton(BuildContext context) {
+  /// The tab strip's buttons: narrow, with smaller icons, so three fit where
+  /// two stood.
+  static const double _smallWidth = 32;
+  static const double _smallIcon = 20;
+
+  static ButtonStyle? _small(bool small) => small
+      ? IconButton.styleFrom(
+          fixedSize: const Size(_smallWidth, 40),
+          minimumSize: Size.zero,
+          padding: EdgeInsets.zero,
+          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        )
+      : null;
+
+  Widget mentionsButton(BuildContext context, {bool small = false}) {
     final theme = Theme.of(context);
     return ListenableBuilder(
       listenable: chat.mentionsBump,
       builder: (context, _) => IconButton(
+        style: _small(small),
+        iconSize: small ? _smallIcon : null,
         icon: Icon(
           Icons.notifications_active,
           color: chat.unreadMentions > 0 ? theme.colorScheme.error : null,
@@ -184,7 +200,16 @@ class HomeAppBar {
     );
   }
 
-  Widget overflowMenu(BuildContext context) {
+  Widget settingsButton(BuildContext context, {bool small = false}) =>
+      IconButton(
+        style: _small(small),
+        iconSize: small ? _smallIcon : null,
+        icon: const Icon(Icons.settings),
+        tooltip: context.l10n.settingsTitle,
+        onPressed: openSettings,
+      );
+
+  Widget overflowMenu(BuildContext context, {bool small = false}) {
     return PopupMenuButton<String>(
       popUpAnimationStyle: const AnimationStyle(
         duration: Duration(milliseconds: 175),
@@ -203,24 +228,12 @@ class HomeAppBar {
           case 'reconnect':
             reconnect();
             break;
-          case 'settings':
-            openSettings();
-            break;
         }
       },
+      // Threads first, the one item opened on purpose; the rest are rare.
       itemBuilder: (ctx) => [
-        PopupMenuItem(
-          value: 'settings',
-          child: Row(
-            children: [
-              const Icon(Icons.settings, size: 20),
-              const SizedBox(width: 12),
-              Text(ctx.l10n.settingsTitle),
-            ],
-          ),
-        ),
-        const PopupMenuDivider(),
         PopupMenuItem(value: 'threads', child: Text(ctx.l10n.threads)),
+        const PopupMenuDivider(),
         PopupMenuItem(value: 'upload', child: Text(ctx.l10n.uploadMedia)),
         PopupMenuItem(
           value: 'reload_emotes',
@@ -228,18 +241,21 @@ class HomeAppBar {
         ),
         PopupMenuItem(value: 'reconnect', child: Text(ctx.l10n.reconnect)),
       ],
-      child: GestureDetector(
-        onLongPress: openSettings,
-        child: Padding(
-          // 40pt in compact, matching the density-shrunk icon buttons.
-          padding: EdgeInsets.all(
-            resolveLayoutOverride(context, (o) => o.tightChromeMargins)
-                ? 8
-                : 12,
-          ),
-          child: const Icon(Icons.more_vert),
-        ),
-      ),
+      child: small
+          ? const SizedBox(
+              width: _smallWidth,
+              height: 40,
+              child: Icon(Icons.more_vert, size: _smallIcon),
+            )
+          : Padding(
+              // 40pt in compact, matching the density-shrunk icon buttons.
+              padding: EdgeInsets.all(
+                resolveLayoutOverride(context, (o) => o.tightChromeMargins)
+                    ? 8
+                    : 12,
+              ),
+              child: const Icon(Icons.more_vert),
+            ),
     );
   }
 
@@ -254,17 +270,25 @@ class HomeAppBar {
             padding: const EdgeInsets.symmetric(horizontal: 4),
             child: Row(
               children: [
-                Padding(
-                  padding: const EdgeInsets.only(left: 8),
-                  child: Text(
-                    'ErmChat',
-                    style: TextStyle(fontSize: 22, fontWeight: FontWeight.w400),
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.only(left: 8),
+                    child: Text(
+                      'ErmChat',
+                      maxLines: 1,
+                      softWrap: false,
+                      overflow: TextOverflow.fade,
+                      style: TextStyle(
+                        fontSize: 22,
+                        fontWeight: FontWeight.w400,
+                      ),
+                    ),
                   ),
                 ),
-                const Spacer(),
                 _joinButton(),
                 mentionsButton(context),
                 overflowMenu(context),
+                settingsButton(context),
               ],
             ),
           ),

@@ -1549,9 +1549,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byType(PopupMenuButton<String>).first);
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Settings'));
+    await tester.tap(find.byTooltip('Settings'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Channels'));
     await tester.pumpAndSettle();
@@ -2781,9 +2779,7 @@ void main() {
       await joinChannel(tester, 'xqc');
       expect(find.byType(TabBar), findsOneWidget);
 
-      await tester.tap(find.byIcon(Icons.more_vert));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Settings', skipOffstage: false));
+      await tester.tap(find.byTooltip('Settings'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Channels', skipOffstage: false));
       await tester.pumpAndSettle();
