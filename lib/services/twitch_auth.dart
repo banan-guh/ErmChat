@@ -370,6 +370,7 @@ class TwitchAuth extends ChangeNotifier {
       if (wasActive) {
         // Fall back to the first remaining account.
         _applyAccount(accounts.first);
+        _scopeStale = false;
         await _writeKey(_kActiveLogin, accounts.first.login);
       }
       await _saveAccounts();

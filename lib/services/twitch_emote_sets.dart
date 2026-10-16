@@ -96,6 +96,8 @@ class TwitchEmoteSets {
     Map<String, String> openChannelUserIds,
   ) async {
     if (_tier() == EmoteFetchTier.nothing) return;
+    // Anonymous has no account emotes, and no user id would ever arrive.
+    if (auth.accessToken == null) return;
     if (_fetched && _fetchedToken != auth.accessToken) _fetched = false;
     if (_fetched || _inflight) {
       final channels = _openChannels(openChannelUserIds);
