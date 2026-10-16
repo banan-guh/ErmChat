@@ -25,16 +25,15 @@ class EmoteMetaStore {
   ];
   static const _dirName = 'emote_meta';
 
-  Directory? _dir;
-  bool _dirResolved = false;
+  // Shared by concurrent callers, so none reads before the dir resolves.
+  Future<Directory?>? _dir;
   bool _migrated = false;
   final _fallback = <String, String>{};
 
   /// Test seam: override blob directory.
   @visibleForTesting
   void overrideDirectory(Directory dir) {
-    _dir = dir;
-    _dirResolved = true;
+    _dir = Future.value(dir);
     _migrated = false;
     _fallback.clear();
   }
@@ -42,23 +41,22 @@ class EmoteMetaStore {
   @visibleForTesting
   void reset() {
     _dir = null;
-    _dirResolved = false;
     _migrated = false;
     _fallback.clear();
   }
 
-  Future<Directory?> _resolveDir() async {
-    if (_dirResolved) return _dir;
-    _dirResolved = true;
+  Future<Directory?> _resolveDir() => _dir ??= _openDir();
+
+  Future<Directory?> _openDir() async {
     try {
       final docs = await getApplicationDocumentsDirectory();
-      _dir = Directory('${docs.path}${Platform.pathSeparator}$_dirName');
-      await _dir!.create(recursive: true);
+      final dir = Directory('${docs.path}${Platform.pathSeparator}$_dirName');
+      await dir.create(recursive: true);
+      return dir;
     } catch (_) {
       // No docs dir: degrade to in-memory fallback.
-      _dir = null;
+      return null;
     }
-    return _dir;
   }
 
   bool _hasPrefix(String key) => _prefixes.any(key.startsWith);
