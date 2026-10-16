@@ -73,6 +73,14 @@ void main() {
       expect(a.color, b.color, reason: 'palette color is stable per user');
     });
 
+    test('tag values keep surrogate pairs and drop lone halves', () {
+      final msg = parseIrcMessage(
+        '@display-name=A😀B;login=x\uDC00y $user :hi',
+      )!;
+      expect(msg.tags['display-name'], 'A😀B', reason: 'emoji pair stripped');
+      expect(msg.tags['login'], 'xy');
+    });
+
     test('parses single-word message without trailing colon', () {
       final msg = RecentMessagesService.parseIrcLine(
         '@display-name=t;id=s;$ts :t!t@t.tmi.twitch.tv PRIVMSG #xqc eerm',

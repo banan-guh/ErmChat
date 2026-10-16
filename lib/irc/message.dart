@@ -1,7 +1,7 @@
 import '../util/irc_utils.dart';
 import '../util/log.dart';
 
-final _loneLowSurrogateRe = RegExp(r'[\uDC00-\uDFFF]');
+final _loneLowSurrogateRe = RegExp(r'(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]');
 final _orphanedHighSurrogateRe = RegExp(r'[\uD800-\uDBFF](?![\uDC00-\uDFFF])');
 
 /// Whether [s] holds any UTF-16 surrogate unit. Most tag values are ASCII,
