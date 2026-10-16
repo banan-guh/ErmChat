@@ -61,7 +61,7 @@ dependencies:
   webview_flutter_android: ^4.14.1
   webview_flutter_wkwebview: ^3.26.1
   flutter_riverpod: ^3.4.3
-  liquid_glass_widgets: ^1.6.1
+  liquid_glass_widgets: ^1.13.0
   battery_plus: ^7.1.1
   sqflite: ^2.4.4+2
 dev_dependencies:
