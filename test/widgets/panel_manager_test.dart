@@ -79,7 +79,7 @@ void main() {
       },
     );
     Widget host(double height, {bool offstage = true}) => MaterialApp(
-      home: _Host(height: height, offstage: offstage, body: body),
+      home: _Host(height: height, offstage: offstage, body: body, open: true),
     );
 
     await tester.pumpWidget(host(700));
@@ -95,6 +95,37 @@ void main() {
     final shown = builds;
     await tester.pumpWidget(host(450, offstage: false));
     expect(builds, greaterThan(shown));
+  });
+
+  // The sheet slides down to half rather than shrinking; a list sized to
+  // the whole sheet rested its newest rows, or a short list all of them,
+  // in the hidden half.
+  testWidgets('a half open sheet fits its body to the visible part', (
+    tester,
+  ) async {
+    const key = Key('body');
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: _Host(
+          height: 600,
+          offstage: false,
+          open: true,
+          body: SizedBox.expand(key: key),
+        ),
+      ),
+    );
+    tester
+            .state<_HostState>(find.byType(_Host))
+            ._panels
+            .threadSheetRatio
+            .value =
+        0.5;
+    await tester.pump();
+    expect(
+      tester.getRect(find.byKey(key)).bottom,
+      moreOrLessEquals(tester.getRect(find.byType(_Host)).bottom, epsilon: 1),
+      reason: 'the body runs past the visible sheet',
+    );
   });
 
   // The host passes its own context to the sheet. Reading padding there

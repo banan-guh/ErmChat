@@ -272,7 +272,23 @@ class PanelManager {
                             ),
                           ),
                         ),
-                        Expanded(child: body),
+                        // The sheet slides down rather than shrinking; the
+                        // body pads off the hidden part, so lists rest and
+                        // end where the sheet is visible.
+                        Expanded(
+                          child: AnimatedBuilder(
+                            animation: ratio,
+                            builder: (context, child) => Padding(
+                              padding: EdgeInsets.only(
+                                bottom:
+                                    constraints.maxHeight *
+                                    (1 - ratio.value).clamp(0.0, 1.0),
+                              ),
+                              child: child,
+                            ),
+                            child: body,
+                          ),
+                        ),
                       ],
                     ),
                   ),
