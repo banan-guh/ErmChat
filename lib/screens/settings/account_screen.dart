@@ -99,7 +99,7 @@ class _AccountScreenState extends State<AccountScreen> {
     final prefs = await Prefs.load();
     final useBrowserOAuth = prefs.useBrowserOAuth;
     if (useBrowserOAuth) {
-      _startBrowserOAuth();
+      _startBrowserOAuth(forceVerify: forceVerify);
     } else {
       final starter = widget.oAuthStarter;
       final token = starter != null
@@ -132,8 +132,8 @@ class _AccountScreenState extends State<AccountScreen> {
     }
   }
 
-  void _startBrowserOAuth() {
-    final urlInfo = TwitchOAuth.generateAuthUrl();
+  void _startBrowserOAuth({bool forceVerify = false}) {
+    final urlInfo = TwitchOAuth.generateAuthUrl(forceVerify: forceVerify);
     if (urlInfo == null) return;
 
     _browserAuthUrl = urlInfo.url;
