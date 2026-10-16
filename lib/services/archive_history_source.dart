@@ -186,7 +186,7 @@ class ArchiveFindSource implements HistorySource {
       to: to,
       bucket: bucket,
       counts: buckets,
-      byCount: true,
+      calendar: false,
     );
   }
 

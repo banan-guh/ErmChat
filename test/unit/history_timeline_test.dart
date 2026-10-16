@@ -175,7 +175,8 @@ void main() {
     test('maps time to the rail and back', () {
       expect(rail.positionOf(from), 0);
       expect(rail.positionOf(to), 1);
-      for (final min in [0, 7, 130, 1000, 3000, 5000, 5759]) {
+      // Empty days have no length, so only busy minutes round trip.
+      for (final min in [0, 7, 130, 1000, 4400, 5000, 5759]) {
         final t = from.add(Duration(minutes: min));
         final back = rail.timeAt(rail.positionOf(t));
         expect(
@@ -192,37 +193,38 @@ void main() {
       }
     });
 
-    test('empty days shrink, busy and stream time gets length', () {
-      final busy = rail.positionOf(from.add(day)) - rail.positionOf(from);
-      final empty =
-          rail.positionOf(from.add(day * 3)) - rail.positionOf(from.add(day));
-      expect(empty, lessThan(busy / 5), reason: 'two empty days vs one busy');
-      final inStream =
-          rail.positionOf(stream.end) - rail.positionOf(stream.start);
-      final outside =
-          rail.positionOf(stream.end.add(const Duration(hours: 4))) -
-          rail.positionOf(stream.end);
-      expect(inStream, greaterThan(outside), reason: 'stream weight');
-    });
-
-    test('long empty runs are hollow gaps', () {
-      expect(rail.gaps, hasLength(1));
+    test('each message gets equal length, empty time none', () {
+      expect(rail.positionOf(from.add(day)), closeTo(20 / 22, 1e-9));
       expect(
-        rail.gaps.single.start,
+        rail.positionOf(from.add(day * 3)),
         closeTo(rail.positionOf(from.add(day)), 1e-9),
       );
     });
 
+    test('days split at local midnight with their counts', () {
+      expect([for (final d in rail.days) d.count], [5760, 0, 0, 576]);
+      expect(rail.days[1].start, from.add(day));
+      expect(rail.days.first.start, from);
+      expect(rail.countBetween(from, to), 6336);
+    });
+
+    test('a window around a time stays inside the range', () {
+      final w = TimeWindow.around(to, day * 2, from, to);
+      expect(w.to, to);
+      expect(w.from, to.subtract(day * 2));
+      final mid = TimeWindow.around(from.add(day * 2), day * 2, from, to);
+      expect(mid.from, from.add(day));
+      expect(mid.positionOf(from.add(day * 2)), 0.5);
+      final all = TimeWindow.around(from, day * 9, from, to);
+      expect([all.from, all.to], [from, to]);
+    });
+
     test('crossing a day ticks, a stream start ticks harder', () {
-      final noon = rail.positionOf(from.add(const Duration(hours: 12)));
-      final late = rail.positionOf(from.add(const Duration(hours: 23)));
-      final early2 = rail.positionOf(from.add(const Duration(hours: 25)));
-      expect(rail.crossed(noon, late), 0);
-      expect(rail.crossed(late, early2), 1);
-      expect(rail.crossed(early2, late), 1, reason: 'either direction');
-      final before = rail.positionOf(from.add(const Duration(hours: 1)));
-      final inside = rail.positionOf(from.add(const Duration(hours: 3)));
-      expect(rail.crossed(before, inside), 2);
+      DateTime at(int h) => from.add(Duration(hours: h));
+      expect(rail.crossed(at(12), at(23)), 0);
+      expect(rail.crossed(at(23), at(25)), 1);
+      expect(rail.crossed(at(25), at(23)), 1, reason: 'either direction');
+      expect(rail.crossed(at(1), at(3)), 2);
     });
   });
 }

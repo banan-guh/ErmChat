@@ -279,7 +279,22 @@ class _HistoryViewState extends State<HistoryView> {
   // Rail state. Notifiers drive the scrubber so showing, hiding and moving
   // the thumb never rebuild the list.
   final ValueNotifier<ActivityRail?> _railReady = ValueNotifier(null);
+
+  /// The bar's scale; see [_fitScale].
+  final ValueNotifier<RailScale> _scale = ValueNotifier(
+    TimeWindow(DateTime.utc(1970), DateTime.utc(1970)),
+  );
   final ValueNotifier<double> _thumb = ValueNotifier(1);
+
+  /// The month panel is open: the list dims under it.
+  final ValueNotifier<bool> _panel = ValueNotifier(false);
+
+  /// Where the list was before the last rail drag, marked on the rail and
+  /// kept for [_oldPlaceFor] after a jump so a tap can go back.
+  final ValueNotifier<DateTime?> _oldPlace = ValueNotifier(null);
+  ({DateTime time, double thumb, bool newest})? _origin;
+  Timer? _oldPlaceTimer;
+  static const Duration _oldPlaceFor = Duration(seconds: 5);
   final ValueNotifier<bool> _railVisible = ValueNotifier(false);
   final ValueNotifier<bool> _peek = ValueNotifier(false);
   final Stopwatch _clock = Stopwatch()..start();
@@ -617,6 +632,10 @@ class _HistoryViewState extends State<HistoryView> {
     _endOpenProbe();
     _controller.dispose();
     _railReady.dispose();
+    _scale.dispose();
+    _panel.dispose();
+    _oldPlace.dispose();
+    _oldPlaceTimer?.cancel();
     _thumb.dispose();
     _railVisible.dispose();
     _peek.dispose();
@@ -1355,7 +1374,10 @@ class _HistoryViewState extends State<HistoryView> {
     _railBuilding = true;
     try {
       final next = await widget.source.rail(_window.streams);
-      if (mounted && next != null) _railReady.value = next;
+      if (mounted && next != null) {
+        _fitScale(next, _viewTime() ?? next.to, rebuilt: true);
+        _railReady.value = next;
+      }
     } finally {
       _railBuilding = false;
     }
@@ -1382,15 +1404,47 @@ class _HistoryViewState extends State<HistoryView> {
       }
       _railVisible.value = true;
     }
-    _thumb.value = _viewportRailPos(rail, pos) ?? _thumb.value;
+    _fitScale(rail, row.timestamp);
+    _thumb.value = _viewportRailPos(_scale.value, pos) ?? _thumb.value;
     _bumpIdle();
+  }
+
+  /// The middle row's time, where a rail jump puts its target.
+  DateTime? _viewTime() {
+    final pos = _pos;
+    if (pos == null || !pos.hasViewportDimension) return null;
+    return _window.at(_viewportPos(pos.viewportDimension / 2))?.timestamp;
+  }
+
+  /// Picks the bar's scale for a viewport at [at]. A calendar rail shows
+  /// [HistoryScrubber.window] of plain time: the newest stretch while [at]
+  /// lies in it, otherwise the stretch around [at], kept until [at] leaves
+  /// it. A results rail is its own scale.
+  void _fitScale(ActivityRail rail, DateTime at, {bool rebuilt = false}) {
+    if (!rail.calendar) {
+      _scale.value = rail;
+      return;
+    }
+    const length = HistoryScrubber.window;
+    final cur = _scale.value;
+    final RailScale next;
+    if (!at.isBefore(rail.to.subtract(length))) {
+      next = TimeWindow.around(rail.to, length, rail.from, rail.to);
+    } else if (!rebuilt && cur is TimeWindow && cur.contains(at)) {
+      return;
+    } else {
+      next = TimeWindow.around(at, length, rail.from, rail.to);
+    }
+    if (next.from != cur.from || next.to != cur.to || cur is! TimeWindow) {
+      _scale.value = next;
+    }
   }
 
   /// The viewport's rail position, as a scrollbar maps it: the top row's at
   /// the oldest end, the bottom row's at the newest, and in between the
   /// point [p] of the way down whose row sits at [p]. A rail jump to [p]
   /// places its row there too.
-  double? _viewportRailPos(ActivityRail rail, ScrollPosition pos) {
+  double? _viewportRailPos(RailScale rail, ScrollPosition pos) {
     final w = _window;
     final top = w.at(_viewportPos(pos.viewportDimension));
     final bottom = w.at(_viewportPos());
@@ -1414,7 +1468,7 @@ class _HistoryViewState extends State<HistoryView> {
     _idleTimer = null;
     if (!mounted) return;
     final left = _idleDeadline - _clock.elapsedMilliseconds;
-    if (_railDragging) {
+    if (_railDragging || _oldPlace.value != null) {
       _bumpIdle();
     } else if (left > 0) {
       _idleTimer = Timer(Duration(milliseconds: left), _idleCheck);
@@ -1424,21 +1478,56 @@ class _HistoryViewState extends State<HistoryView> {
     }
   }
 
-  DateTime _timeAtRail(double pos) => _railReady.value!.timeAt(pos);
-
+  /// Notes where the list is, for the old place marker and a way back.
   void _onRailDragStart() {
     _railDragging = true;
     _peek.value = false;
+    _oldPlaceTimer?.cancel();
+    final pos = _pos;
+    final p = _thumb.value;
+    final row = pos == null || !pos.hasViewportDimension
+        ? null
+        : _window.at(_viewportPos(pos.viewportDimension * (1 - p)));
+    _origin = row == null
+        ? null
+        : (time: row.timestamp, thumb: p, newest: _follow);
+    _oldPlace.value = row?.timestamp;
     _bumpIdle();
+  }
+
+  /// A release in the month panel: nothing moves.
+  void _onRailCancel() {
+    _railDragging = false;
+    _prefetched = null;
+    _oldPlace.value = null;
+    final pos = _pos;
+    final rail = _railReady.value;
+    if (pos != null && rail != null) {
+      _thumb.value = _viewportRailPos(_scale.value, pos) ?? _thumb.value;
+    }
+    _bumpIdle();
+  }
+
+  /// Back to where the list was before the last rail jump.
+  void _onRailBack() {
+    final o = _origin;
+    _oldPlaceTimer?.cancel();
+    _oldPlace.value = null;
+    _origin = null;
+    if (o == null) return;
+    if (o.newest) {
+      _jumpToNewest();
+    } else {
+      _jumpTo(o.time, fraction: 1 - o.thumb);
+    }
   }
 
   /// Starts reading where the drag would land when no read is in flight, so
   /// the release usually finds its rows decoded.
-  void _onRailDrag(double pos) {
+  void _onRailDrag(DateTime t) {
     _bumpIdle();
     if (_prefetching) return;
     _prefetching = true;
-    final t = _timeAtRail(pos);
     final rows = widget.source.around(t)
       ..whenComplete(() => _prefetching = false);
     _prefetched = (time: t, rows: rows);
@@ -1447,17 +1536,27 @@ class _HistoryViewState extends State<HistoryView> {
   Future<void> _onRailDragEnd(double pos) async {
     _railDragging = false;
     _bumpIdle();
+    _oldPlaceTimer = Timer(_oldPlaceFor, () {
+      if (mounted) _oldPlace.value = null;
+    });
     final pre = _prefetched;
     _prefetched = null;
-    // The rail's ends mean the list's ends: the newest row, following, or
-    // the oldest row at the top, not whatever sits mid-screen at that time.
-    if (pos >= 1 - _railEndSnap) {
+    final rail = _railReady.value;
+    final scale = _scale.value;
+    // The bar's ends mean the list's ends when the bar reaches them: the
+    // newest row, following, or the oldest row at the top, not whatever
+    // sits mid-screen at that time.
+    final slack = rail?.bucket ?? Duration.zero;
+    if (pos >= 1 - _railEndSnap &&
+        (rail == null || !scale.to.isBefore(rail.to.subtract(slack)))) {
       _jumpToNewest();
       return;
     }
-    final t = pos <= _railEndSnap
+    final t =
+        pos <= _railEndSnap &&
+            (rail == null || !scale.from.isAfter(rail.from.add(slack)))
         ? DateTime.fromMillisecondsSinceEpoch(0, isUtc: true)
-        : _timeAtRail(pos);
+        : scale.timeAt(pos);
     final epoch = _epoch;
     List<TwitchMessage>? rows;
     if (pre != null) {
@@ -1486,10 +1585,9 @@ class _HistoryViewState extends State<HistoryView> {
     }
     await _jumpTo(land, fraction: 1 - pos, rows: Future.value(rows));
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      final rail = _railReady.value;
       final p = _pos;
-      if (!mounted || rail == null || p == null || _railDragging) return;
-      final landed = _viewportRailPos(rail, p);
+      if (!mounted || p == null || _railDragging) return;
+      final landed = _viewportRailPos(_scale.value, p);
       if (landed == null) return;
       _thumb.value = landed;
       if ((landed - pos).abs() > 0.02) {
@@ -1506,7 +1604,8 @@ class _HistoryViewState extends State<HistoryView> {
     _buildRail();
     final rail = _railReady.value;
     if (rail == null) return;
-    _thumb.value = rail.positionOf(time);
+    _fitScale(rail, time);
+    _thumb.value = _scale.value.positionOf(time);
     _peek.value = true;
     _railVisible.value = true;
     _bumpIdle();
@@ -1740,6 +1839,23 @@ class _HistoryViewState extends State<HistoryView> {
       clipBehavior: Clip.hardEdge,
       children: [
         list,
+        // The month panel is a mode: the list dims while it is open.
+        Positioned.fill(
+          child: IgnorePointer(
+            child: ValueListenableBuilder<bool>(
+              valueListenable: _panel,
+              builder: (context, open, _) => AnimatedOpacity(
+                opacity: open ? 1 : 0,
+                duration: const Duration(milliseconds: 200),
+                child: ColoredBox(
+                  color: Theme.of(
+                    context,
+                  ).colorScheme.scrim.withValues(alpha: 0.55),
+                ),
+              ),
+            ),
+          ),
+        ),
         // Clear of the menu trigger and the minimized cards bar beside it at
         // the top, and of the scroll-down button, which shows whenever the
         // rail does, at the bottom.
@@ -1757,12 +1873,17 @@ class _HistoryViewState extends State<HistoryView> {
                 ? const SizedBox.shrink()
                 : HistoryScrubber(
                     rail: rail,
+                    scale: _scale,
                     thumb: _thumb,
                     visible: _railVisible,
                     peek: _peek,
+                    panel: _panel,
+                    oldPlace: _oldPlace,
                     onDragStart: _onRailDragStart,
                     onDrag: _onRailDrag,
                     onDragEnd: _onRailDragEnd,
+                    onCancel: _onRailCancel,
+                    onBack: _onRailBack,
                   ),
           ),
         ),

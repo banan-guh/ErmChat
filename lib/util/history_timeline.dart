@@ -204,12 +204,65 @@ class RailSpan {
   final double end;
 }
 
-/// Maps time over the retained range to a 0..1 rail position, weighted by
-/// activity: empty buckets shrink to a sliver, busy buckets and stream buckets
-/// get length. With `byCount`, each message gets equal length and empty
-/// time none, like a plain scrollbar over a results list. Built once per
-/// list; lookups are O(1) or O(log n) and allocate nothing.
-class ActivityRail {
+/// Maps a time range onto a 0..1 rail position, oldest at 0.
+abstract interface class RailScale {
+  DateTime get from;
+  DateTime get to;
+
+  /// Rail position of [t], clamped to 0..1.
+  double positionOf(DateTime t);
+
+  /// Time at rail position [p], clamped to the range.
+  DateTime timeAt(double p);
+}
+
+/// Plain time from [from] to [to]: equal time, equal length.
+class TimeWindow implements RailScale {
+  TimeWindow(this.from, this.to)
+    : _ms = math.max(1, to.difference(from).inMilliseconds);
+
+  /// [length] of time around [t] (or all of [from]..[to] when shorter),
+  /// kept inside [from]..[to].
+  factory TimeWindow.around(
+    DateTime t,
+    Duration length,
+    DateTime from,
+    DateTime to,
+  ) {
+    if (to.difference(from) <= length) return TimeWindow(from, to);
+    var start = t.subtract(length ~/ 2);
+    if (start.isBefore(from)) start = from;
+    if (start.add(length).isAfter(to)) start = to.subtract(length);
+    return TimeWindow(start, start.add(length));
+  }
+
+  @override
+  final DateTime from;
+  @override
+  final DateTime to;
+  final int _ms;
+
+  bool contains(DateTime t) => !t.isBefore(from) && !t.isAfter(to);
+
+  @override
+  double positionOf(DateTime t) =>
+      (t.difference(from).inMilliseconds / _ms).clamp(0.0, 1.0);
+
+  @override
+  DateTime timeAt(double p) =>
+      from.add(Duration(milliseconds: (p.clamp(0.0, 1.0) * _ms).round()));
+}
+
+/// One local day of a rail: when it starts (to the bucket; the first day
+/// starts at the rail's start) and how many messages it holds.
+typedef RailDay = ({DateTime start, int day, int count});
+
+/// Message counts per bucket over the retained range, with the streams in
+/// it. As a [RailScale] it gives each message equal length and empty time
+/// none, like a plain scrollbar over a results list; a [calendar] rail is
+/// shown over time instead (see [TimeWindow]) with a month of days beside
+/// it. Built once per list; lookups are O(1) or O(log n).
+class ActivityRail implements RailScale {
   ActivityRail({
     required this.from,
     required this.to,
@@ -217,82 +270,57 @@ class ActivityRail {
     required List<int> counts,
     this.streams = const [],
     this.local = _deviceLocal,
-    bool byCount = false,
+    this.calendar = true,
   }) : _bucketMs = bucket.inMilliseconds,
        _n = counts.length {
     final cum = Float64List(_n + 1);
-    final inStream = Uint8List(_n);
-    for (final s in streams) {
-      final a = _indexOf(s.start).clamp(0, _n);
-      final b = _indexOf(s.end).clamp(0, _n);
-      for (var i = a; i < b; i++) {
-        inStream[i] = 1;
-      }
-    }
-    var sum = 0.0;
+    final sums = Int64List(_n + 1);
+    var sum = 0;
     for (var i = 0; i < _n; i++) {
-      final c = counts[i];
-      sum += byCount
-          ? c
-          : c == 0
-          ? gapWeight
-          : (1 + math.log(c)) * (inStream[i] == 1 ? 3 : 1);
-      cum[i] = sum;
+      sum += counts[i];
+      sums[i + 1] = sum;
     }
-    // cum[i] holds the end of bucket i; shift so cum[i] is its start.
     final total = sum == 0 ? 1 : sum;
-    for (var i = _n; i > 0; i--) {
-      cum[i] = cum[i - 1] / total;
+    for (var i = 0; i <= _n; i++) {
+      cum[i] = sums[i] / total;
     }
-    cum[0] = 0;
     cum[_n] = 1;
     _cum = cum;
-    final gapSpans = <RailSpan>[];
-    var runStart = -1;
-    for (var i = 0; i <= _n; i++) {
-      final empty = i < _n && counts[i] == 0;
-      if (empty && runStart < 0) runStart = i;
-      if (!empty && runStart >= 0) {
-        if (i - runStart >= minGapBuckets) {
-          gapSpans.add(RailSpan(cum[runStart], cum[i]));
-        }
-        runStart = -1;
-      }
-    }
-    gaps = gapSpans;
-    streamSpans = [
-      for (final s in streams) RailSpan(positionOf(s.start), positionOf(s.end)),
-    ];
+    _sums = sums;
   }
 
   /// Bucket width sources build rails with.
   static const Duration defaultBucket = Duration(minutes: 5);
 
-  /// Rail weight of a bucket with no messages, against 1 for a single message.
-  static const double gapWeight = 0.05;
-
-  /// Empty runs at least this many buckets long render as hollow gaps.
-  static const int minGapBuckets = 12;
-
+  @override
   final DateTime from;
+  @override
   final DateTime to;
   final Duration bucket;
   final List<HistoryStream> streams;
   final LocalTime local;
+
+  /// Shown as a calendar: a time window plus a month of days. Otherwise the
+  /// rail is its own scale.
+  final bool calendar;
   final int _bucketMs;
   final int _n;
   late final Float64List _cum;
 
-  /// Hollow rail sections: long stretches with nothing recorded.
-  late final List<RailSpan> gaps;
-
-  /// Where each stream sits on the rail, in [streams] order.
-  late final List<RailSpan> streamSpans;
+  /// _sums[i] holds the messages before bucket i.
+  late final Int64List _sums;
 
   int _indexOf(DateTime t) =>
       (t.difference(from).inMilliseconds / _bucketMs).floor();
 
-  /// Rail position of [t], clamped to 0..1.
+  /// Messages from [a] to [b], to the bucket.
+  int countBetween(DateTime a, DateTime b) {
+    final i = _indexOf(a).clamp(0, _n);
+    final j = _indexOf(b).clamp(0, _n);
+    return j > i ? _sums[j] - _sums[i] : 0;
+  }
+
+  @override
   double positionOf(DateTime t) {
     final ms = t.difference(from).inMilliseconds;
     if (ms <= 0) return 0;
@@ -302,7 +330,7 @@ class ActivityRail {
     return _cum[i] + (_cum[i + 1] - _cum[i]) * frac;
   }
 
-  /// Time at rail position [p], clamped to the retained range.
+  @override
   DateTime timeAt(double p) {
     if (p <= 0) return from;
     if (p >= 1) return to;
@@ -321,16 +349,18 @@ class ActivityRail {
     return from.add(Duration(milliseconds: ((lo + frac) * _bucketMs).round()));
   }
 
-  /// Where each local day after the first starts on the rail, to the bucket,
-  /// with its day number (see [dayNumber]).
-  late final List<({double pos, int day})> days = () {
-    final out = <({double pos, int day})>[];
-    var prev = dayNumber(local(from));
-    for (var i = 1; i < _n; i++) {
-      final at = from.add(Duration(milliseconds: i * _bucketMs));
-      final day = dayNumber(local(at));
-      if (day != prev) out.add((pos: _cum[i], day: day));
-      prev = day;
+  /// Every local day the rail touches, oldest first.
+  late final List<RailDay> days = () {
+    final out = <RailDay>[];
+    var start = from;
+    var day = dayNumber(local(from));
+    for (var i = 1; i <= _n; i++) {
+      final at = i == _n ? to : from.add(Duration(milliseconds: i * _bucketMs));
+      final d = i == _n ? day + 1 : dayNumber(local(at));
+      if (d == day) continue;
+      out.add((start: start, day: day, count: countBetween(start, at)));
+      start = at;
+      day = d;
     }
     return out;
   }();
@@ -343,16 +373,14 @@ class ActivityRail {
     return null;
   }
 
-  /// Boundary crossed moving the thumb from [a] to [b]: 0 none, 1 a day
-  /// boundary, 2 a stream start (which wins over a day).
-  int crossed(double a, double b) {
-    final lo = math.min(a, b);
-    final hi = math.max(a, b);
-    for (final s in streamSpans) {
-      if (s.start > lo && s.start <= hi) return 2;
+  /// Boundary crossed moving from [a] to [b]: 0 none, 1 a day boundary, 2 a
+  /// stream start (which wins over a day).
+  int crossed(DateTime a, DateTime b) {
+    final lo = a.isBefore(b) ? a : b;
+    final hi = a.isBefore(b) ? b : a;
+    for (final s in streams) {
+      if (s.start.isAfter(lo) && !s.start.isAfter(hi)) return 2;
     }
-    final dayA = dayNumber(local(timeAt(a)));
-    final dayB = dayNumber(local(timeAt(b)));
-    return dayA == dayB ? 0 : 1;
+    return dayNumber(local(a)) == dayNumber(local(b)) ? 0 : 1;
   }
 }

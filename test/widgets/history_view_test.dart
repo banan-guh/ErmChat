@@ -211,6 +211,24 @@ Future<void> _pumpView(
   return (top: top, bottom: bottom, keys: keys);
 }
 
+/// Drags the rail's handle through [steps], then lets go and settles.
+Future<void> _scrub(WidgetTester tester, List<Offset> steps) async {
+  final rail = tester.getRect(find.byType(HistoryScrubber));
+  final y = tester
+      .widget<HistoryScrubber>(find.byType(HistoryScrubber))
+      .thumb
+      .value;
+  final grab = await tester.startGesture(
+    Offset(rail.right - 12, rail.top + y * rail.height),
+  );
+  for (final step in steps) {
+    await grab.moveBy(step);
+    await tester.pump(const Duration(milliseconds: 16));
+  }
+  await grab.up();
+  await _settle(tester);
+}
+
 Future<void> _settle(WidgetTester tester) async {
   for (var i = 0; i < 30; i++) {
     await tester.runAsync(() => Future<void>.delayed(Duration.zero));
@@ -494,9 +512,24 @@ void main() {
       await _settle(tester);
     }
     expect(railShown(), isTrue, reason: 'flings never brought the rail in');
-    // Drag the thumb past the top of the rail: a jump to row 0.
-    await tester.drag(find.byType(HistoryScrubber), const Offset(0, -3000));
-    await _settle(tester);
+    // Letting go in the month panel cancels: the list stays put.
+    final before = _items(tester).keys;
+    await _scrub(tester, const [
+      Offset(0, -20),
+      Offset(-100, 0),
+      Offset(0, -200),
+    ]);
+    expect(_items(tester).keys, before, reason: 'a panel release jumped');
+    // The bar spans the last days; the oldest row is through the month
+    // panel: slide left, up to the first day, back right, up, let go.
+    await _scrub(tester, const [
+      Offset(0, -20),
+      Offset(0, -3000),
+      Offset(-100, 0),
+      Offset(0, -3000),
+      Offset(100, 0),
+      Offset(0, -3000),
+    ]);
     expect(
       _items(tester).keys,
       contains('$_ch-0'),
@@ -524,12 +557,18 @@ void main() {
         .thumb
         .value;
     expect(thumb(), 0, reason: 'the thumb stopped short of the rail top');
-    // From the top, the rail's bottom end goes back to the newest row.
+    // From the top, the bar spans the oldest days; the newest row is back
+    // through the panel's last day, then the bar's bottom end.
     await tester.drag(list, const Offset(0, -300));
     await tester.pump();
     expect(railShown(), isTrue, reason: 'a scroll at the top hid the rail');
-    await tester.drag(find.byType(HistoryScrubber), const Offset(0, 3000));
-    await _settle(tester);
+    await _scrub(tester, const [
+      Offset(0, 20),
+      Offset(-100, 0),
+      Offset(0, 3000),
+      Offset(100, 0),
+      Offset(0, 3000),
+    ]);
     final pos = tester
         .state<ScrollableState>(find.byType(Scrollable).first)
         .position;

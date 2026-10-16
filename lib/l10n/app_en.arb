@@ -3034,7 +3034,8 @@
       }
     }
   },
-  "historyScrubHalf": "Half speed",
-  "historyScrubQuarter": "Quarter speed",
-  "historyScrubFine": "Fine scrubbing"
+  "historyRailOlder": "← Slide left for older days",
+  "historyRailGoHere": "Slide right to go here →",
+  "historyRailCancelHint": "Let go to cancel",
+  "historyRailCancelled": "Cancelled"
 }
