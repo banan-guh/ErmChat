@@ -649,9 +649,10 @@ class EmoteManager implements EmoteLookupSource {
     await _visibility.ensureLoaded();
     if (_store.hasGlobalCache && !force) return;
     final ttl = await _fetcher.effectiveTtl();
+    EmoteCatalog? cached;
     if (!force) {
       final loaded = await _persistence.load('emotes5_global', ttl);
-      final cached = loaded.catalog;
+      cached = loaded.catalog;
       if (cached != null) {
         if (!_store.seedGlobalFromCache(epoch, cached)) return;
         if (loaded.fresh || _registryFrozen || tier == EmoteFetchTier.nothing) {
@@ -673,11 +674,14 @@ class EmoteManager implements EmoteLookupSource {
     }
     // Fetch every enabled provider.
     if (tier == EmoteFetchTier.nothing) return;
-    final loaded = await _persistence.load('emotes5_global', ttl);
-    if (loaded.catalog != null) {
+    // The stale path already read the cache above.
+    if (force) {
+      cached = (await _persistence.load('emotes5_global', ttl)).catalog;
+    }
+    if (cached != null) {
       // Seed provider lists a wiped catalog would otherwise lose to a flaky
       // fetch (429/5xx/timeout), without clobbering in-memory data.
-      if (!_store.fillMissingGlobal(epoch, loaded.catalog!)) return;
+      if (!_store.fillMissingGlobal(epoch, cached)) return;
     }
     final fetch = await _fetcher.enqueue(
       () => _fetcher.fetchAllGlobal(
@@ -785,6 +789,8 @@ class EmoteManager implements EmoteLookupSource {
                 )
                 .then((fetch) {
                   if (fetch == null) return;
+                  // A stale reconcile must not drop a newer resolve's deltas.
+                  if (_store.channelEpoch(channel) != epoch) return;
                   if (fetch.byProvider[EmoteType.sevenTv] != null) {
                     _store.dropLiveSevenTv(channel);
                   }
@@ -887,7 +893,7 @@ class EmoteManager implements EmoteLookupSource {
     final fetch = await _fetcher.enqueue(
       () => _fetcher.reconcileSevenTv(channel, broadcasterId),
     );
-    if (fetch == null) return;
+    if (fetch == null || _store.channelEpoch(channel) != epoch) return;
     // A fetched 7TV set is authoritative: drop stale live deltas. An empty
     // fetch keeps them, matching the old reconcile early return.
     if (fetch.byProvider[EmoteType.sevenTv] != null) {

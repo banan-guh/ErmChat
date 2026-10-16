@@ -877,6 +877,7 @@ class EmoteStore {
     changedChannels.sort();
     // Every channel's lookup includes the others' subs.
     _mergedCache.clear();
+    _foreignLookupCache.clear();
     for (final channel in changedChannels) {
       emitChange(channel: channel);
     }
