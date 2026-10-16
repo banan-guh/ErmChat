@@ -70,9 +70,9 @@ class HistoryScrubber extends StatefulWidget {
   final VoidCallback onCancel;
   final VoidCallback onBack;
 
-  /// Whether [rail] holds more than the bar shows, so the panel can open.
+  /// Whether [rail] spans more than one day, so the panel can open.
   static bool hasMonth(ActivityRail rail) =>
-      rail.calendar && rail.to.difference(rail.from) > window;
+      rail.calendar && rail.days.length > 1;
 
   @override
   State<HistoryScrubber> createState() => _HistoryScrubberState();
@@ -149,6 +149,9 @@ class _HistoryScrubberState extends State<HistoryScrubber>
   /// Panel rows end this far in from the right edge.
   static const double _panelInset = 2;
 
+  /// How far the picked row leans out toward the finger.
+  static const double _bulge = 10;
+
   /// Sliding this far left of the bar opens the panel; back within
   /// [_closeAt] closes it.
   static const double _openAt = 64;
@@ -171,7 +174,6 @@ class _HistoryScrubberState extends State<HistoryScrubber>
 
   /// Handle y in the month panel, while it is open.
   final ValueNotifier<double> _panelY = ValueNotifier(0);
-  final ValueNotifier<bool> _cancelled = ValueNotifier(false);
 
   /// 0 at rest, 1 while dragging or peeking: grows the bar and shows the
   /// bubble.
@@ -249,7 +251,6 @@ class _HistoryScrubberState extends State<HistoryScrubber>
     _clearExclusion();
     _dragging.dispose();
     _panelY.dispose();
-    _cancelled.dispose();
     _active.dispose();
     _open.dispose();
     super.dispose();
@@ -336,7 +337,6 @@ class _HistoryScrubberState extends State<HistoryScrubber>
   void _begin() {
     _started = true;
     _inPanel = false;
-    _cancelled.value = false;
     _startScale = widget.scale.value;
     _dragging.value = true;
     widget.onDragStart();
@@ -400,7 +400,6 @@ class _HistoryScrubberState extends State<HistoryScrubber>
     _dragging.value = false;
     if (_inPanel) {
       _inPanel = false;
-      _cancelled.value = true;
       final start = _startScale;
       if (start != null) widget.scale.value = start;
       widget.panel.value = false;
@@ -468,11 +467,11 @@ class _HistoryScrubberState extends State<HistoryScrubber>
                         oldPlace: widget.oldPlace,
                         active: _activeCurve,
                         open: _openCurve,
-                        inPanel: () => _inPanel,
                         inset: _inset,
                         panelInset: _panelInset,
                         rowMin: _rowMin,
                         rowMax: _rowMax,
+                        bulge: _bulge,
                         track: scheme.onSurface,
                         accent: scheme.primary,
                         glyph: scheme.onPrimary,
@@ -488,7 +487,6 @@ class _HistoryScrubberState extends State<HistoryScrubber>
                       _active,
                       _open,
                       _panelY,
-                      _cancelled,
                     ]),
                     builder: (context, _) => Positioned.fill(
                       child: Stack(
@@ -569,13 +567,13 @@ class _HistoryScrubberState extends State<HistoryScrubber>
     );
   }
 
-  /// Day names beside the panel rows, and above them what the handle
-  /// picks and how to go there.
+  /// Day names beside the panel rows, and above them the picked time and
+  /// how to go there.
   Widget _panelLabels(BuildContext context, ColorScheme scheme) {
     final t = _openCurve.value;
     if (t == 0) return const SizedBox.shrink();
     final m = _layout;
-    final right = _panelInset + _rowMax + 8;
+    final right = _panelInset + _rowMax + _bulge + 6;
     final labels = <Widget>[];
     var last = double.negativeInfinity;
     for (var i = 0; i < m.days.length; i++) {
@@ -606,36 +604,22 @@ class _HistoryScrubberState extends State<HistoryScrubber>
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.end,
-            children: _cancelled.value
-                ? [
-                    Text(
-                      context.l10n.historyRailCancelled,
-                      style: text.titleSmall?.copyWith(color: scheme.onSurface),
-                    ),
-                  ]
-                : [
-                    Text(
-                      context.l10n.historyScrubberBubble(
-                        _day!.format(at),
-                        _time!.format(at),
-                      ),
-                      style: text.titleSmall?.copyWith(
-                        color: scheme.onSurface,
-                        fontFeatures: const [FontFeature.tabularFigures()],
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      context.l10n.historyRailGoHere,
-                      style: text.bodyMedium?.copyWith(color: scheme.primary),
-                    ),
-                    Text(
-                      context.l10n.historyRailCancelHint,
-                      style: text.bodySmall?.copyWith(
-                        color: scheme.onSurfaceVariant,
-                      ),
-                    ),
-                  ],
+            children: [
+              Text(
+                context.l10n.historyScrubberBubble(
+                  _day!.format(at),
+                  _time!.format(at),
+                ),
+                style: text.titleSmall?.copyWith(
+                  color: scheme.onSurface,
+                  fontFeatures: const [FontFeature.tabularFigures()],
+                ),
+              ),
+              Text(
+                context.l10n.historyRailGoHere,
+                style: text.bodyMedium?.copyWith(color: scheme.primary),
+              ),
+            ],
           ),
         ),
       ),
@@ -756,10 +740,11 @@ class _HistoryScrubberState extends State<HistoryScrubber>
 
 /// Paints the bar and the month panel, crossfading by [open].
 ///
-/// The bar is a waveform of message activity over its scale, dotted where
-/// nothing was said, with stream spans in [stream]. The panel is one row per
-/// day, its width the day's share of the busiest day. Both carry a grab
-/// handle in [accent] and the old place marker.
+/// The bar is a slim track that breaks into dots over an hour or more with
+/// nothing said, with stream spans in [stream] and a grab handle in
+/// [accent]. The panel is one rounded row per day, as wide as the day's
+/// share of the busiest; rows near the picked one brighten and lean out
+/// toward the finger. Both carry the old place marker.
 class _RailPainter extends CustomPainter {
   _RailPainter({
     required this.rail,
@@ -770,11 +755,11 @@ class _RailPainter extends CustomPainter {
     required this.oldPlace,
     required this.active,
     required this.open,
-    required this.inPanel,
     required this.inset,
     required this.panelInset,
     required this.rowMin,
     required this.rowMax,
+    required this.bulge,
     required this.track,
     required this.accent,
     required this.glyph,
@@ -799,11 +784,11 @@ class _RailPainter extends CustomPainter {
   final ValueListenable<DateTime?> oldPlace;
   final Animation<double> active;
   final Animation<double> open;
-  final bool Function() inPanel;
   final double inset;
   final double panelInset;
   final double rowMin;
   final double rowMax;
+  final double bulge;
   final Color track;
   final Color accent;
   final Color glyph;
@@ -813,25 +798,47 @@ class _RailPainter extends CustomPainter {
   static const double _step = 2;
   static const double _dotStep = 6;
 
-  /// Per-step counts over the bar, cached for one scale and height.
-  RailScale? _wavesFor;
-  double _wavesHeight = 0;
-  List<int> _waves = const [];
-  int _waveMax = 1;
+  /// Silence at least this long shows as dots.
+  static const Duration _gap = Duration(hours: 1);
 
-  void _measure(RailScale s, double h) {
-    if (identical(_wavesFor, s) && _wavesHeight == h) return;
-    _wavesFor = s;
-    _wavesHeight = h;
+  /// Distance from the picked row over which the panel's highlight fades.
+  static const double _reach = 48;
+
+  /// Bar spans with nothing said for [_gap] or more, cached for one scale
+  /// and height.
+  RailScale? _gapsFor;
+  double _gapsHeight = 0;
+  List<RailSpan> _gaps = const [];
+
+  List<RailSpan> _gapsOf(RailScale s, double h) {
+    if (identical(_gapsFor, s) && _gapsHeight == h) return _gaps;
+    _gapsFor = s;
+    _gapsHeight = h;
     final n = (h / _step).ceil();
-    _waves = [
-      for (var i = 0; i < n; i++)
-        rail.countBetween(
-          s.timeAt(i * _step / h),
-          s.timeAt(((i + 1) * _step / h).clamp(0.0, 1.0)),
-        ),
-    ];
-    _waveMax = math.max(1, _waves.fold<int>(0, math.max));
+    final out = <RailSpan>[];
+    int? run;
+    for (var i = 0; i <= n; i++) {
+      final empty =
+          i < n &&
+          rail.countBetween(
+                s.timeAt(i * _step / h),
+                s.timeAt(((i + 1) * _step / h).clamp(0.0, 1.0)),
+              ) ==
+              0;
+      if (empty) {
+        run ??= i;
+        continue;
+      }
+      if (run != null) {
+        final a = run * _step / h;
+        final b = (i * _step / h).clamp(0.0, 1.0);
+        if (s.timeAt(b).difference(s.timeAt(a)) >= _gap) {
+          out.add(RailSpan(a, b));
+        }
+        run = null;
+      }
+    }
+    return _gaps = out;
   }
 
   @override
@@ -841,48 +848,48 @@ class _RailPainter extends CustomPainter {
     if (o < 1) _paintBar(canvas, size, t, 1 - o);
     if (o > 0) _paintPanel(canvas, size, o);
     _paintMarker(canvas, size, o);
-    _paintHandle(canvas, size, t, o);
+    if (o < 1) _paintHandle(canvas, size, t, 1 - o);
   }
 
   void _paintBar(Canvas canvas, Size size, double t, double alpha) {
     final s = scale.value;
     final h = size.height;
     final x = size.width - inset;
-    _measure(s, h);
+    final w = ui.lerpDouble(3, 5, t)!;
     final base = Paint()
-      ..color = track.withValues(alpha: ui.lerpDouble(0.16, 0.26, t)! * alpha);
-    final w0 = ui.lerpDouble(3, 4, t)!;
-    var dotY = -_dotStep;
-    for (var i = 0; i < _waves.length; i++) {
-      final y = i * _step;
-      final c = _waves[i];
-      if (c == 0) {
-        if (y - dotY >= _dotStep) {
-          canvas.drawCircle(Offset(x, y + 1), w0 * 0.32, base);
-          dotY = y;
-        }
-        continue;
-      }
-      final w = w0 + 6 * math.sqrt(c / _waveMax);
-      canvas.drawRect(
-        Rect.fromLTWH(x - w / 2, y, w, math.min(_step, h - y)),
-        base,
-      );
-    }
+      ..color = track.withValues(alpha: ui.lerpDouble(0.16, 0.24, t)! * alpha);
     final live = Paint()
       ..color = stream.withValues(alpha: ui.lerpDouble(0.75, 1, t)! * alpha);
-    for (final st in rail.streams) {
-      if (!st.end.isAfter(s.from) || st.start.isAfter(s.to)) continue;
-      final top = s.positionOf(st.start) * h;
-      final bottom = s.positionOf(st.end) * h;
-      if (bottom - top < 0.5) continue;
+
+    void bar(double a, double b, Paint p) {
+      final top = a * h;
+      final bottom = b * h;
+      if (bottom - top < 0.5) return;
       canvas.drawRRect(
         RRect.fromRectAndRadius(
-          Rect.fromLTRB(x - w0 / 2, top, x + w0 / 2, bottom),
-          Radius.circular(w0 / 2),
+          Rect.fromLTRB(x - w / 2, top, x + w / 2, bottom),
+          Radius.circular(w / 2),
         ),
-        live,
+        p,
       );
+    }
+
+    var cursor = 0.0;
+    for (final g in _gapsOf(s, h)) {
+      if (g.start > cursor) bar(cursor, g.start, base);
+      for (
+        var y = g.start * h + _dotStep / 2;
+        y < g.end * h - _dotStep / 4;
+        y += _dotStep
+      ) {
+        canvas.drawCircle(Offset(x, y), w * 0.32, base);
+      }
+      cursor = g.end;
+    }
+    if (cursor < 1) bar(cursor, 1, base);
+    for (final st in rail.streams) {
+      if (!st.end.isAfter(s.from) || st.start.isAfter(s.to)) continue;
+      bar(s.positionOf(st.start), s.positionOf(st.end), live);
     }
   }
 
@@ -893,81 +900,93 @@ class _RailPainter extends CustomPainter {
       1,
       m.days.fold<int>(0, (a, d) => math.max(a, d.count)),
     );
-    final row = Paint()..color = track.withValues(alpha: 0.3 * o);
-    final live = Paint()..color = stream.withValues(alpha: 0.85 * o);
-    final pick = Paint()..color = accent.withValues(alpha: 0.35 * o);
     final pickY = panelY.value;
-    final gap = math.min(2.0, m.dayH * 0.15);
+    final gap = math.min(3.0, m.dayH * 0.2);
     for (var i = 0; i < m.days.length; i++) {
       final d = m.days[i];
       final top = m.top + i * m.dayH;
-      final w = (rowMin + (rowMax - rowMin) * d.count / busiest) * o;
+      final center = top + m.dayH / 2;
+      final near = math.exp(-math.pow((center - pickY) / _reach, 2));
+      final w = rowMin + (rowMax - rowMin) * d.count / busiest;
+      final r = right - bulge * near * o;
       final rect = Rect.fromLTRB(
-        right - w,
+        r - w * o,
         top + gap / 2,
-        right,
+        r,
         top + m.dayH - gap / 2,
       );
-      final rr = RRect.fromRectAndRadius(rect, const Radius.circular(4));
-      canvas.drawRRect(rr, row);
-      if (inPanel() && pickY >= top && pickY < top + m.dayH) {
-        canvas.drawRRect(rr, pick);
+      final rr = RRect.fromRectAndRadius(
+        rect,
+        Radius.circular(math.min(6, rect.height / 2)),
+      );
+      canvas.drawRRect(
+        rr,
+        Paint()
+          ..color = track.withValues(
+            alpha: ui.lerpDouble(0.18, 0.85, near)! * o,
+          ),
+      );
+      // The day's stream time, tinted inside the row.
+      final end = i + 1 < m.days.length ? m.days[i + 1].start : rail.to;
+      final live = Paint()
+        ..color = stream.withValues(alpha: ui.lerpDouble(0.45, 1, near)! * o);
+      canvas.save();
+      canvas.clipRRect(rr);
+      for (final st in rail.streams) {
+        if (!st.end.isAfter(d.start) || !st.start.isBefore(end)) continue;
+        final a = m.yOf(st.start.isBefore(d.start) ? d.start : st.start);
+        final b = m.yOf(st.end.isAfter(end) ? end : st.end);
+        canvas.drawRect(
+          Rect.fromLTRB(
+            rect.left,
+            math.max(a, rect.top),
+            rect.left + 4,
+            math.min(b, rect.bottom),
+          ),
+          live,
+        );
       }
-    }
-    for (final st in rail.streams) {
-      if (!st.end.isAfter(rail.from)) continue;
-      final top = m.yOf(st.start);
-      final bottom = m.yOf(st.end);
-      if (bottom - top < 0.5) continue;
-      canvas.drawRect(Rect.fromLTRB(right - 4 * o, top, right, bottom), live);
+      canvas.restore();
     }
   }
 
+  /// A filled tag, a rounded box with a point into the bar, where the list
+  /// was.
   void _paintMarker(Canvas canvas, Size size, double o) {
     final old = oldPlace.value;
     if (old == null) return;
     final double y;
-    final double edge;
+    final double tip;
     if (o >= 0.5) {
       y = month.yOf(old);
-      edge = size.width - panelInset - rowMax;
+      tip = size.width - panelInset - rowMax - bulge - 2;
     } else {
       final s = scale.value;
       if (old.isBefore(s.from) || old.isAfter(s.to)) return;
       y = s.positionOf(old) * size.height;
-      edge = size.width - inset - 8;
+      tip = size.width - inset - 7;
     }
-    // A box with an arrow into the bar: where the list was.
     final p = Paint()
       ..color = track.withValues(alpha: 0.8)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.5;
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(
-        Rect.fromLTWH(edge - 16, y - 4, 8, 8),
-        const Radius.circular(2),
-      ),
-      p,
-    );
-    canvas.drawPath(
-      Path()
-        ..moveTo(edge - 6, y - 4)
-        ..lineTo(edge - 1, y)
-        ..lineTo(edge - 6, y + 4)
-        ..close(),
-      p..style = PaintingStyle.fill,
-    );
+      ..strokeWidth = 2
+      ..strokeJoin = StrokeJoin.round;
+    final tag = Path()
+      ..moveTo(tip - 11, y - 4)
+      ..lineTo(tip - 5, y - 4)
+      ..lineTo(tip, y)
+      ..lineTo(tip - 5, y + 4)
+      ..lineTo(tip - 11, y + 4)
+      ..close();
+    canvas.drawPath(tag, p..style = PaintingStyle.fill);
+    canvas.drawPath(tag, p..style = PaintingStyle.stroke);
   }
 
-  void _paintHandle(Canvas canvas, Size size, double t, double o) {
+  void _paintHandle(Canvas canvas, Size size, double t, double alpha) {
     final h = size.height;
-    final barX = size.width - inset;
-    final panelX = size.width - panelInset - rowMax / 2;
-    final x = ui.lerpDouble(barX, panelX, o)!;
-    final y = inPanel() ? panelY.value : thumb.value * h;
+    final x = size.width - inset;
     final tw = ui.lerpDouble(20, 26, t)!;
     final th = ui.lerpDouble(44, 52, t)!;
-    final cy = y.clamp(th / 2, h - th / 2);
+    final cy = (thumb.value * h).clamp(th / 2, h - th / 2);
     final rect = RRect.fromRectAndRadius(
       Rect.fromCenter(center: Offset(x, cy), width: tw, height: th),
       Radius.circular(tw / 2),
@@ -975,14 +994,14 @@ class _RailPainter extends CustomPainter {
     if (t > 0) {
       canvas.drawShadow(
         Path()..addRRect(rect),
-        shadow.withValues(alpha: t),
+        shadow.withValues(alpha: t * alpha),
         3,
         false,
       );
     }
-    canvas.drawRRect(rect, Paint()..color = accent);
+    canvas.drawRRect(rect, Paint()..color = accent.withValues(alpha: alpha));
     final chevron = Paint()
-      ..color = glyph
+      ..color = glyph.withValues(alpha: alpha)
       ..style = PaintingStyle.stroke
       ..strokeWidth = 2
       ..strokeCap = StrokeCap.round
