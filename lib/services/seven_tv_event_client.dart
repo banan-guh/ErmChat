@@ -265,7 +265,8 @@ class SevenTvEventClient {
   void unsubscribeUser(String userId) =>
       _setSubscribed(_pendingUsers, 'user.update', userId, subscribe: false);
 
-  // Subscribers wait for the handshake; unsubscribes send immediately.
+  // Subscribers wait for the handshake; unsubscribes send only for what this
+  // socket subscribed, since 7TV closes with 4010 (fatal) on an unknown one.
   // Repeat subscribes are no-ops: the pending set already holds the id and
   // the handshake flush covers the pre-handshake case.
   void _setSubscribed(
@@ -280,8 +281,9 @@ class SevenTvEventClient {
         _sendSubscription(type, objectId, subscribe: true);
       }
     } else {
-      pending.remove(objectId);
-      _sendSubscription(type, objectId, subscribe: false);
+      if (pending.remove(objectId) && _handshakeComplete) {
+        _sendSubscription(type, objectId, subscribe: false);
+      }
     }
   }
 
@@ -293,8 +295,9 @@ class SevenTvEventClient {
   }
 
   void unsubscribeTwitchChannel(String channelId) {
-    _pendingChannels.remove(channelId);
-    _sendChannelSubscription(channelId, subscribe: false);
+    if (_pendingChannels.remove(channelId) && _handshakeComplete) {
+      _sendChannelSubscription(channelId, subscribe: false);
+    }
   }
 
   void _sendSubscription(
