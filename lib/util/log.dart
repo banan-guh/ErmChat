@@ -37,22 +37,28 @@ class JankLog {
     if (_notes.length > _keep) _notes.removeFirst();
   }
 
+  /// Notes printed per stall, the latest.
+  static const int _shown = 8;
+
   /// Logs a stalled frame that started at [startUs] and ended at [endUs],
-  /// with the notes from just before it to its end.
+  /// with the notes from just before it to its end. [waitMs] is the time
+  /// from vsync to the build starting: the UI thread busy outside the frame.
   static void stall({
     required int startUs,
     required int endUs,
+    required int waitMs,
     required int buildMs,
     required int rasterMs,
     String extra = '',
   }) {
-    final recent = [
+    final all = [
       for (final (at, event) in _notes)
         if (at >= startUs - _windowUs && at <= endUs)
           '${((at - startUs) / 1000).round()}ms $event',
     ];
+    final recent = all.length > _shown ? all.sublist(all.length - _shown) : all;
     logDebug(
-      '[jank] ${((endUs - startUs) / 1000).round()}ms '
+      '[jank] ${((endUs - startUs) / 1000).round()}ms wait=${waitMs}ms '
       'build=${buildMs}ms raster=${rasterMs}ms$extra | '
       '${recent.isEmpty ? 'no recent events' : recent.join(', ')}',
     );

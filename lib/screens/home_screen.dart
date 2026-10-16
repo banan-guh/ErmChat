@@ -909,12 +909,17 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   void _reportStalls(List<FrameTiming> timings) {
     for (final t in timings) {
       if (t.totalSpan.inMilliseconds < JankLog.stallMs) continue;
+      final vsync = t.timestampInMicroseconds(FramePhase.vsyncStart);
       JankLog.stall(
-        startUs: t.timestampInMicroseconds(FramePhase.vsyncStart),
+        startUs: vsync,
         endUs: t.timestampInMicroseconds(FramePhase.rasterFinish),
+        waitMs:
+            (t.timestampInMicroseconds(FramePhase.buildStart) - vsync) ~/ 1000,
         buildMs: t.buildDuration.inMilliseconds,
         rasterMs: t.rasterDuration.inMilliseconds,
-        extra: ' images=${PaintingBinding.instance.imageCache.currentSize}',
+        extra:
+            ' queue=${(t.timestampInMicroseconds(FramePhase.rasterStart) - t.timestampInMicroseconds(FramePhase.buildFinish)) ~/ 1000}ms'
+            ' images=${PaintingBinding.instance.imageCache.currentSize}',
       );
     }
   }
