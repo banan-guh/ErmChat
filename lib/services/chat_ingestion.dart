@@ -452,7 +452,7 @@ class ChatIngestion {
     );
     onSystemMessage(
       event.channel,
-      'Announcement',
+      strings().announcementLabel,
       accent: accent,
       messageId: userNoticeLabelId(event.messageId),
     );
