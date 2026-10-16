@@ -3033,5 +3033,6 @@
         "type": "String"
       }
     }
-  }
+  },
+  "historyCalendar": "Calendar"
 }

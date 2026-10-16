@@ -20,7 +20,7 @@ import 'chat_rows.dart';
 import 'chat_widget_cutout.dart' show ChatWidgetMinimizedBar;
 import 'chrome_menu_button.dart' show kChromeMenuMargin;
 import 'glass_chrome.dart';
-import 'history_scrubber.dart';
+import 'history_days.dart';
 
 /// Windowed history list over a [HistorySource].
 ///
@@ -31,8 +31,8 @@ import 'history_scrubber.dart';
 /// approached and drop from the far edge ([HistoryWindow]). When the viewport
 /// drifts [_reanchorItems] items from the anchor, the anchor moves to the
 /// viewport and `correctBy` keeps the content still, so the far ends can trim
-/// without moving anything on screen. A time rail ([HistoryScrubber]) fades
-/// in after a long scroll and jumps through [_jumpTo].
+/// without moving anything on screen. The menu's calendar opens the days
+/// ([HistoryDays]), which jump through [_jumpTo].
 ///
 /// Live rows continue the source at the newest end. Arrivals append below
 /// the anchor, so nothing on screen moves; while following, the physics pins
@@ -59,6 +59,7 @@ class HistoryView extends StatefulWidget {
     this.emptyText,
     this.emptyStretches = true,
     this.jumpRequest,
+    this.calendarRequest,
   });
 
   final String channel;
@@ -111,6 +112,10 @@ class HistoryView extends StatefulWidget {
   /// A time to show, centered (a tapped search result). Consumed and reset
   /// to null on open or whenever it is set.
   final ValueNotifier<DateTime?>? jumpRequest;
+
+  /// Set true (the menu's calendar) to open the days; consumed and reset to
+  /// false.
+  final ValueNotifier<bool>? calendarRequest;
 
   @override
   State<HistoryView> createState() => _HistoryViewState();
@@ -245,14 +250,6 @@ class _HistoryViewState extends State<HistoryView> {
   /// Rows kept on each side of the viewport when trimming.
   static const int _keepNear = 300;
 
-  /// The rail appears once the viewport is this many rows behind newest.
-  static const int _railAfterRows = 100;
-
-  static const int _railIdleMs = 1500;
-
-  /// Rail positions this close to an end jump to that end of the list.
-  static const double _railEndSnap = 0.01;
-
   /// The scroll-down button's height, a standard FAB.
   static const double _fabSize = 56;
 
@@ -274,35 +271,13 @@ class _HistoryViewState extends State<HistoryView> {
   bool _loadingOlder = false;
   bool _loadingNewer = false;
 
-  // Rail state. Notifiers drive the scrubber so showing, hiding and moving
-  // the thumb never rebuild the list.
+  /// The days rail, built when the days first open.
   final ValueNotifier<ActivityRail?> _railReady = ValueNotifier(null);
 
-  /// The bar's scale; see [_fitScale].
-  final ValueNotifier<RailScale> _scale = ValueNotifier(
-    TimeWindow(DateTime.utc(1970), DateTime.utc(1970)),
-  );
-  final ValueNotifier<double> _thumb = ValueNotifier(1);
-
-  /// The days compartment is open: the list dims under it.
+  /// The days are open: the list dims under them.
   final ValueNotifier<bool> _panel = ValueNotifier(false);
-
-  /// Where the list was before the last rail drag, marked on the rail and
-  /// kept for [_oldPlaceFor] after a jump so a tap can go back.
-  final ValueNotifier<DateTime?> _oldPlace = ValueNotifier(null);
-  ({DateTime time, double thumb, bool newest})? _origin;
-  Timer? _oldPlaceTimer;
-  static const Duration _oldPlaceFor = Duration(seconds: 5);
-  final ValueNotifier<bool> _railVisible = ValueNotifier(false);
-  final ValueNotifier<bool> _peek = ValueNotifier(false);
-  final Stopwatch _clock = Stopwatch()..start();
-  Timer? _idleTimer;
-  int _idleDeadline = 0;
-  bool _railDragging = false;
   bool _railBuilding = false;
   bool _scrolled = false;
-  ({DateTime time, Future<List<TwitchMessage>> rows})? _prefetched;
-  bool _prefetching = false;
   String? _fmtLocale;
   DateFormat? _dayFmt;
   DateFormat? _shortDayFmt;
@@ -371,6 +346,7 @@ class _HistoryViewState extends State<HistoryView> {
     widget.emotesVersion?.addListener(_onEmotes);
     widget.atBottomNotifier?.addListener(_onAtBottomRequest);
     widget.jumpRequest?.addListener(_onJumpRequest);
+    widget.calendarRequest?.addListener(_onCalendarRequest);
     _unwatchClears = widget.source.watchClears(_onClear);
     _unwatchStreams = widget.source.watchStreams(_loadStreams);
     if (debugLogEnabled) _probeOpen();
@@ -452,6 +428,10 @@ class _HistoryViewState extends State<HistoryView> {
     if (old.jumpRequest != widget.jumpRequest) {
       old.jumpRequest?.removeListener(_onJumpRequest);
       widget.jumpRequest?.addListener(_onJumpRequest);
+    }
+    if (old.calendarRequest != widget.calendarRequest) {
+      old.calendarRequest?.removeListener(_onCalendarRequest);
+      widget.calendarRequest?.addListener(_onCalendarRequest);
     }
     if (old.atBottomNotifier != widget.atBottomNotifier) {
       old.atBottomNotifier?.removeListener(_onAtBottomRequest);
@@ -552,6 +532,20 @@ class _HistoryViewState extends State<HistoryView> {
     _jumpTo(time, fraction: 0.5);
   }
 
+  Future<void> _onCalendarRequest() async {
+    final r = widget.calendarRequest;
+    if (r == null || !r.value || !mounted) return;
+    r.value = false;
+    await _openDays();
+  }
+
+  Future<void> _openDays() async {
+    await _buildRail();
+    final rail = _railReady.value;
+    if (!mounted || rail == null || !HistoryDays.hasDays(rail)) return;
+    _panel.value = true;
+  }
+
   /// An outside write of true (a tab tap) asks for the newest row.
   void _onAtBottomRequest() {
     final n = widget.atBottomNotifier;
@@ -563,11 +557,7 @@ class _HistoryViewState extends State<HistoryView> {
   void _jumpToNewest() {
     _follow = true;
     _atBottom = true;
-    // Nothing to go back to or scrub from at the newest row.
-    _oldPlaceTimer?.cancel();
-    _oldPlace.value = null;
     _panel.value = false;
-    _railVisible.value = false;
     widget.atBottomNotifier?.value = true;
     widget.onScrollActivity?.call(widget.channel);
     final pos = _pos;
@@ -648,17 +638,10 @@ class _HistoryViewState extends State<HistoryView> {
     if (PerfProbe.enabled) {
       SchedulerBinding.instance.removeTimingsCallback(_onTimings);
     }
-    _idleTimer?.cancel();
     _endOpenProbe();
     _controller.dispose();
     _railReady.dispose();
-    _scale.dispose();
     _panel.dispose();
-    _oldPlace.dispose();
-    _oldPlaceTimer?.cancel();
-    _thumb.dispose();
-    _railVisible.dispose();
-    _peek.dispose();
     super.dispose();
   }
 
@@ -711,8 +694,6 @@ class _HistoryViewState extends State<HistoryView> {
     _loadingOlder = false;
     _loadingNewer = false;
     _follow = time == null;
-    final rail = _railReady.value;
-    if (rail != null) _fitScale(rail, time ?? rail.to);
     _hold = null;
     final sw = Stopwatch()..start();
     final source = widget.source;
@@ -802,9 +783,6 @@ class _HistoryViewState extends State<HistoryView> {
         if (clamped != p.pixels) p.jumpTo(clamped);
         _snapToNewest(p);
         _syncAtBottom(p);
-        if (_railReady.value != null && !_railDragging) {
-          _thumb.value = _viewportRailPos(_scale.value, p) ?? _thumb.value;
-        }
         if (pinOldest) _settleAtEnd(oldest: true);
         if (time == null) _settleAtEnd(oldest: false);
       }
@@ -1154,7 +1132,6 @@ class _HistoryViewState extends State<HistoryView> {
     }
     if (_scrolled) {
       _scrolled = false;
-      _updateRail();
       _checkBlank(pos);
     }
     final ahead = pos.viewportDimension * 4;
@@ -1398,11 +1375,10 @@ class _HistoryViewState extends State<HistoryView> {
     _scheduleMaintain();
   }
 
-  // ---- Rail ----------------------------------------------------------------
+  // ---- Days ----------------------------------------------------------------
 
-  /// Builds the activity-weighted rail model on the first scroll, so opening
-  /// a page never waits on it. A fresh archive has no sealed minutes yet, so
-  /// a missing or bucket-old rail rebuilds on later scrolls.
+  /// Builds the rail the days come from when they open. A fresh archive has
+  /// no sealed minutes yet, so a missing or bucket-old rail rebuilds.
   Future<void> _buildRail() async {
     if (!mounted || _railBuilding) return;
     final rail = _railReady.value;
@@ -1413,260 +1389,21 @@ class _HistoryViewState extends State<HistoryView> {
     _railBuilding = true;
     try {
       final next = await widget.source.rail(_window.streams);
-      if (mounted && next != null) {
-        _fitScale(next, _viewTime() ?? next.to, rebuilt: true);
-        _railReady.value = next;
-      }
+      if (mounted && next != null) _railReady.value = next;
     } finally {
       _railBuilding = false;
     }
   }
 
-  /// Follows the list on scroll: shows the rail after a long scroll up and
-  /// keeps the thumb on the viewport's time while visible.
-  void _updateRail() {
-    _peek.value = false;
-    if (_firstPainted) _buildRail();
-    final rail = _railReady.value;
-    if (rail == null || _railDragging) return;
-    final pos = _pos!;
-    // The middle row, where a rail jump puts its target.
-    final row = _window.at(_viewportPos(pos.viewportDimension / 2));
-    if (row == null) return;
-    if (!_railVisible.value) {
-      final w = _window;
-      // Off the newest end of the window the viewport is surely far back.
-      if (w.atNewest && w.end - _viewportPos() < _railAfterRows) return;
-      _railVisible.value = true;
-    }
-    _fitScale(rail, row.timestamp, slide: true);
-    _thumb.value = _viewportRailPos(_scale.value, pos) ?? _thumb.value;
-    _bumpIdle();
-  }
-
-  /// The middle row's time, where a rail jump puts its target.
+  /// The middle row's time, whose day the days highlight.
   DateTime? _viewTime() {
     final pos = _pos;
     if (pos == null || !pos.hasViewportDimension) return null;
     return _window.at(_viewportPos(pos.viewportDimension / 2))?.timestamp;
   }
 
-  /// Picks the bar's scale for a viewport at [at]. A calendar rail shows
-  /// [HistoryScrubber.window], weighted by activity: the newest stretch while
-  /// [at] lies in it, otherwise the stretch around [at], kept until [at]
-  /// leaves it; a scroll ([slide]) past an end moves the stretch along
-  /// instead. A results rail is its own scale.
-  void _fitScale(
-    ActivityRail rail,
-    DateTime at, {
-    bool rebuilt = false,
-    bool slide = false,
-  }) {
-    if (!rail.calendar) {
-      _scale.value = rail;
-      return;
-    }
-    const length = HistoryScrubber.window;
-    final cur = _scale.value;
-    final TimeWindow span;
-    if (!at.isBefore(rail.to.subtract(length))) {
-      span = TimeWindow.around(rail.to, length, rail.from, rail.to);
-    } else if (!rebuilt &&
-        !identical(cur, rail) &&
-        !at.isBefore(cur.from) &&
-        !at.isAfter(cur.to)) {
-      return;
-    } else if (slide && !identical(cur, rail) && cur.to.isAfter(cur.from)) {
-      // Past an end while scrolling, the stretch follows, so the thumb rests
-      // on that end and the bar moves under it instead of jumping.
-      final edge = at.isBefore(cur.from)
-          ? at.add(length ~/ 2)
-          : at.subtract(length ~/ 2);
-      span = TimeWindow.around(edge, length, rail.from, rail.to);
-    } else {
-      span = TimeWindow.around(at, length, rail.from, rail.to);
-    }
-    if (rebuilt || span.from != cur.from || span.to != cur.to) {
-      _scale.value = rail.window(span.from, span.to);
-    }
-  }
-
-  /// The viewport's rail position, as a scrollbar maps it: the top row's at
-  /// the oldest end, the bottom row's at the newest, and in between the
-  /// point [p] of the way down whose row sits at [p]. A rail jump to [p]
-  /// places its row there too.
-  double? _viewportRailPos(RailScale rail, ScrollPosition pos) {
-    final w = _window;
-    final top = w.at(_viewportPos(pos.viewportDimension));
-    final bottom = w.at(_viewportPos());
-    if (top == null || bottom == null) return null;
-    if (w.atNewest && pos.pixels - pos.minScrollExtent <= _followEps) return 1;
-    if (w.atOldest && _oldestEnd(pos) - pos.pixels <= _followEps) return 0;
-    final a = rail.positionOf(top.timestamp);
-    final b = rail.positionOf(bottom.timestamp);
-    final span = 1 - (b - a);
-    return span <= 0 ? (a + b) / 2 : (a / span).clamp(a, b);
-  }
-
-  /// Extends the fade deadline. One timer re-arms itself, so scroll frames
-  /// allocate none.
-  void _bumpIdle() {
-    _idleDeadline = _clock.elapsedMilliseconds + _railIdleMs;
-    _idleTimer ??= Timer(const Duration(milliseconds: _railIdleMs), _idleCheck);
-  }
-
-  void _idleCheck() {
-    _idleTimer = null;
-    if (!mounted) return;
-    final left = _idleDeadline - _clock.elapsedMilliseconds;
-    if (_railDragging || _panel.value || _oldPlace.value != null) {
-      _bumpIdle();
-    } else if (left > 0) {
-      _idleTimer = Timer(Duration(milliseconds: left), _idleCheck);
-    } else {
-      _railVisible.value = false;
-      _peek.value = false;
-    }
-  }
-
-  void _onRailDragStart() {
-    _railDragging = true;
-    _peek.value = false;
-    _noteOrigin();
-    _bumpIdle();
-  }
-
-  /// Notes where the list is, for the old place marker and a way back.
-  void _noteOrigin() {
-    _oldPlaceTimer?.cancel();
-    final pos = _pos;
-    final p = _thumb.value;
-    final row = pos == null || !pos.hasViewportDimension
-        ? null
-        : _window.at(_viewportPos(pos.viewportDimension * (1 - p)));
-    _origin = row == null
-        ? null
-        : (time: row.timestamp, thumb: p, newest: _follow);
-    _oldPlace.value = row?.timestamp;
-  }
-
-  /// Keeps the old place marker up for a while after a jump, for a tap
-  /// back.
-  void _holdOldPlace() {
-    _oldPlaceTimer?.cancel();
-    _oldPlaceTimer = Timer(_oldPlaceFor, () {
-      if (mounted) _oldPlace.value = null;
-    });
-  }
-
   /// A tapped day: its first rows near the top of the screen.
-  void _onRailDay(DateTime start) {
-    _noteOrigin();
-    _holdOldPlace();
-    _bumpIdle();
-    _jumpTo(start, fraction: 0.9);
-  }
-
-  /// Back to where the list was before the last rail jump.
-  void _onRailBack() {
-    final o = _origin;
-    _oldPlaceTimer?.cancel();
-    _oldPlace.value = null;
-    _origin = null;
-    if (o == null) return;
-    if (o.newest) {
-      _jumpToNewest();
-    } else {
-      _jumpTo(o.time, fraction: 1 - o.thumb);
-    }
-  }
-
-  /// Starts reading where the drag would land when no read is in flight, so
-  /// the release usually finds its rows decoded.
-  void _onRailDrag(DateTime t) {
-    _bumpIdle();
-    if (_prefetching) return;
-    _prefetching = true;
-    final rows = widget.source.around(t)
-      ..whenComplete(() => _prefetching = false);
-    _prefetched = (time: t, rows: rows);
-  }
-
-  Future<void> _onRailDragEnd(double pos) async {
-    _railDragging = false;
-    _bumpIdle();
-    _holdOldPlace();
-    final pre = _prefetched;
-    _prefetched = null;
-    final rail = _railReady.value;
-    final scale = _scale.value;
-    // The bar's ends mean the list's ends when the bar reaches them: the
-    // newest row, following, or the oldest row at the top, not whatever
-    // sits mid-screen at that time.
-    final slack = rail?.bucket ?? Duration.zero;
-    if (pos >= 1 - _railEndSnap &&
-        (rail == null || !scale.to.isBefore(rail.to.subtract(slack)))) {
-      _jumpToNewest();
-      return;
-    }
-    final t =
-        pos <= _railEndSnap &&
-            (rail == null || !scale.from.isAfter(rail.from.add(slack)))
-        ? DateTime.fromMillisecondsSinceEpoch(0, isUtc: true)
-        : scale.timeAt(pos);
-    final epoch = _epoch;
-    List<TwitchMessage>? rows;
-    if (pre != null) {
-      final got = await pre.rows;
-      if (!mounted) return;
-      // Reuse the prefetch when the release lands inside what it read.
-      if (got.isNotEmpty &&
-          !t.isBefore(got.first.timestamp) &&
-          !t.isAfter(got.last.timestamp)) {
-        rows = got;
-      }
-    }
-    rows ??= await widget.source.around(t);
-    if (!mounted || epoch != _epoch || _railDragging) return;
-    // A time between rows lands on the nearer row, not always the next one.
-    final next = rows.indexWhere((m) => !m.timestamp.isBefore(t));
-    final prev = (next < 0 ? rows.length : next) - 1;
-    var land = t;
-    if (prev >= 0 &&
-        (next < 0 ||
-            t.difference(rows[prev].timestamp) <
-                rows[next].timestamp.difference(t))) {
-      land = rows[prev].timestamp;
-    } else if (next >= 0) {
-      land = rows[next].timestamp;
-    }
-    await _jumpTo(land, fraction: 1 - pos, rows: Future.value(rows));
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      final p = _pos;
-      if (!mounted || p == null || _railDragging) return;
-      final landed = _viewportRailPos(_scale.value, p);
-      if (landed == null) return;
-      _thumb.value = landed;
-      if ((landed - pos).abs() > 0.02) {
-        _warn(
-          'rail release ${pos.toStringAsFixed(3)} landed '
-          '${landed.toStringAsFixed(3)} (asked $t, row $land)',
-        );
-      }
-    });
-  }
-
-  /// Shows the rail with its bubble at [time], for a tapped day marker.
-  void _peekRail(DateTime time) {
-    _buildRail();
-    final rail = _railReady.value;
-    if (rail == null) return;
-    _fitScale(rail, time);
-    _thumb.value = _scale.value.positionOf(time);
-    _peek.value = true;
-    _railVisible.value = true;
-    _bumpIdle();
-  }
+  void _onDay(DateTime start) => _jumpTo(start, fraction: 0.9);
 
   // ---- Build ---------------------------------------------------------------
 
@@ -1732,7 +1469,7 @@ class _HistoryViewState extends State<HistoryView> {
           timestamp: m.time,
         ),
         m.kind == HistoryMarkerKind.emptyStretch
-            ? () => _peekRail(m.time)
+            ? _openDays
             : () => showHistoryMarkerSheet(
                 context,
                 title: text,
@@ -1894,7 +1631,7 @@ class _HistoryViewState extends State<HistoryView> {
       );
     }
     // Below the menu trigger and the minimized cards bar beside it.
-    final railTop = widget.debugControls
+    final daysTop = widget.debugControls
         ? 56.0
         : kChromeMenuMargin + ChatWidgetMinimizedBar.height + 8;
     return Stack(
@@ -1923,39 +1660,21 @@ class _HistoryViewState extends State<HistoryView> {
             ),
           ),
         ),
-        // The dock hangs below the menu trigger, its surface reaching up
-        // behind it, and ends where the scroll-down button sits.
+        // Between the menu trigger and the scroll-down button.
         Positioned(
-          top: widget.topPadding + railTop,
+          top: widget.topPadding + daysTop,
           right: 0,
-          // With a scroll-down button the dock's foot takes its place.
-          bottom: widget.atBottomNotifier == null
-              ? max(bottom, 16 + pill + _fabSize) + 8
-              : 16 + pill,
+          bottom: max(bottom, 16 + pill + _fabSize) + 8,
           child: ValueListenableBuilder<ActivityRail?>(
             valueListenable: _railReady,
             builder: (context, rail, _) => rail == null
                 ? const SizedBox.shrink()
-                : HistoryScrubber(
+                : HistoryDays(
                     rail: rail,
-                    scale: _scale,
-                    thumb: _thumb,
-                    visible: _railVisible,
-                    peek: _peek,
-                    panel: _panel,
-                    oldPlace: _oldPlace,
-                    onDragStart: _onRailDragStart,
-                    onDrag: _onRailDrag,
-                    onDragEnd: _onRailDragEnd,
-                    onBack: _onRailBack,
-                    onDay: _onRailDay,
-                    atBottom: widget.atBottomNotifier,
-                    onNewest: widget.atBottomNotifier == null
-                        ? null
-                        : _jumpToNewest,
+                    open: _panel,
+                    viewTime: _viewTime,
+                    onDay: _onDay,
                     glass: glass,
-                    // Up into the corner, behind the menu trigger.
-                    reachUp: railTop,
                   ),
           ),
         ),
@@ -1965,20 +1684,12 @@ class _HistoryViewState extends State<HistoryView> {
             builder: (_, value, _) => Positioned(
               right: 16,
               bottom: 16 + pill,
-              // Once the dock is up its foot shows instead; the button
-              // stays as an unseen target where thumbs expect it.
-              child: ValueListenableBuilder<ActivityRail?>(
-                valueListenable: _railReady,
-                builder: (_, rail, child) =>
-                    Opacity(opacity: rail == null ? 1 : 0, child: child),
-                child: ScrollDownButton(
-                  atBottom: value,
-                  glass: glass,
-                  heroTag:
-                      widget.scrollFabHeroTag ??
-                      'scroll_down_${widget.channel}',
-                  onPressed: _jumpToNewest,
-                ),
+              child: ScrollDownButton(
+                atBottom: value,
+                glass: glass,
+                heroTag:
+                    widget.scrollFabHeroTag ?? 'scroll_down_${widget.channel}',
+                onPressed: _jumpToNewest,
               ),
             ),
           ),

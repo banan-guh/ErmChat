@@ -9,8 +9,8 @@ import 'package:ermchat/util/history_timeline.dart';
 import 'package:ermchat/widgets/chat_message_tile.dart';
 import 'package:ermchat/widgets/chat_rows.dart';
 import 'package:ermchat/widgets/glass_chrome.dart';
+import 'package:ermchat/widgets/history_days.dart';
 import 'package:ermchat/widgets/history_view.dart';
-import 'package:ermchat/widgets/history_scrubber.dart';
 import 'package:ermchat/widgets/message_builder.dart';
 import 'package:ermchat/services/twitch_badge_service.dart';
 import 'package:ermchat/services/third_party_badge_service.dart';
@@ -180,6 +180,7 @@ Future<void> _pumpView(
   ValueNotifier<bool>? atBottom,
   Map<String, Map<String?, Widget>>? tileCache,
   ValueNotifier<DateTime?>? jumpRequest,
+  ValueNotifier<bool>? calendarRequest,
 }) async {
   FakeHistory.loadDelay = Duration.zero;
   tester.view.physicalSize = const Size(400, 800);
@@ -209,6 +210,7 @@ Future<void> _pumpView(
           debugControls: true,
           tileCache: tileCache,
           jumpRequest: jumpRequest,
+          calendarRequest: calendarRequest,
           atBottomNotifier: atBottom,
           live: live,
           liveVersion: liveVersion,
@@ -245,45 +247,33 @@ Future<void> _pumpView(
   return (top: top, bottom: bottom, keys: keys);
 }
 
-/// Opens the rail's days, as the menu's calendar does.
-Future<void> _openDays(WidgetTester tester) async {
-  tester.widget<HistoryScrubber>(find.byType(HistoryScrubber)).panel.value =
-      true;
+/// Asks for the days, as the menu's calendar does.
+Future<void> _openDays(
+  WidgetTester tester,
+  ValueNotifier<bool> calendar,
+) async {
+  calendar.value = true;
   await _settle(tester);
 }
 
+bool _daysOpen(WidgetTester tester) =>
+    find.byType(HistoryDays).evaluate().isNotEmpty &&
+    tester.widget<HistoryDays>(find.byType(HistoryDays)).open.value;
+
 /// Taps the [i]th day row of the open days, from the end when negative.
+/// The rows stack from the panel's bottom, inside a 6px pad.
 Future<void> _tapDay(WidgetTester tester, int i) async {
-  final rail = tester.getRect(find.byType(HistoryScrubber));
+  final panel = tester.getRect(find.byType(HistoryDays));
   final n = tester
-      .widget<HistoryScrubber>(find.byType(HistoryScrubber))
+      .widget<HistoryDays>(find.byType(HistoryDays))
       .rail
       .days
       .length;
-  // The days button takes the rail's top 40.
-  final dayH = ((rail.height - 40) / n).clamp(0.0, 40.0);
+  final dayH = ((panel.height - 12) / n).clamp(0.0, 40.0);
   final row = i < 0 ? n + i : i;
   await tester.tapAt(
-    Offset(rail.right - 20, rail.bottom - (n - row - 0.5) * dayH),
+    Offset(panel.right - 20, panel.bottom - 6 - (n - row - 0.5) * dayH),
   );
-  await _settle(tester);
-}
-
-/// Drags the rail's handle through [steps], then lets go and settles.
-Future<void> _scrub(WidgetTester tester, List<Offset> steps) async {
-  final rail = tester.getRect(find.byType(HistoryScrubber));
-  final y = tester
-      .widget<HistoryScrubber>(find.byType(HistoryScrubber))
-      .thumb
-      .value;
-  final grab = await tester.startGesture(
-    Offset(rail.right - 22, rail.top + 40 + y * (rail.height - 40)),
-  );
-  for (final step in steps) {
-    await grab.moveBy(step);
-    await tester.pump(const Duration(milliseconds: 16));
-  }
-  await grab.up();
   await _settle(tester);
 }
 
@@ -293,10 +283,6 @@ Future<void> _settle(WidgetTester tester) async {
     await tester.pump(const Duration(milliseconds: 100));
   }
 }
-
-bool _railShown(WidgetTester tester) =>
-    find.byType(HistoryScrubber).evaluate().isNotEmpty &&
-    tester.widget<HistoryScrubber>(find.byType(HistoryScrubber)).visible.value;
 
 Finder _tile(String id) => find.byWidgetPredicate(
   (w) => w is ChatMessageTile && w.message.messageId == id,
@@ -549,27 +535,30 @@ void main() {
     );
   });
 
-  testWidgets('scroll past the oldest row after a rail jump to the top', (
+  testWidgets('scroll past the oldest row after a day jump to the top', (
     tester,
   ) async {
-    // A fresh archive has no rail at first paint; scrolling builds it later.
-    await _pumpView(tester, source: _EmptyFirstRail(_ch));
-    // Long flings up bring the rail in.
+    final calendar = ValueNotifier(false);
+    addTearDown(calendar.dispose);
+    // A fresh archive has no rail at first; a later calendar builds it.
+    await _pumpView(
+      tester,
+      source: _EmptyFirstRail(_ch),
+      calendarRequest: calendar,
+    );
     final list = find.byType(CustomScrollView);
-    bool railShown() => _railShown(tester);
-    for (var i = 0; i < 40 && !railShown(); i++) {
-      await tester.fling(list, const Offset(0, 600), 6000);
-      await _settle(tester);
-    }
-    expect(railShown(), isTrue, reason: 'flings never brought the rail in');
+    await _openDays(tester, calendar);
+    expect(_daysOpen(tester), isFalse, reason: 'days opened with no rail');
+    await _openDays(tester, calendar);
+    expect(_daysOpen(tester), isTrue, reason: 'the rail never rebuilt');
     // A tap on the dimmed list closes the days without moving it.
     final before = _items(tester).keys;
-    await _openDays(tester);
     await tester.tapAt(tester.getRect(list).topLeft + const Offset(40, 300));
     await _settle(tester);
+    expect(_daysOpen(tester), isFalse, reason: 'the tap left the days open');
     expect(_items(tester).keys, before, reason: 'closing the days jumped');
-    // The bar spans the last days; the oldest row is the first day's.
-    await _openDays(tester);
+    // The oldest row is the first day's.
+    await _openDays(tester, calendar);
     await _tapDay(tester, 0);
     expect(
       _items(tester).keys,
@@ -593,57 +582,21 @@ void main() {
       lessThanOrEqualTo(_inset + 1),
       reason: 'scrolled past the oldest row into empty space',
     );
-    double thumb() => tester
-        .widget<HistoryScrubber>(find.byType(HistoryScrubber))
-        .thumb
-        .value;
-    expect(thumb(), 0, reason: 'the thumb stopped short of the rail top');
-    // From the top, the bar spans the oldest days; the newest row is back
-    // through the last day, then the bar's bottom end.
-    await tester.drag(list, const Offset(0, -300));
-    await tester.pump();
-    expect(railShown(), isTrue, reason: 'a scroll at the top hid the rail');
-    await _openDays(tester);
+    // From the top, the last day jumps back through every day between.
+    await _openDays(tester, calendar);
+    final last = tester
+        .widget<HistoryDays>(find.byType(HistoryDays))
+        .rail
+        .days
+        .last;
     await _tapDay(tester, -1);
-    await _scrub(tester, const [Offset(0, 20), Offset(0, 3000)]);
-    final pos = tester
-        .state<ScrollableState>(find.byType(Scrollable).first)
-        .position;
+    final shown = _items(
+      tester,
+    ).keys.map((k) => FakeHistory.timeOf(_ch, int.parse(k.split('-').last)));
     expect(
-      pos.pixels,
-      moreOrLessEquals(pos.minScrollExtent, epsilon: 0.5),
-      reason: 'the jump to the bottom stopped short of the newest row',
-    );
-    await tester.drag(list, const Offset(0, 300));
-    await tester.drag(list, const Offset(0, -600));
-    await _settle(tester);
-    expect(thumb(), 1, reason: 'the thumb stopped short of the rail bottom');
-  });
-
-  testWidgets('dragging the knob past the top carries the bar older', (
-    tester,
-  ) async {
-    await _pumpView(tester);
-    final list = find.byType(CustomScrollView);
-    for (var i = 0; i < 40 && !_railShown(tester); i++) {
-      await tester.fling(list, const Offset(0, 600), 6000);
-      await _settle(tester);
-    }
-    expect(_railShown(tester), isTrue, reason: 'flings never brought it in');
-    final scrubber = tester.widget<HistoryScrubber>(
-      find.byType(HistoryScrubber),
-    );
-    final start = scrubber.scale.value.from;
-    await _scrub(tester, const [Offset(0, 20), Offset(0, -3000)]);
-    final newest = _items(tester).keys.map((k) => int.parse(k.split('-').last));
-    final landed = FakeHistory.timeOf(
-      _ch,
-      newest.reduce((a, b) => a > b ? a : b),
-    );
-    expect(
-      landed.isBefore(start),
+      shown.any((t) => !t.isBefore(last.start)),
       isTrue,
-      reason: 'the release stayed inside the first stretch',
+      reason: 'the jump missed the last day',
     );
   });
 
@@ -663,10 +616,6 @@ void main() {
     await _settle(tester);
     expect(newestBottom(), moreOrLessEquals(bottom, epsilon: 1));
     expect(atBottom.value, isTrue, reason: 'a drag showed the button');
-    // A dozen rows never bring the rail in, however old.
-    await tester.drag(list, const Offset(0, 60));
-    await tester.pump();
-    expect(_railShown(tester), isFalse, reason: 'the rail came in');
   });
 
   testWidgets('a late clear fades held rows in its range, by its chatter', (
