@@ -219,7 +219,7 @@ class ArchiveWriter {
 
   /// Completes when every load and queued seal has finished.
   Future<void> settled() async {
-    for (final c in _chans.values) {
+    for (final c in List.of(_chans.values)) {
       await c.loading;
       await c.chain;
     }
@@ -227,7 +227,7 @@ class ArchiveWriter {
 
   /// Seals every tail now and waits for the writes.
   Future<void> flush() async {
-    for (final c in _chans.values) {
+    for (final c in List.of(_chans.values)) {
       await c.loading;
     }
     for (final e in _chans.entries) {

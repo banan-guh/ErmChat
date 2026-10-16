@@ -189,7 +189,7 @@ class IgnoreManager extends ChangeNotifier {
   RegExp? _regexFor(IgnoreEntry entry) {
     final key =
         '${entry.id}\u0000${entry.pattern}\u0000${entry.caseSensitive}'
-        '\u0000${entry.wordBoundary}';
+        '\u0000${entry.wordBoundary}\u0000${entry.isRegex}';
     return _regexCache.putIfAbsent(key, () {
       try {
         // Lookaround anchors (not \b) for non-word-char patterns.

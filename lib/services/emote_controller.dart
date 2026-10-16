@@ -116,10 +116,13 @@ class EmoteController {
   Future<void> loadPrefs() async {
     try {
       final prefs = await Prefs.load();
-      manualTierIndex = prefs.emoteFetchTier;
+      final tierIndex = prefs.emoteFetchTier;
       final autoIndex = prefs.emoteFetchAuto;
       // A corrupt/out-of-range persisted index would throw RangeError at
       // startup; fall back to the default instead.
+      if (tierIndex >= 0 && tierIndex < EmoteFetchTier.values.length) {
+        manualTierIndex = tierIndex;
+      }
       autoMode = autoIndex >= 0 && autoIndex < EmoteFetchAutoMode.values.length
           ? EmoteFetchAutoMode.values[autoIndex]
           : defaultEmoteFetchAutoMode;

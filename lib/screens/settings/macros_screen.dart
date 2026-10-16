@@ -50,6 +50,8 @@ class _MacrosScreenState extends State<MacrosScreen> {
     if (result == null || !mounted) return;
     final (name, body) = result;
     setState(() {
+      // A rename drops the old trigger too.
+      if (existing != null) _macros.remove(existing);
       _macros.removeWhere((m) => m.name.toLowerCase() == name.toLowerCase());
       _macros.add(CommandMacro(name: name, body: body));
     });

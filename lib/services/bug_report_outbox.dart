@@ -92,11 +92,8 @@ class BugReportOutbox extends ChangeNotifier {
   }
 
   /// A fresh draft with pre-filled [diagnostics]. Not stored until saved.
-  BugReport newDraft({String diagnostics = ''}) => BugReport(
-    id: _uuidV4(),
-    createdAt: DateTime.now(),
-    diagnostics: diagnostics,
-  );
+  BugReport newDraft({String diagnostics = ''}) =>
+      BugReport(id: _uuidV4(), createdAt: _now(), diagnostics: diagnostics);
 
   /// Stores [report] as a draft (insert or replace).
   Future<void> saveDraft(BugReport report) async {

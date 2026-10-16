@@ -37,9 +37,13 @@ class UploaderConfig {
     if (raw == null || raw.isEmpty) return const [];
     final result = <({String name, String value})>[];
     for (final part in raw.split(';')) {
-      final splits = part.split(':');
-      if (splits.length != 2) continue;
-      result.add((name: splits[0].trim(), value: splits[1].trim()));
+      // Values may hold colons (URLs, tokens); the name ends at the first.
+      final i = part.indexOf(':');
+      if (i <= 0) continue;
+      result.add((
+        name: part.substring(0, i).trim(),
+        value: part.substring(i + 1).trim(),
+      ));
     }
     return result;
   }
