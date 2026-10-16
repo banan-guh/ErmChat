@@ -3033,5 +3033,8 @@
         "type": "String"
       }
     }
-  }
+  },
+  "historyScrubHalf": "Half speed",
+  "historyScrubQuarter": "Quarter speed",
+  "historyScrubFine": "Fine scrubbing"
 }

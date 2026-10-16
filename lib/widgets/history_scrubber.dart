@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
@@ -8,9 +9,11 @@ import '../color_utils.dart' show streamAccent;
 import '../l10n/l10n.dart';
 import '../util/history_timeline.dart';
 
-/// Time rail for the history list: a thumb on an activity-weighted track with
-/// a bubble while dragging. It only reports positions; the list owner moves
-/// [thumb] while the list scrolls and performs the jump on release.
+/// Time rail for the history list: a grab handle on an activity-weighted
+/// track, with a bubble and day labels while dragging. Dragging left of the
+/// rail slows the thumb for fine seeking. It only reports positions; the list
+/// owner moves [thumb] while the list scrolls and performs the jump on
+/// release.
 ///
 /// Visibility, thumb and bubble are driven by notifiers, so showing, hiding
 /// and following the list never rebuild the list itself.
@@ -54,7 +57,24 @@ class _HistoryScrubberState extends State<HistoryScrubber>
   static const double _inset = 12;
   static const Duration _fade = Duration(milliseconds: 200);
 
+  /// Height of the edge band around the thumb kept from Android's back
+  /// gesture; Android honors up to 200dp per edge.
+  static const double _band = 160;
+
+  /// Each step this far left of the track halves the thumb's speed.
+  static const double _slowStep = 64;
+
+  static const _device = MethodChannel('ermchat/device');
+
+  /// The rail whose band is excluded; only it may clear the exclusion.
+  static _HistoryScrubberState? _excluding;
+
   final ValueNotifier<bool> _dragging = ValueNotifier(false);
+
+  /// Thumb speed while dragging: 1, then 1/2, 1/4 and 1/8 further left.
+  final ValueNotifier<double> _speed = ValueNotifier(1);
+  double? _sentCenter;
+  double _dpr = 1;
 
   /// 0 at rest, 1 while dragging or peeking: grows the rail and shows the
   /// bubble.
@@ -70,6 +90,7 @@ class _HistoryScrubberState extends State<HistoryScrubber>
   double _height = 1;
   DateFormat? _day;
   DateFormat? _time;
+  DateFormat? _dayLabel;
   String? _locale;
 
   @override
@@ -77,6 +98,8 @@ class _HistoryScrubberState extends State<HistoryScrubber>
     super.initState();
     _dragging.addListener(_syncActive);
     widget.peek.addListener(_syncActive);
+    widget.visible.addListener(_syncExclusion);
+    widget.thumb.addListener(_syncExclusion);
     if (widget.peek.value) _active.value = 1;
   }
 
@@ -87,15 +110,74 @@ class _HistoryScrubberState extends State<HistoryScrubber>
       old.peek.removeListener(_syncActive);
       widget.peek.addListener(_syncActive);
     }
+    if (old.visible != widget.visible) {
+      old.visible.removeListener(_syncExclusion);
+      widget.visible.addListener(_syncExclusion);
+    }
+    if (old.thumb != widget.thumb) {
+      old.thumb.removeListener(_syncExclusion);
+      widget.thumb.addListener(_syncExclusion);
+    }
   }
 
   @override
   void dispose() {
     widget.peek.removeListener(_syncActive);
+    widget.visible.removeListener(_syncExclusion);
+    widget.thumb.removeListener(_syncExclusion);
+    _clearExclusion();
     _dragging.dispose();
+    _speed.dispose();
     _active.dispose();
     super.dispose();
   }
+
+  /// Keeps Android's back gesture off the band around the thumb while the
+  /// rail shows, so a grab at the screen edge scrubs. Elsewhere on the edge
+  /// back works as usual.
+  void _syncExclusion() {
+    if (defaultTargetPlatform != TargetPlatform.android) return;
+    final box = mounted ? context.findRenderObject() : null;
+    if (!widget.visible.value ||
+        box is! RenderBox ||
+        !box.hasSize ||
+        box.size.height < _minHeight) {
+      _clearExclusion();
+      return;
+    }
+    final center = widget.thumb.value * box.size.height;
+    final sent = _sentCenter;
+    if (identical(_excluding, this) &&
+        sent != null &&
+        (center - sent).abs() < 24) {
+      return;
+    }
+    _sentCenter = center;
+    _excluding = this;
+    final o = box.localToGlobal(Offset.zero);
+    final r = Rect.fromLTWH(
+      o.dx,
+      o.dy + center - _band / 2,
+      box.size.width,
+      _band,
+    );
+    _send([
+      for (final v in [r.left, r.top, r.right, r.bottom]) (v * _dpr).round(),
+    ]);
+  }
+
+  void _clearExclusion() {
+    if (!identical(_excluding, this)) return;
+    _excluding = null;
+    _sentCenter = null;
+    _send(null);
+  }
+
+  static void _send(List<int>? rect) => unawaited(
+    _device
+        .invokeMethod<void>('setGestureExclusion', {'rect': rect})
+        .catchError((Object _) {}),
+  );
 
   void _syncActive() {
     if (_dragging.value || widget.peek.value) {
@@ -109,11 +191,23 @@ class _HistoryScrubberState extends State<HistoryScrubber>
 
   void _start(DragStartDetails d) {
     _dragging.value = true;
+    _speed.value = 1;
     widget.onDragStart();
     _move(_pos(d.localPosition));
   }
 
-  void _update(DragUpdateDetails d) => _move(_pos(d.localPosition));
+  /// Moves by the finger's travel, scaled down the further left of the
+  /// track the finger is.
+  void _update(DragUpdateDetails d) {
+    final away = (_width - _inset) - d.localPosition.dx;
+    final steps = (away / _slowStep).floor().clamp(0, 3);
+    final speed = 1 / (1 << steps);
+    if (speed != _speed.value) {
+      HapticFeedback.selectionClick();
+      _speed.value = speed;
+    }
+    _move((widget.thumb.value + d.delta.dy / _height * speed).clamp(0.0, 1.0));
+  }
 
   void _move(double pos) {
     final prev = widget.thumb.value;
@@ -129,6 +223,7 @@ class _HistoryScrubberState extends State<HistoryScrubber>
 
   void _end([DragEndDetails? _]) {
     _dragging.value = false;
+    _speed.value = 1;
     widget.onDragEnd(widget.thumb.value);
   }
 
@@ -140,7 +235,9 @@ class _HistoryScrubberState extends State<HistoryScrubber>
       _locale = locale;
       _day = DateFormat('EEE MMM d', locale);
       _time = DateFormat.Hm(locale);
+      _dayLabel = DateFormat('MMM d', locale);
     }
+    _dpr = MediaQuery.devicePixelRatioOf(context);
     return ValueListenableBuilder<bool>(
       valueListenable: widget.visible,
       builder: (context, visible, child) => IgnorePointer(
@@ -175,14 +272,27 @@ class _HistoryScrubberState extends State<HistoryScrubber>
                         inset: _inset,
                         track: scheme.onSurface,
                         accent: scheme.primary,
+                        glyph: scheme.onPrimary,
                         stream: streamAccent,
                         shadow: scheme.shadow,
                       ),
                     ),
                   ),
                   ListenableBuilder(
-                    listenable: Listenable.merge([widget.thumb, _active]),
-                    builder: (context, _) => _bubble(context, scheme),
+                    listenable: Listenable.merge([
+                      widget.thumb,
+                      _active,
+                      _speed,
+                    ]),
+                    builder: (context, _) => Positioned.fill(
+                      child: Stack(
+                        clipBehavior: Clip.none,
+                        children: [
+                          _dayLabels(context, scheme),
+                          _bubble(context, scheme),
+                        ],
+                      ),
+                    ),
                   ),
                 ],
               ),
@@ -193,8 +303,57 @@ class _HistoryScrubberState extends State<HistoryScrubber>
     );
   }
 
-  /// Date and time, plus the stream title when one was live, pinned to the
-  /// left of the thumb.
+  /// Day starts beside the track while dragging, thinned so none overlap
+  /// each other or the bubble.
+  Widget _dayLabels(BuildContext context, ColorScheme scheme) {
+    final t = _activeCurve.value;
+    if (t == 0 || !_dragging.value) return const SizedBox.shrink();
+    final thumbY = widget.thumb.value * _height;
+    final style = Theme.of(
+      context,
+    ).textTheme.labelSmall?.copyWith(color: scheme.onSurfaceVariant);
+    final labels = <Widget>[];
+    var last = double.negativeInfinity;
+    for (final d in widget.rail.days) {
+      final y = d.pos * _height;
+      if (y - last < 22 || (y - thumbY).abs() < 40) continue;
+      last = y;
+      labels.add(
+        Positioned(
+          top: y - 9,
+          right: _width - _inset + 10,
+          height: 18,
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              color: scheme.surfaceContainerHighest.withValues(alpha: 0.9),
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 6),
+              child: Center(
+                widthFactor: 1,
+                child: Text(
+                  _dayLabel!.format(dayFromNumber(d.day)),
+                  style: style,
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+    return Positioned.fill(
+      child: IgnorePointer(
+        child: Opacity(
+          opacity: t,
+          child: Stack(clipBehavior: Clip.none, children: labels),
+        ),
+      ),
+    );
+  }
+
+  /// Date and time, plus the stream title when one was live and the scrub
+  /// speed when slowed, pinned to the left of the thumb.
   Widget _bubble(BuildContext context, ColorScheme scheme) {
     final t = _activeCurve.value;
     if (t == 0) return const SizedBox.shrink();
@@ -271,6 +430,17 @@ class _HistoryScrubberState extends State<HistoryScrubber>
                               ),
                             ],
                           ),
+                        if (_speed.value < 1)
+                          Text(
+                            switch (_speed.value) {
+                              0.5 => context.l10n.historyScrubHalf,
+                              0.25 => context.l10n.historyScrubQuarter,
+                              _ => context.l10n.historyScrubFine,
+                            },
+                            style: text.bodySmall?.copyWith(
+                              color: scheme.primary,
+                            ),
+                          ),
                       ],
                     ),
                   ),
@@ -285,8 +455,9 @@ class _HistoryScrubberState extends State<HistoryScrubber>
 }
 
 /// Paints the rail: a slim rounded track that breaks into dots over
-/// stretches with nothing recorded, stream spans in [stream], and a pill
-/// thumb in [accent]. [active] widens all of it while the rail is in use.
+/// stretches with nothing recorded, stream spans in [stream], and a grab
+/// handle in [accent] with up and down chevrons in [glyph]. [active] widens
+/// all of it while the rail is in use.
 class _RailPainter extends CustomPainter {
   _RailPainter({
     required this.rail,
@@ -295,6 +466,7 @@ class _RailPainter extends CustomPainter {
     required this.inset,
     required this.track,
     required this.accent,
+    required this.glyph,
     required this.stream,
     required this.shadow,
   }) : super(repaint: Listenable.merge([thumb, active]));
@@ -305,6 +477,7 @@ class _RailPainter extends CustomPainter {
   final double inset;
   final Color track;
   final Color accent;
+  final Color glyph;
   final Color stream;
   final Color shadow;
 
@@ -349,8 +522,8 @@ class _RailPainter extends CustomPainter {
       bar(s.start, s.end, live);
     }
 
-    final tw = ui.lerpDouble(6, 10, t)!;
-    final th = ui.lerpDouble(36, 48, t)!;
+    final tw = ui.lerpDouble(20, 26, t)!;
+    final th = ui.lerpDouble(44, 52, t)!;
     final cy = (thumb.value * h).clamp(th / 2, h - th / 2);
     final thumbRect = RRect.fromRectAndRadius(
       Rect.fromCenter(center: Offset(x, cy), width: tw, height: th),
@@ -365,6 +538,21 @@ class _RailPainter extends CustomPainter {
       );
     }
     canvas.drawRRect(thumbRect, Paint()..color = accent);
+    final chevron = Paint()
+      ..color = glyph
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
+    for (final dir in const [-1.0, 1.0]) {
+      canvas.drawPath(
+        Path()
+          ..moveTo(x - 4, cy + dir * 5)
+          ..lineTo(x, cy + dir * 9)
+          ..lineTo(x + 4, cy + dir * 5),
+        chevron,
+      );
+    }
   }
 
   @override
@@ -374,6 +562,7 @@ class _RailPainter extends CustomPainter {
       old.inset != inset ||
       old.track != track ||
       old.accent != accent ||
+      old.glyph != glyph ||
       old.stream != stream ||
       old.shadow != shadow;
 }

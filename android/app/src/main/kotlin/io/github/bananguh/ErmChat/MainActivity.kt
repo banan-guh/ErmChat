@@ -9,6 +9,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
+import android.graphics.Rect
 import android.graphics.drawable.Icon
 import android.os.Build
 import android.util.Rational
@@ -26,7 +27,7 @@ class MainActivity : FlutterActivity() {
     private var ttsMethodChannel: MethodChannel? = null
 
     // Device facts: memory budgets (image cache, frame capture) and bug report
-    // diagnostics.
+    // diagnostics; also the screen-edge area kept from the back gesture.
     private val deviceChannelName = "ermchat/device"
 
     // System Picture-in-Picture for the stream player (DankChat pattern, no
@@ -72,6 +73,17 @@ class MainActivity : FlutterActivity() {
                         result.success(info.totalMem)
                     }
                     "deviceModel" -> result.success("${Build.MANUFACTURER} ${Build.MODEL}")
+                    // [left, top, right, bottom] in window pixels, or null to
+                    // give the edge back to the system.
+                    "setGestureExclusion" -> {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                            val r = call.argument<List<Int>>("rect")
+                            window.decorView.systemGestureExclusionRects =
+                                if (r == null) emptyList()
+                                else listOf(Rect(r[0], r[1], r[2], r[3]))
+                        }
+                        result.success(null)
+                    }
                     else -> result.notImplemented()
                 }
             }

@@ -321,6 +321,20 @@ class ActivityRail {
     return from.add(Duration(milliseconds: ((lo + frac) * _bucketMs).round()));
   }
 
+  /// Where each local day after the first starts on the rail, to the bucket,
+  /// with its day number (see [dayNumber]).
+  late final List<({double pos, int day})> days = () {
+    final out = <({double pos, int day})>[];
+    var prev = dayNumber(local(from));
+    for (var i = 1; i < _n; i++) {
+      final at = from.add(Duration(milliseconds: i * _bucketMs));
+      final day = dayNumber(local(at));
+      if (day != prev) out.add((pos: _cum[i], day: day));
+      prev = day;
+    }
+    return out;
+  }();
+
   /// The stream running at [t], or null.
   HistoryStream? streamAt(DateTime t) {
     for (final s in streams) {
