@@ -684,6 +684,14 @@ void main() {
       await tester.pumpAndSettle();
       expect(sheetController.size, maxExtent);
       expect(arrowOpacity(tester), 1);
+      // Down at the card the history is gone, and its arrow with it; back
+      // up, the arrow returns since the list is still scrolled.
+      sheetController.jumpTo(settled);
+      await tester.pumpAndSettle();
+      expect(arrowOpacity(tester), 0, reason: 'arrow left over the card');
+      sheetController.jumpTo(maxExtent);
+      await tester.pumpAndSettle();
+      expect(arrowOpacity(tester), 1);
       await tester.tap(find.byIcon(Icons.keyboard_arrow_down));
       await tester.pumpAndSettle();
       expect(find.text('row:m29'), findsOneWidget);

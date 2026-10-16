@@ -200,6 +200,9 @@ class UserProfileSheetState extends State<UserProfileSheet> {
     super.dispose();
   }
 
+  /// History height the scroll-down arrow needs to show.
+  static const double _arrowRoom = 96;
+
   // Reversed history with the latest at offset 0: the arrow shows
   // only while scrolled up toward older messages.
   void _onScrollPixels(double pixels) {
@@ -414,6 +417,7 @@ class UserProfileSheetState extends State<UserProfileSheet> {
           (widget.anchor == null || (!seeking && avail - cardH > 1))) {
         _historyBuilt = true;
       }
+      final shown = _arrowVisible && avail - cardH > _arrowRoom;
       return Column(
         children: [
           SizedBox(
@@ -433,7 +437,32 @@ class UserProfileSheetState extends State<UserProfileSheet> {
             ),
           ),
           if (history != null)
-            Expanded(child: _historyBuilt ? history : const SizedBox.shrink()),
+            Expanded(
+              child: Stack(
+                children: [
+                  Positioned.fill(
+                    child: _historyBuilt ? history : const SizedBox.shrink(),
+                  ),
+                  // With the history, so a sheet down at the card hides it.
+                  if (_hasHistory)
+                    Positioned(
+                      right: 16,
+                      bottom: 16 + MediaQuery.paddingOf(context).bottom,
+                      child: AnimatedOpacity(
+                        opacity: shown ? 1 : 0,
+                        duration: const Duration(milliseconds: 200),
+                        child: IgnorePointer(
+                          ignoring: !shown,
+                          child: ExcludeSemantics(
+                            excluding: !shown,
+                            child: _buildHistoryArrow(theme),
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
         ],
       );
     }
@@ -468,22 +497,6 @@ class UserProfileSheetState extends State<UserProfileSheet> {
               controller: widget.anchor,
               physics: const NeverScrollableScrollPhysics(),
               child: const SizedBox.shrink(),
-            ),
-          ),
-        if (_hasHistory)
-          Positioned(
-            right: 16,
-            bottom: 16 + MediaQuery.paddingOf(context).bottom,
-            child: AnimatedOpacity(
-              opacity: _arrowVisible ? 1 : 0,
-              duration: const Duration(milliseconds: 200),
-              child: IgnorePointer(
-                ignoring: !_arrowVisible,
-                child: ExcludeSemantics(
-                  excluding: !_arrowVisible,
-                  child: _buildHistoryArrow(theme),
-                ),
-              ),
             ),
           ),
       ],
