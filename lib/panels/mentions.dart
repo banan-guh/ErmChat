@@ -119,6 +119,7 @@ class MentionsPanels {
   void clearForAccountSwitch() {
     whispers.clear();
     unreadWhispers = 0;
+    whisperTarget = null;
     whispersMsgCount.value++;
     mentionsMsgCount.value++;
   }

@@ -93,6 +93,7 @@ class ChatReadiness {
 
   void resetForAccountSwitch() {
     _joinedChannels.clear();
+    _readJoinedChannels.clear();
     _connectedAcked.clear();
     _joinFailedChannels.clear();
   }
