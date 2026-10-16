@@ -112,7 +112,9 @@ class EventSubService {
         );
       } catch (e) {
         _safeComplete(null);
-        // Prevent stale socket from keeping isConnected true on resume.
+        // Prevent stale socket from keeping isConnected true on resume; a
+        // timed-out handshake also gets its socket closed so it can't leak.
+        _channel?.sink.close();
         _channel = null;
         _streamSub = null;
         _statusController.add(EventSubStatus.disconnected);
