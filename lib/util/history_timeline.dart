@@ -111,7 +111,8 @@ class HistoryMarker {
   /// Stable identity: the stream id for stream rows, the day numbers for days.
   final String key;
 
-  /// When the event happened (stream start/end, first message of the day).
+  /// When the event happened (stream start/end, the day's first event or
+  /// message).
   final DateTime time;
   final HistoryStream? stream;
 
@@ -166,33 +167,49 @@ List<HistoryMarker> markersBefore({
     }
   }
   events.sort((a, b) => a.time.compareTo(b.time));
-  HistoryMarker? day;
-  if (time.isBefore(now.subtract(_dayMarkerAge))) {
-    final d = dayNumber(local(time));
-    final p = prev == null ? null : dayNumber(local(prev));
-    if (p == null || d != p) {
-      if (emptyStretches && p != null && d - p > 1) {
-        out.add(
-          HistoryMarker(
-            kind: HistoryMarkerKind.emptyStretch,
-            key: 'empty-${p + 1}-${d - 1}',
-            time: prev!,
-            firstDay: p + 1,
-            lastDay: d - 1,
-          ),
-        );
-      }
-      day = HistoryMarker(
-        kind: HistoryMarkerKind.day,
-        key: 'day-$d',
-        time: time,
-        firstDay: d,
-        lastDay: d,
-      );
-    }
+  if (!time.isBefore(now.subtract(_dayMarkerAge))) return events;
+  final d = dayNumber(local(time));
+  final p = prev == null ? null : dayNumber(local(prev));
+  if (p != null && d == p) return events;
+  // Events keep their place in time around the day: the previous day's
+  // first, then the empty stretch, then the day, stamped with its first
+  // event or message, then its own events.
+  int dayOf(HistoryMarker e) => dayNumber(local(e.time));
+  final today = [
+    for (final e in events)
+      if (dayOf(e) >= d) e,
+  ];
+  if (p != null) {
+    out.addAll([
+      for (final e in events)
+        if (dayOf(e) <= p) e,
+    ]);
   }
-  out.addAll(events);
-  if (day != null) out.add(day);
+  if (emptyStretches && p != null && d - p > 1) {
+    out.add(
+      HistoryMarker(
+        kind: HistoryMarkerKind.emptyStretch,
+        key: 'empty-${p + 1}-${d - 1}',
+        time: prev!,
+        firstDay: p + 1,
+        lastDay: d - 1,
+      ),
+    );
+  }
+  out.addAll([
+    for (final e in events)
+      if (dayOf(e) < d && (p == null || dayOf(e) > p)) e,
+  ]);
+  out.add(
+    HistoryMarker(
+      kind: HistoryMarkerKind.day,
+      key: 'day-$d',
+      time: today.isEmpty ? time : today.first.time,
+      firstDay: d,
+      lastDay: d,
+    ),
+  );
+  out.addAll(today);
   return out;
 }
 

@@ -66,6 +66,40 @@ void main() {
       expect(keys(m), ['empty-$mar8-$mar8', 'day-${mar8 + 1}']);
     });
 
+    test('a stream starting the new day sits below its day marker', () {
+      // 22:11 Oct 13, a stream at 08:05 Oct 14, the first message at 12:16;
+      // the day marker went below the stream and carried 12:16.
+      final local = fixedOffset(0);
+      final prev = DateTime.utc(2026, 10, 13, 22, 11);
+      final ended = HistoryStream(
+        id: 'a',
+        start: DateTime.utc(2026, 10, 13, 20),
+        end: DateTime.utc(2026, 10, 13, 23),
+        title: 't',
+        game: 'g',
+      );
+      final started = HistoryStream(
+        id: 'b',
+        start: DateTime.utc(2026, 10, 14, 8, 5),
+        end: DateTime.utc(2026, 10, 14, 18),
+        title: 't',
+        game: 'g',
+      );
+      final m = markersBefore(
+        prev: prev,
+        time: DateTime.utc(2026, 10, 14, 12, 16),
+        now: DateTime.utc(2026, 10, 15, 18),
+        streams: [started, ended],
+        local: local,
+      );
+      expect(keys(m), [
+        'se-a',
+        'day-${dayNumber(DateTime.utc(2026, 10, 14))}',
+        'ss-b',
+      ]);
+      expect(m[1].time, started.start, reason: 'stamped with its first event');
+    });
+
     test('device timezone default needs no injection', () {
       final prev = DateTime(2026, 9, 1, 23, 50);
       final time = DateTime(2026, 9, 2, 0, 10);
