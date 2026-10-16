@@ -7,9 +7,12 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
+import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 import '../color_utils.dart' show streamAccent;
 import '../l10n/l10n.dart';
 import '../util/history_timeline.dart';
+import 'chrome_menu_button.dart' show kChromeMenuMargin, kChromeMenuSize;
+import 'glass_chrome.dart';
 
 /// Time rail for the history list. A calendar rail shows [window] of plain
 /// time with a grab handle and a days button above it, which slides the bar
@@ -34,6 +37,10 @@ class HistoryScrubber extends StatefulWidget {
     required this.onDragEnd,
     required this.onBack,
     required this.onDay,
+    this.atBottom,
+    this.onNewest,
+    this.glass = false,
+    this.reachUp = 0,
   });
 
   /// Plain time the bar of a calendar rail spans.
@@ -41,8 +48,8 @@ class HistoryScrubber extends StatefulWidget {
 
   final ActivityRail rail;
 
-  /// The bar's scale.
-  final ValueListenable<RailScale> scale;
+  /// The bar's scale. A drag past an end of a calendar bar slides it.
+  final ValueNotifier<RailScale> scale;
 
   /// Bar position of the thumb, 0 (oldest) at the top to 1 (newest).
   final ValueNotifier<double> thumb;
@@ -68,6 +75,19 @@ class HistoryScrubber extends StatefulWidget {
 
   /// A tapped day, by its start.
   final ValueChanged<DateTime> onDay;
+
+  /// Whether the list rests on its newest row; the dock's foot offers a way
+  /// back while it does not.
+  final ValueListenable<bool>? atBottom;
+  final VoidCallback? onNewest;
+
+  /// Liquid glass: the dock floats as a glass capsule instead of hugging
+  /// the edge.
+  final bool glass;
+
+  /// How far above the rail the dock reaches while out, to sit behind the
+  /// menu trigger it hangs from.
+  final double reachUp;
 
   /// Whether [rail] spans more than one day, so the days can open.
   static bool hasDays(ActivityRail rail) =>
@@ -112,14 +132,17 @@ class _EagerPan extends PanGestureRecognizer {
 
 class _HistoryScrubberState extends State<HistoryScrubber>
     with TickerProviderStateMixin {
-  static const double _barWidth = 48;
+  /// The dock: as wide as twice the menu trigger's axis, so the bar runs
+  /// straight down from it.
+  static const double _barWidth = _inset * 2;
 
   /// Shorter than this (stream and keyboard up), the rail cannot pick a
   /// stretch, so it hides.
   static const double _minHeight = 160;
 
-  /// Bar center, in from the bar's right edge.
-  static const double _inset = 18;
+  /// The axis the trigger, the days button, the bar, the pin and the newest
+  /// tab share, in from the edge.
+  static const double _inset = kChromeMenuMargin + kChromeMenuSize / 2;
 
   /// Day row width.
   static const double _row = 44;
@@ -130,6 +153,9 @@ class _HistoryScrubberState extends State<HistoryScrubber>
   /// The days button, and the room above the bar it sits in.
   static const double _buttonSize = 24;
   static const double _buttonRoom = 36;
+
+  /// The dock's foot, the scroll-down button's height.
+  static const double _tab = 56;
 
   /// Movement before a touch counts as a drag rather than a tap.
   static const double _slop = 6;
@@ -333,10 +359,9 @@ class _HistoryScrubberState extends State<HistoryScrubber>
       _begin();
     }
     final before = _handleTime;
-    widget.thumb.value = (widget.thumb.value + d.delta.dy / _height).clamp(
-      0.0,
-      1.0,
-    );
+    final next = widget.thumb.value + d.delta.dy / _height;
+    widget.thumb.value = next.clamp(0.0, 1.0);
+    if (next < 0 || next > 1) _slide(next < 0 ? next : next - 1);
     final after = _handleTime;
     final tick = widget.rail.crossed(before, after);
     if (tick == 2) {
@@ -345,6 +370,32 @@ class _HistoryScrubberState extends State<HistoryScrubber>
       HapticFeedback.selectionClick();
     }
     widget.onDrag(after);
+  }
+
+  /// Moves a calendar bar's stretch by [over] bars of finger travel past its
+  /// end, at the pace the bar had there, up to the rail's ends. The handle
+  /// stays on the end; the bar moves under it.
+  void _slide(double over) {
+    final r = widget.rail;
+    final s = widget.scale.value;
+    if (!r.calendar || identical(s, r)) return;
+    // The time the overshoot covers just inside that end of the bar.
+    final a = over.abs().clamp(0.0, 1.0);
+    final by = over < 0
+        ? -s.timeAt(a).difference(s.timeAt(0))
+        : s.timeAt(1).difference(s.timeAt(1 - a));
+    var from = s.from.add(by);
+    var to = s.to.add(by);
+    if (from.isBefore(r.from)) {
+      to = to.add(r.from.difference(from));
+      from = r.from;
+    }
+    if (to.isAfter(r.to)) {
+      from = from.subtract(to.difference(r.to));
+      to = r.to;
+    }
+    if (from == s.from && to == s.to) return;
+    widget.scale.value = r.window(from, to);
   }
 
   void _end([DragEndDetails? _]) {
@@ -385,50 +436,121 @@ class _HistoryScrubberState extends State<HistoryScrubber>
       _dayLabel = DateFormat('MMM d', locale);
     }
     _dpr = MediaQuery.devicePixelRatioOf(context);
-    return ValueListenableBuilder<bool>(
-      valueListenable: widget.visible,
-      builder: (context, visible, child) => IgnorePointer(
-        ignoring: !visible,
-        child: AnimatedOpacity(
-          opacity: visible ? 1 : 0,
-          duration: _fade,
-          child: child,
-        ),
+    final atBottom = widget.atBottom;
+    return AnimatedBuilder(
+      animation: _openCurve,
+      builder: (context, child) => SizedBox(
+        width: _barWidth + _daysWidth * _openCurve.value,
+        child: child,
       ),
-      child: AnimatedBuilder(
-        animation: _openCurve,
-        builder: (context, child) => SizedBox(
-          width: _barWidth + _daysWidth * _openCurve.value,
-          child: child,
-        ),
-        child: LayoutBuilder(
-          builder: (context, box) {
-            if (box.maxHeight < _minHeight) return const SizedBox.shrink();
-            final barH = box.maxHeight - _buttonRoom;
-            if (barH != _height) {
-              _height = barH;
-              _days = null;
-            }
-            return Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                SizedBox(height: _buttonRoom, child: _daysButton(scheme)),
-                Expanded(child: _bar(scheme)),
-              ],
-            );
-          },
-        ),
+      child: LayoutBuilder(
+        builder: (context, box) {
+          if (box.maxHeight < _minHeight) return const SizedBox.shrink();
+          final tabH = widget.onNewest == null ? 0.0 : _tab;
+          final barH = box.maxHeight - _buttonRoom - tabH;
+          if (barH != _height) {
+            _height = barH;
+            _days = null;
+          }
+          Widget fade(bool on, Widget child) => IgnorePointer(
+            ignoring: !on,
+            child: AnimatedOpacity(
+              opacity: on ? 1 : 0,
+              duration: _fade,
+              child: child,
+            ),
+          );
+          return ListenableBuilder(
+            listenable: Listenable.merge([widget.visible, ?atBottom]),
+            builder: (context, _) {
+              final shown = widget.visible.value;
+              final tab = tabH > 0 && !(atBottom?.value ?? true);
+              final full = box.maxHeight + widget.reachUp;
+              return Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  // The dock: the whole column while the bar shows, up
+                  // behind the menu trigger, and just the newest tab while
+                  // scrolled up and idle. Only showing and hiding animate;
+                  // a resize (keyboard, a banner pushing the input) applies
+                  // at once.
+                  TweenAnimationBuilder<double>(
+                    tween: Tween(end: shown ? 1 : 0),
+                    duration: _fade,
+                    curve: Curves.easeOutCubic,
+                    builder: (context, out, surface) =>
+                        TweenAnimationBuilder<double>(
+                          tween: Tween(end: tab ? 1 : 0),
+                          duration: _fade,
+                          curve: Curves.easeOutCubic,
+                          builder: (context, foot, surface) => Positioned(
+                            right: 0,
+                            left: 0,
+                            bottom: 0,
+                            height: math.max(out * full, foot * tabH),
+                            child: surface!,
+                          ),
+                          child: surface,
+                        ),
+                    child: widget.glass
+                        ? const Padding(
+                            padding: EdgeInsets.only(right: 4),
+                            child: GlassSurface(
+                              shape: LiquidRoundedSuperellipse(
+                                borderRadius: 22,
+                              ),
+                              quality: GlassQuality.minimal,
+                              child: SizedBox.expand(),
+                            ),
+                          )
+                        : DecoratedBox(
+                            decoration: BoxDecoration(
+                              color: scheme.surfaceContainerHigh.withValues(
+                                alpha: 0.92,
+                              ),
+                              borderRadius: const BorderRadius.horizontal(
+                                left: Radius.circular(20),
+                              ),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: scheme.shadow.withValues(alpha: 0.2),
+                                  blurRadius: 8,
+                                ),
+                              ],
+                            ),
+                          ),
+                  ),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      SizedBox(
+                        height: _buttonRoom,
+                        child: fade(shown, _daysButton(scheme)),
+                      ),
+                      Expanded(child: fade(shown, _bar(scheme))),
+                      if (tabH > 0)
+                        SizedBox(
+                          height: tabH,
+                          child: fade(tab, _newestTab(scheme)),
+                        ),
+                    ],
+                  ),
+                ],
+              );
+            },
+          );
+        },
       ),
     );
   }
 
-  /// Opens and closes the days, beside the bar's top end.
+  /// Opens and closes the days, on the bar's axis under the menu trigger.
   Widget _daysButton(ColorScheme scheme) {
     if (!HistoryScrubber.hasDays(widget.rail)) return const SizedBox.shrink();
     return AnimatedBuilder(
       animation: _openCurve,
       builder: (context, _) => Align(
-        alignment: Alignment.topRight,
+        alignment: Alignment.centerRight,
         child: Padding(
           padding: EdgeInsets.only(
             right: _daysWidth * _openCurve.value + _inset - _buttonSize / 2,
@@ -448,7 +570,7 @@ class _HistoryScrubberState extends State<HistoryScrubber>
                 },
                 child: Icon(
                   Icons.calendar_month,
-                  size: 16,
+                  size: 15,
                   color: widget.panel.value
                       ? scheme.onPrimary
                       : scheme.onSurfaceVariant,
@@ -460,6 +582,26 @@ class _HistoryScrubberState extends State<HistoryScrubber>
       ),
     );
   }
+
+  /// Back to the newest row: the scroll-down button's job, at the dock's
+  /// foot.
+  Widget _newestTab(ColorScheme scheme) => Material(
+    type: MaterialType.transparency,
+    child: InkWell(
+      borderRadius: const BorderRadius.horizontal(left: Radius.circular(20)),
+      onTap: () {
+        HapticFeedback.lightImpact();
+        widget.onNewest?.call();
+      },
+      child: Padding(
+        padding: const EdgeInsets.only(right: _inset - 12),
+        child: Align(
+          alignment: Alignment.centerRight,
+          child: Icon(Icons.keyboard_arrow_down, color: scheme.onSurface),
+        ),
+      ),
+    ),
+  );
 
   Widget _bar(ColorScheme scheme) => RawGestureDetector(
     behavior: HitTestBehavior.opaque,
@@ -634,25 +776,19 @@ class _HistoryScrubberState extends State<HistoryScrubber>
   }
 
   /// Date and time, plus the stream title when one was live, pinned to the
-  /// left of the thumb. At the top of a bar with older days past it, a hint
-  /// at the days.
+  /// left of the thumb.
   Widget _bubble(BuildContext context, ColorScheme scheme) {
     final t = _activeCurve.value;
     if (t == 0) return const SizedBox.shrink();
     final pos = widget.thumb.value;
     final at = widget.scale.value.timeAt(pos).toLocal();
     final stream = widget.rail.streamAt(at);
-    final older =
-        _dragging.value &&
-        pos < 0.05 &&
-        HistoryScrubber.hasDays(widget.rail) &&
-        widget.scale.value.from.isAfter(widget.rail.from);
     final text = Theme.of(context).textTheme;
     const height = 56.0;
     return Positioned(
       top: (pos * _height - height / 2).clamp(-8.0, _height - height + 8),
       right: _barWidth - _inset + 14,
-      height: older ? height + 18 : height,
+      height: height,
       child: IgnorePointer(
         child: Opacity(
           opacity: t,
@@ -717,13 +853,6 @@ class _HistoryScrubberState extends State<HistoryScrubber>
                               ),
                             ],
                           ),
-                        if (older)
-                          Text(
-                            context.l10n.historyRailOlder,
-                            style: text.bodySmall?.copyWith(
-                              color: scheme.primary,
-                            ),
-                          ),
                       ],
                     ),
                   ),
@@ -739,8 +868,8 @@ class _HistoryScrubberState extends State<HistoryScrubber>
 
 /// Paints the bar: a slim track that breaks into dots over an hour or more
 /// with nothing said, stream spans in [stream], the old place marker, and a
-/// grab handle in [accent]. It slides left by [daysWidth] as the days
-/// compartment comes out ([open]).
+/// pin in [accent] for where the list is. It slides left by [daysWidth] as
+/// the days come out ([open]).
 class _RailPainter extends CustomPainter {
   _RailPainter({
     required this.rail,
@@ -816,16 +945,18 @@ class _RailPainter extends CustomPainter {
   }
 
   @override
-  void paint(Canvas canvas, Size size) {
+  void paint(Canvas canvas, Size size) => _paintBar(canvas, size, 1);
+
+  void _paintBar(Canvas canvas, Size size, double alpha) {
     final t = active.value;
     final h = size.height;
     final s = scale.value;
     final x = size.width - daysWidth * open.value - inset;
     final w = ui.lerpDouble(3, 5, t)!;
     final base = Paint()
-      ..color = track.withValues(alpha: ui.lerpDouble(0.16, 0.24, t)!);
+      ..color = track.withValues(alpha: ui.lerpDouble(0.16, 0.24, t)! * alpha);
     final live = Paint()
-      ..color = stream.withValues(alpha: ui.lerpDouble(0.75, 1, t)!);
+      ..color = stream.withValues(alpha: ui.lerpDouble(0.75, 1, t)! * alpha);
 
     void bar(double a, double b, Paint p) {
       final top = a * h;
@@ -860,18 +991,18 @@ class _RailPainter extends CustomPainter {
 
     final old = oldPlace.value;
     if (old != null && !old.isBefore(s.from) && !old.isAfter(s.to)) {
-      _paintMarker(canvas, x - 7, s.positionOf(old) * h);
+      _paintMarker(canvas, x - 12, s.positionOf(old) * h, alpha);
     }
 
-    // A map pin on its side, its point on the bar and its head toward the
-    // list.
+    // A map pin on its side, head toward the list and point toward the
+    // edge, centered on the bar like a pin on a route.
     final r = ui.lerpDouble(7, 9, t)!;
     final cy = (thumb.value * h).clamp(r, h - r);
     const reach = 2.2;
-    final hx = x - r * reach;
+    final hx = x - (r * reach - r) / 2;
     final a = math.acos(1 / reach);
     final pin = Path()
-      ..moveTo(x, cy)
+      ..moveTo(hx + r * reach, cy)
       ..lineTo(hx + r * math.cos(a), cy + r * math.sin(a))
       ..arcTo(
         Rect.fromCircle(center: Offset(hx, cy), radius: r),
@@ -881,16 +1012,20 @@ class _RailPainter extends CustomPainter {
       )
       ..close();
     if (t > 0) {
-      canvas.drawShadow(pin, shadow.withValues(alpha: t), 3, false);
+      canvas.drawShadow(pin, shadow.withValues(alpha: t * alpha), 3, false);
     }
-    canvas.drawPath(pin, Paint()..color = accent);
-    canvas.drawCircle(Offset(hx, cy), r * 0.38, Paint()..color = glyph);
+    canvas.drawPath(pin, Paint()..color = accent.withValues(alpha: alpha));
+    canvas.drawCircle(
+      Offset(hx, cy),
+      r * 0.38,
+      Paint()..color = glyph.withValues(alpha: alpha),
+    );
   }
 
   /// A filled tag, a rounded box pointing at [tip]: where the list was.
-  void _paintMarker(Canvas canvas, double tip, double y) {
+  void _paintMarker(Canvas canvas, double tip, double y, double alpha) {
     final p = Paint()
-      ..color = track.withValues(alpha: 0.8)
+      ..color = track.withValues(alpha: 0.8 * alpha)
       ..strokeWidth = 2
       ..strokeJoin = StrokeJoin.round;
     final tag = Path()

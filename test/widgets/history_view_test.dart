@@ -245,17 +245,10 @@ Future<void> _pumpView(
   return (top: top, bottom: bottom, keys: keys);
 }
 
-/// Opens the days from the rail's button. The test's jump buttons cover
-/// the rail's top, so the tap goes straight to the button.
+/// Opens the rail's days, as the menu's calendar does.
 Future<void> _openDays(WidgetTester tester) async {
-  tester
-      .widget<InkWell>(
-        find.ancestor(
-          of: find.byIcon(Icons.calendar_month),
-          matching: find.byType(InkWell),
-        ),
-      )
-      .onTap!();
+  tester.widget<HistoryScrubber>(find.byType(HistoryScrubber)).panel.value =
+      true;
   await _settle(tester);
 }
 
@@ -284,7 +277,7 @@ Future<void> _scrub(WidgetTester tester, List<Offset> steps) async {
       .thumb
       .value;
   final grab = await tester.startGesture(
-    Offset(rail.right - 18, rail.top + 36 + y * (rail.height - 36)),
+    Offset(rail.right - 22, rail.top + 36 + y * (rail.height - 36)),
   );
   for (final step in steps) {
     await grab.moveBy(step);
@@ -303,15 +296,7 @@ Future<void> _settle(WidgetTester tester) async {
 
 bool _railShown(WidgetTester tester) =>
     find.byType(HistoryScrubber).evaluate().isNotEmpty &&
-    tester
-            .widget<AnimatedOpacity>(
-              find.descendant(
-                of: find.byType(HistoryScrubber),
-                matching: find.byType(AnimatedOpacity),
-              ),
-            )
-            .opacity ==
-        1;
+    tester.widget<HistoryScrubber>(find.byType(HistoryScrubber)).visible.value;
 
 Finder _tile(String id) => find.byWidgetPredicate(
   (w) => w is ChatMessageTile && w.message.messageId == id,
@@ -633,6 +618,33 @@ void main() {
     await tester.drag(list, const Offset(0, -600));
     await _settle(tester);
     expect(thumb(), 1, reason: 'the thumb stopped short of the rail bottom');
+  });
+
+  testWidgets('dragging the knob past the top carries the bar older', (
+    tester,
+  ) async {
+    await _pumpView(tester);
+    final list = find.byType(CustomScrollView);
+    for (var i = 0; i < 40 && !_railShown(tester); i++) {
+      await tester.fling(list, const Offset(0, 600), 6000);
+      await _settle(tester);
+    }
+    expect(_railShown(tester), isTrue, reason: 'flings never brought it in');
+    final scrubber = tester.widget<HistoryScrubber>(
+      find.byType(HistoryScrubber),
+    );
+    final start = scrubber.scale.value.from;
+    await _scrub(tester, const [Offset(0, 20), Offset(0, -3000)]);
+    final newest = _items(tester).keys.map((k) => int.parse(k.split('-').last));
+    final landed = FakeHistory.timeOf(
+      _ch,
+      newest.reduce((a, b) => a > b ? a : b),
+    );
+    expect(
+      landed.isBefore(start),
+      isTrue,
+      reason: 'the release stayed inside the first stretch',
+    );
   });
 
   testWidgets('a channel shorter than the screen rests above the composer', (

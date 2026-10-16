@@ -59,6 +59,7 @@ class HistoryView extends StatefulWidget {
     this.emptyText,
     this.emptyStretches = true,
     this.jumpRequest,
+    this.calendarRequest,
   });
 
   final String channel;
@@ -111,6 +112,10 @@ class HistoryView extends StatefulWidget {
   /// A time to show, centered (a tapped search result). Consumed and reset
   /// to null on open or whenever it is set.
   final ValueNotifier<DateTime?>? jumpRequest;
+
+  /// Set true (the menu's calendar) to open the rail's days; consumed and
+  /// reset to false.
+  final ValueNotifier<bool>? calendarRequest;
 
   @override
   State<HistoryView> createState() => _HistoryViewState();
@@ -365,6 +370,7 @@ class _HistoryViewState extends State<HistoryView> {
     widget.emotesVersion?.addListener(_onEmotes);
     widget.atBottomNotifier?.addListener(_onAtBottomRequest);
     widget.jumpRequest?.addListener(_onJumpRequest);
+    widget.calendarRequest?.addListener(_onCalendarRequest);
     _unwatchClears = widget.source.watchClears(_onClear);
     _unwatchStreams = widget.source.watchStreams(_loadStreams);
     if (debugLogEnabled) _probeOpen();
@@ -446,6 +452,10 @@ class _HistoryViewState extends State<HistoryView> {
     if (old.jumpRequest != widget.jumpRequest) {
       old.jumpRequest?.removeListener(_onJumpRequest);
       widget.jumpRequest?.addListener(_onJumpRequest);
+    }
+    if (old.calendarRequest != widget.calendarRequest) {
+      old.calendarRequest?.removeListener(_onCalendarRequest);
+      widget.calendarRequest?.addListener(_onCalendarRequest);
     }
     if (old.atBottomNotifier != widget.atBottomNotifier) {
       old.atBottomNotifier?.removeListener(_onAtBottomRequest);
@@ -546,6 +556,19 @@ class _HistoryViewState extends State<HistoryView> {
     _jumpTo(time, fraction: 0.5);
   }
 
+  /// Opens the days, building the rail first when no scroll has yet.
+  Future<void> _onCalendarRequest() async {
+    final r = widget.calendarRequest;
+    if (r == null || !r.value || !mounted) return;
+    r.value = false;
+    await _buildRail();
+    final rail = _railReady.value;
+    if (!mounted || rail == null || !HistoryScrubber.hasDays(rail)) return;
+    _railVisible.value = true;
+    _panel.value = true;
+    _bumpIdle();
+  }
+
   /// An outside write of true (a tab tap) asks for the newest row.
   void _onAtBottomRequest() {
     final n = widget.atBottomNotifier;
@@ -557,6 +580,11 @@ class _HistoryViewState extends State<HistoryView> {
   void _jumpToNewest() {
     _follow = true;
     _atBottom = true;
+    // Nothing to go back to or scrub from at the newest row.
+    _oldPlaceTimer?.cancel();
+    _oldPlace.value = null;
+    _panel.value = false;
+    _railVisible.value = false;
     widget.atBottomNotifier?.value = true;
     widget.onScrollActivity?.call(widget.channel);
     final pos = _pos;
@@ -620,6 +648,7 @@ class _HistoryViewState extends State<HistoryView> {
     widget.emotesVersion?.removeListener(_onEmotes);
     widget.atBottomNotifier?.removeListener(_onAtBottomRequest);
     widget.jumpRequest?.removeListener(_onJumpRequest);
+    widget.calendarRequest?.removeListener(_onCalendarRequest);
     _unwatchClears?.call();
     _unwatchStreams?.call();
     if (identical(_active, this)) _active = null;
@@ -1416,7 +1445,7 @@ class _HistoryViewState extends State<HistoryView> {
       if (w.atNewest && w.end - _viewportPos() < _railAfterRows) return;
       _railVisible.value = true;
     }
-    _fitScale(rail, row.timestamp);
+    _fitScale(rail, row.timestamp, slide: true);
     _thumb.value = _viewportRailPos(_scale.value, pos) ?? _thumb.value;
     _bumpIdle();
   }
@@ -1431,8 +1460,14 @@ class _HistoryViewState extends State<HistoryView> {
   /// Picks the bar's scale for a viewport at [at]. A calendar rail shows
   /// [HistoryScrubber.window], weighted by activity: the newest stretch while
   /// [at] lies in it, otherwise the stretch around [at], kept until [at]
-  /// leaves it. A results rail is its own scale.
-  void _fitScale(ActivityRail rail, DateTime at, {bool rebuilt = false}) {
+  /// leaves it; a scroll ([slide]) past an end moves the stretch along
+  /// instead. A results rail is its own scale.
+  void _fitScale(
+    ActivityRail rail,
+    DateTime at, {
+    bool rebuilt = false,
+    bool slide = false,
+  }) {
     if (!rail.calendar) {
       _scale.value = rail;
       return;
@@ -1447,6 +1482,13 @@ class _HistoryViewState extends State<HistoryView> {
         !at.isBefore(cur.from) &&
         !at.isAfter(cur.to)) {
       return;
+    } else if (slide && !identical(cur, rail) && cur.to.isAfter(cur.from)) {
+      // Past an end while scrolling, the stretch follows, so the thumb rests
+      // on that end and the bar moves under it instead of jumping.
+      final edge = at.isBefore(cur.from)
+          ? at.add(length ~/ 2)
+          : at.subtract(length ~/ 2);
+      span = TimeWindow.around(edge, length, rail.from, rail.to);
     } else {
       span = TimeWindow.around(at, length, rail.from, rail.to);
     }
@@ -1856,6 +1898,10 @@ class _HistoryViewState extends State<HistoryView> {
         child: list,
       );
     }
+    // Below the menu trigger and the minimized cards bar beside it.
+    final railTop = widget.debugControls
+        ? 56.0
+        : kChromeMenuMargin + ChatWidgetMinimizedBar.height + 8;
     return Stack(
       clipBehavior: Clip.hardEdge,
       children: [
@@ -1882,17 +1928,15 @@ class _HistoryViewState extends State<HistoryView> {
             ),
           ),
         ),
-        // Clear of the menu trigger and the minimized cards bar beside it at
-        // the top, and of the scroll-down button, which shows whenever the
-        // rail does, at the bottom.
+        // The dock hangs below the menu trigger, its surface reaching up
+        // behind it, and ends where the scroll-down button sits.
         Positioned(
-          top:
-              widget.topPadding +
-              (widget.debugControls
-                  ? 56
-                  : kChromeMenuMargin + ChatWidgetMinimizedBar.height + 8),
+          top: widget.topPadding + railTop,
           right: 0,
-          bottom: max(bottom, 16 + pill + _fabSize) + 8,
+          // With a scroll-down button the dock's foot takes its place.
+          bottom: widget.atBottomNotifier == null
+              ? max(bottom, 16 + pill + _fabSize) + 8
+              : 16 + pill,
           child: ValueListenableBuilder<ActivityRail?>(
             valueListenable: _railReady,
             builder: (context, rail, _) => rail == null
@@ -1910,6 +1954,13 @@ class _HistoryViewState extends State<HistoryView> {
                     onDragEnd: _onRailDragEnd,
                     onBack: _onRailBack,
                     onDay: _onRailDay,
+                    atBottom: widget.atBottomNotifier,
+                    onNewest: widget.atBottomNotifier == null
+                        ? null
+                        : _jumpToNewest,
+                    glass: glass,
+                    // Up into the corner, behind the menu trigger.
+                    reachUp: railTop,
                   ),
           ),
         ),
@@ -1919,12 +1970,20 @@ class _HistoryViewState extends State<HistoryView> {
             builder: (_, value, _) => Positioned(
               right: 16,
               bottom: 16 + pill,
-              child: ScrollDownButton(
-                atBottom: value,
-                glass: glass,
-                heroTag:
-                    widget.scrollFabHeroTag ?? 'scroll_down_${widget.channel}',
-                onPressed: _jumpToNewest,
+              // Once the dock is up its foot shows instead; the button
+              // stays as an unseen target where thumbs expect it.
+              child: ValueListenableBuilder<ActivityRail?>(
+                valueListenable: _railReady,
+                builder: (_, rail, child) =>
+                    Opacity(opacity: rail == null ? 1 : 0, child: child),
+                child: ScrollDownButton(
+                  atBottom: value,
+                  glass: glass,
+                  heroTag:
+                      widget.scrollFabHeroTag ??
+                      'scroll_down_${widget.channel}',
+                  onPressed: _jumpToNewest,
+                ),
               ),
             ),
           ),

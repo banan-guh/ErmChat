@@ -129,6 +129,11 @@ class ChannelPanels {
   ValueNotifier<DateTime?> _jumpFor(String channel) =>
       _jumps.putIfAbsent(channel, () => ValueNotifier(null));
 
+  /// Per channel page: the menu's calendar asks the page to open its days.
+  final _calendars = <String, ValueNotifier<bool>>{};
+  ValueNotifier<bool> _calendarFor(String channel) =>
+      _calendars.putIfAbsent(channel, () => ValueNotifier(false));
+
   late final Listenable _tabSharedMerge = Listenable.merge([
     selectedTabIndex,
     chat.unreadVersion,
@@ -319,6 +324,7 @@ class ChannelPanels {
         liveVersion: active ? messages?.version : null,
         emotesVersion: emotesVersion,
         jumpRequest: _jumpFor(channel),
+        calendarRequest: _calendarFor(channel),
         rows: _rows(context, channel),
         textScale: chatFontSize() / 14.0,
         topPadding: topPadding,
@@ -537,6 +543,10 @@ class ChannelPanels {
                     fullscreen: isFullscreen(),
                     chromeMenu: homeAppBar.chromeMenu(
                       glass: glassOverlay || glassChrome,
+                      onCalendar: selectedChannel() == null
+                          ? null
+                          : () => _calendarFor(selectedChannel()!).value =
+                                true,
                     ),
                     pagesOverlay: selectedChannel() == null
                         ? null
