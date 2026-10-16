@@ -168,7 +168,11 @@ class _SetupTabState extends State<SetupTab> with ModTabState<SetupTab> {
                         onChanged: saving
                             ? null
                             : (level) {
-                                if (level != null) _setLevel(key, level);
+                                // Re-picking the shown level keeps a preset.
+                                if (level != null &&
+                                    level != (_levels[key] ?? 0)) {
+                                  _setLevel(key, level);
+                                }
                               },
                       ),
                     ],

@@ -18,21 +18,24 @@ class UsersTab extends ModTabWidget {
 class _UsersTabState extends State<UsersTab> with ModTabState<UsersTab> {
   Future<void> _unban(String login) =>
       busy('unban:${login.toLowerCase()}', () async {
+        // The channel can switch while the request runs.
+        final moderation = mod.moderation;
         final ok = await mod.report(
           mod.actions.unbanUser(mod.auth, mod.channel, login: login),
           done: mod.l10n.unbannedUser(login),
         );
-        if (ok) mod.moderation?.removeBan(login);
+        if (ok) moderation?.removeBan(login);
       });
 
   Future<void> _clearFlag(String login) => busy(
     'flag:${login.toLowerCase()}',
     () async {
+      final moderation = mod.moderation;
       final ok = await mod.report(
         mod.actions.clearSuspiciousStatus(mod.auth, mod.channel, login: login),
         done: mod.l10n.clearedFlagFor(login),
       );
-      if (ok) mod.moderation?.removeSuspicious(login);
+      if (ok) moderation?.removeSuspicious(login);
     },
   );
 
