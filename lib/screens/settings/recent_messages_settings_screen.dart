@@ -27,6 +27,12 @@ class _RecentMessagesSettingsScreenState
     _load();
   }
 
+  @override
+  void dispose() {
+    _customUrlController.dispose();
+    super.dispose();
+  }
+
   Future<void> _load() async {
     final prefs = await Prefs.load();
     final config = RecentMessagesConfig.fromPrefs(prefs);

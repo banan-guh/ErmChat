@@ -79,6 +79,7 @@ class _AccountScreenState extends State<AccountScreen> {
   @override
   void dispose() {
     _pasteController.dispose();
+    if (widget.twitchApi == null) _ownApi?.close();
     super.dispose();
   }
 

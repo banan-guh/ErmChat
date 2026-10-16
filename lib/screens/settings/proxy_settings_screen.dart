@@ -25,6 +25,12 @@ class _ProxySettingsScreenState extends State<ProxySettingsScreen> {
     _load();
   }
 
+  @override
+  void dispose() {
+    _urlController.dispose();
+    super.dispose();
+  }
+
   Future<void> _load() async {
     final prefs = await Prefs.load();
     final config = ProxyConfig.fromPrefs(prefs);

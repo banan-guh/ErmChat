@@ -124,7 +124,7 @@ final emoteUsageRegistryProvider = Provider<EmoteUsageRegistry>((ref) {
 /// Viewer and foreign 7TV personal sets.
 final sevenTvPersonalSetsProvider = Provider<SevenTvPersonalSets>((ref) {
   final store = ref.watch(emoteStoreProvider);
-  return SevenTvPersonalSets(
+  final sets = SevenTvPersonalSets(
     fetcher: ref.watch(emoteFetcherProvider),
     metaStore: EmoteMetaStore.I,
     tier: () => ref.read(emoteFetchTierProvider),
@@ -133,6 +133,8 @@ final sevenTvPersonalSetsProvider = Provider<SevenTvPersonalSets>((ref) {
     notifyChanged: () => store.notifyCatalogChanged(),
     viewerTwitchIdSource: () => ref.read(sessionProvider).userId,
   );
+  ref.onDispose(sets.dispose);
+  return sets;
 });
 
 /// Twitch account emote sets (subs plus unlocks).
