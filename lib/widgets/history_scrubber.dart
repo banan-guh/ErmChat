@@ -477,49 +477,18 @@ class _HistoryScrubberState extends State<HistoryScrubber>
                     tween: Tween(end: shown ? 1 : 0),
                     duration: _fade,
                     curve: Curves.easeOutCubic,
-                    builder: (context, out, surface) =>
-                        TweenAnimationBuilder<double>(
-                          tween: Tween(end: tab ? 1 : 0),
-                          duration: _fade,
-                          curve: Curves.easeOutCubic,
-                          builder: (context, foot, surface) => Positioned(
-                            right: 0,
-                            left: 0,
-                            bottom: 0,
-                            height: math.max(out * full, foot * tabH),
-                            child: surface!,
-                          ),
-                          child: surface,
-                        ),
-                    child: widget.glass
-                        ? const Padding(
-                            padding: EdgeInsets.only(right: 4),
-                            child: GlassSurface(
-                              shape: LiquidRoundedSuperellipse(
-                                borderRadius: 22,
-                              ),
-                              quality: GlassQuality.minimal,
-                              child: SizedBox.expand(),
-                            ),
-                          )
-                        : DecoratedBox(
-                            decoration: BoxDecoration(
-                              color: scheme.surfaceContainerHigh.withValues(
-                                alpha: 0.92,
-                              ),
-                              // Square at the top, where it runs into the
-                              // corner behind the menu trigger.
-                              borderRadius: const BorderRadius.only(
-                                bottomLeft: Radius.circular(20),
-                              ),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: scheme.shadow.withValues(alpha: 0.2),
-                                  blurRadius: 8,
-                                ),
-                              ],
-                            ),
-                          ),
+                    builder: (context, out, _) => TweenAnimationBuilder<double>(
+                      tween: Tween(end: tab ? 1 : 0),
+                      duration: _fade,
+                      curve: Curves.easeOutCubic,
+                      builder: (context, foot, _) => Positioned(
+                        right: 0,
+                        left: 0,
+                        bottom: 0,
+                        height: math.max(out * full, foot * tabH),
+                        child: _surface(scheme, out),
+                      ),
+                    ),
                   ),
                   Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -541,6 +510,34 @@ class _HistoryScrubberState extends State<HistoryScrubber>
             },
           );
         },
+      ),
+    );
+  }
+
+  /// The dock's surface. Out ([out] 1) it runs square into the corner
+  /// behind the menu trigger; down to the newest tab alone, its top rounds
+  /// like the bottom.
+  Widget _surface(ColorScheme scheme, double out) {
+    if (widget.glass) {
+      return const Padding(
+        padding: EdgeInsets.only(right: 4),
+        child: GlassSurface(
+          shape: LiquidRoundedSuperellipse(borderRadius: 22),
+          quality: GlassQuality.minimal,
+          child: SizedBox.expand(),
+        ),
+      );
+    }
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerHigh.withValues(alpha: 0.92),
+        borderRadius: BorderRadius.only(
+          topLeft: Radius.circular(20 * (1 - out)),
+          bottomLeft: const Radius.circular(20),
+        ),
+        boxShadow: [
+          BoxShadow(color: scheme.shadow.withValues(alpha: 0.2), blurRadius: 8),
+        ],
       ),
     );
   }
