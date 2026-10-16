@@ -56,35 +56,39 @@ class _LinkWhitelistSettingsScreenState
           onPressed: () => _confirmRestore(context),
         ),
       ],
-      floatingActionButton: FloatingActionButton(
-        onPressed: LinkWhitelist.instance.enabled
-            ? () => showDialog(
-                context: context,
-                builder: (ctx) => AlertDialog(
-                  title: Text(ctx.l10n.addLink),
-                  content: TextField(
-                    controller: _controller,
-                    autofocus: true,
-                    decoration: InputDecoration(
-                      labelText: ctx.l10n.domainOrTld,
-                      helperText: ctx.l10n.domainOrTldHint,
+      // The in-page switch flips enabled without rebuilding the screen.
+      floatingActionButton: ListenableBuilder(
+        listenable: LinkWhitelist.instance,
+        builder: (context, _) => FloatingActionButton(
+          onPressed: LinkWhitelist.instance.enabled
+              ? () => showDialog(
+                  context: context,
+                  builder: (ctx) => AlertDialog(
+                    title: Text(ctx.l10n.addLink),
+                    content: TextField(
+                      controller: _controller,
+                      autofocus: true,
+                      decoration: InputDecoration(
+                        labelText: ctx.l10n.domainOrTld,
+                        helperText: ctx.l10n.domainOrTldHint,
+                      ),
+                      onSubmitted: (_) => _add(ctx),
                     ),
-                    onSubmitted: (_) => _add(ctx),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(context),
+                        child: Text(ctx.l10n.cancel),
+                      ),
+                      TextButton(
+                        onPressed: () => _add(ctx),
+                        child: Text(ctx.l10n.add),
+                      ),
+                    ],
                   ),
-                  actions: [
-                    TextButton(
-                      onPressed: () => Navigator.pop(context),
-                      child: Text(ctx.l10n.cancel),
-                    ),
-                    TextButton(
-                      onPressed: () => _add(ctx),
-                      child: Text(ctx.l10n.add),
-                    ),
-                  ],
-                ),
-              )
-            : null,
-        child: const Icon(Icons.add),
+                )
+              : null,
+          child: const Icon(Icons.add),
+        ),
       ),
       body: ListenableBuilder(
         listenable: LinkWhitelist.instance,

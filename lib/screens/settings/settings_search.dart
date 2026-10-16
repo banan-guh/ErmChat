@@ -188,6 +188,7 @@ class Setting {
     'Theme' => l.sectionTheme,
     'Typing' => l.sectionTyping,
     'Users' => l.sectionUsers,
+    "Don't highlight" => l.settingDontHighlight,
     _ => s,
   };
 
@@ -976,8 +977,8 @@ class _SettingsSearchPageState extends State<SettingsSearchPage> {
           onSubmitted: (_) {
             if (hits.isNotEmpty) _open(hits.first);
           },
-          decoration: const InputDecoration(
-            hintText: 'Search settings',
+          decoration: InputDecoration(
+            hintText: context.l10n.searchSettings,
             border: InputBorder.none,
           ),
         ),
@@ -985,7 +986,7 @@ class _SettingsSearchPageState extends State<SettingsSearchPage> {
           if (_query.text.isNotEmpty)
             IconButton(
               icon: const Icon(Icons.clear),
-              tooltip: 'Clear',
+              tooltip: context.l10n.clear,
               onPressed: () => setState(_query.clear),
             ),
         ],
@@ -995,9 +996,9 @@ class _SettingsSearchPageState extends State<SettingsSearchPage> {
         child: _query.text.trim().isEmpty
             ? const SizedBox.shrink()
             : hits.isEmpty
-            ? const Padding(
-                padding: EdgeInsets.all(24),
-                child: Text('No matching settings'),
+            ? Padding(
+                padding: const EdgeInsets.all(24),
+                child: Text(context.l10n.noMatches),
               )
             : ListView(
                 children: [

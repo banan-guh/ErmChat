@@ -176,18 +176,20 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
   }
 
   Future<void> _applyCacheMb() async {
+    // The slider can move while this awaits; apply one value throughout.
+    final target = _draftCacheMb;
     final prefs = await Prefs.load();
-    await prefs.setEmoteCacheMb(_draftCacheMb);
-    widget.onEmoteCacheMaxChanged?.call(_draftCacheMb);
+    await prefs.setEmoteCacheMb(target);
+    widget.onEmoteCacheMaxChanged?.call(target);
     // Evict now so the footer reflects the new cap immediately, not just on
     // the next emote fetch.
     final images = widget.images ?? widget.emoteManager?.images;
     if (images != null) {
-      images.cacheCapMb = _draftCacheMb;
+      images.cacheCapMb = target;
       await images.cache.enforceNow();
     }
     if (!mounted) return;
-    setState(() => _appliedCacheMb = _draftCacheMb);
+    setState(() => _appliedCacheMb = target);
     _loadStats();
   }
 
