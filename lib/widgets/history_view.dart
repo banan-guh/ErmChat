@@ -286,7 +286,7 @@ class _HistoryViewState extends State<HistoryView> {
   );
   final ValueNotifier<double> _thumb = ValueNotifier(1);
 
-  /// The month panel is open: the list dims under it.
+  /// The days compartment is open: the list dims under it.
   final ValueNotifier<bool> _panel = ValueNotifier(false);
 
   /// Where the list was before the last rail drag, marked on the rail and
@@ -691,6 +691,8 @@ class _HistoryViewState extends State<HistoryView> {
     _loadingOlder = false;
     _loadingNewer = false;
     _follow = time == null;
+    final rail = _railReady.value;
+    if (rail != null) _fitScale(rail, time ?? rail.to);
     _hold = null;
     final sw = Stopwatch()..start();
     final source = widget.source;
@@ -1468,7 +1470,7 @@ class _HistoryViewState extends State<HistoryView> {
     _idleTimer = null;
     if (!mounted) return;
     final left = _idleDeadline - _clock.elapsedMilliseconds;
-    if (_railDragging || _oldPlace.value != null) {
+    if (_railDragging || _panel.value || _oldPlace.value != null) {
       _bumpIdle();
     } else if (left > 0) {
       _idleTimer = Timer(Duration(milliseconds: left), _idleCheck);
@@ -1478,10 +1480,15 @@ class _HistoryViewState extends State<HistoryView> {
     }
   }
 
-  /// Notes where the list is, for the old place marker and a way back.
   void _onRailDragStart() {
     _railDragging = true;
     _peek.value = false;
+    _noteOrigin();
+    _bumpIdle();
+  }
+
+  /// Notes where the list is, for the old place marker and a way back.
+  void _noteOrigin() {
     _oldPlaceTimer?.cancel();
     final pos = _pos;
     final p = _thumb.value;
@@ -1492,20 +1499,23 @@ class _HistoryViewState extends State<HistoryView> {
         ? null
         : (time: row.timestamp, thumb: p, newest: _follow);
     _oldPlace.value = row?.timestamp;
-    _bumpIdle();
   }
 
-  /// A release in the month panel: nothing moves.
-  void _onRailCancel() {
-    _railDragging = false;
-    _prefetched = null;
-    _oldPlace.value = null;
-    final pos = _pos;
-    final rail = _railReady.value;
-    if (pos != null && rail != null) {
-      _thumb.value = _viewportRailPos(_scale.value, pos) ?? _thumb.value;
-    }
+  /// Keeps the old place marker up for a while after a jump, for a tap
+  /// back.
+  void _holdOldPlace() {
+    _oldPlaceTimer?.cancel();
+    _oldPlaceTimer = Timer(_oldPlaceFor, () {
+      if (mounted) _oldPlace.value = null;
+    });
+  }
+
+  /// A tapped day: its first rows near the top of the screen.
+  void _onRailDay(DateTime start) {
+    _noteOrigin();
+    _holdOldPlace();
     _bumpIdle();
+    _jumpTo(start, fraction: 0.9);
   }
 
   /// Back to where the list was before the last rail jump.
@@ -1536,9 +1546,7 @@ class _HistoryViewState extends State<HistoryView> {
   Future<void> _onRailDragEnd(double pos) async {
     _railDragging = false;
     _bumpIdle();
-    _oldPlaceTimer = Timer(_oldPlaceFor, () {
-      if (mounted) _oldPlace.value = null;
-    });
+    _holdOldPlace();
     final pre = _prefetched;
     _prefetched = null;
     final rail = _railReady.value;
@@ -1839,18 +1847,23 @@ class _HistoryViewState extends State<HistoryView> {
       clipBehavior: Clip.hardEdge,
       children: [
         list,
-        // The month panel is a mode: the list dims while it is open.
+        // The list dims under the open days; a tap on it closes them.
         Positioned.fill(
-          child: IgnorePointer(
-            child: ValueListenableBuilder<bool>(
-              valueListenable: _panel,
-              builder: (context, open, _) => AnimatedOpacity(
-                opacity: open ? 1 : 0,
-                duration: const Duration(milliseconds: 200),
-                child: ColoredBox(
-                  color: Theme.of(
-                    context,
-                  ).colorScheme.scrim.withValues(alpha: 0.55),
+          child: ValueListenableBuilder<bool>(
+            valueListenable: _panel,
+            builder: (context, open, _) => IgnorePointer(
+              ignoring: !open,
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () => _panel.value = false,
+                child: AnimatedOpacity(
+                  opacity: open ? 1 : 0,
+                  duration: const Duration(milliseconds: 200),
+                  child: ColoredBox(
+                    color: Theme.of(
+                      context,
+                    ).colorScheme.scrim.withValues(alpha: 0.55),
+                  ),
                 ),
               ),
             ),
@@ -1882,8 +1895,8 @@ class _HistoryViewState extends State<HistoryView> {
                     onDragStart: _onRailDragStart,
                     onDrag: _onRailDrag,
                     onDragEnd: _onRailDragEnd,
-                    onCancel: _onRailCancel,
                     onBack: _onRailBack,
+                    onDay: _onRailDay,
                   ),
           ),
         ),

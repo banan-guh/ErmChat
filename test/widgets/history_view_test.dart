@@ -211,6 +211,33 @@ Future<void> _pumpView(
   return (top: top, bottom: bottom, keys: keys);
 }
 
+/// Taps the rail's handle, which opens the days.
+Future<void> _tapHandle(WidgetTester tester) async {
+  final rail = tester.getRect(find.byType(HistoryScrubber));
+  final y = tester
+      .widget<HistoryScrubber>(find.byType(HistoryScrubber))
+      .thumb
+      .value;
+  await tester.tapAt(Offset(rail.right - 12, rail.top + y * rail.height));
+  await _settle(tester);
+}
+
+/// Taps the [i]th day row of the open days, from the end when negative.
+Future<void> _tapDay(WidgetTester tester, int i) async {
+  final rail = tester.getRect(find.byType(HistoryScrubber));
+  final n = tester
+      .widget<HistoryScrubber>(find.byType(HistoryScrubber))
+      .rail
+      .days
+      .length;
+  final dayH = (rail.height / n).clamp(0.0, 40.0);
+  final row = i < 0 ? n + i : i;
+  await tester.tapAt(
+    Offset(rail.right - 20, rail.bottom - (n - row - 0.5) * dayH),
+  );
+  await _settle(tester);
+}
+
 /// Drags the rail's handle through [steps], then lets go and settles.
 Future<void> _scrub(WidgetTester tester, List<Offset> steps) async {
   final rail = tester.getRect(find.byType(HistoryScrubber));
@@ -512,24 +539,15 @@ void main() {
       await _settle(tester);
     }
     expect(railShown(), isTrue, reason: 'flings never brought the rail in');
-    // Letting go in the month panel cancels: the list stays put.
+    // A tap on the dimmed list closes the days without moving it.
     final before = _items(tester).keys;
-    await _scrub(tester, const [
-      Offset(0, -20),
-      Offset(-100, 0),
-      Offset(0, -200),
-    ]);
-    expect(_items(tester).keys, before, reason: 'a panel release jumped');
-    // The bar spans the last days; the oldest row is through the month
-    // panel: slide left, up to the first day, back right, up, let go.
-    await _scrub(tester, const [
-      Offset(0, -20),
-      Offset(0, -3000),
-      Offset(-100, 0),
-      Offset(0, -3000),
-      Offset(100, 0),
-      Offset(0, -3000),
-    ]);
+    await _tapHandle(tester);
+    await tester.tapAt(tester.getRect(list).topLeft + const Offset(40, 300));
+    await _settle(tester);
+    expect(_items(tester).keys, before, reason: 'closing the days jumped');
+    // The bar spans the last days; the oldest row is the first day's.
+    await _tapHandle(tester);
+    await _tapDay(tester, 0);
     expect(
       _items(tester).keys,
       contains('$_ch-0'),
@@ -558,17 +576,18 @@ void main() {
         .value;
     expect(thumb(), 0, reason: 'the thumb stopped short of the rail top');
     // From the top, the bar spans the oldest days; the newest row is back
-    // through the panel's last day, then the bar's bottom end.
+    // through the last day, then the bar's bottom end.
     await tester.drag(list, const Offset(0, -300));
     await tester.pump();
     expect(railShown(), isTrue, reason: 'a scroll at the top hid the rail');
-    await _scrub(tester, const [
-      Offset(0, 20),
-      Offset(-100, 0),
-      Offset(0, 3000),
-      Offset(100, 0),
-      Offset(0, 3000),
-    ]);
+    // Clear of the test's jump buttons over the rail's top.
+    for (var i = 0; i < 3; i++) {
+      await tester.drag(list, const Offset(0, -1500));
+      await tester.pump();
+    }
+    await _tapHandle(tester);
+    await _tapDay(tester, -1);
+    await _scrub(tester, const [Offset(0, 20), Offset(0, 3000)]);
     final pos = tester
         .state<ScrollableState>(find.byType(Scrollable).first)
         .position;

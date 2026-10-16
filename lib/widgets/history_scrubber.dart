@@ -12,13 +12,12 @@ import '../l10n/l10n.dart';
 import '../util/history_timeline.dart';
 
 /// Time rail for the history list. A calendar rail shows [window] of plain
-/// time with a grab handle; sliding left of it while dragging opens a month
-/// panel, one row per day, to pick an older day. Letting go in the panel
-/// cancels; sliding back right brings the bar back around the picked time,
-/// and letting go there jumps. A results rail is a plain scrollbar.
+/// time with a grab handle; tapping the handle slides the bar left and opens
+/// a compartment of days beside it, one row per day, where a tap jumps to
+/// that day. A results rail is a plain scrollbar.
 ///
 /// It only reports times and positions; the list owner moves [thumb] while
-/// the list scrolls and performs the jump. Visibility, thumb and bubble run
+/// the list scrolls and performs the jumps. Visibility, thumb and bubble run
 /// on notifiers, so none of it rebuilds the list.
 class HistoryScrubber extends StatefulWidget {
   const HistoryScrubber({
@@ -33,8 +32,8 @@ class HistoryScrubber extends StatefulWidget {
     required this.onDragStart,
     required this.onDrag,
     required this.onDragEnd,
-    required this.onCancel,
     required this.onBack,
+    required this.onDay,
   });
 
   /// Plain time the bar of a calendar rail spans.
@@ -42,9 +41,8 @@ class HistoryScrubber extends StatefulWidget {
 
   final ActivityRail rail;
 
-  /// The bar's scale; sliding back from the month panel replaces it with
-  /// [window] around the picked time.
-  final ValueNotifier<RailScale> scale;
+  /// The bar's scale.
+  final ValueListenable<RailScale> scale;
 
   /// Bar position of the thumb, 0 (oldest) at the top to 1 (newest).
   final ValueNotifier<double> thumb;
@@ -53,10 +51,11 @@ class HistoryScrubber extends StatefulWidget {
   /// Shows the bubble without a drag, e.g. after tapping a day marker.
   final ValueListenable<bool> peek;
 
-  /// Whether the month panel is open, for the owner to dim the list.
+  /// Whether the days compartment is open; the owner dims the list under it
+  /// and closes it on a tap there.
   final ValueNotifier<bool> panel;
 
-  /// Where the list was before the last drag; tapping its marker goes back.
+  /// Where the list was before the last jump; tapping its marker goes back.
   final ValueListenable<DateTime?> oldPlace;
   final VoidCallback onDragStart;
 
@@ -65,23 +64,23 @@ class HistoryScrubber extends StatefulWidget {
 
   /// A release on the bar, at this bar position.
   final ValueChanged<double> onDragEnd;
-
-  /// A release in the month panel, or a tap away from the marker.
-  final VoidCallback onCancel;
   final VoidCallback onBack;
 
-  /// Whether [rail] spans more than one day, so the panel can open.
-  static bool hasMonth(ActivityRail rail) =>
+  /// A tapped day, by its start.
+  final ValueChanged<DateTime> onDay;
+
+  /// Whether [rail] spans more than one day, so the days can open.
+  static bool hasDays(ActivityRail rail) =>
       rail.calendar && rail.days.length > 1;
 
   @override
   State<HistoryScrubber> createState() => _HistoryScrubberState();
 }
 
-/// The month panel's rows: one per day, oldest at the top, sharing the
+/// The days compartment's rows: one per day, oldest at the top, sharing the
 /// height up to [maxDay] each and stacked from the bottom.
-class _Month {
-  _Month(this.rail, double height)
+class _Days {
+  _Days(this.rail, double height)
     : dayH = math.min(height / math.max(1, rail.days.length), maxDay),
       bottom = height;
 
@@ -94,35 +93,15 @@ class _Month {
   List<RailDay> get days => rail.days;
   double get top => bottom - days.length * dayH;
 
-  DateTime _end(int i) => i + 1 < days.length ? days[i + 1].start : rail.to;
-
-  /// Panel y of [t].
-  double yOf(DateTime t) {
-    var i = days.length - 1;
-    while (i > 0 && t.isBefore(days[i].start)) {
-      i--;
-    }
-    final start = days[i].start;
-    final span = _end(i).difference(start).inMilliseconds;
-    final frac = span <= 0
-        ? 0.0
-        : (t.difference(start).inMilliseconds / span).clamp(0.0, 1.0);
-    return top + (i + frac) * dayH;
-  }
-
-  /// Time at panel y.
-  DateTime timeAt(double y) {
-    final rows = (y - top) / dayH;
-    final i = rows.floor().clamp(0, days.length - 1);
-    final frac = (rows - i).clamp(0.0, 1.0);
-    final start = days[i].start;
-    final span = _end(i).difference(start).inMilliseconds;
-    return start.add(Duration(milliseconds: (frac * span).round()));
+  /// The day at [y], or null outside the rows.
+  RailDay? at(double y) {
+    if (y < top || y >= bottom) return null;
+    return days[((y - top) / dayH).floor().clamp(0, days.length - 1)];
   }
 }
 
-/// Claims a touch on the rail at once, so a sideways slide opens the month
-/// panel instead of paging channels.
+/// Claims a touch on the rail at once, so a diagonal drag scrubs instead of
+/// paging channels.
 class _EagerPan extends PanGestureRecognizer {
   @override
   void addAllowedPointer(PointerDownEvent event) {
@@ -133,32 +112,27 @@ class _EagerPan extends PanGestureRecognizer {
 
 class _HistoryScrubberState extends State<HistoryScrubber>
     with TickerProviderStateMixin {
-  static const double _width = 48;
+  static const double _barWidth = 48;
 
   /// Shorter than this (stream and keyboard up), the rail cannot pick a
   /// stretch, so it hides.
   static const double _minHeight = 160;
 
-  /// Bar center, in from the right edge.
+  /// Bar center, in from the bar's right edge.
   static const double _inset = 12;
 
-  /// Month panel row widths: an empty day to the busiest.
-  static const double _rowMin = 20;
-  static const double _rowMax = 40;
+  /// Day row widths: an empty day to the busiest.
+  static const double _rowMin = 28;
+  static const double _rowMax = 48;
 
-  /// Panel rows end this far in from the right edge.
-  static const double _panelInset = 2;
-
-  /// How far the picked row leans out toward the finger.
-  static const double _bulge = 10;
-
-  /// Sliding this far left of the bar opens the panel; back within
-  /// [_closeAt] closes it.
-  static const double _openAt = 64;
-  static const double _closeAt = 32;
+  /// Width the days compartment adds, rows plus margins.
+  static const double _daysWidth = _rowMax + 12;
 
   /// Movement before a touch counts as a drag rather than a tap.
   static const double _slop = 6;
+
+  /// A tap this close to the handle or the marker hits it.
+  static const double _reach = 28;
   static const Duration _fade = Duration(milliseconds: 200);
 
   /// Height of the edge band around the thumb kept from Android's back
@@ -172,9 +146,6 @@ class _HistoryScrubberState extends State<HistoryScrubber>
 
   final ValueNotifier<bool> _dragging = ValueNotifier(false);
 
-  /// Handle y in the month panel, while it is open.
-  final ValueNotifier<double> _panelY = ValueNotifier(0);
-
   /// 0 at rest, 1 while dragging or peeking: grows the bar and shows the
   /// bubble.
   late final AnimationController _active = AnimationController(
@@ -187,7 +158,7 @@ class _HistoryScrubberState extends State<HistoryScrubber>
     curve: Curves.easeOutCubic,
   );
 
-  /// 0 for the bar, 1 for the month panel.
+  /// 0 closed, 1 with the days compartment out.
   late final AnimationController _open = AnimationController(
     vsync: this,
     duration: _fade,
@@ -200,19 +171,16 @@ class _HistoryScrubberState extends State<HistoryScrubber>
   double _height = 1;
   double _dpr = 1;
   double? _sentCenter;
-  _Month? _month;
+  _Days? _days;
 
   // Touch state.
-  double _downY = 0;
+  Offset _down = Offset.zero;
   double _moved = 0;
   bool _started = false;
-  bool _inPanel = false;
-  RailScale? _startScale;
 
   DateFormat? _day;
   DateFormat? _time;
   DateFormat? _dayLabel;
-  DateFormat? _rowLabel;
   String? _locale;
 
   @override
@@ -220,9 +188,11 @@ class _HistoryScrubberState extends State<HistoryScrubber>
     super.initState();
     _dragging.addListener(_syncActive);
     widget.peek.addListener(_syncActive);
+    widget.panel.addListener(_syncOpen);
     widget.visible.addListener(_syncExclusion);
     widget.thumb.addListener(_syncExclusion);
     if (widget.peek.value) _active.value = 1;
+    if (widget.panel.value) _open.value = 1;
   }
 
   @override
@@ -232,6 +202,10 @@ class _HistoryScrubberState extends State<HistoryScrubber>
       old.peek.removeListener(_syncActive);
       widget.peek.addListener(_syncActive);
     }
+    if (old.panel != widget.panel) {
+      old.panel.removeListener(_syncOpen);
+      widget.panel.addListener(_syncOpen);
+    }
     if (old.visible != widget.visible) {
       old.visible.removeListener(_syncExclusion);
       widget.visible.addListener(_syncExclusion);
@@ -240,17 +214,17 @@ class _HistoryScrubberState extends State<HistoryScrubber>
       old.thumb.removeListener(_syncExclusion);
       widget.thumb.addListener(_syncExclusion);
     }
-    if (old.rail != widget.rail) _month = null;
+    if (old.rail != widget.rail) _days = null;
   }
 
   @override
   void dispose() {
     widget.peek.removeListener(_syncActive);
+    widget.panel.removeListener(_syncOpen);
     widget.visible.removeListener(_syncExclusion);
     widget.thumb.removeListener(_syncExclusion);
     _clearExclusion();
     _dragging.dispose();
-    _panelY.dispose();
     _active.dispose();
     _open.dispose();
     super.dispose();
@@ -261,6 +235,14 @@ class _HistoryScrubberState extends State<HistoryScrubber>
       _active.forward();
     } else {
       _active.reverse();
+    }
+  }
+
+  void _syncOpen() {
+    if (widget.panel.value) {
+      _open.forward();
+    } else {
+      _open.reverse();
     }
   }
 
@@ -288,9 +270,9 @@ class _HistoryScrubberState extends State<HistoryScrubber>
     _excluding = this;
     final o = box.localToGlobal(Offset.zero);
     final r = Rect.fromLTWH(
-      o.dx,
+      o.dx + box.size.width - _barWidth,
       o.dy + center - _band / 2,
-      box.size.width,
+      _barWidth,
       _band,
     );
     _send([
@@ -311,75 +293,46 @@ class _HistoryScrubberState extends State<HistoryScrubber>
         .catchError((Object _) {}),
   );
 
-  _Month get _layout => _month ??= _Month(widget.rail, _height);
+  _Days get _layout => _days ??= _Days(widget.rail, _height);
 
-  /// The time under the handle.
-  DateTime get _handleTime => _inPanel
-      ? _layout.timeAt(_panelY.value)
-      : widget.scale.value.timeAt(widget.thumb.value);
+  DateTime get _handleTime => widget.scale.value.timeAt(widget.thumb.value);
 
   /// Bar y of the old place marker, or null when off the bar.
   double? _oldPlaceY() {
     final old = widget.oldPlace.value;
     if (old == null) return null;
-    if (_inPanel) return _layout.yOf(old);
     final s = widget.scale.value;
     if (old.isBefore(s.from) || old.isAfter(s.to)) return null;
     return s.positionOf(old) * _height;
   }
 
-  void _down(DragStartDetails d) {
-    _downY = d.localPosition.dy;
+  void _onDown(DragStartDetails d) {
+    _down = d.localPosition;
     _moved = 0;
     _started = false;
   }
 
   void _begin() {
     _started = true;
-    _inPanel = false;
-    _startScale = widget.scale.value;
     _dragging.value = true;
     widget.onDragStart();
-    widget.thumb.value = (_downY / _height).clamp(0.0, 1.0);
+    widget.thumb.value = (_down.dy / _height).clamp(0.0, 1.0);
     widget.onDrag(_handleTime);
   }
 
   void _update(DragUpdateDetails d) {
+    // An open compartment takes taps only.
+    if (widget.panel.value) return;
     _moved += d.delta.distance;
     if (!_started) {
       if (_moved < _slop) return;
       _begin();
     }
-    final away = (_width - _inset) - d.localPosition.dx;
-    if (!_inPanel && away >= _openAt && HistoryScrubber.hasMonth(widget.rail)) {
-      _panelY.value = _layout.yOf(_handleTime);
-      _inPanel = true;
-      widget.panel.value = true;
-      _open.forward();
-      HapticFeedback.mediumImpact();
-    } else if (_inPanel && away < _closeAt) {
-      final t = _layout.timeAt(_panelY.value);
-      final r = widget.rail;
-      final s = TimeWindow.around(t, HistoryScrubber.window, r.from, r.to);
-      _inPanel = false;
-      widget.scale.value = s;
-      widget.thumb.value = s.positionOf(t);
-      widget.panel.value = false;
-      _open.reverse();
-      HapticFeedback.mediumImpact();
-    }
     final before = _handleTime;
-    if (_inPanel) {
-      _panelY.value = (_panelY.value + d.delta.dy).clamp(
-        _layout.top,
-        _layout.bottom,
-      );
-    } else {
-      widget.thumb.value = (widget.thumb.value + d.delta.dy / _height).clamp(
-        0.0,
-        1.0,
-      );
-    }
+    widget.thumb.value = (widget.thumb.value + d.delta.dy / _height).clamp(
+      0.0,
+      1.0,
+    );
     final after = _handleTime;
     final tick = widget.rail.crossed(before, after);
     if (tick == 2) {
@@ -391,23 +344,39 @@ class _HistoryScrubberState extends State<HistoryScrubber>
   }
 
   void _end([DragEndDetails? _]) {
-    if (!_started) {
-      final y = _oldPlaceY();
-      if (y != null && (y - _downY).abs() < 24) widget.onBack();
+    if (_started) {
+      _started = false;
+      _dragging.value = false;
+      widget.onDragEnd(widget.thumb.value);
       return;
     }
-    _started = false;
-    _dragging.value = false;
-    if (_inPanel) {
-      _inPanel = false;
-      final start = _startScale;
-      if (start != null) widget.scale.value = start;
+    if (_moved < _slop) _tap(_down);
+  }
+
+  /// A tap: a day when the compartment is out (anywhere else closes it),
+  /// otherwise the old place marker or the handle, which opens the days.
+  void _tap(Offset at) {
+    if (widget.panel.value) {
+      final width = _barWidth + _daysWidth;
+      final day = at.dx >= width - _daysWidth ? _layout.at(at.dy) : null;
       widget.panel.value = false;
-      _open.reverse();
-      widget.onCancel();
+      if (day != null) {
+        HapticFeedback.selectionClick();
+        widget.onDay(day.start);
+      }
       return;
     }
-    widget.onDragEnd(widget.thumb.value);
+    final old = _oldPlaceY();
+    if (old != null && (old - at.dy).abs() < _reach) {
+      widget.onBack();
+      return;
+    }
+    final handle = widget.thumb.value * _height;
+    if ((handle - at.dy).abs() < _reach &&
+        HistoryScrubber.hasDays(widget.rail)) {
+      HapticFeedback.selectionClick();
+      widget.panel.value = true;
+    }
   }
 
   @override
@@ -419,7 +388,6 @@ class _HistoryScrubberState extends State<HistoryScrubber>
       _day = DateFormat('EEE MMM d', locale);
       _time = DateFormat.Hm(locale);
       _dayLabel = DateFormat('MMM d', locale);
-      _rowLabel = DateFormat('EEE d', locale);
     }
     _dpr = MediaQuery.devicePixelRatioOf(context);
     return ValueListenableBuilder<bool>(
@@ -432,14 +400,18 @@ class _HistoryScrubberState extends State<HistoryScrubber>
           child: child,
         ),
       ),
-      child: SizedBox(
-        width: _width,
+      child: AnimatedBuilder(
+        animation: _openCurve,
+        builder: (context, child) => SizedBox(
+          width: _barWidth + _daysWidth * _openCurve.value,
+          child: child,
+        ),
         child: LayoutBuilder(
           builder: (context, box) {
             if (box.maxHeight < _minHeight) return const SizedBox.shrink();
             if (box.maxHeight != _height) {
               _height = box.maxHeight;
-              _month = null;
+              _days = null;
             }
             return RawGestureDetector(
               behavior: HitTestBehavior.opaque,
@@ -447,7 +419,7 @@ class _HistoryScrubberState extends State<HistoryScrubber>
                 _EagerPan: GestureRecognizerFactoryWithHandlers<_EagerPan>(
                   _EagerPan.new,
                   (r) => r
-                    ..onStart = _down
+                    ..onStart = _onDown
                     ..onUpdate = _update
                     ..onEnd = _end
                     ..onCancel = _end,
@@ -461,17 +433,12 @@ class _HistoryScrubberState extends State<HistoryScrubber>
                       painter: _RailPainter(
                         rail: widget.rail,
                         scale: widget.scale,
-                        month: _layout,
                         thumb: widget.thumb,
-                        panelY: _panelY,
                         oldPlace: widget.oldPlace,
                         active: _activeCurve,
                         open: _openCurve,
                         inset: _inset,
-                        panelInset: _panelInset,
-                        rowMin: _rowMin,
-                        rowMax: _rowMax,
-                        bulge: _bulge,
+                        daysWidth: _daysWidth,
                         track: scheme.onSurface,
                         accent: scheme.primary,
                         glyph: scheme.onPrimary,
@@ -480,20 +447,18 @@ class _HistoryScrubberState extends State<HistoryScrubber>
                       ),
                     ),
                   ),
+                  _daysCompartment(context, scheme),
                   ListenableBuilder(
                     listenable: Listenable.merge([
                       widget.thumb,
                       widget.scale,
                       _active,
-                      _open,
-                      _panelY,
                     ]),
                     builder: (context, _) => Positioned.fill(
                       child: Stack(
                         clipBehavior: Clip.none,
                         children: [
                           _barLabels(context, scheme),
-                          _panelLabels(context, scheme),
                           _bubble(context, scheme),
                         ],
                       ),
@@ -508,36 +473,112 @@ class _HistoryScrubberState extends State<HistoryScrubber>
     );
   }
 
-  /// A small label pinned left of the rail at [y].
-  Widget _label(String text, double y, double right, ColorScheme scheme) =>
-      Positioned(
-        top: y - 9,
-        right: right,
-        height: 18,
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            color: scheme.surfaceContainerHighest.withValues(alpha: 0.9),
-            borderRadius: BorderRadius.circular(6),
-          ),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 6),
-            child: Center(
-              widthFactor: 1,
-              child: Text(
-                text,
-                style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                  color: scheme.onSurfaceVariant,
+  /// The days, sliding in from the right edge: one rounded row per day, as
+  /// wide as its share of the busiest, labeled with its date (and month on
+  /// the first row and each month's first day), the list's day highlighted.
+  Widget _daysCompartment(BuildContext context, ColorScheme scheme) =>
+      ListenableBuilder(
+        listenable: Listenable.merge([_openCurve, widget.thumb, widget.scale]),
+        builder: (context, _) {
+          final o = _openCurve.value;
+          if (o == 0) return const SizedBox.shrink();
+          final d = _layout;
+          final busiest = math.max(
+            1,
+            d.days.fold<int>(0, (a, x) => math.max(a, x.count)),
+          );
+          final current = dayNumber(widget.rail.local(_handleTime));
+          final gap = math.min(3.0, d.dayH * 0.2);
+          final style = Theme.of(context).textTheme.labelSmall;
+          final rows = <Widget>[];
+          for (var i = 0; i < d.days.length; i++) {
+            final day = d.days[i];
+            final on = day.day == current;
+            final date = dayFromNumber(day.day);
+            final label = i == 0 || date.day == 1
+                ? _dayLabel!.format(date)
+                : '${date.day}';
+            rows.add(
+              Positioned(
+                right: 6,
+                top: d.top + i * d.dayH + gap / 2,
+                height: d.dayH - gap,
+                width: _rowMin + (_rowMax - _rowMin) * day.count / busiest,
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: on
+                        ? scheme.primary
+                        : scheme.onSurface.withValues(alpha: 0.22),
+                    borderRadius: BorderRadius.circular(
+                      math.min(6, (d.dayH - gap) / 2),
+                    ),
+                  ),
+                  child: d.dayH < 12
+                      ? null
+                      : Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 5),
+                          child: FittedBox(
+                            fit: BoxFit.scaleDown,
+                            alignment: Alignment.centerRight,
+                            child: Text(
+                              label,
+                              style: style?.copyWith(
+                                color: on ? scheme.onPrimary : scheme.onSurface,
+                              ),
+                            ),
+                          ),
+                        ),
+                ),
+              ),
+            );
+          }
+          return Positioned(
+            top: 0,
+            bottom: 0,
+            right: 0,
+            width: _daysWidth,
+            child: IgnorePointer(
+              child: Opacity(
+                opacity: o,
+                child: Transform.translate(
+                  offset: Offset(_daysWidth * (1 - o), 0),
+                  child: Stack(clipBehavior: Clip.none, children: rows),
                 ),
               ),
             ),
+          );
+        },
+      );
+
+  /// A small label pinned left of the bar at [y].
+  Widget _label(String text, double y, ColorScheme scheme) => Positioned(
+    top: y - 9,
+    right: _barWidth - _inset + 10,
+    height: 18,
+    child: DecoratedBox(
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerHighest.withValues(alpha: 0.9),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 6),
+        child: Center(
+          widthFactor: 1,
+          child: Text(
+            text,
+            style: Theme.of(
+              context,
+            ).textTheme.labelSmall?.copyWith(color: scheme.onSurfaceVariant),
           ),
         ),
-      );
+      ),
+    ),
+  );
 
   /// Day starts beside the bar while dragging it, thinned so none overlap
   /// each other or the bubble.
   Widget _barLabels(BuildContext context, ColorScheme scheme) {
-    final t = _activeCurve.value * (1 - _openCurve.value);
+    final t = _activeCurve.value;
     if (t == 0 || !_dragging.value) return const SizedBox.shrink();
     final s = widget.scale.value;
     final thumbY = widget.thumb.value * _height;
@@ -548,14 +589,7 @@ class _HistoryScrubberState extends State<HistoryScrubber>
       final y = s.positionOf(d.start) * _height;
       if (y - last < 22 || (y - thumbY).abs() < 40) continue;
       last = y;
-      labels.add(
-        _label(
-          _dayLabel!.format(dayFromNumber(d.day)),
-          y,
-          _width - _inset + 10,
-          scheme,
-        ),
-      );
+      labels.add(_label(_dayLabel!.format(dayFromNumber(d.day)), y, scheme));
     }
     return Positioned.fill(
       child: IgnorePointer(
@@ -567,78 +601,11 @@ class _HistoryScrubberState extends State<HistoryScrubber>
     );
   }
 
-  /// Day names beside the panel rows, and above them the picked time and
-  /// how to go there.
-  Widget _panelLabels(BuildContext context, ColorScheme scheme) {
-    final t = _openCurve.value;
-    if (t == 0) return const SizedBox.shrink();
-    final m = _layout;
-    final right = _panelInset + _rowMax + _bulge + 6;
-    final labels = <Widget>[];
-    var last = double.negativeInfinity;
-    for (var i = 0; i < m.days.length; i++) {
-      final y = m.top + (i + 0.5) * m.dayH;
-      if (y - last < 20) continue;
-      last = y;
-      labels.add(
-        _label(
-          _rowLabel!.format(dayFromNumber(m.days[i].day)),
-          y,
-          right,
-          scheme,
-        ),
-      );
-    }
-    final text = Theme.of(context).textTheme;
-    final at = _handleTime.toLocal();
-    final header = Positioned(
-      top: 0,
-      right: right,
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          color: scheme.surfaceContainerHighest,
-          borderRadius: BorderRadius.circular(14),
-        ),
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Text(
-                context.l10n.historyScrubberBubble(
-                  _day!.format(at),
-                  _time!.format(at),
-                ),
-                style: text.titleSmall?.copyWith(
-                  color: scheme.onSurface,
-                  fontFeatures: const [FontFeature.tabularFigures()],
-                ),
-              ),
-              Text(
-                context.l10n.historyRailGoHere,
-                style: text.bodyMedium?.copyWith(color: scheme.primary),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-    return Positioned.fill(
-      child: IgnorePointer(
-        child: Opacity(
-          opacity: t,
-          child: Stack(clipBehavior: Clip.none, children: [...labels, header]),
-        ),
-      ),
-    );
-  }
-
   /// Date and time, plus the stream title when one was live, pinned to the
   /// left of the thumb. At the top of a bar with older days past it, a hint
-  /// at the month panel.
+  /// at the days.
   Widget _bubble(BuildContext context, ColorScheme scheme) {
-    final t = _activeCurve.value * (1 - _openCurve.value);
+    final t = _activeCurve.value;
     if (t == 0) return const SizedBox.shrink();
     final pos = widget.thumb.value;
     final at = widget.scale.value.timeAt(pos).toLocal();
@@ -646,13 +613,13 @@ class _HistoryScrubberState extends State<HistoryScrubber>
     final older =
         _dragging.value &&
         pos < 0.05 &&
-        HistoryScrubber.hasMonth(widget.rail) &&
+        HistoryScrubber.hasDays(widget.rail) &&
         widget.scale.value.from.isAfter(widget.rail.from);
     final text = Theme.of(context).textTheme;
     const height = 56.0;
     return Positioned(
       top: (pos * _height - height / 2).clamp(-8.0, _height - height + 8),
-      right: _width - _inset + 14,
+      right: _barWidth - _inset + 14,
       height: older ? height + 18 : height,
       child: IgnorePointer(
         child: Opacity(
@@ -738,57 +705,35 @@ class _HistoryScrubberState extends State<HistoryScrubber>
   }
 }
 
-/// Paints the bar and the month panel, crossfading by [open].
-///
-/// The bar is a slim track that breaks into dots over an hour or more with
-/// nothing said, with stream spans in [stream] and a grab handle in
-/// [accent]. The panel is one rounded row per day, as wide as the day's
-/// share of the busiest; rows near the picked one brighten and lean out
-/// toward the finger. Both carry the old place marker.
+/// Paints the bar: a slim track that breaks into dots over an hour or more
+/// with nothing said, stream spans in [stream], the old place marker, and a
+/// grab handle in [accent]. It slides left by [daysWidth] as the days
+/// compartment comes out ([open]).
 class _RailPainter extends CustomPainter {
   _RailPainter({
     required this.rail,
     required this.scale,
-    required this.month,
     required this.thumb,
-    required this.panelY,
     required this.oldPlace,
     required this.active,
     required this.open,
     required this.inset,
-    required this.panelInset,
-    required this.rowMin,
-    required this.rowMax,
-    required this.bulge,
+    required this.daysWidth,
     required this.track,
     required this.accent,
     required this.glyph,
     required this.stream,
     required this.shadow,
-  }) : super(
-         repaint: Listenable.merge([
-           thumb,
-           scale,
-           panelY,
-           oldPlace,
-           active,
-           open,
-         ]),
-       );
+  }) : super(repaint: Listenable.merge([thumb, scale, oldPlace, active, open]));
 
   final ActivityRail rail;
   final ValueListenable<RailScale> scale;
-  final _Month month;
   final ValueListenable<double> thumb;
-  final ValueListenable<double> panelY;
   final ValueListenable<DateTime?> oldPlace;
   final Animation<double> active;
   final Animation<double> open;
   final double inset;
-  final double panelInset;
-  final double rowMin;
-  final double rowMax;
-  final double bulge;
+  final double daysWidth;
   final Color track;
   final Color accent;
   final Color glyph;
@@ -800,9 +745,6 @@ class _RailPainter extends CustomPainter {
 
   /// Silence at least this long shows as dots.
   static const Duration _gap = Duration(hours: 1);
-
-  /// Distance from the picked row over which the panel's highlight fades.
-  static const double _reach = 48;
 
   /// Bar spans with nothing said for [_gap] or more, cached for one scale
   /// and height.
@@ -843,23 +785,15 @@ class _RailPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    final o = open.value;
     final t = active.value;
-    if (o < 1) _paintBar(canvas, size, t, 1 - o);
-    if (o > 0) _paintPanel(canvas, size, o);
-    _paintMarker(canvas, size, o);
-    if (o < 1) _paintHandle(canvas, size, t, 1 - o);
-  }
-
-  void _paintBar(Canvas canvas, Size size, double t, double alpha) {
-    final s = scale.value;
     final h = size.height;
-    final x = size.width - inset;
+    final s = scale.value;
+    final x = size.width - daysWidth * open.value - inset;
     final w = ui.lerpDouble(3, 5, t)!;
     final base = Paint()
-      ..color = track.withValues(alpha: ui.lerpDouble(0.16, 0.24, t)! * alpha);
+      ..color = track.withValues(alpha: ui.lerpDouble(0.16, 0.24, t)!);
     final live = Paint()
-      ..color = stream.withValues(alpha: ui.lerpDouble(0.75, 1, t)! * alpha);
+      ..color = stream.withValues(alpha: ui.lerpDouble(0.75, 1, t)!);
 
     void bar(double a, double b, Paint p) {
       final top = a * h;
@@ -891,99 +825,12 @@ class _RailPainter extends CustomPainter {
       if (!st.end.isAfter(s.from) || st.start.isAfter(s.to)) continue;
       bar(s.positionOf(st.start), s.positionOf(st.end), live);
     }
-  }
 
-  void _paintPanel(Canvas canvas, Size size, double o) {
-    final m = month;
-    final right = size.width - panelInset;
-    final busiest = math.max(
-      1,
-      m.days.fold<int>(0, (a, d) => math.max(a, d.count)),
-    );
-    final pickY = panelY.value;
-    final gap = math.min(3.0, m.dayH * 0.2);
-    for (var i = 0; i < m.days.length; i++) {
-      final d = m.days[i];
-      final top = m.top + i * m.dayH;
-      final center = top + m.dayH / 2;
-      final near = math.exp(-math.pow((center - pickY) / _reach, 2));
-      final w = rowMin + (rowMax - rowMin) * d.count / busiest;
-      final r = right - bulge * near * o;
-      final rect = Rect.fromLTRB(
-        r - w * o,
-        top + gap / 2,
-        r,
-        top + m.dayH - gap / 2,
-      );
-      final rr = RRect.fromRectAndRadius(
-        rect,
-        Radius.circular(math.min(6, rect.height / 2)),
-      );
-      canvas.drawRRect(
-        rr,
-        Paint()
-          ..color = track.withValues(
-            alpha: ui.lerpDouble(0.18, 0.85, near)! * o,
-          ),
-      );
-      // The day's stream time, tinted inside the row.
-      final end = i + 1 < m.days.length ? m.days[i + 1].start : rail.to;
-      final live = Paint()
-        ..color = stream.withValues(alpha: ui.lerpDouble(0.45, 1, near)! * o);
-      canvas.save();
-      canvas.clipRRect(rr);
-      for (final st in rail.streams) {
-        if (!st.end.isAfter(d.start) || !st.start.isBefore(end)) continue;
-        final a = m.yOf(st.start.isBefore(d.start) ? d.start : st.start);
-        final b = m.yOf(st.end.isAfter(end) ? end : st.end);
-        canvas.drawRect(
-          Rect.fromLTRB(
-            rect.left,
-            math.max(a, rect.top),
-            rect.left + 4,
-            math.min(b, rect.bottom),
-          ),
-          live,
-        );
-      }
-      canvas.restore();
-    }
-  }
-
-  /// A filled tag, a rounded box with a point into the bar, where the list
-  /// was.
-  void _paintMarker(Canvas canvas, Size size, double o) {
     final old = oldPlace.value;
-    if (old == null) return;
-    final double y;
-    final double tip;
-    if (o >= 0.5) {
-      y = month.yOf(old);
-      tip = size.width - panelInset - rowMax - bulge - 2;
-    } else {
-      final s = scale.value;
-      if (old.isBefore(s.from) || old.isAfter(s.to)) return;
-      y = s.positionOf(old) * size.height;
-      tip = size.width - inset - 7;
+    if (old != null && !old.isBefore(s.from) && !old.isAfter(s.to)) {
+      _paintMarker(canvas, x - 7, s.positionOf(old) * h);
     }
-    final p = Paint()
-      ..color = track.withValues(alpha: 0.8)
-      ..strokeWidth = 2
-      ..strokeJoin = StrokeJoin.round;
-    final tag = Path()
-      ..moveTo(tip - 11, y - 4)
-      ..lineTo(tip - 5, y - 4)
-      ..lineTo(tip, y)
-      ..lineTo(tip - 5, y + 4)
-      ..lineTo(tip - 11, y + 4)
-      ..close();
-    canvas.drawPath(tag, p..style = PaintingStyle.fill);
-    canvas.drawPath(tag, p..style = PaintingStyle.stroke);
-  }
 
-  void _paintHandle(Canvas canvas, Size size, double t, double alpha) {
-    final h = size.height;
-    final x = size.width - inset;
     final tw = ui.lerpDouble(20, 26, t)!;
     final th = ui.lerpDouble(44, 52, t)!;
     final cy = (thumb.value * h).clamp(th / 2, h - th / 2);
@@ -994,14 +841,14 @@ class _RailPainter extends CustomPainter {
     if (t > 0) {
       canvas.drawShadow(
         Path()..addRRect(rect),
-        shadow.withValues(alpha: t * alpha),
+        shadow.withValues(alpha: t),
         3,
         false,
       );
     }
-    canvas.drawRRect(rect, Paint()..color = accent.withValues(alpha: alpha));
+    canvas.drawRRect(rect, Paint()..color = accent);
     final chevron = Paint()
-      ..color = glyph.withValues(alpha: alpha)
+      ..color = glyph
       ..style = PaintingStyle.stroke
       ..strokeWidth = 2
       ..strokeCap = StrokeCap.round
@@ -1017,13 +864,31 @@ class _RailPainter extends CustomPainter {
     }
   }
 
+  /// A filled tag, a rounded box pointing at [tip]: where the list was.
+  void _paintMarker(Canvas canvas, double tip, double y) {
+    final p = Paint()
+      ..color = track.withValues(alpha: 0.8)
+      ..strokeWidth = 2
+      ..strokeJoin = StrokeJoin.round;
+    final tag = Path()
+      ..moveTo(tip - 11, y - 4)
+      ..lineTo(tip - 5, y - 4)
+      ..lineTo(tip, y)
+      ..lineTo(tip - 5, y + 4)
+      ..lineTo(tip - 11, y + 4)
+      ..close();
+    canvas.drawPath(tag, p..style = PaintingStyle.fill);
+    canvas.drawPath(tag, p..style = PaintingStyle.stroke);
+  }
+
   @override
   bool shouldRepaint(_RailPainter old) =>
       old.rail != rail ||
       old.scale != scale ||
-      old.month != month ||
       old.active != active ||
       old.open != open ||
+      old.inset != inset ||
+      old.daysWidth != daysWidth ||
       old.track != track ||
       old.accent != accent ||
       old.glyph != glyph ||
