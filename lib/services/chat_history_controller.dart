@@ -90,13 +90,20 @@ class ChatHistoryController {
     // A channel removed while its history was in flight must not be
     // resurrected by the root verb's ensure.
     if (!chat.contains(channel)) return;
+    final sw = Stopwatch()..start();
     final prepared = _prepare(channel, history);
+    final prepMs = sw.elapsedMilliseconds;
     final inserted = chat.receiveHistory(
       channel,
       prepared,
       rawHistory: history,
       maxMessages: maxMessages(),
       ownLogin: session.login,
+    );
+    JankLog.note(
+      'history $channel ${history.length} rows '
+      'prep=${prepMs}ms merge=${sw.elapsedMilliseconds - prepMs}ms '
+      'new=${inserted.length}',
     );
     // Gap rows from robotty join the archive; restored rows were deduped out.
     for (final msg in inserted) {

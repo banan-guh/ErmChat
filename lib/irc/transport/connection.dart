@@ -301,6 +301,7 @@ abstract class IrcConnection {
         sendLine('CAP REQ :twitch.tv/tags twitch.tv/commands');
         sendLine('PASS oauth:$token');
         sendLine('NICK $username');
+        JankLog.note('$debugPrefix connected');
         // Route the re-JOINs through the limiter: a burst of JOINs right
         // after connect is exactly what Twitch drops. The ROOMSTATE sweep
         // re-sends anything the server never confirmed.

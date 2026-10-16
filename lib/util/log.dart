@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:collection';
+import 'dart:developer' show Timeline;
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -11,6 +13,49 @@ bool debugLogEnabled = !kReleaseMode;
 void logDebug(String? message, {int? wrapWidth}) {
   if (debugLogEnabled) {
     debugPrint(message, wrapWidth: wrapWidth);
+  }
+}
+
+/// Recent app events, printed alongside any frame that stalls so a hitch
+/// names its likely cause. A note is a list append; nothing prints unless
+/// a frame runs long. Times share [Timeline.now]'s clock with frame timings.
+class JankLog {
+  JankLog._();
+
+  /// Frames at least this long are reported.
+  static const int stallMs = 50;
+
+  /// Notes this old at the frame's start are left out.
+  static const int _windowUs = 3000000;
+  static const int _keep = 32;
+  static final ListQueue<(int, String)> _notes = ListQueue();
+
+  /// Records [event] for the next stall report.
+  static void note(String event) {
+    if (!debugLogEnabled) return;
+    _notes.addLast((Timeline.now, event));
+    if (_notes.length > _keep) _notes.removeFirst();
+  }
+
+  /// Logs a stalled frame that started at [startUs] and ended at [endUs],
+  /// with the notes from just before it to its end.
+  static void stall({
+    required int startUs,
+    required int endUs,
+    required int buildMs,
+    required int rasterMs,
+    String extra = '',
+  }) {
+    final recent = [
+      for (final (at, event) in _notes)
+        if (at >= startUs - _windowUs && at <= endUs)
+          '${((at - startUs) / 1000).round()}ms $event',
+    ];
+    logDebug(
+      '[jank] ${((endUs - startUs) / 1000).round()}ms '
+      'build=${buildMs}ms raster=${rasterMs}ms$extra | '
+      '${recent.isEmpty ? 'no recent events' : recent.join(', ')}',
+    );
   }
 }
 

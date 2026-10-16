@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io' show Platform;
+import 'dart:ui' show FramePhase, FrameTiming;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -706,6 +707,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     unawaited(_thirdPartyBadgeService.fetchLimerinoBadges());
     unawaited(_thirdPartyBadgeService.fetchListBadges());
     WidgetsBinding.instance.addObserver(this);
+    _reportingStalls = debugLogEnabled;
+    if (_reportingStalls) {
+      WidgetsBinding.instance.addTimingsCallback(_reportStalls);
+    }
     _predictiveBackHandler = PanelPredictiveBackHandler(
       isPanelOpen: () => _activePanel != OverlayPanel.closed || _emoteSheetOpen,
       onProgress: (progress) {
@@ -898,8 +903,25 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   @override
   void didHaveMemoryPressure() => _releaseDecodedImages();
 
+  bool _reportingStalls = false;
+
+  /// Reports each frame of [JankLog.stallMs] or more with what led up to it.
+  void _reportStalls(List<FrameTiming> timings) {
+    for (final t in timings) {
+      if (t.totalSpan.inMilliseconds < JankLog.stallMs) continue;
+      JankLog.stall(
+        startUs: t.timestampInMicroseconds(FramePhase.vsyncStart),
+        endUs: t.timestampInMicroseconds(FramePhase.rasterFinish),
+        buildMs: t.buildDuration.inMilliseconds,
+        rasterMs: t.rasterDuration.inMilliseconds,
+        extra: ' images=${PaintingBinding.instance.imageCache.currentSize}',
+      );
+    }
+  }
+
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    JankLog.note('app ${state.name}');
     if (state == AppLifecycleState.paused) {
       _releaseDecodedImages();
       // A paused app may be killed without warning; save stats, threads and
@@ -1442,6 +1464,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     }
     _signalUnsubs.clear();
     WidgetsBinding.instance.removeObserver(this);
+    if (_reportingStalls) {
+      WidgetsBinding.instance.removeTimingsCallback(_reportStalls);
+    }
     WidgetsBinding.instance.removeObserver(_predictiveBackHandler);
     _panelManager.dispose();
     _composer.dispose();

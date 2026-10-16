@@ -9,6 +9,7 @@ import '../panels/threads.dart';
 import '../services/notification_service.dart';
 import '../services/recent_messages.dart';
 import '../util/haptics.dart';
+import '../util/log.dart';
 import '../widgets/broadcast_widgets.dart';
 import 'channel_session.dart';
 
@@ -177,6 +178,7 @@ class ChannelManager {
       unawaited(notificationService.clearMentionNotifications(channel));
     }
     selectedTabIndex.value = index;
+    JankLog.note('switch $channel');
     session.focusChannel(channel);
   }
 
