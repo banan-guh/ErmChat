@@ -20,6 +20,15 @@ List<String> _dayMarkers(HistoryWindow w) => [
 ];
 
 void main() {
+  test('an older read into an empty window marks its rows', () {
+    // A list opening with nothing (mentions before any arrive) loads older
+    // rows into an empty window; marking ran past the rows and threw.
+    final w = HistoryWindow(now: () => _now, local: (t) => t);
+    w.reset(const []);
+    expect(w.prepend([_row(3), _row(2)]), 2);
+    expect(_dayMarkers(w), ['day 2']);
+  });
+
   test('markers and dedup hold across the seam of an older read', () {
     final w = HistoryWindow(now: () => _now, local: (t) => t);
     w.reset([_row(5), _row(4), _row(3)]);

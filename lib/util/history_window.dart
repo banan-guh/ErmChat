@@ -89,8 +89,8 @@ class HistoryWindow {
     final oldFirst = _base;
     _rows.insertAll(0, fresh);
     _base -= fresh.length;
-    // The old first row now has a predecessor.
-    _mark(_base, oldFirst + 1);
+    // The old first row, if there was one, now has a predecessor.
+    _mark(_base, oldFirst < end ? oldFirst + 1 : end);
     return fresh.length;
   }
 
