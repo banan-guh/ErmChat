@@ -1094,7 +1094,7 @@ class ArchiveStore {
   Future<void> _upkeep(DateTime now) async {
     await compact(now);
     await backfillRefs();
-    await strip();
+    await strip(now);
     await backfillWords();
   }
 
@@ -1102,6 +1102,12 @@ class ArchiveStore {
   /// the live buffer dedup by id, and replies and mod actions need them;
   /// past this only reply roots and parents keep theirs.
   static const int keepIdRows = 1000;
+
+  /// Rows this recent keep their ids past [keepIdRows], so a reply can reach
+  /// back through a day's stream, up to [keepIdMaxRows] per channel (about
+  /// 15 bytes each).
+  static const Duration keepIdAge = Duration(hours: 24);
+  static const int keepIdMaxRows = 100000;
 
   /// Records the reply parent and root ids of blocks sealed before they were
   /// kept at seal. Returns blocks done.
@@ -1133,9 +1139,11 @@ class ArchiveStore {
   }
 
   /// Drops message ids from blocks wholly past the newest [keepIdRows] rows
-  /// of their channel, keeping every id a reply references. A channel with
-  /// references not yet recorded waits. Returns blocks stripped.
-  Future<int> strip() async {
+  /// of their channel and older than [keepIdAge] (or past [keepIdMaxRows]),
+  /// keeping every id a reply references. A channel with references not yet
+  /// recorded waits. Returns blocks stripped.
+  Future<int> strip([DateTime? now]) async {
+    final recent = (now ?? _now()).subtract(keepIdAge).millisecondsSinceEpoch;
     var stripped = 0;
     final channels = await _db.rawQuery(
       'SELECT channel, MIN(refs) AS r FROM blocks GROUP BY channel',
@@ -1144,14 +1152,17 @@ class ArchiveStore {
       if (c['r'] != 1) continue;
       final channel = c['channel']! as String;
       final blocks = await _db.rawQuery(
-        'SELECT id, count, stripped FROM blocks WHERE channel = ? '
+        'SELECT id, count, stripped, end_ts FROM blocks WHERE channel = ? '
         'ORDER BY end_ts DESC, id DESC',
         [channel],
       );
       final targets = <int>[];
       var newer = 0;
       for (final b in blocks) {
-        if (newer >= keepIdRows && b['stripped'] == 0) {
+        final young = (b['end_ts']! as int) >= recent;
+        if (newer >= keepIdRows &&
+            (!young || newer >= keepIdMaxRows) &&
+            b['stripped'] == 0) {
           targets.add(b['id']! as int);
         }
         newer += b['count']! as int;

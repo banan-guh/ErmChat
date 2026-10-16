@@ -549,6 +549,11 @@ void main() {
       ].fold<int>(0, (a, b) => a + b);
       // Blocks of 256 from the newest: 220, 256, 256, 256 keep (988 rows
       // newer than the next), so only the oldest block is wholly past 1000.
+      expect(
+        await store.strip(_t0.add(const Duration(hours: 23))),
+        0,
+        reason: 'rows from the last day keep their ids',
+      );
       expect(await store.strip(), 1);
       final all = await rows(store);
       expect(all, hasLength(1500), reason: 'stripping lost rows');
