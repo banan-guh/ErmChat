@@ -88,7 +88,9 @@ class ModLoader<T extends Object> extends ChangeNotifier {
   String? get error => _error;
 
   /// Replaces the shown value without a request (optimistic edits).
+  /// A load still in flight is dropped, so it can't undo the edit.
   set value(T? next) {
+    _gen++;
     _value = next;
     notifyListeners();
   }
@@ -196,7 +198,8 @@ mixin ModTabState<W extends ModTabWidget> on State<W> {
   /// Runs [body] unless [key] is already running, rebuilding around it.
   Future<void> busy(String key, Future<void> Function() body) async {
     if (!_busy.add(key)) return;
-    setState(() {});
+    // A dialog can resume this after the tab is gone.
+    if (mounted) setState(() {});
     try {
       await body();
     } finally {

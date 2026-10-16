@@ -86,7 +86,7 @@ class _BannedSectionState extends State<BannedSection>
       mod.actions.unbanUser(mod.auth, mod.channel, login: login),
       done: mod.l10n.unbannedUser(login),
     );
-    if (!ok) return;
+    if (!ok || !mounted) return;
     final key = login.toLowerCase();
     _banned.value = [
       for (final ban in _banned.value ?? const <BannedUser>[])
