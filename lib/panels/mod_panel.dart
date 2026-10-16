@@ -259,7 +259,8 @@ class ModPanels {
         showNotice(modErrorText(result, strings()));
       }
     } finally {
-      termsAdding.value = false;
+      // Torn down mid-request, the notifier is already disposed.
+      if (isMounted()) termsAdding.value = false;
     }
   }
 

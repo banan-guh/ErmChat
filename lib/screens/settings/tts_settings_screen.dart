@@ -74,7 +74,7 @@ class _TtsSettingsScreenState extends State<TtsSettingsScreen> {
         }
       }
     }
-    setState(() => _enabled = value);
+    if (mounted) setState(() => _enabled = value);
     widget.ttsController?.setEnabled(value);
     unawaited(_persist((p) => p.setTtsEnabled(value)));
   }

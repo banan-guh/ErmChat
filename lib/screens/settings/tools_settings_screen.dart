@@ -49,7 +49,7 @@ class ToolsSettingsScreen extends StatelessWidget {
                 value: prefs.whatsNewEnabled,
                 onChanged: (v) async {
                   await prefs.setWhatsNewEnabled(v ?? true);
-                  setState(() {});
+                  if (sheetContext.mounted) setState(() {});
                 },
               ),
               CheckboxListTile(
@@ -57,7 +57,7 @@ class ToolsSettingsScreen extends StatelessWidget {
                 value: prefs.updateCheckEnabled,
                 onChanged: (v) async {
                   await prefs.setUpdateCheckEnabled(v ?? true);
-                  setState(() {});
+                  if (sheetContext.mounted) setState(() {});
                 },
               ),
             ],
