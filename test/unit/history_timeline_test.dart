@@ -242,6 +242,23 @@ void main() {
       expect(rail.countBetween(from, to), 6336);
     });
 
+    test('a weighted window shrinks empty days to a sliver', () {
+      final w = rail.window(from, to);
+      final empty =
+          w.positionOf(from.add(day * 3)) - w.positionOf(from.add(day));
+      expect(empty, lessThan(0.05), reason: 'two empty days');
+      final quiet = w.positionOf(to) - w.positionOf(from.add(day * 3));
+      expect(quiet, greaterThan(empty * 5), reason: 'a quiet day still counts');
+      for (final min in [0, 7, 1000, 4400, 5759]) {
+        final t = from.add(Duration(minutes: min));
+        expect(
+          w.timeAt(w.positionOf(t)).difference(t).inSeconds.abs(),
+          lessThanOrEqualTo(1),
+          reason: 'round trip drifted at minute $min',
+        );
+      }
+    });
+
     test('a window around a time stays inside the range', () {
       final w = TimeWindow.around(to, day * 2, from, to);
       expect(w.to, to);

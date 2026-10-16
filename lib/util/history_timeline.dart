@@ -270,6 +270,32 @@ class TimeWindow implements RailScale {
       from.add(Duration(milliseconds: (p.clamp(0.0, 1.0) * _ms).round()));
 }
 
+/// A stretch of an [ActivityRail] weighted by activity; see
+/// [ActivityRail.window].
+class _ActivityWindow implements RailScale {
+  _ActivityWindow(this.rail, this.from, this.to)
+    : _a = rail._weightAt(from),
+      _b = rail._weightAt(to);
+
+  final ActivityRail rail;
+  @override
+  final DateTime from;
+  @override
+  final DateTime to;
+  final double _a;
+  final double _b;
+
+  @override
+  double positionOf(DateTime t) =>
+      _b <= _a ? 0 : ((rail._weightAt(t) - _a) / (_b - _a)).clamp(0.0, 1.0);
+
+  @override
+  DateTime timeAt(double p) {
+    final t = rail._timeAtWeight(_a + p.clamp(0.0, 1.0) * (_b - _a));
+    return t.isBefore(from) ? from : (t.isAfter(to) ? to : t);
+  }
+}
+
 /// One local day of a rail: when it starts (to the bucket; the first day
 /// starts at the rail's start) and how many messages it holds.
 typedef RailDay = ({DateTime start, int day, int count});
@@ -292,11 +318,17 @@ class ActivityRail implements RailScale {
        _n = counts.length {
     final cum = Float64List(_n + 1);
     final sums = Int64List(_n + 1);
+    final weights = Float64List(_n + 1);
     var sum = 0;
+    var weight = 0.0;
     for (var i = 0; i < _n; i++) {
-      sum += counts[i];
+      final c = counts[i];
+      sum += c;
       sums[i + 1] = sum;
+      weight += c == 0 ? gapWeight : 1 + math.log(c);
+      weights[i + 1] = weight;
     }
+    _weights = weights;
     final total = sum == 0 ? 1 : sum;
     for (var i = 0; i <= _n; i++) {
       cum[i] = sums[i] / total;
@@ -308,6 +340,9 @@ class ActivityRail implements RailScale {
 
   /// Bucket width sources build rails with.
   static const Duration defaultBucket = Duration(minutes: 5);
+
+  /// Weight of an empty bucket in [window], against 1 for one message.
+  static const double gapWeight = 0.05;
 
   @override
   final DateTime from;
@@ -326,6 +361,9 @@ class ActivityRail implements RailScale {
 
   /// _sums[i] holds the messages before bucket i.
   late final Int64List _sums;
+
+  /// _weights[i] holds the activity weight before bucket i (see [window]).
+  late final Float64List _weights;
 
   int _indexOf(DateTime t) =>
       (t.difference(from).inMilliseconds / _bucketMs).floor();
@@ -363,6 +401,39 @@ class ActivityRail implements RailScale {
     }
     final span = _cum[lo + 1] - _cum[lo];
     final frac = span <= 0 ? 0.0 : (p - _cum[lo]) / span;
+    return from.add(Duration(milliseconds: ((lo + frac) * _bucketMs).round()));
+  }
+
+  /// [from]..[to] weighted by activity: each bucket as long as
+  /// `1 + ln(messages)`, an empty one [gapWeight], so quiet stretches shrink
+  /// to slivers and a release seldom lands in one.
+  RailScale window(DateTime from, DateTime to) =>
+      _ActivityWindow(this, from, to);
+
+  double _weightAt(DateTime t) {
+    final ms = t.difference(from).inMilliseconds;
+    if (ms <= 0) return 0;
+    final i = ms ~/ _bucketMs;
+    if (i >= _n) return _weights[_n];
+    final frac = (ms - i * _bucketMs) / _bucketMs;
+    return _weights[i] + (_weights[i + 1] - _weights[i]) * frac;
+  }
+
+  DateTime _timeAtWeight(double w) {
+    if (w <= 0) return from;
+    if (w >= _weights[_n]) return to;
+    var lo = 0;
+    var hi = _n;
+    while (hi - lo > 1) {
+      final mid = (lo + hi) >> 1;
+      if (_weights[mid] <= w) {
+        lo = mid;
+      } else {
+        hi = mid;
+      }
+    }
+    final span = _weights[lo + 1] - _weights[lo];
+    final frac = span <= 0 ? 0.0 : (w - _weights[lo]) / span;
     return from.add(Duration(milliseconds: ((lo + frac) * _bucketMs).round()));
   }
 

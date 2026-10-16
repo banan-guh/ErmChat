@@ -119,7 +119,7 @@ class _HistoryScrubberState extends State<HistoryScrubber>
   static const double _minHeight = 160;
 
   /// Bar center, in from the bar's right edge.
-  static const double _inset = 12;
+  static const double _inset = 18;
 
   /// Day row width.
   static const double _row = 44;

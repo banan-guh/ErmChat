@@ -1429,9 +1429,9 @@ class _HistoryViewState extends State<HistoryView> {
   }
 
   /// Picks the bar's scale for a viewport at [at]. A calendar rail shows
-  /// [HistoryScrubber.window] of plain time: the newest stretch while [at]
-  /// lies in it, otherwise the stretch around [at], kept until [at] leaves
-  /// it. A results rail is its own scale.
+  /// [HistoryScrubber.window], weighted by activity: the newest stretch while
+  /// [at] lies in it, otherwise the stretch around [at], kept until [at]
+  /// leaves it. A results rail is its own scale.
   void _fitScale(ActivityRail rail, DateTime at, {bool rebuilt = false}) {
     if (!rail.calendar) {
       _scale.value = rail;
@@ -1439,16 +1439,19 @@ class _HistoryViewState extends State<HistoryView> {
     }
     const length = HistoryScrubber.window;
     final cur = _scale.value;
-    final RailScale next;
+    final TimeWindow span;
     if (!at.isBefore(rail.to.subtract(length))) {
-      next = TimeWindow.around(rail.to, length, rail.from, rail.to);
-    } else if (!rebuilt && cur is TimeWindow && cur.contains(at)) {
+      span = TimeWindow.around(rail.to, length, rail.from, rail.to);
+    } else if (!rebuilt &&
+        !identical(cur, rail) &&
+        !at.isBefore(cur.from) &&
+        !at.isAfter(cur.to)) {
       return;
     } else {
-      next = TimeWindow.around(at, length, rail.from, rail.to);
+      span = TimeWindow.around(at, length, rail.from, rail.to);
     }
-    if (next.from != cur.from || next.to != cur.to || cur is! TimeWindow) {
-      _scale.value = next;
+    if (rebuilt || span.from != cur.from || span.to != cur.to) {
+      _scale.value = rail.window(span.from, span.to);
     }
   }
 

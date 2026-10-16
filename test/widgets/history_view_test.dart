@@ -283,9 +283,9 @@ Future<void> _scrub(WidgetTester tester, List<Offset> steps) async {
       .widget<HistoryScrubber>(find.byType(HistoryScrubber))
       .thumb
       .value;
-  final at = Offset(rail.right - 12, rail.top + 36 + y * (rail.height - 36));
-  // ignore: avoid_print
-  final grab = await tester.startGesture(at);
+  final grab = await tester.startGesture(
+    Offset(rail.right - 18, rail.top + 36 + y * (rail.height - 36)),
+  );
   for (final step in steps) {
     await grab.moveBy(step);
     await tester.pump(const Duration(milliseconds: 16));
