@@ -531,31 +531,32 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
       );
     }
 
-    // Compose all tints into one opaque row color (ripples draw above it).
+    // One tint per row, never a blend of several: a highlight rule's color,
+    // else an announcement's accent, else the first-message green. Ripples
+    // draw above it.
     var rowColor = widget.surface;
-    final tintAnchor = highlightAnchor(widget.surface);
-    if (msg.systemAccent != null) {
-      rowColor = accentRowColor(
-        msg.systemAccent!,
-        rowColor,
-        widget.highlightOpacity,
-      );
-    }
-    // One tint per row: a highlight's color replaces the first-message green
-    // instead of blending over it.
     final highlight = msg.highlight;
-    if (msg.isFirstMessage && !(highlight?.tinted ?? false)) {
-      final tint = matchTintContrast(Colors.green, rowColor, tintAnchor);
-      rowColor = Color.alphaBlend(
-        tint.withValues(alpha: widget.highlightOpacity),
-        rowColor,
-      );
-    }
     if (highlight != null && highlight.tinted) {
       rowColor = highlightRowColor(
         highlight,
         rowColor,
         opacity: widget.highlightOpacity,
+      );
+    } else if (msg.systemAccent != null) {
+      rowColor = accentRowColor(
+        msg.systemAccent!,
+        rowColor,
+        widget.highlightOpacity,
+      );
+    } else if (msg.isFirstMessage) {
+      final tint = matchTintContrast(
+        Colors.green,
+        rowColor,
+        highlightAnchor(widget.surface),
+      );
+      rowColor = Color.alphaBlend(
+        tint.withValues(alpha: widget.highlightOpacity),
+        rowColor,
       );
     }
     if (widget.checkeredMessages && widget.isAlternateBackground) {
