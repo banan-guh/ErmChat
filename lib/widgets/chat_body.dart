@@ -70,6 +70,7 @@ class ChatBody extends StatefulWidget {
     this.composer,
     this.bottomBar,
     this.sideAction,
+    this.islandFooter,
     this.notice,
     this.replyHeader,
     this.isInPip = false,
@@ -94,6 +95,10 @@ class ChatBody extends StatefulWidget {
   /// A tall action down the island's right edge, beside the field and the
   /// row (send, while the row stays up as you type). Fills its column.
   final Widget? sideAction;
+
+  /// A line at the island's foot across its full width, under the row and
+  /// the side action (the channel status). Hides with the row.
+  final Widget? islandFooter;
 
   /// Floats the composer as an island over the chat instead of docking it
   /// in flow. Rows slide underneath the frosted shell.
@@ -632,18 +637,21 @@ class _ChatBodyState extends State<ChatBody>
             heightFactor: _islandH > 0
                 ? (1 - _rowClip / _islandH).clamp(0.0, 1.0)
                 : 1,
-            child: widget.sideAction == null
-                ? Column(
-                    key: _islandKey,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [flowComposer, ?widget.bottomBar],
-                  )
-                // The side action runs the island's full height beside the
-                // field and the row. The column sets the height and the
-                // action fills it, with no intrinsic pass (the field's
-                // LayoutBuilder cannot answer one).
-                : Stack(
-                    key: _islandKey,
+            // The footer spans the island's full width under the side action,
+            // so centered text centers on the whole island.
+            child: Column(
+              key: _islandKey,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (widget.sideAction == null) ...[
+                  flowComposer,
+                  ?widget.bottomBar,
+                ] else
+                  // The side action runs beside the field and the row. The
+                  // column sets the height and the action fills it, with no
+                  // intrinsic pass (the field's LayoutBuilder cannot answer
+                  // one).
+                  Stack(
                     children: [
                       Padding(
                         padding: const EdgeInsets.only(right: _sideActionW),
@@ -661,6 +669,9 @@ class _ChatBodyState extends State<ChatBody>
                       ),
                     ],
                   ),
+                ?widget.islandFooter,
+              ],
+            ),
           ),
         ),
       ),
