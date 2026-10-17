@@ -121,21 +121,29 @@ class GlassSurface extends StatelessWidget {
 LiquidGlassSettings _barSettings(bool dark, double visibility) =>
     LiquidGlassSettings(
       thickness: 34,
-      // Low blur and a light tint keep the rows under the rim legible as
-      // bent rows, the refraction real glass shows.
-      blur: 4,
+      // A frost cloud with a faint copy of the rows showing through keeps
+      // the tabs readable over busy chat, while the rim still bends the
+      // rows; the tint darkens what the frost lets through.
+      blur: 1,
+      frost: 14,
+      frostOpacity: 0.8,
       refractiveIndex: 1.5,
       chromaticAberration: 0.02,
       lightIntensity: 0.6,
       fresnelStrength: 1.5,
-      glassColor: dark ? const Color(0x40000000) : const Color(0x40FFFFFF),
+      glassColor: dark ? const Color(0x59000000) : const Color(0x59FFFFFF),
       visibility: visibility,
     );
 
 /// The pill's material, shared by the small chrome tiles.
 const kGlassPillSettings = LiquidGlassSettings(
   thickness: 26,
-  blur: 3,
+  // Frosted like the header so card and menu text reads over chat; the
+  // dark tint holds contrast for light text in both themes' chat.
+  blur: 1,
+  frost: 14,
+  frostOpacity: 0.8,
+  glassColor: Color(0x4D000000),
   refractiveIndex: 1.5,
   chromaticAberration: 0.02,
   lightIntensity: 0.6,
