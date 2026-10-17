@@ -242,6 +242,9 @@ class _HistoryViewState extends State<HistoryView> {
   /// Items between viewport and anchor that trigger a re-anchor.
   static const int _reanchorItems = 400;
 
+  /// Rows landing at once, while following, that move the anchor to them.
+  static const int _catchUpItems = 60;
+
   /// Items the older sliver keeps so it always spans more than a viewport. The
   /// viewport floors its scroll max at the anchor, so a shorter older sliver
   /// would let the list scroll past the oldest row into empty space.
@@ -401,12 +404,14 @@ class _HistoryViewState extends State<HistoryView> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    final scale = MediaQuery.textScalerOf(context).scale(1.0);
     if (!_started) {
+      // Tiles cached at this scale stay valid; a mounted page clears them
+      // when the scale changes.
+      _systemScale = scale;
       _started = true;
       _start();
-    }
-    final scale = MediaQuery.textScalerOf(context).scale(1.0);
-    if (scale != _systemScale) {
+    } else if (scale != _systemScale) {
       _systemScale = scale;
       // Pixel-sized tiles would otherwise survive the scale change.
       widget.tileCache?.clear();
@@ -967,7 +972,7 @@ class _HistoryViewState extends State<HistoryView> {
       final from = w.end;
       w.append([for (var i = j; i >= 0; i--) rows[i]]);
       w.atNewest = true;
-      if (_followAnchorFar()) {
+      if (_followAnchorFar(batch: w.end - from)) {
         _rebuildItems();
       } else if (_anchor <= from) {
         _appendItems(from);
@@ -978,12 +983,16 @@ class _HistoryViewState extends State<HistoryView> {
   }
 
   /// While following, moves the anchor to the newest row once more than a
-  /// re-anchor's worth of rows sit past it. A batch of thousands (a history
-  /// restore landing on a page) would otherwise fill the newer sliver, and
-  /// pinning to the newest row lays out every one of them in one frame.
-  /// Returns whether it moved; the caller rebuilds the items.
-  bool _followAnchorFar() {
-    if (!_follow || _window.end - _anchor <= _reanchorItems) return false;
+  /// re-anchor's worth of rows sit past it, or a [batch] bigger than a
+  /// screen lands at once (a page catching up after sitting inactive).
+  /// Pinning to the newest row would otherwise lay out every row past the
+  /// anchor in one frame. Returns whether it moved; the caller rebuilds the
+  /// items.
+  bool _followAnchorFar({int batch = 0}) {
+    if (!_follow) return false;
+    if (batch <= _catchUpItems && _window.end - _anchor <= _reanchorItems) {
+      return false;
+    }
     _anchor = _window.end;
     return true;
   }
@@ -997,7 +1006,7 @@ class _HistoryViewState extends State<HistoryView> {
     w.append([for (var i = j; i >= 0; i--) rows[i]]);
     w.atNewest = true;
     _anchor = _anchor.clamp(w.first, w.end);
-    _followAnchorFar();
+    _followAnchorFar(batch: j + 1);
     _rebuildItems();
     // Equal-height changes leave the extents alone; this makes the viewport
     // run the physics anyway, so the hold applies.
