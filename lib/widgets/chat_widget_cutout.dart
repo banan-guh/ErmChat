@@ -288,7 +288,7 @@ class _RenderMeasureSize extends RenderProxyBox {
 }
 
 /// The cards' backing: glass in the glass layout, else an opaque rounded
-/// surface with Twitch's thin outline.
+/// surface in the chrome's tone, without an outline like the island.
 Widget _cardSurface(
   BuildContext context, {
   required bool glass,
@@ -308,10 +308,7 @@ Widget _cardSurface(
   return Material(
     // The top bar's color, so the cards read as part of the chrome.
     color: theme.colorScheme.surfaceContainer,
-    shape: RoundedRectangleBorder(
-      borderRadius: BorderRadius.circular(12),
-      side: BorderSide(color: theme.colorScheme.outlineVariant),
-    ),
+    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
     clipBehavior: Clip.antiAlias,
     child: child,
   );

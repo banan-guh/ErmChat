@@ -564,6 +564,8 @@ class TabbedLayoutState extends State<TabbedLayout>
                         ),
                       ),
                       indicatorSize: TabBarIndicatorSize.label,
+                      // No full-width divider; the strip's tone separates it.
+                      dividerHeight: 0,
                       tabs: [
                         for (var i = 0; i < tabs.length; i++)
                           Tab(
