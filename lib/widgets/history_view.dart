@@ -1402,8 +1402,8 @@ class _HistoryViewState extends State<HistoryView> {
     return _window.at(_viewportPos(pos.viewportDimension / 2))?.timestamp;
   }
 
-  /// A tapped day: its first rows near the top of the screen.
-  void _onDay(DateTime start) => _jumpTo(start, fraction: 0.9);
+  /// A time picked in the days, centered.
+  void _onPick(DateTime time) => _jumpTo(time, fraction: 0.5);
 
   // ---- Build ---------------------------------------------------------------
 
@@ -1673,7 +1673,7 @@ class _HistoryViewState extends State<HistoryView> {
                     rail: rail,
                     open: _panel,
                     viewTime: _viewTime,
-                    onDay: _onDay,
+                    onPick: _onPick,
                     glass: glass,
                   ),
           ),

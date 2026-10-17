@@ -260,9 +260,11 @@ bool _daysOpen(WidgetTester tester) =>
     find.byType(HistoryDays).evaluate().isNotEmpty &&
     tester.widget<HistoryDays>(find.byType(HistoryDays)).open.value;
 
-/// Taps the [i]th day row of the open days, from the end when negative.
-/// The rows stack from the panel's bottom, inside a 6px pad.
-Future<void> _tapDay(WidgetTester tester, int i) async {
+/// Opens the [i]th day of the open days (from the end when negative), then
+/// touches its bar at [at] (0 its start, 1 its end) and lets go. The rows
+/// stack from the panel's bottom, and the open bar fills it, inside a 6px
+/// pad.
+Future<void> _pickDay(WidgetTester tester, int i, double at) async {
   final panel = tester.getRect(find.byType(HistoryDays));
   final n = tester
       .widget<HistoryDays>(find.byType(HistoryDays))
@@ -273,6 +275,10 @@ Future<void> _tapDay(WidgetTester tester, int i) async {
   final row = i < 0 ? n + i : i;
   await tester.tapAt(
     Offset(panel.right - 20, panel.bottom - 6 - (n - row - 0.5) * dayH),
+  );
+  await _settle(tester);
+  await tester.tapAt(
+    Offset(panel.right - 20, panel.top + 6 + at * (panel.height - 12)),
   );
   await _settle(tester);
 }
@@ -559,7 +565,7 @@ void main() {
     expect(_items(tester).keys, before, reason: 'closing the days jumped');
     // The oldest row is the first day's.
     await _openDays(tester, calendar);
-    await _tapDay(tester, 0);
+    await _pickDay(tester, 0, 0);
     expect(
       _items(tester).keys,
       contains('$_ch-0'),
@@ -589,7 +595,7 @@ void main() {
         .rail
         .days
         .last;
-    await _tapDay(tester, -1);
+    await _pickDay(tester, -1, 0);
     final shown = _items(
       tester,
     ).keys.map((k) => FakeHistory.timeOf(_ch, int.parse(k.split('-').last)));
