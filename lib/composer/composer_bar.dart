@@ -328,16 +328,21 @@ class _StatusRow extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            if (status.isNotEmpty)
+            // One line reserved whether or not the channel has a status, so
+            // the island keeps its height across channels and the chat
+            // never moves when you switch.
+            if (showStatus)
               Padding(
                 padding: const EdgeInsets.only(left: 12, right: 12, bottom: 4),
                 child: Text(
-                  status,
+                  status.isEmpty ? ' ' : status,
                   style: TextStyle(
                     fontSize: 12,
                     color: Theme.of(context).colorScheme.onSurfaceVariant,
                   ),
                   textAlign: TextAlign.center,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
               ),
             if (hasLoadFailure)
