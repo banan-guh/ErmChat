@@ -64,6 +64,9 @@ class MessageInput extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final effectiveHint = hintText ?? context.l10n.typeMessageHint;
+    // An outline notches its label; a borderless field floats one only with
+    // no icons beside the text.
+    final floatLabel = !borderless || (buttonsInRow && !searchMode);
     // Compact trims the field height and padding. The emote and send
     // buttons keep the full 48pt circle: their slot is only as tall as the
     // field, and the circle spills into the padding around it.
@@ -112,10 +115,12 @@ class MessageInput extends StatelessWidget {
                   isDense: compact,
                   prefixIconConstraints: iconConstraints,
                   suffixIconConstraints: iconConstraints,
-                  // Borderless glass mode uses a hint (always centered) instead
-                  // of a label (which sits high with no outline to notch into).
-                  labelText: borderless ? null : effectiveHint,
-                  hintText: borderless ? effectiveHint : null,
+                  // With its buttons in the row, the chat field's label floats
+                  // into the island's corner as you type, like a filled field.
+                  // Beside in-field icons a floated label would drop the text
+                  // off their centerline, so those keep a plain hint.
+                  labelText: floatLabel ? effectiveHint : null,
+                  hintText: floatLabel ? null : effectiveHint,
                   hintMaxLines: 1,
                   border: borderless
                       ? InputBorder.none
@@ -125,10 +130,14 @@ class MessageInput extends StatelessWidget {
                   // off would not restore the normal border.
                   enabledBorder: borderless ? InputBorder.none : null,
                   focusedBorder: borderless ? InputBorder.none : null,
+                  // A floated label needs room above the text, so that field
+                  // trims its vertical padding to make it.
                   contentPadding: borderless
                       ? EdgeInsets.symmetric(
                           horizontal: 16,
-                          vertical: compact ? 8 : 12,
+                          vertical: floatLabel
+                              ? (compact ? 4 : 8)
+                              : (compact ? 8 : 12),
                         )
                       : null,
                   prefixIcon:
