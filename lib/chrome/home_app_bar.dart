@@ -237,19 +237,21 @@ class HomeAppBar {
     );
   }
 
-  /// The island's button row: the chrome buttons on the left, [trailing]
-  /// (the composer's emote and send) on the right. The island draws the
-  /// surface, so the row is bare. [withMenu] adds the view menu, for when
-  /// the strip that holds it is hidden.
+  /// The island's button row: [leading] (the composer's emote button) and
+  /// the chrome buttons on the left, [trailing] (send) on the right. The
+  /// island draws the surface, so the row is bare. [withMenu] adds the view
+  /// menu, for when the strip that holds it is hidden.
   Widget bottomBar(
     BuildContext context, {
     bool glass = false,
+    Widget? leading,
     List<Widget> trailing = const [],
     bool withMenu = false,
     VoidCallback? onCalendar,
   }) {
     final row = Row(
       children: [
+        ?leading,
         settingsButton(context),
         overflowMenu(context, glass: glass),
         threadsButton(context),
@@ -260,7 +262,8 @@ class HomeAppBar {
       ],
     );
     // Narrow islands tighten the 48pt buttons so the row still fits.
-    final count = 4 + (withMenu ? 1 : 0) + trailing.length;
+    final count =
+        4 + (withMenu ? 1 : 0) + (leading == null ? 0 : 1) + trailing.length;
     final fitted = LayoutBuilder(
       builder: (context, constraints) => constraints.maxWidth >= count * 48
           ? row

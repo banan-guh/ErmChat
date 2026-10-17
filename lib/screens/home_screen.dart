@@ -1900,21 +1900,22 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                       _chrome.bottomBar(
                         context,
                         glass: glass,
+                        leading: buttonsInRow
+                            ? ComposerRowButton.emote(
+                                controller: _composer,
+                                search: _search,
+                                mod: _mod,
+                                dragTick: _panelDragTick,
+                              )
+                            : null,
                         trailing: [
-                          if (buttonsInRow) ...[
-                            ComposerRowButton.emote(
-                              controller: _composer,
-                              search: _search,
-                              mod: _mod,
-                              dragTick: _panelDragTick,
-                            ),
+                          if (buttonsInRow)
                             ComposerRowButton.send(
                               controller: _composer,
                               search: _search,
                               mod: _mod,
                               dragTick: _panelDragTick,
                             ),
-                          ],
                         ],
                         // Fullscreen hides the strip, which holds the view
                         // menu.
