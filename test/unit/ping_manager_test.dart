@@ -470,6 +470,33 @@ void main() {
       'b',
       'a',
     ], reason: 'other rules keep their slots');
+
+    // Tint-only rules from different lists rank by their list's type, not
+    // by which was stored first.
+    final t = await makeManager();
+    for (final rule in const [
+      PingRule(
+        id: 'u',
+        kind: PingRuleKind.user,
+        pattern: 'otheruser',
+        colorArgb: 0xFF333333,
+        mention: false,
+      ),
+      PingRule(
+        id: 'k',
+        kind: PingRuleKind.message,
+        pattern: 'pog',
+        colorArgb: 0xFF444444,
+        mention: false,
+      ),
+    ]) {
+      t.upsertRule(rule);
+    }
+    expect(
+      t.evaluate(msg('pog'))?.customColor,
+      const Color(0xFF444444),
+      reason: 'a tint-only keyword outranks a tint-only user rule',
+    );
   });
 
   test('system highlights outrank colored user rules', () async {

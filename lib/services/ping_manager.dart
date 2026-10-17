@@ -212,13 +212,17 @@ class PingManager extends ChangeNotifier {
     final colors = <HighlightType, Color>{};
     String? lowerText;
 
-    void add(PingRule rule, HighlightType type) {
+    // [rank] is the rule's own list type, which decides its color's priority
+    // even when [type] files a tint-only rule as plain tint, so the type
+    // ladder, never storage order, picks between lists.
+    void add(PingRule rule, HighlightType type, [HighlightType? rank]) {
       types.add(type);
       if (rule.notify && rule.mention) notify = true;
       if (!rule.tint) return;
-      tinting.add(type);
+      final r = rank ?? type;
+      tinting.add(r);
       final argb = rule.colorArgb;
-      if (argb != null) colors.putIfAbsent(type, () => Color(argb));
+      if (argb != null) colors.putIfAbsent(r, () => Color(argb));
     }
 
     for (final rule in _rules) {
@@ -231,6 +235,7 @@ class PingManager extends ChangeNotifier {
                 add(
                   rule,
                   rule.mention ? HighlightType.username : HighlightType.tint,
+                  HighlightType.username,
                 );
               }
             case 'reply':
@@ -238,6 +243,7 @@ class PingManager extends ChangeNotifier {
                 add(
                   rule,
                   rule.mention ? HighlightType.reply : HighlightType.tint,
+                  HighlightType.reply,
                 );
               }
             case 'thread':
@@ -245,6 +251,7 @@ class PingManager extends ChangeNotifier {
                 add(
                   rule,
                   rule.mention ? HighlightType.reply : HighlightType.tint,
+                  HighlightType.reply,
                 );
               }
             case 'custom':
@@ -253,6 +260,7 @@ class PingManager extends ChangeNotifier {
                 add(
                   rule,
                   rule.mention ? HighlightType.custom : HighlightType.tint,
+                  HighlightType.custom,
                 );
               }
             case 'redemption':
@@ -269,7 +277,11 @@ class PingManager extends ChangeNotifier {
           }
         case PingRuleKind.user:
           if (_matchesUser(rule, msg.login)) {
-            add(rule, rule.mention ? HighlightType.user : HighlightType.tint);
+            add(
+              rule,
+              rule.mention ? HighlightType.user : HighlightType.tint,
+              HighlightType.user,
+            );
           }
         case PingRuleKind.badge:
           final badges = msg.badges;
@@ -290,7 +302,9 @@ class PingManager extends ChangeNotifier {
       types: types,
       customColor: colors[primary],
       notify: notify,
-      tinting: tinting.length == types.length ? null : tinting,
+      tinting: tinting.length == types.length && tinting.containsAll(types)
+          ? null
+          : tinting,
     );
   }
 
