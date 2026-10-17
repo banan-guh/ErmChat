@@ -473,6 +473,10 @@ class Messages {
 
   // ---- System lines --------------------------------------------------------
 
+  /// Set by the first Connected. Outlives its row, which a busy channel
+  /// truncates away, so a later connect still reads as a reconnect.
+  bool _connectedOnce = false;
+
   /// Inserts a connect-state row at the top with status folding: a repeat
   /// connect reads as Reconnected, recoveries clear the outage marker, and
   /// flapping folds. [status] is one of the four connect lines. Returns false
@@ -480,7 +484,8 @@ class Messages {
   bool addConnStatus(SystemLine status) {
     assert(status.index <= SystemLine.reconnecting.index);
     var resolved = status;
-    if (resolved == SystemLine.connected && _items.any(_isConnRow)) {
+    if (resolved == SystemLine.connected &&
+        (_connectedOnce || _items.any(_isConnRow))) {
       resolved = SystemLine.reconnected;
     }
     final top = _items.isEmpty ? null : _items.first;
@@ -527,6 +532,7 @@ class Messages {
     // The first connect names the account just under it; anonymous
     // sessions resolve the line to empty and skip it.
     if (resolved == SystemLine.connected) {
+      _connectedOnce = true;
       final signedIn = systemText(SystemLine.signedIn);
       if (signedIn.isNotEmpty) {
         _insertSystem(

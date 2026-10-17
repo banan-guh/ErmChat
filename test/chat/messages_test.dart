@@ -632,6 +632,20 @@ void main() {
         'as me',
       ], reason: 'Connected stays newest with the account line under it');
 
+      // Busy chat truncated the first Connected away; the next connect
+      // re-posted it with a second "signed in" row.
+      for (var i = 0; i < 300; i++) {
+        rows.add(
+          TwitchMessage(login: 'a', text: 'm$i', messageId: 'id$i'),
+          maxMessages: 100,
+        );
+      }
+      expect(rows.items.where((m) => m.isSystem), isEmpty);
+      rows.addConnStatus(SystemLine.connected);
+      expect(rows.items.where((m) => m.isSystem).map((m) => m.text), [
+        'reconnected',
+      ], reason: 'the account line posts once per session');
+
       final loading = chat.ensure('loading');
       loading.addLoadingHistory();
       loading.messages.items.first.text = 'Renamed';
