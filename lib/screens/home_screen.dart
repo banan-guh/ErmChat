@@ -266,7 +266,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 
   /// Mirror of the live system UI mode, so redundant SystemChrome calls are
   /// skipped while a forced re-apply (app resume) stays explicit.
-  bool _immersive = false;
+  _SystemBars _bars = _SystemBars.all;
 
   /// Whether the chat input box + status row is shown. Persisted.
   bool _showInput = true;
@@ -1518,7 +1518,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     _channelManager.dispose();
     _session.version.removeListener(_onSessionApplied);
     _notificationTapSub?.cancel();
-    if (_immersive) {
+    if (_bars != _SystemBars.all) {
       SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     }
     super.dispose();
@@ -1561,20 +1561,39 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     // Phones in landscape go fullscreen on their own: every row of height
     // counts. Tablets keep the system bars, since landscape is their default.
     final size = MediaQuery.maybeSizeOf(context);
-    final phoneLandscape =
-        MediaQuery.maybeOrientationOf(context) == Orientation.landscape &&
-        size != null &&
-        size.shortestSide < 600;
+    final landscape =
+        MediaQuery.maybeOrientationOf(context) == Orientation.landscape;
+    final phoneLandscape = landscape && size != null && size.shortestSide < 600;
     final immersive =
         _isFullscreen ||
         phoneLandscape ||
-        (_streamPlayer.isTheaterMode &&
-            MediaQuery.maybeOrientationOf(context) == Orientation.landscape);
-    if (immersive == _immersive && !force) return;
-    _immersive = immersive;
-    SystemChrome.setEnabledSystemUIMode(
-      immersive ? SystemUiMode.immersiveSticky : SystemUiMode.edgeToEdge,
-    );
+        (_streamPlayer.isTheaterMode && landscape);
+    // A stream stacked on top (portrait, under the split width) runs to the
+    // screen's top edge, so the status bar steps aside instead of covering it.
+    final stackedStream =
+        _streamPlayer.currentChannel != null &&
+        !_streamPlayer.isInPip &&
+        !landscape &&
+        size != null &&
+        size.width < 600;
+    final bars = immersive
+        ? _SystemBars.none
+        : stackedStream
+        ? _SystemBars.noStatus
+        : _SystemBars.all;
+    if (bars == _bars && !force) return;
+    _bars = bars;
+    switch (bars) {
+      case _SystemBars.none:
+        SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+      case _SystemBars.noStatus:
+        SystemChrome.setEnabledSystemUIMode(
+          SystemUiMode.manual,
+          overlays: const [SystemUiOverlay.bottom],
+        );
+      case _SystemBars.all:
+        SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+    }
   }
 
   void _toggleInputVisibility() => setShowInput(!_showInput);
@@ -1966,3 +1985,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     );
   }
 }
+
+/// Which system bars show: all, all but the status bar, or none.
+enum _SystemBars { all, noStatus, none }

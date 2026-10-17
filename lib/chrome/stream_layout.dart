@@ -491,6 +491,7 @@ class StreamPanels {
               : null,
           glassHeaderHeight: glassChatOnly ? headerH : 0,
           glassTopPadding: glassChatOnly ? headerH : 0,
+          underStream: channel != null,
         ),
       ],
     );

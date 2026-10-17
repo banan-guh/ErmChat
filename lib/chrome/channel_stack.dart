@@ -444,12 +444,14 @@ class ChannelPanels {
     Widget? glassHeader,
     double glassHeaderHeight = 0,
     double glassTopPadding = 0,
+    bool underStream = false,
   }) {
     return Expanded(
       child: channelStack(
         context,
         hideChrome: hideChrome,
         merged: merged,
+        underStream: underStream,
         belowTabBar: belowTabBar,
         glassOverlay: glassOverlay,
         glassChrome: glassChrome,
@@ -470,6 +472,7 @@ class ChannelPanels {
     Widget? glassHeader,
     double glassHeaderHeight = 0,
     double glassTopPadding = 0,
+    bool underStream = false,
   }) {
     _dropStaleCaches();
     // The stream dropdown floats over the pages, anchored below the strip.
@@ -544,7 +547,10 @@ class ChannelPanels {
                     // below the strip.
                     addTab: merged ? homeAppBar.joinTab() : null,
                     onAddTab: homeAppBar.onJoinTab,
-                    stripTopInset: merged ? statusBarHeight(context) : 0,
+                    // A stream above the strip already sits at the top.
+                    stripTopInset: merged && !underStream
+                        ? statusBarHeight(context)
+                        : 0,
                     belowTabBar: belowTabBar,
                     glassOverlay: glassOverlay,
                     headerOverlay: glassHeader,
