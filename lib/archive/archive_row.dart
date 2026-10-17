@@ -1,3 +1,7 @@
+/// An edit the archive applies to a row already sealed into a block:
+/// `remove` drops the row, `deleted` sets its deleted flag.
+enum ArchiveEdit { remove, deleted }
+
 /// A Twitch emote occurrence: id plus position in the message text.
 /// The emote code is derivable from the text, so it is not stored.
 class ArchiveEmote {
@@ -103,6 +107,35 @@ class ArchiveRow {
 
   /// Tags no field above covers, kept so unknown data is never lost.
   final List<(String, String)> extraTags;
+
+  /// This row with its deleted flag set. Used when the archive bakes a
+  /// pending edit into a sealed block.
+  ArchiveRow asDeleted() => ArchiveRow(
+    timestampMs: timestampMs,
+    text: text,
+    user: user,
+    isSystem: isSystem,
+    isAction: isAction,
+    isBanNotice: isBanNotice,
+    deleted: true,
+    isFirstMessage: isFirstMessage,
+    isBackfill: isBackfill,
+    isHistory: isHistory,
+    messageId: messageId,
+    replyParentId: replyParentId,
+    threadRootId: threadRootId,
+    replyToUser: replyToUser,
+    msgId: msgId,
+    customRewardId: customRewardId,
+    bitsAmount: bitsAmount,
+    pinnedPaidAmount: pinnedPaidAmount,
+    sourceBroadcasterId: sourceBroadcasterId,
+    sourceMessageId: sourceMessageId,
+    emotes: emotes,
+    tokens: tokens,
+    tokensStored: tokensStored,
+    extraTags: extraTags,
+  );
 
   /// This row with its message id dropped unless [keep], and its shared-chat
   /// source id dropped. Reply references stay so replies still find kept

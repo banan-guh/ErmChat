@@ -154,8 +154,14 @@ class ArchiveReader {
     if (store == null || limit <= 0) {
       return const [];
     }
+    final edits = await store.edits(channel);
     final blocks = await store.newestBlocks(channel, limit);
-    final decoded = await _decodeAll(channel, blocks, asHistory: true);
+    final decoded = await _decodeAll(
+      channel,
+      blocks,
+      asHistory: true,
+      edits: edits,
+    );
     final rows = [for (final b in decoded) ...b.rows];
     _sortStable(rows);
     return rows.length > limit ? rows.sublist(rows.length - limit) : rows;
@@ -172,13 +178,14 @@ class ArchiveReader {
     if (store == null) {
       return const [];
     }
+    final edits = await store.edits(channel);
     final blocks = await store.blocksAround(
       channel,
       time.millisecondsSinceEpoch,
       before,
       after,
     );
-    return _decodeAll(channel, blocks);
+    return _decodeAll(channel, blocks, edits: edits);
   }
 
   /// Rows of every block at [time] plus [before] blocks older and [after]
@@ -194,6 +201,7 @@ class ArchiveReader {
     if (store == null) {
       return const [];
     }
+    final edits = await store.edits(channel);
     final near = await store.blocksNear(
       channel,
       time.millisecondsSinceEpoch,
@@ -210,7 +218,7 @@ class ArchiveReader {
     }
 
     final rows = [
-      for (final b in await _decodeAll(channel, near.blocks))
+      for (final b in await _decodeAll(channel, near.blocks, edits: edits))
         for (final m in b.rows)
           if (inRange(m)) m,
       for (final m in unsealed(channel))
@@ -222,11 +230,13 @@ class ArchiveReader {
 
   Future<ArchiveWindowBlock?> blockAt(String channel, int blockKey) async {
     final store = await _store;
-    final block = await store?.blockAt(channel, blockKey);
+    if (store == null) return null;
+    final edits = await store.edits(channel);
+    final block = await store.blockAt(channel, blockKey);
     if (block == null) {
       return null;
     }
-    final decoded = await _decodeAll(channel, [block]);
+    final decoded = await _decodeAll(channel, [block], edits: edits);
     return decoded.isEmpty ? null : decoded.first;
   }
 
@@ -287,6 +297,7 @@ class ArchiveReader {
     List<StoredBlock> blocks, {
     bool asHistory = false,
     ArchiveRowFilter? keep,
+    Map<String, ArchiveEdit>? edits,
   }) async {
     if (blocks.isEmpty) {
       return const [];
@@ -310,6 +321,7 @@ class ArchiveReader {
     }
     final all = cleared[null] ?? const [];
     final defs = await _defsFor(channel, decoded);
+    final pending = edits ?? await store.edits(channel);
     final out = <ArchiveWindowBlock>[];
     for (var i = 0; i < blocks.length; i++) {
       final rows = decoded[i];
@@ -318,19 +330,23 @@ class ArchiveReader {
         logDebug('[ArchiveReader] skipped damaged block ${b.key}');
         continue;
       }
-      final messages = [
-        for (final r in rows)
-          adapter.fromRow(r, channel, asHistory: asHistory, defs: defs),
-      ];
-      for (final m in messages) {
+      final messages = <TwitchMessage>[];
+      for (final r in rows) {
+        final edit = r.messageId == null ? null : pending[r.messageId];
+        if (edit == ArchiveEdit.remove) continue;
+        final m = adapter.fromRow(r, channel, asHistory: asHistory, defs: defs);
         // The reconnect grey marks a catch-up in the session it happened.
         m.isBackfill = false;
-        if (m.isSystem || m.deleted || cleared.isEmpty) continue;
-        final ts = m.timestamp.millisecondsSinceEpoch;
-        bool hit(({int fromTs, int toTs}) c) => ts >= c.fromTs && ts <= c.toTs;
-        if (all.any(hit) || (cleared[m.login]?.any(hit) ?? false)) {
-          m.deleted = true;
+        if (edit == ArchiveEdit.deleted) m.deleted = true;
+        if (!m.isSystem && !m.deleted && cleared.isNotEmpty) {
+          final ts = m.timestamp.millisecondsSinceEpoch;
+          bool hit(({int fromTs, int toTs}) c) =>
+              ts >= c.fromTs && ts <= c.toTs;
+          if (all.any(hit) || (cleared[m.login]?.any(hit) ?? false)) {
+            m.deleted = true;
+          }
         }
+        messages.add(m);
       }
       _sortStable(messages);
       out.add(
@@ -460,6 +476,7 @@ class ArchiveReader {
       }
       final batch = blocks.sublist(i, min(i + n, blocks.length));
       for (final c in {for (final b in batch) b.channel}) {
+        final edits = await store.edits(c);
         final stored = await store.blocksByKey([
           for (final b in batch)
             if (b.channel == c) b.id,
@@ -472,7 +489,7 @@ class ArchiveReader {
           fromMs: forward ? afterMs : _bound(afterMs, e, max),
           toMs: forward ? _bound(lastMs, e, min) : lastMs,
         );
-        for (final d in await _decodeAll(c, stored, keep: keep)) {
+        for (final d in await _decodeAll(c, stored, keep: keep, edits: edits)) {
           out.addAll(d.rows.where(hit));
         }
       }

@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:ermchat/archive/archive_block.dart';
+import 'package:ermchat/archive/archive_row.dart';
 import 'package:ermchat/archive/archive_users.dart';
 import 'package:ermchat/color_utils.dart';
 import 'package:ermchat/emotes/emote.dart';
@@ -406,9 +407,10 @@ void main() {
     writer.add(_channel, _msg(0));
     await writer.flush();
     await store.close();
-    // Back to schema 3: no emote_defs table, no block upkeep flags.
+    // Back to schema 3: no emote_defs table, no block upkeep flags, no edits.
     final db = await databaseFactoryFfi.openDatabase(path);
     await db.execute('DROP TABLE emote_defs');
+    await db.execute('DROP TABLE edits');
     await db.execute('ALTER TABLE blocks DROP COLUMN refs');
     await db.execute('ALTER TABLE blocks DROP COLUMN stripped');
     await db.execute('DROP TABLE vocab');
@@ -1093,6 +1095,196 @@ void main() {
       reason: 'row 6 is after the ban; alice rows 1-5 were never deleted',
     );
     await store.close();
+  });
+
+  group('edits', () {
+    test('a pending edit applies on read', () async {
+      final store = await _open(_newPath());
+      final writer = _writer(store, sealCount: 4);
+      for (var i = 0; i < 8; i++) {
+        writer.add(_channel, _msg(i));
+      }
+      await writer.flush();
+      await store.addEdit(_channel, _id(1), ArchiveEdit.remove);
+      await store.addEdit(_channel, _id(2), ArchiveEdit.deleted);
+
+      final rows = await _reader(store).newestRows(_channel, 100);
+      expect(
+        [for (final m in rows) m.messageId],
+        [
+          for (final i in [0, 2, 3, 4, 5, 6, 7]) _id(i),
+        ],
+        reason: 'the removed row is gone',
+      );
+      expect(
+        rows.firstWhere((m) => m.messageId == _id(2)).deleted,
+        isTrue,
+        reason: 'the deleted row keeps its place',
+      );
+      await store.close();
+    });
+
+    test('upkeep bakes pending edits and clears the table', () async {
+      final store = await _open(_newPath());
+      final writer = _writer(store, sealCount: 4);
+      for (var i = 0; i < 8; i++) {
+        writer.add(_channel, _msg(i));
+      }
+      await writer.flush();
+      await store.addEdit(_channel, _id(1), ArchiveEdit.remove);
+      await store.addEdit(_channel, _id(2), ArchiveEdit.deleted);
+      // An id no block holds must not keep the table alive.
+      await store.addEdit(_channel, _id(99), ArchiveEdit.deleted);
+
+      final counts = [
+        for (final b in await store.newestBlocks(_channel, 100)) b.count,
+      ].fold<int>(0, (a, b) => a + b);
+      final minutes = await _reader(
+        store,
+      ).minuteCounts(_channel, _t0, _t0.add(const Duration(hours: 1)));
+      final minutesBefore = minutes.fold<int>(0, (n, m) => n + m.count);
+      expect(await store.bakeEdits(), 2, reason: 'two ids were in blocks');
+      expect(await store.edits(_channel), isEmpty, reason: 'the table cleared');
+      expect(
+        [
+          for (final b in await store.newestBlocks(_channel, 100)) b.count,
+        ].fold<int>(0, (a, b) => a + b),
+        counts - 1,
+        reason: 'the removed row left the block count',
+      );
+      expect(
+        (await _reader(store).minuteCounts(
+          _channel,
+          _t0,
+          _t0.add(const Duration(hours: 1)),
+        )).fold<int>(0, (n, m) => n + m.count),
+        minutesBefore - 1,
+        reason: 'the removed row left its minute bucket',
+      );
+      // No pending edit remains, so a read shows the baked block itself.
+      final rows = await _reader(store).newestRows(_channel, 100);
+      expect(rows.any((m) => m.messageId == _id(1)), isFalse);
+      expect(rows.firstWhere((m) => m.messageId == _id(2)).deleted, isTrue);
+      expect(await store.bakeEdits(), 0, reason: 'nothing left to bake');
+
+      await store.addEdits(_channel, [
+        for (var i = 4; i < 8; i++) _id(i),
+      ], ArchiveEdit.remove);
+      await store.bakeEdits();
+      expect(
+        await store.newestBlocks(_channel, 100),
+        hasLength(1),
+        reason: 'a block emptied by edits is deleted',
+      );
+      await store.close();
+    });
+
+    test('baking keeps an edit for an id the writer still holds', () async {
+      final store = await _open(_newPath());
+      final writer = _writer(store);
+      writer.add(_channel, _msg(0));
+      await writer.flush();
+      await store.addEdit(_channel, _id(99), ArchiveEdit.deleted);
+
+      expect(
+        await store.bakeEdits(held: (_) => {_id(99)}),
+        0,
+        reason: 'a held id was baked',
+      );
+      expect(
+        await store.edits(_channel),
+        hasLength(1),
+        reason: 'a sealing id was cleared',
+      );
+      expect(await store.bakeEdits(held: (_) => const {}), 0);
+      expect(
+        await store.edits(_channel),
+        isEmpty,
+        reason: 'an unheld, absent id must clear',
+      );
+      await store.close();
+    });
+
+    test('an id in a seal still writing is not cleared', () async {
+      final store = await _open(_newPath());
+      final gate = Completer<void>();
+      final writer = ArchiveWriter(
+        Future.value(store),
+        sealCount: 2,
+        encode: (rows) async {
+          await gate.future;
+          return ArchiveBlock.encode(rows);
+        },
+      );
+      // Warm the tables, then a second row seals both into a block.
+      writer.add(_channel, _msg(0));
+      await writer.settled();
+      writer.add(_channel, _msg(1));
+      // Let the seal reach the encoder, so the rows live only in the seal.
+      await Future<void>.delayed(Duration.zero);
+      await writer.recordEdit(_channel, _id(1), ArchiveEdit.deleted);
+      expect(
+        await store.edits(_channel),
+        hasLength(1),
+        reason: 'a sealing row must take a store edit',
+      );
+      await store.bakeEdits(held: writer.heldIds);
+      expect(
+        await store.edits(_channel),
+        hasLength(1),
+        reason: 'the edit for a sealing row was cleared before it committed',
+      );
+      gate.complete();
+      await writer.settled();
+      await store.close();
+    });
+
+    test('an edit on a row still in the tail changes it there', () async {
+      final store = await _open(_newPath());
+      final writer = _writer(store);
+      for (var i = 0; i < 3; i++) {
+        writer.add(_channel, _msg(i));
+      }
+      await writer.settled();
+      await writer.recordEdit(_channel, _id(1), ArchiveEdit.remove);
+      await writer.recordEdit(_channel, _id(2), ArchiveEdit.deleted);
+      expect(
+        [for (final m in writer.unsealed(_channel)) m.messageId],
+        [_id(0), _id(2)],
+        reason: 'the removed tail row left before any seal',
+      );
+      expect(writer.unsealed(_channel).last.deleted, isTrue);
+      await writer.flush();
+      expect(
+        await store.edits(_channel),
+        isEmpty,
+        reason: 'a tail row needs no store edit',
+      );
+      final rows = await _reader(store).newestRows(_channel, 10);
+      expect([for (final m in rows) m.messageId], [_id(0), _id(2)]);
+      expect(rows.last.deleted, isTrue);
+      await store.close();
+    });
+
+    test('a schema 6 archive upgrades and takes edits', () async {
+      final path = _newPath();
+      var store = await _open(path);
+      final writer = _writer(store);
+      writer.add(_channel, _msg(0));
+      await writer.flush();
+      await store.close();
+      // Back to schema 6: no edits table.
+      final db = await databaseFactoryFfi.openDatabase(path);
+      await db.execute('DROP TABLE edits');
+      await db.setVersion(6);
+      await db.close();
+
+      store = await _open(path);
+      await store.addEdit(_channel, _id(0), ArchiveEdit.deleted);
+      final rows = await _reader(store).newestRows(_channel, 10);
+      expect(rows.single.deleted, isTrue, reason: 'the migrated table works');
+      await store.close();
+    });
   });
 
   test('block encode, write and read timings', () async {

@@ -444,14 +444,17 @@ void main() {
     List<TwitchMessage> fetch(int from, int to) => [
       for (var i = from; i < to; i++) row('r$i', i),
     ];
-    List<TwitchMessage> merge(Chat chat, List<TwitchMessage> rows) =>
-        chat.receiveHistory(
-          'test',
-          rows,
-          rawHistory: rows,
-          maxMessages: 100,
-          ownLogin: null,
-        );
+    List<TwitchMessage> merge(Chat chat, List<TwitchMessage> rows) {
+      final outcome = chat.receiveHistory(
+        'test',
+        rows,
+        rawHistory: rows,
+        maxMessages: 100,
+        ownLogin: null,
+      );
+      return outcome.inserted;
+    }
+
     List<TwitchMessage> notes(Chat chat) => [
       for (final m in chat.channelFor('test')!.messages.items)
         if (m.messageId?.startsWith(Messages.historyGapIdPrefix) ?? false) m,

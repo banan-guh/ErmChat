@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:path_provider/path_provider.dart';
 
+import '../archive/archive_row.dart';
 import '../util/log.dart';
 import 'archive_reader.dart';
 import 'archive_store.dart';
@@ -78,6 +79,21 @@ class Archive {
         to.millisecondsSinceEpoch,
       ),
     );
+  }
+
+  /// Records an edit of every id in [messageIds] in one store transaction: drop
+  /// them or mark them deleted. A row still in the writer's tail changes there.
+  /// Never throws.
+  Future<void> recordEdits(
+    String channel,
+    Iterable<String> messageIds,
+    ArchiveEdit edit,
+  ) async {
+    try {
+      await writer.recordEdits(channel, messageIds, edit);
+    } catch (e) {
+      logDebug('[Archive] edits failed: $e');
+    }
   }
 
   Future<void> _quiet(Future<void> Function(ArchiveStore s) write) async {

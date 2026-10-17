@@ -88,7 +88,7 @@ class _ChannelTables {
 class ArchiveStore {
   ArchiveStore._(this._db, this._now);
 
-  static const int schemaVersion = 6;
+  static const int schemaVersion = 7;
   static const Duration retention = Duration(days: 30);
   static const Duration pruneEvery = Duration(hours: 1);
 
@@ -171,6 +171,7 @@ class ArchiveStore {
     await _createEmoteDefs(db);
     await _addBlockFlags(db);
     await _createSearchIndex(db);
+    await _createEdits(db);
   }
 
   /// Saved threads live in their own tables, so block retention never
@@ -237,6 +238,14 @@ class ArchiveStore {
     await db.execute('ALTER TABLE blocks ADD COLUMN senders BLOB');
   }
 
+  /// Edits for rows already sealed, keyed by channel and message id: `remove`
+  /// drops the row, `deleted` sets its deleted flag. A read applies them on
+  /// decode; upkeep bakes them into the blocks and clears them.
+  static Future<void> _createEdits(Database db) =>
+      db.execute('''CREATE TABLE edits(
+         channel TEXT NOT NULL, message_id TEXT NOT NULL, kind TEXT NOT NULL,
+         PRIMARY KEY(channel, message_id)) WITHOUT ROWID''');
+
   /// Stored definitions of [keys] in [channel], as JSON by key. Missing keys
   /// are left out.
   Future<Map<String, String>> emoteDefs(
@@ -277,6 +286,9 @@ class ArchiveStore {
     }
     if (from < 6) {
       await _createSearchIndex(db);
+    }
+    if (from < 7) {
+      await _createEdits(db);
     }
   }
 
@@ -700,11 +712,60 @@ class ArchiveStore {
     _moderated[channel] = Future.value(true);
   }
 
+  /// Records an edit of the row [messageId]: drop it or mark it deleted.
+  /// A later kind for the same id replaces the earlier one.
+  Future<void> addEdit(String channel, String messageId, ArchiveEdit edit) =>
+      addEdits(channel, [messageId], edit);
+
+  /// Records an edit of every id in [messageIds] in one transaction.
+  Future<void> addEdits(
+    String channel,
+    Iterable<String> messageIds,
+    ArchiveEdit edit,
+  ) async {
+    final ids = messageIds.toList();
+    if (ids.isEmpty) return;
+    await _db.transaction((txn) async {
+      final b = txn.batch();
+      for (final id in ids) {
+        b.insert('edits', {
+          'channel': channel,
+          'message_id': id,
+          'kind': edit.name,
+        }, conflictAlgorithm: ConflictAlgorithm.replace);
+      }
+      await b.commit(noResult: true);
+    });
+    _edited[channel] = Future.value(true);
+  }
+
   // ---- Reads ---------------------------------------------------------------
 
   /// Channels known to have moderation rows, so decoding a clean channel
   /// never queries the table.
   final Map<String, Future<bool>> _moderated = {};
+
+  /// Channels known to have pending edits, so decoding a clean channel never
+  /// queries the table.
+  final Map<String, Future<bool>> _edited = {};
+
+  /// Pending edits of [channel] by message id.
+  Future<Map<String, ArchiveEdit>> edits(String channel) async {
+    final any = await (_edited[channel] ??= _db
+        .rawQuery('SELECT 1 FROM edits WHERE channel = ? LIMIT 1', [channel])
+        .then((r) => r.isNotEmpty));
+    if (!any) return const {};
+    final r = await _db.rawQuery(
+      'SELECT message_id, kind FROM edits WHERE channel = ?',
+      [channel],
+    );
+    return {
+      for (final row in r)
+        row['message_id']! as String: ArchiveEdit.values.byName(
+          row['kind']! as String,
+        ),
+    };
+  }
 
   /// Moderation ranges of [channel] overlapping [fromTs]..[toTs].
   Future<List<({String? login, int fromTs, int toTs})>> moderation(
@@ -1067,7 +1128,11 @@ class ArchiveStore {
   // ---- Retention -----------------------------------------------------------
 
   /// Prunes when none ran in the last [pruneEvery]. Returns blocks deleted.
-  Future<int> pruneIfDue() async {
+  /// [heldEdits] answers the writer's uncommitted ids per channel, so upkeep
+  /// never clears an edit for a row a seal is still writing.
+  Future<int> pruneIfDue({
+    Set<String> Function(String channel)? heldEdits,
+  }) async {
     final now = _now();
     final last = _lastPrune;
     if (last != null && now.difference(last) < pruneEvery) {
@@ -1076,7 +1141,7 @@ class ArchiveStore {
     _lastPrune = now;
     final deleted = await prune(now);
     // A long gap leaves seconds of merging; nothing waits on it.
-    _compacting ??= _upkeep(now)
+    _compacting ??= _upkeep(now, heldEdits: heldEdits)
         .then<void>(
           (_) {},
           onError: (Object e) {
@@ -1090,10 +1155,15 @@ class ArchiveStore {
   Future<void>? _compacting;
 
   /// Background upkeep after a prune: merge small blocks, record reply
-  /// references of blocks sealed before `ref_ids` was kept, then strip ids.
-  Future<void> _upkeep(DateTime now) async {
+  /// references of blocks sealed before `ref_ids` was kept, bake pending edits,
+  /// then strip ids.
+  Future<void> _upkeep(
+    DateTime now, {
+    Set<String> Function(String channel)? heldEdits,
+  }) async {
     await compact(now);
     await backfillRefs();
+    await bakeEdits(held: heldEdits);
     await strip(now);
     await backfillWords();
   }
@@ -1209,6 +1279,103 @@ class ArchiveStore {
 
   static Future<List<Set<String>>> _refsOffIsolate(List<Uint8List> blocks) =>
       Isolate.run(() => blockRefs(blocks));
+
+  /// Applies pending edits to the blocks that still hold message ids
+  /// (`stripped = 0`), then clears them. Ids no block holds were stripped or
+  /// never sealed, so they are cleared too, unless a reply keeps the id alive
+  /// in a stripped block or the writer still holds it in [held]. Returns edits
+  /// baked.
+  Future<int> bakeEdits({Set<String> Function(String channel)? held}) async {
+    var baked = 0;
+    final channels = await _db.rawQuery('SELECT DISTINCT channel FROM edits');
+    for (final c in channels) {
+      final channel = c['channel']! as String;
+      final pending = await edits(channel);
+      if (pending.isEmpty) continue;
+      final blocks = await _db.rawQuery(
+        'SELECT id, data, count FROM blocks WHERE channel = ? AND stripped = 0',
+        [channel],
+      );
+      final applied = <String>{};
+      final removedMinutes = <int, int>{};
+      if (blocks.isNotEmpty) {
+        final results = await _bakeOffIsolate([
+          for (final b in blocks) b['data']! as Uint8List,
+        ], pending);
+        await _db.transaction((txn) async {
+          final b = txn.batch();
+          for (var i = 0; i < blocks.length; i++) {
+            final r = results[i];
+            applied.addAll(r.applied);
+            var removed = 0;
+            for (final e in r.removedMinutes.entries) {
+              removed += e.value;
+              removedMinutes.update(
+                e.key,
+                (n) => n + e.value,
+                ifAbsent: () => e.value,
+              );
+            }
+            if (r.data == null) continue;
+            // A block left with no rows goes, so paging never lands on it.
+            if (removed >= (blocks[i]['count']! as int)) {
+              b.rawDelete('DELETE FROM blocks WHERE id = ?', [blocks[i]['id']]);
+              continue;
+            }
+            b.rawUpdate(
+              'UPDATE blocks SET data = ?, count = count - ? WHERE id = ?',
+              [r.data, removed, blocks[i]['id']],
+            );
+          }
+          // A removed row leaves the block and its minute bucket, so the
+          // activity rail stays exact.
+          for (final e in removedMinutes.entries) {
+            b.rawUpdate(
+              'UPDATE minute_counts SET count = count - ? '
+              'WHERE channel = ? AND minute = ?',
+              [e.value, channel, e.key],
+            );
+          }
+          for (final id in applied) {
+            b.rawDelete(
+              'DELETE FROM edits WHERE channel = ? AND message_id = ?',
+              [channel, id],
+            );
+          }
+          await b.commit(noResult: true);
+        });
+        baked += applied.length;
+      }
+      // Reply parents keep their id in a stripped block, and a seal still
+      // writing may yet store the row, so an edit for one stays pending
+      // rather than being dropped as gone.
+      final keep = held?.call(channel) ?? const <String>{};
+      final refs = {
+        for (final r in await _db.rawQuery(
+          'SELECT message_id FROM ref_ids WHERE channel = ?',
+          [channel],
+        ))
+          r['message_id']! as String,
+      };
+      for (final id in pending.keys) {
+        if (applied.contains(id) || refs.contains(id) || keep.contains(id)) {
+          continue;
+        }
+        await _db.delete(
+          'edits',
+          where: 'channel = ? AND message_id = ?',
+          whereArgs: [channel, id],
+        );
+      }
+    }
+    return baked;
+  }
+
+  static Future<
+    List<({Uint8List? data, Set<String> applied, Map<int, int> removedMinutes})>
+  >
+  _bakeOffIsolate(List<Uint8List> blocks, Map<String, ArchiveEdit> edits) =>
+      Isolate.run(() => bakeBlocks(blocks, edits));
 
   static Future<List<Uint8List?>> _stripOffIsolate(
     List<Uint8List> blocks,
@@ -1423,6 +1590,53 @@ List<Uint8List?> stripBlocks(List<Uint8List> blocks, Set<String> keep) => [
         ]);
       } on ArchiveFormatException {
         return null;
+      }
+    }(),
+];
+
+/// Each block re-packed with [edits] applied: rows to remove are dropped, rows
+/// to delete get the flag. Returns the new bytes (null when unchanged or
+/// damaged), the edit ids the block matched, and removed rows per epoch minute.
+List<({Uint8List? data, Set<String> applied, Map<int, int> removedMinutes})>
+bakeBlocks(List<Uint8List> blocks, Map<String, ArchiveEdit> edits) => [
+  for (final b in blocks)
+    () {
+      try {
+        final rows = <ArchiveRow>[];
+        final applied = <String>{};
+        final removedMinutes = <int, int>{};
+        for (final r in ArchiveBlock.decode(b)) {
+          final id = r.messageId;
+          final edit = id == null ? null : edits[id];
+          if (edit == null) {
+            rows.add(r);
+          } else if (edit == ArchiveEdit.remove) {
+            applied.add(id!);
+            final minute = r.timestampMs ~/ 60000;
+            removedMinutes.update(minute, (n) => n + 1, ifAbsent: () => 1);
+          } else {
+            applied.add(id!);
+            rows.add(r.asDeleted());
+          }
+        }
+        if (applied.isEmpty) {
+          return (
+            data: null,
+            applied: applied,
+            removedMinutes: const <int, int>{},
+          );
+        }
+        return (
+          data: ArchiveBlock.encode(rows),
+          applied: applied,
+          removedMinutes: removedMinutes,
+        );
+      } on ArchiveFormatException {
+        return (
+          data: null,
+          applied: <String>{},
+          removedMinutes: const <int, int>{},
+        );
       }
     }(),
 ];

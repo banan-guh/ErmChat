@@ -2,7 +2,7 @@ import 'package:flutter/foundation.dart';
 
 import '../models/twitch_message.dart';
 import 'channel/channel.dart';
-import 'channel/messages.dart' show SystemLine;
+import 'channel/messages.dart' show MergeOutcome, SystemLine;
 import 'mentions.dart';
 
 /// Cross-channel chat root: registry and aggregate totals. Per-channel laws
@@ -100,26 +100,26 @@ class Chat {
   /// One history batch: the channel verb plus the root-owned mention mirror.
   /// Backfill never counts unread, and own rows are not mirrored, so live and
   /// history share one mention predicate.
-  List<TwitchMessage> receiveHistory(
+  MergeOutcome receiveHistory(
     String channel,
     List<TwitchMessage> prepared, {
     required Iterable<TwitchMessage> rawHistory,
     required int maxMessages,
     required String? ownLogin,
   }) {
-    final inserted = ensure(channel).receiveHistory(
+    final outcome = ensure(channel).receiveHistory(
       prepared,
       rawHistory: rawHistory,
       maxMessages: maxMessages,
     );
     final mirrored = [
-      for (final m in inserted)
+      for (final m in outcome.inserted)
         if (_isMentionRow(m, ownLogin)) m,
     ];
     if (mirrored.isNotEmpty) {
       mirrorMentions(mirrored, maxMessages: maxMessages);
     }
-    return inserted;
+    return outcome;
   }
 
   /// Single writer for the @mentions mirror. Live ingest, history backfill, and

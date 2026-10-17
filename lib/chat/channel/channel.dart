@@ -115,7 +115,7 @@ class Channel {
   /// History/backfill batch. No unread or mention counting. Touches activity
   /// and lifts the connect line in the same step, so callers never write
   /// channel children directly.
-  List<TwitchMessage> receiveHistory(
+  MergeOutcome receiveHistory(
     List<TwitchMessage> prepared, {
     required Iterable<TwitchMessage> rawHistory,
     required int maxMessages,
@@ -132,7 +132,7 @@ class Channel {
     }
     info.touch();
     moveConnectedToTop();
-    return outcome.inserted;
+    return outcome;
   }
 
   bool moveConnectedToTop() => messages.moveConnectedToTop();

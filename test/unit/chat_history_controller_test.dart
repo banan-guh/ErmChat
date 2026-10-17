@@ -282,6 +282,61 @@ void main() {
     await store.close();
   });
 
+  test('a bridged gap note stays gone after a cold start', () async {
+    sqfliteFfiInit();
+    final dir = await Directory.systemTemp.createTemp('bridge');
+    addTearDown(() => dir.delete(recursive: true));
+    final path = '${dir.path}/archive.db';
+    final emotes = EmoteManager();
+    addTearDown(emotes.dispose);
+    TwitchMessage row(int minute) => TwitchMessage(
+      login: 'alice',
+      text: 'm$minute',
+      messageId:
+          '0000${minute.toString().padLeft(4, '0')}-0b7d-4c55-9a10-6d2e8f4b7a01',
+      channel: 'ch',
+      userId: '42',
+      timestamp: DateTime.utc(2026, 10, 15, 12, minute),
+    );
+    List<TwitchMessage> rows(int from, int to) => [
+      for (var i = from; i < to; i++) row(i),
+    ];
+    List<TwitchMessage> gaps(Chat chat) => [
+      for (final m in chat.channelFor('ch')!.messages.items)
+        if (m.messageId?.startsWith(Messages.historyGapIdPrefix) ?? false) m,
+    ];
+
+    // Session one: note a gap and seal it, so the bridge edits a block.
+    var store = await ArchiveStore.open(path, factory: databaseFactoryFfi);
+    var archive = Archive(Future.value(store));
+    var chat = Chat();
+    chat.ensure('ch');
+    var controller = _controller(chat, emotes, archive: archive);
+    controller.mergeHistory('ch', rows(0, 5));
+    controller.mergeHistory('ch', rows(30, 35));
+    expect(gaps(chat), hasLength(1));
+    await archive.writer.flush();
+    // A later fetch reaching row 2 bridges the gap and drops the note.
+    controller.mergeHistory('ch', rows(2, 40));
+    expect(gaps(chat), isEmpty, reason: 'the bridge drops the note');
+    await archive.writer.flush();
+    controller.dispose();
+    chat.dispose();
+    await store.close();
+
+    // Session two: a cold start must not restore the bridged note.
+    store = await ArchiveStore.open(path, factory: databaseFactoryFfi);
+    archive = Archive(Future.value(store));
+    chat = Chat();
+    addTearDown(chat.dispose);
+    chat.ensure('ch');
+    controller = _controller(chat, emotes, archive: archive);
+    addTearDown(controller.dispose);
+    await controller.restoreFromArchive('ch');
+    expect(gaps(chat), isEmpty, reason: 'the bridged gap note came back');
+    await store.close();
+  });
+
   test('a failing refetch notes its gap once and archives it', () async {
     sqfliteFfiInit();
     final dir = await Directory.systemTemp.createTemp('gapfail');

@@ -67,6 +67,9 @@ class ArchiveWriter {
   /// Packs one tail; off the UI isolate by default.
   final Future<Uint8List> Function(List<ArchiveRow> rows) encode;
   final Map<String, _Chan> _chans = {};
+
+  /// Store edits not yet written, in order.
+  Future<void> _pending = Future.value();
   bool _disposed = false;
 
   /// Queues [msg] for [channel]. Never throws and never blocks the caller.
@@ -143,6 +146,86 @@ class ArchiveWriter {
     }
   }
 
+  /// Applies an edit to [messageId]: a row still parked or in the tail changes
+  /// there; a row already sealed gets a store edit for a read or upkeep to
+  /// apply. [recordEdits] writes the whole batch in one transaction. Never
+  /// blocks the caller.
+  Future<void> recordEdit(String channel, String messageId, ArchiveEdit edit) =>
+      recordEdits(channel, [messageId], edit);
+
+  /// Records an edit of every id in [messageIds]. Ids the writer still holds
+  /// change in place; the rest are written to the store in one transaction.
+  Future<void> recordEdits(
+    String channel,
+    Iterable<String> messageIds,
+    ArchiveEdit edit,
+  ) {
+    if (_disposed) return Future.value();
+    final c = _chans[channel];
+    final stored = <String>[];
+    for (final id in messageIds) {
+      if (c != null && _applyEdit(c, id, edit)) continue;
+      stored.add(id);
+    }
+    if (stored.isEmpty) return Future.value();
+    return _pending = _pending.then((_) => _writeEdits(channel, stored, edit));
+  }
+
+  /// Message ids [channel] the writer still holds: parked or in a seal that has
+  /// not committed. Upkeep must not clear a pending edit for one.
+  Set<String> heldIds(String channel) {
+    final c = _chans[channel];
+    if (c == null) return const {};
+    return {
+      for (final m in c.waiting) ?m.messageId,
+      for (final m in c.unsealed) ?m.messageId,
+    };
+  }
+
+  /// [edit] on [messageId] in the unchanging tail. A row in a seal still
+  /// writing is already sealed from this side, so the store takes that edit.
+  bool _applyEdit(_Chan c, String messageId, ArchiveEdit edit) {
+    if (c.tables == null) {
+      for (var i = 0; i < c.waiting.length; i++) {
+        if (c.waiting[i].messageId != messageId) continue;
+        if (edit == ArchiveEdit.remove) {
+          c.waiting.removeAt(i);
+        } else {
+          c.waiting[i].deleted = true;
+        }
+        return true;
+      }
+      return false;
+    }
+    for (var i = 0; i < c.tail.length; i++) {
+      if (c.tail[i].messageId != messageId) continue;
+      if (edit == ArchiveEdit.remove) {
+        c.tail.removeAt(i);
+        c.unsealed.removeWhere((m) => m.messageId == messageId);
+      } else {
+        c.tail[i] = c.tail[i].asDeleted();
+        for (final m in c.unsealed) {
+          if (m.messageId == messageId) m.deleted = true;
+        }
+      }
+      return true;
+    }
+    return false;
+  }
+
+  Future<void> _writeEdits(
+    String channel,
+    List<String> messageIds,
+    ArchiveEdit edit,
+  ) async {
+    try {
+      final store = await _store;
+      await store?.addEdits(channel, messageIds, edit);
+    } catch (e) {
+      logDebug('[ArchiveWriter] edits failed for $channel: $e');
+    }
+  }
+
   void _seal(String channel, _Chan c) {
     c.timer?.cancel();
     c.timer = null;
@@ -211,7 +294,7 @@ class ArchiveWriter {
               tables.states[r.user].who,
         },
       );
-      await store.pruneIfDue();
+      await store.pruneIfDue(heldEdits: heldIds);
     } catch (e) {
       logDebug('[ArchiveWriter] seal failed for $channel: $e');
     }
@@ -223,6 +306,7 @@ class ArchiveWriter {
       await c.loading;
       await c.chain;
     }
+    await _pending;
   }
 
   /// Seals every tail now and waits for the writes.

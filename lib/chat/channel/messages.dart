@@ -33,12 +33,18 @@ class BufferChange {
 
 /// Result of a history merge: rows that were actually inserted (callers mirror
 /// mention-tier ones) plus rows trimmed out of the buffer (callers decay them
-/// out of the thread index).
+/// out of the thread index). [removed] holds rows dropped in place, such as gap
+/// notes a later fetch bridged, which callers must drop from the archive too.
 class MergeOutcome {
-  const MergeOutcome({required this.inserted, required this.evicted});
+  const MergeOutcome({
+    required this.inserted,
+    required this.evicted,
+    this.removed = const [],
+  });
 
   final List<TwitchMessage> inserted;
   final List<TwitchMessage> evicted;
+  final List<TwitchMessage> removed;
 }
 
 /// Kernel-authored system rows. The app injects their display text, so the
@@ -319,7 +325,11 @@ class Messages {
         if (!evictedSet.contains(m)) m,
     ];
     _bump();
-    return MergeOutcome(inserted: resident, evicted: evicted);
+    return MergeOutcome(
+      inserted: resident,
+      evicted: evicted,
+      removed: bridged.toList(),
+    );
   }
 
   /// Re-resolves rows baked before their catalog was complete, live or

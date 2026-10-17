@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:clock/clock.dart';
 
+import '../archive/archive_row.dart';
 import '../chat/chat.dart';
 import '../client/session.dart';
 import '../emotes/emote.dart';
@@ -93,7 +94,7 @@ class ChatHistoryController {
     final sw = Stopwatch()..start();
     final prepared = _prepare(channel, history);
     final prepMs = sw.elapsedMilliseconds;
-    final inserted = chat.receiveHistory(
+    final outcome = chat.receiveHistory(
       channel,
       prepared,
       rawHistory: history,
@@ -103,11 +104,17 @@ class ChatHistoryController {
     JankLog.note(
       'history $channel ${history.length} rows '
       'prep=${prepMs}ms merge=${sw.elapsedMilliseconds - prepMs}ms '
-      'new=${inserted.length}',
+      'new=${outcome.inserted.length}',
     );
     // Gap rows from robotty join the archive; restored rows were deduped out.
-    for (final msg in inserted) {
+    for (final msg in outcome.inserted) {
       archive?.writer.add(channel, msg);
+    }
+    // Notes a later fetch bridged left the buffer, so drop them from the
+    // archive too or a cold start restores a gap that is no longer there.
+    final removedIds = [for (final msg in outcome.removed) ?msg.messageId];
+    if (removedIds.isNotEmpty) {
+      unawaited(archive?.recordEdits(channel, removedIds, ArchiveEdit.remove));
     }
   }
 
