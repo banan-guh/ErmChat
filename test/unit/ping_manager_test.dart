@@ -128,6 +128,18 @@ void main() {
         HighlightType.username,
       );
     });
+
+    test('tint-only builtins stay out of @mentions', () async {
+      final m = await makeManager();
+      m.setAccount('forsen');
+      for (final type in ['username', 'reply', 'thread']) {
+        final r = m.rules.firstWhere((r) => r.id == 'builtin_$type');
+        m.upsertRule(r.copyWith(mention: false));
+      }
+      expect(m.evaluate(msg('hey forsen'))?.types, {HighlightType.tint});
+      expect(m.evaluate(msg('hey forsen'))?.hasMention, isFalse);
+      expect(m.mentionTerms().texts, isNot(contains('forsen')));
+    });
   });
 
   group('custom keyword rules', () {

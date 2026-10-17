@@ -212,15 +212,24 @@ class PingManager extends ChangeNotifier {
           switch (rule.type) {
             case 'username':
               if (!isSelf && _matchesSelfName(msg)) {
-                add(rule, HighlightType.username);
+                add(
+                  rule,
+                  rule.mention ? HighlightType.username : HighlightType.tint,
+                );
               }
             case 'reply':
               if (!isSelf && _isReplyToMe(msg)) {
-                add(rule, HighlightType.reply);
+                add(
+                  rule,
+                  rule.mention ? HighlightType.reply : HighlightType.tint,
+                );
               }
             case 'thread':
               if (!isSelf && _isInMyThread(msg)) {
-                add(rule, HighlightType.reply);
+                add(
+                  rule,
+                  rule.mention ? HighlightType.reply : HighlightType.tint,
+                );
               }
             case 'custom':
               lowerText ??= msg.text.toLowerCase();
@@ -283,9 +292,13 @@ class PingManager extends ChangeNotifier {
         case PingRuleKind.message:
           switch (rule.type) {
             case 'username' || 'reply' || 'thread':
-              if (login != null && login.isNotEmpty) texts.add(login);
+              if (rule.mention && login != null && login.isNotEmpty) {
+                texts.add(login);
+              }
               final name = _displayName;
-              if (rule.type == 'username' && name != null) texts.add(name);
+              if (rule.mention && rule.type == 'username' && name != null) {
+                texts.add(name);
+              }
             case 'custom' when rule.mention && rule.pattern.isNotEmpty:
               texts.add(rule.pattern);
           }

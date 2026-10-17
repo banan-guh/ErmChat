@@ -380,7 +380,7 @@ class _PingsScreenState extends ConsumerState<PingsScreen> {
   Widget _tile(PingRule r, bool paused) => _RuleTile(
     rule: r,
     paused: paused,
-    levels: _pushSupported && _canNotify(r) ? 4 : 2,
+    levels: _pushSupported && _canNotify(r) ? 5 : 2,
     onLevel: (level) => _setLevel(r, level),
     onBlocked: _keepAlive ? null : _keepAliveSnack,
     onTap: () => _edit(r),
@@ -389,7 +389,7 @@ class _PingsScreenState extends ConsumerState<PingsScreen> {
   void _setLevel(PingRule rule, int level) {
     _manager.upsertRule(_withLevel(rule, level));
     _manager.save();
-    if (level >= 2) _ensurePush();
+    if (level >= 3) _ensurePush();
   }
 
   /// Notifications only arrive while the background connection runs, so
@@ -716,7 +716,7 @@ class _RuleTile extends ConsumerWidget {
   /// Notifications are paused: the notify stop shows a crossed-out bell.
   final bool paused;
 
-  /// 4 adds the notify stops; see [_LevelSwitch].
+  /// 5 adds the mention and notify stops; see [_LevelSwitch].
   final int levels;
 
   /// Null writes plain on/off straight to the manager.
@@ -865,11 +865,12 @@ String _ruleTitle(AppLocalizations l, PingRule rule) => switch (rule.kind) {
 
 /// Only what differs from the defaults (whole word, @mentions).
 String? _ruleSubtitle(AppLocalizations l, PingRule rule) {
-  if (!_isListRule(rule)) return null;
   final parts = [
-    if (rule.kind == PingRuleKind.message && !rule.wordBoundary)
+    if (_isListRule(rule) &&
+        rule.kind == PingRuleKind.message &&
+        !rule.wordBoundary)
       l.matchAnywhere,
-    if (!rule.mention) l.highlightOnly,
+    if (_canNotify(rule) && !rule.mention) l.highlightOnly,
   ];
   return parts.isEmpty ? null : parts.join(' · ');
 }
@@ -912,21 +913,21 @@ bool _canNotify(PingRule rule) =>
     rule.kind == PingRuleKind.message &&
         const {'username', 'reply', 'thread'}.contains(rule.type);
 
-/// 0 off, 1 highlight, 2 highlight and notify, 3 notify without the tint.
+/// 0 off, 1 highlight, 2 mention, 3 notify, 4 notify without the tint.
 int _levelOf(PingRule rule) => !rule.enabled
     ? 0
-    : !(rule.notify && rule.mention)
+    : !rule.mention
     ? 1
-    : rule.tint
-    ? 2
-    : 3;
+    : rule.notify
+    ? (rule.tint ? 3 : 4)
+    : 2;
 
 /// Notifying needs the message in @mentions, so the notify levels add it.
 PingRule _withLevel(PingRule rule, int level) => rule.copyWith(
   enabled: level > 0,
-  notify: level >= 2,
-  mention: level >= 2 || rule.mention,
-  tint: level != 3,
+  notify: level >= 3,
+  mention: level >= 2,
+  tint: level != 4,
 );
 
 typedef _Saved = ({PingRule rule, bool deleted});
@@ -1082,11 +1083,10 @@ class _RuleEditorState extends State<_RuleEditor> {
 
   /// Set on the row's switch, not here; kept so edits write it back as is.
   late final int _level = min(_levelOf(widget.rule), _levels - 1);
-  late bool _mention = widget.rule.mention;
   late int? _color = widget.rule.colorArgb;
 
   PingRule get _rule => widget.rule;
-  int get _levels => _pushSupported && _canNotify(_rule) ? 4 : 2;
+  int get _levels => _pushSupported && _canNotify(_rule) ? 5 : 2;
   bool get _isKeyword =>
       _rule.kind == PingRuleKind.message && _rule.type == 'custom';
   bool get _isUserList =>
@@ -1171,19 +1171,6 @@ class _RuleEditorState extends State<_RuleEditor> {
             ),
             const SizedBox(height: 12),
             _matchExample(theme),
-          ],
-          if (_isListRule(_rule)) ...[
-            const SizedBox(height: 16),
-            SwitchListTile(
-              contentPadding: EdgeInsets.zero,
-              title: Text(context.l10n.addToMentions),
-              subtitle: _level >= 2
-                  ? Text(context.l10n.alwaysOnWhileNotifies)
-                  : null,
-              value: _level >= 2 || _mention,
-              // Notifying always adds to @mentions.
-              onChanged: _level >= 2 ? null : (v) => _set(() => _mention = v),
-            ),
           ],
           if (_hasColor) ...[
             const SizedBox(height: 28),
@@ -1335,7 +1322,7 @@ class _RuleEditorState extends State<_RuleEditor> {
     };
     final matches = recent.where(hits).toList();
     // Notify only leaves chat untinted, so its matches preview plain.
-    final color = _hasColor && _level != 3
+    final color = _hasColor && _level != 4
         ? _ruleTint(context, _rule, _color, widget.opacity)
         : theme.colorScheme.surfaceContainerHigh;
     final n = matches.length;
@@ -1373,9 +1360,9 @@ class _RuleEditorState extends State<_RuleEditor> {
     return _EditResult(
       pattern: _hasPattern ? _pattern : _rule.pattern,
       wholeWord: _wholeWord,
-      mention: listRule ? _level >= 2 || _mention : _rule.mention,
-      notify: _levels > 2 ? _level >= 2 : _rule.notify,
-      tint: _levels > 2 ? _level != 3 : _rule.tint,
+      mention: listRule ? _level >= 2 : _rule.mention,
+      notify: _levels > 2 ? _level >= 3 : _rule.notify,
+      tint: _levels > 2 ? _level != 4 : _rule.tint,
       enabled: _level > 0,
       colorArgb: _color,
     );
@@ -1392,10 +1379,10 @@ class _RuleEditorState extends State<_RuleEditor> {
   void _save() => Navigator.pop(context, _result());
 }
 
-/// A switch with optional notify stops: off, highlight, highlight and
-/// notify, and notify only. Once on, the track takes the rule's color; the
-/// notify stops put a bell in the thumb, and notify only drops the color.
-/// Tap a stop or drag to it; a bubble names the stop while it moves.
+/// A switch with optional mention and notify stops: off, highlight,
+/// mention, notify, notify only. Once on, the track takes the rule's color;
+/// notify stops show a bell and notify only drops the color. Tap a stop or
+/// drag to it; a bubble names the stop while it moves.
 class _LevelSwitch extends StatefulWidget {
   const _LevelSwitch({
     required this.level,
@@ -1408,7 +1395,7 @@ class _LevelSwitch extends StatefulWidget {
 
   final int level;
 
-  /// 2 (off, on) or 4 (off, highlight, notify, notify only).
+  /// 2 (off, on) or 5 (off, highlight, mention, notify, notify only).
   final int levels;
   final Color color;
   final ValueChanged<int> onChanged;
@@ -1445,8 +1432,9 @@ class _LevelSwitchState extends State<_LevelSwitch> {
   String _nameOf(int level) => switch (level) {
     0 => context.l10n.levelOff,
     1 => context.l10n.levelHighlight,
+    2 => context.l10n.levelMention,
     _ when widget.paused => context.l10n.levelNotifyMuted,
-    2 => context.l10n.levelNotify,
+    3 => context.l10n.levelNotify,
     _ => context.l10n.levelNotifyOnly,
   };
 
@@ -1472,7 +1460,7 @@ class _LevelSwitchState extends State<_LevelSwitch> {
   void _pick(int next, {bool dragging = false}) {
     next = next.clamp(0, _levels - 1);
     if (next == _level) return;
-    if (next >= 2 && widget.onBlocked != null) {
+    if (next >= 3 && widget.onBlocked != null) {
       widget.onBlocked!();
       return;
     }
@@ -1553,7 +1541,7 @@ class _LevelSwitchState extends State<_LevelSwitch> {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     // Notify only shows no color: a neutral track with the bell.
-    final plain = _level == 3;
+    final plain = _level == 4;
     final color = plain ? scheme.surfaceContainerHighest : widget.color;
     final on = _level > 0;
     final onDark =
@@ -1654,7 +1642,7 @@ class _LevelSwitchState extends State<_LevelSwitch> {
                                 shape: BoxShape.circle,
                                 color: thumbColor,
                               ),
-                              child: _level >= 2
+                              child: _level >= 3
                                   ? Icon(
                                       widget.paused
                                           ? Icons.notifications_off
