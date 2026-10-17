@@ -1120,6 +1120,36 @@ void main() {
       expect(manager.getSevenTvEmoteSetId('ch'), 'setB');
     });
 
+    // The live stash re-applied over the forced fetch, so an emote added
+    // while the socket was down never showed after a manual reload.
+    test('a forced reload beats a stale live 7TV stash', () async {
+      SharedPreferences.setMockInitialValues(cache([sevenTv('a', 'Alpha')]));
+      var serverSet = [sevenTv('a', 'Alpha')];
+      final manager = EmoteManager(
+        fetchStagger: Duration.zero,
+        tier: EmoteFetchTier.medium,
+        removeCachedFile: (url) async {},
+        sevenTvChannelFetcher: (id) async => SevenTvChannelResponse(
+          emotes: serverSet,
+          emoteSetId: 'setA',
+          userId: 'u1',
+        ),
+      );
+      await manager.resolveEmotes('ch', 'b1', force: true);
+      manager.updateSevenTvEmotes('ch', added: [sevenTv('l', 'Live')]);
+      await pumpEventQueue();
+
+      // The socket drops; the set changes on the server meanwhile.
+      serverSet = [sevenTv('l', 'Live'), sevenTv('n', 'New')];
+      await manager.resolveEmotes('ch', 'b1', force: true);
+      await pumpEventQueue();
+
+      expect(
+        manager.byCode('ch')!.suggestions.map((e) => e.code),
+        unorderedEquals(['Live', 'New']),
+      );
+    });
+
     test('reconcile early returns keep the cache untouched', () async {
       Future<void> checkKept({
         required EmoteFetchTier tier,

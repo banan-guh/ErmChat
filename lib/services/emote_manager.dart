@@ -736,15 +736,25 @@ class EmoteManager implements EmoteLookupSource {
       if (loaded.catalog != null) {
         _store.fillMissingChannel(channel, loaded.catalog!);
       }
+      // A forced 7TV list is authoritative over the live stash, which holds
+      // the set as of the last delta and misses edits made while the
+      // socket was down.
+      bool commit(ChannelEmoteFetch fetch, {bool partial = false}) {
+        if (fetch.byProvider[EmoteType.sevenTv] != null &&
+            _store.channelEpoch(channel) == epoch) {
+          _store.dropLiveSevenTv(channel);
+        }
+        return _commitChannel(channel, epoch, fetch, partial: partial);
+      }
+
       final fetch = await _fetcher.enqueue(
         () => _fetcher.fetchAllChannel(
           broadcasterId,
           channelName: channel,
-          onProvider: (landed) =>
-              _commitChannel(channel, epoch, landed, partial: true),
+          onProvider: (landed) => commit(landed, partial: true),
         ),
       );
-      if (_commitChannel(channel, epoch, fetch)) {
+      if (commit(fetch)) {
         await _saveChannel(channel, ttl, _now());
       }
       return;
@@ -882,6 +892,19 @@ class EmoteManager implements EmoteLookupSource {
     }
     return _store.commitChannel(channel, epoch, fetch, partial: partial);
   }
+
+  /// Every loaded global, channel and sub emote, keyed by where it shows,
+  /// so a reload can count what it added and removed.
+  Set<String> loadedEmoteKeys(Iterable<String> channels) => {
+    for (final e in _store.globalCatalog.globalProviderEmotes()) ' ${e.id}',
+    for (final channel in channels)
+      if (_store.channelCatalog(channel) case final catalog?)
+        for (final e in [
+          ...catalog.channelProviderEmotes(),
+          ...catalog.twitchSubs,
+        ])
+          '$channel ${e.id}',
+  };
 
   /// Reconciles the channel's 7TV set against the server. Used when a live
   /// `user.update` switches the active set.
