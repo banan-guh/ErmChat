@@ -14,6 +14,7 @@ import '../util/thread_utils.dart';
 import '../util/timestamp_formatter.dart';
 import 'chat_message_tile.dart';
 import 'emote_text.dart';
+import 'glass_chrome.dart' show kGlassPillSettings;
 import 'message_builder.dart';
 import 'seven_tv_paint_service.dart';
 
@@ -295,7 +296,9 @@ class ScrollDownButton extends StatelessWidget {
               icon: const Icon(Icons.keyboard_arrow_down),
               shape: GlassIconButtonShape.roundedSquare,
               onPressed: press,
-              quality: GlassQuality.minimal,
+              useOwnLayer: true,
+              settings: kGlassPillSettings,
+              quality: GlassQuality.premium,
             )
           : FloatingActionButton(
               key: const ValueKey('scroll_down'),

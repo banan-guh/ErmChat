@@ -475,11 +475,23 @@ class ChannelPanels {
     // The stream dropdown floats over the pages, anchored below the strip.
     // The bell, overflow and settings live in the composer's bottom row.
     final showStrip = !isFullscreen() && !hideChrome;
-    Widget chromeMenu() => homeAppBar.chromeMenu(
-      glass: glassOverlay || glassChrome,
-      onCalendar: selectedChannel() == null
-          ? null
-          : () => _calendarFor(selectedChannel()!).value = true,
+    // Broadcast cards (glass) wrap the trigger, so it joins their surface.
+    Widget chromeMenu() => ListenableBuilder(
+      listenable: Listenable.merge([
+        broadcastWidgets.notifier,
+        selectedTabIndex,
+      ]),
+      builder: (_, _) {
+        final channel = selectedChannel();
+        return homeAppBar.chromeMenu(
+          glass: glassOverlay || glassChrome,
+          merged:
+              channel != null && broadcastWidgets.pagesFor(channel).isNotEmpty,
+          onCalendar: channel == null
+              ? null
+              : () => _calendarFor(channel).value = true,
+        );
+      },
     );
     return Stack(
       children: [
@@ -584,9 +596,8 @@ class ChannelPanels {
   /// The selected channel's broadcast cards; mid-swipe, both channels' cards,
   /// each offset with its page.
   Widget _broadcastOverlay(bool glass) {
-    // Minimizing, restoring and cards coming or going cross-fade while the
-    // height eases, so the old card (and its ink) fades out instead of
-    // vanishing.
+    // Minimizing, restoring and cards coming or going expand and retract
+    // from the top edge, with no fade.
     Widget cards(String channel, double room) {
       final overlay = broadcastWidgets.buildOverlay(
         channel,
@@ -603,6 +614,13 @@ class ChannelPanels {
           alignment: Alignment.topCenter,
           child: AnimatedSwitcher(
             duration: const Duration(milliseconds: 200),
+            switchInCurve: Curves.easeOut,
+            switchOutCurve: Curves.easeOut,
+            transitionBuilder: (child, animation) => SizeTransition(
+              sizeFactor: animation,
+              alignment: Alignment.topCenter,
+              child: child,
+            ),
             layoutBuilder: (current, previous) => Stack(
               alignment: Alignment.topCenter,
               children: [...previous, ?current],

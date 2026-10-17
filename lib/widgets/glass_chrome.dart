@@ -115,6 +115,10 @@ class GlassSurface extends StatelessWidget {
   );
 }
 
+// Shared glass tint alpha (0x73 is about 45%): dark enough to hold contrast
+// for light text, light enough to sit near the app's grey surfaces.
+const int _kGlassTintAlpha = 0x73;
+
 // Styled glass: thickness refracts rows scrolling underneath so light
 // warps at the edges, fresnel plus specular draws the bright rim.
 // Premium is the fidelity tier; both surfaces are fixed overlays (never
@@ -135,7 +139,9 @@ LiquidGlassSettings _barSettings(bool dark, double visibility) =>
       chromaticAberration: 0.02,
       lightIntensity: 0.6,
       fresnelStrength: 1.5,
-      glassColor: dark ? const Color(0x8C000000) : const Color(0x8CFFFFFF),
+      glassColor: dark
+          ? const Color(_kGlassTintAlpha << 24)
+          : const Color((_kGlassTintAlpha << 24) | 0xFFFFFF),
       visibility: visibility,
     );
 
@@ -147,7 +153,7 @@ const kGlassPillSettings = LiquidGlassSettings(
   blur: 1,
   frost: 14,
   frostOpacity: 0.92,
-  glassColor: Color(0x8C000000),
+  glassColor: Color(_kGlassTintAlpha << 24),
   refractiveIndex: 1.5,
   chromaticAberration: 0.02,
   lightIntensity: 0.6,

@@ -30,6 +30,10 @@ class ChromeMenuButton extends StatefulWidget {
   /// Glass tile trigger to match the floating glass header.
   final bool glass;
 
+  /// Sits inside a glass card, which supplies the surface: the trigger drops
+  /// its own tile so two rims never stack.
+  final bool merged;
+
   const ChromeMenuButton({
     super.key,
     required this.onToggleFullscreen,
@@ -42,6 +46,7 @@ class ChromeMenuButton extends StatefulWidget {
     this.onToggleSearch,
     this.onCalendar,
     this.glass = false,
+    this.merged = false,
   });
 
   @override
@@ -108,7 +113,12 @@ class ChromeMenuButtonState extends State<ChromeMenuButton> {
         ];
       },
       // Fixed size in both styles; a border would otherwise grow the box.
-      trigger: widget.glass
+      trigger: widget.glass && widget.merged
+          ? SizedBox.square(
+              dimension: kChromeMenuSize,
+              child: Center(child: arrow),
+            )
+          : widget.glass
           ? GlassSurface(
               shape: const LiquidRoundedSuperellipse(
                 borderRadius: kChromeMenuRadius,
@@ -185,8 +195,9 @@ class _ChromeMenuState extends State<ChromeMenu> {
         autoAdjustToScreen: true,
         menuPadding: const EdgeInsets.all(4),
         menuWidth: 200,
-        // A quick, plain open: no rubber-band stretch or press scaling.
-        morphSpeed: MorphSpeed.fast,
+        // A short, calm open: the stiffest spring (about 170 ms, barely any
+        // overshoot), no rubber-band stretch or press scaling.
+        morphSpeed: MorphSpeed.instant,
         stretch: 0,
         interactionScale: 1,
         settings: kGlassPillSettings,
