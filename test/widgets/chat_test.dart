@@ -1857,9 +1857,12 @@ void main() {
           ircReadService: ircReadService,
         ),
       );
+      // A relaunch restores saved channels after the first frame; join
+      // lives in their strip once they do.
+      await tester.pump();
       await tester.pump();
 
-      await tester.tap(find.byTooltip('Join channel'));
+      await tester.tap(find.byTooltip('Join channel').first);
       await tester.pumpAndSettle();
       await tester.enterText(find.byType(TextField).last, channelName);
       await tester.tap(find.text('Join', skipOffstage: false).last);
@@ -2253,9 +2256,12 @@ void main() {
           ircReadService: ircReadService,
         ),
       );
+      // A relaunch restores saved channels after the first frame; join
+      // lives in their strip once they do.
+      await tester.pump();
       await tester.pump();
 
-      await tester.tap(find.byTooltip('Join channel'));
+      await tester.tap(find.byTooltip('Join channel').first);
       await tester.pumpAndSettle();
       await tester.enterText(find.byType(TextField).last, 'testchannel');
       await tester.tap(find.text('Join', skipOffstage: false).last);

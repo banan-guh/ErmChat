@@ -113,6 +113,7 @@ class StreamPanels {
     required this.streamPlayer,
     required this.pipService,
     required this.chat,
+    required this.channelsPending,
     required this.channels,
     required this.homeAppBar,
     required this.selectedChannel,
@@ -132,6 +133,9 @@ class StreamPanels {
   final StreamPlayerController streamPlayer;
   final PipService pipService;
   final Chat chat;
+
+  /// Saved channels still restoring at startup.
+  final bool Function() channelsPending;
   final ChannelPanels channels;
   final HomeAppBar homeAppBar;
   final String? Function() selectedChannel;
@@ -438,8 +442,9 @@ class StreamPanels {
       );
     }
     // The app bar's actions live in the tab strip. With no channels there
-    // is no strip, so the welcome view keeps the app bar.
-    final merged = chat.names.isNotEmpty;
+    // is no strip, so the welcome view keeps the app bar. Saved channels
+    // count before they join, so a cold start opens compact.
+    final merged = chat.names.isNotEmpty || channelsPending();
     final showVideo =
         channel == null ||
         showStreamVideo(

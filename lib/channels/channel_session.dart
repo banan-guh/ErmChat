@@ -67,6 +67,12 @@ class ChannelSession extends ChangeNotifier {
 
   bool _disposed = false;
   bool _channelsLoaded = false;
+  bool _channelsRestored = false;
+
+  /// Saved channels not yet restored, so the chrome opens compact instead
+  /// of showing the welcome bar until they join.
+  bool get channelsPending =>
+      !_channelsRestored && (Prefs.loaded?.channels.isNotEmpty ?? false);
   final _generations = <String, int>{};
   final _leaving = <String>{};
   bool _mentionScanDone = false;
@@ -115,6 +121,7 @@ class ChannelSession extends ChangeNotifier {
     _channelsLoaded = true;
     final prefs = await Prefs.load();
     final saved = prefs.channels;
+    _channelsRestored = true;
     // Registry files outlive joins; sweep ones whose channel is gone.
     unawaited(emoteManager.pruneStaleChannels(saved.toSet()));
     if (saved.isEmpty) return;

@@ -551,6 +551,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     streamPlayer: _streamPlayer,
     pipService: _pipService,
     chat: _chat,
+    channelsPending: () => _channelManager.session.channelsPending,
     channels: _channels,
     homeAppBar: _chrome,
     selectedChannel: () => ref.read(selectedChannelProvider),
