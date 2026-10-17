@@ -671,6 +671,8 @@ class _HistoryViewState extends State<HistoryView> {
     unawaited(_refreshKept());
     final rail = _railReady.value;
     if (!mounted || rail == null || !HistoryDays.hasDays(rail)) return;
+    // The drawer covers the composer, so the keyboard goes with it.
+    FocusManager.instance.primaryFocus?.unfocus();
     _panel.value = true;
   }
 
