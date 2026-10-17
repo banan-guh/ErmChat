@@ -209,39 +209,35 @@ class HomeAppBar {
         onPressed: openSettings,
       );
 
-  Widget overflowMenu(BuildContext context, {bool small = false}) {
-    return PopupMenuButton<String>(
-      popUpAnimationStyle: const AnimationStyle(
-        duration: Duration(milliseconds: 175),
-      ),
-      onSelected: (value) {
-        switch (value) {
-          case 'threads':
-            threads.showThreadsDashboard(tab: 1);
-            break;
-          case 'upload':
-            uploadController.pickAndUpload(context);
-            break;
-          case 'reload_emotes':
-            reloadEmotes();
-            break;
-          case 'reconnect':
-            reconnect();
-            break;
-        }
-      },
+  Widget overflowMenu(
+    BuildContext context, {
+    bool small = false,
+    bool glass = false,
+  }) {
+    final l10n = context.l10n;
+    return ChromeMenu(
+      glass: glass,
       // Threads first, the one item opened on purpose; the rest are rare.
-      itemBuilder: (ctx) => [
-        PopupMenuItem(value: 'threads', child: Text(ctx.l10n.threads)),
-        const PopupMenuDivider(),
-        PopupMenuItem(value: 'upload', child: Text(ctx.l10n.uploadMedia)),
-        PopupMenuItem(
-          value: 'reload_emotes',
-          child: Text(ctx.l10n.reloadEmotes),
+      entries: () => [
+        ChromeMenuEntry(
+          Icons.forum_outlined,
+          l10n.threads,
+          () => threads.showThreadsDashboard(tab: 1),
         ),
-        PopupMenuItem(value: 'reconnect', child: Text(ctx.l10n.reconnect)),
+        const ChromeMenuEntry.divider(),
+        ChromeMenuEntry(
+          Icons.file_upload_outlined,
+          l10n.uploadMedia,
+          () => uploadController.pickAndUpload(context),
+        ),
+        ChromeMenuEntry(
+          Icons.emoji_emotions_outlined,
+          l10n.reloadEmotes,
+          reloadEmotes,
+        ),
+        ChromeMenuEntry(Icons.sync, l10n.reconnect, reconnect),
       ],
-      child: small
+      trigger: small
           ? const SizedBox(
               width: _smallWidth,
               height: 40,

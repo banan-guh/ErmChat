@@ -63,61 +63,52 @@ class ChromeMenuButtonState extends State<ChromeMenuButton> {
         color: theme.colorScheme.onSurfaceVariant,
       ),
     );
-    return PopupMenuButton<String>(
-      position: PopupMenuPosition.under,
-      popUpAnimationStyle: const AnimationStyle(
-        duration: Duration(milliseconds: 175),
-      ),
-      onOpened: () => setState(() => _open = true),
-      onCanceled: () => setState(() => _open = false),
-      onSelected: (value) {
-        setState(() => _open = false);
-        switch (value) {
-          case 'modview':
-            widget.onShowModView?.call();
-            break;
-          case 'search':
-            widget.onToggleSearch?.call();
-            break;
-          case 'calendar':
-            widget.onCalendar?.call();
-            break;
-          case 'fullscreen':
-            widget.onToggleFullscreen();
-            break;
-          case 'input':
-            widget.onToggleInput();
-            break;
-          case 'stream':
-            widget.onToggleStream?.call();
-            break;
-        }
-      },
-      itemBuilder: (_) {
+    return ChromeMenu(
+      glass: widget.glass,
+      onOpenChanged: (open) => setState(() => _open = open),
+      entries: () {
         final l10n = context.l10n;
         final showMod = widget.showModView?.call() ?? false;
         final showStream = widget.showStreamToggle?.call() ?? false;
         final active = widget.streamActive?.call() ?? false;
         return [
           if (showMod)
-            PopupMenuItem(value: 'modview', child: Text(l10n.modView)),
-          PopupMenuItem(value: 'search', child: Text(l10n.search)),
-          if (widget.onCalendar != null)
-            PopupMenuItem(value: 'calendar', child: Text(l10n.historyCalendar)),
-          PopupMenuItem(
-            value: 'fullscreen',
-            child: Text(l10n.toggleFullscreen),
+            ChromeMenuEntry(
+              Icons.shield_outlined,
+              l10n.modView,
+              () => widget.onShowModView?.call(),
+            ),
+          ChromeMenuEntry(
+            Icons.search,
+            l10n.search,
+            () => widget.onToggleSearch?.call(),
           ),
-          PopupMenuItem(value: 'input', child: Text(l10n.toggleInput)),
+          if (widget.onCalendar case final onCalendar?)
+            ChromeMenuEntry(
+              Icons.calendar_month_outlined,
+              l10n.historyCalendar,
+              onCalendar,
+            ),
+          ChromeMenuEntry(
+            Icons.fullscreen,
+            l10n.toggleFullscreen,
+            widget.onToggleFullscreen,
+          ),
+          ChromeMenuEntry(
+            Icons.keyboard_outlined,
+            l10n.toggleInput,
+            widget.onToggleInput,
+          ),
           if (showStream)
-            PopupMenuItem(
-              value: 'stream',
-              child: Text(active ? l10n.hideStream : l10n.showStream),
+            ChromeMenuEntry(
+              Icons.live_tv_outlined,
+              active ? l10n.hideStream : l10n.showStream,
+              () => widget.onToggleStream?.call(),
             ),
         ];
       },
       // Fixed size in both styles; a border would otherwise grow the box.
-      child: widget.glass
+      trigger: widget.glass
           ? GlassSurface(
               shape: const LiquidRoundedSuperellipse(
                 borderRadius: kChromeMenuRadius,
@@ -139,6 +130,103 @@ class ChromeMenuButtonState extends State<ChromeMenuButton> {
               ),
               child: arrow,
             ),
+    );
+  }
+}
+
+/// One row of a [ChromeMenu]; [ChromeMenuEntry.divider] draws a line.
+class ChromeMenuEntry {
+  const ChromeMenuEntry(this.icon, this.label, this.onTap);
+  const ChromeMenuEntry.divider() : icon = null, label = null, onTap = null;
+
+  final IconData? icon;
+  final String? label;
+  final VoidCallback? onTap;
+}
+
+/// A chrome dropdown: with [glass], a liquid glass menu that morphs out of
+/// [trigger]; otherwise a Material popup under it. [entries] is read on
+/// each open, so rows that depend on state stay current.
+class ChromeMenu extends StatefulWidget {
+  const ChromeMenu({
+    super.key,
+    required this.trigger,
+    required this.entries,
+    this.glass = false,
+    this.onOpenChanged,
+  });
+
+  final Widget trigger;
+  final List<ChromeMenuEntry> Function() entries;
+  final bool glass;
+  final ValueChanged<bool>? onOpenChanged;
+
+  @override
+  State<ChromeMenu> createState() => _ChromeMenuState();
+}
+
+class _ChromeMenuState extends State<ChromeMenu> {
+  List<ChromeMenuEntry> _entries = const [];
+
+  @override
+  Widget build(BuildContext context) {
+    if (widget.glass) {
+      return GlassMenu(
+        menuAlignment: GlassMenuAlignment.topRight,
+        autoAdjustToScreen: true,
+        menuPadding: const EdgeInsets.all(8),
+        menuWidth: 220,
+        settings: kGlassPillSettings,
+        onClose: () => widget.onOpenChanged?.call(false),
+        triggerBuilder: (context, toggle) => GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: () {
+            setState(() => _entries = widget.entries());
+            widget.onOpenChanged?.call(true);
+            toggle();
+          },
+          child: widget.trigger,
+        ),
+        items: [
+          for (final e in _entries)
+            if (e.label case final label?)
+              GlassMenuItem(title: label, icon: Icon(e.icon), onTap: e.onTap!)
+            else
+              const GlassMenuDivider(),
+        ],
+      );
+    }
+    return PopupMenuButton<int>(
+      position: PopupMenuPosition.under,
+      popUpAnimationStyle: const AnimationStyle(
+        duration: Duration(milliseconds: 175),
+      ),
+      onOpened: () => widget.onOpenChanged?.call(true),
+      onCanceled: () => widget.onOpenChanged?.call(false),
+      onSelected: (i) {
+        widget.onOpenChanged?.call(false);
+        _entries[i].onTap?.call();
+      },
+      itemBuilder: (_) {
+        _entries = widget.entries();
+        return [
+          for (var i = 0; i < _entries.length; i++)
+            if (_entries[i].label case final label?)
+              PopupMenuItem(
+                value: i,
+                child: Row(
+                  children: [
+                    Icon(_entries[i].icon, size: 20),
+                    const SizedBox(width: 12),
+                    Text(label),
+                  ],
+                ),
+              )
+            else
+              const PopupMenuDivider(),
+        ];
+      },
+      child: widget.trigger,
     );
   }
 }

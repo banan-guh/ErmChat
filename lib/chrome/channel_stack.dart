@@ -571,7 +571,11 @@ class ChannelPanels {
                             mainAxisSize: MainAxisSize.min,
                             children: [
                               homeAppBar.mentionsButton(context, small: true),
-                              homeAppBar.overflowMenu(context, small: true),
+                              homeAppBar.overflowMenu(
+                                context,
+                                small: true,
+                                glass: glassOverlay || glassChrome,
+                              ),
                               homeAppBar.settingsButton(context, small: true),
                             ],
                           )
