@@ -172,6 +172,10 @@ class HomeAppBar {
   static const double _smallWidth = 40;
   static const double _smallIcon = 24;
 
+  /// The button row's side inset, matching the field's, so the row's end
+  /// buttons line up under the field's emote and send.
+  static const double _rowInset = 8;
+
   static ButtonStyle? _small(bool small) => small
       ? IconButton.styleFrom(
           fixedSize: const Size(_smallWidth, 40),
@@ -265,7 +269,8 @@ class HomeAppBar {
     final count =
         4 + (withMenu ? 1 : 0) + (leading == null ? 0 : 1) + trailing.length;
     final fitted = LayoutBuilder(
-      builder: (context, constraints) => constraints.maxWidth >= count * 48
+      builder: (context, constraints) =>
+          constraints.maxWidth >= count * 48 + 2 * _rowInset
           ? row
           : Theme(
               data: Theme.of(
@@ -274,7 +279,15 @@ class HomeAppBar {
               child: row,
             ),
     );
-    return KeyedSubtree(key: const Key('bottom_chrome_bar'), child: fitted);
+    // Inset like the field, so the row's end buttons line up under the
+    // field's emote and send.
+    return KeyedSubtree(
+      key: const Key('bottom_chrome_bar'),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: _rowInset),
+        child: fitted,
+      ),
+    );
   }
 
   Widget appBar(BuildContext context, {bool transparent = false}) {
