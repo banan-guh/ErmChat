@@ -589,6 +589,23 @@ class TwitchApi {
     }
   }
 
+  /// [userId]'s chat color as hex, or null when unset or the request fails.
+  Future<String?> getUserChatColor(
+    TwitchAuth auth, {
+    required String userId,
+  }) async {
+    final uri = Uri.parse('$_base/chat/color?user_id=$userId');
+    final res = await _get('getUserChatColor', auth, uri);
+    if (res == null) return null;
+    try {
+      final list = (jsonDecode(res.body) as Map)['data'] as List;
+      final color = list.isEmpty ? null : (list[0] as Map)['color'] as String?;
+      return color == null || color.isEmpty ? null : color;
+    } catch (_) {
+      return null;
+    }
+  }
+
   Future<bool> updateUserChatColor(
     TwitchAuth auth, {
     required String userId,

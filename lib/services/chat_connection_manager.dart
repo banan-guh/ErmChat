@@ -455,11 +455,22 @@ class ChatConnectionManager {
       return;
     }
     if (_pinRequests[channel] != request) return;
-    onPinned(
-      pin == null
-          ? PinnedMessageEvent(channel: channel, id: '', removed: true)
-          : PinnedMessageEvent.fromHelix(channel, pin),
-    );
+    if (pin == null) {
+      onPinned(PinnedMessageEvent(channel: channel, id: '', removed: true));
+      return;
+    }
+    // Helix pins carry no sender color, and the pinned message is often
+    // older than the buffer, so ask for it.
+    var event = PinnedMessageEvent.fromHelix(channel, pin);
+    if (event.senderId.isNotEmpty) {
+      final color = await config.services.twitchApi.getUserChatColor(
+        auth,
+        userId: event.senderId,
+      );
+      if (_pinRequests[channel] != request) return;
+      if (color != null) event = event.withSenderColor(color);
+    }
+    onPinned(event);
   }
 
   void dispose() {

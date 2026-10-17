@@ -9,17 +9,22 @@ import '../services/emote_manager.dart';
 import '../services/mod_actions.dart' show ModResult;
 import '../util/prefs.dart';
 import 'chat_widget_cutout.dart';
+import 'seven_tv_paint_service.dart';
 
 // Chat overlay widgets (hype train, poll, prediction, pin) plus test fakes.
 class BroadcastWidgets {
   BroadcastWidgets({
     required this.selectedChannel,
     this.emotes,
+    this.paints,
     this.messageColor,
   });
 
   /// Renders emotes in pinned messages; null shows plain text.
   final EmoteLookupSource? emotes;
+
+  /// Paints pin senders' names; null leaves them plain.
+  final SevenTvPaintService? paints;
 
   /// Chat color of a buffered message, which colors a pin's sender when the
   /// pin itself carries none.
@@ -265,6 +270,7 @@ class BroadcastWidgets {
           key: ValueKey(pin.id),
           event: pin,
           emotes: emotes,
+          paints: paints,
           onDismiss: () => dismissPin(channel),
           onUnpin: unpin != null && pin.messageId.isNotEmpty
               ? () => unpin(pin)
@@ -338,6 +344,7 @@ class BroadcastWidgets {
         },
         pin: focus == _Card.pin ? pins[channel] : null,
         emotes: emotes,
+        paints: paints,
         glass: glass,
       );
     }

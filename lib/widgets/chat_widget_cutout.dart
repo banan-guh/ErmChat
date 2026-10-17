@@ -11,6 +11,8 @@ import 'chrome_menu_button.dart';
 import 'emote_text.dart';
 import 'glass_chrome.dart';
 import 'mod_view/dialogs.dart' show showModError;
+import 'painted_username_text.dart';
+import 'seven_tv_paint_service.dart';
 import 'tabbed_layout.dart';
 
 // The cards' controls sit in their top-right corner, inset
@@ -326,10 +328,14 @@ class ChatWidgetMinimizedBar extends StatelessWidget {
     required this.onRestore,
     this.pin,
     this.emotes,
+    this.paints,
     this.glass = false,
   });
 
   final bool glass;
+
+  /// Paints the pin sender's name; null leaves it plain.
+  final SevenTvPaintService? paints;
 
   /// The trigger plus its inset above and below, so it sits centered.
   static const double height = _inset + _controlSize + _inset;
@@ -369,13 +375,12 @@ class ChatWidgetMinimizedBar extends StatelessWidget {
                   const SizedBox(width: 8),
                   Expanded(
                     child: switch (pin) {
-                      final pin? => Text.rich(
-                        TextSpan(
-                          children: pinnedMessageSpans(context, pin, emotes),
-                        ),
+                      final pin? => PinnedMessageText(
+                        event: pin,
+                        emotes: emotes,
+                        paints: paints,
                         style: theme.textTheme.bodyMedium,
                         maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
                       ),
                       null => Text(
                         label(context.l10n),
@@ -570,33 +575,87 @@ class _PinMenu extends StatelessWidget {
   );
 }
 
-/// "sender: message" with emotes, shared by the pin card and the bar.
-List<InlineSpan> pinnedMessageSpans(
-  BuildContext context,
-  PinnedMessageEvent event,
-  EmoteLookupSource? emotes,
-) => [
-  if (event.senderName.isNotEmpty)
-    TextSpan(
-      text: '${event.senderName}: ',
-      style: TextStyle(
-        fontWeight: FontWeight.w600,
-        color: parseColor(
-          event.senderColor,
-          background: Theme.of(context).colorScheme.surface,
-        ),
-      ),
-    ),
-  if (emotes == null)
-    TextSpan(text: event.text)
-  else
-    ...EmoteText.build(
+/// "sender: message" with emotes and the sender's 7TV paint, shared by the
+/// pin card and the bar. Rebuilds when the sender's paint lands.
+class PinnedMessageText extends StatelessWidget {
+  const PinnedMessageText({
+    super.key,
+    required this.event,
+    this.emotes,
+    this.paints,
+    this.style,
+    this.maxLines,
+  });
+
+  final PinnedMessageEvent event;
+  final EmoteLookupSource? emotes;
+  final SevenTvPaintService? paints;
+  final TextStyle? style;
+  final int? maxLines;
+
+  @override
+  Widget build(BuildContext context) {
+    final service = paints;
+    if (service == null || event.senderId.isEmpty) return _text(context, null);
+    return ValueListenableBuilder<SevenTvPaint?>(
+      valueListenable: service.lookupNotifier(event.senderId),
+      builder: (context, paint, _) =>
+          _text(context, paint ?? service.lookup(event.senderId)),
+    );
+  }
+
+  Widget _text(BuildContext context, SevenTvPaint? paint) => Text.rich(
+    TextSpan(children: _spans(context, paint)),
+    style: style,
+    maxLines: maxLines,
+    overflow: maxLines == null ? null : TextOverflow.ellipsis,
+  );
+
+  List<InlineSpan> _spans(BuildContext context, SevenTvPaint? paint) {
+    final color = parseColor(
+      event.senderColor,
+      background: Theme.of(context).colorScheme.surface,
+    );
+    final nameStyle = TextStyle(fontWeight: FontWeight.w600, color: color);
+    final layered = paint != null && paint.layers.isNotEmpty;
+    return [
+      if (event.senderName.isNotEmpty) ...[
+        if (layered && paint.solidColor == null)
+          WidgetSpan(
+            alignment: PlaceholderAlignment.middle,
+            child: PaintedUsernameText(
+              service: paints!,
+              paint: paint,
+              text: event.senderName,
+              baseStyle: (style ?? const TextStyle()).merge(nameStyle),
+              fallbackColor:
+                  paint.fallbackColor ?? color ?? const Color(0xFF808080),
+            ),
+          )
+        else
+          TextSpan(
+            text: event.senderName,
+            style: nameStyle.copyWith(
+              color: layered ? paint.solidColor : color,
+            ),
+          ),
+        TextSpan(text: ': ', style: nameStyle),
+      ],
+      ..._body(),
+    ];
+  }
+
+  List<InlineSpan> _body() {
+    final source = emotes;
+    if (source == null) return [TextSpan(text: event.text)];
+    return EmoteText.build(
       text: event.text,
       twitchPositions: event.emotes,
-      channelEmotes: emotes.lookup(event.channel, event.senderId),
-      emoteImages: emotes.images,
-    ),
-];
+      channelEmotes: source.lookup(event.channel, event.senderId),
+      emoteImages: source.images,
+    );
+  }
+}
 
 /// The channel's pinned chat message, in full: Twitch's muted "Pinned by"
 /// line over "sender: message".
@@ -605,12 +664,16 @@ class PinnedMessageCard extends StatelessWidget {
     super.key,
     required this.event,
     this.emotes,
+    this.paints,
     this.onDismiss,
     this.onUnpin,
   });
 
   final PinnedMessageEvent event;
   final EmoteLookupSource? emotes;
+
+  /// Paints the sender's name; null leaves it plain.
+  final SevenTvPaintService? paints;
 
   /// Hides this pin on this device.
   final VoidCallback? onDismiss;
@@ -650,8 +713,10 @@ class PinnedMessageCard extends StatelessWidget {
               ],
             ),
           ),
-          Text.rich(
-            TextSpan(children: pinnedMessageSpans(context, event, emotes)),
+          PinnedMessageText(
+            event: event,
+            emotes: emotes,
+            paints: paints,
             style: theme.textTheme.bodyLarge,
           ),
         ],

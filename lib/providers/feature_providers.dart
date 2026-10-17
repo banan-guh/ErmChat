@@ -91,6 +91,7 @@ final broadcastWidgetsProvider = Provider<BroadcastWidgets>((ref) {
   final widgets = BroadcastWidgets(
     selectedChannel: () => ref.read(selectedChannelProvider),
     emotes: ref.read(emoteManagerProvider),
+    paints: ref.read(sevenTvPaintServiceProvider),
     messageColor: (channel, id) =>
         ref.read(chatProvider).channelFor(channel)?.messages.byId(id)?.color,
   );
