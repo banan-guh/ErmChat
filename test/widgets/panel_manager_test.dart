@@ -152,6 +152,7 @@ void main() {
   // it show through behind the status bar.
   testWidgets('an open sheet covers the status bar strip', (tester) async {
     tester.view.padding = FakeViewPadding(top: 40);
+    tester.view.viewPadding = FakeViewPadding(top: 40);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
     const bodyKey = Key('panel_body');
