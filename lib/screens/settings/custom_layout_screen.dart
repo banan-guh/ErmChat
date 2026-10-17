@@ -97,6 +97,16 @@ class _CustomLayoutScreenState extends State<CustomLayoutScreen> {
               write: (p, v) => p.setOverrideTightChromeMargins(v),
             ),
           ),
+          SettingAnchor(
+            Setting.keyboardButtons,
+            child: PrefsSwitchTile(
+              enabled: _enabled,
+              title: Setting.keyboardButtons.titleOf(context.l10n),
+              subtitle: context.l10n.keyboardButtonsHint,
+              read: (p) => p.overrideKeyboardHidesRow,
+              write: (p, v) => p.setOverrideKeyboardHidesRow(v),
+            ),
+          ),
         ],
       ),
     );

@@ -45,8 +45,6 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
 
   bool get _customLayoutEnabled => _prefs?.customLayoutEnabled ?? false;
 
-  bool get _keyboardHidesButtons => _prefs?.keyboardHidesButtons ?? false;
-
   Future<void> _pickTheme(BuildContext context) async {
     final mode = await showModalBottomSheet<ThemeMode>(
       context: context,
@@ -100,25 +98,6 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
     if (key == _accentKey) return;
     final prefs = _prefs ?? await Prefs.load();
     await prefs.setAccentColor(key);
-    PrefsStore.instance.notifyChanged();
-    if (!mounted) return;
-    setState(() {});
-  }
-
-  Future<void> _pickKeyboardButtons() async {
-    final current = _keyboardHidesButtons;
-    final selected = await showChoiceDialog<bool>(
-      context,
-      title: context.l10n.settingKeyboardButtons,
-      value: current,
-      options: [
-        (false, context.l10n.keyboardButtonsAlways, ''),
-        (true, context.l10n.keyboardButtonsHidden, ''),
-      ],
-    );
-    if (selected == null || selected == current) return;
-    final prefs = _prefs ?? await Prefs.load();
-    await prefs.setKeyboardHidesButtons(selected);
     PrefsStore.instance.notifyChanged();
     if (!mounted) return;
     setState(() {});
@@ -238,19 +217,6 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
               subtitle: context.l10n.experimental,
               read: (p) => p.liquidGlass,
               write: (p, v) => p.setLiquidGlass(v),
-            ),
-          ),
-          SettingAnchor(
-            Setting.keyboardButtons,
-            child: ListTile(
-              title: Text(Setting.keyboardButtons.titleOf(context.l10n)),
-              subtitle: Text(
-                _keyboardHidesButtons
-                    ? context.l10n.keyboardButtonsHidden
-                    : context.l10n.keyboardButtonsAlways,
-              ),
-              trailing: const Icon(Icons.chevron_right),
-              onTap: _pickKeyboardButtons,
             ),
           ),
           SettingsSectionHeader(context.l10n.sectionChatDisplay),

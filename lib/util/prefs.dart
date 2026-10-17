@@ -376,18 +376,19 @@ class Prefs {
   Future<void> setOverrideTightChromeMargins(bool value) =>
       _p.setBool(_kOverrideTightChromeMargins, value);
 
+  static const _kOverrideKeyboardHidesRow = 'override_keyboard_hides_row';
+
+  bool get overrideKeyboardHidesRow =>
+      _p.getBool(_kOverrideKeyboardHidesRow) ?? true;
+
+  Future<void> setOverrideKeyboardHidesRow(bool value) =>
+      _p.setBool(_kOverrideKeyboardHidesRow, value);
+
   static const _kLiquidGlass = 'liquid_glass';
 
   bool get liquidGlass => _p.getBool(_kLiquidGlass) ?? false;
 
   Future<void> setLiquidGlass(bool value) => _p.setBool(_kLiquidGlass, value);
-
-  static const _kKeyboardHidesButtons = 'keyboard_hides_buttons';
-
-  bool get keyboardHidesButtons => _p.getBool(_kKeyboardHidesButtons) ?? false;
-
-  Future<void> setKeyboardHidesButtons(bool value) =>
-      _p.setBool(_kKeyboardHidesButtons, value);
 
   // ── Inline embeds ───────────────────────────────────────────────────
   bool get giphyInlineEnabled =>

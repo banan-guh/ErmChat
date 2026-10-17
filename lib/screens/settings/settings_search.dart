@@ -258,13 +258,6 @@ class Setting {
     section: 'Layout',
     keywords: 'blur',
   );
-  static const keyboardButtons = Setting(
-    'keyboard_buttons',
-    'Buttons with keyboard',
-    SettingsPageId.appearance,
-    section: 'Layout',
-    keywords: 'composer hide always visible island',
-  );
   static const chatFontSize = Setting(
     'chat_font_size',
     'Chat font size',
@@ -344,6 +337,12 @@ class Setting {
     'tighter_chrome',
     'Tighter chrome margins',
     SettingsPageId.customLayout,
+  );
+  static const keyboardButtons = Setting(
+    'keyboard_buttons',
+    'Hide buttons while typing',
+    SettingsPageId.customLayout,
+    keywords: 'keyboard composer island row',
   );
 
   // ── Chat ────────────────────────────────────────────────────────────
@@ -712,7 +711,6 @@ class Setting {
     trueDark,
     layout,
     liquidGlass,
-    keyboardButtons,
     chatFontSize,
     showTimestamps,
     timestampFormat,
@@ -726,6 +724,7 @@ class Setting {
     horizontalSheetActions,
     compactDensity,
     tighterChrome,
+    keyboardButtons,
     maxMessages,
     sharedChat,
     inlineEmbeds,

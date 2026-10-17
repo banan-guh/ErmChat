@@ -294,6 +294,7 @@ class _TwitchChatAppState extends State<TwitchChatApp> {
         sheetActionRow: prefs.overrideSheetActionRow,
         compactDensity: prefs.overrideCompactDensity,
         tightChromeMargins: prefs.overrideTightChromeMargins,
+        keyboardHidesRow: prefs.overrideKeyboardHidesRow,
       );
       final proxy = ProxyConfig.fromPrefs(prefs);
       final changed =

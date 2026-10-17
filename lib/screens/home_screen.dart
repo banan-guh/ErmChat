@@ -18,6 +18,7 @@ import '../l10n/l10n.dart';
 import '../models/twitch_message.dart';
 import '../util/chat_text.dart';
 import '../util/haptics.dart';
+import '../util/layout_density.dart';
 import '../services/app_updates.dart';
 import '../services/twitch_api.dart';
 import '../services/twitch_auth.dart';
@@ -244,7 +245,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 
   /// Liquid glass chrome (default off; toggled in Customization).
   bool _liquidGlass = false;
-  bool _keyboardHidesButtons = false;
 
   /// 7TV name paints (default off; toggled in Chat settings).
   bool _showNamePaints = false;
@@ -1385,7 +1385,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
         _preferEmotesFirst != prefs.preferEmotesFirst ||
         _fastSnap != prefs.fastChannelSnap ||
         _liquidGlass != prefs.liquidGlass ||
-        _keyboardHidesButtons != prefs.keyboardHidesButtons ||
         _showInput != prefs.showInput;
 
     void apply() {
@@ -1407,7 +1406,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       _lineSeparator = prefs.lineSeparator;
       _fastSnap = prefs.fastChannelSnap;
       _liquidGlass = prefs.liquidGlass;
-      _keyboardHidesButtons = prefs.keyboardHidesButtons;
       _showNamePaints = prefs.seventvNamePaints;
       _showGifs = prefs.giphyInlineEnabled;
       _gifHeight = gifHeight;
@@ -1770,12 +1768,17 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     // in the app bar.
     final hasBottomBar =
         _chat.names.isNotEmpty || _channelManager.session.channelsPending;
-    // Emote and send join the row when it stays up while typing (the pane
-    // keeps it up in either mode), so send sits under the thumb.
+    // The compact layout hides the row under the keyboard (a layout
+    // override). Emote and send join the row when it stays up while typing
+    // (the pane keeps it up in either mode), so send sits under the thumb.
+    final keyboardHidesRow = resolveLayoutOverride(
+      context,
+      (o) => o.keyboardHidesRow,
+    );
     final buttonsInRow =
         hasBottomBar &&
         _showInput &&
-        (!_keyboardHidesButtons || _stream.chatInPane(context));
+        (!keyboardHidesRow || _stream.chatInPane(context));
     // Watched, not read: the send path clears the reply without a setState.
     final replyMsg = ref.watch(replyToProvider);
     final replyHeader =
@@ -1935,7 +1938,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
             notice: ChatNoticeBar(controller: _chatNotice),
             replyHeader: replyHeader,
             liquidGlass: glass,
-            keyboardHidesButtons: _keyboardHidesButtons,
+            keyboardHidesButtons: keyboardHidesRow,
           ),
         ),
       ),

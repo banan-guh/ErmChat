@@ -27,6 +27,7 @@ class LayoutOverrides {
     this.sheetActionRow = false,
     this.compactDensity = true,
     this.tightChromeMargins = true,
+    this.keyboardHidesRow = true,
   });
 
   /// Master switch: when false the individual switches are ignored.
@@ -48,6 +49,9 @@ class LayoutOverrides {
   /// Tighter chrome margins, e.g. the app bar action padding.
   final bool tightChromeMargins;
 
+  /// The keyboard covers the island's button row, leaving only the field.
+  final bool keyboardHidesRow;
+
   /// Whether the sheets use the icon row. Only custom turns it on.
   bool get horizontalSheetActions => enabled && sheetActionRow;
 
@@ -64,7 +68,8 @@ class LayoutOverrides {
       other.tightComposer == tightComposer &&
       other.sheetActionRow == sheetActionRow &&
       other.compactDensity == compactDensity &&
-      other.tightChromeMargins == tightChromeMargins;
+      other.tightChromeMargins == tightChromeMargins &&
+      other.keyboardHidesRow == keyboardHidesRow;
 
   @override
   int get hashCode => Object.hash(
@@ -74,6 +79,7 @@ class LayoutOverrides {
     sheetActionRow,
     compactDensity,
     tightChromeMargins,
+    keyboardHidesRow,
   );
 }
 
