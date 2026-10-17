@@ -56,6 +56,9 @@ enum SystemLine {
   reconnecting,
   loadingHistory,
   historyGap,
+
+  /// "Signed in as …" under the first Connected line; empty when anonymous.
+  signedIn,
 }
 
 /// One channel's message buffer and its laws: newest-first ordering, dedup,
@@ -78,7 +81,9 @@ class Messages {
   /// Display text for kernel-authored rows, read when the row is inserted.
   final String Function(SystemLine line) systemText;
 
-  static String _systemLineName(SystemLine line) => line.name;
+  // With no app text there is no account to name, so signedIn stays empty.
+  static String _systemLineName(SystemLine line) =>
+      line == SystemLine.signedIn ? '' : line.name;
 
   final List<TwitchMessage> _items = [];
   // Every buffered row carrying an id, for O(1) dedup and lookup.
@@ -134,6 +139,13 @@ class Messages {
   /// Id prefix of "not all messages retrieved" notes; the rest is the epoch
   /// ms they sit at.
   static const historyGapIdPrefix = 'sys_gap:';
+
+  /// Id prefix of the "signed in as" row that sits under the first
+  /// Connected line.
+  static const _signedInIdPrefix = 'sys_signedin:';
+
+  static bool _isSignedIn(TwitchMessage m) =>
+      m.isSystem && (m.messageId?.startsWith(_signedInIdPrefix) ?? false);
 
   static bool _isConnRow(TwitchMessage m) =>
       m.isSystem && (m.messageId?.startsWith(_connIdPrefix) ?? false);
@@ -512,6 +524,17 @@ class Messages {
       if (_isConn(top, SystemLine.disconnected)) return false;
       _removeRows((m) => _isConn(m, SystemLine.reconnecting));
     }
+    // The first connect names the account just under it; anonymous
+    // sessions resolve the line to empty and skip it.
+    if (resolved == SystemLine.connected) {
+      final signedIn = systemText(SystemLine.signedIn);
+      if (signedIn.isNotEmpty) {
+        _insertSystem(
+          signedIn,
+          messageId: '$_signedInIdPrefix${_nextSystemMessageId++}',
+        );
+      }
+    }
     return _insertSystem(
       systemText(resolved),
       messageId: '$_connIdPrefix${resolved.name}:${_nextSystemMessageId++}',
@@ -710,15 +733,30 @@ class Messages {
   bool moveConnectedToTop() {
     if (_items.length < 2) return false;
     var idx = _items.indexWhere((m) => _isConn(m, SystemLine.reconnected));
-    idx = idx < 0
-        ? _items.indexWhere((m) => _isConn(m, SystemLine.connected))
-        : idx;
-    if (idx <= 0) return false;
-    final msg = _items.removeAt(idx);
-    _items.insert(0, msg);
-    if (identical(msg, _limitEnd)) _limitEnd = null;
-    _bump();
-    return true;
+    final recovered = idx >= 0;
+    idx = recovered
+        ? idx
+        : _items.indexWhere((m) => _isConn(m, SystemLine.connected));
+    if (idx < 0) return false;
+    var moved = false;
+    if (idx > 0) {
+      final msg = _items.removeAt(idx);
+      _items.insert(0, msg);
+      if (identical(msg, _limitEnd)) _limitEnd = null;
+      moved = true;
+    }
+    // The first Connected keeps its "signed in as" row just under it.
+    if (!recovered) {
+      final at = _items.indexWhere(_isSignedIn);
+      if (at > 1) {
+        final row = _items.removeAt(at);
+        _items.insert(1, row);
+        if (identical(row, _limitEnd)) _limitEnd = null;
+        moved = true;
+      }
+    }
+    if (moved) _bump();
+    return moved;
   }
 
   // ---- Mutations -----------------------------------------------------------

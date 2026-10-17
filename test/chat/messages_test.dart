@@ -632,6 +632,21 @@ void main() {
       expect(messages.moveConnectedToTop(), isTrue);
       expect(messages.items.first.text, 'Renamed');
 
+      // Signed in, the account row rides just under the first Connected.
+      final named = Chat(
+        systemText: (line) => line == SystemLine.signedIn ? 'as me' : line.name,
+      );
+      addTearDown(named.dispose);
+      final rows = named.ensure('test').messages;
+      rows.addConnStatus(SystemLine.connected);
+      // A newer row lands above both, as history merging in does.
+      rows.addSystem('history');
+      expect(rows.moveConnectedToTop(), isTrue);
+      expect(rows.items.take(2).map((m) => m.text), [
+        'connected',
+        'as me',
+      ], reason: 'Connected stays newest with the account line under it');
+
       final loading = chat.ensure('loading');
       loading.addLoadingHistory();
       loading.messages.items.first.text = 'Renamed';
