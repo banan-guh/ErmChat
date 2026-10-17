@@ -162,6 +162,10 @@ class _ChatBodyState extends State<ChatBody>
   final _islandKey = GlobalKey();
   final _islandOuterKey = GlobalKey();
 
+  // Keyboard height by which the hidden row is gone (nav bar plus row), or
+  // zero when the row never hides.
+  double _hideSpan = 0;
+
   // Cached chat body and the inputs it was built from.
   Widget? _body;
   Object? _bodyInputs;
@@ -278,6 +282,9 @@ class _ChatBodyState extends State<ChatBody>
     // Sub-pixel ticks are noise, except the one that crosses into or out of
     // closed: IMEs ease out in tiny steps, so that crossing can be one.
     if ((raw - _rawH).abs() < 0.5 && (raw <= 0.5) == (_rawH <= 0.5)) return;
+    // The hidden row slides out over the keyboard's first [_hideSpan]; only
+    // those ticks rebuild, since the padding stops changing past the nav bar.
+    if ((raw < _rawH ? raw : _rawH) < _hideSpan) setState(() {});
     final wasClosed = _rawH <= 0.5;
     _opening = raw > _rawH;
     _rawH = raw;
@@ -440,18 +447,26 @@ class _ChatBodyState extends State<ChatBody>
         ? _islandH
         : (_islandH - _composerH).clamp(0.0, _islandH);
     final islandBottom = kComposerIslandMargin + bottomPad;
-    // Hidden mode keeps the island pinned to the screen bottom (its layout
-    // never changes) and clips the row from below as the keyboard rises. The
-    // field is only pushed once the keyboard top reaches it.
-    final push = (frameKb - bottomPad - rowH).clamp(0.0, double.infinity);
-    final hiddenBottom = islandBottom - frameKb + push;
-    final clipRow = (frameKb - bottomPad).clamp(0.0, rowH);
+    // Hidden mode pins the island above the nav bar (the padding shrinks
+    // under the keyboard, the nav bar does not) and clips the row from below
+    // as the keyboard rises past it, so the visible bottom edge rides the
+    // keyboard a margin above it. Once the row is gone the field rides too.
+    // Offsets are from the body's bottom, which the keyboard already lifts.
+    final navPad = frameKb > 0.5 ? viewPadBottom : bottomPad;
+    _hideSpan = hidden && floating ? navPad + rowH : 0;
+    final clipRow = (frameKb - navPad).clamp(0.0, rowH);
+    final push = (frameKb - navPad - rowH).clamp(0.0, double.infinity);
+    final hiddenBottom = kComposerIslandMargin + navPad - frameKb + push;
     // Rows under the island ease out of or into its space when it comes and
     // goes; composer growth and keyboard ticks move it directly.
     final floatingFlipped = _lastFloating != null && floating != _lastFloating;
     _lastFloating = floating;
     final clearance = _clearance.resolve(
-      floating ? glassComposerOverlayHeight(_islandOuterH) + bottomPad : 0.0,
+      !floating
+          ? 0.0
+          : hidden
+          ? hiddenBottom + _islandOuterH
+          : glassComposerOverlayHeight(_islandOuterH) + bottomPad,
       animate: floatingFlipped,
     );
     // Rebuilt only when its inputs change, so keyboard ticks (including the
@@ -607,7 +622,8 @@ class _ChatBodyState extends State<ChatBody>
     // The composer docked under the chat pane.
     final paneSlot = !pane ? null : Padding(padding: islandPad, child: island);
     // Floating island. Hidden mode keeps it pinned to the screen bottom and
-    // clips the row from below; otherwise it rides the keyboard.
+    // clips the row from below; otherwise it rides the keyboard. The clip
+    // stays mounted so the island never reparents mid-gesture.
     final floatingIsland = !floating
         ? null
         : Positioned(
@@ -615,8 +631,8 @@ class _ChatBodyState extends State<ChatBody>
             left: kComposerIslandMargin,
             right: kComposerIslandMargin,
             bottom: hidden ? hiddenBottom : islandBottom,
-            child: hidden && clipRow > 0
-                ? ClipRect(clipper: _IslandBottomClip(clipRow), child: island)
+            child: hidden
+                ? ClipRRect(clipper: _IslandBottomClip(clipRow), child: island)
                 : island,
           );
     // Docked island: the chat ends above it, so nothing scrolls underneath.
@@ -642,6 +658,7 @@ class _ChatBodyState extends State<ChatBody>
               : GlassChromeScope(
                   bottomClearance: clearance,
                   listExtra: widget.replyHeader != null ? _replyH : 0,
+                  glass: glass,
                   child: RepaintBoundary(
                     key: _chromeKey,
                     child: ColoredBox(
@@ -729,15 +746,28 @@ class _ChatBodyState extends State<ChatBody>
 }
 
 /// Clips the bottom [clip] pixels of the composer island, hiding the button
-/// row under the keyboard without moving or resizing it.
-class _IslandBottomClip extends CustomClipper<Rect> {
+/// row under the keyboard without moving or resizing it. The cut edge keeps
+/// the island's rounded corners; with nothing cut, nothing clips.
+class _IslandBottomClip extends CustomClipper<RRect> {
   const _IslandBottomClip(this.clip);
 
   final double clip;
 
   @override
-  Rect getClip(Size size) =>
-      Rect.fromLTRB(-1e4, -1e4, size.width + 1e4, size.height - clip);
+  RRect getClip(Size size) {
+    if (clip <= 0) {
+      return RRect.fromLTRBR(-1e4, -1e4, 1e4, 1e4, Radius.zero);
+    }
+    const r = Radius.circular(kComposerIslandRadius);
+    return RRect.fromLTRBAndCorners(
+      0,
+      -1e4,
+      size.width,
+      size.height - clip,
+      bottomLeft: r,
+      bottomRight: r,
+    );
+  }
 
   @override
   bool shouldReclip(_IslandBottomClip oldClipper) => oldClipper.clip != clip;

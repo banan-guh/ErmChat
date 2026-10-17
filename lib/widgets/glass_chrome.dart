@@ -51,10 +51,15 @@ class GlassChromeScope extends InheritedWidget {
     super.key,
     required this.bottomClearance,
     this.listExtra = 0,
+    this.glass = false,
     required super.child,
   });
 
   final double bottomClearance;
+
+  /// Whether the chrome is liquid glass. A floating island without glass
+  /// still has a clearance, so styling reads this, not the clearance.
+  final bool glass;
 
   /// Extra bottom padding the scrolling lists add on top of [bottomClearance]
   /// without moving the scroll-down button. Used for overlays that float above
@@ -67,7 +72,8 @@ class GlassChromeScope extends InheritedWidget {
   @override
   bool updateShouldNotify(GlassChromeScope oldWidget) =>
       bottomClearance != oldWidget.bottomClearance ||
-      listExtra != oldWidget.listExtra;
+      listExtra != oldWidget.listExtra ||
+      glass != oldWidget.glass;
 }
 
 /// [base] plus the pill clearance, for plain lists in the chat body (panels,

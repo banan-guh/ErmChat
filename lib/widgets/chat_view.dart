@@ -350,7 +350,7 @@ class _ChatViewState extends State<ChatView>
               bottom: 16 + _effBottom,
               child: ScrollDownButton(
                 atBottom: atBottom,
-                glass: _effBottom > 0.5,
+                glass: glassScope?.glass ?? false,
                 heroTag:
                     widget.scrollFabHeroTag ?? 'scroll_down_${widget.channel}',
                 onPressed: _jumpToBottom,
