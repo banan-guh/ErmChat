@@ -6,9 +6,12 @@ import '../chat/chat.dart';
 import '../l10n/l10n.dart';
 import '../services/pip_service.dart';
 import '../services/stream_player_controller.dart';
+import '../util/chrome_theme.dart';
+import '../util/insets.dart';
 import '../widgets/chat_body.dart' show ComposerPaneSlot;
 import '../widgets/glass_chrome.dart';
 import '../widgets/stream_player_view.dart';
+import '../widgets/tabbed_layout.dart';
 import 'channel_stack.dart';
 import 'home_app_bar.dart';
 
@@ -430,10 +433,13 @@ class StreamPanels {
         ],
       );
     }
-    // The app bar's actions live in the tab strip. With no channels there
-    // is no strip, so the welcome view keeps the app bar. Saved channels
-    // count before they join, so a cold start opens compact.
-    final merged = chat.names.isNotEmpty || channelsPending();
+    // The app bar's actions live in the tab strip, unless the chrome theme
+    // keeps an app bar. With no channels there is no strip, so the welcome
+    // view keeps the app bar. Saved channels count before they join, so a
+    // cold start opens compact.
+    final header = homeAppBar.themeSpec().header;
+    final hasChannels = chat.names.isNotEmpty || channelsPending();
+    final merged = hasChannels && header != HeaderStyle.appBar;
     final showVideo =
         channel == null ||
         showStreamVideo(
@@ -447,9 +453,13 @@ class StreamPanels {
     // survive the flip and opening a stream slides the tabs down.
     final glass = liquidGlass && !MediaQuery.highContrastOf(context);
     final glassChatOnly = glass && !hideChrome && channel == null;
-    final headerH = merged
-        ? glassCompactHeaderHeight(context)
-        : glassWelcomeHeaderHeight(context);
+    final headerH = !hasChannels
+        ? glassWelcomeHeaderHeight(context)
+        : statusBarHeight(context) +
+              (merged ? 0 : kGlassAppBarHeight) +
+              (header == HeaderStyle.bubbles
+                  ? TabbedLayout.bubbleStripHeight
+                  : kGlassTabStripHeight);
     // The welcome view keeps the top app bar; with channels the strip owns
     // the row and the player rides above it, attached to the chat's top edge.
     return Column(

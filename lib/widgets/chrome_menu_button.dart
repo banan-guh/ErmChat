@@ -87,11 +87,14 @@ class ChromeMenuButtonState extends State<ChromeMenuButton> {
 
 /// One row of a [ChromeMenu]; [ChromeMenuEntry.divider] draws a line.
 class ChromeMenuEntry {
-  const ChromeMenuEntry(this.label, this.onTap);
-  const ChromeMenuEntry.divider() : label = null, onTap = null;
+  const ChromeMenuEntry(this.label, this.onTap, {this.icon});
+  const ChromeMenuEntry.divider() : label = null, onTap = null, icon = null;
 
   final String? label;
   final VoidCallback? onTap;
+
+  /// Leading icon, for an entry that heads the menu.
+  final IconData? icon;
 }
 
 /// A chrome dropdown: with [glass], a liquid glass menu that morphs out of
@@ -168,6 +171,7 @@ class _ChromeMenuState extends State<ChromeMenu> {
             if (e.label case final label?)
               GlassMenuItem(
                 title: label,
+                icon: e.icon == null ? null : Icon(e.icon),
                 titleStyle: title,
                 height: 40,
                 onTap: e.onTap!,
@@ -195,7 +199,17 @@ class _ChromeMenuState extends State<ChromeMenu> {
             if (_entries[i].label case final label?)
               PopupMenuItem(
                 value: i,
-                child: Text(label, overflow: TextOverflow.ellipsis),
+                child: Row(
+                  children: [
+                    if (_entries[i].icon case final icon?) ...[
+                      Icon(icon, size: 20),
+                      const SizedBox(width: 12),
+                    ],
+                    Flexible(
+                      child: Text(label, overflow: TextOverflow.ellipsis),
+                    ),
+                  ],
+                ),
               )
             else
               const PopupMenuDivider(),

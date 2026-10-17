@@ -25,6 +25,7 @@ import '../eventsub/decode/events.dart' show PinnedMessageEvent;
 import '../services/mod_actions.dart' show ModResult;
 import '../widgets/broadcast_widgets.dart';
 import '../util/chat_search.dart';
+import '../util/chrome_theme.dart';
 import '../util/fake_history.dart';
 import '../util/history_timeline.dart';
 import '../widgets/chat_rows.dart';
@@ -534,6 +535,10 @@ class ChannelPanels {
     _dropStaleCaches();
     // The view menu, bell, overflow and settings live in the island's row.
     final showStrip = !isFullscreen() && !hideChrome;
+    // A themed app bar holds the actions; the strip keeps its own.
+    final appBarHeader =
+        homeAppBar.themeSpec().header == HeaderStyle.appBar &&
+        chat.names.isNotEmpty;
     return Stack(
       children: [
         Listener(
@@ -580,12 +585,17 @@ class ChannelPanels {
                               ),
                             ),
                           ),
-                    // Join stays the last tab; the view menu pins to the
-                    // strip's end. Fullscreen hides the strip, so the menu
+                    // Join stays the last tab unless the theme places a join
+                    // button; the theme's strip actions pin to the strip's
+                    // end. Fullscreen hides the strip, so the view menu
                     // drops into the island's row then.
-                    addTab: merged ? homeAppBar.joinTab() : null,
+                    addTab: merged && homeAppBar.stripJoinTab
+                        ? homeAppBar.joinTab()
+                        : null,
                     onAddTab: homeAppBar.onJoinTab,
-                    stripTrailing: merged
+                    stripBubbles:
+                        homeAppBar.themeSpec().header == HeaderStyle.bubbles,
+                    stripTrailing: merged || appBarHeader
                         ? homeAppBar.stripTrailing(
                             glass: glassOverlay || glassChrome,
                             onCalendar: openCalendar,

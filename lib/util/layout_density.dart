@@ -3,11 +3,6 @@ import 'package:flutter/material.dart';
 /// User choice for the chrome layout. [auto] resolves per device.
 enum LayoutDensity { auto, compact, full }
 
-/// Rough chrome presets after other chat apps. [dankchat3] keeps the
-/// island to the field and the actions in the strip, like ermchat 0.9;
-/// [dankchat4] runs the island edge to edge with send in its row.
-enum ChromeTheme { ermchat, dankchat3, dankchat4 }
-
 /// Auto goes compact below this long side. The long side is the portrait
 /// height whatever the rotation, so rotating never flips the layout. Small
 /// phones top out near 720 (iPhone 8/SE: 667) and full-size ones start

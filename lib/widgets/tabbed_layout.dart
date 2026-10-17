@@ -128,6 +128,15 @@ class TabbedLayout extends StatefulWidget {
   /// Pinned after the scrolling tabs (compact layout's top bar actions).
   final Widget? stripTrailing;
 
+  /// Splits the strip into floating pills, tabs then [stripTrailing], over
+  /// a clear strip.
+  final bool stripBubbles;
+
+  /// The strip's height with [stripBubbles]: the pills and their margins.
+  static const double bubbleStripHeight = _bubbleH + 2 * _bubbleGap;
+  static const double _bubbleH = 44;
+  static const double _bubbleGap = 6;
+
   /// Status bar clearance above the strip when nothing sits over it.
   final double stripTopInset;
 
@@ -165,6 +174,7 @@ class TabbedLayout extends StatefulWidget {
     this.addTab,
     this.onAddTab,
     this.stripTrailing,
+    this.stripBubbles = false,
     this.stripTopInset = 0,
     this.belowTabBar,
     this.headerOverlay,
@@ -504,83 +514,113 @@ class TabbedLayoutState extends State<TabbedLayout>
     // Tab strip content shared by the docked and glass branches. The Row
     // stays put with or without trailing actions, so a layout flip never
     // remounts the TabBar.
+    final bubbles = widget.stripBubbles;
+    Widget pill(Widget child) => bubbles
+        ? DecoratedBox(
+            decoration: ShapeDecoration(
+              color: theme.colorScheme.surfaceContainerHigh,
+              shape: const StadiumBorder(),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 6),
+              child: child,
+            ),
+          )
+        : child;
     final tabStrip = Padding(
-      padding: EdgeInsets.only(top: widget.stripTopInset),
+      padding: bubbles
+          ? EdgeInsets.fromLTRB(
+              8,
+              widget.stripTopInset + TabbedLayout._bubbleGap,
+              8,
+              TabbedLayout._bubbleGap,
+            )
+          : EdgeInsets.only(top: widget.stripTopInset),
       child: SizedBox(
-        height: 40,
+        height: bubbles ? TabbedLayout._bubbleH : 40,
         child: Row(
           children: [
             Expanded(
-              // Fades tabs out where they scroll under the pinned actions
-              // instead of hard-cutting them. Always mounted (fully opaque
-              // without actions) so a layout flip never remounts the TabBar.
-              child: ShaderMask(
-                blendMode: BlendMode.dstIn,
-                shaderCallback: (rect) {
-                  final fadeStart = widget.stripTrailing == null
-                      ? 1.0
-                      : 1 - _stripFade / rect.width;
-                  return LinearGradient(
-                    begin: AlignmentDirectional.centerStart,
-                    end: AlignmentDirectional.centerEnd,
-                    colors: const [
-                      Colors.white,
-                      Colors.white,
-                      Colors.transparent,
-                    ],
-                    stops: [0, fadeStart, 1],
-                  ).createShader(
-                    rect,
-                    textDirection: Directionality.of(context),
-                  );
-                },
-                // TabBar disables the behavior-built overscroll indicator
-                // for scrollable tabs, so install the stretch directly.
-                child: StretchingOverscrollIndicator(
-                  axisDirection: Directionality.of(context) == TextDirection.rtl
-                      ? AxisDirection.left
-                      : AxisDirection.right,
-                  child: ScrollConfiguration(
-                    behavior: const _SwipeScrollBehavior(),
-                    child: TabBar(
-                      controller: _tabController,
-                      onTap: _onTabTap,
-                      isScrollable: true,
-                      tabAlignment: _resolveTabAlignment(),
-                      // Lets the last tab scroll clear of the fade.
-                      padding: EdgeInsetsDirectional.only(
-                        end: widget.stripTrailing == null ? 0 : _stripFade,
-                      ),
-                      labelPadding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 0,
-                      ),
-                      indicator: BoxDecoration(
-                        border: Border(
-                          bottom: BorderSide(
-                            color: theme.colorScheme.primary,
-                            width: 2,
+              child: pill(
+                // Fades tabs out where they scroll under the pinned actions
+                // instead of hard-cutting them. Always mounted (fully opaque
+                // without actions) so a layout flip never remounts the TabBar.
+                ShaderMask(
+                  blendMode: BlendMode.dstIn,
+                  shaderCallback: (rect) {
+                    final fadeStart = widget.stripTrailing == null || bubbles
+                        ? 1.0
+                        : 1 - _stripFade / rect.width;
+                    return LinearGradient(
+                      begin: AlignmentDirectional.centerStart,
+                      end: AlignmentDirectional.centerEnd,
+                      colors: const [
+                        Colors.white,
+                        Colors.white,
+                        Colors.transparent,
+                      ],
+                      stops: [0, fadeStart, 1],
+                    ).createShader(
+                      rect,
+                      textDirection: Directionality.of(context),
+                    );
+                  },
+                  // TabBar disables the behavior-built overscroll indicator
+                  // for scrollable tabs, so install the stretch directly.
+                  child: StretchingOverscrollIndicator(
+                    axisDirection:
+                        Directionality.of(context) == TextDirection.rtl
+                        ? AxisDirection.left
+                        : AxisDirection.right,
+                    child: ScrollConfiguration(
+                      behavior: const _SwipeScrollBehavior(),
+                      child: TabBar(
+                        controller: _tabController,
+                        onTap: _onTabTap,
+                        isScrollable: true,
+                        tabAlignment: _resolveTabAlignment(),
+                        // Lets the last tab scroll clear of the fade.
+                        padding: EdgeInsetsDirectional.only(
+                          end: widget.stripTrailing == null || bubbles
+                              ? 0
+                              : _stripFade,
+                        ),
+                        labelPadding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 0,
+                        ),
+                        indicator: BoxDecoration(
+                          border: Border(
+                            bottom: BorderSide(
+                              color: theme.colorScheme.primary,
+                              width: 2,
+                            ),
                           ),
                         ),
+                        indicatorSize: TabBarIndicatorSize.label,
+                        // No full-width divider; the strip's tone separates it.
+                        dividerHeight: 0,
+                        tabs: [
+                          for (var i = 0; i < tabs.length; i++)
+                            Tab(
+                              child:
+                                  widget.tabBuilder?.call(context, i) ??
+                                  Text(tabs[i]),
+                            ),
+                          if (_hasAddTab) Tab(child: widget.addTab),
+                        ],
                       ),
-                      indicatorSize: TabBarIndicatorSize.label,
-                      // No full-width divider; the strip's tone separates it.
-                      dividerHeight: 0,
-                      tabs: [
-                        for (var i = 0; i < tabs.length; i++)
-                          Tab(
-                            child:
-                                widget.tabBuilder?.call(context, i) ??
-                                Text(tabs[i]),
-                          ),
-                        if (_hasAddTab) Tab(child: widget.addTab),
-                      ],
                     ),
                   ),
                 ),
               ),
             ),
-            ?widget.stripTrailing,
+            if (widget.stripTrailing case final trailing?)
+              if (bubbles) ...[
+                const SizedBox(width: 8),
+                pill(trailing),
+              ] else
+                trailing,
           ],
         ),
       ),
@@ -701,8 +741,10 @@ class TabbedLayoutState extends State<TabbedLayout>
           curve: Curves.easeInOut,
           child: widget.showTabBar
               ? ColoredBox(
-                  color:
-                      widget.tabBarColor ?? theme.colorScheme.surfaceContainer,
+                  color: bubbles
+                      ? theme.scaffoldBackgroundColor
+                      : widget.tabBarColor ??
+                            theme.colorScheme.surfaceContainer,
                   child: tabStrip,
                 )
               : const SizedBox.shrink(),

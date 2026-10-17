@@ -11,6 +11,7 @@ import '../services/chat_connection_manager.dart';
 import '../chat/chat.dart';
 import '../services/stream_player_controller.dart';
 import '../services/twitch_auth.dart';
+import '../util/chrome_theme.dart';
 import '../util/constants.dart';
 import '../widgets/chrome_menu_button.dart';
 import '../widgets/media_upload_controller.dart';
@@ -43,7 +44,7 @@ class HomeAppBar {
     required this.reloadEmotes,
     required this.reconnect,
     required this.openSettings,
-    required this.actionsInStrip,
+    required this.themeSpec,
   });
 
   final Chat chat;
@@ -71,8 +72,8 @@ class HomeAppBar {
   final VoidCallback reconnect;
   final VoidCallback openSettings;
 
-  /// The chrome theme moves the row's actions up into the tab strip.
-  final bool Function() actionsInStrip;
+  /// The chrome theme: which actions sit where.
+  final ChromeThemeSpec Function() themeSpec;
 
   bool _isChannelLive(String channel) =>
       chat.channelFor(channel)?.info.isLive ?? false;
@@ -113,23 +114,37 @@ class HomeAppBar {
     );
   }
 
-  /// The strip's end: the view menu, after the row's actions when the
-  /// chrome theme puts them up here.
+  /// One chrome button, wherever the theme places it.
+  Widget action(
+    BuildContext context,
+    ChromeAction action, {
+    bool glass = false,
+    VoidCallback? onCalendar,
+  }) => switch (action) {
+    ChromeAction.join => _joinButton(),
+    ChromeAction.mentions => mentionsButton(context),
+    ChromeAction.threads => threadsButton(context),
+    ChromeAction.settings => settingsButton(context),
+    ChromeAction.overflow => overflowMenu(context, glass: glass),
+    ChromeAction.viewMenu => chromeMenu(glass: glass, onCalendar: onCalendar),
+  };
+
+  /// The strip's end: the theme's strip actions.
   Widget stripTrailing({bool glass = false, VoidCallback? onCalendar}) {
-    final menu = chromeMenu(glass: glass, onCalendar: onCalendar);
-    if (!actionsInStrip()) return menu;
+    final actions = themeSpec().stripActions;
     return Builder(
       builder: (context) => Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          mentionsButton(context),
-          settingsButton(context),
-          overflowMenu(context, glass: glass),
-          menu,
+          for (final a in actions)
+            action(context, a, glass: glass, onCalendar: onCalendar),
         ],
       ),
     );
   }
+
+  /// Whether the strip ends in a join tab: only when no action places join.
+  bool get stripJoinTab => !themeSpec().places(ChromeAction.join);
 
   bool _joinBusy() =>
       !disableJoinSpinner() && (chatLoading() || networkBusy.value);
@@ -223,11 +238,26 @@ class HomeAppBar {
     onPressed: openSettings,
   );
 
+  /// The ⋮ menu. Settings heads it when the theme folds it in, and threads
+  /// joins it when the theme places no threads button.
   Widget overflowMenu(BuildContext context, {bool glass = false}) {
     final l10n = context.l10n;
     return ChromeMenu(
       glass: glass,
       entries: () => [
+        if (themeSpec().settingsInMenu) ...[
+          ChromeMenuEntry(
+            l10n.settingsTitle,
+            openSettings,
+            icon: Icons.settings,
+          ),
+          const ChromeMenuEntry.divider(),
+        ],
+        if (!themeSpec().places(ChromeAction.threads))
+          ChromeMenuEntry(
+            l10n.threads,
+            () => threads.showThreadsDashboard(tab: 1),
+          ),
         ChromeMenuEntry(
           l10n.uploadMedia,
           () => uploadController.pickAndUpload(context),
@@ -240,36 +270,34 @@ class HomeAppBar {
     );
   }
 
-  /// The island's button row: [leading] (the composer's emote button) and
-  /// the chrome buttons on the left, [trailing] (send) on the right. The
-  /// island draws the surface, so the row is bare. [withMenu] adds the view
-  /// menu, for when the strip that holds it is hidden. [actionsRight] moves
-  /// the chrome buttons over beside [trailing].
+  /// The island's button row: [leading] (the composer's emote button), the
+  /// theme's row actions, then [trailing] (send) on the right. The island
+  /// draws the surface, so the row is bare. [withMenu] adds the view menu,
+  /// for when the strip that holds it is hidden.
   Widget bottomBar(
     BuildContext context, {
     bool glass = false,
     Widget? leading,
     List<Widget> trailing = const [],
     bool withMenu = false,
-    bool actionsRight = false,
     VoidCallback? onCalendar,
   }) {
+    final spec = themeSpec();
+    final actions = [
+      for (final a in spec.rowActions) action(context, a, glass: glass),
+      if (withMenu) chromeMenu(glass: glass, onCalendar: onCalendar),
+    ];
     final row = Row(
       children: [
         ?leading,
-        if (actionsRight) const Spacer(),
-        settingsButton(context),
-        overflowMenu(context, glass: glass),
-        threadsButton(context),
-        mentionsButton(context),
-        if (withMenu) chromeMenu(glass: glass, onCalendar: onCalendar),
-        if (!actionsRight) const Spacer(),
+        if (spec.rowActionsRight) const Spacer(),
+        ...actions,
+        if (!spec.rowActionsRight) const Spacer(),
         ...trailing,
       ],
     );
     // Narrow islands tighten the 48pt buttons so the row still fits.
-    final count =
-        4 + (withMenu ? 1 : 0) + (leading == null ? 0 : 1) + trailing.length;
+    final count = actions.length + (leading == null ? 0 : 1) + trailing.length;
     final fitted = LayoutBuilder(
       builder: (context, constraints) =>
           constraints.maxWidth >= count * 48 + 2 * _rowInset
@@ -292,8 +320,19 @@ class HomeAppBar {
     );
   }
 
+  /// The top app bar: the theme's, or with no channels (no strip to hold
+  /// the actions) join, the bell, ⋮ and settings.
   Widget appBar(BuildContext context, {bool transparent = false}) {
     final theme = Theme.of(context);
+    final spec = themeSpec();
+    final actions = spec.header == HeaderStyle.appBar
+        ? spec.appBarActions
+        : [
+            ChromeAction.join,
+            ChromeAction.mentions,
+            ChromeAction.overflow,
+            if (!spec.settingsInMenu) ChromeAction.settings,
+          ];
     final content = Column(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -303,11 +342,16 @@ class HomeAppBar {
             padding: const EdgeInsets.symmetric(horizontal: 4),
             child: Row(
               children: [
+                if (spec.appBarTitle)
+                  Padding(
+                    padding: const EdgeInsets.only(left: 12),
+                    child: Text(
+                      context.l10n.appTitle,
+                      style: theme.textTheme.titleLarge,
+                    ),
+                  ),
                 const Spacer(),
-                _joinButton(),
-                mentionsButton(context),
-                overflowMenu(context),
-                settingsButton(context),
+                for (final a in actions) action(context, a),
               ],
             ),
           ),

@@ -18,6 +18,7 @@ import '../l10n/l10n.dart';
 import '../models/twitch_message.dart';
 import '../util/chat_text.dart';
 import '../util/haptics.dart';
+import '../util/chrome_theme.dart';
 import '../util/layout_density.dart';
 import '../services/app_updates.dart';
 import '../services/twitch_api.dart';
@@ -505,7 +506,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     reloadEmotes: _emotes.reload,
     reconnect: _reconnect,
     openSettings: _openSettings,
-    actionsInStrip: () => _chromeTheme == ChromeTheme.dankchat3,
+    themeSpec: () => _chromeTheme.spec,
   );
 
   late final ChannelPanels _channels = ChannelPanels(
@@ -1781,12 +1782,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     // The compact layout hides the row under the keyboard (a layout
     // override). Emote and send join the row when it stays up while typing
     // (the pane keeps it up in either mode), so send sits under the thumb.
-    // DankChat 3 drops the row (its actions sit in the strip); DankChat 4
-    // keeps it up while typing, with send at its end.
-    final rowless = _chromeTheme == ChromeTheme.dankchat3;
-    final flush = _chromeTheme == ChromeTheme.dankchat4;
+    // A theme with no row actions drops the row; one with send in the row
+    // keeps it up while typing.
+    final spec = _chromeTheme.spec;
+    final rowless = spec.rowActions.isEmpty;
     final keyboardHidesRow =
-        !flush && resolveLayoutOverride(context, (o) => o.keyboardHidesRow);
+        !spec.sendInRow &&
+        resolveLayoutOverride(context, (o) => o.keyboardHidesRow);
     final buttonsInRow =
         hasBottomBar &&
         _showInput &&
@@ -1918,9 +1920,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                 ? _chrome.bottomBar(
                     context,
                     glass: glass,
-                    actionsRight: flush,
                     trailing: [
-                      if (flush && buttonsInRow)
+                      if (spec.sendInRow && buttonsInRow)
                         SizedBox.square(dimension: 48, child: sendButton),
                     ],
                     leading: buttonsInRow
@@ -1948,8 +1949,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                   )
                 : null,
             // Send runs down the island's side while the row stays up.
-            sideAction: buttonsInRow && !flush ? sendButton : null,
-            islandFlush: flush,
+            sideAction: buttonsInRow && !spec.sendInRow ? sendButton : null,
+            islandFlush: spec.islandFlush,
             notice: ChatNoticeBar(controller: _chatNotice),
             replyHeader: replyHeader,
             liquidGlass: glass,

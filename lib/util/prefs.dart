@@ -4,6 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/emote_fetch_tier.dart';
 import '../theme_colors.dart';
 import 'constants.dart';
+import 'chrome_theme.dart';
 import 'layout_density.dart';
 import 'timestamp_formatter.dart';
 
