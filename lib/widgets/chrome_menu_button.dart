@@ -171,11 +171,16 @@ class _ChromeMenuState extends State<ChromeMenu> {
   @override
   Widget build(BuildContext context) {
     if (widget.glass) {
+      // Rows sized like the Material popup, not the library's iOS 17pt.
+      final title = TextStyle(
+        fontSize: 14,
+        color: Theme.of(context).colorScheme.onSurface,
+      );
       return GlassMenu(
         menuAlignment: GlassMenuAlignment.topRight,
         autoAdjustToScreen: true,
-        menuPadding: const EdgeInsets.all(8),
-        menuWidth: 220,
+        menuPadding: const EdgeInsets.all(4),
+        menuWidth: 200,
         // A quick, plain open: no rubber-band stretch or press scaling.
         morphSpeed: MorphSpeed.fast,
         stretch: 0,
@@ -194,9 +199,15 @@ class _ChromeMenuState extends State<ChromeMenu> {
         items: [
           for (final e in _entries)
             if (e.label case final label?)
-              GlassMenuItem(title: label, icon: Icon(e.icon), onTap: e.onTap!)
+              GlassMenuItem(
+                title: label,
+                titleStyle: title,
+                icon: Icon(e.icon),
+                height: 40,
+                onTap: e.onTap!,
+              )
             else
-              const GlassMenuDivider(),
+              const GlassMenuDivider(height: 8),
         ],
       );
     }
