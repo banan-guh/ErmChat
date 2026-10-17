@@ -95,6 +95,9 @@ class _ImageEmbedViewerState extends State<_ImageEmbedViewer>
                   child: CachedNetworkImage(
                     imageUrl: widget.url,
                     fit: BoxFit.contain,
+                    // The preview already cached the bytes and the route
+                    // fades in, so a second image fade only drags.
+                    fadeInDuration: Duration.zero,
                     placeholder: (_, _) => const SizedBox(
                       width: 48,
                       height: 48,
