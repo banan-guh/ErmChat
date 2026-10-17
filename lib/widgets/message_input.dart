@@ -290,7 +290,7 @@ class _ReplyHeaderState extends State<ReplyHeader>
     // FractionalTranslation, not SizeTransition: the layout slot stays a fixed
     // height while dragging, so the chat viewport never resizes mid-gesture.
     // The clip cuts only the bottom edge, so the card slides away behind the
-    // input bar while its shadow can still spill above and to the sides.
+    // input bar.
     return ClipRect(
       clipper: const _BottomClipper(),
       child: AnimatedBuilder(
@@ -308,16 +308,10 @@ class _ReplyHeaderState extends State<ReplyHeader>
           elevation: 0,
           builder: (ctx) => Container(
             margin: const EdgeInsets.fromLTRB(4, 4, 4, 6),
+            // The island's tone and no rim, so it reads as the same chrome.
             decoration: BoxDecoration(
-              color: theme.colorScheme.surfaceContainerLow,
+              color: theme.colorScheme.surfaceContainer,
               borderRadius: BorderRadius.circular(16),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.12),
-                  blurRadius: 12,
-                  offset: const Offset(0, -2),
-                ),
-              ],
             ),
             child: Column(
               mainAxisSize: MainAxisSize.min,

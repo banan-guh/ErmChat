@@ -9,6 +9,7 @@ import '../services/emote_images.dart';
 import '../services/emote_manager.dart';
 import '../util/sheet_drag.dart';
 import '../widgets/tabbed_layout.dart';
+import 'glass_chrome.dart' show kComposerIslandMargin;
 import 'emote_scale_resolver.dart';
 
 class EmoteMenuPanelWidget extends ConsumerStatefulWidget {
@@ -101,24 +102,19 @@ class EmoteMenuPanelWidgetState extends ConsumerState<EmoteMenuPanelWidget> {
     }
     _lastPanelWidth = width;
     final theme = Theme.of(context);
-    final panelColor = theme.colorScheme.surfaceContainerLow;
+    // The island's tone, so the panel reads as the same chrome.
+    final panelColor = theme.colorScheme.surfaceContainer;
     final radius = BorderRadius.circular(16);
     return Center(
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: _maxPanelWidth),
         child: Container(
-          margin: const EdgeInsets.all(4),
-          decoration: BoxDecoration(
-            color: panelColor,
-            borderRadius: radius,
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.12),
-                blurRadius: 12,
-                offset: const Offset(0, -2),
-              ),
-            ],
+          // Side margins match the island's, so their edges line up.
+          margin: const EdgeInsets.symmetric(
+            horizontal: kComposerIslandMargin,
+            vertical: 4,
           ),
+          decoration: BoxDecoration(color: panelColor, borderRadius: radius),
           clipBehavior: Clip.none,
           child: ClipRRect(
             borderRadius: radius,
@@ -173,7 +169,7 @@ class EmoteMenuPanelWidgetState extends ConsumerState<EmoteMenuPanelWidget> {
                   Padding(
                     padding: const EdgeInsets.only(
                       top: 15,
-                      bottom: 24,
+                      bottom: 8,
                     ), // exactly 15 to line up with the other line
                     child: Center(
                       child: SizedBox(
