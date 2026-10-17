@@ -453,51 +453,44 @@ class StreamPanels {
           keyboardH: keyboardH,
           inputH: composerH,
         );
-    // Chat-only portrait floats one glass block above
-    // full-height pages; fullscreen slides it away. Stream, theater, split,
-    // and keyboard-collapse states keep the docked layout. With no channels
-    // the card holds the app bar only (no tab strip) over the welcome view.
+    // Chat-only portrait floats one glass block above full-height pages.
+    // Both layouts share this Column shape so the strip and player slot
+    // survive the flip and opening a stream slides the tabs down.
     final glass = liquidGlass && !MediaQuery.highContrastOf(context);
-    if (glass && !hideChrome && channel == null) {
-      final headerH = merged
-          ? glassCompactHeaderHeight(context)
-          : glassWelcomeHeaderHeight(context);
-      // The pill clearance reaches the lists through GlassChromeScope, not
-      // this call, so pages stay cached while the safe area animates.
-      return Column(
-        children: [
-          channels.channelTabs(
-            context,
-            hideChrome: false,
-            merged: merged,
-            belowTabBar: null,
-            glassOverlay: true,
-            glassHeader: merged
-                ? null
-                : homeAppBar.appBar(context, transparent: true),
-            glassHeaderHeight: headerH,
-            glassTopPadding: headerH,
-          ),
-        ],
-      );
-    }
+    final glassChatOnly = glass && !hideChrome && channel == null;
+    final headerH = merged
+        ? glassCompactHeaderHeight(context)
+        : glassWelcomeHeaderHeight(context);
+    // The welcome view keeps the top app bar; with channels the strip owns
+    // the row and the player rides above it, attached to the chat's top edge.
     return Column(
       children: [
         AnimatedSize(
           duration: const Duration(milliseconds: 200),
           curve: Curves.easeInOut,
-          child: !isFullscreen() && !hideChrome && !merged
+          child: !isFullscreen() && !hideChrome && !merged && !glassChatOnly
               ? homeAppBar.appBar(context)
               : const SizedBox.shrink(),
         ),
+        AnimatedSize(
+          duration: const Duration(milliseconds: 200),
+          curve: Curves.easeInOut,
+          alignment: Alignment.topCenter,
+          child: channel == null
+              ? const SizedBox(width: double.infinity)
+              : stackedPlayer(channel, showVideo),
+        ),
         channels.channelTabs(
           context,
-          hideChrome: hideChrome,
+          hideChrome: glassChatOnly ? false : hideChrome,
           merged: merged,
-          glassChrome: glass,
-          belowTabBar: channel == null
-              ? null
-              : stackedPlayer(channel, showVideo),
+          glassOverlay: glassChatOnly,
+          glassChrome: glassChatOnly ? false : glass,
+          glassHeader: glassChatOnly && !merged
+              ? homeAppBar.appBar(context, transparent: true)
+              : null,
+          glassHeaderHeight: glassChatOnly ? headerH : 0,
+          glassTopPadding: glassChatOnly ? headerH : 0,
         ),
       ],
     );

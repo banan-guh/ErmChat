@@ -201,6 +201,14 @@ Widget glassPill({required Widget child}) => GlassSurface(
   child: child,
 );
 
+// Bottom chrome strip for the composer's row in glass mode. Square edges keep
+// it flush; the child pads its own safe area inside the glass.
+Widget glassBottomBar({required Widget child}) => GlassSurface(
+  settings: kGlassPillSettings,
+  shape: const LiquidRoundedSuperellipse(borderRadius: 0),
+  child: child,
+);
+
 // Floating broadcast cards (pins, polls, predictions) over the chat.
 Widget glassCard({required Widget child}) => GlassSurface(
   settings: kGlassPillSettings,

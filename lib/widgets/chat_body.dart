@@ -66,6 +66,7 @@ class ChatBody extends StatefulWidget {
     this.liquidGlass = false,
     this.onKeyboardDismissed,
     this.composer,
+    this.bottomBar,
     this.notice,
     this.replyHeader,
     this.isInPip = false,
@@ -81,6 +82,10 @@ class ChatBody extends StatefulWidget {
   final Widget autocomplete;
   final double emoteMaxFraction;
   final Widget? composer;
+
+  /// Chrome below the composer: bell, overflow and settings. Docks at the
+  /// bottom in every composer path and slides down while the keyboard is up.
+  final Widget? bottomBar;
 
   /// Floats the composer as a pill above the chat instead of
   /// docking it in flow. Rows slide underneath the blur.
@@ -201,6 +206,30 @@ class _ChatBodyState extends State<ChatBody>
   // so the composer would draw every other tick (30fps).
   late final _keyboardPump = createTicker((_) {});
 
+  // Bottom chrome bar: 1 shown, 0 slid down behind the keyboard.
+  late final _barCtrl = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 200),
+    value: 1,
+  );
+
+  /// Slides the bottom bar down while the keyboard is up; the return pops in
+  /// with the body so the composer never rides back up over a settling
+  /// keyboard. A no-op without a bar or under PiP.
+  void _setBarShown(bool shown) {
+    if (widget.bottomBar == null || widget.isInPip) return;
+    if (shown) {
+      if (_barCtrl.value != 1.0) {
+        _barCtrl.stop();
+        _barCtrl.value = 1.0;
+      }
+      return;
+    }
+    if (_barCtrl.value != 0.0 && !_barCtrl.isAnimating) {
+      _barCtrl.reverse();
+    }
+  }
+
   double _readRawH() => _view.viewInsets.bottom / _view.devicePixelRatio;
 
   // Last learned open height, persisted so decisions start right even on a
@@ -248,6 +277,8 @@ class _ChatBodyState extends State<ChatBody>
     if (_rawH > 0.5 && _liftH == 0) {
       _liftH = _rawH;
       _learnedH = _rawH;
+      // Cold start with the keyboard up: hide the bar without a slide.
+      _barCtrl.value = 0;
     }
   }
 
@@ -257,6 +288,7 @@ class _ChatBodyState extends State<ChatBody>
     _settleTimer?.cancel();
     _pillHideTimer?.cancel();
     _keyboardPump.dispose();
+    _barCtrl.dispose();
     _bottomPad.dispose();
     _clearance.dispose();
     super.dispose();
@@ -272,6 +304,8 @@ class _ChatBodyState extends State<ChatBody>
     _opening = raw > _rawH;
     _rawH = raw;
     if (raw > 0.5) _keyboardEngaged = true;
+    // Slide the bottom bar with the keyboard phase.
+    _setBarShown(raw <= 0.5);
     _settleTimer?.cancel();
     if (!_keyboardPump.isActive) _keyboardPump.start();
     if (raw <= 0.5) {
@@ -402,12 +436,19 @@ class _ChatBodyState extends State<ChatBody>
         composer != null &&
         !widget.isInPip &&
         !MediaQuery.highContrastOf(context);
+    // The bottom bar owns the safe area when present, so the composer never
+    // pays it twice.
+    final hasBar = widget.bottomBar != null && !widget.isInPip;
+    final composerPad = hasBar ? 0.0 : bottomPad;
+    // Glass bar matches the composer pill; the opaque shell handles the rest.
+    final barGlass =
+        hasBar && widget.liquidGlass && !MediaQuery.highContrastOf(context);
     // Composer footprint: content plus the live safe area, and the pill
     // margin only while floating. Composed at build so the clearance tracks
     // the keyboard inset on the same frame instead of lagging one frame.
     final composerH = composer == null
         ? 0.0
-        : _composerH + bottomPad + (pill ? kGlassComposerMargin : 0.0);
+        : _composerH + composerPad + (pill ? kGlassComposerMargin : 0.0);
     final pillH = glassComposerOverlayHeight(composerH);
     // Rows under the pill ease out of or into its space when it comes and
     // goes; composer growth and keyboard ticks move it directly.
@@ -557,7 +598,7 @@ class _ChatBodyState extends State<ChatBody>
                   child: Padding(
                     key: inputBarKey,
                     padding: EdgeInsets.only(
-                      bottom: bottomPad + kGlassComposerMargin,
+                      bottom: composerPad + kGlassComposerMargin,
                     ),
                     child: NotificationListener<SizeChangedLayoutNotification>(
                       onNotification: (_) {
@@ -579,30 +620,59 @@ class _ChatBodyState extends State<ChatBody>
               ),
             ),
           );
+    // Chrome under the composer, carrying its own safe area. It follows the
+    // composer: inside the chat pane when the composer docks there, else
+    // across the bottom. Only the hide animates (see [_setBarShown]).
+    final barSlot = !hasBar
+        ? null
+        : SizeTransition(
+            sizeFactor: _barCtrl,
+            alignment: Alignment.topCenter,
+            child: barGlass
+                ? glassBottomBar(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        widget.bottomBar!,
+                        SizedBox(height: bottomPad),
+                      ],
+                    ),
+                  )
+                : Padding(
+                    padding: EdgeInsets.only(bottom: bottomPad),
+                    child: widget.bottomBar!,
+                  ),
+          );
     // The composer docked under the chat pane. Same keys as the other two
     // paths, and gated on !_pillShown, so only one copy mounts and focus
-    // survives the move.
+    // survives the move. The bottom bar docks here too, under the composer.
     final paneSlot = !pane || _pillShown
         ? null
-        : Padding(
-            key: inputBarKey,
-            padding: EdgeInsets.only(bottom: bottomPad),
-            child: NotificationListener<SizeChangedLayoutNotification>(
-              onNotification: (_) {
-                WidgetsBinding.instance.addPostFrameCallback((_) {
-                  _cacheComposerH();
-                  _cachePaneInsets();
-                });
-                return true;
-              },
-              child: SizeChangedLayoutNotifier(
-                child: ComposerFocusGlow(
-                  enabled: widget.liquidGlass,
-                  radius: 0,
-                  child: composerSlot(composer),
+        : Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Padding(
+                key: inputBarKey,
+                padding: EdgeInsets.only(bottom: composerPad),
+                child: NotificationListener<SizeChangedLayoutNotification>(
+                  onNotification: (_) {
+                    WidgetsBinding.instance.addPostFrameCallback((_) {
+                      _cacheComposerH();
+                      _cachePaneInsets();
+                    });
+                    return true;
+                  },
+                  child: SizeChangedLayoutNotifier(
+                    child: ComposerFocusGlow(
+                      enabled: widget.liquidGlass,
+                      radius: 0,
+                      child: composerSlot(composer),
+                    ),
+                  ),
                 ),
               ),
-            ),
+              ?barSlot,
+            ],
           );
     // No manual lift: the Scaffold shrank the body, so the composer sits
     // above the keyboard at settled constraints with no second animator
@@ -690,7 +760,9 @@ class _ChatBodyState extends State<ChatBody>
           // pill and the in-flow never mount together: one shared inputBarKey
           // keeps the composer's FocusNode alive across the hand-off.
           Padding(
-            padding: EdgeInsets.only(bottom: pill || pane ? 0.0 : bottomPad),
+            padding: EdgeInsets.only(
+              bottom: pill || pane || hasBar ? 0.0 : bottomPad,
+            ),
             child: AnimatedSize(
               duration: const Duration(milliseconds: 220),
               curve: Curves.easeInOut,
@@ -712,6 +784,9 @@ class _ChatBodyState extends State<ChatBody>
               ),
             ),
           ),
+        // The bar docks across the bottom unless the composer lives in a
+        // pane, where it docks inside that pane instead.
+        if (!pane) ?barSlot,
       ],
     );
     // Per keyboard tick this reruns and returns the same prebuilt column.

@@ -241,6 +241,33 @@ class HomeAppBar {
     );
   }
 
+  /// The bottom chrome row: bell, overflow menu and settings, spread evenly.
+  /// It sits below the composer and owns the safe area through the host. In
+  /// glass mode the host wraps it in a glass surface, so only the non-glass
+  /// path draws the opaque shell.
+  Widget bottomBar(BuildContext context, {bool glass = false}) {
+    final theme = Theme.of(context);
+    final row = Row(
+      mainAxisAlignment: MainAxisAlignment.end,
+      children: [
+        mentionsButton(context),
+        overflowMenu(context, glass: glass),
+        settingsButton(context),
+      ],
+    );
+    if (glass) {
+      return KeyedSubtree(key: const Key('bottom_chrome_bar'), child: row);
+    }
+    return DecoratedBox(
+      key: const Key('bottom_chrome_bar'),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainer,
+        border: Border(top: BorderSide(color: theme.dividerColor)),
+      ),
+      child: row,
+    );
+  }
+
   Widget appBar(BuildContext context, {bool transparent = false}) {
     final theme = Theme.of(context);
     final content = Column(

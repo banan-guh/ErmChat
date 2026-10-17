@@ -3,9 +3,9 @@ import 'package:ermchat/util/prefs.dart';
 import 'package:ermchat/util/prefs_store.dart';
 import 'widget_test_harness.dart';
 
-// Compact layout end to end: the app bar folds into the tab strip (join as
-// the last tab, bell and menu pinned right), the welcome view keeps the app
-// bar, and flipping density mid-session keeps the channel and the focus.
+// Compact layout end to end: the app bar folds away, the bell and menu dock
+// in the composer's bottom row, the join tab stays last in the strip, and the
+// welcome view keeps the app bar.
 void main() {
   setUp(() {
     HomeScreen.disableJoinSpinner = true;
@@ -65,6 +65,11 @@ void main() {
     matching: f,
   );
 
+  Finder inBottomBar(Finder f) => find.descendant(
+    of: find.byKey(const Key('bottom_chrome_bar')),
+    matching: f,
+  );
+
   Future<void> setDensity(WidgetTester tester, LayoutDensity density) async {
     await (await Prefs.load()).setLayoutDensity(density);
     PrefsStore.instance.notifyChanged();
@@ -87,7 +92,7 @@ void main() {
     final prefs = await Prefs.load();
     await prefs.setOverrideFoldPanelHeaders(false);
     await settlePrefs(tester);
-    final bell = inStrip(find.byIcon(Icons.notifications_active));
+    final bell = inBottomBar(find.byIcon(Icons.notifications_active));
     await tester.tap(bell);
     await tester.pumpAndSettle();
     expect(find.text('Mentions / Whispers'), findsNothing);
@@ -102,13 +107,16 @@ void main() {
   });
 
   for (final glass in [false, true]) {
-    testWidgets('compact merges the app bar and folds panel titles '
+    testWidgets('the bottom row holds the actions and panel titles fold '
         '(glass=$glass)', (tester) async {
       await pumpJoined(tester, glass: glass, density: LayoutDensity.compact);
 
       expect(inStrip(find.byIcon(Icons.add)), findsOneWidget);
-      expect(inStrip(find.byIcon(Icons.notifications_active)), findsOneWidget);
-      expect(inStrip(find.byIcon(Icons.more_vert)), findsOneWidget);
+      expect(
+        inBottomBar(find.byIcon(Icons.notifications_active)),
+        findsOneWidget,
+      );
+      expect(inBottomBar(find.byIcon(Icons.more_vert)), findsOneWidget);
 
       // The strip clears the status bar now that nothing sits above it.
       expect(tester.getRect(find.byType(TabBar)).top, greaterThanOrEqualTo(24));
@@ -121,7 +129,7 @@ void main() {
       await tester.pumpAndSettle();
 
       // The panel title folds into its tabs, one row with the back button.
-      await tester.tap(inStrip(find.byIcon(Icons.notifications_active)));
+      await tester.tap(inBottomBar(find.byIcon(Icons.notifications_active)));
       await tester.pumpAndSettle();
       expect(find.text('Mentions / Whispers'), findsNothing);
       final whispers = find.widgetWithText(Tab, 'Whispers');
@@ -134,13 +142,16 @@ void main() {
       );
     });
 
-    testWidgets('full keeps the app bar in the strip (glass=$glass)', (
+    testWidgets('full keeps the join tab in the strip (glass=$glass)', (
       tester,
     ) async {
       await pumpJoined(tester, glass: glass, density: LayoutDensity.full);
 
       expect(inStrip(find.byIcon(Icons.add)), findsOneWidget);
-      expect(inStrip(find.byIcon(Icons.notifications_active)), findsOneWidget);
+      expect(
+        inBottomBar(find.byIcon(Icons.notifications_active)),
+        findsOneWidget,
+      );
     });
 
     testWidgets('flipping density keeps the channel and focus (glass=$glass)', (

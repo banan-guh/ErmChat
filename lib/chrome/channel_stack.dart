@@ -425,50 +425,12 @@ class ChannelPanels {
   /// The focused index resolves live from the channel list, so reorder
   /// with the same length can never leave a stale highlight behind.
   Widget _buildTab(String channel) {
-    return ListenableBuilder(
+    return _ChannelTab(
+      chat: chat,
+      channel: channel,
+      selectedTabIndex: selectedTabIndex,
+      selectedChannel: selectedChannel,
       listenable: _tabSharedMerge,
-      builder: (ctx, _) {
-        final focused = chat.names.indexOf(channel) == selectedTabIndex.value;
-        final selected = focused || channel == selectedChannel();
-        final hasUnreadMention =
-            chat.channelFor(channel)?.unread.hasMention ?? false;
-        final theme = Theme.of(ctx);
-        return Stack(
-          clipBehavior: Clip.none,
-          children: [
-            Text(
-              channel,
-              style: TextStyle(
-                fontSize: 14,
-                fontWeight:
-                    selected ||
-                        (chat.channelFor(channel)?.unread.hasUnread ?? false)
-                    ? FontWeight.w600
-                    : FontWeight.normal,
-                color: selected
-                    ? theme.colorScheme.primary
-                    : (chat.channelFor(channel)?.unread.hasUnread ?? false)
-                    ? theme.colorScheme.onSurface
-                    : null,
-              ),
-            ),
-            if (hasUnreadMention && !selected)
-              Positioned(
-                top: -2,
-                right: -4,
-                child: Container(
-                  key: const Key('unread_mention_dot'),
-                  width: 6,
-                  height: 6,
-                  decoration: BoxDecoration(
-                    color: theme.colorScheme.error,
-                    shape: BoxShape.circle,
-                  ),
-                ),
-              ),
-          ],
-        );
-      },
     );
   }
 
@@ -510,6 +472,15 @@ class ChannelPanels {
     double glassTopPadding = 0,
   }) {
     _dropStaleCaches();
+    // With the strip visible the stream dropdown caps it; hidden chrome
+    // floats the same dropdown as an overlay instead.
+    final showStrip = !isFullscreen() && !hideChrome;
+    Widget chromeMenu() => homeAppBar.chromeMenu(
+      glass: glassOverlay || glassChrome,
+      onCalendar: selectedChannel() == null
+          ? null
+          : () => _calendarFor(selectedChannel()!).value = true,
+    );
     return Stack(
       children: [
         Listener(
@@ -539,14 +510,9 @@ class ChannelPanels {
                       if (ctrl.hasClients) ctrl.jumpTo(0);
                       atBottomNotifier(channel).value = true;
                     },
-                    showTabBar: !isFullscreen() && !hideChrome,
+                    showTabBar: showStrip,
                     fullscreen: isFullscreen(),
-                    chromeMenu: homeAppBar.chromeMenu(
-                      glass: glassOverlay || glassChrome,
-                      onCalendar: selectedChannel() == null
-                          ? null
-                          : () => _calendarFor(selectedChannel()!).value = true,
-                    ),
+                    chromeMenu: showStrip ? null : chromeMenu(),
                     pagesOverlay: selectedChannel() == null
                         ? null
                         : ListenableBuilder(
@@ -562,24 +528,15 @@ class ChannelPanels {
                               ),
                             ),
                           ),
-                    // Compact merges the app bar into the strip: join as the
-                    // last tab, the other actions pinned on the right.
+                    // Join stays the last tab; the stream dropdown caps the
+                    // strip. The bell, overflow and settings moved to the
+                    // composer's bottom row.
                     addTab: merged ? homeAppBar.joinTab() : null,
                     onAddTab: homeAppBar.onJoinTab,
-                    stripTrailing: merged
-                        ? Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              homeAppBar.mentionsButton(context, small: true),
-                              homeAppBar.overflowMenu(
-                                context,
-                                small: true,
-                                glass: glassOverlay || glassChrome,
-                              ),
-                              homeAppBar.settingsButton(context, small: true),
-                              // Its glyph lines up with the dropdown arrow's.
-                              const SizedBox(width: 4),
-                            ],
+                    stripTrailing: showStrip
+                        ? Padding(
+                            padding: const EdgeInsets.only(right: 4),
+                            child: chromeMenu(),
                           )
                         : null,
                     stripTopInset: merged ? statusBarHeight(context) : 0,
@@ -782,6 +739,127 @@ class _FocusGatedBuilder extends StatelessWidget {
     return ListenableBuilder(
       listenable: active ? listenable : _emptyNotifier,
       builder: (context, _) => builder(context, active),
+    );
+  }
+}
+
+/// Channel tab label. A new mention on an unselected channel pulses the label
+/// to the accent color once, on top of the steady unread dot.
+class _ChannelTab extends StatefulWidget {
+  const _ChannelTab({
+    required this.chat,
+    required this.channel,
+    required this.selectedTabIndex,
+    required this.selectedChannel,
+    required this.listenable,
+  });
+
+  final Chat chat;
+  final String channel;
+  final ValueNotifier<int> selectedTabIndex;
+  final String? Function() selectedChannel;
+
+  /// Merged selection and unread notifier the label reads through.
+  final Listenable listenable;
+
+  @override
+  State<_ChannelTab> createState() => _ChannelTabState();
+}
+
+class _ChannelTabState extends State<_ChannelTab>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _flash = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 200),
+  );
+  // One out-and-back pulse per new mention.
+  late final Animation<double> _pulse = TweenSequence<double>([
+    TweenSequenceItem(tween: Tween(begin: 0.0, end: 1.0), weight: 1),
+    TweenSequenceItem(tween: Tween(begin: 1.0, end: 0.0), weight: 1),
+  ]).animate(CurvedAnimation(parent: _flash, curve: Curves.easeOut));
+
+  bool _hadMention = false;
+
+  bool get _hasMention =>
+      widget.chat.channelFor(widget.channel)?.unread.hasMention ?? false;
+
+  bool get _selected =>
+      widget.chat.names.indexOf(widget.channel) ==
+          widget.selectedTabIndex.value ||
+      widget.channel == widget.selectedChannel();
+
+  @override
+  void initState() {
+    super.initState();
+    _hadMention = _hasMention;
+    widget.listenable.addListener(_onUnreadChanged);
+  }
+
+  @override
+  void dispose() {
+    widget.listenable.removeListener(_onUnreadChanged);
+    _flash.dispose();
+    super.dispose();
+  }
+
+  void _onUnreadChanged() {
+    final mention = _hasMention;
+    // Only a fresh mention on a background channel flashes, and never a
+    // re-notify of one already showing.
+    if (mention && !_hadMention && !_selected) _flash.forward(from: 0);
+    _hadMention = mention;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return ListenableBuilder(
+      listenable: Listenable.merge([widget.listenable, _pulse]),
+      builder: (ctx, _) {
+        final unread = widget.chat.channelFor(widget.channel)?.unread;
+        final hasUnread = unread?.hasUnread ?? false;
+        final hasUnreadMention = unread?.hasMention ?? false;
+        final selected = _selected;
+        final base = selected
+            ? theme.colorScheme.primary
+            : hasUnread
+            ? theme.colorScheme.onSurface
+            : null;
+        final pulse = selected ? 0.0 : _pulse.value;
+        return Stack(
+          clipBehavior: Clip.none,
+          children: [
+            Text(
+              widget.channel,
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: selected || hasUnread
+                    ? FontWeight.w600
+                    : FontWeight.normal,
+                // Flash toward the unread-dot color so it reads as a new
+                // mention, not a selection.
+                color: pulse <= 0
+                    ? base
+                    : Color.lerp(base, theme.colorScheme.error, pulse),
+              ),
+            ),
+            if (hasUnreadMention && !selected)
+              Positioned(
+                top: -2,
+                right: -4,
+                child: Container(
+                  key: const Key('unread_mention_dot'),
+                  width: 6,
+                  height: 6,
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.error,
+                    shape: BoxShape.circle,
+                  ),
+                ),
+              ),
+          ],
+        );
+      },
     );
   }
 }
