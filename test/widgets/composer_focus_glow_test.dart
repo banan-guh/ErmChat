@@ -10,7 +10,7 @@ void main() {
             home: Scaffold(
               body: ComposerFocusGlow(
                 enabled: enabled,
-                radius: kGlassComposerRadius,
+                radius: kComposerIslandRadius,
                 child: TextField(focusNode: focusNode),
               ),
             ),

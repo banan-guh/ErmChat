@@ -1,11 +1,11 @@
 import 'package:ermchat/composer/composer_bar.dart' show inputBarKey;
 import 'widget_test_harness.dart';
 
-// Composer regressions, both chrome modes (glass pill and opaque in-flow):
+// Composer regressions, both chrome modes (glass island and opaque island):
 //  - the field must focus on a plain tap;
 //  - the shared inputBarKey must never mount twice and must keep the
-//    composer's FocusNode alive across the pill -> in-flow hand-off;
-//  - the pill bottom tracks the body bottom with a single safe area.
+//    composer's FocusNode alive as the island moves between paths;
+//  - the island floats one margin above the body safe area.
 void main() {
   setUp(() {
     SharedPreferences.setMockInitialValues({});
@@ -22,18 +22,22 @@ void main() {
     bool dismissUnfocuses = false,
     List<double>? keyboardHs,
     bool bodyReadsKeyboard = true,
+    bool keyboardHidesButtons = false,
+    Widget? bottomBar,
   }) {
     return tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
           body: ChatBody(
             liquidGlass: liquidGlass,
+            keyboardHidesButtons: keyboardHidesButtons,
             emoteMaxFraction: 0.5,
             onKeyboardDismissed: dismissUnfocuses ? focus.unfocus : null,
             bodyReadsKeyboard: bodyReadsKeyboard,
             composer: showComposer
                 ? TextField(key: const Key('message_input'), focusNode: focus)
                 : null,
+            bottomBar: bottomBar,
             bodyBuilder:
                 (
                   context, {
@@ -96,7 +100,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('pill bottom tracks the body bottom without double safe area', (
+  testWidgets('island bottom floats one margin above the safe area', (
     tester,
   ) async {
     final focus = FocusNode();
@@ -110,18 +114,74 @@ void main() {
     await pumpBody(tester, liquidGlass: true, focus: focus);
     await tester.pumpAndSettle();
 
-    final pill = find.byKey(inputBarKey);
-    expect(pill, findsOneWidget);
+    final island = find.byKey(const ValueKey('composer_island'));
+    expect(island, findsOneWidget);
     expect(
-      tester.getRect(pill).bottom,
-      closeTo(800, 0.5),
-      reason: 'pill bottom must sit on the body bottom, not 45dp above it',
+      tester.getRect(island).bottom,
+      closeTo(800 - 45 - kComposerIslandMargin, 0.5),
+      reason: 'island floats one margin above the safe area, not on it',
+    );
+  });
+
+  // Hidden-by-keyboard: the island stays pinned to the screen bottom and the
+  // row is clipped from below; the field only rides up once the keyboard top
+  // reaches it.
+  testWidgets('hidden buttons clip the row and push the field last', (
+    tester,
+  ) async {
+    final focus = FocusNode();
+    addTearDown(focus.dispose);
+    tester.view.physicalSize = const Size(400, 800);
+    tester.view.devicePixelRatio = 1;
+    tester.view.viewInsets = FakeViewPadding.zero;
+    addTearDown(tester.view.reset);
+
+    await pumpBody(
+      tester,
+      liquidGlass: false,
+      focus: focus,
+      keyboardHidesButtons: true,
+      bottomBar: const SizedBox(key: Key('test_bar'), height: 48),
+    );
+    await tester.pumpAndSettle();
+
+    final field = find.byKey(const Key('message_input'));
+    final island = find.byKey(const ValueKey('composer_island'));
+    final bar = find.byKey(const Key('test_bar'));
+    // Closed: one margin above the screen bottom.
+    expect(
+      tester.getRect(island).bottom,
+      closeTo(800 - kComposerIslandMargin, 0.5),
+    );
+    final closedFieldBottom = tester.getRect(field).bottom;
+
+    // A short keyboard only clips the row; the field has not moved yet.
+    tester.view.viewInsets = const FakeViewPadding(bottom: 30);
+    await tester.pump(const Duration(milliseconds: 16));
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(
+      tester.getRect(field).bottom,
+      closeTo(closedFieldBottom, 0.5),
+      reason: 'the field only moves once the keyboard reaches it',
+    );
+
+    // A tall keyboard pushes the field one margin above the keyboard top and
+    // leaves the row clipped below that line.
+    tester.view.viewInsets = const FakeViewPadding(bottom: 300);
+    await tester.pump(const Duration(milliseconds: 16));
+    await tester.pump(const Duration(milliseconds: 300));
+    final fieldBottom = tester.getRect(field).bottom;
+    expect(fieldBottom, closeTo(800 - 300 - kComposerIslandMargin, 1.0));
+    expect(
+      tester.getRect(bar).top,
+      greaterThanOrEqualTo(fieldBottom - 0.5),
+      reason: 'the row must sit below the clip line, hidden',
     );
   });
 
   // A short screen collapses chrome once the keyboard opens (the iPhone
-  // case). The pill must stay put: only the focus glow changes.
-  testWidgets('keyboard chrome collapse keeps the pill', (tester) async {
+  // case). The island must stay put: only the focus glow changes.
+  testWidgets('keyboard chrome collapse keeps the island', (tester) async {
     final focus = FocusNode();
     addTearDown(focus.dispose);
     tester.view.physicalSize = const Size(400, 550);
@@ -130,8 +190,8 @@ void main() {
 
     await pumpBody(tester, liquidGlass: true, focus: focus);
     await tester.pumpAndSettle();
-    final pill = find.byKey(const ValueKey('composer_pill'));
-    final width = tester.getSize(pill).width;
+    final island = find.byKey(const ValueKey('composer_island'));
+    final width = tester.getSize(island).width;
     await tester.tap(find.byKey(const Key('message_input')));
     await tester.pump();
 
@@ -141,8 +201,8 @@ void main() {
     }
     await tester.pumpAndSettle();
 
-    expect(pill, findsOneWidget);
-    expect(tester.getSize(pill).width, width);
+    expect(island, findsOneWidget);
+    expect(tester.getSize(island).width, width);
     expect(focus.hasFocus, isTrue);
     expect(tester.testTextInput.isVisible, isTrue);
     final glow = tester.widget<AnimatedContainer>(
@@ -399,7 +459,7 @@ void main() {
     expect(keyboardHs.first, 300, reason: 'next open uses the real height');
   });
 
-  testWidgets('input toggle-off fades the field out with the pill', (
+  testWidgets('input toggle-off drops the field and the island', (
     tester,
   ) async {
     final focus = FocusNode();
@@ -413,13 +473,9 @@ void main() {
       focus: focus,
       showComposer: false,
     );
-    await tester.pump(const Duration(milliseconds: 60));
-    expect(find.byKey(const Key('message_input')), findsOneWidget);
-
-    await tester.pump(const Duration(milliseconds: 300));
-    await tester.pumpAndSettle();
+    await tester.pump();
     expect(find.byKey(const Key('message_input')), findsNothing);
-    expect(find.byKey(const ValueKey('composer_pill')), findsNothing);
+    expect(find.byKey(const ValueKey('composer_island')), findsNothing);
   });
 
   // Full-app harness: the real HomeScreen wiring, joined and connected, so the
@@ -488,7 +544,7 @@ void main() {
       await tester.pump();
     }
     expect(find.byType(HomeScreen), findsOneWidget);
-    expect(find.byKey(const ValueKey('composer_pill')), findsOneWidget);
+    expect(find.byKey(const ValueKey('composer_island')), findsOneWidget);
     // Let startup's socket lookups time out under fake time.
     await tester.pump(const Duration(milliseconds: 600));
   });

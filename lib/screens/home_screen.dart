@@ -243,6 +243,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 
   /// Liquid glass chrome (default off; toggled in Customization).
   bool _liquidGlass = false;
+  bool _keyboardHidesButtons = false;
 
   /// 7TV name paints (default off; toggled in Chat settings).
   bool _showNamePaints = false;
@@ -1383,6 +1384,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
         _preferEmotesFirst != prefs.preferEmotesFirst ||
         _fastSnap != prefs.fastChannelSnap ||
         _liquidGlass != prefs.liquidGlass ||
+        _keyboardHidesButtons != prefs.keyboardHidesButtons ||
         _showInput != prefs.showInput;
 
     void apply() {
@@ -1404,6 +1406,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       _lineSeparator = prefs.lineSeparator;
       _fastSnap = prefs.fastChannelSnap;
       _liquidGlass = prefs.liquidGlass;
+      _keyboardHidesButtons = prefs.keyboardHidesButtons;
       _showNamePaints = prefs.seventvNamePaints;
       _showGifs = prefs.giphyInlineEnabled;
       _gifHeight = gifHeight;
@@ -1868,6 +1871,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
             notice: ChatNoticeBar(controller: _chatNotice),
             replyHeader: replyHeader,
             liquidGlass: glass,
+            keyboardHidesButtons: _keyboardHidesButtons,
           ),
         ),
       ),

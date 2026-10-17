@@ -8,8 +8,11 @@ import '../util/insets.dart';
 // height from the same formula and the chat list pads by the same amount.
 const double kGlassAppBarHeight = 48.0;
 const double kGlassTabStripHeight = 40.0;
-const double kGlassComposerMargin = 6.0;
-const double kGlassComposerRadius = 20.0;
+
+/// Floating composer island: the field and the bottom buttons in one shell,
+/// inset from the screen edges. The radius matches the opaque island's.
+const double kComposerIslandMargin = 8.0;
+const double kComposerIslandRadius = 16.0;
 
 // Gap the list keeps above the in-flow composer when the glass pill is off.
 const double kOpaqueComposerGap = 4.0;
@@ -25,9 +28,10 @@ double glassCompactHeaderHeight(BuildContext context) =>
 double glassWelcomeHeaderHeight(BuildContext context) =>
     statusBarHeight(context) + kGlassAppBarHeight;
 
-// Pill footprint the list clears; the caller includes the safe area, so this is just the gap.
-double glassComposerOverlayHeight(double composerH) =>
-    composerH + kGlassComposerMargin;
+// Island footprint the scrolling lists clear; the caller adds the safe area,
+// so this is the island content plus its bottom margin.
+double glassComposerOverlayHeight(double islandH) =>
+    islandH + kComposerIslandMargin;
 
 // How far the header glass bleeds past the screen on the top and sides.
 // The rim follows the shape boundary, so pushing three boundaries
@@ -194,18 +198,11 @@ Widget glassHeaderBar({
   ),
 );
 
-// Floating composer pill.
-Widget glassPill({required Widget child}) => GlassSurface(
+// Floating composer island: field and buttons in one frosted rounded shell
+// matching the opaque island's radius.
+Widget glassIsland({required Widget child}) => GlassSurface(
   settings: kGlassPillSettings,
-  shape: const LiquidRoundedSuperellipse(borderRadius: kGlassComposerRadius),
-  child: child,
-);
-
-// Bottom chrome strip for the composer's row in glass mode. Square edges keep
-// it flush; the child pads its own safe area inside the glass.
-Widget glassBottomBar({required Widget child}) => GlassSurface(
-  settings: kGlassPillSettings,
-  shape: const LiquidRoundedSuperellipse(borderRadius: 0),
+  shape: const LiquidRoundedSuperellipse(borderRadius: kComposerIslandRadius),
   child: child,
 );
 
@@ -218,8 +215,8 @@ Widget glassCard({required Widget child}) => GlassSurface(
 
 // Focus glow for the composer. The opaque field gets the framework focus
 // ring, but the borderless glass field has no outline to tint, so this
-// rings the shell (the pill, or the docked bar) in primary with a soft halo
-// while any inner field holds focus. Disabled, it adds nothing to layout.
+// rings the island in primary with a soft halo while any inner field holds
+// focus. Disabled, it adds nothing to layout.
 class ComposerFocusGlow extends StatelessWidget {
   const ComposerFocusGlow({
     super.key,

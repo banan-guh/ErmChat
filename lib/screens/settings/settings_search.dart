@@ -92,6 +92,7 @@ class Setting {
     'true_dark' => l.settingTrueDark,
     'layout' => l.settingLayout,
     'liquid_glass' => l.settingLiquidGlass,
+    'keyboard_buttons' => l.settingKeyboardButtons,
     'chat_font_size' => l.settingChatFontSize,
     'show_timestamps' => l.settingShowTimestamps,
     'timestamp_format' => l.settingTimestampFormat,
@@ -256,6 +257,13 @@ class Setting {
     SettingsPageId.appearance,
     section: 'Layout',
     keywords: 'blur',
+  );
+  static const keyboardButtons = Setting(
+    'keyboard_buttons',
+    'Buttons with keyboard',
+    SettingsPageId.appearance,
+    section: 'Layout',
+    keywords: 'composer hide always visible island',
   );
   static const chatFontSize = Setting(
     'chat_font_size',
@@ -704,6 +712,7 @@ class Setting {
     trueDark,
     layout,
     liquidGlass,
+    keyboardButtons,
     chatFontSize,
     showTimestamps,
     timestampFormat,

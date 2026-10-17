@@ -382,6 +382,13 @@ class Prefs {
 
   Future<void> setLiquidGlass(bool value) => _p.setBool(_kLiquidGlass, value);
 
+  static const _kKeyboardHidesButtons = 'keyboard_hides_buttons';
+
+  bool get keyboardHidesButtons => _p.getBool(_kKeyboardHidesButtons) ?? false;
+
+  Future<void> setKeyboardHidesButtons(bool value) =>
+      _p.setBool(_kKeyboardHidesButtons, value);
+
   // ── Inline embeds ───────────────────────────────────────────────────
   bool get giphyInlineEnabled =>
       _p.getBool(kGiphyInlineEnabledPrefKey) ?? kGiphyInlineEnabledDefault;

@@ -1568,12 +1568,12 @@ class _HistoryViewState extends State<HistoryView> {
   Widget build(BuildContext context) {
     final scope = GlassChromeScope.maybeOf(context);
     final glass = (scope?.bottomClearance ?? 0) > 0.5;
-    // Opaque in-flow composer sits flush under the list, so keep a small
-    // fixed gap above it. Glass mode clears the measured pill instead, and
-    // rows scroll on behind it.
-    final pill = glass ? scope!.bottomClearance : 0.0;
+    // The docked island sits flush under the list, so keep a small fixed gap
+    // above it. A floating island clears by its measured footprint instead,
+    // and rows scroll on behind it.
+    final island = glass ? scope!.bottomClearance : 0.0;
     final bottom =
-        (glass ? pill : kOpaqueComposerGap) + (scope?.listExtra ?? 0);
+        (glass ? island : kOpaqueComposerGap) + (scope?.listExtra ?? 0);
     _status =
         'win ${_window.length}  ${_window.first}-${_window.end}  '
         'anchor $_anchor';
@@ -1673,7 +1673,7 @@ class _HistoryViewState extends State<HistoryView> {
         Positioned(
           top: widget.topPadding + daysTop,
           right: 0,
-          bottom: max(bottom, 16 + pill + _fabSize) + 8,
+          bottom: max(bottom, 16 + island + _fabSize) + 8,
           child: ValueListenableBuilder<ActivityRail?>(
             valueListenable: _railReady,
             builder: (context, rail, _) => rail == null
@@ -1692,7 +1692,7 @@ class _HistoryViewState extends State<HistoryView> {
             valueListenable: atBottom,
             builder: (_, value, _) => Positioned(
               right: 16,
-              bottom: 16 + pill,
+              bottom: 16 + island,
               child: ScrollDownButton(
                 atBottom: value,
                 glass: glass,

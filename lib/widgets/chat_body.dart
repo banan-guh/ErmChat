@@ -24,7 +24,8 @@ typedef ChatBodyBuilder =
     });
 
 /// Builds the emote picker overlay for the computed sheet box height,
-/// inset from the stack edges (above the glass pill, or into the chat pane).
+/// inset from the stack edges (above the floating island, or into the chat
+/// pane).
 typedef EmotePickerBuilder =
     Widget Function(
       BuildContext context, {
@@ -45,17 +46,11 @@ bool collapseChromeForKeyboard({
   required double maxHeight,
 }) => keyboardH > 0 && maxHeight < kKeyboardChromeCollapseBelowHeight;
 
-/// Non-glass chrome floats as one island: the field and the bottom bar share
-/// a rounded shell inset from the screen edges, filled one surface tone above
-/// the chat plane so chat and chrome stay distinct.
-const double kComposerIslandMargin = 8.0;
-const double kComposerIslandRadius = 16.0;
-
 /// Layout assembly for the chat screen: body stack plus composer.
 ///
 /// Geometry rides the stock Scaffold resize, exactly like a bare Scaffold:
 /// a keyboard tick only relayouts, it never rebuilds the body. Keyboard
-/// decisions (chrome collapse, video hide, pill) read the settled open
+/// decisions (chrome collapse, video hide, island) read the settled open
 /// height, so they flip once when a gesture starts or ends, never
 /// mid-animation. All content comes in as builders/widgets so this file
 /// holds geometry only, no chat logic.
@@ -70,6 +65,7 @@ class ChatBody extends StatefulWidget {
     required this.autocomplete,
     required this.emoteMaxFraction,
     this.liquidGlass = false,
+    this.keyboardHidesButtons = false,
     this.onKeyboardDismissed,
     this.composer,
     this.bottomBar,
@@ -90,13 +86,17 @@ class ChatBody extends StatefulWidget {
   final Widget? composer;
 
   /// Chrome below the composer: threads, bell, overflow and settings. Sits
-  /// inside the composer island (non-glass) or the glass bar, and rides up
-  /// with the keyboard.
+  /// inside the composer island and rides up with the keyboard (or is clipped
+  /// away under [keyboardHidesButtons]).
   final Widget? bottomBar;
 
-  /// Floats the composer as a pill above the chat instead of
-  /// docking it in flow. Rows slide underneath the blur.
+  /// Floats the composer as an island over the chat instead of docking it
+  /// in flow. Rows slide underneath the frosted shell.
   final bool liquidGlass;
+
+  /// Hides the button row while the keyboard is up instead of pushing it,
+  /// by clipping the island from below as the keyboard rises.
+  final bool keyboardHidesButtons;
 
   /// Fired once the keyboard settles closed, so the host can drop input
   /// focus instead of leaving the field focused silently.
@@ -130,13 +130,13 @@ class ChatBody extends StatefulWidget {
 
 class _ChatBodyState extends State<ChatBody>
     with WidgetsBindingObserver, TickerProviderStateMixin {
-  // Bottom safe area and the list clearance under the pill. Both ease when
-  // the system bars or the pill come and go (fullscreen, input toggle)
+  // Bottom safe area and the list clearance under the island. Both ease when
+  // the system bars or the island come and go (fullscreen, input toggle)
   // instead of jumping; keyboard ticks still move them directly.
   late final _bottomPad = _Eased(this, _onEasedTick);
   late final _clearance = _Eased(this, _onEasedTick);
   double? _lastViewPadBottom;
-  bool? _lastPill;
+  bool? _lastFloating;
 
   void _onEasedTick() {
     if (mounted) setState(() {});
@@ -154,14 +154,13 @@ class _ChatBodyState extends State<ChatBody>
   // post-layout: reading inputBarKey.size during build throws every frame.
   double _composerH = 56.0;
 
-  // Exit-animation mount gate: the pill stays in the tree while fading
-  // out, then unmounts in AnimatedOpacity.onEnd.
-  bool _pillShown = false;
-  // Backstop so a missed onEnd cannot leave the pill mounted for the session.
-  Timer? _pillHideTimer;
-  // Composer the pill last showed. Input toggle-off nulls the composer, so
-  // this keeps the field in the pill through its exit fade.
-  Widget? _pillComposer;
+  // Measured island content height (field plus button row) and its outer
+  // height (content plus any focus-ring border). The row feeds the hidden
+  // clip; the outer height feeds the list clearance.
+  double _islandH = 56.0;
+  double _islandOuterH = 56.0;
+  final _islandKey = GlobalKey();
+  final _islandOuterKey = GlobalKey();
 
   // Cached chat body and the inputs it was built from.
   Widget? _body;
@@ -267,7 +266,6 @@ class _ChatBodyState extends State<ChatBody>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _settleTimer?.cancel();
-    _pillHideTimer?.cancel();
     _keyboardPump.dispose();
     _bottomPad.dispose();
     _clearance.dispose();
@@ -367,9 +365,24 @@ class _ChatBodyState extends State<ChatBody>
     }
   }
 
+  void _cacheIslandH() {
+    if (!mounted) return;
+    final h = _islandKey.currentContext?.size?.height;
+    if (h != null && (h - _islandH).abs() > 0.5) {
+      setState(() => _islandH = h);
+    }
+    final outer = _islandOuterKey.currentContext?.size?.height;
+    if (outer != null && (outer - _islandOuterH).abs() > 0.5) {
+      setState(() => _islandOuterH = outer);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    // Settled decisions read _liftH; the hidden clip reads the raw per-frame
+    // height so the row slides out under the rising keyboard.
     final keyboardH = _liftH;
+    final frameKb = _rawH;
     // The keyboard shrinks padding but never viewPadding, so a viewPadding
     // change means the system bars moved: ease that, follow the keyboard.
     // While a keyboard transition is in flight, snap instead: the Scaffold
@@ -405,60 +418,46 @@ class _ChatBodyState extends State<ChatBody>
       keyboardH: keyboardH,
       maxHeight: decisionH,
     );
-    // Glass pill footprint, shared with the list bottom padding upstream.
-    // Independent of the keyboard, so focusing never reshapes the composer.
+    // The pane docks the composer inside the chat pane; the island covers the
+    // full-width paths.
     final pane = widget.composerInPane && composer != null && !widget.isInPip;
-    final pill =
-        !pane &&
-        widget.liquidGlass &&
-        composer != null &&
-        !widget.isInPip &&
-        !MediaQuery.highContrastOf(context);
     // The bottom bar owns the safe area when present, and the island pays it
     // outside its shell, so the composer never pays it twice.
     final hasBar = widget.bottomBar != null && !widget.isInPip;
-    // Non-glass chrome floats as one island holding the field and the bar;
-    // glass keeps its pill plus glass bar, and a docked pane composer gets
-    // its own island inside the pane.
-    final island = !widget.liquidGlass && !widget.isInPip;
-    final showIsland = island && !pane && (composer != null || hasBar);
-    final composerPad = island || hasBar ? 0.0 : bottomPad;
-    // Glass bar matches the composer pill; the opaque shell handles the rest.
-    final barGlass =
-        hasBar && widget.liquidGlass && !MediaQuery.highContrastOf(context);
-    // Composer footprint: content plus the live safe area, and the pill
-    // margin only while floating. Composed at build so the clearance tracks
-    // the keyboard inset on the same frame instead of lagging one frame.
-    final composerH = composer == null
-        ? 0.0
-        : _composerH + composerPad + (pill ? kGlassComposerMargin : 0.0);
-    final pillH = glassComposerOverlayHeight(composerH);
-    // Rows under the pill ease out of or into its space when it comes and
-    // goes; composer growth and keyboard ticks move it directly.
-    final pillFlipped = _lastPill != null && pill != _lastPill;
-    _lastPill = pill;
-    final clearance = _clearance.resolve(
-      pill ? pillH : 0.0,
-      animate: pillFlipped,
-    );
-    if (pill) {
-      _pillShown = true;
-      _pillComposer = composer;
-      _pillHideTimer?.cancel();
-      _pillHideTimer = null;
-    } else if (_pillShown && _pillHideTimer == null) {
-      // Backstop for a missed AnimatedOpacity.onEnd: otherwise the pill can
-      // stay mounted with its IgnorePointer copy sitting over the composer.
-      _pillHideTimer = Timer(const Duration(milliseconds: 240), () {
-        _pillHideTimer = null;
-        if (mounted) setState(() => _pillShown = false);
-      });
+    final glass = widget.liquidGlass && !MediaQuery.highContrastOf(context);
+    // Hidden-by-keyboard applies to the full-width island only.
+    final hidden = widget.keyboardHidesButtons && !pane && !widget.isInPip;
+    final showIsland = !widget.isInPip && !pane && (composer != null || hasBar);
+    // Non-glass, keyboard-visible chrome docks under the chat; the glass
+    // island and the hidden-by-keyboard island float over it.
+    final floating = (glass || hidden) && showIsland;
+    // Cache the island height; it feeds the clearance and the hidden clip.
+    if (showIsland || pane) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _cacheIslandH());
     }
-    if (!_pillShown) _pillComposer = null;
+    // The row is whatever sits below the field inside the island.
+    final rowH = composer == null
+        ? _islandH
+        : (_islandH - _composerH).clamp(0.0, _islandH);
+    final islandBottom = kComposerIslandMargin + bottomPad;
+    // Hidden mode keeps the island pinned to the screen bottom (its layout
+    // never changes) and clips the row from below as the keyboard rises. The
+    // field is only pushed once the keyboard top reaches it.
+    final push = (frameKb - bottomPad - rowH).clamp(0.0, double.infinity);
+    final hiddenBottom = islandBottom - frameKb + push;
+    final clipRow = (frameKb - bottomPad).clamp(0.0, rowH);
+    // Rows under the island ease out of or into its space when it comes and
+    // goes; composer growth and keyboard ticks move it directly.
+    final floatingFlipped = _lastFloating != null && floating != _lastFloating;
+    _lastFloating = floating;
+    final clearance = _clearance.resolve(
+      floating ? glassComposerOverlayHeight(_islandOuterH) + bottomPad : 0.0,
+      animate: floatingFlipped,
+    );
     // Rebuilt only when its inputs change, so keyboard ticks (including the
     // safe-area ticks that rebuild ChatBody) reuse the same instance and
     // the body subtree skips rebuilding. The body reads the content height
-    // without the live safe area; the pill clearance reaches its lists
+    // without the live safe area; the island clearance reaches its lists
     // through GlassChromeScope. A body that ignores the keyboard numbers
     // gets constants, so a gesture leaves the cache intact.
     final keyed = widget.bodyReadsKeyboard && !widget.isInPip;
@@ -468,9 +467,7 @@ class _ChatBodyState extends State<ChatBody>
       size.width,
       keyed ? decisionH : 0.0,
       keyed ? keyboardH : 0.0,
-      !keyed || composer == null
-          ? 0.0
-          : _composerH + (pill ? kGlassComposerMargin : 0.0),
+      !keyed || composer == null ? 0.0 : _composerH,
     );
     if (inputs != _bodyInputs) {
       _bodyInputs = inputs;
@@ -492,13 +489,14 @@ class _ChatBodyState extends State<ChatBody>
       );
     }
     final body = _body!;
-    // Overlays anchored to the composer: above the pill or in-flow bar, or
-    // within the chat pane when the composer docks there.
+    // Overlays anchored above the island: the floating clearance, or the
+    // pane's measured composer box.
     final anchor = pane ? _paneInsets : EdgeInsets.only(bottom: clearance);
+    final sideGap = pane ? 0.0 : kComposerIslandMargin;
     final reply = Positioned(
       key: const ValueKey('reply_header'),
-      left: anchor.left + (pill ? kGlassComposerMargin : 8.0) - 4,
-      right: anchor.right + (pill ? kGlassComposerMargin : 8.0) - 4,
+      left: anchor.left + sideGap - 4,
+      right: anchor.right + sideGap - 4,
       bottom: anchor.bottom,
       child: NotificationListener<SizeChangedLayoutNotification>(
         onNotification: (_) {
@@ -539,9 +537,9 @@ class _ChatBodyState extends State<ChatBody>
             right: anchor.right,
             child: widget.notice!,
           );
-    // The composer, keyed so the field moves intact across the pill and
-    // in-flow paths: a rebuilt EditableText closes the input connection and
-    // iOS drops the keyboard. Each path rings its own shell with the glow.
+    // The composer, keyed so the field moves intact between the docked and
+    // floating island paths: a rebuilt EditableText closes the input
+    // connection and iOS drops the keyboard.
     Widget composerSlot(Widget? field) => field == null
         ? const SizedBox.shrink()
         : KeyedSubtree(
@@ -551,154 +549,87 @@ class _ChatBodyState extends State<ChatBody>
               child: field,
             ),
           );
-    // Floating composer pill. The list pads by pillH upstream
-    // so the newest rows clear it and slide underneath while scrolling. The
-    // size notifier keeps the measurement fresh when inner listenables
-    // resize the pill without a ChatBody rebuild (status text, reply banner,
-    // extra input lines). Show/hide fades and slides; the pill stays
-    // mounted through the exit fade via [_pillShown].
-    final pillOverlay = !(pill || _pillShown)
-        ? null
-        : Positioned(
-            key: const ValueKey('composer_pill'),
-            left: kGlassComposerMargin,
-            right: kGlassComposerMargin,
-            bottom: 0,
-            child: IgnorePointer(
-              ignoring: !pill,
-              child: AnimatedOpacity(
-                duration: const Duration(milliseconds: 180),
-                opacity: pill ? 1.0 : 0.0,
-                onEnd: () {
-                  if (!pill && mounted) {
-                    setState(() => _pillShown = false);
-                  }
-                },
-                child: AnimatedSlide(
-                  duration: const Duration(milliseconds: 220),
-                  curve: Curves.easeOutCubic,
-                  offset: pill ? Offset.zero : const Offset(0, 0.4),
-                  child: Padding(
-                    key: inputBarKey,
-                    padding: EdgeInsets.only(
-                      bottom: composerPad + kGlassComposerMargin,
-                    ),
-                    child: NotificationListener<SizeChangedLayoutNotification>(
-                      onNotification: (_) {
-                        WidgetsBinding.instance.addPostFrameCallback(
-                          (_) => _cacheComposerH(),
-                        );
-                        return true;
-                      },
-                      child: SizeChangedLayoutNotifier(
-                        child: ComposerFocusGlow(
-                          enabled: true,
-                          radius: kGlassComposerRadius,
-                          child: glassPill(child: composerSlot(_pillComposer)),
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          );
-    // Rounded shell for the non-glass chrome: one surface tone above the
-    // chat plane, holding the field and the bar without a divider.
-    Widget islandShell(Widget child) => Material(
-      color: Theme.of(context).colorScheme.surfaceContainer,
-      borderRadius: BorderRadius.circular(kComposerIslandRadius),
-      clipBehavior: Clip.antiAlias,
-      child: child,
-    );
-    // Island bar: the button row under the field, kept visible while typing.
-    final islandBar = !hasBar ? null : widget.bottomBar!;
-    // Chrome under the composer, carrying its own safe area. It follows the
-    // composer: inside the chat pane when the composer docks there, else
-    // across the bottom.
-    final barSlot = !hasBar
-        ? null
-        : barGlass
-        ? glassBottomBar(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                widget.bottomBar!,
-                SizedBox(height: bottomPad),
-              ],
-            ),
-          )
-        : Padding(
-            padding: EdgeInsets.only(bottom: bottomPad),
-            child: widget.bottomBar!,
-          );
-    // In-flow composer, shared by the glass placeholder path and the island.
-    // Gated on !_pillShown so the pill and the in-flow never mount together:
-    // one shared inputBarKey keeps the composer's FocusNode alive across the
-    // hand-off.
+    // The composer field. One shared inputBarKey keeps the FocusNode alive
+    // as the island moves between the docked and floating paths. The size
+    // notifier re-measures when inner listenables resize it without a
+    // ChatBody rebuild (status text, extra input lines).
     final flowComposer = AnimatedSize(
       duration: const Duration(milliseconds: 220),
       curve: Curves.easeInOut,
       alignment: Alignment.bottomCenter,
-      child: AnimatedOpacity(
-        duration: const Duration(milliseconds: 160),
-        opacity: !pill && !pane && composer != null ? 1.0 : 0.0,
-        child: pill || pane || _pillShown || composer == null
-            ? const SizedBox.shrink()
-            : Padding(
-                key: inputBarKey,
-                padding: EdgeInsets.zero,
-                child: ComposerFocusGlow(
-                  enabled: widget.liquidGlass,
-                  radius: 0,
-                  child: composerSlot(composer),
-                ),
+      child: composer == null
+          ? const SizedBox.shrink()
+          : Padding(
+              key: inputBarKey,
+              padding: EdgeInsets.zero,
+              child: NotificationListener<SizeChangedLayoutNotification>(
+                onNotification: (_) {
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    _cacheComposerH();
+                    _cachePaneInsets();
+                  });
+                  return true;
+                },
+                child: SizeChangedLayoutNotifier(child: composerSlot(composer)),
               ),
-      ),
+            ),
     );
-    // The composer docked under the chat pane. Same keys as the other two
-    // paths, and gated on !_pillShown, so only one copy mounts and focus
-    // survives the move. The bottom bar docks here too, under the composer.
-    final paneComposer = Padding(
-      key: inputBarKey,
-      padding: EdgeInsets.only(bottom: composerPad),
-      child: NotificationListener<SizeChangedLayoutNotification>(
-        onNotification: (_) {
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            _cacheComposerH();
-            _cachePaneInsets();
-          });
-          return true;
-        },
-        child: SizeChangedLayoutNotifier(
-          child: ComposerFocusGlow(
-            enabled: widget.liquidGlass,
-            radius: 0,
-            child: composerSlot(composer),
-          ),
+    // Round shell for the island: frosted in glass, one surface tone above
+    // the chat plane otherwise.
+    Widget islandShell(Widget child) => glass
+        ? glassIsland(child: child)
+        : Material(
+            color: Theme.of(context).colorScheme.surfaceContainer,
+            borderRadius: BorderRadius.circular(kComposerIslandRadius),
+            clipBehavior: Clip.antiAlias,
+            child: child,
+          );
+    // One island: field and button row in a shell whose layout never changes
+    // with the keyboard.
+    final island = ComposerFocusGlow(
+      key: _islandOuterKey,
+      enabled: glass,
+      radius: kComposerIslandRadius,
+      child: islandShell(
+        Column(
+          key: _islandKey,
+          mainAxisSize: MainAxisSize.min,
+          children: [flowComposer, ?widget.bottomBar],
         ),
       ),
     );
-    final paneSlot = !pane || _pillShown
+    final islandPad = EdgeInsets.fromLTRB(
+      kComposerIslandMargin,
+      kComposerIslandMargin,
+      kComposerIslandMargin,
+      kComposerIslandMargin + bottomPad,
+    );
+    // The composer docked under the chat pane.
+    final paneSlot = !pane ? null : Padding(padding: islandPad, child: island);
+    // Floating island. Hidden mode keeps it pinned to the screen bottom and
+    // clips the row from below; otherwise it rides the keyboard.
+    final floatingIsland = !floating
         ? null
-        : island
-        ? Padding(
-            padding: EdgeInsets.fromLTRB(
-              kComposerIslandMargin,
-              kComposerIslandMargin,
-              kComposerIslandMargin,
-              kComposerIslandMargin + bottomPad,
-            ),
-            child: islandShell(
-              Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [paneComposer, ?islandBar],
-              ),
-            ),
-          )
-        : Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [paneComposer, ?barSlot],
+        : Positioned(
+            key: const ValueKey('composer_island'),
+            left: kComposerIslandMargin,
+            right: kComposerIslandMargin,
+            bottom: hidden ? hiddenBottom : islandBottom,
+            child: hidden && clipRow > 0
+                ? ClipRect(clipper: _IslandBottomClip(clipRow), child: island)
+                : island,
+          );
+    // Docked island: the chat ends above it, so nothing scrolls underneath.
+    final dockedIsland = (widget.isInPip || pane || floating || !showIsland)
+        ? null
+        : Padding(padding: islandPad, child: island);
+    // Nothing to show: keep the safe area so the chat never runs under the
+    // nav bar.
+    final emptyPad = (widget.isInPip || pane || floating || showIsland)
+        ? null
+        : Padding(
+            padding: EdgeInsets.only(bottom: bottomPad),
+            child: const SizedBox.shrink(),
           );
     // No manual lift: the Scaffold shrank the body, so the composer sits
     // above the keyboard at settled constraints with no second animator
@@ -723,12 +654,12 @@ class _ChatBodyState extends State<ChatBody>
                           if (_rawH <= 0.5) {
                             _fullBoxHeight = constraints.maxHeight;
                           }
-                          // The glass pill floats inside this box, so the
+                          // The floating island sits inside this box, so the
                           // sizing below measures the box as if the composer
-                          // were in flow (opaque), then raises the picker
-                          // above the pill without moving its top.
-                          final inFlowH = pill
-                              ? _composerH + bottomPad
+                          // were in flow (docked tall), then anchors the
+                          // picker above the island without moving its top.
+                          final inFlowH = floating
+                              ? _islandOuterH + bottomPad
                               : pane
                               ? _paneInsets.bottom
                               : 0.0;
@@ -747,7 +678,7 @@ class _ChatBodyState extends State<ChatBody>
                           final fitH = fullBoxH < maxFitBoxH
                               ? fullBoxH
                               : maxFitBoxH;
-                          final sheetBoxHeight = pill
+                          final sheetBoxHeight = floating
                               ? fitH -
                                     (clearance - inFlowH) /
                                         widget.emoteMaxFraction
@@ -766,12 +697,12 @@ class _ChatBodyState extends State<ChatBody>
                                 inset: pane
                                     ? _paneInsets
                                     : EdgeInsets.only(
-                                        bottom: pill ? clearance : 0,
+                                        bottom: floating ? clearance : 0,
                                       ),
                               ),
                               autocomplete,
                               ?notice,
-                              ?pillOverlay,
+                              ?floatingIsland,
                             ],
                           );
                         },
@@ -780,36 +711,11 @@ class _ChatBodyState extends State<ChatBody>
                   ),
                 ),
         ),
-        if (!widget.isInPip)
-          if (showIsland)
-            // One island: field and bar in a rounded shell, inset on all
-            // sides from the screen. Safe area stays outside the shell so
-            // the nav-bar collapse is not animated.
-            Padding(
-              padding: EdgeInsets.fromLTRB(
-                kComposerIslandMargin,
-                kComposerIslandMargin,
-                kComposerIslandMargin,
-                kComposerIslandMargin + bottomPad,
-              ),
-              child: islandShell(
-                Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [flowComposer, ?islandBar],
-                ),
-              ),
-            )
-          else
-            Padding(
-              padding: EdgeInsets.only(
-                bottom: pill || pane || hasBar ? 0.0 : bottomPad,
-              ),
-              child: flowComposer,
-            ),
-        // The bar docks across the bottom unless the composer lives in a
-        // pane, where it docks inside that pane instead, or the island holds
-        // it above.
-        if (!pane && !showIsland) ?barSlot,
+        // Docked island under the chat, or the bare safe-area spacer when
+        // there is no island to show. The floating island lives in the stack
+        // above so the chat scrolls underneath it.
+        ?dockedIsland,
+        ?emptyPad,
       ],
     );
     // Per keyboard tick this reruns and returns the same prebuilt column.
@@ -820,6 +726,21 @@ class _ChatBodyState extends State<ChatBody>
       },
     );
   }
+}
+
+/// Clips the bottom [clip] pixels of the composer island, hiding the button
+/// row under the keyboard without moving or resizing it.
+class _IslandBottomClip extends CustomClipper<Rect> {
+  const _IslandBottomClip(this.clip);
+
+  final double clip;
+
+  @override
+  Rect getClip(Size size) =>
+      Rect.fromLTRB(-1e4, -1e4, size.width + 1e4, size.height - clip);
+
+  @override
+  bool shouldReclip(_IslandBottomClip oldClipper) => oldClipper.clip != clip;
 }
 
 /// A number that eases to a new target over 220ms instead of jumping, or
