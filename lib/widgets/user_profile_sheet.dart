@@ -148,6 +148,9 @@ class UserProfileSheetState extends State<UserProfileSheet> {
   String? _followDate;
   bool _anonymous = false;
   bool _arrowVisible = false;
+
+  /// Whether the mod actions overlay the user actions.
+  bool _modOpen = false;
   ScrollController? _fallbackController;
   // Natural card height from the offstage measure copy. Null until the
   // first post-frame read; _measureDirty forces a re-read after content or
@@ -1039,19 +1042,70 @@ class UserProfileSheetState extends State<UserProfileSheet> {
         onTap: _reportUser,
       ),
     ];
+    Widget block(List<SheetAction> actions) => compact
+        ? SheetActionRow(actions: actions)
+        : Column(
+            mainAxisSize: MainAxisSize.min,
+            children: _actionTiles(actions),
+          );
+    if (!showMod) return [block(userActions)];
+    // The mod actions overlay the user ones in the same footprint, opened
+    // from a small shield in its own side slot, so they cost no height and
+    // a stray tap on a user action never lands on one.
+    final sheet = Theme.of(context).bottomSheetTheme;
+    final surface =
+        sheet.modalBackgroundColor ??
+        sheet.backgroundColor ??
+        Theme.of(context).colorScheme.surfaceContainerLow;
     return [
-      if (showMod) ...[
-        ..._recordTiles(),
-        if (compact)
-          SheetActionRow(actions: modActions)
-        else
-          ..._actionTiles(modActions),
-        const Divider(height: 1),
-      ],
-      if (compact)
-        SheetActionRow(actions: userActions)
-      else
-        ..._actionTiles(userActions),
+      ..._recordTiles(),
+      Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: Stack(
+              children: [
+                block(userActions),
+                Positioned.fill(
+                  child: IgnorePointer(
+                    ignoring: !_modOpen,
+                    child: AnimatedOpacity(
+                      opacity: _modOpen ? 1 : 0,
+                      duration: const Duration(milliseconds: 120),
+                      // A Material, so the overlaid tiles keep their ink.
+                      child: Material(
+                        color: surface,
+                        child: compact
+                            ? SheetActionRow(actions: modActions)
+                            // Rows share the user block's height, so a
+                            // fifth action never grows the card.
+                            : Column(
+                                children: [
+                                  for (final tile in _actionTiles(modActions))
+                                    Expanded(child: tile),
+                                ],
+                              ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          IconButton(
+            isSelected: _modOpen,
+            icon: const Icon(Icons.shield_outlined, size: 20),
+            selectedIcon: const Icon(Icons.close, size: 20),
+            tooltip: _modOpen ? context.l10n.back : context.l10n.moderation,
+            style: IconButton.styleFrom(
+              minimumSize: const Size.square(36),
+              padding: EdgeInsets.zero,
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+            onPressed: () => setState(() => _modOpen = !_modOpen),
+          ),
+        ],
+      ),
     ];
   }
 
