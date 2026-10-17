@@ -131,6 +131,13 @@ class ChannelPanels {
 
   /// Per channel page: the menu's calendar asks the page to open its days.
   final _calendars = <String, ValueNotifier<bool>>{};
+
+  /// Opens the selected channel's days.
+  void openCalendar() {
+    final channel = selectedChannel();
+    if (channel != null) _calendarFor(channel).value = true;
+  }
+
   ValueNotifier<bool> _calendarFor(String channel) =>
       _calendars.putIfAbsent(channel, () => ValueNotifier(false));
 
@@ -475,27 +482,8 @@ class ChannelPanels {
     bool underStream = false,
   }) {
     _dropStaleCaches();
-    // The stream dropdown floats over the pages, anchored below the strip.
-    // The bell, overflow and settings live in the composer's bottom row.
+    // The view menu, bell, overflow and settings live in the island's row.
     final showStrip = !isFullscreen() && !hideChrome;
-    // Broadcast cards (glass) wrap the trigger, so it joins their surface.
-    Widget chromeMenu() => ListenableBuilder(
-      listenable: Listenable.merge([
-        broadcastWidgets.notifier,
-        selectedTabIndex,
-      ]),
-      builder: (_, _) {
-        final channel = selectedChannel();
-        return homeAppBar.chromeMenu(
-          glass: glassOverlay || glassChrome,
-          merged:
-              channel != null && broadcastWidgets.pagesFor(channel).isNotEmpty,
-          onCalendar: channel == null
-              ? null
-              : () => _calendarFor(channel).value = true,
-        );
-      },
-    );
     return Stack(
       children: [
         Listener(
@@ -527,7 +515,6 @@ class ChannelPanels {
                     },
                     showTabBar: showStrip,
                     fullscreen: isFullscreen(),
-                    chromeMenu: chromeMenu(),
                     pagesOverlay: selectedChannel() == null
                         ? null
                         : ListenableBuilder(
@@ -543,10 +530,17 @@ class ChannelPanels {
                               ),
                             ),
                           ),
-                    // Join stays the last tab; the stream dropdown floats just
-                    // below the strip.
+                    // Join stays the last tab; the view menu pins to the
+                    // strip's end. Fullscreen hides the strip, so the menu
+                    // drops into the island's row then.
                     addTab: merged ? homeAppBar.joinTab() : null,
                     onAddTab: homeAppBar.onJoinTab,
+                    stripTrailing: merged
+                        ? homeAppBar.chromeMenu(
+                            glass: glassOverlay || glassChrome,
+                            onCalendar: openCalendar,
+                          )
+                        : null,
                     // A stream above the strip already sits at the top.
                     stripTopInset: merged && !underStream
                         ? statusBarHeight(context)

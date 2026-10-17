@@ -108,19 +108,15 @@ class TabbedLayout extends StatefulWidget {
   /// Off hides tab strip (hidden-chrome / fullscreen mode).
   final bool showTabBar;
 
-  /// Fullscreen: the system bars are hidden, so the chrome menu takes the
-  /// corner. The floating glass header slides away with the tab strip.
+  /// Fullscreen: the system bars are hidden, so the cards take the top edge.
+  /// The floating glass header slides away with the tab strip.
   final bool fullscreen;
 
-  /// Overlay anchored top-right below tab strip (hidden-chrome menu).
-  final Widget? chromeMenu;
-
-  /// Cards over the top of the pages (pin, poll, prediction, hype train),
-  /// laid out with [chromeMenu] so their corner wraps it concentrically.
+  /// Cards over the top of the pages (pin, poll, prediction, hype train).
   /// Gets the height left below its top, for keyboard-aware sizing.
   final Widget? pagesOverlay;
 
-  /// Gap between the [pagesOverlay] cards and the menu trigger, all round.
+  /// Gap around the [pagesOverlay] cards.
   static const double cardInset = kChromeMenuMargin / 2;
 
   /// Trailing action tab after the channels (compact layout's join button).
@@ -165,7 +161,6 @@ class TabbedLayout extends StatefulWidget {
     this.preloadAdjacentPages = false,
     this.showTabBar = true,
     this.fullscreen = false,
-    this.chromeMenu,
     this.pagesOverlay,
     this.addTab,
     this.onAddTab,
@@ -214,7 +209,7 @@ class TabbedLayoutState extends State<TabbedLayout>
   final _pagesKey = GlobalKey();
 
   // Width of the fade where tabs meet the pinned strip actions.
-  static const double _stripFade = 24;
+  static const double _stripFade = 12;
   static const _jumpDuration = Duration(milliseconds: 300);
   // Longest span animated in one go. Longer jumps land within this distance
   // first, so the flight only builds a few pages (as ViewPager2 does).
@@ -593,7 +588,7 @@ class TabbedLayoutState extends State<TabbedLayout>
     // full-height behind the floating header block.
     final overlay = _overlayBranch(context);
     _overlayBuilt = overlay;
-    final menuTop =
+    final cardsTop =
         (widget.fullscreen
             ? 0.0
             : overlay
@@ -650,7 +645,7 @@ class TabbedLayoutState extends State<TabbedLayout>
           AnimatedPositioned(
             duration: const Duration(milliseconds: 200),
             curve: Curves.easeInOut,
-            top: menuTop - TabbedLayout.cardInset,
+            top: cardsTop - TabbedLayout.cardInset,
             left: 0,
             right: 0,
             bottom: 0,
@@ -663,14 +658,6 @@ class TabbedLayoutState extends State<TabbedLayout>
                 child: widget.pagesOverlay,
               ),
             ),
-          ),
-        if (widget.chromeMenu != null)
-          AnimatedPositioned(
-            duration: const Duration(milliseconds: 200),
-            curve: Curves.easeInOut,
-            top: menuTop,
-            right: kChromeMenuMargin,
-            child: widget.chromeMenu!,
           ),
       ],
     );

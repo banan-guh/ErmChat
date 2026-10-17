@@ -4,16 +4,15 @@ import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 import '../l10n/l10n.dart';
 import 'glass_chrome.dart';
 
-/// Side of the dropdown trigger, and its corner radius. The chat widget
-/// cards sit concentric around it: their corner is this radius plus their
-/// inset.
+/// Side of the chat widget cards' header controls.
 const double kChromeMenuSize = 28;
-const double kChromeMenuRadius = 8;
 
-/// The trigger's gap from the top and right of the chat pages.
+/// The chat widget cards' gap from the top and sides of the chat pages.
 const double kChromeMenuMargin = 8;
 
-// Dropdown for search, mod view, and fullscreen, input, stream toggles.
+// The view menu in the island's button row: search, mod view, calendar,
+// and the fullscreen, input and stream toggles. Its chevron points up, the
+// way the menu opens, and flips while open.
 class ChromeMenuButton extends StatefulWidget {
   final VoidCallback onToggleFullscreen;
   final VoidCallback onToggleInput;
@@ -27,12 +26,8 @@ class ChromeMenuButton extends StatefulWidget {
   /// Opens the channel page's days.
   final VoidCallback? onCalendar;
 
-  /// Glass tile trigger to match the floating glass header.
+  /// Liquid glass menu to match the glass island.
   final bool glass;
-
-  /// Sits inside a glass card, which supplies the surface: the trigger drops
-  /// its own tile so two rims never stack.
-  final bool merged;
 
   const ChromeMenuButton({
     super.key,
@@ -46,7 +41,6 @@ class ChromeMenuButton extends StatefulWidget {
     this.onToggleSearch,
     this.onCalendar,
     this.glass = false,
-    this.merged = false,
   });
 
   @override
@@ -58,16 +52,6 @@ class ChromeMenuButtonState extends State<ChromeMenuButton> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final arrow = AnimatedRotation(
-      turns: _open ? 0.5 : 0.0,
-      duration: const Duration(milliseconds: 175),
-      child: Icon(
-        Icons.expand_more,
-        size: 20,
-        color: theme.colorScheme.onSurfaceVariant,
-      ),
-    );
     return ChromeMenu(
       glass: widget.glass,
       onOpenChanged: (open) => setState(() => _open = open),
@@ -78,78 +62,34 @@ class ChromeMenuButtonState extends State<ChromeMenuButton> {
         final active = widget.streamActive?.call() ?? false;
         return [
           if (showMod)
-            ChromeMenuEntry(
-              Icons.shield_outlined,
-              l10n.modView,
-              () => widget.onShowModView?.call(),
-            ),
-          ChromeMenuEntry(
-            Icons.search,
-            l10n.search,
-            () => widget.onToggleSearch?.call(),
-          ),
+            ChromeMenuEntry(l10n.modView, () => widget.onShowModView?.call()),
+          ChromeMenuEntry(l10n.search, () => widget.onToggleSearch?.call()),
           if (widget.onCalendar case final onCalendar?)
-            ChromeMenuEntry(
-              Icons.calendar_month_outlined,
-              l10n.historyCalendar,
-              onCalendar,
-            ),
-          ChromeMenuEntry(
-            Icons.fullscreen,
-            l10n.toggleFullscreen,
-            widget.onToggleFullscreen,
-          ),
-          ChromeMenuEntry(
-            Icons.keyboard_outlined,
-            l10n.toggleInput,
-            widget.onToggleInput,
-          ),
+            ChromeMenuEntry(l10n.historyCalendar, onCalendar),
+          ChromeMenuEntry(l10n.toggleFullscreen, widget.onToggleFullscreen),
+          ChromeMenuEntry(l10n.toggleInput, widget.onToggleInput),
           if (showStream)
             ChromeMenuEntry(
-              Icons.live_tv_outlined,
               active ? l10n.hideStream : l10n.showStream,
               () => widget.onToggleStream?.call(),
             ),
         ];
       },
-      // Fixed size in both styles; a border would otherwise grow the box.
-      trigger: widget.glass && widget.merged
-          ? SizedBox.square(
-              dimension: kChromeMenuSize,
-              child: Center(child: arrow),
-            )
-          : widget.glass
-          ? GlassSurface(
-              shape: const LiquidRoundedSuperellipse(
-                borderRadius: kChromeMenuRadius,
-              ),
-              settings: kGlassPillSettings,
-              child: SizedBox.square(
-                dimension: kChromeMenuSize,
-                child: Center(child: arrow),
-              ),
-            )
-          : Container(
-              width: kChromeMenuSize,
-              height: kChromeMenuSize,
-              alignment: Alignment.center,
-              decoration: BoxDecoration(
-                color: theme.colorScheme.surfaceContainerHighest,
-                borderRadius: BorderRadius.circular(kChromeMenuRadius),
-                border: Border.all(color: theme.colorScheme.outlineVariant),
-              ),
-              child: arrow,
-            ),
+      buttonStyle: const ButtonStyle(),
+      trigger: AnimatedRotation(
+        turns: _open ? 0.0 : 0.5,
+        duration: const Duration(milliseconds: 175),
+        child: const Icon(Icons.expand_more),
+      ),
     );
   }
 }
 
 /// One row of a [ChromeMenu]; [ChromeMenuEntry.divider] draws a line.
 class ChromeMenuEntry {
-  const ChromeMenuEntry(this.icon, this.label, this.onTap);
-  const ChromeMenuEntry.divider() : icon = null, label = null, onTap = null;
+  const ChromeMenuEntry(this.label, this.onTap);
+  const ChromeMenuEntry.divider() : label = null, onTap = null;
 
-  final IconData? icon;
   final String? label;
   final VoidCallback? onTap;
 }
@@ -229,7 +169,6 @@ class _ChromeMenuState extends State<ChromeMenu> {
               GlassMenuItem(
                 title: label,
                 titleStyle: title,
-                icon: Icon(e.icon),
                 height: 40,
                 onTap: e.onTap!,
               )
@@ -256,15 +195,7 @@ class _ChromeMenuState extends State<ChromeMenu> {
             if (_entries[i].label case final label?)
               PopupMenuItem(
                 value: i,
-                child: Row(
-                  children: [
-                    Icon(_entries[i].icon, size: 20),
-                    const SizedBox(width: 12),
-                    Flexible(
-                      child: Text(label, overflow: TextOverflow.ellipsis),
-                    ),
-                  ],
-                ),
+                child: Text(label, overflow: TextOverflow.ellipsis),
               )
             else
               const PopupMenuDivider(),

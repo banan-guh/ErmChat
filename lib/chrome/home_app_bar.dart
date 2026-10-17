@@ -84,17 +84,11 @@ class HomeAppBar {
     }
   }
 
-  /// Tiny arrow anchored top-right just below the channel tab strip (see
-  /// TabbedLayout). Always visible so the top bar / input can be toggled back
-  /// even in fullscreen.
-  Widget chromeMenu({
-    bool glass = false,
-    bool merged = false,
-    VoidCallback? onCalendar,
-  }) {
+  /// The view menu in the button row. The row outlives fullscreen and a
+  /// hidden input, so the menu can always bring them back.
+  Widget chromeMenu({bool glass = false, VoidCallback? onCalendar}) {
     return ChromeMenuButton(
       glass: glass,
-      merged: merged,
       onCalendar: onCalendar,
       onToggleFullscreen: toggleFullscreen,
       onToggleInput: toggleInput,
@@ -232,46 +226,52 @@ class HomeAppBar {
       glass: glass,
       entries: () => [
         ChromeMenuEntry(
-          Icons.file_upload_outlined,
           l10n.uploadMedia,
           () => uploadController.pickAndUpload(context),
         ),
-        ChromeMenuEntry(
-          Icons.emoji_emotions_outlined,
-          l10n.reloadEmotes,
-          reloadEmotes,
-        ),
-        ChromeMenuEntry(Icons.sync, l10n.reconnect, reconnect),
+        ChromeMenuEntry(l10n.reloadEmotes, reloadEmotes),
+        ChromeMenuEntry(l10n.reconnect, reconnect),
       ],
       buttonStyle: _small(small) ?? const ButtonStyle(),
       trigger: Icon(Icons.more_vert, size: small ? _smallIcon : null),
     );
   }
 
-  /// The bottom chrome row: threads, bell, overflow menu and settings,
-  /// spread evenly. It sits inside the composer island, which draws the
-  /// surface, so the row is bare. In glass mode the host wraps it in a glass
-  /// surface.
-  /// The island's button row: [leading] on the left, the chrome buttons and
-  /// [trailing] on the right.
+  /// The island's button row: the chrome buttons on the left, [trailing]
+  /// (the composer's emote and send) on the right. The island draws the
+  /// surface, so the row is bare. [withMenu] adds the view menu, for when
+  /// the strip that holds it is hidden.
   Widget bottomBar(
     BuildContext context, {
     bool glass = false,
-    Widget? leading,
-    Widget? trailing,
+    List<Widget> trailing = const [],
+    bool withMenu = false,
+    VoidCallback? onCalendar,
   }) {
     final row = Row(
       children: [
-        ?leading,
-        const Spacer(),
+        if (withMenu) chromeMenu(glass: glass, onCalendar: onCalendar),
         threadsButton(context),
         mentionsButton(context),
         overflowMenu(context, glass: glass),
         settingsButton(context),
-        ?trailing,
+        const Spacer(),
+        ...trailing,
       ],
     );
-    return KeyedSubtree(key: const Key('bottom_chrome_bar'), child: row);
+    // Narrow islands tighten the 48pt buttons so the row still fits.
+    final count = 4 + (withMenu ? 1 : 0) + trailing.length;
+    final fitted = LayoutBuilder(
+      builder: (context, constraints) => constraints.maxWidth >= count * 48
+          ? row
+          : Theme(
+              data: Theme.of(
+                context,
+              ).copyWith(visualDensity: VisualDensity.compact),
+              child: row,
+            ),
+    );
+    return KeyedSubtree(key: const Key('bottom_chrome_bar'), child: fitted);
   }
 
   Widget appBar(BuildContext context, {bool transparent = false}) {

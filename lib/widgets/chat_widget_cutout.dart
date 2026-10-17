@@ -13,14 +13,13 @@ import 'glass_chrome.dart';
 import 'mod_view/dialogs.dart' show showModError;
 import 'tabbed_layout.dart';
 
-// The cards wrap the chrome menu trigger in their top-right corner, inset
-// [TabbedLayout.cardInset] all round. Their own controls line up left of it
-// in one row of trigger-sized buttons: the header row.
+// The cards' controls sit in their top-right corner, inset
+// [TabbedLayout.cardInset], in one row of small buttons: the header row.
 const double _inset = TabbedLayout.cardInset;
 const double _controlSize = kChromeMenuSize;
 
-/// Card edge to the collapse control: the trigger plus its gaps.
-const double _controlRight = _inset + kChromeMenuSize + _inset;
+/// Card edge to the collapse control.
+const double _controlRight = _inset;
 
 /// Card edge to the left end of the controls, which header text stops at.
 const double _controlsWidth = _controlRight + _controlSize;
