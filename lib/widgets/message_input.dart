@@ -143,10 +143,13 @@ class MessageInput extends StatelessWidget {
                                     listenable: focusNode,
                                     // Explicit size: a dense field shrinks its icons
                                     // to 18pt, and compact is dense.
-                                    builder: (_, _) => Icon(
-                                      Icons.add,
-                                      size: 24,
-                                      color: _inputAccent(context),
+                                    builder: (_, _) => Tooltip(
+                                      message: context.l10n.pickerEmotes,
+                                      child: Icon(
+                                        Icons.add,
+                                        size: 24,
+                                        color: _inputAccent(context),
+                                      ),
                                     ),
                                   ),
                                 ),

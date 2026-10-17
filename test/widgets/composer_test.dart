@@ -454,7 +454,7 @@ void main() {
     );
     await tester.pump();
 
-    await tester.tap(find.byIcon(Icons.add));
+    await tester.tap(find.byTooltip('Join channel'));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField).last, 'testchannel');
     await tester.tap(find.text('Join', skipOffstage: false));

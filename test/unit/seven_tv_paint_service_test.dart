@@ -254,26 +254,27 @@ void main() {
         gqlQuery: (query) async {
           queryCount++;
           expect(query, contains('{ users {'));
+          // Newest request first: the chatters on screen now.
           expect(
             query,
             contains(
-              'u0: userByConnection(platform: TWITCH, platformId: "111")',
+              'u0: userByConnection(platform: TWITCH, platformId: "222")',
             ),
           );
           expect(
             query,
             contains(
-              'u1: userByConnection(platform: TWITCH, platformId: "222")',
+              'u1: userByConnection(platform: TWITCH, platformId: "111")',
             ),
           );
           return {
             'users': {
-              'u0': {
+              'u0': null,
+              'u1': {
                 'style': {
                   'activePaint': {'id': 'p1'},
                 },
               },
-              'u1': null,
             },
           };
         },

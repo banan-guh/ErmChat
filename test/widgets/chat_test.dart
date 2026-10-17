@@ -36,7 +36,7 @@ void main() {
       );
       await tester.pump();
 
-      await tester.tap(find.byIcon(Icons.add));
+      await tester.tap(find.byTooltip('Join channel'));
       await tester.pumpAndSettle();
 
       await tester.enterText(find.byType(TextField).last, 'xqc');
@@ -107,7 +107,7 @@ void main() {
     );
     await tester.pump();
 
-    await tester.tap(find.byIcon(Icons.add));
+    await tester.tap(find.byTooltip('Join channel'));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField).last, 'xqc');
     await tester.tap(find.text('Join', skipOffstage: false));
@@ -371,7 +371,7 @@ void main() {
         ),
       );
       await tester.pump();
-      await tester.tap(find.byIcon(Icons.add));
+      await tester.tap(find.byTooltip('Join channel'));
       await tester.pumpAndSettle();
       await tester.enterText(find.byType(TextField).last, channel);
       await tester.tap(find.text('Join', skipOffstage: false).last);
@@ -460,7 +460,7 @@ void main() {
         ),
       );
       await tester.pump();
-      await tester.tap(find.byIcon(Icons.add));
+      await tester.tap(find.byTooltip('Join channel'));
       await tester.pumpAndSettle();
       await tester.enterText(find.byType(TextField).last, channel);
       await tester.tap(find.text('Join', skipOffstage: false).last);
@@ -703,7 +703,7 @@ void main() {
         ),
       );
       await tester.pump();
-      await tester.tap(find.byIcon(Icons.add));
+      await tester.tap(find.byTooltip('Join channel'));
       await tester.pumpAndSettle();
       await tester.enterText(find.byType(TextField).last, channel);
       await tester.tap(find.text('Join', skipOffstage: false).last);
@@ -865,7 +865,7 @@ void main() {
 
     // Join 'b' first, then 'a' so 'a' is selected and 'b' is unfocused.
     for (final name in ['b', 'a']) {
-      await tester.tap(find.byIcon(Icons.add));
+      await tester.tap(find.byTooltip('Join channel'));
       await tester.pumpAndSettle();
       await tester.enterText(find.byType(TextField).last, name);
       await tester.tap(find.text('Join', skipOffstage: false));
@@ -934,7 +934,7 @@ void main() {
       await tester.pump();
 
       for (final name in ['b', 'a']) {
-        await tester.tap(find.byIcon(Icons.add));
+        await tester.tap(find.byTooltip('Join channel'));
         await tester.pumpAndSettle();
         await tester.enterText(find.byType(TextField).last, name);
         await tester.tap(find.text('Join', skipOffstage: false));
@@ -1031,7 +1031,7 @@ void main() {
     );
     await tester.pump();
 
-    await tester.tap(find.byIcon(Icons.add));
+    await tester.tap(find.byTooltip('Join channel'));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField).last, 'b');
     await tester.tap(find.text('Join', skipOffstage: false));
@@ -1100,7 +1100,7 @@ void main() {
       await tester.pump();
 
       for (final name in ['b', 'a']) {
-        await tester.tap(find.byIcon(Icons.add));
+        await tester.tap(find.byTooltip('Join channel'));
         await tester.pumpAndSettle();
         await tester.enterText(find.byType(TextField).last, name);
         await tester.tap(find.text('Join', skipOffstage: false));
@@ -1194,7 +1194,7 @@ void main() {
       ),
     );
     await tester.pump();
-    await tester.tap(find.byIcon(Icons.add));
+    await tester.tap(find.byTooltip('Join channel'));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField).last, 'a');
     await tester.tap(find.text('Join', skipOffstage: false));
@@ -1253,7 +1253,7 @@ void main() {
       ),
     );
     await tester.pump();
-    await tester.tap(find.byIcon(Icons.add));
+    await tester.tap(find.byTooltip('Join channel'));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField).last, 'a');
     await tester.tap(find.text('Join', skipOffstage: false));
@@ -1330,7 +1330,7 @@ void main() {
       ),
     );
     await tester.pump();
-    await tester.tap(find.byIcon(Icons.add));
+    await tester.tap(find.byTooltip('Join channel'));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField).last, 'a');
     await tester.tap(find.text('Join', skipOffstage: false));
@@ -1406,7 +1406,7 @@ void main() {
       );
       await tester.pump();
 
-      await tester.tap(find.byIcon(Icons.add));
+      await tester.tap(find.byTooltip('Join channel'));
       await tester.pumpAndSettle();
       await tester.enterText(find.byType(TextField).last, 'xqc');
       await tester.tap(find.text('Join', skipOffstage: false));
@@ -1452,7 +1452,7 @@ void main() {
       );
       await tester.pump();
 
-      await tester.tap(find.byIcon(Icons.add));
+      await tester.tap(find.byTooltip('Join channel'));
       await tester.pumpAndSettle();
       await tester.enterText(find.byType(TextField).last, 'xqc');
       await tester.tap(find.text('Join', skipOffstage: false));
@@ -1496,7 +1496,7 @@ void main() {
         ),
       );
       await tester.pump();
-      await tester.tap(find.byIcon(Icons.add));
+      await tester.tap(find.byTooltip('Join channel'));
       await tester.pumpAndSettle();
       await tester.enterText(find.byType(TextField).last, 'testchannel');
       await tester.tap(find.text('Join', skipOffstage: false));
@@ -1796,7 +1796,7 @@ void main() {
     );
     await tester.pump();
 
-    await tester.tap(find.byIcon(Icons.add));
+    await tester.tap(find.byTooltip('Join channel'));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField).last, 'testchannel');
     await tester.tap(find.text('Join', skipOffstage: false));
@@ -1859,7 +1859,7 @@ void main() {
       );
       await tester.pump();
 
-      await tester.tap(find.byIcon(Icons.add));
+      await tester.tap(find.byTooltip('Join channel'));
       await tester.pumpAndSettle();
       await tester.enterText(find.byType(TextField).last, channelName);
       await tester.tap(find.text('Join', skipOffstage: false).last);
@@ -2159,7 +2159,7 @@ void main() {
           ),
         );
         await tester.pump();
-        await tester.tap(find.byIcon(Icons.add));
+        await tester.tap(find.byTooltip('Join channel'));
         await tester.pumpAndSettle();
         await tester.enterText(find.byType(TextField).last, channel);
         await tester.tap(find.text('Join', skipOffstage: false).last);
@@ -2205,7 +2205,7 @@ void main() {
           ),
         );
         await tester.pump();
-        await tester.tap(find.byIcon(Icons.add));
+        await tester.tap(find.byTooltip('Join channel'));
         await tester.pumpAndSettle();
         await tester.enterText(find.byType(TextField).last, 'testchannel');
         await tester.tap(find.text('Join', skipOffstage: false).last);
@@ -2216,18 +2216,18 @@ void main() {
         await tester.pump();
         await tester.pump(const Duration(milliseconds: 600));
         await tester.pump();
-        await tester.tap(find.byIcon(Icons.emoji_emotions_outlined));
+        await tester.tap(find.byTooltip('Emotes'));
         await tester.pumpAndSettle();
         final tabSize = tester.getSize(
-          find.text('Recent', skipOffstage: false),
+          find.text('Emotes', skipOffstage: false),
         );
         await tester.fling(
-          find.text('Recent', skipOffstage: false),
+          find.text('Emotes', skipOffstage: false),
           Offset(0, tabSize.height * 5),
           1000,
         );
         await tester.pumpAndSettle();
-        expect(find.text('Recent'), findsNothing);
+        expect(find.text('Emotes'), findsNothing);
       }
     });
   });
@@ -2255,7 +2255,7 @@ void main() {
       );
       await tester.pump();
 
-      await tester.tap(find.byIcon(Icons.add));
+      await tester.tap(find.byTooltip('Join channel'));
       await tester.pumpAndSettle();
       await tester.enterText(find.byType(TextField).last, 'testchannel');
       await tester.tap(find.text('Join', skipOffstage: false).last);
@@ -2359,7 +2359,7 @@ void main() {
         );
         await tester.pump();
 
-        await tester.tap(find.byIcon(Icons.add));
+        await tester.tap(find.byTooltip('Join channel'));
         await tester.pumpAndSettle();
         await tester.enterText(find.byType(TextField).last, 'testchannel');
         await tester.tap(find.text('Join', skipOffstage: false).last);
@@ -2460,7 +2460,7 @@ void main() {
           ),
         );
         await tester.pump();
-        await tester.tap(find.byIcon(Icons.add));
+        await tester.tap(find.byTooltip('Join channel'));
         await tester.pumpAndSettle();
         await tester.enterText(find.byType(TextField).last, 'testchannel');
         await tester.tap(find.text('Join', skipOffstage: false).last);
@@ -2609,7 +2609,7 @@ void main() {
     );
     await tester.pump();
 
-    await tester.tap(find.byIcon(Icons.add));
+    await tester.tap(find.byTooltip('Join channel'));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField).last, 'xqc');
     await tester.tap(find.text('Join', skipOffstage: false));
@@ -2692,7 +2692,7 @@ void main() {
   });
 
   Future<void> joinChannel(WidgetTester tester, String name) async {
-    await tester.tap(find.byIcon(Icons.add));
+    await tester.tap(find.byTooltip('Join channel'));
     await tester.pumpAndSettle();
     final dialogField = find.descendant(
       of: find.byType(AlertDialog),
@@ -2929,7 +2929,6 @@ void main() {
       );
 
       await tester.pumpWidget(wrapEmoteMenu(manager));
-      await tester.tap(find.text('Channel', skipOffstage: false));
       // The loading band animates indefinitely, so pump fixed durations
       // instead of pumpAndSettle (which would never settle).
       await tester.pump();
@@ -3174,7 +3173,7 @@ void main() {
       await tester.pump();
 
       Future<void> join(String name) async {
-        await tester.tap(find.byIcon(Icons.add));
+        await tester.tap(find.byTooltip('Join channel'));
         await tester.pumpAndSettle();
         await tester.enterText(find.byType(TextField).last, name);
         await tester.tap(find.text('Join', skipOffstage: false).last);

@@ -277,9 +277,16 @@ Future<void> _pickDay(WidgetTester tester, int i, double at) async {
     Offset(panel.right - 20, panel.bottom - 6 - (n - row - 0.5) * dayH),
   );
   await _settle(tester);
-  await tester.tapAt(
-    Offset(panel.right - 20, panel.top + 6 + at * (panel.height - 12)),
-  );
+  // A drag from the bar's middle, so an end of the bar is reached by
+  // running past it; a touch beyond the bar clamps to its end.
+  final drag = await tester.startGesture(panel.center);
+  final y = at <= 0
+      ? panel.top - 40
+      : at >= 1
+      ? panel.bottom + 40
+      : panel.top + 6 + at * (panel.height - 12);
+  await drag.moveTo(Offset(panel.right - 20, y));
+  await drag.up();
   await _settle(tester);
 }
 

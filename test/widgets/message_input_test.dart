@@ -83,7 +83,7 @@ void main() {
       tester,
     ) async {
       await pumpInput(tester, compact: true, borderless: borderless);
-      for (final icon in [Icons.send, Icons.emoji_emotions_outlined]) {
+      for (final icon in [Icons.send, Icons.add]) {
         final ink = find.ancestor(
           of: find.byIcon(icon),
           matching: find.byType(InkWell),

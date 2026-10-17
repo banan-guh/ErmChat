@@ -218,7 +218,9 @@ class _ChromeMenuState extends State<ChromeMenu> {
                   children: [
                     Icon(_entries[i].icon, size: 20),
                     const SizedBox(width: 12),
-                    Text(label),
+                    Flexible(
+                      child: Text(label, overflow: TextOverflow.ellipsis),
+                    ),
                   ],
                 ),
               )
