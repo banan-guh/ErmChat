@@ -127,7 +127,7 @@ class EmoteManager implements EmoteLookupSource {
     void Function(EmoteFetchTier)? writeTier,
     int cacheCapMb = defaultEmoteCacheMb,
     void Function(int)? writeCacheCap,
-    Duration usageFlushDelay = const Duration(milliseconds: 250),
+    Duration usageFlushDelay = const Duration(seconds: 30),
     this.sevenTvSaveDelay = const Duration(seconds: 2),
     Future<SevenTvChannelResponse> Function(String channelId)?
     sevenTvChannelFetcher,

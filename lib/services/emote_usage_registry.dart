@@ -197,10 +197,10 @@ class EmoteUsageRegistry implements EmoteImagePolicy {
   /// so an unloaded registry cannot accrete references.
   static const _maxPendingTouches = 2000;
 
-  // How long view-touch flushes wait for quiet before persisting. The emote
-  // menu marks dozens of cells viewed on open; the debounce collapses that
-  // burst into a single file write.
-  static const _defaultFlushDelay = Duration(milliseconds: 250);
+  // How long view touches wait before persisting. Busy chat touches emotes
+  // every message, and a touch only shifts eviction priority, so one write
+  // per half minute keeps the full sort and encode off the frame budget.
+  static const _defaultFlushDelay = Duration(seconds: 30);
 
   final int Function() _capacity;
   final DateTime Function() _now;
@@ -341,9 +341,13 @@ class EmoteUsageRegistry implements EmoteImagePolicy {
     _usageDirty = false;
     if (_emoteUsage.length > _usageMaxEntries) {
       // Drop lowest-scored entries.
+      // Scored once each: score() runs exp and log over every bucket, too
+      // costly to call twice per comparison.
       final now = _now();
-      final entries = _emoteUsage.entries.toList()
-        ..sort((a, b) => a.value.score(now).compareTo(b.value.score(now)));
+      final entries = [
+        for (final e in _emoteUsage.entries)
+          (key: e.key, score: e.value.score(now)),
+      ]..sort((a, b) => a.score.compareTo(b.score));
       final overflow = entries.length - _usageMaxEntries;
       for (final entry in entries.take(overflow)) {
         _emoteUsage.remove(entry.key);
