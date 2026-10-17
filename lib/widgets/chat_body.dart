@@ -69,6 +69,7 @@ class ChatBody extends StatefulWidget {
     this.onKeyboardDismissed,
     this.composer,
     this.bottomBar,
+    this.sideAction,
     this.notice,
     this.replyHeader,
     this.isInPip = false,
@@ -89,6 +90,10 @@ class ChatBody extends StatefulWidget {
   /// inside the composer island and rides up with the keyboard (or is clipped
   /// away under [keyboardHidesButtons]).
   final Widget? bottomBar;
+
+  /// A tall action down the island's right edge, beside the field and the
+  /// row (send, while the row stays up as you type). Fills its column.
+  final Widget? sideAction;
 
   /// Floats the composer as an island over the chat instead of docking it
   /// in flow. Rows slide underneath the frosted shell.
@@ -624,11 +629,29 @@ class _ChatBodyState extends State<ChatBody>
             heightFactor: _islandH > 0
                 ? (1 - _rowClip / _islandH).clamp(0.0, 1.0)
                 : 1,
-            child: Column(
-              key: _islandKey,
-              mainAxisSize: MainAxisSize.min,
-              children: [flowComposer, ?widget.bottomBar],
-            ),
+            child: widget.sideAction == null
+                ? Column(
+                    key: _islandKey,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [flowComposer, ?widget.bottomBar],
+                  )
+                // The side action runs the island's full height beside the
+                // field and the row.
+                : IntrinsicHeight(
+                    key: _islandKey,
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Expanded(
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [flowComposer, ?widget.bottomBar],
+                          ),
+                        ),
+                        SizedBox(width: 56, child: widget.sideAction),
+                      ],
+                    ),
+                  ),
           ),
         ),
       ),

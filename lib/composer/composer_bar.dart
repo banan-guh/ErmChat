@@ -137,10 +137,10 @@ Listenable _enabledInputs(
   dragTick,
 ]);
 
-/// The chat field's emote or send button in the island's button row, for
-/// layouts where the row stays up while typing, so send sits under the
-/// thumb. Greys out with the field and steps aside while search or block
-/// terms borrow it.
+/// The chat field's emote button in the island's row, or its send button
+/// down the island's side, for layouts where the row stays up while typing.
+/// Greys out with the field and steps aside while search or block terms
+/// borrow it.
 class ComposerRowButton extends StatelessWidget {
   const ComposerRowButton.emote({
     super.key,
@@ -186,12 +186,22 @@ class ComposerRowButton extends StatelessWidget {
           onPressed: controller.toggleEmoteMenu,
         );
       }
+      // Send fills its column down the island's side: the whole strip is
+      // the target, the icon centered in it.
       final enabled = controller.enabled;
-      return GestureDetector(
-        onLongPress: enabled ? controller.recallLastSent : null,
-        child: IconButton(
-          icon: Icon(Icons.send, color: enabled ? accent : null),
-          onPressed: enabled ? controller.send : null,
+      return Material(
+        type: MaterialType.transparency,
+        child: InkWell(
+          onTap: enabled ? controller.send : null,
+          onLongPress: enabled ? controller.recallLastSent : null,
+          child: Center(
+            child: Icon(
+              Icons.send,
+              color: enabled
+                  ? accent
+                  : scheme.onSurface.withValues(alpha: 0.38),
+            ),
+          ),
         ),
       );
     },

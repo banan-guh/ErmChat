@@ -1914,15 +1914,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                                 dragTick: _panelDragTick,
                               )
                             : null,
-                        trailing: [
-                          if (buttonsInRow)
-                            ComposerRowButton.send(
-                              controller: _composer,
-                              search: _search,
-                              mod: _mod,
-                              dragTick: _panelDragTick,
-                            ),
-                        ],
                         // Fullscreen hides the strip, which holds the view
                         // menu.
                         withMenu: _isFullscreen,
@@ -1936,6 +1927,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                         dragTick: _panelDragTick,
                       ),
                     ],
+                  )
+                : null,
+            // Send runs down the island's side while the row stays up.
+            sideAction: buttonsInRow
+                ? ComposerRowButton.send(
+                    controller: _composer,
+                    search: _search,
+                    mod: _mod,
+                    dragTick: _panelDragTick,
                   )
                 : null,
             notice: ChatNoticeBar(controller: _chatNotice),
