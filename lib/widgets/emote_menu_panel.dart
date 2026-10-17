@@ -1,4 +1,8 @@
+import 'dart:async';
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../emotes/emote.dart';
 import '../l10n/l10n.dart';
@@ -36,6 +40,12 @@ class EmoteMenuPanelWidget extends ConsumerStatefulWidget {
       EmoteMenuPanelWidgetState();
 }
 
+/// A run of emotes under an optional title (a sub channel, a provider).
+typedef _Group = ({String? title, List<Emote> emotes});
+
+/// One of the scroll's sections (Recent, Subs, Channel, Global).
+typedef _Section = ({String label, List<_Group> groups});
+
 class EmoteMenuPanelWidgetState extends ConsumerState<EmoteMenuPanelWidget> {
   late final EmoteManager _emoteManager = ref.read(emoteManagerProvider);
   late final EmoteImages _images = ref.read(emoteImagesProvider);
@@ -46,9 +56,17 @@ class EmoteMenuPanelWidgetState extends ConsumerState<EmoteMenuPanelWidget> {
   // Max panel width: keeps emotes phone-sized on tablets.
   static const double _maxPanelWidth = 480;
 
-  int _emoteTabIndex = 0;
+  static const int _columns = 5;
+  static const double _spacing = 8;
+
+  /// Section and group title heights, fixed so section offsets compute
+  /// without laying out the far grids.
+  static const double _sectionH = 32;
+  static const double _groupH = 26;
+
+  /// 0 emotes, 1 channel points. Each open starts on emotes.
+  int _tab = 0;
   List<Emote> _cachedRecentEmotes = [];
-  bool _recentEmotesLoaded = false;
   // Cached grid cells by emote id, validated against URL and padding on each
   // rebuild so a changed asset or cell size rebuilds the cell.
   final Map<String, ({double padding, Widget widget})> _cellCache = {};
@@ -65,6 +83,7 @@ class EmoteMenuPanelWidgetState extends ConsumerState<EmoteMenuPanelWidget> {
     super.didUpdateWidget(oldWidget);
     if (widget.isActive && !oldWidget.isActive) {
       _cellCache.clear();
+      _tab = 0;
       _loadRecentEmotes();
     } else if (!widget.isActive && oldWidget.isActive) {
       _cellCache.clear();
@@ -78,12 +97,7 @@ class EmoteMenuPanelWidgetState extends ConsumerState<EmoteMenuPanelWidget> {
     final recent = await _emoteManager.recentsForChannel(
       widget.selectedChannel ?? '',
     );
-    if (mounted) {
-      setState(() {
-        _cachedRecentEmotes = recent;
-        _recentEmotesLoaded = true;
-      });
-    }
+    if (mounted) setState(() => _cachedRecentEmotes = recent);
   }
 
   @override
@@ -102,17 +116,20 @@ class EmoteMenuPanelWidgetState extends ConsumerState<EmoteMenuPanelWidget> {
     _lastPanelWidth = width;
     final theme = Theme.of(context);
     final panelColor = theme.colorScheme.surfaceContainerLow;
-    final radius = BorderRadius.circular(16);
+    const radius = BorderRadius.vertical(top: Radius.circular(16));
+    // Edge to edge: the sides hug the screen and the top edge carries the
+    // border, so the panel reads as a sheet rather than a floating card.
     return Center(
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: _maxPanelWidth),
-        child: Container(
-          margin: const EdgeInsets.all(4),
-          decoration: BoxDecoration(
+        child: DecoratedBox(
+          decoration: ShapeDecoration(
             color: panelColor,
-            borderRadius: radius,
-            border: Border.all(color: theme.colorScheme.outlineVariant),
-            boxShadow: [
+            shape: RoundedRectangleBorder(
+              borderRadius: radius,
+              side: BorderSide(color: theme.colorScheme.outlineVariant),
+            ),
+            shadows: [
               BoxShadow(
                 color: Colors.black.withValues(alpha: 0.12),
                 blurRadius: 12,
@@ -120,7 +137,6 @@ class EmoteMenuPanelWidgetState extends ConsumerState<EmoteMenuPanelWidget> {
               ),
             ],
           ),
-          clipBehavior: Clip.none,
           child: ClipRRect(
             borderRadius: radius,
             child: GestureDetector(
@@ -194,18 +210,16 @@ class EmoteMenuPanelWidgetState extends ConsumerState<EmoteMenuPanelWidget> {
                       tabAlignment: Alignment.center,
                       tabBarColor: panelColor,
                       tabs: [
-                        context.l10n.emoteTabRecent,
-                        context.l10n.emoteTabSubs,
-                        context.l10n.emoteTabChannel,
-                        context.l10n.emoteTabGlobal,
+                        context.l10n.pickerEmotes,
+                        context.l10n.pickerPoints,
                       ],
-                      selectedIndex: _emoteTabIndex,
-                      onSelectedIndexChanged: (i) =>
-                          setState(() => _emoteTabIndex = i),
-                      pageBuilder: (_, i) => _buildEmoteTabPage(
-                        i,
-                        i == _emoteTabIndex ? widget.scrollController : null,
-                      ),
+                      selectedIndex: _tab,
+                      onSelectedIndexChanged: (i) => setState(() => _tab = i),
+                      pageBuilder: (_, i) => i == 0
+                          ? _emotesPage(
+                              i == _tab ? widget.scrollController : null,
+                            )
+                          : Center(child: Text(context.l10n.pickerPointsSoon)),
                     ),
                   ),
                 ],
@@ -217,167 +231,146 @@ class EmoteMenuPanelWidgetState extends ConsumerState<EmoteMenuPanelWidget> {
     );
   }
 
-  Widget _buildEmoteTabPage(int tabIndex, ScrollController? scrollController) {
-    switch (tabIndex) {
-      case 0:
-        return _buildEmoteRecentGrid(scrollController);
-      case 1:
-        return _buildEmoteSubsGrid(scrollController);
-      case 2:
-        return _buildEmoteChannelGrid(scrollController);
-      default:
-        return _buildEmoteGlobalGrid(scrollController);
-    }
+  List<_Section> _sections() {
+    final l10n = context.l10n;
+    List<_Group> groups(Map<String, List<Emote>> byTitle) => [
+      for (final e in byTitle.entries)
+        if (e.value.isNotEmpty) (title: e.key, emotes: e.value),
+    ];
+    return [
+      if (_cachedRecentEmotes.isNotEmpty)
+        (
+          label: l10n.emoteTabRecent,
+          groups: [(title: null, emotes: _cachedRecentEmotes)],
+        ),
+      (
+        label: l10n.emoteTabSubs,
+        groups: groups(
+          _emoteManager.subsGrouped(pinnedChannel: widget.selectedChannel),
+        ),
+      ),
+      (
+        label: l10n.emoteTabChannel,
+        groups: groups(
+          _emoteManager.channelEmotesByProvider(widget.selectedChannel ?? ''),
+        ),
+      ),
+      (
+        label: l10n.emoteTabGlobal,
+        groups: groups(_emoteManager.globalEmotesByProvider()),
+      ),
+    ].where((s) => s.groups.isNotEmpty).toList();
   }
 
-  Widget _buildEmoteRecentGrid(ScrollController? scrollController) {
-    if (!_recentEmotesLoaded) {
-      return _buildEmoteEmptyState(
-        scrollController,
-        const Center(child: CircularProgressIndicator(strokeWidth: 2)),
-      );
-    }
+  double get _sidePadding => _panelWidth * 0.08;
 
-    if (_cachedRecentEmotes.isEmpty) {
-      return _buildEmoteEmptyState(
-        scrollController,
-        Center(child: Text(context.l10n.noRecentEmotes)),
-      );
-    }
-    return _buildEmoteGrid(_cachedRecentEmotes, scrollController);
+  double get _cellExtent =>
+      (_panelWidth - 2 * _sidePadding - (_columns - 1) * _spacing) / _columns;
+
+  /// A group's grid height, its bottom gap included.
+  double _gridExtent(int count) {
+    final rows = (count / _columns).ceil();
+    return rows * _cellExtent + math.max(0, rows - 1) * _spacing + _spacing;
   }
 
-  Widget _buildEmoteSubsGrid(ScrollController? scrollController) {
-    final byChannel = _emoteManager.subsGrouped(
-      pinnedChannel: widget.selectedChannel,
+  /// Every section in one scroll, with the edge scroller jumping between
+  /// them.
+  Widget _emotesPage(ScrollController? scrollController) {
+    final sections = _sections();
+    if (sections.isEmpty) {
+      final empty = Center(
+        child: _emoteManager.subEmoteFetchInFlight
+            ? const CircularProgressIndicator(strokeWidth: 2)
+            : Text(context.l10n.noGlobalEmotes),
+      );
+      if (scrollController == null) return empty;
+      return CustomScrollView(
+        controller: scrollController,
+        slivers: [SliverFillRemaining(child: empty)],
+      );
+    }
+    final cellPadding = _computeCellPadding();
+    final titleStyle = Theme.of(context).textTheme.labelLarge;
+    final groupStyle = const TextStyle(
+      fontWeight: FontWeight.w600,
+      fontSize: 13,
     );
-    if (byChannel.isEmpty) {
-      // Fetch in flight reads as loading, not as "none". Anything else
-      // empty here is genuinely empty (anon, sub-less, post-switch reset).
-      if (_emoteManager.subEmoteFetchInFlight) {
-        return _buildEmoteEmptyState(
-          scrollController,
-          const Center(child: CircularProgressIndicator(strokeWidth: 2)),
-        );
-      }
-      return _buildEmoteEmptyState(
-        scrollController,
-        Center(child: Text(context.l10n.noSubEmotes)),
-      );
-    }
-    return _buildGroupedEmoteGrid(byChannel, scrollController);
-  }
-
-  Widget _buildEmoteChannelGrid(ScrollController? scrollController) {
-    final channel = widget.selectedChannel ?? '';
-    final byProvider = _emoteManager.channelEmotesByProvider(channel);
-    if (byProvider.isEmpty) {
-      return _buildEmoteEmptyState(
-        scrollController,
-        Center(child: Text(context.l10n.noChannelEmotes)),
-      );
-    }
-    return _buildGroupedEmoteGrid(byProvider, scrollController);
-  }
-
-  Widget _buildEmoteGlobalGrid(ScrollController? scrollController) {
-    final byProvider = _emoteManager.globalEmotesByProvider();
-    if (byProvider.isEmpty) {
-      return _buildEmoteEmptyState(
-        scrollController,
-        Center(child: Text(context.l10n.noGlobalEmotes)),
-      );
-    }
-    return _buildGroupedEmoteGrid(byProvider, scrollController);
-  }
-
-  // Sectioned grid with group headers (Subs by channel, Channel and Global
-  // by provider).
-  Widget _buildGroupedEmoteGrid(
-    Map<String, List<Emote>> groups,
-    ScrollController? scrollController,
-  ) {
-    final sidePadding = _panelWidth * 0.08;
-    return CustomScrollView(
-      controller: scrollController,
-      slivers: [
-        for (final entry in groups.entries) ...[
-          SliverToBoxAdapter(
+    final offsets = <double>[];
+    var at = 0.0;
+    final slivers = <Widget>[];
+    for (final section in sections) {
+      offsets.add(at);
+      at += _sectionH;
+      slivers.add(
+        SliverToBoxAdapter(
+          child: SizedBox(
+            height: _sectionH,
             child: Padding(
-              padding: const EdgeInsets.only(left: 8, top: 8, right: 8),
-              child: Text(
-                entry.key,
-                style: const TextStyle(
-                  fontWeight: FontWeight.w600,
-                  fontSize: 13,
-                ),
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              child: Align(
+                alignment: Alignment.bottomLeft,
+                child: Text(section.label.toUpperCase(), style: titleStyle),
               ),
-            ),
-          ),
-          SliverPadding(
-            padding: EdgeInsets.symmetric(horizontal: sidePadding),
-            sliver: SliverGrid(
-              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: 5,
-                mainAxisSpacing: 8,
-                crossAxisSpacing: 8,
-                childAspectRatio: 1,
-              ),
-              delegate: SliverChildBuilderDelegate(
-                (_, i) {
-                  final cellPadding = _computeCellPadding();
-                  return _buildEmoteGridItem(entry.value[i], cellPadding);
-                },
-                childCount: entry.value.length,
-                findChildIndexCallback: _idToIndexClosure(entry.value),
-              ),
-            ),
-          ),
-        ],
-      ],
-    );
-  }
-
-  Widget _buildEmoteEmptyState(
-    ScrollController? scrollController,
-    Widget child,
-  ) {
-    if (scrollController == null) return child;
-    return CustomScrollView(
-      controller: scrollController,
-      slivers: [SliverFillRemaining(child: child)],
-    );
-  }
-
-  Widget _buildEmoteGrid(
-    List<Emote> emotes,
-    ScrollController? scrollController,
-  ) {
-    final sidePadding = _panelWidth * 0.08;
-    // CustomScrollView (not GridView): swapping scrollable types mid-open kills the animation.
-    return CustomScrollView(
-      controller: scrollController,
-      slivers: [
-        SliverPadding(
-          padding: EdgeInsets.symmetric(horizontal: sidePadding, vertical: 4),
-          sliver: SliverGrid(
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 5,
-              mainAxisSpacing: 8,
-              crossAxisSpacing: 8,
-              childAspectRatio: 1,
-            ),
-            delegate: SliverChildBuilderDelegate(
-              (_, i) {
-                final cellPadding = _computeCellPadding();
-                return _buildEmoteGridItem(emotes[i], cellPadding);
-              },
-              childCount: emotes.length,
-              findChildIndexCallback: _idToIndexClosure(emotes),
             ),
           ),
         ),
-      ],
+      );
+      for (final group in section.groups) {
+        if (group.title case final title?) {
+          at += _groupH;
+          slivers.add(
+            SliverToBoxAdapter(
+              child: SizedBox(
+                height: _groupH,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  child: Align(
+                    alignment: Alignment.bottomLeft,
+                    child: Text(title, style: groupStyle),
+                  ),
+                ),
+              ),
+            ),
+          );
+        }
+        at += _gridExtent(group.emotes.length);
+        slivers.add(
+          SliverPadding(
+            padding: EdgeInsets.fromLTRB(
+              _sidePadding,
+              0,
+              _sidePadding,
+              _spacing,
+            ),
+            sliver: SliverGrid(
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: _columns,
+                mainAxisSpacing: _spacing,
+                crossAxisSpacing: _spacing,
+                childAspectRatio: 1,
+              ),
+              delegate: SliverChildBuilderDelegate(
+                (_, i) => _buildEmoteGridItem(group.emotes[i], cellPadding),
+                childCount: group.emotes.length,
+                findChildIndexCallback: _idToIndexClosure(group.emotes),
+              ),
+            ),
+          ),
+        );
+      }
+    }
+    // CustomScrollView (not GridView): swapping scrollable types mid-open
+    // kills the animation.
+    final scroll = CustomScrollView(
+      controller: scrollController,
+      slivers: slivers,
+    );
+    if (scrollController == null) return scroll;
+    return _SectionScroller(
+      controller: scrollController,
+      labels: [for (final s in sections) s.label],
+      offsets: offsets,
+      child: scroll,
     );
   }
 
@@ -403,11 +396,7 @@ class EmoteMenuPanelWidgetState extends ConsumerState<EmoteMenuPanelWidget> {
     };
   }
 
-  double _computeCellPadding() {
-    final sidePadding = _panelWidth * 0.08;
-    final cellWidth = (_panelWidth - 2 * sidePadding - 4 * 8) / 5;
-    return cellWidth * 0.08;
-  }
+  double _computeCellPadding() => _cellExtent * 0.08;
 
   double get _panelWidth {
     final w = MediaQuery.of(context).size.width;
@@ -448,5 +437,207 @@ class EmoteMenuPanelWidgetState extends ConsumerState<EmoteMenuPanelWidget> {
       _cellCache[emote.id] = (padding: cellPadding, widget: cell);
     }
     return cell;
+  }
+}
+
+/// A fast scroller on the right edge, as in a photo gallery: a thumb that
+/// drags the scroll anywhere, a marker where each section starts, and the
+/// current section's name beside the thumb while it moves.
+class _SectionScroller extends StatefulWidget {
+  const _SectionScroller({
+    required this.controller,
+    required this.labels,
+    required this.offsets,
+    required this.child,
+  });
+
+  final ScrollController controller;
+  final List<String> labels;
+
+  /// Where each section starts, in scroll pixels.
+  final List<double> offsets;
+  final Widget child;
+
+  @override
+  State<_SectionScroller> createState() => _SectionScrollerState();
+}
+
+class _SectionScrollerState extends State<_SectionScroller> {
+  static const double _thumbH = 44;
+  static const double _hit = 36;
+  static const double _pad = 6;
+
+  bool _dragging = false;
+  bool _shown = false;
+  Timer? _hide;
+  int _section = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.controller.addListener(_onScroll);
+    // The extent is known after the first layout; show the markers then.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void didUpdateWidget(_SectionScroller old) {
+    super.didUpdateWidget(old);
+    if (old.controller != widget.controller) {
+      old.controller.removeListener(_onScroll);
+      widget.controller.addListener(_onScroll);
+    }
+  }
+
+  @override
+  void dispose() {
+    widget.controller.removeListener(_onScroll);
+    _hide?.cancel();
+    super.dispose();
+  }
+
+  ScrollPosition? get _pos {
+    final c = widget.controller;
+    return c.hasClients && c.positions.length == 1 ? c.position : null;
+  }
+
+  int _sectionAt(double pixels) {
+    var i = 0;
+    while (i + 1 < widget.offsets.length &&
+        widget.offsets[i + 1] <= pixels + 1) {
+      i++;
+    }
+    return i;
+  }
+
+  void _onScroll() {
+    final pos = _pos;
+    if (pos == null || !pos.hasContentDimensions) return;
+    final section = _sectionAt(pos.pixels);
+    if (_dragging && section != _section) HapticFeedback.selectionClick();
+    _section = section;
+    _hide?.cancel();
+    if (!_dragging) {
+      _hide = Timer(const Duration(milliseconds: 1200), () {
+        if (mounted) setState(() => _shown = false);
+      });
+    }
+    setState(() => _shown = true);
+  }
+
+  void _dragTo(double y, double track) {
+    final pos = _pos;
+    if (pos == null || !pos.hasContentDimensions) return;
+    final f = ((y - _thumbH / 2) / (track - _thumbH)).clamp(0.0, 1.0);
+    pos.jumpTo(f * pos.maxScrollExtent);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return LayoutBuilder(
+      builder: (context, box) {
+        final track = box.maxHeight - _pad * 2;
+        final pos = _pos;
+        final max = pos != null && pos.hasContentDimensions
+            ? pos.maxScrollExtent
+            : 0.0;
+        // One tree shape always, so the scroll view never remounts.
+        if (max <= 0 || track <= _thumbH) {
+          return Stack(children: [widget.child]);
+        }
+        double yOf(double pixels) =>
+            _pad + (pixels / max).clamp(0.0, 1.0) * (track - _thumbH);
+        final thumbY = yOf(pos!.pixels);
+        final active = _dragging || _shown;
+        return Stack(
+          children: [
+            widget.child,
+            // Section markers, centered where the thumb sits at each start.
+            for (final o in widget.offsets)
+              Positioned(
+                right: 2,
+                top: yOf(o) + _thumbH / 2 - 1,
+                child: AnimatedOpacity(
+                  opacity: active ? 1 : 0.4,
+                  duration: const Duration(milliseconds: 150),
+                  child: Container(
+                    width: 10,
+                    height: 2,
+                    color: scheme.onSurfaceVariant,
+                  ),
+                ),
+              ),
+            Positioned(
+              right: 0,
+              top: thumbY,
+              child: AnimatedOpacity(
+                opacity: active ? 1 : 0.5,
+                duration: const Duration(milliseconds: 150),
+                child: Container(
+                  width: _dragging ? 8 : 5,
+                  height: _thumbH,
+                  decoration: BoxDecoration(
+                    color: _dragging ? scheme.primary : scheme.onSurfaceVariant,
+                    borderRadius: const BorderRadius.horizontal(
+                      left: Radius.circular(4),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            if (active)
+              Positioned(
+                right: 18,
+                top: thumbY + _thumbH / 2 - 14,
+                height: 28,
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: scheme.primary,
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    child: Center(
+                      widthFactor: 1,
+                      child: Text(
+                        widget.labels[_section.clamp(
+                          0,
+                          widget.labels.length - 1,
+                        )],
+                        style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                          color: scheme.onPrimary,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            // The grab strip along the edge.
+            Positioned(
+              right: 0,
+              top: 0,
+              bottom: 0,
+              width: _hit,
+              child: GestureDetector(
+                behavior: HitTestBehavior.translucent,
+                onVerticalDragStart: (d) {
+                  setState(() => _dragging = true);
+                  _dragTo(d.localPosition.dy, track);
+                },
+                onVerticalDragUpdate: (d) => _dragTo(d.localPosition.dy, track),
+                onVerticalDragEnd: (_) {
+                  setState(() => _dragging = false);
+                  _onScroll();
+                },
+                onVerticalDragCancel: () => setState(() => _dragging = false),
+              ),
+            ),
+          ],
+        );
+      },
+    );
   }
 }

@@ -144,7 +144,7 @@ class MessageInput extends StatelessWidget {
                                     // Explicit size: a dense field shrinks its icons
                                     // to 18pt, and compact is dense.
                                     builder: (_, _) => Icon(
-                                      Icons.emoji_emotions_outlined,
+                                      Icons.add,
                                       size: 24,
                                       color: _inputAccent(context),
                                     ),
