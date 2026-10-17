@@ -577,6 +577,8 @@ class ChannelPanels {
                                 glass: glassOverlay || glassChrome,
                               ),
                               homeAppBar.settingsButton(context, small: true),
+                              // Its glyph lines up with the dropdown arrow's.
+                              const SizedBox(width: 4),
                             ],
                           )
                         : null,
