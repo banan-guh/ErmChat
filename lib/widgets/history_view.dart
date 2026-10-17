@@ -18,8 +18,6 @@ import '../util/log.dart';
 import '../util/perf_probe.dart';
 import 'chat_message_tile.dart';
 import 'chat_rows.dart';
-import 'chat_widget_cutout.dart' show ChatWidgetMinimizedBar;
-import 'chrome_menu_button.dart' show kChromeMenuMargin;
 import 'glass_chrome.dart';
 import 'history_days.dart';
 
@@ -283,9 +281,6 @@ class _HistoryViewState extends State<HistoryView> {
 
   /// Rows kept on each side of the viewport when trimming.
   static const int _keepNear = 300;
-
-  /// The scroll-down button's height, a standard FAB.
-  static const double _fabSize = 56;
 
   static final Map<String, int> _counters = {};
   static _HistoryViewState? _active;
@@ -1775,55 +1770,24 @@ class _HistoryViewState extends State<HistoryView> {
         child: list,
       );
     }
-    // Below the menu trigger and the minimized cards bar beside it.
-    final daysTop = widget.debugControls
-        ? 56.0
-        : kChromeMenuMargin + ChatWidgetMinimizedBar.height + 8;
     return Stack(
       clipBehavior: Clip.hardEdge,
       children: [
         list,
-        // The list dims under the open days; a tap on it closes them.
-        Positioned.fill(
-          child: ValueListenableBuilder<bool>(
-            valueListenable: _panel,
-            builder: (context, open, _) => IgnorePointer(
-              ignoring: !open,
-              child: GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                onTap: () => _panel.value = false,
-                child: AnimatedOpacity(
-                  opacity: open ? 1 : 0,
-                  duration: const Duration(milliseconds: 200),
-                  child: ColoredBox(
-                    color: Theme.of(
-                      context,
-                    ).colorScheme.scrim.withValues(alpha: 0.55),
-                  ),
+        // The days open in the navigator's overlay, over the whole app.
+        ValueListenableBuilder<ActivityRail?>(
+          valueListenable: _railReady,
+          builder: (context, rail, _) => rail == null
+              ? const SizedBox.shrink()
+              : HistoryDays(
+                  rail: rail,
+                  open: _panel,
+                  viewTime: _viewTime,
+                  onPick: _onPick,
+                  kept: _kept,
+                  onLongPress: _onDayLongPress,
+                  glass: glass,
                 ),
-              ),
-            ),
-          ),
-        ),
-        // Between the menu trigger and the scroll-down button.
-        Positioned(
-          top: widget.topPadding + daysTop,
-          right: 0,
-          bottom: max(bottom, 16 + island + _fabSize) + 8,
-          child: ValueListenableBuilder<ActivityRail?>(
-            valueListenable: _railReady,
-            builder: (context, rail, _) => rail == null
-                ? const SizedBox.shrink()
-                : HistoryDays(
-                    rail: rail,
-                    open: _panel,
-                    viewTime: _viewTime,
-                    onPick: _onPick,
-                    kept: _kept,
-                    onLongPress: _onDayLongPress,
-                    glass: glass,
-                  ),
-          ),
         ),
         if (widget.atBottomNotifier case final atBottom?)
           ValueListenableBuilder<bool>(

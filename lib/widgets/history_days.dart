@@ -1,5 +1,5 @@
 import 'dart:math' as math;
-import 'dart:ui' show lerpDouble;
+import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
@@ -8,14 +8,15 @@ import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 
+import '../l10n/l10n.dart';
 import '../util/history_timeline.dart';
 import 'glass_chrome.dart';
 
-/// The days of a history list, opened from the menu's calendar: a column
-/// that slides in from the right edge, one row per day, oldest at the top
-/// and stacked from the bottom. A tapped day grows to fill the column as a
-/// bar over that day's time; a touch on it picks a time, and letting go
-/// jumps there.
+/// The days of a history list, opened from the menu's calendar: a full-height
+/// drawer that slides in from the right edge over the whole app, one row per
+/// day, oldest at the top and stacked from the bottom. A tapped day opens as
+/// a chat-activity waveform over that day's time; a touch on it picks a
+/// time, and letting go jumps there.
 class HistoryDays extends StatefulWidget {
   const HistoryDays({
     super.key,
@@ -30,8 +31,8 @@ class HistoryDays extends StatefulWidget {
 
   final ActivityRail rail;
 
-  /// Whether the days are out; the owner dims the list under them and
-  /// closes them on a tap there.
+  /// Whether the days are out. The drawer dims everything under it and
+  /// closes on a tap there.
   final ValueNotifier<bool> open;
 
   /// The list's time, whose day is highlighted.
@@ -40,10 +41,10 @@ class HistoryDays extends StatefulWidget {
   /// A picked time.
   final ValueChanged<DateTime> onPick;
 
-  /// The day numbers kept past retention, marked on their pills.
+  /// The day numbers kept past retention, marked on their rows.
   final ValueListenable<Set<int>> kept;
 
-  /// A long press on the pill of a day number.
+  /// A long press on the row of a day number.
   final ValueChanged<int> onLongPress;
 
   /// Liquid glass surface instead of an opaque one.
@@ -69,15 +70,15 @@ class _EagerPan extends PanGestureRecognizer {
 
 class _HistoryDaysState extends State<HistoryDays>
     with TickerProviderStateMixin {
-  /// Day row size, at most.
-  static const double _row = 44;
-  static const double _maxDay = 40;
+  static const double _rowH = 56;
 
-  /// Space around the rows inside the surface.
-  static const double _pad = 6;
-  static const double _width = _row + _pad * 2;
-  static const double _radius = 20;
+  /// Space above the open day's waveform (its date) and below it.
+  static const double _header = 48;
+  static const double _pad = 12;
+  static const double _radius = 24;
   static const Duration _duration = Duration(milliseconds: 200);
+
+  final OverlayPortalController _portal = OverlayPortalController();
 
   late final AnimationController _anim = AnimationController(
     vsync: this,
@@ -89,7 +90,7 @@ class _HistoryDaysState extends State<HistoryDays>
     curve: Curves.easeOutCubic,
   );
 
-  /// 0 with the days listed, 1 with [_picked] filling the column.
+  /// 0 with the days listed, 1 with [_picked] shown.
   late final AnimationController _expand = AnimationController(
     vsync: this,
     duration: _duration,
@@ -106,14 +107,20 @@ class _HistoryDaysState extends State<HistoryDays>
   /// The list's day when the days opened, highlighted.
   int? _current;
 
-  /// The open day's index and its bar's scale, weighted by activity so busy
+  /// The open day's index and its scale, weighted by activity so busy
   /// stretches get room and quiet ones shrink.
   int? _picked;
   RailScale? _scale;
+  _WavePainter? _wave;
 
-  /// The touch on the open day's bar, as a bar position 0..1.
+  /// The touch on the open day's waveform, as a position 0..1.
   final ValueNotifier<double?> _touch = ValueNotifier(null);
   int _lastHour = -1;
+
+  /// The drawer's width, and the waveform's top and height inside it, set at
+  /// layout.
+  double _drawerW = 0;
+  double _barTop = 0;
   double _barH = 1;
 
   @override
@@ -121,9 +128,23 @@ class _HistoryDaysState extends State<HistoryDays>
     super.initState();
     widget.open.addListener(_sync);
     widget.kept.addListener(_onKept);
+    _anim.addStatusListener(_onAnim);
+    if (widget.open.value) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && widget.open.value && !_portal.isShowing) {
+          _portal.show();
+        }
+      });
+    }
   }
 
   void _onKept() => setState(() {});
+
+  void _onAnim(AnimationStatus status) {
+    if (status == AnimationStatus.dismissed && _portal.isShowing) {
+      _portal.hide();
+    }
+  }
 
   @override
   void didUpdateWidget(HistoryDays old) {
@@ -142,6 +163,7 @@ class _HistoryDaysState extends State<HistoryDays>
     widget.kept.removeListener(_onKept);
     _anim.dispose();
     _expand.dispose();
+    _wave?.dispose();
     _touch.dispose();
     super.dispose();
   }
@@ -154,6 +176,7 @@ class _HistoryDaysState extends State<HistoryDays>
         _reset();
         _current = view == null ? null : dayNumber(widget.rail.local(view));
       });
+      if (!_portal.isShowing) _portal.show();
       _anim.forward();
     } else {
       _anim.reverse();
@@ -163,6 +186,8 @@ class _HistoryDaysState extends State<HistoryDays>
   void _reset() {
     _picked = null;
     _scale = null;
+    _wave?.dispose();
+    _wave = null;
     _expand.value = 0;
     _touch.value = null;
   }
@@ -175,15 +200,38 @@ class _HistoryDaysState extends State<HistoryDays>
 
   void _open(int i) {
     HapticFeedback.selectionClick();
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final l10n = context.l10n;
+    final scale = widget.rail.window(widget.rail.days[i].start, _endOf(i));
     setState(() {
       _picked = i;
-      _scale = widget.rail.window(widget.rail.days[i].start, _endOf(i));
+      _scale = scale;
+      _wave = _WavePainter(
+        rail: widget.rail,
+        scale: scale,
+        from: widget.rail.days[i].start,
+        to: _endOf(i),
+        touch: _touch,
+        time: _time!,
+        quiet: (d) => l10n.historyQuiet(
+          d.inMinutes >= 90 ? '${d.inHours}h' : '${d.inMinutes}m',
+        ),
+        curve: scheme.primary.withValues(alpha: 0.5),
+        tint: scheme.primary.withValues(alpha: 0.16),
+        line: scheme.primary,
+        muted: scheme.onSurfaceVariant.withValues(alpha: 0.7),
+        labelStyle: (theme.textTheme.labelSmall ?? const TextStyle()).copyWith(
+          color: scheme.onSurfaceVariant.withValues(alpha: 0.8),
+          fontSize: 10,
+        ),
+      );
     });
     _expand.forward();
   }
 
   void _onTouch(double y) {
-    final p = ((y - _pad) / _barH).clamp(0.0, 1.0);
+    final p = ((y - _barTop) / _barH).clamp(0.0, 1.0);
     _touch.value = p;
     final hour = widget.rail.local(_scale!.timeAt(p)).hour;
     if (_lastHour >= 0 && hour != _lastHour) HapticFeedback.selectionClick();
@@ -199,6 +247,8 @@ class _HistoryDaysState extends State<HistoryDays>
     widget.onPick(scale.timeAt(p));
   }
 
+  void _close() => widget.open.value = false;
+
   @override
   Widget build(BuildContext context) {
     final locale = Localizations.localeOf(context).toString();
@@ -207,87 +257,120 @@ class _HistoryDaysState extends State<HistoryDays>
       _dayLabel = DateFormat('MMM d', locale);
       _time = DateFormat.Hm(locale);
     }
-    return AnimatedBuilder(
-      animation: _curve,
-      builder: (context, child) {
-        final o = _curve.value;
-        if (o == 0) return const SizedBox.shrink();
-        return Transform.translate(
-          offset: Offset((_width + _radius) * (1 - o), 0),
-          child: child,
-        );
-      },
-      child: SizedBox(
-        width: _width,
-        child: LayoutBuilder(
-          builder: (context, box) => AnimatedBuilder(
-            animation: _expandCurve,
-            builder: (context, _) => _panel(box.maxHeight),
-          ),
-        ),
+    return OverlayPortal(
+      controller: _portal,
+      overlayChildBuilder: _overlay,
+      child: const SizedBox.shrink(),
+    );
+  }
+
+  /// The scrim over the whole app and the drawer on it. It lives in the
+  /// navigator's overlay, so it dims the tab strip and the composer too.
+  Widget _overlay(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final inset = MediaQueryData.fromView(View.of(context)).padding;
+    return Material(
+      type: MaterialType.transparency,
+      child: LayoutBuilder(
+        builder: (context, box) {
+          _drawerW = math.min(
+            box.maxWidth,
+            (box.maxWidth * 0.45).clamp(200.0, 340.0),
+          );
+          _barTop = inset.top + _header;
+          _barH = math.max(1, box.maxHeight - _barTop - inset.bottom - _pad);
+          return Stack(
+            clipBehavior: Clip.none,
+            children: [
+              Positioned.fill(
+                child: AnimatedBuilder(
+                  animation: _curve,
+                  builder: (context, _) => GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: _close,
+                    child: ColoredBox(
+                      color: scheme.scrim.withValues(
+                        alpha: 0.55 * _curve.value,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              Positioned(
+                top: 0,
+                bottom: 0,
+                right: 0,
+                width: _drawerW,
+                child: AnimatedBuilder(
+                  animation: _curve,
+                  builder: (context, child) => Transform.translate(
+                    offset: Offset(
+                      (_drawerW + _radius) * (1 - _curve.value),
+                      0,
+                    ),
+                    child: child,
+                  ),
+                  child: AnimatedBuilder(
+                    animation: _expandCurve,
+                    builder: (context, _) => _drawer(scheme, inset),
+                  ),
+                ),
+              ),
+              if (_picked != null) _bubble(scheme),
+            ],
+          );
+        },
       ),
     );
   }
 
-  Widget _panel(double height) {
-    final scheme = Theme.of(context).colorScheme;
-    final style = Theme.of(context).textTheme.labelSmall;
-    final days = widget.rail.days;
-    final n = days.length;
-    final dayH = math.min((height - _pad * 2) / math.max(1, n), _maxDay);
-    if (dayH <= 0) return const SizedBox.shrink();
-    final gap = math.min(3.0, dayH * 0.2);
+  Widget _drawer(ColorScheme scheme, EdgeInsets inset) {
     final t = _expandCurve.value;
-    _barH = math.max(1, height - _pad * 2);
     final picked = _picked;
-    final rows = <Widget>[];
-    for (var i = 0; i < n; i++) {
-      final top = height - _pad - (n - i) * dayH + gap / 2;
-      final h = dayH - gap;
-      if (i == picked) {
-        rows.add(
-          Positioned(
-            left: _pad,
-            right: _pad,
-            top: lerpDouble(top, _pad, t),
-            height: lerpDouble(h, _barH, t),
-            child: _openDay(i, h, t, style),
-          ),
-        );
-      } else if (t < 1) {
-        rows.add(
-          Positioned(
-            left: _pad,
-            right: _pad,
-            top: top,
-            height: h,
-            child: Opacity(
-              opacity: 1 - t,
-              child: GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                onTap: picked == null ? () => _open(i) : null,
-                onLongPress: picked == null
-                    ? () => widget.onLongPress(days[i].day)
-                    : null,
-                child: _day(days, i, h, style),
-              ),
-            ),
-          ),
-        );
-      }
-    }
     return Stack(
       clipBehavior: Clip.none,
       children: [
-        Positioned(
-          left: 0,
-          right: 0,
-          bottom: 0,
-          height: lerpDouble(n * dayH + _pad * 2, height, t),
-          child: _surface(scheme),
-        ),
-        ...rows,
-        if (picked != null)
+        Positioned.fill(child: _surface(scheme)),
+        if (t < 1)
+          Positioned.fill(
+            child: IgnorePointer(
+              ignoring: picked != null,
+              child: Opacity(opacity: 1 - t, child: _list(scheme, inset)),
+            ),
+          ),
+        if (picked != null) ...[
+          Positioned(
+            left: 0,
+            right: 0,
+            top: _barTop,
+            height: _barH,
+            child: Opacity(
+              opacity: t,
+              child: RepaintBoundary(
+                child: CustomPaint(painter: _wave, size: Size.infinite),
+              ),
+            ),
+          ),
+          Positioned(
+            left: 20,
+            right: 20,
+            top: inset.top,
+            height: _header,
+            child: Opacity(
+              opacity: t,
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  _dayLabel!.format(
+                    dayFromNumber(widget.rail.days[picked].day),
+                  ),
+                  style: Theme.of(
+                    context,
+                  ).textTheme.titleMedium?.copyWith(color: scheme.onSurface),
+                ),
+              ),
+            ),
+          ),
           // The pointer drives the pick, so a still tap picks too; the pan
           // only claims the touch.
           Positioned.fill(
@@ -307,93 +390,69 @@ class _HistoryDaysState extends State<HistoryDays>
               ),
             ),
           ),
-        if (picked != null) _bubble(scheme),
+        ],
       ],
     );
   }
 
-  /// A rounded row labeled with its date, and its month on the first row
-  /// and each month's first day.
-  Widget _day(List<RailDay> days, int i, double h, TextStyle? style) {
-    final scheme = Theme.of(context).colorScheme;
-    final on = days[i].day == _current;
-    final fg = on ? scheme.onPrimary : scheme.onSurface;
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: on ? scheme.primary : scheme.onSurface.withValues(alpha: 0.22),
-        borderRadius: BorderRadius.circular(math.min(6, h / 2)),
-      ),
-      child: h < 12
-          ? const SizedBox.expand()
-          : Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 5),
-              child: FittedBox(
-                fit: BoxFit.scaleDown,
-                alignment: Alignment.centerRight,
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    if (widget.kept.value.contains(days[i].day))
-                      Icon(Icons.bookmark, size: 12, color: fg),
-                    Text(_label(days, i), style: style?.copyWith(color: fg)),
-                  ],
-                ),
-              ),
-            ),
+  /// The days, newest at the bottom; scrolls when they do not fit.
+  Widget _list(ColorScheme scheme, EdgeInsets inset) {
+    final n = widget.rail.days.length;
+    return ListView.builder(
+      reverse: true,
+      itemExtent: _rowH,
+      itemCount: n,
+      padding: EdgeInsets.fromLTRB(10, inset.top + 8, 10, inset.bottom + 8),
+      itemBuilder: (context, k) => _day(scheme, n - 1 - k),
     );
   }
 
-  String _label(List<RailDay> days, int i) {
-    final date = dayFromNumber(days[i].day);
-    return i == 0 || date.day == 1 ? _dayLabel!.format(date) : '${date.day}';
-  }
-
-  /// The tapped day grown to fill the column: its date on top, its hours
-  /// as ticks, and the touch as a line across it.
-  Widget _openDay(int i, double rowH, double t, TextStyle? style) {
-    final scheme = Theme.of(context).colorScheme;
+  /// A day's date as plain text on a rounded row; the list's day is tinted
+  /// and a kept day carries a bookmark.
+  Widget _day(ColorScheme scheme, int i) {
     final days = widget.rail.days;
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: scheme.onSurface.withValues(alpha: 0.22),
-        borderRadius: BorderRadius.circular(math.min(6, rowH / 2)),
-      ),
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          Opacity(
-            opacity: t,
-            child: CustomPaint(
-              painter: _HoursPainter(
-                rail: widget.rail,
-                scale: _scale!,
-                from: days[i].start,
-                to: _endOf(i),
-                touch: _touch,
-                tick: scheme.onSurface.withValues(alpha: 0.5),
-                line: scheme.primary,
-              ),
-            ),
-          ),
-          Align(
-            alignment: Alignment.topRight,
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(5, 4, 5, 0),
-              child: FittedBox(
-                fit: BoxFit.scaleDown,
-                child: Text(
-                  _dayLabel!.format(dayFromNumber(days[i].day)),
-                  style: style?.copyWith(color: scheme.onSurface),
+    final on = days[i].day == _current;
+    final kept = widget.kept.value.contains(days[i].day);
+    final style = Theme.of(context).textTheme.bodyLarge;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Material(
+        color: on ? scheme.primary.withValues(alpha: 0.16) : Colors.transparent,
+        borderRadius: BorderRadius.circular(14),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: _picked == null ? () => _open(i) : null,
+          onLongPress: _picked == null
+              ? () => widget.onLongPress(days[i].day)
+              : null,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    _dayLabel!.format(dayFromNumber(days[i].day)),
+                    style: style?.copyWith(
+                      color: on ? scheme.primary : scheme.onSurface,
+                      fontWeight: on ? FontWeight.w600 : null,
+                    ),
+                  ),
                 ),
-              ),
+                if (kept)
+                  Icon(
+                    Icons.bookmark,
+                    size: 18,
+                    color: on ? scheme.primary : scheme.onSurfaceVariant,
+                  ),
+              ],
             ),
           ),
-        ],
+        ),
       ),
     );
   }
 
-  /// The touched time, in a pill left of the column.
+  /// The touched time, in a pill left of the drawer.
   Widget _bubble(ColorScheme scheme) => ValueListenableBuilder<double?>(
     valueListenable: _touch,
     builder: (context, p, _) {
@@ -401,8 +460,8 @@ class _HistoryDaysState extends State<HistoryDays>
       if (p == null || scale == null) return const SizedBox.shrink();
       final time = widget.rail.local(scale.timeAt(p));
       return Positioned(
-        right: _width + 6,
-        top: _pad + p * _barH - 14,
+        right: _drawerW + 8,
+        top: _barTop + p * _barH - 14,
         height: 28,
         child: DecoratedBox(
           decoration: BoxDecoration(
@@ -432,8 +491,8 @@ class _HistoryDaysState extends State<HistoryDays>
       // the screen edge by its radius and only the left corners show.
       return OverflowBox(
         alignment: Alignment.centerLeft,
-        minWidth: _width + _radius,
-        maxWidth: _width + _radius,
+        minWidth: _drawerW + _radius,
+        maxWidth: _drawerW + _radius,
         // Out of the header's backdrop group: mid-swipe the next page's rows
         // paint after this panel, and a shared read would miss them.
         child: GlassBackdropGroup(
@@ -448,29 +507,34 @@ class _HistoryDaysState extends State<HistoryDays>
     }
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: scheme.surfaceContainerHigh.withValues(alpha: 0.92),
+        color: scheme.surfaceContainer,
         borderRadius: const BorderRadius.horizontal(
           left: Radius.circular(_radius),
         ),
-        boxShadow: [
-          BoxShadow(color: scheme.shadow.withValues(alpha: 0.2), blurRadius: 8),
-        ],
       ),
     );
   }
 }
 
-/// An open day's hours as ticks on the left edge, every sixth one longer,
-/// placed by [scale], and the touch as a line across.
-class _HoursPainter extends CustomPainter {
-  _HoursPainter({
+/// An open day: chat activity as a filled curve on the right edge, growing
+/// left with the message count, time running down by [scale]. Streams tint
+/// the rows they cover, long quiet stretches fold into a dashed segment, and
+/// times label where activity starts and stops. Geometry builds once per
+/// size; painting only draws the cached paths and the touch line.
+class _WavePainter extends CustomPainter {
+  _WavePainter({
     required this.rail,
     required this.scale,
     required this.from,
     required this.to,
     required this.touch,
-    required this.tick,
+    required this.time,
+    required this.quiet,
+    required this.curve,
+    required this.tint,
     required this.line,
+    required this.muted,
+    required this.labelStyle,
   }) : super(repaint: touch);
 
   final ActivityRail rail;
@@ -478,40 +542,234 @@ class _HoursPainter extends CustomPainter {
   final DateTime from;
   final DateTime to;
   final ValueListenable<double?> touch;
-  final Color tick;
+  final DateFormat time;
+  final String Function(Duration) quiet;
+  final Color curve;
+  final Color tint;
   final Color line;
+  final Color muted;
+  final TextStyle labelStyle;
+
+  /// Room left of the curve's widest point for the time labels.
+  static const double _gutter = 44;
+
+  /// Empty time that folds into a dashed segment.
+  static const Duration _quietMin = Duration(hours: 1);
+
+  Size? _built;
+  final Path _area = Path();
+  final Path _tints = Path();
+  final Path _dashes = Path();
+  final List<(TextPainter, Offset)> _labels = [];
+  late final Paint _fill = Paint()..color = curve;
+  late final Paint _tintPaint = Paint()..color = tint;
+  late final Paint _dashPaint = Paint()
+    ..color = muted
+    ..style = PaintingStyle.stroke
+    ..strokeWidth = 1.5;
+  late final Paint _touchPaint = Paint()
+    ..color = line
+    ..strokeWidth = 2.5
+    ..strokeCap = StrokeCap.round;
+
+  void dispose() {
+    _built = null;
+    _clear();
+  }
+
+  void _clear() {
+    _area.reset();
+    _tints.reset();
+    _dashes.reset();
+    for (final (tp, _) in _labels) {
+      tp.dispose();
+    }
+    _labels.clear();
+  }
+
+  void _build(Size size) {
+    _built = size;
+    _clear();
+    final w = size.width;
+    final h = size.height;
+    final bucketMs = rail.bucket.inMilliseconds;
+    final n = math.max(
+      1,
+      (to.difference(from).inMilliseconds / bucketMs).ceil(),
+    );
+    DateTime at(int k) {
+      final t = from.add(Duration(milliseconds: k * bucketMs));
+      return t.isAfter(to) ? to : t;
+    }
+
+    final counts = Float64List(n);
+    for (var k = 0; k < n; k++) {
+      counts[k] = rail.countBetween(at(k), at(k + 1)).toDouble();
+    }
+    // Quiet runs: empty buckets lasting at least [_quietMin].
+    final minRun = math.max(2, _quietMin.inMilliseconds ~/ bucketMs);
+    final quietRuns = <(int, int)>[];
+    for (var k = 0; k < n;) {
+      if (counts[k] != 0) {
+        k++;
+        continue;
+      }
+      var e = k;
+      while (e < n && counts[e] == 0) {
+        e++;
+      }
+      if (e - k >= minRun) quietRuns.add((k, e));
+      k = e;
+    }
+    final smooth = Float64List(n);
+    var max = 0.0;
+    for (var k = 0; k < n; k++) {
+      final a = counts[k > 0 ? k - 1 : k];
+      final b = counts[k + 1 < n ? k + 1 : k];
+      smooth[k] = (a + 2 * counts[k] + b) / 4;
+    }
+    for (final (a, b) in quietRuns) {
+      for (var k = a; k < b; k++) {
+        smooth[k] = 0;
+      }
+    }
+    for (final v in smooth) {
+      if (v > max) max = v;
+    }
+    final reach = math.max(1.0, w - _gutter - 4);
+    double amp(int k) => max == 0 ? 0 : math.sqrt(smooth[k] / max) * reach;
+
+    // Knots (y, x): x is the curve's reach from the right edge, y strictly
+    // increasing.
+    final ys = <double>[0];
+    final xs = <double>[amp(0)];
+    for (var k = 0; k < n; k++) {
+      final mid = from.add(
+        Duration(milliseconds: ((k + 0.5) * bucketMs).round()),
+      );
+      final y = scale.positionOf(mid.isAfter(to) ? to : mid) * h;
+      if (y - ys.last < 0.5) continue;
+      ys.add(y);
+      xs.add(amp(k));
+    }
+    if (h - ys.last < 0.5) {
+      ys[ys.length - 1] = h;
+    } else {
+      ys.add(h);
+      xs.add(xs.last);
+    }
+    final m = ys.length;
+    if (m > 1) {
+      final d = List<double>.filled(m - 1, 0);
+      for (var k = 0; k < m - 1; k++) {
+        d[k] = (xs[k + 1] - xs[k]) / (ys[k + 1] - ys[k]);
+      }
+      // Monotone tangents, so the curve never overshoots its neighbours.
+      final tan = List<double>.filled(m, 0);
+      tan[0] = d[0];
+      tan[m - 1] = d[m - 2];
+      for (var k = 1; k < m - 1; k++) {
+        final a = d[k - 1];
+        final b = d[k];
+        tan[k] = a * b <= 0 ? 0 : 2 * a * b / (a + b);
+      }
+      _area.moveTo(w, ys[0]);
+      _area.lineTo(w - xs[0], ys[0]);
+      for (var k = 0; k < m - 1; k++) {
+        final dy = (ys[k + 1] - ys[k]) / 3;
+        _area.cubicTo(
+          w - (xs[k] + tan[k] * dy),
+          ys[k] + dy,
+          w - (xs[k + 1] - tan[k + 1] * dy),
+          ys[k + 1] - dy,
+          w - xs[k + 1],
+          ys[k + 1],
+        );
+      }
+      _area.lineTo(w, ys[m - 1]);
+      _area.close();
+    }
+
+    for (final s in rail.streams) {
+      if (!s.end.isAfter(from) || !s.start.isBefore(to)) continue;
+      final y0 = scale.positionOf(s.start) * h;
+      final y1 = scale.positionOf(s.end) * h;
+      if (y1 - y0 >= 1) _tints.addRect(Rect.fromLTRB(0, y0, w, y1));
+    }
+
+    // Quiet stretches: a dashed segment with end caps and its length.
+    final dashX = w - 10;
+    for (final (a, b) in quietRuns) {
+      final y0 = scale.positionOf(at(a)) * h;
+      final y1 = scale.positionOf(at(b)) * h;
+      for (var y = y0; y < y1; y += 8) {
+        _dashes.moveTo(dashX, y);
+        _dashes.lineTo(dashX, math.min(y + 4, y1));
+      }
+      _dashes.moveTo(dashX - 4, y0);
+      _dashes.lineTo(dashX + 4, y0);
+      _dashes.moveTo(dashX - 4, y1);
+      _dashes.lineTo(dashX + 4, y1);
+      final tp = _text(quiet(at(b).difference(at(a))));
+      if (y1 - y0 >= tp.height + 2) {
+        _labels.add((
+          tp,
+          Offset(dashX - 10 - tp.width, (y0 + y1 - tp.height) / 2),
+        ));
+      } else {
+        tp.dispose();
+      }
+    }
+
+    // Times at the edges of each active stretch, skipping any that would
+    // touch the label above.
+    var lastBottom = -4.0;
+    void edge(int bucket, bool start) {
+      final tp = _text(time.format(rail.local(at(bucket))));
+      final y = scale.positionOf(at(bucket)) * h;
+      final top = (start ? y : y - tp.height)
+          .clamp(0.0, math.max(0.0, h - tp.height))
+          .toDouble();
+      if (top < lastBottom + 2) {
+        tp.dispose();
+        return;
+      }
+      lastBottom = top + tp.height;
+      _labels.add((tp, Offset(8, top)));
+    }
+
+    var active = 0;
+    for (final (a, b) in [...quietRuns, (n, n)]) {
+      if (a > active) {
+        edge(active, true);
+        edge(a, false);
+      }
+      active = b;
+    }
+  }
+
+  TextPainter _text(String s) => TextPainter(
+    text: TextSpan(text: s, style: labelStyle),
+    textDirection: ui.TextDirection.ltr,
+    maxLines: 1,
+  )..layout();
 
   @override
   void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = tick
-      ..strokeWidth = 1;
-    // The first whole local hour after the day's start, then each hour.
-    final local = rail.local(from);
-    var t = from.add(
-      Duration(minutes: 60 - local.minute, seconds: -local.second),
-    );
-    while (t.isBefore(to)) {
-      final y = scale.positionOf(t) * size.height;
-      final long = rail.local(t).hour % 6 == 0;
-      canvas.drawLine(Offset(0, y), Offset(long ? 12 : 6, y), paint);
-      t = t.add(const Duration(hours: 1));
+    if (_built != size) _build(size);
+    canvas.drawPath(_tints, _tintPaint);
+    canvas.drawPath(_area, _fill);
+    canvas.drawPath(_dashes, _dashPaint);
+    for (final (tp, offset) in _labels) {
+      tp.paint(canvas, offset);
     }
     final p = touch.value;
     if (p != null) {
       final y = p * size.height;
-      canvas.drawLine(
-        Offset(0, y),
-        Offset(size.width, y),
-        Paint()
-          ..color = line
-          ..strokeWidth = 3
-          ..strokeCap = StrokeCap.round,
-      );
+      canvas.drawLine(Offset(0, y), Offset(size.width, y), _touchPaint);
     }
   }
 
   @override
-  bool shouldRepaint(_HoursPainter old) =>
-      old.scale != scale || old.tick != tick || old.line != line;
+  bool shouldRepaint(_WavePainter old) => !identical(old, this);
 }

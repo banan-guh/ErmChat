@@ -3044,5 +3044,13 @@
       }
     }
   },
-  "historyCalendar": "Calendar"
+  "historyCalendar": "Calendar",
+  "historyQuiet": "{length} quiet",
+  "@historyQuiet": {
+    "placeholders": {
+      "length": {
+        "type": "String"
+      }
+    }
+  }
 }

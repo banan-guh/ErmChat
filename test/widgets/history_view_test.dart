@@ -261,31 +261,42 @@ bool _daysOpen(WidgetTester tester) =>
     tester.widget<HistoryDays>(find.byType(HistoryDays)).open.value;
 
 /// Opens the [i]th day of the open days (from the end when negative), then
-/// touches its bar at [at] (0 its start, 1 its end) and lets go. The rows
-/// stack from the panel's bottom, and the open bar fills it, inside a 6px
-/// pad.
+/// touches its waveform at [at] (0 its start, 1 its end) and lets go. The
+/// drawer fills the screen's right side; rows stack from its bottom at 56px
+/// inside an 8px pad, and the waveform runs from 48px down to 12px up.
 Future<void> _pickDay(WidgetTester tester, int i, double at) async {
-  final panel = tester.getRect(find.byType(HistoryDays));
+  final screen = tester.view.physicalSize / tester.view.devicePixelRatio;
   final n = tester
       .widget<HistoryDays>(find.byType(HistoryDays))
       .rail
       .days
       .length;
-  final dayH = ((panel.height - 12) / n).clamp(0.0, 40.0);
   final row = i < 0 ? n + i : i;
-  await tester.tapAt(
-    Offset(panel.right - 20, panel.bottom - 6 - (n - row - 0.5) * dayH),
+  final x = screen.width - 20;
+  // The list scrolls when the days overflow: bring the row to the middle.
+  final scrollable = tester.state<ScrollableState>(
+    find.descendant(
+      of: find.byWidgetPredicate((w) => w is ListView && w.itemExtent == 56),
+      matching: find.byType(Scrollable),
+    ),
   );
+  final k = n - 1 - row;
+  final p = scrollable.position;
+  p.jumpTo((k * 56.0 + 28 - screen.height / 2).clamp(0.0, p.maxScrollExtent));
+  await tester.pump();
+  await tester.tapAt(Offset(x, screen.height - 8 - (k + 0.5) * 56 + p.pixels));
   await _settle(tester);
-  // A drag from the bar's middle, so an end of the bar is reached by
-  // running past it; a touch beyond the bar clamps to its end.
-  final drag = await tester.startGesture(panel.center);
+  const top = 48.0;
+  final height = screen.height - top - 12;
+  // A drag from the middle, so an end of the waveform is reached by running
+  // past it; a touch beyond it clamps to its end.
+  final drag = await tester.startGesture(Offset(x, screen.height / 2));
   final y = at <= 0
-      ? panel.top - 40
+      ? -40.0
       : at >= 1
-      ? panel.bottom + 40
-      : panel.top + 6 + at * (panel.height - 12);
-  await drag.moveTo(Offset(panel.right - 20, y));
+      ? screen.height + 40
+      : top + at * height;
+  await drag.moveTo(Offset(x, y));
   await drag.up();
   await _settle(tester);
 }
