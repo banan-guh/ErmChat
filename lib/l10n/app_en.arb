@@ -1369,8 +1369,6 @@
   "emoteTabChannel": "Channel",
   "emoteTabGlobal": "Global",
   "pickerEmotes": "Emotes",
-  "pickerPoints": "Channel points",
-  "pickerPointsSoon": "Channel points are on the way",
   "noRecentEmotes": "No recently used emotes",
   "noSubEmotes": "No subscriber emotes available",
   "noChannelEmotes": "No channel emotes",

@@ -2221,15 +2221,15 @@ void main() {
         await tester.tap(find.byTooltip('Emotes'));
         await tester.pumpAndSettle();
         final tabSize = tester.getSize(
-          find.text('Emotes', skipOffstage: false),
+          find.text('Recent', skipOffstage: false),
         );
         await tester.fling(
-          find.text('Emotes', skipOffstage: false),
+          find.text('Recent', skipOffstage: false),
           Offset(0, tabSize.height * 5),
           1000,
         );
         await tester.pumpAndSettle();
-        expect(find.text('Emotes'), findsNothing);
+        expect(find.text('Recent'), findsNothing);
       }
     });
   });
@@ -2934,6 +2934,7 @@ void main() {
       );
 
       await tester.pumpWidget(wrapEmoteMenu(manager));
+      await tester.tap(find.text('Channel', skipOffstage: false));
       // The loading band animates indefinitely, so pump fixed durations
       // instead of pumpAndSettle (which would never settle).
       await tester.pump();

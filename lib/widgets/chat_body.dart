@@ -90,8 +90,8 @@ class ChatBody extends StatefulWidget {
   final Widget? composer;
 
   /// Chrome below the composer: threads, bell, overflow and settings. Sits
-  /// inside the composer island (non-glass) or the glass bar, and slides down
-  /// while the keyboard is up.
+  /// inside the composer island (non-glass) or the glass bar, and rides up
+  /// with the keyboard.
   final Widget? bottomBar;
 
   /// Floats the composer as a pill above the chat instead of
@@ -213,30 +213,6 @@ class _ChatBodyState extends State<ChatBody>
   // so the composer would draw every other tick (30fps).
   late final _keyboardPump = createTicker((_) {});
 
-  // Bottom chrome bar: 1 shown, 0 slid down behind the keyboard.
-  late final _barCtrl = AnimationController(
-    vsync: this,
-    duration: const Duration(milliseconds: 200),
-    value: 1,
-  );
-
-  /// Slides the bottom bar down while the keyboard is up; the return pops in
-  /// with the body so the composer never rides back up over a settling
-  /// keyboard. A no-op without a bar or under PiP.
-  void _setBarShown(bool shown) {
-    if (widget.bottomBar == null || widget.isInPip) return;
-    if (shown) {
-      if (_barCtrl.value != 1.0) {
-        _barCtrl.stop();
-        _barCtrl.value = 1.0;
-      }
-      return;
-    }
-    if (_barCtrl.value != 0.0 && !_barCtrl.isAnimating) {
-      _barCtrl.reverse();
-    }
-  }
-
   double _readRawH() => _view.viewInsets.bottom / _view.devicePixelRatio;
 
   // Last learned open height, persisted so decisions start right even on a
@@ -284,8 +260,6 @@ class _ChatBodyState extends State<ChatBody>
     if (_rawH > 0.5 && _liftH == 0) {
       _liftH = _rawH;
       _learnedH = _rawH;
-      // Cold start with the keyboard up: hide the bar without a slide.
-      _barCtrl.value = 0;
     }
   }
 
@@ -295,7 +269,6 @@ class _ChatBodyState extends State<ChatBody>
     _settleTimer?.cancel();
     _pillHideTimer?.cancel();
     _keyboardPump.dispose();
-    _barCtrl.dispose();
     _bottomPad.dispose();
     _clearance.dispose();
     super.dispose();
@@ -311,8 +284,6 @@ class _ChatBodyState extends State<ChatBody>
     _opening = raw > _rawH;
     _rawH = raw;
     if (raw > 0.5) _keyboardEngaged = true;
-    // Slide the bottom bar with the keyboard phase.
-    _setBarShown(raw <= 0.5);
     _settleTimer?.cancel();
     if (!_keyboardPump.isActive) _keyboardPump.start();
     if (raw <= 0.5) {
@@ -640,37 +611,26 @@ class _ChatBodyState extends State<ChatBody>
       clipBehavior: Clip.antiAlias,
       child: child,
     );
-    // Island bar: slides away while the keyboard is up, leaving the field
-    // alone in the shell. Only the hide animates (see [_setBarShown]).
-    final islandBar = !hasBar
-        ? null
-        : SizeTransition(
-            sizeFactor: _barCtrl,
-            alignment: Alignment.topCenter,
-            child: widget.bottomBar!,
-          );
+    // Island bar: the button row under the field, kept visible while typing.
+    final islandBar = !hasBar ? null : widget.bottomBar!;
     // Chrome under the composer, carrying its own safe area. It follows the
     // composer: inside the chat pane when the composer docks there, else
-    // across the bottom. Only the hide animates (see [_setBarShown]).
+    // across the bottom.
     final barSlot = !hasBar
         ? null
-        : SizeTransition(
-            sizeFactor: _barCtrl,
-            alignment: Alignment.topCenter,
-            child: barGlass
-                ? glassBottomBar(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        widget.bottomBar!,
-                        SizedBox(height: bottomPad),
-                      ],
-                    ),
-                  )
-                : Padding(
-                    padding: EdgeInsets.only(bottom: bottomPad),
-                    child: widget.bottomBar!,
-                  ),
+        : barGlass
+        ? glassBottomBar(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                widget.bottomBar!,
+                SizedBox(height: bottomPad),
+              ],
+            ),
+          )
+        : Padding(
+            padding: EdgeInsets.only(bottom: bottomPad),
+            child: widget.bottomBar!,
           );
     // In-flow composer, shared by the glass placeholder path and the island.
     // Gated on !_pillShown so the pill and the in-flow never mount together:

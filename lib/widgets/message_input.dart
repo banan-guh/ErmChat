@@ -146,7 +146,7 @@ class MessageInput extends StatelessWidget {
                                     builder: (_, _) => Tooltip(
                                       message: context.l10n.pickerEmotes,
                                       child: Icon(
-                                        Icons.add,
+                                        Icons.emoji_emotions_outlined,
                                         size: 24,
                                         color: _inputAccent(context),
                                       ),
