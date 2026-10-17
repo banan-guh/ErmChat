@@ -296,6 +296,42 @@ class ComposerStatusRow extends StatelessWidget {
   );
 }
 
+/// The status line's text style. Explicit (not inherited), so its height can
+/// be measured away from the island.
+TextStyle _statusStyle(BuildContext context, {Color? color}) {
+  final theme = Theme.of(context);
+  return (theme.textTheme.bodyMedium ?? const TextStyle()).copyWith(
+    fontSize: 12,
+    color: color ?? theme.colorScheme.onSurfaceVariant,
+  );
+}
+
+/// Height the status row takes for [channel]: its status line (portrait
+/// only) and the retry link when its emotes failed. Each chat page adds
+/// its own channel's, so a page is already placed for the island it is
+/// about to show, and only the island moves on a switch.
+double composerStatusHeight(
+  BuildContext context,
+  ComposerController controller,
+  String channel,
+) {
+  final portrait = MediaQuery.orientationOf(context) != Orientation.landscape;
+  final status = portrait
+      ? (controller.chat.channelFor(channel)?.info.status ?? '')
+      : '';
+  final failed = controller.chat.loadFailedChannels.value.contains(channel);
+  if (status.isEmpty && !failed) return 0;
+  final line = TextPainter(
+    text: TextSpan(text: 'M', style: _statusStyle(context)),
+    textScaler: MediaQuery.textScalerOf(context),
+    textDirection: TextDirection.ltr,
+    maxLines: 1,
+  )..layout();
+  final h = line.height + 4;
+  line.dispose();
+  return (status.isEmpty ? 0 : h) + (failed ? h : 0);
+}
+
 /// The channel status (portrait only, see [showStatus]) and a retry link
 /// when a channel's emotes failed to load.
 class _StatusRow extends StatelessWidget {
@@ -328,18 +364,12 @@ class _StatusRow extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            // One line reserved whether or not the channel has a status, so
-            // the island keeps its height across channels and the chat
-            // never moves when you switch.
-            if (showStatus)
+            if (status.isNotEmpty)
               Padding(
                 padding: const EdgeInsets.only(left: 12, right: 12, bottom: 4),
                 child: Text(
-                  status.isEmpty ? ' ' : status,
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Theme.of(context).colorScheme.onSurfaceVariant,
-                  ),
+                  status,
+                  style: _statusStyle(context),
                   textAlign: TextAlign.center,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
@@ -352,11 +382,11 @@ class _StatusRow extends StatelessWidget {
                   onTap: () => controller.chatConn.retryChannelData(channel),
                   child: Text(
                     context.l10n.retryFailedEmotes,
-                    style: TextStyle(
-                      fontSize: 12,
+                    style: _statusStyle(
+                      context,
                       color: Theme.of(context).colorScheme.primary,
-                      decoration: TextDecoration.underline,
-                    ),
+                    ).copyWith(decoration: TextDecoration.underline),
+                    maxLines: 1,
                   ),
                 ),
               ),

@@ -56,10 +56,28 @@ class GlassChromeScope extends InheritedWidget {
     required this.bottomClearance,
     this.listExtra = 0,
     this.glass = false,
+    this.footerFor,
+    this.footerHeight = 0,
     required super.child,
   });
 
+  /// The island's clearance without its footer (the channel status line).
   final double bottomClearance;
+
+  /// The footer height a channel's island shows. A chat page adds its own
+  /// channel's to [bottomClearance], so it is placed for its island before a
+  /// switch lands and only the island moves.
+  final double Function(String channel)? footerFor;
+
+  /// The selected channel's footer as measured, for lists tied to no channel
+  /// (panels). Dependents are notified only when a footer comes or goes, not
+  /// on every frame it grows.
+  final double footerHeight;
+
+  /// [bottomClearance] plus [channel]'s footer.
+  double clearanceFor(String? channel) =>
+      bottomClearance +
+      (channel == null || channel.isEmpty ? 0 : footerFor?.call(channel) ?? 0);
 
   /// Whether the chrome is liquid glass. A floating island without glass
   /// still has a clearance, so styling reads this, not the clearance.
@@ -77,7 +95,9 @@ class GlassChromeScope extends InheritedWidget {
   bool updateShouldNotify(GlassChromeScope oldWidget) =>
       bottomClearance != oldWidget.bottomClearance ||
       listExtra != oldWidget.listExtra ||
-      glass != oldWidget.glass;
+      glass != oldWidget.glass ||
+      footerFor != oldWidget.footerFor ||
+      (footerHeight > 0.5) != (oldWidget.footerHeight > 0.5);
 }
 
 /// [base] plus the pill clearance, for plain lists in the chat body (panels,
@@ -87,7 +107,10 @@ EdgeInsets glassListPadding(
   EdgeInsets base = EdgeInsets.zero,
 ]) {
   final scope = GlassChromeScope.maybeOf(context);
-  final extra = (scope?.bottomClearance ?? 0) + (scope?.listExtra ?? 0);
+  final extra =
+      (scope?.bottomClearance ?? 0) +
+      (scope?.footerHeight ?? 0) +
+      (scope?.listExtra ?? 0);
   return base.copyWith(bottom: base.bottom + extra);
 }
 

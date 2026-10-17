@@ -1599,6 +1599,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 
   void _toggleInputVisibility() => setShowInput(!_showInput);
 
+  /// The island footer [channel] shows, for its page's pre-placed clearance.
+  double _statusHeightFor(String channel) =>
+      composerStatusHeight(context, _composer, channel);
+
   void _copyMessageToClipboard(TwitchMessage msg) {
     Clipboard.setData(ClipboardData(text: copyableChatText(msg.text)));
     _chatNotice.show(
@@ -1916,6 +1920,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                   )
                 : null,
             // The channel status line at the island's foot.
+            islandFooterHeightFor: hasBottomBar ? _statusHeightFor : null,
             islandFooter: hasBottomBar
                 ? ComposerStatusRow(
                     controller: _composer,

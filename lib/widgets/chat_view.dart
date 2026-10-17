@@ -289,7 +289,7 @@ class _ChatViewState extends State<ChatView>
     final glassScope = GlassChromeScope.maybeOf(context);
     // The pill clearance arrives through the scope, so every list (pages,
     // panels, welcome) clears the floating pill without threaded params.
-    _effBottom = glassScope?.bottomClearance ?? 0;
+    _effBottom = glassScope?.clearanceFor(widget.channel) ?? 0;
     _listExtra = glassScope?.listExtra ?? 0;
     return Stack(
       clipBehavior: Clip.hardEdge,

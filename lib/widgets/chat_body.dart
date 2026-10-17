@@ -71,6 +71,7 @@ class ChatBody extends StatefulWidget {
     this.bottomBar,
     this.sideAction,
     this.islandFooter,
+    this.islandFooterHeightFor,
     this.notice,
     this.replyHeader,
     this.isInPip = false,
@@ -99,6 +100,10 @@ class ChatBody extends StatefulWidget {
   /// A line at the island's foot across its full width, under the row and
   /// the side action (the channel status). Hides with the row.
   final Widget? islandFooter;
+
+  /// The [islandFooter] height a given channel shows, so each chat page is
+  /// laid out for its own island before the switch lands.
+  final double Function(String channel)? islandFooterHeightFor;
 
   /// Floats the composer as an island over the chat instead of docking it
   /// in flow. Rows slide underneath the frosted shell.
@@ -181,6 +186,11 @@ class _ChatBodyState extends State<ChatBody>
 
   // Width of the island's side action column.
   static const double _sideActionW = 56;
+
+  // Measured height of the island's footer (the channel status), which the
+  // pages' clearance leaves out: each page adds its own channel's instead.
+  double _footerH = 0;
+  final _footerKey = GlobalKey();
 
   // Cached chat body and the inputs it was built from.
   Widget? _body;
@@ -400,6 +410,10 @@ class _ChatBodyState extends State<ChatBody>
         : _islandOuterKey.currentContext?.size?.height;
     if (outer != null && (outer - _islandOuterH).abs() > 0.5) {
       setState(() => _islandOuterH = outer);
+    }
+    final footer = _footerKey.currentContext?.size?.height ?? 0;
+    if (_rowClip <= 0 && (footer - _footerH).abs() > 0.5) {
+      setState(() => _footerH = footer);
     }
   }
 
@@ -669,7 +683,8 @@ class _ChatBodyState extends State<ChatBody>
                       ),
                     ],
                   ),
-                ?widget.islandFooter,
+                if (widget.islandFooter case final footer?)
+                  KeyedSubtree(key: _footerKey, child: footer),
               ],
             ),
           ),
@@ -712,7 +727,14 @@ class _ChatBodyState extends State<ChatBody>
           child: widget.isInPip
               ? body
               : GlassChromeScope(
-                  bottomClearance: clearance,
+                  // Pages add their own channel's footer through
+                  // [GlassChromeScope.footerFor], so a switch moves only
+                  // the island.
+                  bottomClearance: clearance > 0.5
+                      ? clearance - _footerH
+                      : clearance,
+                  footerFor: widget.islandFooterHeightFor,
+                  footerHeight: _footerH,
                   listExtra: widget.replyHeader != null ? _replyH : 0,
                   glass: glass,
                   child: RepaintBoundary(

@@ -1703,7 +1703,7 @@ class _HistoryViewState extends State<HistoryView> {
     // The docked island sits flush under the list, so keep a small fixed gap
     // above it. A floating island clears by its measured footprint plus the
     // same visual gap, and rows scroll on behind it.
-    final island = floating ? scope!.bottomClearance : 0.0;
+    final island = floating ? scope!.clearanceFor(widget.channel) : 0.0;
     final bottom =
         (floating ? island + kFloatingComposerGap : kOpaqueComposerGap) +
         (scope?.listExtra ?? 0);
