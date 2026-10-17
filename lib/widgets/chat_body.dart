@@ -174,6 +174,9 @@ class _ChatBodyState extends State<ChatBody>
   // How much of the row the shortened island hides this frame.
   double _rowClip = 0;
 
+  // Width of the island's side action column.
+  static const double _sideActionW = 56;
+
   // Cached chat body and the inputs it was built from.
   Widget? _body;
   Object? _bodyInputs;
@@ -636,21 +639,27 @@ class _ChatBodyState extends State<ChatBody>
                     children: [flowComposer, ?widget.bottomBar],
                   )
                 // The side action runs the island's full height beside the
-                // field and the row.
-                : IntrinsicHeight(
+                // field and the row. The column sets the height and the
+                // action fills it, with no intrinsic pass (the field's
+                // LayoutBuilder cannot answer one).
+                : Stack(
                     key: _islandKey,
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        Expanded(
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [flowComposer, ?widget.bottomBar],
-                          ),
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.only(right: _sideActionW),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [flowComposer, ?widget.bottomBar],
                         ),
-                        SizedBox(width: 56, child: widget.sideAction),
-                      ],
-                    ),
+                      ),
+                      Positioned(
+                        top: 0,
+                        bottom: 0,
+                        right: 0,
+                        width: _sideActionW,
+                        child: widget.sideAction!,
+                      ),
+                    ],
                   ),
           ),
         ),
