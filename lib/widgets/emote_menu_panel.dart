@@ -111,7 +111,6 @@ class EmoteMenuPanelWidgetState extends ConsumerState<EmoteMenuPanelWidget> {
           decoration: BoxDecoration(
             color: panelColor,
             borderRadius: radius,
-            border: Border.all(color: theme.colorScheme.outlineVariant),
             boxShadow: [
               BoxShadow(
                 color: Colors.black.withValues(alpha: 0.12),

@@ -711,15 +711,9 @@ class TabbedLayoutState extends State<TabbedLayout>
           duration: const Duration(milliseconds: 200),
           curve: Curves.easeInOut,
           child: widget.showTabBar
-              ? Container(
-                  decoration: BoxDecoration(
-                    color:
-                        widget.tabBarColor ??
-                        theme.colorScheme.surfaceContainer,
-                    border: Border(
-                      bottom: BorderSide(color: theme.dividerColor),
-                    ),
-                  ),
+              ? ColoredBox(
+                  color:
+                      widget.tabBarColor ?? theme.colorScheme.surfaceContainer,
                   child: tabStrip,
                 )
               : const SizedBox.shrink(),
