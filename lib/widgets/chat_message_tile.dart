@@ -155,9 +155,14 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
     _ownedBodySpans = shared ? null : spans;
   }
 
-  /// Expanded image preview URLs. Tile-local: cached tiles keep their own
-  /// state, fresh tiles start collapsed. Never persisted.
-  final _expandedEmbeds = <String>{};
+  /// Expanded image previews by message and URL, newest last. Outside the
+  /// tile, so a row rebuilt by new chat keeps its preview open. Capped,
+  /// never persisted.
+  static final _expandedEmbeds = <String>{};
+  static const _maxExpandedEmbeds = 200;
+
+  String _embedKey(String url) =>
+      '${widget.message.messageId ?? identityHashCode(widget.message)}\n$url';
 
   static const _doubleTapThreshold = Duration(milliseconds: 200);
 
@@ -262,7 +267,12 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
 
   void _toggleEmbed(String url) {
     setState(() {
-      if (!_expandedEmbeds.remove(url)) _expandedEmbeds.add(url);
+      final key = _embedKey(url);
+      if (_expandedEmbeds.remove(key)) return;
+      _expandedEmbeds.add(key);
+      if (_expandedEmbeds.length > _maxExpandedEmbeds) {
+        _expandedEmbeds.remove(_expandedEmbeds.first);
+      }
     });
   }
 
@@ -511,7 +521,7 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
 
     final expanded = [
       for (final url in embedUrls)
-        if (_expandedEmbeds.contains(url)) url,
+        if (_expandedEmbeds.contains(_embedKey(url))) url,
     ];
     if (expanded.isNotEmpty) {
       child = Column(

@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:typed_data';
 
+import 'package:ermchat/models/twitch_message.dart';
+import 'package:ermchat/widgets/chat_message_tile.dart';
 import 'package:ermchat/widgets/image_embed_preview.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_cache_manager/flutter_cache_manager.dart';
@@ -148,5 +150,48 @@ void main() {
     expect(sniffEmbedImage(_png), isTrue);
     expect(sniffEmbedImage(_mp4Head), isFalse);
     expect(sniffEmbedImage(Uint8List(4)), isNull);
+  });
+
+  testWidgets('an open preview stays open when new chat rebuilds its row', (
+    tester,
+  ) async {
+    const url = 'https://kappa.lol/abc.png';
+    void Function(String)? toggle;
+    Widget tile(Key key) => MaterialApp(
+      home: Scaffold(
+        body: ChatMessageTile(
+          key: key,
+          message: TwitchMessage(
+            login: 'alice',
+            text: url,
+            channel: 'c',
+            messageId: 'embed1',
+          ),
+          channel: 'c',
+          surface: Colors.white,
+          textScale: 1.0,
+          showTimestamp: false,
+          showImages: true,
+          buildBadgeSpans: (_, _, {double badgeScale = 1.0}) => const [],
+          buildMessageSpans:
+              (_, _, _, {colored = false, textScale = 1.0, onImageTap}) {
+                toggle = onImageTap;
+                return const [TextSpan(text: url)];
+              },
+          bodyIsCached: (_, _) => false,
+        ),
+      ),
+    );
+    await tester.pumpWidget(tile(const ValueKey(1)));
+    toggle!(url);
+    await tester.pump();
+    expect(find.byType(ImageEmbedPreview), findsOneWidget);
+    // A new key stands in for the row losing its element to an arrival.
+    await tester.pumpWidget(tile(const ValueKey(2)));
+    expect(
+      find.byType(ImageEmbedPreview),
+      findsOneWidget,
+      reason: 'a rebuilt row keeps its preview open',
+    );
   });
 }
