@@ -402,12 +402,15 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
       final solid = paint?.solidColor;
       final shadows = paint == null
           ? null
+          // Each shadow redraws the name through a blur every frame the row
+          // paints, and the kernel grows with the radius: two shadows at
+          // their CSS size keep the glow without the raster cost.
           : [
-              for (final shadow in paint.shadows)
+              for (final shadow in paint.shadows.take(2))
                 Shadow(
                   color: shadow.color,
                   offset: Offset(shadow.offsetX, shadow.offsetY),
-                  blurRadius: shadow.blur * 3,
+                  blurRadius: shadow.blur,
                 ),
             ];
       final InlineSpan usernameSpan;
