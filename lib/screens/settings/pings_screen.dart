@@ -460,6 +460,19 @@ class _PingsScreenState extends ConsumerState<PingsScreen> {
       ),
   ];
 
+  /// Tiles in priority order; two or more get drag handles and a caption.
+  List<Widget> _reorderable(List<PingRule> list, bool paused) {
+    if (list.length < 2) return [for (final r in list) _tile(r, paused)];
+    return [
+      _Caption(context.l10n.rulesOverlapCaption),
+      _ReorderableRules(
+        manager: _manager,
+        rules: list,
+        tileOf: (r) => _tile(r, paused),
+      ),
+    ];
+  }
+
   List<Widget> _listSection(
     List<PingRule> rules,
     bool paused,
@@ -473,10 +486,12 @@ class _PingsScreenState extends ConsumerState<PingsScreen> {
           (keywords ? Setting.highlightKeywords : Setting.highlightUsers).title,
         ),
       ),
-      for (final r in rules.where(
-        (r) => r.kind == kind && (!keywords || r.type == 'custom'),
-      ))
-        _tile(r, paused),
+      ..._reorderable(
+        rules
+            .where((r) => r.kind == kind && (!keywords || r.type == 'custom'))
+            .toList(),
+        paused,
+      ),
       _AddTile(
         keywords ? context.l10n.addKeyword : context.l10n.addUser,
         onTap: () => _edit(
@@ -642,10 +657,13 @@ class _BadgesPage extends ConsumerWidget {
         builder: (context, _) => ListView(
           padding: const EdgeInsets.symmetric(vertical: 8),
           children: [
-            for (final r in manager.rules.where(
-              (r) => r.kind == PingRuleKind.badge,
-            ))
-              _RuleTile(
+            _Caption(context.l10n.rulesOverlapCaption),
+            _ReorderableRules(
+              manager: manager,
+              rules: manager.rules
+                  .where((r) => r.kind == PingRuleKind.badge)
+                  .toList(),
+              tileOf: (r) => _RuleTile(
                 rule: r,
                 onTap: () => _editRule(
                   context,
@@ -655,9 +673,57 @@ class _BadgesPage extends ConsumerWidget {
                   opacity: opacity,
                 ),
               ),
+            ),
           ],
         ),
       ),
+    );
+  }
+}
+
+/// Rules of one list in priority order, each with a drag handle.
+class _ReorderableRules extends StatelessWidget {
+  const _ReorderableRules({
+    required this.manager,
+    required this.rules,
+    required this.tileOf,
+  });
+
+  final PingManager manager;
+  final List<PingRule> rules;
+  final Widget Function(PingRule) tileOf;
+
+  @override
+  Widget build(BuildContext context) {
+    return ReorderableListView(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      buildDefaultDragHandles: false,
+      onReorderItem: (from, to) {
+        final ids = [for (final r in rules) r.id];
+        ids.insert(to, ids.removeAt(from));
+        manager.reorderRules(ids);
+        manager.save();
+      },
+      children: [
+        for (final (i, r) in rules.indexed)
+          Row(
+            key: ValueKey(r.id),
+            children: [
+              Expanded(child: tileOf(r)),
+              ReorderableDragStartListener(
+                index: i,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(4, 8, 16, 8),
+                  child: Icon(
+                    Icons.drag_handle,
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ),
+            ],
+          ),
+      ],
     );
   }
 }

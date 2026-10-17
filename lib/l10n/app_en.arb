@@ -266,6 +266,7 @@
   "addUser": "Add user",
   "none": "None",
   "dontHighlightCaption": "Shown, but never highlighted or notified.",
+  "rulesOverlapCaption": "When rules overlap, the higher one wins.",
   "badgesTitle": "Badges",
   "redemptionNote": "Includes highlighted messages.",
   "elevatedNote": "Paid messages pinned to chat.",

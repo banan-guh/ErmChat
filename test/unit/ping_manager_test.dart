@@ -447,6 +447,31 @@ void main() {
     expect(both?.hasMention, isTrue);
   });
 
+  test('moving a rule up makes its color win within the type', () async {
+    final m = await makeManager();
+    PingRule kw(String id, int argb) => PingRule(
+      id: id,
+      kind: PingRuleKind.message,
+      pattern: 'pog',
+      colorArgb: argb,
+    );
+    m.upsertRule(kw('a', 0xFF111111));
+    m.upsertRule(kw('b', 0xFF222222));
+    expect(m.evaluate(msg('pog'))?.customColor, const Color(0xFF111111));
+    final before = m.rules.map((r) => r.id).toList();
+    m.reorderRules(['b', 'a']);
+    expect(
+      m.evaluate(msg('pog'))?.customColor,
+      const Color(0xFF222222),
+      reason: 'the rule moved above wins the color',
+    );
+    expect(m.rules.map((r) => r.id).toList(), [
+      ...before.sublist(0, before.length - 2),
+      'b',
+      'a',
+    ], reason: 'other rules keep their slots');
+  });
+
   test('system highlights outrank colored user rules', () async {
     final m = await makeManager();
     m.setAccount('forsen');

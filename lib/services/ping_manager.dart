@@ -69,6 +69,22 @@ class PingManager extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Reorders the rules in [ids] into that order, within the slots they
+  /// already occupy; every other rule keeps its place. Earlier wins ties.
+  void reorderRules(List<String> ids) {
+    final slots = <int>[
+      for (final (i, r) in _rules.indexed)
+        if (ids.contains(r.id)) i,
+    ];
+    final byId = {for (final r in _rules) r.id: r};
+    final ordered = [for (final id in ids) ?byId[id]];
+    if (ordered.length != slots.length) return;
+    for (final (n, i) in slots.indexed) {
+      _rules[i] = ordered[n];
+    }
+    notifyListeners();
+  }
+
   void removeRule(String id) {
     _rules.removeWhere((r) => r.id == id);
     _lowerPatternCache.clear();
