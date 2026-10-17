@@ -177,6 +177,18 @@ void main() {
         (await roundTrip(const ProxyConfig(enabled: true))).readWsUrl,
         isNull,
       );
+      for (final (url, used) in [
+        ('ws://example.com/ws', false),
+        ('wss://example.com/ws', true),
+        ('ws://100.101.102.103:8080/ws', true),
+        ('ws://172.32.0.1/ws', false),
+      ]) {
+        expect(
+          ProxyConfig(enabled: true, url: url).readWsUrl != null,
+          used,
+          reason: url,
+        );
+      }
     },
   );
 

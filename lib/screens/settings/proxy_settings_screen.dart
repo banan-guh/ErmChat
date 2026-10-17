@@ -73,9 +73,16 @@ class _ProxySettingsScreenState extends State<ProxySettingsScreen> {
                 decoration: InputDecoration(
                   labelText: context.l10n.proxyUrl,
                   hintText: 'ws://192.168.1.10:8080/ws',
+                  errorText:
+                      ProxyConfig(url: _urlController.text.trim()).insecure
+                      ? context.l10n.proxyInsecure
+                      : null,
                 ),
                 keyboardType: TextInputType.url,
-                onChanged: (_) => unawaited(_commit()),
+                onChanged: (_) {
+                  setState(() {});
+                  unawaited(_commit());
+                },
               ),
             ),
         ],

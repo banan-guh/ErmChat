@@ -12,7 +12,28 @@ class ProxyConfig {
   final String url;
 
   /// Read-socket URL override, or null to keep the direct Twitch connection.
-  String? get readWsUrl => enabled && url.isNotEmpty ? url : null;
+  /// An [insecure] URL is never used: the token would cross it in the clear.
+  String? get readWsUrl => enabled && url.isNotEmpty && !insecure ? url : null;
+
+  /// Plain ws:// to a host off the local network or tailnet.
+  bool get insecure {
+    final uri = Uri.tryParse(url);
+    if (uri == null || uri.scheme != 'ws') return false;
+    return !_isLocalHost(uri.host);
+  }
+
+  static bool _isLocalHost(String host) {
+    if (host == 'localhost' || host.endsWith('.local')) return true;
+    final o = host.split('.').map(int.tryParse).toList();
+    if (o.length != 4 || o.any((n) => n == null)) return false;
+    final a = o[0]!, b = o[1]!;
+    return a == 127 ||
+        a == 10 ||
+        (a == 192 && b == 168) ||
+        (a == 172 && b >= 16 && b < 32) ||
+        // Tailscale addresses: WireGuard encrypts the hop.
+        (a == 100 && b >= 64 && b < 128);
+  }
 
   static ProxyConfig fromPrefs(Prefs prefs) {
     return ProxyConfig(enabled: prefs.proxyEnabled, url: prefs.proxyUrl);

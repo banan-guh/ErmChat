@@ -557,6 +557,7 @@
   "chatProxy": "Chat proxy",
   "useChatProxy": "Use chat proxy",
   "proxyUrl": "Proxy URL",
+  "proxyInsecure": "Use wss:// outside your home network",
   "noChannelsJoined": "No channels joined",
   "joinChannel": "Join channel",
   "editChannel": "Edit channel",
