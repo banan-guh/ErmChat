@@ -78,16 +78,6 @@ class _CustomLayoutScreenState extends State<CustomLayoutScreen> {
             ),
           ),
           SettingAnchor(
-            Setting.tighterChrome,
-            child: PrefsSwitchTile(
-              enabled: _enabled,
-              title: Setting.tighterChrome.titleOf(context.l10n),
-              subtitle: context.l10n.tighterChromeHint,
-              read: (p) => p.overrideTightChromeMargins,
-              write: (p, v) => p.setOverrideTightChromeMargins(v),
-            ),
-          ),
-          SettingAnchor(
             Setting.keyboardButtons,
             child: PrefsSwitchTile(
               enabled: _enabled,

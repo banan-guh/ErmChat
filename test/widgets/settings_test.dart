@@ -130,16 +130,16 @@ void main() {
       await tester.tap(find.text('Custom'));
       await tester.pumpAndSettle();
       expect(find.text('Enable custom layout'), findsOneWidget);
-      expect(find.text('Tighter chrome margins'), findsOneWidget);
+      expect(find.text('Compact density'), findsOneWidget);
       final tile = tester.widget<SwitchListTile>(
-        find.widgetWithText(SwitchListTile, 'Tighter chrome margins'),
+        find.widgetWithText(SwitchListTile, 'Compact density'),
       );
       expect(tile.onChanged, isNull);
 
       await tester.tap(find.text('Enable custom layout'));
       await tester.pumpAndSettle();
       final enabled = tester.widget<SwitchListTile>(
-        find.widgetWithText(SwitchListTile, 'Tighter chrome margins'),
+        find.widgetWithText(SwitchListTile, 'Compact density'),
       );
       expect(enabled.onChanged, isNotNull);
 

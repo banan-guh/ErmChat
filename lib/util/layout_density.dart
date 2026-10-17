@@ -25,7 +25,6 @@ class LayoutOverrides {
     this.tightComposer = true,
     this.sheetActionRow = false,
     this.compactDensity = true,
-    this.tightChromeMargins = true,
     this.keyboardHidesRow = true,
   });
 
@@ -41,9 +40,6 @@ class LayoutOverrides {
 
   /// Material's compact density for buttons, list tiles and menus.
   final bool compactDensity;
-
-  /// Tighter chrome margins, e.g. the app bar action padding.
-  final bool tightChromeMargins;
 
   /// The keyboard covers the island's button row, leaving only the field.
   final bool keyboardHidesRow;
@@ -63,7 +59,6 @@ class LayoutOverrides {
       other.tightComposer == tightComposer &&
       other.sheetActionRow == sheetActionRow &&
       other.compactDensity == compactDensity &&
-      other.tightChromeMargins == tightChromeMargins &&
       other.keyboardHidesRow == keyboardHidesRow;
 
   @override
@@ -72,7 +67,6 @@ class LayoutOverrides {
     tightComposer,
     sheetActionRow,
     compactDensity,
-    tightChromeMargins,
     keyboardHidesRow,
   );
 }

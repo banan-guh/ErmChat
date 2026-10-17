@@ -104,7 +104,6 @@ class Setting {
     'tighter_composer' => l.settingTighterComposer,
     'horizontal_sheet_actions' => l.settingHorizontalSheetActions,
     'compact_density' => l.settingCompactDensity,
-    'tighter_chrome' => l.settingTighterChrome,
     'max_messages' => l.settingMaxMessages,
     'shared_chat' => l.settingSharedChat,
     'inline_embeds' => l.settingInlineEmbeds,
@@ -325,11 +324,6 @@ class Setting {
   static const compactDensity = Setting(
     'compact_density',
     'Compact density',
-    SettingsPageId.customLayout,
-  );
-  static const tighterChrome = Setting(
-    'tighter_chrome',
-    'Tighter chrome margins',
     SettingsPageId.customLayout,
   );
   static const keyboardButtons = Setting(
@@ -716,7 +710,6 @@ class Setting {
     tighterComposer,
     horizontalSheetActions,
     compactDensity,
-    tighterChrome,
     keyboardButtons,
     maxMessages,
     sharedChat,

@@ -339,7 +339,6 @@ class Prefs {
   static const _kOverrideTightComposer = 'override_tight_composer';
   static const _kOverrideSheetActionRow = 'override_sheet_action_row';
   static const _kOverrideCompactDensity = 'override_compact_density';
-  static const _kOverrideTightChromeMargins = 'override_tight_chrome_margins';
 
   bool get customLayoutEnabled => _p.getBool(_kCustomLayoutEnabled) ?? false;
 
@@ -362,12 +361,6 @@ class Prefs {
 
   Future<void> setOverrideCompactDensity(bool value) =>
       _p.setBool(_kOverrideCompactDensity, value);
-
-  bool get overrideTightChromeMargins =>
-      _p.getBool(_kOverrideTightChromeMargins) ?? true;
-
-  Future<void> setOverrideTightChromeMargins(bool value) =>
-      _p.setBool(_kOverrideTightChromeMargins, value);
 
   static const _kOverrideKeyboardHidesRow = 'override_keyboard_hides_row';
 
