@@ -187,6 +187,9 @@ class _PaintTexture extends ChangeNotifier {
   bool get animated => frames.length > 1 && endsMs.last > 0;
   ui.Image get current => frames[_index];
 
+  /// A name on screen follows it; evicting it would reload it at once.
+  bool get inUse => hasListeners;
+
   void _onClock() {
     final t = (EmoteEffectClock.instance.seconds * 1000).floor() % endsMs.last;
     var i = 0;
@@ -343,15 +346,24 @@ class SevenTvPaintService extends ChangeNotifier {
 
   static const _maxUserMapEntries = 1000;
 
+  /// How long an assignment survives without a refresh. [_userTtl] only
+  /// asks for a refresh; the restored cache keeps painting meanwhile.
+  static const _assignmentKeep = Duration(days: 14);
+  static const _sweepEvery = Duration(minutes: 1);
+  DateTime? _lastSweep;
+
   // Per-user maps grow with every distinct chatter. The per-lookup checks only
-  // touch the requested id, so once the maps get large, sweep the entries whose
-  // TTL or backoff has elapsed.
+  // touch the requested id, so once the maps get large, sweep (at most once a
+  // minute) the entries whose TTL or backoff has elapsed.
   void _pruneStaleUserMaps(DateTime now) {
     if (_assignments.length + _negative.length + _backoffUntil.length <
         _maxUserMapEntries) {
       return;
     }
-    _assignments.removeWhere((_, a) => now.difference(a.at) > _userTtl);
+    final last = _lastSweep;
+    if (last != null && now.difference(last) < _sweepEvery) return;
+    _lastSweep = now;
+    _assignments.removeWhere((_, a) => now.difference(a.at) > _assignmentKeep);
     _negative.removeWhere((_, at) => now.difference(at) > _negativeTtl);
     _backoffUntil.removeWhere((_, until) => !now.isBefore(until));
   }
@@ -367,6 +379,10 @@ class SevenTvPaintService extends ChangeNotifier {
   // Decoded frames are raw RGBA; animated paints run to dozens of frames.
   static const _maxPaintImageBytes = 24 << 20;
   static const _maxPaintFrames = 150;
+
+  /// A name's height on dense screens, which a paint image never needs to
+  /// exceed.
+  static const _maxPaintImageHeight = 96;
   int _imageBytes = 0;
   final _images = <String, _PaintTexture>{};
   final _imageInflight = <String>{};
@@ -581,8 +597,9 @@ class SevenTvPaintService extends ChangeNotifier {
       return;
     }
     if (!_enabled || _pendingUsers.isEmpty) return;
-    final batch = _pendingUsers.toList()..sort();
-    final ids = batch.take(_maxBatchSize).toList();
+    // Newest requests first: the chatters on screen now, not the backlog a
+    // join's history queued.
+    final ids = _pendingUsers.toList().reversed.take(_maxBatchSize).toList();
     for (final id in ids) {
       _pendingUsers.remove(id);
     }
@@ -811,7 +828,13 @@ class SevenTvPaintService extends ChangeNotifier {
     final frames = <ui.Image>[];
     try {
       final bytes = await _fetchBytes(Uri.parse(variant.url));
-      codec = await ui.instantiateImageCodec(bytes);
+      // Paints fill a name's height, so frames decode no taller than that.
+      codec = await ui.instantiateImageCodecWithSize(
+        await ui.ImmutableBuffer.fromUint8List(bytes),
+        getTargetSize: (w, h) => h > _maxPaintImageHeight
+            ? const ui.TargetImageSize(height: _maxPaintImageHeight)
+            : ui.TargetImageSize(width: w, height: h),
+      );
       final count = math.min(codec.frameCount, _maxPaintFrames);
       final endsMs = <int>[];
       var at = 0;
@@ -827,10 +850,19 @@ class SevenTvPaintService extends ChangeNotifier {
       _images[variant.url] = texture;
       _imageBytes += texture.bytes;
       _imageAccessOrder.add(variant.url);
-      while (_imageAccessOrder.length > 1 &&
+      // Oldest first, skipping textures on screen.
+      var i = 0;
+      while (i < _imageAccessOrder.length - 1 &&
           (_imageAccessOrder.length > _maxCachedPaintImages ||
               _imageBytes > _maxPaintImageBytes)) {
-        final oldest = _images.remove(_imageAccessOrder.removeAt(0));
+        final url = _imageAccessOrder[i];
+        final oldest = _images[url];
+        if (oldest != null && oldest.inUse) {
+          i++;
+          continue;
+        }
+        _imageAccessOrder.removeAt(i);
+        _images.remove(url);
         if (oldest == null) continue;
         _imageBytes -= oldest.bytes;
         oldest.release();
