@@ -191,8 +191,9 @@ class ComposerRowButton extends StatelessWidget {
           ? scheme.primary
           : scheme.onSurfaceVariant;
       if (!send) {
+        // One of the row's buttons, so it keeps their color through focus.
         return IconButton(
-          icon: Icon(Icons.emoji_emotions_outlined, color: accent),
+          icon: const Icon(Icons.emoji_emotions_outlined),
           tooltip: context.l10n.pickerEmotes,
           onPressed: controller.toggleEmoteMenu,
         );
