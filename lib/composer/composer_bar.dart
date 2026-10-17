@@ -29,6 +29,7 @@ class ComposerBar extends StatelessWidget {
     required this.search,
     required this.mod,
     required this.dragTick,
+    this.buttonsInRow = false,
   });
 
   final ComposerController controller;
@@ -41,18 +42,14 @@ class ComposerBar extends StatelessWidget {
   /// path skips setState the same way); settle still marks dirty.
   final Listenable dragTick;
 
+  /// The chat field's emote and send buttons sit in the island's button row
+  /// ([ComposerRowButton]) instead of the field.
+  final bool buttonsInRow;
+
   @override
   Widget build(BuildContext context) {
     final content = ListenableBuilder(
-      listenable: Listenable.merge([
-        controller.cooldownLabel,
-        controller.chatConn.connectionStateNotifier,
-        // Auth switches must re-render immediately (anon to user and
-        // back), not wait for the next connection-state bump.
-        controller.twitchAuth,
-        mod.termsAdding,
-        dragTick,
-      ]),
+      listenable: _enabledInputs(controller, mod, dragTick),
       builder: (context, _) {
         // Landscape moves the channel status into the hint; portrait keeps
         // it in the row under the input.
@@ -114,6 +111,7 @@ class ComposerBar extends StatelessWidget {
                   hintText: controller.hintText(withStatus: landscape),
                   inputFormatters: [controller.autocompleteRevert],
                   borderless: true,
+                  buttonsInRow: buttonsInRow,
                 ),
               ),
             if (searchBorrowed || mod.termsChromeHidden)
@@ -130,6 +128,82 @@ class ComposerBar extends StatelessWidget {
     );
     return content;
   }
+}
+
+/// What the field's enabled state and borrowed modes follow.
+Listenable _enabledInputs(
+  ComposerController controller,
+  ModPanels mod,
+  Listenable dragTick,
+) => Listenable.merge([
+  controller.cooldownLabel,
+  controller.chatConn.connectionStateNotifier,
+  // Auth switches must re-render immediately (anon to user and back), not
+  // wait for the next connection-state bump.
+  controller.twitchAuth,
+  mod.termsAdding,
+  dragTick,
+]);
+
+/// The chat field's emote or send button in the island's button row, for
+/// layouts where the row stays up while typing, so send sits under the
+/// thumb. Greys out with the field and steps aside while search or block
+/// terms borrow it.
+class ComposerRowButton extends StatelessWidget {
+  const ComposerRowButton.emote({
+    super.key,
+    required this.controller,
+    required this.search,
+    required this.mod,
+    required this.dragTick,
+  }) : send = false;
+
+  const ComposerRowButton.send({
+    super.key,
+    required this.controller,
+    required this.search,
+    required this.mod,
+    required this.dragTick,
+  }) : send = true;
+
+  final ComposerController controller;
+  final SearchPanels search;
+  final ModPanels mod;
+  final Listenable dragTick;
+  final bool send;
+
+  @override
+  Widget build(BuildContext context) => ListenableBuilder(
+    listenable: Listenable.merge([
+      _enabledInputs(controller, mod, dragTick),
+      controller.focusNode,
+    ]),
+    builder: (context, _) {
+      final borrowed =
+          (search.open && search.selectedChannel() != null) ||
+          mod.termsInputActive;
+      if (borrowed) return const SizedBox.shrink();
+      final scheme = Theme.of(context).colorScheme;
+      final accent = controller.focusNode.hasFocus
+          ? scheme.primary
+          : scheme.onSurfaceVariant;
+      if (!send) {
+        return IconButton(
+          icon: Icon(Icons.emoji_emotions_outlined, color: accent),
+          tooltip: context.l10n.pickerEmotes,
+          onPressed: controller.toggleEmoteMenu,
+        );
+      }
+      final enabled = controller.enabled;
+      return GestureDetector(
+        onLongPress: enabled ? controller.recallLastSent : null,
+        child: IconButton(
+          icon: Icon(Icons.send, color: enabled ? accent : null),
+          onPressed: enabled ? controller.send : null,
+        ),
+      );
+    },
+  );
 }
 
 /// Rebuilds [builder] when the selected channel or its info changes. The

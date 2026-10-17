@@ -252,14 +252,23 @@ class HomeAppBar {
   /// spread evenly. It sits inside the composer island, which draws the
   /// surface, so the row is bare. In glass mode the host wraps it in a glass
   /// surface.
-  Widget bottomBar(BuildContext context, {bool glass = false}) {
+  /// The island's button row: [leading] on the left, the chrome buttons and
+  /// [trailing] on the right.
+  Widget bottomBar(
+    BuildContext context, {
+    bool glass = false,
+    Widget? leading,
+    Widget? trailing,
+  }) {
     final row = Row(
-      mainAxisAlignment: MainAxisAlignment.end,
       children: [
+        ?leading,
+        const Spacer(),
         threadsButton(context),
         mentionsButton(context),
         overflowMenu(context, glass: glass),
         settingsButton(context),
+        ?trailing,
       ],
     );
     return KeyedSubtree(key: const Key('bottom_chrome_bar'), child: row);

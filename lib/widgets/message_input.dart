@@ -29,6 +29,10 @@ class MessageInput extends StatelessWidget {
   final Widget? prefixOverride;
   final Widget? suffixOverride;
 
+  // The emote and send buttons live in the island's button row instead, so
+  // the field drops its own.
+  final bool buttonsInRow;
+
   const MessageInput({
     super.key,
     required this.controller,
@@ -46,6 +50,7 @@ class MessageInput extends StatelessWidget {
     this.borderless = false,
     this.prefixOverride,
     this.suffixOverride,
+    this.buttonsInRow = false,
   });
 
   Color _inputAccent(BuildContext context) {
@@ -128,7 +133,7 @@ class MessageInput extends StatelessWidget {
                       : null,
                   prefixIcon:
                       prefixOverride ??
-                      (!emoteFits
+                      (!emoteFits || buttonsInRow
                           ? null
                           : _IconSlot(
                               height: slotH,
@@ -157,32 +162,35 @@ class MessageInput extends StatelessWidget {
                             )),
                   suffixIcon:
                       suffixOverride ??
-                      _IconSlot(
-                        height: slotH,
-                        child: Material(
-                          type: MaterialType.transparency,
-                          child: InkWell(
-                            borderRadius: BorderRadius.circular(iconBox / 2),
-                            onTap: enabled ? onSend : null,
-                            onLongPress: enabled ? onSendLongPress : null,
-                            child: ListenableBuilder(
-                              listenable: focusNode,
-                              builder: (_, _) {
-                                final theme = Theme.of(context);
-                                return Icon(
-                                  Icons.send,
-                                  size: 24,
-                                  color: !enabled
-                                      ? theme.colorScheme.onSurface.withValues(
-                                          alpha: 0.38,
-                                        )
-                                      : _inputAccent(context),
-                                );
-                              },
-                            ),
-                          ),
-                        ),
-                      ),
+                      (buttonsInRow
+                          ? null
+                          : _IconSlot(
+                              height: slotH,
+                              child: Material(
+                                type: MaterialType.transparency,
+                                child: InkWell(
+                                  borderRadius: BorderRadius.circular(
+                                    iconBox / 2,
+                                  ),
+                                  onTap: enabled ? onSend : null,
+                                  onLongPress: enabled ? onSendLongPress : null,
+                                  child: ListenableBuilder(
+                                    listenable: focusNode,
+                                    builder: (_, _) {
+                                      final theme = Theme.of(context);
+                                      return Icon(
+                                        Icons.send,
+                                        size: 24,
+                                        color: !enabled
+                                            ? theme.colorScheme.onSurface
+                                                  .withValues(alpha: 0.38)
+                                            : _inputAccent(context),
+                                      );
+                                    },
+                                  ),
+                                ),
+                              ),
+                            )),
                 ),
               ),
             ],

@@ -1746,6 +1746,17 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     // Reply card floats above the composer. Hidden while search or the terms
     // box borrows the input, and while the composer is disabled.
     final glass = glassEnabled(context, _liquidGlass);
+    // With channels the app bar folds away, so the bell, overflow and
+    // settings live in the island's button row. The welcome view keeps them
+    // in the app bar.
+    final hasBottomBar =
+        _chat.names.isNotEmpty || _channelManager.session.channelsPending;
+    // Emote and send join the row when it stays up while typing (the pane
+    // keeps it up in either mode), so send sits under the thumb.
+    final buttonsInRow =
+        hasBottomBar &&
+        _showInput &&
+        (!_keyboardHidesButtons || _stream.chatInPane(context));
     // Watched, not read: the send path clears the reply without a setState.
     final replyMsg = ref.watch(replyToProvider);
     final replyHeader =
@@ -1859,15 +1870,30 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                     search: _search,
                     mod: _mod,
                     dragTick: _panelDragTick,
+                    buttonsInRow: buttonsInRow,
                   )
                 : null,
-            // With channels the app bar folds away, so the bell, overflow
-            // and settings live in the composer's bottom row. The welcome
-            // view keeps them in the app bar.
-            bottomBar:
-                _chat.names.isNotEmpty ||
-                    _channelManager.session.channelsPending
-                ? _chrome.bottomBar(context, glass: glass)
+            bottomBar: hasBottomBar
+                ? _chrome.bottomBar(
+                    context,
+                    glass: glass,
+                    leading: buttonsInRow
+                        ? ComposerRowButton.emote(
+                            controller: _composer,
+                            search: _search,
+                            mod: _mod,
+                            dragTick: _panelDragTick,
+                          )
+                        : null,
+                    trailing: buttonsInRow
+                        ? ComposerRowButton.send(
+                            controller: _composer,
+                            search: _search,
+                            mod: _mod,
+                            dragTick: _panelDragTick,
+                          )
+                        : null,
+                  )
                 : null,
             notice: ChatNoticeBar(controller: _chatNotice),
             replyHeader: replyHeader,
