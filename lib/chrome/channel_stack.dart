@@ -472,8 +472,8 @@ class ChannelPanels {
     double glassTopPadding = 0,
   }) {
     _dropStaleCaches();
-    // With the strip visible the stream dropdown caps it; hidden chrome
-    // floats the same dropdown as an overlay instead.
+    // The stream dropdown floats over the pages, anchored below the strip.
+    // The bell, overflow and settings live in the composer's bottom row.
     final showStrip = !isFullscreen() && !hideChrome;
     Widget chromeMenu() => homeAppBar.chromeMenu(
       glass: glassOverlay || glassChrome,
@@ -512,7 +512,7 @@ class ChannelPanels {
                     },
                     showTabBar: showStrip,
                     fullscreen: isFullscreen(),
-                    chromeMenu: showStrip ? null : chromeMenu(),
+                    chromeMenu: chromeMenu(),
                     pagesOverlay: selectedChannel() == null
                         ? null
                         : ListenableBuilder(
@@ -528,17 +528,10 @@ class ChannelPanels {
                               ),
                             ),
                           ),
-                    // Join stays the last tab; the stream dropdown caps the
-                    // strip. The bell, overflow and settings moved to the
-                    // composer's bottom row.
+                    // Join stays the last tab; the stream dropdown floats just
+                    // below the strip.
                     addTab: merged ? homeAppBar.joinTab() : null,
                     onAddTab: homeAppBar.onJoinTab,
-                    stripTrailing: showStrip
-                        ? Padding(
-                            padding: const EdgeInsets.only(right: 4),
-                            child: chromeMenu(),
-                          )
-                        : null,
                     stripTopInset: merged ? statusBarHeight(context) : 0,
                     belowTabBar: belowTabBar,
                     glassOverlay: glassOverlay,
