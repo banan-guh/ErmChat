@@ -126,12 +126,12 @@ LiquidGlassSettings _barSettings(bool dark, double visibility) =>
       // rows; the tint darkens what the frost lets through.
       blur: 1,
       frost: 14,
-      frostOpacity: 0.8,
+      frostOpacity: 0.92,
       refractiveIndex: 1.5,
       chromaticAberration: 0.02,
       lightIntensity: 0.6,
       fresnelStrength: 1.5,
-      glassColor: dark ? const Color(0x59000000) : const Color(0x59FFFFFF),
+      glassColor: dark ? const Color(0x8C000000) : const Color(0x8CFFFFFF),
       visibility: visibility,
     );
 
@@ -142,8 +142,8 @@ const kGlassPillSettings = LiquidGlassSettings(
   // dark tint holds contrast for light text in both themes' chat.
   blur: 1,
   frost: 14,
-  frostOpacity: 0.8,
-  glassColor: Color(0x4D000000),
+  frostOpacity: 0.92,
+  glassColor: Color(0x8C000000),
   refractiveIndex: 1.5,
   chromaticAberration: 0.02,
   lightIntensity: 0.6,

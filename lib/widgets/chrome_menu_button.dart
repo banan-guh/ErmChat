@@ -176,6 +176,10 @@ class _ChromeMenuState extends State<ChromeMenu> {
         autoAdjustToScreen: true,
         menuPadding: const EdgeInsets.all(8),
         menuWidth: 220,
+        // A quick, plain open: no rubber-band stretch or press scaling.
+        morphSpeed: MorphSpeed.fast,
+        stretch: 0,
+        interactionScale: 1,
         settings: kGlassPillSettings,
         onClose: () => widget.onOpenChanged?.call(false),
         triggerBuilder: (context, toggle) => GestureDetector(

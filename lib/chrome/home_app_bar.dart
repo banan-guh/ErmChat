@@ -169,10 +169,10 @@ class HomeAppBar {
     addChannelDialog();
   }
 
-  /// The tab strip's buttons: narrow, with smaller icons, so three fit where
-  /// two stood.
-  static const double _smallWidth = 32;
-  static const double _smallIcon = 20;
+  /// The tab strip's buttons: full-size icons in a 40pt slot, narrower than
+  /// stock so three fit beside the tabs.
+  static const double _smallWidth = 40;
+  static const double _smallIcon = 24;
 
   static ButtonStyle? _small(bool small) => small
       ? IconButton.styleFrom(
