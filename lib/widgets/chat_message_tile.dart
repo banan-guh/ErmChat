@@ -541,14 +541,16 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
         widget.highlightOpacity,
       );
     }
-    if (msg.isFirstMessage) {
+    // One tint per row: a highlight's color replaces the first-message green
+    // instead of blending over it.
+    final highlight = msg.highlight;
+    if (msg.isFirstMessage && !(highlight?.tinted ?? false)) {
       final tint = matchTintContrast(Colors.green, rowColor, tintAnchor);
       rowColor = Color.alphaBlend(
         tint.withValues(alpha: widget.highlightOpacity),
         rowColor,
       );
     }
-    final highlight = msg.highlight;
     if (highlight != null && highlight.tinted) {
       rowColor = highlightRowColor(
         highlight,
