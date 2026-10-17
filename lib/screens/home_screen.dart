@@ -1861,7 +1861,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
             // With channels the app bar folds away, so the bell, overflow
             // and settings live in the composer's bottom row. The welcome
             // view keeps them in the app bar.
-            bottomBar: _chat.names.isNotEmpty
+            bottomBar:
+                _chat.names.isNotEmpty ||
+                    _channelManager.session.channelsPending
                 ? _chrome.bottomBar(context, glass: glass)
                 : null,
             notice: ChatNoticeBar(controller: _chatNotice),
