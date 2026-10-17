@@ -929,14 +929,14 @@ String _ruleTitle(AppLocalizations l, PingRule rule) => switch (rule.kind) {
   _ => rule.pattern,
 };
 
-/// Only what differs from the defaults (whole word, @mentions).
+/// Only what differs from the defaults (whole word). The level shows on the
+/// tile's own slider, so it is not repeated here.
 String? _ruleSubtitle(AppLocalizations l, PingRule rule) {
   final parts = [
     if (_isListRule(rule) &&
         rule.kind == PingRuleKind.message &&
         !rule.wordBoundary)
       l.matchAnywhere,
-    if (_canNotify(rule) && !rule.mention) l.highlightOnly,
   ];
   return parts.isEmpty ? null : parts.join(' · ');
 }
