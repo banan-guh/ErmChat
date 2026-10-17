@@ -24,6 +24,7 @@ void main() {
     bool bodyReadsKeyboard = true,
     bool keyboardHidesButtons = false,
     Widget? bottomBar,
+    Widget? islandFooter,
   }) {
     return tester.pumpWidget(
       MaterialApp(
@@ -38,6 +39,7 @@ void main() {
                 ? TextField(key: const Key('message_input'), focusNode: focus)
                 : null,
             bottomBar: bottomBar,
+            islandFooter: islandFooter,
             bodyBuilder:
                 (
                   context, {
@@ -136,12 +138,20 @@ void main() {
     tester.view.viewInsets = FakeViewPadding.zero;
     addTearDown(tester.view.reset);
 
+    // The status line swaps by itself on a channel switch, with no
+    // ChatBody rebuild.
+    final status = ValueNotifier(20.0);
+    addTearDown(status.dispose);
     await pumpBody(
       tester,
       liquidGlass: false,
       focus: focus,
       keyboardHidesButtons: true,
       bottomBar: const SizedBox(key: Key('test_bar'), height: 48),
+      islandFooter: ValueListenableBuilder<double>(
+        valueListenable: status,
+        builder: (_, h, _) => SizedBox(height: h),
+      ),
     );
     await tester.pumpAndSettle();
 
@@ -166,7 +176,7 @@ void main() {
     );
 
     // A tall keyboard pushes the field one margin above the keyboard top and
-    // leaves the row clipped below that line.
+    // leaves the row and the status line clipped below that line.
     tester.view.viewInsets = const FakeViewPadding(bottom: 300);
     await tester.pump(const Duration(milliseconds: 16));
     await tester.pump(const Duration(milliseconds: 300));
@@ -176,6 +186,18 @@ void main() {
       tester.getRect(bar).top,
       greaterThanOrEqualTo(fieldBottom - 0.5),
       reason: 'the row must sit below the clip line, hidden',
+    );
+
+    // A channel switch drops the status with the keyboard up: a stale
+    // status height left the row's top peeking out under the field.
+    status.value = 0;
+    await tester.pump();
+    await tester.pump();
+    expect(tester.getRect(field).bottom, closeTo(fieldBottom, 0.5));
+    expect(
+      tester.getRect(island).bottom,
+      closeTo(fieldBottom, 0.5),
+      reason: 'the clip follows the new status height',
     );
   });
 

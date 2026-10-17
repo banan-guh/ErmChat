@@ -404,15 +404,19 @@ class _ChatBodyState extends State<ChatBody>
     if (h != null && (h - _islandH).abs() > 0.5) {
       setState(() => _islandH = h);
     }
-    // A shortened island would read as a smaller one; keep the full height.
+    // The clip leaves the footer's own layout whole, so it measures true
+    // under the keyboard too.
+    final footer = _footerKey.currentContext?.size?.height ?? 0;
+    final footerDelta = footer - _footerH;
+    // A shortened island would read as a smaller one, so a clipped island
+    // keeps its full height and grows only by what the footer changed.
     final outer = _rowClip > 0
-        ? null
+        ? _islandOuterH + footerDelta
         : _islandOuterKey.currentContext?.size?.height;
     if (outer != null && (outer - _islandOuterH).abs() > 0.5) {
       setState(() => _islandOuterH = outer);
     }
-    final footer = _footerKey.currentContext?.size?.height ?? 0;
-    if (_rowClip <= 0 && (footer - _footerH).abs() > 0.5) {
+    if (footerDelta.abs() > 0.5) {
       setState(() => _footerH = footer);
     }
   }
@@ -475,11 +479,11 @@ class _ChatBodyState extends State<ChatBody>
     if (showIsland || pane) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _cacheIslandH());
     }
-    // The row is whatever sits below the field inside the island, less
-    // the footer that hidden mode keeps above it.
-    final keptH =
-        (composer == null ? 0.0 : _composerH) + (hidden ? _footerH : 0);
-    final rowH = (_islandH - keptH).clamp(0.0, _islandH);
+    // The row is whatever sits below the field inside the island, the
+    // status footer included.
+    final rowH = composer == null
+        ? _islandH
+        : (_islandH - _composerH).clamp(0.0, _islandH);
     final islandBottom = kComposerIslandMargin + bottomPad;
     // Hidden mode pins the island above the nav bar (the padding shrinks
     // under the keyboard, the nav bar does not) and clips the row from below
@@ -638,9 +642,22 @@ class _ChatBodyState extends State<ChatBody>
     // the shell from below as the keyboard rises, so its rim and corners
     // reshape around what is left instead of being cut off.
     _rowClip = hidden ? clipRow : 0;
+    // The footer resizes on its own (a channel switch swaps the status), so
+    // it re-measures the island itself rather than waiting on a rebuild.
     final footer = widget.islandFooter == null
         ? null
-        : KeyedSubtree(key: _footerKey, child: widget.islandFooter!);
+        : KeyedSubtree(
+            key: _footerKey,
+            child: NotificationListener<SizeChangedLayoutNotification>(
+              onNotification: (_) {
+                WidgetsBinding.instance.addPostFrameCallback(
+                  (_) => _cacheIslandH(),
+                );
+                return true;
+              },
+              child: SizeChangedLayoutNotifier(child: widget.islandFooter!),
+            ),
+          );
     const radius = BorderRadius.all(Radius.circular(kComposerIslandRadius));
     final island = ComposerFocusGlow(
       key: _islandOuterKey,
@@ -656,16 +673,13 @@ class _ChatBodyState extends State<ChatBody>
                 ? (1 - _rowClip / _islandH).clamp(0.0, 1.0)
                 : 1,
             // The footer spans the island's full width under the side action,
-            // so centered text centers on the whole island. Hidden mode has
-            // no side action and puts it above the row, so the keyboard
-            // clips only the row and the status stays in view.
+            // so centered text centers on the whole island.
             child: Column(
               key: _islandKey,
               mainAxisSize: MainAxisSize.min,
               children: [
                 if (widget.sideAction == null) ...[
                   flowComposer,
-                  if (hidden) ?footer,
                   ?widget.bottomBar,
                 ] else
                   // The side action runs beside the field and the row. The
@@ -690,7 +704,7 @@ class _ChatBodyState extends State<ChatBody>
                       ),
                     ],
                   ),
-                if (!hidden || widget.sideAction != null) ?footer,
+                ?footer,
               ],
             ),
           ),
