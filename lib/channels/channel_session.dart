@@ -321,18 +321,16 @@ class ChannelSession extends ChangeNotifier {
     unawaited(Prefs.load().then((prefs) => config.toPrefs(prefs)));
   }
 
-  // Empty fetch after a restore: robotty filled nothing since the archive, so
-  // mark a gap instead of "no history". Partial fetches mark theirs in merge.
+  // Empty fetch: "no history" unless the archive restored chat. Then robotty
+  // simply has nothing newer, which is no gap. Partial fetches mark theirs in
+  // merge.
   // TODO: mark a likely gap when the newest restored row is older than
   // robotty's retention window, without adding a row on every launch.
   void _noteEmptyHistory(String channel) {
     final restored =
         chat.channelFor(channel)?.messages.items.any((m) => !m.isSystem) ??
         false;
-    _addSystemMessage(
-      channel,
-      restored ? strings().historyGapNote : strings().noChatHistory,
-    );
+    if (!restored) _addSystemMessage(channel, strings().noChatHistory);
   }
 
   void _addSystemMessage(String channel, String text) {

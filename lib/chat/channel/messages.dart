@@ -243,6 +243,7 @@ class Messages {
         break;
       }
     }
+    final bridged = _bridgedGapNotes(rawHistory);
 
     final inserted = <TwitchMessage>[];
     final insertedIds = <String?>{};
@@ -307,6 +308,7 @@ class Messages {
       }
     }
 
+    if (bridged.isNotEmpty) _removeRows(bridged.contains);
     _sortNewestFirst();
     final evicted = truncate(maxMessages, buildExemptions);
     final evictedSet = evicted.toSet();
@@ -632,6 +634,30 @@ class Messages {
       if (!m.isSystem) return true;
     }
     return false;
+  }
+
+  /// Gap notes that [raw] fills: it reaches back to the chat held just
+  /// before a note, so nothing between them is missing any more.
+  Set<TwitchMessage> _bridgedGapNotes(Iterable<TwitchMessage> raw) {
+    DateTime? oldest;
+    for (final m in raw) {
+      if (!m.isSystem && (oldest == null || m.timestamp.isBefore(oldest))) {
+        oldest = m.timestamp;
+      }
+    }
+    final bridged = Set<TwitchMessage>.identity();
+    if (oldest == null) return bridged;
+    // Newest first, so each pending note meets the chat right below it.
+    final pending = <TwitchMessage>[];
+    for (final m in _items) {
+      if (_isGapNote(m)) {
+        pending.add(m);
+      } else if (!m.isSystem && pending.isNotEmpty) {
+        if (!oldest.isAfter(m.timestamp)) bridged.addAll(pending);
+        pending.clear();
+      }
+    }
+    return bridged;
   }
 
   static bool _isGapNote(TwitchMessage m) =>

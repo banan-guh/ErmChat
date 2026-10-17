@@ -494,6 +494,12 @@ void main() {
         ('a fetch after a gap', [(0, 4), (10, 14)], 1),
         ('the same late fetch twice', [(0, 4), (10, 14), (10, 14)], 1),
         ('two separate gaps', [(0, 4), (10, 14), (20, 24)], 2),
+        ('a later fetch bridging the gap', [(0, 4), (10, 14), (2, 16)], 0),
+        (
+          'a later fetch bridging one of two gaps',
+          [(0, 4), (10, 14), (20, 24), (12, 26)],
+          1,
+        ),
       ]) {
         final chat = Chat();
         addTearDown(chat.dispose);
