@@ -353,43 +353,48 @@ class ChatWidgetMinimizedBar extends StatelessWidget {
           glass: glass,
           child: InkWell(
             onTap: onRestore,
-            child: Row(
-              children: [
-                const SizedBox(width: 12),
-                Icon(
-                  pin == null ? icon : Icons.push_pin_outlined,
-                  size: 16,
-                  color: pin == null
-                      ? theme.colorScheme.primary
-                      : theme.colorScheme.onSurfaceVariant,
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: switch (pin) {
-                    final pin? => Text.rich(
-                      TextSpan(
-                        children: pinnedMessageSpans(context, pin, emotes),
+            // The glass surface lays its child out loose, at the top; the
+            // fixed height keeps the row centered on the trigger.
+            child: SizedBox(
+              height: height,
+              child: Row(
+                children: [
+                  const SizedBox(width: 12),
+                  Icon(
+                    pin == null ? icon : Icons.push_pin_outlined,
+                    size: 16,
+                    color: pin == null
+                        ? theme.colorScheme.primary
+                        : theme.colorScheme.onSurfaceVariant,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: switch (pin) {
+                      final pin? => Text.rich(
+                        TextSpan(
+                          children: pinnedMessageSpans(context, pin, emotes),
+                        ),
+                        style: theme.textTheme.bodyMedium,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                       ),
-                      style: theme.textTheme.bodyMedium,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    null => Text(
-                      label(context.l10n),
-                      style: theme.textTheme.labelMedium,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  },
-                ),
-                IconButton(
-                  icon: const Icon(Icons.keyboard_arrow_up, size: 20),
-                  tooltip: context.l10n.restore,
-                  style: _controlStyle,
-                  onPressed: onRestore,
-                ),
-                const SizedBox(width: _controlRight),
-              ],
+                      null => Text(
+                        label(context.l10n),
+                        style: theme.textTheme.labelMedium,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    },
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.keyboard_arrow_up, size: 20),
+                    tooltip: context.l10n.restore,
+                    style: _controlStyle,
+                    onPressed: onRestore,
+                  ),
+                  const SizedBox(width: _controlRight),
+                ],
+              ),
             ),
           ),
         ),
