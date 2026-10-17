@@ -441,9 +441,9 @@ class _ChatBodyState extends State<ChatBody>
     // Hidden-by-keyboard applies to the full-width island only.
     final hidden = widget.keyboardHidesButtons && !pane && !widget.isInPip;
     final showIsland = !widget.isInPip && !pane && (composer != null || hasBar);
-    // Non-glass, keyboard-visible chrome docks under the chat; the glass
-    // island and the hidden-by-keyboard island float over it.
-    final floating = (glass || hidden) && showIsland;
+    // The island floats over the chat in every style, so rows scroll on
+    // behind it.
+    final floating = showIsland;
     // Cache the island height; it feeds the clearance and the hidden clip.
     if (showIsland || pane) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _cacheIslandH());
@@ -652,10 +652,6 @@ class _ChatBodyState extends State<ChatBody>
             bottom: hidden ? hiddenBottom + clipRow : islandBottom,
             child: island,
           );
-    // Docked island: the chat ends above it, so nothing scrolls underneath.
-    final dockedIsland = (widget.isInPip || pane || floating || !showIsland)
-        ? null
-        : Padding(padding: islandPad, child: island);
     // Nothing to show: keep the safe area so the chat never runs under the
     // nav bar.
     final emptyPad = (widget.isInPip || pane || floating || showIsland)
@@ -745,10 +741,8 @@ class _ChatBodyState extends State<ChatBody>
                   ),
                 ),
         ),
-        // Docked island under the chat, or the bare safe-area spacer when
-        // there is no island to show. The floating island lives in the stack
-        // above so the chat scrolls underneath it.
-        ?dockedIsland,
+        // The bare safe-area spacer when there is no island to show. The
+        // island lives in the stack above so the chat scrolls underneath it.
         ?emptyPad,
       ],
     );
