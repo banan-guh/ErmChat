@@ -595,12 +595,13 @@ class _ChatBodyState extends State<ChatBody>
               ),
             ),
     );
-    // Round shell for the island: frosted in glass, one surface tone above
-    // the chat plane otherwise.
+    // Round shell for the island: frosted in glass. Otherwise the focus glow
+    // paints the fill, one surface tone above the chat plane, and this clear
+    // Material only clips and carries the ink.
     Widget islandShell(Widget child) => glass
         ? glassIsland(child: child)
         : Material(
-            color: Theme.of(context).colorScheme.surfaceContainer,
+            type: MaterialType.transparency,
             borderRadius: BorderRadius.circular(kComposerIslandRadius),
             clipBehavior: Clip.antiAlias,
             child: child,
@@ -615,6 +616,7 @@ class _ChatBodyState extends State<ChatBody>
       shape: glass
           ? const RoundedSuperellipseBorder(borderRadius: radius)
           : const RoundedRectangleBorder(borderRadius: radius),
+      surface: glass ? null : Theme.of(context).colorScheme.surfaceContainer,
       child: islandShell(
         ClipRect(
           child: Align(

@@ -225,18 +225,21 @@ Widget glassCard({required Widget child}) => GlassSurface(
   child: child,
 );
 
-// Focus ring for the composer island. The field is borderless, so this
-// rings the whole island in primary while any inner field holds focus,
-// drawn over the shell's edge in the shell's own [shape] (the glass rim is a
-// superellipse), so it never shifts layout.
+// Focus state for the composer island while any inner field holds focus.
+// With a [surface], it paints the island's fill: a hair see-through at rest,
+// opaque and faintly tinted toward primary when focused, so the state shows
+// without a line. Without one (glass), it rings the island in primary over
+// the shell's edge, in the shell's own [shape]. Neither shifts layout.
 class ComposerFocusGlow extends StatelessWidget {
   const ComposerFocusGlow({
     super.key,
     required this.shape,
+    this.surface,
     required this.child,
   });
 
   final OutlinedBorder shape;
+  final Color? surface;
   final Widget child;
 
   @override
@@ -250,6 +253,20 @@ class ComposerFocusGlow extends StatelessWidget {
       child: Builder(
         builder: (context) {
           final lit = Focus.of(context).hasFocus;
+          final fill = surface;
+          if (fill != null) {
+            return AnimatedContainer(
+              duration: const Duration(milliseconds: 150),
+              curve: Curves.easeOut,
+              decoration: ShapeDecoration(
+                shape: shape,
+                color: lit
+                    ? Color.alphaBlend(primary.withValues(alpha: 0.06), fill)
+                    : fill.withValues(alpha: 0.94),
+              ),
+              child: child,
+            );
+          }
           return AnimatedContainer(
             duration: const Duration(milliseconds: 150),
             curve: Curves.easeOut,
