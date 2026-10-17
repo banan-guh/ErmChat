@@ -1892,29 +1892,43 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                     buttonsInRow: buttonsInRow,
                   )
                 : null,
+            // The button row, with the channel status line at the foot.
             bottomBar: hasBottomBar
-                ? _chrome.bottomBar(
-                    context,
-                    glass: glass,
-                    trailing: [
-                      if (buttonsInRow) ...[
-                        ComposerRowButton.emote(
-                          controller: _composer,
-                          search: _search,
-                          mod: _mod,
-                          dragTick: _panelDragTick,
-                        ),
-                        ComposerRowButton.send(
-                          controller: _composer,
-                          search: _search,
-                          mod: _mod,
-                          dragTick: _panelDragTick,
-                        ),
-                      ],
+                ? Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      _chrome.bottomBar(
+                        context,
+                        glass: glass,
+                        trailing: [
+                          if (buttonsInRow) ...[
+                            ComposerRowButton.emote(
+                              controller: _composer,
+                              search: _search,
+                              mod: _mod,
+                              dragTick: _panelDragTick,
+                            ),
+                            ComposerRowButton.send(
+                              controller: _composer,
+                              search: _search,
+                              mod: _mod,
+                              dragTick: _panelDragTick,
+                            ),
+                          ],
+                        ],
+                        // Fullscreen hides the strip, which holds the view
+                        // menu.
+                        withMenu: _isFullscreen,
+                        onCalendar: _channels.openCalendar,
+                      ),
+                      ComposerStatusRow(
+                        controller: _composer,
+                        selectedTabIndex: _selectedTabIndex,
+                        search: _search,
+                        mod: _mod,
+                        dragTick: _panelDragTick,
+                      ),
                     ],
-                    // Fullscreen hides the strip, which holds the view menu.
-                    withMenu: _isFullscreen,
-                    onCalendar: _channels.openCalendar,
                   )
                 : null,
             notice: ChatNoticeBar(controller: _chatNotice),

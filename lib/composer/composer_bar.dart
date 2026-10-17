@@ -114,14 +114,6 @@ class ComposerBar extends StatelessWidget {
                   buttonsInRow: buttonsInRow,
                 ),
               ),
-            if (searchBorrowed || mod.termsChromeHidden)
-              const SizedBox.shrink()
-            else
-              _StatusRow(
-                controller: controller,
-                selectedTabIndex: selectedTabIndex,
-                showStatus: !landscape,
-              ),
           ],
         );
       },
@@ -239,8 +231,47 @@ class _ChannelListener extends StatelessWidget {
   );
 }
 
-/// Under the input: the channel status (portrait only, see [showStatus])
-/// and a retry link when a channel's emotes failed to load.
+/// The channel status line at the island's foot, under the button row, so
+/// it never splits the field from its buttons. Steps aside while search or
+/// block terms borrow the field.
+class ComposerStatusRow extends StatelessWidget {
+  const ComposerStatusRow({
+    super.key,
+    required this.controller,
+    required this.selectedTabIndex,
+    required this.search,
+    required this.mod,
+    required this.dragTick,
+  });
+
+  final ComposerController controller;
+  final ValueListenable<int> selectedTabIndex;
+  final SearchPanels search;
+  final ModPanels mod;
+  final Listenable dragTick;
+
+  @override
+  Widget build(BuildContext context) => ListenableBuilder(
+    listenable: _enabledInputs(controller, mod, dragTick),
+    builder: (context, _) {
+      final searchBorrowed = search.open && search.selectedChannel() != null;
+      if (searchBorrowed || mod.termsChromeHidden) {
+        return const SizedBox.shrink();
+      }
+      // Landscape moves the status into the field's hint instead.
+      final landscape =
+          MediaQuery.orientationOf(context) == Orientation.landscape;
+      return _StatusRow(
+        controller: controller,
+        selectedTabIndex: selectedTabIndex,
+        showStatus: !landscape,
+      );
+    },
+  );
+}
+
+/// The channel status (portrait only, see [showStatus]) and a retry link
+/// when a channel's emotes failed to load.
 class _StatusRow extends StatelessWidget {
   const _StatusRow({
     required this.controller,
