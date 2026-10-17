@@ -586,7 +586,7 @@ class ChannelPanels {
                     addTab: merged ? homeAppBar.joinTab() : null,
                     onAddTab: homeAppBar.onJoinTab,
                     stripTrailing: merged
-                        ? homeAppBar.chromeMenu(
+                        ? homeAppBar.stripTrailing(
                             glass: glassOverlay || glassChrome,
                             onCalendar: openCalendar,
                           )

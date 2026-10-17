@@ -66,6 +66,7 @@ class ChatBody extends StatefulWidget {
     required this.emoteMaxFraction,
     this.liquidGlass = false,
     this.keyboardHidesButtons = false,
+    this.islandFlush = false,
     this.onKeyboardDismissed,
     this.composer,
     this.bottomBar,
@@ -112,6 +113,10 @@ class ChatBody extends StatefulWidget {
   /// Hides the button row while the keyboard is up instead of pushing it,
   /// by clipping the island from below as the keyboard rises.
   final bool keyboardHidesButtons;
+
+  /// The island runs edge to edge and down under the nav bar, rounded only
+  /// on top, instead of floating a margin in. Takes no hidden row.
+  final bool islandFlush;
 
   /// Fired once the keyboard settles closed, so the host can drop input
   /// focus instead of leaving the field focused silently.
@@ -470,7 +475,9 @@ class _ChatBodyState extends State<ChatBody>
     final hasBar = widget.bottomBar != null && !widget.isInPip;
     final glass = widget.liquidGlass && !MediaQuery.highContrastOf(context);
     // Hidden-by-keyboard applies to the full-width island only.
-    final hidden = widget.keyboardHidesButtons && !pane && !widget.isInPip;
+    final flush = widget.islandFlush && !pane && !widget.isInPip;
+    final hidden =
+        widget.keyboardHidesButtons && !flush && !pane && !widget.isInPip;
     final showIsland = !widget.isInPip && !pane && (composer != null || hasBar);
     // The island floats over the chat in every style, so rows scroll on
     // behind it.
@@ -484,7 +491,7 @@ class _ChatBodyState extends State<ChatBody>
     final rowH = composer == null
         ? _islandH
         : (_islandH - _composerH).clamp(0.0, _islandH);
-    final islandBottom = kComposerIslandMargin + bottomPad;
+    final islandBottom = flush ? 0.0 : kComposerIslandMargin + bottomPad;
     // Hidden mode pins the island above the nav bar (the padding shrinks
     // under the keyboard, the nav bar does not) and clips the row from below
     // as the keyboard rises past it, so the visible bottom edge rides the
@@ -504,6 +511,8 @@ class _ChatBodyState extends State<ChatBody>
           ? 0.0
           : hidden
           ? hiddenBottom + _islandOuterH
+          : flush
+          ? _islandOuterH
           : glassComposerOverlayHeight(_islandOuterH) + bottomPad,
       animate: floatingFlipped,
     );
@@ -630,14 +639,28 @@ class _ChatBodyState extends State<ChatBody>
     // Round shell for the island: frosted in glass. Otherwise the focus glow
     // paints the fill, one surface tone above the chat plane, and this clear
     // Material only clips and carries the ink.
-    Widget islandShell(Widget child) => glass
-        ? glassIsland(child: child)
-        : Material(
-            type: MaterialType.transparency,
-            borderRadius: BorderRadius.circular(kComposerIslandRadius),
-            clipBehavior: Clip.antiAlias,
-            child: child,
-          );
+    const corner = Radius.circular(kComposerIslandRadius);
+    final radius = flush
+        ? const BorderRadius.vertical(top: corner)
+        : const BorderRadius.all(corner);
+    Widget islandShell(Widget child) {
+      // Flush, the island pays the nav bar inside its own fill.
+      final body = flush
+          ? Padding(
+              padding: EdgeInsets.only(bottom: bottomPad),
+              child: child,
+            )
+          : child;
+      return glass
+          ? glassIsland(child: body)
+          : Material(
+              type: MaterialType.transparency,
+              borderRadius: radius,
+              clipBehavior: Clip.antiAlias,
+              child: body,
+            );
+    }
+
     // One island: field and button row in one shell. Hidden mode shortens
     // the shell from below as the keyboard rises, so its rim and corners
     // reshape around what is left instead of being cut off.
@@ -658,12 +681,11 @@ class _ChatBodyState extends State<ChatBody>
               child: SizeChangedLayoutNotifier(child: widget.islandFooter!),
             ),
           );
-    const radius = BorderRadius.all(Radius.circular(kComposerIslandRadius));
     final island = ComposerFocusGlow(
       key: _islandOuterKey,
       shape: glass
-          ? const RoundedSuperellipseBorder(borderRadius: radius)
-          : const RoundedRectangleBorder(borderRadius: radius),
+          ? RoundedSuperellipseBorder(borderRadius: radius)
+          : RoundedRectangleBorder(borderRadius: radius),
       surface: glass ? null : Theme.of(context).colorScheme.surfaceContainer,
       child: islandShell(
         ClipRect(
@@ -725,8 +747,8 @@ class _ChatBodyState extends State<ChatBody>
         ? null
         : Positioned(
             key: const ValueKey('composer_island'),
-            left: kComposerIslandMargin,
-            right: kComposerIslandMargin,
+            left: flush ? 0 : kComposerIslandMargin,
+            right: flush ? 0 : kComposerIslandMargin,
             bottom: hidden ? hiddenBottom + clipRow : islandBottom,
             child: island,
           );

@@ -245,6 +245,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 
   /// Liquid glass chrome (default off; toggled in Customization).
   bool _liquidGlass = false;
+  ChromeTheme _chromeTheme = ChromeTheme.ermchat;
 
   /// 7TV name paints (default off; toggled in Chat settings).
   bool _showNamePaints = false;
@@ -504,6 +505,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     reloadEmotes: _emotes.reload,
     reconnect: _reconnect,
     openSettings: _openSettings,
+    actionsInStrip: () => _chromeTheme == ChromeTheme.dankchat3,
   );
 
   late final ChannelPanels _channels = ChannelPanels(
@@ -1387,6 +1389,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
         _preferEmotesFirst != prefs.preferEmotesFirst ||
         _fastSnap != prefs.fastChannelSnap ||
         _liquidGlass != prefs.liquidGlass ||
+        _chromeTheme != prefs.chromeTheme ||
         _showInput != prefs.showInput;
 
     void apply() {
@@ -1408,6 +1411,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       _lineSeparator = prefs.lineSeparator;
       _fastSnap = prefs.fastChannelSnap;
       _liquidGlass = prefs.liquidGlass;
+      _chromeTheme = prefs.chromeTheme;
       _showNamePaints = prefs.seventvNamePaints;
       _showGifs = prefs.giphyInlineEnabled;
       _gifHeight = gifHeight;
@@ -1777,14 +1781,23 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     // The compact layout hides the row under the keyboard (a layout
     // override). Emote and send join the row when it stays up while typing
     // (the pane keeps it up in either mode), so send sits under the thumb.
-    final keyboardHidesRow = resolveLayoutOverride(
-      context,
-      (o) => o.keyboardHidesRow,
-    );
+    // DankChat 3 drops the row (its actions sit in the strip); DankChat 4
+    // keeps it up while typing, with send at its end.
+    final rowless = _chromeTheme == ChromeTheme.dankchat3;
+    final flush = _chromeTheme == ChromeTheme.dankchat4;
+    final keyboardHidesRow =
+        !flush && resolveLayoutOverride(context, (o) => o.keyboardHidesRow);
     final buttonsInRow =
         hasBottomBar &&
         _showInput &&
+        !rowless &&
         (!keyboardHidesRow || _stream.chatInPane(context));
+    final sendButton = ComposerRowButton.send(
+      controller: _composer,
+      search: _search,
+      mod: _mod,
+      dragTick: _panelDragTick,
+    );
     // Watched, not read: the send path clears the reply without a setState.
     final replyMsg = ref.watch(replyToProvider);
     final replyHeader =
@@ -1901,10 +1914,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                     buttonsInRow: buttonsInRow,
                   )
                 : null,
-            bottomBar: hasBottomBar
+            bottomBar: hasBottomBar && !rowless
                 ? _chrome.bottomBar(
                     context,
                     glass: glass,
+                    actionsRight: flush,
+                    trailing: [
+                      if (flush && buttonsInRow)
+                        SizedBox.square(dimension: 48, child: sendButton),
+                    ],
                     leading: buttonsInRow
                         ? ComposerRowButton.emote(
                             controller: _composer,
@@ -1930,14 +1948,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                   )
                 : null,
             // Send runs down the island's side while the row stays up.
-            sideAction: buttonsInRow
-                ? ComposerRowButton.send(
-                    controller: _composer,
-                    search: _search,
-                    mod: _mod,
-                    dragTick: _panelDragTick,
-                  )
-                : null,
+            sideAction: buttonsInRow && !flush ? sendButton : null,
+            islandFlush: flush,
             notice: ChatNoticeBar(controller: _chatNotice),
             replyHeader: replyHeader,
             liquidGlass: glass,

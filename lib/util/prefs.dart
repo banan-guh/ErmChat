@@ -370,6 +370,16 @@ class Prefs {
   Future<void> setOverrideKeyboardHidesRow(bool value) =>
       _p.setBool(_kOverrideKeyboardHidesRow, value);
 
+  static const _kChromeTheme = 'chrome_theme';
+
+  ChromeTheme get chromeTheme => ChromeTheme.values.firstWhere(
+    (t) => t.name == _p.getString(_kChromeTheme),
+    orElse: () => ChromeTheme.ermchat,
+  );
+
+  Future<void> setChromeTheme(ChromeTheme value) =>
+      _p.setString(_kChromeTheme, value.name);
+
   static const _kLiquidGlass = 'liquid_glass';
 
   bool get liquidGlass => _p.getBool(_kLiquidGlass) ?? false;

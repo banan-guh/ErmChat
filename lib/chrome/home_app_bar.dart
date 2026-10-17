@@ -43,6 +43,7 @@ class HomeAppBar {
     required this.reloadEmotes,
     required this.reconnect,
     required this.openSettings,
+    required this.actionsInStrip,
   });
 
   final Chat chat;
@@ -69,6 +70,9 @@ class HomeAppBar {
   final VoidCallback reloadEmotes;
   final VoidCallback reconnect;
   final VoidCallback openSettings;
+
+  /// The chrome theme moves the row's actions up into the tab strip.
+  final bool Function() actionsInStrip;
 
   bool _isChannelLive(String channel) =>
       chat.channelFor(channel)?.info.isLive ?? false;
@@ -106,6 +110,24 @@ class HomeAppBar {
             chatConn.isAutomodActive(channel);
       },
       onToggleSearch: toggleSearch,
+    );
+  }
+
+  /// The strip's end: the view menu, after the row's actions when the
+  /// chrome theme puts them up here.
+  Widget stripTrailing({bool glass = false, VoidCallback? onCalendar}) {
+    final menu = chromeMenu(glass: glass, onCalendar: onCalendar);
+    if (!actionsInStrip()) return menu;
+    return Builder(
+      builder: (context) => Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          mentionsButton(context),
+          settingsButton(context),
+          overflowMenu(context, glass: glass),
+          menu,
+        ],
+      ),
     );
   }
 
@@ -221,24 +243,27 @@ class HomeAppBar {
   /// The island's button row: [leading] (the composer's emote button) and
   /// the chrome buttons on the left, [trailing] (send) on the right. The
   /// island draws the surface, so the row is bare. [withMenu] adds the view
-  /// menu, for when the strip that holds it is hidden.
+  /// menu, for when the strip that holds it is hidden. [actionsRight] moves
+  /// the chrome buttons over beside [trailing].
   Widget bottomBar(
     BuildContext context, {
     bool glass = false,
     Widget? leading,
     List<Widget> trailing = const [],
     bool withMenu = false,
+    bool actionsRight = false,
     VoidCallback? onCalendar,
   }) {
     final row = Row(
       children: [
         ?leading,
+        if (actionsRight) const Spacer(),
         settingsButton(context),
         overflowMenu(context, glass: glass),
         threadsButton(context),
         mentionsButton(context),
         if (withMenu) chromeMenu(glass: glass, onCalendar: onCalendar),
-        const Spacer(),
+        if (!actionsRight) const Spacer(),
         ...trailing,
       ],
     );

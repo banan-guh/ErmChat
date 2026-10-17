@@ -103,6 +103,40 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
     setState(() {});
   }
 
+  ChromeTheme get _chromeTheme => _prefs?.chromeTheme ?? ChromeTheme.ermchat;
+
+  String _chromeThemeLabel(ChromeTheme t) => switch (t) {
+    ChromeTheme.ermchat => context.l10n.chromeThemeErmchat,
+    ChromeTheme.dankchat3 => context.l10n.chromeThemeDankchat3,
+    ChromeTheme.dankchat4 => context.l10n.chromeThemeDankchat4,
+  };
+
+  Future<void> _pickChromeTheme() async {
+    final selected = await showChoiceDialog<ChromeTheme>(
+      context,
+      title: Setting.chromeTheme.titleOf(context.l10n),
+      value: _chromeTheme,
+      options: [
+        for (final t in ChromeTheme.values)
+          (
+            t,
+            _chromeThemeLabel(t),
+            switch (t) {
+              ChromeTheme.ermchat => context.l10n.chromeThemeErmchatHint,
+              ChromeTheme.dankchat3 => context.l10n.chromeThemeDankchat3Hint,
+              ChromeTheme.dankchat4 => context.l10n.chromeThemeDankchat4Hint,
+            },
+          ),
+      ],
+    );
+    if (selected == null || selected == _chromeTheme) return;
+    final prefs = _prefs ?? await Prefs.load();
+    await prefs.setChromeTheme(selected);
+    PrefsStore.instance.notifyChanged();
+    if (!mounted) return;
+    setState(() {});
+  }
+
   String get _timestampFormat =>
       _prefs?.timestampFormat ?? kDefaultTimestampFormat;
 
@@ -208,6 +242,15 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
               ),
               trailing: const Icon(Icons.chevron_right),
               onTap: () => _pickLayoutDensity(context),
+            ),
+          ),
+          SettingAnchor(
+            Setting.chromeTheme,
+            child: ListTile(
+              title: Text(Setting.chromeTheme.titleOf(context.l10n)),
+              subtitle: Text(_chromeThemeLabel(_chromeTheme)),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: _pickChromeTheme,
             ),
           ),
           SettingAnchor(
