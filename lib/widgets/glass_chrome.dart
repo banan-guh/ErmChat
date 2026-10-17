@@ -225,20 +225,18 @@ Widget glassCard({required Widget child}) => GlassSurface(
   child: child,
 );
 
-// Focus glow for the composer. The opaque field gets the framework focus
-// ring, but the borderless glass field has no outline to tint, so this
-// rings the island in primary with a soft halo while any inner field holds
-// focus. Disabled, it adds nothing to layout.
+// Focus ring for the composer island. The field is borderless, so this
+// rings the whole island in primary while any inner field holds focus,
+// drawn over the shell's edge in the shell's own [shape] (the glass rim is a
+// superellipse), so it never shifts layout.
 class ComposerFocusGlow extends StatelessWidget {
   const ComposerFocusGlow({
     super.key,
-    required this.enabled,
-    required this.radius,
+    required this.shape,
     required this.child,
   });
 
-  final bool enabled;
-  final double radius;
+  final OutlinedBorder shape;
   final Widget child;
 
   @override
@@ -251,28 +249,19 @@ class ComposerFocusGlow extends StatelessWidget {
       // already focused (the pill hand-off) lights the new shell at once.
       child: Builder(
         builder: (context) {
-          final lit = enabled && Focus.of(context).hasFocus;
+          final lit = Focus.of(context).hasFocus;
           return AnimatedContainer(
-            duration: const Duration(milliseconds: 200),
+            duration: const Duration(milliseconds: 150),
             curve: Curves.easeOut,
-            // The border stays while enabled so focus never shifts layout.
-            decoration: enabled
-                ? BoxDecoration(
-                    borderRadius: BorderRadius.circular(radius),
-                    border: Border.all(
-                      color: primary.withValues(alpha: lit ? 0.45 : 0),
-                    ),
-                    boxShadow: lit
-                        ? [
-                            BoxShadow(
-                              color: primary.withValues(alpha: 0.04),
-                              blurRadius: 8,
-                              spreadRadius: 1,
-                            ),
-                          ]
-                        : const [],
-                  )
-                : null,
+            foregroundDecoration: ShapeDecoration(
+              shape: shape.copyWith(
+                side: BorderSide(
+                  color: primary.withValues(alpha: lit ? 0.8 : 0),
+                  width: 1.5,
+                  strokeAlign: BorderSide.strokeAlignInside,
+                ),
+              ),
+            ),
             child: child,
           );
         },

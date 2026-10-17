@@ -1,7 +1,7 @@
 import 'widget_test_harness.dart';
 
 void main() {
-  Future<FocusNode> pumpGlow(WidgetTester tester, {required bool enabled}) {
+  Future<FocusNode> pumpGlow(WidgetTester tester) {
     final focusNode = FocusNode();
     addTearDown(focusNode.dispose);
     return tester
@@ -9,8 +9,11 @@ void main() {
           MaterialApp(
             home: Scaffold(
               body: ComposerFocusGlow(
-                enabled: enabled,
-                radius: kComposerIslandRadius,
+                shape: const RoundedRectangleBorder(
+                  borderRadius: BorderRadius.all(
+                    Radius.circular(kComposerIslandRadius),
+                  ),
+                ),
                 child: TextField(focusNode: focusNode),
               ),
             ),
@@ -19,30 +22,28 @@ void main() {
         .then((_) => focusNode);
   }
 
-  double outlineAlpha(WidgetTester tester) {
+  double ringAlpha(WidgetTester tester) {
     final box = tester.widget<AnimatedContainer>(
       find.descendant(
         of: find.byType(ComposerFocusGlow),
         matching: find.byType(AnimatedContainer),
       ),
     );
-    final decoration = box.decoration as BoxDecoration?;
-    return (decoration?.border as Border?)?.top.color.a ?? 0;
+    final decoration = box.foregroundDecoration as ShapeDecoration?;
+    return (decoration?.shape as OutlinedBorder?)?.side.color.a ?? 0;
   }
 
-  testWidgets('glows while focused and stays flat when disabled', (
-    tester,
-  ) async {
-    final focusNode = await pumpGlow(tester, enabled: true);
-    expect(outlineAlpha(tester), 0);
+  testWidgets('rings while focused without resizing the field', (tester) async {
+    final focusNode = await pumpGlow(tester);
+    expect(ringAlpha(tester), 0);
     final size = tester.getSize(find.byType(TextField));
 
     // Focus resolves in a microtask, so the first pump applies it and the
-    // second rebuilds with the glow.
+    // second rebuilds with the ring.
     focusNode.requestFocus();
     await tester.pump();
     await tester.pump();
-    expect(outlineAlpha(tester), greaterThan(0));
+    expect(ringAlpha(tester), greaterThan(0));
     expect(
       tester.getSize(find.byType(TextField)),
       size,
@@ -52,14 +53,6 @@ void main() {
     focusNode.unfocus();
     await tester.pump();
     await tester.pump();
-    expect(outlineAlpha(tester), 0);
-
-    // Disabled fields keep focus but never glow.
-    final disabledNode = await pumpGlow(tester, enabled: false);
-    disabledNode.requestFocus();
-    await tester.pump();
-    await tester.pump();
-    expect(disabledNode.hasFocus, isTrue);
-    expect(outlineAlpha(tester), 0);
+    expect(ringAlpha(tester), 0);
   });
 }

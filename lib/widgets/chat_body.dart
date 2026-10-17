@@ -166,6 +166,9 @@ class _ChatBodyState extends State<ChatBody>
   // zero when the row never hides.
   double _hideSpan = 0;
 
+  // How much of the row the shortened island hides this frame.
+  double _rowClip = 0;
+
   // Cached chat body and the inputs it was built from.
   Widget? _body;
   Object? _bodyInputs;
@@ -378,7 +381,10 @@ class _ChatBodyState extends State<ChatBody>
     if (h != null && (h - _islandH).abs() > 0.5) {
       setState(() => _islandH = h);
     }
-    final outer = _islandOuterKey.currentContext?.size?.height;
+    // A shortened island would read as a smaller one; keep the full height.
+    final outer = _rowClip > 0
+        ? null
+        : _islandOuterKey.currentContext?.size?.height;
     if (outer != null && (outer - _islandOuterH).abs() > 0.5) {
       setState(() => _islandOuterH = outer);
     }
@@ -599,17 +605,29 @@ class _ChatBodyState extends State<ChatBody>
             clipBehavior: Clip.antiAlias,
             child: child,
           );
-    // One island: field and button row in a shell whose layout never changes
-    // with the keyboard.
+    // One island: field and button row in one shell. Hidden mode shortens
+    // the shell from below as the keyboard rises, so its rim and corners
+    // reshape around what is left instead of being cut off.
+    _rowClip = hidden ? clipRow : 0;
+    const radius = BorderRadius.all(Radius.circular(kComposerIslandRadius));
     final island = ComposerFocusGlow(
       key: _islandOuterKey,
-      enabled: glass,
-      radius: kComposerIslandRadius,
+      shape: glass
+          ? const RoundedSuperellipseBorder(borderRadius: radius)
+          : const RoundedRectangleBorder(borderRadius: radius),
       child: islandShell(
-        Column(
-          key: _islandKey,
-          mainAxisSize: MainAxisSize.min,
-          children: [flowComposer, ?widget.bottomBar],
+        ClipRect(
+          child: Align(
+            alignment: Alignment.topCenter,
+            heightFactor: _islandH > 0
+                ? (1 - _rowClip / _islandH).clamp(0.0, 1.0)
+                : 1,
+            child: Column(
+              key: _islandKey,
+              mainAxisSize: MainAxisSize.min,
+              children: [flowComposer, ?widget.bottomBar],
+            ),
+          ),
         ),
       ),
     );
@@ -621,19 +639,16 @@ class _ChatBodyState extends State<ChatBody>
     );
     // The composer docked under the chat pane.
     final paneSlot = !pane ? null : Padding(padding: islandPad, child: island);
-    // Floating island. Hidden mode keeps it pinned to the screen bottom and
-    // clips the row from below; otherwise it rides the keyboard. The clip
-    // stays mounted so the island never reparents mid-gesture.
+    // Floating island. Hidden mode keeps its top pinned while the shell
+    // shortens from below; otherwise it rides the keyboard.
     final floatingIsland = !floating
         ? null
         : Positioned(
             key: const ValueKey('composer_island'),
             left: kComposerIslandMargin,
             right: kComposerIslandMargin,
-            bottom: hidden ? hiddenBottom : islandBottom,
-            child: hidden
-                ? ClipRRect(clipper: _IslandBottomClip(clipRow), child: island)
-                : island,
+            bottom: hidden ? hiddenBottom + clipRow : islandBottom,
+            child: island,
           );
     // Docked island: the chat ends above it, so nothing scrolls underneath.
     final dockedIsland = (widget.isInPip || pane || floating || !showIsland)
@@ -743,34 +758,6 @@ class _ChatBodyState extends State<ChatBody>
       },
     );
   }
-}
-
-/// Clips the bottom [clip] pixels of the composer island, hiding the button
-/// row under the keyboard without moving or resizing it. The cut edge keeps
-/// the island's rounded corners; with nothing cut, nothing clips.
-class _IslandBottomClip extends CustomClipper<RRect> {
-  const _IslandBottomClip(this.clip);
-
-  final double clip;
-
-  @override
-  RRect getClip(Size size) {
-    if (clip <= 0) {
-      return RRect.fromLTRBR(-1e4, -1e4, 1e4, 1e4, Radius.zero);
-    }
-    const r = Radius.circular(kComposerIslandRadius);
-    return RRect.fromLTRBAndCorners(
-      0,
-      -1e4,
-      size.width,
-      size.height - clip,
-      bottomLeft: r,
-      bottomRight: r,
-    );
-  }
-
-  @override
-  bool shouldReclip(_IslandBottomClip oldClipper) => oldClipper.clip != clip;
 }
 
 /// A number that eases to a new target over 220ms instead of jumping, or

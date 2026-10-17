@@ -211,8 +211,8 @@ void main() {
         matching: find.byType(AnimatedContainer),
       ),
     );
-    final outline = glow.decoration! as BoxDecoration;
-    expect((outline.border! as Border).top.color.a, greaterThan(0));
+    final ring = glow.foregroundDecoration! as ShapeDecoration;
+    expect((ring.shape as OutlinedBorder).side.color.a, greaterThan(0));
   });
 
   // Fullscreen hides the nav bar: the composer eases down into the freed
