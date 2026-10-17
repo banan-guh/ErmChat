@@ -17,6 +17,10 @@ const double kComposerIslandRadius = 16.0;
 // Gap the list keeps above the in-flow composer when the glass pill is off.
 const double kOpaqueComposerGap = 4.0;
 
+// Gap the newest row keeps above a floating island at rest: the docked
+// island's list gap plus its top margin, so both modes read the same.
+const double kFloatingComposerGap = kOpaqueComposerGap + kComposerIslandMargin;
+
 // Compact header height: status bar plus the merged tab strip, which
 // carries the app bar actions, so there is no app bar row.
 double glassCompactHeaderHeight(BuildContext context) =>

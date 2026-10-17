@@ -1570,11 +1570,12 @@ class _HistoryViewState extends State<HistoryView> {
     final glass = scope?.glass ?? false;
     final floating = (scope?.bottomClearance ?? 0) > 0.5;
     // The docked island sits flush under the list, so keep a small fixed gap
-    // above it. A floating island clears by its measured footprint instead,
-    // and rows scroll on behind it.
+    // above it. A floating island clears by its measured footprint plus the
+    // same visual gap, and rows scroll on behind it.
     final island = floating ? scope!.bottomClearance : 0.0;
     final bottom =
-        (floating ? island : kOpaqueComposerGap) + (scope?.listExtra ?? 0);
+        (floating ? island + kFloatingComposerGap : kOpaqueComposerGap) +
+        (scope?.listExtra ?? 0);
     _status =
         'win ${_window.length}  ${_window.first}-${_window.end}  '
         'anchor $_anchor';

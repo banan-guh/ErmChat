@@ -371,9 +371,13 @@ class _ChatViewState extends State<ChatView>
     _beginBuiltRange();
     final empty = msgs.isEmpty;
     // Opaque in-flow composer sits flush under the list, so keep a small
-    // fixed gap above it. Glass mode clears the measured pill instead.
+    // fixed gap above it. A floating island clears its measured footprint
+    // plus the same visual gap.
     final listBottom =
-        (_effBottom > 0.5 ? _effBottom : kOpaqueComposerGap) + _listExtra;
+        (_effBottom > 0.5
+            ? _effBottom + kFloatingComposerGap
+            : kOpaqueComposerGap) +
+        _listExtra;
     if (!empty) {
       final cache = widget.tileCache?.putIfAbsent(
         widget.channel,
