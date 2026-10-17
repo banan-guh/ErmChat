@@ -947,6 +947,24 @@ void main() {
       isFalse,
       reason: 'a poll of a live stream changes nothing',
     );
+    final day = DateTime.utc(2026, 8, 6).millisecondsSinceEpoch;
+    expect(
+      [for (final p in await store.pins(_channel)) p.startTs],
+      [day],
+      reason: 'a pinned day reads back',
+    );
+    await store.removePin(
+      _channel,
+      day,
+      DateTime.utc(2026, 8, 6, 23, 59).millisecondsSinceEpoch,
+      'day',
+    );
+    expect(await store.pins(_channel), isEmpty);
+    expect(
+      await store.prune(now),
+      1,
+      reason: 'an unpinned day is pruned like any other',
+    );
     await put(DateTime.utc(2026, 8, 2), DateTime.utc(2026, 8, 2, 1));
     now = now.add(const Duration(minutes: 30));
     expect(await store.pruneIfDue(), 0, reason: 'at most hourly');

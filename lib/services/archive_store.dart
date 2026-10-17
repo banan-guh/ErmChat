@@ -657,6 +657,38 @@ class ArchiveStore {
         'kind': kind,
       }, conflictAlgorithm: ConflictAlgorithm.ignore);
 
+  /// Releases a pin made with [addPin], so retention covers the range again.
+  Future<void> removePin(String channel, int startTs, int endTs, String kind) =>
+      _db.delete(
+        'pins',
+        where: 'channel = ? AND start_ts = ? AND end_ts = ? AND kind = ?',
+        whereArgs: [channel, startTs, endTs, kind],
+      );
+
+  /// The pins of [channel], as (start, end, kind).
+  Future<List<({int startTs, int endTs, String kind})>> pins(
+    String channel,
+  ) async {
+    final r = await _db.rawQuery(
+      'SELECT start_ts, end_ts, kind FROM pins WHERE channel = ?',
+      [channel],
+    );
+    return [
+      for (final row in r)
+        (
+          startTs: row['start_ts']! as int,
+          endTs: row['end_ts']! as int,
+          kind: row['kind']! as String,
+        ),
+    ];
+  }
+
+  /// Remembers the video on demand of the broadcast [id].
+  Future<void> setVod(String id, String vodId) => _db.rawUpdate(
+    'UPDATE streams SET vod_id = ? WHERE stream_id = ?',
+    [vodId, id],
+  );
+
   /// Records a broadcast seen live. A later call for the same [id] only
   /// clears its end, since Helix listing it live means it has not ended.
   /// Returns whether anything changed.
@@ -992,12 +1024,19 @@ class ArchiveStore {
   /// oldest first. A live one has a null end.
   Future<
     List<
-      ({String id, int startedTs, int? endedTs, String? title, String? game})
+      ({
+        String id,
+        int startedTs,
+        int? endedTs,
+        String? title,
+        String? game,
+        String? vodId,
+      })
     >
   >
   streams(String channel, int fromTs) async {
     final r = await _db.rawQuery(
-      'SELECT stream_id, started_at, ended_at, title, game FROM streams '
+      'SELECT stream_id, started_at, ended_at, title, game, vod_id FROM streams '
       'WHERE channel = ? AND (ended_at IS NULL OR ended_at >= ?) '
       'ORDER BY started_at',
       [channel, fromTs],
@@ -1010,6 +1049,7 @@ class ArchiveStore {
           endedTs: row['ended_at'] as int?,
           title: row['title'] as String?,
           game: row['game'] as String?,
+          vodId: row['vod_id'] as String?,
         ),
     ];
   }
@@ -1478,8 +1518,7 @@ class ArchiveStore {
   }
 
   /// Deletes blocks, minute counts, moderation and ended broadcasts older than
-  /// [retention] relative to [now], except blocks and counts overlapping a
-  /// pin. Returns blocks deleted.
+  /// [retention] relative to [now], except those overlapping a pin. Returns blocks deleted.
   Future<int> prune(DateTime now) async {
     final cutoff = now.toUtc().subtract(retention).millisecondsSinceEpoch;
     return _db.transaction((txn) async {
@@ -1496,8 +1535,18 @@ class ArchiveStore {
         'AND p.end_ts >= minute_counts.minute * 60000)',
         [cutoff ~/ 60000],
       );
-      await txn.rawDelete('DELETE FROM streams WHERE ended_at < ?', [cutoff]);
-      await txn.rawDelete('DELETE FROM moderation WHERE to_ts < ?', [cutoff]);
+      await txn.rawDelete(
+        'DELETE FROM streams WHERE ended_at < ? AND NOT EXISTS ('
+        'SELECT 1 FROM pins p WHERE p.channel = streams.channel '
+        'AND p.start_ts <= streams.ended_at AND p.end_ts >= streams.started_at)',
+        [cutoff],
+      );
+      await txn.rawDelete(
+        'DELETE FROM moderation WHERE to_ts < ? AND NOT EXISTS ('
+        'SELECT 1 FROM pins p WHERE p.channel = moderation.channel '
+        'AND p.start_ts <= moderation.to_ts AND p.end_ts >= moderation.from_ts)',
+        [cutoff],
+      );
       return deleted;
     });
   }

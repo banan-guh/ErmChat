@@ -513,6 +513,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     messageBuilder: _messageBuilder,
     linkWhitelist: _linkWhitelist,
     twitchAuth: _twitchAuth,
+    twitchApi: _twitchApi,
+    streamPlayer: _streamPlayer,
     paintService: _sevenTvPaintService,
     selectedTabIndex: _selectedTabIndex,
     userSheets: _userSheets,
@@ -543,6 +545,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     atBottomNotifier: _atBottomNotifier,
     scrollCtrl: _scrollCtrl,
     archiveReader: ref.read(archiveProvider)?.reader,
+    archive: ref.read(archiveProvider),
     emotesVersion: _emotesVersion,
   );
 

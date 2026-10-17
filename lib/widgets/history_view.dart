@@ -1,7 +1,8 @@
 import 'dart:async';
 import 'dart:math' show max;
 
-import 'package:flutter/foundation.dart' show defaultTargetPlatform;
+import 'package:flutter/foundation.dart'
+    show ValueListenable, defaultTargetPlatform;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/scheduler.dart';
@@ -21,6 +22,32 @@ import 'chat_widget_cutout.dart' show ChatWidgetMinimizedBar;
 import 'chrome_menu_button.dart' show kChromeMenuMargin;
 import 'glass_chrome.dart';
 import 'history_days.dart';
+
+/// What a history page can do with its days and streams beyond reading them.
+class HistoryActions {
+  const HistoryActions({
+    required this.keptDays,
+    required this.keepDay,
+    required this.findVod,
+    required this.watchVod,
+    required this.follow,
+  });
+
+  /// Starts of the days kept past retention.
+  final Future<Set<DateTime>> Function() keptDays;
+
+  /// Keeps or releases the day from the first instant to the second.
+  final Future<void> Function(DateTime start, DateTime end, bool keep) keepDay;
+
+  /// The video on demand of a stream, null when it has none.
+  final Future<String?> Function(HistoryStream stream) findVod;
+
+  /// Plays the video on demand of a stream.
+  final void Function(HistoryStream stream, String vodId) watchVod;
+
+  /// The playing VOD's channel and archive time; the matching page follows.
+  final ValueListenable<({String channel, DateTime time})?> follow;
+}
 
 /// Windowed history list over a [HistorySource].
 ///
@@ -60,6 +87,7 @@ class HistoryView extends StatefulWidget {
     this.emptyStretches = true,
     this.jumpRequest,
     this.calendarRequest,
+    this.actions,
   });
 
   final String channel;
@@ -116,6 +144,9 @@ class HistoryView extends StatefulWidget {
   /// Set true (the menu's calendar) to open the days; consumed and reset to
   /// false.
   final ValueNotifier<bool>? calendarRequest;
+
+  /// Keeping days and watching VODs; null offers neither.
+  final HistoryActions? actions;
 
   @override
   State<HistoryView> createState() => _HistoryViewState();
@@ -280,6 +311,19 @@ class _HistoryViewState extends State<HistoryView> {
   /// The days are open: the list dims under them.
   final ValueNotifier<bool> _panel = ValueNotifier(false);
   bool _railBuilding = false;
+
+  /// Day numbers kept past retention, as of the last read.
+  final ValueNotifier<Set<int>> _kept = ValueNotifier(const {});
+
+  /// Archive time the list last followed a playing VOD to.
+  DateTime? _followedTo;
+
+  /// The last VOD time followed to or seen, to tell a seek from playback.
+  DateTime? _playedTo;
+
+  /// The user scrolled during a VOD: following waits for a seek or the jump
+  /// to newest.
+  bool _replayPaused = false;
   bool _scrolled = false;
   String? _fmtLocale;
   DateFormat? _dayFmt;
@@ -350,6 +394,7 @@ class _HistoryViewState extends State<HistoryView> {
     widget.atBottomNotifier?.addListener(_onAtBottomRequest);
     widget.jumpRequest?.addListener(_onJumpRequest);
     widget.calendarRequest?.addListener(_onCalendarRequest);
+    widget.actions?.follow.addListener(_onFollow);
     _unwatchClears = widget.source.watchClears(_onClear);
     _unwatchStreams = widget.source.watchStreams(_loadStreams);
     if (debugLogEnabled) _probeOpen();
@@ -437,6 +482,10 @@ class _HistoryViewState extends State<HistoryView> {
     if (old.calendarRequest != widget.calendarRequest) {
       old.calendarRequest?.removeListener(_onCalendarRequest);
       widget.calendarRequest?.addListener(_onCalendarRequest);
+    }
+    if (old.actions?.follow != widget.actions?.follow) {
+      old.actions?.follow.removeListener(_onFollow);
+      widget.actions?.follow.addListener(_onFollow);
     }
     if (old.atBottomNotifier != widget.atBottomNotifier) {
       old.atBottomNotifier?.removeListener(_onAtBottomRequest);
@@ -544,8 +593,87 @@ class _HistoryViewState extends State<HistoryView> {
     await _openDays();
   }
 
+  /// Re-reads the kept days.
+  Future<void> _refreshKept() async {
+    final actions = widget.actions;
+    if (actions == null) return;
+    final starts = await actions.keptDays();
+    if (mounted) {
+      _kept.value = {for (final s in starts) dayNumber(s.toLocal())};
+    }
+  }
+
+  Future<void> _keepDay(int day, bool keep) async {
+    final bounds = dayBounds(day);
+    await widget.actions!.keepDay(bounds.start, bounds.end, keep);
+    await _refreshKept();
+  }
+
+  /// The sheet for a day, with a stream's VOD when it is a stream's row.
+  Future<void> _showSheet(
+    String title,
+    int day, {
+    HistoryStream? stream,
+  }) async {
+    final actions = widget.actions;
+    await _refreshKept();
+    if (!mounted) return;
+    await showHistoryMarkerSheet(
+      context,
+      title: title,
+      stream: stream != null,
+      vod: stream == null ? null : actions?.findVod(stream),
+      onWatchVod: actions == null || stream == null
+          ? null
+          : (id) => actions.watchVod(stream, id),
+      kept: actions == null ? null : _kept.value.contains(day),
+      onKeep: actions == null ? null : (keep) => _keepDay(day, keep),
+    );
+  }
+
+  void _onDayLongPress(int day) {
+    final locale = Localizations.localeOf(context).toString();
+    unawaited(
+      _showSheet(DateFormat.MMMMEEEEd(locale).format(dayFromNumber(day)), day),
+    );
+  }
+
+  /// Follows a playing VOD: shows the chat up to its time, moving on once it
+  /// has run [_followEvery] past the last stop or jumped back. Closing the
+  /// VOD returns to the newest row.
+  void _onFollow() {
+    final at = widget.actions?.follow.value;
+    final last = _followedTo;
+    if (at == null) {
+      _playedTo = null;
+      if (last != null) {
+        _followedTo = null;
+        _jumpToNewest();
+      }
+      return;
+    }
+    if (at.channel != widget.channel || !mounted) return;
+    final played = _playedTo;
+    _playedTo = at.time;
+    if (played != null &&
+        at.time.difference(played).abs() > _followEvery ~/ 2) {
+      _replayPaused = false;
+    }
+    if (_replayPaused) return;
+    if (last != null &&
+        !at.time.isBefore(last) &&
+        at.time.difference(last) < _followEvery) {
+      return;
+    }
+    _followedTo = at.time;
+    _jumpTo(at.time);
+  }
+
+  static const _followEvery = Duration(seconds: 8);
+
   Future<void> _openDays() async {
     await _buildRail();
+    unawaited(_refreshKept());
     final rail = _railReady.value;
     if (!mounted || rail == null || !HistoryDays.hasDays(rail)) return;
     _panel.value = true;
@@ -560,6 +688,7 @@ class _HistoryViewState extends State<HistoryView> {
   /// Back to the newest row: a scroll when it is already near, otherwise a
   /// fresh window.
   void _jumpToNewest() {
+    _replayPaused = false;
     _follow = true;
     _atBottom = true;
     _panel.value = false;
@@ -637,6 +766,7 @@ class _HistoryViewState extends State<HistoryView> {
     widget.emotesVersion?.removeListener(_onEmotes);
     widget.atBottomNotifier?.removeListener(_onAtBottomRequest);
     widget.jumpRequest?.removeListener(_onJumpRequest);
+    widget.actions?.follow.removeListener(_onFollow);
     _unwatchClears?.call();
     _unwatchStreams?.call();
     if (identical(_active, this)) _active = null;
@@ -647,6 +777,7 @@ class _HistoryViewState extends State<HistoryView> {
     _controller.dispose();
     _railReady.dispose();
     _panel.dispose();
+    _kept.dispose();
     super.dispose();
   }
 
@@ -1106,6 +1237,7 @@ class _HistoryViewState extends State<HistoryView> {
     // the drag cannot leave it above the bottom on release.
     if (n is ScrollUpdateNotification && n.dragDetails != null) {
       _follow = atEnd;
+      if (widget.actions?.follow.value != null) _replayPaused = true;
     } else if (n is ScrollEndNotification) {
       if (atEnd) {
         _follow = true;
@@ -1479,10 +1611,12 @@ class _HistoryViewState extends State<HistoryView> {
         ),
         m.kind == HistoryMarkerKind.emptyStretch
             ? _openDays
-            : () => showHistoryMarkerSheet(
-                context,
-                title: text,
-                stream: m.kind != HistoryMarkerKind.day,
+            : () => _showSheet(
+                text,
+                m.kind == HistoryMarkerKind.day
+                    ? m.firstDay
+                    : dayNumber(m.time.toLocal()),
+                stream: stream,
               ),
       ),
     );
@@ -1685,6 +1819,8 @@ class _HistoryViewState extends State<HistoryView> {
                     open: _panel,
                     viewTime: _viewTime,
                     onPick: _onPick,
+                    kept: _kept,
+                    onLongPress: _onDayLongPress,
                     glass: glass,
                   ),
           ),

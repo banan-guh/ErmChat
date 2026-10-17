@@ -116,6 +116,9 @@ class ArchiveTerms {
 /// Reads blocks from the archive, decodes them off the UI isolate, and
 /// returns [TwitchMessage]s. A block that fails to decode is skipped.
 class ArchiveReader {
+  /// The pin kind of a kept day.
+  static const dayPin = 'day';
+
   ArchiveReader(
     this._store, {
     this.decode = decodeOffIsolate,
@@ -288,8 +291,20 @@ class ArchiveReader {
           title: r.title ?? '',
           game: r.game ?? '',
           live: r.endedTs == null,
+          vodId: r.vodId,
         ),
     ];
+  }
+
+  /// Starts of [channel]'s kept days (see `Archive.setDayKept`).
+  Future<Set<DateTime>> keptDays(String channel) async {
+    final store = await _store;
+    if (store == null) return const {};
+    return {
+      for (final p in await store.pins(channel))
+        if (p.kind == dayPin)
+          DateTime.fromMillisecondsSinceEpoch(p.startTs, isUtc: true),
+    };
   }
 
   Future<List<ArchiveWindowBlock>> _decodeAll(

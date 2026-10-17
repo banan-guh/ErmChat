@@ -23,6 +23,8 @@ class HistoryDays extends StatefulWidget {
     required this.open,
     required this.viewTime,
     required this.onPick,
+    required this.kept,
+    required this.onLongPress,
     this.glass = false,
   });
 
@@ -37,6 +39,12 @@ class HistoryDays extends StatefulWidget {
 
   /// A picked time.
   final ValueChanged<DateTime> onPick;
+
+  /// The day numbers kept past retention, marked on their pills.
+  final ValueListenable<Set<int>> kept;
+
+  /// A long press on the pill of a day number.
+  final ValueChanged<int> onLongPress;
 
   /// Liquid glass surface instead of an opaque one.
   final bool glass;
@@ -112,7 +120,10 @@ class _HistoryDaysState extends State<HistoryDays>
   void initState() {
     super.initState();
     widget.open.addListener(_sync);
+    widget.kept.addListener(_onKept);
   }
+
+  void _onKept() => setState(() {});
 
   @override
   void didUpdateWidget(HistoryDays old) {
@@ -128,6 +139,7 @@ class _HistoryDaysState extends State<HistoryDays>
   @override
   void dispose() {
     widget.open.removeListener(_sync);
+    widget.kept.removeListener(_onKept);
     _anim.dispose();
     _expand.dispose();
     _touch.dispose();
@@ -254,6 +266,9 @@ class _HistoryDaysState extends State<HistoryDays>
               child: GestureDetector(
                 behavior: HitTestBehavior.opaque,
                 onTap: picked == null ? () => _open(i) : null,
+                onLongPress: picked == null
+                    ? () => widget.onLongPress(days[i].day)
+                    : null,
                 child: _day(days, i, h, style),
               ),
             ),
@@ -302,6 +317,7 @@ class _HistoryDaysState extends State<HistoryDays>
   Widget _day(List<RailDay> days, int i, double h, TextStyle? style) {
     final scheme = Theme.of(context).colorScheme;
     final on = days[i].day == _current;
+    final fg = on ? scheme.onPrimary : scheme.onSurface;
     return DecoratedBox(
       decoration: BoxDecoration(
         color: on ? scheme.primary : scheme.onSurface.withValues(alpha: 0.22),
@@ -314,11 +330,13 @@ class _HistoryDaysState extends State<HistoryDays>
               child: FittedBox(
                 fit: BoxFit.scaleDown,
                 alignment: Alignment.centerRight,
-                child: Text(
-                  _label(days, i),
-                  style: style?.copyWith(
-                    color: on ? scheme.onPrimary : scheme.onSurface,
-                  ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (widget.kept.value.contains(days[i].day))
+                      Icon(Icons.bookmark, size: 12, color: fg),
+                    Text(_label(days, i), style: style?.copyWith(color: fg)),
+                  ],
                 ),
               ),
             ),

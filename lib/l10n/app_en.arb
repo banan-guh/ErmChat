@@ -3011,7 +3011,9 @@
   },
   "historyWatchVod": "Watch VOD",
   "historyOpenStreamMap": "Open stream map",
-  "historySaveDay": "Save this day",
+  "historyKeepDay": "Keep this day",
+  "historyUnkeepDay": "Stop keeping this day",
+  "historyNoVod": "No VOD available",
   "historyNothingRecorded": "{range} - nothing recorded",
   "@historyNothingRecorded": {
     "placeholders": {

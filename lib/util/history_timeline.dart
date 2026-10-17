@@ -19,6 +19,7 @@ class HistoryStream {
     required this.title,
     required this.game,
     this.live = false,
+    this.vodId,
   });
 
   final String id;
@@ -29,6 +30,9 @@ class HistoryStream {
   final bool live;
   final String title;
   final String game;
+
+  /// The video on demand, once looked up.
+  final String? vodId;
 }
 
 /// Message counts over time for a channel. The archive implements this with
@@ -84,6 +88,20 @@ int dayNumber(DateTime wall) =>
 
 /// The date fields of [day] as a UTC [DateTime], for date formatting.
 DateTime dayFromNumber(int day) => DateTime.utc(1970, 1, 1 + day);
+
+/// The device-local calendar [day] as UTC instants: its midnight and its last
+/// millisecond.
+({DateTime start, DateTime end}) dayBounds(int day) {
+  final d = dayFromNumber(day);
+  return (
+    start: DateTime(d.year, d.month, d.day).toUtc(),
+    end: DateTime(
+      d.year,
+      d.month,
+      d.day + 1,
+    ).toUtc().subtract(const Duration(milliseconds: 1)),
+  );
+}
 
 /// "3h12m", or "45m" under an hour.
 String formatStreamLength(Duration d) {

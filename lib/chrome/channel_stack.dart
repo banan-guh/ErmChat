@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -9,9 +10,12 @@ import '../models/twitch_message.dart';
 import '../panels/search.dart';
 import '../panels/threads.dart';
 import '../chat/chat.dart';
+import '../services/archive.dart';
 import '../services/archive_history_source.dart';
 import '../services/archive_reader.dart';
 import '../services/link_whitelist.dart';
+import '../services/stream_player_controller.dart';
+import '../services/twitch_api.dart';
 import '../widgets/seven_tv_paint_service.dart';
 import '../services/twitch_auth.dart';
 import '../sheets/message_menu.dart';
@@ -42,6 +46,8 @@ class ChannelPanels {
     required this.messageBuilder,
     required this.linkWhitelist,
     required this.twitchAuth,
+    required this.twitchApi,
+    required this.streamPlayer,
     required this.paintService,
     required this.selectedTabIndex,
     required this.userSheets,
@@ -69,6 +75,7 @@ class ChannelPanels {
     required this.atBottomNotifier,
     required this.scrollCtrl,
     this.archiveReader,
+    this.archive,
     this.emotesVersion,
   });
 
@@ -79,6 +86,10 @@ class ChannelPanels {
   final MessageBuilder messageBuilder;
   final LinkWhitelist linkWhitelist;
   final TwitchAuth twitchAuth;
+  final TwitchApi twitchApi;
+
+  /// Plays a stream's VOD and reports its position.
+  final StreamPlayerController streamPlayer;
   final SevenTvPaintService paintService;
   final ValueNotifier<int> selectedTabIndex;
   final UserSheets userSheets;
@@ -116,6 +127,9 @@ class ChannelPanels {
   /// Reads channel history for the windowed list; null keeps every page on
   /// [ChatView] over the live buffer.
   final ArchiveReader? archiveReader;
+
+  /// Writes to the archive: kept days and remembered VODs.
+  final Archive? archive;
 
   /// Emote catalog version, for history rows read before a catalog landed.
   final Listenable? emotesVersion;
@@ -306,6 +320,41 @@ class ChannelPanels {
     return _sources[channel] ??= ArchiveHistorySource(channel, reader);
   }
 
+  /// What [channel]'s history page offers for its days and streams; null
+  /// without an archive.
+  HistoryActions? _actionsFor(String channel) {
+    final reader = archiveReader;
+    final archive = this.archive;
+    if (reader == null || archive == null || FakeHistory.isFake(channel)) {
+      return null;
+    }
+    return HistoryActions(
+      keptDays: () => reader.keptDays(channel),
+      keepDay: (start, end, keep) =>
+          archive.setDayKept(channel, start, end, keep: keep),
+      findVod: (stream) => _findVod(archive, channel, stream),
+      watchVod: (stream, vodId) =>
+          streamPlayer.watchVod(channel, vodId, stream.start),
+      follow: streamPlayer.vodPlayback,
+    );
+  }
+
+  /// The video on demand of [stream], from the archive or else Helix, which
+  /// the archive then remembers.
+  Future<String?> _findVod(
+    Archive archive,
+    String channel,
+    HistoryStream stream,
+  ) async {
+    if (stream.vodId case final held?) return held;
+    final broadcaster = chat.channelFor(channel)?.info.broadcasterId;
+    if (broadcaster == null || !twitchAuth.isConfigured) return null;
+    final videos = await twitchApi.getArchiveVideos(twitchAuth, broadcaster);
+    final id = videos[stream.id];
+    if (id != null) unawaited(archive.setVod(stream.id, id));
+    return id;
+  }
+
   /// [channel]'s page as the windowed history list continuing into the live
   /// buffer. Info bumps (settings that change tiles) rebuild it; the list
   /// follows the buffer itself, and only while its page is active.
@@ -332,6 +381,7 @@ class ChannelPanels {
         emotesVersion: emotesVersion,
         jumpRequest: _jumpFor(channel),
         calendarRequest: _calendarFor(channel),
+        actions: _actionsFor(channel),
         rows: _rows(context, channel),
         textScale: chatFontSize() / 14.0,
         topPadding: topPadding,

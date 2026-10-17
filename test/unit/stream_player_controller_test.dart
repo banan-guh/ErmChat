@@ -127,4 +127,42 @@ void main() {
       controller.dispose();
     });
   });
+
+  group('StreamPlayerController VOD', () {
+    test(
+      'plays the video from an offset and maps position to archive time',
+      () {
+        final controller = StreamPlayerController();
+        final start = DateTime.utc(2026, 10, 14, 18);
+        controller.watchVod(
+          'foo',
+          '123',
+          start,
+          at: const Duration(hours: 1, minutes: 2, seconds: 3),
+        );
+        expect(
+          controller.playerUrl('foo'),
+          contains('video=v123&time=1h2m3s'),
+          reason: 'the embed seeks with h/m/s',
+        );
+        expect(controller.vodPlayback.value, (
+          channel: 'foo',
+          time: start.add(const Duration(minutes: 62, seconds: 3)),
+        ), reason: 'chat at playback t is the row stamped start + t');
+        controller.onVodPosition(const Duration(seconds: 90));
+        expect(
+          controller.vodPlayback.value?.time,
+          start.add(const Duration(seconds: 90)),
+        );
+        controller.closeStream();
+        expect(
+          controller.vodPlayback.value,
+          isNull,
+          reason: 'close ends follow',
+        );
+        expect(controller.playerUrl('foo'), contains('channel=foo'));
+        controller.dispose();
+      },
+    );
+  });
 }

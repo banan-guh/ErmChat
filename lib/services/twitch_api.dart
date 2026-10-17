@@ -463,6 +463,30 @@ class TwitchApi {
     return byId;
   }
 
+  /// Past broadcast video ids by the id of the stream they recorded, newest
+  /// 100 of the broadcaster. Empty on failure.
+  Future<Map<String, String>> getArchiveVideos(
+    TwitchAuth auth,
+    String broadcasterId,
+  ) async {
+    final uri = Uri.parse(
+      '$_base/videos?user_id=$broadcasterId&type=archive&first=100',
+    );
+    final res = await _get('getArchiveVideos', auth, uri);
+    if (res == null) return {};
+    try {
+      final list = (jsonDecode(res.body) as Map)['data'] as List;
+      return {
+        for (final v in list.cast<Map>())
+          if (v['stream_id'] case final String stream when stream.isNotEmpty)
+            stream: v['id'] as String,
+      };
+    } catch (e) {
+      _setError('getArchiveVideos: bad response');
+      return {};
+    }
+  }
+
   Future<Map<String, dynamic>?> getUserProfile(
     TwitchAuth auth,
     String login,

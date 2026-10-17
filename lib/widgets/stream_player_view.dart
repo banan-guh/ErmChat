@@ -81,6 +81,16 @@ class _StreamPlayerViewState extends State<StreamPlayerView> {
               }
             },
           )
+          // A VOD's position in whole seconds, for the chat to follow.
+          ..addJavaScriptChannel(
+            'VodTime',
+            onMessageReceived: (message) {
+              final seconds = int.tryParse(message.message);
+              if (seconds != null) {
+                widget.controller.onVodPosition(Duration(seconds: seconds));
+              }
+            },
+          )
           ..setNavigationDelegate(
             NavigationDelegate(
               onNavigationRequest: _onNavigationRequest,
@@ -190,6 +200,16 @@ class _StreamPlayerViewState extends State<StreamPlayerView> {
         clearInterval(hook);
         for (const e of ['playing', 'pause']) {
           v.addEventListener(e, () => PlayState.postMessage(e));
+        }
+        if (location.search.includes('video=')) {
+          let last = -1;
+          v.addEventListener('timeupdate', () => {
+            const s = Math.floor(v.currentTime);
+            if (s !== last) {
+              last = s;
+              VodTime.postMessage(String(s));
+            }
+          });
         }
       } else if (++tries > 40) {
         clearInterval(hook);

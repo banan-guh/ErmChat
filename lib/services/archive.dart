@@ -62,6 +62,26 @@ class Archive {
     reader.streamsChanged.emit();
   });
 
+  /// Keeps the day [start] to [end] of [channel] past retention, or releases
+  /// it. Never throws.
+  Future<void> setDayKept(
+    String channel,
+    DateTime start,
+    DateTime end, {
+    required bool keep,
+  }) => _quiet((s) {
+    final from = start.millisecondsSinceEpoch;
+    final to = end.millisecondsSinceEpoch;
+    const kind = ArchiveReader.dayPin;
+    return keep
+        ? s.addPin(channel, from, to, kind)
+        : s.removePin(channel, from, to, kind);
+  });
+
+  /// Remembers the video on demand of broadcast [streamId]. Never throws.
+  Future<void> setVod(String streamId, String vodId) =>
+      _quiet((s) => s.setVod(streamId, vodId));
+
   /// Records rows by [login] (everyone when null) from [from] to [to] as
   /// deleted, for rows already sealed. Never throws.
   Future<void> recordModeration(

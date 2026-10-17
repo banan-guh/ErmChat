@@ -52,7 +52,26 @@ class StreamPlayerController extends ChangeNotifier {
   bool get canPip =>
       isActive && !isAudioOnly && _pipEnabled && pipService != null;
 
+  String? _vodId;
+  DateTime? _vodStart;
+  Duration _vodAt = Duration.zero;
+
+  /// Whether the player shows a past broadcast instead of the live channel.
+  bool get isVod => _vodId != null;
+
+  /// The archive time of the VOD's playback position and its channel, for the
+  /// chat to follow; null when no VOD plays.
+  final vodPlayback = ValueNotifier<({String channel, DateTime time})?>(null);
+
   String playerUrl(String channel) {
+    final vod = _vodId;
+    if (vod != null) {
+      final t = _vodAt;
+      return 'https://player.twitch.tv/?video=v$vod'
+          '&time=${t.inHours}h${t.inMinutes.remainder(60)}m'
+          '${t.inSeconds.remainder(60)}s'
+          '&enableExtensions=false&muted=false&parent=twitch.tv';
+    }
     final encoded = Uri.encodeComponent(channel);
     return 'https://player.twitch.tv/?channel=$encoded'
         '&enableExtensions=false&muted=false&parent=twitch.tv';
@@ -64,11 +83,52 @@ class StreamPlayerController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Plays video [vodId] of [channel] from [at], whose broadcast began at
+  /// [streamStart] on the archive's clock.
+  void watchVod(
+    String channel,
+    String vodId,
+    DateTime streamStart, {
+    Duration at = Duration.zero,
+  }) {
+    _vodId = vodId;
+    _vodStart = streamStart;
+    _vodAt = at;
+    _currentChannel = channel;
+    _isAudioOnly = false;
+    _isTheaterMode = false;
+    _isInPip = false;
+    onVodPosition(at);
+    notifyListeners();
+  }
+
+  /// The VOD player reached [position].
+  void onVodPosition(Duration position) {
+    final start = _vodStart;
+    final channel = _currentChannel;
+    if (_vodId == null || start == null || channel == null) return;
+    vodPlayback.value = (channel: channel, time: start.add(position));
+  }
+
+  void _clearVod() {
+    _vodId = null;
+    _vodStart = null;
+    _vodAt = Duration.zero;
+    vodPlayback.value = null;
+  }
+
+  @override
+  void dispose() {
+    vodPlayback.dispose();
+    super.dispose();
+  }
+
   void toggleStream(String channel) {
-    if (_currentChannel == channel) {
+    if (_currentChannel == channel && !isVod) {
       closeStream();
       return;
     }
+    _clearVod();
     _currentChannel = channel;
     _isAudioOnly = false;
     _isTheaterMode = false;
@@ -77,6 +137,7 @@ class StreamPlayerController extends ChangeNotifier {
   }
 
   void closeStream() {
+    _clearVod();
     _currentChannel = null;
     _isAudioOnly = false;
     _isTheaterMode = false;
