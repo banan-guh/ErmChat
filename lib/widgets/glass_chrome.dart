@@ -120,19 +120,25 @@ class GlassSurface extends StatelessWidget {
 /// standard-path only and does nothing here, so it stays unset.)
 LiquidGlassSettings _barSettings(bool dark, double visibility) =>
     LiquidGlassSettings(
-      thickness: 28,
-      blur: 12,
-      lightIntensity: 0.1,
+      thickness: 34,
+      // Low blur and a light tint keep the rows under the rim legible as
+      // bent rows, the refraction real glass shows.
+      blur: 4,
+      refractiveIndex: 1.5,
+      chromaticAberration: 0.02,
+      lightIntensity: 0.6,
       fresnelStrength: 1.5,
-      glassColor: dark ? const Color(0x59000000) : const Color(0x59FFFFFF),
+      glassColor: dark ? const Color(0x40000000) : const Color(0x40FFFFFF),
       visibility: visibility,
     );
 
 /// The pill's material, shared by the small chrome tiles.
 const kGlassPillSettings = LiquidGlassSettings(
-  thickness: 22,
-  blur: 10,
-  lightIntensity: 0.1,
+  thickness: 26,
+  blur: 3,
+  refractiveIndex: 1.5,
+  chromaticAberration: 0.02,
+  lightIntensity: 0.6,
   fresnelStrength: 1.5,
   // Neutral background passthrough: the 1.5 default boosts whatever shines
   // through the middle. The rim stays untouched (fresnel + specular as is).
