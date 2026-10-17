@@ -189,7 +189,10 @@ class HomeAppBar {
   Widget threadsButton(BuildContext context) => IconButton(
     icon: const Icon(Icons.forum_outlined),
     tooltip: context.l10n.threads,
-    onPressed: () => threads.showThreadsDashboard(tab: 1),
+    // Toggles, like the bell: a second tap closes the open threads panel.
+    onPressed: () => activePanel() == OverlayPanel.thread
+        ? unawaited(closePanel())
+        : threads.showThreadsDashboard(tab: 1),
   );
 
   Widget settingsButton(BuildContext context) => IconButton(
