@@ -28,51 +28,46 @@ class PaintedUsernameText extends StatelessWidget {
   Widget build(BuildContext context) {
     // Image textures decode late; the service bumps a revision when one
     // lands. Animated ones then advance on the shared emote clock while the
-    // row is on screen (TickerMode).
+    // row is on screen (TickerMode), as repaints of the name alone.
     if (paint.layers.firstOrNull is SevenTvImagePaintLayer) {
       return ListenableBuilder(
         listenable: service.imageRevision,
-        builder: (context, _) {
-          final ticker = TickerMode.valuesOf(context).enabled
+        builder: (context, _) => _buildText(
+          context,
+          TickerMode.valuesOf(context).enabled
               ? service.frameTicker(paint)
-              : null;
-          if (ticker == null) return _buildText(context);
-          return ListenableBuilder(
-            listenable: ticker,
-            builder: (context, _) => _buildText(context),
-          );
-        },
+              : null,
+        ),
       );
     }
-    return _buildText(context);
+    return _buildText(context, null);
   }
 
-  Widget _buildText(BuildContext context) {
+  Widget _buildText(BuildContext context, Listenable? ticker) {
     final style = DefaultTextStyle.of(context).style.merge(baseStyle);
     final textDirection = Directionality.of(context);
     final textScaler = MediaQuery.textScalerOf(context);
     final size = _measure(style, textDirection, textScaler);
-    final shader = service.shaderFor(paint, size);
-    final painted = shader == null
-        ? style.copyWith(color: fallbackColor, shadows: shadows)
-        : style.copyWith(
-            foreground: Paint()..shader = shader,
-            shadows: shadows,
-          );
     // A paragraph paints at its parent offset without moving the canvas, so
     // a foreground shader would sit at the row origin and show only its end
     // stops. CustomPaint translates first, aligning the shader with the name.
-    return Semantics(
-      label: text,
-      child: CustomPaint(
-        size: size,
-        painter: _NamePainter(
-          TextSpan(text: text, style: painted),
-          textDirection,
-          textScaler,
-        ),
+    Widget name = CustomPaint(
+      size: size,
+      painter: _NamePainter(
+        service: service,
+        namePaint: paint,
+        text: text,
+        style: style,
+        fallbackColor: fallbackColor,
+        shadows: shadows,
+        textDirection: textDirection,
+        textScaler: textScaler,
+        repaint: ticker,
       ),
     );
+    // A frame change repaints this layer only, not the row around it.
+    if (ticker != null) name = RepaintBoundary(child: name);
+    return Semantics(label: text, child: name);
   }
 
   Size _measure(
@@ -91,17 +86,41 @@ class PaintedUsernameText extends StatelessWidget {
   }
 }
 
+/// Paints the name with the paint's current shader, read at paint time so
+/// an animated texture advances through [repaint] without a rebuild.
 class _NamePainter extends CustomPainter {
-  _NamePainter(this.span, this.textDirection, this.textScaler);
+  _NamePainter({
+    required this.service,
+    required this.namePaint,
+    required this.text,
+    required this.style,
+    required this.fallbackColor,
+    required this.shadows,
+    required this.textDirection,
+    required this.textScaler,
+    super.repaint,
+  });
 
-  final TextSpan span;
+  final SevenTvPaintService service;
+  final SevenTvPaint namePaint;
+  final String text;
+  final TextStyle style;
+  final Color fallbackColor;
+  final List<Shadow>? shadows;
   final TextDirection textDirection;
   final TextScaler textScaler;
 
   @override
   void paint(Canvas canvas, Size size) {
+    final shader = service.shaderFor(namePaint, size);
+    final painted = shader == null
+        ? style.copyWith(color: fallbackColor, shadows: shadows)
+        : style.copyWith(
+            foreground: Paint()..shader = shader,
+            shadows: shadows,
+          );
     final painter = TextPainter(
-      text: span,
+      text: TextSpan(text: text, style: painted),
       textDirection: textDirection,
       textScaler: textScaler,
     )..layout();
@@ -111,7 +130,11 @@ class _NamePainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_NamePainter old) =>
-      old.span != span ||
+      old.namePaint != namePaint ||
+      old.text != text ||
+      old.style != style ||
+      old.fallbackColor != fallbackColor ||
+      old.shadows != shadows ||
       old.textDirection != textDirection ||
       old.textScaler != textScaler;
 }
