@@ -206,6 +206,10 @@ class ComposerRowButton extends StatelessWidget {
         child: InkWell(
           onTap: enabled ? controller.send : null,
           onLongPress: enabled ? controller.recallLastSent : null,
+          // The strip is far larger than a button, so its ink runs at about
+          // half the stock strength.
+          splashColor: scheme.onSurface.withValues(alpha: 0.06),
+          highlightColor: scheme.onSurface.withValues(alpha: 0.04),
           child: Center(
             child: Icon(
               Icons.send,
