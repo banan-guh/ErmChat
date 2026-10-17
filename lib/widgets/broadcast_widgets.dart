@@ -306,6 +306,10 @@ class BroadcastWidgets {
   /// them for room; cleared once the room is back.
   final _keptOpen = <String>{};
 
+  /// Channels whose cards a tap just folded or restored; the next build
+  /// hands the press's ink to the card that replaces the tapped one.
+  final _inkCarried = <String>{};
+
   /// [room] is the height left below the cards' top. Cards that would take
   /// more than half of it (the keyboard is up) fold to the bar until the
   /// user restores them; open, they never run past it.
@@ -323,6 +327,7 @@ class BroadcastWidgets {
     final heights = _cardHeights.putIfAbsent(channel, () => {});
     final tallest = cards.map((c) => heights[c] ?? 0.0).fold(0.0, max);
     final cramped = tallest > room / 2;
+    final carryInk = _inkCarried.remove(channel);
     if (!cramped) _keptOpen.remove(channel);
     if ((widgetsMinimized[channel] ?? false) ||
         (cramped && !_keptOpen.contains(channel))) {
@@ -339,6 +344,7 @@ class BroadcastWidgets {
             initialPage: cards.indexOf(focus),
           );
           if (cramped) _keptOpen.add(channel);
+          _inkCarried.add(channel);
           onMinimizeChanged(channel, false);
           WidgetsBinding.instance.addPostFrameCallback((_) => old?.dispose());
         },
@@ -346,6 +352,7 @@ class BroadcastWidgets {
         emotes: emotes,
         paints: paints,
         glass: glass,
+        carryInk: carryInk,
       );
     }
     return ChatWidgetCutout(
@@ -360,9 +367,11 @@ class BroadcastWidgets {
         if (now.isNotEmpty) {
           _focused[channel] = now[page.round().clamp(0, now.length - 1)];
         }
+        _inkCarried.add(channel);
         onMinimizeChanged(channel, true);
       },
       glass: glass,
+      carryInk: carryInk,
     );
   }
 
@@ -411,6 +420,7 @@ class BroadcastWidgets {
     widgetsMinimized.remove(channel);
     _focused.remove(channel);
     _keptOpen.remove(channel);
+    _inkCarried.remove(channel);
     _cardHeights.remove(channel);
     _pageCtrls.remove(channel)?.dispose();
   }

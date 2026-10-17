@@ -67,6 +67,7 @@ class ChatWidgetCutout extends StatefulWidget {
     required this.onMinimize,
     this.room = double.infinity,
     this.glass = false,
+    this.carryInk = false,
   });
 
   static const double maxHeight = 220;
@@ -87,6 +88,9 @@ class ChatWidgetCutout extends StatefulWidget {
 
   /// Glass layout: the cards float as glass instead of opaque surfaces.
   final bool glass;
+
+  /// A tap on the bar opened these cards; they carry its ink.
+  final bool carryInk;
 
   @override
   State<ChatWidgetCutout> createState() => _ChatWidgetCutoutState();
@@ -139,6 +143,7 @@ class _ChatWidgetCutoutState extends State<ChatWidgetCutout> {
     Widget surface(Widget child) => _cardSurface(
       context,
       glass: widget.glass,
+      carryInk: widget.carryInk,
       child: InkWell(onTap: widget.onMinimize, child: child),
     );
     final minimize = Positioned(
@@ -292,9 +297,18 @@ class _RenderMeasureSize extends RenderProxyBox {
 Widget _cardSurface(
   BuildContext context, {
   required bool glass,
+  required bool carryInk,
   required Widget child,
 }) {
   final theme = Theme.of(context);
+  child = Stack(
+    children: [
+      child,
+      Positioned.fill(
+        child: IgnorePointer(child: _CarriedInk(active: carryInk)),
+      ),
+    ],
+  );
   if (glass) {
     return glassCard(
       child: Material(
@@ -314,6 +328,45 @@ Widget _cardSurface(
   );
 }
 
+/// The tap that swapped this card in: the tapped card's ripple dies with
+/// it, so the new card picks the press up as a fading splash.
+class _CarriedInk extends StatefulWidget {
+  const _CarriedInk({required this.active});
+
+  /// Read once, on mount.
+  final bool active;
+
+  @override
+  State<_CarriedInk> createState() => _CarriedInkState();
+}
+
+class _CarriedInkState extends State<_CarriedInk>
+    with SingleTickerProviderStateMixin {
+  late final _fade = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 300),
+    value: widget.active ? 1 : 0,
+  );
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.active) _fade.animateTo(0, curve: Curves.easeOut);
+  }
+
+  @override
+  void dispose() {
+    _fade.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => FadeTransition(
+    opacity: _fade,
+    child: ColoredBox(color: Theme.of(context).splashColor),
+  );
+}
+
 /// Collapsed cutout: one row previewing the card that was showing (the
 /// pin's message, or [icon] and [label]) and a restore button. A tap
 /// anywhere restores.
@@ -327,9 +380,13 @@ class ChatWidgetMinimizedBar extends StatelessWidget {
     this.emotes,
     this.paints,
     this.glass = false,
+    this.carryInk = false,
   });
 
   final bool glass;
+
+  /// A tap on the cards folded them into this bar; it carries their ink.
+  final bool carryInk;
 
   /// Paints the pin sender's name; null leaves it plain.
   final SevenTvPaintService? paints;
@@ -353,6 +410,7 @@ class ChatWidgetMinimizedBar extends StatelessWidget {
         child: _cardSurface(
           context,
           glass: glass,
+          carryInk: carryInk,
           child: InkWell(
             onTap: onRestore,
             // The glass surface lays its child out loose, at the top; the
