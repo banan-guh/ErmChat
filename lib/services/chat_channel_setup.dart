@@ -214,16 +214,18 @@ class ChatChannelSetup {
     try {
       final auth = twitchAuth;
       // A resubscribe already has the channel id; only resolve it on the
-      // first join, when Helix or the ROOMSTATE room-id is still needed.
+      // first join. ROOMSTATE's room-id carries it for free; logged in,
+      // Helix also works the join queue from its back (see _lookupJoinTail).
       var channelUserId = chat.channelFor(channelName)?.info.broadcasterId;
       if (channelUserId == null || channelUserId.isEmpty) {
-        channelUserId = auth.accessToken != null
-            ? await twitchApi.getUserId(auth, channelName)
-            : null;
-        // Anonymous: Helix 401s without a token, so the channel user ID comes
-        // from the IRC ROOMSTATE room-id tag instead (powers the third-party
-        // emote providers and badge fetches).
-        channelUserId ??= await _waitForRoomId(channelName);
+        final signedIn = auth.accessToken != null;
+        if (signedIn) unawaited(Future.microtask(_lookupJoinTail));
+        channelUserId = await _waitForRoomId(channelName);
+        if (_disposed) return;
+        // The JOIN never landed (socket down): ask Helix directly.
+        if (channelUserId == null && signedIn) {
+          channelUserId = await twitchApi.getUserId(auth, channelName);
+        }
       }
       if (channelUserId == null) return;
       chat.channelFor(channelName)?.info.setBroadcasterId(channelUserId);
@@ -399,9 +401,8 @@ class ChatChannelSetup {
     }
   }
 
-  // Anonymous fallback for the channel user ID: ROOMSTATE carries a room-id
-  // tag right after JOIN, which Helix normally provides. Waits (bounded) for
-  // the ROOMSTATE if it hasn't arrived yet.
+  // The channel user ID from ROOMSTATE's room-id tag, sent right after
+  // JOIN. Waits (bounded) for the ROOMSTATE if it hasn't arrived yet.
   final _roomIdWaiters = <String, List<Completer<String?>>>{};
 
   Future<String?> _waitForRoomId(
@@ -422,6 +423,48 @@ class ChatChannelSetup {
     }
   }
 
+  void _completeRoomId(String channel, String roomId) {
+    final waiters = _roomIdWaiters.remove(channel);
+    if (waiters == null) return;
+    for (final w in waiters) {
+      if (!w.isCompleted) w.complete(roomId);
+    }
+  }
+
+  bool _tailRunning = false;
+
+  /// Helix lookups for channels whose JOIN is not out yet, last to join
+  /// first, while IRC joins from the front; they meet in the middle, so no
+  /// channel is looked up twice. Channels the limiter has not queued (the
+  /// socket is down) join after the whole queue. Runs after the limiter's
+  /// first burst, which lands those channels' ROOMSTATE right away.
+  Future<void> _lookupJoinTail() async {
+    if (_tailRunning) return;
+    _tailRunning = true;
+    final tried = <String>{};
+    try {
+      while (!_disposed && twitchAuth.accessToken != null) {
+        final queued = ircRead.queuedJoins;
+        int rank(String c) {
+          final i = queued.indexOf(c);
+          return i < 0 ? queued.length : i;
+        }
+
+        String? next;
+        for (final c in _roomIdWaiters.keys) {
+          if (tried.contains(c) || ircRead.joinSent(c)) continue;
+          if (next == null || rank(c) >= rank(next)) next = c;
+        }
+        if (next == null) return;
+        tried.add(next);
+        final id = await twitchApi.getUserId(twitchAuth, next);
+        if (id != null && !_disposed) _completeRoomId(next, id);
+      }
+    } finally {
+      _tailRunning = false;
+    }
+  }
+
   // ---- IRC event handlers (routed by the manager) -------------------------
 
   /// ROOMSTATE handler: confirms the channel joined, merges the partial mode
@@ -438,12 +481,7 @@ class ChatChannelSetup {
     _status.onRoomState(event.channel, event.tags);
     final roomId = event.tags['room-id'];
     if (roomId != null && roomId.isNotEmpty) {
-      final waiters = _roomIdWaiters.remove(event.channel);
-      if (waiters != null) {
-        for (final w in waiters) {
-          if (!w.isCompleted) w.complete(roomId);
-        }
-      }
+      _completeRoomId(event.channel, roomId);
     }
     return true;
   }

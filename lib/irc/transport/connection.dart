@@ -686,6 +686,13 @@ abstract class IrcConnection {
     _queueJoin(channel);
   }
 
+  /// Channels whose JOIN still waits on the rate limiter, next first.
+  List<String> get queuedJoins => _joinBudget.queued(role);
+
+  /// Whether this socket has sent [channel]'s JOIN.
+  bool joinSent(String channel) =>
+      _joinPending.contains(channel) || _joinConfirmed.contains(channel);
+
   void part(String channel) {
     _channels.remove(channel);
     _joinConfirmed.remove(channel);

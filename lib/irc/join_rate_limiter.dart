@@ -118,6 +118,12 @@ class JoinRateLimiter {
     _schedulePump();
   }
 
+  /// [role]'s channels still waiting to send, next JOIN first.
+  List<String> queued(IrcSocketRole role) => [
+    for (final unit in _queue)
+      if (unit.role == role) unit.channel,
+  ];
+
   /// Drops pending unit (e.g. channel parted).
   void removeEntry(String channel) {
     _queue.removeWhere((unit) => unit.channel == channel);

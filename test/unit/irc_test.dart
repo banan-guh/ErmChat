@@ -2662,6 +2662,85 @@ void main() {
     });
   });
 
+  // ROOMSTATE carries the channel id for free; Helix only covers channels
+  // stuck behind the JOIN rate limit, from the back of the queue.
+  test('Helix looks up only the join queue tail, last first', () async {
+    final chat = Chat();
+    final names = [for (var i = 0; i < 25; i++) 'c$i'];
+    names.forEach(chat.ensure);
+    final session = Session();
+    final auth = TwitchAuth();
+    auth.setUser('alice', '111');
+    auth.setCredentials(accessToken: 'token_a');
+    final looked = <String>[];
+    final api = TwitchApi(
+      client: http_testing.MockClient((request) async {
+        final login = request.url.queryParameters['login'];
+        if (login != null) looked.add(login);
+        return http.Response('{"data":[{"id":"id_$login"}]}', 200);
+      }),
+    );
+    final socket = FakeWebSocketChannel();
+    final read = _TestReadService([socket], joinBudget: JoinRateLimiter());
+    read.connect(username: 'alice', accessToken: 'token_a');
+    await Future<void>.delayed(Duration.zero);
+    final readDecoder = IrcChatDecoder(read.onIrcMessage);
+    final irc = IrcService();
+    final eventSub = EventSubService();
+    final sevenTv = _RecordingSevenTvClient();
+    final emoteManager = _CachedEmoteManager();
+    final badges = _NoopBadgeService();
+    final notifier = ValueNotifier(0);
+    final setup = ChatChannelSetup(
+      twitchApi: api,
+      eventSubDecoder: EventSubDecoder(Stream<Map<String, dynamic>>.empty()),
+      eventSubTopics: EventSubTopics(
+        twitchApi: api,
+        twitchAuth: auth,
+        session: session,
+        chat: chat,
+        eventSub: eventSub,
+      ),
+      irc: irc,
+      ircRead: read,
+      readDecoder: readDecoder,
+      sevenTvClient: sevenTv,
+      badgeService: badges,
+      emoteManager: emoteManager,
+      twitchAuth: auth,
+      userStore: UserStore(),
+      chat: chat,
+      session: session,
+      onSystemMessage: (c, t, {accent, messageId}) {},
+      connectionStateNotifier: notifier,
+      ensureCurrentUser: (_) async => null,
+    );
+
+    setup.subscribeAll(names);
+    for (var i = 0; i < 20; i++) {
+      await Future<void>.delayed(Duration.zero);
+    }
+
+    // The first burst JOINs c0..c17; c18..c24 wait on the bucket.
+    expect(looked, [for (var i = 24; i >= 18; i--) 'c$i']);
+    expect(chat.channelFor('c24')?.info.broadcasterId, 'id_c24');
+    expect(chat.channelFor('c0')?.info.broadcasterId, isNull);
+
+    setup.dispose();
+    sevenTv.dispose();
+    readDecoder.dispose();
+    emoteManager.dispose();
+    chat.dispose();
+    session.dispose();
+    eventSub.dispose();
+    irc.dispose();
+    read.dispose();
+    socket.dispose();
+    api.close();
+    badges.close();
+    notifier.dispose();
+  });
+
   group('read socket fatal auth', () {
     for (final (name, notice, fatal) in [
       (
