@@ -628,18 +628,38 @@ class ChannelPanels {
   /// The selected channel's broadcast cards; mid-swipe, both channels' cards,
   /// each offset with its page.
   Widget _broadcastOverlay(bool glass) {
-    Widget cards(String channel, double room) => Padding(
-      padding: const EdgeInsets.symmetric(horizontal: TabbedLayout.cardInset),
-      child:
-          broadcastWidgets.buildOverlay(
-            channel,
-            room: room,
-            onMinimizeChanged: broadcastWidgets.setMinimized,
-            glass: glass,
-            unpin: unpinFor(channel),
-          ) ??
-          const SizedBox.shrink(),
-    );
+    // Minimizing, restoring and cards coming or going cross-fade while the
+    // height eases, so the old card (and its ink) fades out instead of
+    // vanishing.
+    Widget cards(String channel, double room) {
+      final overlay = broadcastWidgets.buildOverlay(
+        channel,
+        room: room,
+        onMinimizeChanged: broadcastWidgets.setMinimized,
+        glass: glass,
+        unpin: unpinFor(channel),
+      );
+      return Padding(
+        padding: const EdgeInsets.symmetric(horizontal: TabbedLayout.cardInset),
+        child: AnimatedSize(
+          duration: const Duration(milliseconds: 200),
+          curve: Curves.easeOutCubic,
+          alignment: Alignment.topCenter,
+          child: AnimatedSwitcher(
+            duration: const Duration(milliseconds: 200),
+            layoutBuilder: (current, previous) => Stack(
+              alignment: Alignment.topCenter,
+              children: [...previous, ?current],
+            ),
+            child: KeyedSubtree(
+              key: ValueKey(overlay?.runtimeType),
+              child: overlay ?? const SizedBox(width: double.infinity),
+            ),
+          ),
+        ),
+      );
+    }
+
     final names = chat.names;
     final page = _swipePage.value;
     final left = page?.floor() ?? -1;

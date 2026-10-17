@@ -158,10 +158,13 @@ class _ChatWidgetCutoutState extends State<ChatWidgetCutout> {
             children: [
               ConstrainedBox(
                 constraints: BoxConstraints(maxHeight: _cap),
-                child: SingleChildScrollView(
-                  child: _MeasureSize(
-                    onSize: (size) => _report(0, size.height),
-                    child: pages.single,
+                child: _fadeIfClipped(
+                  (_heightAt(0) ?? 0) > _cap,
+                  SingleChildScrollView(
+                    child: _MeasureSize(
+                      onSize: (size) => _report(0, size.height),
+                      child: pages.single,
+                    ),
                   ),
                 ),
               ),
@@ -192,10 +195,13 @@ class _ChatWidgetCutoutState extends State<ChatWidgetCutout> {
               PageView.builder(
                 controller: widget.controller,
                 itemCount: pages.length,
-                itemBuilder: (context, index) => SingleChildScrollView(
-                  child: _MeasureSize(
-                    onSize: (size) => _report(index, size.height),
-                    child: pages[index],
+                itemBuilder: (context, index) => _fadeIfClipped(
+                  (_heightAt(index) ?? 0) > _cap,
+                  SingleChildScrollView(
+                    child: _MeasureSize(
+                      onSize: (size) => _report(index, size.height),
+                      child: pages[index],
+                    ),
                   ),
                 ),
               ),
@@ -235,6 +241,22 @@ class _ChatWidgetCutoutState extends State<ChatWidgetCutout> {
       ),
     );
   }
+}
+
+/// Fades the bottom of a card cut off by its cap, so content running just
+/// past it reads as scrollable rather than as a card missing its padding.
+Widget _fadeIfClipped(bool clipped, Widget child) {
+  if (!clipped) return child;
+  return ShaderMask(
+    blendMode: BlendMode.dstIn,
+    shaderCallback: (rect) => LinearGradient(
+      begin: Alignment.topCenter,
+      end: Alignment.bottomCenter,
+      colors: const [Colors.black, Colors.black, Colors.transparent],
+      stops: [0, 1 - 28 / rect.height.clamp(28, double.infinity), 1],
+    ).createShader(rect),
+    child: child,
+  );
 }
 
 /// Reports its child's laid-out size.
