@@ -329,8 +329,12 @@ double composerStatusHeight(
   )..layout();
   final h = line.height + 4;
   line.dispose();
-  return (status.isEmpty ? 0 : h) + (failed ? h : 0);
+  return (status.isEmpty ? 0 : h) + (failed ? h : 0) + _statusFoot;
 }
+
+/// Extra room under the status lines, so the last one clears the island's
+/// rounded edge.
+const double _statusFoot = 4;
 
 /// The channel status (portrait only, see [showStatus]) and a retry link
 /// when a channel's emotes failed to load.
@@ -361,36 +365,45 @@ class _StatusRow extends StatelessWidget {
         duration: const Duration(milliseconds: 300),
         curve: Curves.easeInOut,
         alignment: Alignment.topCenter,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (status.isNotEmpty)
-              Padding(
-                padding: const EdgeInsets.only(left: 12, right: 12, bottom: 4),
-                child: Text(
-                  status,
-                  style: _statusStyle(context),
-                  textAlign: TextAlign.center,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-            if (hasLoadFailure)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 4),
-                child: InkWell(
-                  onTap: () => controller.chatConn.retryChannelData(channel),
+        child: Padding(
+          padding: EdgeInsets.only(
+            bottom: status.isEmpty && !hasLoadFailure ? 0 : _statusFoot,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (status.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(
+                    left: 12,
+                    right: 12,
+                    bottom: 4,
+                  ),
                   child: Text(
-                    context.l10n.retryFailedEmotes,
-                    style: _statusStyle(
-                      context,
-                      color: Theme.of(context).colorScheme.primary,
-                    ).copyWith(decoration: TextDecoration.underline),
+                    status,
+                    style: _statusStyle(context),
+                    textAlign: TextAlign.center,
                     maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
                 ),
-              ),
-          ],
+              if (hasLoadFailure)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 4),
+                  child: InkWell(
+                    onTap: () => controller.chatConn.retryChannelData(channel),
+                    child: Text(
+                      context.l10n.retryFailedEmotes,
+                      style: _statusStyle(
+                        context,
+                        color: Theme.of(context).colorScheme.primary,
+                      ).copyWith(decoration: TextDecoration.underline),
+                      maxLines: 1,
+                    ),
+                  ),
+                ),
+            ],
+          ),
         ),
       );
     },
