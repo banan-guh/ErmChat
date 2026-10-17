@@ -1855,7 +1855,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                     search: _search,
                     mod: _mod,
                     dragTick: _panelDragTick,
-                    transparent: glass,
                   )
                 : null,
             // With channels the app bar folds away, so the bell, overflow

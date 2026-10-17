@@ -237,13 +237,14 @@ void main() {
       await tester.pumpWidget(body());
       await tester.pumpAndSettle();
       expect(seenKbH, 0);
-      expect(seenH, 776);
+      // 760 is the chat box above the composer island (832 less its 72).
+      expect(seenH, 760);
 
       tester.view.viewInsets = FakeViewPadding(bottom: 298 * 2.8125);
       await tester.pumpWidget(body());
       await tester.pumpAndSettle();
       expect(seenKbH, 298);
-      expect(seenH, 776);
+      expect(seenH, 760);
 
       ctrl.jumpTo(0.6);
       await tester.pumpAndSettle();
@@ -257,7 +258,7 @@ void main() {
       final stackBottom = stackBox.localToGlobal(
         Offset(0, stackBox.size.height),
       );
-      expect(sheetSize.height, moreOrLessEquals(465.6, epsilon: 1.0));
+      expect(sheetSize.height, moreOrLessEquals(456.0, epsilon: 1.0));
       expect(sheetBottomDy, moreOrLessEquals(stackBottom.dy, epsilon: 1.0));
     });
   });

@@ -18,7 +18,9 @@ final inputBarKey = GlobalKey();
 final _emptyVersion = ValueNotifier<int>(0);
 
 // Message input plus connection status row. Bottom padding comes from
-// ChatBody, which owns the layout's single inset subscription.
+// ChatBody, which owns the layout's single inset subscription. The chrome
+// shell (island or glass pill) draws the surface, so the bar stays
+// transparent and the field drops its own outline.
 class ComposerBar extends StatelessWidget {
   const ComposerBar({
     super.key,
@@ -27,16 +29,12 @@ class ComposerBar extends StatelessWidget {
     required this.search,
     required this.mod,
     required this.dragTick,
-    this.transparent = false,
   });
 
   final ComposerController controller;
   final ValueListenable<int> selectedTabIndex;
   final SearchPanels search;
   final ModPanels mod;
-
-  /// Glass pill mode: drops the opaque shell so the blur shows through.
-  final bool transparent;
 
   /// Panel tab drag crossings. The morph tracks 50% through this alone,
   /// without a full HomeScreen rebuild per crossing (main chat's focus
@@ -45,7 +43,6 @@ class ComposerBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     final content = ListenableBuilder(
       listenable: Listenable.merge([
         controller.cooldownLabel,
@@ -83,7 +80,7 @@ class ComposerBar extends StatelessWidget {
                 enabled: true,
                 hintText: context.l10n.searchHint,
                 searchMode: true,
-                borderless: transparent,
+                borderless: true,
                 prefixOverride: search.closeButton(),
                 suffixOverride: search.filterButton(),
               )
@@ -96,7 +93,7 @@ class ComposerBar extends StatelessWidget {
                 enabled: true,
                 hintText: context.l10n.blockTermHint,
                 searchMode: true,
-                borderless: transparent,
+                borderless: true,
                 prefixOverride: mod.termsPrefixSlot(),
                 suffixOverride: mod.termsSubmitSlot(),
               )
@@ -116,7 +113,7 @@ class ComposerBar extends StatelessWidget {
                   enabled: controller.enabled,
                   hintText: controller.hintText(withStatus: landscape),
                   inputFormatters: [controller.autocompleteRevert],
-                  borderless: transparent,
+                  borderless: true,
                 ),
               ),
             if (searchBorrowed || mod.termsChromeHidden)
@@ -131,8 +128,7 @@ class ComposerBar extends StatelessWidget {
         );
       },
     );
-    if (transparent) return content;
-    return ColoredBox(color: theme.scaffoldBackgroundColor, child: content);
+    return content;
   }
 }
 

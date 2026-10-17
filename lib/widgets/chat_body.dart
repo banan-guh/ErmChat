@@ -45,6 +45,12 @@ bool collapseChromeForKeyboard({
   required double maxHeight,
 }) => keyboardH > 0 && maxHeight < kKeyboardChromeCollapseBelowHeight;
 
+/// Non-glass chrome floats as one island: the field and the bottom bar share
+/// a rounded shell inset from the screen edges, filled one surface tone above
+/// the chat plane so chat and chrome stay distinct.
+const double kComposerIslandMargin = 8.0;
+const double kComposerIslandRadius = 16.0;
+
 /// Layout assembly for the chat screen: body stack plus composer.
 ///
 /// Geometry rides the stock Scaffold resize, exactly like a bare Scaffold:
@@ -83,8 +89,9 @@ class ChatBody extends StatefulWidget {
   final double emoteMaxFraction;
   final Widget? composer;
 
-  /// Chrome below the composer: bell, overflow and settings. Docks at the
-  /// bottom in every composer path and slides down while the keyboard is up.
+  /// Chrome below the composer: threads, bell, overflow and settings. Sits
+  /// inside the composer island (non-glass) or the glass bar, and slides down
+  /// while the keyboard is up.
   final Widget? bottomBar;
 
   /// Floats the composer as a pill above the chat instead of
@@ -436,10 +443,15 @@ class _ChatBodyState extends State<ChatBody>
         composer != null &&
         !widget.isInPip &&
         !MediaQuery.highContrastOf(context);
-    // The bottom bar owns the safe area when present, so the composer never
-    // pays it twice.
+    // The bottom bar owns the safe area when present, and the island pays it
+    // outside its shell, so the composer never pays it twice.
     final hasBar = widget.bottomBar != null && !widget.isInPip;
-    final composerPad = hasBar ? 0.0 : bottomPad;
+    // Non-glass chrome floats as one island holding the field and the bar;
+    // glass keeps its pill plus glass bar, and a docked pane composer gets
+    // its own island inside the pane.
+    final island = !widget.liquidGlass && !widget.isInPip;
+    final showIsland = island && !pane && (composer != null || hasBar);
+    final composerPad = island || hasBar ? 0.0 : bottomPad;
     // Glass bar matches the composer pill; the opaque shell handles the rest.
     final barGlass =
         hasBar && widget.liquidGlass && !MediaQuery.highContrastOf(context);
@@ -620,6 +632,23 @@ class _ChatBodyState extends State<ChatBody>
               ),
             ),
           );
+    // Rounded shell for the non-glass chrome: one surface tone above the
+    // chat plane, holding the field and the bar without a divider.
+    Widget islandShell(Widget child) => Material(
+      color: Theme.of(context).colorScheme.surfaceContainer,
+      borderRadius: BorderRadius.circular(kComposerIslandRadius),
+      clipBehavior: Clip.antiAlias,
+      child: child,
+    );
+    // Island bar: slides away while the keyboard is up, leaving the field
+    // alone in the shell. Only the hide animates (see [_setBarShown]).
+    final islandBar = !hasBar
+        ? null
+        : SizeTransition(
+            sizeFactor: _barCtrl,
+            alignment: Alignment.topCenter,
+            child: widget.bottomBar!,
+          );
     // Chrome under the composer, carrying its own safe area. It follows the
     // composer: inside the chat pane when the composer docks there, else
     // across the bottom. Only the hide animates (see [_setBarShown]).
@@ -643,36 +672,73 @@ class _ChatBodyState extends State<ChatBody>
                     child: widget.bottomBar!,
                   ),
           );
+    // In-flow composer, shared by the glass placeholder path and the island.
+    // Gated on !_pillShown so the pill and the in-flow never mount together:
+    // one shared inputBarKey keeps the composer's FocusNode alive across the
+    // hand-off.
+    final flowComposer = AnimatedSize(
+      duration: const Duration(milliseconds: 220),
+      curve: Curves.easeInOut,
+      alignment: Alignment.bottomCenter,
+      child: AnimatedOpacity(
+        duration: const Duration(milliseconds: 160),
+        opacity: !pill && !pane && composer != null ? 1.0 : 0.0,
+        child: pill || pane || _pillShown || composer == null
+            ? const SizedBox.shrink()
+            : Padding(
+                key: inputBarKey,
+                padding: EdgeInsets.zero,
+                child: ComposerFocusGlow(
+                  enabled: widget.liquidGlass,
+                  radius: 0,
+                  child: composerSlot(composer),
+                ),
+              ),
+      ),
+    );
     // The composer docked under the chat pane. Same keys as the other two
     // paths, and gated on !_pillShown, so only one copy mounts and focus
     // survives the move. The bottom bar docks here too, under the composer.
+    final paneComposer = Padding(
+      key: inputBarKey,
+      padding: EdgeInsets.only(bottom: composerPad),
+      child: NotificationListener<SizeChangedLayoutNotification>(
+        onNotification: (_) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            _cacheComposerH();
+            _cachePaneInsets();
+          });
+          return true;
+        },
+        child: SizeChangedLayoutNotifier(
+          child: ComposerFocusGlow(
+            enabled: widget.liquidGlass,
+            radius: 0,
+            child: composerSlot(composer),
+          ),
+        ),
+      ),
+    );
     final paneSlot = !pane || _pillShown
         ? null
+        : island
+        ? Padding(
+            padding: EdgeInsets.fromLTRB(
+              kComposerIslandMargin,
+              kComposerIslandMargin,
+              kComposerIslandMargin,
+              kComposerIslandMargin + bottomPad,
+            ),
+            child: islandShell(
+              Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [paneComposer, ?islandBar],
+              ),
+            ),
+          )
         : Column(
             mainAxisSize: MainAxisSize.min,
-            children: [
-              Padding(
-                key: inputBarKey,
-                padding: EdgeInsets.only(bottom: composerPad),
-                child: NotificationListener<SizeChangedLayoutNotification>(
-                  onNotification: (_) {
-                    WidgetsBinding.instance.addPostFrameCallback((_) {
-                      _cacheComposerH();
-                      _cachePaneInsets();
-                    });
-                    return true;
-                  },
-                  child: SizeChangedLayoutNotifier(
-                    child: ComposerFocusGlow(
-                      enabled: widget.liquidGlass,
-                      radius: 0,
-                      child: composerSlot(composer),
-                    ),
-                  ),
-                ),
-              ),
-              ?barSlot,
-            ],
+            children: [paneComposer, ?barSlot],
           );
     // No manual lift: the Scaffold shrank the body, so the composer sits
     // above the keyboard at settled constraints with no second animator
@@ -755,38 +821,35 @@ class _ChatBodyState extends State<ChatBody>
                 ),
         ),
         if (!widget.isInPip)
-          // Safe area stays outside AnimatedSize so the nav-bar collapse is
-          // not animated. The in-flow composer is gated on !_pillShown so the
-          // pill and the in-flow never mount together: one shared inputBarKey
-          // keeps the composer's FocusNode alive across the hand-off.
-          Padding(
-            padding: EdgeInsets.only(
-              bottom: pill || pane || hasBar ? 0.0 : bottomPad,
-            ),
-            child: AnimatedSize(
-              duration: const Duration(milliseconds: 220),
-              curve: Curves.easeInOut,
-              alignment: Alignment.bottomCenter,
-              child: AnimatedOpacity(
-                duration: const Duration(milliseconds: 160),
-                opacity: !pill && !pane && composer != null ? 1.0 : 0.0,
-                child: pill || pane || _pillShown || composer == null
-                    ? const SizedBox.shrink()
-                    : Padding(
-                        key: inputBarKey,
-                        padding: EdgeInsets.zero,
-                        child: ComposerFocusGlow(
-                          enabled: widget.liquidGlass,
-                          radius: 0,
-                          child: composerSlot(composer),
-                        ),
-                      ),
+          if (showIsland)
+            // One island: field and bar in a rounded shell, inset on all
+            // sides from the screen. Safe area stays outside the shell so
+            // the nav-bar collapse is not animated.
+            Padding(
+              padding: EdgeInsets.fromLTRB(
+                kComposerIslandMargin,
+                kComposerIslandMargin,
+                kComposerIslandMargin,
+                kComposerIslandMargin + bottomPad,
               ),
+              child: islandShell(
+                Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [flowComposer, ?islandBar],
+                ),
+              ),
+            )
+          else
+            Padding(
+              padding: EdgeInsets.only(
+                bottom: pill || pane || hasBar ? 0.0 : bottomPad,
+              ),
+              child: flowComposer,
             ),
-          ),
         // The bar docks across the bottom unless the composer lives in a
-        // pane, where it docks inside that pane instead.
-        if (!pane) ?barSlot,
+        // pane, where it docks inside that pane instead, or the island holds
+        // it above.
+        if (!pane && !showIsland) ?barSlot,
       ],
     );
     // Per keyboard tick this reruns and returns the same prebuilt column.

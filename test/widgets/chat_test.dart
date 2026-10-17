@@ -1299,9 +1299,8 @@ void main() {
     await tester.pumpAndSettle();
 
     // Reopen through the dashboard and go straight to the Thread tab.
-    await tester.tap(find.byIcon(Icons.more_vert));
+    await tester.tap(find.byTooltip('Threads'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Threads').last);
     await tester.pumpAndSettle();
     await tester.tap(find.text('Thread', skipOffstage: false).first);
     await tester.pumpAndSettle();

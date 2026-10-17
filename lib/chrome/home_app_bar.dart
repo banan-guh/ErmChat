@@ -199,6 +199,15 @@ class HomeAppBar {
     );
   }
 
+  Widget threadsButton(BuildContext context, {bool small = false}) =>
+      IconButton(
+        style: _small(small),
+        iconSize: small ? _smallIcon : null,
+        icon: const Icon(Icons.forum_outlined),
+        tooltip: context.l10n.threads,
+        onPressed: () => threads.showThreadsDashboard(tab: 1),
+      );
+
   Widget settingsButton(BuildContext context, {bool small = false}) =>
       IconButton(
         style: _small(small),
@@ -216,14 +225,7 @@ class HomeAppBar {
     final l10n = context.l10n;
     return ChromeMenu(
       glass: glass,
-      // Threads first, the one item opened on purpose; the rest are rare.
       entries: () => [
-        ChromeMenuEntry(
-          Icons.forum_outlined,
-          l10n.threads,
-          () => threads.showThreadsDashboard(tab: 1),
-        ),
-        const ChromeMenuEntry.divider(),
         ChromeMenuEntry(
           Icons.file_upload_outlined,
           l10n.uploadMedia,
@@ -241,31 +243,21 @@ class HomeAppBar {
     );
   }
 
-  /// The bottom chrome row: bell, overflow menu and settings, spread evenly.
-  /// It sits below the composer and owns the safe area through the host. In
-  /// glass mode the host wraps it in a glass surface, so only the non-glass
-  /// path draws the opaque shell.
+  /// The bottom chrome row: threads, bell, overflow menu and settings,
+  /// spread evenly. It sits inside the composer island, which draws the
+  /// surface, so the row is bare. In glass mode the host wraps it in a glass
+  /// surface.
   Widget bottomBar(BuildContext context, {bool glass = false}) {
-    final theme = Theme.of(context);
     final row = Row(
       mainAxisAlignment: MainAxisAlignment.end,
       children: [
+        threadsButton(context),
         mentionsButton(context),
         overflowMenu(context, glass: glass),
         settingsButton(context),
       ],
     );
-    if (glass) {
-      return KeyedSubtree(key: const Key('bottom_chrome_bar'), child: row);
-    }
-    return DecoratedBox(
-      key: const Key('bottom_chrome_bar'),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainer,
-        border: Border(top: BorderSide(color: theme.dividerColor)),
-      ),
-      child: row,
-    );
+    return KeyedSubtree(key: const Key('bottom_chrome_bar'), child: row);
   }
 
   Widget appBar(BuildContext context, {bool transparent = false}) {
