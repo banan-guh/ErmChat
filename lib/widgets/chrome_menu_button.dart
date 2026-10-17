@@ -154,9 +154,13 @@ class ChromeMenu extends StatefulWidget {
     required this.entries,
     this.glass = false,
     this.onOpenChanged,
+    this.buttonStyle,
   });
 
+  /// The tap target; with [buttonStyle], the icon of an [IconButton] in that
+  /// style, which draws its own ink.
   final Widget trigger;
+  final ButtonStyle? buttonStyle;
   final List<ChromeMenuEntry> Function() entries;
   final bool glass;
   final ValueChanged<bool>? onOpenChanged;
@@ -187,15 +191,27 @@ class _ChromeMenuState extends State<ChromeMenu> {
         interactionScale: 1,
         settings: kGlassPillSettings,
         onClose: () => widget.onOpenChanged?.call(false),
-        triggerBuilder: (context, toggle) => GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onTap: () {
+        triggerBuilder: (context, toggle) {
+          void open() {
             setState(() => _entries = widget.entries());
             widget.onOpenChanged?.call(true);
             toggle();
-          },
-          child: widget.trigger,
-        ),
+          }
+
+          if (widget.buttonStyle case final style?) {
+            return IconButton(
+              style: style,
+              icon: widget.trigger,
+              tooltip: MaterialLocalizations.of(context).showMenuTooltip,
+              onPressed: open,
+            );
+          }
+          return GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: open,
+            child: widget.trigger,
+          );
+        },
         items: [
           for (final e in _entries)
             if (e.label case final label?)
@@ -243,7 +259,9 @@ class _ChromeMenuState extends State<ChromeMenu> {
               const PopupMenuDivider(),
         ];
       },
-      child: widget.trigger,
+      style: widget.buttonStyle,
+      icon: widget.buttonStyle == null ? null : widget.trigger,
+      child: widget.buttonStyle == null ? widget.trigger : null,
     );
   }
 }

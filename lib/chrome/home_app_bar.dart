@@ -12,7 +12,6 @@ import '../chat/chat.dart';
 import '../services/stream_player_controller.dart';
 import '../services/twitch_auth.dart';
 import '../util/constants.dart';
-import '../util/layout_density.dart';
 import '../widgets/chrome_menu_button.dart';
 import '../widgets/media_upload_controller.dart';
 import '../widgets/panel_manager.dart';
@@ -237,21 +236,8 @@ class HomeAppBar {
         ),
         ChromeMenuEntry(Icons.sync, l10n.reconnect, reconnect),
       ],
-      trigger: small
-          ? const SizedBox(
-              width: _smallWidth,
-              height: 40,
-              child: Icon(Icons.more_vert, size: _smallIcon),
-            )
-          : Padding(
-              // 40pt in compact, matching the density-shrunk icon buttons.
-              padding: EdgeInsets.all(
-                resolveLayoutOverride(context, (o) => o.tightChromeMargins)
-                    ? 8
-                    : 12,
-              ),
-              child: const Icon(Icons.more_vert),
-            ),
+      buttonStyle: _small(small) ?? const ButtonStyle(),
+      trigger: Icon(Icons.more_vert, size: small ? _smallIcon : null),
     );
   }
 
