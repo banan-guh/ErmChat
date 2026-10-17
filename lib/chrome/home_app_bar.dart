@@ -250,11 +250,11 @@ class HomeAppBar {
   }) {
     final row = Row(
       children: [
-        if (withMenu) chromeMenu(glass: glass, onCalendar: onCalendar),
+        settingsButton(context),
+        overflowMenu(context, glass: glass),
         threadsButton(context),
         mentionsButton(context),
-        overflowMenu(context, glass: glass),
-        settingsButton(context),
+        if (withMenu) chromeMenu(glass: glass, onCalendar: onCalendar),
         const Spacer(),
         ...trailing,
       ],
