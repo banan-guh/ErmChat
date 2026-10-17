@@ -215,7 +215,11 @@ final chatProvider = Provider<Chat>((ref) {
     systemText: (line) {
       final l = strings();
       return switch (line) {
-        SystemLine.connected => l.statusConnected,
+        // Names the account, so the newest line says who is chatting.
+        SystemLine.connected => switch (ref.read(sessionProvider).login) {
+          final login? => l.statusSignedIn(login),
+          null => l.statusConnected,
+        },
         SystemLine.reconnected => l.statusReconnected,
         SystemLine.disconnected => l.statusDisconnected,
         SystemLine.reconnecting => l.statusReconnecting,

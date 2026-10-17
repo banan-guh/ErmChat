@@ -2808,6 +2808,14 @@
     }
   },
   "statusConnected": "Connected",
+  "statusSignedIn": "Signed in as {login}",
+  "@statusSignedIn": {
+    "placeholders": {
+      "login": {
+        "type": "String"
+      }
+    }
+  },
   "statusReconnected": "Reconnected",
   "statusDisconnected": "Disconnected",
   "statusReconnecting": "Chat reconnecting...",
