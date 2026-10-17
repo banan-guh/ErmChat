@@ -79,7 +79,9 @@ class ComposerBar extends StatelessWidget {
                 searchMode: true,
                 borderless: true,
                 prefixOverride: search.closeButton(),
-                suffixOverride: search.filterButton(),
+                // With the side column, the filter moves into it.
+                suffixOverride: buttonsInRow ? null : search.filterButton(),
+                buttonsInRow: buttonsInRow,
               )
             else if (termsBorrowed)
               MessageInput(
@@ -91,8 +93,11 @@ class ComposerBar extends StatelessWidget {
                 hintText: context.l10n.blockTermHint,
                 searchMode: true,
                 borderless: true,
-                prefixOverride: mod.termsPrefixSlot(),
-                suffixOverride: mod.termsSubmitSlot(),
+                // With the side column, add moves into it and the field
+                // needs no icon standing in for the emote button.
+                prefixOverride: buttonsInRow ? null : mod.termsPrefixSlot(),
+                suffixOverride: buttonsInRow ? null : mod.termsSubmitSlot(),
+                buttonsInRow: buttonsInRow,
               )
             else
               // The hint carries the channel status, so it follows the
@@ -139,8 +144,8 @@ Listenable _enabledInputs(
 
 /// The chat field's emote button in the island's row, or its send button
 /// down the island's side, for layouts where the row stays up while typing.
-/// Greys out with the field and steps aside while search or block terms
-/// borrow it.
+/// Greys out with the field. While search or block terms borrow the field,
+/// the emote button steps aside and the side column holds their action.
 class ComposerRowButton extends StatelessWidget {
   const ComposerRowButton.emote({
     super.key,
@@ -171,10 +176,16 @@ class ComposerRowButton extends StatelessWidget {
       controller.focusNode,
     ]),
     builder: (context, _) {
-      final borrowed =
-          (search.open && search.selectedChannel() != null) ||
-          mod.termsInputActive;
-      if (borrowed) return const SizedBox.shrink();
+      final searchBorrowed = search.open && search.selectedChannel() != null;
+      final termsBorrowed = !searchBorrowed && mod.termsInputActive;
+      if (searchBorrowed || termsBorrowed) {
+        // The side column holds whatever owns the field: search's filter
+        // or block terms' add, in place of send.
+        if (!send) return const SizedBox.shrink();
+        return Center(
+          child: searchBorrowed ? search.filterButton() : mod.termsSubmitSlot(),
+        );
+      }
       final scheme = Theme.of(context).colorScheme;
       final accent = controller.focusNode.hasFocus
           ? scheme.primary
