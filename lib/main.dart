@@ -34,7 +34,12 @@ import 'widgets/emote_url_provider.dart';
 import 'widgets/stream_player_view.dart';
 import 'widgets/tabbed_layout.dart';
 
-void main() async {
+// The binding initializes inside the same guarded zone that runs the app,
+// so zone-bound callbacks and error reporting agree on one zone.
+void main() =>
+    runZonedGuarded(_boot, reportError, zoneSpecification: PerfProbe.zoneSpec);
+
+Future<void> _boot() async {
   WidgetsFlutterBinding.ensureInitialized();
   // Decoded-image memory budget. The image cache accounts every displayed
   // frame at true size (width x height x 4) and evicts least-recently-used
@@ -69,20 +74,16 @@ void main() async {
   PerfProbe.gauge('live', () => EmoteUrlProvider.liveCount);
   PerfProbe.gauge('stream', () => EmoteUrlProvider.streamingCount);
   PerfProbe.gauge('array', () => EmoteUrlProvider.arrayCount);
-  runZonedGuarded(
-    () => runApp(
-      LiquidGlassWidgets.wrap(
-        child: const TwitchChatApp(),
-        brightnessResolver: Theme.maybeBrightnessOf,
-        theme: GlassThemeData.simple(
-          blur: 10,
-          thickness: 30,
-          quality: GlassQuality.premium,
-        ),
+  runApp(
+    LiquidGlassWidgets.wrap(
+      child: const TwitchChatApp(),
+      brightnessResolver: Theme.maybeBrightnessOf,
+      theme: GlassThemeData.simple(
+        blur: 10,
+        thickness: 30,
+        quality: GlassQuality.premium,
       ),
     ),
-    reportError,
-    zoneSpecification: PerfProbe.zoneSpec,
   );
 }
 
