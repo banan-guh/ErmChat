@@ -1917,7 +1917,7 @@ void main() {
           await tester.tap(find.text('View thread', skipOffstage: false));
           await tester.pumpAndSettle();
 
-          expect(find.text('Threads', skipOffstage: false), findsOneWidget);
+          expect(find.text('Thread', skipOffstage: false), findsOneWidget);
           expect(
             find.textContaining('parent msg', skipOffstage: false),
             findsAtLeast(1),
@@ -1976,7 +1976,7 @@ void main() {
           );
           await tester.pumpAndSettle();
 
-          expect(find.text('Threads', skipOffstage: false), findsOneWidget);
+          expect(find.text('Thread', skipOffstage: false), findsOneWidget);
           expect(
             find.textContaining('root level', skipOffstage: false),
             findsAtLeast(1),
@@ -2034,7 +2034,7 @@ void main() {
           find.textContaining('Replying to @alice', skipOffstage: false),
         );
         await tester.pumpAndSettle();
-        expect(find.text('Threads', skipOffstage: false), findsOneWidget);
+        expect(find.text('Thread', skipOffstage: false), findsOneWidget);
         expect(
           find.textContaining('thread root', skipOffstage: false),
           findsAtLeast(1),
@@ -2118,7 +2118,7 @@ void main() {
           );
           await tester.pumpAndSettle();
 
-          expect(find.text('Threads', skipOffstage: false), findsOneWidget);
+          expect(find.text('Thread', skipOffstage: false), findsOneWidget);
           expect(
             find.textContaining('orphan msg', skipOffstage: false),
             findsAtLeast(1),
@@ -2174,17 +2174,17 @@ void main() {
           ),
         );
         await tester.pumpAndSettle();
-        expect(find.text('Threads', skipOffstage: false), findsOneWidget);
+        expect(find.text('Thread', skipOffstage: false), findsOneWidget);
         final headerSize = tester.getSize(
-          find.text('Threads', skipOffstage: false),
+          find.text('Thread', skipOffstage: false),
         );
         await tester.fling(
-          find.text('Threads', skipOffstage: false),
+          find.text('Thread', skipOffstage: false),
           Offset(0, headerSize.height * 3),
           1000,
         );
         await tester.pumpAndSettle();
-        expect(find.text('Threads'), findsNothing);
+        expect(find.text('Thread'), findsNothing);
       }
       {
         SharedPreferences.setMockInitialValues({'access_token': 'test_token'});

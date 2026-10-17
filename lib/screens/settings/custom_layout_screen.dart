@@ -48,16 +48,6 @@ class _CustomLayoutScreenState extends State<CustomLayoutScreen> {
           ),
           const Divider(),
           SettingAnchor(
-            Setting.foldPanelTitles,
-            child: PrefsSwitchTile(
-              enabled: _enabled,
-              title: Setting.foldPanelTitles.titleOf(context.l10n),
-              subtitle: context.l10n.foldPanelTitlesHint,
-              read: (p) => p.overrideFoldPanelHeaders,
-              write: (p, v) => p.setOverrideFoldPanelHeaders(v),
-            ),
-          ),
-          SettingAnchor(
             Setting.tighterComposer,
             child: PrefsSwitchTile(
               enabled: _enabled,

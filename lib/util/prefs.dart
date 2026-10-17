@@ -336,7 +336,6 @@ class Prefs {
 
   // ── Custom layout overrides ─────────────────────────────────────────
   static const _kCustomLayoutEnabled = 'custom_layout_enabled';
-  static const _kOverrideFoldPanelHeaders = 'override_fold_panel_headers';
   static const _kOverrideTightComposer = 'override_tight_composer';
   static const _kOverrideSheetActionRow = 'override_sheet_action_row';
   static const _kOverrideCompactDensity = 'override_compact_density';
@@ -346,12 +345,6 @@ class Prefs {
 
   Future<void> setCustomLayoutEnabled(bool value) =>
       _p.setBool(_kCustomLayoutEnabled, value);
-
-  bool get overrideFoldPanelHeaders =>
-      _p.getBool(_kOverrideFoldPanelHeaders) ?? true;
-
-  Future<void> setOverrideFoldPanelHeaders(bool value) =>
-      _p.setBool(_kOverrideFoldPanelHeaders, value);
 
   bool get overrideTightComposer => _p.getBool(_kOverrideTightComposer) ?? true;
 

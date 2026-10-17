@@ -20,7 +20,6 @@
   "settingKeepScreenOn": "Keep screen on",
   "settingFastChannelSwipe": "Fast channel swipe",
   "settingCustomLayout": "Enable custom layout",
-  "settingFoldPanelTitles": "Fold panel titles into tabs",
   "settingTighterComposer": "Tighter composer",
   "settingHorizontalSheetActions": "Horizontal sheet actions",
   "settingCompactDensity": "Compact density",
@@ -455,7 +454,6 @@
       }
     }
   },
-  "foldPanelTitlesHint": "Drops the panel title row so the tabs name it",
   "tighterComposerHint": "Shorter input field with full-size buttons",
   "horizontalSheetActionsHint": "Icon-over-label rows in the emote and user sheets",
   "compactDensityHint": "Smaller buttons, list tiles and menus",

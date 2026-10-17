@@ -88,22 +88,17 @@ void main() {
   testWidgets('overrides apply only with custom layout on', (tester) async {
     await pumpJoined(tester, glass: false, density: LayoutDensity.compact);
 
-    // Master off: the override is ignored and compact still folds titles.
+    // Master off: the override is ignored and compact still hides the row
+    // under the keyboard, so the emote button stays in the field.
     final prefs = await Prefs.load();
-    await prefs.setOverrideFoldPanelHeaders(false);
+    await prefs.setOverrideKeyboardHidesRow(false);
     await settlePrefs(tester);
-    final bell = inBottomBar(find.byIcon(Icons.notifications_active));
-    await tester.tap(bell);
-    await tester.pumpAndSettle();
-    expect(find.text('Mentions / Whispers'), findsNothing);
-    await tester.pageBack();
-    await tester.pumpAndSettle();
+    final rowEmote = inBottomBar(find.byIcon(Icons.emoji_emotions_outlined));
+    expect(rowEmote, findsNothing);
 
     await prefs.setCustomLayoutEnabled(true);
     await settlePrefs(tester);
-    await tester.tap(bell);
-    await tester.pumpAndSettle();
-    expect(find.text('Mentions / Whispers'), findsOneWidget);
+    expect(rowEmote, findsOneWidget);
   });
 
   for (final glass in [false, true]) {

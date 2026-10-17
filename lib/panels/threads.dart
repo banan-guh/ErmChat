@@ -553,20 +553,15 @@ class ThreadPanels {
       offstage: panelManager.activePanel != OverlayPanel.thread,
       ratio: panelManager.threadSheetRatio,
       header: panelHeader(
-        context,
         leading: IconButton(
           icon: const Icon(Icons.close),
           tooltip: context.l10n.close,
           onPressed: closePanel,
         ),
-        title: context.l10n.threads,
-        tabs: (compact) => TabBar(
+        tabs: TabBar(
           controller: threadsTab(),
-          // Full: a centered island. Compact: offsets the leading button so
-          // the tabs still center on the screen.
-          padding: compact
-              ? const EdgeInsets.only(right: 40)
-              : const EdgeInsets.symmetric(horizontal: 100),
+          // Offsets the leading button so the tabs center on the screen.
+          padding: const EdgeInsets.only(right: 40),
           // Three tabs in the mentions-width island: center the strip so it
           // reads the same, and let it scroll instead of clipping labels on
           // narrow phones.

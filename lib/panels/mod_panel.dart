@@ -356,18 +356,14 @@ class ModPanels {
       offstage: false,
       ratio: panelManager.modSheetRatio,
       header: panelHeader(
-        context,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
           tooltip: context.l10n.back,
           onPressed: closePanel,
         ),
-        title: channel.isEmpty
-            ? context.l10n.modView
-            : context.l10n.modViewChannel(channel),
         // Stream-first order: live work before people, settings last.
         // Matches ModViewPanel children in mod_view.dart; keep Queue at 0.
-        tabs: (_) => SizedBox(
+        tabs: SizedBox(
           height: 40,
           child: TabBar(
             controller: modTab(),

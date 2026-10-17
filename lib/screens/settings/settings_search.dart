@@ -101,7 +101,6 @@ class Setting {
     'keep_screen_on' => l.settingKeepScreenOn,
     'fast_channel_swipe' => l.settingFastChannelSwipe,
     'custom_layout' => l.settingCustomLayout,
-    'fold_panel_titles' => l.settingFoldPanelTitles,
     'tighter_composer' => l.settingTighterComposer,
     'horizontal_sheet_actions' => l.settingHorizontalSheetActions,
     'compact_density' => l.settingCompactDensity,
@@ -311,11 +310,6 @@ class Setting {
   static const customLayout = Setting(
     'custom_layout',
     'Enable custom layout',
-    SettingsPageId.customLayout,
-  );
-  static const foldPanelTitles = Setting(
-    'fold_panel_titles',
-    'Fold panel titles into tabs',
     SettingsPageId.customLayout,
   );
   static const tighterComposer = Setting(
@@ -719,7 +713,6 @@ class Setting {
     keepScreenOn,
     fastChannelSwipe,
     customLayout,
-    foldPanelTitles,
     tighterComposer,
     horizontalSheetActions,
     compactDensity,

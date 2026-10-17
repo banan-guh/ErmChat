@@ -326,20 +326,15 @@ class MentionsPanels {
       offstage: panelManager.activePanel != OverlayPanel.mentions,
       ratio: panelManager.mentionsSheetRatio,
       header: panelHeader(
-        context,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
           tooltip: context.l10n.back,
           onPressed: closePanel,
         ),
-        title: context.l10n.mentionsWhispers,
-        tabs: (compact) => TabBar(
+        tabs: TabBar(
           controller: mentionsTab(),
-          // Full: a centered island. Compact: offsets the leading button so
-          // the tabs still center on the screen.
-          padding: compact
-              ? const EdgeInsets.only(right: 40)
-              : const EdgeInsets.symmetric(horizontal: 100),
+          // Offsets the leading button so the tabs center on the screen.
+          padding: const EdgeInsets.only(right: 40),
           tabs: [
             Tab(text: context.l10n.sectionMentions),
             Tab(text: context.l10n.whispers),
