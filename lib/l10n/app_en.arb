@@ -1555,6 +1555,18 @@
   "outboxServerUnavailable": "Server unavailable; will retry",
   "emoteReloadFailed": "Emote reload failed",
   "emotesReloaded": "Emotes reloaded",
+  "emotesReloadedDelta": "Emotes reloaded: +{added} −{removed}",
+  "@emotesReloadedDelta": {
+    "placeholders": {
+      "added": {
+        "type": "int"
+      },
+      "removed": {
+        "type": "int"
+      }
+    }
+  },
+  "emotesReloadedNoChange": "Emotes reloaded: no changes",
   "emotesFailedFor": "Emotes failed to load for {providers}",
   "@emotesFailedFor": {
     "placeholders": {

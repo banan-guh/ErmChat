@@ -184,6 +184,8 @@ class EmoteController {
   Future<bool> refreshAfterAuth({bool force = false}) async {
     try {
       for (final channel in chat.names) {
+        // Known ids skip the lookup; it runs one channel at a time.
+        if (chat.channelFor(channel)?.info.broadcasterId != null) continue;
         final userId = await twitchApi.getUserId(twitchAuth, channel);
         if (userId != null) {
           chat.channelFor(channel)?.info.setBroadcasterId(userId);
@@ -242,6 +244,8 @@ class EmoteController {
     // Discard failures from before this refresh so the report below only
     // reflects fetches this refresh triggered.
     emoteManager.takeFetchFailures();
+    // A nuke empties everything first, so only a reload reports a delta.
+    final before = nuke ? null : emoteManager.loadedEmoteKeys(chat.names);
     try {
       if (nuke) {
         await emoteManager.wipePersisted();
@@ -274,13 +278,23 @@ class EmoteController {
         final failed = emoteManager.takeFetchFailures();
         if (subFailed) failed.add(_strings().emoteSubEmotes);
         message = failed.isEmpty
-            ? _strings().emotesReloaded
+            ? _reloadedMessage(before)
             : _strings().emotesFailedFor(failed.join(', '));
       }
       signals.snack.emit(message);
     } finally {
       signals.busy.emit(false);
     }
+  }
+
+  String _reloadedMessage(Set<String>? before) {
+    if (before == null) return _strings().emotesReloaded;
+    final after = emoteManager.loadedEmoteKeys(chat.names);
+    final added = after.difference(before).length;
+    final removed = before.difference(after).length;
+    return added == 0 && removed == 0
+        ? _strings().emotesReloadedNoChange
+        : _strings().emotesReloadedDelta(added, removed);
   }
 
   // Re-join may have opened channels whose sub-emote owners were previously
