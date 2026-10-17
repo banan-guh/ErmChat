@@ -331,8 +331,9 @@ class HypeTrainContribution {
   });
 }
 
-/// A pinned chat message (PubSub `pinned-chat-updates-v1`). [removed] is an
-/// unpin; [endsAt] is when a timed pin lapses on its own.
+/// A pinned chat message (PubSub `pinned-chat-updates-v1`, or Helix
+/// `chat/pins`). [removed] is an unpin, and with an empty [id] means the
+/// channel has no pin; [endsAt] is when a timed pin lapses on its own.
 class PinnedMessageEvent {
   final String channel;
 
@@ -369,6 +370,57 @@ class PinnedMessageEvent {
     this.endsAt,
     this.removed = false,
   });
+
+  /// The Helix pin [json] for [channel]. Helix has no pin id, so the
+  /// message id stands in for it.
+  factory PinnedMessageEvent.fromHelix(
+    String channel,
+    Map<String, dynamic> json,
+  ) {
+    final message = json['message'];
+    final text = message is Map ? message['text'] as String? ?? '' : '';
+    final emotes = <EmotePosition>[];
+    var at = 0;
+    final fragments = message is Map ? message['fragments'] : null;
+    for (final f in fragments is List ? fragments : const []) {
+      if (f is! Map) continue;
+      final part = f['text'] as String? ?? '';
+      final emote = f['emote'];
+      final id = emote is Map ? emote['id'] as String? : null;
+      if (f['type'] == 'emote' && id != null && part.isNotEmpty) {
+        emotes.add(
+          EmotePosition(
+            emoteId: id,
+            startIndex: at,
+            endIndex: at + part.length,
+            emoteCode: part,
+          ),
+        );
+      }
+      at += part.length;
+    }
+    final messageId = json['message_id'] as String? ?? '';
+    final endsAt = json['ends_at'] as String?;
+    return PinnedMessageEvent(
+      channel: channel,
+      id: messageId,
+      messageId: messageId,
+      senderName:
+          json['sender_user_name'] as String? ??
+          json['sender_user_login'] as String? ??
+          '',
+      senderId: json['sender_user_id'] as String? ?? '',
+      text: text,
+      emotes: at == text.length ? emotes : const [],
+      pinnedBy:
+          json['pinned_by_user_name'] as String? ??
+          json['pinned_by_user_login'] as String? ??
+          '',
+      endsAt: endsAt == null || endsAt.isEmpty
+          ? null
+          : DateTime.tryParse(endsAt),
+    );
+  }
 
   PinnedMessageEvent withSenderColor(String? color) => PinnedMessageEvent(
     channel: channel,

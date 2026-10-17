@@ -18,6 +18,7 @@ void main() {
       }) => PinnedMessageEvent(
         channel: 'c',
         id: id,
+        messageId: 'm$id',
         text: 'hi',
         endsAt: lasts == null ? null : DateTime.now().add(lasts),
         removed: removed,
@@ -40,6 +41,9 @@ void main() {
       expect(widgets.pins, isEmpty, reason: 'a dismissed pin pushed again');
       widgets.onPinned(pin('d'));
       expect(widgets.pins['c']?.id, 'd', reason: 'a new pin after a dismiss');
+
+      widgets.onPinned(PinnedMessageEvent(channel: 'c', id: '', removed: true));
+      expect(widgets.pins, isEmpty, reason: 'Helix read found no pin');
     },
   );
 

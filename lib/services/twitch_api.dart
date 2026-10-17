@@ -1030,6 +1030,28 @@ class TwitchApi {
     return _putOk('pinChatMessage', auth, uri, ok: const {204});
   }
 
+  /// The channel's current pinned chat message, or null when none. Throws
+  /// when the request fails, so a failure never reads as unpinned.
+  Future<Map<String, dynamic>?> getPinnedChatMessage(
+    TwitchAuth auth, {
+    required String broadcasterId,
+    required String moderatorId,
+  }) async {
+    final uri = Uri.parse(
+      '$_base/chat/pins?broadcaster_id=$broadcasterId&moderator_id=$moderatorId',
+    );
+    final res = await _get('getPinnedChatMessage', auth, uri);
+    if (res == null) {
+      throw http.ClientException('getPinnedChatMessage failed', uri);
+    }
+    try {
+      final list = (jsonDecode(res.body) as Map)['data'] as List;
+      return list.isEmpty ? null : list[0] as Map<String, dynamic>;
+    } catch (e) {
+      throw http.ClientException('getPinnedChatMessage: bad response', uri);
+    }
+  }
+
   /// Unpins [messageId], the pinned chat message's own id.
   Future<bool> unpinChatMessage(
     TwitchAuth auth, {

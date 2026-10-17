@@ -108,10 +108,10 @@ class BroadcastWidgets {
     if (!mounted) return;
     final channel = event.channel;
     if (event.removed) {
-      if (pins[channel]?.id != event.id) return;
+      if (event.id.isNotEmpty && pins[channel]?.id != event.id) return;
       _dropPin(channel);
     } else {
-      if (_dismissedPins.contains(event.id)) return;
+      if (_dismissedPins.contains(event.messageId)) return;
       _pinExpiry.remove(channel)?.cancel();
       pins[channel] = event.senderColor != null
           ? event
@@ -135,7 +135,7 @@ class BroadcastWidgets {
   void dismissPin(String channel) {
     final pin = pins[channel];
     if (pin == null) return;
-    _dismissedPins.add(pin.id);
+    _dismissedPins.add(pin.messageId);
     _dropPin(channel);
   }
 

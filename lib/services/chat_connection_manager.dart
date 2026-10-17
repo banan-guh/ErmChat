@@ -418,8 +418,49 @@ class ChatConnectionManager {
     getMaxMessages: config.bridge.getMaxMessagesPerChannel,
     onStreamSeen: config.sinks.onArchiveStreamSeen,
     onStreamEnded: config.sinks.onArchiveStreamEnded,
+    onSubscribed: syncPin,
   );
   final _ingestionSubs = <StreamSubscription<void>>[];
+
+  /// Latest pin request per channel, so a slow response never overwrites a
+  /// newer one.
+  final _pinRequests = <String, int>{};
+
+  /// Reads [channel]'s current pin from Helix and shows it, or clears the
+  /// card when there is none. PubSub never replays a pin made before it
+  /// listened, so this runs on every join and resubscribe, and again on
+  /// each pin event. Needs a login; a failed read changes nothing.
+  Future<void> syncPin(String channel) async {
+    final auth = config.services.twitchAuth;
+    final broadcasterId = config.chat.channelFor(channel)?.info.broadcasterId;
+    final userId = config.session.userId;
+    final onPinned = config.sinks.onPinned;
+    if (auth.accessToken == null ||
+        broadcasterId == null ||
+        broadcasterId.isEmpty ||
+        userId == null ||
+        onPinned == null) {
+      return;
+    }
+    final request = (_pinRequests[channel] ?? 0) + 1;
+    _pinRequests[channel] = request;
+    final Map<String, dynamic>? pin;
+    try {
+      pin = await config.services.twitchApi.getPinnedChatMessage(
+        auth,
+        broadcasterId: broadcasterId,
+        moderatorId: userId,
+      );
+    } catch (_) {
+      return;
+    }
+    if (_pinRequests[channel] != request) return;
+    onPinned(
+      pin == null
+          ? PinnedMessageEvent(channel: channel, id: '', removed: true)
+          : PinnedMessageEvent.fromHelix(channel, pin),
+    );
+  }
 
   void dispose() {
     _lifecycle.dispose();
@@ -568,7 +609,12 @@ class ChatConnectionManager {
         pubSub.onHypeTrain.listen((e) => sinks.onHypeTrain?.call(e)),
         pubSub.onPoll.listen((e) => sinks.onPoll?.call(e)),
         pubSub.onPrediction.listen((e) => sinks.onPrediction?.call(e)),
-        pubSub.onPinned.listen((e) => sinks.onPinned?.call(e)),
+        // The event shows at once; Helix then confirms it, which also
+        // settles an unpin whose id belongs to a pin read from Helix.
+        pubSub.onPinned.listen((e) {
+          sinks.onPinned?.call(e);
+          unawaited(syncPin(e.channel));
+        }),
       ]);
     }
     eventSubConsumer.attach(eventSubDecoder);

@@ -55,6 +55,7 @@ class ChatChannelSetup {
     this.getMaxMessages = _unboundedMessages,
     this.onStreamSeen,
     this.onStreamEnded,
+    this.onSubscribed,
   });
 
   static int _unboundedMessages() => 1 << 30;
@@ -103,6 +104,10 @@ class ChatChannelSetup {
   )?
   onStreamSeen;
   final void Function(String id, DateTime endedAt)? onStreamEnded;
+
+  /// A channel's id is known and its PubSub topics are listening; runs on
+  /// every join and resubscribe.
+  final void Function(String channel)? onSubscribed;
 
   bool _disposed = false;
   final _httpClient = http.Client();
@@ -229,6 +234,7 @@ class ChatChannelSetup {
       } catch (_) {
         logDebug('[ChatConn] pubsub listen failed for $channelName');
       }
+      onSubscribed?.call(channelName);
       // The first join fetches the account's own emotes; later joins
       // attach the fetched ones to this channel.
       unawaited(
