@@ -23,7 +23,6 @@ const _allowedPrefixes = [
 class StreamPlayerView extends StatefulWidget {
   final StreamPlayerController controller;
   final String channel;
-  final bool fillPane;
   final bool visible;
 
   /// Hides the overlay controls and tap catcher. Used by the PiP-only
@@ -34,7 +33,6 @@ class StreamPlayerView extends StatefulWidget {
     super.key,
     required this.controller,
     required this.channel,
-    this.fillPane = false,
     this.visible = true,
     this.showControls = true,
   });
@@ -271,15 +269,9 @@ class _StreamPlayerViewState extends State<StreamPlayerView> {
 
   @override
   Widget build(BuildContext context) {
-    final framed = widget.fillPane
-        ? SizedBox.expand(child: WebViewWidget(controller: _webController))
-        : AspectRatio(
-            aspectRatio: 16 / 9,
-            child: WebViewWidget(controller: _webController),
-          );
     return Stack(
       children: [
-        framed,
+        SizedBox.expand(child: WebViewWidget(controller: _webController)),
         if (_error != null) _buildErrorOverlay(),
         if (widget.showControls &&
             _pageLoaded &&

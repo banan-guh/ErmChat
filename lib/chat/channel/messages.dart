@@ -608,33 +608,6 @@ class Messages {
     return true;
   }
 
-  /// Updates the system row carrying [messageId] in place, inserting it when
-  /// absent. Bumps [version] and emits the id in both cases; callers must
-  /// not bump or evict again. Returns true when the buffer changed.
-  bool upsertSystem(String text, {required String messageId, Color? accent}) {
-    for (final m in _items) {
-      if (m.isSystem && m.messageId == messageId) {
-        if (m.text == text) return false;
-        m.text = text;
-        _noteMutation(messageId);
-        return true;
-      }
-    }
-    final row = TwitchMessage(
-      login: '',
-      text: text,
-      messageId: messageId,
-      isSystem: true,
-      systemAccent: accent,
-      channel: channel,
-      timestamp: now(),
-    );
-    _items.insert(0, row);
-    _byId[messageId] = row;
-    _noteMutation(messageId);
-    return true;
-  }
-
   /// Notes a gap at [at] after a history fetch failed: messages from before
   /// then may be missing. Nothing when no chat sits before [at], or when the
   /// last thing before it is already a gap note, so a fetch failing again at

@@ -167,31 +167,15 @@ class HomeAppBar {
     addChannelDialog();
   }
 
-  /// The tab strip's buttons: full-size icons in a 40pt slot, narrower than
-  /// stock so three fit beside the tabs.
-  static const double _smallWidth = 40;
-  static const double _smallIcon = 24;
-
   /// The button row's side inset, matching the field's, so the row's end
   /// buttons line up under the field's emote and send.
   static const double _rowInset = 8;
 
-  static ButtonStyle? _small(bool small) => small
-      ? IconButton.styleFrom(
-          fixedSize: const Size(_smallWidth, 40),
-          minimumSize: Size.zero,
-          padding: EdgeInsets.zero,
-          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-        )
-      : null;
-
-  Widget mentionsButton(BuildContext context, {bool small = false}) {
+  Widget mentionsButton(BuildContext context) {
     final theme = Theme.of(context);
     return ListenableBuilder(
       listenable: chat.mentionsBump,
       builder: (context, _) => IconButton(
-        style: _small(small),
-        iconSize: small ? _smallIcon : null,
         icon: Icon(
           Icons.notifications_active,
           color: chat.unreadMentions > 0 ? theme.colorScheme.error : null,
@@ -202,29 +186,19 @@ class HomeAppBar {
     );
   }
 
-  Widget threadsButton(BuildContext context, {bool small = false}) =>
-      IconButton(
-        style: _small(small),
-        iconSize: small ? _smallIcon : null,
-        icon: const Icon(Icons.forum_outlined),
-        tooltip: context.l10n.threads,
-        onPressed: () => threads.showThreadsDashboard(tab: 1),
-      );
+  Widget threadsButton(BuildContext context) => IconButton(
+    icon: const Icon(Icons.forum_outlined),
+    tooltip: context.l10n.threads,
+    onPressed: () => threads.showThreadsDashboard(tab: 1),
+  );
 
-  Widget settingsButton(BuildContext context, {bool small = false}) =>
-      IconButton(
-        style: _small(small),
-        iconSize: small ? _smallIcon : null,
-        icon: const Icon(Icons.settings),
-        tooltip: context.l10n.settingsTitle,
-        onPressed: openSettings,
-      );
+  Widget settingsButton(BuildContext context) => IconButton(
+    icon: const Icon(Icons.settings),
+    tooltip: context.l10n.settingsTitle,
+    onPressed: openSettings,
+  );
 
-  Widget overflowMenu(
-    BuildContext context, {
-    bool small = false,
-    bool glass = false,
-  }) {
+  Widget overflowMenu(BuildContext context, {bool glass = false}) {
     final l10n = context.l10n;
     return ChromeMenu(
       glass: glass,
@@ -236,8 +210,8 @@ class HomeAppBar {
         ChromeMenuEntry(l10n.reloadEmotes, reloadEmotes),
         ChromeMenuEntry(l10n.reconnect, reconnect),
       ],
-      buttonStyle: _small(small) ?? const ButtonStyle(),
-      trigger: Icon(Icons.more_vert, size: small ? _smallIcon : null),
+      buttonStyle: const ButtonStyle(),
+      trigger: const Icon(Icons.more_vert),
     );
   }
 

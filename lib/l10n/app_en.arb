@@ -592,14 +592,6 @@
   },
   "back": "Back",
   "modView": "Mod view",
-  "modViewChannel": "Mod view · #{channel}",
-  "@modViewChannel": {
-    "placeholders": {
-      "channel": {
-        "type": "String"
-      }
-    }
-  },
   "modTabActivity": "Activity",
   "modTabModes": "Modes",
   "modTabChannel": "Channel",
@@ -1248,7 +1240,6 @@
   "reloadEmotes": "Reload emotes",
   "reconnect": "Reconnect",
   "whispers": "Whispers",
-  "mentionsWhispers": "Mentions / Whispers",
   "noMentionsOrWhispers": "No mentions or whispers",
   "noWhispers": "No whispers",
   "replyToMessage": "Reply to message",
@@ -3027,17 +3018,6 @@
         "type": "String"
       },
       "to": {
-        "type": "String"
-      }
-    }
-  },
-  "historyScrubberBubble": "{day} · {time}",
-  "@historyScrubberBubble": {
-    "placeholders": {
-      "day": {
-        "type": "String"
-      },
-      "time": {
         "type": "String"
       }
     }

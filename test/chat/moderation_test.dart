@@ -62,13 +62,10 @@ void main() {
           target: target,
         );
 
-    test('feed logs newest first, caps per channel, clears quietly', () {
+    test('feed logs newest first, caps per channel', () {
       final chat = Chat();
       addTearDown(chat.dispose);
       final mod = _mod(chat);
-      final version = mod.modActivityVersion.value;
-      mod.clearFeed();
-      expect(mod.modActivityVersion.value, version, reason: 'empty is quiet');
       mod.addFeed(activity('ban', target: 'a'));
       mod.addFeed(activity('timeout', target: 'b'));
       expect(mod.feed.map((e) => e.target), ['b', 'a']);
@@ -77,8 +74,6 @@ void main() {
       }
       expect(mod.feed, hasLength(Moderation.maxActivityPerChannel));
       expect(mod.feed.first.target, 'u209');
-      mod.clearFeed();
-      expect(mod.feed, isEmpty);
     });
 
     test(

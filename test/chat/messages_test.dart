@@ -26,21 +26,6 @@ void main() {
     int count(Messages m, String text) =>
         m.items.where((e) => e.text == text).length;
 
-    test('upsert inserts, updates in place, ignores identical text', () {
-      final chat = Chat();
-      addTearDown(chat.dispose);
-      final messages = chat.ensure('test').messages;
-      expect(messages.upsertSystem('~14s', messageId: 'wait'), isTrue);
-      expect(messages.upsertSystem('~13s', messageId: 'wait'), isTrue);
-      expect(texts(messages), ['~13s'], reason: 'ticks update, never stack');
-      expect(messages.upsertSystem('~13s', messageId: 'wait'), isFalse);
-
-      messages.addSystem('Connected');
-      expect(messages.removeSystem('wait'), isTrue);
-      expect(texts(messages), ['Connected']);
-      expect(messages.removeSystem('wait'), isFalse);
-    });
-
     test('addSystem inserts at the top with a generated id', () {
       final chat = Chat();
       addTearDown(chat.dispose);

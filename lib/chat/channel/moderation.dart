@@ -81,13 +81,6 @@ class Moderation {
     modActivityVersion.value++;
   }
 
-  void clearFeed() {
-    if (_feed.isEmpty) return;
-    _feed.clear();
-    modFeedVersion.value++;
-    modActivityVersion.value++;
-  }
-
   void addWarning(WarnEntry warning) {
     _warnings.insert(0, warning);
     if (_warnings.length > maxWarningsPerChannel) {

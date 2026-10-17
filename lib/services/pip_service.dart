@@ -50,16 +50,6 @@ class PipService {
     }
   }
 
-  /// True on Android 12+ devices with the PiP system feature. False
-  /// everywhere else (iOS, older Android, tests without a host).
-  Future<bool> isPipSupported() async {
-    try {
-      return await _channel.invokeMethod<bool>('isSupported') ?? false;
-    } catch (_) {
-      return false;
-    }
-  }
-
   /// Arms OS auto-enter on background (Android 12+). No-op elsewhere.
   Future<void> setAutoEnter(bool enabled) async {
     try {

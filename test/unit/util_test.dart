@@ -30,15 +30,6 @@ import 'package:ermchat/widgets/link_whitelist.dart';
 import 'package:ermchat/util/constants.dart';
 import 'package:ermchat/util/thread_utils.dart';
 
-TwitchMessage _msg(String text, {String login = 'otheruser', String? replyTo}) {
-  return TwitchMessage(
-    login: login,
-    text: text,
-    isSystem: false,
-    replyToUser: replyTo,
-  );
-}
-
 const _invisibleChar = '\u034F';
 
 PredictiveBackEvent _event(double progress) {
@@ -177,7 +168,7 @@ void main() {
     });
   });
 
-  group('isMention', () {
+  group('wordMatches', () {
     test('matches whole-word mentions case-insensitively', () {
       const cases = [
         ('hello @forsen', 'forsen', true),
@@ -194,34 +185,9 @@ void main() {
       ];
       for (final c in cases) {
         expect(
-          isMention(c.$1, c.$2),
+          wordMatches(c.$1, c.$2),
           c.$3,
           reason: 'text: "${c.$1}" login: "${c.$2}"',
-        );
-      }
-    });
-  });
-
-  group('isMentionOf', () {
-    test('flags pings and replies while ignoring self and system messages', () {
-      final cases = [
-        (_msg('hey @forsen'), 'forsen', true),
-        (_msg('great point', replyTo: 'forsen'), 'forsen', true),
-        (_msg('hey @FORSEN'), 'forsen', true),
-        (_msg('hi', replyTo: 'Forsen'), 'forsen', true),
-        (_msg('hey @forsen', login: 'forsen'), 'forsen', false),
-        (
-          TwitchMessage(login: '', text: 'Chat was cleared.', isSystem: true),
-          'forsen',
-          false,
-        ),
-        (_msg('hello world'), 'forsen', false),
-      ];
-      for (final c in cases) {
-        expect(
-          isMentionOf(c.$1, c.$2),
-          c.$3,
-          reason: 'text: "${c.$1.text}" login: "${c.$1.login}"',
         );
       }
     });

@@ -312,7 +312,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     userStore: _userStore,
     chat: _chat,
     session: _session,
-    getReplyTo: () => ref.read(replyToProvider),
     setReplyTo: (value) => ref.read(replyToProvider.notifier).set(value),
     getSelectedChannel: () => ref.read(selectedChannelProvider),
     isWhispersTabActive: () => _mentions.isWhispersTabActive,

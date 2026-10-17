@@ -19,14 +19,9 @@ import '../irc/message.dart' show IrcMessage, parseIrcMessage;
 
 /// Fetch failure. [definitive] = per-channel, no failover helps.
 class RecentMessagesException implements Exception {
-  RecentMessagesException(
-    this.message, {
-    this.errorCode,
-    this.definitive = false,
-  });
+  RecentMessagesException(this.message, {this.definitive = false});
 
   final String message;
-  final String? errorCode;
   final bool definitive;
 
   @override
@@ -252,7 +247,6 @@ class RecentMessagesService {
         };
         throw RecentMessagesException(
           message,
-          errorCode: code.isEmpty ? null : code,
           definitive: res.statusCode == 400 || res.statusCode == 403,
         );
       }

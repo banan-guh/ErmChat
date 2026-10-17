@@ -98,9 +98,6 @@ class TwitchBadgeService {
       _channelBadges[channel]?[setId]?.versions[versionId] ??
       _globalBadges[setId]?.versions[versionId];
 
-  String? resolveBadgeUrl(String channel, String setId, String versionId) =>
-      resolveBadge(channel, setId, versionId)?.imageUrl;
-
   void clearChannel(String channel) {
     _channelBadges.remove(channel);
     _channelBadgesFetched.remove(channel);

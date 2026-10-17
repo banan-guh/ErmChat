@@ -1021,21 +1021,6 @@ class EmoteManager implements EmoteLookupSource {
   @visibleForTesting
   int foreignPersonalUserCountForTesting() => _personalSets.foreignUserCount;
 
-  @visibleForTesting
-  Future<GlobalEmoteFetch> fetchAllGlobalForTesting() async {
-    await _visibility.ensureLoaded();
-    return _fetcher.fetchAllGlobal();
-  }
-
-  @visibleForTesting
-  Future<ChannelEmoteFetch> fetchAllChannelForTesting(
-    String? broadcasterId, {
-    String? channelName,
-  }) async {
-    await _visibility.ensureLoaded();
-    return _fetcher.fetchAllChannel(broadcasterId, channelName: channelName);
-  }
-
   /// Sync gate for fetch lambdas; callers must have awaited
   /// [_visibility.ensureLoaded] first.
   bool _isProviderOn(EmoteType type) => _visibility.isProviderEnabled(type);

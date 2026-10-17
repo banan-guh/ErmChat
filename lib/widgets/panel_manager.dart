@@ -57,9 +57,6 @@ class PanelManager {
   static const emoteMaxFraction = 0.6;
   static const fullHeightFraction = 1.0;
 
-  double get emoteSheetPhysicalSize =>
-      emoteSheetCtrl.isAttached ? emoteSheetCtrl.size : 0.0;
-
   void dispose() {
     panelScaleCtrl.dispose();
     emoteSheetCtrl.dispose();

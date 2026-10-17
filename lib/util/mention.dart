@@ -14,16 +14,6 @@ bool wordMatches(String text, String name) {
   return false;
 }
 
-bool isMention(String text, String login) => wordMatches(text, login);
-
-/// Whether [msg] mentions [login] (direct ping or reply to that user). Excludes system messages and self.
-bool isMentionOf(TwitchMessage msg, String login) {
-  if (msg.isSystem || msg.login.toLowerCase() == login) return false;
-  final isReplyToMe =
-      msg.replyToUser != null && msg.replyToUser!.toLowerCase() == login;
-  return isMention(msg.text, login) || isReplyToMe;
-}
-
 /// [name] in the mention format pref ('@name', '@name,', 'name', 'name,')
 /// with the trailing space an input insert wants.
 String formatMention(String format, String name) => switch (format) {

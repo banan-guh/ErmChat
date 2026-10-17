@@ -269,13 +269,5 @@ void main() {
       final all = TimeWindow.around(from, day * 9, from, to);
       expect([all.from, all.to], [from, to]);
     });
-
-    test('crossing a day ticks, a stream start ticks harder', () {
-      DateTime at(int h) => from.add(Duration(hours: h));
-      expect(rail.crossed(at(12), at(23)), 0);
-      expect(rail.crossed(at(23), at(25)), 1);
-      expect(rail.crossed(at(25), at(23)), 1, reason: 'either direction');
-      expect(rail.crossed(at(1), at(3)), 2);
-    });
   });
 }

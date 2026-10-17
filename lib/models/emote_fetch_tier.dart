@@ -23,14 +23,6 @@ extension EmoteFetchTierX on EmoteFetchTier {
     EmoteFetchTier.high => 'High',
   };
 
-  String get subtitle => switch (this) {
-    EmoteFetchTier.nothing => 'Show only already-cached emotes, never fetch',
-    EmoteFetchTier.low =>
-      'Small 1x emotes, fetched once then frozen (data saver)',
-    EmoteFetchTier.medium => 'Medium 2x emotes, normal updates',
-    EmoteFetchTier.high => 'Medium 2x emotes with large 4x card detail',
-  };
-
   /// Scale the chat surface downloads when nothing better is cached, or null
   /// for nothing (no downloads at all).
   EmoteScale? get downloadScale => switch (this) {
@@ -75,20 +67,6 @@ const defaultEmoteFetchAutoMode = EmoteFetchAutoMode.balanced;
 
 /// Auto tier selection by connectivity. Off = manual; others pick by Wi-Fi vs cellular.
 enum EmoteFetchAutoMode { off, balanced, aggressive }
-
-extension EmoteFetchAutoModeX on EmoteFetchAutoMode {
-  String get label => switch (this) {
-    EmoteFetchAutoMode.off => 'Off',
-    EmoteFetchAutoMode.balanced => 'Balanced',
-    EmoteFetchAutoMode.aggressive => 'Aggressive',
-  };
-
-  String get subtitle => switch (this) {
-    EmoteFetchAutoMode.off => 'Always use the selected tier',
-    EmoteFetchAutoMode.balanced => 'High on Wi-Fi, Low on cellular',
-    EmoteFetchAutoMode.aggressive => 'Medium on Wi-Fi, nothing on cellular',
-  };
-}
 
 /// Effective tier: manual when auto is off, otherwise per isMobile (true = cellular).
 EmoteFetchTier effectiveEmoteFetchTier({

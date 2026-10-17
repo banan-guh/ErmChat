@@ -362,7 +362,6 @@ class _TwitchChatAppState extends State<TwitchChatApp> {
                         key: StreamPlayerView.keyFor(streamPlayer, channel),
                         controller: streamPlayer,
                         channel: channel,
-                        fillPane: true,
                         showControls: false,
                       ),
                     ),

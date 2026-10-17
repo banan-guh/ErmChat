@@ -56,7 +56,6 @@ class TtsController {
 
   final AppLocalizations Function() _strings;
 
-  bool get isAvailable => _available;
   bool get enabled => _enabled;
   TtsQueueMode get queueMode => _queueMode;
   TtsFormatMode get formatMode => _formatMode;

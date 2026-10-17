@@ -328,10 +328,6 @@ class EmoteUrlProvider extends ImageProvider<EmoteUrlProvider> {
     return live._capturedCount;
   }
 
-  /// Tracked captured-emote count. Exposed for tests.
-  @visibleForTesting
-  static int get capturedEmoteCount => _capturedOrder.length;
-
   /// Seeds the captured-emote LRU without decoding. Exposed for tests.
   @visibleForTesting
   static void debugSeedCaptured(String url) => _touchCaptured(url);

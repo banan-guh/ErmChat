@@ -70,7 +70,6 @@ void main() {
         );
         expect(result.inserted, isTrue);
         expect(result.countMention, isFalse);
-        expect(result.countUnread, isFalse);
         expect(chat.unreadMentions, 0);
         final unread = chat.channelFor('test')!.unread;
         expect(unread.mentionCount, 0);

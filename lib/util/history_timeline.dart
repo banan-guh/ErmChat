@@ -470,23 +470,4 @@ class ActivityRail implements RailScale {
     }
     return out;
   }();
-
-  /// The stream running at [t], or null.
-  HistoryStream? streamAt(DateTime t) {
-    for (final s in streams) {
-      if (!t.isBefore(s.start) && t.isBefore(s.end)) return s;
-    }
-    return null;
-  }
-
-  /// Boundary crossed moving from [a] to [b]: 0 none, 1 a day boundary, 2 a
-  /// stream start (which wins over a day).
-  int crossed(DateTime a, DateTime b) {
-    final lo = a.isBefore(b) ? a : b;
-    final hi = a.isBefore(b) ? b : a;
-    for (final s in streams) {
-      if (s.start.isAfter(lo) && !s.start.isAfter(hi)) return 2;
-    }
-    return dayNumber(local(a)) == dayNumber(local(b)) ? 0 : 1;
-  }
 }

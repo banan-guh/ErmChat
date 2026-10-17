@@ -211,27 +211,20 @@ class StreamPanels {
     );
   }
 
-  Widget playerView(
-    String channel, {
-    bool fillPane = false,
-    bool visible = true,
-    bool showControls = true,
-  }) {
+  Widget playerView(String channel, {bool visible = true}) {
     return StreamPlayerView(
       key: StreamPlayerView.keyFor(streamPlayer, channel),
       controller: streamPlayer,
       channel: channel,
-      fillPane: fillPane,
       visible: visible,
-      showControls: showControls,
     );
   }
 
   Widget stackedPlayer(String channel, bool showVideo) {
     final show = showVideo && !streamPlayer.isAudioOnly;
-    // fillPane so the inner video is an exact w x h box in both branches;
+    // The inner video is an exact w x h box in both branches;
     // the wrapper only changes the outer clip height, never the WebView.
-    final video = playerView(channel, fillPane: true, visible: show);
+    final video = playerView(channel, visible: show);
     return StatefulBuilder(
       builder: (context, setLocal) => buildStackedPlayer(
         show: show,
@@ -257,9 +250,7 @@ class StreamPanels {
     final panelW = (MediaQuery.sizeOf(context).width - 120).clamp(200.0, 320.0);
     return Stack(
       children: [
-        Positioned.fill(
-          child: _dismissesKeyboard(playerView(channel, fillPane: true)),
-        ),
+        Positioned.fill(child: _dismissesKeyboard(playerView(channel))),
         if (theaterChatVisible())
           Positioned(
             top: 0,
@@ -323,9 +314,7 @@ class StreamPanels {
               children: [
                 SizedBox(
                   width: maxWidth * frac,
-                  child: _dismissesKeyboard(
-                    playerView(channel, fillPane: true),
-                  ),
+                  child: _dismissesKeyboard(playerView(channel)),
                 ),
                 GestureDetector(
                   behavior: HitTestBehavior.translucent,

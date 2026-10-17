@@ -32,7 +32,6 @@ class ComposerController {
     required this.userStore,
     required this.chat,
     required this.session,
-    required this.getReplyTo,
     required this.setReplyTo,
     required this.getSelectedChannel,
     required this.isWhispersTabActive,
@@ -67,7 +66,6 @@ class ComposerController {
   final UserStore userStore;
   final Session session;
   final Chat chat;
-  final TwitchMessage? Function() getReplyTo;
   final void Function(TwitchMessage?) setReplyTo;
   final String? Function() getSelectedChannel;
   final bool Function() isWhispersTabActive;
@@ -111,8 +109,7 @@ class ComposerController {
   void unfocus() => focusNode.unfocus();
   bool get hasFocus => focusNode.hasFocus;
 
-  // Reply state is owned by replyToProvider; these are plain forwarders.
-  TwitchMessage? get replyToMsg => getReplyTo();
+  // Reply state is owned by replyToProvider; this is a plain forwarder.
   set replyTo(TwitchMessage? v) => setReplyTo(v);
 
   void startReply(TwitchMessage msg) {

@@ -712,7 +712,7 @@ class _ChatBodyState extends State<ChatBody>
           );
     // Nothing to show: keep the safe area so the chat never runs under the
     // nav bar.
-    final emptyPad = (widget.isInPip || pane || floating || showIsland)
+    final emptyPad = (widget.isInPip || pane || showIsland)
         ? null
         : Padding(
             padding: EdgeInsets.only(bottom: bottomPad),

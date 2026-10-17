@@ -17,7 +17,6 @@ class ReceiveResult {
     required this.inserted,
     required this.mentioned,
     required this.countMention,
-    required this.countUnread,
     this.unreadFlipped = false,
   });
 
@@ -28,9 +27,6 @@ class ReceiveResult {
 
   /// Mention aggregate rule: mention, not own, not history, not selected.
   final bool countMention;
-
-  /// Bulk unread rule: not selected, not history, not system.
-  final bool countUnread;
 
   /// Whether this row turned the channel's unread dot on.
   final bool unreadFlipped;
@@ -80,7 +76,6 @@ class Channel {
         inserted: false,
         mentioned: false,
         countMention: false,
-        countUnread: false,
       );
     }
     threads.decay(change.evicted);
@@ -93,7 +88,6 @@ class Channel {
         inserted: true,
         mentioned: false,
         countMention: false,
-        countUnread: false,
       );
     }
     final flipped = unread.note(
@@ -107,7 +101,6 @@ class Channel {
       inserted: true,
       mentioned: mention,
       countMention: mention && !msg.isHistory && !isSelected,
-      countUnread: !isSelected && !msg.isHistory && !msg.isSystem,
       unreadFlipped: flipped,
     );
   }
