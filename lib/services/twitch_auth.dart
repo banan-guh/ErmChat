@@ -3,8 +3,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../twitch_config.dart';
 
-/// A saved Twitch account: login, OAuth credentials, and optional profile
-/// image.
+/// A saved Twitch account: login, OAuth credentials, optional profile
+/// image, and its twitch.tv web session.
 class TwitchAccount {
   final String login;
   final String? userId;
@@ -13,6 +13,11 @@ class TwitchAccount {
   final String? profileImageUrl;
   final bool expired;
 
+  /// The account's twitch.tv cookies (`document.cookie` form), captured at
+  /// login so the WebViews can switch sessions with the account. Never
+  /// leaves the device.
+  final String? webCookies;
+
   const TwitchAccount({
     required this.login,
     this.userId,
@@ -20,6 +25,7 @@ class TwitchAccount {
     this.refreshToken,
     this.profileImageUrl,
     this.expired = false,
+    this.webCookies,
   });
 
   Map<String, dynamic> toJson() => {
@@ -29,6 +35,7 @@ class TwitchAccount {
     if (refreshToken != null) 'refresh_token': refreshToken,
     if (profileImageUrl != null) 'profile_image_url': profileImageUrl,
     if (expired) 'expired': true,
+    if (webCookies != null) 'web_cookies': webCookies,
   };
 
   factory TwitchAccount.fromJson(Map<String, dynamic> json) => TwitchAccount(
@@ -38,6 +45,7 @@ class TwitchAccount {
     refreshToken: json['refresh_token'] as String?,
     profileImageUrl: json['profile_image_url'] as String?,
     expired: json['expired'] == true,
+    webCookies: json['web_cookies'] as String?,
   );
 }
 
@@ -227,9 +235,18 @@ class TwitchAuth extends ChangeNotifier {
     }
   }
 
-  void setCredentials({required String accessToken, String? refreshToken}) {
+  /// Web session captured with a login, held until [setUser] names its
+  /// account.
+  String? _pendingCookies;
+
+  void setCredentials({
+    required String accessToken,
+    String? refreshToken,
+    String? webCookies,
+  }) {
     this.accessToken = accessToken;
     this.refreshToken = refreshToken;
+    _pendingCookies = webCookies;
     // New credentials may belong to a different account; drop cached user.
     login = null;
     userId = null;
@@ -260,6 +277,8 @@ class TwitchAuth extends ChangeNotifier {
       return;
     }
     final existing = _byLogin(login);
+    final cookies = _pendingCookies ?? existing?.webCookies;
+    _pendingCookies = null;
     final account = TwitchAccount(
       login: login,
       userId: userId,
@@ -267,6 +286,7 @@ class TwitchAuth extends ChangeNotifier {
       refreshToken: refreshToken,
       profileImageUrl: profileImageUrl,
       expired: _activeExpired,
+      webCookies: cookies,
     );
     final changed =
         existing == null ||
@@ -274,7 +294,8 @@ class TwitchAuth extends ChangeNotifier {
         existing.accessToken != token ||
         existing.refreshToken != refreshToken ||
         existing.profileImageUrl != profileImageUrl ||
-        existing.expired != _activeExpired;
+        existing.expired != _activeExpired ||
+        existing.webCookies != cookies;
     if (existing != null) {
       accounts[accounts.indexOf(existing)] = account;
     } else {
@@ -317,6 +338,7 @@ class TwitchAuth extends ChangeNotifier {
           refreshToken: old.refreshToken,
           profileImageUrl: old.profileImageUrl,
           expired: true,
+          webCookies: old.webCookies,
         );
         _saveAccounts();
       }

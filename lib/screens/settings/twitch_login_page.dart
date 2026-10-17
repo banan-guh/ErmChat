@@ -1,3 +1,6 @@
+import 'dart:async';
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
@@ -11,13 +14,45 @@ import '../../services/twitch_oauth.dart';
 class TwitchLoginPage extends StatefulWidget {
   final String authUrl;
 
-  const TwitchLoginPage({super.key, required this.authUrl});
+  /// Receives the twitch.tv cookies the login left behind.
+  final ValueChanged<String>? onCookies;
+
+  const TwitchLoginPage({super.key, required this.authUrl, this.onCookies});
 
   /// A [LoginPresenter] that pushes this page from [context].
-  static LoginPresenter presenter(BuildContext context) =>
+  static LoginPresenter presenter(
+    BuildContext context, {
+    ValueChanged<String>? onCookies,
+  }) =>
       (url) => Navigator.of(context).push<String>(
-        MaterialPageRoute(builder: (_) => TwitchLoginPage(authUrl: url)),
+        MaterialPageRoute(
+          builder: (_) => TwitchLoginPage(authUrl: url, onCookies: onCookies),
+        ),
       );
+
+  /// Puts an account's saved twitch.tv [cookies] in the shared WebView jar,
+  /// so the login page and stream player act as that account. Null leaves
+  /// the jar alone: an account saved before cookies were kept has nothing
+  /// to put back.
+  static Future<void> useSession(String? cookies) async {
+    if (cookies == null) return;
+    final manager = WebViewCookieManager();
+    await manager.clearCookies();
+    for (final pair in cookies.split(';')) {
+      final at = pair.indexOf('=');
+      if (at <= 0) continue;
+      await manager.setCookie(
+        WebViewCookie(
+          name: pair.substring(0, at).trim(),
+          value: pair.substring(at + 1).trim(),
+          domain: '.twitch.tv',
+        ),
+      );
+    }
+  }
+
+  /// Empties the WebView jar so the next login signs in fresh.
+  static Future<void> clearSession() => WebViewCookieManager().clearCookies();
 
   @override
   State<TwitchLoginPage> createState() => _TwitchLoginPageState();
@@ -51,7 +86,7 @@ class _TwitchLoginPageState extends State<TwitchLoginPage> {
     if (TwitchOAuth.isRedirect(url)) {
       if (!_done) {
         _done = true;
-        Navigator.of(context).pop(url);
+        unawaited(_finish(url));
       }
       return NavigationDecision.prevent;
     }
@@ -60,6 +95,23 @@ class _TwitchLoginPageState extends State<TwitchLoginPage> {
       return NavigationDecision.prevent;
     }
     return NavigationDecision.navigate;
+  }
+
+  // The page is still on id.twitch.tv, so it reads the .twitch.tv session
+  // cookies before handing the token back.
+  Future<void> _finish(String url) async {
+    try {
+      final raw = await _controller.runJavaScriptReturningResult(
+        'document.cookie',
+      );
+      // Android returns the string JSON-quoted, iOS bare.
+      var cookies = raw is String ? raw : raw.toString();
+      if (cookies.startsWith('"')) cookies = jsonDecode(cookies) as String;
+      if (cookies.isNotEmpty) widget.onCookies?.call(cookies);
+    } catch (_) {
+      // No cookies only costs the per-account session, not the login.
+    }
+    if (mounted) Navigator.of(context).pop(url);
   }
 
   @override

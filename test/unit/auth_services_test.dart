@@ -1315,6 +1315,20 @@ void main() {
       );
     });
 
+    test('a web session sticks to its account across token changes', () async {
+      final auth = TwitchAuth();
+      await auth.load();
+      auth.setCredentials(accessToken: 'tok', webCookies: 'auth-token=a');
+      auth.setUser('testuser', '123');
+      expect(auth.activeAccount?.webCookies, 'auth-token=a');
+      // A refreshed or re-logged token without cookies keeps the session.
+      auth.setCredentials(accessToken: 'tok2');
+      auth.setUser('testuser', '123');
+      expect(auth.activeAccount?.webCookies, 'auth-token=a');
+      final restored = TwitchAccount.fromJson(auth.activeAccount!.toJson());
+      expect(restored.webCookies, 'auth-token=a', reason: 'lost on restart');
+    });
+
     test('markActiveExpired flags the account until new credentials', () async {
       final named = TwitchAuth();
       await named.load();

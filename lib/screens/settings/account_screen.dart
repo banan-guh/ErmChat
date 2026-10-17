@@ -83,7 +83,12 @@ class _AccountScreenState extends State<AccountScreen> {
     super.dispose();
   }
 
-  Future<void> _startOAuth({bool forceVerify = false}) async {
+  /// [adding] signs in another account. With the active account's session
+  /// saved, the jar empties so the user signs in fresh and Twitch skips its
+  /// authorize page for an approved app; without one to put back, Twitch's
+  /// forced authorize page offers "Not you?" instead. Any other login keeps
+  /// the jar, so a re-login of the signed-in account is one tap.
+  Future<void> _startOAuth({bool adding = false}) async {
     setState(() {
       _authState = _AuthState.waiting;
       _authError = null;
@@ -95,25 +100,38 @@ class _AccountScreenState extends State<AccountScreen> {
     }
 
     final l = context.l10n;
-    final present = TwitchLoginPage.presenter(context);
+    String? cookies;
+    final present = TwitchLoginPage.presenter(
+      context,
+      onCookies: (c) => cookies = c,
+    );
+    final saved = widget.twitchAuth.activeAccount?.webCookies;
     final prefs = await Prefs.load();
     final useBrowserOAuth = prefs.useBrowserOAuth;
     if (useBrowserOAuth) {
-      _startBrowserOAuth(forceVerify: forceVerify);
+      _startBrowserOAuth(forceVerify: adding);
     } else {
       final starter = widget.oAuthStarter;
+      final fresh = adding && saved != null && starter == null;
+      if (fresh) await TwitchLoginPage.clearSession();
       final token = starter != null
           ? await starter()
           : await TwitchOAuth.startFlow(
               present: present,
-              forceVerify: forceVerify,
+              forceVerify: adding && !fresh,
               l: l,
             );
+      final signedIn = token != null && token.isNotEmpty;
+      // A login that went nowhere hands the jar back to the active account.
+      if (fresh && !signedIn) await TwitchLoginPage.useSession(saved);
 
       if (!mounted) return;
 
-      if (token != null && token.isNotEmpty) {
-        widget.twitchAuth.setCredentials(accessToken: token);
+      if (signedIn) {
+        widget.twitchAuth.setCredentials(
+          accessToken: token,
+          webCookies: cookies,
+        );
         setState(() => _authState = _AuthState.success);
         _loadConnectedLogin();
       } else if (starter == null && TwitchOAuth.lastCancelled) {
@@ -181,8 +199,18 @@ class _AccountScreenState extends State<AccountScreen> {
     });
   }
 
+  // Puts the active account's web session in the WebView jar. An account
+  // without a saved one gets an empty jar rather than [left]'s session.
+  Future<void> _followSession(String? left) async {
+    final next = widget.twitchAuth.activeAccount?.webCookies;
+    if (next != null) return TwitchLoginPage.useSession(next);
+    if (left != null) return TwitchLoginPage.clearSession();
+  }
+
   Future<void> _clearCredentials() async {
+    final left = widget.twitchAuth.activeAccount?.webCookies;
     await widget.twitchAuth.clear();
+    await _followSession(left);
     if (!mounted) return;
     setState(() {
       // With multiple saved accounts, clearing the active one falls back to
@@ -286,7 +314,9 @@ class _AccountScreenState extends State<AccountScreen> {
   // while anonymous), so sync it back to the auth state when no login flow
   // is in progress.
   Future<void> _switchAccount(Future<void> Function() switchOp) async {
+    final left = widget.twitchAuth.activeAccount?.webCookies;
     await switchOp();
+    await _followSession(left);
     if (!mounted) return;
     if (_authState == _AuthState.idle || _authState == _AuthState.success) {
       setState(() {
@@ -311,7 +341,9 @@ class _AccountScreenState extends State<AccountScreen> {
       destructive: true,
     );
     if (!confirmed || !mounted) return;
+    final left = widget.twitchAuth.activeAccount?.webCookies;
     await widget.twitchAuth.removeAccount(account.login);
+    await _followSession(left);
     if (!mounted) return;
     setState(() {
       _authState = widget.twitchAuth.isConfigured
@@ -504,7 +536,10 @@ class _AccountScreenState extends State<AccountScreen> {
                       listenable: widget.twitchAuth,
                       builder: (context, _) {
                         return OutlinedButton.icon(
-                          onPressed: () => _startOAuth(forceVerify: true),
+                          // Stale scopes re-login the active account.
+                          onPressed: () => _startOAuth(
+                            adding: !widget.twitchAuth.scopeStale,
+                          ),
                           icon: const Icon(Icons.person_add),
                           label: Text(
                             widget.twitchAuth.scopeStale
