@@ -211,12 +211,10 @@ class ChatConnectionManager {
   late final IrcChatDecoder readDecoder = IrcChatDecoder(
     config.services.ircRead.onIrcMessage,
     nickProvider: () => config.services.ircRead.username,
-    debugPrefix: 'IRC read',
     isReadSocket: true,
   );
   late final IrcChatDecoder writeDecoder = IrcChatDecoder(
     config.services.irc.onIrcMessage,
-    debugPrefix: 'IRC',
     isReadSocket: false,
   );
 

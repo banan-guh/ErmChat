@@ -16,7 +16,6 @@ import '../services/twitch_auth.dart';
 import '../services/user_store.dart';
 import '../util/duration_format.dart';
 import '../util/haptics.dart';
-import '../util/log.dart';
 import '../widgets/panel_manager.dart';
 import 'autocomplete_revert.dart';
 import '../l10n/l10n.dart';
@@ -141,7 +140,6 @@ class ComposerController {
   void onTapClearSuggestions() => suggestions.value = [];
 
   void toggleEmoteMenu() {
-    PerfLog.I.record('EmoteSheet', 'toggle: open=${emoteSheetOpen()}');
     if (emoteSheetOpen()) {
       unawaited(closeEmoteSheet());
     } else {

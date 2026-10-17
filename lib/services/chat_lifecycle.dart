@@ -220,7 +220,6 @@ class ChatLifecycle {
         if (channelSetup.handleRoomState(event)) {
           final isNew = readiness.noteReadRoomState(event.channel);
           if (isNew) {
-            PerfLog.I.record('JOINQ', 'read-confirm ${event.channel}');
             if (readiness.isChannelReady(event.channel)) {
               _announceConnected(event.channel);
               connectionStateNotifier.value++;

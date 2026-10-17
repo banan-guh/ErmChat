@@ -3,7 +3,6 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 
 import '../../models/twitch_message.dart';
-import '../../util/log.dart';
 import '../message.dart';
 import 'codec.dart';
 import 'events.dart';
@@ -15,20 +14,17 @@ class IrcChatDecoder {
   IrcChatDecoder(
     Stream<IrcMessage> source, {
     String? Function()? nickProvider,
-    String debugPrefix = 'IRC read',
     bool isReadSocket = true,
   }) : _nickProvider = nickProvider, // ignore: prefer_initializing_formals
-       _debugPrefix = debugPrefix, // ignore: prefer_initializing_formals
        // ignore: prefer_initializing_formals
        _isReadSocket = isReadSocket {
     _subscription = source.listen(_handle);
   }
 
   final String? Function()? _nickProvider;
-  final String _debugPrefix;
 
   /// False for the write socket: NOTICE star frames surface as send
-  /// rejections there, and ROOMSTATE confirmations stay unlogged.
+  /// rejections there.
   final bool _isReadSocket;
   late final StreamSubscription<IrcMessage> _subscription;
 
@@ -222,9 +218,6 @@ class IrcChatDecoder {
   void _handleRoomState(IrcMessage msg) {
     final channelName = _channelNameOf(msg);
     if (channelName == null) return;
-    if (_isReadSocket) {
-      PerfLog.I.record('JOINQ', '[$_debugPrefix] confirm #$channelName');
-    }
 
     _roomStateController.add(
       IrcRoomStateEvent(channel: channelName, tags: msg.tags),

@@ -8,7 +8,6 @@ import '../services/emote_manager.dart';
 import '../util/haptics.dart';
 import '../util/insets.dart';
 import '../util/layout_density.dart';
-import '../util/log.dart';
 import '../util/sheet_drag.dart';
 import '../util/thread_utils.dart';
 
@@ -74,11 +73,6 @@ class PanelManager {
     if (emoteSheetOpen &&
         emoteSheetCtrl.isAttached &&
         emoteSheetCtrl.size <= 0.001) {
-      PerfLog.I.record(
-        'EmoteSheet',
-        'size collapsed to ${emoteSheetCtrl.size.toStringAsFixed(3)} '
-            'while open; closing',
-      );
       emoteSheetOpen = false;
       panelScaleCtrl.value = 1.0;
       markDirty();
@@ -383,49 +377,21 @@ class PanelManager {
     emoteSheetOpen = true;
     markDirty();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!isMounted()) {
-        PerfLog.I.record('EmoteSheet', 'open aborted: unmounted');
-        return;
-      }
-      if (!emoteSheetCtrl.isAttached) {
-        PerfLog.I.record(
-          'EmoteSheet',
-          'open skipped: controller has no clients',
-        );
-        return;
-      }
-      PerfLog.I.record(
-        'EmoteSheet',
-        'animating open from ${emoteSheetCtrl.size.toStringAsFixed(3)}',
-      );
+      if (!isMounted() || !emoteSheetCtrl.isAttached) return;
       unawaited(
-        emoteSheetCtrl
-            .animateTo(
-              emoteMaxFraction,
-              duration: sheetAnimDuration,
-              curve: Curves.easeInOutCubicEmphasized,
-            )
-            .then((_) {
-              if (!isMounted()) return;
-              PerfLog.I.record(
-                'EmoteSheet',
-                'open animation ended at '
-                    '${emoteSheetPhysicalSize.toStringAsFixed(3)}'
-                    '${emoteSheetCtrl.isAttached ? '' : ' (detached)'}',
-              );
-            }),
+        emoteSheetCtrl.animateTo(
+          emoteMaxFraction,
+          duration: sheetAnimDuration,
+          curve: Curves.easeInOutCubicEmphasized,
+        ),
       );
     });
   }
 
   Future<void> closeEmoteSheet() async {
-    if (!emoteSheetOpen) {
-      PerfLog.I.record('EmoteSheet', 'close ignored: already closed');
-      return;
-    }
+    if (!emoteSheetOpen) return;
     if (emoteSheetCtrl.isAttached) {
       if (emoteSheetCtrl.size <= 0.001) {
-        PerfLog.I.record('EmoteSheet', 'closing skipped: sheet already at 0');
         if (isMounted()) {
           emoteSheetOpen = false;
           panelScaleCtrl.value = 1.0;
@@ -435,11 +401,6 @@ class PanelManager {
       }
       final fraction = (emoteSheetCtrl.size / emoteMaxFraction).clamp(0.0, 1.0);
       final duration = Duration(milliseconds: (80 + 180 * fraction).round());
-      PerfLog.I.record(
-        'EmoteSheet',
-        'closing from ${emoteSheetCtrl.size.toStringAsFixed(3)} '
-            '(${(fraction * 100).round()}%) over ${duration.inMilliseconds}ms',
-      );
       unawaited(
         emoteSheetCtrl
             .animateTo(
@@ -449,19 +410,12 @@ class PanelManager {
             )
             .then((_) {
               if (!isMounted()) return;
-              PerfLog.I.record(
-                'EmoteSheet',
-                'close animation ended at '
-                    '${emoteSheetPhysicalSize.toStringAsFixed(3)}'
-                    '${emoteSheetCtrl.isAttached ? '' : ' (detached)'}',
-              );
               emoteSheetOpen = false;
               panelScaleCtrl.value = 1.0;
               markDirty();
             }),
       );
     } else {
-      PerfLog.I.record('EmoteSheet', 'close without animation: no clients');
       if (isMounted()) {
         emoteSheetOpen = false;
         panelScaleCtrl.value = 1.0;

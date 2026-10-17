@@ -134,16 +134,11 @@ class RecentMessagesService {
     RecentMessagesConfig? config,
   }) {
     final service = RecentMessagesService(config: config);
-    var armed = 0;
     for (final channel in channels) {
       final key = channel.toLowerCase();
       if (_warmed.containsKey(key)) continue;
       // A failure before anyone awaits it must not surface as unhandled.
       _warmed[key] = service.fetchRecent(channel, limit: limit)..ignore();
-      armed++;
-    }
-    if (armed > 0) {
-      PerfLog.I.record('PERF', 'history warm fired: $armed');
     }
   }
 
@@ -152,23 +147,12 @@ class RecentMessagesService {
     String channel, {
     int limit = 100,
   }) async {
-    final sw = Stopwatch()..start();
     final warmed = _warmed.remove(channel.toLowerCase());
     if (warmed != null) {
       try {
-        final history = await warmed;
-        PerfLog.I.record(
-          'PERF',
-          'history warm hit $channel '
-              '(waited ${sw.elapsedMilliseconds}ms)',
-        );
-        return history;
+        return await warmed;
       } catch (_) {
-        PerfLog.I.record(
-          'PERF',
-          'history warm failed $channel '
-              '(after ${sw.elapsedMilliseconds}ms), refetching',
-        );
+        // Refetched below.
       }
     }
     return fetchRecent(channel, limit: limit);

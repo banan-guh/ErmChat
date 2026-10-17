@@ -3,7 +3,6 @@ import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 
-import '../util/log.dart';
 import 'transport/events.dart';
 
 export 'transport/events.dart' show IrcSocketRole;
@@ -90,15 +89,10 @@ class JoinRateLimiter {
     );
     if (existing >= 0) {
       // Duplicate: single JOIN, nothing to add.
-      PerfLog.I.record('JOINQ', 'dup $channel (ignored)');
       _schedulePump();
       return;
     }
     _queue.add((channel: channel, role: role));
-    PerfLog.I.record(
-      'JOINQ',
-      'enqueue $channel $role (depth=${_queue.length})',
-    );
     _start();
     // Kick pump once per burst; deduplicated to engage send cap.
     _schedulePump();
@@ -191,11 +185,7 @@ class JoinRateLimiter {
     final handler = _handlers[head.role];
     if (handler == null) {
       // No handler for this role: drop the unit to avoid starvation.
-      final dropped = _queue.removeAt(0);
-      PerfLog.I.record(
-        'JOINQ',
-        'dispatch ${dropped.channel} ${dropped.role.name}:no-handler (dropped)',
-      );
+      _queue.removeAt(0);
       return;
     }
     if (_tokens < 1 && !_bypassRoles.contains(head.role)) {
@@ -227,11 +217,6 @@ class JoinRateLimiter {
         for (final unit in taken) {
           _completed[unit.channel] = _now();
         }
-        PerfLog.I.record(
-          'JOINQ',
-          'dispatch batch(${batch.length}) ${head.role.name}:ok '
-              'tokens=${_tokens.toStringAsFixed(2)}',
-        );
         batches++;
       } else {
         // Socket down: put the units back at the front, untouched, so a later
@@ -240,10 +225,6 @@ class JoinRateLimiter {
           _queue.insert(0, taken[k]);
         }
         if (!bypass) _tokens += taken.length;
-        PerfLog.I.record(
-          'JOINQ',
-          'dispatch batch ${head.role.name}:dead (stays queued)',
-        );
         break;
       }
     }

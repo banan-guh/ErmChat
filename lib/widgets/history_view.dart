@@ -667,7 +667,6 @@ class _HistoryViewState extends State<HistoryView> {
   }
 
   void _log(String message) {
-    logDebug('[hist] $message');
     JankLog.note('hist $message');
     if (PerfProbe.enabled) PerfLog.I.record('HIST', message);
   }

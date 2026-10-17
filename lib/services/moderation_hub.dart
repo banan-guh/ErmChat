@@ -4,7 +4,6 @@ import '../client/session.dart';
 import '../eventsub/decode/events.dart';
 import '../l10n/l10n.dart';
 import '../util/duration_format.dart';
-import '../util/log.dart';
 import '../util/mod_activity_format.dart' show banNoticeText, formatModActivity;
 
 /// One IRC ban/timeout, tracked for stack folding: repeated identical
@@ -127,9 +126,6 @@ class ModerationHub {
     required bool isTimeout,
     required int? duration,
   }) {
-    logDebug(
-      '[Moderation] IRC ban received: user=$user channel=$channel isTimeout=$isTimeout',
-    );
     if (!isModerationActive(channel)) _archiveClear(channel, user);
     chat.channelFor(channel)?.messages.markUserDeleted(user);
     _armSelfTimeout(channel, user, isTimeout, duration);
@@ -150,7 +146,6 @@ class ModerationHub {
     final text = result.stackCount > 1
         ? strings().banLineStacked(base, result.stackCount)
         : strings().banLine(base);
-    logDebug('[Moderation] IRC ban system message: $text');
 
     if (result.stackCount > 1) {
       if (result.meta.firstMessageId != null) {

@@ -715,13 +715,8 @@ abstract class IrcConnection {
   /// returns false when the socket is down so the entries stay queued.
   @visibleForTesting
   bool sendJoinNowBatch(List<String> channels) {
-    if (channel == null) {
-      PerfLog.I.record('JOINQ', '[$debugPrefix] send batch REFUSED (down)');
-      return false;
-    }
-    final line = 'JOIN ${channels.map((c) => '#$c').join(',')}';
-    PerfLog.I.record('JOINQ', '[$debugPrefix] send $line');
-    sendLine(line);
+    if (channel == null) return false;
+    sendLine('JOIN ${channels.map((c) => '#$c').join(',')}');
     _joinPending.addAll(channels);
     for (final c in channels) {
       _armJoinTimeout(c);
