@@ -170,6 +170,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   CommandHandler get _commandHandler => ref.read(commandHandlerProvider);
   late final MediaUploadController _uploadController = MediaUploadController(
     onNotice: _chatNotice.show,
+    onPaste: _pasteFromClipboard,
   );
 
   NotificationService get _notificationService =>

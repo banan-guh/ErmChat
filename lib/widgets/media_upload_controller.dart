@@ -19,11 +19,15 @@ typedef NoticeCallback =
     });
 
 class MediaUploadController {
-  MediaUploadController({MediaUploader? uploader, this.onNotice})
+  MediaUploadController({MediaUploader? uploader, this.onNotice, this.onPaste})
     : _uploader = uploader ?? MediaUploader();
 
   final MediaUploader _uploader;
   final NoticeCallback? onNotice;
+
+  /// Inserts the just-copied link into the composer at the cursor. Wired by
+  /// the screen that owns the composer so the upload notice can offer Paste.
+  final VoidCallback? onPaste;
 
   bool _isUploading = false;
 
@@ -75,7 +79,12 @@ class MediaUploadController {
       await _uploader.addRecent(result);
       if (!context.mounted) return;
       Clipboard.setData(ClipboardData(text: result.imageLink));
-      _showSnack(context, context.l10n.uploadedLink(result.imageLink));
+      _showSnack(
+        context,
+        context.l10n.uploadedLink(result.imageLink),
+        actionLabel: onPaste == null ? null : context.l10n.paste,
+        onAction: onPaste,
+      );
     } catch (e) {
       logDebug('[Upload] failed: $e');
       if (context.mounted) {
@@ -89,12 +98,22 @@ class MediaUploadController {
     }
   }
 
-  void _showSnack(BuildContext context, String message) {
+  void _showSnack(
+    BuildContext context,
+    String message, {
+    String? actionLabel,
+    VoidCallback? onAction,
+  }) {
     final notice = onNotice;
     if (notice != null) {
-      notice(message);
+      notice(message, actionLabel: actionLabel, onAction: onAction);
       return;
     }
-    AppSnack.show(context, message);
+    AppSnack.show(
+      context,
+      message,
+      actionLabel: actionLabel,
+      onAction: onAction,
+    );
   }
 }
