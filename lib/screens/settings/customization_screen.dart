@@ -11,6 +11,7 @@ import 'custom_layout_screen.dart';
 import 'prefs_tiles.dart';
 import 'settings_page.dart';
 import 'settings_search.dart';
+import 'theme_builder_screen.dart';
 
 class CustomizationScreen extends StatefulWidget {
   const CustomizationScreen({super.key});
@@ -104,35 +105,48 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
     setState(() {});
   }
 
-  ChromeTheme get _chromeTheme => _prefs?.chromeTheme ?? ChromeTheme.ermchat;
+  String get _chromeThemeKey =>
+      _prefs?.chromeThemeKey ?? ChromeTheme.ermchat.name;
 
-  String _chromeThemeLabel(ChromeTheme t) => switch (t) {
-    ChromeTheme.ermchat => context.l10n.chromeThemeErmchat,
-    ChromeTheme.dankchat3 => context.l10n.chromeThemeDankchat3,
-    ChromeTheme.dankchat4 => context.l10n.chromeThemeDankchat4,
-  };
+  String _chromeThemeLabel(String key) {
+    for (final t in ChromeTheme.values) {
+      if (t.name == key) return chromeThemeLabel(context.l10n, t);
+    }
+    final custom = _prefs?.customChromeThemes ?? const [];
+    final i = int.tryParse(key.replaceFirst(Prefs.customChromeThemePrefix, ''));
+    return i != null && i >= 0 && i < custom.length
+        ? customChromeThemeName(context.l10n, custom[i], i)
+        : chromeThemeLabel(context.l10n, ChromeTheme.ermchat);
+  }
 
   Future<void> _pickChromeTheme() async {
-    final selected = await showChoiceDialog<ChromeTheme>(
+    final custom = _prefs?.customChromeThemes ?? const [];
+    final selected = await showChoiceDialog<String>(
       context,
       title: Setting.chromeTheme.titleOf(context.l10n),
-      value: _chromeTheme,
+      value: _chromeThemeKey,
       options: [
         for (final t in ChromeTheme.values)
           (
-            t,
-            _chromeThemeLabel(t),
+            t.name,
+            chromeThemeLabel(context.l10n, t),
             switch (t) {
               ChromeTheme.ermchat => context.l10n.chromeThemeErmchatHint,
               ChromeTheme.dankchat3 => context.l10n.chromeThemeDankchat3Hint,
               ChromeTheme.dankchat4 => context.l10n.chromeThemeDankchat4Hint,
             },
           ),
+        for (var i = 0; i < custom.length; i++)
+          (
+            '${Prefs.customChromeThemePrefix}$i',
+            customChromeThemeName(context.l10n, custom[i], i),
+            context.l10n.chromeThemeCustomHint,
+          ),
       ],
     );
-    if (selected == null || selected == _chromeTheme) return;
+    if (selected == null || selected == _chromeThemeKey) return;
     final prefs = _prefs ?? await Prefs.load();
-    await prefs.setChromeTheme(selected);
+    await prefs.setChromeThemeKey(selected);
     PrefsStore.instance.notifyChanged();
     if (!mounted) return;
     setState(() {});
@@ -249,9 +263,26 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
             Setting.chromeTheme,
             child: ListTile(
               title: Text(Setting.chromeTheme.titleOf(context.l10n)),
-              subtitle: Text(_chromeThemeLabel(_chromeTheme)),
+              subtitle: Text(_chromeThemeLabel(_chromeThemeKey)),
               trailing: const Icon(Icons.chevron_right),
               onTap: _pickChromeTheme,
+            ),
+          ),
+          SettingAnchor(
+            Setting.themeBuilder,
+            child: ListTile(
+              title: Text(Setting.themeBuilder.titleOf(context.l10n)),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () async {
+                await Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => const ThemeBuilderScreen(),
+                  ),
+                );
+                if (!mounted) return;
+                _prefs = await Prefs.load();
+                if (mounted) setState(() {});
+              },
             ),
           ),
           SettingAnchor(

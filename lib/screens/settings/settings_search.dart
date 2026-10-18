@@ -93,6 +93,7 @@ class Setting {
     'layout' => l.settingLayout,
     'liquid_glass' => l.settingLiquidGlass,
     'chrome_theme' => l.settingChromeTheme,
+    'theme_builder' => l.settingThemeBuilder,
     'keyboard_buttons' => l.settingKeyboardButtons,
     'chat_font_size' => l.settingChatFontSize,
     'show_timestamps' => l.settingShowTimestamps,
@@ -256,6 +257,13 @@ class Setting {
     SettingsPageId.appearance,
     section: 'Layout',
     keywords: 'dankchat style',
+  );
+  static const themeBuilder = Setting(
+    'theme_builder',
+    'Build a theme',
+    SettingsPageId.appearance,
+    section: 'Layout',
+    keywords: 'custom chrome buttons rearrange',
   );
   static const liquidGlass = Setting(
     'liquid_glass',
@@ -707,6 +715,7 @@ class Setting {
     trueDark,
     layout,
     chromeTheme,
+    themeBuilder,
     liquidGlass,
     chatFontSize,
     showTimestamps,

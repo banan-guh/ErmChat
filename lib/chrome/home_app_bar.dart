@@ -289,24 +289,26 @@ class HomeAppBar {
     VoidCallback? onCalendar,
   }) {
     final spec = themeSpec();
-    final actions = [
-      for (final a in spec.rowActions)
-        action(context, a, glass: glass, onCalendar: onCalendar),
+    Widget build(ChromeAction a) =>
+        action(context, a, glass: glass, onCalendar: onCalendar);
+    final start = [for (final a in spec.rowStart) build(a)];
+    final end = [
+      for (final a in spec.rowEnd) build(a),
       if (withMenu && !spec.rowActions.contains(ChromeAction.viewMenu))
         chromeMenu(glass: glass, onCalendar: onCalendar),
     ];
-    final gap = Expanded(child: middle ?? const SizedBox.shrink());
     final row = Row(
       children: [
         ?leading,
-        if (spec.rowActionsRight) gap,
-        ...actions,
-        if (!spec.rowActionsRight) gap,
+        ...start,
+        Expanded(child: middle ?? const SizedBox.shrink()),
+        ...end,
         ...trailing,
       ],
     );
     // Narrow islands tighten the 48pt buttons so the row still fits.
-    final count = actions.length + (leading == null ? 0 : 1) + trailing.length;
+    final count =
+        start.length + end.length + (leading == null ? 0 : 1) + trailing.length;
     final fitted = LayoutBuilder(
       builder: (context, constraints) =>
           constraints.maxWidth >= count * 48 + 2 * _rowInset

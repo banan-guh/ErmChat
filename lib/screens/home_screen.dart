@@ -247,7 +247,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 
   /// Liquid glass chrome (default off; toggled in Customization).
   bool _liquidGlass = false;
-  ChromeTheme _chromeTheme = ChromeTheme.ermchat;
+  ChromeThemeSpec _chromeTheme = ChromeTheme.ermchat.spec;
 
   /// 7TV name paints (default off; toggled in Chat settings).
   bool _showNamePaints = false;
@@ -507,7 +507,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     reloadEmotes: _emotes.reload,
     reconnect: _reconnect,
     openSettings: _openSettings,
-    themeSpec: () => _chromeTheme.spec,
+    themeSpec: () => _chromeTheme,
   );
 
   late final ChannelPanels _channels = ChannelPanels(
@@ -1628,7 +1628,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   /// Whether room modes may ride the island's button row: the row shows.
   bool get _modeRow =>
       (_chat.names.isNotEmpty || _channelManager.session.channelsPending) &&
-      _chromeTheme.spec.rowActions.isNotEmpty &&
+      _chromeTheme.hasRow &&
       _showInput;
 
   void _copyMessageToClipboard(TwitchMessage msg) {
@@ -1808,8 +1808,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     // (the pane keeps it up in either mode), so send sits under the thumb.
     // A theme with no row actions drops the row; one with send in the row
     // keeps it up while typing.
-    final spec = _chromeTheme.spec;
-    final rowless = spec.rowActions.isEmpty;
+    final spec = _chromeTheme;
+    final rowless = !spec.hasRow;
     final keyboardHidesRow =
         !spec.sendInRow &&
         resolveLayoutOverride(context, (o) => o.keyboardHidesRow);
@@ -1817,6 +1817,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
         hasBottomBar &&
         _showInput &&
         !rowless &&
+        spec.send != SendPlace.field &&
         (!keyboardHidesRow || _stream.chatInPane(context));
     final modeRow = _modeRow;
     final sendButton = ComposerRowButton.send(
@@ -1958,7 +1959,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                             mod: _mod,
                             dragTick: _panelDragTick,
                             swipePage: _channels.swipePage,
-                            alignStart: spec.rowActionsRight,
+                            alignStart: spec.rowStart.isEmpty,
                           )
                         : null,
                     leading: buttonsInRow

@@ -373,13 +373,42 @@ class Prefs {
 
   static const _kChromeTheme = 'chrome_theme';
 
-  ChromeTheme get chromeTheme => ChromeTheme.values.firstWhere(
-    (t) => t.name == _p.getString(_kChromeTheme),
-    orElse: () => ChromeTheme.ermchat,
-  );
+  static const _kCustomChromeThemes = 'chrome_themes_custom';
 
-  Future<void> setChromeTheme(ChromeTheme value) =>
-      _p.setString(_kChromeTheme, value.name);
+  /// The selected theme: a preset's name, or `custom:<index>` into
+  /// [customChromeThemes].
+  String get chromeThemeKey =>
+      _p.getString(_kChromeTheme) ?? ChromeTheme.ermchat.name;
+
+  Future<void> setChromeThemeKey(String value) =>
+      _p.setString(_kChromeTheme, value);
+
+  /// The selected theme's spec; a missing custom theme falls back to the
+  /// default preset.
+  ChromeThemeSpec get chromeTheme {
+    final key = chromeThemeKey;
+    if (key.startsWith(customChromeThemePrefix)) {
+      final i = int.tryParse(key.substring(customChromeThemePrefix.length));
+      final custom = customChromeThemes;
+      if (i != null && i >= 0 && i < custom.length) return custom[i];
+    }
+    return ChromeTheme.values
+        .firstWhere((t) => t.name == key, orElse: () => ChromeTheme.ermchat)
+        .spec;
+  }
+
+  static const customChromeThemePrefix = 'custom:';
+
+  /// The user's themes, in the order they were made.
+  List<ChromeThemeSpec> get customChromeThemes => [
+    for (final line in _p.getStringList(_kCustomChromeThemes) ?? const [])
+      ?ChromeThemeSpec.decode(line),
+  ];
+
+  Future<void> setCustomChromeThemes(List<ChromeThemeSpec> themes) =>
+      _p.setStringList(_kCustomChromeThemes, [
+        for (final t in themes) t.encode(),
+      ]);
 
   static const _kLiquidGlass = 'liquid_glass';
 
