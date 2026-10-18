@@ -239,7 +239,17 @@ class EmoteController {
   // network. Besides the in-memory state this also drops the persisted
   // metadata and the image caches, so emotes visibly re-buffer instead of
   // being instantly restored from disk.
-  Future<void> runRefresh({required bool nuke}) async {
+  Future<void> runRefresh({required bool nuke}) {
+    // An overlapping request joins the run in flight, whose busy flag and
+    // failure report it would otherwise corrupt.
+    return _refreshing ??= _runRefresh(
+      nuke: nuke,
+    ).whenComplete(() => _refreshing = null);
+  }
+
+  Future<void>? _refreshing;
+
+  Future<void> _runRefresh({required bool nuke}) async {
     signals.busy.emit(true);
     // Discard failures from before this refresh so the report below only
     // reflects fetches this refresh triggered.

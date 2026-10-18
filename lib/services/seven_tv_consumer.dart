@@ -111,9 +111,10 @@ class SevenTvConsumer {
 
   void _onUserUpdate(SevenTvUserUpdate event) {
     if (_disposed) return;
-    final channel = emoteManager.getChannelForSevenTvEmoteSet(
-      event.oldEmoteSetId,
-    );
+    // An empty old set id (no set before) resolves through the user id.
+    final channel =
+        emoteManager.getChannelForSevenTvEmoteSet(event.oldEmoteSetId) ??
+        emoteManager.getChannelForSevenTvUser(event.userId);
     if (channel == null) return;
     if (event.oldEmoteSetId.isNotEmpty) {
       sevenTvClient?.unsubscribeEmoteSet(event.oldEmoteSetId);

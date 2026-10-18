@@ -162,6 +162,29 @@ void main() {
       expect(allowed.byCode.keys, containsAll(['Secret', 'Visible']));
     });
 
+    test('a hidden unlisted 7TV emote never shadows the same code', () {
+      final lookup = mergeEmoteLookup(
+        global: EmoteCatalog(
+          bttvGlobal: [_emote('b', 'Shared', EmoteType.bttv)],
+          sevenTvGlobal: [
+            _emote('s', 'Shared', EmoteType.sevenTv, unlisted: true),
+          ],
+        ),
+        personal: [_emote('p', 'Shared', EmoteType.sevenTv)],
+      );
+      expect(lookup.byCode['Shared']?.id, 'b', reason: 'BTTV survives');
+
+      final personalOnly = mergeEmoteLookup(
+        global: EmoteCatalog(
+          sevenTvGlobal: [
+            _emote('s', 'Gone', EmoteType.sevenTv, unlisted: true),
+          ],
+        ),
+        personal: [_emote('p', 'Gone', EmoteType.sevenTv)],
+      );
+      expect(personalOnly.byCode['Gone']?.id, 'p', reason: 'listed personal');
+    });
+
     test('suggestions are sorted by code', () {
       final global = EmoteCatalog(
         bttvGlobal: [

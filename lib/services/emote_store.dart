@@ -805,6 +805,9 @@ class EmoteStore {
           .toList();
       catalog = catalog.copyWith(twitchSubs: [...subs, ...twitchNonSub]);
       _subsByChannelCache = null;
+      // Other channels' lookups include this channel's bits and subs.
+      _mergedCache.clear();
+      _foreignLookupCache.clear();
     }
     _channelCatalogs[channel] = catalog;
     // Like commitGlobal: an early provider doesn't make the channel loaded.
@@ -840,13 +843,18 @@ class EmoteStore {
 
   /// Stores owner-less emote-set results (per-account channel subs), fanning
   /// each owner list into its channel. Notifies only channels whose stored
-  /// subscription list actually changed.
-  void storeUserTwitchEmotes(Map<String, List<Emote>> perChannel) {
+  /// subscription list actually changed. An empty list is skipped unless
+  /// [authoritative] (a successful full fetch), which clears the channel's
+  /// stored subs.
+  void storeUserTwitchEmotes(
+    Map<String, List<Emote>> perChannel, {
+    bool authoritative = false,
+  }) {
     final changedChannels = <String>[];
     for (final entry in perChannel.entries) {
       final channel = entry.key;
       final emotes = entry.value;
-      if (emotes.isEmpty) continue;
+      if (emotes.isEmpty && !authoritative) continue;
       final catalog = _channelCatalogs[channel] ?? EmoteCatalog();
       final existing = catalog.twitchSubs;
       // Fresh first, then non-sub existing; dedup by id, by code for
@@ -1136,6 +1144,13 @@ class EmoteStore {
   String? getSevenTvEmoteSetId(String channel) => _sevenTvEmoteSetIds[channel];
 
   String? getSevenTvUserId(String channel) => _sevenTvUserIds[channel];
+
+  String? getChannelForSevenTvUser(String userId) {
+    for (final entry in _sevenTvUserIds.entries) {
+      if (entry.value == userId) return entry.key;
+    }
+    return null;
+  }
 
   String? getChannelForSevenTvEmoteSet(String emoteSetId) {
     for (final entry in _sevenTvEmoteSetIds.entries) {

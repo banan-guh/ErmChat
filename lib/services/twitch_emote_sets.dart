@@ -83,10 +83,11 @@ class TwitchEmoteSets {
   }
 
   Future<void> storeUserTwitchEmotes(
-    Map<String, List<Emote>> perChannel,
-  ) async {
+    Map<String, List<Emote>> perChannel, {
+    bool authoritative = false,
+  }) async {
     if (_tier() == EmoteFetchTier.nothing) return;
-    _store.storeUserTwitchEmotes(perChannel);
+    _store.storeUserTwitchEmotes(perChannel, authoritative: authoritative);
   }
 
   Map<String, String> _openChannels(Map<String, String> fallback) =>
@@ -156,9 +157,6 @@ class TwitchEmoteSets {
       if (unlocked.isNotEmpty) _storeUnlockedGlobalEmotes(unlocked);
       _fetched = true;
       _fetchedToken = auth.accessToken;
-      if (perOwner.isEmpty) {
-        return;
-      }
       final channels = _openChannels(openChannelUserIds);
       await _resolveOwners(auth, channels, ownerIds: perOwner.keys);
       final targets = channels.keys.toList();
@@ -166,7 +164,7 @@ class TwitchEmoteSets {
         return;
       }
       final perChannel = _buildPerChannelEmotes(perOwner, targets);
-      await storeUserTwitchEmotes(perChannel);
+      await storeUserTwitchEmotes(perChannel, authoritative: true);
     } catch (e) {
       logDebug('loadUserEmotes failed: $e');
     } finally {

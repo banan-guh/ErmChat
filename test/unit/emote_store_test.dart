@@ -252,6 +252,49 @@ void main() {
     expect(store.byCode('b')?.byCode.containsKey('FollowB'), isTrue);
   });
 
+  test('shared subs follow a bits commit and an authoritative empty fetch', () {
+    final store = EmoteStore();
+    expect(store.byCode('late')?.byCode.containsKey('Bits'), isNot(true));
+
+    store.commitChannel(
+      'a',
+      store.channelEpoch('a'),
+      ChannelEmoteFetch(
+        byProvider: {
+          EmoteType.twitch: [
+            Emote(
+              id: 'b1',
+              code: 'Bits',
+              meta: const TwitchMeta(kind: TwitchEmoteKind.bits),
+              scales: {EmoteScale.medium: 'https://example.com/b1.png'},
+              scope: EmoteScope.channel,
+            ),
+          ],
+        },
+      ),
+    );
+    expect(
+      store.byCode('late')?.byCode.containsKey('Bits'),
+      isTrue,
+      reason: 'a cached lookup of another channel must see the new bits',
+    );
+
+    store.storeUserTwitchEmotes({
+      'a': [_lockedTwitchSub('s1', 'SubA')],
+    });
+    expect(store.byCode('late')?.byCode.containsKey('SubA'), isTrue);
+
+    store.storeUserTwitchEmotes({'a': const []});
+    expect(
+      store.byCode('late')?.byCode.containsKey('SubA'),
+      isTrue,
+      reason: 'a partial or reconnect store must not wipe valid subs',
+    );
+    store.storeUserTwitchEmotes({'a': const []}, authoritative: true);
+    expect(store.byCode('late')?.byCode.containsKey('SubA'), isFalse);
+    expect(store.byCode('late')?.byCode.containsKey('Bits'), isTrue);
+  });
+
   test('no-op 7TV deltas emit no changes', () {
     final store = EmoteStore();
     final changes = <EmoteChange>[];

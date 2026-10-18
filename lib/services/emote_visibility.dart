@@ -27,7 +27,7 @@ class EmoteVisibility extends ChangeNotifier {
 
   /// Whether the persisted values have been read. [isProviderEnabled] and
   /// [allowUnlisted7tv] return the last-known value while the load is in
-  /// flight, matching the previous lazy-load behavior.
+  /// flight.
   bool get isLoaded => _loaded;
 
   /// Whether [type] is fetched and rendered (sync view).
@@ -48,9 +48,14 @@ class EmoteVisibility extends ChangeNotifier {
   /// Loads the persisted disabled set and unlisted flag once. Retries on
   /// failure instead of caching a failed load. Notifies listeners once loaded
   /// so the store snapshot refreshes.
-  Future<void> ensureLoaded() async {
-    if (_loaded) return;
-    _loaded = true;
+  Future<void> ensureLoaded() {
+    if (_loaded) return Future.value();
+    return _load ??= _loadPrefs();
+  }
+
+  Future<void>? _load;
+
+  Future<void> _loadPrefs() async {
     try {
       final prefs = await _getPrefs();
       final raw = prefs.emoteProvidersDisabled;
@@ -61,11 +66,13 @@ class EmoteVisibility extends ChangeNotifier {
         }
       }
       _allowUnlisted = prefs.emoteAllowUnlisted7tv;
+      _loaded = true;
       _notify();
     } catch (e) {
-      // Retry on the next call instead of caching a failed load.
-      _loaded = false;
       logDebug('[EmoteVisibility] failed to load provider visibility: $e');
+    } finally {
+      // A failed load clears the slot so the next call retries.
+      _load = null;
     }
   }
 

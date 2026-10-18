@@ -37,8 +37,8 @@ abstract interface class EmoteImagePolicy {
 ///   score   = r + [_steadyWeight] * s
 ///
 /// Pure logic (no I/O); [EmoteUsageRegistry] owns persistence. The bucket
-/// index is anchored at [bucketBase] (unix hour of the oldest bucket) so
-/// advancing an hour never shifts the list.
+/// buckets form a ring indexed by absolute unix hour modulo 24, so advancing
+/// an hour never shifts the list.
 class EmoteUsageRecord {
   EmoteUsageRecord({
     required this.lastUsedAt,
@@ -58,8 +58,9 @@ class EmoteUsageRecord {
   static const _steadyRate = 50;
   static const _steadyWeight = 0.75;
 
-  /// Unix hour of [buckets] index 0; buckets are zeroed as the window rolls
-  /// past them, so older data simply ages out.
+  /// Newest unix hour the window has rolled to. The bucket for hour h is
+  /// `h % 24`; buckets are zeroed as the window rolls past them, so older
+  /// data ages out.
   final int bucketBase;
 
   final DateTime lastUsedAt;
@@ -74,7 +75,7 @@ class EmoteUsageRecord {
     required DateTime now,
   }) {
     final rolled = rolledForward(record, hour);
-    final index = (hour - rolled.bucketBase) % _bucketCount;
+    final index = hour % _bucketCount;
     final buckets = List<int>.of(rolled.buckets);
     buckets[index]++;
     return EmoteUsageRecord(
@@ -88,8 +89,8 @@ class EmoteUsageRecord {
   EmoteUsageRecord bumpedAt(int hour, {required DateTime now}) =>
       EmoteUsageRecord.bumped(this, hour, now: now);
 
-  /// Returns a record whose window starts at (or covers) [hour], zeroing
-  /// buckets that rolled out. Cheap for records that were just bumped; only
+  /// Returns a record whose window ends at [hour], zeroing buckets that
+  /// rolled out. Cheap for records that were just bumped; only
   /// stale records pay for the roll.
   static EmoteUsageRecord rolledForward(EmoteUsageRecord record, int hour) {
     var base = record.bucketBase;
@@ -104,11 +105,9 @@ class EmoteUsageRecord {
     }
     if (hour == base) return record;
     final buckets = List<int>.of(record.buckets);
-    final advance = hour - base;
-    // Bucket i covers hour (base + i), so hours that rolled out are exactly
-    // buckets 0..advance-1 (the bucket list wraps, but the base never does).
-    for (var i = 0; i < advance; i++) {
-      buckets[i] = 0;
+    // Hours (base, hour] reuse the ring slots of the hours a day earlier.
+    for (var h = base + 1; h <= hour; h++) {
+      buckets[h % _bucketCount] = 0;
     }
     return EmoteUsageRecord(
       lastUsedAt: record.lastUsedAt,
@@ -209,6 +208,8 @@ class EmoteUsageRegistry implements EmoteImagePolicy {
 
   Prefs? _prefs;
   bool _usageLoaded = false;
+  Future<void>? _usageLoad;
+  Future<void> _usageFlushes = Future.value();
   bool _usageDirty = false;
   Timer? _usageFlushTimer;
   final Map<String, EmoteUsageRecord> _emoteUsage = {};
@@ -216,6 +217,7 @@ class EmoteUsageRegistry implements EmoteImagePolicy {
 
   List<String> _recentIds = [];
   bool _recentLoaded = false;
+  Future<void>? _recentLoad;
 
   // ── Usage policy ────────────────────────────────────────────────────
   /// Usage registry capped at max(300, capacity()).
@@ -297,9 +299,27 @@ class EmoteUsageRegistry implements EmoteImagePolicy {
     });
   }
 
-  Future<void> _ensureUsageLoaded() async {
-    if (_usageLoaded) return;
-    _usageLoaded = true;
+  // Touches stay queued until the merge below finishes, so the persisted
+  // read cannot overwrite them.
+  Future<void> _ensureUsageLoaded() {
+    if (_usageLoaded) return Future.value();
+    return _usageLoad ??= _loadUsage();
+  }
+
+  Future<void> _loadUsage() async {
+    try {
+      await _readUsage();
+    } finally {
+      _usageLoaded = true;
+      for (final url in _pendingUsageTouches) {
+        _touchUsage(url);
+      }
+      if (_pendingUsageTouches.isNotEmpty) _usageDirty = true;
+      _pendingUsageTouches.clear();
+    }
+  }
+
+  Future<void> _readUsage() async {
     final prefs = await _getPrefs();
     await _store.migrateFromPrefs(prefs.raw);
     final raw = await _store.read(_usageKey);
@@ -325,16 +345,17 @@ class EmoteUsageRegistry implements EmoteImagePolicy {
         logDebug('[EmoteUsageRegistry] failed to parse emote usage registry');
       }
     }
-    if (_pendingUsageTouches.isNotEmpty) {
-      for (final url in _pendingUsageTouches) {
-        _touchUsage(url);
-      }
-      _pendingUsageTouches.clear();
-      _usageDirty = true;
-    }
   }
 
-  Future<void> _flushUsage() async {
+  // Flushes run one at a time so an older snapshot never lands after a newer
+  // one.
+  Future<void> _flushUsage() {
+    final next = _usageFlushes.then((_) => _writeUsage());
+    _usageFlushes = next.catchError((_) {});
+    return next;
+  }
+
+  Future<void> _writeUsage() async {
     if (!_usageLoaded) return;
     await _ensureUsageLoaded();
     if (!_usageDirty) return;
@@ -378,16 +399,23 @@ class EmoteUsageRegistry implements EmoteImagePolicy {
   }
 
   // ── Recents ─────────────────────────────────────────────────────────
-  Future<void> _ensureRecentLoaded() async {
-    if (_recentLoaded) return;
-    _recentLoaded = true;
-    final prefs = await _getPrefs();
-    final raw = prefs.recentEmotes;
-    if (raw == null) return;
+  Future<void> _ensureRecentLoaded() {
+    if (_recentLoaded) return Future.value();
+    return _recentLoad ??= _loadRecent();
+  }
+
+  Future<void> _loadRecent() async {
     try {
-      _recentIds = List<String>.from(jsonDecode(raw) as List<dynamic>);
-    } catch (_) {
-      logDebug('[EmoteUsageRegistry] failed to parse recent emotes');
+      final prefs = await _getPrefs();
+      final raw = prefs.recentEmotes;
+      if (raw == null) return;
+      try {
+        _recentIds = List<String>.from(jsonDecode(raw) as List<dynamic>);
+      } catch (_) {
+        logDebug('[EmoteUsageRegistry] failed to parse recent emotes');
+      }
+    } finally {
+      _recentLoaded = true;
     }
   }
 

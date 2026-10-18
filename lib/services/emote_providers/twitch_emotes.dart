@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 import 'dart:isolate';
 import 'package:http/http.dart' as http;
 import '../../twitch_config.dart';
@@ -90,7 +91,8 @@ class TwitchEmoteProvider {
       DataUsageStats.I.recordJson(res.bodyBytes.length);
       if (res.statusCode != 200) {
         logDebug('Twitch user emotes error: ${res.statusCode} ${res.body}');
-        break;
+        // A failed page must not read as an empty account.
+        throw HttpException('HTTP ${res.statusCode}', uri: uri);
       }
       bodies.add(res.body);
       final page = jsonDecode(res.body)['pagination'];

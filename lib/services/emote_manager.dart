@@ -205,7 +205,7 @@ class EmoteManager implements EmoteLookupSource {
           tier: () => tier,
           isProviderEnabled: (type) => _visibility.isProviderEnabled(type),
           notifyChanged: _store.notifyCatalogChanged,
-          onSendersChanged: _notifyPersonalSenders,
+          onSendersChanged: notifyPersonalSenders,
           now: _now,
         );
     _twitchSets =
@@ -446,7 +446,9 @@ class EmoteManager implements EmoteLookupSource {
   void removePersonalSendersListener(void Function(Set<String>) listener) =>
       _personalSenderListeners.remove(listener);
 
-  void _notifyPersonalSenders(Set<String> twitchIds) {
+  /// Fans a personal-set change out to the sender listeners. The provider
+  /// wires the injected [SevenTvPersonalSets] to this.
+  void notifyPersonalSenders(Set<String> twitchIds) {
     for (final listener in List.of(_personalSenderListeners)) {
       listener(twitchIds);
     }
@@ -958,6 +960,9 @@ class EmoteManager implements EmoteLookupSource {
       _store.getSevenTvEmoteSetId(channel);
 
   String? getSevenTvUserId(String channel) => _store.getSevenTvUserId(channel);
+
+  String? getChannelForSevenTvUser(String userId) =>
+      _store.getChannelForSevenTvUser(userId);
 
   String? getChannelForSevenTvEmoteSet(String emoteSetId) =>
       _store.getChannelForSevenTvEmoteSet(emoteSetId);

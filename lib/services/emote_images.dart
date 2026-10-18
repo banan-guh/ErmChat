@@ -130,7 +130,11 @@ class EmoteImages {
   int get cacheCapMb => _cacheCapMb;
 
   set cacheCapMb(int value) {
-    _cacheCapMb = value.clamp(minEmoteCacheMb, maxEmoteCacheMb).toInt();
+    final next = value.clamp(minEmoteCacheMb, maxEmoteCacheMb).toInt();
+    // Ids seen at cap 0 were never queued; forgetting them lets the next
+    // render precache them.
+    if (_cacheCapMb <= 0 && next > 0) _seenEmoteIds.clear();
+    _cacheCapMb = next;
     _cache.maxBytes = _cacheCapMb * bytesPerMb;
   }
 
@@ -186,13 +190,19 @@ class EmoteImages {
   }
 
   /// Removes [url] from the disk cache (live 7TV eviction).
-  Future<void> removeFile(String url) => _removeCachedFile(url);
+  Future<void> removeFile(String url) async {
+    await _removeCachedFile(url);
+    _probe.forget(url);
+  }
 
   /// Counts cached emote files on disk and their total size.
   Future<EmoteCacheStats> stats() => _cache.stats();
 
   /// Empties the entire emote image disk cache (nuke).
-  Future<void> clear() => _cache.emptyCache();
+  Future<void> clear() async {
+    await _cache.emptyCache();
+    _probe.reset();
+  }
 
   // ── Precache queue for seen emotes ──────────────────────────────────
   final Set<String> _seenEmoteIds = {};

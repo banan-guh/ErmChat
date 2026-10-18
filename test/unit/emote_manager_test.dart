@@ -2721,6 +2721,35 @@ void main() {
       expect(persisted, contains('https://example.com/e2.png'));
     });
 
+    test(
+      'a touch during the usage load wins over the persisted record',
+      () async {
+        SharedPreferences.setMockInitialValues({});
+        const url = 'https://example.com/e0.png';
+        final old = DateTime(2026, 1, 1, 12);
+        final first = EmoteUsageRegistry(capacity: () => 300, now: () => old);
+        first.touch(url);
+        await first.flushForTesting();
+        first.dispose();
+
+        final later = old.add(const Duration(days: 2));
+        final second = EmoteUsageRegistry(
+          capacity: () => 300,
+          now: () => later,
+        );
+        final loading = second.ensureLoaded();
+        second.touchAll([url]);
+        await loading;
+
+        expect(
+          second.lastUsedAt(url),
+          later,
+          reason: 'the persisted read overwrote a touch made while it loaded',
+        );
+        second.dispose();
+      },
+    );
+
     test('usage flush lands while touches keep arriving', () async {
       SharedPreferences.setMockInitialValues({});
       PathProviderPlatform.instance = _FakePathProvider(
@@ -3063,11 +3092,9 @@ void main() {
       expect(uniform.score(now), greaterThan(clustered.score(now)));
     });
 
-    test('bumping rolls the window forward and ages out stale buckets', () {
+    test('bumping keeps the 24h ring and ages out stale buckets', () {
       var r = record(lastUsedAt: now);
       r = EmoteUsageRecord.bumped(r, hour, now: now);
-      // The roll on the hour+1 bump moves the window, so that hour's views
-      // land in bucket 0.
       r = EmoteUsageRecord.bumped(
         r,
         hour + 1,
@@ -3078,8 +3105,14 @@ void main() {
         hour + 1,
         now: now.add(const Duration(hours: 1)),
       );
-      expect(r.buckets[0], 2);
+      // Each hour keeps its own slot, so the histogram spans the window.
+      expect(r.buckets[hour % 24], 1);
+      expect(r.buckets[(hour + 1) % 24], 2);
       expect(r.bucketBase, hour + 1);
+      // 24 hours later the first hour's slot is reused and zeroed.
+      final day = EmoteUsageRecord.rolledForward(r, hour + 24);
+      expect(day.buckets[hour % 24], 0);
+      expect(day.buckets[(hour + 1) % 24], 2);
       // 25 hours later, everything has rolled out of the window.
       r = EmoteUsageRecord.rolledForward(r, hour + 25);
       expect(r.bucketBase, hour + 25);

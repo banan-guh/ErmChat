@@ -266,7 +266,8 @@ List<Emote> applyAccountUnlocks(List<Emote> base, Iterable<Emote> unlocks) {
 /// Channel scope beats global; within a scope the provider priority in
 /// [kEmoteProviderPriority] wins; personal 7TV emotes merge underneath the
 /// base so channel/global codes always win conflicts. Disabled providers and
-/// hidden unlisted 7TV emotes are dropped.
+/// hidden unlisted 7TV emotes are dropped before the merge, so the next
+/// candidate for the code survives.
 EmoteLookup mergeEmoteLookup({
   required EmoteCatalog global,
   EmoteCatalog? channel,
@@ -278,8 +279,14 @@ EmoteLookup mergeEmoteLookup({
   final best = <String, Emote>{};
   final scopeOf = <String, int>{};
 
+  bool hidden(Emote e) {
+    if (disabledProviders.contains(e.type)) return true;
+    final meta = e.meta;
+    return !allowUnlisted7tv && meta is SevenTvMeta && meta.unlisted;
+  }
+
   void add(Emote e) {
-    if (disabledProviders.contains(e.type)) return;
+    if (hidden(e)) return;
     final existing = best[e.code];
     if (existing == null) {
       best[e.code] = e;
@@ -330,16 +337,11 @@ EmoteLookup mergeEmoteLookup({
     }
   }
   for (final e in personal) {
-    if (disabledProviders.contains(e.type)) continue;
+    if (hidden(e)) continue;
     best.putIfAbsent(e.code, () => e);
   }
 
-  final visible = <Emote>[];
-  for (final e in best.values) {
-    final meta = e.meta;
-    if (!allowUnlisted7tv && meta is SevenTvMeta && meta.unlisted) continue;
-    visible.add(e);
-  }
+  final visible = best.values.toList();
   visible.sort((a, b) => a.code.compareTo(b.code));
   return EmoteLookup(
     byCode: {for (final e in visible) e.code: e},

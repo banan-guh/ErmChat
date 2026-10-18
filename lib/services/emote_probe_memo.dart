@@ -62,8 +62,13 @@ class EmoteProbeMemo {
     }
   }
 
-  /// Drops every memoized result. Exposed for tests.
-  @visibleForTesting
+  /// Drops the memoized result for [url].
+  void forget(String url) {
+    _inflight.remove(url);
+    _entries.remove(url);
+  }
+
+  /// Drops every memoized result.
   void reset() {
     _inflight.clear();
     _entries.clear();
