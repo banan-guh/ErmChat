@@ -2005,8 +2005,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     return channel != null && _chatConn.isChannelChatReady(channel);
   }
 
-  /// Stream layout selector (DankChat MainScreen): landscape theater first,
-  /// then wide split, else the stacked portrait player above chat.
   Widget _buildEmotePicker({
     required double sheetBoxHeight,
     required EdgeInsets inset,
