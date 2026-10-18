@@ -158,7 +158,11 @@ class HomeAppBar {
       builder: (context, _) {
         final busy = _joinBusy();
         return IconButton(
-          icon: busy ? _joinSpinner(context) : const Icon(Icons.add),
+          // A theme with a loading bar keeps the plain + while the row
+          // that carries the bar shows.
+          icon: busy && !(themeSpec().busyBar && chat.length > 0)
+              ? _joinSpinner(context)
+              : const Icon(Icons.add),
           tooltip: busy
               ? context.l10n.loadingEllipsis
               : context.l10n.joinChannel,
@@ -286,8 +290,10 @@ class HomeAppBar {
   }) {
     final spec = themeSpec();
     final actions = [
-      for (final a in spec.rowActions) action(context, a, glass: glass),
-      if (withMenu) chromeMenu(glass: glass, onCalendar: onCalendar),
+      for (final a in spec.rowActions)
+        action(context, a, glass: glass, onCalendar: onCalendar),
+      if (withMenu && !spec.rowActions.contains(ChromeAction.viewMenu))
+        chromeMenu(glass: glass, onCalendar: onCalendar),
     ];
     final gap = Expanded(child: middle ?? const SizedBox.shrink());
     final row = Row(
@@ -314,12 +320,31 @@ class HomeAppBar {
     );
     // Inset like the field, so the row's end buttons line up under the
     // field's emote and send.
+    final inset = Padding(
+      padding: const EdgeInsets.symmetric(horizontal: _rowInset),
+      child: fitted,
+    );
     return KeyedSubtree(
       key: const Key('bottom_chrome_bar'),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: _rowInset),
-        child: fitted,
-      ),
+      // The loading bar overlays the row's top edge, so it costs no height.
+      child: !spec.busyBar
+          ? inset
+          : Stack(
+              children: [
+                inset,
+                Positioned(
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  child: ListenableBuilder(
+                    listenable: _joinBusyListenable,
+                    builder: (context, _) => _joinBusy()
+                        ? const LinearProgressIndicator(minHeight: 2)
+                        : const SizedBox.shrink(),
+                  ),
+                ),
+              ],
+            ),
     );
   }
 

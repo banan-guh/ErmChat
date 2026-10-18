@@ -47,6 +47,7 @@ class ChromeThemeSpec {
     this.sendInRow = false,
     this.islandFlush = false,
     this.settingsInMenu = false,
+    this.busyBar = false,
   });
 
   final HeaderStyle header;
@@ -77,6 +78,10 @@ class ChromeThemeSpec {
 
   /// Settings heads the ⋮ menu instead of being a button.
   final bool settingsInMenu;
+
+  /// Loading shows as a bar along the top of the button row instead of a
+  /// spinner in the join button.
+  final bool busyBar;
 
   bool places(ChromeAction action) =>
       stripActions.contains(action) ||
@@ -122,13 +127,13 @@ enum ChromeTheme {
         ChromeAction.join,
         ChromeAction.mentions,
         ChromeAction.overflow,
-        ChromeAction.viewMenu,
       ],
-      rowActions: [ChromeAction.threads],
+      rowActions: [ChromeAction.threads, ChromeAction.viewMenu],
       rowActionsRight: true,
       sendInRow: true,
       islandFlush: true,
       settingsInMenu: true,
+      busyBar: true,
     ),
   );
 
