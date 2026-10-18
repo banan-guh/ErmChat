@@ -614,27 +614,39 @@ class _ChatBodyState extends State<ChatBody>
     // The composer field. One shared inputBarKey keeps the FocusNode alive
     // as the island moves between the docked and floating paths. The size
     // notifier re-measures when inner listenables resize it without a
-    // ChatBody rebuild (status text, extra input lines).
-    final flowComposer = AnimatedSize(
-      duration: const Duration(milliseconds: 220),
-      curve: Curves.easeInOut,
-      alignment: Alignment.bottomCenter,
-      child: composer == null
-          ? const SizedBox.shrink()
-          : Padding(
-              key: inputBarKey,
-              padding: EdgeInsets.zero,
-              child: NotificationListener<SizeChangedLayoutNotification>(
-                onNotification: (_) {
-                  WidgetsBinding.instance.addPostFrameCallback((_) {
-                    _cacheComposerH();
-                    _cachePaneInsets();
-                  });
-                  return true;
-                },
-                child: SizeChangedLayoutNotifier(child: composerSlot(composer)),
-              ),
-            ),
+    // ChatBody rebuild (status text, extra input lines). The outer notifier
+    // follows the grow animation, so the island and the list clearance under
+    // it re-measure on every frame of it, not only where it starts.
+    final flowComposer = NotificationListener<SizeChangedLayoutNotification>(
+      onNotification: (_) {
+        WidgetsBinding.instance.addPostFrameCallback((_) => _cacheIslandH());
+        return true;
+      },
+      child: SizeChangedLayoutNotifier(
+        child: AnimatedSize(
+          duration: const Duration(milliseconds: 220),
+          curve: Curves.easeInOut,
+          alignment: Alignment.bottomCenter,
+          child: composer == null
+              ? const SizedBox.shrink()
+              : Padding(
+                  key: inputBarKey,
+                  padding: EdgeInsets.zero,
+                  child: NotificationListener<SizeChangedLayoutNotification>(
+                    onNotification: (_) {
+                      WidgetsBinding.instance.addPostFrameCallback((_) {
+                        _cacheComposerH();
+                        _cachePaneInsets();
+                      });
+                      return true;
+                    },
+                    child: SizeChangedLayoutNotifier(
+                      child: composerSlot(composer),
+                    ),
+                  ),
+                ),
+        ),
+      ),
     );
     // Round shell for the island: frosted in glass. Otherwise the focus glow
     // paints the fill, one surface tone above the chat plane, and this clear

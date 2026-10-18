@@ -652,4 +652,76 @@ void main() {
     expect(node.hasFocus, isTrue);
     expect(tester.testTextInput.isVisible, isTrue);
   });
+
+  testWidgets('typing a new line lifts the chat with the growing field', (
+    tester,
+  ) async {
+    var clearance = 0.0;
+    final text = TextEditingController();
+    final focus = FocusNode();
+    addTearDown(text.dispose);
+    addTearDown(focus.dispose);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: ChatBody(
+            liquidGlass: false,
+            emoteMaxFraction: 0.5,
+            composer: TextField(
+              key: const Key('message_input'),
+              controller: text,
+              focusNode: focus,
+              minLines: 1,
+              maxLines: 6,
+            ),
+            bottomBar: const SizedBox(height: 48),
+            bodyBuilder:
+                (
+                  context, {
+                  required hideChromeForKeyboard,
+                  required maxWidth,
+                  required maxHeight,
+                  required keyboardH,
+                  required composerH,
+                }) => Builder(
+                  builder: (inner) {
+                    clearance =
+                        GlassChromeScope.maybeOf(inner)?.clearanceFor(null) ??
+                        0;
+                    return const SizedBox.expand();
+                  },
+                ),
+            threadPanel: const SizedBox.shrink(),
+            mentionsPanel: const SizedBox.shrink(),
+            modViewPanel: const SizedBox.shrink(),
+            emotePickerBuilder:
+                (_, {required sheetBoxHeight, required inset}) =>
+                    const SizedBox.shrink(),
+            autocomplete: const SizedBox.shrink(),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final screenH =
+        tester.view.physicalSize.height / tester.view.devicePixelRatio;
+    double fieldGap() =>
+        screenH - tester.getRect(find.byKey(const Key('message_input'))).top;
+    focus.requestFocus();
+    await tester.pump();
+    for (var line = 2; line <= 4; line++) {
+      // One keystroke grows the field; nothing else rebuilds while its
+      // height animates.
+      text.text = '${text.text}a\n';
+      await tester.pump();
+      for (var f = 0; f < 20; f++) {
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+      expect(
+        clearance,
+        moreOrLessEquals(fieldGap(), epsilon: 1),
+        reason: 'line $line left the newest message under the field',
+      );
+    }
+  });
 }
