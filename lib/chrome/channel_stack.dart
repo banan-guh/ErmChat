@@ -175,6 +175,7 @@ class ChannelPanels {
   /// The channel pager's fractional page while it moves, so broadcast cards
   /// slide with their channel instead of staying over the next one.
   final _swipePage = ValueNotifier<double?>(null);
+  ValueListenable<double?> get swipePage => _swipePage;
   final _tabCache = <String, Widget>{};
   List<String> _cachedChannels = const [];
 
@@ -694,16 +695,7 @@ class ChannelPanels {
       );
     }
 
-    final names = chat.names;
-    final page = _swipePage.value;
-    final left = page?.floor() ?? -1;
-    final t = page == null ? 0.0 : page - left;
-    final swiping =
-        t >= 0.001 && t <= 0.999 && left >= 0 && left + 1 < names.length;
-    final selected = selectedChannel();
-    final shown = swiping
-        ? [(names[left], -t), (names[left + 1], 1 - t)]
-        : [if (selected != null) (selected, 0.0)];
+    final shown = swipeShown(chat.names, _swipePage.value, selectedChannel());
     // One tree shape at rest and mid-swipe, keyed by channel, so a card
     // keeps its state when a swipe starts instead of rebuilding.
     return LayoutBuilder(

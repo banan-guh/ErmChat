@@ -86,6 +86,23 @@ class _SwipeScrollBehavior extends ScrollBehavior {
   }
 }
 
+/// The channels chrome tied to a page shows at the pager's fractional
+/// [page], each with its offset in page widths: both neighbors mid-swipe,
+/// else [selected] at rest.
+List<(String, double)> swipeShown(
+  List<String> names,
+  double? page,
+  String? selected,
+) {
+  final left = page?.floor() ?? -1;
+  final t = page == null ? 0.0 : page - left;
+  final swiping =
+      t >= 0.001 && t <= 0.999 && left >= 0 && left + 1 < names.length;
+  return swiping
+      ? [(names[left], -t), (names[left + 1], 1 - t)]
+      : [if (selected != null) (selected, 0.0)];
+}
+
 class TabbedLayout extends StatefulWidget {
   final List<String> tabs;
   final int selectedIndex;

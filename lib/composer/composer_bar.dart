@@ -1,9 +1,12 @@
+import 'dart:ui' show lerpDouble;
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../panels/mod_panel.dart';
 import '../panels/search.dart';
 import '../widgets/message_input.dart';
+import '../widgets/tabbed_layout.dart' show swipeShown;
 import 'composer_controller.dart';
 import '../l10n/l10n.dart';
 
@@ -250,6 +253,7 @@ class ComposerModeRow extends StatelessWidget {
     required this.search,
     required this.mod,
     required this.dragTick,
+    required this.swipePage,
   });
 
   final ComposerController controller;
@@ -257,6 +261,9 @@ class ComposerModeRow extends StatelessWidget {
   final SearchPanels search;
   final ModPanels mod;
   final Listenable dragTick;
+
+  /// See [ComposerStatusRow.swipePage].
+  final ValueListenable<double?> swipePage;
 
   @override
   Widget build(BuildContext context) => LayoutBuilder(
@@ -276,24 +283,33 @@ class ComposerModeRow extends StatelessWidget {
           if (searchBorrowed || mod.termsChromeHidden) {
             return const SizedBox.shrink();
           }
-          return _ChannelListener(
-            controller: controller,
-            selectedTabIndex: selectedTabIndex,
-            builder: (context) {
-              final channel = controller.selectedChannel;
-              if (channel == null ||
-                  !modesFitRow(context, controller, channel)) {
-                return const SizedBox.shrink();
-              }
-              return Center(
-                child: Text(
-                  controller.chat.channelFor(channel)!.info.modes.join(' · '),
-                  style: _statusStyle(context),
-                  maxLines: 1,
-                  softWrap: false,
+          return ListenableBuilder(
+            listenable: swipePage,
+            builder: (context, _) => _ChannelListener(
+              controller: controller,
+              selectedTabIndex: selectedTabIndex,
+              builder: (context) => _swipeSlide(
+                swipeShown(
+                  controller.chat.names,
+                  swipePage.value,
+                  controller.selectedChannel,
                 ),
-              );
-            },
+                (channel) => !modesFitRow(context, controller, channel)
+                    ? const SizedBox.shrink()
+                    : Center(
+                        child: Text(
+                          controller.chat
+                              .channelFor(channel)!
+                              .info
+                              .modes
+                              .join(' · '),
+                          style: _statusStyle(context),
+                          maxLines: 1,
+                          softWrap: false,
+                        ),
+                      ),
+              ),
+            ),
           );
         },
       );
@@ -369,6 +385,7 @@ class ComposerStatusRow extends StatelessWidget {
     required this.search,
     required this.mod,
     required this.dragTick,
+    required this.swipePage,
     this.modeRow = false,
   });
 
@@ -377,6 +394,10 @@ class ComposerStatusRow extends StatelessWidget {
   final SearchPanels search;
   final ModPanels mod;
   final Listenable dragTick;
+
+  /// The channel pager's fractional page while it moves; each channel's
+  /// status slides with its page.
+  final ValueListenable<double?> swipePage;
 
   /// See [ComposerBar.modeRow].
   final bool modeRow;
@@ -395,6 +416,7 @@ class ComposerStatusRow extends StatelessWidget {
       return _StatusRow(
         controller: controller,
         selectedTabIndex: selectedTabIndex,
+        swipePage: swipePage,
         showStatus: !landscape,
         modeRow: modeRow,
       );
@@ -464,72 +486,127 @@ class _StatusRow extends StatelessWidget {
   const _StatusRow({
     required this.controller,
     required this.selectedTabIndex,
+    required this.swipePage,
     required this.showStatus,
     required this.modeRow,
   });
 
   final ComposerController controller;
   final ValueListenable<int> selectedTabIndex;
+  final ValueListenable<double?> swipePage;
   final bool showStatus;
   final bool modeRow;
 
   @override
-  Widget build(BuildContext context) => _ChannelListener(
-    controller: controller,
-    selectedTabIndex: selectedTabIndex,
-    builder: (context) {
-      final channel = controller.selectedChannel;
-      final status = !showStatus || channel == null
-          ? ''
-          : _footerStatus(context, controller, channel, modeRow: modeRow);
-      final hasLoadFailure =
-          channel != null &&
-          controller.chat.loadFailedChannels.value.contains(channel);
-      return AnimatedSize(
-        duration: const Duration(milliseconds: 300),
-        curve: Curves.easeInOut,
-        alignment: Alignment.topCenter,
-        child: Padding(
-          padding: EdgeInsets.only(
-            bottom: status.isEmpty && !hasLoadFailure ? 0 : _statusFoot,
+  Widget build(BuildContext context) => ListenableBuilder(
+    listenable: swipePage,
+    builder: (context, _) => _ChannelListener(
+      controller: controller,
+      selectedTabIndex: selectedTabIndex,
+      builder: (context) {
+        final shown = swipeShown(
+          controller.chat.names,
+          swipePage.value,
+          controller.selectedChannel,
+        );
+        final lines = _swipeSlide(
+          shown,
+          (channel) => _lines(context, channel),
+          alignment: Alignment.topCenter,
+        );
+        if (shown.length < 2) {
+          return AnimatedSize(
+            duration: const Duration(milliseconds: 300),
+            curve: Curves.easeInOut,
+            alignment: Alignment.topCenter,
+            child: lines,
+          );
+        }
+        // Mid-swipe the island's height follows the page between the two
+        // channels' footers.
+        double heightOf(String channel) => composerStatusHeight(
+          context,
+          controller,
+          channel,
+          modeRow: modeRow,
+        );
+        return SizedBox(
+          height: lerpDouble(
+            heightOf(shown[0].$1),
+            heightOf(shown[1].$1),
+            -shown[0].$2,
           ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (status.isNotEmpty)
-                Padding(
-                  padding: const EdgeInsets.only(
-                    left: 12,
-                    right: 12,
-                    bottom: 4,
-                  ),
-                  child: Text(
-                    status,
-                    style: _statusStyle(context),
-                    textAlign: TextAlign.center,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-              if (hasLoadFailure)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 4),
-                  child: InkWell(
-                    onTap: () => controller.chatConn.retryChannelData(channel),
-                    child: Text(
-                      context.l10n.retryFailedEmotes,
-                      style: _statusStyle(
-                        context,
-                        color: Theme.of(context).colorScheme.primary,
-                      ).copyWith(decoration: TextDecoration.underline),
-                      maxLines: 1,
-                    ),
-                  ),
-                ),
-            ],
-          ),
-        ),
-      );
-    },
+          child: lines,
+        );
+      },
+    ),
   );
+
+  Widget _lines(BuildContext context, String channel) {
+    final status = showStatus
+        ? _footerStatus(context, controller, channel, modeRow: modeRow)
+        : '';
+    final hasLoadFailure = controller.chat.loadFailedChannels.value.contains(
+      channel,
+    );
+    return Padding(
+      padding: EdgeInsets.only(
+        bottom: status.isEmpty && !hasLoadFailure ? 0 : _statusFoot,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (status.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(left: 12, right: 12, bottom: 4),
+              child: Text(
+                status,
+                style: _statusStyle(context),
+                textAlign: TextAlign.center,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          if (hasLoadFailure)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 4),
+              child: InkWell(
+                onTap: () => controller.chatConn.retryChannelData(channel),
+                child: Text(
+                  context.l10n.retryFailedEmotes,
+                  style: _statusStyle(
+                    context,
+                    color: Theme.of(context).colorScheme.primary,
+                  ).copyWith(decoration: TextDecoration.underline),
+                  maxLines: 1,
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
 }
+
+/// Each channel's [build] at its page offset ([swipeShown]), clipped, so
+/// chrome tied to a channel slides with its page mid-swipe. Keyed by
+/// channel, so a line keeps its state when a swipe starts.
+Widget _swipeSlide(
+  List<(String, double)> shown,
+  Widget Function(String channel) build, {
+  AlignmentGeometry alignment = Alignment.center,
+}) => LayoutBuilder(
+  builder: (context, constraints) => ClipRect(
+    child: Stack(
+      alignment: alignment,
+      children: [
+        for (final (channel, dx) in shown)
+          Transform.translate(
+            key: ValueKey(channel),
+            offset: Offset(dx * constraints.maxWidth, 0),
+            child: build(channel),
+          ),
+      ],
+    ),
+  ),
+);
