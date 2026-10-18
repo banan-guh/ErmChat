@@ -64,9 +64,9 @@ class MessageInput extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final effectiveHint = hintText ?? context.l10n.typeMessageHint;
-    // An outline notches its label; a borderless field floats one only with
-    // no icons beside the text.
-    final floatLabel = !borderless || (buttonsInRow && !searchMode);
+    // An outline notches its label; the borderless chat field floats one
+    // like a filled field. Search and block terms keep a plain hint.
+    final floatLabel = !borderless || !searchMode;
     // Compact trims the field height and padding. The emote and send
     // buttons keep the full 48pt circle: their slot is only as tall as the
     // field, and the circle spills into the padding around it.
@@ -115,10 +115,9 @@ class MessageInput extends StatelessWidget {
                   isDense: compact,
                   prefixIconConstraints: iconConstraints,
                   suffixIconConstraints: iconConstraints,
-                  // With its buttons in the row, the chat field's label floats
-                  // into the island's corner as you type, like a filled field.
-                  // Beside in-field icons a floated label would drop the text
-                  // off their centerline, so those keep a plain hint.
+                  // The chat field's label floats into the island's corner as
+                  // you type. Typed text then sits under it, below the in-field
+                  // icons' centerline, as in a Material filled field.
                   labelText: floatLabel ? effectiveHint : null,
                   hintText: floatLabel ? null : effectiveHint,
                   hintMaxLines: 1,
