@@ -282,9 +282,56 @@ class TabbedLayoutState extends State<TabbedLayout>
 
   // ---- One-way mirror: physical page -> tab strip visuals ------------------
 
+  // The strip's scroll position, and whether a finger scrolled it away from
+  // where the pager puts it.
+  ScrollPosition? _stripPosition;
+  bool _stripDisplaced = false;
+  // True while the strip animates back to the pager's place.
+  bool _stripCatchingUp = false;
+  double? _lastMirroredPage;
+  static const _stripCatchUpDuration = Duration(milliseconds: 200);
+
+  bool _onStripNotification(ScrollNotification n) {
+    if (n is ScrollStartNotification && n.dragDetails != null) {
+      final context = n.context;
+      _stripPosition = context == null
+          ? null
+          : Scrollable.maybeOf(context)?.position;
+      _stripDisplaced = true;
+    }
+    return false;
+  }
+
   void _mirrorPageToStrip(double page) {
+    _lastMirroredPage = page;
     final ctrl = _tabController;
-    if (ctrl == null || ctrl.indexIsChanging) return;
+    if (ctrl == null || ctrl.indexIsChanging || _stripCatchingUp) return;
+    final strip = _stripPosition;
+    if (!_stripDisplaced || strip == null || !strip.hasPixels) {
+      _syncStrip(ctrl, page);
+      return;
+    }
+    // TabBar jumps a scrolled-away strip back to the tab on the first
+    // offset tick. Read where it lands, then animate there instead.
+    final from = strip.pixels;
+    _syncStrip(ctrl, page);
+    final to = strip.pixels;
+    // A tick that moves nothing (the drag's first, at rest) leaves the
+    // strip displaced for the next.
+    if ((to - from).abs() < 1) return;
+    _stripDisplaced = false;
+    strip.jumpTo(from);
+    _stripCatchingUp = true;
+    strip
+        .animateTo(to, duration: _stripCatchUpDuration, curve: Curves.easeOut)
+        .whenComplete(() {
+          _stripCatchingUp = false;
+          final last = _lastMirroredPage;
+          if (mounted && last != null) _mirrorPageToStrip(last);
+        });
+  }
+
+  void _syncStrip(TabController ctrl, double page) {
     final clamped = page.clamp(0.0, (_tabLength - 1).toDouble());
     final nearest = clamped.round();
     if (nearest != ctrl.index) {
@@ -591,41 +638,44 @@ class TabbedLayoutState extends State<TabbedLayout>
                         : AxisDirection.right,
                     child: ScrollConfiguration(
                       behavior: const _SwipeScrollBehavior(),
-                      child: TabBar(
-                        controller: _tabController,
-                        onTap: _onTabTap,
-                        isScrollable: true,
-                        tabAlignment: _resolveTabAlignment(),
-                        // Lets the last tab scroll clear of the fade.
-                        padding: EdgeInsetsDirectional.only(
-                          end: widget.stripTrailing == null || bubbles
-                              ? 0
-                              : _stripFade,
-                        ),
-                        labelPadding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 0,
-                        ),
-                        indicator: BoxDecoration(
-                          border: Border(
-                            bottom: BorderSide(
-                              color: theme.colorScheme.primary,
-                              width: 2,
+                      child: NotificationListener<ScrollNotification>(
+                        onNotification: _onStripNotification,
+                        child: TabBar(
+                          controller: _tabController,
+                          onTap: _onTabTap,
+                          isScrollable: true,
+                          tabAlignment: _resolveTabAlignment(),
+                          // Lets the last tab scroll clear of the fade.
+                          padding: EdgeInsetsDirectional.only(
+                            end: widget.stripTrailing == null || bubbles
+                                ? 0
+                                : _stripFade,
+                          ),
+                          labelPadding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 0,
+                          ),
+                          indicator: BoxDecoration(
+                            border: Border(
+                              bottom: BorderSide(
+                                color: theme.colorScheme.primary,
+                                width: 2,
+                              ),
                             ),
                           ),
+                          indicatorSize: TabBarIndicatorSize.label,
+                          // No full-width divider; the strip's tone separates it.
+                          dividerHeight: 0,
+                          tabs: [
+                            for (var i = 0; i < tabs.length; i++)
+                              Tab(
+                                child:
+                                    widget.tabBuilder?.call(context, i) ??
+                                    Text(tabs[i]),
+                              ),
+                            if (_hasAddTab) Tab(child: widget.addTab),
+                          ],
                         ),
-                        indicatorSize: TabBarIndicatorSize.label,
-                        // No full-width divider; the strip's tone separates it.
-                        dividerHeight: 0,
-                        tabs: [
-                          for (var i = 0; i < tabs.length; i++)
-                            Tab(
-                              child:
-                                  widget.tabBuilder?.call(context, i) ??
-                                  Text(tabs[i]),
-                            ),
-                          if (_hasAddTab) Tab(child: widget.addTab),
-                        ],
                       ),
                     ),
                   ),

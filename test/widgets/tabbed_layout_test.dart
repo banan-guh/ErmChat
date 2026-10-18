@@ -765,4 +765,54 @@ void main() {
     expect(find.text('2'), findsOneWidget);
     expect(pages, isEmpty, reason: 'card pages moved the channel overlay');
   });
+
+  testWidgets('a scrolled-away strip animates back when a swipe starts', (
+    tester,
+  ) async {
+    final tabs = [for (var i = 0; i < 20; i++) 'channel$i'];
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: TabbedLayout(
+            tabs: tabs,
+            selectedIndex: 0,
+            onFocusChanged: (_) {},
+            onSelectedIndexChanged: (_) {},
+            pageBuilder: (_, i) => Center(child: Text('page$i')),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    ScrollPosition strip() => tester
+        .state<ScrollableState>(
+          find
+              .descendant(
+                of: find.byType(TabBar),
+                matching: find.byType(Scrollable),
+              )
+              .first,
+        )
+        .position;
+    await tester.drag(find.text('channel3'), const Offset(-600, 0));
+    await tester.pumpAndSettle();
+    final away = strip().pixels;
+    expect(away, greaterThan(100));
+
+    final g = await tester.startGesture(tester.getCenter(find.text('page0')));
+    await g.moveBy(const Offset(-30, 0));
+    await tester.pump();
+    await g.moveBy(const Offset(-30, 0));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(
+      strip().pixels,
+      allOf(greaterThan(1), lessThan(away)),
+      reason: 'the strip glides back instead of jumping to the tab',
+    );
+    await tester.pump(const Duration(milliseconds: 150));
+    expect(strip().pixels, lessThan(1));
+    await g.up();
+    await tester.pumpAndSettle();
+  });
 }
