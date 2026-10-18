@@ -216,6 +216,8 @@ enum _Item {
 
   static _Item of(ChromeAction a) => values.byName(a.name);
 
+  _Part get part => _Part.values.byName(name);
+
   IconData get icon => switch (this) {
     join => Icons.add,
     mentions => Icons.notifications_active,
@@ -225,8 +227,25 @@ enum _Item {
     viewMenu => Icons.expand_more,
     send => Icons.send,
   };
+}
+
+/// What the editor's dropdowns edit: the header, the composer, or one item.
+enum _Part {
+  header,
+  composer,
+  join,
+  mentions,
+  threads,
+  settings,
+  overflow,
+  viewMenu,
+  send;
+
+  _Item? get item => _Item.values.where((i) => i.name == name).firstOrNull;
 
   String label(AppLocalizations l) => switch (this) {
+    header => l.themeOptionHeader,
+    composer => l.themeOptionComposer,
     join => l.themeActionJoin,
     mentions => l.themeActionMentions,
     threads => l.themeActionThreads,
@@ -273,7 +292,7 @@ class ThemeEditorScreen extends StatefulWidget {
 class _ThemeEditorScreenState extends State<ThemeEditorScreen> {
   late ChromeThemeSpec _spec = widget.initial;
   late final _name = TextEditingController(text: widget.initial.name);
-  _Item? _selected;
+  _Part _part = _Part.header;
 
   @override
   void dispose() {
@@ -313,11 +332,14 @@ class _ThemeEditorScreenState extends State<ThemeEditorScreen> {
           _Zone.hidden,
         ];
 
-  /// Moves [item] into [zone], before [before] when it is an item there.
+  bool _accepts(_Item item, _Zone zone) => _zonesFor(item).contains(zone);
+
+  /// Moves [item] into [zone], before [before] when it is an item there,
+  /// and selects it.
   void _move(_Item item, _Zone zone, {_Item? before}) {
-    if (!_zonesFor(item).contains(zone)) return;
+    if (!_accepts(item, zone)) return;
     setState(() {
-      _selected = null;
+      _part = item.part;
       if (item == _Item.send) {
         _spec = _spec.copyWith(
           send: switch (zone) {
@@ -360,37 +382,75 @@ class _ThemeEditorScreenState extends State<ThemeEditorScreen> {
           );
   });
 
-  Future<void> _tapItem(_Item item) async {
-    if (_selected != item) {
-      setState(() => _selected = item);
-    }
-    final l = context.l10n;
-    final current = _zoneOf(item);
-    final zone = await showChoiceDialog<_Zone>(
-      context,
-      title: l.themeMoveTo(item.label(l)),
-      value: current,
-      options: [
-        for (final z in _zonesFor(item)) (z, z.label(l, _spec.header), ''),
-      ],
+  void _edit(ChromeThemeSpec Function(ChromeThemeSpec) change) =>
+      setState(() => _spec = change(_spec));
+
+  /// The selected part's properties, one dropdown each.
+  List<Widget> _properties(AppLocalizations l) {
+    final spec = _spec;
+    final item = _part.item;
+    final settingsOption = _dropdown<bool>(
+      l.themeOptionSettings,
+      spec.settingsInMenu,
+      [(false, l.themeSettingsButton), (true, l.themeSettingsInMenu)],
+      (v) => _edit((s) => s.copyWith(settingsInMenu: v)),
     );
-    if (!mounted) return;
-    if (zone == null || zone == current) {
-      setState(() => _selected = null);
-      return;
-    }
-    _move(item, zone);
+    return [
+      if (_part == _Part.header) ...[
+        _dropdown<HeaderStyle>(l.themePropStyle, spec.header, [
+          (HeaderStyle.strip, l.themeHeaderStrip),
+          (HeaderStyle.appBar, l.themeHeaderAppBar),
+          (HeaderStyle.bubbles, l.themeHeaderPills),
+        ], _setHeader),
+        if (spec.header == HeaderStyle.appBar)
+          _dropdown<bool>(l.themeOptionAppName, spec.appBarTitle, [
+            (true, l.themeAppNameShown),
+            (false, l.themeAppNameHidden),
+          ], (v) => _edit((s) => s.copyWith(appBarTitle: v))),
+      ],
+      if (_part == _Part.composer)
+        _dropdown<bool>(l.themePropStyle, spec.islandFlush, [
+          (false, l.themeComposerIsland),
+          (true, l.themeComposerFlush),
+        ], (v) => _edit((s) => s.copyWith(islandFlush: v))),
+      if (item != null)
+        _dropdown<_Zone>(l.themePropPlace, _zoneOf(item), [
+          for (final z in _zonesFor(item)) (z, z.label(l, spec.header)),
+        ], (z) => _move(item, z)),
+      if (_part == _Part.join)
+        _dropdown<bool>(l.themeOptionLoading, spec.busyBar, [
+          (false, l.themeLoadingSpinner),
+          (true, l.themeLoadingBar),
+        ], (v) => _edit((s) => s.copyWith(busyBar: v))),
+      if (_part == _Part.settings || _part == _Part.overflow) settingsOption,
+    ];
   }
 
-  Future<T?> _pick<T>(
-    String title,
+  Widget _dropdown<T>(
+    String label,
     T value,
-    List<(T, String, String)> options,
-  ) => showChoiceDialog<T>(
-    context,
-    title: title,
-    value: value,
-    options: options,
+    List<(T, String)> options,
+    ValueChanged<T> onChanged,
+  ) => DropdownButtonFormField<T>(
+    // Keyed by value, so a change made in the preview shows here.
+    key: ValueKey((_part, label, value)),
+    initialValue: value,
+    isExpanded: true,
+    decoration: InputDecoration(
+      labelText: label,
+      isDense: true,
+      border: const OutlineInputBorder(),
+    ),
+    items: [
+      for (final (v, text) in options)
+        DropdownMenuItem(
+          value: v,
+          child: Text(text, overflow: TextOverflow.ellipsis),
+        ),
+    ],
+    onChanged: (v) {
+      if (v != null) onChanged(v);
+    },
   );
 
   Future<void> _confirmLeave() async {
@@ -408,79 +468,13 @@ class _ThemeEditorScreenState extends State<ThemeEditorScreen> {
   @override
   Widget build(BuildContext context) {
     final l = context.l10n;
-    final spec = _spec;
-    final valid = spec.reachesSettings;
-    final options = <(String, String, VoidCallback)>[
-      (
-        l.themeOptionHeader,
-        switch (spec.header) {
-          HeaderStyle.strip => l.themeHeaderStrip,
-          HeaderStyle.appBar => l.themeHeaderAppBar,
-          HeaderStyle.bubbles => l.themeHeaderPills,
-        },
-        () async {
-          final h = await _pick(l.themeOptionHeader, spec.header, [
-            (HeaderStyle.strip, l.themeHeaderStrip, l.themeHeaderStripHint),
-            (HeaderStyle.appBar, l.themeHeaderAppBar, l.themeHeaderAppBarHint),
-            (HeaderStyle.bubbles, l.themeHeaderPills, l.themeHeaderPillsHint),
-          ]);
-          if (h != null) _setHeader(h);
-        },
-      ),
-      if (spec.header == HeaderStyle.appBar)
-        (
-          l.themeOptionAppName,
-          spec.appBarTitle ? l.themeAppNameShown : l.themeAppNameHidden,
-          () async {
-            final v = await _pick(l.themeOptionAppName, spec.appBarTitle, [
-              (true, l.themeAppNameShown, l.themeAppNameShownHint),
-              (false, l.themeAppNameHidden, l.themeAppNameHiddenHint),
-            ]);
-            if (v != null) {
-              setState(() => _spec = _spec.copyWith(appBarTitle: v));
-            }
-          },
-        ),
-      (
-        l.themeOptionComposer,
-        spec.islandFlush ? l.themeComposerFlush : l.themeComposerIsland,
-        () async {
-          final v = await _pick(l.themeOptionComposer, spec.islandFlush, [
-            (false, l.themeComposerIsland, l.themeComposerIslandHint),
-            (true, l.themeComposerFlush, l.themeComposerFlushHint),
-          ]);
-          if (v != null) setState(() => _spec = _spec.copyWith(islandFlush: v));
-        },
-      ),
-      (
-        l.themeOptionSettings,
-        spec.settingsInMenu ? l.themeSettingsInMenu : l.themeSettingsButton,
-        () async {
-          final v = await _pick(l.themeOptionSettings, spec.settingsInMenu, [
-            (false, l.themeSettingsButton, l.themeSettingsButtonHint),
-            (true, l.themeSettingsInMenu, l.themeSettingsInMenuHint),
-          ]);
-          if (v != null) {
-            setState(() => _spec = _spec.copyWith(settingsInMenu: v));
-          }
-        },
-      ),
-      (
-        l.themeOptionLoading,
-        spec.busyBar ? l.themeLoadingBar : l.themeLoadingSpinner,
-        () async {
-          final v = await _pick(l.themeOptionLoading, spec.busyBar, [
-            (false, l.themeLoadingSpinner, l.themeLoadingSpinnerHint),
-            (true, l.themeLoadingBar, l.themeLoadingBarHint),
-          ]);
-          if (v != null) setState(() => _spec = _spec.copyWith(busyBar: v));
-        },
-      ),
-    ];
+    final theme = Theme.of(context);
+    final valid = _spec.reachesSettings;
     final hidden = [
       for (final a in ChromeAction.values)
         if (_zoneOf(_Item.of(a)) == _Zone.hidden) _Item.of(a),
     ];
+    final properties = _properties(l);
     return PopScope(
       canPop: !_dirty,
       onPopInvokedWithResult: (didPop, _) {
@@ -488,101 +482,128 @@ class _ThemeEditorScreenState extends State<ThemeEditorScreen> {
       },
       child: Scaffold(
         appBar: AppBar(
-          title: Text(l.themeBuilderEdit),
+          titleSpacing: 0,
+          // The name edits in place; a tap anywhere else lets it go.
+          title: TextField(
+            controller: _name,
+            style: theme.textTheme.titleLarge,
+            textInputAction: TextInputAction.done,
+            inputFormatters: [
+              LengthLimitingTextInputFormatter(ChromeThemeSpec.maxNameLength),
+            ],
+            decoration: InputDecoration(
+              hintText: l.themeBuilderNameHint,
+              border: InputBorder.none,
+            ),
+            onTapOutside: (_) => FocusManager.instance.primaryFocus?.unfocus(),
+            onChanged: (_) => setState(() {}),
+          ),
           actions: [
-            TextButton(
-              onPressed: valid
-                  ? () => Navigator.of(context).pop(_result)
-                  : null,
-              child: Text(l.save),
+            Padding(
+              padding: const EdgeInsets.only(right: 12),
+              child: FilledButton(
+                onPressed: valid
+                    ? () => Navigator.of(context).pop(_result)
+                    : null,
+                child: Text(l.save),
+              ),
             ),
           ],
         ),
-        body: ListView(
-          padding: const EdgeInsets.only(bottom: 24),
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-              child: TextField(
-                controller: _name,
-                maxLength: ChromeThemeSpec.maxNameLength,
-                decoration: InputDecoration(labelText: l.themeBuilderName),
-                onChanged: (_) => setState(() {}),
-              ),
-            ),
-            SizedBox(
-              height: 56,
-              child: ListView(
-                scrollDirection: Axis.horizontal,
-                padding: const EdgeInsets.symmetric(horizontal: 12),
-                children: [
-                  for (final (title, value, onTap) in options)
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 4),
-                      child: ActionChip(
-                        label: Text('$title: $value'),
-                        onPressed: onTap,
-                      ),
-                    ),
-                ],
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: Text(
-                valid ? l.themeBuilderHint : l.themeBuilderNoSettings,
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: valid
-                      ? Theme.of(context).colorScheme.onSurfaceVariant
-                      : Theme.of(context).colorScheme.error,
-                ),
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.all(16),
-              child: _ThemePreview(
-                spec: spec,
-                selected: _selected,
-                onTap: _tapItem,
-                onDrop: _move,
-                accepts: (item, zone) => _zonesFor(item).contains(zone),
-              ),
-            ),
-            _ZoneTarget(
-              zone: _Zone.hidden,
-              accepts: (item, zone) => _zonesFor(item).contains(zone),
-              onDrop: _move,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+        body: SafeArea(
+          top: false,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                child: Row(
                   children: [
-                    Text(
-                      l.themeRegionHidden,
-                      style: Theme.of(context).textTheme.titleSmall,
+                    Expanded(
+                      child: _dropdown<_Part>(l.themeBuilderElement, _part, [
+                        for (final p in _Part.values) (p, p.label(l)),
+                      ], (p) => setState(() => _part = p)),
                     ),
-                    const SizedBox(height: 8),
-                    SizedBox(
-                      height: 48,
-                      child: Row(
-                        children: [
-                          for (final item in hidden)
-                            _PreviewItem(
-                              item: item,
-                              zone: _Zone.hidden,
-                              selected: _selected == item,
-                              onTap: _tapItem,
-                              onDrop: _move,
-                              accepts: (i, z) => _zonesFor(i).contains(z),
-                            ),
-                        ],
-                      ),
-                    ),
+                    for (final p in properties.take(1)) ...[
+                      const SizedBox(width: 12),
+                      Expanded(child: p),
+                    ],
                   ],
                 ),
               ),
-            ),
-          ],
+              // A second property (app name, loading, settings) gets its
+              // own row under the first pair.
+              for (final p in properties.skip(1))
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+                  child: Row(
+                    children: [
+                      const Spacer(),
+                      const SizedBox(width: 12),
+                      Expanded(child: p),
+                    ],
+                  ),
+                ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                child: Text(
+                  valid ? l.themeBuilderHint : l.themeBuilderNoSettings,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: valid
+                        ? theme.colorScheme.onSurfaceVariant
+                        : theme.colorScheme.error,
+                  ),
+                ),
+              ),
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: _ThemePreview(
+                    spec: _spec,
+                    selected: _part,
+                    onSelect: (p) => setState(() => _part = p),
+                    onDrop: _move,
+                    accepts: _accepts,
+                  ),
+                ),
+              ),
+              _ZoneTarget(
+                zone: _Zone.hidden,
+                accepts: _accepts,
+                onDrop: _move,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                  child: Row(
+                    children: [
+                      Text(
+                        l.themeRegionHidden,
+                        style: theme.textTheme.titleSmall,
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: SizedBox(
+                          height: 48,
+                          child: Row(
+                            children: [
+                              for (final item in hidden)
+                                _PreviewItem(
+                                  item: item,
+                                  zone: _Zone.hidden,
+                                  selected: _part == item.part,
+                                  onSelect: (p) => setState(() => _part = p),
+                                  onDrop: _move,
+                                  accepts: _accepts,
+                                ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -623,14 +644,14 @@ class _ZoneTarget extends StatelessWidget {
   );
 }
 
-/// One button in the preview: tap to move it, drag it anywhere it fits.
+/// One button in the preview: tap to select it, drag it anywhere it fits.
 /// Dropping another item on it puts that one just before it.
 class _PreviewItem extends StatelessWidget {
   const _PreviewItem({
     required this.item,
     required this.zone,
     required this.selected,
-    required this.onTap,
+    required this.onSelect,
     required this.onDrop,
     required this.accepts,
   });
@@ -638,7 +659,7 @@ class _PreviewItem extends StatelessWidget {
   final _Item item;
   final _Zone zone;
   final bool selected;
-  final void Function(_Item item) onTap;
+  final ValueChanged<_Part> onSelect;
   final _OnDrop onDrop;
   final _Accepts accepts;
 
@@ -646,8 +667,8 @@ class _PreviewItem extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     Widget icon({bool lifted = false}) => Container(
-      width: 36,
-      height: 36,
+      width: 40,
+      height: 40,
       decoration: BoxDecoration(
         shape: BoxShape.circle,
         color: selected || lifted
@@ -682,13 +703,9 @@ class _PreviewItem extends StatelessWidget {
             child: icon(lifted: true),
           ),
           childWhenDragging: Opacity(opacity: 0.3, child: icon()),
-          child: Tooltip(
-            message: item.label(context.l10n),
-            child: InkWell(
-              customBorder: const CircleBorder(),
-              onTap: () => onTap(item),
-              child: icon(),
-            ),
+          child: GestureDetector(
+            onTap: () => onSelect(item.part),
+            child: icon(),
           ),
         ),
       ),
@@ -696,30 +713,30 @@ class _PreviewItem extends StatelessWidget {
   }
 }
 
-/// The theme drawn as a small phone screen: header, a few chat lines and the
-/// composer, with every placed button live for tapping and dragging.
+/// The theme drawn as a phone screen: header, chat and the composer. Every
+/// part selects on tap, and placed buttons drag.
 class _ThemePreview extends StatelessWidget {
   const _ThemePreview({
     required this.spec,
     required this.selected,
-    required this.onTap,
+    required this.onSelect,
     required this.onDrop,
     required this.accepts,
   });
 
   final ChromeThemeSpec spec;
-  final _Item? selected;
-  final void Function(_Item item) onTap;
+  final _Part selected;
+  final ValueChanged<_Part> onSelect;
   final _OnDrop onDrop;
   final _Accepts accepts;
 
-  Widget _items(_Zone zone, List<_Item> items, {double minWidth = 36}) =>
+  Widget _items(_Zone zone, List<_Item> items, {double minWidth = 24}) =>
       _ZoneTarget(
         zone: zone,
         accepts: accepts,
         onDrop: onDrop,
         child: ConstrainedBox(
-          constraints: BoxConstraints(minWidth: minWidth, minHeight: 36),
+          constraints: BoxConstraints(minWidth: minWidth, minHeight: 40),
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -727,8 +744,8 @@ class _ThemePreview extends StatelessWidget {
                 _PreviewItem(
                   item: item,
                   zone: zone,
-                  selected: selected == item,
-                  onTap: onTap,
+                  selected: selected == item.part,
+                  onSelect: onSelect,
                   onDrop: onDrop,
                   accepts: accepts,
                 ),
@@ -740,6 +757,27 @@ class _ThemePreview extends StatelessWidget {
   List<_Item> _of(List<ChromeAction> actions) => [
     for (final a in actions) _Item.of(a),
   ];
+
+  /// A tappable region that outlines while its part is selected.
+  Widget _part(
+    BuildContext context,
+    _Part part,
+    Widget child, {
+    BorderRadius radius = BorderRadius.zero,
+  }) => GestureDetector(
+    behavior: HitTestBehavior.opaque,
+    onTap: () => onSelect(part),
+    child: DecoratedBox(
+      position: DecorationPosition.foreground,
+      decoration: BoxDecoration(
+        borderRadius: radius,
+        border: selected == part
+            ? Border.all(color: Theme.of(context).colorScheme.primary, width: 2)
+            : null,
+      ),
+      child: child,
+    ),
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -754,7 +792,7 @@ class _ThemePreview extends StatelessWidget {
         children: [
           for (final (i, name) in const ['#forsen', '#vedal987'].indexed)
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 8),
+              padding: const EdgeInsets.symmetric(horizontal: 10),
               child: Text(
                 name,
                 style: theme.textTheme.labelLarge?.copyWith(
@@ -783,16 +821,19 @@ class _ThemePreview extends StatelessWidget {
       ),
       HeaderStyle.appBar => Column(
         children: [
-          Row(
-            children: [
-              if (spec.appBarTitle)
-                Padding(
-                  padding: const EdgeInsets.only(left: 8),
-                  child: Text(l.appTitle, style: theme.textTheme.titleMedium),
-                ),
-              const Spacer(),
-              _items(_Zone.appBar, _of(spec.appBarActions)),
-            ],
+          SizedBox(
+            height: 48,
+            child: Row(
+              children: [
+                if (spec.appBarTitle)
+                  Padding(
+                    padding: const EdgeInsets.only(left: 12),
+                    child: Text(l.appTitle, style: theme.textTheme.titleMedium),
+                  ),
+                const Spacer(),
+                _items(_Zone.appBar, _of(spec.appBarActions)),
+              ],
+            ),
           ),
           Row(
             children: [
@@ -810,25 +851,61 @@ class _ThemePreview extends StatelessWidget {
         ],
       ),
     };
-    Widget line(double widthFactor) => Padding(
-      padding: const EdgeInsets.symmetric(vertical: 5),
-      child: FractionallySizedBox(
-        alignment: Alignment.centerLeft,
-        widthFactor: widthFactor,
-        child: Container(
-          height: 8,
-          decoration: BoxDecoration(
-            color: scheme.onSurface.withValues(alpha: 0.12),
-            borderRadius: BorderRadius.circular(4),
+    // Chat reads from the left, newest at the bottom, as in a channel.
+    Widget line(double width, Color name) => Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Row(
+        children: [
+          Container(
+            width: 36,
+            height: 10,
+            decoration: BoxDecoration(
+              color: name.withValues(alpha: 0.7),
+              borderRadius: BorderRadius.circular(5),
+            ),
           ),
+          const SizedBox(width: 8),
+          Flexible(
+            child: FractionallySizedBox(
+              widthFactor: width,
+              child: Container(
+                height: 10,
+                decoration: BoxDecoration(
+                  color: scheme.onSurface.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(5),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+    final chat = Align(
+      alignment: Alignment.bottomLeft,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            line(0.7, Colors.redAccent),
+            line(0.45, Colors.lightBlueAccent),
+            line(0.9, Colors.greenAccent),
+            line(0.35, Colors.amberAccent),
+            line(0.6, Colors.purpleAccent),
+            line(0.8, Colors.lightBlueAccent),
+          ],
         ),
       ),
     );
-    final emote = Padding(
-      padding: const EdgeInsets.all(6),
-      child: Icon(
-        Icons.emoji_emotions_outlined,
-        color: scheme.onSurfaceVariant,
+    // The emote button follows send, so tapping it edits send.
+    final emote = GestureDetector(
+      onTap: () => onSelect(_Part.send),
+      child: Padding(
+        padding: const EdgeInsets.all(8),
+        child: Icon(
+          Icons.emoji_emotions_outlined,
+          color: scheme.onSurfaceVariant,
+        ),
       ),
     );
     final send = [_Item.send];
@@ -840,60 +917,75 @@ class _ThemePreview extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
             child: Text(
               l.typeMessageHint,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
               style: theme.textTheme.bodyMedium?.copyWith(
                 color: scheme.onSurfaceVariant,
               ),
             ),
           ),
         ),
-        _items(
-          _Zone.field,
-          spec.send == SendPlace.field ? send : const [],
-          minWidth: 24,
-        ),
+        _items(_Zone.field, spec.send == SendPlace.field ? send : const []),
       ],
     );
     final row = Row(
       children: [
         if (spec.send != SendPlace.field) emote,
-        _items(_Zone.rowStart, _of(spec.rowStart), minWidth: 24),
+        _items(_Zone.rowStart, _of(spec.rowStart)),
         const Spacer(),
-        _items(_Zone.rowEnd, minWidth: 24, [
+        _items(_Zone.rowEnd, [
           ..._of(spec.rowEnd),
           if (spec.send == SendPlace.row) _Item.send,
         ]),
       ],
     );
     const corner = Radius.circular(20);
-    final island = Container(
-      margin: spec.islandFlush ? EdgeInsets.zero : const EdgeInsets.all(8),
-      decoration: BoxDecoration(
-        color: scheme.surfaceContainer,
-        borderRadius: spec.islandFlush
-            ? const BorderRadius.vertical(top: corner)
-            : const BorderRadius.all(corner),
-      ),
-      child: IntrinsicHeight(
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Expanded(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                // The row stays a drop zone while the theme has none, dimmed,
-                // so a button can always be dragged in.
-                children: [
-                  field,
-                  Opacity(opacity: spec.hasRow ? 1 : 0.4, child: row),
-                ],
-              ),
+    final radius = spec.islandFlush
+        ? const BorderRadius.vertical(top: corner)
+        : const BorderRadius.all(corner);
+    final island = Padding(
+      padding: spec.islandFlush ? EdgeInsets.zero : const EdgeInsets.all(8),
+      child: _part(
+        context,
+        _Part.composer,
+        radius: radius,
+        Container(
+          decoration: BoxDecoration(
+            color: scheme.surfaceContainer,
+            borderRadius: radius,
+          ),
+          child: IntrinsicHeight(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Expanded(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      field,
+                      // With no row in the theme, an outlined strip stays
+                      // as a place to drop the first button.
+                      if (spec.hasRow)
+                        row
+                      else
+                        Container(
+                          margin: const EdgeInsets.fromLTRB(8, 0, 8, 8),
+                          decoration: BoxDecoration(
+                            border: Border.all(color: scheme.outlineVariant),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: row,
+                        ),
+                    ],
+                  ),
+                ),
+                _items(
+                  _Zone.column,
+                  spec.send == SendPlace.column ? send : const [],
+                ),
+              ],
             ),
-            _items(
-              _Zone.column,
-              spec.send == SendPlace.column ? send : const [],
-              minWidth: 24,
-            ),
-          ],
+          ),
         ),
       ),
     );
@@ -906,25 +998,18 @@ class _ThemePreview extends StatelessWidget {
       ),
       child: Column(
         children: [
-          Container(
-            color: spec.header == HeaderStyle.bubbles
-                ? null
-                : scheme.surfaceContainerLow,
-            padding: const EdgeInsets.fromLTRB(4, 8, 4, 4),
-            child: header,
-          ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            child: Column(
-              children: [
-                line(0.7),
-                line(0.5),
-                line(0.85),
-                line(0.4),
-                line(0.6),
-              ],
+          _part(
+            context,
+            _Part.header,
+            Container(
+              color: spec.header == HeaderStyle.bubbles
+                  ? null
+                  : scheme.surfaceContainerLow,
+              padding: const EdgeInsets.fromLTRB(4, 4, 4, 4),
+              child: header,
             ),
           ),
+          Expanded(child: chat),
           island,
         ],
       ),
