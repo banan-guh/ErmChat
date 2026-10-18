@@ -370,19 +370,25 @@ class HomeAppBar {
           bottom: false,
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 4),
-            child: Row(
-              children: [
-                if (spec.appBarTitle)
-                  Padding(
-                    padding: const EdgeInsets.only(left: 12),
-                    child: Text(
-                      context.l10n.appTitle,
-                      style: theme.textTheme.titleLarge,
+            child: LayoutBuilder(
+              builder: (context, constraints) => Row(
+                children: [
+                  if (appTitleFits(
+                    context,
+                    constraints.maxWidth,
+                    actions.length,
+                  ))
+                    Padding(
+                      padding: const EdgeInsets.only(left: _titleInset),
+                      child: Text(
+                        context.l10n.appTitle,
+                        style: theme.textTheme.titleLarge,
+                      ),
                     ),
-                  ),
-                const Spacer(),
-                for (final a in actions) action(context, a),
-              ],
+                  const Spacer(),
+                  for (final a in actions) action(context, a),
+                ],
+              ),
             ),
           ),
         ),
@@ -394,4 +400,23 @@ class HomeAppBar {
       child: content,
     );
   }
+}
+
+const double _titleInset = 12;
+
+/// Whether the app's name fits an app bar [width] wide beside [buttons]
+/// 48pt buttons. A crowded bar drops the name rather than squeezing it.
+bool appTitleFits(BuildContext context, double width, int buttons) {
+  final title = TextPainter(
+    text: TextSpan(
+      text: context.l10n.appTitle,
+      style: Theme.of(context).textTheme.titleLarge,
+    ),
+    textScaler: MediaQuery.textScalerOf(context),
+    textDirection: TextDirection.ltr,
+    maxLines: 1,
+  )..layout();
+  final needed = _titleInset + title.width + 16 + buttons * 48;
+  title.dispose();
+  return needed <= width;
 }

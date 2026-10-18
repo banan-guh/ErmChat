@@ -76,10 +76,8 @@ class ChromeThemeSpec {
     this.rowStart = const [],
     this.rowEnd = const [],
     this.appBarActions = const [],
-    this.appBarTitle = false,
     this.send = SendPlace.field,
     this.islandFlush = false,
-    this.settingsInMenu = false,
     this.busyBar = false,
   });
 
@@ -101,16 +99,10 @@ class ChromeThemeSpec {
   /// The island's button row, right of its free gap, before send.
   final List<ChromeAction> rowEnd;
 
-  /// The app bar shows the app's name.
-  final bool appBarTitle;
-
   final SendPlace send;
 
   /// The island runs edge to edge under the nav bar, rounded only on top.
   final bool islandFlush;
-
-  /// Settings heads the ⋮ menu instead of being a button.
-  final bool settingsInMenu;
 
   /// Loading shows as a bar along the top of the button row instead of a
   /// spinner in the join button.
@@ -132,10 +124,12 @@ class ChromeThemeSpec {
       (header == HeaderStyle.appBar && appBarActions.contains(action)) ||
       rowActions.contains(action);
 
+  /// Settings heads the ⋮ menu whenever it isn't placed as a button.
+  bool get settingsInMenu => !places(ChromeAction.settings);
+
   /// Settings stays reachable: a button, or the ⋮ menu it heads.
   bool get reachesSettings =>
-      places(ChromeAction.settings) ||
-      (settingsInMenu && places(ChromeAction.overflow));
+      places(ChromeAction.settings) || places(ChromeAction.overflow);
 
   ChromeThemeSpec copyWith({
     String? name,
@@ -144,10 +138,8 @@ class ChromeThemeSpec {
     List<ChromeAction>? appBarActions,
     List<ChromeAction>? rowStart,
     List<ChromeAction>? rowEnd,
-    bool? appBarTitle,
     SendPlace? send,
     bool? islandFlush,
-    bool? settingsInMenu,
     bool? busyBar,
   }) => ChromeThemeSpec(
     name: name ?? this.name,
@@ -156,10 +148,8 @@ class ChromeThemeSpec {
     appBarActions: appBarActions ?? this.appBarActions,
     rowStart: rowStart ?? this.rowStart,
     rowEnd: rowEnd ?? this.rowEnd,
-    appBarTitle: appBarTitle ?? this.appBarTitle,
     send: send ?? this.send,
     islandFlush: islandFlush ?? this.islandFlush,
-    settingsInMenu: settingsInMenu ?? this.settingsInMenu,
     busyBar: busyBar ?? this.busyBar,
   );
 
@@ -172,12 +162,7 @@ class ChromeThemeSpec {
   /// once, so a theme stays well under a hundred characters plus its name.
   String encode() {
     String codes(List<ChromeAction> a) => a.map((x) => x.code).join();
-    final flags = [
-      if (appBarTitle) 'T',
-      if (islandFlush) 'F',
-      if (settingsInMenu) 'M',
-      if (busyBar) 'B',
-    ].join();
+    final flags = [if (islandFlush) 'F', if (busyBar) 'B'].join();
     return [
       _prefix,
       if (name.isNotEmpty) 'n=${Uri.encodeComponent(name)}',
@@ -233,9 +218,7 @@ class ChromeThemeSpec {
       send:
           SendPlace.values.where((s) => s.code == fields['s']).firstOrNull ??
           SendPlace.field,
-      appBarTitle: flags.contains('T'),
       islandFlush: flags.contains('F'),
-      settingsInMenu: flags.contains('M'),
       busyBar: flags.contains('B'),
     );
   }
@@ -256,10 +239,8 @@ class ChromeThemeSpec {
       listEquals(other.appBarActions, appBarActions) &&
       listEquals(other.rowStart, rowStart) &&
       listEquals(other.rowEnd, rowEnd) &&
-      other.appBarTitle == appBarTitle &&
       other.send == send &&
       other.islandFlush == islandFlush &&
-      other.settingsInMenu == settingsInMenu &&
       other.busyBar == busyBar;
 
   @override
@@ -270,10 +251,8 @@ class ChromeThemeSpec {
     Object.hashAll(appBarActions),
     Object.hashAll(rowStart),
     Object.hashAll(rowEnd),
-    appBarTitle,
     send,
     islandFlush,
-    settingsInMenu,
     busyBar,
   );
 }
@@ -297,14 +276,12 @@ enum ChromeTheme {
   dankchat3(
     ChromeThemeSpec(
       header: HeaderStyle.appBar,
-      appBarTitle: true,
       appBarActions: [
         ChromeAction.join,
         ChromeAction.mentions,
         ChromeAction.overflow,
       ],
       stripActions: [ChromeAction.viewMenu],
-      settingsInMenu: true,
     ),
   ),
 
@@ -320,7 +297,6 @@ enum ChromeTheme {
       rowEnd: [ChromeAction.threads, ChromeAction.viewMenu],
       send: SendPlace.row,
       islandFlush: true,
-      settingsInMenu: true,
       busyBar: true,
     ),
   );

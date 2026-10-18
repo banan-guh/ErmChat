@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../l10n/l10n.dart';
+import '../../chrome/home_app_bar.dart' show appTitleFits;
 import '../../util/chrome_theme.dart';
 import '../../util/prefs.dart';
 import '../../util/prefs_store.dart';
@@ -389,25 +390,13 @@ class _ThemeEditorScreenState extends State<ThemeEditorScreen> {
   List<Widget> _properties(AppLocalizations l) {
     final spec = _spec;
     final item = _part.item;
-    final settingsOption = _dropdown<bool>(
-      l.themeOptionSettings,
-      spec.settingsInMenu,
-      [(false, l.themeSettingsButton), (true, l.themeSettingsInMenu)],
-      (v) => _edit((s) => s.copyWith(settingsInMenu: v)),
-    );
     return [
-      if (_part == _Part.header) ...[
+      if (_part == _Part.header)
         _dropdown<HeaderStyle>(l.themePropStyle, spec.header, [
           (HeaderStyle.strip, l.themeHeaderStrip),
           (HeaderStyle.appBar, l.themeHeaderAppBar),
           (HeaderStyle.bubbles, l.themeHeaderPills),
         ], _setHeader),
-        if (spec.header == HeaderStyle.appBar)
-          _dropdown<bool>(l.themeOptionAppName, spec.appBarTitle, [
-            (true, l.themeAppNameShown),
-            (false, l.themeAppNameHidden),
-          ], (v) => _edit((s) => s.copyWith(appBarTitle: v))),
-      ],
       if (_part == _Part.composer)
         _dropdown<bool>(l.themePropStyle, spec.islandFlush, [
           (false, l.themeComposerIsland),
@@ -422,7 +411,6 @@ class _ThemeEditorScreenState extends State<ThemeEditorScreen> {
           (false, l.themeLoadingSpinner),
           (true, l.themeLoadingBar),
         ], (v) => _edit((s) => s.copyWith(busyBar: v))),
-      if (_part == _Part.settings || _part == _Part.overflow) settingsOption,
     ];
   }
 
@@ -825,7 +813,13 @@ class _ThemePreview extends StatelessWidget {
             height: 48,
             child: Row(
               children: [
-                if (spec.appBarTitle)
+                // The real bar spans the screen, so the name shows here
+                // exactly when it will there.
+                if (appTitleFits(
+                  context,
+                  MediaQuery.sizeOf(context).width,
+                  spec.appBarActions.length,
+                ))
                   Padding(
                     padding: const EdgeInsets.only(left: 12),
                     child: Text(l.appTitle, style: theme.textTheme.titleMedium),
