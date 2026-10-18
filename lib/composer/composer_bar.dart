@@ -252,6 +252,7 @@ class ComposerModeRow extends StatelessWidget {
     required this.mod,
     required this.dragTick,
     required this.swipePage,
+    this.alignStart = false,
   });
 
   final ComposerController controller;
@@ -263,6 +264,10 @@ class ComposerModeRow extends StatelessWidget {
   /// The channel pager's fractional page while it moves; each channel's
   /// modes slide with its page.
   final ValueListenable<double?> swipePage;
+
+  /// The modes sit at the gap's start, beside the emote button, instead of
+  /// centered: for rows whose actions sit right, where the gap is wide.
+  final bool alignStart;
 
   @override
   Widget build(BuildContext context) => LayoutBuilder(
@@ -295,16 +300,24 @@ class ComposerModeRow extends StatelessWidget {
                 ),
                 (channel) => !modesFitRow(context, controller, channel)
                     ? const SizedBox.shrink()
-                    : Center(
-                        child: Text(
-                          controller.chat
-                              .channelFor(channel)!
-                              .info
-                              .modes
-                              .join(' · '),
-                          style: _statusStyle(context),
-                          maxLines: 1,
-                          softWrap: false,
+                    : Align(
+                        alignment: alignStart
+                            ? AlignmentDirectional.centerStart
+                            : Alignment.center,
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: _modeRowPad,
+                          ),
+                          child: Text(
+                            controller.chat
+                                .channelFor(channel)!
+                                .info
+                                .modes
+                                .join(' · '),
+                            style: _statusStyle(context),
+                            maxLines: 1,
+                            softWrap: false,
+                          ),
                         ),
                       ),
               ),

@@ -1958,6 +1958,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                             mod: _mod,
                             dragTick: _panelDragTick,
                             swipePage: _channels.swipePage,
+                            alignStart: spec.rowActionsRight,
                           )
                         : null,
                     leading: buttonsInRow
