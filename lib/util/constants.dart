@@ -5,6 +5,9 @@ import 'package:flutter/material.dart';
 
 const httpTimeout = Duration(seconds: 10);
 
+/// Twitch's limit on one chat message, in characters.
+const kTwitchMessageMaxChars = 500;
+
 /// The one emote loading look app-wide: neutral gray (unthemed, cached
 /// spans outlive theme switches), shared by chat spans, Giphy previews,
 /// menu, sheet, and panel placeholders.

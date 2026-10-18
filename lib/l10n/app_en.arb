@@ -1354,6 +1354,22 @@
   "openAccount": "Open Account",
   "messageCopied": "Message copied",
   "paste": "Paste",
+  "charsLeft": "{count} left",
+  "@charsLeft": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "charsOver": "{count} over",
+  "@charsOver": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "join": "Join",
   "channelNameHint": "channel name",
   "gallery": "Gallery",

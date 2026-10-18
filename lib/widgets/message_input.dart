@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../models/twitch_message.dart';
+import '../util/constants.dart';
 import '../util/layout_density.dart';
 import '../util/thread_utils.dart';
 import '../l10n/l10n.dart';
@@ -86,8 +87,7 @@ class MessageInput extends StatelessWidget {
           padding: borderless
               ? EdgeInsets.fromLTRB(8, gap, 8, gap)
               : EdgeInsets.fromLTRB(8, 0, 8, gap * 2),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
+          child: Stack(
             children: [
               TextField(
                 key: const Key('message_input'),
@@ -201,12 +201,46 @@ class MessageInput extends StatelessWidget {
                             )),
                 ),
               ),
+              // The floated label owns the top-left corner; the counter
+              // takes the top-right, clear of the send button.
+              if (!searchMode)
+                Positioned(
+                  top: compact ? 2 : 6,
+                  right: 16 + (buttonsInRow ? 0 : iconBox),
+                  child: _CharsLeft(controller: controller),
+                ),
             ],
           ),
         );
       },
     );
   }
+}
+
+/// How many characters are left before Twitch's cap, once the message is
+/// within a fifth of it; past the cap, how many over.
+class _CharsLeft extends StatelessWidget {
+  const _CharsLeft({required this.controller});
+
+  final TextEditingController controller;
+
+  @override
+  Widget build(BuildContext context) => ValueListenableBuilder(
+    valueListenable: controller,
+    builder: (context, value, _) {
+      final left = kTwitchMessageMaxChars - value.text.runes.length;
+      if (left > kTwitchMessageMaxChars ~/ 5) return const SizedBox.shrink();
+      final scheme = Theme.of(context).colorScheme;
+      return Text(
+        left >= 0
+            ? context.l10n.charsLeft(left)
+            : context.l10n.charsOver(-left),
+        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+          color: left >= 0 ? scheme.onSurfaceVariant : scheme.error,
+        ),
+      );
+    },
+  );
 }
 
 /// A [height]-tall slot holding a 48pt button centered on it, spilling
