@@ -694,8 +694,6 @@ class _ChatBodyState extends State<ChatBody>
             heightFactor: _islandH > 0
                 ? (1 - _rowClip / _islandH).clamp(0.0, 1.0)
                 : 1,
-            // The footer spans the island's full width under the side action,
-            // so centered text centers on the whole island.
             child: Column(
               key: _islandKey,
               mainAxisSize: MainAxisSize.min,
@@ -703,19 +701,28 @@ class _ChatBodyState extends State<ChatBody>
                 if (widget.sideAction == null) ...[
                   flowComposer,
                   ?widget.bottomBar,
+                  ?footer,
                 ] else
-                  // The side action runs beside the field and the row. The
-                  // column sets the height and the action fills it, with no
-                  // intrinsic pass (the field's LayoutBuilder cannot answer
-                  // one).
+                  // The side action runs the island's full height, so its
+                  // ink reaches the rim. The column sets the height and the
+                  // action fills it, with no intrinsic pass (the field's
+                  // LayoutBuilder cannot answer one). The footer spans the
+                  // full width under it, so centered text centers on the
+                  // whole island.
                   Stack(
                     children: [
-                      Padding(
-                        padding: const EdgeInsets.only(right: _sideActionW),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [flowComposer, ?widget.bottomBar],
-                        ),
+                      Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Padding(
+                            padding: const EdgeInsets.only(right: _sideActionW),
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [flowComposer, ?widget.bottomBar],
+                            ),
+                          ),
+                          ?footer,
+                        ],
                       ),
                       Positioned(
                         top: 0,
@@ -726,7 +733,6 @@ class _ChatBodyState extends State<ChatBody>
                       ),
                     ],
                   ),
-                ?footer,
               ],
             ),
           ),
