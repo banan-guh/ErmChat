@@ -30,12 +30,17 @@ class ComposerBar extends StatelessWidget {
     required this.mod,
     required this.dragTick,
     this.buttonsInRow = false,
+    this.modeRow = false,
   });
 
   final ComposerController controller;
   final ValueListenable<int> selectedTabIndex;
   final SearchPanels search;
   final ModPanels mod;
+
+  /// The island's button row shows, so room modes may ride it
+  /// ([ComposerModeRow]) instead of the status.
+  final bool modeRow;
 
   /// Panel tab drag crossings. The morph tracks 50% through this alone,
   /// without a full HomeScreen rebuild per crossing (main chat's focus
@@ -113,7 +118,17 @@ class ComposerBar extends StatelessWidget {
                   onTap: controller.onTapClearSuggestions,
                   onEmoteToggle: controller.toggleEmoteMenu,
                   enabled: controller.enabled,
-                  hintText: controller.hintText(withStatus: landscape),
+                  hintText: controller.hintText(
+                    withStatus: landscape,
+                    modesInRow:
+                        modeRow &&
+                        controller.selectedChannel != null &&
+                        modesFitRow(
+                          context,
+                          controller,
+                          controller.selectedChannel!,
+                        ),
+                  ),
                   inputFormatters: [controller.autocompleteRevert],
                   borderless: true,
                   buttonsInRow: buttonsInRow,
@@ -224,6 +239,91 @@ class ComposerRowButton extends StatelessWidget {
   );
 }
 
+/// Room modes in the button row's free middle, when the row has room for
+/// all of them; otherwise they stay on the status line. Measures the gap
+/// for [modesFitRow] either way.
+class ComposerModeRow extends StatelessWidget {
+  const ComposerModeRow({
+    super.key,
+    required this.controller,
+    required this.selectedTabIndex,
+    required this.search,
+    required this.mod,
+    required this.dragTick,
+  });
+
+  final ComposerController controller;
+  final ValueListenable<int> selectedTabIndex;
+  final SearchPanels search;
+  final ModPanels mod;
+  final Listenable dragTick;
+
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, constraints) {
+      final gap = constraints.maxWidth;
+      if (gap != controller.modeGap.value) {
+        // Layout can't notify listeners mid-frame.
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (context.mounted) controller.modeGap.value = gap;
+        });
+      }
+      return ListenableBuilder(
+        listenable: _enabledInputs(controller, mod, dragTick),
+        builder: (context, _) {
+          final searchBorrowed =
+              search.open && search.selectedChannel() != null;
+          if (searchBorrowed || mod.termsChromeHidden) {
+            return const SizedBox.shrink();
+          }
+          return _ChannelListener(
+            controller: controller,
+            selectedTabIndex: selectedTabIndex,
+            builder: (context) {
+              final channel = controller.selectedChannel;
+              if (channel == null ||
+                  !modesFitRow(context, controller, channel)) {
+                return const SizedBox.shrink();
+              }
+              return Center(
+                child: Text(
+                  controller.chat.channelFor(channel)!.info.modes.join(' · '),
+                  style: _statusStyle(context),
+                  maxLines: 1,
+                  softWrap: false,
+                ),
+              );
+            },
+          );
+        },
+      );
+    },
+  );
+}
+
+/// Padding the mode text keeps from the row's buttons on each side.
+const double _modeRowPad = 8;
+
+/// Whether [channel]'s room modes fit the button row's measured gap, so
+/// they ride there instead of the status line.
+bool modesFitRow(
+  BuildContext context,
+  ComposerController controller,
+  String channel,
+) {
+  final modes = controller.chat.channelFor(channel)?.info.modes ?? const [];
+  if (modes.isEmpty) return false;
+  final line = TextPainter(
+    text: TextSpan(text: modes.join(' · '), style: _statusStyle(context)),
+    textScaler: MediaQuery.textScalerOf(context),
+    textDirection: TextDirection.ltr,
+    maxLines: 1,
+  )..layout();
+  final width = line.width;
+  line.dispose();
+  return width + 2 * _modeRowPad <= controller.modeGap.value;
+}
+
 /// Rebuilds [builder] when the selected channel or its info changes. The
 /// channel can change without a parent rebuild (the swipe path skips
 /// setState), so the notifiers bind to whatever channel is current.
@@ -250,6 +350,7 @@ class _ChannelListener extends StatelessWidget {
           info?.version ?? _emptyVersion,
           info?.statusVersion ?? _emptyVersion,
           controller.chat.loadFailedChannels,
+          controller.modeGap,
         ]),
         builder: (context, _) => builder(context),
       );
@@ -268,6 +369,7 @@ class ComposerStatusRow extends StatelessWidget {
     required this.search,
     required this.mod,
     required this.dragTick,
+    this.modeRow = false,
   });
 
   final ComposerController controller;
@@ -275,6 +377,9 @@ class ComposerStatusRow extends StatelessWidget {
   final SearchPanels search;
   final ModPanels mod;
   final Listenable dragTick;
+
+  /// See [ComposerBar.modeRow].
+  final bool modeRow;
 
   @override
   Widget build(BuildContext context) => ListenableBuilder(
@@ -291,6 +396,7 @@ class ComposerStatusRow extends StatelessWidget {
         controller: controller,
         selectedTabIndex: selectedTabIndex,
         showStatus: !landscape,
+        modeRow: modeRow,
       );
     },
   );
@@ -313,11 +419,12 @@ TextStyle _statusStyle(BuildContext context, {Color? color}) {
 double composerStatusHeight(
   BuildContext context,
   ComposerController controller,
-  String channel,
-) {
+  String channel, {
+  bool modeRow = false,
+}) {
   final portrait = MediaQuery.orientationOf(context) != Orientation.landscape;
   final status = portrait
-      ? (controller.chat.channelFor(channel)?.info.status ?? '')
+      ? _footerStatus(context, controller, channel, modeRow: modeRow)
       : '';
   final failed = controller.chat.loadFailedChannels.value.contains(channel);
   if (status.isEmpty && !failed) return 0;
@@ -332,6 +439,21 @@ double composerStatusHeight(
   return (status.isEmpty ? 0 : h) + (failed ? h : 0) + _statusFoot;
 }
 
+/// The status line's text: the stream part alone when the room modes ride
+/// the button row, so a live channel in subs-only shows each on its own row.
+String _footerStatus(
+  BuildContext context,
+  ComposerController controller,
+  String channel, {
+  required bool modeRow,
+}) {
+  final info = controller.chat.channelFor(channel)?.info;
+  if (info == null) return '';
+  return modeRow && modesFitRow(context, controller, channel)
+      ? info.stream
+      : info.status;
+}
+
 /// Extra room under the status lines, so the last one clears the island's
 /// rounded edge.
 const double _statusFoot = 4;
@@ -343,11 +465,13 @@ class _StatusRow extends StatelessWidget {
     required this.controller,
     required this.selectedTabIndex,
     required this.showStatus,
+    required this.modeRow,
   });
 
   final ComposerController controller;
   final ValueListenable<int> selectedTabIndex;
   final bool showStatus;
+  final bool modeRow;
 
   @override
   Widget build(BuildContext context) => _ChannelListener(
@@ -357,7 +481,7 @@ class _StatusRow extends StatelessWidget {
       final channel = controller.selectedChannel;
       final status = !showStatus || channel == null
           ? ''
-          : (controller.chat.channelFor(channel)?.info.status ?? '');
+          : _footerStatus(context, controller, channel, modeRow: modeRow);
       final hasLoadFailure =
           channel != null &&
           controller.chat.loadFailedChannels.value.contains(channel);

@@ -3010,14 +3010,14 @@ void main() {
       );
       expect(
         conn.chat.channelFor('test')?.info.status ?? '',
-        'Slow (10s) · Followers-only (30m) · Emote-only · Unique chat',
+        'Slow (10s) · Follow (30m) · Emotes · Unique',
       );
 
       // Partial update: only slow mode changed.
       ircRead.handleLine('@room-id=1;slow=0 :tmi.twitch.tv ROOMSTATE #test');
       expect(
         conn.chat.channelFor('test')?.info.status ?? '',
-        'Followers-only (30m) · Emote-only · Unique chat',
+        'Follow (30m) · Emotes · Unique',
       );
 
       conn.dispose();

@@ -273,11 +273,13 @@ class HomeAppBar {
   /// The island's button row: [leading] (the composer's emote button), the
   /// theme's row actions, then [trailing] (send) on the right. The island
   /// draws the surface, so the row is bare. [withMenu] adds the view menu,
-  /// for when the strip that holds it is hidden.
+  /// for when the strip that holds it is hidden. [middle] fills the free
+  /// space between the buttons.
   Widget bottomBar(
     BuildContext context, {
     bool glass = false,
     Widget? leading,
+    Widget? middle,
     List<Widget> trailing = const [],
     bool withMenu = false,
     VoidCallback? onCalendar,
@@ -287,12 +289,13 @@ class HomeAppBar {
       for (final a in spec.rowActions) action(context, a, glass: glass),
       if (withMenu) chromeMenu(glass: glass, onCalendar: onCalendar),
     ];
+    final gap = Expanded(child: middle ?? const SizedBox.shrink());
     final row = Row(
       children: [
         ?leading,
-        if (spec.rowActionsRight) const Spacer(),
+        if (spec.rowActionsRight) gap,
         ...actions,
-        if (!spec.rowActionsRight) const Spacer(),
+        if (!spec.rowActionsRight) gap,
         ...trailing,
       ],
     );

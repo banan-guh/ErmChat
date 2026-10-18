@@ -10,12 +10,20 @@ class ChannelInfo {
   final ValueNotifier<int> version = ValueNotifier(0);
   final ValueNotifier<int> statusVersion = ValueNotifier(0);
 
-  String _status = '';
+  String _stream = '';
+  List<String> _modes = const [];
   bool _isLive = false;
   String? _broadcasterId;
   bool _historyLoaded = false;
 
-  String get status => _status;
+  /// The full status line: room [modes] then the [stream] part.
+  String get status => [..._modes, if (_stream.isNotEmpty) _stream].join(' · ');
+
+  /// Short room mode labels ("Slow (30s)", "Subs").
+  List<String> get modes => _modes;
+
+  /// The stream part ("Live with … viewers"), empty when offline.
+  String get stream => _stream;
 
   /// Whether the stream is live, set alongside the display [status].
   bool get isLive => _isLive;
@@ -28,9 +36,16 @@ class ChannelInfo {
 
   Set<String> failures() => Set.of(_loadFailures);
 
-  void setStatus(String next, {bool live = false}) {
-    if (_status == next && _isLive == live) return;
-    _status = next;
+  void setStatus(
+    String stream, {
+    bool live = false,
+    List<String> modes = const [],
+  }) {
+    if (_stream == stream && _isLive == live && listEquals(_modes, modes)) {
+      return;
+    }
+    _stream = stream;
+    _modes = List.unmodifiable(modes);
     _isLive = live;
     statusVersion.value++;
   }

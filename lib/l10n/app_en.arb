@@ -2116,8 +2116,8 @@
       }
     }
   },
-  "roomFollowersOnly": "Followers-only",
-  "roomFollowersOnlyMinutes": "Followers-only ({minutes}m)",
+  "roomFollowersOnly": "Follow",
+  "roomFollowersOnlyMinutes": "Follow ({minutes}m)",
   "@roomFollowersOnlyMinutes": {
     "placeholders": {
       "minutes": {
@@ -2125,9 +2125,9 @@
       }
     }
   },
-  "roomEmoteOnly": "Emote-only",
-  "roomSubscribersOnly": "Subscribers-only",
-  "roomUniqueChat": "Unique chat",
+  "roomEmoteOnly": "Emotes",
+  "roomSubscribersOnly": "Subs",
+  "roomUniqueChat": "Unique",
   "joinedChannel": "Joined #{channel}.",
   "@joinedChannel": {
     "placeholders": {

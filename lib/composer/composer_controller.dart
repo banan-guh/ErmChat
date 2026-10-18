@@ -90,6 +90,10 @@ class ComposerController {
   final suggestions = ValueNotifier<List<Suggestion>>([]);
   final cooldownLabel = ValueNotifier<String?>(null);
 
+  /// Free width in the island's button row, where room modes ride when
+  /// they fit. Zero while no row shows.
+  final modeGap = ValueNotifier<double>(0);
+
   String? _lastSentText;
   Timer? _cooldownTickTimer;
 
@@ -103,6 +107,7 @@ class ComposerController {
     focusNode.dispose();
     suggestions.dispose();
     cooldownLabel.dispose();
+    modeGap.dispose();
   }
 
   void focus() => focusNode.requestFocus();
@@ -373,8 +378,9 @@ class ComposerController {
       (isWhispersTabActive() || channelChatReady());
 
   /// [withStatus] lets the channel status fill the generic hint; landscape
-  /// uses it in place of the status row under the input.
-  String? hintText({bool withStatus = false}) =>
+  /// uses it in place of the status row under the input. [modesInRow]
+  /// leaves out the room modes the button row already shows.
+  String? hintText({bool withStatus = false, bool modesInRow = false}) =>
       cooldownLabel.value ??
       (!twitchAuth.isConfigured
           ? strings().connectToChat
@@ -400,11 +406,12 @@ class ComposerController {
               (_, OverlayPanel.mentions, _, _) => strings().typeMessageHint,
               // Stream and room status ("Live with … · Slow (30s)") fills an
               // otherwise generic hint, so it costs no height of its own.
-              _ => withStatus ? _channelStatus() : null,
+              _ => withStatus ? _channelStatus(modesInRow) : null,
             });
 
-  String? _channelStatus() {
-    final status = chat.channelFor(getSelectedChannel() ?? '')?.info.status;
+  String? _channelStatus(bool modesInRow) {
+    final info = chat.channelFor(getSelectedChannel() ?? '')?.info;
+    final status = modesInRow ? info?.stream : info?.status;
     return status == null || status.isEmpty ? null : status;
   }
 }

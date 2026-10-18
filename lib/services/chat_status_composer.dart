@@ -334,10 +334,11 @@ class ChatStatusComposer {
       if (tags['subs-only'] == '1') parts.add(strings().roomSubscribersOnly);
       if (tags['r9k'] == '1') parts.add(strings().roomUniqueChat);
     }
-    parts.addAll(_streamStatusParts[channel] ?? const []);
-    final newStatus = parts.isNotEmpty ? parts.join(' · ') : '';
-    final live = _streamStatusParts[channel]?.isNotEmpty ?? false;
-    chat.channelFor(channel)?.info.setStatus(newStatus, live: live);
+    final stream = _streamStatusParts[channel] ?? const [];
+    chat
+        .channelFor(channel)
+        ?.info
+        .setStatus(stream.join(' · '), live: stream.isNotEmpty, modes: parts);
   }
 
   void _startChatStatusTimer() {

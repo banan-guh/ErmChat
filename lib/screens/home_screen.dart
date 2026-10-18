@@ -1623,7 +1623,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 
   /// The island footer [channel] shows, for its page's pre-placed clearance.
   double _statusHeightFor(String channel) =>
-      composerStatusHeight(context, _composer, channel);
+      composerStatusHeight(context, _composer, channel, modeRow: _modeRow);
+
+  /// Whether room modes may ride the island's button row: the row shows.
+  bool get _modeRow =>
+      (_chat.names.isNotEmpty || _channelManager.session.channelsPending) &&
+      _chromeTheme.spec.rowActions.isNotEmpty &&
+      _showInput;
 
   void _copyMessageToClipboard(TwitchMessage msg) {
     Clipboard.setData(ClipboardData(text: copyableChatText(msg.text)));
@@ -1812,6 +1818,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
         _showInput &&
         !rowless &&
         (!keyboardHidesRow || _stream.chatInPane(context));
+    final modeRow = _modeRow;
     final sendButton = ComposerRowButton.send(
       controller: _composer,
       search: _search,
@@ -1932,6 +1939,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                     mod: _mod,
                     dragTick: _panelDragTick,
                     buttonsInRow: buttonsInRow,
+                    modeRow: modeRow,
                   )
                 : null,
             bottomBar: hasBottomBar && !rowless
@@ -1942,6 +1950,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                       if (spec.sendInRow && buttonsInRow)
                         SizedBox.square(dimension: 48, child: sendButton),
                     ],
+                    middle: _showInput
+                        ? ComposerModeRow(
+                            controller: _composer,
+                            selectedTabIndex: _selectedTabIndex,
+                            search: _search,
+                            mod: _mod,
+                            dragTick: _panelDragTick,
+                          )
+                        : null,
                     leading: buttonsInRow
                         ? ComposerRowButton.emote(
                             controller: _composer,
@@ -1964,6 +1981,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                     search: _search,
                     mod: _mod,
                     dragTick: _panelDragTick,
+                    modeRow: modeRow,
                   )
                 : null,
             // Send runs down the island's side while the row stays up.
