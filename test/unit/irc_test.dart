@@ -5,6 +5,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:ermchat/util/connectivity.dart';
+import 'package:ermchat/util/prefs.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:ermchat/irc/join_rate_limiter.dart';
 import 'package:ermchat/irc/decode/decoder.dart';
 import 'package:ermchat/irc/decode/events.dart';
@@ -3788,6 +3790,21 @@ void main() {
           expect(customCalls, hasLength(1));
         },
       );
+
+      // Shipped bug: the saved source read back as Auto after a restart.
+      test('the saved source survives a reload', () async {
+        const url = 'https://custom.example.com/api/v2/recent-messages';
+        for (final saved in [
+          RecentMessagesConfig(mode: RecentMessagesMode.zneix),
+          RecentMessagesConfig(mode: RecentMessagesMode.custom, customUrl: url),
+        ]) {
+          SharedPreferences.setMockInitialValues({});
+          await saved.toPrefs(await Prefs.load());
+          final read = RecentMessagesConfig.fromPrefs(await Prefs.load());
+          expect(read.mode, saved.mode, reason: saved.mode.name);
+          expect(read.customUrl, saved.customUrl);
+        }
+      });
     });
   });
 }

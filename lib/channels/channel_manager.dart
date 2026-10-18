@@ -194,7 +194,6 @@ class ChannelManager {
   Future<void> loadRecentMessagesConfig() => session.loadRecentMessagesConfig();
 
   void setRecentMessagesMode(RecentMessagesConfig config) {
-    if (session.recentMessagesService != null) return;
     session.setRecentMessagesMode(config);
     markDirty();
   }

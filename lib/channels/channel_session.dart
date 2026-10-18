@@ -300,31 +300,22 @@ class ChannelSession extends ChangeNotifier {
   }
 
   Future<void> loadRecentMessagesConfig() async {
-    if (recentMessagesService != null) {
-      recentMessages = recentMessagesService!;
-      return;
-    }
     try {
       final prefs = await Prefs.load();
       recentMessagesConfig = RecentMessagesConfig.fromPrefs(prefs);
     } catch (e) {
       logDebug('Failed to load recent-messages config: $e');
     }
-    recentMessages = RecentMessagesService(
-      config: recentMessagesConfig,
-      strings: strings,
-      ownLogin: () => session.login,
-    );
+    recentMessages =
+        recentMessagesService ??
+        RecentMessagesService(strings: strings, ownLogin: () => session.login);
+    recentMessages.config = recentMessagesConfig;
   }
 
+  /// Applies a new source setting from the next fetch.
   void setRecentMessagesMode(RecentMessagesConfig config) {
-    if (recentMessagesService != null) return;
     recentMessagesConfig = config;
-    recentMessages = RecentMessagesService(
-      config: config,
-      strings: strings,
-      ownLogin: () => session.login,
-    );
+    recentMessages.config = config;
     unawaited(Prefs.load().then((prefs) => config.toPrefs(prefs)));
   }
 

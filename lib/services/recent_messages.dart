@@ -75,9 +75,9 @@ class RecentMessagesConfig {
       orElse: () => RecentMessagesMode.auto,
     );
     final customUrl = prefs.recentMessagesCustomUrl;
-    if (mode == RecentMessagesMode.custom ||
-        customUrl == null ||
-        customUrl.isEmpty) {
+    // Custom with no URL is invalid and behaves as Auto.
+    if (mode == RecentMessagesMode.custom &&
+        (customUrl == null || customUrl.isEmpty)) {
       return RecentMessagesConfig();
     }
     return RecentMessagesConfig(mode: mode, customUrl: customUrl);
@@ -117,7 +117,10 @@ class RecentMessagesService {
   static String? _noLogin() => null;
 
   final http.Client? _client;
-  final RecentMessagesConfig _config;
+  RecentMessagesConfig _config;
+
+  /// The source setting; a change applies from the next fetch.
+  set config(RecentMessagesConfig value) => _config = value;
 
   /// Launch-warmed history fetches (consumed once).
   static final Map<String, Future<List<TwitchMessage>>> _warmed = {};
