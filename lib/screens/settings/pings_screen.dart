@@ -13,6 +13,7 @@ import '../../models/highlight_state.dart';
 import '../../models/ping_rule.dart';
 import '../../models/twitch_message.dart';
 import '../../providers/app_providers.dart';
+import '../../providers/feature_providers.dart';
 import '../../providers/ui_state_providers.dart';
 import '../../services/ping_manager.dart';
 import '../../util/prefs.dart';
@@ -22,8 +23,13 @@ import 'prefs_tiles.dart';
 import 'settings_page.dart';
 import 'settings_search.dart';
 
-/// Mention push rides the Android foreground-service path; iOS has none.
+/// Per-rule notify levels ride the Android foreground-service path; iOS has
+/// none.
 final _pushSupported = !kIsWeb && !Platform.isIOS;
+
+/// iOS pushes mentions of the user's name through the chat proxy instead,
+/// one switch with no per-rule levels or mute.
+final _proxyPush = !kIsWeb && Platform.isIOS;
 
 /// Highlights: what tints a message, what lands in @mentions, what notifies.
 class PingsScreen extends ConsumerStatefulWidget {
@@ -87,7 +93,8 @@ class _PingsScreenState extends ConsumerState<PingsScreen> {
     final prefs = await Prefs.load();
     if (!mounted) return;
     setState(() {
-      _keepAlive = prefs.backgroundService;
+      // The proxy keeps iOS reachable; there is no service to turn on.
+      _keepAlive = _proxyPush || prefs.backgroundService;
       _opacity = prefs.highlightOpacity;
     });
   }
@@ -174,7 +181,9 @@ class _PingsScreenState extends ConsumerState<PingsScreen> {
           return ListView(
             padding: const EdgeInsets.only(bottom: 32),
             children: [
-              if (_pushSupported) _notificationsTile(pushOn, muted),
+              if (_pushSupported ||
+                  _proxyPush && ref.read(apnsPushProvider).active)
+                _notificationsTile(pushOn, muted),
               ..._mentionSection(rules, paused, pushOn),
               ..._listSection(rules, paused, PingRuleKind.message),
               ..._listSection(rules, paused, PingRuleKind.user),
@@ -279,7 +288,8 @@ class _PingsScreenState extends ConsumerState<PingsScreen> {
     final until = ref.read(notificationPauseProvider);
     final scheme = Theme.of(context).colorScheme;
     final showMute = pushOn && muted && until != null;
-    final canMute = _keepAlive && pushOn;
+    // The proxy doesn't know about mutes, so iOS can't have one.
+    final canMute = _keepAlive && pushOn && !_proxyPush;
     final drag = _muteDrag;
     final String status;
     if (!pushOn) {

@@ -178,6 +178,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   NotificationService get _notificationService =>
       ref.read(notificationServiceProvider);
   StreamSubscription<String>? _notificationTapSub;
+  StreamSubscription<String>? _apnsTapSub;
   bool _backgroundService = false;
   bool _whisperNotify = true;
 
@@ -809,6 +810,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       _backgroundService = backgroundService;
       _whisperNotify = whisperNotify;
     });
+    _initApnsPush(mentionPush);
     if (!Platform.isAndroid) return;
     if (backgroundService) {
       initForegroundService(mounted ? context.l10n : null);
@@ -816,6 +818,20 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     if (mentionPush || whisperNotify) {
       _initNotificationInfra();
     }
+  }
+
+  /// iOS push through the proxy: taps open the channel, and the proxy
+  /// learns whether to push. No-ops elsewhere.
+  void _initApnsPush(bool push) {
+    final apns = ref.read(apnsPushProvider);
+    if (!apns.active) return;
+    _apnsTapSub ??= apns.onTap.listen(_onNotificationTap);
+    unawaited(
+      apns.takeLaunchChannel().then((channel) {
+        if (channel != null && mounted) _navigateToChannel(channel);
+      }),
+    );
+    unawaited(apns.sync(push: push));
   }
 
   void _initNotificationInfra() {
@@ -864,6 +880,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     if (ref.read(mentionPushProvider) == value) return;
     ref.read(mentionPushProvider.notifier).set(value);
     setState(() {});
+    unawaited(ref.read(apnsPushProvider).sync(push: value));
     if (!Platform.isAndroid) return;
     if (value) {
       requestForegroundPermissions();
@@ -1523,6 +1540,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     _channelManager.dispose();
     _session.version.removeListener(_onSessionApplied);
     _notificationTapSub?.cancel();
+    _apnsTapSub?.cancel();
     if (_bars != _SystemBars.all) {
       SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     }

@@ -7,6 +7,7 @@ import '../models/twitch_message.dart';
 import '../report_config.dart';
 import '../services/bug_report_outbox.dart';
 import '../services/analytics_service.dart';
+import '../services/apns_push.dart';
 import '../services/archive.dart';
 import '../services/app_updates.dart';
 import '../services/chat_history_controller.dart';
@@ -48,6 +49,18 @@ final appUpdatesProvider = Provider<AppUpdates>((ref) {
   final updates = AppUpdates();
   ref.onDispose(updates.dispose);
   return updates;
+});
+
+final apnsPushProvider = Provider<ApnsPush>((ref) {
+  final push = ApnsPush(
+    ircRead: ref.read(ircReadServiceProvider),
+    active:
+        defaultTargetPlatform == TargetPlatform.iOS &&
+        !kIsWeb &&
+        ref.read(proxyConfigProvider).readWsUrl != null,
+  );
+  ref.onDispose(push.dispose);
+  return push;
 });
 
 final notificationServiceProvider = Provider<NotificationService>((ref) {
