@@ -103,5 +103,7 @@ class ChatReadiness {
     _joinedChannels.remove(channel);
     _readJoinedChannels.remove(channel);
     _joinFailedChannels.remove(channel);
+    // A rejoin is a fresh join and announces Connected again.
+    _connectedAcked.remove(channel);
   }
 }

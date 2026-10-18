@@ -175,6 +175,8 @@ class ChatChannelSetup {
   /// Drops per-channel state (channel left) and unsubscribes 7TV.
   void forgetChannel(String channel) {
     eventSubTopics.forgetChannel(channel);
+    // A rejoin may fail and say so again.
+    _joinFailureNotified.remove(channel);
     // Parted channels must not keep server-side 7TV dispatches: lookups run
     // before evictChannel and channelUserIds removal, so IDs are still here.
     final sevenTv = sevenTvClient;
