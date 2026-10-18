@@ -10,7 +10,7 @@ enum BugReportStatus { draft, queued, sent, failed }
 /// Steps template older drafts were saved with; it counts as empty.
 const _legacyStepsTemplate = '1. \n2. \n3. ';
 
-/// Server caps (ermchatbot `maxReportTitle` / `maxReportBody`).
+/// Server caps in code points (ermchatbot `maxReportTitle` / `maxReportBody`).
 const kBugReportMaxTitle = 200;
 const kBugReportMaxBody = 20000;
 
@@ -75,8 +75,8 @@ class BugReport {
   /// Title filled and everything within the server caps.
   bool get isSendable =>
       title.isNotEmpty &&
-      title.length <= kBugReportMaxTitle &&
-      buildBody().length <= kBugReportMaxBody;
+      title.runes.length <= kBugReportMaxTitle &&
+      buildBody().runes.length <= kBugReportMaxBody;
 
   /// Markdown issue body assembled from the separate fields. Empty optional
   /// sections are left out, and the bug-only fields only go with bugs.

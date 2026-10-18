@@ -7,6 +7,7 @@ import 'package:path_provider/path_provider.dart';
 import '../emotes/emote.dart';
 import '../emotes/emote_catalog.dart';
 import '../models/twitch_message.dart';
+import '../util/log.dart';
 import 'emote_manager.dart';
 
 class _EmoteCount {
@@ -269,9 +270,17 @@ class AnalyticsService extends ChangeNotifier {
     if (store == null || !_enabled || !_dirty) return;
     _dirty = false;
     _dropExpired();
-    await store.write(
-      jsonEncode({for (final e in _channels.entries) e.key: e.value.toJson()}),
-    );
+    try {
+      await store.write(
+        jsonEncode({
+          for (final e in _channels.entries) e.key: e.value.toJson(),
+        }),
+      );
+    } catch (e) {
+      // Fire-and-forget callers: keep the stats dirty so the next save retries.
+      logDebug('[Analytics] write failed: $e');
+      _markDirty();
+    }
   }
 
   void _dropExpired() {
@@ -504,6 +513,6 @@ class AnalyticsService extends ChangeNotifier {
 
   void _pruneBuckets(_ChannelStats stats, DateTime now) {
     final cutoff = now.millisecondsSinceEpoch ~/ 60000 - _rateWindowMinutes;
-    stats.minuteBuckets.removeWhere((minute, _) => minute < cutoff);
+    stats.minuteBuckets.removeWhere((minute, _) => minute <= cutoff);
   }
 }

@@ -122,8 +122,9 @@ class RecentMessagesService {
   /// The source setting; a change applies from the next fetch.
   set config(RecentMessagesConfig value) => _config = value;
 
-  /// Launch-warmed history fetches (consumed once).
-  static final Map<String, Future<List<TwitchMessage>>> _warmed = {};
+  /// Launch-warmed response bodies (consumed once). Decoding waits for the
+  /// consumer so ban lines use live strings and the signed-in login.
+  static final Map<String, Future<Uint8List>> _warmed = {};
 
   /// Warms history fetches at launch; duplicates ignored.
   static void warm(
@@ -134,9 +135,11 @@ class RecentMessagesService {
     final service = RecentMessagesService(config: config);
     for (final channel in channels) {
       final key = channel.toLowerCase();
-      if (_warmed.containsKey(key)) continue;
+      if (_warmed.containsKey(key) || FakeHistory.isFake(channel)) continue;
       // A failure before anyone awaits it must not surface as unhandled.
-      _warmed[key] = service.fetchRecent(channel, limit: limit)..ignore();
+      _warmed[key] = service._getBytes(
+        '${service._config.providers.first}${_path(channel, limit)}',
+      )..ignore();
     }
   }
 
@@ -148,7 +151,13 @@ class RecentMessagesService {
     final warmed = _warmed.remove(channel.toLowerCase());
     if (warmed != null) {
       try {
-        return await warmed;
+        final batch = await parseBody(
+          await warmed,
+          channel,
+          strings(),
+          ownLogin(),
+        );
+        if (batch.joined) return batch.messages;
       } catch (_) {
         // Refetched below.
       }
@@ -156,14 +165,16 @@ class RecentMessagesService {
     return fetchRecent(channel, limit: limit);
   }
 
+  static String _path(String channel, int limit) =>
+      '/${Uri.encodeComponent(channel.toLowerCase())}'
+      '?limit=${limit.clamp(1, 800)}';
+
   Future<List<TwitchMessage>> fetchRecent(
     String channel, {
     int limit = 100,
   }) async {
     if (FakeHistory.isFake(channel)) return const [];
-    final path =
-        '/${Uri.encodeComponent(channel.toLowerCase())}'
-        '?limit=${limit.clamp(1, 800)}';
+    final path = _path(channel, limit);
     final providers = _config.providers;
     Object? lastError;
     List<TwitchMessage>? staleFallback;
@@ -226,6 +237,19 @@ class RecentMessagesService {
     String url,
     String channel,
   ) async {
+    final batch = await parseBody(
+      await _getBytes(url),
+      channel,
+      strings(),
+      ownLogin(),
+    );
+    final note = batch.note;
+    if (note != null) logDebug('[RecentMessages] $channel: $note');
+    return (messages: batch.messages, joined: batch.joined);
+  }
+
+  /// The 200 response body of [url]; other statuses throw.
+  Future<Uint8List> _getBytes(String url) async {
     final uri = Uri.parse(url);
     final ownClient = _client == null ? http.Client() : null;
     final client = _client ?? ownClient!;
@@ -254,15 +278,7 @@ class RecentMessagesService {
         );
       }
 
-      final batch = await parseBody(
-        res.bodyBytes,
-        channel,
-        strings(),
-        ownLogin(),
-      );
-      final note = batch.note;
-      if (note != null) logDebug('[RecentMessages] $channel: $note');
-      return (messages: batch.messages, joined: batch.joined);
+      return res.bodyBytes;
     } finally {
       ownClient?.close();
     }

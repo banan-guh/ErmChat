@@ -16,8 +16,11 @@ class _BanMeta {
   DateTime lastEvent;
   String? firstMessageId;
 
-  _BanMeta({required this.user, required this.isTimeout})
-    : lastEvent = DateTime.now();
+  _BanMeta({
+    required this.user,
+    required this.isTimeout,
+    required this.lastEvent,
+  });
 }
 
 /// Single ingest owner for moderation facts. IRC echoes and the EventSub
@@ -36,7 +39,11 @@ class ModerationHub {
     required this.onSelfTimeoutArmed,
     required this.onSelfTimeoutCleared,
     this.strings = englishStrings,
+    this._now = DateTime.now,
   });
+
+  /// Injectable so tests move the ban-window clock by hand.
+  final DateTime Function() _now;
 
   final Chat chat;
   final Session session;
@@ -77,7 +84,7 @@ class ModerationHub {
     final sink = onArchiveModeration;
     if (sink == null) return;
     final items = chat.channelFor(channel)?.messages.items ?? const [];
-    final now = DateTime.now();
+    final now = _now();
     var from = now.subtract(_clearReach);
     var to = now;
     if (items.isNotEmpty) {
@@ -147,14 +154,13 @@ class ModerationHub {
         ? strings().banLineStacked(base, result.stackCount)
         : strings().banLine(base);
 
-    if (result.stackCount > 1) {
-      if (result.meta.firstMessageId != null) {
-        chat
-            .channelFor(channel)
-            ?.messages
-            .updateText(result.meta.firstMessageId!, text);
-        return;
-      }
+    final firstId = result.meta.firstMessageId;
+    // A first line that left the buffer is replaced by a fresh one.
+    if (result.stackCount > 1 &&
+        firstId != null &&
+        (chat.channelFor(channel)?.messages.updateText(firstId, text) ??
+            false)) {
+      return;
     }
     onSystemMessage(channel, text);
     final msgs = chat.channelFor(channel)?.messages.items;
@@ -170,7 +176,7 @@ class ModerationHub {
     String user,
     bool isTimeout,
   ) {
-    final now = DateTime.now();
+    final now = _now();
     // Sweep every channel so idle ones do not keep expired metas.
     _recentBanMeta.removeWhere((_, list) {
       list.removeWhere(
@@ -191,7 +197,7 @@ class ModerationHub {
       return (stackCount: existing.stackCount, meta: existing);
     }
 
-    final meta = _BanMeta(user: user, isTimeout: isTimeout);
+    final meta = _BanMeta(user: user, isTimeout: isTimeout, lastEvent: now);
     metas.add(meta);
     return (stackCount: 1, meta: meta);
   }
@@ -206,10 +212,7 @@ class ModerationHub {
     if (selfLogin == null || user.toLowerCase() != selfLogin) return;
     // Zero-length timeouts are already spent - don't arm a gate for them.
     if (isTimeout && duration != null && duration > 0) {
-      onSelfTimeoutArmed(
-        channel,
-        DateTime.now().add(Duration(seconds: duration)),
-      );
+      onSelfTimeoutArmed(channel, _now().add(Duration(seconds: duration)));
     }
   }
 
@@ -233,7 +236,7 @@ class ModerationHub {
         : '';
 
     final entry = ModActivityEntry(
-      at: DateTime.now(),
+      at: _now(),
       channel: event.channel,
       action: event.rawAction,
       moderator: mod,
@@ -287,15 +290,13 @@ class ModerationHub {
               ?.moderation
               .putBan(
                 BanEntry(
-                  at: DateTime.now(),
+                  at: _now(),
                   channel: event.channel,
                   login: target,
                   expiresAt:
                       event.action == ModerationAction.timeout &&
                           event.durationSeconds != null
-                      ? DateTime.now().add(
-                          Duration(seconds: event.durationSeconds!),
-                        )
+                      ? _now().add(Duration(seconds: event.durationSeconds!))
                       : null,
                   reason: event.reason,
                   moderator: mod,
@@ -312,7 +313,7 @@ class ModerationHub {
             event.durationSeconds! > 0) {
           onSelfTimeoutArmed(
             event.channel,
-            DateTime.now().add(Duration(seconds: event.durationSeconds!)),
+            _now().add(Duration(seconds: event.durationSeconds!)),
           );
         }
         onSystemMessage(
@@ -378,7 +379,7 @@ class ModerationHub {
               ?.moderation
               .addWarning(
                 WarnEntry(
-                  at: DateTime.now(),
+                  at: _now(),
                   channel: event.channel,
                   target: target,
                   moderator: mod,

@@ -117,6 +117,42 @@ void main() {
     },
   );
 
+  test(
+    'a repeat ban posts a fresh line once its first row left the buffer',
+    () {
+      var now = DateTime(2026, 1, 1);
+      final channel = chat.channelFor('test')!;
+      final clocked = ModerationHub(
+        chat: chat,
+        session: session,
+        isModerationActive: (_) => false,
+        onSystemMessage: (c, t) => channel.messages.addSystem(t),
+        onSelfTimeoutArmed: (c, until) => armed[c] = until,
+        onSelfTimeoutCleared: (c) => cleared.add(c),
+        now: () => now,
+      );
+      void ban() => clocked.onIrcBan(
+        channel: 'test',
+        user: 'spammer',
+        isTimeout: false,
+        duration: null,
+      );
+      ban();
+      channel.messages.removeWhere((_) => true);
+      expect(channel.messages.items, isEmpty);
+      now = now.add(const Duration(seconds: 5));
+      ban();
+      expect(
+        channel.messages.items,
+        hasLength(1),
+        reason: 'stacked ban whose first row is gone must post again',
+      );
+      now = now.add(const Duration(seconds: 11));
+      ban();
+      expect(channel.messages.items.first.text, isNot(contains('2')));
+    },
+  );
+
   test('IRC ban and clear are suppressed while moderate covers them', () {
     moderationActive = true;
     hub.onIrcBan(

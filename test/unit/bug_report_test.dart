@@ -38,6 +38,9 @@ void main() {
       expect((report()..whatHappened = '').isSendable, isTrue);
       expect((report()..summary = ' ').isSendable, isFalse);
       expect((report()..summary = 'x' * 201).isSendable, isFalse);
+      // The server counts code points: 200 emoji are 400 UTF-16 units.
+      expect((report()..summary = '\u{1F600}' * 200).isSendable, isTrue);
+      expect((report()..summary = '\u{1F600}' * 201).isSendable, isFalse);
       expect(report().title, 'App closes');
     });
 

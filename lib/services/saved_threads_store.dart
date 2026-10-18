@@ -311,7 +311,7 @@ class SavedThreadsStore {
       ..clear()
       ..addAll(merged.take(maxSavedThreads));
     for (final t in _threads) {
-      final fromDisk = disk[t.key];
+      final fromDisk = early.contains(t.key) ? null : disk[t.key];
       if (fromDisk == null) continue;
       final msgs = _messages[t.key] ?? [];
       final ids = _messageIds[t.key] ?? _idsOf(msgs);

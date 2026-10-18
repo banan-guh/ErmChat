@@ -946,7 +946,11 @@ class ModActions {
   }) async {
     return _broadcasterAction(channel, 'create stream marker', (broadcasterId) {
       var desc = description ?? '';
-      if (desc.length > 140) desc = desc.substring(0, 140);
+      if (desc.length > 140) {
+        // Keep the cap in UTF-16 units but never end on half a pair.
+        final cut = (desc.codeUnitAt(139) & 0xFC00) == 0xD800 ? 139 : 140;
+        desc = desc.substring(0, cut);
+      }
       return twitchApi.createMarker(
         auth,
         broadcasterId: broadcasterId,

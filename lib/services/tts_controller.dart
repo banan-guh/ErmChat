@@ -273,7 +273,7 @@ class TtsController {
 
   void setForceEnglish(bool value) {
     _forceEnglish = value;
-    if (value) _applyLanguage();
+    _applyLanguage();
   }
 
   void setUserIgnoreList(List<String> value) {
@@ -317,9 +317,12 @@ class TtsController {
     if (_formatMode == TtsFormatMode.messageOnly) return text.trim();
 
     final name = msg.displayName.isNotEmpty ? msg.displayName : msg.login;
+    // A notice breaks the run of one speaker without becoming the speaker.
     final sameUser =
-        _previousUser != null && _previousUser == name.toLowerCase();
-    _previousUser = name.toLowerCase();
+        !msg.isSystem &&
+        _previousUser != null &&
+        _previousUser == name.toLowerCase();
+    _previousUser = msg.isSystem ? null : name.toLowerCase();
     if (sameUser) return text.trim();
     return _forceEnglish
         ? '$name said ${text.trim()}'
@@ -346,7 +349,12 @@ class TtsController {
 
   Future<void> _applyLanguage() async {
     try {
-      if (_forceEnglish) await _tts.setLanguage('en-US');
+      await _tts.setLanguage(_defaultLocale);
+      // A voice carries its own language, so it is set again after the locale.
+      final option = _selectedOption;
+      if (option != null && !(overrideIsAndroid ?? Platform.isAndroid)) {
+        await _applyToVoice(option);
+      }
     } catch (_) {}
   }
 

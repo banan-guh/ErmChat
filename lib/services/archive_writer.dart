@@ -96,7 +96,9 @@ class ArchiveWriter {
         return;
       }
       final tables = await store.tables(channel);
-      for (final b in await store.newestBlocks(channel, 1)) {
+      // Oldest first, so the dedup window keeps the newest ids.
+      final blocks = await store.newestBlocks(channel, idWindow);
+      for (final b in blocks.reversed) {
         try {
           for (final r in ArchiveBlock.decode(b.data)) {
             final id = r.messageId;
@@ -107,7 +109,9 @@ class ArchiveWriter {
         } on ArchiveFormatException {
           continue;
         }
-        break;
+      }
+      while (c.ids.length > idWindow) {
+        c.ids.remove(c.ids.first);
       }
       c.tables = tables;
       final queued = List.of(c.waiting);

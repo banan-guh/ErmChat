@@ -101,26 +101,37 @@ class AppUpdates {
     return prefs.whatsNewEnabled ? last : null;
   }
 
+  static const _releasesPerPage = 100;
+  static const _maxReleasePages = 5;
+
   /// Notes for released versions after [from] and before [current], newest
   /// first, read from CHANGELOG.md at each tag. Tags without one are skipped;
   /// a failed fetch returns what it has.
   Future<List<VersionNotes>> missedNotes(String from, String current) async {
     final versions = <String>[];
     try {
-      final res = await _client
-          .get(
-            Uri.parse(
-              'https://api.github.com/repos/$_repo/releases?per_page=30',
-            ),
-          )
-          .timeout(httpTimeout);
-      if (res.statusCode != 200) return const [];
-      for (final r in jsonDecode(res.body) as List<dynamic>) {
-        if (r['draft'] == true || r['prerelease'] == true) continue;
-        final v = (r['tag_name'] as String? ?? '').replaceFirst('v', '');
-        if (compareVersions(v, from) > 0 && compareVersions(v, current) < 0) {
-          versions.add(v);
+      // Newest first; stop once a page reaches [from] or runs short.
+      for (var page = 1; page <= _maxReleasePages; page++) {
+        final res = await _client
+            .get(
+              Uri.parse(
+                'https://api.github.com/repos/$_repo/releases'
+                '?per_page=$_releasesPerPage&page=$page',
+              ),
+            )
+            .timeout(httpTimeout);
+        if (res.statusCode != 200) return const [];
+        final releases = jsonDecode(res.body) as List<dynamic>;
+        var reachedFrom = false;
+        for (final r in releases) {
+          if (r['draft'] == true || r['prerelease'] == true) continue;
+          final v = (r['tag_name'] as String? ?? '').replaceFirst('v', '');
+          if (compareVersions(v, from) <= 0) reachedFrom = true;
+          if (compareVersions(v, from) > 0 && compareVersions(v, current) < 0) {
+            versions.add(v);
+          }
         }
+        if (reachedFrom || releases.length < _releasesPerPage) break;
       }
     } catch (e) {
       logDebug('[Updates] release list failed: $e');

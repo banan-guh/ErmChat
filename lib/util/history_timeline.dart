@@ -460,13 +460,18 @@ class ActivityRail implements RailScale {
     final out = <RailDay>[];
     var start = from;
     var day = dayNumber(local(from));
-    for (var i = 1; i <= _n; i++) {
-      final at = i == _n ? to : from.add(Duration(milliseconds: i * _bucketMs));
-      final d = i == _n ? day + 1 : dayNumber(local(at));
+    for (var i = 1; i < _n; i++) {
+      final at = from.add(Duration(milliseconds: i * _bucketMs));
+      // The last bucket can reach past [to]; the closing day ends there.
+      if (!at.isBefore(to)) break;
+      final d = dayNumber(local(at));
       if (d == day) continue;
       out.add((start: start, day: day, count: countBetween(start, at)));
       start = at;
       day = d;
+    }
+    if (_n > 0) {
+      out.add((start: start, day: day, count: countBetween(start, to)));
     }
     return out;
   }();

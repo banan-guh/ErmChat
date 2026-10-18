@@ -128,6 +128,15 @@ void main() {
     expect(fake.spoken, ['Bob said one', 'two']);
   });
 
+  test('a notice does not hide the next speaker name', () async {
+    final fake = FakeTts();
+    final c = await makeController(fake);
+    c.handleMessage('chan', buildMsg(text: 'sub!', isSystem: true), 'chan');
+    c.handleMessage('chan', buildMsg(text: 'hi'), 'chan');
+    await pumpEventQueue();
+    expect(fake.spoken.last, 'Bob. hi');
+  });
+
   test(
     'respects the ignore emotes setting when speaking emote codes',
     () async {

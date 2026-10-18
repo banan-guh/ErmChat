@@ -229,7 +229,7 @@ Color highlightRowColor(
   double opacity = 1.0,
 }) {
   opacity = opacity.clamp(0.0, 1.0);
-  final isDark = surface.computeLuminance() < 0.5;
+  final isDark = brightness(surface) < 0.5;
   final palette = isDark ? highlightPaletteDark : highlightPaletteLight;
   final anchor = highlightAnchor(surface);
   final base =

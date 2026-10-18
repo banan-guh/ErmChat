@@ -21,6 +21,7 @@ class ConnectivityService extends ChangeNotifier {
 
   StreamSubscription<List<ConnectivityResult>>? _sub;
   bool _started = false;
+  bool _disposed = false;
 
   List<ConnectivityResult> get results => _results;
   bool get isOnline => !_results.contains(ConnectivityResult.none);
@@ -39,6 +40,7 @@ class ConnectivityService extends ChangeNotifier {
       // Keep the online default; a later event corrects it.
     }
     try {
+      if (_disposed) return;
       _sub ??= _connectivity.onConnectivityChanged.listen(_setResults);
     } catch (e) {
       // No platform stream (tests/unsupported): the seeded state stands.
@@ -51,7 +53,7 @@ class ConnectivityService extends ChangeNotifier {
 
   void _setResults(List<ConnectivityResult> results) {
     // plus_plugins#2527: an empty report means "unknown", not "offline".
-    if (results.isEmpty) return;
+    if (results.isEmpty || _disposed) return;
     _results = List.unmodifiable(results);
     notifyListeners();
   }
@@ -62,6 +64,7 @@ class ConnectivityService extends ChangeNotifier {
 
   @override
   void dispose() {
+    _disposed = true;
     _sub?.cancel();
     _sub = null;
     super.dispose();

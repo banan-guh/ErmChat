@@ -13,8 +13,9 @@ class NotificationService {
   final _tapController = StreamController<String>.broadcast();
   String? _pendingLaunchChannel;
   bool _launchChecked = false;
-  // Monotonic suffix for distinct IDs within the same second.
-  int _idSeq = 0;
+
+  /// Last notification id; seeded from the clock once, then strictly rising.
+  int _idSeq = DateTime.now().millisecondsSinceEpoch ~/ 1000;
 
   Stream<String> get onNotificationTap => _tapController.stream;
 
@@ -152,7 +153,7 @@ class NotificationService {
       iOS: iosDetails,
     );
 
-    final id = DateTime.now().millisecondsSinceEpoch ~/ 1000 + _idSeq++;
+    final id = ++_idSeq;
     _postedIds.add(id);
     if (channel != null) {
       _idsByChannel.putIfAbsent(channel, () => []).add(id);
@@ -224,12 +225,12 @@ class NotificationService {
     if (channel == null) {
       _summaryTotal = 0;
     } else {
-      _summaryTotal -= removedFromSummary.length;
+      _summaryTotal -= ids.length;
       if (_summaryTotal < 0) _summaryTotal = 0;
     }
     if (_summaryOrder.isEmpty) {
       await _plugin.cancel(_summaryId);
-    } else if (removedFromSummary.isNotEmpty) {
+    } else if (ids.isNotEmpty) {
       await _updateSummary();
     }
   }
