@@ -618,8 +618,9 @@ void main() {
       expect(messages.items.first.text, 'Renamed');
 
       // Signed in, the account row rides just under the first Connected.
+      var account = 'as me';
       final named = Chat(
-        systemText: (line) => line == SystemLine.signedIn ? 'as me' : line.name,
+        systemText: (line) => line == SystemLine.signedIn ? account : line.name,
       );
       addTearDown(named.dispose);
       final rows = named.ensure('test').messages;
@@ -645,6 +646,16 @@ void main() {
       expect(rows.items.where((m) => m.isSystem).map((m) => m.text), [
         'reconnected',
       ], reason: 'the account line posts once per session');
+
+      // An account switch reconnects right away, inside the fold window.
+      account = 'as you';
+      rows.addConnStatus(SystemLine.connected);
+      rows.addSystem('history');
+      expect(rows.moveConnectedToTop(), isTrue);
+      expect(rows.items.take(2).map((m) => m.text), [
+        'reconnected',
+        'as you',
+      ], reason: 'a switched account names itself under its reconnect');
 
       final loading = chat.ensure('loading');
       loading.addLoadingHistory();

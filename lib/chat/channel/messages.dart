@@ -477,6 +477,11 @@ class Messages {
   /// truncates away, so a later connect still reads as a reconnect.
   bool _connectedOnce = false;
 
+  /// The account the last "signed in as" row named, and the connect row it
+  /// rides under. Null while anonymous.
+  String? _namedAccount;
+  String? _signedInPartnerId;
+
   /// Inserts a connect-state row at the top with status folding: a repeat
   /// connect reads as Reconnected, recoveries clear the outage marker, and
   /// flapping folds. [status] is one of the four connect lines. Returns false
@@ -488,6 +493,15 @@ class Messages {
         (_connectedOnce || _items.any(_isConnRow))) {
       resolved = SystemLine.reconnected;
     }
+    // A connect under a different account names it, even one that reads as
+    // a reconnect, so an account switch shows who is now signed in.
+    final signedIn = status == SystemLine.connected
+        ? systemText(SystemLine.signedIn)
+        : '';
+    if (status == SystemLine.connected && signedIn.isEmpty) {
+      _namedAccount = null;
+    }
+    final newAccount = signedIn.isNotEmpty && signedIn != _namedAccount;
     final top = _items.isEmpty ? null : _items.first;
     if (resolved == SystemLine.reconnected) {
       var newestRecovery = -1;
@@ -515,7 +529,7 @@ class Messages {
             _isConn(m, SystemLine.disconnected) ||
             _isConn(m, SystemLine.reconnecting),
       );
-      if (recentRecovery) {
+      if (recentRecovery && !newAccount) {
         if (_items.length != before) _bump();
         return false;
       }
@@ -529,22 +543,19 @@ class Messages {
       if (_isConn(top, SystemLine.disconnected)) return false;
       _removeRows((m) => _isConn(m, SystemLine.reconnecting));
     }
-    // The first connect names the account just under it; anonymous
-    // sessions resolve the line to empty and skip it.
-    if (resolved == SystemLine.connected) {
-      _connectedOnce = true;
-      final signedIn = systemText(SystemLine.signedIn);
-      if (signedIn.isNotEmpty) {
-        _insertSystem(
-          signedIn,
-          messageId: '$_signedInIdPrefix${_nextSystemMessageId++}',
-        );
-      }
+    if (resolved == SystemLine.connected) _connectedOnce = true;
+    // The account row sits just under its connect row; anonymous sessions
+    // resolve the line to empty and skip it.
+    final connId = '$_connIdPrefix${resolved.name}:${_nextSystemMessageId++}';
+    if (newAccount) {
+      _namedAccount = signedIn;
+      _signedInPartnerId = connId;
+      _insertSystem(
+        signedIn,
+        messageId: '$_signedInIdPrefix${_nextSystemMessageId++}',
+      );
     }
-    return _insertSystem(
-      systemText(resolved),
-      messageId: '$_connIdPrefix${resolved.name}:${_nextSystemMessageId++}',
-    );
+    return _insertSystem(systemText(resolved), messageId: connId);
   }
 
   /// Inserts a system row at the top with id-less text dedup. Returns false
@@ -724,8 +735,8 @@ class Messages {
       if (identical(msg, _limitEnd)) _limitEnd = null;
       moved = true;
     }
-    // The first Connected keeps its "signed in as" row just under it.
-    if (!recovered) {
+    // The connect row that named the account keeps its row just under it.
+    if (_items.first.messageId == _signedInPartnerId) {
       final at = _items.indexWhere(_isSignedIn);
       if (at > 1) {
         final row = _items.removeAt(at);
