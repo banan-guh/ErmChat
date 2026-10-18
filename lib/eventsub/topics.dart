@@ -189,10 +189,8 @@ class EventSubTopics {
   /// Subscribes the EventSub families for a joined channel.
   void subscribeChannel(String channelName, String channelUserId) {
     if (session.login == null || session.userId == null) return;
-    // Guard like resubscribeEventSubChannels: a connected-edge resubscribe
-    // racing this join must not double-subscribe (409s dedupe, but each
-    // attempt costs Helix calls and a redundant noteSubscribed). A fresh join
-    // starts with an empty active set, so this only catches races.
+    // Guard like resubscribeEventSubChannels; a run already in flight for the
+    // same family drops out inside _subscribeFamily.
     for (final family in _families) {
       if (family.skipIfActive && family.activeSet.contains(channelName)) {
         continue;
@@ -303,6 +301,9 @@ class EventSubTopics {
     String channelUserId,
     _TopicFamily family,
   ) async {
+    // Reserved before any await: a join and a connected edge racing here
+    // must not both subscribe the same channel and family.
+    if (!family.inflight.add(channelName)) return;
     try {
       final auth = twitchAuth;
       if (!auth.isConfigured || session.userId == null) return;
@@ -379,6 +380,8 @@ class EventSubTopics {
       }
     } catch (_) {
       logDebug('[ChatConn] ${family.name} failed for $channelName');
+    } finally {
+      family.inflight.remove(channelName);
     }
   }
 
@@ -437,6 +440,9 @@ class _TopicFamily {
   /// Per channel, the types a 403 rejected after a sibling succeeded. Like
   /// [skipSet] they last for the account.
   final Map<String, Set<String>> typeSkips = {};
+
+  /// Channels with a subscribe run in progress.
+  final Set<String> inflight = {};
 
   /// True for points/widgets: broadcaster-only condition plus an upfront
   /// broadcaster gate so other channels fire no Helix calls.

@@ -171,11 +171,14 @@ class ModerationHub {
     bool isTimeout,
   ) {
     final now = DateTime.now();
+    // Sweep every channel so idle ones do not keep expired metas.
+    _recentBanMeta.removeWhere((_, list) {
+      list.removeWhere(
+        (m) => now.difference(m.lastEvent).inSeconds >= _banDedupWindowSeconds,
+      );
+      return list.isEmpty;
+    });
     final metas = _recentBanMeta.putIfAbsent(channel, () => []);
-
-    metas.removeWhere(
-      (m) => now.difference(m.lastEvent).inSeconds >= _banDedupWindowSeconds,
-    );
 
     final existing = metas.cast<_BanMeta?>().firstWhere(
       (m) => m!.user == user && m.isTimeout == isTimeout,

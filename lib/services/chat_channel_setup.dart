@@ -138,6 +138,15 @@ class ChatChannelSetup {
   /// channel share it instead of each sending their own.
   final _sevenTvSubInflight = <String, Future<void>>{};
 
+  /// Bumped when a channel is forgotten. A join or 7TV resolve that began
+  /// under an older value is stale and stops before its next side effect.
+  final _leaveEpochs = <String, int>{};
+
+  int _epochOf(String channel) => _leaveEpochs[channel] ?? 0;
+
+  bool _isStale(String channel, int epoch) =>
+      _disposed || _epochOf(channel) != epoch;
+
   // Channels a join-failure notice was displayed for. A later ROOMSTATE
   // confirmation clears the entry and announces the (late) success.
   final _joinFailureNotified = <String>{};
@@ -174,7 +183,9 @@ class ChatChannelSetup {
 
   /// Drops per-channel state (channel left) and unsubscribes 7TV.
   void forgetChannel(String channel) {
+    _leaveEpochs[channel] = _epochOf(channel) + 1;
     eventSubTopics.forgetChannel(channel);
+    eventSubDecoder.forgetChannel(channel);
     // A rejoin may fail and say so again.
     _joinFailureNotified.remove(channel);
     // Parted channels must not keep server-side 7TV dispatches: lookups run
@@ -212,6 +223,7 @@ class ChatChannelSetup {
     // too just wastes the 20/10s budget and (when the limiter was shared) raced
     // the read socket for the single JOIN slot per channel.
     ircRead.join(channelName);
+    final epoch = _epochOf(channelName);
 
     try {
       final auth = twitchAuth;
@@ -223,10 +235,11 @@ class ChatChannelSetup {
         final signedIn = auth.accessToken != null;
         if (signedIn) unawaited(Future.microtask(_lookupJoinTail));
         channelUserId = await _waitForRoomId(channelName);
-        if (_disposed) return;
+        if (_isStale(channelName, epoch)) return;
         // The JOIN never landed (socket down): ask Helix directly.
         if (channelUserId == null && signedIn) {
           channelUserId = await twitchApi.getUserId(auth, channelName);
+          if (_isStale(channelName, epoch)) return;
         }
       }
       if (channelUserId == null) return;
@@ -273,13 +286,14 @@ class ChatChannelSetup {
         );
       }
 
-      unawaited(_resolveSevenTvAndSubscribe(channelName, channelUserId));
+      unawaited(_resolveSevenTvAndSubscribe(channelName, channelUserId, epoch));
 
       if (session.login == null && auth.accessToken != null) {
         final currentUser = await ensureCurrentUser(auth);
         if (currentUser != null) {
           session.apply(currentUser['login'], userId: currentUser['id']);
         }
+        if (_isStale(channelName, epoch)) return;
       }
 
       eventSubTopics.subscribeChannel(channelName, channelUserId);
@@ -320,11 +334,16 @@ class ChatChannelSetup {
   Future<void> _resolveSevenTvAndSubscribe(
     String channelName,
     String twitchChannelId,
+    int epoch,
   ) {
     if (sevenTvClient == null) return Future.value();
     final inflight = _sevenTvSubInflight[twitchChannelId];
     if (inflight != null) return inflight;
-    final future = _doResolveSevenTvAndSubscribe(channelName, twitchChannelId);
+    final future = _doResolveSevenTvAndSubscribe(
+      channelName,
+      twitchChannelId,
+      epoch,
+    );
     _sevenTvSubInflight[twitchChannelId] = future;
     // The copy must not report unhandled errors; awaiters use the original.
     future
@@ -336,6 +355,7 @@ class ChatChannelSetup {
   Future<void> _doResolveSevenTvAndSubscribe(
     String channelName,
     String twitchChannelId,
+    int epoch,
   ) async {
     // Check if EmoteManager already has the IDs from resolveEmotes.
     final cachedEmoteSetId = emoteManager.getSevenTvEmoteSetId(channelName);
@@ -363,9 +383,12 @@ class ChatChannelSetup {
         lookup = future;
       }
       final ids = await lookup;
-      if (ids == null) return;
+      if (ids == null || _isStale(channelName, epoch)) return;
       finalEmoteSetId = ids.emoteSetId;
       finalUserId = ids.userId;
+      // Persisted so forgetChannel can unsubscribe both ids.
+      emoteManager.setSevenTvEmoteSetId(channelName, finalEmoteSetId);
+      emoteManager.setSevenTvUserId(channelName, finalUserId);
     }
 
     final known = _sevenTvSubscribed[twitchChannelId];
@@ -396,7 +419,6 @@ class ChatChannelSetup {
       final emoteSetId =
           (data['emote_set'] as Map<String, dynamic>?)?['id'] as String?;
       if (userId == null || emoteSetId == null) return null;
-      emoteManager.setSevenTvEmoteSetId(channelName, emoteSetId);
       return (userId: userId, emoteSetId: emoteSetId);
     } catch (_) {
       return null;

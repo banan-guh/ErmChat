@@ -92,7 +92,6 @@ class ChatLifecycle {
   // every auth change, and each call must not stack another broadcast
   // listener while the read socket stays down.
   bool _readConnectWaiterArmed = false;
-  DateTime? _lastSubscribeAll;
   // Credentials the IRC sockets were last told to use. Compared against the
   // desired account on connect() so an account switch tears the sockets down
   // (an already-connected socket otherwise skips the reconnect).
@@ -287,34 +286,21 @@ class ChatLifecycle {
       });
 
       ircStatusSub?.cancel();
-      ircStatusSub = irc.onStatus.listen((status) async {
+      ircStatusSub = irc.onStatus.listen((status) {
         if (_disposed) return;
         connectionStateNotifier.value++;
         if (status == IrcConnectionStatus.connected && irc.isConnected) {
           readiness.noteWriteSocketConnected();
-          // Edge-triggered: subscribeAll once per connect with 30s throttle.
-          // The 500ms settle delay only applies on reconnect - the sockets
-          // rejoin channels themselves on reconnect.
+          // Edge-triggered: subscribeAll once per connect.
           if (!_wasConnected) {
             final isReconnect = _wasDisconnected;
             _wasConnected = true;
             _wasDisconnected = false;
             // Re-fetch history after a reconnect (not on first connect) so
             // messages missed while disconnected are recovered. Fires before
-            // the 30s throttle so reconnect flapping still re-fetches; the
-            // throttle only gates Helix re-subscriptions.
+            // subscribeAll so reconnect flapping still re-fetches.
             if (isReconnect) {
               onReconnected?.call();
-            }
-            final now = DateTime.now();
-            if (_lastSubscribeAll != null &&
-                now.difference(_lastSubscribeAll!).inSeconds < 30) {
-              return;
-            }
-            final firstConnect = _lastSubscribeAll == null;
-            _lastSubscribeAll = now;
-            if (!firstConnect) {
-              await Future.delayed(const Duration(milliseconds: 500));
             }
             // Per-channel "Connected" now waits for that channel's own JOIN
             // confirmation (see the ROOMSTATE listener) - a socket being up
@@ -326,7 +312,6 @@ class ChatLifecycle {
           _wasDisconnected = true;
           _wasConnected = false;
           readiness.resetForWriteDisconnect();
-          _lastSubscribeAll = null;
           // Failure state is per socket lifetime: the fresh socket runs its
           // own fast sweep, so it may legitimately fail (and re-announce)
           // again.
@@ -547,7 +532,6 @@ class ChatLifecycle {
         // timeout anchors belong to the old account, and duplicate-bypass
         // wire text must not carry across accounts.
         readiness.resetForAccountSwitch();
-        _lastSubscribeAll = null;
         clearSelfBadges();
         sender.clearAccountScope();
         // The queue belongs to the old account's moderation scope.

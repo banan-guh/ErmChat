@@ -11,17 +11,28 @@ import '../models/point_rewards.dart';
 import '../models/polls.dart';
 import 'twitch_auth.dart';
 
-/// Applies [httpTimeout] to every Helix call. A stalled request throws
-/// [TimeoutException], the same shape callers already get from an offline
-/// [SocketException], instead of hanging the join/moderation path forever.
+/// Applies [httpTimeout] to every Helix call: to the response headers and to
+/// each gap between body chunks. A stalled request throws [TimeoutException],
+/// the same shape callers already get from an offline [SocketException],
+/// instead of hanging the join/moderation path forever.
 class _TimeoutClient extends http.BaseClient {
   _TimeoutClient(http.Client inner) : _inner = inner;
 
   final http.Client _inner;
 
   @override
-  Future<http.StreamedResponse> send(http.BaseRequest request) {
-    return _inner.send(request).timeout(httpTimeout);
+  Future<http.StreamedResponse> send(http.BaseRequest request) async {
+    final res = await _inner.send(request).timeout(httpTimeout);
+    return http.StreamedResponse(
+      res.stream.timeout(httpTimeout),
+      res.statusCode,
+      contentLength: res.contentLength,
+      request: res.request,
+      headers: res.headers,
+      isRedirect: res.isRedirect,
+      persistentConnection: res.persistentConnection,
+      reasonPhrase: res.reasonPhrase,
+    );
   }
 
   @override

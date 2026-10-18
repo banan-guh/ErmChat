@@ -111,6 +111,17 @@ void main() {
     }
   }
 
+  test('a join racing a connected edge subscribes each type once', () async {
+    topics.subscribeChannel('testchannel', 'broadcaster1');
+    topics.resubscribeEventSubChannels(['testchannel']);
+    await flush();
+    expect(
+      seenTypes.where((t) => t == 'channel.moderate'),
+      hasLength(1),
+      reason: 'the second run must not start while the first is in flight',
+    );
+  });
+
   group('moderation (single)', () {
     test('success sets the active set and wakes the mod view', () async {
       topics.subscribeChannel('testchannel', 'broadcaster1');

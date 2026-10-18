@@ -10,9 +10,14 @@ import 'events.dart';
 /// instance per transport: it subscribes to the transport's [onNotification]
 /// stream and routes each frame by `subscription_type`.
 class EventSubDecoder {
-  EventSubDecoder(Stream<Map<String, dynamic>> source) {
+  EventSubDecoder(
+    Stream<Map<String, dynamic>> source, {
+    this._now = DateTime.now,
+  }) {
     _subscription = source.listen(_onNotification);
   }
+
+  final DateTime Function() _now;
 
   late final StreamSubscription<Map<String, dynamic>> _subscription;
   final _channelUserIds = <String, String>{};
@@ -78,6 +83,11 @@ class EventSubDecoder {
   void setChannelMapping(String broadcasterUserId, String channelName) {
     _channelUserIds[broadcasterUserId] = channelName;
   }
+
+  /// Drops the broadcaster mapping of a left channel; late frames for it
+  /// resolve to no channel.
+  void forgetChannel(String channelName) =>
+      _channelUserIds.removeWhere((_, name) => name == channelName);
 
   String? _channelFromPayload(Map<String, dynamic> msg) {
     final payload = msg['payload'] as Map<String, dynamic>?;
@@ -553,7 +563,7 @@ class EventSubDecoder {
           final parsed = DateTime.tryParse(expiresAt);
           if (parsed != null) {
             durationSeconds = parsed
-                .difference(DateTime.now().toUtc())
+                .difference(_now().toUtc())
                 .inSeconds
                 .clamp(0, 1 << 30);
           }
@@ -619,6 +629,7 @@ class EventSubDecoder {
 
   void dispose() {
     _subscription.cancel();
+    _channelUserIds.clear();
     _moderationController.close();
     _automodHeldController.close();
     _hypeTrainController.close();

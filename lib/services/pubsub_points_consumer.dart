@@ -74,6 +74,7 @@ class PubSubPointsConsumer {
   void noteIrcRedemption(String channel, String rewardId, String? messageId) {
     if (_disposed || messageId == null || messageId.isEmpty) return;
     final key = _key(channel, rewardId);
+    _sweep(_now());
     final queue = _waitingIrc.putIfAbsent(key, () => []);
     if (queue.any((w) => w.messageId == messageId)) return;
     queue.add(_WaitingIrc(messageId: messageId, at: _now()));
@@ -112,6 +113,7 @@ class PubSubPointsConsumer {
           _waitingIrc.remove(key);
         }
       }
+      _sweep(_now());
       final queue = _staged.putIfAbsent(key, () => []);
       queue.add(_StagedRedemption(redemption: redemption, at: _now()));
       _prune(queue, _now());
@@ -227,6 +229,17 @@ class PubSubPointsConsumer {
 
   static void _prune(List<_Expiring> queue, DateTime now) {
     queue.removeWhere((e) => now.difference(e.at) > _partnerTtl);
+  }
+
+  /// Drops expired entries of every key so keys never touched again do not
+  /// outlive their partner window.
+  void _sweep(DateTime now) {
+    for (final map in [_staged, _waitingIrc]) {
+      map.removeWhere((_, queue) {
+        _prune(queue, now);
+        return queue.isEmpty;
+      });
+    }
   }
 
   void dispose() {

@@ -223,12 +223,14 @@ class SevenTvEventClient {
               logDebug(
                 '7TV: fatal end-of-stream code $_fatalCloseCode - not reconnecting',
               );
+              _dropSocket();
               return;
             }
             if (code != null && _noReconnectCloseCodes.contains(code)) {
               logDebug(
                 '7TV: close code $code indicates client bug - not reconnecting',
               );
+              _dropSocket();
               return;
             }
             _scheduleReconnect();
@@ -677,6 +679,14 @@ class SevenTvEventClient {
     };
     _isOnline = service.isOnline;
     service.addListener(_connectivityListener!);
+  }
+
+  /// Releases a socket that will not auto-reconnect and reports it down so
+  /// [isConnected] is false and the liveness watchdog recovers it.
+  void _dropSocket() {
+    _disconnect();
+    if (_disposed) return;
+    _statusCtrl.add(SevenTvEventStatus.disconnected);
   }
 
   void _disconnect() {

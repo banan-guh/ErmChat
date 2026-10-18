@@ -1129,6 +1129,10 @@ class EmoteStore {
     _sevenTvEmoteSetIds[channel] = emoteSetId;
   }
 
+  void setSevenTvUserId(String channel, String userId) {
+    _sevenTvUserIds[channel] = userId;
+  }
+
   String? getSevenTvEmoteSetId(String channel) => _sevenTvEmoteSetIds[channel];
 
   String? getSevenTvUserId(String channel) => _sevenTvUserIds[channel];

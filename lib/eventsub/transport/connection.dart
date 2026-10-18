@@ -87,6 +87,9 @@ class EventSubService {
       try {
         _channel = WebSocketChannel.connect(Uri.parse(url ?? _wsUrl));
         await _waitForReady();
+        // A dispose during the handshake already closed the socket and the
+        // controllers.
+        if (_disposed) return;
 
         _streamSub = _channel!.stream.listen(
           (raw) {
@@ -117,6 +120,7 @@ class EventSubService {
         _channel?.sink.close();
         _channel = null;
         _streamSub = null;
+        if (_disposed) return;
         _statusController.add(EventSubStatus.disconnected);
         logDebug('EventSub connect error: $e');
         _scheduleReconnect();

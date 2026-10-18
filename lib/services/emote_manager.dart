@@ -951,6 +951,9 @@ class EmoteManager implements EmoteLookupSource {
   void setSevenTvEmoteSetId(String channel, String emoteSetId) =>
       _store.setSevenTvEmoteSetId(channel, emoteSetId);
 
+  void setSevenTvUserId(String channel, String userId) =>
+      _store.setSevenTvUserId(channel, userId);
+
   String? getSevenTvEmoteSetId(String channel) =>
       _store.getSevenTvEmoteSetId(channel);
 

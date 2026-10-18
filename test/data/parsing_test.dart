@@ -1650,6 +1650,39 @@ void main() {
       }
     });
 
+    test('timeout duration follows the injected clock', () {
+      final clock = DateTime.utc(2030, 1, 1);
+      final decoder = EventSubDecoder(
+        Stream<Map<String, dynamic>>.empty(),
+        now: () => clock,
+      )..setChannelMapping('broadcaster1', 'testchannel');
+      addTearDown(decoder.dispose);
+      final events = <ModerationEvent>[];
+      decoder.onModeration.listen(events.add);
+      decoder.feed(
+        _moderate(
+          action: 'timeout',
+          meta: {
+            'timeout': {
+              'user_name': 'targetuser',
+              'expires_at': clock
+                  .add(const Duration(seconds: 120))
+                  .toIso8601String(),
+            },
+          },
+        ),
+      );
+      expect(events.single.durationSeconds, 120);
+    });
+
+    test('forgetChannel drops the broadcaster mapping', () {
+      final events = <ModerationEvent>[];
+      service.onModeration.listen(events.add);
+      service.forgetChannel('testchannel');
+      service.feed(_moderate(action: 'clear', meta: const {}));
+      expect(events, isEmpty, reason: 'late events for a left channel drop');
+    });
+
     test('ignores unknown types and unmapped channels', () {
       for (final (name, type, broadcaster) in [
         (
