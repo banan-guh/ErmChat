@@ -109,6 +109,9 @@ Widget buildStackedPlayer({
   );
 }
 
+/// Width of the split's drag handle between player and chat.
+const double _splitHandleW = 16;
+
 class StreamPanels {
   // Stream player layouts (stacked/theater/split), the body column router,
   // and the stream toggle/player-changed verbs.
@@ -321,19 +324,24 @@ class StreamPanels {
                 ),
                 GestureDetector(
                   behavior: HitTestBehavior.translucent,
-                  // Reads the live fraction, not this build's: several drag
-                  // updates can land before the next rebuild.
-                  onHorizontalDragUpdate: (details) => setLocal(
-                    () => streamPlayer.dragSplitFraction(
-                      (streamPlayer.splitFraction.clamp(0.2, maxFrac) +
-                              details.delta.dx / maxWidth)
-                          .clamp(0.2, maxFrac),
-                    ),
-                  ),
+                  // The handle centers under the finger, so the fraction
+                  // follows from where it is, not from summed deltas.
+                  onHorizontalDragUpdate: (details) {
+                    final row = context.findRenderObject()! as RenderBox;
+                    final x = row.globalToLocal(details.globalPosition).dx;
+                    setLocal(
+                      () => streamPlayer.dragSplitFraction(
+                        ((x - _splitHandleW / 2) / maxWidth).clamp(
+                          0.2,
+                          maxFrac,
+                        ),
+                      ),
+                    );
+                  },
                   onHorizontalDragEnd: (_) =>
                       streamPlayer.setSplitFraction(streamPlayer.splitFraction),
                   child: const SizedBox(
-                    width: 16,
+                    width: _splitHandleW,
                     child: Center(
                       child: SizedBox(
                         width: 4,
