@@ -617,7 +617,7 @@ void main() {
       expect(messages.moveConnectedToTop(), isTrue);
       expect(messages.items.first.text, 'Renamed');
 
-      // Signed in, the account row rides just under the first Connected.
+      // Signed in, the first connect names the account in its one row.
       var account = 'as me';
       final named = Chat(
         systemText: (line) => line == SystemLine.signedIn ? account : line.name,
@@ -625,16 +625,16 @@ void main() {
       addTearDown(named.dispose);
       final rows = named.ensure('test').messages;
       rows.addConnStatus(SystemLine.connected);
-      // A newer row lands above both, as history merging in does.
+      // A newer row lands above it, as history merging in does.
       rows.addSystem('history');
       expect(rows.moveConnectedToTop(), isTrue);
-      expect(rows.items.take(2).map((m) => m.text), [
-        'connected',
+      expect(rows.items.map((m) => m.text), [
         'as me',
-      ], reason: 'Connected stays newest with the account line under it');
+        'history',
+      ], reason: 'one "connected as" row, kept newest');
 
       // Busy chat truncated the first Connected away; the next connect
-      // re-posted it with a second "signed in" row.
+      // must not name the same account again.
       for (var i = 0; i < 300; i++) {
         rows.add(
           TwitchMessage(login: 'a', text: 'm$i', messageId: 'id$i'),
@@ -652,10 +652,10 @@ void main() {
       rows.addConnStatus(SystemLine.connected);
       rows.addSystem('history');
       expect(rows.moveConnectedToTop(), isTrue);
-      expect(rows.items.take(2).map((m) => m.text), [
-        'reconnected',
+      expect(rows.items.where((m) => m.isSystem).map((m) => m.text), [
         'as you',
-      ], reason: 'a switched account names itself under its reconnect');
+        'history',
+      ], reason: 'a switched account names itself in its reconnect row');
 
       final loading = chat.ensure('loading');
       loading.addLoadingHistory();

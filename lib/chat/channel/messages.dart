@@ -57,7 +57,8 @@ enum SystemLine {
   loadingHistory,
   historyGap,
 
-  /// "Signed in as …" under the first Connected line; empty when anonymous.
+  /// "Connected as …", the connect row's text when it names a new account;
+  /// empty when anonymous.
   signedIn,
 }
 
@@ -139,13 +140,6 @@ class Messages {
   /// Id prefix of "not all messages retrieved" notes; the rest is the epoch
   /// ms they sit at.
   static const historyGapIdPrefix = 'sys_gap:';
-
-  /// Id prefix of the "signed in as" row that sits under the first
-  /// Connected line.
-  static const _signedInIdPrefix = 'sys_signedin:';
-
-  static bool _isSignedIn(TwitchMessage m) =>
-      m.isSystem && (m.messageId?.startsWith(_signedInIdPrefix) ?? false);
 
   static bool _isConnRow(TwitchMessage m) =>
       m.isSystem && (m.messageId?.startsWith(_connIdPrefix) ?? false);
@@ -477,10 +471,8 @@ class Messages {
   /// truncates away, so a later connect still reads as a reconnect.
   bool _connectedOnce = false;
 
-  /// The account the last "signed in as" row named, and the connect row it
-  /// rides under. Null while anonymous.
+  /// The account the last "connected as" row named. Null while anonymous.
   String? _namedAccount;
-  String? _signedInPartnerId;
 
   /// Inserts a connect-state row at the top with status folding: a repeat
   /// connect reads as Reconnected, recoveries clear the outage marker, and
@@ -544,18 +536,13 @@ class Messages {
       _removeRows((m) => _isConn(m, SystemLine.reconnecting));
     }
     if (resolved == SystemLine.connected) _connectedOnce = true;
-    // The account row sits just under its connect row; anonymous sessions
-    // resolve the line to empty and skip it.
-    final connId = '$_connIdPrefix${resolved.name}:${_nextSystemMessageId++}';
-    if (newAccount) {
-      _namedAccount = signedIn;
-      _signedInPartnerId = connId;
-      _insertSystem(
-        signedIn,
-        messageId: '$_signedInIdPrefix${_nextSystemMessageId++}',
-      );
-    }
-    return _insertSystem(systemText(resolved), messageId: connId);
+    // A new account's connect names it in the one row; anonymous sessions
+    // resolve the name to empty and keep the plain line.
+    if (newAccount) _namedAccount = signedIn;
+    return _insertSystem(
+      newAccount ? signedIn : systemText(resolved),
+      messageId: '$_connIdPrefix${resolved.name}:${_nextSystemMessageId++}',
+    );
   }
 
   /// Inserts a system row at the top with id-less text dedup. Returns false
@@ -727,26 +714,12 @@ class Messages {
     idx = recovered
         ? idx
         : _items.indexWhere((m) => _isConn(m, SystemLine.connected));
-    if (idx < 0) return false;
-    var moved = false;
-    if (idx > 0) {
-      final msg = _items.removeAt(idx);
-      _items.insert(0, msg);
-      if (identical(msg, _limitEnd)) _limitEnd = null;
-      moved = true;
-    }
-    // The connect row that named the account keeps its row just under it.
-    if (_items.first.messageId == _signedInPartnerId) {
-      final at = _items.indexWhere(_isSignedIn);
-      if (at > 1) {
-        final row = _items.removeAt(at);
-        _items.insert(1, row);
-        if (identical(row, _limitEnd)) _limitEnd = null;
-        moved = true;
-      }
-    }
-    if (moved) _bump();
-    return moved;
+    if (idx <= 0) return false;
+    final msg = _items.removeAt(idx);
+    _items.insert(0, msg);
+    if (identical(msg, _limitEnd)) _limitEnd = null;
+    _bump();
+    return true;
   }
 
   // ---- Mutations -----------------------------------------------------------

@@ -216,7 +216,7 @@ final chatProvider = Provider<Chat>((ref) {
       final l = strings();
       return switch (line) {
         SystemLine.connected => l.statusConnected,
-        // Empty when anonymous, which skips the row.
+        // Empty when anonymous, which keeps the plain Connected.
         SystemLine.signedIn => switch (ref.read(sessionProvider).login) {
           final login? => l.statusSignedIn(login),
           null => '',

@@ -2909,7 +2909,7 @@
     }
   },
   "statusConnected": "Connected",
-  "statusSignedIn": "Signed in as {login}",
+  "statusSignedIn": "Connected as {login}",
   "@statusSignedIn": {
     "placeholders": {
       "login": {
