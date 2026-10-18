@@ -318,7 +318,14 @@ class BugReportOutbox extends ChangeNotifier {
     return File('${_dir!.path}${Platform.pathSeparator}bug_reports.json');
   }
 
-  Future<void> _persist() async {
+  // Saves run one after another: two at once would share the temp file and
+  // could rename a half-written one into place.
+  Future<void> _persistQueue = Future.value();
+
+  Future<void> _persist() =>
+      _persistQueue = _persistQueue.then((_) => _write());
+
+  Future<void> _write() async {
     try {
       final file = await _file();
       if (file == null) return;
