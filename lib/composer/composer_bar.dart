@@ -508,7 +508,7 @@ class _StatusRow extends StatelessWidget {
     builder: (context) {
       final channel = controller.selectedChannel;
       return AnimatedSize(
-        duration: const Duration(milliseconds: 300),
+        duration: const Duration(milliseconds: 100),
         curve: Curves.easeInOut,
         alignment: Alignment.topCenter,
         child: channel == null
