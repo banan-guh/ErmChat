@@ -78,7 +78,15 @@ class Chat {
     required bool isSelected,
     required String? ownLogin,
   }) {
-    final result = ensure(channel).receive(
+    final target = _channels[channel];
+    if (target == null) {
+      return const ReceiveResult(
+        inserted: false,
+        mentioned: false,
+        countMention: false,
+      );
+    }
+    final result = target.receive(
       msg,
       maxMessages: maxMessages,
       isSelected: isSelected,
@@ -137,12 +145,31 @@ class Chat {
       final removed = entry.value.removeMessages(
         (m) => !m.isSystem && blockedLogins.contains(m.login.toLowerCase()),
       );
-      if (removed.isNotEmpty) touched.add(entry.key);
+      if (removed.isEmpty) continue;
+      touched.add(entry.key);
+      if (removed.any((m) => m.highlight?.hasMention ?? false)) {
+        _recountUnread(entry.value);
+      }
     }
     mentions.removeWhere(
       (m) => !m.isSystem && blockedLogins.contains(m.login.toLowerCase()),
     );
     return touched;
+  }
+
+  /// Recomputes a channel's unread mention count from the rows it still holds
+  /// after a purge. Dots survive only while a countable mention row remains.
+  void _recountUnread(Channel c) {
+    final unread = c.unread;
+    final before = unread.mentionCount;
+    if (before == 0) return;
+    final remaining = c.messages.items
+        .where((m) => !m.isSystem && (m.highlight?.hasMention ?? false))
+        .length;
+    final dropped = unread.dropMentions(remaining);
+    if (dropped == 0) return;
+    _setUnreadMentions(_unreadMentions - dropped);
+    unreadVersion.value++;
   }
 
   static bool _isMentionRow(TwitchMessage m, String? ownLogin) {

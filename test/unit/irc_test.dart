@@ -1488,6 +1488,17 @@ void main() {
 
   Future<void> flush() => Future<void>.delayed(Duration.zero);
 
+  test('a command with an empty first param is ignored', () {
+    expect(
+      () => service.handleLine(':tmi.twitch.tv CLEARMSG  :x'),
+      returnsNormally,
+    );
+    expect(
+      () => service.handleLine(':tmi.twitch.tv PRIVMSG  :x'),
+      returnsNormally,
+    );
+  });
+
   group('moderation lines', () {
     test('CLEARMSG emits a delete event and tolerates missing tags', () async {
       final events = <IrcMessageDeletedEvent>[];
@@ -2863,6 +2874,7 @@ void main() {
           systemMessages.add((c, t, accent));
         },
       );
+      conn.chat.ensure('test');
       await conn.connect();
       ircRead.emitConnected();
       return (conn, ircRead, systemMessages);
@@ -2967,7 +2979,7 @@ void main() {
         expect(systemMessages.single.$3, accent, reason: name);
         final channel = conn.chat.channelFor('test');
         if (childText == null) {
-          expect(channel, isNull, reason: name);
+          expect(channel!.messages.items, isEmpty, reason: name);
         } else {
           final child = channel!.messages.items.first;
           expect(child.isSystem, isFalse, reason: name);

@@ -319,6 +319,23 @@ void main() {
       expect(m.containsId('m2'), isFalse);
     });
 
+    test('thread-aware truncate lists id-less rows it drops', () {
+      final m = Messages(channel: 'a');
+      addTearDown(m.dispose);
+      m.add(_live('root'), maxMessages: 10);
+      m.add(_reply('r1', 'root'), maxMessages: 10);
+      final idless = TwitchMessage(login: 'x', text: 'no id', channel: 'a');
+      m.add(idless, maxMessages: 10);
+      for (var i = 0; i < 4; i++) {
+        m.add(_live('f$i'), maxMessages: 10);
+      }
+
+      final evicted = m.truncate(3);
+
+      expect(m.items, isNot(contains(idless)));
+      expect(evicted, contains(idless), reason: 'dropped row unreported');
+    });
+
     test('a reply row takes the thread-aware path and keeps order', () {
       var t = DateTime(2026, 1, 1);
       final m = Messages(channel: 'a', now: () => t);

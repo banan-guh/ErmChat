@@ -167,6 +167,7 @@ void main() {
       final chat = Chat();
       addTearDown(chat.dispose);
       final msg = _live('m1', login: 'spammer', highlight: _mention);
+      chat.ensure('test');
       chat.receive(
         'test',
         msg,
@@ -176,12 +177,33 @@ void main() {
       );
       expect(chat.mentions.items, hasLength(1));
       expect(chat.channelFor('test')!.messages.items, hasLength(1));
+      expect(chat.unreadMentions, 1);
 
       final touched = chat.removeBlocked({'spammer'});
 
       expect(touched, {'test'});
+      expect(chat.unreadMentions, 0, reason: 'blocked mention still counted');
+      expect(chat.channelFor('test')!.unread.hasMention, isFalse);
       expect(chat.channelFor('test')!.messages.items, isEmpty);
       expect(chat.mentions.isEmpty, isTrue);
+    });
+
+    test('live message for a removed channel does not recreate it', () {
+      final chat = Chat();
+      addTearDown(chat.dispose);
+      chat.ensure('a');
+      chat.remove('a');
+
+      final result = chat.receive(
+        'a',
+        _live('m1', channel: 'a'),
+        maxMessages: 100,
+        isSelected: false,
+        ownLogin: null,
+      );
+
+      expect(result.inserted, isFalse);
+      expect(chat.contains('a'), isFalse, reason: 'zombie channel');
     });
 
     test('clearUnread returns cleared mentions and resets dots', () {

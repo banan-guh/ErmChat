@@ -128,11 +128,17 @@ class Threads {
         entry.root = msg;
         return true;
       } else if (entry != null && entry.root != null) {
-        entry.root!.deleted = entry.root!.deleted || msg.deleted;
-        if (entry.root!.text != msg.text && msg.text.isNotEmpty) {
-          entry.root!.text = msg.text;
+        final root = entry.root!;
+        var changed = false;
+        if (msg.deleted && !root.deleted) {
+          root.deleted = true;
+          changed = true;
         }
-        return true;
+        if (root.text != msg.text && msg.text.isNotEmpty) {
+          root.text = msg.text;
+          changed = true;
+        }
+        return changed;
       }
       return false;
     }

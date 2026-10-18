@@ -446,6 +446,7 @@ void main() {
       });
       consumer.attach(source.stream);
 
+      chat.ensure('shroud');
       chat.receive(
         'shroud',
         TwitchMessage(

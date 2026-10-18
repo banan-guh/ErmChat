@@ -282,5 +282,24 @@ void main() {
         'moduser did some future action.',
       );
     });
+
+    test('suspicious sightings cap at the oldest', () {
+      final chat = Chat();
+      addTearDown(chat.dispose);
+      final mod = _mod(chat);
+      for (var i = 0; i < Moderation.maxSuspiciousPerChannel + 5; i++) {
+        mod.noteSuspicious(
+          SuspiciousInfo(
+            at: t0,
+            channel: 'test',
+            login: 'u$i',
+            status: 'monitored',
+          ),
+        );
+      }
+      expect(mod.suspicious, hasLength(Moderation.maxSuspiciousPerChannel));
+      expect(mod.suspiciousFor('u0'), isNull);
+      expect(mod.suspiciousFor('u204'), isNotNull);
+    });
   });
 }

@@ -287,8 +287,11 @@ class IrcChatDecoder {
   }
 
   /// Channel name from a `#channel` param, or null when the frame has none.
-  String? _channelNameOf(IrcMessage msg) =>
-      msg.params.isEmpty ? null : msg.params[0].substring(1);
+  String? _channelNameOf(IrcMessage msg) {
+    if (msg.params.isEmpty) return null;
+    final param = msg.params[0];
+    return param.startsWith('#') ? param.substring(1) : null;
+  }
 
   /// Login from the prefix before `!`, or null when the prefix is absent.
   String? _prefixLoginOf(IrcMessage msg) {

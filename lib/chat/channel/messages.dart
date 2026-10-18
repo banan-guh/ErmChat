@@ -941,7 +941,7 @@ class Messages {
       }
       if (keep) {
         retained.add(m);
-      } else if (id != null) {
+      } else {
         _unindex(m);
         evicted.add(m);
       }

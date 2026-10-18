@@ -13,6 +13,7 @@ import 'package:ermchat/panels/search.dart';
 import 'package:ermchat/util/chat_search.dart';
 import 'package:ermchat/services/twitch_auth.dart';
 import 'package:ermchat/util/mention.dart';
+import 'package:ermchat/util/signal.dart';
 import 'package:ermchat/util/duration_format.dart';
 import 'package:ermchat/util/chat_text.dart';
 import 'package:ermchat/main.dart';
@@ -180,6 +181,7 @@ void main() {
         ('hello @forsen!', 'forsen', true),
         ('(@forsen)', 'forsen', true),
         ('hello forsen.', 'forsen', true),
+        ('bob@forsen.com', 'forsen', false),
         ('', 'forsen', false),
         ('hello', '', false),
       ];
@@ -190,6 +192,24 @@ void main() {
           reason: 'text: "${c.$1}" login: "${c.$2}"',
         );
       }
+    });
+  });
+
+  group('ChatSignal', () {
+    testWidgets('a throwing listener does not skip the rest', (tester) async {
+      final seen = <int>[];
+      final signal = ChatSignal<int>()
+        ..add((_) => throw StateError('boom'))
+        ..add(seen.add);
+      final voidSignal = ChatVoidSignal()
+        ..add(() => throw StateError('boom'))
+        ..add(() => seen.add(0));
+
+      signal.emit(1);
+      voidSignal.emit();
+
+      expect(seen, [1, 0]);
+      expect(tester.takeException(), isNotNull);
     });
   });
 

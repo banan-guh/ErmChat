@@ -12,7 +12,7 @@ class ChatSignal<T> {
 
   void emit(T value) {
     for (final listener in List.of(_listeners)) {
-      listener(value);
+      _guard(() => listener(value));
     }
   }
 
@@ -30,9 +30,24 @@ class ChatVoidSignal {
 
   void emit() {
     for (final listener in List.of(_listeners)) {
-      listener();
+      _guard(listener);
     }
   }
 
   void clear() => _listeners.clear();
+}
+
+void _guard(void Function() call) {
+  try {
+    call();
+  } catch (e, stack) {
+    FlutterError.reportError(
+      FlutterErrorDetails(
+        exception: e,
+        stack: stack,
+        library: 'ermchat',
+        context: ErrorDescription('while dispatching a chat signal'),
+      ),
+    );
+  }
 }

@@ -393,5 +393,22 @@ void main() {
       expect(bumps, 2);
       expect(channel.threads.threadFor('r1'), hasLength(1));
     });
+
+    test('re-indexing an unchanged root leaves version alone', () {
+      final chat = Chat();
+      addTearDown(chat.dispose);
+      final channel = chat.ensure('test');
+      final root = _root('r1');
+      channel.messages.add(root, maxMessages: 100);
+      channel.threads.index([
+        root,
+        _reply('c1', 'r1'),
+      ], lookupRoot: channel.messages.byId);
+      final before = channel.threads.version.value;
+
+      channel.threads.index([root], lookupRoot: channel.messages.byId);
+
+      expect(channel.threads.version.value, before, reason: 'no-op reindex');
+    });
   });
 }

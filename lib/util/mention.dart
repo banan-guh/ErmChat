@@ -1,6 +1,6 @@
 import '../models/twitch_message.dart';
 
-final _wordSplitRe = RegExp(r'[\s,;:.!?()\[\]{}<>"/\\|@#$%^&*+=~`]+');
+final _wordSplitRe = RegExp(r'[\s,;:.!?()\[\]{}<>"/\\|#$%^&*+=~`]+');
 
 /// Whole-word match of [name] in [text], optionally @-prefixed.
 bool wordMatches(String text, String name) {

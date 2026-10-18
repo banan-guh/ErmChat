@@ -60,6 +60,7 @@ void main() {
       final chat = Chat();
       addTearDown(chat.dispose);
       const max = 500;
+      chat.ensure('shroud');
       for (final id in ['m1', 'm2']) {
         chat.receive(
           'shroud',

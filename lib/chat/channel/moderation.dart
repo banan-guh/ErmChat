@@ -18,6 +18,7 @@ class Moderation {
   static const maxHeldPerChannel = 200;
   static const maxActivityPerChannel = 200;
   static const maxWarningsPerChannel = 200;
+  static const maxSuspiciousPerChannel = 200;
   // Expired bans are only swept opportunistically (Mod View build); past this
   // size a ban insert sweeps first so the map cannot grow for a whole session.
   static const banPruneThreshold = 256;
@@ -150,7 +151,12 @@ class Moderation {
   UnmodifiableMapView<String, BanEntry> get bans => UnmodifiableMapView(_bans);
 
   void noteSuspicious(SuspiciousInfo info) {
-    _suspicious[info.login.toLowerCase()] = info;
+    final key = info.login.toLowerCase();
+    _suspicious.remove(key);
+    _suspicious[key] = info;
+    while (_suspicious.length > maxSuspiciousPerChannel) {
+      _suspicious.remove(_suspicious.keys.first);
+    }
     modActivityVersion.value++;
   }
 

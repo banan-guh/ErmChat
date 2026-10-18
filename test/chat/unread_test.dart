@@ -27,6 +27,7 @@ void main() {
         ]) {
           final chat = Chat();
           addTearDown(chat.dispose);
+          chat.ensure('test');
           final result = chat.receive(
             'test',
             _live('m1', type: type),
@@ -61,6 +62,7 @@ void main() {
       ]) {
         final chat = Chat();
         addTearDown(chat.dispose);
+        chat.ensure('test');
         final result = chat.receive(
           'test',
           msg,

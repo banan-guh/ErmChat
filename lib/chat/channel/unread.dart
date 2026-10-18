@@ -29,6 +29,16 @@ class Unread {
     return false;
   }
 
+  /// Lowers the mention count to at most [keep] after a purge removed rows.
+  /// Returns how many mentions dropped; the mention dot goes with the last one.
+  int dropMentions(int keep) {
+    if (keep >= _mentionCount) return 0;
+    final dropped = _mentionCount - keep;
+    _mentionCount = keep;
+    if (keep == 0) _hasMention = false;
+    return dropped;
+  }
+
   /// Selecting the channel clears dots and mention counts.
   int clear() {
     final cleared = _mentionCount;
