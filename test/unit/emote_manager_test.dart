@@ -2451,6 +2451,27 @@ void main() {
       manager.resetUserEmoteState();
 
       expect(manager.byCode('chanA')?.byCode['PrimePride'], isNull);
+
+      // An account switch while a fetch is out: the old account's emotes
+      // must not land under the new one.
+      final reply = Completer<Map<String, List<Emote>>>();
+      final slow = EmoteManager(
+        fetchStagger: Duration.zero,
+        fetchUserEmotes: (userId, {accessToken}) => reply.future,
+        resolveOwnerLogins: (a, ids) async => {},
+      );
+      final load = slow.loadUserEmotes(auth, {'chanA': 'ownerA'});
+      await pumpEventQueue();
+      slow.resetUserEmoteState();
+      reply.complete({
+        '': [unlockedEmote()],
+      });
+      await load;
+      expect(
+        slow.byCode('chanA')?.byCode['PrimePride'],
+        isNull,
+        reason: 'a stale fetch stored its emotes after the switch',
+      );
     });
 
     test('reconnect heals unresolved owner labels without re-fetching', () async {

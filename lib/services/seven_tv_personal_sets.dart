@@ -161,6 +161,9 @@ class SevenTvPersonalSets {
       logDebug('[SevenTvPersonalSets] personal 7TV set listing failed: $e');
       return;
     }
+    // An account switch mid-load must not file the old viewer's sets under
+    // the new one.
+    if (viewerTwitchId != viewerId) return;
     var changed = false;
     for (final setId in setIds) {
       if (_personalSevenTvSetIds.contains(setId)) continue;
@@ -171,6 +174,7 @@ class SevenTvPersonalSets {
         logDebug('[SevenTvPersonalSets] personal 7TV set $setId failed: $e');
         continue;
       }
+      if (viewerTwitchId != viewerId) return;
       _personalSevenTvSetIds.add(setId);
       _personalSevenTvSets[setId] = emotes;
       changed = true;
@@ -216,6 +220,7 @@ class SevenTvPersonalSets {
       logDebug('[SevenTvPersonalSets] personal 7TV grant fetch failed: $e');
       return;
     }
+    if (viewerTwitchId != viewerId) return;
     _personalSevenTvSetIds.add(event.cosmeticId);
     _personalSevenTvSets[event.cosmeticId] = emotes;
     _notifyChanged();

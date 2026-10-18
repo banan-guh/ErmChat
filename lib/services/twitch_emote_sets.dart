@@ -38,6 +38,9 @@ class TwitchEmoteSets {
   bool _inflight = false;
   // Token the fetch ran with: a re-login (new scopes, same account) refetches.
   String? _fetchedToken;
+  // Bumped by an account reset, so a fetch started for the previous account
+  // drops its results instead of storing them under the new one.
+  int _account = 0;
   // owner id -> login, built up across resolves and reused between reconnects.
   final Map<String, String> _emoteOwnerLogins = {};
   // Last fetched locked user emote sets keyed by owner id. Kept in memory
@@ -106,6 +109,7 @@ class TwitchEmoteSets {
       return;
     }
     _inflight = true;
+    final account = _account;
     // Subs tab spins (not empty-text) while the fetch below is in flight.
     // Rendered rows ignore the emit; live surfaces re-read.
     _store.notifyCatalogChanged();
@@ -118,6 +122,7 @@ class TwitchEmoteSets {
         userId,
         accessToken: auth.accessToken,
       );
+      if (account != _account) return;
       final perOwner = <String, List<Emote>>{};
       final unlocked = <Emote>[];
       // A refetch replaces the cache, so lapsed subs drop out.
@@ -157,7 +162,7 @@ class TwitchEmoteSets {
       final channels = _openChannels(openChannelUserIds);
       await _resolveOwners(auth, channels, ownerIds: perOwner.keys);
       final targets = channels.keys.toList();
-      if (targets.isEmpty) {
+      if (targets.isEmpty || account != _account) {
         return;
       }
       final perChannel = _buildPerChannelEmotes(perOwner, targets);
@@ -165,8 +170,9 @@ class TwitchEmoteSets {
     } catch (e) {
       logDebug('loadUserEmotes failed: $e');
     } finally {
-      // A failed fetch leaves _fetched false, so the next load retries.
-      _inflight = false;
+      // A failed fetch leaves _fetched false, so the next load retries. A
+      // stale fetch leaves the flag to the new account's.
+      if (account == _account) _inflight = false;
     }
   }
 
@@ -201,6 +207,7 @@ class TwitchEmoteSets {
   /// they are dropped from the global Twitch list they merged into, matched by
   /// id plus by code for empty-id entries.
   void resetUserEmoteState() {
+    _account++;
     _fetched = false;
     _inflight = false;
     final waiter = _userIdWaiter;
