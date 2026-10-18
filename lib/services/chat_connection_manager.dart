@@ -517,8 +517,11 @@ class ChatConnectionManager {
   @visibleForTesting
   Chat get chat => config.chat;
 
+  /// Posts Connected once history is in and the channel is usable: on the
+  /// read socket, its JOIN confirmed. The write socket is up near instantly,
+  /// so it alone would announce a channel that isn't reading chat yet.
   void maybeAddConnected(String channel) {
-    if (config.services.irc.isConnected &&
+    if (_readiness.isChannelReady(channel) &&
         (config.chat.channelFor(channel)?.info.historyLoaded ?? false) &&
         _readiness.acknowledgeConnected(channel)) {
       config.bridge.onConnStatus(channel, SystemLine.connected);

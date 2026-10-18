@@ -2290,6 +2290,41 @@ void main() {
       conn.dispose();
     });
 
+    // Shipped bug: history landing with only the write socket up posted
+    // Connected before chat could arrive, and used up the ack.
+    test('Connected waits for the read JOIN, not just history', () async {
+      final irc = _RecordingIrc();
+      final system = <SystemLine>[];
+      final chat = Chat()..ensure('test');
+      final readConn = _NoopIrcRead();
+      final conn = _makeReconnectConn(
+        eventSub: _NoopEventSub(),
+        irc: irc,
+        ircRead: readConn,
+        onReconnected: () {},
+        onConnStatus: (c, s) => system.add(s),
+        currentUserLogin: 'alice',
+        chat: chat,
+        client: http_testing.MockClient((request) async => stub(request)),
+      );
+      await conn.connect();
+      irc.emitConnected();
+      irc.handleLine('@room-id=1 :tmi.twitch.tv ROOMSTATE #test');
+      chat.channelFor('test')!.info.setHistoryLoaded(true);
+      conn.maybeAddConnected('test');
+      expect(
+        system.where((s) => s == SystemLine.connected),
+        isEmpty,
+        reason: 'the write socket alone announced the channel',
+      );
+
+      readConn.confirmJoin('test');
+      await Future<void>.delayed(Duration.zero);
+      conn.maybeAddConnected('test');
+      expect(system.where((s) => s == SystemLine.connected), hasLength(1));
+      conn.dispose();
+    });
+
     test(
       're-subscribe clears stale readiness so the input stays disabled',
       () async {
