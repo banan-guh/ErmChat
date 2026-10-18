@@ -179,6 +179,9 @@ class _ChatBodyState extends State<ChatBody>
   // clip; the outer height feeds the list clearance.
   double _islandH = 56.0;
   double _islandOuterH = 56.0;
+  // Outer minus content: the shell's border and padding, which a clipped
+  // island can't measure.
+  double _islandShellH = 0;
   final _islandKey = GlobalKey();
   final _islandOuterKey = GlobalKey();
 
@@ -409,15 +412,18 @@ class _ChatBodyState extends State<ChatBody>
     if (h != null && (h - _islandH).abs() > 0.5) {
       setState(() => _islandH = h);
     }
-    // The clip leaves the footer's own layout whole, so it measures true
-    // under the keyboard too.
+    // The clip leaves the island's own layout whole (field and footer), so
+    // it measures true under the keyboard too.
     final footer = _footerKey.currentContext?.size?.height ?? 0;
     final footerDelta = footer - _footerH;
     // A shortened island would read as a smaller one, so a clipped island
-    // keeps its full height and grows only by what the footer changed.
-    final outer = _rowClip > 0
-        ? _islandOuterH + footerDelta
-        : _islandOuterKey.currentContext?.size?.height;
+    // takes its full height from the unclipped content plus the shell
+    // around it, measured while unclipped.
+    final measured = _islandOuterKey.currentContext?.size?.height;
+    if (_rowClip <= 0 && measured != null && h != null) {
+      _islandShellH = measured - h;
+    }
+    final outer = _rowClip > 0 ? (h ?? _islandH) + _islandShellH : measured;
     if (outer != null && (outer - _islandOuterH).abs() > 0.5) {
       setState(() => _islandOuterH = outer);
     }

@@ -724,4 +724,87 @@ void main() {
       );
     }
   });
+
+  // Shipped bug: with the row hidden under the keyboard, the island kept a
+  // stale height, so sending a wrapped message left the chat ~30px high.
+  testWidgets('a hidden-row island tracks its field under the keyboard', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(400, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    var clearance = 0.0;
+    final text = TextEditingController(text: 'a\nb');
+    final focus = FocusNode();
+    addTearDown(text.dispose);
+    addTearDown(focus.dispose);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: ChatBody(
+            liquidGlass: false,
+            keyboardHidesButtons: true,
+            emoteMaxFraction: 0.5,
+            composer: TextField(
+              key: const Key('message_input'),
+              controller: text,
+              focusNode: focus,
+              minLines: 1,
+              maxLines: 6,
+            ),
+            bottomBar: const SizedBox(height: 48),
+            bodyBuilder:
+                (
+                  context, {
+                  required hideChromeForKeyboard,
+                  required maxWidth,
+                  required maxHeight,
+                  required keyboardH,
+                  required composerH,
+                }) => Builder(
+                  builder: (inner) {
+                    clearance =
+                        GlassChromeScope.maybeOf(inner)?.clearanceFor(null) ??
+                        0;
+                    return const SizedBox.expand();
+                  },
+                ),
+            threadPanel: const SizedBox.shrink(),
+            mentionsPanel: const SizedBox.shrink(),
+            modViewPanel: const SizedBox.shrink(),
+            emotePickerBuilder:
+                (_, {required sheetBoxHeight, required inset}) =>
+                    const SizedBox.shrink(),
+            autocomplete: const SizedBox.shrink(),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    double fieldGap() =>
+        tester.getRect(find.byType(ChatBody)).bottom -
+        tester.getRect(find.byKey(const Key('message_input'))).top;
+    // Two lines typed before the keyboard opens and hides the row.
+    focus.requestFocus();
+    await tester.pump();
+    await moveKeyboard(tester, [for (var kb = 0.0; kb <= 300; kb += 30) kb]);
+    await tester.pumpAndSettle();
+    expect(clearance, moreOrLessEquals(fieldGap(), epsilon: 1));
+
+    text.clear();
+    await tester.pumpAndSettle();
+    expect(
+      clearance,
+      moreOrLessEquals(fieldGap(), epsilon: 1),
+      reason: 'sending left a gap under the newest message',
+    );
+
+    text.text = 'a\nb';
+    await tester.pumpAndSettle();
+    expect(
+      clearance,
+      moreOrLessEquals(fieldGap(), epsilon: 1),
+      reason: 'a typed line slid the field over the newest message',
+    );
+  });
 }
