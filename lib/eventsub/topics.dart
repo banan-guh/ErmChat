@@ -123,6 +123,9 @@ class EventSubTopics {
     _trustSkippedChannels.clear();
     _pointsSkippedChannels.clear();
     _widgetSkippedChannels.clear();
+    for (final family in _families) {
+      family.typeSkips.clear();
+    }
   }
 
   /// Drops per-channel subscription state (channel left). Skip sets survive:
@@ -151,6 +154,7 @@ class EventSubTopics {
     if (channelUserId == null) return;
     for (final family in _moderatorFamilies) {
       family.skipSet.remove(channel);
+      family.typeSkips.remove(channel);
     }
     subscribeChannel(channel, channelUserId);
   }
@@ -316,9 +320,11 @@ class EventSubTopics {
         if (attempt > 0) await Future.delayed(const Duration(seconds: 1));
         var subscribed = 0;
         var failed = false;
+        final typeSkips = family.typeSkips[channelName] ?? const {};
         for (final (type, version) in family.types) {
           // A 403 on one dooms the rest; skip the doomed calls.
           if (family.skipSet.contains(channelName)) break;
+          if (typeSkips.contains(type)) continue;
           final ok = await twitchApi.createEventSubSubscription(
             auth: auth,
             sessionId: sessionId,
@@ -336,8 +342,15 @@ class EventSubTopics {
             continue;
           }
           if (twitchApi.lastErrorStatus == 403) {
-            family.skipSet.add(channelName);
-            break;
+            // A first 403 reads as no role in this channel, which dooms the
+            // family. One after a success is that type alone (a missing
+            // scope), so its siblings keep working across reconnects.
+            if (subscribed == 0) {
+              family.skipSet.add(channelName);
+              break;
+            }
+            family.typeSkips.putIfAbsent(channelName, () => {}).add(type);
+            continue;
           }
           logDebug(
             '[ChatConn] $type subscription failed for $channelName (${twitchApi.lastError ?? "unknown"})',
@@ -350,7 +363,9 @@ class EventSubTopics {
         final complete =
             !failed &&
             (family.success == _TopicSuccess.all
-                ? subscribed == family.types.length
+                ? subscribed ==
+                      family.types.length -
+                          (family.typeSkips[channelName]?.length ?? 0)
                 : subscribed > 0);
         if (complete) {
           family.activeSet.add(channelName);
@@ -400,7 +415,7 @@ enum _TopicSuccess {
 /// One row of the subscription table: the Helix types, the condition scope,
 /// the rule that activates the family, and the sets it touches.
 class _TopicFamily {
-  const _TopicFamily({
+  _TopicFamily({
     required this.name,
     required this.types,
     required this.success,
@@ -418,6 +433,10 @@ class _TopicFamily {
   final _TopicSuccess success;
   final Set<String> skipSet;
   final Set<String> activeSet;
+
+  /// Per channel, the types a 403 rejected after a sibling succeeded. Like
+  /// [skipSet] they last for the account.
+  final Map<String, Set<String>> typeSkips = {};
 
   /// True for points/widgets: broadcaster-only condition plus an upfront
   /// broadcaster gate so other channels fire no Helix calls.

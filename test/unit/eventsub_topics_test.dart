@@ -213,6 +213,29 @@ void main() {
         'channel.shield_mode.begin',
       ]);
     });
+
+    test(
+      '403 after a success skips only that type, across reconnects',
+      () async {
+        script['channel.warning.send'] = 403;
+        topics.subscribeChannel('testchannel', 'broadcaster1');
+        await flush();
+        expect(topics.isFeedActive('testchannel'), isTrue);
+        expect(seenTypes, contains('channel.warning.acknowledge'));
+
+        seenTypes.clear();
+        topics.clearSessionState();
+        topics.resubscribeEventSubChannels(['testchannel']);
+        await flush();
+        expect(
+          topics.isFeedActive('testchannel'),
+          isTrue,
+          reason: 'one rejected type skipped the whole family on reconnect',
+        );
+        expect(seenTypes, contains('channel.shield_mode.begin'));
+        expect(seenTypes, isNot(contains('channel.warning.send')));
+      },
+    );
   });
 
   group('widgets (all)', () {
