@@ -1,5 +1,3 @@
-import 'dart:ui' show lerpDouble;
-
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
@@ -262,7 +260,8 @@ class ComposerModeRow extends StatelessWidget {
   final ModPanels mod;
   final Listenable dragTick;
 
-  /// See [ComposerStatusRow.swipePage].
+  /// The channel pager's fractional page while it moves; each channel's
+  /// modes slide with its page.
   final ValueListenable<double?> swipePage;
 
   @override
@@ -385,7 +384,6 @@ class ComposerStatusRow extends StatelessWidget {
     required this.search,
     required this.mod,
     required this.dragTick,
-    required this.swipePage,
     this.modeRow = false,
   });
 
@@ -394,10 +392,6 @@ class ComposerStatusRow extends StatelessWidget {
   final SearchPanels search;
   final ModPanels mod;
   final Listenable dragTick;
-
-  /// The channel pager's fractional page while it moves; each channel's
-  /// status slides with its page.
-  final ValueListenable<double?> swipePage;
 
   /// See [ComposerBar.modeRow].
   final bool modeRow;
@@ -416,7 +410,6 @@ class ComposerStatusRow extends StatelessWidget {
       return _StatusRow(
         controller: controller,
         selectedTabIndex: selectedTabIndex,
-        swipePage: swipePage,
         showStatus: !landscape,
         modeRow: modeRow,
       );
@@ -486,60 +479,30 @@ class _StatusRow extends StatelessWidget {
   const _StatusRow({
     required this.controller,
     required this.selectedTabIndex,
-    required this.swipePage,
     required this.showStatus,
     required this.modeRow,
   });
 
   final ComposerController controller;
   final ValueListenable<int> selectedTabIndex;
-  final ValueListenable<double?> swipePage;
   final bool showStatus;
   final bool modeRow;
 
   @override
-  Widget build(BuildContext context) => ListenableBuilder(
-    listenable: swipePage,
-    builder: (context, _) => _ChannelListener(
-      controller: controller,
-      selectedTabIndex: selectedTabIndex,
-      builder: (context) {
-        final shown = swipeShown(
-          controller.chat.names,
-          swipePage.value,
-          controller.selectedChannel,
-        );
-        final lines = _swipeSlide(
-          shown,
-          (channel) => _lines(context, channel),
-          alignment: Alignment.topCenter,
-        );
-        if (shown.length < 2) {
-          return AnimatedSize(
-            duration: const Duration(milliseconds: 300),
-            curve: Curves.easeInOut,
-            alignment: Alignment.topCenter,
-            child: lines,
-          );
-        }
-        // Mid-swipe the island's height follows the page between the two
-        // channels' footers.
-        double heightOf(String channel) => composerStatusHeight(
-          context,
-          controller,
-          channel,
-          modeRow: modeRow,
-        );
-        return SizedBox(
-          height: lerpDouble(
-            heightOf(shown[0].$1),
-            heightOf(shown[1].$1),
-            -shown[0].$2,
-          ),
-          child: lines,
-        );
-      },
-    ),
+  Widget build(BuildContext context) => _ChannelListener(
+    controller: controller,
+    selectedTabIndex: selectedTabIndex,
+    builder: (context) {
+      final channel = controller.selectedChannel;
+      return AnimatedSize(
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeInOut,
+        alignment: Alignment.topCenter,
+        child: channel == null
+            ? const SizedBox.shrink()
+            : _lines(context, channel),
+      );
+    },
   );
 
   Widget _lines(BuildContext context, String channel) {
@@ -593,12 +556,11 @@ class _StatusRow extends StatelessWidget {
 /// channel, so a line keeps its state when a swipe starts.
 Widget _swipeSlide(
   List<(String, double)> shown,
-  Widget Function(String channel) build, {
-  AlignmentGeometry alignment = Alignment.center,
-}) => LayoutBuilder(
+  Widget Function(String channel) build,
+) => LayoutBuilder(
   builder: (context, constraints) => ClipRect(
     child: Stack(
-      alignment: alignment,
+      alignment: Alignment.center,
       children: [
         for (final (channel, dx) in shown)
           Transform.translate(

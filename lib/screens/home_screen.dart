@@ -1982,7 +1982,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                     search: _search,
                     mod: _mod,
                     dragTick: _panelDragTick,
-                    swipePage: _channels.swipePage,
                     modeRow: modeRow,
                   )
                 : null,
