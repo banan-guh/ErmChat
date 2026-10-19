@@ -70,8 +70,41 @@ class MediaUploadController {
       return;
     }
     if (picked == null || !context.mounted) return;
+    await _upload(context, File(picked.path));
+  }
 
-    final file = File(picked.path);
+  /// Image mime types the field accepts from keyboard content insertion.
+  static const insertableMimeTypes = [
+    'image/png',
+    'image/jpeg',
+    // Some keyboards report JPEG this way.
+    'image/jpg',
+    'image/gif',
+    'image/webp',
+  ];
+
+  /// Uploads an image a keyboard inserted (clipboard, sticker, GIF) the same
+  /// way as a picked one. Other content types are ignored.
+  Future<void> uploadInserted(
+    BuildContext context,
+    KeyboardInsertedContent content,
+  ) async {
+    if (_isUploading || !insertableMimeTypes.contains(content.mimeType)) return;
+    final bytes = content.data;
+    if (bytes == null || bytes.isEmpty) return;
+    final ext = content.mimeType.split('/').last.replaceAll('jpeg', 'jpg');
+    final dir = await Directory.systemTemp.createTemp('ermchat_paste');
+    try {
+      final file = File('${dir.path}/image.$ext');
+      await file.writeAsBytes(bytes);
+      if (!context.mounted) return;
+      await _upload(context, file);
+    } finally {
+      await dir.delete(recursive: true);
+    }
+  }
+
+  Future<void> _upload(BuildContext context, File file) async {
     _isUploading = true;
     try {
       final result = await _uploader.uploadMedia(file);

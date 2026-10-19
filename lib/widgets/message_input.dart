@@ -5,6 +5,7 @@ import '../util/constants.dart';
 import '../util/layout_density.dart';
 import '../util/thread_utils.dart';
 import '../l10n/l10n.dart';
+import 'media_upload_controller.dart';
 
 class MessageInput extends StatelessWidget {
   final TextEditingController controller;
@@ -18,6 +19,9 @@ class MessageInput extends StatelessWidget {
   final bool enabled;
   final String? hintText;
   final List<TextInputFormatter>? inputFormatters;
+
+  // Images a keyboard inserts (clipboard, stickers, GIFs).
+  final ValueChanged<KeyboardInsertedContent>? onContentInserted;
 
   // Search mode: single-line field; prefix/suffix slots take over.
   final bool searchMode;
@@ -47,6 +51,7 @@ class MessageInput extends StatelessWidget {
     this.enabled = true,
     this.hintText,
     this.inputFormatters,
+    this.onContentInserted,
     this.searchMode = false,
     this.borderless = false,
     this.prefixOverride,
@@ -104,6 +109,13 @@ class MessageInput extends StatelessWidget {
                 onEditingComplete: () {},
                 onSubmitted: onSubmitted ?? (enabled ? (_) => onSend() : null),
                 inputFormatters: inputFormatters,
+                contentInsertionConfiguration: onContentInserted == null
+                    ? null
+                    : ContentInsertionConfiguration(
+                        allowedMimeTypes:
+                            MediaUploadController.insertableMimeTypes,
+                        onContentInserted: onContentInserted!,
+                      ),
                 enabled: enabled,
                 minLines: 1,
                 maxLines: searchMode ? 1 : 6,

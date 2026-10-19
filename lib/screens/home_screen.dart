@@ -1968,6 +1968,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                     dragTick: _panelDragTick,
                     buttonsInRow: buttonsInRow,
                     modeRow: modeRow,
+                    uploads: _uploadController,
                   )
                 : null,
             bottomBar: hasBottomBar && !rowless

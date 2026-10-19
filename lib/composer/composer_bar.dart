@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 
 import '../panels/mod_panel.dart';
 import '../panels/search.dart';
+import '../widgets/media_upload_controller.dart';
 import '../widgets/message_input.dart';
 import '../widgets/tabbed_layout.dart' show swipeShown;
 import 'composer_controller.dart';
@@ -32,12 +33,16 @@ class ComposerBar extends StatelessWidget {
     required this.dragTick,
     this.buttonsInRow = false,
     this.modeRow = false,
+    this.uploads,
   });
 
   final ComposerController controller;
   final ValueListenable<int> selectedTabIndex;
   final SearchPanels search;
   final ModPanels mod;
+
+  /// Uploads images the keyboard inserts into the chat field.
+  final MediaUploadController? uploads;
 
   /// The island's button row shows, so room modes may ride it
   /// ([ComposerModeRow]) instead of the status.
@@ -131,6 +136,9 @@ class ComposerBar extends StatelessWidget {
                         ),
                   ),
                   inputFormatters: [controller.autocompleteRevert],
+                  onContentInserted: uploads == null
+                      ? null
+                      : (content) => uploads!.uploadInserted(context, content),
                   borderless: true,
                   buttonsInRow: buttonsInRow,
                 ),
