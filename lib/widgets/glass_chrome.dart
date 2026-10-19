@@ -143,9 +143,12 @@ class GlassSurface extends StatelessWidget {
   );
 }
 
-// Shared glass tint alpha (0x48 is about 28%): dark enough to hold contrast
+// Shared glass tint alpha (0x38 is about 22%): dark enough to hold contrast
 // for light text, light enough to sit near the app's grey surfaces.
-const int _kGlassTintAlpha = 0x48;
+const int _kGlassTintAlpha = 0x38;
+
+// Shared backdrop blur under the frost.
+const double _kGlassBlur = 1.5;
 
 // Styled glass: thickness refracts rows scrolling underneath so light
 // warps at the edges, fresnel plus specular draws the bright rim.
@@ -160,7 +163,7 @@ LiquidGlassSettings _barSettings(bool dark, double visibility) =>
       // A frost cloud with a faint copy of the rows showing through keeps
       // the tabs readable over busy chat, while the rim still bends the
       // rows; the tint darkens what the frost lets through.
-      blur: 1,
+      blur: _kGlassBlur,
       frost: 7,
       frostOpacity: 0.65,
       refractiveIndex: 1.5,
@@ -178,7 +181,7 @@ const kGlassPillSettings = LiquidGlassSettings(
   thickness: 26,
   // Frosted like the header so card and menu text reads over chat; the
   // dark tint holds contrast for light text in both themes' chat.
-  blur: 1,
+  blur: _kGlassBlur,
   frost: 7,
   frostOpacity: 0.65,
   glassColor: Color(_kGlassTintAlpha << 24),
