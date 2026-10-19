@@ -899,22 +899,39 @@ class LayoutEditTray extends StatelessWidget {
         },
       );
     } else if (free.isNotEmpty) {
+      // An outlined pocket with a caption, so the spare buttons read as
+      // set aside rather than as part of the chrome.
       content = Container(
         width: double.infinity,
         margin: const EdgeInsets.only(top: 8),
-        padding: const EdgeInsets.all(2),
+        padding: const EdgeInsets.fromLTRB(2, 6, 2, 2),
         decoration: BoxDecoration(
           color: scheme.surfaceContainerHigh,
           borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: scheme.outline, width: 1.5),
         ),
-        child: Wrap(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            for (final a in free)
-              EditChip(
-                key: ValueKey('tray-$a'),
-                controller: controller,
-                action: a,
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 10),
+              child: Text(
+                l.layoutUnused,
+                style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                  color: scheme.onSurfaceVariant,
+                ),
               ),
+            ),
+            Wrap(
+              children: [
+                for (final a in free)
+                  EditChip(
+                    key: ValueKey('tray-$a'),
+                    controller: controller,
+                    action: a,
+                  ),
+              ],
+            ),
           ],
         ),
       );

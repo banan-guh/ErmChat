@@ -3202,6 +3202,7 @@
   "layoutJoinFirst": "Join a channel to edit the layout",
   "layoutDone": "Done",
   "layoutDropToRemove": "Drop to remove",
+  "layoutUnused": "Not on screen. Drag one up to place it.",
   "layoutHeaderStrip": "Strip",
   "layoutHeaderAppBar": "App bar",
   "layoutHeaderBubbles": "Pills",
