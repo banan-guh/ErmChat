@@ -199,14 +199,16 @@ void main() {
     expect(tight.canPlacePart(ComposerPart.send, PartPlace.row), isFalse);
     expect(tight.canPlacePart(ComposerPart.send, PartPlace.column), isFalse);
     expect(tight.canPlacePart(ComposerPart.emote, PartPlace.row), isTrue);
-    expect(
-      tight.copyWith(islandFlush: true).normalized().compact,
-      isFalse,
-      reason: 'edge to edge clears compact',
-    );
+    for (final style in [ComposerStyle.flush, ComposerStyle.classic]) {
+      expect(
+        tight.copyWith(composer: style).normalized().compact,
+        isFalse,
+        reason: '$style clears compact',
+      );
+    }
     expect(
       ChromeThemeSpec.decode(
-        tight.copyWith(islandFlush: true).encode(),
+        tight.copyWith(composer: ComposerStyle.flush).encode(),
       )!.compact,
       isFalse,
       reason: 'a pasted compact edge-to-edge line is not compact',

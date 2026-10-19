@@ -3138,6 +3138,8 @@
   "layoutSendColumn": "Side column",
   "layoutHideRowTyping": "Hide row while typing",
   "layoutFlushIsland": "Edge to edge",
+  "layoutComposerIsland": "Island",
+  "layoutComposerClassic": "Classic",
   "layoutBusyBar": "Loading bar",
   "layoutSlotStrip": "Tab strip",
   "layoutSlotAppBar": "Top bar",

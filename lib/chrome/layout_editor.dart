@@ -905,6 +905,11 @@ class LayoutEditTray extends StatelessWidget {
       HeaderStyle.appBar => l.layoutHeaderAppBar,
       HeaderStyle.bubbles => l.layoutHeaderBubbles,
     };
+    String composer(ComposerStyle c) => switch (c) {
+      ComposerStyle.island => l.layoutComposerIsland,
+      ComposerStyle.flush => l.layoutFlushIsland,
+      ComposerStyle.classic => l.layoutComposerClassic,
+    };
     final current = [
       for (final t in ChromeTheme.values)
         if (t.spec == draft.copyWith(name: '')) t,
@@ -939,6 +944,18 @@ class LayoutEditTray extends StatelessWidget {
                 ),
             ],
           ),
+          const SizedBox(width: 8),
+          _MenuButton(
+            label: composer(draft.composer),
+            items: [
+              for (final c in ComposerStyle.values)
+                (
+                  composer(c),
+                  draft.composer == c,
+                  () => controller.update(draft.copyWith(composer: c)),
+                ),
+            ],
+          ),
         ],
       ),
     );
@@ -963,16 +980,11 @@ class LayoutEditTray extends StatelessWidget {
         spacing: 6,
         children: [
           toggle(
-            l.layoutFlushIsland,
-            draft.islandFlush,
-            (v) => controller.update(draft.copyWith(islandFlush: v)),
-          ),
-          toggle(
             l.layoutBusyBar,
             draft.busyBar,
             (v) => controller.update(draft.copyWith(busyBar: v)),
           ),
-          if (!draft.islandFlush)
+          if (draft.isIsland)
             toggle(
               l.layoutHideRowTyping,
               draft.compact,

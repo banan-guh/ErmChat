@@ -124,8 +124,7 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
       _prefs?.chromeThemeKey ?? ChromeTheme.ermchat.name;
 
   bool get _chromeIsIsland =>
-      !(_prefs?.chromeTheme.islandFlush ??
-          ChromeTheme.ermchat.spec.islandFlush);
+      (_prefs?.chromeTheme ?? ChromeTheme.ermchat.spec).isIsland;
 
   String _chromeThemeLabel(String key) {
     for (final t in ChromeTheme.values) {

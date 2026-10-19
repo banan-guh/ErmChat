@@ -50,6 +50,18 @@ enum ChromeAction {
 }
 
 /// Where send goes.
+/// How the field and its buttons sit at the bottom of the screen.
+enum ComposerStyle {
+  /// A floating island with rounded corners.
+  island,
+
+  /// The island runs edge to edge under the nav bar, rounded only on top.
+  flush,
+
+  /// A plain outlined field with a floating label and no island.
+  classic,
+}
+
 enum SendPlace {
   /// Send sits in the field row.
   field('f'),
@@ -160,7 +172,7 @@ class ChromeThemeSpec {
     this.fieldEnd = const [FieldItem.send],
     this.sendAside = SendPlace.column,
     this.compact = false,
-    this.islandFlush = false,
+    this.composer = ComposerStyle.island,
     this.busyBar = false,
   });
 
@@ -193,11 +205,16 @@ class ChromeThemeSpec {
   final SendPlace sendAside;
 
   /// The island's button row hides while typing, leaving the field row.
-  /// Only an island (not [islandFlush]) can have it.
+  /// Only an [isIsland] layout can have it.
   final bool compact;
 
+  final ComposerStyle composer;
+
+  /// A floating island: the style that takes glass and [compact].
+  bool get isIsland => composer == ComposerStyle.island;
+
   /// The island runs edge to edge under the nav bar, rounded only on top.
-  final bool islandFlush;
+  bool get islandFlush => composer == ComposerStyle.flush;
 
   /// Loading shows as a bar along the top of the button row instead of a
   /// spinner in the join button.
@@ -280,8 +297,8 @@ class ChromeThemeSpec {
   }
 
   /// A copy that obeys the field row's rules. It holds at most [fieldCap]
-  /// buttons, and an action cut from it lands at the row's end. Edge to edge
-  /// clears [compact]. Under [compact] send sits in the field, since the row
+  /// buttons, and an action cut from it lands at the row's end. Leaving the
+  /// island clears [compact]. Under [compact] send sits in the field, since the row
   /// and the side column are gone while typing.
   ChromeThemeSpec fitted() {
     final start = [...fieldStart];
@@ -295,7 +312,7 @@ class ChromeThemeSpec {
     while (start.length + end.length > fieldCap) {
       cutLast();
     }
-    final keepsCompact = compact && !islandFlush;
+    final keepsCompact = compact && isIsland;
     if (keepsCompact &&
         !start.contains(FieldItem.send) &&
         !end.contains(FieldItem.send)) {
@@ -477,7 +494,7 @@ class ChromeThemeSpec {
     List<FieldItem>? fieldEnd,
     SendPlace? sendAside,
     bool? compact,
-    bool? islandFlush,
+    ComposerStyle? composer,
     bool? busyBar,
   }) => ChromeThemeSpec(
     name: name ?? this.name,
@@ -490,7 +507,7 @@ class ChromeThemeSpec {
     fieldEnd: fieldEnd ?? this.fieldEnd,
     sendAside: sendAside ?? this.sendAside,
     compact: compact ?? this.compact,
-    islandFlush: islandFlush ?? this.islandFlush,
+    composer: composer ?? this.composer,
     busyBar: busyBar ?? this.busyBar,
   );
 
@@ -504,7 +521,11 @@ class ChromeThemeSpec {
   String encode() {
     String actions(List<ChromeAction> a) => a.map((x) => x.code).join();
     String items(List<FieldItem> a) => a.map((x) => x.code).join();
-    final flags = [if (islandFlush) 'F', if (busyBar) 'B'].join();
+    final flags = [
+      if (islandFlush) 'F',
+      if (composer == ComposerStyle.classic) 'Q',
+      if (busyBar) 'B',
+    ].join();
     return [
       _prefix,
       if (name.isNotEmpty) 'n=${Uri.encodeComponent(name)}',
@@ -603,7 +624,11 @@ class ChromeThemeSpec {
       fieldEnd: end,
       sendAside: send == SendPlace.row ? SendPlace.row : SendPlace.column,
       compact: compact,
-      islandFlush: flush,
+      composer: flush
+          ? ComposerStyle.flush
+          : flags.contains('Q')
+          ? ComposerStyle.classic
+          : ComposerStyle.island,
       busyBar: flags.contains('B'),
     ).fitted();
   }
@@ -628,7 +653,7 @@ class ChromeThemeSpec {
       listEquals(other.fieldEnd, fieldEnd) &&
       other.send == send &&
       other.compact == compact &&
-      other.islandFlush == islandFlush &&
+      other.composer == composer &&
       other.busyBar == busyBar;
 
   @override
@@ -643,7 +668,7 @@ class ChromeThemeSpec {
     Object.hashAll(fieldEnd),
     send,
     compact,
-    islandFlush,
+    composer,
     busyBar,
   );
 }
@@ -663,7 +688,7 @@ enum ChromeTheme {
     ),
   ),
 
-  /// After ermchat 0.9: a titled app bar, just the field below.
+  /// After ermchat 0.9: a titled app bar, a plain outlined field below.
   dankchat3(
     ChromeThemeSpec(
       header: HeaderStyle.appBar,
@@ -673,6 +698,7 @@ enum ChromeTheme {
         ChromeAction.overflow,
       ],
       stripActions: [ChromeAction.viewMenu],
+      composer: ComposerStyle.classic,
     ),
   ),
 
@@ -689,7 +715,7 @@ enum ChromeTheme {
       fieldStart: [],
       fieldEnd: [],
       sendAside: SendPlace.row,
-      islandFlush: true,
+      composer: ComposerStyle.flush,
       busyBar: true,
     ),
   );

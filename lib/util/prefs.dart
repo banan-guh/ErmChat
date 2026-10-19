@@ -457,7 +457,7 @@ class Prefs {
   bool get liquidGlass => _p.getBool(_kLiquidGlass) ?? false;
 
   /// Glass only applies to floating-island chrome themes.
-  bool get islandGlass => liquidGlass && !chromeTheme.islandFlush;
+  bool get islandGlass => liquidGlass && chromeTheme.isIsland;
 
   Future<void> setLiquidGlass(bool value) => _p.setBool(_kLiquidGlass, value);
 

@@ -1920,7 +1920,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     // box borrows the input, and while the composer is disabled.
     final glass = glassEnabled(
       context,
-      _liquidGlass && !(_layoutEdit?.draft ?? _chromeTheme).islandFlush,
+      _liquidGlass && (_layoutEdit?.draft ?? _chromeTheme).isIsland,
     );
     // With channels the app bar folds away, so the bell, overflow and
     // settings live in the island's button row. The welcome view keeps them
@@ -2103,6 +2103,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                             side: LayoutSlot.fieldEnd,
                           ),
                     readOnly: edit != null,
+                    classic: spec.composer == ComposerStyle.classic,
                     modeRow: modeRow,
                     uploads: _uploadController,
                   )

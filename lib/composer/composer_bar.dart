@@ -40,6 +40,7 @@ class ComposerBar extends StatelessWidget {
     this.startSlot,
     this.endSlot,
     this.readOnly = false,
+    this.classic = false,
     this.modeRow = false,
     this.uploads,
   });
@@ -82,6 +83,10 @@ class ComposerBar extends StatelessWidget {
   /// Keeps the field from taking focus, for the layout editor.
   final bool readOnly;
 
+  /// The plain outlined field of [ComposerStyle.classic], with no island
+  /// around it.
+  final bool classic;
+
   @override
   Widget build(BuildContext context) {
     final content = ListenableBuilder(
@@ -113,7 +118,7 @@ class ComposerBar extends StatelessWidget {
                 enabled: true,
                 hintText: context.l10n.searchHint,
                 searchMode: true,
-                borderless: true,
+                borderless: !classic,
                 prefixOverride: search.closeButton(),
                 // With send outside the field, the filter moves out with it.
                 suffixOverride: sendOutside ? null : search.filterButton(),
@@ -129,7 +134,7 @@ class ComposerBar extends StatelessWidget {
                 enabled: true,
                 hintText: context.l10n.blockTermHint,
                 searchMode: true,
-                borderless: true,
+                borderless: !classic,
                 // Add moves out with send, and the field needs no icon
                 // standing in for an emote button that left.
                 prefixOverride: emoteInRow ? null : mod.termsPrefixSlot(),
@@ -166,7 +171,7 @@ class ComposerBar extends StatelessWidget {
                   onContentInserted: uploads == null
                       ? null
                       : (content) => uploads!.uploadInserted(context, content),
-                  borderless: true,
+                  borderless: !classic,
                   prefixOverride: startSlot,
                   suffixOverride: endSlot,
                   startItems: startItems,
