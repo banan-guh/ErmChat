@@ -82,7 +82,9 @@ class _PingsScreenState extends ConsumerState<PingsScreen> {
     _resumeTimer?.cancel();
     final until = ref.read(notificationPauseProvider);
     if (until == null) return;
-    final left = until.difference(DateTime.now());
+    final left = until.difference(
+      ref.read(notificationPauseProvider.notifier).now,
+    );
     if (left.isNegative) return;
     _resumeTimer = Timer(left, () {
       if (mounted) setState(() {});
@@ -1396,7 +1398,8 @@ class _RuleEditorState extends State<_RuleEditor> {
       PingRuleKind.blacklist => m.login.toLowerCase() == pattern,
       _ => keyword!.hasMatch(m.text),
     };
-    final matches = recent.where(hits).toList();
+    // Capped so each keystroke scans a bounded slice of the buffer.
+    final matches = recent.take(2000).where(hits).toList();
     // Notify only leaves chat untinted, so its matches preview plain.
     final color = _hasColor && _level != 4
         ? _ruleTint(context, _rule, _color, widget.opacity)
@@ -1499,6 +1502,9 @@ class _LevelSwitchState extends State<_LevelSwitch> {
   final _link = LayerLink();
   Timer? _hideBubble;
 
+  // Whether this drag already reported a blocked stop.
+  bool _blockedShown = false;
+
   int get _level => widget.level;
   int get _levels => widget.levels;
   double get _width => 52 + 32.0 * (_levels - 2);
@@ -1537,7 +1543,8 @@ class _LevelSwitchState extends State<_LevelSwitch> {
     next = next.clamp(0, _levels - 1);
     if (next == _level) return;
     if (next >= 3 && widget.onBlocked != null) {
-      widget.onBlocked!();
+      if (!dragging || !_blockedShown) widget.onBlocked!();
+      _blockedShown = dragging;
       return;
     }
     HapticFeedback.selectionClick();
@@ -1651,7 +1658,10 @@ class _LevelSwitchState extends State<_LevelSwitch> {
           // Two stops toggle on any tap, like a plain switch.
           onTapUp: (d) =>
               _pick(three ? _stopAt(d.localPosition.dx) : (on ? 0 : 1)),
-          onHorizontalDragStart: (_) => _showBubble(linger: null),
+          onHorizontalDragStart: (_) {
+            _blockedShown = false;
+            _showBubble(linger: null);
+          },
           onHorizontalDragUpdate: (d) =>
               _pick(_stopAt(d.localPosition.dx), dragging: true),
           onHorizontalDragEnd: (_) => _showBubble(),

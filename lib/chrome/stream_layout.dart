@@ -43,13 +43,13 @@ bool shouldShowStreamVideo({
 //
 // [scale] shrinks the 16:9 height (half to full, never taller, so no
 // letterbox bars); with [onResize] set, a grip on the video's bottom edge
-// drags it.
+// drags it, reporting each update as a scale delta so fast drags accumulate.
 Widget buildStackedPlayer({
   required bool show,
   required Widget video,
   required Widget audioBar,
   double scale = 1.0,
-  void Function(double scale)? onResize,
+  void Function(double deltaScale)? onResize,
   VoidCallback? onResizeEnd,
 }) {
   return LayoutBuilder(
@@ -85,7 +85,7 @@ Widget buildStackedPlayer({
                     child: GestureDetector(
                       behavior: HitTestBehavior.opaque,
                       onVerticalDragUpdate: (details) =>
-                          onResize((h + details.delta.dy) / base),
+                          onResize(details.delta.dy / base),
                       onVerticalDragEnd: (_) => onResizeEnd?.call(),
                       child: Center(
                         child: Container(
@@ -241,8 +241,10 @@ class StreamPanels {
           channel: channel,
         ),
         scale: streamPlayer.stackedScale,
-        onResize: (scale) =>
-            setLocal(() => streamPlayer.dragStackedScale(scale)),
+        onResize: (delta) => setLocal(
+          () =>
+              streamPlayer.dragStackedScale(streamPlayer.stackedScale + delta),
+        ),
         onResizeEnd: () =>
             streamPlayer.setStackedScale(streamPlayer.stackedScale),
       ),

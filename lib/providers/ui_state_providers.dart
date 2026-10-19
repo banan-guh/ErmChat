@@ -132,6 +132,8 @@ class NotificationPauseNotifier extends Notifier<DateTime?> {
   @override
   DateTime? build() => null;
 
+  DateTime get now => _now();
+
   bool get paused {
     final until = state;
     return until != null && _now().isBefore(until);

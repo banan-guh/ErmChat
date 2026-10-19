@@ -788,7 +788,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
         fullscreenDialog: true,
         builder: (_) => IntroScreen(
           twitchAuth: _twitchAuth,
-          onJoinChannel: _channelManager.addChannel,
+          onJoinChannel: (c) => _channelManager.addChannel(c, focus: false),
           mentionPush: ref.read(mentionPushProvider),
           onMentionPushChanged: _setMentionPush,
         ),

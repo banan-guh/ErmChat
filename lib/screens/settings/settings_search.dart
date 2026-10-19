@@ -800,6 +800,8 @@ class _SettingsTargetState extends State<SettingsTarget> {
   final _mounted = <String, BuildContext>{};
   bool _found = false;
   int _steps = 0;
+  // Kept across frames with no mounted anchor, so paging can continue.
+  ScrollPosition? _position;
 
   @override
   void initState() {
@@ -822,8 +824,11 @@ class _SettingsTargetState extends State<SettingsTarget> {
   // Lists only build rows near the viewport, so a far target has no anchor
   // yet: page down until it mounts or the list ends.
   void _seek(Duration _) {
-    if (!mounted || _found || _mounted.isEmpty || ++_steps > 40) return;
-    final position = Scrollable.maybeOf(_mounted.values.first)?.position;
+    if (!mounted || _found || ++_steps > 40) return;
+    if (_mounted.isNotEmpty) {
+      _position = Scrollable.maybeOf(_mounted.values.first)?.position;
+    }
+    final position = _position;
     if (position == null || position.pixels >= position.maxScrollExtent) {
       return;
     }

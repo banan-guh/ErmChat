@@ -41,9 +41,9 @@ class _RecentUploadsScreenState extends State<RecentUploadsScreen> {
   }
 
   Future<void> _delete(int index) async {
-    await _mediaUploader.removeRecent(index);
-    if (!mounted) return;
+    // Drop the row first so a second tap lands on the next index.
     setState(() => _uploads.removeAt(index));
+    await _mediaUploader.removeRecent(index);
   }
 
   Future<void> _clearAll() async {

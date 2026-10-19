@@ -318,7 +318,9 @@ class _AccountScreenState extends State<AccountScreen> {
     await switchOp();
     await _followSession(left);
     if (!mounted) return;
-    if (_authState == _AuthState.idle || _authState == _AuthState.success) {
+    if (_authState == _AuthState.idle ||
+        _authState == _AuthState.success ||
+        _authState == _AuthState.error) {
       setState(() {
         _authState = widget.twitchAuth.isConfigured
             ? _AuthState.success

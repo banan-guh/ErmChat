@@ -113,6 +113,8 @@ class _SetupTabState extends State<SetupTab> with ModTabState<SetupTab> {
     if (!ok) return;
     _adoptNext = true;
     await _settings.load();
+    // A failed reload must not force-adopt a later background load.
+    _adoptNext = false;
   });
 
   @override

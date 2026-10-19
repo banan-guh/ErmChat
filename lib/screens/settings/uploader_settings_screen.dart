@@ -47,6 +47,10 @@ class _UploaderSettingsScreenState extends State<UploaderSettingsScreen> {
   }
 
   Future<void> _save() async {
+    // Empty required fields fall back to the defaults.
+    const defaults = UploaderConfig.defaultConfig;
+    if (_uploadUrl.text.trim().isEmpty) _uploadUrl.text = defaults.uploadUrl;
+    if (_formField.text.trim().isEmpty) _formField.text = defaults.formField;
     await _mediaUploader.saveConfig(
       UploaderConfig(
         uploadUrl: _uploadUrl.text.trim(),

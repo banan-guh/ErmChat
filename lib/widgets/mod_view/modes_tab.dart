@@ -27,6 +27,7 @@ class ModesTab extends ModTabWidget {
 
 class _ModesTabState extends State<ModesTab> with ModTabState<ModesTab> {
   late final ModLoader<bool> _shield;
+  Timer? _shieldVerify;
 
   /// Second taps while a picker is open no-op instead of stacking dialogs.
   bool _picking = false;
@@ -38,6 +39,12 @@ class _ModesTabState extends State<ModesTab> with ModTabState<ModesTab> {
       (mod) => mod.actions.getShieldMode(mod.auth, mod.channel),
       failure: mod.l10n.loadShieldFailed,
     );
+  }
+
+  @override
+  void dispose() {
+    _shieldVerify?.cancel();
+    super.dispose();
   }
 
   Future<bool> _apply(String key, Future<ModResult> Function() call) async {
@@ -155,11 +162,8 @@ class _ModesTabState extends State<ModesTab> with ModTabState<ModesTab> {
     // Optimistic flip: the status GET lags the PUT, so an immediate reload
     // can return the stale value and snap the tile back. Verify later.
     _shield.value = on;
-    unawaited(
-      Future.delayed(const Duration(seconds: 2), () {
-        if (mounted) _shield.load();
-      }),
-    );
+    _shieldVerify?.cancel();
+    _shieldVerify = Timer(const Duration(seconds: 2), _shield.load);
   }
 
   Widget _toggle(

@@ -124,12 +124,12 @@ class SearchPanels {
         : items;
     if (filter.live == ChatSearchLive.pause) {
       // Drops rows evicted by truncation/deletes while frozen.
-      final liveIds = {
-        for (final m in items)
-          if (m.messageId != null) m.messageId!,
-      };
       base = base
-          .where((m) => m.messageId == null || liveIds.contains(m.messageId))
+          .where(
+            (m) =>
+                m.messageId == null ||
+                (messages?.containsId(m.messageId!) ?? false),
+          )
           .toList();
     }
     final rows = filter.display == ChatSearchDisplay.dim

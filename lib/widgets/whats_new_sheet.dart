@@ -9,6 +9,7 @@ import '../l10n/l10n.dart';
 import '../services/app_updates.dart';
 import '../util/log.dart';
 import '../util/prefs.dart';
+import 'app_snack.dart';
 
 /// The bundled CHANGELOG.md as [version]'s notes; empty when it has none.
 Future<List<VersionNotes>> bundledNotes(String version) async {
@@ -35,10 +36,13 @@ Future<void> showUpdateSheet(
     title: context.l10n.whatsNewIn(update.version),
     notes: const [],
     more: more,
-    onGetUpdate: () => launchUrl(
-      AppUpdates.storeLink(source, update.version),
-      mode: LaunchMode.externalApplication,
-    ),
+    onGetUpdate: () async {
+      final link = AppUpdates.storeLink(source, update.version);
+      final ok = await launchUrl(link, mode: LaunchMode.externalApplication);
+      if (!ok && context.mounted) {
+        AppSnack.show(context, context.l10n.couldNotOpenUrl('$link'));
+      }
+    },
   );
 }
 

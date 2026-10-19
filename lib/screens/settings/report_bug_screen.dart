@@ -273,7 +273,11 @@ class _ReportEditorScreenState extends ConsumerState<ReportEditorScreen> {
 
   void _onPop(bool didPop, Object? _) {
     if (!didPop || _sent || !_hasContent) return;
-    ref.read(bugReportOutboxProvider).saveDraft(_apply());
+    final outbox = ref.read(bugReportOutboxProvider);
+    // A queued or sent report keeps its status; only drafts are re-saved.
+    final status = outbox.byId(widget.report.id)?.status;
+    if (status != null && status != BugReportStatus.draft) return;
+    outbox.saveDraft(_apply());
   }
 
   @override

@@ -99,8 +99,8 @@ class ChannelManager {
     session.reorderChannels(reordered);
   }
 
-  Future<void> addChannel(String channelName) async {
-    _focusAfterAdd = true;
+  Future<void> addChannel(String channelName, {bool focus = true}) async {
+    _focusAfterAdd = focus;
     final added = await session.addChannel(channelName);
     if (!added) _focusAfterAdd = false;
   }

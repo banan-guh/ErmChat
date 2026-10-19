@@ -151,7 +151,7 @@ class _TtsSettingsScreenState extends State<TtsSettingsScreen> {
     final chosen = await showChoiceDialog<TtsOption>(
       context,
       title: context.l10n.ttsEngineTitle,
-      value: _selectedOption,
+      value: options.where((o) => o.id == _selectedOption?.id).firstOrNull,
       options: [for (final o in options) (o, o.label, o.id)],
     );
     if (chosen == null) return;
@@ -192,7 +192,9 @@ class _TtsSettingsScreenState extends State<TtsSettingsScreen> {
               icon: Icons.audio_file,
               title: Setting.ttsEngine.titleOf(context.l10n),
               subtitle:
-                  _selectedOption?.label ??
+                  (_selectedOption?.label.isEmpty ?? true
+                      ? null
+                      : _selectedOption!.label) ??
                   (widget.ttsController?.canOpenSystemSettings == true
                       ? context.l10n.ttsChangeInSystem
                       : context.l10n.ttsDeviceDefault),

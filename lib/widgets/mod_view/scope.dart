@@ -157,6 +157,13 @@ mixin ModTabState<W extends ModTabWidget> on State<W> {
   final _watches = <(Listenable? Function(ModContext), VoidCallback)>[];
   final _bound = <(Listenable, VoidCallback)>[];
   final _busy = <String>{};
+  String? _accountId;
+
+  @override
+  void initState() {
+    super.initState();
+    _accountId = mod.auth.userId;
+  }
 
   /// Creates a loader owned by this state and starts its first load.
   ModLoader<T> loader<T extends Object>(
@@ -214,7 +221,11 @@ mixin ModTabState<W extends ModTabWidget> on State<W> {
     for (final loader in _loaders) {
       loader.mod = mod;
     }
-    if (oldWidget.mod.channel == mod.channel) return;
+    // An account switch reloads like a channel switch: Helix data is per user.
+    final account = mod.auth.userId;
+    final accountChanged = account != _accountId;
+    _accountId = account;
+    if (oldWidget.mod.channel == mod.channel && !accountChanged) return;
     didChangeChannel();
     _unbind();
     for (final (select, onChange) in _watches) {

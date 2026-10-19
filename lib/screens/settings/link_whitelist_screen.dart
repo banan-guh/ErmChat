@@ -38,7 +38,7 @@ class _LinkWhitelistSettingsScreenState
 
   Future<void> _add(BuildContext context) async {
     final value = _controller.text.trim();
-    if (value.isEmpty) return;
+    if (LinkWhitelist.normalize(value).isEmpty) return;
     LinkWhitelist.instance.add(value);
     _controller.clear();
     if (context.mounted) Navigator.pop(context);

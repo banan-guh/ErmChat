@@ -82,53 +82,57 @@ class _UsersTabState extends State<UsersTab> with ModTabState<UsersTab> {
         final warned = moderation.warnedLatest().values.toList()
           ..sort((a, b) => b.at.compareTo(a.at));
         final flagged = moderation.suspicious.values.toList();
-        return ListView(
+        final rows = <Widget Function()>[
+          // Bans seen this session; the Channel tab lists every ban.
+          () => ModSectionHeader(mod.l10n.recentBansCount(bans.length)),
+          if (bans.isEmpty) () => ListTile(title: Text(mod.l10n.noBansYet)),
+          for (final ban in bans)
+            () => _row(
+              login: ban.login,
+              subtitle: _banSubtitle(mod.l10n, ban),
+              busyKey: 'unban:${ban.login.toLowerCase()}',
+              trailing: OutlinedButton(
+                onPressed: () => _unban(ban.login),
+                child: Text(mod.l10n.unban),
+              ),
+            ),
+          () => ModSectionHeader(mod.l10n.warnedCount(warned.length)),
+          if (warned.isEmpty)
+            () => ListTile(title: Text(mod.l10n.noWarningsYet)),
+          for (final w in warned)
+            () => _row(
+              login: w.target,
+              subtitle: _warnSubtitle(
+                mod.l10n,
+                warnCounts[w.target.toLowerCase()] ?? 1,
+                w,
+              ),
+              trailing: TextButton(
+                onPressed: () => _dismissWarnings(w.target),
+                child: Text(mod.l10n.dismiss),
+              ),
+            ),
+          () => ModSectionHeader(mod.l10n.flaggedCount(flagged.length)),
+          if (flagged.isEmpty)
+            () => ListTile(title: Text(mod.l10n.noFlaggedUsers)),
+          for (final info in flagged)
+            () => _row(
+              login: info.login,
+              subtitle: _suspiciousSubtitle(mod.l10n, info),
+              busyKey: 'flag:${info.login.toLowerCase()}',
+              trailing: OutlinedButton(
+                onPressed: () => _clearFlag(info.login),
+                child: Text(mod.l10n.clear),
+              ),
+            ),
+        ];
+        return ListView.builder(
           padding: glassListPadding(
             context,
             const EdgeInsets.fromLTRB(0, 4, 0, 24),
           ),
-          children: [
-            // Bans seen this session; the Channel tab lists every ban.
-            ModSectionHeader(mod.l10n.recentBansCount(bans.length)),
-            if (bans.isEmpty) ListTile(title: Text(mod.l10n.noBansYet)),
-            for (final ban in bans)
-              _row(
-                login: ban.login,
-                subtitle: _banSubtitle(mod.l10n, ban),
-                busyKey: 'unban:${ban.login.toLowerCase()}',
-                trailing: OutlinedButton(
-                  onPressed: () => _unban(ban.login),
-                  child: Text(mod.l10n.unban),
-                ),
-              ),
-            ModSectionHeader(mod.l10n.warnedCount(warned.length)),
-            if (warned.isEmpty) ListTile(title: Text(mod.l10n.noWarningsYet)),
-            for (final w in warned)
-              _row(
-                login: w.target,
-                subtitle: _warnSubtitle(
-                  mod.l10n,
-                  warnCounts[w.target.toLowerCase()] ?? 1,
-                  w,
-                ),
-                trailing: TextButton(
-                  onPressed: () => _dismissWarnings(w.target),
-                  child: Text(mod.l10n.dismiss),
-                ),
-              ),
-            ModSectionHeader(mod.l10n.flaggedCount(flagged.length)),
-            if (flagged.isEmpty) ListTile(title: Text(mod.l10n.noFlaggedUsers)),
-            for (final info in flagged)
-              _row(
-                login: info.login,
-                subtitle: _suspiciousSubtitle(mod.l10n, info),
-                busyKey: 'flag:${info.login.toLowerCase()}',
-                trailing: OutlinedButton(
-                  onPressed: () => _clearFlag(info.login),
-                  child: Text(mod.l10n.clear),
-                ),
-              ),
-          ],
+          itemCount: rows.length,
+          itemBuilder: (context, i) => rows[i](),
         );
       },
     );
