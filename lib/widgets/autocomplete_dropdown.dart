@@ -59,11 +59,13 @@ class _AutocompleteDropdownState extends State<AutocompleteDropdown> {
   static const _emoteSize = 36.0;
   static const _rowHeight = 48.0;
 
+  /// Rows shown before the list scrolls, so it always ends on a whole row.
+  static const _maxRows = 4;
+
   Widget _buildChild(ThemeData theme) {
     final itemCount = widget.suggestions.length;
-    final contentHeight = itemCount * _rowHeight;
     return SizedBox(
-      height: contentHeight.toDouble(),
+      height: itemCount.clamp(0, _maxRows) * _rowHeight,
       child: Container(
         key: const Key('autocomplete_dropdown'),
         decoration: BoxDecoration(
