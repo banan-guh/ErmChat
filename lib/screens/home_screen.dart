@@ -1014,7 +1014,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     } catch (e) {
       logDebug('[HomeScreen] failed to fetch blocked users: $e');
     }
-    if (!mounted) return;
+    // A switch mid-fetch re-runs this for the new account; the old list and
+    // its ready flag must not land in the new account's chat.
+    if (!mounted || _twitchAuth.userId != userId) return;
     ref.read(blockedLoginsProvider.notifier).addAll(blocked);
     ref.read(chatReadyProvider.notifier).set(true);
     _sweepBlockedMessages();
