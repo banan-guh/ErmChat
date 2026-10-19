@@ -1972,6 +1972,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                             dragTick: _panelDragTick,
                             swipePage: _channels.swipePage,
                             alignStart: spec.rowStart.isEmpty,
+                            // Send down the island's side, with no buttons
+                            // between the gap and it.
+                            sendRoom:
+                                buttonsInRow &&
+                                    !spec.sendInRow &&
+                                    spec.rowEnd.isEmpty
+                                ? ChatBody.sideActionWidth
+                                : 0,
                           )
                         : null,
                     leading: buttonsInRow

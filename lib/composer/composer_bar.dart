@@ -190,6 +190,7 @@ class ComposerRowButton extends StatelessWidget {
     listenable: Listenable.merge([
       _enabledInputs(controller, mod, dragTick),
       controller.focusNode,
+      controller.modesUnderSend,
     ]),
     builder: (context, _) {
       final searchBorrowed = search.open && search.selectedChannel() != null;
@@ -226,12 +227,22 @@ class ComposerRowButton extends StatelessWidget {
           // half the stock strength.
           splashColor: scheme.onSurface.withValues(alpha: 0.06),
           highlightColor: scheme.onSurface.withValues(alpha: 0.04),
-          child: Center(
-            child: Icon(
-              Icons.send,
-              color: enabled
-                  ? accent
-                  : scheme.onSurface.withValues(alpha: 0.38),
+          // Room modes reaching under the column push the icon up beside
+          // the field's first line.
+          child: Align(
+            alignment: controller.modesUnderSend.value
+                ? Alignment.topCenter
+                : Alignment.center,
+            child: Padding(
+              padding: EdgeInsets.only(
+                top: controller.modesUnderSend.value ? 16 : 0,
+              ),
+              child: Icon(
+                Icons.send,
+                color: enabled
+                    ? accent
+                    : scheme.onSurface.withValues(alpha: 0.38),
+              ),
             ),
           ),
         ),
@@ -253,7 +264,12 @@ class ComposerModeRow extends StatelessWidget {
     required this.dragTick,
     required this.swipePage,
     this.alignStart = false,
+    this.sendRoom = 0,
   });
+
+  /// Width past the gap's end the modes may take when they need it: the
+  /// send column's part beside the row, whose icon then moves up.
+  final double sendRoom;
 
   final ComposerController controller;
   final ValueListenable<int> selectedTabIndex;
@@ -273,6 +289,7 @@ class ComposerModeRow extends StatelessWidget {
   Widget build(BuildContext context) => LayoutBuilder(
     builder: (context, constraints) {
       final gap = constraints.maxWidth;
+      controller.modeSendRoom = sendRoom;
       if (gap != controller.modeGap.value) {
         // Layout can't notify listeners mid-frame.
         WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -298,28 +315,45 @@ class ComposerModeRow extends StatelessWidget {
                   swipePage.value,
                   controller.selectedChannel,
                 ),
-                (channel) => !modesFitRow(context, controller, channel)
-                    ? const SizedBox.shrink()
-                    : Align(
-                        alignment: alignStart
-                            ? AlignmentDirectional.centerStart
-                            : Alignment.center,
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: _modeRowPad,
-                          ),
-                          child: Text(
-                            controller.chat
-                                .channelFor(channel)!
-                                .info
-                                .modes
-                                .join(' · '),
-                            style: _statusStyle(context),
-                            maxLines: 1,
-                            softWrap: false,
-                          ),
-                        ),
+                (channel) {
+                  final width = _modesWidth(context, controller, channel);
+                  final wide = width != null && width > gap;
+                  if (channel == controller.selectedChannel) {
+                    _noteUnderSend(wide && width <= gap + sendRoom);
+                  }
+                  if (!modesFitRow(context, controller, channel)) {
+                    return const SizedBox.shrink();
+                  }
+                  final line = Align(
+                    alignment: alignStart
+                        ? AlignmentDirectional.centerStart
+                        : Alignment.center,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: _modeRowPad,
                       ),
+                      child: Text(
+                        controller.chat
+                            .channelFor(channel)!
+                            .info
+                            .modes
+                            .join(' · '),
+                        style: _statusStyle(context),
+                        maxLines: 1,
+                        softWrap: false,
+                      ),
+                    ),
+                  );
+                  if (!wide) return line;
+                  // Paints on under the send column, which stays on top and
+                  // keeps every tap.
+                  return OverflowBox(
+                    alignment: AlignmentDirectional.centerStart,
+                    minWidth: gap + sendRoom,
+                    maxWidth: gap + sendRoom,
+                    child: line,
+                  );
+                },
               ),
             ),
           );
@@ -327,6 +361,14 @@ class ComposerModeRow extends StatelessWidget {
       );
     },
   );
+
+  void _noteUnderSend(bool under) {
+    if (controller.modesUnderSend.value == under) return;
+    // Build can't notify listeners mid-frame.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      controller.modesUnderSend.value = under;
+    });
+  }
 }
 
 /// Padding the mode text keeps from the row's buttons on each side.
@@ -339,8 +381,19 @@ bool modesFitRow(
   ComposerController controller,
   String channel,
 ) {
+  final width = _modesWidth(context, controller, channel);
+  return width != null &&
+      width <= controller.modeGap.value + controller.modeSendRoom;
+}
+
+/// [channel]'s modes line width with its padding, or null without modes.
+double? _modesWidth(
+  BuildContext context,
+  ComposerController controller,
+  String channel,
+) {
   final modes = controller.chat.channelFor(channel)?.info.modes ?? const [];
-  if (modes.isEmpty) return false;
+  if (modes.isEmpty) return null;
   final line = TextPainter(
     text: TextSpan(text: modes.join(' · '), style: _statusStyle(context)),
     textScaler: MediaQuery.textScalerOf(context),
@@ -349,7 +402,7 @@ bool modesFitRow(
   )..layout();
   final width = line.width;
   line.dispose();
-  return width + 2 * _modeRowPad <= controller.modeGap.value;
+  return width + 2 * _modeRowPad;
 }
 
 /// Rebuilds [builder] when the selected channel or its info changes. The

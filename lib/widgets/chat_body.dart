@@ -55,6 +55,9 @@ bool collapseChromeForKeyboard({
 /// mid-animation. All content comes in as builders/widgets so this file
 /// holds geometry only, no chat logic.
 class ChatBody extends StatefulWidget {
+  /// Width of the island's side action column.
+  static const double sideActionWidth = 56;
+
   const ChatBody({
     super.key,
     required this.bodyBuilder,
@@ -191,9 +194,6 @@ class _ChatBodyState extends State<ChatBody>
 
   // How much of the row the shortened island hides this frame.
   double _rowClip = 0;
-
-  // Width of the island's side action column.
-  static const double _sideActionW = 56;
 
   // Measured height of the island's footer (the channel status), which the
   // pages' clearance leaves out: each page adds its own channel's instead.
@@ -733,7 +733,9 @@ class _ChatBodyState extends State<ChatBody>
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           Padding(
-                            padding: const EdgeInsets.only(right: _sideActionW),
+                            padding: const EdgeInsets.only(
+                              right: ChatBody.sideActionWidth,
+                            ),
                             child: Column(
                               mainAxisSize: MainAxisSize.min,
                               children: [flowComposer, ?widget.bottomBar],
@@ -746,7 +748,7 @@ class _ChatBodyState extends State<ChatBody>
                         top: 0,
                         bottom: 0,
                         right: 0,
-                        width: _sideActionW,
+                        width: ChatBody.sideActionWidth,
                         child: widget.sideAction!,
                       ),
                     ],

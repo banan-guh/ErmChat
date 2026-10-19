@@ -94,6 +94,13 @@ class ComposerController {
   /// they fit. Zero while no row shows.
   final modeGap = ValueNotifier<double>(0);
 
+  /// Extra width the modes may take under the send column's row part.
+  double modeSendRoom = 0;
+
+  /// Whether the selected channel's modes reach under the send column, so
+  /// its icon moves up beside the field.
+  final modesUnderSend = ValueNotifier<bool>(false);
+
   String? _lastSentText;
   Timer? _cooldownTickTimer;
 
@@ -108,6 +115,7 @@ class ComposerController {
     suggestions.dispose();
     cooldownLabel.dispose();
     modeGap.dispose();
+    modesUnderSend.dispose();
   }
 
   void focus() => focusNode.requestFocus();
