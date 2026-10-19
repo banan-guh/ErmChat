@@ -827,7 +827,7 @@ class _ChatBodyState extends State<ChatBody>
     );
     final islandPad = EdgeInsets.fromLTRB(
       kComposerIslandMargin,
-      kComposerIslandMargin,
+      kComposerGap - kOpaqueComposerGap,
       kComposerIslandMargin,
       kComposerIslandMargin + bottomPad,
     );

@@ -19,12 +19,17 @@ const double kGlassTabStripHeight = 40.0;
 const double kComposerIslandMargin = 8.0;
 const double kComposerIslandRadius = 16.0;
 
-// Gap the list keeps above the in-flow composer when the glass pill is off.
-const double kOpaqueComposerGap = 4.0;
+// Visible gap between the newest row and the composer surface, in every
+// layout (floating island, docked pane, history).
+const double kComposerGap = 8.0;
 
-// Gap the newest row keeps above a floating island at rest: the docked
-// island's list gap plus its top margin, so both modes read the same.
-const double kFloatingComposerGap = kOpaqueComposerGap + kComposerIslandMargin;
+// Gap the list keeps above an in-flow composer. The pane adds the rest of
+// [kComposerGap] as the island's top margin.
+const double kOpaqueComposerGap = kComposerGap / 2;
+
+// The floating island's margin is already in the measured clearance, so the
+// list pays the whole gap.
+const double kFloatingComposerGap = kComposerGap;
 
 // Welcome overlay header height: status bar plus app bar row only. With no
 // channels there is no tab strip, so the glass card holds the app bar alone
