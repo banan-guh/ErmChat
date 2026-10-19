@@ -58,29 +58,33 @@ class _DataUsageScreenState extends State<DataUsageScreen> {
     ]..sort((a, b) => b.$3.compareTo(a.$3));
     final total = s.totalFor(mobileOnly: _mobileOnly);
     final scheme = Theme.of(context).colorScheme;
+    final scope = _mobileOnly ? l.dataUsageMobileOnly : l.dataUsageAllNetworks;
     return SettingsPage(
-      title: Text(l.settingDataUsage),
-      body: ListView(
+      title: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-            child: SegmentedButton<bool>(
-              segments: [
-                ButtonSegment(
-                  value: false,
-                  icon: const Icon(Icons.public),
-                  label: Text(l.dataUsageAllNetworks),
-                ),
-                ButtonSegment(
-                  value: true,
-                  icon: const Icon(Icons.signal_cellular_alt),
-                  label: Text(l.dataUsageMobileOnly),
-                ),
-              ],
-              selected: {_mobileOnly},
-              onSelectionChanged: (v) => setState(() => _mobileOnly = v.first),
+          Text(l.settingDataUsage),
+          AnimatedSwitcher(
+            duration: const Duration(milliseconds: 200),
+            child: Text(
+              scope,
+              key: ValueKey(_mobileOnly),
+              style: Theme.of(
+                context,
+              ).textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
             ),
           ),
+        ],
+      ),
+      actions: [
+        _NetworkToggle(
+          mobileOnly: _mobileOnly,
+          onChanged: (v) => setState(() => _mobileOnly = v),
+        ),
+        const SizedBox(width: 12),
+      ],
+      body: ListView(
+        children: [
           ListTile(
             title: Text(l.dataUsageTotal),
             trailing: Text(
@@ -107,6 +111,66 @@ class _DataUsageScreenState extends State<DataUsageScreen> {
               ).textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
             ),
           ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Two-icon switch between all networks (globe) and mobile data (bars).
+class _NetworkToggle extends StatelessWidget {
+  const _NetworkToggle({required this.mobileOnly, required this.onChanged});
+
+  final bool mobileOnly;
+  final ValueChanged<bool> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final l = context.l10n;
+    final scheme = Theme.of(context).colorScheme;
+    Widget option(bool value, IconData icon, String label) {
+      final selected = mobileOnly == value;
+      return Tooltip(
+        message: label,
+        child: Semantics(
+          button: true,
+          selected: selected,
+          label: label,
+          child: GestureDetector(
+            onTap: () => onChanged(value),
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 200),
+              curve: Curves.easeOut,
+              width: 36,
+              height: 28,
+              decoration: BoxDecoration(
+                color: selected ? scheme.primaryContainer : Colors.transparent,
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: Icon(
+                icon,
+                size: 18,
+                color: selected
+                    ? scheme.onPrimaryContainer
+                    : scheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(2),
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          option(false, Icons.public, l.dataUsageAllNetworks),
+          option(true, Icons.signal_cellular_alt, l.dataUsageMobileOnly),
         ],
       ),
     );
