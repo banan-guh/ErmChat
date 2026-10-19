@@ -7,6 +7,7 @@ import '../../util/prefs.dart';
 import '../../util/prefs_store.dart';
 import '../../util/timestamp_formatter.dart';
 import '../../widgets/dialogs.dart';
+import '../../widgets/glass_chrome.dart';
 import 'custom_layout_screen.dart';
 import 'prefs_tiles.dart';
 import 'settings_page.dart';
@@ -337,8 +338,15 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
                   ? context.l10n.experimental
                   : context.l10n.liquidGlassIslandOnly,
               enabled: _chromeIsIsland,
+              // Draws real glass once it is on, so the GPU builds the glass
+              // shaders here on the tap rather than while this page animates
+              // away, which would crawl.
+              secondary: _GlassSwatch(
+                on: _chromeIsIsland && (_prefs?.liquidGlass ?? false),
+              ),
               read: (p) => p.liquidGlass,
               write: (p, v) => p.setLiquidGlass(v),
+              onChanged: (_) => setState(() {}),
             ),
           ),
           SettingsSectionHeader(context.l10n.sectionChatDisplay),
@@ -597,4 +605,27 @@ class _LayoutPickerSheet extends StatelessWidget {
       ),
     );
   }
+}
+
+/// A small island swatch: glass when [on], else a plain outline.
+class _GlassSwatch extends StatelessWidget {
+  const _GlassSwatch({required this.on});
+
+  final bool on;
+
+  @override
+  Widget build(BuildContext context) => SizedBox(
+    width: 40,
+    height: 28,
+    child: on
+        ? glassIsland(child: const SizedBox.expand())
+        : DecoratedBox(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(
+                color: Theme.of(context).colorScheme.outlineVariant,
+              ),
+            ),
+          ),
+  );
 }
