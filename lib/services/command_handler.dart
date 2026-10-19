@@ -227,26 +227,34 @@ class CommandHandler {
       _whisperMessage(channel, strings().usageWhisper);
       return;
     }
-    final targetId = await _resolveUserId(auth, args[0]);
+    // Mention autocomplete writes "@name"; the lookup wants the bare login.
+    final target = args[0].startsWith('@') ? args[0].substring(1) : args[0];
+    final targetId = await _resolveUserId(auth, target);
     if (targetId == null) {
       _whisperMessage(channel, strings().modErrorUnknownUser);
       return;
     }
     final message = args.sublist(1).join(' ');
-    final ok = await _moderate(
-      'send whisper',
-      channel,
-      () => twitchApi.sendWhisper(
+    // Twitch's own reason leads: a whisper fails on things only it names
+    // (no verified phone, the recipient's settings, the daily limit), and
+    // its 401 is not a missing scope.
+    final failure = await twitchApi.isolateErrors(() async {
+      final sent = await twitchApi.sendWhisper(
         auth,
         fromUserId: currentUserId,
         toUserId: targetId,
         message: message,
-      ),
-    );
-    if (ok) {
-      _whisperMessage(channel, strings().whisperSent);
-      onWhisperSent?.call(args[0], message);
+      );
+      return sent
+          ? null
+          : twitchApi.lastHelixMessage ?? modActions.failureReason();
+    });
+    if (failure != null) {
+      _whisperMessage(channel, _failed('send whisper', failure));
+      return;
     }
+    _whisperMessage(channel, strings().whisperSent);
+    onWhisperSent?.call(target, message);
   }
 
   /// Parses DankChat-style durations ("90", "2m", "1h30m", "1d", "2w").

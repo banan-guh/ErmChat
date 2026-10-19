@@ -1204,15 +1204,28 @@ void main() {
     });
 
     test('whisper failure reports through whisper feedback', () async {
-      final whisperMessages = <String>[];
-      await runCommand(
-        '/w foo hey',
-        respond: (_) => http.Response('{"message":"rate limit"}', 429),
-        whisperMessages: whisperMessages,
-      );
-      expect(systemMessages, isEmpty);
-      expect(whisperMessages.single, contains('Failed to send whisper'));
-      expect(whisperMessages.single, contains('rate-limited'));
+      // Twitch's reason leads; a bare status falls back to the mapping.
+      // Shipped bug: the unverified-phone 401 read as a missing scope.
+      const cases = [
+        (
+          401,
+          '{"error":"Unauthorized","status":401,'
+              '"message":"the sender does not have a verified phone number"}',
+          'verified phone number',
+        ),
+        (429, '', 'rate-limited'),
+      ];
+      for (final (status, body, expected) in cases) {
+        final whisperMessages = <String>[];
+        await runCommand(
+          '/w foo hey',
+          respond: (_) => http.Response(body, status),
+          whisperMessages: whisperMessages,
+        );
+        expect(systemMessages, isEmpty);
+        expect(whisperMessages.single, contains('Failed to send whisper'));
+        expect(whisperMessages.single, contains(expected), reason: '$status');
+      }
     });
 
     test('bad usage is rejected before any request', () async {
@@ -1268,8 +1281,9 @@ void main() {
     test('/w routes feedback and echo through whisper callbacks', () async {
       final whisperMessages = <String>[];
       final whisperSent = <({String target, String message})>[];
+      // Mention autocomplete writes the target as "@foo".
       await runCommand(
-        '/w foo hey there',
+        '/w @foo hey there',
         whisperMessages: whisperMessages,
         whisperSent: whisperSent,
       );
