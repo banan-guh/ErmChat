@@ -1603,12 +1603,15 @@ void main() {
       ]);
       final fakeEventSub = FakeEventSubService();
       final fakeIrc = FakeIrcService();
+      // Chat arrives on the read socket, so its outage drives the refill.
+      final fakeRead = FakeIrcReadService();
 
       await tester.pumpWidget(
         TwitchChatApp(
           key: UniqueKey(),
           eventSubService: fakeEventSub,
           ircService: fakeIrc,
+          ircReadService: fakeRead,
           recentMessagesService: recent,
         ),
       );
@@ -1626,9 +1629,9 @@ void main() {
         findsNothing,
       );
 
-      fakeIrc.triggerDisconnect();
+      fakeRead.triggerDisconnect();
       await tester.pump();
-      fakeIrc.triggerConnect();
+      fakeRead.triggerConnect();
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 600));
       await tester.pump();

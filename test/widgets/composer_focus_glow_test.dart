@@ -22,7 +22,7 @@ void main() {
         .then((_) => focusNode);
   }
 
-  double ringAlpha(WidgetTester tester) {
+  double tintAlpha(WidgetTester tester) {
     final box = tester.widget<AnimatedContainer>(
       find.descendant(
         of: find.byType(ComposerFocusGlow),
@@ -30,29 +30,29 @@ void main() {
       ),
     );
     final decoration = box.foregroundDecoration as ShapeDecoration?;
-    return (decoration?.shape as OutlinedBorder?)?.side.color.a ?? 0;
+    return decoration?.color?.a ?? 0;
   }
 
-  testWidgets('rings while focused without resizing the field', (tester) async {
+  testWidgets('tints while focused without resizing the field', (tester) async {
     final focusNode = await pumpGlow(tester);
-    expect(ringAlpha(tester), 0);
+    expect(tintAlpha(tester), 0);
     final size = tester.getSize(find.byType(TextField));
 
     // Focus resolves in a microtask, so the first pump applies it and the
-    // second rebuilds with the ring.
+    // second rebuilds with the tint.
     focusNode.requestFocus();
     await tester.pump();
     await tester.pump();
-    expect(ringAlpha(tester), greaterThan(0));
+    expect(tintAlpha(tester), greaterThan(0));
     expect(
       tester.getSize(find.byType(TextField)),
       size,
-      reason: 'focus only tints the ring and never resizes the field',
+      reason: 'focus only tints the glass and never resizes the field',
     );
 
     focusNode.unfocus();
     await tester.pump();
     await tester.pump();
-    expect(ringAlpha(tester), 0);
+    expect(tintAlpha(tester), 0);
   });
 }
