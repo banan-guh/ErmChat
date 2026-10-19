@@ -17,8 +17,9 @@ class MessageMenus {
     required this.findThreadRoot,
     required this.showThreadView,
     required this.startReply,
-    required this.canPin,
+    required this.canModerate,
     required this.pinMessage,
+    required this.deleteMessage,
   });
 
   final Prefs prefs;
@@ -26,9 +27,11 @@ class MessageMenus {
   final Future<void> Function(TwitchMessage root) showThreadView;
   final void Function(TwitchMessage msg) startReply;
 
-  /// Whether the user moderates [msg]'s channel, so it can be pinned.
-  final bool Function(TwitchMessage msg) canPin;
+  /// Whether the user moderates [msg]'s channel, so it can be pinned or
+  /// deleted.
+  final bool Function(TwitchMessage msg) canModerate;
   final void Function(BuildContext context, TwitchMessage msg) pinMessage;
+  final void Function(BuildContext context, TwitchMessage msg) deleteMessage;
 
   void showMessageMenu(BuildContext context, TwitchMessage msg) {
     iosHaptic(HapticFeedback.mediumImpact);
@@ -70,6 +73,18 @@ class MessageMenus {
                   Navigator.pop(ctx);
                 },
               ),
+              if (msg.messageId != null &&
+                  !msg.isSystem &&
+                  !msg.deleted &&
+                  canModerate(msg))
+                ListTile(
+                  leading: const Icon(Icons.delete_outline),
+                  title: Text(ctx.l10n.deleteMessage),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    deleteMessage(context, msg);
+                  },
+                ),
               ListTile(
                 leading: const Icon(Icons.more_horiz),
                 title: Text(ctx.l10n.moreEllipsis),
@@ -127,7 +142,7 @@ class MessageMenus {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            if (msg.messageId != null && !msg.isSystem && canPin(msg))
+            if (msg.messageId != null && !msg.isSystem && canModerate(msg))
               ListTile(
                 leading: const Icon(Icons.push_pin_outlined),
                 title: Text(ctx.l10n.pinMessage),

@@ -350,10 +350,18 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     showThreadView: (root) =>
         _threads.showThreadView(root, switchChannel: true),
     startReply: _composer.startReply,
-    canPin: (msg) =>
+    canModerate: (msg) =>
         msg.channel != null && _chatConn.isModerationActive(msg.channel!),
     pinMessage: (context, msg) async {
       final result = await _modActions.pinMessage(
+        _twitchAuth,
+        msg.channel!,
+        msg.messageId!,
+      );
+      if (context.mounted) showModError(context, result);
+    },
+    deleteMessage: (context, msg) async {
+      final result = await _modActions.deleteMessage(
         _twitchAuth,
         msg.channel!,
         msg.messageId!,
