@@ -276,7 +276,7 @@ class IrcChatDecoder {
     // onMessage for regular chat, onOwnMessage for self-timeout heal and
     // reply-highlight tracking. Read-side only: no nick, no echo.
     final sender = _prefixLoginOf(msg)?.toLowerCase();
-    if (sender == _nickProvider?.call()) {
+    if (sender != null && sender == _nickProvider?.call()) {
       _ownMessageController.add(msg);
     }
   }

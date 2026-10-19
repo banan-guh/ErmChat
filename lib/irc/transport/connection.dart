@@ -422,14 +422,14 @@ abstract class IrcConnection {
   /// never leaves a pending timer behind.
   Future<void> _waitForReady(WebSocketChannel newChannel) {
     final completer = Completer<void>();
-    _connectTimer?.cancel();
-    _connectTimer = Timer(_connectTimeout, () {
+    final timer = Timer(_connectTimeout, () {
       if (!completer.isCompleted) {
         completer.completeError(
           TimeoutException('$debugPrefix connect timed out'),
         );
       }
     });
+    _connectTimer = timer;
     newChannel.ready.then(
       (_) {
         if (!completer.isCompleted) completer.complete();
@@ -439,8 +439,8 @@ abstract class IrcConnection {
       },
     );
     return completer.future.whenComplete(() {
-      _connectTimer?.cancel();
-      _connectTimer = null;
+      timer.cancel();
+      if (_connectTimer == timer) _connectTimer = null;
     });
   }
 
@@ -620,7 +620,7 @@ abstract class IrcConnection {
         logDebug('$debugPrefix server requested reconnect');
         _disconnect();
         _signalDeath(_DeathReason.reconnect);
-        continue;
+        return;
       }
 
       // ROOMSTATE is the server's acknowledgement that a JOIN was processed;

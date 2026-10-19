@@ -175,10 +175,11 @@ class EventSubDecoder {
   /// Routes notifications into typed events. Mod is channel-agnostic;
   /// hype/poll/prediction are broadcaster-only.
   void _onNotification(Map<String, dynamic> msg) {
-    final meta = msg['metadata'] as Map<String, dynamic>;
+    final meta = msg['metadata'];
+    final payload = msg['payload'];
+    final event = payload is Map ? payload['event'] : null;
+    if (meta is! Map || event is! Map<String, dynamic>) return;
     final type = meta['subscription_type'] as String? ?? '';
-    final payload = msg['payload'] as Map<String, dynamic>;
-    final event = payload['event'] as Map<String, dynamic>;
     final channel = _channelFromPayload(msg);
 
     if (type.startsWith('channel.hype_train.')) {
@@ -285,7 +286,8 @@ class EventSubDecoder {
 
     final contributions = <HypeTrainContribution>[];
     for (final c in (event['top_contributions'] as List? ?? const [])) {
-      final m = c as Map<String, dynamic>;
+      if (c is! Map<String, dynamic>) continue;
+      final m = c;
       contributions.add(
         HypeTrainContribution(
           userName: m['user_name'] as String? ?? 'Anonymous',
@@ -313,7 +315,8 @@ class EventSubDecoder {
   void _emitPoll(String channel, Map<String, dynamic> event, String kind) {
     final choices = <PollChoice>[];
     for (final c in (event['choices'] as List? ?? const [])) {
-      final m = c as Map<String, dynamic>;
+      if (c is! Map<String, dynamic>) continue;
+      final m = c;
       choices.add(
         PollChoice(
           title: m['title'] as String? ?? '',
@@ -340,7 +343,8 @@ class EventSubDecoder {
   ) {
     final outcomes = <PredictionOutcome>[];
     for (final o in (event['outcomes'] as List? ?? const [])) {
-      final m = o as Map<String, dynamic>;
+      if (o is! Map<String, dynamic>) continue;
+      final m = o;
       outcomes.add(
         PredictionOutcome(
           title: m['title'] as String? ?? '',
