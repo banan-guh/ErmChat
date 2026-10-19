@@ -38,23 +38,15 @@ class SettingsSectionHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final text = Text(
-      title,
-      style: Theme.of(
-        context,
-      ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
-    );
-    final trailing = this.trailing;
     return Padding(
-      padding: EdgeInsets.fromLTRB(16, trailing == null ? 16 : 8, 16, 4),
-      child: trailing == null
-          ? text
-          : Row(
-              children: [
-                Flexible(child: text),
-                trailing,
-              ],
-            ),
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
+      child: TextWithTrailing(
+        title,
+        trailing: trailing,
+        style: Theme.of(
+          context,
+        ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+      ),
     );
   }
 }
@@ -84,14 +76,7 @@ class SettingsNavTile extends StatelessWidget {
   Widget build(BuildContext context) {
     return ListTile(
       leading: Icon(icon),
-      title: titleTrailing == null
-          ? Text(title)
-          : Row(
-              children: [
-                Flexible(child: Text(title)),
-                titleTrailing!,
-              ],
-            ),
+      title: TextWithTrailing(title, trailing: titleTrailing),
       subtitle: subtitle == null ? null : Text(subtitle!),
       trailing: const Icon(Icons.chevron_right),
       enabled: enabled,
@@ -117,6 +102,46 @@ class SettingsPageIntro extends StatelessWidget {
           color: theme.colorScheme.onSurfaceVariant,
         ),
       ),
+    );
+  }
+}
+
+/// Marks a page that explains its settings. Info buttons show only under
+/// one, so the aggregate pages explain and the home pages stay plain.
+class SettingInfoScope extends InheritedWidget {
+  const SettingInfoScope({super.key, required super.child});
+
+  static bool of(BuildContext context) =>
+      context.dependOnInheritedWidgetOfExactType<SettingInfoScope>() != null;
+
+  @override
+  bool updateShouldNotify(SettingInfoScope oldWidget) => false;
+}
+
+/// [text] with [trailing] flowing after its last word, so a title that
+/// wraps keeps the trailing widget beside its end. Plain text outside a
+/// [SettingInfoScope].
+class TextWithTrailing extends StatelessWidget {
+  const TextWithTrailing(this.text, {super.key, this.trailing, this.style});
+
+  final String text;
+  final Widget? trailing;
+  final TextStyle? style;
+
+  @override
+  Widget build(BuildContext context) {
+    final trailing = this.trailing;
+    if (trailing == null || !SettingInfoScope.of(context)) {
+      return Text(text, style: style);
+    }
+    return Text.rich(
+      TextSpan(
+        text: text,
+        children: [
+          WidgetSpan(alignment: PlaceholderAlignment.middle, child: trailing),
+        ],
+      ),
+      style: style,
     );
   }
 }

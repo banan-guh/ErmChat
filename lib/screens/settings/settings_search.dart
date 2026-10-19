@@ -122,6 +122,7 @@ class Setting {
     'split_links' => l.settingSplitLinks,
     'recent_messages_limit' => l.settingRecentMessagesLimit,
     'recent_messages_source' => l.settingRecentMessagesSource,
+    'archive_retention' => l.settingArchiveRetention,
     'prefer_emotes' => l.settingPreferEmotes,
     'mention_format' => l.settingMentionFormat,
     'reply_thread_root' => l.settingReplyThreadRoot,
@@ -393,6 +394,12 @@ class Setting {
     SettingsPageId.history,
     keywords: 'history',
     mirrors: {SettingsPageId.data},
+  );
+  static const archiveRetention = Setting(
+    'archive_retention',
+    'Keep chat for',
+    SettingsPageId.history,
+    keywords: 'archive retention storage days delete',
   );
   static const recentMessagesSource = Setting(
     'recent_messages_source',
@@ -770,6 +777,7 @@ class Setting {
     splitLinks,
     recentMessagesLimit,
     recentMessagesSource,
+    archiveRetention,
     preferEmotes,
     mentionFormat,
     replyThreadRoot,

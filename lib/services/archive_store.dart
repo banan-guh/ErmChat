@@ -89,7 +89,11 @@ class ArchiveStore {
   ArchiveStore._(this._db, this._now);
 
   static const int schemaVersion = 7;
-  static const Duration retention = Duration(days: 30);
+  static const Duration defaultRetention = Duration(days: 30);
+
+  /// How long chat stays before pruning. The History settings set it, and
+  /// the history views read it for the range they offer.
+  static Duration retention = defaultRetention;
   static const Duration pruneEvery = Duration(hours: 1);
 
   final Database _db;

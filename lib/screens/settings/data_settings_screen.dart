@@ -37,41 +37,43 @@ class DataSettingsScreen extends StatelessWidget {
     final usage = DataUsageStats.I;
     return SettingsPage(
       title: Text(l.pageData),
-      body: ListView(
-        children: [
-          SettingsPageIntro(l.dataPageIntro),
-          SettingAnchor(
-            Setting.dataUsage,
-            child: SettingsNavTile(
-              icon: Icons.bar_chart,
-              title: Setting.dataUsage.titleOf(l),
-              subtitle: l.dataUsageSummary(
-                DataUsageScreen.format(usage.totalFor()),
-                DataUsageScreen.format(usage.totalFor(mobileOnly: true)),
-              ),
-              onTap: () => Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const DataUsageScreen()),
+      body: SettingInfoScope(
+        child: ListView(
+          children: [
+            SettingsPageIntro(l.dataPageIntro),
+            SettingAnchor(
+              Setting.dataUsage,
+              child: SettingsNavTile(
+                icon: Icons.bar_chart,
+                title: Setting.dataUsage.titleOf(l),
+                subtitle: l.dataUsageSummary(
+                  DataUsageScreen.format(usage.totalFor()),
+                  DataUsageScreen.format(usage.totalFor(mobileOnly: true)),
+                ),
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const DataUsageScreen()),
+                ),
               ),
             ),
-          ),
-          EmoteQualitySection(
-            mobileNotifier: mobileNotifier,
-            onTierChanged: onEmoteTierChanged,
-            onAutoModeChanged: onEmoteAutoModeChanged,
-          ),
-          EmoteCacheSection(
-            images: images,
-            onCacheMaxChanged: onEmoteCacheMaxChanged,
-            onNuke: onNukeEmotes,
-          ),
-          SettingsSectionHeader(l.pageHistory),
-          const RecentMessagesLimitTile(),
-          SettingsSectionHeader(l.inlineEmbedsTitle),
-          const ShowGiphyTile(),
-          const ShowImagesTile(),
-          const SizedBox(height: 16),
-        ],
+            EmoteQualitySection(
+              mobileNotifier: mobileNotifier,
+              onTierChanged: onEmoteTierChanged,
+              onAutoModeChanged: onEmoteAutoModeChanged,
+            ),
+            EmoteCacheSection(
+              images: images,
+              onCacheMaxChanged: onEmoteCacheMaxChanged,
+              onNuke: onNukeEmotes,
+            ),
+            SettingsSectionHeader(l.pageHistory),
+            const RecentMessagesLimitTile(),
+            SettingsSectionHeader(l.inlineEmbedsTitle),
+            const ShowGiphyTile(),
+            const ShowImagesTile(),
+            const SizedBox(height: 16),
+          ],
+        ),
       ),
     );
   }

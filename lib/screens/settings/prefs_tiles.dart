@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../util/prefs.dart';
 import '../../util/prefs_store.dart';
+import 'settings_page.dart';
 
 /// Settings rows bound directly to one [Prefs] value.
 ///
@@ -78,15 +79,7 @@ class _PrefsSwitchTileState extends State<PrefsSwitchTile> {
     final trailing = widget.titleTrailing;
     final subtitle = widget.subtitle;
     final info = widget.info;
-    final title = info == null
-        ? Text(widget.title)
-        : Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Flexible(child: Text(widget.title)),
-              info,
-            ],
-          );
+    final title = TextWithTrailing(widget.title, trailing: info);
     return SwitchListTile(
       secondary: widget.secondary,
       // With a title trailing, the subtitle joins the title slot so the
@@ -202,24 +195,15 @@ class _PrefsSliderTileState extends State<PrefsSliderTile> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Padding(
-          padding: EdgeInsets.symmetric(
-            horizontal: 16,
-            vertical: widget.labelTrailing == null ? 8 : 0,
-          ),
-          child: Row(
-            children: [
-              Flexible(
-                child: Text(
-                  widget.label(value),
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: enabled
-                        ? null
-                        : Theme.of(context).colorScheme.onSurfaceVariant,
-                  ),
-                ),
-              ),
-              ?widget.labelTrailing,
-            ],
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: TextWithTrailing(
+            widget.label(value),
+            trailing: widget.labelTrailing,
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+              color: enabled
+                  ? null
+                  : Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
           ),
         ),
         Slider(

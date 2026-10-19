@@ -4,6 +4,7 @@ import 'package:path_provider/path_provider.dart';
 
 import '../archive/archive_row.dart';
 import '../util/log.dart';
+import '../util/prefs.dart';
 import 'archive_reader.dart';
 import 'archive_store.dart';
 import 'archive_writer.dart';
@@ -26,16 +27,46 @@ class Archive {
   final ArchiveWriter writer;
   late final ArchiveReader reader;
 
+  /// Where [Archive.inAppSupport] keeps its database.
+  static Future<String> defaultPath() async {
+    final dir = await getApplicationSupportDirectory();
+    return '${dir.path}${Platform.pathSeparator}archive.db';
+  }
+
   static Future<ArchiveStore?> _openDefault() async {
     try {
-      final dir = await getApplicationSupportDirectory();
-      return await ArchiveStore.open(
-        '${dir.path}${Platform.pathSeparator}archive.db',
-      );
+      // The open prunes once, so the chosen retention applies before it.
+      final days = (await Prefs.load()).archiveRetentionDays;
+      ArchiveStore.retention = Duration(days: days);
+      return await ArchiveStore.open(await defaultPath());
     } catch (e) {
       logDebug('[Archive] open failed: $e');
       return null;
     }
+  }
+
+  /// The database's size on disk, write-ahead log included, or null when
+  /// it cannot be read.
+  static Future<int?> defaultSizeBytes() async {
+    try {
+      final path = await defaultPath();
+      var total = 0;
+      for (final suffix in ['', '-wal']) {
+        final file = File('$path$suffix');
+        if (await file.exists()) total += await file.length();
+      }
+      return total;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Sets how long chat stays and prunes to it now. Never throws.
+  Future<void> setRetention(Duration retention) async {
+    ArchiveStore.retention = retention;
+    await _quiet((s) async {
+      await s.prune(DateTime.now());
+    });
   }
 
   /// Records a broadcast seen live. Never throws.

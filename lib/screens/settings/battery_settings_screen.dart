@@ -21,20 +21,22 @@ class BatterySettingsScreen extends StatelessWidget {
     final l = context.l10n;
     return SettingsPage(
       title: Text(l.pageBattery),
-      body: ListView(
-        children: [
-          SettingsPageIntro(l.batteryPageIntro),
-          SettingsSectionHeader(l.sectionDisplay),
-          const KeepScreenOnTile(),
-          const TrueDarkTile(),
-          const LiquidGlassTile(),
-          const EmoteAnimationSection(),
-          if (!kIsWeb && Platform.isAndroid) ...[
-            SettingsSectionHeader(l.sectionConnection),
-            StayConnectedTile(onChanged: onBackgroundServiceChanged),
+      body: SettingInfoScope(
+        child: ListView(
+          children: [
+            SettingsPageIntro(l.batteryPageIntro),
+            SettingsSectionHeader(l.sectionDisplay),
+            const KeepScreenOnTile(),
+            const TrueDarkTile(),
+            const LiquidGlassTile(),
+            const EmoteAnimationSection(),
+            if (!kIsWeb && Platform.isAndroid) ...[
+              SettingsSectionHeader(l.sectionConnection),
+              StayConnectedTile(onChanged: onBackgroundServiceChanged),
+            ],
+            const SizedBox(height: 16),
           ],
-          const SizedBox(height: 16),
-        ],
+        ),
       ),
     );
   }

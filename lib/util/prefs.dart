@@ -106,6 +106,7 @@ class Prefs {
   // ── Chat behavior ───────────────────────────────────────────────────
   static const _kMaxMessagesPerChannel = 'max_messages_per_channel';
   static const _kRecentMessagesLimit = 'recent_messages_limit';
+  static const _kArchiveRetentionDays = 'archive_retention_days';
   static const _kReplyToThreadRoot = 'reply_to_thread_root';
   static const _kBackgroundService = 'background_service';
   static const _kMentionPush = 'mention_push';
@@ -147,6 +148,12 @@ class Prefs {
 
   Future<void> setRecentMessagesLimit(int value) =>
       _p.setInt(_kRecentMessagesLimit, value);
+
+  /// Days of chat the archive keeps.
+  int get archiveRetentionDays => _p.getInt(_kArchiveRetentionDays) ?? 30;
+
+  Future<void> setArchiveRetentionDays(int value) =>
+      _p.setInt(_kArchiveRetentionDays, value);
 
   bool get replyToThreadRoot => _p.getBool(_kReplyToThreadRoot) ?? false;
 

@@ -406,7 +406,7 @@ class _EmoteQualitySectionState extends State<EmoteQualitySection> {
           )
         : tier;
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         SettingAnchor(
           Setting.emoteFetching,
@@ -631,7 +631,7 @@ class _EmoteCacheSectionState extends State<EmoteCacheSection> {
   @override
   Widget build(BuildContext context) {
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         SettingAnchor(
           Setting.emoteCache,
@@ -777,8 +777,9 @@ class _EmoteAnimationSectionState extends State<EmoteAnimationSection> {
 
   @override
   Widget build(BuildContext context) {
+    final idleEnabled = _animateGifs && _adaptiveFps;
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         SettingsSectionHeader(context.l10n.sectionAnimation),
         SettingAnchor(
@@ -820,36 +821,44 @@ class _EmoteAnimationSectionState extends State<EmoteAnimationSection> {
         ),
         SettingAnchor(
           Setting.idleFps,
-          child: ListTile(
-            enabled: _animateGifs && _adaptiveFps,
-            title: TitleWithInfo(
-              Setting.idleFps.titleOf(context.l10n),
-              Setting.idleFps,
-            ),
-            // Fixed width so the slider keeps its length as the label changes.
-            trailing: SizedBox(
-              width: 64,
-              child: Text(
-                _idleFpsLabel(context.l10n, _idleFps),
-                textAlign: TextAlign.end,
+          // The value rides in the caption, so the slider keeps the full
+          // width, matching the other slider rows.
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 8,
+                ),
+                child: TextWithTrailing(
+                  '${Setting.idleFps.titleOf(context.l10n)}: '
+                  '${_idleFpsLabel(context.l10n, _idleFps)}',
+                  trailing: const SettingInfoButton(Setting.idleFps),
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: idleEnabled
+                        ? null
+                        : Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+                ),
               ),
-            ),
-            subtitle: Slider(
-              key: const Key('idle_emote_fps_slider'),
-              value: _idleFps.toDouble(),
-              min: 0,
-              max: kActiveEmoteFps.toDouble(),
-              divisions: kActiveEmoteFps ~/ 5,
-              label: _idleFpsLabel(context.l10n, _idleFps),
-              onChanged: _animateGifs && _adaptiveFps
-                  ? (value) => setState(() => _idleFps = value.round())
-                  : null,
-              onChangeEnd: (value) async {
-                final prefs = await Prefs.load();
-                await prefs.setIdleEmoteFps(value.round());
-                PrefsStore.instance.notifyChanged();
-              },
-            ),
+              Slider(
+                key: const Key('idle_emote_fps_slider'),
+                value: _idleFps.toDouble(),
+                min: 0,
+                max: kActiveEmoteFps.toDouble(),
+                divisions: kActiveEmoteFps ~/ 5,
+                label: _idleFpsLabel(context.l10n, _idleFps),
+                onChanged: idleEnabled
+                    ? (value) => setState(() => _idleFps = value.round())
+                    : null,
+                onChangeEnd: (value) async {
+                  final prefs = await Prefs.load();
+                  await prefs.setIdleEmoteFps(value.round());
+                  PrefsStore.instance.notifyChanged();
+                },
+              ),
+            ],
           ),
         ),
       ],

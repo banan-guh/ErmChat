@@ -143,6 +143,37 @@
   "dataPageIntro": "Everything that changes how much ermchat downloads. Each setting also lives on its usual page, and a change here applies there too.",
   "batteryPageIntro": "Everything that changes how hard ermchat works the screen, the graphics chip and the radio. Each setting also lives on its usual page, and a change here applies there too.",
   "historyPageIntro": "Where past messages come from and how many load when you join or reconnect.",
+  "settingArchiveRetention": "Keep chat for",
+  "sectionArchive": "Archive",
+  "archiveDays": "{count, plural, =1{1 day} other{{count} days}}",
+  "@archiveDays": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "archiveSize": "The archive uses {size} on this device",
+  "@archiveSize": {
+    "placeholders": {
+      "size": {
+        "type": "String"
+      }
+    }
+  },
+  "archiveShortenTitle": "Delete older chat?",
+  "archiveShortenMessage": "Chat older than {days} is deleted now. Days you keep from the calendar stay.",
+  "@archiveShortenMessage": {
+    "placeholders": {
+      "days": {
+        "type": "String"
+      }
+    }
+  },
+  "archiveShortenConfirm": "Delete",
+  "helpArchiveRetentionWhy": "How long chat stays on this device before it is deleted. Days you keep from the calendar stay regardless.",
+  "helpArchiveRetentionGain": "Longer means more history to scroll back through and search.",
+  "helpArchiveRetentionLose": "Longer takes more storage, and busy channels add up fastest.",
   "dataUsageSummary": "{total} this session, {mobile} on mobile data",
   "@dataUsageSummary": {
     "placeholders": {
@@ -171,11 +202,11 @@
   "helpAnimateEmotesGain": "Chat looks the way it does on Twitch.",
   "helpAnimateEmotesLose": "Animation keeps the screen redrawing, which costs battery.",
   "helpAdaptiveFpsWhy": "Slows emote animation while you are not touching the screen.",
-  "helpAdaptiveFpsGain": "Saves battery while you are just reading.",
+  "helpAdaptiveFpsGain": "Saves battery while you are just reading, most of all with the idle rate set to Freeze.",
   "helpAdaptiveFpsLose": "Animations look choppier while idle.",
-  "helpIdleFpsWhy": "How fast emotes animate while you are idle.",
-  "helpIdleFpsGain": "Lower values save more battery.",
-  "helpIdleFpsLose": "Lower values look choppier, and 0 freezes emotes until you touch the screen.",
+  "helpIdleFpsWhy": "How fast emotes animate once you stop touching the screen.",
+  "helpIdleFpsGain": "Freeze saves by far the most: frozen emotes stop decoding frames at all, while any frame rate keeps decoding, just less often.",
+  "helpIdleFpsLose": "Frozen emotes sit still until you touch the screen again, and low frame rates look choppy.",
   "helpTrueDarkWhy": "Uses pure black backgrounds in dark mode.",
   "helpTrueDarkGain": "Saves power on OLED screens, which switch black pixels off.",
   "helpTrueDarkLose": "Surfaces blend together more, with less contrast between them.",

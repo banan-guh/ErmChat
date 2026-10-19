@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../l10n/l10n.dart';
+import 'settings_page.dart';
 import 'settings_search.dart';
 
 /// Why a setting exists and what it trades.
@@ -89,6 +90,11 @@ SettingHelp? settingHelp(Setting setting, AppLocalizations l) =>
         gain: l.helpRecentMessagesSourceGain,
         lose: l.helpRecentMessagesSourceLose,
       ),
+      'archive_retention' => SettingHelp(
+        why: l.helpArchiveRetentionWhy,
+        gain: l.helpArchiveRetentionGain,
+        lose: l.helpArchiveRetentionLose,
+      ),
       _ => null,
     };
 
@@ -100,16 +106,12 @@ class TitleWithInfo extends StatelessWidget {
   final Setting setting;
 
   @override
-  Widget build(BuildContext context) => Row(
-    mainAxisSize: MainAxisSize.min,
-    children: [
-      Flexible(child: Text(title)),
-      SettingInfoButton(setting),
-    ],
-  );
+  Widget build(BuildContext context) =>
+      TextWithTrailing(title, trailing: SettingInfoButton(setting));
 }
 
-/// A small info button that explains [setting] in an animated card.
+/// A small info button that explains [setting] in a panel. Renders nothing
+/// outside a [SettingInfoScope].
 class SettingInfoButton extends StatelessWidget {
   const SettingInfoButton(this.setting, {super.key});
 
@@ -119,144 +121,77 @@ class SettingInfoButton extends StatelessWidget {
   Widget build(BuildContext context) {
     final l = context.l10n;
     final help = settingHelp(setting, l);
-    if (help == null) return const SizedBox.shrink();
-    return IconButton(
-      icon: const Icon(Icons.info_outline),
-      iconSize: 18,
-      padding: EdgeInsets.zero,
-      constraints: const BoxConstraints.tightFor(width: 32, height: 32),
-      style: const ButtonStyle(tapTargetSize: MaterialTapTargetSize.shrinkWrap),
-      color: Theme.of(context).colorScheme.onSurfaceVariant,
-      tooltip: l.settingInfoTooltip,
-      onPressed: () => showSettingInfo(context, setting.titleOf(l), help),
+    if (help == null || !SettingInfoScope.of(context)) {
+      return const SizedBox.shrink();
+    }
+    // Sized to a text line, so a title that wraps keeps an even line height.
+    return Padding(
+      padding: const EdgeInsets.only(left: 6),
+      child: IconButton(
+        icon: const Icon(Icons.info_outline),
+        iconSize: 18,
+        padding: EdgeInsets.zero,
+        constraints: const BoxConstraints.tightFor(width: 24, height: 24),
+        style: const ButtonStyle(
+          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        ),
+        color: Theme.of(context).colorScheme.onSurfaceVariant,
+        tooltip: l.settingInfoTooltip,
+        onPressed: () => showSettingInfo(context, setting.titleOf(l), help),
+      ),
     );
   }
 }
 
-/// Shows [help] in a card that scales in, with the trade-off rows
-/// following a beat later.
+/// Shows [help] in a plain panel: what the setting does, then what it
+/// gains and costs.
 Future<void> showSettingInfo(
   BuildContext context,
   String title,
   SettingHelp help,
-) => showGeneralDialog<void>(
+) => showDialog<void>(
   context: context,
-  barrierDismissible: true,
-  barrierLabel: MaterialLocalizations.of(context).modalBarrierDismissLabel,
-  barrierColor: Colors.black54,
-  transitionDuration: const Duration(milliseconds: 380),
-  pageBuilder: (context, animation, _) =>
-      _InfoCard(title: title, help: help, animation: animation),
-  transitionBuilder: (context, animation, _, child) {
-    final curved = CurvedAnimation(
-      parent: animation,
-      curve: Curves.easeOutBack,
-      reverseCurve: Curves.easeIn,
-    );
-    return FadeTransition(
-      opacity: CurvedAnimation(parent: animation, curve: Curves.easeOut),
-      child: ScaleTransition(
-        scale: Tween(begin: 0.88, end: 1.0).animate(curved),
-        child: child,
-      ),
-    );
-  },
-);
-
-class _InfoCard extends StatelessWidget {
-  const _InfoCard({
-    required this.title,
-    required this.help,
-    required this.animation,
-  });
-
-  final String title;
-  final SettingHelp help;
-  final Animation<double> animation;
-
-  /// Fades and lifts [child] in over [start]..1 of the entrance.
-  Widget _staged(double start, Widget child) {
-    final t = CurvedAnimation(
-      parent: animation,
-      curve: Interval(start, 1, curve: Curves.easeOutCubic),
-    );
-    return FadeTransition(
-      opacity: t,
-      child: SlideTransition(
-        position: Tween(
-          begin: const Offset(0, 0.25),
-          end: Offset.zero,
-        ).animate(t),
-        child: child,
-      ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
+  builder: (context) {
     final l = context.l10n;
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
-    return SafeArea(
-      child: Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 400),
-            child: Material(
-              color: scheme.surfaceContainerHigh,
-              borderRadius: BorderRadius.circular(24),
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(20, 20, 20, 8),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(title, style: theme.textTheme.titleLarge),
-                    const SizedBox(height: 8),
-                    Text(
-                      help.why,
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                        color: scheme.onSurfaceVariant,
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    _staged(
-                      0.35,
-                      _TradeRow(
-                        icon: Icons.add_circle_outline,
-                        color: scheme.primary,
-                        label: l.settingInfoGain,
-                        text: help.gain,
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    _staged(
-                      0.55,
-                      _TradeRow(
-                        icon: Icons.remove_circle_outline,
-                        color: scheme.error,
-                        label: l.settingInfoLose,
-                        text: help.lose,
-                      ),
-                    ),
-                    Align(
-                      alignment: Alignment.centerRight,
-                      child: TextButton(
-                        onPressed: () => Navigator.of(context).pop(),
-                        child: Text(l.settingInfoDone),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
+    return AlertDialog(
+      title: Text(title),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            help.why,
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: scheme.onSurfaceVariant,
             ),
           ),
-        ),
+          const SizedBox(height: 16),
+          _TradeRow(
+            icon: Icons.add_circle_outline,
+            color: scheme.primary,
+            label: l.settingInfoGain,
+            text: help.gain,
+          ),
+          const SizedBox(height: 12),
+          _TradeRow(
+            icon: Icons.remove_circle_outline,
+            color: scheme.error,
+            label: l.settingInfoLose,
+            text: help.lose,
+          ),
+        ],
       ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: Text(l.settingInfoDone),
+        ),
+      ],
     );
-  }
-}
+  },
+);
 
 class _TradeRow extends StatelessWidget {
   const _TradeRow({
