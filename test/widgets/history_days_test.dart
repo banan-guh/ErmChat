@@ -52,5 +52,21 @@ void main() {
       findsOneWidget,
       reason: 'the rebuilt rail dropped the stream day back to the list',
     );
+
+    // A channel's first calendar open builds the days already open. Shipped
+    // bug: that build skipped the stream time, showed the list, and left
+    // the time pending for the next plain open.
+    open.value = false;
+    await tester.pumpWidget(const SizedBox());
+    openTime = stream;
+    open.value = true;
+    await tester.pumpWidget(app(railTo(DateTime(2026, 10, 4))));
+    await tester.pumpAndSettle();
+    expect(
+      find.byIcon(Icons.arrow_back),
+      findsOneWidget,
+      reason: 'built open, the calendar ignored the stream day',
+    );
+    expect(openTime, isNull, reason: 'the stream time stayed pending');
   });
 }

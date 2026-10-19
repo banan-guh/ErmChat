@@ -137,11 +137,11 @@ class _HistoryDaysState extends State<HistoryDays>
     widget.open.addListener(_sync);
     widget.kept.addListener(_onKept);
     _anim.addStatusListener(_onAnim);
+    // Built already open (the first calendar open of a channel builds its
+    // rail first): open as a tap would, so a pending stream time lands.
     if (widget.open.value) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted && widget.open.value && !_portal.isShowing) {
-          _portal.show();
-        }
+        if (mounted && widget.open.value) _sync();
       });
     }
   }
