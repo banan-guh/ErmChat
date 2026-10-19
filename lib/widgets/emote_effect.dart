@@ -375,9 +375,11 @@ class EmoteEffectPlan {
       _cursed,
   ];
 
-  /// Horizontal shift of the doubled slide strip at [t], or null.
+  /// Horizontal shift of the doubled slide strip at [t], or null. A box
+  /// with no width or scale has no strip to slide: its period would be zero
+  /// and the shift NaN, which paints the emote's layer nowhere.
   double? slideShift(double t, Size size, double unit) {
-    if (!_slide) return null;
+    if (!_slide || size.width <= 0 || unit <= 0) return null;
     final speed = 0.5 * (size.width / (32 * unit));
     return -_phase(t, speed) * size.width;
   }

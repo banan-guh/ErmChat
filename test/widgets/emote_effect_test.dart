@@ -4,6 +4,19 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test('a slide emote with an empty box never shifts to NaN', () {
+    final plan = EmoteEffectPlan(FfzEffect.slide);
+    for (final (size, unit) in [
+      (const Size(0, 28), 1.0),
+      (Size.zero, 0.0),
+      (const Size(28, 0), 0.0),
+    ]) {
+      final shift = plan.slideShift(3.7, size, unit);
+      expect(shift == null || shift.isFinite, isTrue, reason: '$size $unit');
+    }
+    expect(plan.slideShift(3.7, const Size(28, 28), 1), isNonZero);
+  });
+
   testWidgets('every effect paints and the clock stops when unmounted', (
     tester,
   ) async {
