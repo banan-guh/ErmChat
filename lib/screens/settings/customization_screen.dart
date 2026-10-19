@@ -11,6 +11,9 @@ import 'custom_layout_screen.dart';
 import 'prefs_tiles.dart';
 import 'settings_page.dart';
 import 'settings_search.dart';
+import 'theme_builder_chip_placement.dart' as chips;
+import 'theme_builder_gallery_flow.dart' as gallery;
+import 'theme_builder_preview_truth.dart' as preview;
 import 'theme_builder_screen.dart';
 
 class CustomizationScreen extends StatefulWidget {
@@ -270,19 +273,40 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
           ),
           SettingAnchor(
             Setting.themeBuilder,
-            child: ListTile(
-              title: Text(Setting.themeBuilder.titleOf(context.l10n)),
-              trailing: const Icon(Icons.chevron_right),
-              onTap: () async {
-                await Navigator.of(context).push(
-                  MaterialPageRoute<void>(
-                    builder: (_) => const ThemeBuilderScreen(),
+            child: Column(
+              children: [
+                // TODO: keep one builder after trying the variants.
+                for (final (label, screen) in <(String, Widget)>[
+                  (
+                    Setting.themeBuilder.titleOf(context.l10n),
+                    const ThemeBuilderScreen(),
                   ),
-                );
-                if (!mounted) return;
-                _prefs = await Prefs.load();
-                if (mounted) setState(() {});
-              },
+                  (
+                    context.l10n.themeBuilderTrial('B', 'chips and arrows'),
+                    const chips.ThemeBuilderScreen(),
+                  ),
+                  (
+                    context.l10n.themeBuilderTrial('C', 'gallery flow'),
+                    const gallery.ThemeBuilderScreen(),
+                  ),
+                  (
+                    context.l10n.themeBuilderTrial('D', 'true preview'),
+                    const preview.ThemeBuilderScreen(),
+                  ),
+                ])
+                  ListTile(
+                    title: Text(label),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () async {
+                      await Navigator.of(
+                        context,
+                      ).push(MaterialPageRoute<void>(builder: (_) => screen));
+                      if (!mounted) return;
+                      _prefs = await Prefs.load();
+                      if (mounted) setState(() {});
+                    },
+                  ),
+              ],
             ),
           ),
           SettingAnchor(

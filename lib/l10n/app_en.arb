@@ -44,6 +44,18 @@
   "themeBuilderDiscardTitle": "Discard changes?",
   "themeBuilderDiscard": "Discard",
   "themeBuilderHint": "Tap anything to edit it, or drag buttons to move them",
+  "themeBuilderHintArrows": "Tap anything to edit it, then use the dropdowns and arrows to move it",
+  "themeBuilderMoveLeft": "Move left",
+  "themeBuilderMoveRight": "Move right",
+  "themeBuilderPasted": "Theme pasted",
+  "themeBuilderApplied": "Theme applied",
+  "themeBuilderTrial": "Build a theme ({letter}: {style})",
+  "@themeBuilderTrial": {
+    "placeholders": {
+      "letter": {"type": "String"},
+      "style": {"type": "String"}
+    }
+  },
   "themeBuilderNameHint": "Theme name",
   "themeBuilderElement": "Element",
   "themePropStyle": "Style",
