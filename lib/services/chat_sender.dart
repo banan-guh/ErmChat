@@ -30,6 +30,7 @@ class ChatSender {
     this.onSendStateChanged,
     this.onMessageSent,
     this.strings = englishStrings,
+    this.now = DateTime.now,
   });
 
   final IrcService irc;
@@ -59,6 +60,9 @@ class ChatSender {
   /// A chat line went out on the wire (not commands).
   final void Function(String channel)? onMessageSent;
   final AppLocalizations Function() strings;
+
+  /// Clock for the send gates.
+  final DateTime Function() now;
 
   // Self send-gates per channel: when your latest timeout there expires and
   // when Twitch last accepted one of your messages (the slow-mode cooldown
@@ -98,7 +102,7 @@ class ChatSender {
   int? remainingSelfTimeout(String channel) {
     final until = _selfTimeoutUntil[channel];
     if (until == null) return null;
-    final left = until.add(_sendGrace).difference(DateTime.now());
+    final left = until.add(_sendGrace).difference(now());
     if (left <= Duration.zero) {
       _selfTimeoutUntil.remove(channel);
       return null;
@@ -115,7 +119,7 @@ class ChatSender {
     if (slow <= 0 || _bypassesSlowMode(channel)) return null;
     final sentAt = _lastOwnMessageAt[channel];
     if (sentAt == null) return null;
-    final left = sentAt.add(Duration(seconds: slow)).difference(DateTime.now());
+    final left = sentAt.add(Duration(seconds: slow)).difference(now());
     if (left <= Duration.zero) return null;
     return (left.inMilliseconds / 1000).ceil();
   }
@@ -134,8 +138,7 @@ class ChatSender {
   /// Anchors the slow-mode window to a message Twitch actually accepted. The
   /// echo is the only signal a send went through, so rejected attempts never
   /// reset the countdown. Called from the ingestion own-echo path.
-  void noteOwnMessageSent(String channel) =>
-      _lastOwnMessageAt[channel] = DateTime.now();
+  void noteOwnMessageSent(String channel) => _lastOwnMessageAt[channel] = now();
 
   // ---- Send ----------------------------------------------------------------
 

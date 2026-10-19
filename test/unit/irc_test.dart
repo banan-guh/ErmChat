@@ -28,6 +28,7 @@ import 'package:ermchat/models/emote_fetch_tier.dart';
 import 'package:ermchat/emotes/emote.dart';
 import 'package:ermchat/emotes/emote_catalog.dart';
 import 'package:ermchat/services/chat_connection_manager.dart';
+import 'package:ermchat/services/chat_sender.dart';
 import 'package:ermchat/services/chat_channel_setup.dart';
 import 'package:ermchat/chat/chat.dart';
 import 'package:ermchat/chat/channel/messages.dart' show SystemLine;
@@ -3216,39 +3217,55 @@ void main() {
       conn.dispose();
     });
 
-    test('the send grace outlives the raw timeout expiry', () async {
-      final (conn, ircRead) = await makeConn();
-      ircRead.handleLine(
-        '@ban-duration=1 :tmi.twitch.tv CLEARCHAT #test :viewer',
+    test('the send grace outlives the raw timeout expiry', () {
+      var now = DateTime(2026, 1, 1);
+      final sender = ChatSender(
+        irc: IrcService(),
+        session: Session(),
+        twitchAuth: TwitchAuth(),
+        onCommand: (_, _, _) {},
+        getReplyToMsg: () => null,
+        setReplyToMsg: (_) {},
+        onSystemMessage: (_, _) {},
+        slowModeSeconds: (_) => 0,
+        selfBadges: (_) => const {},
+        now: () => now,
       );
-      await Future<void>.delayed(Duration.zero);
-      expect(conn.remainingSelfTimeout('test'), inInclusiveRange(1, 2));
-      await Future<void>.delayed(const Duration(milliseconds: 1100));
-      expect(conn.remainingSelfTimeout('test'), isNotNull);
-      await Future<void>.delayed(const Duration(milliseconds: 600));
-      expect(conn.remainingSelfTimeout('test'), isNull);
-
-      // An already-elapsed timeout clears instead of counting down.
-      ircRead.handleLine(
-        '@ban-duration=0 :tmi.twitch.tv CLEARCHAT #test :viewer',
-      );
-      await Future<void>.delayed(Duration.zero);
-      expect(conn.remainingSelfTimeout('test'), isNull);
-
-      // A successful own-message echo heals a stale self-timeout gate.
-      ircRead.handleLine(
-        '@ban-duration=600 :tmi.twitch.tv CLEARCHAT #test :viewer',
-      );
-      await Future<void>.delayed(Duration.zero);
-      expect(conn.remainingSelfTimeout('test'), isNotNull);
-      ircRead.username = 'viewer';
-      ircRead.handleLine(
-        ':viewer!viewer@viewer.tmi.twitch.tv PRIVMSG #test :hello',
-      );
-      await Future<void>.delayed(Duration.zero);
-      expect(conn.remainingSelfTimeout('test'), isNull);
-      conn.dispose();
+      sender.armTimeout('test', now.add(const Duration(seconds: 1)));
+      expect(sender.remainingSelfTimeout('test'), 2);
+      now = now.add(const Duration(milliseconds: 1100));
+      expect(sender.remainingSelfTimeout('test'), isNotNull);
+      now = now.add(const Duration(milliseconds: 600));
+      expect(sender.remainingSelfTimeout('test'), isNull);
     });
+
+    test(
+      'own timeout clears on zero duration and on an accepted echo',
+      () async {
+        final (conn, ircRead) = await makeConn();
+
+        // An already-elapsed timeout clears instead of counting down.
+        ircRead.handleLine(
+          '@ban-duration=0 :tmi.twitch.tv CLEARCHAT #test :viewer',
+        );
+        await Future<void>.delayed(Duration.zero);
+        expect(conn.remainingSelfTimeout('test'), isNull);
+
+        // A successful own-message echo heals a stale self-timeout gate.
+        ircRead.handleLine(
+          '@ban-duration=600 :tmi.twitch.tv CLEARCHAT #test :viewer',
+        );
+        await Future<void>.delayed(Duration.zero);
+        expect(conn.remainingSelfTimeout('test'), isNotNull);
+        ircRead.username = 'viewer';
+        ircRead.handleLine(
+          ':viewer!viewer@viewer.tmi.twitch.tv PRIVMSG #test :hello',
+        );
+        await Future<void>.delayed(Duration.zero);
+        expect(conn.remainingSelfTimeout('test'), isNull);
+        conn.dispose();
+      },
+    );
   });
 
   group('reconnectIfNecessary', () {
