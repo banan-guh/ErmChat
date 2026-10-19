@@ -120,6 +120,15 @@ class _DevSettingsScreenState extends State<DevSettingsScreen> {
             read: (p) => p.armUpdate,
             write: (p, v) => p.setArmUpdate(v),
           ),
+          PrefsSwitchTile(
+            secondary: const Icon(Icons.gavel),
+            title: 'Always show mod actions',
+            subtitle:
+                'User cards show timeout, ban and warn in any channel. Twitch still refuses them without mod',
+            defaultValue: false,
+            read: (p) => p.forceModActions,
+            write: (p, v) => p.setForceModActions(v),
+          ),
           const Divider(),
           ListTile(
             leading: const Icon(Icons.receipt_long),

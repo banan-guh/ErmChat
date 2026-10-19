@@ -164,11 +164,13 @@ class UserSheets {
     // Compact card: history reveals by scrolling. Settle releases only when
     // the gesture moved the sheet, so list scrolling cannot collapse it.
     // Dismiss through the route for one continuous exit motion. Mod rows
-    // show only when the channel is live and the user moderates it.
+    // show only when the channel is live and the user moderates it, or
+    // always under the dev override.
     final canModerate =
         channel != null &&
-        chatConn.isModerationActive(channel) &&
-        (chat.channelFor(channel)?.info.isLive ?? false);
+        (prefs.forceModActions ||
+            chatConn.isModerationActive(channel) &&
+                (chat.channelFor(channel)?.info.isLive ?? false));
     final login = session.login;
     final isSelf =
         login != null && username.toLowerCase() == login.toLowerCase();

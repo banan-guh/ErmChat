@@ -125,6 +125,7 @@ class Prefs {
   static const _kDismissedUpdate = 'dismissed_update_version';
   static const _kArmWhatsNew = 'dev_arm_whats_new';
   static const _kArmUpdate = 'dev_arm_update';
+  static const _kForceModActions = 'dev_force_mod_actions';
   static const _kAnalyticsEnabled = 'analytics_enabled';
   static const _kAnimateGifs = 'animate_gifs';
   static const _kFfzEffects = 'ffz_effects';
@@ -271,6 +272,12 @@ class Prefs {
   bool get armUpdate => _p.getBool(_kArmUpdate) ?? false;
 
   Future<void> setArmUpdate(bool value) => _p.setBool(_kArmUpdate, value);
+
+  /// Dev: the user card shows mod actions in any channel, live or not.
+  bool get forceModActions => _p.getBool(_kForceModActions) ?? false;
+
+  Future<void> setForceModActions(bool value) =>
+      _p.setBool(_kForceModActions, value);
 
   bool get animateGifs => _p.getBool(_kAnimateGifs) ?? true;
 
