@@ -505,7 +505,7 @@ class SevenTvPaintService extends ChangeNotifier {
   }
 
   void _scheduleUsersSave() {
-    if (_store == null) return;
+    if (_store == null || _disposed) return;
     _usersSaveTimer ??= Timer(_usersSaveDelay, () {
       _usersSaveTimer = null;
       final encoded = jsonEncode({
@@ -626,6 +626,7 @@ class SevenTvPaintService extends ChangeNotifier {
           )
           .join(' ');
       final data = await _gqlQuery('{ users { $selections } }');
+      if (_disposed) return;
       final users = data?['users'] as Map<String, dynamic>?;
       if (users == null) {
         // Back off to prevent hot-loop; users retry on next lookup.
@@ -677,6 +678,7 @@ class SevenTvPaintService extends ChangeNotifier {
       final data = await _gqlQuery(
         '{ paints { paint(id: "$paintId") { $_paintFields } } }',
       );
+      if (_disposed) return;
       final root = data?['paints'] as Map<String, dynamic>?;
       final item = root?['paint'];
       if (item is Map<String, dynamic>) {
@@ -855,6 +857,12 @@ class SevenTvPaintService extends ChangeNotifier {
         final ms = frame.duration.inMilliseconds;
         at += ms < 20 ? 100 : ms;
         endsMs.add(at);
+      }
+      if (_disposed) {
+        for (final frame in frames) {
+          frame.dispose();
+        }
+        return;
       }
       final texture = _PaintTexture(frames, endsMs);
       _images[variant.url] = texture;

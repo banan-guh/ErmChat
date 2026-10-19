@@ -53,6 +53,7 @@ class ThirdPartyBadgeService {
   static const _limerinoMissTtl = Duration(minutes: 30);
   static const _limerinoCatalogTtl = Duration(minutes: 10);
   static const _limerinoMaxUsers = 10000;
+  static const _sevenTvMaxUsers = 10000;
   static const _limerinoMaxBackoff = Duration(minutes: 10);
 
   // Static-list providers: one catalog each, every badge naming its users.
@@ -87,7 +88,11 @@ class ThirdPartyBadgeService {
       final isCreate = event.kind == 'entitlement.create';
       for (final userId in event.twitchUserIds) {
         if (isCreate) {
+          _sevenTvUsers.remove(userId);
           _sevenTvUsers[userId] = event.cosmeticId;
+          while (_sevenTvUsers.length > _sevenTvMaxUsers) {
+            _sevenTvUsers.remove(_sevenTvUsers.keys.first);
+          }
         } else {
           _sevenTvUsers.remove(userId);
         }

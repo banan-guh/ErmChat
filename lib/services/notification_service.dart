@@ -209,6 +209,7 @@ class NotificationService {
     Iterable<int> ids;
     if (channel == null) {
       ids = List.of(_postedIds);
+      _idsByChannel.clear();
     } else {
       ids = List.of(_idsByChannel[channel] ?? const <int>[]);
       _idsByChannel.remove(channel);

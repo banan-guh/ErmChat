@@ -520,8 +520,8 @@ class TwitchApi {
   }
 
   /// Past broadcast video ids by the id of the stream they recorded, newest
-  /// 100 of the broadcaster. Empty on failure.
-  Future<Map<String, String>> getArchiveVideos(
+  /// 100 of the broadcaster. Null on failure, empty when there are none.
+  Future<Map<String, String>?> getArchiveVideos(
     TwitchAuth auth,
     String broadcasterId,
   ) async {
@@ -529,7 +529,7 @@ class TwitchApi {
       '$_base/videos?user_id=$broadcasterId&type=archive&first=100',
     );
     final res = await _get('getArchiveVideos', auth, uri);
-    if (res == null) return {};
+    if (res == null) return null;
     try {
       final list = (jsonDecode(res.body) as Map)['data'] as List;
       return {
@@ -539,7 +539,7 @@ class TwitchApi {
       };
     } catch (e) {
       _setError('getArchiveVideos: bad response');
-      return {};
+      return null;
     }
   }
 
@@ -775,6 +775,7 @@ class TwitchApi {
     final query = <String, String>{
       'broadcaster_id': broadcasterId,
       'moderator_id': moderatorId,
+      'first': '100',
     };
     if (status != null && status.isNotEmpty) query['status'] = status;
     final uri = Uri.parse(
@@ -1023,7 +1024,7 @@ class TwitchApi {
   }) async {
     final uri = Uri.parse(
       '$_base/channel_points/custom_rewards/redemptions'
-      '?broadcaster_id=$broadcasterId&reward_id=$rewardId&status=UNFULFILLED',
+      '?broadcaster_id=$broadcasterId&reward_id=$rewardId&status=UNFULFILLED&first=50',
     );
     final res = await _get('getRedemptions', auth, uri);
     if (res == null) return const [];

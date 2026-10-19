@@ -359,7 +359,7 @@ class ChannelPanels {
     final broadcaster = chat.channelFor(channel)?.info.broadcasterId;
     if (broadcaster == null || !twitchAuth.isConfigured) return null;
     final videos = await twitchApi.getArchiveVideos(twitchAuth, broadcaster);
-    final id = videos[stream.id];
+    final id = videos?[stream.id];
     if (id != null) unawaited(archive.setVod(stream.id, id));
     return id;
   }
