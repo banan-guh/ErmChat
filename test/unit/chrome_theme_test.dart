@@ -167,6 +167,19 @@ void main() {
         [FieldItem.send],
       ),
       (
+        // Shipped bug: a side send stayed out of the field under compact,
+        // stranded beside the collapsed row.
+        'compact pulls a side send into the field end',
+        ChromeThemeSpec.blank.copyWith(
+          fieldStart: [],
+          fieldEnd: [],
+          sendAside: SendPlace.column,
+          compact: true,
+        ),
+        [],
+        [FieldItem.send],
+      ),
+      (
         'compact makes room for send by cutting the last button',
         ChromeThemeSpec.blank.copyWith(
           fieldStart: [threads],
@@ -213,7 +226,7 @@ void main() {
       isFalse,
       reason: 'a pasted compact edge-to-edge line is not compact',
     );
-    expect(ChromeTheme.ermchat.spec.compact, isTrue);
+    expect(ChromeTheme.ermchat.spec.compact, isFalse);
     expect(ChromeTheme.dankchat3.spec.compact, isFalse);
     expect(ChromeTheme.dankchat4.spec.compact, isFalse);
   });

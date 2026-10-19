@@ -298,8 +298,8 @@ class ChromeThemeSpec {
 
   /// A copy that obeys the field row's rules. It holds at most [fieldCap]
   /// buttons, and an action cut from it lands at the row's end. Leaving the
-  /// island clears [compact]. Under [compact] send sits in the field, since the row
-  /// and the side column are gone while typing.
+  /// island clears [compact]. Under [compact] send sits in the field, since
+  /// the row and the side column are gone while typing.
   ChromeThemeSpec fitted() {
     final start = [...fieldStart];
     final end = [...fieldEnd];
@@ -684,7 +684,10 @@ enum ChromeTheme {
         ChromeAction.threads,
         ChromeAction.mentions,
       ],
-      compact: true,
+      // Send runs down the island's side, not in the field row. Compact
+      // would pull it into the field, so the preset leaves compact off.
+      fieldEnd: [],
+      sendAside: SendPlace.column,
     ),
   ),
 
