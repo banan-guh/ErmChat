@@ -1084,6 +1084,39 @@ class EmoteStore {
     _prunePool();
   }
 
+  /// Drops the global and channel lists of [types] (providers turned off).
+  /// The epochs move so an in-flight fetch cannot restore them; turning a
+  /// provider back on refetches its empty lists.
+  void dropProviders(Set<EmoteType> types) {
+    if (types.isEmpty) return;
+    _globalEpoch++;
+    _channelEpochBase++;
+    for (final type in types) {
+      _globalCatalog = _globalCatalog.withList(
+        EmoteScope.global,
+        type,
+        const [],
+      );
+      for (final channel in _channelCatalogs.keys.toList()) {
+        _channelCatalogs[channel] = _channelCatalogs[channel]!.withList(
+          EmoteScope.channel,
+          type,
+          const [],
+        );
+      }
+    }
+    if (types.contains(EmoteType.sevenTv)) {
+      _sevenTvLive.clear();
+      _sevenTvFull.clear();
+    }
+    _subsByChannelCache = null;
+    _mergedCache.clear();
+    _foreignLookupCache.clear();
+    _emoteIndexDirty = true;
+    _prunePool();
+    emitChange(channel: null);
+  }
+
   /// Clears the catalog part of an account switch. [removedUnlockIds],
   /// [removedUnlockCodes], and [removedCatalogUnlockIds] describe the
   /// per-account Twitch entries the manager dropped, so they are pruned from

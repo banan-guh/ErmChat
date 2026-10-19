@@ -20,6 +20,9 @@ class ThirdPartyBadgeService {
   final _bttvUsers = <String, ThirdPartyBadge>{};
   // 7TV: cosmeticId -> badge
   final _sevenTvBadges = <String, ThirdPartyBadge>{};
+
+  /// Whether 7TV badges resolve (the 7TV cosmetics setting).
+  bool showSevenTv = true;
   // 7TV: twitchUserId -> cosmeticId
   final _sevenTvUsers = <String, String>{};
 
@@ -425,7 +428,7 @@ class ThirdPartyBadgeService {
       if (listed != null) break;
     }
     return _bttvUsers[userId] ??
-        _sevenTvBadges[_sevenTvUsers[userId]] ??
+        (showSevenTv ? _sevenTvBadges[_sevenTvUsers[userId]] : null) ??
         listed ??
         limerino;
   }

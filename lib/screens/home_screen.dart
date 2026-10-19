@@ -1389,7 +1389,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
         _highlightOpacity != prefs.highlightOpacity ||
         _checkeredMessages != prefs.checkeredMessages ||
         _lineSeparator != prefs.lineSeparator ||
-        _showNamePaints != prefs.seventvNamePaints ||
+        _showNamePaints != prefs.sevenTvCosmetics ||
         _showGifs != prefs.giphyInlineEnabled ||
         _gifHeight != gifHeight ||
         animateChanged ||
@@ -1430,7 +1430,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       _fastSnap = prefs.fastChannelSnap;
       _liquidGlass = prefs.liquidGlass;
       _chromeTheme = prefs.chromeTheme;
-      _showNamePaints = prefs.seventvNamePaints;
+      _showNamePaints = prefs.sevenTvCosmetics;
       _showGifs = prefs.giphyInlineEnabled;
       _gifHeight = gifHeight;
       _showImages = prefs.imageEmbedEnabled;
@@ -1454,6 +1454,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       if (fieldsChanged) setState(() {});
     }
     _sevenTvPaintService.enabled = _showNamePaints;
+    _thirdPartyBadgeService.showSevenTv = _showNamePaints;
+    _chatConn.applySevenTvSettings(
+      emotes: !(prefs.emoteProvidersDisabled ?? const []).contains(
+        EmoteType.sevenTv.name,
+      ),
+      cosmetics: _showNamePaints,
+    );
     if (animateChanged) EmoteUrlProvider.applyGifsEnabled(_animateGifs);
     if (initial) return;
     if (appearanceChanged || sharedChatChanged) {

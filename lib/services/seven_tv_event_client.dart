@@ -198,8 +198,24 @@ class SevenTvEventClient {
     return connect();
   }
 
+  bool _enabled = true;
+
+  /// Off closes the socket and keeps it closed (every 7TV feature is off);
+  /// back on reconnects and replays the pending subscriptions.
+  bool get enabled => _enabled;
+  set enabled(bool value) {
+    if (value == _enabled || _disposed) return;
+    _enabled = value;
+    if (value) {
+      _reconnectAttempt = 0;
+      unawaited(connect());
+    } else {
+      _dropSocket();
+    }
+  }
+
   Future<void> connect() async {
-    if (_disposed || _connecting) return;
+    if (_disposed || _connecting || !_enabled) return;
     _connecting = true;
     try {
       _fatalCloseCode = null;

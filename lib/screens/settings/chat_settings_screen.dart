@@ -282,16 +282,6 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
               write: (p, v) => p.setDoubleTapNameCopy(v),
             ),
           ),
-          SettingAnchor(
-            Setting.namePaints,
-            child: PrefsSwitchTile(
-              secondary: const Icon(Icons.format_paint),
-              title: Setting.namePaints.titleOf(context.l10n),
-              defaultValue: false,
-              read: (p) => p.seventvNamePaints,
-              write: (p, v) => p.setSeventvNamePaints(v),
-            ),
-          ),
           SettingsSectionHeader(context.l10n.sectionConnection),
           // The foreground service behind this is Android-only.
           if (!kIsWeb && Platform.isAndroid)

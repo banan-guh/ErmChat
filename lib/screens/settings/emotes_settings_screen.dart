@@ -61,6 +61,7 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
   bool _animateGifs = true;
   bool _ffzEffects = true;
   bool _bttvModifiers = true;
+  bool _sevenTvCosmetics = true;
   bool _adaptiveFps = true;
   int _idleFps = kIdleEmoteFps;
 
@@ -99,9 +100,9 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
 
   @override
   void dispose() {
-    // Providers newly enabled during this visit may have no retained stash
-    // (persisted caches stripped them after an earlier disable); refetch
-    // just those. Off-on fiddling or no-change visits do nothing.
+    // Leaving settings settles the provider changes: newly disabled ones drop
+    // their emotes, newly enabled ones refetch. Off-on fiddling or no-change
+    // visits do nothing.
     final manager = widget.emoteManager;
     final atOpen = _enabledAtOpen;
     if (manager != null && atOpen != null) {
@@ -109,6 +110,11 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
         for (final entry in _providerEnabled.entries)
           if (entry.value && !atOpen.contains(entry.key)) entry.key,
       };
+      final newlyDisabled = {
+        for (final entry in _providerEnabled.entries)
+          if (!entry.value && atOpen.contains(entry.key)) entry.key,
+      };
+      if (newlyDisabled.isNotEmpty) manager.dropProviders(newlyDisabled);
       if (newlyEnabled.isNotEmpty) {
         unawaited(manager.ensureStashed(newlyEnabled));
       }
@@ -119,6 +125,8 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
   Future<void> _onProviderChanged(EmoteType type, bool enabled) async {
     setState(() => _providerEnabled[type] = enabled);
     await widget.emoteManager?.setProviderEnabled(type, enabled);
+    // The 7TV socket follows the provider set through the prefs listener.
+    PrefsStore.instance.notifyChanged();
   }
 
   Future<void> _onAllowUnlistedChanged(bool allowed) async {
@@ -148,6 +156,7 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
         _animateGifs = prefs.animateGifs;
         _ffzEffects = prefs.ffzEffects;
         _bttvModifiers = prefs.bttvModifiers;
+        _sevenTvCosmetics = prefs.sevenTvCosmetics;
         _adaptiveFps = prefs.adaptiveEmoteFps;
         _idleFps = prefs.idleEmoteFps;
       });
@@ -571,15 +580,18 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
                   ),
                 ),
                 for (final type in _providers) ...[
-                  CheckboxListTile(
-                    key: Key('provider_toggle_${type.name}'),
-                    title: Text(_providerLabels[type] ?? type.name),
-                    value: enabled[type] ?? true,
-                    onChanged: (v) {
-                      setSheetState(() => enabled[type] = v ?? true);
-                      _onProviderChanged(type, v ?? true);
-                    },
-                  ),
+                  if (type == EmoteType.sevenTv)
+                    ..._sevenTvGroup(enabled, setSheetState)
+                  else
+                    CheckboxListTile(
+                      key: Key('provider_toggle_${type.name}'),
+                      title: Text(_providerLabels[type] ?? type.name),
+                      value: enabled[type] ?? true,
+                      onChanged: (v) {
+                        setSheetState(() => enabled[type] = v ?? true);
+                        _onProviderChanged(type, v ?? true);
+                      },
+                    ),
                   if (type == EmoteType.ffz && (enabled[type] ?? true))
                     _subCheckbox(context.l10n.ffzEffects, _ffzEffects, (
                       v,
@@ -608,6 +620,48 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
         );
       },
     );
+  }
+
+  /// 7TV as one switch over its emotes and its cosmetics (paints and
+  /// badges). The parent is on while either is.
+  List<Widget> _sevenTvGroup(
+    Map<EmoteType, bool> enabled,
+    StateSetter setSheetState,
+  ) {
+    const type = EmoteType.sevenTv;
+    final emotes = enabled[type] ?? true;
+    void setEmotes(bool on) {
+      setSheetState(() => enabled[type] = on);
+      _onProviderChanged(type, on);
+    }
+
+    Future<void> setCosmetics(bool on) async {
+      setState(() => _sevenTvCosmetics = on);
+      setSheetState(() {});
+      final prefs = await Prefs.load();
+      await prefs.setSevenTvCosmetics(on);
+      PrefsStore.instance.notifyChanged();
+    }
+
+    return [
+      CheckboxListTile(
+        key: Key('provider_toggle_${type.name}'),
+        title: Text(_providerLabels[type]!),
+        value: emotes || _sevenTvCosmetics,
+        onChanged: (v) {
+          setEmotes(v ?? true);
+          setCosmetics(v ?? true);
+        },
+      ),
+      if (emotes || _sevenTvCosmetics) ...[
+        _subCheckbox(context.l10n.sevenTvEmotes, emotes, setEmotes),
+        _subCheckbox(
+          context.l10n.sevenTvCosmetics,
+          _sevenTvCosmetics,
+          setCosmetics,
+        ),
+      ],
+    ];
   }
 
   Widget _subCheckbox(String title, bool value, ValueChanged<bool> onChanged) =>

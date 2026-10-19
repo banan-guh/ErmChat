@@ -190,19 +190,45 @@ class ChatChannelSetup {
     _joinFailureNotified.remove(channel);
     // Parted channels must not keep server-side 7TV dispatches: lookups run
     // before evictChannel and channelUserIds removal, so IDs are still here.
+    _unsubscribeSevenTv(channel);
+  }
+
+  void _unsubscribeSevenTv(String channel) {
     final sevenTv = sevenTvClient;
-    if (sevenTv != null) {
-      final emoteSetId = emoteManager.getSevenTvEmoteSetId(channel);
-      if (emoteSetId != null) sevenTv.unsubscribeEmoteSet(emoteSetId);
-      final userId = emoteManager.getSevenTvUserId(channel);
-      if (userId != null) sevenTv.unsubscribeUser(userId);
-      final twitchId = chat.channelFor(channel)?.info.broadcasterId;
-      if (twitchId != null) {
-        sevenTv.unsubscribeTwitchChannel(twitchId);
-        _sevenTvSubscribed.remove(twitchId);
-        _sevenTvSubInflight.remove(twitchId);
-      }
+    if (sevenTv == null) return;
+    final emoteSetId = emoteManager.getSevenTvEmoteSetId(channel);
+    if (emoteSetId != null) sevenTv.unsubscribeEmoteSet(emoteSetId);
+    final userId = emoteManager.getSevenTvUserId(channel);
+    if (userId != null) sevenTv.unsubscribeUser(userId);
+    final twitchId = chat.channelFor(channel)?.info.broadcasterId;
+    if (twitchId != null) {
+      sevenTv.unsubscribeTwitchChannel(twitchId);
+      _sevenTvSubscribed.remove(twitchId);
+      _sevenTvSubInflight.remove(twitchId);
     }
+  }
+
+  bool _sevenTvEmotes = true;
+  bool _sevenTvCosmetics = true;
+
+  /// Matches the 7TV socket to the settings. Emote sets and user updates
+  /// follow [emotes]; the channel feed (paints, badges, personal emotes)
+  /// stays while either is on, and the socket closes when both are off.
+  void applySevenTvSettings({required bool emotes, required bool cosmetics}) {
+    if (emotes == _sevenTvEmotes && cosmetics == _sevenTvCosmetics) return;
+    _sevenTvEmotes = emotes;
+    _sevenTvCosmetics = cosmetics;
+    final sevenTv = sevenTvClient;
+    if (sevenTv == null) return;
+    for (final channel in chat.names) {
+      _unsubscribeSevenTv(channel);
+      final twitchId = chat.channelFor(channel)?.info.broadcasterId;
+      if (twitchId == null || !(emotes || cosmetics)) continue;
+      unawaited(
+        _resolveSevenTvAndSubscribe(channel, twitchId, _epochOf(channel)),
+      );
+    }
+    sevenTv.enabled = emotes || cosmetics;
   }
 
   // ---- Status --------------------------------------------------------------
@@ -357,6 +383,13 @@ class ChatChannelSetup {
     String twitchChannelId,
     int epoch,
   ) async {
+    if (!_sevenTvEmotes) {
+      // The channel feed alone needs no 7TV ids.
+      if (_sevenTvCosmetics) {
+        sevenTvClient!.subscribeTwitchChannel(twitchChannelId);
+      }
+      return;
+    }
     // Check if EmoteManager already has the IDs from resolveEmotes.
     final cachedEmoteSetId = emoteManager.getSevenTvEmoteSetId(channelName);
     final cachedUserId = emoteManager.getSevenTvUserId(channelName);

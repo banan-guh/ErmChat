@@ -195,9 +195,10 @@ class Prefs {
   Future<void> setSharedChatMode(String value) =>
       _p.setString(_kSharedChatMode, value);
 
-  bool get seventvNamePaints => _p.getBool(_kSeventvNamePaints) ?? false;
+  /// 7TV name paints and badges.
+  bool get sevenTvCosmetics => _p.getBool(_kSeventvNamePaints) ?? true;
 
-  Future<void> setSeventvNamePaints(bool value) =>
+  Future<void> setSevenTvCosmetics(bool value) =>
       _p.setBool(_kSeventvNamePaints, value);
 
   bool get showInput => _p.getBool(_kShowInput) ?? true;

@@ -509,6 +509,10 @@ class ChatConnectionManager {
     _channelSetup.forgetChannel(channel);
   }
 
+  /// Matches the 7TV socket to the 7TV emote and cosmetics settings.
+  void applySevenTvSettings({required bool emotes, required bool cosmetics}) =>
+      _channelSetup.applySevenTvSettings(emotes: emotes, cosmetics: cosmetics);
+
   /// Outbound send owner, exposed for tests.
   @visibleForTesting
   ChatSender get sender => _sender;

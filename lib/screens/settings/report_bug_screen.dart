@@ -474,7 +474,7 @@ Future<String> collectDiagnostics(BuildContext context) async {
         'Settings: glass ${onOff(prefs.liquidGlass)}, '
         'emote tier ${tier >= 0 && tier < tiers.length ? tiers[tier].label : '?'}, '
         'animate emotes ${onOff(prefs.animateGifs)}, '
-        '7TV paints ${onOff(prefs.seventvNamePaints)}, '
+        '7TV cosmetics ${onOff(prefs.sevenTvCosmetics)}, '
         'font ${prefs.chatFontSize}, '
         'max messages ${prefs.maxMessagesPerChannel}',
       );

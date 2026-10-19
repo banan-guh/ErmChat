@@ -508,7 +508,7 @@ class UserSheets {
         lineSeparator: prefs.lineSeparator,
         sharedChatMode: prefs.sharedChatMode,
         fadeDeleted: false,
-        paintService: prefs.seventvNamePaints ? paintService : null,
+        paintService: prefs.sevenTvCosmetics ? paintService : null,
       ),
     );
   }

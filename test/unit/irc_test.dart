@@ -2708,6 +2708,26 @@ void main() {
       expect(sevenTv.userSubscribes, 2);
       expect(sevenTv.channelSubscribes, 2);
     });
+
+    test('7TV settings narrow the socket, then close it', () async {
+      await setup.subscribeChannel('test');
+      setup.applySevenTvSettings(emotes: false, cosmetics: true);
+      await Future<void>.delayed(Duration.zero);
+      expect(
+        (sevenTv.emoteSetSubscribes, sevenTv.userSubscribes),
+        (1, 1),
+        reason: 'emotes off: no emote set or user feed comes back',
+      );
+      expect(
+        sevenTv.channelSubscribes,
+        2,
+        reason: 'paints and badges keep the channel feed',
+      );
+      expect(sevenTv.enabled, isTrue);
+
+      setup.applySevenTvSettings(emotes: false, cosmetics: false);
+      expect(sevenTv.enabled, isFalse);
+    });
   });
 
   // ROOMSTATE carries the channel id for free; Helix only covers channels

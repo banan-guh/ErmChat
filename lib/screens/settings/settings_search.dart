@@ -117,7 +117,6 @@ class Setting {
     'reply_thread_root' => l.settingReplyThreadRoot,
     'macros' => l.settingMacros,
     'double_tap_copy' => l.settingDoubleTapCopy,
-    'name_paints' => l.settingNamePaints,
     'stay_connected' => l.settingStayConnected,
     'chat_proxy' => l.settingChatProxy,
     'show_giphy' => l.settingShowGiphy,
@@ -426,13 +425,6 @@ class Setting {
     SettingsPageId.chat,
     section: 'Users',
   );
-  static const namePaints = Setting(
-    'name_paints',
-    '7TV name paints',
-    SettingsPageId.chat,
-    section: 'Users',
-    keywords: 'gradient colors',
-  );
   static const stayConnected = Setting(
     'stay_connected',
     'Stay connected in background',
@@ -615,7 +607,7 @@ class Setting {
     'providers',
     'Providers',
     SettingsPageId.emotes,
-    keywords: 'twitch bttv ffz 7tv effects modifiers',
+    keywords: 'twitch bttv ffz 7tv effects modifiers paints badges cosmetics',
   );
   static const unlistedEmotes = Setting(
     'unlisted_emotes',
@@ -740,7 +732,6 @@ class Setting {
     replyThreadRoot,
     macros,
     doubleTapCopy,
-    namePaints,
     stayConnected,
     chatProxy,
     showGiphy,

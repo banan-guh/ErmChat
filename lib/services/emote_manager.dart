@@ -514,6 +514,11 @@ class EmoteManager implements EmoteLookupSource {
     if (changed) _store.notifyVisibilityChanged();
   }
 
+  /// Forgets the emotes of providers still turned off; [ensureStashed]
+  /// fetches them again once they are back on.
+  void dropProviders(Set<EmoteType> types) =>
+      _store.dropProviders({...types.where((t) => !_isProviderOn(t))});
+
   /// Whether unlisted 7TV emotes render (sync view).
   bool get allowUnlisted7tv {
     if (!_visibility.isLoaded) unawaited(_visibility.ensureLoaded());
