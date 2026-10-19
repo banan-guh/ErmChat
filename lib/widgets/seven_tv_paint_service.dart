@@ -428,30 +428,38 @@ class SevenTvPaintService extends ChangeNotifier {
     _entitlementSub?.cancel();
     _entitlementSub = client.onEntitlement.listen((event) {
       if (event.cosmeticKind != 'PAINT') return;
-      var changed = false;
       if (event.kind == 'entitlement.create') {
         for (final userId in event.twitchUserIds) {
+          _pendingDeletes.remove(userId)?.cancel();
           _assignments[userId] = (paintId: event.cosmeticId, at: _now());
           _refreshUserNotifier(userId);
-          changed = true;
+        }
+        _scheduleUsersSave();
+        if (_enabled) {
+          unawaited(_ensurePaint(event.cosmeticId));
+          notifyListeners();
         }
       } else if (event.kind == 'entitlement.delete') {
         for (final userId in event.twitchUserIds) {
-          final existing = _assignments[userId];
-          if (existing != null && existing.paintId == event.cosmeticId) {
+          if (_assignments[userId]?.paintId != event.cosmeticId) continue;
+          _pendingDeletes[userId]?.cancel();
+          _pendingDeletes[userId] = Timer(_deleteGrace, () {
+            _pendingDeletes.remove(userId);
+            if (_assignments[userId]?.paintId != event.cosmeticId) return;
             _assignments.remove(userId);
             _refreshUserNotifier(userId);
-            changed = true;
-          }
+            _scheduleUsersSave();
+            if (_enabled) notifyListeners();
+          });
         }
-      }
-      if (changed) _scheduleUsersSave();
-      if (changed && _enabled) {
-        unawaited(_ensurePaint(event.cosmeticId));
-        notifyListeners();
       }
     });
   }
+
+  // 7TV re-sends a chatter's entitlements as a delete and a create when they
+  // chat; a delete waits this long so the paint never blinks off between.
+  static const _deleteGrace = Duration(seconds: 3);
+  final _pendingDeletes = <String, Timer>{};
 
   // ---- Disk cache ----------------------------------------------------------
 
@@ -1077,6 +1085,10 @@ class SevenTvPaintService extends ChangeNotifier {
     _disposed = true;
     _flushTimer?.cancel();
     _entitlementSub?.cancel();
+    for (final timer in _pendingDeletes.values) {
+      timer.cancel();
+    }
+    _pendingDeletes.clear();
     _usersSaveTimer?.cancel();
     _userNotifiers.clear();
     for (final texture in _images.values) {

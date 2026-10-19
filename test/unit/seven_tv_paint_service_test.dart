@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:ui' show PictureRecorder;
 
+import 'package:fake_async/fake_async.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ermchat/models/twitch_message.dart';
@@ -380,37 +381,54 @@ void main() {
       client.dispose();
     });
 
-    test('service applies live paint entitlements to lookups', () async {
-      final client = SevenTvEventClient();
-      final service = SevenTvPaintService(gqlQuery: (_) async => null)
-        ..addPaintForTesting(
-          const SevenTvPaint(id: 'p9', name: 'Live', layers: [], shadows: []),
-        )
-        ..enabled = true;
-      service.bindSevenTvEvents(client);
-
-      client.handleRawMessage({
-        'op': 0,
-        'd': {
-          'type': 'entitlement.create',
-          'body': {
-            'object': {
-              'kind': 'PAINT',
-              'ref_id': 'p9',
-              'user': {
-                'connections': [
-                  {'platform': 'TWITCH', 'id': '555'},
-                ],
+    test('service applies live paint entitlements to lookups', () {
+      fakeAsync((async) {
+        final client = SevenTvEventClient();
+        final service = SevenTvPaintService(gqlQuery: (_) async => null)
+          ..addPaintForTesting(
+            const SevenTvPaint(id: 'p9', name: 'Live', layers: [], shadows: []),
+          )
+          ..enabled = true;
+        service.bindSevenTvEvents(client);
+        void send(String type) {
+          client.handleRawMessage({
+            'op': 0,
+            'd': {
+              'type': type,
+              'body': {
+                'object': {
+                  'kind': 'PAINT',
+                  'ref_id': 'p9',
+                  'user': {
+                    'connections': [
+                      {'platform': 'TWITCH', 'id': '555'},
+                    ],
+                  },
+                },
               },
             },
-          },
-        },
-      });
-      await Future<void>.delayed(Duration.zero);
+          });
+          async.flushMicrotasks();
+        }
 
-      expect(service.lookup('555')!.name, 'Live');
-      service.dispose();
-      client.dispose();
+        send('entitlement.create');
+        expect(service.lookup('555')!.name, 'Live');
+
+        // A chatter's message can re-send delete then create; the name must
+        // not go plain in between.
+        send('entitlement.delete');
+        expect(service.lookup('555'), isNotNull, reason: 'blinked off');
+        async.elapse(const Duration(milliseconds: 700));
+        send('entitlement.create');
+        async.elapse(const Duration(seconds: 5));
+        expect(service.lookup('555'), isNotNull, reason: 'stale delete won');
+
+        send('entitlement.delete');
+        async.elapse(const Duration(seconds: 5));
+        expect(service.lookup('555'), isNull, reason: 'a real delete lands');
+        service.dispose();
+        client.dispose();
+      });
     });
   });
 
