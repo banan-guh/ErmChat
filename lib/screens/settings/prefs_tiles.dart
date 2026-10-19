@@ -19,6 +19,7 @@ class PrefsSwitchTile extends StatefulWidget {
     this.subtitle,
     this.secondary,
     this.titleTrailing,
+    this.info,
     this.defaultValue = false,
     required this.read,
     required this.write,
@@ -32,6 +33,9 @@ class PrefsSwitchTile extends StatefulWidget {
 
   /// Sits at the end of the title row, before the switch.
   final Widget? titleTrailing;
+
+  /// Sits right after the title text, such as an info button.
+  final Widget? info;
   final bool defaultValue;
   final bool Function(Prefs prefs) read;
   final Future<void> Function(Prefs prefs, bool value) write;
@@ -73,12 +77,22 @@ class _PrefsSwitchTileState extends State<PrefsSwitchTile> {
   Widget build(BuildContext context) {
     final trailing = widget.titleTrailing;
     final subtitle = widget.subtitle;
+    final info = widget.info;
+    final title = info == null
+        ? Text(widget.title)
+        : Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Flexible(child: Text(widget.title)),
+              info,
+            ],
+          );
     return SwitchListTile(
       secondary: widget.secondary,
       // With a title trailing, the subtitle joins the title slot so the
       // trailing centers on both lines, not on the title alone.
       title: trailing == null
-          ? Text(widget.title)
+          ? title
           : Row(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -86,7 +100,7 @@ class _PrefsSwitchTileState extends State<PrefsSwitchTile> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(widget.title),
+                      title,
                       if (subtitle != null)
                         Text(subtitle, style: _subtitleStyle(context)),
                     ],
@@ -129,6 +143,7 @@ class PrefsSliderTile extends StatefulWidget {
     required this.write,
     this.onChanged,
     this.enabled = true,
+    this.labelTrailing,
   });
 
   /// Renders the caption from the current slider value.
@@ -146,6 +161,9 @@ class PrefsSliderTile extends StatefulWidget {
 
   /// When false, the slider is inert and the caption is dimmed.
   final bool enabled;
+
+  /// Sits right after the caption, such as an info button.
+  final Widget? labelTrailing;
 
   @override
   State<PrefsSliderTile> createState() => _PrefsSliderTileState();
@@ -184,14 +202,24 @@ class _PrefsSliderTileState extends State<PrefsSliderTile> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          child: Text(
-            widget.label(value),
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-              color: enabled
-                  ? null
-                  : Theme.of(context).colorScheme.onSurfaceVariant,
-            ),
+          padding: EdgeInsets.symmetric(
+            horizontal: 16,
+            vertical: widget.labelTrailing == null ? 8 : 0,
+          ),
+          child: Row(
+            children: [
+              Flexible(
+                child: Text(
+                  widget.label(value),
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: enabled
+                        ? null
+                        : Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ),
+              ?widget.labelTrailing,
+            ],
           ),
         ),
         Slider(

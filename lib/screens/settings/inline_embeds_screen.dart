@@ -5,6 +5,7 @@ import '../../util/prefs.dart';
 import '../../util/prefs_store.dart';
 import 'prefs_tiles.dart';
 import 'settings_page.dart';
+import 'setting_info.dart';
 import 'settings_search.dart';
 
 class InlineEmbedsScreen extends StatefulWidget {
@@ -49,16 +50,7 @@ class _InlineEmbedsScreenState extends State<InlineEmbedsScreen> {
       body: ListView(
         children: [
           SettingsSectionHeader(context.l10n.sectionGiphy),
-          SettingAnchor(
-            Setting.showGiphy,
-            child: PrefsSwitchTile(
-              secondary: const Icon(Icons.gif_box),
-              title: Setting.showGiphy.titleOf(context.l10n),
-              defaultValue: kGiphyInlineEnabledDefault,
-              read: (p) => p.giphyInlineEnabled,
-              write: (p, v) => p.setGiphyInlineEnabled(v),
-            ),
-          ),
+          const ShowGiphyTile(),
           SettingAnchor(
             Setting.giphyHeight,
             child: PrefsSliderTile(
@@ -87,17 +79,7 @@ class _InlineEmbedsScreenState extends State<InlineEmbedsScreen> {
             ),
           ),
           SettingsSectionHeader(context.l10n.sectionImages),
-          SettingAnchor(
-            Setting.showImages,
-            child: PrefsSwitchTile(
-              secondary: const Icon(Icons.image_outlined),
-              title: Setting.showImages.titleOf(context.l10n),
-              subtitle: context.l10n.imagePreviewHint,
-              defaultValue: kImageEmbedEnabledDefault,
-              read: (p) => p.imageEmbedEnabled,
-              write: (p, v) => p.setImageEmbedEnabled(v),
-            ),
-          ),
+          const ShowImagesTile(),
           SettingAnchor(
             Setting.imageHeight,
             child: PrefsSliderTile(
@@ -120,4 +102,41 @@ class _InlineEmbedsScreenState extends State<InlineEmbedsScreen> {
       ),
     );
   }
+}
+
+/// Inline Giphy playback. Shown on Inline embeds and mirrored on Data.
+class ShowGiphyTile extends StatelessWidget {
+  const ShowGiphyTile({super.key});
+
+  @override
+  Widget build(BuildContext context) => SettingAnchor(
+    Setting.showGiphy,
+    child: PrefsSwitchTile(
+      secondary: const Icon(Icons.gif_box),
+      title: Setting.showGiphy.titleOf(context.l10n),
+      info: const SettingInfoButton(Setting.showGiphy),
+      defaultValue: kGiphyInlineEnabledDefault,
+      read: (p) => p.giphyInlineEnabled,
+      write: (p, v) => p.setGiphyInlineEnabled(v),
+    ),
+  );
+}
+
+/// Inline image previews. Shown on Inline embeds and mirrored on Data.
+class ShowImagesTile extends StatelessWidget {
+  const ShowImagesTile({super.key});
+
+  @override
+  Widget build(BuildContext context) => SettingAnchor(
+    Setting.showImages,
+    child: PrefsSwitchTile(
+      secondary: const Icon(Icons.image_outlined),
+      title: Setting.showImages.titleOf(context.l10n),
+      subtitle: context.l10n.imagePreviewHint,
+      info: const SettingInfoButton(Setting.showImages),
+      defaultValue: kImageEmbedEnabledDefault,
+      read: (p) => p.imageEmbedEnabled,
+      write: (p, v) => p.setImageEmbedEnabled(v),
+    ),
+  );
 }

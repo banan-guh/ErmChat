@@ -16,6 +16,9 @@ enum SettingsPageId {
   inlineEmbeds('Chat › Inline embeds'),
   highlights('Highlights'),
   emotes('Emotes'),
+  data('Data'),
+  history('History'),
+  battery('Battery'),
   tools('Tools'),
   tts('Tools › Text-to-speech'),
   uploader('Tools › Image uploader'),
@@ -37,6 +40,9 @@ extension SettingsPageIdL10n on SettingsPageId {
     SettingsPageId.inlineEmbeds => l.pageInlineEmbeds,
     SettingsPageId.highlights => l.pageHighlights,
     SettingsPageId.emotes => l.pageEmotes,
+    SettingsPageId.data => l.pageData,
+    SettingsPageId.history => l.pageHistory,
+    SettingsPageId.battery => l.pageBattery,
     SettingsPageId.tools => l.pageTools,
     SettingsPageId.tts => l.pageTts,
     SettingsPageId.uploader => l.pageUploader,
@@ -61,6 +67,7 @@ class Setting {
     this.keywords = '',
     this.visible,
     this.anchored = true,
+    this.mirrors = const {},
   });
 
   final String id;
@@ -78,6 +85,10 @@ class Setting {
 
   /// False opens [page] itself with nothing to reveal.
   final bool anchored;
+
+  /// Aggregate pages that show this setting's own tile too. Search opens
+  /// [page], its home.
+  final Set<SettingsPageId> mirrors;
 
   String get path => section == null ? page.label : '${page.label} › $section';
 
@@ -245,6 +256,7 @@ class Setting {
     SettingsPageId.appearance,
     section: 'Theme',
     keywords: 'black amoled oled',
+    mirrors: {SettingsPageId.battery},
   );
   static const layout = Setting(
     'layout',
@@ -265,6 +277,7 @@ class Setting {
     SettingsPageId.appearance,
     section: 'Layout',
     keywords: 'blur',
+    mirrors: {SettingsPageId.battery},
   );
   static const chatFontSize = Setting(
     'chat_font_size',
@@ -314,6 +327,7 @@ class Setting {
     SettingsPageId.appearance,
     section: 'Display',
     keywords: 'sleep dim',
+    mirrors: {SettingsPageId.battery},
   );
   static const fastChannelSwipe = Setting(
     'fast_channel_swipe',
@@ -376,15 +390,14 @@ class Setting {
   static const recentMessagesLimit = Setting(
     'recent_messages_limit',
     'Recent messages to load',
-    SettingsPageId.chat,
-    section: 'History',
+    SettingsPageId.history,
     keywords: 'history',
+    mirrors: {SettingsPageId.data},
   );
   static const recentMessagesSource = Setting(
     'recent_messages_source',
     'Recent messages',
-    SettingsPageId.chat,
-    section: 'History',
+    SettingsPageId.history,
     keywords: 'history provider robotty',
   );
   static const preferEmotes = Setting(
@@ -428,6 +441,7 @@ class Setting {
     section: 'Connection',
     keywords: 'keep alive service',
     visible: _android,
+    mirrors: {SettingsPageId.battery},
   );
   static const chatProxy = Setting(
     'chat_proxy',
@@ -444,6 +458,7 @@ class Setting {
     SettingsPageId.inlineEmbeds,
     section: 'Giphy',
     keywords: 'gif',
+    mirrors: {SettingsPageId.data},
   );
   static const giphyHeight = Setting(
     'giphy_height',
@@ -456,6 +471,7 @@ class Setting {
     'Show images inline',
     SettingsPageId.inlineEmbeds,
     section: 'Images',
+    mirrors: {SettingsPageId.data},
   );
   static const imageHeight = Setting(
     'image_height',
@@ -573,18 +589,21 @@ class Setting {
     'Emote fetching',
     SettingsPageId.emotes,
     keywords: 'quality tier data',
+    mirrors: {SettingsPageId.data},
   );
   static const autoDataSaver = Setting(
     'auto_data_saver',
     'Auto data saver mode',
     SettingsPageId.emotes,
     keywords: 'cellular wifi',
+    mirrors: {SettingsPageId.data},
   );
   static const emoteCache = Setting(
     'emote_cache',
     'Emote image cache',
     SettingsPageId.emotes,
     keywords: 'storage nuke clear',
+    mirrors: {SettingsPageId.data},
   );
   static const animateEmotes = Setting(
     'animate_emotes',
@@ -592,6 +611,7 @@ class Setting {
     SettingsPageId.emotes,
     section: 'Animation',
     keywords: 'gif',
+    mirrors: {SettingsPageId.battery},
   );
   static const adaptiveFps = Setting(
     'adaptive_fps',
@@ -599,6 +619,7 @@ class Setting {
     SettingsPageId.emotes,
     section: 'Animation',
     keywords: 'fps battery',
+    mirrors: {SettingsPageId.battery},
   );
   static const idleFps = Setting(
     'idle_fps',
@@ -606,6 +627,7 @@ class Setting {
     SettingsPageId.emotes,
     section: 'Animation',
     keywords: 'fps battery',
+    mirrors: {SettingsPageId.battery},
   );
   static const providers = Setting(
     'providers',
@@ -641,7 +663,7 @@ class Setting {
   static const dataUsage = Setting(
     'data_usage',
     'Data usage',
-    SettingsPageId.tools,
+    SettingsPageId.data,
     keywords: 'bandwidth mobile data bytes',
   );
   static const updates = Setting(

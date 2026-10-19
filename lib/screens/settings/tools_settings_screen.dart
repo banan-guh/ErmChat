@@ -10,21 +10,24 @@ import '../../services/tts_controller.dart';
 import '../../util/prefs.dart';
 import '../../util/prefs_store.dart';
 import 'analytics_screen.dart';
-import 'data_usage_screen.dart';
 import 'prefs_tiles.dart';
+import 'report_bug_screen.dart';
 import 'settings_page.dart';
 import 'settings_search.dart';
 import 'tts_settings_screen.dart';
 import 'uploader_settings_screen.dart';
 
-/// Features too small for a top-level entry: TTS, uploads, analytics, and
-/// the stream player toggles.
+/// Features too small for a top-level entry: TTS, uploads, analytics,
+/// feedback, and the stream player toggles.
 class ToolsSettingsScreen extends StatelessWidget {
   final AnalyticsService? analyticsService;
   final List<String>? channels;
   final TtsController? ttsController;
   final EmoteImages? images;
   final ValueChanged<bool>? onPipEnabledChanged;
+
+  /// Whether Send feedback shows. It needs a signed-in account.
+  final bool showFeedback;
 
   const ToolsSettingsScreen({
     super.key,
@@ -33,6 +36,7 @@ class ToolsSettingsScreen extends StatelessWidget {
     this.ttsController,
     this.images,
     this.onPipEnabledChanged,
+    this.showFeedback = false,
   });
 
   /// Both update toggles in one sheet; each saves as it flips.
@@ -173,17 +177,17 @@ class ToolsSettingsScreen extends StatelessWidget {
                 ),
               ),
             ),
-          SettingAnchor(
-            Setting.dataUsage,
-            child: SettingsNavTile(
-              icon: Icons.data_usage,
-              title: Setting.dataUsage.titleOf(context.l10n),
+          // Reports carry the signed-in Twitch identity, so the entry only
+          // shows for a real account.
+          if (showFeedback)
+            SettingsNavTile(
+              icon: Icons.bug_report,
+              title: context.l10n.sendFeedback,
               onTap: () => Navigator.push(
                 context,
-                MaterialPageRoute(builder: (_) => const DataUsageScreen()),
+                MaterialPageRoute(builder: (_) => const ReportBugScreen()),
               ),
             ),
-          ),
           SettingAnchor(
             Setting.updates,
             child: SettingsNavTile(

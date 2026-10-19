@@ -10,6 +10,12 @@ import 'settings_page.dart';
 class DataUsageScreen extends StatefulWidget {
   const DataUsageScreen({super.key});
 
+  static String format(int bytes) {
+    if (bytes < 1024) return '$bytes B';
+    if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
+    return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+  }
+
   @override
   State<DataUsageScreen> createState() => _DataUsageScreenState();
 }
@@ -30,12 +36,6 @@ class _DataUsageScreenState extends State<DataUsageScreen> {
   void dispose() {
     _tick.cancel();
     super.dispose();
-  }
-
-  static String _format(int bytes) {
-    if (bytes < 1024) return '$bytes B';
-    if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
-    return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
   }
 
   @override
@@ -88,7 +88,7 @@ class _DataUsageScreenState extends State<DataUsageScreen> {
           ListTile(
             title: Text(l.dataUsageTotal),
             trailing: Text(
-              _format(total),
+              DataUsageScreen.format(total),
               style: Theme.of(context).textTheme.titleMedium,
             ),
           ),
@@ -96,7 +96,7 @@ class _DataUsageScreenState extends State<DataUsageScreen> {
             ListTile(
               leading: Icon(icon),
               title: Text(label),
-              trailing: Text(_format(bytes)),
+              trailing: Text(DataUsageScreen.format(bytes)),
               subtitle: LinearProgressIndicator(
                 value: total == 0 ? 0 : bytes / total,
                 backgroundColor: scheme.surfaceContainerHighest,

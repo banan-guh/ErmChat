@@ -11,6 +11,7 @@ import '../../widgets/glass_chrome.dart';
 import 'custom_layout_screen.dart';
 import 'prefs_tiles.dart';
 import 'settings_page.dart';
+import 'setting_info.dart';
 import 'settings_search.dart';
 
 class CustomizationScreen extends StatefulWidget {
@@ -108,9 +109,6 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
     setState(() {});
   }
 
-  bool get _chromeIsIsland =>
-      (_prefs?.chromeTheme ?? ChromeTheme.ermchat.spec).isIsland;
-
   String get _timestampFormat =>
       _prefs?.timestampFormat ?? kDefaultTimestampFormat;
 
@@ -159,8 +157,6 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-
     return SettingsPage(
       title: Text(context.l10n.pageAppearance),
       body: ListView(
@@ -210,16 +206,7 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
               ],
             ),
           ),
-          SettingAnchor(
-            Setting.trueDark,
-            child: PrefsSwitchTile(
-              title: Setting.trueDark.titleOf(context.l10n),
-              defaultValue: false,
-              enabled: isDark,
-              read: (p) => p.trueDark,
-              write: (p, v) => p.setTrueDark(v),
-            ),
-          ),
+          const TrueDarkTile(),
           SettingsSectionHeader(context.l10n.sectionLayout),
           SettingAnchor(
             Setting.layout,
@@ -253,25 +240,7 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
               },
             ),
           ),
-          SettingAnchor(
-            Setting.liquidGlass,
-            child: PrefsSwitchTile(
-              title: Setting.liquidGlass.titleOf(context.l10n),
-              subtitle: _chromeIsIsland
-                  ? context.l10n.experimental
-                  : context.l10n.liquidGlassIslandOnly,
-              enabled: _chromeIsIsland,
-              // Draws real glass once it is on, so the GPU builds the glass
-              // shaders here on the tap rather than while this page animates
-              // away, which would crawl.
-              titleTrailing: _GlassSwatch(
-                on: _chromeIsIsland && (_prefs?.liquidGlass ?? false),
-              ),
-              read: (p) => p.liquidGlass,
-              write: (p, v) => p.setLiquidGlass(v),
-              onChanged: (_) => setState(() {}),
-            ),
-          ),
+          const LiquidGlassTile(),
           SettingsSectionHeader(context.l10n.sectionChatDisplay),
           SettingAnchor(
             Setting.chatFontSize,
@@ -339,15 +308,7 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
             ),
           ),
           SettingsSectionHeader(context.l10n.sectionDisplay),
-          SettingAnchor(
-            Setting.keepScreenOn,
-            child: PrefsSwitchTile(
-              title: Setting.keepScreenOn.titleOf(context.l10n),
-              defaultValue: true,
-              read: (p) => p.keepScreenOn,
-              write: (p, v) => p.setKeepScreenOn(v),
-            ),
-          ),
+          const KeepScreenOnTile(),
           SettingsSectionHeader(context.l10n.sectionNavigation),
           SettingAnchor(
             Setting.fastChannelSwipe,
@@ -531,6 +492,97 @@ class _LayoutPickerSheet extends StatelessWidget {
 }
 
 /// A small island swatch: glass when [on], else a plain outline.
+/// Pure black dark mode. Shown on Appearance and mirrored on Battery.
+class TrueDarkTile extends StatelessWidget {
+  const TrueDarkTile({super.key});
+
+  @override
+  Widget build(BuildContext context) => SettingAnchor(
+    Setting.trueDark,
+    child: PrefsSwitchTile(
+      title: Setting.trueDark.titleOf(context.l10n),
+      info: const SettingInfoButton(Setting.trueDark),
+      defaultValue: false,
+      enabled: Theme.of(context).brightness == Brightness.dark,
+      read: (p) => p.trueDark,
+      write: (p, v) => p.setTrueDark(v),
+    ),
+  );
+}
+
+/// Keeps the screen awake. Shown on Appearance and mirrored on Battery.
+class KeepScreenOnTile extends StatelessWidget {
+  const KeepScreenOnTile({super.key});
+
+  @override
+  Widget build(BuildContext context) => SettingAnchor(
+    Setting.keepScreenOn,
+    child: PrefsSwitchTile(
+      title: Setting.keepScreenOn.titleOf(context.l10n),
+      info: const SettingInfoButton(Setting.keepScreenOn),
+      defaultValue: true,
+      read: (p) => p.keepScreenOn,
+      write: (p, v) => p.setKeepScreenOn(v),
+    ),
+  );
+}
+
+/// Liquid glass with its live swatch. Island chrome only, so it follows
+/// the chrome theme through [PrefsStore]. Shown on Appearance and mirrored
+/// on Battery.
+class LiquidGlassTile extends StatefulWidget {
+  const LiquidGlassTile({super.key});
+
+  @override
+  State<LiquidGlassTile> createState() => _LiquidGlassTileState();
+}
+
+class _LiquidGlassTileState extends State<LiquidGlassTile> {
+  Prefs? _prefs;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+    PrefsStore.instance.addListener(_load);
+  }
+
+  @override
+  void dispose() {
+    PrefsStore.instance.removeListener(_load);
+    super.dispose();
+  }
+
+  Future<void> _load() async {
+    final prefs = await Prefs.load();
+    if (mounted) setState(() => _prefs = prefs);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final island = (_prefs?.chromeTheme ?? ChromeTheme.ermchat.spec).isIsland;
+    return SettingAnchor(
+      Setting.liquidGlass,
+      child: PrefsSwitchTile(
+        title: Setting.liquidGlass.titleOf(context.l10n),
+        subtitle: island
+            ? context.l10n.experimental
+            : context.l10n.liquidGlassIslandOnly,
+        enabled: island,
+        // Draws real glass once it is on, so the GPU builds the glass
+        // shaders here on the tap rather than while this page animates
+        // away, which would crawl.
+        info: const SettingInfoButton(Setting.liquidGlass),
+        titleTrailing: _GlassSwatch(
+          on: island && (_prefs?.liquidGlass ?? false),
+        ),
+        read: (p) => p.liquidGlass,
+        write: (p, v) => p.setLiquidGlass(v),
+      ),
+    );
+  }
+}
+
 class _GlassSwatch extends StatelessWidget {
   const _GlassSwatch({required this.on});
 

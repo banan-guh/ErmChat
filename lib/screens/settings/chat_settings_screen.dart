@@ -3,7 +3,6 @@ import 'dart:io' show Platform;
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import '../../l10n/l10n.dart';
-import '../../services/recent_messages.dart';
 import '../../services/twitch_auth.dart';
 import '../../util/constants.dart';
 import '../../util/prefs.dart';
@@ -13,8 +12,8 @@ import 'macros_screen.dart';
 import 'inline_embeds_screen.dart';
 import 'prefs_tiles.dart';
 import 'proxy_settings_screen.dart';
-import 'recent_messages_settings_screen.dart';
 import 'settings_page.dart';
+import 'setting_info.dart';
 import 'settings_search.dart';
 
 class ChatSettingsScreen extends StatefulWidget {
@@ -24,13 +23,10 @@ class ChatSettingsScreen extends StatefulWidget {
   /// re-applied from a prefs re-read, so it stays a callback.
   final ValueChanged<bool>? onBackgroundServiceChanged;
 
-  final ValueChanged<RecentMessagesConfig>? onRecentMessagesModeChanged;
-
   const ChatSettingsScreen({
     super.key,
     this.twitchAuth,
     this.onBackgroundServiceChanged,
-    this.onRecentMessagesModeChanged,
   });
 
   @override
@@ -200,37 +196,6 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
               ),
             ),
           ),
-          SettingsSectionHeader(context.l10n.sectionHistory),
-          SettingAnchor(
-            Setting.recentMessagesLimit,
-            child: PrefsSliderTile(
-              label: (v) =>
-                  '${Setting.recentMessagesLimit.titleOf(context.l10n)}: ${v.round()}',
-              sliderLabel: (v) => '${v.round()}',
-              min: 0,
-              max: 800,
-              divisions: 8,
-              defaultValue: kRecentMessagesLimitDefault.toDouble(),
-              read: (p) => p.recentMessagesLimit.clamp(0, 800).toDouble(),
-              write: (p, v) => p.setRecentMessagesLimit(v.round()),
-            ),
-          ),
-          SettingAnchor(
-            Setting.recentMessagesSource,
-            child: SettingsNavTile(
-              icon: Icons.history,
-              title: Setting.recentMessagesSource.titleOf(context.l10n),
-              subtitle: context.l10n.chooseProvider,
-              onTap: () => Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => RecentMessagesSettingsScreen(
-                    onChanged: widget.onRecentMessagesModeChanged,
-                  ),
-                ),
-              ),
-            ),
-          ),
           SettingsSectionHeader(context.l10n.sectionTyping),
           SettingAnchor(
             Setting.preferEmotes,
@@ -283,20 +248,7 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
             ),
           ),
           SettingsSectionHeader(context.l10n.sectionConnection),
-          // The foreground service behind this is Android-only.
-          if (!kIsWeb && Platform.isAndroid)
-            SettingAnchor(
-              Setting.stayConnected,
-              child: PrefsSwitchTile(
-                secondary: const Icon(Icons.wifi_tethering),
-                title: Setting.stayConnected.titleOf(context.l10n),
-                subtitle: context.l10n.persistentNotification,
-                defaultValue: false,
-                read: (p) => p.backgroundService,
-                write: (p, v) => p.setBackgroundService(v),
-                onChanged: widget.onBackgroundServiceChanged,
-              ),
-            ),
+          StayConnectedTile(onChanged: widget.onBackgroundServiceChanged),
           SettingAnchor(
             Setting.chatProxy,
             child: SettingsNavTile(
@@ -383,6 +335,32 @@ class _MentionFormatTileState extends State<_MentionFormatTile> {
         title: Setting.mentionFormat.titleOf(context.l10n),
         subtitle: formats[_format],
         onTap: _pick,
+      ),
+    );
+  }
+}
+
+/// Background connection through the Android foreground service. Shown on
+/// Chat and mirrored on Battery. Renders nothing off Android.
+class StayConnectedTile extends StatelessWidget {
+  const StayConnectedTile({super.key, this.onChanged});
+
+  final ValueChanged<bool>? onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    if (kIsWeb || !Platform.isAndroid) return const SizedBox.shrink();
+    return SettingAnchor(
+      Setting.stayConnected,
+      child: PrefsSwitchTile(
+        secondary: const Icon(Icons.wifi_tethering),
+        title: Setting.stayConnected.titleOf(context.l10n),
+        subtitle: context.l10n.persistentNotification,
+        info: const SettingInfoButton(Setting.stayConnected),
+        defaultValue: false,
+        read: (p) => p.backgroundService,
+        write: (p, v) => p.setBackgroundService(v),
+        onChanged: onChanged,
       ),
     );
   }

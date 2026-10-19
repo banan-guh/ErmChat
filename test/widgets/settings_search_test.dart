@@ -1,7 +1,10 @@
+import 'package:ermchat/screens/settings/battery_settings_screen.dart';
 import 'package:ermchat/screens/settings/chat_settings_screen.dart';
 import 'package:ermchat/screens/settings/custom_layout_screen.dart';
 import 'package:ermchat/screens/settings/customization_screen.dart';
+import 'package:ermchat/screens/settings/data_settings_screen.dart';
 import 'package:ermchat/screens/settings/emotes_settings_screen.dart';
+import 'package:ermchat/screens/settings/history_settings_screen.dart';
 import 'package:ermchat/screens/settings/inline_embeds_screen.dart';
 import 'package:ermchat/screens/settings/pings_screen.dart';
 import 'package:ermchat/screens/settings/settings_search.dart';
@@ -30,6 +33,12 @@ Widget? _page(SettingsPageId page) => switch (page) {
     mobileNotifier: ValueNotifier(false),
     emoteManager: EmoteManager(fetchStagger: Duration.zero),
   ),
+  SettingsPageId.data => DataSettingsScreen(
+    mobileNotifier: ValueNotifier(false),
+    images: EmoteImages(),
+  ),
+  SettingsPageId.history => const HistorySettingsScreen(),
+  SettingsPageId.battery => const BatterySettingsScreen(),
   SettingsPageId.tools => ToolsSettingsScreen(
     analyticsService: AnalyticsService(),
     channels: const [],
@@ -70,8 +79,11 @@ void main() {
 
     for (final page in SettingsPageId.values) {
       final widget = _page(page);
+      // Aggregate pages show their mirrors' own tiles, so those count too.
       final expected = Setting.available
-          .where((s) => s.page == page && s.anchored)
+          .where(
+            (s) => (s.page == page || s.mirrors.contains(page)) && s.anchored,
+          )
           .toList();
       if (widget == null) {
         expect(expected, isEmpty, reason: '$page has no test page');

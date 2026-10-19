@@ -10,14 +10,16 @@ import '../../services/fake_chat_feed.dart';
 import 'about_screen.dart';
 import 'account_screen.dart';
 import 'channel_settings_screen.dart';
+import 'battery_settings_screen.dart';
 import 'chat_settings_screen.dart';
+import 'data_settings_screen.dart';
+import 'history_settings_screen.dart';
 import 'custom_layout_screen.dart';
 import 'customization_screen.dart';
 import 'emotes_settings_screen.dart';
 import 'inline_embeds_screen.dart';
 import 'language_screen.dart';
 import 'pings_screen.dart';
-import 'report_bug_screen.dart';
 import 'settings_page.dart';
 import 'settings_search.dart';
 import 'tools_settings_screen.dart';
@@ -102,7 +104,6 @@ class SettingsScreen extends StatelessWidget {
   Widget _chat() => ChatSettingsScreen(
     twitchAuth: twitchAuth,
     onBackgroundServiceChanged: onBackgroundServiceChanged,
-    onRecentMessagesModeChanged: onRecentMessagesModeChanged,
   );
 
   Widget _highlights() => PingsScreen(
@@ -120,12 +121,30 @@ class SettingsScreen extends StatelessWidget {
     emoteManager: emoteManager,
   );
 
+  Widget _data() => DataSettingsScreen(
+    mobileNotifier: mobileNotifier,
+    onEmoteTierChanged: onEmoteTierChanged,
+    onEmoteAutoModeChanged: onEmoteAutoModeChanged,
+    onEmoteCacheMaxChanged: onEmoteCacheMaxChanged,
+    onNukeEmotes: onNukeEmotes,
+    images: emoteManager?.images,
+  );
+
+  Widget _history() => HistorySettingsScreen(
+    onRecentMessagesModeChanged: onRecentMessagesModeChanged,
+  );
+
+  Widget _battery() => BatterySettingsScreen(
+    onBackgroundServiceChanged: onBackgroundServiceChanged,
+  );
+
   Widget _tools() => ToolsSettingsScreen(
     analyticsService: analyticsService,
     channels: channels,
     ttsController: ttsController,
     images: emoteManager?.images,
     onPipEnabledChanged: onPipEnabledChanged,
+    showFeedback: twitchAuth.isConfigured,
   );
 
   Widget _account() =>
@@ -150,6 +169,9 @@ class SettingsScreen extends StatelessWidget {
     SettingsPageId.inlineEmbeds => const InlineEmbedsScreen(),
     SettingsPageId.highlights => _highlights(),
     SettingsPageId.emotes => _emotes(),
+    SettingsPageId.data => _data(),
+    SettingsPageId.history => _history(),
+    SettingsPageId.battery => _battery(),
     SettingsPageId.tools => _tools(),
     SettingsPageId.tts => _tts(),
     SettingsPageId.uploader => const UploaderSettingsScreen(),
@@ -209,6 +231,22 @@ class SettingsScreen extends StatelessWidget {
           ),
           const Divider(),
           SettingsNavTile(
+            icon: Icons.data_usage,
+            title: context.l10n.pageData,
+            onTap: () => _go(context, _data),
+          ),
+          SettingsNavTile(
+            icon: Icons.history,
+            title: context.l10n.pageHistory,
+            onTap: () => _go(context, _history),
+          ),
+          SettingsNavTile(
+            icon: Icons.battery_saver,
+            title: context.l10n.pageBattery,
+            onTap: () => _go(context, _battery),
+          ),
+          const Divider(),
+          SettingsNavTile(
             icon: Icons.handyman,
             title: context.l10n.pageTools,
             onTap: () => _go(context, _tools),
@@ -218,14 +256,6 @@ class SettingsScreen extends StatelessWidget {
             title: Setting.account.titleOf(context.l10n),
             onTap: () => _go(context, _account),
           ),
-          // Reports carry the signed-in Twitch identity, so the entry only
-          // shows for a real account.
-          if (twitchAuth.isConfigured)
-            SettingsNavTile(
-              icon: Icons.bug_report,
-              title: context.l10n.sendFeedback,
-              onTap: () => _go(context, ReportBugScreen.new),
-            ),
           SettingsNavTile(
             icon: Icons.info,
             title: Setting.about.titleOf(context.l10n),

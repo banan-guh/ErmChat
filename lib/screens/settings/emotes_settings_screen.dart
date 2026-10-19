@@ -12,6 +12,7 @@ import '../../util/prefs_store.dart';
 import '../../widgets/dialogs.dart';
 import '../../widgets/emote_frame_rate.dart';
 import 'settings_page.dart';
+import 'setting_info.dart';
 import 'settings_search.dart';
 
 class EmotesSettingsScreen extends StatefulWidget {
@@ -51,19 +52,11 @@ class EmotesSettingsScreen extends StatefulWidget {
 }
 
 class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
-  int _tier = EmoteFetchTier.high.index;
-  EmoteFetchAutoMode _autoMode = defaultEmoteFetchAutoMode;
-  int _appliedCacheMb = defaultEmoteCacheMb;
-  int _draftCacheMb = defaultEmoteCacheMb;
-  EmoteCacheStats? _stats;
   final _providerEnabled = <EmoteType, bool>{};
   bool _allowUnlisted = true;
-  bool _animateGifs = true;
   bool _ffzEffects = true;
   bool _bttvModifiers = true;
   bool _sevenTvCosmetics = false;
-  bool _adaptiveFps = true;
-  int _idleFps = kIdleEmoteFps;
 
   /// Enabled-provider snapshot from when the screen opened, so closing it
   /// can diff which providers were newly enabled.
@@ -80,7 +73,6 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
   void initState() {
     super.initState();
     _loadPrefs();
-    _loadStats();
     _loadProviders();
   }
 
@@ -134,375 +126,59 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
     await widget.emoteManager?.setAllowUnlisted7tv(allowed);
   }
 
-  Future<void> _loadStats() async {
-    final images = widget.images ?? widget.emoteManager?.images;
-    if (images == null) return;
-    final stats = await images.stats();
-    if (mounted) setState(() => _stats = stats);
-  }
-
   Future<void> _loadPrefs() async {
     final prefs = await Prefs.load();
     if (mounted) {
       setState(() {
-        _tier = prefs.emoteFetchTier;
-        final autoIndex = prefs.emoteFetchAuto;
-        _autoMode =
-            autoIndex >= 0 && autoIndex < EmoteFetchAutoMode.values.length
-            ? EmoteFetchAutoMode.values[autoIndex]
-            : defaultEmoteFetchAutoMode;
-        _appliedCacheMb = prefs.emoteCacheMb;
-        _draftCacheMb = _appliedCacheMb;
-        _animateGifs = prefs.animateGifs;
         _ffzEffects = prefs.ffzEffects;
         _bttvModifiers = prefs.bttvModifiers;
         _sevenTvCosmetics = prefs.sevenTvCosmetics;
-        _adaptiveFps = prefs.adaptiveEmoteFps;
-        _idleFps = prefs.idleEmoteFps;
       });
     }
   }
 
-  /// Drag feedback only: moves the label/thumb without persisting or
-  /// refetching (the tier change itself fires on release).
-  void _onTierDragging(double value) {
-    if (mounted) setState(() => _tier = value.toInt());
-  }
-
-  Future<void> _onTierChanged(double value) async {
-    final v = value.toInt();
-    final prefs = await Prefs.load();
-    await prefs.setEmoteFetchTier(v);
-    if (mounted) setState(() => _tier = v);
-    widget.onEmoteTierChanged?.call(v);
-  }
-
-  Future<void> _onAutoModeChanged(EmoteFetchAutoMode mode) async {
-    final prefs = await Prefs.load();
-    await prefs.setEmoteFetchAuto(mode.index);
-    if (mounted) setState(() => _autoMode = mode);
-    widget.onEmoteAutoModeChanged?.call(mode);
-  }
-
-  Future<void> _applyCacheMb() async {
-    // The slider can move while this awaits; apply one value throughout.
-    final target = _draftCacheMb;
-    final prefs = await Prefs.load();
-    await prefs.setEmoteCacheMb(target);
-    widget.onEmoteCacheMaxChanged?.call(target);
-    // Evict now so the footer reflects the new cap immediately, not just on
-    // the next emote fetch.
-    final images = widget.images ?? widget.emoteManager?.images;
-    if (images != null) {
-      images.cacheCapMb = target;
-      await images.cache.enforceNow();
-    }
-    if (!mounted) return;
-    setState(() => _appliedCacheMb = target);
-    _loadStats();
-  }
-
   @override
   Widget build(BuildContext context) {
-    final tier = EmoteFetchTier.values[_tier];
-    final autoOn = _autoMode != EmoteFetchAutoMode.off;
     return SettingsPage(
       title: Text(context.l10n.pageEmotes),
-      body: widget.mobileNotifier == null
-          ? _buildList(context, tier, autoOn, isMobile: false)
-          : ValueListenableBuilder<bool>(
-              valueListenable: widget.mobileNotifier!,
-              builder: (context, isMobile, _) =>
-                  _buildList(context, tier, autoOn, isMobile: isMobile),
-            ),
-    );
-  }
-
-  Widget _buildList(
-    BuildContext context,
-    EmoteFetchTier tier,
-    bool autoOn, {
-    required bool isMobile,
-  }) {
-    final displayTier = autoOn
-        ? effectiveEmoteFetchTier(
-            manual: tier,
-            auto: _autoMode,
-            isMobile: isMobile,
-          )
-        : tier;
-    return ListView(
-      children: [
-        SettingAnchor(
-          Setting.emoteFetching,
-          child: SettingsSectionHeader(
-            Setting.emoteFetching.titleOf(context.l10n),
+      body: ListView(
+        children: [
+          EmoteQualitySection(
+            mobileNotifier: widget.mobileNotifier,
+            onTierChanged: widget.onEmoteTierChanged,
+            onAutoModeChanged: widget.onEmoteAutoModeChanged,
           ),
-        ),
-        TweenAnimationBuilder<double>(
-          duration: const Duration(milliseconds: 350),
-          curve: Curves.easeInOut,
-          tween: Tween<double>(end: displayTier.index.toDouble()),
-          builder: (context, animatedValue, _) {
-            return Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 8,
-                  ),
-                  child: AnimatedSwitcher(
-                    duration: const Duration(milliseconds: 250),
-                    child: Text(
-                      _tierLabel(context.l10n, displayTier),
-                      key: ValueKey('tier_label_${displayTier.label}'),
-                      style: Theme.of(context).textTheme.titleLarge,
-                    ),
-                  ),
-                ),
-                Slider(
-                  key: const Key('emote_tier_slider'),
-                  value: autoOn ? animatedValue : displayTier.index.toDouble(),
-                  min: 0,
-                  max: (EmoteFetchTier.values.length - 1).toDouble(),
-                  divisions: EmoteFetchTier.values.length - 1,
-                  label: _tierLabel(context.l10n, displayTier),
-                  onChanged: autoOn ? null : _onTierDragging,
-                  onChangeEnd: autoOn ? null : _onTierChanged,
-                ),
-              ],
-            );
-          },
-        ),
-        SizedBox(
-          height: 48,
-          width: double.infinity,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Align(
-              alignment: Alignment.centerLeft,
-              child: AnimatedSwitcher(
-                duration: const Duration(milliseconds: 250),
-                child: autoOn
-                    ? Text(
-                        isMobile
-                            ? context.l10n.autoTierCellular(
-                                _tierLabel(context.l10n, displayTier),
-                              )
-                            : context.l10n.autoTierWifi(
-                                _tierLabel(context.l10n, displayTier),
-                              ),
-                        key: ValueKey(
-                          'auto_note_${isMobile}_${displayTier.label}',
-                        ),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: Theme.of(context).colorScheme.onSurfaceVariant,
-                        ),
-                      )
-                    : Text(
-                        _tierHint(context.l10n, tier),
-                        key: ValueKey('tier_subtitle_${tier.label}'),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: Theme.of(context).textTheme.bodyMedium,
-                      ),
+          EmoteCacheSection(
+            images: widget.images ?? widget.emoteManager?.images,
+            onCacheMaxChanged: widget.onEmoteCacheMaxChanged,
+            onNuke: widget.onNukeEmotes,
+          ),
+          const EmoteAnimationSection(),
+          if (widget.emoteManager != null) ...[
+            SettingAnchor(
+              Setting.providers,
+              child: SettingsNavTile(
+                key: const Key('providers_tile'),
+                icon: Icons.extension,
+                title: Setting.providers.titleOf(context.l10n),
+                subtitle: _providersSummary(),
+                onTap: _showProviderSheet,
               ),
             ),
-          ),
-        ),
-        SettingAnchor(
-          Setting.autoDataSaver,
-          child: SettingsSectionHeader(
-            Setting.autoDataSaver.titleOf(context.l10n),
-          ),
-        ),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
-          child: SegmentedButton<EmoteFetchAutoMode>(
-            key: const Key('emote_auto_mode'),
-            segments: [
-              for (final mode in EmoteFetchAutoMode.values)
-                ButtonSegment(
-                  value: mode,
-                  // Narrow phones shrink the word instead of breaking it.
-                  label: FittedBox(
-                    fit: BoxFit.scaleDown,
-                    child: Text(
-                      _autoModeLabel(context.l10n, mode),
-                      maxLines: 1,
-                      softWrap: false,
-                    ),
-                  ),
-                ),
-            ],
-            selected: {_autoMode},
-            showSelectedIcon: false,
-            onSelectionChanged: (selection) =>
-                _onAutoModeChanged(selection.first),
-          ),
-        ),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          child: Text(
-            _autoModeHint(context.l10n, _autoMode),
-            style: Theme.of(context).textTheme.bodyMedium,
-          ),
-        ),
-        SettingAnchor(
-          Setting.emoteCache,
-          child: SettingsSectionHeader(
-            Setting.emoteCache.titleOf(context.l10n),
-          ),
-        ),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          child: Text(
-            '$_draftCacheMb MB (~${estimatedEmoteCount(capBytes: _draftCacheMb * bytesPerMb, fileCount: _stats?.fileCount ?? 0, totalBytes: _stats?.totalBytes ?? 0)} emotes)',
-          ),
-        ),
-        Slider(
-          key: const Key('emote_cache_slider'),
-          value: _draftCacheMb.toDouble(),
-          min: minEmoteCacheMb.toDouble(),
-          max: maxEmoteCacheMb.toDouble(),
-          divisions: 30,
-          label: '$_draftCacheMb MB',
-          onChanged: (value) => setState(() => _draftCacheMb = value.toInt()),
-        ),
-        if (_draftCacheMb == 0)
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-            child: Text(
-              context.l10n.emoteCacheZeroWarning,
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: Theme.of(context).colorScheme.error,
+            SettingAnchor(
+              Setting.unlistedEmotes,
+              child: SwitchListTile(
+                key: const Key('allow_unlisted_tile'),
+                secondary: const Icon(Icons.visibility_off_outlined),
+                title: Text(Setting.unlistedEmotes.titleOf(context.l10n)),
+                value: _allowUnlisted,
+                onChanged: _onAllowUnlistedChanged,
               ),
             ),
-          ),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          child: Row(
-            children: [
-              Expanded(
-                child: FilledButton(
-                  key: const Key('emote_cache_apply'),
-                  onPressed: _draftCacheMb != _appliedCacheMb
-                      ? _applyCacheMb
-                      : null,
-                  child: Text(context.l10n.apply),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: FilledButton(
-                  key: const Key('emote_nuke'),
-                  onPressed: () async {
-                    final confirm = await confirmDialog(
-                      context,
-                      title: context.l10n.clearEmoteCacheTitle,
-                      message: context.l10n.clearEmoteCacheMessage,
-                      confirmLabel: context.l10n.clearEmoteCacheConfirm,
-                      cancelLabel: context.l10n.no,
-                    );
-                    if (confirm) widget.onNukeEmotes?.call();
-                  },
-                  child: Text(context.l10n.nukeEmotes),
-                ),
-              ),
-            ],
-          ),
-        ),
-        _buildCacheFooter(context),
-        SettingsSectionHeader(context.l10n.sectionAnimation),
-        SettingAnchor(
-          Setting.animateEmotes,
-          child: SwitchListTile(
-            secondary: const Icon(Icons.gif_box),
-            title: Text(Setting.animateEmotes.titleOf(context.l10n)),
-            value: _animateGifs,
-            onChanged: (value) async {
-              final prefs = await Prefs.load();
-              await prefs.setAnimateGifs(value);
-              PrefsStore.instance.notifyChanged();
-              if (mounted) setState(() => _animateGifs = value);
-            },
-          ),
-        ),
-        SettingAnchor(
-          Setting.adaptiveFps,
-          child: SwitchListTile(
-            secondary: const Icon(Icons.battery_saver_outlined),
-            title: Text(Setting.adaptiveFps.titleOf(context.l10n)),
-            subtitle: Text(context.l10n.adaptiveFpsHint),
-            value: _adaptiveFps,
-            onChanged: _animateGifs
-                ? (value) async {
-                    final prefs = await Prefs.load();
-                    await prefs.setAdaptiveEmoteFps(value);
-                    PrefsStore.instance.notifyChanged();
-                    if (mounted) setState(() => _adaptiveFps = value);
-                  }
-                : null,
-          ),
-        ),
-        SettingAnchor(
-          Setting.idleFps,
-          child: ListTile(
-            enabled: _animateGifs && _adaptiveFps,
-            title: Text(Setting.idleFps.titleOf(context.l10n)),
-            // Fixed width so the slider keeps its length as the label changes.
-            trailing: SizedBox(
-              width: 64,
-              child: Text(
-                _idleFpsLabel(context.l10n, _idleFps),
-                textAlign: TextAlign.end,
-              ),
-            ),
-            subtitle: Slider(
-              key: const Key('idle_emote_fps_slider'),
-              value: _idleFps.toDouble(),
-              min: 0,
-              max: kActiveEmoteFps.toDouble(),
-              divisions: kActiveEmoteFps ~/ 5,
-              label: _idleFpsLabel(context.l10n, _idleFps),
-              onChanged: _animateGifs && _adaptiveFps
-                  ? (value) => setState(() => _idleFps = value.round())
-                  : null,
-              onChangeEnd: (value) async {
-                final prefs = await Prefs.load();
-                await prefs.setIdleEmoteFps(value.round());
-                PrefsStore.instance.notifyChanged();
-              },
-            ),
-          ),
-        ),
-        if (widget.emoteManager != null) ...[
-          SettingAnchor(
-            Setting.providers,
-            child: SettingsNavTile(
-              key: const Key('providers_tile'),
-              icon: Icons.extension,
-              title: Setting.providers.titleOf(context.l10n),
-              subtitle: _providersSummary(),
-              onTap: _showProviderSheet,
-            ),
-          ),
-          SettingAnchor(
-            Setting.unlistedEmotes,
-            child: SwitchListTile(
-              key: const Key('allow_unlisted_tile'),
-              secondary: const Icon(Icons.visibility_off_outlined),
-              title: Text(Setting.unlistedEmotes.titleOf(context.l10n)),
-              value: _allowUnlisted,
-              onChanged: _onAllowUnlistedChanged,
-            ),
-          ),
+          ],
+          SizedBox(height: 16),
         ],
-        SizedBox(height: 16),
-      ],
+      ),
     );
   }
 
@@ -512,37 +188,6 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
     EmoteType.ffz,
     EmoteType.sevenTv,
   ];
-
-  static String _idleFpsLabel(AppLocalizations l, int fps) =>
-      fps == 0 ? l.idleFpsFreeze : l.fpsValue(fps);
-
-  static String _tierLabel(AppLocalizations l, EmoteFetchTier t) => switch (t) {
-    EmoteFetchTier.nothing => l.tierNothing,
-    EmoteFetchTier.low => l.tierLow,
-    EmoteFetchTier.medium => l.tierMedium,
-    EmoteFetchTier.high => l.tierHigh,
-  };
-
-  static String _tierHint(AppLocalizations l, EmoteFetchTier t) => switch (t) {
-    EmoteFetchTier.nothing => l.tierNothingHint,
-    EmoteFetchTier.low => l.tierLowHint,
-    EmoteFetchTier.medium => l.tierMediumHint,
-    EmoteFetchTier.high => l.tierHighHint,
-  };
-
-  static String _autoModeLabel(AppLocalizations l, EmoteFetchAutoMode m) =>
-      switch (m) {
-        EmoteFetchAutoMode.off => l.autoModeOff,
-        EmoteFetchAutoMode.balanced => l.autoModeBalanced,
-        EmoteFetchAutoMode.aggressive => l.autoModeAggressive,
-      };
-
-  static String _autoModeHint(AppLocalizations l, EmoteFetchAutoMode m) =>
-      switch (m) {
-        EmoteFetchAutoMode.off => l.autoModeOffHint,
-        EmoteFetchAutoMode.balanced => l.autoModeBalancedHint,
-        EmoteFetchAutoMode.aggressive => l.autoModeAggressiveHint,
-      };
 
   String _providersSummary() {
     final enabled = [
@@ -673,6 +318,390 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
         value: value,
         onChanged: (v) => onChanged(v ?? value),
       );
+}
+
+/// The emote level slider and auto data saver picker. Shown on Emotes and
+/// mirrored on Data.
+class EmoteQualitySection extends StatefulWidget {
+  const EmoteQualitySection({
+    super.key,
+    this.mobileNotifier,
+    this.onTierChanged,
+    this.onAutoModeChanged,
+  });
+
+  /// Live connectivity (true = cellular data) so the slider reflects the
+  /// effective tier while auto mode is picking. Null falls back to Wi-Fi.
+  final ValueNotifier<bool>? mobileNotifier;
+  final ValueChanged<int>? onTierChanged;
+  final ValueChanged<EmoteFetchAutoMode>? onAutoModeChanged;
+
+  @override
+  State<EmoteQualitySection> createState() => _EmoteQualitySectionState();
+}
+
+class _EmoteQualitySectionState extends State<EmoteQualitySection> {
+  int _tier = EmoteFetchTier.high.index;
+  EmoteFetchAutoMode _autoMode = defaultEmoteFetchAutoMode;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final prefs = await Prefs.load();
+    if (!mounted) return;
+    setState(() {
+      _tier = prefs.emoteFetchTier;
+      final autoIndex = prefs.emoteFetchAuto;
+      _autoMode = autoIndex >= 0 && autoIndex < EmoteFetchAutoMode.values.length
+          ? EmoteFetchAutoMode.values[autoIndex]
+          : defaultEmoteFetchAutoMode;
+    });
+  }
+
+  /// Drag feedback only: moves the label/thumb without persisting or
+  /// refetching (the tier change itself fires on release).
+  void _onTierDragging(double value) {
+    if (mounted) setState(() => _tier = value.toInt());
+  }
+
+  Future<void> _onTierChanged(double value) async {
+    final v = value.toInt();
+    final prefs = await Prefs.load();
+    await prefs.setEmoteFetchTier(v);
+    if (mounted) setState(() => _tier = v);
+    widget.onTierChanged?.call(v);
+  }
+
+  Future<void> _onAutoModeChanged(EmoteFetchAutoMode mode) async {
+    final prefs = await Prefs.load();
+    await prefs.setEmoteFetchAuto(mode.index);
+    if (mounted) setState(() => _autoMode = mode);
+    widget.onAutoModeChanged?.call(mode);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final mobile = widget.mobileNotifier;
+    return mobile == null
+        ? _build(context, isMobile: false)
+        : ValueListenableBuilder<bool>(
+            valueListenable: mobile,
+            builder: (context, isMobile, _) =>
+                _build(context, isMobile: isMobile),
+          );
+  }
+
+  Widget _build(BuildContext context, {required bool isMobile}) {
+    final tier = EmoteFetchTier.values[_tier];
+    final autoOn = _autoMode != EmoteFetchAutoMode.off;
+    final displayTier = autoOn
+        ? effectiveEmoteFetchTier(
+            manual: tier,
+            auto: _autoMode,
+            isMobile: isMobile,
+          )
+        : tier;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SettingAnchor(
+          Setting.emoteFetching,
+          child: SettingsSectionHeader(
+            Setting.emoteFetching.titleOf(context.l10n),
+            trailing: const SettingInfoButton(Setting.emoteFetching),
+          ),
+        ),
+        TweenAnimationBuilder<double>(
+          duration: const Duration(milliseconds: 350),
+          curve: Curves.easeInOut,
+          tween: Tween<double>(end: displayTier.index.toDouble()),
+          builder: (context, animatedValue, _) {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 8,
+                  ),
+                  child: AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 250),
+                    child: Text(
+                      _tierLabel(context.l10n, displayTier),
+                      key: ValueKey('tier_label_${displayTier.label}'),
+                      style: Theme.of(context).textTheme.titleLarge,
+                    ),
+                  ),
+                ),
+                Slider(
+                  key: const Key('emote_tier_slider'),
+                  value: autoOn ? animatedValue : displayTier.index.toDouble(),
+                  min: 0,
+                  max: (EmoteFetchTier.values.length - 1).toDouble(),
+                  divisions: EmoteFetchTier.values.length - 1,
+                  label: _tierLabel(context.l10n, displayTier),
+                  onChanged: autoOn ? null : _onTierDragging,
+                  onChangeEnd: autoOn ? null : _onTierChanged,
+                ),
+              ],
+            );
+          },
+        ),
+        SizedBox(
+          height: 48,
+          width: double.infinity,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: AnimatedSwitcher(
+                duration: const Duration(milliseconds: 250),
+                child: autoOn
+                    ? Text(
+                        isMobile
+                            ? context.l10n.autoTierCellular(
+                                _tierLabel(context.l10n, displayTier),
+                              )
+                            : context.l10n.autoTierWifi(
+                                _tierLabel(context.l10n, displayTier),
+                              ),
+                        key: ValueKey(
+                          'auto_note_${isMobile}_${displayTier.label}',
+                        ),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        ),
+                      )
+                    : Text(
+                        _tierHint(context.l10n, tier),
+                        key: ValueKey('tier_subtitle_${tier.label}'),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.bodyMedium,
+                      ),
+              ),
+            ),
+          ),
+        ),
+        SettingAnchor(
+          Setting.autoDataSaver,
+          child: SettingsSectionHeader(
+            Setting.autoDataSaver.titleOf(context.l10n),
+            trailing: const SettingInfoButton(Setting.autoDataSaver),
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+          child: SegmentedButton<EmoteFetchAutoMode>(
+            key: const Key('emote_auto_mode'),
+            segments: [
+              for (final mode in EmoteFetchAutoMode.values)
+                ButtonSegment(
+                  value: mode,
+                  // Narrow phones shrink the word instead of breaking it.
+                  label: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Text(
+                      _autoModeLabel(context.l10n, mode),
+                      maxLines: 1,
+                      softWrap: false,
+                    ),
+                  ),
+                ),
+            ],
+            selected: {_autoMode},
+            showSelectedIcon: false,
+            onSelectionChanged: (selection) =>
+                _onAutoModeChanged(selection.first),
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: Text(
+            _autoModeHint(context.l10n, _autoMode),
+            style: Theme.of(context).textTheme.bodyMedium,
+          ),
+        ),
+      ],
+    );
+  }
+
+  static String _tierLabel(AppLocalizations l, EmoteFetchTier t) => switch (t) {
+    EmoteFetchTier.nothing => l.tierNothing,
+    EmoteFetchTier.low => l.tierLow,
+    EmoteFetchTier.medium => l.tierMedium,
+    EmoteFetchTier.high => l.tierHigh,
+  };
+
+  static String _tierHint(AppLocalizations l, EmoteFetchTier t) => switch (t) {
+    EmoteFetchTier.nothing => l.tierNothingHint,
+    EmoteFetchTier.low => l.tierLowHint,
+    EmoteFetchTier.medium => l.tierMediumHint,
+    EmoteFetchTier.high => l.tierHighHint,
+  };
+
+  static String _autoModeLabel(AppLocalizations l, EmoteFetchAutoMode m) =>
+      switch (m) {
+        EmoteFetchAutoMode.off => l.autoModeOff,
+        EmoteFetchAutoMode.balanced => l.autoModeBalanced,
+        EmoteFetchAutoMode.aggressive => l.autoModeAggressive,
+      };
+
+  static String _autoModeHint(AppLocalizations l, EmoteFetchAutoMode m) =>
+      switch (m) {
+        EmoteFetchAutoMode.off => l.autoModeOffHint,
+        EmoteFetchAutoMode.balanced => l.autoModeBalancedHint,
+        EmoteFetchAutoMode.aggressive => l.autoModeAggressiveHint,
+      };
+}
+
+/// The emote disk cache cap, apply and clear buttons, and usage footer.
+/// Shown on Emotes and mirrored on Data.
+class EmoteCacheSection extends StatefulWidget {
+  const EmoteCacheSection({
+    super.key,
+    this.images,
+    this.onCacheMaxChanged,
+    this.onNuke,
+  });
+
+  /// Source of the disk-cache stats shown in the footer.
+  final EmoteImages? images;
+  final ValueChanged<int>? onCacheMaxChanged;
+
+  /// Kills all in-memory emote state, then refetches everything.
+  final VoidCallback? onNuke;
+
+  @override
+  State<EmoteCacheSection> createState() => _EmoteCacheSectionState();
+}
+
+class _EmoteCacheSectionState extends State<EmoteCacheSection> {
+  int _appliedCacheMb = defaultEmoteCacheMb;
+  int _draftCacheMb = defaultEmoteCacheMb;
+  EmoteCacheStats? _stats;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+    _loadStats();
+  }
+
+  Future<void> _load() async {
+    final prefs = await Prefs.load();
+    if (!mounted) return;
+    setState(() {
+      _appliedCacheMb = prefs.emoteCacheMb;
+      _draftCacheMb = _appliedCacheMb;
+    });
+  }
+
+  Future<void> _loadStats() async {
+    final images = widget.images;
+    if (images == null) return;
+    final stats = await images.stats();
+    if (mounted) setState(() => _stats = stats);
+  }
+
+  Future<void> _applyCacheMb() async {
+    // The slider can move while this awaits; apply one value throughout.
+    final target = _draftCacheMb;
+    final prefs = await Prefs.load();
+    await prefs.setEmoteCacheMb(target);
+    widget.onCacheMaxChanged?.call(target);
+    // Evict now so the footer reflects the new cap immediately, not just on
+    // the next emote fetch.
+    final images = widget.images;
+    if (images != null) {
+      images.cacheCapMb = target;
+      await images.cache.enforceNow();
+    }
+    if (!mounted) return;
+    setState(() => _appliedCacheMb = target);
+    _loadStats();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SettingAnchor(
+          Setting.emoteCache,
+          child: SettingsSectionHeader(
+            Setting.emoteCache.titleOf(context.l10n),
+            trailing: const SettingInfoButton(Setting.emoteCache),
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: Text(
+            '$_draftCacheMb MB (~${estimatedEmoteCount(capBytes: _draftCacheMb * bytesPerMb, fileCount: _stats?.fileCount ?? 0, totalBytes: _stats?.totalBytes ?? 0)} emotes)',
+          ),
+        ),
+        Slider(
+          key: const Key('emote_cache_slider'),
+          value: _draftCacheMb.toDouble(),
+          min: minEmoteCacheMb.toDouble(),
+          max: maxEmoteCacheMb.toDouble(),
+          divisions: 30,
+          label: '$_draftCacheMb MB',
+          onChanged: (value) => setState(() => _draftCacheMb = value.toInt()),
+        ),
+        if (_draftCacheMb == 0)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+            child: Text(
+              context.l10n.emoteCacheZeroWarning,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: Theme.of(context).colorScheme.error,
+              ),
+            ),
+          ),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: Row(
+            children: [
+              Expanded(
+                child: FilledButton(
+                  key: const Key('emote_cache_apply'),
+                  onPressed: _draftCacheMb != _appliedCacheMb
+                      ? _applyCacheMb
+                      : null,
+                  child: Text(context.l10n.apply),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: FilledButton(
+                  key: const Key('emote_nuke'),
+                  onPressed: () async {
+                    final confirm = await confirmDialog(
+                      context,
+                      title: context.l10n.clearEmoteCacheTitle,
+                      message: context.l10n.clearEmoteCacheMessage,
+                      confirmLabel: context.l10n.clearEmoteCacheConfirm,
+                      cancelLabel: context.l10n.no,
+                    );
+                    if (confirm) widget.onNuke?.call();
+                  },
+                  child: Text(context.l10n.nukeEmotes),
+                ),
+              ),
+            ],
+          ),
+        ),
+        _buildCacheFooter(context),
+      ],
+    );
+  }
 
   Widget _buildCacheFooter(BuildContext context) {
     final textStyle = Theme.of(context).textTheme.bodySmall?.copyWith(
@@ -714,4 +743,119 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
     }
     return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
   }
+}
+
+/// Emote animation and the idle frame-rate controls. Shown on Emotes and
+/// mirrored on Battery.
+class EmoteAnimationSection extends StatefulWidget {
+  const EmoteAnimationSection({super.key});
+
+  @override
+  State<EmoteAnimationSection> createState() => _EmoteAnimationSectionState();
+}
+
+class _EmoteAnimationSectionState extends State<EmoteAnimationSection> {
+  bool _animateGifs = true;
+  bool _adaptiveFps = true;
+  int _idleFps = kIdleEmoteFps;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final prefs = await Prefs.load();
+    if (!mounted) return;
+    setState(() {
+      _animateGifs = prefs.animateGifs;
+      _adaptiveFps = prefs.adaptiveEmoteFps;
+      _idleFps = prefs.idleEmoteFps;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SettingsSectionHeader(context.l10n.sectionAnimation),
+        SettingAnchor(
+          Setting.animateEmotes,
+          child: SwitchListTile(
+            secondary: const Icon(Icons.gif_box),
+            title: TitleWithInfo(
+              Setting.animateEmotes.titleOf(context.l10n),
+              Setting.animateEmotes,
+            ),
+            value: _animateGifs,
+            onChanged: (value) async {
+              final prefs = await Prefs.load();
+              await prefs.setAnimateGifs(value);
+              PrefsStore.instance.notifyChanged();
+              if (mounted) setState(() => _animateGifs = value);
+            },
+          ),
+        ),
+        SettingAnchor(
+          Setting.adaptiveFps,
+          child: SwitchListTile(
+            secondary: const Icon(Icons.battery_saver_outlined),
+            title: TitleWithInfo(
+              Setting.adaptiveFps.titleOf(context.l10n),
+              Setting.adaptiveFps,
+            ),
+            subtitle: Text(context.l10n.adaptiveFpsHint),
+            value: _adaptiveFps,
+            onChanged: _animateGifs
+                ? (value) async {
+                    final prefs = await Prefs.load();
+                    await prefs.setAdaptiveEmoteFps(value);
+                    PrefsStore.instance.notifyChanged();
+                    if (mounted) setState(() => _adaptiveFps = value);
+                  }
+                : null,
+          ),
+        ),
+        SettingAnchor(
+          Setting.idleFps,
+          child: ListTile(
+            enabled: _animateGifs && _adaptiveFps,
+            title: TitleWithInfo(
+              Setting.idleFps.titleOf(context.l10n),
+              Setting.idleFps,
+            ),
+            // Fixed width so the slider keeps its length as the label changes.
+            trailing: SizedBox(
+              width: 64,
+              child: Text(
+                _idleFpsLabel(context.l10n, _idleFps),
+                textAlign: TextAlign.end,
+              ),
+            ),
+            subtitle: Slider(
+              key: const Key('idle_emote_fps_slider'),
+              value: _idleFps.toDouble(),
+              min: 0,
+              max: kActiveEmoteFps.toDouble(),
+              divisions: kActiveEmoteFps ~/ 5,
+              label: _idleFpsLabel(context.l10n, _idleFps),
+              onChanged: _animateGifs && _adaptiveFps
+                  ? (value) => setState(() => _idleFps = value.round())
+                  : null,
+              onChangeEnd: (value) async {
+                final prefs = await Prefs.load();
+                await prefs.setIdleEmoteFps(value.round());
+                PrefsStore.instance.notifyChanged();
+              },
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  static String _idleFpsLabel(AppLocalizations l, int fps) =>
+      fps == 0 ? l.idleFpsFreeze : l.fpsValue(fps);
 }
