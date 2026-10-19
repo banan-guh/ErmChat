@@ -156,7 +156,9 @@ class TwitchOAuth {
     final state = params['state'];
 
     if (error != null) {
-      lastError = describeError(error, l);
+      lastError = state == expectedState
+          ? describeError(error, l)
+          : stateMismatchError(l);
       return null;
     }
 

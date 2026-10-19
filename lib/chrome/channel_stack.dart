@@ -156,6 +156,13 @@ class ChannelPanels {
   ValueNotifier<bool> _calendarFor(String channel) =>
       _calendars.putIfAbsent(channel, () => ValueNotifier(false));
 
+  /// Drops a removed channel's history state.
+  void forgetChannel(String channel) {
+    _sources.remove(channel);
+    _jumps.remove(channel)?.dispose();
+    _calendars.remove(channel)?.dispose();
+  }
+
   late final Listenable _tabSharedMerge = Listenable.merge([
     selectedTabIndex,
     chat.unreadVersion,

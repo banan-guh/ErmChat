@@ -627,8 +627,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 
   void _mutate(void Function() fn) => setState(fn);
 
-  void _disposeChannelNotifiers(String channel) =>
-      _scrollControllers.remove(channel)?.dispose();
+  void _disposeChannelNotifiers(String channel) {
+    _scrollControllers.remove(channel)?.dispose();
+    _channels.forgetChannel(channel);
+  }
 
   void _forgetAtBottomNotifier(String channel) =>
       _atBottomNotifiers.remove(channel)?.dispose();

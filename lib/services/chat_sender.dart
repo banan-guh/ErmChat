@@ -181,7 +181,6 @@ class ChatSender {
     // suffix on/off so consecutive sends differ on the wire yet look identical.
     // The suffix never accumulates.
     final wireText = bypassTextDuplicate(text, _lastSentWireText[channel]);
-    _lastSentWireText[channel] = wireText;
 
     // Send via the write IRC socket (mirror DankChat). The write socket also
     // JOINs its channels (required to receive their traffic), but a PRIVMSG is
@@ -190,6 +189,7 @@ class ChatSender {
     // here. No Helix fallback: if the write socket is down the message cannot
     // be sent, so we surface a notice instead of silently dropping it.
     if (irc.isConnected) {
+      _lastSentWireText[channel] = wireText;
       irc.sendMessage(
         channel,
         wireText,
