@@ -1306,6 +1306,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       _channelManager.rearmMentionScan();
       // Whispers and the mentions feed belong to the previous account.
       _mentions.clearForAccountSwitch();
+      ref.read(replyToProvider.notifier).set(null);
       _channelManager.scanHistoryForMentions();
       unawaited(_ensureBlockedUsersLoaded());
     }

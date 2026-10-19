@@ -140,11 +140,13 @@ class ComposerController {
     if (suggestions.value.isNotEmpty) suggestions.value = [];
   }
 
-  // Channel switch: drop stale suggestions. The emote list itself is read
-  // live from the shared mixer per keystroke, so no cache to invalidate.
+  // Channel switch: drop stale suggestions and the reply, which names a row
+  // in the old channel. The emote list itself is read live from the shared
+  // mixer per keystroke, so no cache to invalidate.
   void onChannelChanged() {
     autocompleteRevert.clear();
     clearSuggestions();
+    setReplyTo(null);
   }
 
   void onTapClearSuggestions() => suggestions.value = [];
@@ -289,11 +291,13 @@ class ComposerController {
     }
 
     // Mentions tab stays read-only, as do the threads dashboard lists:
-    // replies are composed from the Thread tab only. Mod view greys out
-    // the global box, except the Terms tab which borrows it for new terms.
+    // replies are composed from the Thread tab only, and only with a thread
+    // open. Mod view greys out the global box, except the Terms tab which
+    // borrows it for new terms.
     if (activePanel() == OverlayPanel.mentions) return;
     if (activePanel() == OverlayPanel.modView) return;
-    if (activePanel() == OverlayPanel.thread && threadsTabIndex() != 0) {
+    if (activePanel() == OverlayPanel.thread &&
+        (threadsTabIndex() != 0 || openThreadRoot() == null)) {
       return;
     }
 
