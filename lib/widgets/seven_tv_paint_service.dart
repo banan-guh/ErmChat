@@ -576,16 +576,18 @@ class SevenTvPaintService extends ChangeNotifier {
     return null;
   }
 
-  /// Queues a user for paint resolution; batches flush after [_batchDelay].
+  /// Queues a user for paint resolution. While idle the batch flushes after
+  /// the current frame, so a new chatter paints one round trip after their
+  /// first row; requests during a lookup wait [_batchDelay] behind it.
   void requestUser(String userId) {
     if (userId.isEmpty || _pendingUsers.contains(userId)) return;
     _pendingUsers.add(userId);
-    _scheduleFlush();
+    _scheduleFlush(_resolvingBatch ? _batchDelay : Duration.zero);
   }
 
-  void _scheduleFlush() {
+  void _scheduleFlush([Duration delay = _batchDelay]) {
     if (_disposed) return;
-    _flushTimer ??= Timer(_batchDelay, () {
+    _flushTimer ??= Timer(delay, () {
       _flushTimer = null;
       unawaited(_flush());
     });
