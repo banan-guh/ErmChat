@@ -4,6 +4,7 @@
 import 'dart:io';
 import 'dart:ui' as ui;
 
+import 'package:ermchat/util/chrome_theme.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
 import '../widgets/widget_test_harness.dart';
@@ -29,8 +30,12 @@ Future<void> _loadFonts() async {
   await icons.load();
 }
 
-Future<void> _shot(WidgetTester tester, String name) async {
-  await tester.pump(const Duration(milliseconds: 400));
+Future<void> _shot(
+  WidgetTester tester,
+  String name, {
+  Duration settle = const Duration(milliseconds: 400),
+}) async {
+  if (settle > Duration.zero) await tester.pump(settle);
   final element = tester.binding.rootElement!;
   await tester.runAsync(() async {
     final image = await captureImage(element);
@@ -191,6 +196,44 @@ void main() {
       await tester.tap(find.text('Done'));
       await tester.pumpAndSettle();
       await _shot(tester, '${name}_saved_home');
+      await tester.pump(const Duration(seconds: 30));
+    });
+  }
+
+  // The loading ring around the island, at several points of its cycle.
+  final ringScenarios = <String, Map<String, Object>>{
+    'ring_float': {
+      'chrome_theme': 'custom:0',
+      'chrome_themes_custom': [
+        ChromeTheme.ermchat.spec
+            .copyWith(busyBar: true, sendAside: SendPlace.column)
+            .encode(),
+      ],
+    },
+    'ring_float_glass': {
+      'chrome_theme': 'custom:0',
+      'liquid_glass': true,
+      'chrome_themes_custom': [
+        ChromeTheme.ermchat.spec
+            .copyWith(busyBar: true, sendAside: SendPlace.column)
+            .encode(),
+      ],
+    },
+    'ring_flush': {'chrome_theme': 'dankchat4'},
+  };
+  for (final MapEntry(key: name, value: prefs) in ringScenarios.entries) {
+    testWidgets('render $name', (tester) async {
+      final read = await boot(tester, prefs);
+      HomeScreen.disableJoinSpinner = false;
+      // Dropping the socket makes the chat read as loading.
+      read.triggerDisconnect();
+      await tester.pump(const Duration(milliseconds: 250));
+      var at = 0;
+      for (final ms in [0, 300, 700, 1100, 1500]) {
+        await tester.pump(Duration(milliseconds: ms - at));
+        at = ms;
+        await _shot(tester, '${name}_$ms', settle: Duration.zero);
+      }
       await tester.pump(const Duration(seconds: 30));
     });
   }

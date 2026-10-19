@@ -70,6 +70,8 @@ class ChatBody extends StatefulWidget {
     this.liquidGlass = false,
     this.keyboardHidesButtons = false,
     this.islandFlush = false,
+    this.busyListenable,
+    this.isBusy,
     this.onKeyboardDismissed,
     this.composer,
     this.bottomBar,
@@ -120,6 +122,11 @@ class ChatBody extends StatefulWidget {
   /// The island runs edge to edge and down under the nav bar, rounded only
   /// on top, instead of floating a margin in. Takes no hidden row.
   final bool islandFlush;
+
+  /// Rings the island with the stock loading motion while [isBusy] holds,
+  /// re-read whenever [busyListenable] fires. Null for no ring.
+  final Listenable? busyListenable;
+  final bool Function()? isBusy;
 
   /// Fired once the keyboard settles closed, so the host can drop input
   /// focus instead of leaving the field focused silently.
@@ -718,6 +725,16 @@ class _ChatBodyState extends State<ChatBody>
               child: SizeChangedLayoutNotifier(child: widget.islandFooter!),
             ),
           );
+    final busyListenable = widget.busyListenable;
+    final isBusy = widget.isBusy;
+    Widget ringed(Widget island) => busyListenable == null || isBusy == null
+        ? island
+        : IslandBusyRing(
+            listenable: busyListenable,
+            busy: isBusy,
+            flush: flush,
+            child: island,
+          );
     final island = ComposerFocusGlow(
       key: _islandOuterKey,
       shape: glass
@@ -785,7 +802,9 @@ class _ChatBodyState extends State<ChatBody>
       kComposerIslandMargin + bottomPad,
     );
     // The composer docked under the chat pane.
-    final paneSlot = !pane ? null : Padding(padding: islandPad, child: island);
+    final paneSlot = !pane
+        ? null
+        : Padding(padding: islandPad, child: ringed(island));
     // Floating island. Hidden mode keeps its top pinned while the shell
     // shortens from below; otherwise it rides the keyboard.
     final floatingIsland = !floating
@@ -795,7 +814,7 @@ class _ChatBodyState extends State<ChatBody>
             left: flush ? 0 : kComposerIslandMargin,
             right: flush ? 0 : kComposerIslandMargin,
             bottom: hidden ? hiddenBottom + clipRow : islandBottom,
-            child: island,
+            child: ringed(island),
           );
     // Nothing to show: keep the safe area so the chat never runs under the
     // nav bar.

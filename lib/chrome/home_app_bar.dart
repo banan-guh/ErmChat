@@ -167,17 +167,17 @@ class HomeAppBar {
   /// Whether the strip ends in a join tab: only when no action places join.
   bool get stripJoinTab => !themeSpec().places(ChromeAction.join);
 
-  bool _joinBusy() =>
+  bool joinBusy() =>
       !disableJoinSpinner() && (chatLoading() || networkBusy.value);
 
-  Listenable get _joinBusyListenable =>
+  Listenable get joinBusyListenable =>
       Listenable.merge([chatConn.connectionStateNotifier, networkBusy]);
 
   Widget _joinButton() {
     return ListenableBuilder(
-      listenable: _joinBusyListenable,
+      listenable: joinBusyListenable,
       builder: (context, _) {
-        final busy = _joinBusy();
+        final busy = joinBusy();
         return IconButton(
           // A theme with a loading bar keeps the plain + while the row
           // that carries the bar shows.
@@ -207,9 +207,9 @@ class HomeAppBar {
   /// Label for the compact layout's trailing join tab.
   Widget joinTab() {
     return ListenableBuilder(
-      listenable: _joinBusyListenable,
+      listenable: joinBusyListenable,
       builder: (context, _) {
-        if (_joinBusy()) return _joinSpinner(context);
+        if (joinBusy()) return _joinSpinner(context);
         return Tooltip(
           message: context.l10n.joinChannel,
           child: Icon(
@@ -225,7 +225,7 @@ class HomeAppBar {
 
   /// Join tab tap: same gating as the top bar button.
   void onJoinTab() {
-    if (_joinBusy() || chat.length >= kMaxChannels) return;
+    if (joinBusy() || chat.length >= kMaxChannels) return;
     addChannelDialog();
   }
 
@@ -410,28 +410,7 @@ class HomeAppBar {
       padding: const EdgeInsets.symmetric(horizontal: _rowInset),
       child: fitted,
     );
-    return KeyedSubtree(
-      key: const Key('bottom_chrome_bar'),
-      // The loading bar overlays the row's top edge, so it costs no height.
-      child: !spec.busyBar
-          ? inset
-          : Stack(
-              children: [
-                inset,
-                Positioned(
-                  top: 0,
-                  left: 0,
-                  right: 0,
-                  child: ListenableBuilder(
-                    listenable: _joinBusyListenable,
-                    builder: (context, _) => _joinBusy()
-                        ? const LinearProgressIndicator(minHeight: 2)
-                        : const SizedBox.shrink(),
-                  ),
-                ),
-              ],
-            ),
-    );
+    return KeyedSubtree(key: const Key('bottom_chrome_bar'), child: inset);
   }
 
   /// The top app bar: the theme's, or with no channels (no strip to hold

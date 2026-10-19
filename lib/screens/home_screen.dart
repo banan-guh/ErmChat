@@ -2171,6 +2171,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                 ? sendButton
                 : null,
             islandFlush: spec.islandFlush,
+            busyListenable: spec.busyBar ? _chrome.joinBusyListenable : null,
+            isBusy: _chrome.joinBusy,
             notice: ChatNoticeBar(controller: _chatNotice),
             replyHeader: replyHeader,
             liquidGlass: glass,

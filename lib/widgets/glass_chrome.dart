@@ -306,3 +306,196 @@ class ComposerFocusGlow extends StatelessWidget {
     );
   }
 }
+
+// Indeterminate progress drawn as a ring along the island's outline. The
+// timing is the stock LinearProgressIndicator's (1800ms cycle, two lines,
+// same head and tail curves), mapped onto the outline's length from the top
+// left, clockwise. Flush islands only outline their rounded top. The ticker
+// runs only while [busy] holds; the ring fades over 200ms and, with
+// animations disabled, shows static at reduced opacity.
+class IslandBusyRing extends StatefulWidget {
+  const IslandBusyRing({
+    super.key,
+    required this.listenable,
+    required this.busy,
+    required this.flush,
+    required this.child,
+  });
+
+  final Listenable listenable;
+  final bool Function() busy;
+  final bool flush;
+  final Widget child;
+
+  @override
+  State<IslandBusyRing> createState() => _IslandBusyRingState();
+}
+
+class _IslandBusyRingState extends State<IslandBusyRing>
+    with TickerProviderStateMixin {
+  late final _spin = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1800),
+  );
+  late final _fade = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 200),
+  );
+
+  @override
+  void initState() {
+    super.initState();
+    widget.listenable.addListener(_sync);
+    _fade.addStatusListener((s) {
+      if (s == AnimationStatus.dismissed) _spin.stop();
+    });
+    _sync();
+  }
+
+  @override
+  void didUpdateWidget(IslandBusyRing old) {
+    super.didUpdateWidget(old);
+    if (old.listenable != widget.listenable) {
+      old.listenable.removeListener(_sync);
+      widget.listenable.addListener(_sync);
+    }
+    _sync();
+  }
+
+  void _sync() {
+    if (widget.busy()) {
+      if (!_spin.isAnimating) _spin.repeat();
+      _fade.forward();
+    } else {
+      _fade.reverse();
+    }
+  }
+
+  @override
+  void dispose() {
+    widget.listenable.removeListener(_sync);
+    _spin.dispose();
+    _fade.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final reduced = MediaQuery.maybeDisableAnimationsOf(context) == true;
+    if (reduced) {
+      _spin.stop();
+    } else if (_fade.value > 0 && !_spin.isAnimating) {
+      _spin.repeat();
+    }
+    return CustomPaint(
+      foregroundPainter: _IslandRingPainter(
+        spin: _spin,
+        fade: _fade,
+        color: Theme.of(context).colorScheme.primary,
+        flush: widget.flush,
+        still: reduced,
+      ),
+      child: widget.child,
+    );
+  }
+}
+
+class _IslandRingPainter extends CustomPainter {
+  _IslandRingPainter({
+    required this.spin,
+    required this.fade,
+    required this.color,
+    required this.flush,
+    required this.still,
+  }) : super(repaint: Listenable.merge([spin, fade]));
+
+  final Animation<double> spin;
+  final Animation<double> fade;
+  final Color color;
+  final bool flush;
+  final bool still;
+
+  static const _width = 2.5;
+  static const line1Head = Interval(
+    0.0,
+    750.0 / 1800,
+    curve: Cubic(0.2, 0.0, 0.8, 1.0),
+  );
+  static const line1Tail = Interval(
+    333.0 / 1800,
+    (333.0 + 750.0) / 1800,
+    curve: Cubic(0.4, 0.0, 1.0, 1.0),
+  );
+  static const line2Head = Interval(
+    1000.0 / 1800,
+    (1000.0 + 567.0) / 1800,
+    curve: Cubic(0.0, 0.0, 0.65, 1.0),
+  );
+  static const line2Tail = Interval(
+    1267.0 / 1800,
+    (1267.0 + 533.0) / 1800,
+    curve: Cubic(0.10, 0.0, 0.45, 1.0),
+  );
+
+  Path _outline(Size size) {
+    const inset = _width / 2;
+    final r = kComposerIslandRadius - inset;
+    final l = inset, t = inset, rt = size.width - inset;
+    final b = size.height - inset;
+    final arc = Radius.circular(r);
+    final path = Path();
+    if (flush) {
+      path
+        ..moveTo(l, size.height)
+        ..lineTo(l, t + r)
+        ..arcToPoint(Offset(l + r, t), radius: arc)
+        ..lineTo(rt - r, t)
+        ..arcToPoint(Offset(rt, t + r), radius: arc)
+        ..lineTo(rt, size.height);
+    } else {
+      path
+        ..moveTo(l + r, t)
+        ..lineTo(rt - r, t)
+        ..arcToPoint(Offset(rt, t + r), radius: arc)
+        ..lineTo(rt, b - r)
+        ..arcToPoint(Offset(rt - r, b), radius: arc)
+        ..lineTo(l + r, b)
+        ..arcToPoint(Offset(l, b - r), radius: arc)
+        ..lineTo(l, t + r)
+        ..arcToPoint(Offset(l + r, t), radius: arc);
+    }
+    return path;
+  }
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final alpha = fade.value;
+    if (alpha <= 0 || size.isEmpty) return;
+    final paint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = _width
+      ..strokeCap = StrokeCap.butt
+      ..color = color.withValues(alpha: still ? alpha * 0.5 : alpha);
+    final path = _outline(size);
+    if (still) {
+      canvas.drawPath(path, paint);
+      return;
+    }
+    final t = spin.value;
+    final metrics = path.computeMetrics().toList();
+    if (metrics.isEmpty) return;
+    final metric = metrics.first;
+    final len = metric.length;
+    void line(double tail, double head) {
+      if (head - tail <= 0) return;
+      canvas.drawPath(metric.extractPath(tail * len, head * len), paint);
+    }
+
+    line(line1Tail.transform(t), line1Head.transform(t));
+    line(line2Tail.transform(t), line2Head.transform(t));
+  }
+
+  @override
+  bool shouldRepaint(_IslandRingPainter old) =>
+      old.color != color || old.flush != flush || old.still != still;
+}
