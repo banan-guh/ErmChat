@@ -14,7 +14,7 @@ import 'emote_providers/seven_tv_emotes.dart';
 
 /// Stagger before a fetch waits for a concurrency permit, so a burst of
 /// refreshes never hits the network at once.
-const defaultEmoteFetchStagger = Duration(milliseconds: 1500);
+const defaultEmoteFetchStagger = Duration(milliseconds: 250);
 
 /// Provider emote lists produced by one global fetch, plus the providers that
 /// failed and the account Twitch catalogue unlock ids. A provider with an
@@ -65,9 +65,10 @@ class EmoteFetcher {
   static const _connectivityProbeTtl = Duration(seconds: 60);
   static const _infiniteTtl = Duration(days: 365000);
 
-  // Bounds in-flight provider fetches so a full refresh doesn't burst the
-  // network, while letting more than one channel refresh at a time.
-  static const _maxConcurrentFetches = 2;
+  // Bounds in-flight channel fetches so a full refresh doesn't burst the
+  // network. Lists arrive gzipped (a 1000-emote 7TV set is about 260 KB), so
+  // four at a time stays light.
+  static const _maxConcurrentFetches = 4;
   final _fetchGate = Semaphore(_maxConcurrentFetches);
 
   // Set on teardown so work queued behind the stagger or the gate is dropped

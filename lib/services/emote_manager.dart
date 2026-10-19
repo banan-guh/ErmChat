@@ -60,6 +60,9 @@ abstract interface class EmoteLookupSource {
 /// Lookups join the store with the personal/sub overlays here because the
 /// manager holds both sides.
 class EmoteManager implements EmoteLookupSource {
+  /// How long a checked 7TV list skips the launch recheck.
+  static const _recheckAfter = Duration(hours: 1);
+
   final DateTime Function() _now;
   final EmoteMetaStore _metaStore;
 
@@ -798,7 +801,13 @@ class EmoteManager implements EmoteLookupSource {
         }
         // Reconcile 7TV deltas at startup: the fetched set is authoritative,
         // so stale live deltas are dropped rather than re-applied over it.
+        // A list checked within the hour skips it, so restarts in a row don't
+        // refetch every channel's set each time.
+        final checkedAt = loaded.checkedAt;
+        final checkedLately =
+            checkedAt != null && _now().difference(checkedAt) < _recheckAfter;
         if (broadcasterId != null &&
+            !checkedLately &&
             tier.index >= EmoteFetchTier.medium.index) {
           unawaited(
             _fetcher

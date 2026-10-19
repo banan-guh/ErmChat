@@ -1,12 +1,10 @@
 import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
-import 'package:http/http.dart' as http;
 import '../../twitch_config.dart';
 import '../../emotes/emote.dart';
-import '../../util/constants.dart';
 import '../../util/log.dart';
-import '../../util/data_usage.dart';
+import 'emote_http.dart';
 
 class TwitchEmoteProvider {
   static Future<List<Emote>> fetchGlobal({String? accessToken}) {
@@ -53,9 +51,7 @@ class TwitchEmoteProvider {
     if (accessToken != null) {
       headers['Authorization'] = 'Bearer $accessToken';
     }
-    final res = await http.get(uri, headers: headers).timeout(httpTimeout);
-    throwOnTransientHttpError(res.statusCode, uri);
-    DataUsageStats.I.recordJson(res.bodyBytes.length);
+    final res = await getEmoteList(uri, headers: headers);
     if (res.statusCode != 200) return [];
     return Isolate.run(() {
       final data = jsonDecode(res.body) as Map<String, dynamic>;
@@ -86,9 +82,7 @@ class TwitchEmoteProvider {
         'https://api.twitch.tv/helix/chat/emotes/user?user_id=$userId'
         '${cursor != null ? '&after=$cursor' : ''}',
       );
-      final res = await http.get(uri, headers: headers).timeout(httpTimeout);
-      throwOnTransientHttpError(res.statusCode, uri);
-      DataUsageStats.I.recordJson(res.bodyBytes.length);
+      final res = await getEmoteList(uri, headers: headers);
       if (res.statusCode != 200) {
         logDebug('Twitch user emotes error: ${res.statusCode} ${res.body}');
         // A failed page must not read as an empty account.

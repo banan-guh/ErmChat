@@ -1,11 +1,9 @@
 import 'dart:convert';
 import 'dart:isolate';
 import 'package:flutter/foundation.dart' show visibleForTesting;
-import 'package:http/http.dart' as http;
 import '../../emotes/emote.dart';
-import '../../util/constants.dart';
 import '../../util/log.dart';
-import '../../util/data_usage.dart';
+import 'emote_http.dart';
 
 class BttvEmoteProvider {
   // BTTV overlay codes: hardcoded (API doesn't mark them).
@@ -27,9 +25,7 @@ class BttvEmoteProvider {
 
   static Future<List<Emote>> fetchGlobal() async {
     final uri = Uri.parse('https://api.betterttv.net/3/cached/emotes/global');
-    final res = await http.get(uri).timeout(httpTimeout);
-    throwOnTransientHttpError(res.statusCode, uri);
-    DataUsageStats.I.recordJson(res.bodyBytes.length);
+    final res = await getEmoteList(uri);
     if (res.statusCode != 200) return [];
     return Isolate.run(() {
       final data = jsonDecode(res.body) as List<dynamic>;
@@ -41,9 +37,7 @@ class BttvEmoteProvider {
     final uri = Uri.parse(
       'https://api.betterttv.net/3/cached/users/twitch/$channelId',
     );
-    final res = await http.get(uri).timeout(httpTimeout);
-    throwOnTransientHttpError(res.statusCode, uri);
-    DataUsageStats.I.recordJson(res.bodyBytes.length);
+    final res = await getEmoteList(uri);
     if (res.statusCode != 200) return [];
     return Isolate.run(() {
       final data = jsonDecode(res.body) as Map<String, dynamic>;

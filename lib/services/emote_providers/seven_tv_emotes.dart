@@ -1,10 +1,8 @@
 import 'dart:convert';
 import 'dart:isolate';
-import 'package:http/http.dart' as http;
 import '../../emotes/emote.dart';
-import '../../util/constants.dart';
 import '../../util/log.dart';
-import '../../util/data_usage.dart';
+import 'emote_http.dart';
 
 class SevenTvChannelResponse {
   final List<Emote> emotes;
@@ -30,9 +28,7 @@ class SevenTvEmoteProvider {
 
   static Future<List<Emote>> fetchGlobal() async {
     final uri = Uri.parse('https://7tv.io/v3/emote-sets/global');
-    final res = await http.get(uri).timeout(httpTimeout);
-    throwOnTransientHttpError(res.statusCode, uri);
-    DataUsageStats.I.recordJson(res.bodyBytes.length);
+    final res = await getEmoteList(uri);
     if (res.statusCode != 200) return [];
     // ~2MB global set: decode off main isolate.
     return Isolate.run(() {
@@ -46,9 +42,7 @@ class SevenTvEmoteProvider {
     String channelId,
   ) async {
     final uri = Uri.parse('https://7tv.io/v3/users/twitch/$channelId');
-    final res = await http.get(uri).timeout(httpTimeout);
-    throwOnTransientHttpError(res.statusCode, uri);
-    DataUsageStats.I.recordJson(res.bodyBytes.length);
+    final res = await getEmoteList(uri);
     if (res.statusCode != 200) return SevenTvChannelResponse(emotes: []);
     return Isolate.run(() {
       final data = jsonDecode(res.body) as Map<String, dynamic>;
@@ -68,9 +62,7 @@ class SevenTvEmoteProvider {
   /// seasonal sets are excluded; contents need a per-set [fetchEmoteSet].
   static Future<List<String>> fetchOwnedSetIds(String twitchId) async {
     final uri = Uri.parse('https://7tv.io/v3/users/twitch/$twitchId');
-    final res = await http.get(uri).timeout(httpTimeout);
-    throwOnTransientHttpError(res.statusCode, uri);
-    DataUsageStats.I.recordJson(res.bodyBytes.length);
+    final res = await getEmoteList(uri);
     if (res.statusCode != 200) return [];
     return Isolate.run(() {
       final data = jsonDecode(res.body) as Map<String, dynamic>;
@@ -94,9 +86,7 @@ class SevenTvEmoteProvider {
   /// mistargeted id never leaks channel emotes into the global merge.
   static Future<List<Emote>> fetchEmoteSet(String setId) async {
     final uri = Uri.parse('https://7tv.io/v3/emote-sets/$setId');
-    final res = await http.get(uri).timeout(httpTimeout);
-    throwOnTransientHttpError(res.statusCode, uri);
-    DataUsageStats.I.recordJson(res.bodyBytes.length);
+    final res = await getEmoteList(uri);
     if (res.statusCode != 200) return [];
     return Isolate.run(() {
       final data = jsonDecode(res.body) as Map<String, dynamic>;

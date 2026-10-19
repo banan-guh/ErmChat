@@ -1,10 +1,8 @@
 import 'dart:convert';
 import 'dart:isolate';
 import 'package:flutter/foundation.dart' show visibleForTesting;
-import 'package:http/http.dart' as http;
 import '../../emotes/emote.dart';
-import '../../util/constants.dart';
-import '../../util/data_usage.dart';
+import 'emote_http.dart';
 
 class FfzEmoteProvider {
   @visibleForTesting
@@ -13,9 +11,7 @@ class FfzEmoteProvider {
 
   static Future<List<Emote>> fetchGlobal() async {
     final uri = Uri.parse('https://api.frankerfacez.com/v1/set/global');
-    final res = await http.get(uri).timeout(httpTimeout);
-    throwOnTransientHttpError(res.statusCode, uri);
-    DataUsageStats.I.recordJson(res.bodyBytes.length);
+    final res = await getEmoteList(uri);
     if (res.statusCode != 200) return [];
     return Isolate.run(() {
       final data = jsonDecode(res.body) as Map<String, dynamic>;
@@ -37,9 +33,7 @@ class FfzEmoteProvider {
 
   static Future<List<Emote>> fetchChannel(String channelId) async {
     final uri = Uri.parse('https://api.frankerfacez.com/v1/room/id/$channelId');
-    final res = await http.get(uri).timeout(httpTimeout);
-    throwOnTransientHttpError(res.statusCode, uri);
-    DataUsageStats.I.recordJson(res.bodyBytes.length);
+    final res = await getEmoteList(uri);
     if (res.statusCode != 200) return [];
     return Isolate.run(() {
       final data = jsonDecode(res.body) as Map<String, dynamic>;

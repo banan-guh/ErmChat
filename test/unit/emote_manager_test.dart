@@ -1155,6 +1155,38 @@ void main() {
       );
     });
 
+    test('a list checked within the hour skips the launch reconcile', () async {
+      final now = DateTime(2026, 10, 19, 12);
+      for (final (age, refetch) in [
+        (const Duration(minutes: 10), false),
+        (const Duration(hours: 2), true),
+      ]) {
+        SharedPreferences.setMockInitialValues({
+          'emotes5_ch': jsonEncode({
+            'ts': now.subtract(const Duration(hours: 3)).toIso8601String(),
+            'checked': now.subtract(age).toIso8601String(),
+            'emotes': _catalogJson([
+              sevenTv('a', 'Alpha'),
+            ], scope: EmoteScope.channel),
+          }),
+        });
+        var fetches = 0;
+        final manager = EmoteManager(
+          fetchStagger: Duration.zero,
+          tier: EmoteFetchTier.medium,
+          now: () => now,
+          removeCachedFile: (url) async {},
+          sevenTvChannelFetcher: (id) async {
+            fetches++;
+            return SevenTvChannelResponse(emotes: [sevenTv('a', 'Alpha')]);
+          },
+        );
+        await manager.resolveEmotes('ch', 'b1');
+        await pumpEventQueue();
+        expect(fetches, refetch ? 1 : 0, reason: 'checked $age ago');
+      }
+    });
+
     test('reconcile early returns keep the cache untouched', () async {
       Future<void> checkKept({
         required EmoteFetchTier tier,
@@ -1976,32 +2008,35 @@ void main() {
       expect(order, [1, 2, 3, 4]);
     });
 
-    test('fetch slots allow two in flight and queue the third', () async {
+    test('fetch slots allow four in flight and queue the fifth', () async {
       final manager = EmoteManager(fetchStagger: Duration.zero);
       final started = <String>[];
-      final gates = [Completer<void>(), Completer<void>()];
-      final f1 = manager.enqueueFetchForTesting(() async {
-        started.add('a');
-        await gates[0].future;
-      });
-      final f2 = manager.enqueueFetchForTesting(() async {
-        started.add('b');
-        await gates[1].future;
-      });
-      final f3 = manager.enqueueFetchForTesting(() async => started.add('c'));
+      final gates = List.generate(4, (_) => Completer<void>());
+      final held = [
+        for (var i = 0; i < 4; i++)
+          manager.enqueueFetchForTesting(() async {
+            started.add('$i');
+            await gates[i].future;
+          }),
+      ];
+      final last = manager.enqueueFetchForTesting(
+        () async => started.add('last'),
+      );
 
       await Future<void>.delayed(Duration.zero);
 
-      expect(started, containsAll(['a', 'b']));
-      expect(started, isNot(contains('c')));
+      expect(started, containsAll(['0', '1', '2', '3']));
+      expect(started, isNot(contains('last')));
 
       gates[0].complete();
       await Future<void>.delayed(Duration.zero);
 
-      expect(started, contains('c'));
+      expect(started, contains('last'));
 
-      gates[1].complete();
-      await Future.wait([f1, f2, f3]);
+      for (final g in gates.skip(1)) {
+        g.complete();
+      }
+      await Future.wait([...held, last]);
     });
   });
 
