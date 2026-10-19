@@ -16,6 +16,67 @@ void main() {
     }
     final named = ChromeThemeSpec.blank.copyWith(name: 'a;b=c %d');
     expect(ChromeThemeSpec.decode(named.encode()), named);
+    for (final send in SendPlace.values) {
+      for (final emote in EmotePlace.values) {
+        final spec = ChromeThemeSpec.blank.copyWith(send: send, emote: emote);
+        expect(
+          ChromeThemeSpec.decode(spec.encode()),
+          spec,
+          reason: 'send ${send.name}, emote ${emote.name}',
+        );
+      }
+    }
+  });
+
+  test('emote follows send unless it is placed, old lines included', () {
+    // Lines saved before the emote place existed carry no e= field.
+    final cases = <(String, String, EmotePlace)>[
+      (
+        'old line, send in field',
+        'ermchat-theme:1;h=s;t=sv;s=f',
+        EmotePlace.field,
+      ),
+      (
+        'old line, send in column',
+        'ermchat-theme:1;h=s;t=sv;s=c',
+        EmotePlace.row,
+      ),
+      ('old line, send in row', 'ermchat-theme:1;h=s;t=sv;s=r', EmotePlace.row),
+      ('placed in the row', 'ermchat-theme:1;h=s;t=sv;s=f;e=r', EmotePlace.row),
+      (
+        'placed in the field',
+        'ermchat-theme:1;h=s;t=sv;s=c;e=f',
+        EmotePlace.field,
+      ),
+      ('unknown place', 'ermchat-theme:1;h=s;t=sv;s=c;e=z', EmotePlace.row),
+    ];
+    for (final (name, line, want) in cases) {
+      expect(ChromeThemeSpec.decode(line)!.emote, want, reason: name);
+    }
+    const spec = ChromeThemeSpec(
+      header: HeaderStyle.strip,
+      stripActions: [ChromeAction.settings, ChromeAction.viewMenu],
+    );
+    expect(
+      spec.copyWith(send: SendPlace.column).emote,
+      EmotePlace.row,
+      reason: 'an unplaced emote keeps following send',
+    );
+    expect(
+      spec.copyWith(send: SendPlace.column, emote: EmotePlace.field).emote,
+      EmotePlace.field,
+      reason: 'a placed emote stays put when send moves',
+    );
+    final moved = spec.placeSend(SendPlace.column);
+    expect(moved.emote, EmotePlace.field, reason: 'placeSend pins the emote');
+    expect(moved.placeSend(SendPlace.field).emote, EmotePlace.field);
+    expect(
+      spec.copyWith(emote: EmotePlace.row).hasRow,
+      isTrue,
+      reason: 'emote at the row start makes a row',
+    );
+    expect(moved.hasRow, isTrue, reason: 'send in the column makes a row');
+    expect(spec.hasRow, isFalse);
   });
 
   test('a mangled line decodes to null or something usable', () {

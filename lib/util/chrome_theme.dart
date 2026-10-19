@@ -49,8 +49,7 @@ enum ChromeAction {
   final String code;
 }
 
-/// Where send goes. The emote button follows it: in the field beside send,
-/// otherwise at the row's start.
+/// Where send goes.
 enum SendPlace {
   /// Emote and send sit in the field.
   field('f'),
@@ -62,6 +61,21 @@ enum SendPlace {
   row('r');
 
   const SendPlace(this.code);
+
+  /// One letter in [ChromeThemeSpec.encode].
+  final String code;
+}
+
+/// Where the emote button goes. A spec that never set it follows send: in
+/// the field while send is, otherwise at the row's start.
+enum EmotePlace {
+  /// The field's start.
+  field('f'),
+
+  /// The row's start.
+  row('r');
+
+  const EmotePlace(this.code);
 
   /// One letter in [ChromeThemeSpec.encode].
   final String code;
@@ -101,6 +115,7 @@ class ChromeThemeSpec {
     this.rowEnd = const [],
     this.appBarActions = const [],
     this.send = SendPlace.field,
+    this._emote,
     this.islandFlush = false,
     this.busyBar = false,
   });
@@ -125,6 +140,12 @@ class ChromeThemeSpec {
 
   final SendPlace send;
 
+  final EmotePlace? _emote;
+
+  /// Where the emote button sits: the place set, else the one send implies.
+  EmotePlace get emote =>
+      _emote ?? (send == SendPlace.field ? EmotePlace.field : EmotePlace.row);
+
   /// The island runs edge to edge under the nav bar, rounded only on top.
   final bool islandFlush;
 
@@ -135,9 +156,16 @@ class ChromeThemeSpec {
   /// The row's actions, start then end.
   List<ChromeAction> get rowActions => [...rowStart, ...rowEnd];
 
-  /// Whether the island has a button row: it holds an action, or emote and
+  /// Whether the island has a button row: it holds an action, or emote or
   /// send left the field for it.
-  bool get hasRow => rowActions.isNotEmpty || send != SendPlace.field;
+  bool get hasRow =>
+      rowActions.isNotEmpty ||
+      send != SendPlace.field ||
+      emote == EmotePlace.row;
+
+  /// A copy with send at [place] and the emote button where it is now.
+  ChromeThemeSpec placeSend(SendPlace place) =>
+      copyWith(send: place, emote: emote);
 
   /// Send ends the row instead of running down the island's side. The row
   /// then stays up while typing.
@@ -257,6 +285,7 @@ class ChromeThemeSpec {
     List<ChromeAction>? rowStart,
     List<ChromeAction>? rowEnd,
     SendPlace? send,
+    EmotePlace? emote,
     bool? islandFlush,
     bool? busyBar,
   }) => ChromeThemeSpec(
@@ -267,6 +296,7 @@ class ChromeThemeSpec {
     rowStart: rowStart ?? this.rowStart,
     rowEnd: rowEnd ?? this.rowEnd,
     send: send ?? this.send,
+    emote: emote ?? _emote,
     islandFlush: islandFlush ?? this.islandFlush,
     busyBar: busyBar ?? this.busyBar,
   );
@@ -290,13 +320,15 @@ class ChromeThemeSpec {
       if (rowStart.isNotEmpty) 'r=${codes(rowStart)}',
       if (rowEnd.isNotEmpty) 'R=${codes(rowEnd)}',
       's=${send.code}',
+      'e=${emote.code}',
       if (flags.isNotEmpty) 'f=$flags',
     ].join(';');
   }
 
   /// Parses [encode]'s line, or null when it isn't one. Unknown letters are
   /// skipped and an action placed twice keeps its first place, so a
-  /// hand-edited line still loads as something usable.
+  /// hand-edited line still loads as something usable. A line without an
+  /// emote place follows send, as every line did before it existed.
   static ChromeThemeSpec? decode(String text) {
     final parts = text.trim().split(';');
     if (parts.isEmpty || parts.first != _prefix) return null;
@@ -338,6 +370,7 @@ class ChromeThemeSpec {
       send:
           SendPlace.values.where((s) => s.code == fields['s']).firstOrNull ??
           SendPlace.field,
+      emote: EmotePlace.values.where((e) => e.code == fields['e']).firstOrNull,
       islandFlush: flags.contains('F'),
       busyBar: flags.contains('B'),
     );
@@ -360,6 +393,7 @@ class ChromeThemeSpec {
       listEquals(other.rowStart, rowStart) &&
       listEquals(other.rowEnd, rowEnd) &&
       other.send == send &&
+      other.emote == emote &&
       other.islandFlush == islandFlush &&
       other.busyBar == busyBar;
 
@@ -372,6 +406,7 @@ class ChromeThemeSpec {
     Object.hashAll(rowStart),
     Object.hashAll(rowEnd),
     send,
+    emote,
     islandFlush,
     busyBar,
   );

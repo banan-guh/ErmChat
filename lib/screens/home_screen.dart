@@ -1726,6 +1726,23 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     setState(() => _layoutEdit = edit);
   }
 
+  /// Writes the pref the "Hide buttons while typing" tile writes. When custom
+  /// layout is off it turns on, holding the other overrides at what they
+  /// resolve to now so only this behavior changes.
+  Future<void> _setHideButtons(bool value) async {
+    final compact = isCompactLayout(context);
+    final custom = layoutOverridesOf(context).enabled;
+    final prefs = await Prefs.load();
+    if (!custom) {
+      await prefs.setOverrideTightComposer(compact);
+      await prefs.setOverrideCompactDensity(compact);
+      await prefs.setOverrideSheetActionRow(false);
+      await prefs.setCustomLayoutEnabled(true);
+    }
+    await prefs.setOverrideKeyboardHidesRow(value);
+    PrefsStore.instance.notifyChanged();
+  }
+
   void _endLayoutEdit() {
     final edit = _layoutEdit;
     if (edit == null) return;
@@ -1926,22 +1943,27 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     final hasBottomBar =
         _chat.names.isNotEmpty || _channelManager.session.channelsPending;
     // The compact layout hides the row under the keyboard (a layout
-    // override). Emote and send join the row when it stays up while typing
-    // (the pane keeps it up in either mode), so send sits under the thumb.
-    // A theme with no row actions drops the row; one with send in the row
-    // keeps it up while typing.
-    final spec = _layoutEdit?.draft ?? _chromeTheme;
+    // override). Emote and send leave the field for the row when it stays up
+    // while typing (the pane keeps it up in either mode), so send sits under
+    // the thumb. A theme with no row actions drops the row, and one with
+    // send in the row keeps it up while typing.
+    final edit = _layoutEdit;
+    final spec = edit?.draft ?? _chromeTheme;
     // Edit mode keeps the row up so its slots can take drops.
-    final rowless = !spec.hasRow && _layoutEdit == null;
-    final keyboardHidesRow =
-        !spec.sendInRow &&
-        resolveLayoutOverride(context, (o) => o.keyboardHidesRow);
-    final buttonsInRow =
-        hasBottomBar &&
-        _showInput &&
-        !rowless &&
-        spec.send != SendPlace.field &&
-        (!keyboardHidesRow || _stream.chatInPane(context));
+    final rowless = !spec.hasRow && edit == null;
+    final hidesRowPref = resolveLayoutOverride(
+      context,
+      (o) => o.keyboardHidesRow,
+    );
+    final keyboardHidesRow = !spec.sendInRow && hidesRowPref;
+    final inPane = _stream.chatInPane(context);
+    edit?.hiddenRow = keyboardHidesRow && !inPane;
+    // The editor can show the island as it is while typing: row hidden.
+    final typingPreview = edit != null && edit.typing;
+    final buttonsFree =
+        hasBottomBar && _showInput && !rowless && (!keyboardHidesRow || inPane);
+    final emoteInRow = buttonsFree && spec.emote == EmotePlace.row;
+    final sendOutside = buttonsFree && spec.send != SendPlace.field;
     final modeRow = _modeRow;
     final sendButton = ComposerRowButton.send(
       controller: _composer,
@@ -1949,6 +1971,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       mod: _mod,
       dragTick: _panelDragTick,
     );
+    // The editor's chips and drop targets stand in for the real buttons.
+    Widget? partSlot(ComposerPart part, PartPlace place) =>
+        edit != null && edit.shows(part, place)
+        ? PartSlot(controller: edit, part: part, place: place)
+        : null;
     // Watched, not read: the send path clears the reply without a setState.
     final replyMsg = ref.watch(replyToProvider);
     final replyHeader =
@@ -1999,6 +2026,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                 controller: _layoutEdit!,
                 onDone: () => unawaited(_saveLayoutEdit()),
                 onCancel: _endLayoutEdit,
+                hideButtons: hidesRowPref,
+                onHideButtons: (v) => unawaited(_setHideButtons(v)),
               ),
         body: ListenableBuilder(
           listenable: _streamPlayer,
@@ -2072,17 +2101,22 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                     search: _search,
                     mod: _mod,
                     dragTick: _panelDragTick,
-                    buttonsInRow: buttonsInRow,
+                    emoteInRow: emoteInRow,
+                    sendOutside: sendOutside,
+                    emoteSlot: partSlot(ComposerPart.emote, PartPlace.field),
+                    sendSlot: partSlot(ComposerPart.send, PartPlace.field),
                     modeRow: modeRow,
                     uploads: _uploadController,
                   )
                 : null,
-            bottomBar: hasBottomBar && !rowless
+            bottomBar: hasBottomBar && !rowless && !typingPreview
                 ? _chrome.bottomBar(
                     context,
                     glass: glass,
                     trailing: [
-                      if (spec.sendInRow && buttonsInRow)
+                      if (edit != null)
+                        ?partSlot(ComposerPart.send, PartPlace.row)
+                      else if (spec.sendInRow && sendOutside)
                         SizedBox.square(dimension: 48, child: sendButton),
                     ],
                     middle: _showInput
@@ -2097,14 +2131,16 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                             // Send down the island's side, with no buttons
                             // between the gap and it.
                             sendRoom:
-                                buttonsInRow &&
+                                sendOutside &&
                                     !spec.sendInRow &&
                                     spec.rowEnd.isEmpty
                                 ? ChatBody.sideActionWidth
                                 : 0,
                           )
                         : null,
-                    leading: buttonsInRow
+                    leading: edit != null
+                        ? partSlot(ComposerPart.emote, PartPlace.row)
+                        : emoteInRow
                         ? ComposerRowButton.emote(
                             controller: _composer,
                             search: _search,
@@ -2130,12 +2166,16 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                   )
                 : null,
             // Send runs down the island's side while the row stays up.
-            sideAction: buttonsInRow && !spec.sendInRow ? sendButton : null,
+            sideAction: edit != null
+                ? partSlot(ComposerPart.send, PartPlace.column)
+                : sendOutside && spec.send == SendPlace.column
+                ? sendButton
+                : null,
             islandFlush: spec.islandFlush,
             notice: ChatNoticeBar(controller: _chatNotice),
             replyHeader: replyHeader,
             liquidGlass: glass,
-            keyboardHidesButtons: keyboardHidesRow,
+            keyboardHidesButtons: keyboardHidesRow && !typingPreview,
           ),
         ),
       ),

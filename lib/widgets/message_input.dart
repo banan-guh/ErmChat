@@ -34,9 +34,13 @@ class MessageInput extends StatelessWidget {
   final Widget? prefixOverride;
   final Widget? suffixOverride;
 
-  // The emote and send buttons live in the island's button row instead, so
-  // the field drops its own.
-  final bool buttonsInRow;
+  // The emote button lives in the island's button row instead, so the field
+  // drops its own.
+  final bool emoteInRow;
+
+  // Send lives in the island's row or side column instead, so the field
+  // drops its own.
+  final bool sendOutside;
 
   const MessageInput({
     super.key,
@@ -56,7 +60,8 @@ class MessageInput extends StatelessWidget {
     this.borderless = false,
     this.prefixOverride,
     this.suffixOverride,
-    this.buttonsInRow = false,
+    this.emoteInRow = false,
+    this.sendOutside = false,
   });
 
   Color _inputAccent(BuildContext context) {
@@ -153,7 +158,7 @@ class MessageInput extends StatelessWidget {
                       : null,
                   prefixIcon:
                       prefixOverride ??
-                      (!emoteFits || buttonsInRow
+                      (!emoteFits || emoteInRow
                           ? null
                           : _IconSlot(
                               height: slotH,
@@ -182,7 +187,7 @@ class MessageInput extends StatelessWidget {
                             )),
                   suffixIcon:
                       suffixOverride ??
-                      (buttonsInRow
+                      (sendOutside
                           ? null
                           : _IconSlot(
                               height: slotH,
@@ -218,7 +223,7 @@ class MessageInput extends StatelessWidget {
               if (!searchMode)
                 Positioned(
                   top: compact ? 2 : 6,
-                  right: 16 + (buttonsInRow ? 0 : iconBox),
+                  right: 16 + (sendOutside ? 0 : iconBox),
                   child: _CharsLeft(controller: controller),
                 ),
             ],

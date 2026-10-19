@@ -31,7 +31,10 @@ class ComposerBar extends StatelessWidget {
     required this.search,
     required this.mod,
     required this.dragTick,
-    this.buttonsInRow = false,
+    this.emoteInRow = false,
+    this.sendOutside = false,
+    this.emoteSlot,
+    this.sendSlot,
     this.modeRow = false,
     this.uploads,
   });
@@ -53,9 +56,17 @@ class ComposerBar extends StatelessWidget {
   /// path skips setState the same way); settle still marks dirty.
   final Listenable dragTick;
 
-  /// The chat field's emote and send buttons sit in the island's button row
-  /// ([ComposerRowButton]) instead of the field.
-  final bool buttonsInRow;
+  /// The emote button sits in the island's button row ([ComposerRowButton])
+  /// instead of the field.
+  final bool emoteInRow;
+
+  /// Send sits in the island's row or side column instead of the field.
+  final bool sendOutside;
+
+  /// Stand-ins for the field's emote and send buttons, for the layout
+  /// editor's chips and drop targets.
+  final Widget? emoteSlot;
+  final Widget? sendSlot;
 
   @override
   Widget build(BuildContext context) {
@@ -90,9 +101,10 @@ class ComposerBar extends StatelessWidget {
                 searchMode: true,
                 borderless: true,
                 prefixOverride: search.closeButton(),
-                // With the side column, the filter moves into it.
-                suffixOverride: buttonsInRow ? null : search.filterButton(),
-                buttonsInRow: buttonsInRow,
+                // With send outside the field, the filter moves out with it.
+                suffixOverride: sendOutside ? null : search.filterButton(),
+                emoteInRow: emoteInRow,
+                sendOutside: sendOutside,
               )
             else if (termsBorrowed)
               MessageInput(
@@ -104,11 +116,12 @@ class ComposerBar extends StatelessWidget {
                 hintText: context.l10n.blockTermHint,
                 searchMode: true,
                 borderless: true,
-                // With the side column, add moves into it and the field
-                // needs no icon standing in for the emote button.
-                prefixOverride: buttonsInRow ? null : mod.termsPrefixSlot(),
-                suffixOverride: buttonsInRow ? null : mod.termsSubmitSlot(),
-                buttonsInRow: buttonsInRow,
+                // Add moves out with send, and the field needs no icon
+                // standing in for an emote button that left.
+                prefixOverride: emoteInRow ? null : mod.termsPrefixSlot(),
+                suffixOverride: sendOutside ? null : mod.termsSubmitSlot(),
+                emoteInRow: emoteInRow,
+                sendOutside: sendOutside,
               )
             else
               // The hint carries the channel status, so it follows the
@@ -140,7 +153,10 @@ class ComposerBar extends StatelessWidget {
                       ? null
                       : (content) => uploads!.uploadInserted(context, content),
                   borderless: true,
-                  buttonsInRow: buttonsInRow,
+                  prefixOverride: emoteSlot,
+                  suffixOverride: sendSlot,
+                  emoteInRow: emoteInRow,
+                  sendOutside: sendOutside,
                 ),
               ),
           ],
