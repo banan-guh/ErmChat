@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -711,4 +713,143 @@ class Prefs {
 
   Future<void> setMacroEntries(String login, List<String> value) =>
       _p.setStringList('macros_${login.toLowerCase()}', value);
+
+  // ── Settings export ─────────────────────────────────────────────────
+  /// Every key a settings export carries, with its stored type. A new pref
+  /// is left out of exports until it is listed here. Account data, joined
+  /// channels, per-account macros, caches, timestamps, seen/dismissed flags,
+  /// migration flags, `dev_*` keys and device state stay out; so does the
+  /// uploader config, which can hold API keys.
+  static const _exportable = <String, Type>{
+    _kThemeMode: String,
+    _kLocale: String,
+    _kKeepScreenOn: bool,
+    _kTrueDark: bool,
+    _kAccentColor: String,
+    _kMaxMessagesPerChannel: int,
+    _kRecentMessagesLimit: int,
+    _kReplyToThreadRoot: bool,
+    _kBackgroundService: bool,
+    _kWhisperNotifications: bool,
+    _kPreferEmotesFirst: bool,
+    _kDoubleTapNameCopy: bool,
+    kShowTimestampsPrefKey: bool,
+    kTimestampFormatPrefKey: String,
+    _kSharedChatMode: String,
+    _kSeventvNamePaints: bool,
+    _kShowInput: bool,
+    _kMentionFormat: String,
+    _kAnalyticsEnabled: bool,
+    _kWhatsNewEnabled: bool,
+    _kUpdateCheckEnabled: bool,
+    _kAnimateGifs: bool,
+    _kFfzEffects: bool,
+    _kBttvModifiers: bool,
+    _kAdaptiveEmoteFps: bool,
+    _kIdleEmoteFps: int,
+    _kChatFontSize: double,
+    _kHighlightOpacity: double,
+    _kCheckeredMessages: bool,
+    _kLineSeparator: bool,
+    _kFastChannelSnap: bool,
+    _kLayoutDensity: String,
+    _kCustomLayoutEnabled: bool,
+    _kOverrideTightComposer: bool,
+    _kOverrideSheetActionRow: bool,
+    _kOverrideCompactDensity: bool,
+    _kOverrideKeyboardHidesRow: bool,
+    _kChromeTheme: String,
+    _kCustomChromeThemes: List<String>,
+    _kLiquidGlass: bool,
+    kGiphyInlineEnabledPrefKey: bool,
+    kGiphyInlineHeightPrefKey: double,
+    kImageEmbedEnabledPrefKey: bool,
+    kImageEmbedHeightPrefKey: double,
+    _kEmoteFetchTier: int,
+    _kEmoteFetchAuto: int,
+    _kEmoteCacheMb: int,
+    _kEmoteProvidersDisabled: List<String>,
+    _kEmoteAllowUnlisted7tv: bool,
+    _kTtsEnabled: bool,
+    _kTtsQueueMode: String,
+    _kTtsFormatMode: String,
+    _kTtsIgnoreUrls: bool,
+    _kTtsIgnoreEmotes: bool,
+    _kTtsForceEnglish: bool,
+    _kTtsUserIgnoreList: List<String>,
+    _kStreamPipEnabled: bool,
+    _kRecentMessagesMode: String,
+    _kRecentMessagesCustomUrl: String,
+    _kProxyEnabled: bool,
+    _kProxyUrl: String,
+    _kLocalIgnores: String,
+    _kKeywordReplacements: String,
+    _kPingRules: String,
+    _kAnalyticsFilterStopwords: bool,
+    kLinkWhitelistPrefKey: List<String>,
+    _kLinkWhitelistEnabled: bool,
+  };
+
+  static const _exportFormat = 1;
+
+  /// The exportable settings that are set, as a JSON document.
+  String exportSettings(String appVersion) => jsonEncode({
+    'format': _exportFormat,
+    'app': appVersion,
+    'settings': {for (final key in _exportable.keys) key: ?_p.get(key)},
+  });
+
+  /// The settings in [text] that [applySettings] would change. Unknown keys
+  /// and values of the wrong type are dropped. Null when [text] is not a
+  /// settings export.
+  Map<String, Object>? settingsToImport(String text) {
+    final Object? doc;
+    try {
+      doc = jsonDecode(text);
+    } on FormatException {
+      return null;
+    }
+    if (doc is! Map || doc['format'] is! int) return null;
+    final settings = doc['settings'];
+    if (settings is! Map) return null;
+    final out = <String, Object>{};
+    for (final MapEntry(:key, :value) in settings.entries) {
+      final type = _exportable[key];
+      if (type == null) continue;
+      final Object? typed = switch (type) {
+        const (double) when value is num => value.toDouble(),
+        const (List<String>) when value is List =>
+          value.every((e) => e is String) ? value.cast<String>() : null,
+        _ => value.runtimeType == type ? value : null,
+      };
+      if (typed == null) continue;
+      final current = _p.get(key);
+      final same = typed is List ? _sameList(typed, current) : typed == current;
+      if (!same) out[key as String] = typed;
+    }
+    return out;
+  }
+
+  static bool _sameList(List<Object?> a, Object? b) =>
+      b is List &&
+      a.length == b.length &&
+      a.indexed.every((e) => e.$2 == b[e.$1]);
+
+  /// Writes [settings] from [settingsToImport].
+  Future<void> applySettings(Map<String, Object> settings) async {
+    for (final MapEntry(:key, :value) in settings.entries) {
+      switch (value) {
+        case final bool v:
+          await _p.setBool(key, v);
+        case final int v:
+          await _p.setInt(key, v);
+        case final double v:
+          await _p.setDouble(key, v);
+        case final String v:
+          await _p.setString(key, v);
+        case final List<String> v:
+          await _p.setStringList(key, v);
+      }
+    }
+  }
 }

@@ -151,6 +151,21 @@
   "dataUsageEmoteLists": "Emote lists",
   "dataUsageEmoteImages": "Emote images",
   "dataUsageFooter": "Since the app started. Streams, avatars, badges and link previews are not counted.",
+  "settingExportSettings": "Export settings",
+  "settingImportSettings": "Import settings",
+  "exportSettingsDone": "Settings copied",
+  "importSettingsInvalid": "Clipboard has no settings",
+  "importSettingsNothing": "Nothing to change",
+  "importSettingsTitle": "Import settings?",
+  "importSettingsMessage": "{count, plural, =1{This changes 1 setting.} other{This changes {count} settings.}}",
+  "@importSettingsMessage": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "importSettingsConfirm": "Import",
   "settingPip": "Picture-in-picture",
   "settingEnableTts": "Enable TTS",
   "settingTtsEngine": "TTS engine",
