@@ -14,6 +14,7 @@ import 'package:ermchat/widgets/history_view.dart';
 import 'package:ermchat/widgets/message_builder.dart';
 import 'package:ermchat/services/twitch_badge_service.dart';
 import 'package:ermchat/services/third_party_badge_service.dart';
+import 'package:flutter/gestures.dart' show PointerDeviceKind;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -404,6 +405,53 @@ void main() {
       tester.getBottomLeft(_tile(buffer.first.messageId!)).dy,
       moreOrLessEquals(bottom, epsilon: 1),
       reason: 'resting on the newest row resumes following',
+    );
+  });
+
+  testWidgets('a wheel scroll up stops following like a drag', (tester) async {
+    final version = ValueNotifier(0);
+    addTearDown(version.dispose);
+    final buffer = <TwitchMessage>[];
+    var n = 0;
+    void arrive(int count) {
+      for (var i = 0; i < count; i++) {
+        n++;
+        buffer.insert(
+          0,
+          TwitchMessage(
+            login: 'live',
+            text: 'live $n',
+            messageId: 'live-$n',
+            channel: _ch,
+            timestamp: FakeHistory.now.add(Duration(seconds: n)),
+          ),
+        );
+      }
+      version.value++;
+    }
+
+    arrive(30);
+    await _pumpView(tester, live: () => buffer, liveVersion: version);
+    await _settle(tester);
+    final list = find.byType(CustomScrollView);
+    final pointer = TestPointer(1, PointerDeviceKind.mouse);
+    await tester.sendEventToBinding(pointer.hover(tester.getCenter(list)));
+    await tester.sendEventToBinding(pointer.scroll(const Offset(0, -300)));
+    await _settle(tester);
+
+    final view = tester.getRect(list);
+    final reading = buffer.firstWhere((m) {
+      final f = _tile(m.messageId!);
+      return f.evaluate().isNotEmpty &&
+          (tester.getCenter(f).dy - view.center.dy).abs() < 40;
+    }).messageId!;
+    final y = tester.getTopLeft(_tile(reading)).dy;
+    arrive(3);
+    await tester.pump();
+    expect(
+      tester.getTopLeft(_tile(reading)).dy,
+      y,
+      reason: 'the next arrival snapped a wheel reader back to the newest',
     );
   });
 

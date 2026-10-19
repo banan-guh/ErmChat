@@ -3,6 +3,8 @@ import 'dart:math' show max;
 
 import 'package:flutter/foundation.dart'
     show ValueListenable, defaultTargetPlatform;
+import 'package:flutter/gestures.dart'
+    show PointerScrollEvent, PointerSignalEvent;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/scheduler.dart';
@@ -333,9 +335,20 @@ class _HistoryViewState extends State<HistoryView> {
   bool _liveAttached = false;
   int _liveStart = 0;
 
-  /// Sticks to the newest row as rows arrive. Only a user drag clears it;
-  /// coming to rest on the newest row sets it again.
+  /// Sticks to the newest row as rows arrive. Only a user drag or wheel
+  /// clears it; coming to rest on the newest row sets it again.
   bool _follow = true;
+
+  // True while a wheel or trackpad scroll event is being applied. Its scroll
+  // carries no drag details, so this marks it as the reader's own.
+  bool _pointerScroll = false;
+
+  void _onPointerSignal(PointerSignalEvent event) {
+    if (event is! PointerScrollEvent) return;
+    _pointerScroll = true;
+    // The list applies the scroll before this event's task ends.
+    scheduleMicrotask(() => _pointerScroll = false);
+  }
 
   /// Row to keep still through the next layout: its key, the scroll
   /// coordinate of its bottom edge before the change, and its height. Sizes
@@ -1239,7 +1252,8 @@ class _HistoryViewState extends State<HistoryView> {
         _window.atNewest && m.pixels <= m.minScrollExtent + _followEps;
     // A finger held at the newest row keeps following, so arrivals during
     // the drag cannot leave it above the bottom on release.
-    if (n is ScrollUpdateNotification && n.dragDetails != null) {
+    if (n is ScrollUpdateNotification &&
+        (n.dragDetails != null || _pointerScroll)) {
       _follow = atEnd;
       if (widget.actions?.follow.value != null) _replayPaused = true;
     } else if (n is ScrollEndNotification) {
@@ -1751,49 +1765,52 @@ class _HistoryViewState extends State<HistoryView> {
         _scheduleGateSync();
         return false;
       },
-      child: NotificationListener<ScrollNotification>(
-        onNotification: _onScrollNotification,
-        child: CustomScrollView(
-          controller: _controller,
-          physics: defaultTargetPlatform == TargetPlatform.iOS
-              ? _HoldBouncingPhysics(
-                  parent: const AlwaysScrollableScrollPhysics(),
-                  resolve: _resolve,
-                )
-              : _HoldClampingPhysics(resolve: _resolve),
-          reverse: true,
-          scrollCacheExtent: _endCache,
-          center: _olderKey,
-          keyboardDismissBehavior: widget.keyboardDismissBehavior,
-          slivers: [
-            SliverToBoxAdapter(child: SizedBox(height: bottom)),
-            if (empty) SliverToBoxAdapter(child: _empty(context)),
-            _MovingSliverList(
-              key: _newerKey,
-              moves: _newerMoves,
-              delegate: SliverChildBuilderDelegate(
-                (ctx, j) => _item(ctx, _newerItems, j),
-                childCount: _newerItems.length,
-                findChildIndexCallback: _newerMoves.find,
-                addAutomaticKeepAlives: false,
-                addRepaintBoundaries: false,
-                addSemanticIndexes: false,
+      child: Listener(
+        onPointerSignal: _onPointerSignal,
+        child: NotificationListener<ScrollNotification>(
+          onNotification: _onScrollNotification,
+          child: CustomScrollView(
+            controller: _controller,
+            physics: defaultTargetPlatform == TargetPlatform.iOS
+                ? _HoldBouncingPhysics(
+                    parent: const AlwaysScrollableScrollPhysics(),
+                    resolve: _resolve,
+                  )
+                : _HoldClampingPhysics(resolve: _resolve),
+            reverse: true,
+            scrollCacheExtent: _endCache,
+            center: _olderKey,
+            keyboardDismissBehavior: widget.keyboardDismissBehavior,
+            slivers: [
+              SliverToBoxAdapter(child: SizedBox(height: bottom)),
+              if (empty) SliverToBoxAdapter(child: _empty(context)),
+              _MovingSliverList(
+                key: _newerKey,
+                moves: _newerMoves,
+                delegate: SliverChildBuilderDelegate(
+                  (ctx, j) => _item(ctx, _newerItems, j),
+                  childCount: _newerItems.length,
+                  findChildIndexCallback: _newerMoves.find,
+                  addAutomaticKeepAlives: false,
+                  addRepaintBoundaries: false,
+                  addSemanticIndexes: false,
+                ),
               ),
-            ),
-            _MovingSliverList(
-              key: _olderKey,
-              moves: _olderMoves,
-              delegate: SliverChildBuilderDelegate(
-                (ctx, j) => _item(ctx, _olderItems, j),
-                childCount: _olderItems.length,
-                findChildIndexCallback: _olderMoves.find,
-                addAutomaticKeepAlives: false,
-                addRepaintBoundaries: false,
-                addSemanticIndexes: false,
+              _MovingSliverList(
+                key: _olderKey,
+                moves: _olderMoves,
+                delegate: SliverChildBuilderDelegate(
+                  (ctx, j) => _item(ctx, _olderItems, j),
+                  childCount: _olderItems.length,
+                  findChildIndexCallback: _olderMoves.find,
+                  addAutomaticKeepAlives: false,
+                  addRepaintBoundaries: false,
+                  addSemanticIndexes: false,
+                ),
               ),
-            ),
-            SliverToBoxAdapter(child: SizedBox(height: widget.topPadding)),
-          ],
+              SliverToBoxAdapter(child: SizedBox(height: widget.topPadding)),
+            ],
+          ),
         ),
       ),
     );

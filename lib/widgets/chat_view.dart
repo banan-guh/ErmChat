@@ -1,4 +1,8 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart' show defaultTargetPlatform;
+import 'package:flutter/gestures.dart'
+    show PointerScrollEvent, PointerSignalEvent;
 import 'package:flutter/material.dart';
 import '../l10n/l10n.dart';
 import 'package:flutter/rendering.dart';
@@ -242,8 +246,20 @@ class _ChatViewState extends State<ChatView>
 
   // Follow intent, separate from the raw offset. A far jump can leave a
   // transient offset for a frame while the sliver rebuilds; only a user drag
-  // leaves follow, so those transients cannot re-arm the hold.
+  // or wheel leaves follow, so those transients cannot re-arm the hold.
   bool _follow = true;
+
+  // True while a wheel or trackpad scroll event is being applied. Its scroll
+  // carries no drag details, so this marks it as the reader's own.
+  bool _pointerScroll = false;
+
+  void _onPointerSignal(PointerSignalEvent event) {
+    if (event is! PointerScrollEvent) return;
+    _pointerScroll = true;
+    // The list applies the scroll before this event's task ends.
+    scheduleMicrotask(() => _pointerScroll = false);
+  }
+
   bool _followSnapScheduled = false;
   int _followSnapTries = 0;
 
@@ -310,32 +326,39 @@ class _ChatViewState extends State<ChatView>
             }
             return false;
           },
-          child: NotificationListener<ScrollNotification>(
-            onNotification: (notification) {
-              _scheduleGateSync();
-              if (notification is ScrollStartNotification) {
-                if (notification.dragDetails != null) _follow = false;
-                _applyScrollState(notification.metrics);
-              } else if (notification is ScrollUpdateNotification) {
-                if (notification.dragDetails != null) _follow = false;
-                _applyScrollState(notification.metrics);
-              } else if (notification is ScrollEndNotification) {
-                if (notification.metrics.pixels <= _followEps) _follow = true;
-                _applyScrollState(notification.metrics);
-              }
-              return false;
-            },
-            child: ScrollbarTheme(
-              data: const ScrollbarThemeData(
-                thickness: WidgetStatePropertyAll(0),
-              ),
-              child: ValueListenableBuilder<int>(
-                valueListenable: widget.messageNotifier,
-                builder: (_, _, _) {
-                  final msgs = widget.messages;
-                  _syncHold(msgs);
-                  return _tapToDismiss(_buildList(context, msgs, surface, s));
-                },
+          child: Listener(
+            onPointerSignal: _onPointerSignal,
+            child: NotificationListener<ScrollNotification>(
+              onNotification: (notification) {
+                _scheduleGateSync();
+                if (notification is ScrollStartNotification) {
+                  if (notification.dragDetails != null || _pointerScroll) {
+                    _follow = false;
+                  }
+                  _applyScrollState(notification.metrics);
+                } else if (notification is ScrollUpdateNotification) {
+                  if (notification.dragDetails != null || _pointerScroll) {
+                    _follow = false;
+                  }
+                  _applyScrollState(notification.metrics);
+                } else if (notification is ScrollEndNotification) {
+                  if (notification.metrics.pixels <= _followEps) _follow = true;
+                  _applyScrollState(notification.metrics);
+                }
+                return false;
+              },
+              child: ScrollbarTheme(
+                data: const ScrollbarThemeData(
+                  thickness: WidgetStatePropertyAll(0),
+                ),
+                child: ValueListenableBuilder<int>(
+                  valueListenable: widget.messageNotifier,
+                  builder: (_, _, _) {
+                    final msgs = widget.messages;
+                    _syncHold(msgs);
+                    return _tapToDismiss(_buildList(context, msgs, surface, s));
+                  },
+                ),
               ),
             ),
           ),
