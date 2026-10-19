@@ -29,6 +29,7 @@ import 'util/prefs.dart';
 import 'util/prefs_store.dart';
 import 'util/crash_report.dart';
 import 'widgets/app_snack.dart';
+import 'widgets/glass_chrome.dart';
 import 'widgets/emote_frame_rate.dart';
 import 'widgets/emote_url_provider.dart';
 import 'widgets/stream_player_view.dart';
@@ -71,6 +72,7 @@ Future<void> _boot() async {
   await LiquidGlassWidgets.initialize();
   unawaited(_warmHistory());
   PerfProbe.start();
+  watchPaintTransforms();
   PerfProbe.gauge('live', () => EmoteUrlProvider.liveCount);
   PerfProbe.gauge('stream', () => EmoteUrlProvider.streamingCount);
   PerfProbe.gauge('array', () => EmoteUrlProvider.arrayCount);

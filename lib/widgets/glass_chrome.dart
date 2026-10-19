@@ -1,7 +1,11 @@
+import 'dart:async';
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 
 import '../util/insets.dart';
+import '../util/log.dart';
 
 // Shared metrics and builders for the liquid glass chrome. The header block
 // fuses the app bar and the channel tab strip, so both layers derive its
@@ -498,4 +502,47 @@ class _IslandRingPainter extends CustomPainter {
   @override
   bool shouldRepaint(_IslandRingPainter old) =>
       old.color != color || old.flush != flush || old.still != still;
+}
+
+/// Logs where a paint transform turns non-finite, once per spot. Liquid
+/// glass repaints its surfaces through these transforms unchecked, so the
+/// surface vanishes while the engine logs "TransformLayer is constructed
+/// with an invalid matrix". Off in release builds.
+void watchPaintTransforms() {
+  if (kReleaseMode) return;
+  final reported = <String>{};
+  bool finite(Matrix4 m) => m.storage.every((v) => v.isFinite);
+  Timer.periodic(const Duration(seconds: 2), (_) {
+    final root = WidgetsBinding.instance.rootElement?.renderObject;
+    if (root == null) return;
+    final path = <RenderObject>[];
+    void visit(RenderObject node, Matrix4 toNode) {
+      path.add(node);
+      node.visitChildren((child) {
+        if (!child.attached) return;
+        final m = toNode.clone();
+        try {
+          node.applyPaintTransform(child, m);
+        } catch (_) {
+          return;
+        }
+        if (finite(m)) {
+          visit(child, m);
+          return;
+        }
+        final chain = [
+          for (final o in path.skip(path.length > 8 ? path.length - 8 : 0))
+            o.runtimeType,
+          child.runtimeType,
+        ].join(' > ');
+        final size = node is RenderBox && node.hasSize ? node.size : null;
+        if (reported.add(chain)) {
+          logDebug('[glassnan] $chain parentSize=$size');
+        }
+      });
+      path.removeLast();
+    }
+
+    visit(root, Matrix4.identity());
+  });
 }
