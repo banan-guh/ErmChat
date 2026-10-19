@@ -5,13 +5,15 @@ import '../l10n/l10n.dart';
 /// Bottom sheet for a tapped history marker or day: [title] over the actions
 /// for a stream row ([stream] true) or a day. [vod] resolves the stream's
 /// video on demand, null when it has none; [onWatchVod] opens it. [kept] is
-/// whether the day is kept past retention; [onKeep] sets it.
+/// whether the day is kept past retention; [onKeep] sets it. [onJumpToStart]
+/// scrolls an ended stream back to its first row.
 Future<void> showHistoryMarkerSheet(
   BuildContext context, {
   required String title,
   required bool stream,
   Future<String?>? vod,
   ValueChanged<String>? onWatchVod,
+  VoidCallback? onJumpToStart,
   bool? kept,
   ValueChanged<bool>? onKeep,
 }) {
@@ -46,6 +48,12 @@ Future<void> showHistoryMarkerSheet(
               child: Text(title, style: Theme.of(ctx).textTheme.titleMedium),
             ),
             if (stream) ...[
+              if (onJumpToStart != null)
+                action(
+                  Icons.vertical_align_top,
+                  l10n.historyJumpToStart,
+                  onJumpToStart,
+                ),
               if (vod != null && onWatchVod != null)
                 FutureBuilder<String?>(
                   future: vod,

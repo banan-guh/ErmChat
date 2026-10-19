@@ -609,6 +609,7 @@ class _HistoryViewState extends State<HistoryView> {
     String title,
     int day, {
     HistoryStream? stream,
+    bool jumpToStart = false,
   }) async {
     final actions = widget.actions;
     await _refreshKept();
@@ -621,6 +622,9 @@ class _HistoryViewState extends State<HistoryView> {
       onWatchVod: actions == null || stream == null
           ? null
           : (id) => actions.watchVod(stream, id),
+      onJumpToStart: stream == null || !jumpToStart
+          ? null
+          : () => _jumpTo(stream.start, fraction: _startFraction),
       kept: actions == null ? null : _kept.value.contains(day),
       onKeep: actions == null ? null : (keep) => _keepDay(day, keep),
     );
@@ -665,6 +669,9 @@ class _HistoryViewState extends State<HistoryView> {
   }
 
   static const _followEvery = Duration(seconds: 8);
+
+  /// A stream's first row lands near the top, with a little lead-in above.
+  static const _startFraction = 0.8;
 
   Future<void> _openDays() async {
     await _buildRail();
@@ -1614,6 +1621,7 @@ class _HistoryViewState extends State<HistoryView> {
                     ? m.firstDay
                     : dayNumber(m.time.toLocal()),
                 stream: stream,
+                jumpToStart: m.kind == HistoryMarkerKind.streamEnd,
               ),
       ),
     );
@@ -1624,11 +1632,36 @@ class _HistoryViewState extends State<HistoryView> {
     if (msg == null) return const SizedBox.shrink();
     final key = HistoryWindow.keyOf(msg);
     _scheduleGateSync();
+    final stream = _streamOfRow(msg);
     return RowGate(
       key: ValueKey<String>(key),
       gates: _gates,
-      child: _cachedTile(context, msg, key, pos.isEven),
+      child: stream == null
+          ? _cachedTile(context, msg, key, pos.isEven)
+          : _tile(
+              context,
+              msg,
+              () => _showSheet(
+                msg.text,
+                dayNumber(msg.timestamp.toLocal()),
+                stream: stream.stream,
+                jumpToStart: stream.end,
+              ),
+            ),
     );
+  }
+
+  /// The stream behind the chat's own stream start or end row, which taps
+  /// like the marker it stands in for.
+  ({HistoryStream stream, bool end})? _streamOfRow(TwitchMessage msg) {
+    final id = msg.messageId;
+    const prefix = 'sys_stream:';
+    if (!msg.isSystem || id == null || !id.startsWith(prefix)) return null;
+    final streamId = id.substring(prefix.length, id.lastIndexOf(':'));
+    for (final s in _window.streams) {
+      if (s.id == streamId) return (stream: s, end: id.endsWith(':end'));
+    }
+    return null;
   }
 
   /// The row's tile from the cache, touched on use so eviction drops rows

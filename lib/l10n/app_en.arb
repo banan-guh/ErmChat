@@ -3090,6 +3090,7 @@
     }
   },
   "historyWatchVod": "Watch VOD",
+  "historyJumpToStart": "Jump to start",
   "historyOpenStreamMap": "Open stream map",
   "historyKeepDay": "Keep this day",
   "historyUnkeepDay": "Stop keeping this day",
