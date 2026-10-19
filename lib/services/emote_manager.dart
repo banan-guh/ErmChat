@@ -224,6 +224,7 @@ class EmoteManager implements EmoteLookupSource {
               _twitchSets.isAccountUnlocked(id) ||
               _twitchSets.isCatalogUnlocked(id),
           metaStore: _metaStore,
+          now: _now,
         );
     _images.cacheCapMb = cacheCapMb;
     // A landed precache download can make a lower scale redundant.
@@ -935,6 +936,7 @@ class EmoteManager implements EmoteLookupSource {
   void evictChannel(String channel) {
     _channelBroadcasterIds.remove(channel);
     _sevenTvSaves.remove(channel)?.cancel();
+    _savedAt.remove(channel);
     _store.evictChannel(channel);
   }
 

@@ -97,9 +97,11 @@ class EmoteCacheBudget {
 /// so every download lands on disk and the cache trims itself in the
 /// background.
 class EmoteCacheRepository implements CacheInfoRepository {
-  EmoteCacheRepository(this._inner, this.budget);
+  EmoteCacheRepository(this._inner, this.budget, {DateTime Function()? now})
+    : now = now ?? DateTime.now;
 
   final CacheInfoRepository _inner;
+  final DateTime Function() now;
   final EmoteCacheBudget budget;
 
   /// Sum of cached file sizes: one SQL aggregate on the default sqflite
@@ -162,10 +164,7 @@ class EmoteCacheRepository implements CacheInfoRepository {
   @override
   Future<List<CacheObject>> getObjectsOverCapacity(int capacity) async {
     if (budget.fits(await totalBytes())) return const [];
-    final victims = budget.overBudget(
-      await _inner.getAllObjects(),
-      DateTime.now(),
-    );
+    final victims = budget.overBudget(await _inner.getAllObjects(), now());
     for (final _ in victims) {
       DataUsageStats.I.recordEviction();
     }
@@ -282,11 +281,17 @@ class EmoteCacheManager extends CacheManager {
       EmoteCacheManager._build(config ?? _defaultConfig());
 
   @visibleForTesting
-  factory EmoteCacheManager.forTesting(Config config) =>
-      EmoteCacheManager._build(config);
+  factory EmoteCacheManager.forTesting(
+    Config config, {
+    DateTime Function()? now,
+  }) => EmoteCacheManager._build(config, now);
 
-  factory EmoteCacheManager._build(Config config) {
-    final repo = EmoteCacheRepository(config.repo, EmoteCacheBudget());
+  factory EmoteCacheManager._build(Config config, [DateTime Function()? now]) {
+    final repo = EmoteCacheRepository(
+      config.repo,
+      EmoteCacheBudget(),
+      now: now,
+    );
     return EmoteCacheManager._(
       repo,
       Config(
@@ -331,9 +336,11 @@ class EmoteCacheManager extends CacheManager {
   /// and startup, after the cap may have dropped).
   Future<void> enforceNow() async {
     try {
+      // The repo opens lazily; enumerating before that throws.
+      await _repo.open();
       final victims = _budget.overBudget(
         await _repo.getAllObjects(),
-        DateTime.now(),
+        _repo.now(),
       );
       for (final object in victims) {
         try {

@@ -11,7 +11,7 @@ class EmoteProbeMemo {
   final Duration ttl;
   final DateTime Function() _now;
 
-  /// Upper bound on retained results; over-cap inserts drop the oldest.
+  /// Upper bound on retained results; over-cap inserts drop the least recently used.
   final int maxEntries;
 
   final Map<String, Future<bool>> _inflight = {};
@@ -29,7 +29,12 @@ class EmoteProbeMemo {
   bool? cached(String url) {
     final entry = _entries[url];
     if (entry == null) return null;
-    if (_now().difference(entry.$2) < ttl) return entry.$1;
+    if (_now().difference(entry.$2) < ttl) {
+      // Reinsert so pruning drops the least recently used first.
+      _entries.remove(url);
+      _entries[url] = entry;
+      return entry.$1;
+    }
     _entries.remove(url);
     return null;
   }
@@ -37,6 +42,7 @@ class EmoteProbeMemo {
   Future<bool> _run(String url, Future<bool> Function(String) check) async {
     try {
       final cached = await check(url);
+      _entries.remove(url);
       _entries[url] = (cached, _now());
       _prune();
       return cached;

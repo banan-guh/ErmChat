@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_cache_manager/flutter_cache_manager.dart';
@@ -181,9 +182,17 @@ class EmoteImages {
   // ── Bytes ───────────────────────────────────────────────────────────
   /// Fetches emote bytes through the disk cache, downloading on a miss.
   Future<Uint8List> bytes(String url) async {
-    await for (final response in _cache.getFileStream(url)) {
-      if (response is FileInfo) {
-        return response.file.readAsBytes();
+    // A background eviction can delete the file between lookup and read, so
+    // one failed read retries through a fresh lookup.
+    for (var attempt = 0; attempt < 2; attempt++) {
+      try {
+        await for (final response in _cache.getFileStream(url)) {
+          if (response is FileInfo) {
+            return await response.file.readAsBytes();
+          }
+        }
+      } on FileSystemException {
+        if (attempt == 1) rethrow;
       }
     }
     throw StateError('no emote bytes for $url');

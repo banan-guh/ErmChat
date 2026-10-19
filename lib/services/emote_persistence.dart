@@ -20,11 +20,14 @@ class EmotePersistence {
     required this._tier,
     required this._isAccountUnlock,
     EmoteMetaStore? metaStore,
-  }) : _metaStore = metaStore ?? EmoteMetaStore.I;
+    DateTime Function()? now,
+  }) : _metaStore = metaStore ?? EmoteMetaStore.I,
+       _now = now ?? DateTime.now;
 
   final EmoteFetchTier Function() _tier;
   final bool Function(String id) _isAccountUnlock;
   final EmoteMetaStore _metaStore;
+  final DateTime Function() _now;
 
   Prefs? _prefs;
 
@@ -68,7 +71,7 @@ class EmotePersistence {
       });
       final ts = DateTime.parse(parsed.ts);
       final cachedTime = fetchTime ?? ts;
-      final withinTtl = DateTime.now().difference(cachedTime) <= ttl;
+      final withinTtl = _now().difference(cachedTime) <= ttl;
       final fresh = withinTtl && parsed.tierMatches;
       return (catalog: _dropSubs(parsed.catalog), fresh: fresh, savedAt: ts);
     } catch (_) {
@@ -132,7 +135,7 @@ class EmotePersistence {
     if (saved.isEmpty) return;
     try {
       final data = {
-        'ts': (savedAt ?? DateTime.now()).toIso8601String(),
+        'ts': (savedAt ?? _now()).toIso8601String(),
         'tier': _tier().index,
         if (key == _globalKey) 'v': _globalVersion,
         'emotes': saved.toJsonMap(),
@@ -147,6 +150,10 @@ class EmotePersistence {
   Future<void> pruneStaleChannels(Set<String> activeChannels) async {
     try {
       for (final key in await _metaStore.keys()) {
+        if (key.startsWith('emotes3_') || key.startsWith('emotes4_')) {
+          await _metaStore.delete(key);
+          continue;
+        }
         if (!key.startsWith('emotes5_')) continue;
         // Personal seeds are account-scoped, not channel-scoped.
         if (key == SevenTvPersonalSets.personalSetsKey) continue;

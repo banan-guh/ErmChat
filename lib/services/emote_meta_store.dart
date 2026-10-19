@@ -28,6 +28,7 @@ class EmoteMetaStore {
   // Shared by concurrent callers, so none reads before the dir resolves.
   Future<Directory?>? _dir;
   bool _migrated = false;
+  int _tmpSeq = 0;
   final _fallback = <String, String>{};
 
   /// Test seam: override blob directory.
@@ -80,7 +81,8 @@ class EmoteMetaStore {
         final file = dir == null ? null : _fileFor(key, dir);
         try {
           if (file != null) {
-            await file.writeAsString(raw, flush: true);
+            // A file already on disk is newer than the pref copy.
+            if (!await file.exists()) await _writeAtomic(file, raw);
             await prefs.remove(key);
           }
         } catch (_) {
@@ -110,11 +112,25 @@ class EmoteMetaStore {
       final dir = await _resolveDir();
       final file = dir == null ? null : _fileFor(key, dir);
       if (file != null) {
-        await file.writeAsString(contents);
+        await _writeAtomic(file, contents);
         return;
       }
     } catch (_) {}
     _fallback[key] = contents;
+  }
+
+  // Each write gets its own temp so overlapping writes never share one.
+  Future<void> _writeAtomic(File file, String contents) async {
+    final tmp = File('${file.path}.${_tmpSeq++}.tmp');
+    try {
+      await tmp.writeAsString(contents, flush: true);
+      await tmp.rename(file.path);
+    } catch (_) {
+      try {
+        await tmp.delete();
+      } catch (_) {}
+      rethrow;
+    }
   }
 
   Future<void> delete(String key) async {
