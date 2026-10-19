@@ -698,8 +698,8 @@ class _HistoryViewState extends State<HistoryView> {
   /// A time the next calendar open goes straight to (a stream's start).
   DateTime? _calendarTime;
 
-  /// A stream's first row lands near the top, with a little lead-in above.
-  static const _startFraction = 0.8;
+  /// A stream's first row lands mid-screen, with the chat before it above.
+  static const _startFraction = 0.5;
 
   Future<void> _openDays() async {
     await _buildRail();
