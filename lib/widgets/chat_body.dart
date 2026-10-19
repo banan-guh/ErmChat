@@ -516,7 +516,12 @@ class _ChatBodyState extends State<ChatBody>
     // as the keyboard rises past it, so the visible bottom edge rides the
     // keyboard a margin above it. Once the row is gone the field rides too.
     // Offsets are from the body's bottom, which the keyboard already lifts.
-    final navPad = frameKb > 0.5 ? viewPadBottom : bottomPad;
+    // The Scaffold subtracts the keyboard from the body's viewPadding too,
+    // so the nav bar height comes from the view itself.
+    final view = View.of(context);
+    final navPad = frameKb > 0.5
+        ? view.viewPadding.bottom / view.devicePixelRatio
+        : bottomPad;
     _hideSpan = hidden && floating ? navPad + rowH : 0;
     final clipRow = (frameKb - navPad).clamp(0.0, rowH);
     final push = (frameKb - navPad - rowH).clamp(0.0, double.infinity);

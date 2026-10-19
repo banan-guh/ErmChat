@@ -190,6 +190,47 @@ void main() {
     );
   });
 
+  // Shipped bug: the body's viewPadding loses the nav bar under the keyboard,
+  // so a closing keyboard dragged the field past its rest, and it climbed
+  // back as the row reappeared.
+  testWidgets('a keyboard close never dips the field below its rest', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(400, 800);
+    tester.view.devicePixelRatio = 1;
+    tester.view.padding = const FakeViewPadding(bottom: 42);
+    tester.view.viewPadding = const FakeViewPadding(bottom: 42);
+    addTearDown(tester.view.reset);
+    final focus = FocusNode();
+    addTearDown(focus.dispose);
+    await pumpBody(
+      tester,
+      liquidGlass: false,
+      focus: focus,
+      keyboardHidesButtons: true,
+      bottomBar: const SizedBox(height: 48),
+    );
+    await tester.pumpAndSettle();
+    final field = find.byKey(const Key('message_input'));
+    final rest = tester.getRect(field).bottom;
+    focus.requestFocus();
+    await tester.pump();
+    for (var kb = 0.0; kb <= 300; kb += 30) {
+      tester.view.viewInsets = FakeViewPadding(bottom: kb);
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    await tester.pumpAndSettle();
+    for (var kb = 300.0; kb >= 0; kb -= 20) {
+      tester.view.viewInsets = FakeViewPadding(bottom: kb);
+      await tester.pump(const Duration(milliseconds: 16));
+      expect(
+        tester.getRect(field).bottom,
+        lessThanOrEqualTo(rest + 0.5),
+        reason: 'keyboard at $kb dragged the field below its rest',
+      );
+    }
+  });
+
   // A short screen collapses chrome once the keyboard opens (the iPhone
   // case). The island must stay put: only the focus glow changes.
   testWidgets('keyboard chrome collapse keeps the island', (tester) async {
