@@ -858,7 +858,10 @@ class ArchiveStore {
       'SELECT $_cols FROM blocks WHERE id IN (${ids.join(',')})',
     );
     final byId = {for (final r in found) r['id']! as int: _block(r)};
-    return [for (final id in ids) byId[id]!];
+    return [
+      for (final id in ids)
+        if (byId[id] != null) byId[id]!,
+    ];
   }
 
   /// Up to [before] blocks older than the anchor, the anchor, and up to
@@ -1474,7 +1477,11 @@ class ArchiveStore {
         g,
       );
       final byId = {for (final row in r) row['id']! as int: row['data']!};
-      data.add([for (final id in g) byId[id]! as Uint8List]);
+      // A pruned block shortens the run; the transaction below rejects it.
+      data.add([
+        for (final id in g)
+          if (byId[id] != null) byId[id]! as Uint8List,
+      ]);
     }
     final merged = await _mergeOffIsolate(data);
     var removed = 0;

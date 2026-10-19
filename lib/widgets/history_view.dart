@@ -1316,6 +1316,15 @@ class _HistoryViewState extends State<HistoryView> {
     if (_loadingOlder) return;
     _loadingOlder = true;
     final epoch = _epoch;
+    try {
+      await _readOlder(epoch);
+    } catch (e) {
+      logDebug('[hist!] ${widget.channel}: older read failed: $e');
+      if (epoch == _epoch) _loadingOlder = false;
+    }
+  }
+
+  Future<void> _readOlder(int epoch) async {
     final edge = _window.isEmpty ? null : _window[_window.first].timestamp;
     var rows = await (edge == null
         ? widget.source.newest()
@@ -1354,6 +1363,15 @@ class _HistoryViewState extends State<HistoryView> {
     if (_loadingNewer) return;
     _loadingNewer = true;
     final epoch = _epoch;
+    try {
+      await _readNewer(epoch);
+    } catch (e) {
+      logDebug('[hist!] ${widget.channel}: newer read failed: $e');
+      if (epoch == _epoch) _loadingNewer = false;
+    }
+  }
+
+  Future<void> _readNewer(int epoch) async {
     final edge = _window[_window.end - 1].timestamp;
     var rows = await widget.source.newer(edge);
     if (!mounted || epoch != _epoch) return;

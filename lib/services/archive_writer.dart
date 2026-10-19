@@ -235,8 +235,15 @@ class ArchiveWriter {
     c.sentDefs.addAll(defs.keys);
     c.defs.clear();
     c.chain = c.chain.then((_) async {
-      await _write(channel, rows, defs);
-      // Readable from the store now, or lost to a failed write.
+      final ok = await _write(channel, rows, defs);
+      // Readable from the store now, or lost to a failed write. Lost rows
+      // forget their ids and defs so a re-fetch stores them.
+      if (!ok) {
+        for (final m in c.unsealed.take(rows.length)) {
+          c.ids.remove(m.messageId);
+        }
+        c.sentDefs.removeAll(defs.keys);
+      }
       c.unsealed.removeRange(0, rows.length);
     });
   }
@@ -249,7 +256,7 @@ class ArchiveWriter {
     return [...c.waiting, ...c.unsealed];
   }
 
-  Future<void> _write(
+  Future<bool> _write(
     String channel,
     List<ArchiveRow> rows,
     Map<String, String> defs,
@@ -258,7 +265,7 @@ class ArchiveWriter {
       final data = await encode(rows);
       final store = await _store;
       if (store == null) {
-        return;
+        return true;
       }
       final tables = await store.tables(channel);
       var start = rows.first.timestampMs;
@@ -291,10 +298,16 @@ class ArchiveWriter {
               tables.states[r.user].who,
         },
       );
-      await store.pruneIfDue(heldEdits: heldIds);
     } catch (e) {
       logDebug('[ArchiveWriter] seal failed for $channel: $e');
+      return false;
     }
+    try {
+      await (await _store)?.pruneIfDue(heldEdits: heldIds);
+    } catch (e) {
+      logDebug('[ArchiveWriter] prune failed for $channel: $e');
+    }
+    return true;
   }
 
   /// Completes when every load and queued seal has finished.
