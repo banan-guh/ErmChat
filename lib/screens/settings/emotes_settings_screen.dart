@@ -554,8 +554,8 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
         : context.l10n.providersEnabled(enabled.join(', '));
   }
 
-  /// Bottom-sheet picker for emote providers. FFZ effects and BTTV
-  /// modifiers sit under their provider while it is on.
+  /// Bottom-sheet picker for emote providers: a switch per provider, with
+  /// FFZ effects and BTTV modifiers as checkboxes under it while it is on.
   Future<void> _showProviderSheet() {
     return showModalBottomSheet<void>(
       context: context,
@@ -583,13 +583,13 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
                   if (type == EmoteType.sevenTv)
                     ..._sevenTvGroup(enabled, setSheetState)
                   else
-                    CheckboxListTile(
+                    SwitchListTile(
                       key: Key('provider_toggle_${type.name}'),
                       title: Text(_providerLabels[type] ?? type.name),
                       value: enabled[type] ?? true,
                       onChanged: (v) {
-                        setSheetState(() => enabled[type] = v ?? true);
-                        _onProviderChanged(type, v ?? true);
+                        setSheetState(() => enabled[type] = v);
+                        _onProviderChanged(type, v);
                       },
                     ),
                   if (type == EmoteType.ffz && (enabled[type] ?? true))
@@ -644,13 +644,13 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
     }
 
     return [
-      CheckboxListTile(
+      SwitchListTile(
         key: Key('provider_toggle_${type.name}'),
         title: Text(_providerLabels[type]!),
         value: emotes || _sevenTvCosmetics,
         onChanged: (v) {
-          setEmotes(v ?? true);
-          setCosmetics(v ?? true);
+          setEmotes(v);
+          setCosmetics(v);
         },
       ),
       if (emotes || _sevenTvCosmetics) ...[
@@ -666,7 +666,7 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
 
   Widget _subCheckbox(String title, bool value, ValueChanged<bool> onChanged) =>
       CheckboxListTile(
-        contentPadding: const EdgeInsets.only(left: 40, right: 24),
+        contentPadding: const EdgeInsets.only(left: 40, right: 34),
         dense: true,
         visualDensity: VisualDensity.compact,
         title: Text(title),
