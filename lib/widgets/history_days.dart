@@ -249,6 +249,16 @@ class _HistoryDaysState extends State<HistoryDays>
 
   void _close() => widget.open.value = false;
 
+  /// From the open day back to the list of days.
+  void _back() {
+    _touch.value = null;
+    _expand.reverse().whenComplete(() {
+      if (mounted && _picked != null && _expand.value == 0) {
+        setState(_reset);
+      }
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final locale = Localizations.localeOf(context).toString();
@@ -269,57 +279,65 @@ class _HistoryDaysState extends State<HistoryDays>
   Widget _overlay(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final inset = MediaQueryData.fromView(View.of(context)).padding;
-    return Material(
-      type: MaterialType.transparency,
-      child: LayoutBuilder(
-        builder: (context, box) {
-          _drawerW = math.min(
-            box.maxWidth,
-            (box.maxWidth * 0.45).clamp(200.0, 340.0),
-          );
-          _barTop = inset.top + _header;
-          _barH = math.max(1, box.maxHeight - _barTop - inset.bottom - _pad);
-          return Stack(
-            clipBehavior: Clip.none,
-            children: [
-              Positioned.fill(
-                child: AnimatedBuilder(
-                  animation: _curve,
-                  builder: (context, _) => GestureDetector(
-                    behavior: HitTestBehavior.opaque,
-                    onTap: _close,
-                    child: ColoredBox(
-                      color: scheme.scrim.withValues(
-                        alpha: 0.55 * _curve.value,
+    // System back steps out: the open day to the list, the list to chat.
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) {
+        if (didPop) return;
+        _picked != null ? _back() : _close();
+      },
+      child: Material(
+        type: MaterialType.transparency,
+        child: LayoutBuilder(
+          builder: (context, box) {
+            _drawerW = math.min(
+              box.maxWidth,
+              (box.maxWidth * 0.45).clamp(200.0, 340.0),
+            );
+            _barTop = inset.top + _header;
+            _barH = math.max(1, box.maxHeight - _barTop - inset.bottom - _pad);
+            return Stack(
+              clipBehavior: Clip.none,
+              children: [
+                Positioned.fill(
+                  child: AnimatedBuilder(
+                    animation: _curve,
+                    builder: (context, _) => GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTap: _close,
+                      child: ColoredBox(
+                        color: scheme.scrim.withValues(
+                          alpha: 0.55 * _curve.value,
+                        ),
                       ),
                     ),
                   ),
                 ),
-              ),
-              Positioned(
-                top: 0,
-                bottom: 0,
-                right: 0,
-                width: _drawerW,
-                child: AnimatedBuilder(
-                  animation: _curve,
-                  builder: (context, child) => Transform.translate(
-                    offset: Offset(
-                      (_drawerW + _radius) * (1 - _curve.value),
-                      0,
-                    ),
-                    child: child,
-                  ),
+                Positioned(
+                  top: 0,
+                  bottom: 0,
+                  right: 0,
+                  width: _drawerW,
                   child: AnimatedBuilder(
-                    animation: _expandCurve,
-                    builder: (context, _) => _drawer(scheme, inset),
+                    animation: _curve,
+                    builder: (context, child) => Transform.translate(
+                      offset: Offset(
+                        (_drawerW + _radius) * (1 - _curve.value),
+                        0,
+                      ),
+                      child: child,
+                    ),
+                    child: AnimatedBuilder(
+                      animation: _expandCurve,
+                      builder: (context, _) => _drawer(scheme, inset),
+                    ),
                   ),
                 ),
-              ),
-              if (_picked != null) _bubble(scheme),
-            ],
-          );
-        },
+                if (_picked != null) _bubble(scheme),
+              ],
+            );
+          },
+        ),
       ),
     );
   }
@@ -351,26 +369,6 @@ class _HistoryDaysState extends State<HistoryDays>
               ),
             ),
           ),
-          Positioned(
-            left: 20,
-            right: 20,
-            top: inset.top,
-            height: _header,
-            child: Opacity(
-              opacity: t,
-              child: Align(
-                alignment: Alignment.centerLeft,
-                child: Text(
-                  _dayLabel!.format(
-                    dayFromNumber(widget.rail.days[picked].day),
-                  ),
-                  style: Theme.of(
-                    context,
-                  ).textTheme.titleMedium?.copyWith(color: scheme.onSurface),
-                ),
-              ),
-            ),
-          ),
           // The pointer drives the pick, so a still tap picks too; the pan
           // only claims the touch.
           Positioned.fill(
@@ -387,6 +385,35 @@ class _HistoryDaysState extends State<HistoryDays>
                     (r) => r.onStart = (_) {},
                   ),
                 },
+              ),
+            ),
+          ),
+          // Above the pick surface, so its back arrow takes the tap.
+          Positioned(
+            left: 4,
+            right: 20,
+            top: inset.top,
+            height: _header,
+            child: Opacity(
+              opacity: t,
+              child: Row(
+                children: [
+                  IconButton(
+                    icon: const Icon(Icons.arrow_back),
+                    tooltip: MaterialLocalizations.of(
+                      context,
+                    ).backButtonTooltip,
+                    onPressed: _back,
+                  ),
+                  Text(
+                    _dayLabel!.format(
+                      dayFromNumber(widget.rail.days[picked].day),
+                    ),
+                    style: Theme.of(
+                      context,
+                    ).textTheme.titleMedium?.copyWith(color: scheme.onSurface),
+                  ),
+                ],
               ),
             ),
           ),
