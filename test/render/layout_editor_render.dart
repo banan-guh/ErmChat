@@ -115,9 +115,17 @@ void main() {
     await tester.tap(find.byIcon(Icons.more_vert).last);
     await tester.pumpAndSettle();
     final item = find.text('Edit layout', skipOffstage: false).last;
-    await tester.ensureVisible(item);
-    await tester.pumpAndSettle();
+    // The glass menu opens downward from the bottom row, off screen.
+    final tall = tester.getCenter(item).dy > 850;
+    if (tall) {
+      tester.view.physicalSize = const Size(1080, 3600);
+      await tester.pumpAndSettle();
+    }
     await tester.tap(item);
+    if (tall) {
+      await tester.pump(const Duration(milliseconds: 200));
+      tester.view.physicalSize = const Size(1080, 2340);
+    }
     for (var i = 0; i < 10; i++) {
       await tester.pump(const Duration(milliseconds: 100));
     }
@@ -134,12 +142,37 @@ void main() {
       await _shot(tester, '${name}_home');
       await openEditor(tester);
       await _shot(tester, '${name}_edit');
-      final up = find.text('Keyboard up');
-      if (up.evaluate().isNotEmpty) {
-        await tester.tap(up);
+      final preview = find.byTooltip('Preview typing');
+      if (preview.evaluate().isNotEmpty) {
+        await tester.tap(preview);
         await tester.pump(const Duration(milliseconds: 500));
         await _shot(tester, '${name}_edit_typing');
+        await tester.tap(preview);
+        await tester.pump(const Duration(milliseconds: 500));
       }
+      await tester.tap(find.byIcon(Icons.forum_outlined).first);
+      await tester.pumpAndSettle();
+      await _shot(tester, '${name}_edit_menu');
+      await tester.tapAt(const Offset(200, 300));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byIcon(Icons.emoji_emotions_outlined).first);
+      await tester.pumpAndSettle();
+      await _shot(tester, '${name}_edit_menu_blocked');
+      await tester.tapAt(const Offset(200, 300));
+      await tester.pumpAndSettle();
+      final gesture = await tester.startGesture(
+        tester.getCenter(find.byIcon(Icons.forum_outlined).first),
+      );
+      await tester.pump(const Duration(milliseconds: 250));
+      await gesture.moveBy(const Offset(0, -60));
+      await tester.pump(const Duration(milliseconds: 100));
+      await gesture.moveTo(const Offset(380, 44));
+      await _shot(tester, '${name}_edit_drag_strip');
+      await gesture.moveTo(const Offset(200, 640));
+      await _shot(tester, '${name}_edit_drag_tray');
+      await gesture.up();
+      await tester.pumpAndSettle();
+      await tester.pump(const Duration(seconds: 3));
     });
   }
 }

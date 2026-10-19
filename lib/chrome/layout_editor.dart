@@ -153,10 +153,16 @@ String _slotLabel(AppLocalizations l, LayoutSlot slot) => switch (slot) {
   LayoutSlot.rowEnd => l.layoutSlotRowEnd,
 };
 
-const _chipSize = 44.0;
+const _cell = 48.0;
 const _grabDelay = Duration(milliseconds: 170);
 
-/// One slot in edit mode: its chips, then a dashed target that appends.
+String _blockReason(AppLocalizations l, LayoutBlock block) => switch (block) {
+  LayoutBlock.settings => l.layoutLockedSettings,
+  LayoutBlock.viewPath => l.layoutLockedViewPath,
+};
+
+/// One slot in edit mode: its buttons, then an insertion target while a
+/// button is dragged.
 class LayoutSlotView extends StatelessWidget {
   const LayoutSlotView({
     super.key,
@@ -171,7 +177,7 @@ class LayoutSlotView extends StatelessWidget {
   Widget build(BuildContext context) {
     final actions = controller.draft.actionsIn(slot);
     return AnimatedSize(
-      duration: const Duration(milliseconds: 180),
+      duration: const Duration(milliseconds: 160),
       curve: Curves.easeOutCubic,
       alignment: AlignmentDirectional.centerStart,
       child: Row(
@@ -185,14 +191,15 @@ class LayoutSlotView extends StatelessWidget {
               slot: slot,
               index: i,
             ),
-          _SlotEnd(controller: controller, slot: slot),
+          if (controller.dragging is ChromeAction)
+            _SlotEnd(controller: controller, slot: slot),
         ],
       ),
     );
   }
 }
 
-/// The dashed target that ends a slot, lit while a drag hovers it.
+/// The insertion target that ends a slot, filled while a drag hovers it.
 class _SlotEnd extends StatelessWidget {
   const _SlotEnd({required this.controller, required this.slot});
 
@@ -201,37 +208,53 @@ class _SlotEnd extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
     return DragTarget<ChromeAction>(
       onWillAcceptWithDetails: (_) => true,
       onAcceptWithDetails: (d) {
         HapticFeedback.lightImpact();
         controller.move(d.data, slot);
       },
-      builder: (context, candidates, _) {
-        final hot = candidates.isNotEmpty;
-        return Tooltip(
-          message: _slotLabel(context.l10n, slot),
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 120),
-            margin: const EdgeInsets.all(2),
-            width: hot ? _chipSize : 36,
-            height: hot ? _chipSize : 36,
-            child: CustomPaint(
-              painter: _DashedBox(
-                color: hot ? scheme.primary : scheme.outline,
-                fill: hot ? scheme.primary.withValues(alpha: 0.18) : null,
-                radius: 12,
-              ),
-              child: Icon(
-                Icons.add,
-                size: 18,
-                color: hot ? scheme.primary : scheme.outline,
-              ),
+      builder: (context, candidates, _) =>
+          _InsertTarget(hot: candidates.isNotEmpty, slim: true),
+    );
+  }
+}
+
+/// A button-sized dashed target, filled with the primary color when hot.
+class _InsertTarget extends StatelessWidget {
+  const _InsertTarget({
+    required this.hot,
+    this.icon = Icons.add,
+    this.slim = false,
+  });
+
+  final bool hot;
+  final bool slim;
+  final IconData icon;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return SizedBox(
+      width: slim ? 28 : _cell,
+      height: _cell,
+      child: Padding(
+        padding: const EdgeInsets.all(2),
+        child: CustomPaint(
+          painter: _DashedBox(
+            color: hot ? scheme.primary : scheme.outlineVariant,
+            fill: hot ? scheme.primary.withValues(alpha: 0.2) : null,
+            radius: 12,
+          ),
+          child: Center(
+            child: Icon(
+              icon,
+              size: 18,
+              color: hot ? scheme.primary : scheme.outlineVariant,
             ),
           ),
-        );
-      },
+        ),
+      ),
     );
   }
 }
@@ -248,17 +271,17 @@ class _DashedBox extends CustomPainter {
     final rrect = RRect.fromRectAndRadius(
       Offset.zero & size,
       Radius.circular(radius),
-    ).deflate(1);
+    ).deflate(0.5);
     if (fill != null) canvas.drawRRect(rrect, Paint()..color = fill!);
     final stroke = Paint()
       ..color = color
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.5;
+      ..strokeWidth = 1;
     final path = Path()..addRRect(rrect);
     for (final metric in path.computeMetrics()) {
-      for (var d = 0.0; d < metric.length; d += 9) {
+      for (var d = 0.0; d < metric.length; d += 7) {
         canvas.drawPath(
-          metric.extractPath(d, math.min(d + 5, metric.length)),
+          metric.extractPath(d, math.min(d + 4, metric.length)),
           stroke,
         );
       }
@@ -270,9 +293,101 @@ class _DashedBox extends CustomPainter {
       old.color != color || old.fill != fill || old.radius != radius;
 }
 
-/// An action as an editable chip: placed in a slot (small, wiggling, with a
-/// remove badge) or unplaced in the tray (large). It drags after a short
-/// hold, and a hold that does not move, or a tap, opens the move menu.
+/// A button as the real chrome draws it, marked editable by a faint tint and
+/// a thin dashed outline. [lifted] is the dragged copy.
+class _EditFace extends StatelessWidget {
+  const _EditFace({
+    required this.icon,
+    required this.onTap,
+    this.lifted = false,
+    this.plain = false,
+  });
+
+  final IconData icon;
+  final VoidCallback? onTap;
+  final bool lifted;
+
+  /// Drops the dashed outline, for buttons that are not placed yet.
+  final bool plain;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final glyph = Icon(icon, size: 24, color: scheme.onSurface);
+    return SizedBox.square(
+      dimension: _cell,
+      child: Padding(
+        padding: const EdgeInsets.all(2),
+        child: lifted
+            ? Material(
+                color: scheme.surfaceContainerHighest,
+                elevation: 8,
+                borderRadius: BorderRadius.circular(12),
+                child: Center(child: glyph),
+              )
+            : CustomPaint(
+                painter: plain
+                    ? null
+                    : _DashedBox(
+                        color: scheme.outlineVariant,
+                        fill: scheme.primary.withValues(alpha: 0.07),
+                        radius: 12,
+                      ),
+                child: InkWell(
+                  customBorder: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  onTap: onTap,
+                  child: Center(child: glyph),
+                ),
+              ),
+      ),
+    );
+  }
+}
+
+/// Shows [items] as a menu over the button that owns [context].
+Future<T?> _showMenuAt<T>(BuildContext context, List<PopupMenuEntry<T>> items) {
+  final box = context.findRenderObject() as RenderBox?;
+  final overlay = Overlay.of(context).context.findRenderObject() as RenderBox?;
+  if (box == null || overlay == null) return Future.value();
+  final origin = box.localToGlobal(Offset.zero, ancestor: overlay);
+  return showMenu<T>(
+    context: context,
+    position: RelativeRect.fromRect(
+      origin & box.size,
+      Offset.zero & overlay.size,
+    ),
+    items: items,
+  );
+}
+
+/// The menu's Remove entry: disabled with its reason when removal is blocked.
+PopupMenuItem<Object> _removeItem(BuildContext context, String? reason) {
+  final theme = Theme.of(context);
+  return PopupMenuItem<Object>(
+    value: 'remove',
+    enabled: reason == null,
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(context.l10n.remove),
+        if (reason != null)
+          Text(
+            reason,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+      ],
+    ),
+  );
+}
+
+/// An action as an editable button: placed in a slot or unplaced in the
+/// tray. It drags after a short hold, and a tap, or a hold that does not
+/// move, opens the move menu.
 class EditChip extends StatefulWidget {
   const EditChip({
     super.key,
@@ -285,189 +400,69 @@ class EditChip extends StatefulWidget {
   final LayoutEditController controller;
   final ChromeAction action;
 
-  /// Where the chip is placed; null in the tray.
+  /// Where the button is placed, or null in the tray.
   final LayoutSlot? slot;
 
-  /// Its position in [slot]; a drop on it lands before it.
+  /// Its position in [slot]. A drop on it lands before it.
   final int index;
 
   @override
   State<EditChip> createState() => _EditChipState();
 }
 
-class _EditChipState extends State<EditChip>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _wiggle = AnimationController(
-    vsync: this,
-    duration: const Duration(milliseconds: 150),
-    value: (widget.action.index % 3) / 3,
-  );
+class _EditChipState extends State<EditChip> {
   double _travel = 0;
 
   bool get _placed => widget.slot != null;
 
-  @override
-  void initState() {
-    super.initState();
-    if (_placed) _wiggle.repeat(reverse: true);
-  }
-
-  @override
-  void didUpdateWidget(EditChip old) {
-    super.didUpdateWidget(old);
-    if (_placed && !_wiggle.isAnimating) _wiggle.repeat(reverse: true);
-    if (!_placed) _wiggle.stop();
-  }
-
-  @override
-  void dispose() {
-    _wiggle.dispose();
-    super.dispose();
-  }
-
   Future<void> _openMenu() async {
-    final box = context.findRenderObject() as RenderBox?;
-    final overlay =
-        Overlay.of(context).context.findRenderObject() as RenderBox?;
-    if (box == null || overlay == null) return;
     final l = context.l10n;
     final spec = widget.controller.draft;
-    final origin = box.localToGlobal(Offset.zero, ancestor: overlay);
-    final position = RelativeRect.fromRect(
-      origin & box.size,
-      Offset.zero & overlay.size,
-    );
-    final locked = spec.removeBlock(widget.action) != null;
-    final choice = await showMenu<Object>(
-      context: context,
-      position: position,
-      items: [
-        for (final s in spec.slots)
-          if (s != widget.slot)
-            PopupMenuItem<Object>(
-              value: s,
-              child: Text(
-                _placed
-                    ? l.layoutMoveTo(_slotLabel(l, s))
-                    : l.layoutAddTo(_slotLabel(l, s)),
-              ),
-            ),
-        if (_placed) ...[
-          const PopupMenuDivider(),
+    final block = spec.removeBlock(widget.action);
+    final choice = await _showMenuAt<Object>(context, [
+      for (final s in spec.slots)
+        if (s != widget.slot)
           PopupMenuItem<Object>(
-            value: 'remove',
-            child: Row(
-              children: [
-                Expanded(child: Text(l.remove)),
-                if (locked) const Icon(Icons.lock_outline, size: 18),
-              ],
+            value: s,
+            child: Text(
+              _placed
+                  ? l.layoutMoveTo(_slotLabel(l, s))
+                  : l.layoutAddTo(_slotLabel(l, s)),
             ),
           ),
-        ],
+      if (_placed) ...[
+        const PopupMenuDivider(),
+        _removeItem(context, block == null ? null : _blockReason(l, block)),
       ],
-    );
+    ]);
     if (choice == null) return;
     HapticFeedback.selectionClick();
     widget.controller.move(widget.action, choice is LayoutSlot ? choice : null);
   }
 
   Widget _body(BuildContext context, {bool lifted = false}) {
-    final scheme = Theme.of(context).colorScheme;
-    final l = context.l10n;
-    final icon = Icon(widget.action.icon, size: _placed ? 22 : 18);
-    if (!_placed) {
-      return Material(
-        color: scheme.secondaryContainer,
-        elevation: lifted ? 8 : 0,
-        borderRadius: BorderRadius.circular(16),
-        child: InkWell(
-          borderRadius: BorderRadius.circular(16),
-          onTap: lifted ? null : _openMenu,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                icon,
-                const SizedBox(width: 6),
-                Text(
-                  widget.action.label(l),
-                  style: Theme.of(context).textTheme.labelLarge,
-                ),
-              ],
-            ),
-          ),
-        ),
-      );
-    }
-    final locked = widget.controller.draft.removeBlock(widget.action) != null;
-    return SizedBox.square(
-      dimension: _chipSize,
-      child: Stack(
-        children: [
-          Positioned.fill(
-            child: Material(
-              color: scheme.primaryContainer,
-              elevation: lifted ? 8 : 0,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-                side: BorderSide(color: scheme.primary, width: 1.5),
-              ),
-              child: InkWell(
-                customBorder: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                onTap: lifted ? null : _openMenu,
-                child: Center(child: icon),
-              ),
-            ),
-          ),
-          if (!lifted)
-            Positioned(
-              top: 1,
-              right: 1,
-              child: GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                onTap: () => widget.controller.move(widget.action, null),
-                child: Container(
-                  width: 18,
-                  height: 18,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: locked ? scheme.tertiary : scheme.error,
-                  ),
-                  child: Icon(
-                    locked ? Icons.lock : Icons.close,
-                    size: 12,
-                    color: locked ? scheme.onTertiary : scheme.onError,
-                  ),
-                ),
-              ),
-            ),
-        ],
-      ),
+    final face = _EditFace(
+      icon: widget.action.icon,
+      lifted: lifted,
+      plain: !_placed,
+      onTap: lifted ? null : _openMenu,
+    );
+    if (_placed) return face;
+    return Tooltip(
+      message: widget.action.label(context.l10n),
+      triggerMode: TooltipTriggerMode.manual,
+      child: face,
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    final still = MediaQuery.disableAnimationsOf(context);
-    Widget body = _body(context);
-    if (_placed && !still) {
-      body = AnimatedBuilder(
-        animation: _wiggle,
-        builder: (_, child) =>
-            Transform.rotate(angle: (_wiggle.value - 0.5) * 0.04, child: child),
-        child: body,
-      );
-    }
-    final feedbackSize = _placed ? _chipSize : 48.0;
-    Widget chip = LongPressDraggable<ChromeAction>(
+    final chip = LongPressDraggable<ChromeAction>(
       data: widget.action,
       delay: _grabDelay,
       hapticFeedbackOnStart: false,
       dragAnchorStrategy: (draggable, context, position) =>
-          Offset(feedbackSize / 2, feedbackSize + 24),
+          const Offset(_cell / 2, _cell + 24),
       onDragStarted: () {
         _travel = 0;
         HapticFeedback.mediumImpact();
@@ -481,21 +476,14 @@ class _EditChipState extends State<EditChip>
         if (_travel < 8 && mounted) _openMenu();
       },
       feedback: Transform.scale(
-        scale: 1.18,
+        scale: 1.15,
         child: Material(
           type: MaterialType.transparency,
           child: _body(context, lifted: true),
         ),
       ),
-      childWhenDragging: Opacity(opacity: 0.3, child: body),
-      child: body,
-    );
-    chip = TweenAnimationBuilder<double>(
-      tween: Tween(begin: 0.6, end: 1),
-      duration: const Duration(milliseconds: 260),
-      curve: Curves.easeOutBack,
-      builder: (_, scale, child) => Transform.scale(scale: scale, child: child),
-      child: chip,
+      childWhenDragging: Opacity(opacity: 0.3, child: _body(context)),
+      child: _body(context),
     );
     if (!_placed) return chip;
     return DragTarget<ChromeAction>(
@@ -507,13 +495,11 @@ class _EditChipState extends State<EditChip>
       builder: (context, candidates, _) {
         final scheme = Theme.of(context).colorScheme;
         return Container(
-          margin: const EdgeInsets.all(2),
           foregroundDecoration: candidates.isEmpty
               ? null
               : BoxDecoration(
-                  border: BorderDirectional(
-                    start: BorderSide(color: scheme.primary, width: 3),
-                  ),
+                  color: scheme.primary.withValues(alpha: 0.2),
+                  borderRadius: BorderRadius.circular(12),
                 ),
           child: chip,
         );
@@ -537,8 +523,8 @@ extension on ComposerPart {
   };
 }
 
-/// A composer button in edit mode: its chip where it sits, a dashed target
-/// where a drag of it may land, nothing elsewhere.
+/// A composer button in edit mode: its button where it sits, an insertion
+/// target where a drag of it may land, nothing elsewhere.
 class PartSlot extends StatelessWidget {
   const PartSlot({
     super.key,
@@ -555,15 +541,14 @@ class PartSlot extends StatelessWidget {
   Widget build(BuildContext context) {
     if (!controller.shows(part, place)) return const SizedBox.shrink();
     final placed = controller.placeOf(part) == place;
-    final scheme = Theme.of(context).colorScheme;
     return SizedBox(
-      width: 48,
+      width: _cell,
       height: 40,
       child: OverflowBox(
-        minWidth: 48,
-        maxWidth: 48,
-        minHeight: 48,
-        maxHeight: 48,
+        minWidth: _cell,
+        maxWidth: _cell,
+        minHeight: _cell,
+        maxHeight: _cell,
         child: Center(
           child: placed
               ? PartChip(
@@ -578,31 +563,10 @@ class PartSlot extends StatelessWidget {
                     HapticFeedback.lightImpact();
                     controller.placePart(part, place);
                   },
-                  builder: (context, candidates, _) {
-                    final hot = candidates.isNotEmpty;
-                    return Tooltip(
-                      message: _placeLabel(context.l10n, part, place),
-                      child: AnimatedContainer(
-                        duration: const Duration(milliseconds: 120),
-                        width: hot ? _chipSize : 36,
-                        height: hot ? _chipSize : 36,
-                        child: CustomPaint(
-                          painter: _DashedBox(
-                            color: hot ? scheme.primary : scheme.outline,
-                            fill: hot
-                                ? scheme.primary.withValues(alpha: 0.18)
-                                : null,
-                            radius: 12,
-                          ),
-                          child: Icon(
-                            part.icon,
-                            size: 18,
-                            color: hot ? scheme.primary : scheme.outline,
-                          ),
-                        ),
-                      ),
-                    );
-                  },
+                  builder: (context, candidates, _) => _InsertTarget(
+                    hot: candidates.isNotEmpty,
+                    icon: part.icon,
+                  ),
                 ),
         ),
       ),
@@ -610,8 +574,8 @@ class PartSlot extends StatelessWidget {
   }
 }
 
-/// The emote or send button as a chip. It moves between places but never
-/// leaves, so it wears a lock instead of a remove badge.
+/// The emote or send button as an editable button. It moves between places
+/// but never leaves.
 class PartChip extends StatefulWidget {
   const PartChip({super.key, required this.controller, required this.part});
 
@@ -622,47 +586,24 @@ class PartChip extends StatefulWidget {
   State<PartChip> createState() => _PartChipState();
 }
 
-class _PartChipState extends State<PartChip>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _wiggle = AnimationController(
-    vsync: this,
-    duration: const Duration(milliseconds: 150),
-    value: 0.5,
-  )..repeat(reverse: true);
+class _PartChipState extends State<PartChip> {
   double _travel = 0;
 
-  @override
-  void dispose() {
-    _wiggle.dispose();
-    super.dispose();
-  }
-
   Future<void> _openMenu() async {
-    final box = context.findRenderObject() as RenderBox?;
-    final overlay =
-        Overlay.of(context).context.findRenderObject() as RenderBox?;
-    if (box == null || overlay == null) return;
     final l = context.l10n;
     final c = widget.controller;
-    final origin = box.localToGlobal(Offset.zero, ancestor: overlay);
-    final position = RelativeRect.fromRect(
-      origin & box.size,
-      Offset.zero & overlay.size,
-    );
     final here = c.placeOf(widget.part);
-    final choice = await showMenu<PartPlace>(
-      context: context,
-      position: position,
-      items: [
-        for (final p in PartPlace.values)
-          if (p != here && c.allows(widget.part, p) && !_noColumn(p))
-            PopupMenuItem(
-              value: p,
-              child: Text(l.layoutMoveTo(_placeLabel(l, widget.part, p))),
-            ),
-      ],
-    );
-    if (choice == null) return;
+    final choice = await _showMenuAt<Object>(context, [
+      for (final p in PartPlace.values)
+        if (p != here && c.allows(widget.part, p) && !_noColumn(p))
+          PopupMenuItem<Object>(
+            value: p,
+            child: Text(l.layoutMoveTo(_placeLabel(l, widget.part, p))),
+          ),
+      const PopupMenuDivider(),
+      _removeItem(context, l.layoutLockedPart),
+    ]);
+    if (choice is! PartPlace) return;
     HapticFeedback.selectionClick();
     c.placePart(widget.part, choice);
   }
@@ -670,65 +611,20 @@ class _PartChipState extends State<PartChip>
   bool _noColumn(PartPlace p) =>
       widget.part == ComposerPart.emote && p == PartPlace.column;
 
-  Widget _body(BuildContext context, {bool lifted = false}) {
-    final scheme = Theme.of(context).colorScheme;
-    return SizedBox.square(
-      dimension: _chipSize,
-      child: Stack(
-        children: [
-          Positioned.fill(
-            child: Material(
-              color: scheme.primaryContainer,
-              elevation: lifted ? 8 : 0,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-                side: BorderSide(color: scheme.primary, width: 1.5),
-              ),
-              child: InkWell(
-                customBorder: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                onTap: lifted ? null : _openMenu,
-                child: Center(child: Icon(widget.part.icon, size: 22)),
-              ),
-            ),
-          ),
-          if (!lifted)
-            Positioned(
-              top: 1,
-              right: 1,
-              child: Container(
-                width: 18,
-                height: 18,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: scheme.tertiary,
-                ),
-                child: Icon(Icons.lock, size: 12, color: scheme.onTertiary),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
+  Widget _body({bool lifted = false}) => _EditFace(
+    icon: widget.part.icon,
+    lifted: lifted,
+    onTap: lifted ? null : _openMenu,
+  );
 
   @override
   Widget build(BuildContext context) {
-    Widget body = _body(context);
-    if (!MediaQuery.disableAnimationsOf(context)) {
-      body = AnimatedBuilder(
-        animation: _wiggle,
-        builder: (_, child) =>
-            Transform.rotate(angle: (_wiggle.value - 0.5) * 0.04, child: child),
-        child: body,
-      );
-    }
     return LongPressDraggable<ComposerPart>(
       data: widget.part,
       delay: _grabDelay,
       hapticFeedbackOnStart: false,
       dragAnchorStrategy: (draggable, context, position) =>
-          const Offset(_chipSize / 2, _chipSize + 24),
+          const Offset(_cell / 2, _cell + 24),
       onDragStarted: () {
         _travel = 0;
         HapticFeedback.mediumImpact();
@@ -742,20 +638,20 @@ class _PartChipState extends State<PartChip>
         if (_travel < 8 && mounted) _openMenu();
       },
       feedback: Transform.scale(
-        scale: 1.18,
+        scale: 1.15,
         child: Material(
           type: MaterialType.transparency,
-          child: _body(context, lifted: true),
+          child: _body(lifted: true),
         ),
       ),
-      childWhenDragging: Opacity(opacity: 0.3, child: body),
-      child: body,
+      childWhenDragging: Opacity(opacity: 0.3, child: _body()),
+      child: _body(),
     );
   }
 }
 
-/// The edit-mode panel under the real chrome: unplaced actions, presets and
-/// the few non-action options, with Reset, Cancel and Done.
+/// The edit-mode panel under the real chrome: header actions, the spare
+/// buttons, the preset and header menus, and the few toggles.
 class LayoutEditTray extends StatelessWidget {
   const LayoutEditTray({
     super.key,
@@ -778,7 +674,7 @@ class LayoutEditTray extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     return Material(
-      color: scheme.surfaceContainerHigh,
+      color: scheme.surfaceContainer,
       elevation: 6,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
@@ -796,14 +692,12 @@ class LayoutEditTray extends StatelessWidget {
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
                 children: [
                   _header(context),
-                  _notice(context),
-                  _unplaced(context),
-                  const SizedBox(height: 4),
-                  _presets(context),
-                  const SizedBox(height: 4),
-                  _options(context),
+                  _spare(context),
+                  _menus(context),
+                  _toggles(context),
                 ],
               ),
             ),
@@ -815,6 +709,7 @@ class LayoutEditTray extends StatelessWidget {
 
   Widget _header(BuildContext context) {
     final l = context.l10n;
+    const compact = VisualDensity.compact;
     return Row(
       children: [
         Expanded(
@@ -823,66 +718,39 @@ class LayoutEditTray extends StatelessWidget {
             style: Theme.of(context).textTheme.titleMedium,
           ),
         ),
+        IconButton(
+          icon: const Icon(Icons.restart_alt),
+          tooltip: l.reset,
+          visualDensity: compact,
+          onPressed: controller.dirty ? controller.reset : null,
+        ),
+        if (controller.hiddenRow)
+          IconButton(
+            icon: const Icon(Icons.keyboard_outlined),
+            selectedIcon: const Icon(Icons.keyboard),
+            tooltip: l.layoutPreviewTyping,
+            visualDensity: compact,
+            isSelected: controller.typing,
+            onPressed: () => controller.previewTyping = !controller.typing,
+          ),
         TextButton(
           onPressed: onCancel,
-          style: TextButton.styleFrom(visualDensity: VisualDensity.compact),
+          style: TextButton.styleFrom(visualDensity: compact),
           child: Text(l.cancel),
         ),
         const SizedBox(width: 4),
         FilledButton(
           onPressed: onDone,
-          style: FilledButton.styleFrom(visualDensity: VisualDensity.compact),
+          style: FilledButton.styleFrom(visualDensity: compact),
           child: Text(l.layoutDone),
         ),
       ],
     );
   }
 
-  Widget _notice(BuildContext context) {
-    final l = context.l10n;
-    final scheme = Theme.of(context).colorScheme;
-    final blocked = controller.blocked;
-    return AnimatedSize(
-      duration: const Duration(milliseconds: 160),
-      alignment: Alignment.topCenter,
-      child: blocked == null
-          ? const SizedBox(width: double.infinity)
-          : Container(
-              width: double.infinity,
-              margin: const EdgeInsets.only(top: 4),
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              decoration: BoxDecoration(
-                color: scheme.errorContainer,
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Row(
-                children: [
-                  Icon(
-                    Icons.lock_outline,
-                    size: 18,
-                    color: scheme.onErrorContainer,
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      switch (blocked) {
-                        LayoutBlock.settings => l.layoutLockedSettings,
-                        LayoutBlock.viewPath => l.layoutLockedViewPath,
-                      },
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: scheme.onErrorContainer,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-    );
-  }
-
-  /// Unplaced actions in one row. A dragged placed chip swaps it for a slim
-  /// target that removes it.
-  Widget _unplaced(BuildContext context) {
+  /// The unplaced actions. A dragged placed button swaps them for a target
+  /// that removes it.
+  Widget _spare(BuildContext context) {
     final l = context.l10n;
     final scheme = Theme.of(context).colorScheme;
     final spec = controller.draft;
@@ -902,46 +770,48 @@ class LayoutEditTray extends StatelessWidget {
         },
         builder: (context, candidates, _) {
           final hot = candidates.isNotEmpty;
-          return Padding(
-            padding: const EdgeInsets.only(top: 8),
-            child: CustomPaint(
-              painter: _DashedBox(
-                color: hot ? scheme.primary : scheme.outline,
-                fill: hot ? scheme.primary.withValues(alpha: 0.12) : null,
-                radius: 16,
-              ),
-              child: Container(
-                width: double.infinity,
-                height: 36,
-                alignment: Alignment.center,
-                child: Text(
+          return Container(
+            width: double.infinity,
+            height: _cell,
+            margin: const EdgeInsets.only(top: 8),
+            decoration: BoxDecoration(
+              color: hot
+                  ? scheme.primary.withValues(alpha: 0.2)
+                  : scheme.surfaceContainerHigh,
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.delete_outline, size: 20, color: scheme.onSurface),
+                const SizedBox(width: 8),
+                Text(
                   l.layoutDropToRemove,
-                  style: Theme.of(
-                    context,
-                  ).textTheme.labelLarge?.copyWith(color: scheme.primary),
+                  style: Theme.of(context).textTheme.labelLarge,
                 ),
-              ),
+              ],
             ),
           );
         },
       );
     } else if (free.isNotEmpty) {
-      content = Padding(
-        padding: const EdgeInsets.only(top: 8),
-        child: SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          child: Row(
-            children: [
-              for (final a in free) ...[
-                EditChip(
-                  key: ValueKey('tray-$a'),
-                  controller: controller,
-                  action: a,
-                ),
-                const SizedBox(width: 6),
-              ],
-            ],
-          ),
+      content = Container(
+        width: double.infinity,
+        margin: const EdgeInsets.only(top: 8),
+        padding: const EdgeInsets.all(2),
+        decoration: BoxDecoration(
+          color: scheme.surfaceContainerHigh,
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Wrap(
+          children: [
+            for (final a in free)
+              EditChip(
+                key: ValueKey('tray-$a'),
+                controller: controller,
+                action: a,
+              ),
+          ],
         ),
       );
     }
@@ -952,131 +822,126 @@ class LayoutEditTray extends StatelessWidget {
     );
   }
 
-  Widget _presets(BuildContext context) {
+  Widget _menus(BuildContext context) {
     final l = context.l10n;
     final draft = controller.draft;
-    String name(ChromeTheme t) => switch (t) {
+    String preset(ChromeTheme t) => switch (t) {
       ChromeTheme.ermchat => l.chromeThemeErmchat,
       ChromeTheme.dankchat3 => l.chromeThemeDankchat3,
       ChromeTheme.dankchat4 => l.chromeThemeDankchat4,
     };
-    return Row(
-      children: [
-        Expanded(
-          child: SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Row(
-              children: [
-                for (final t in ChromeTheme.values)
-                  Padding(
-                    padding: const EdgeInsetsDirectional.only(end: 6),
-                    child: ChoiceChip(
-                      label: Text(name(t)),
-                      visualDensity: VisualDensity.compact,
-                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                      selected: t.spec == draft.copyWith(name: ''),
-                      onSelected: (_) {
-                        HapticFeedback.selectionClick();
-                        controller.update(t.spec.copyWith(name: draft.name));
-                      },
-                    ),
-                  ),
-              ],
-            ),
+    String header(HeaderStyle h) => switch (h) {
+      HeaderStyle.strip => l.layoutHeaderStrip,
+      HeaderStyle.appBar => l.layoutHeaderAppBar,
+      HeaderStyle.bubbles => l.layoutHeaderBubbles,
+    };
+    final current = [
+      for (final t in ChromeTheme.values)
+        if (t.spec == draft.copyWith(name: '')) t,
+    ];
+    return Padding(
+      padding: const EdgeInsets.only(top: 8),
+      child: Row(
+        children: [
+          _MenuButton(
+            label: current.isEmpty ? l.layoutCustom : preset(current.first),
+            items: [
+              for (final t in ChromeTheme.values)
+                (
+                  preset(t),
+                  current.contains(t),
+                  () {
+                    HapticFeedback.selectionClick();
+                    controller.update(t.spec.copyWith(name: draft.name));
+                  },
+                ),
+            ],
           ),
-        ),
-        IconButton(
-          icon: const Icon(Icons.restart_alt),
-          tooltip: l.reset,
-          visualDensity: VisualDensity.compact,
-          onPressed: controller.dirty ? controller.reset : null,
-        ),
-      ],
+          const SizedBox(width: 8),
+          _MenuButton(
+            label: header(draft.header),
+            items: [
+              for (final h in HeaderStyle.values)
+                (
+                  header(h),
+                  draft.header == h,
+                  () => controller.update(draft.withHeader(h)),
+                ),
+            ],
+          ),
+        ],
+      ),
     );
   }
 
-  Widget _options(BuildContext context) {
+  Widget _toggles(BuildContext context) {
     final l = context.l10n;
     final draft = controller.draft;
-    final text = Theme.of(context).textTheme;
-    final style = ButtonStyle(
-      visualDensity: VisualDensity.compact,
-      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-      textStyle: WidgetStatePropertyAll(text.labelMedium),
-    );
     Widget toggle(String label, bool value, ValueChanged<bool> onChanged) =>
         FilterChip(
           label: Text(label),
+          labelStyle: Theme.of(context).textTheme.labelMedium,
           selected: value,
+          showCheckmark: false,
           visualDensity: VisualDensity.compact,
           materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
           onSelected: onChanged,
         );
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            SizedBox(
-              width: 64,
-              child: Text(l.layoutHeader, style: text.labelLarge),
-            ),
-            Expanded(
-              child: SegmentedButton<HeaderStyle>(
-                style: style,
-                showSelectedIcon: false,
-                segments: [
-                  ButtonSegment(
-                    value: HeaderStyle.strip,
-                    label: Text(l.layoutHeaderStrip),
-                  ),
-                  ButtonSegment(
-                    value: HeaderStyle.appBar,
-                    label: Text(l.layoutHeaderAppBar),
-                  ),
-                  ButtonSegment(
-                    value: HeaderStyle.bubbles,
-                    label: Text(l.layoutHeaderBubbles),
-                  ),
-                ],
-                selected: {draft.header},
-                onSelectionChanged: (s) =>
-                    controller.update(draft.withHeader(s.first)),
-              ),
-            ),
-          ],
-        ),
-        Wrap(
-          spacing: 8,
-          children: [
-            toggle(
-              l.layoutFlushIsland,
-              draft.islandFlush,
-              (v) => controller.update(draft.copyWith(islandFlush: v)),
-            ),
-            toggle(
-              l.layoutBusyBar,
-              draft.busyBar,
-              (v) => controller.update(draft.copyWith(busyBar: v)),
-            ),
-            toggle(l.settingKeyboardButtons, hideButtons, (v) {
-              controller.previewTyping = false;
-              onHideButtons(v);
-            }),
-          ],
-        ),
-        if (controller.hiddenRow)
-          SegmentedButton<bool>(
-            style: style,
-            showSelectedIcon: false,
-            segments: [
-              ButtonSegment(value: false, label: Text(l.layoutKeyboardDown)),
-              ButtonSegment(value: true, label: Text(l.layoutKeyboardUp)),
-            ],
-            selected: {controller.typing},
-            onSelectionChanged: (s) => controller.previewTyping = s.first,
+    return Padding(
+      padding: const EdgeInsets.only(top: 4),
+      child: Wrap(
+        spacing: 6,
+        children: [
+          toggle(
+            l.layoutFlushIsland,
+            draft.islandFlush,
+            (v) => controller.update(draft.copyWith(islandFlush: v)),
+          ),
+          toggle(
+            l.layoutBusyBar,
+            draft.busyBar,
+            (v) => controller.update(draft.copyWith(busyBar: v)),
+          ),
+          toggle(l.settingKeyboardButtons, hideButtons, (v) {
+            controller.previewTyping = false;
+            onHideButtons(v);
+          }),
+        ],
+      ),
+    );
+  }
+}
+
+/// A compact outlined button that opens a menu of (label, selected, onTap).
+class _MenuButton extends StatelessWidget {
+  const _MenuButton({required this.label, required this.items});
+
+  final String label;
+  final List<(String, bool, VoidCallback)> items;
+
+  @override
+  Widget build(BuildContext context) {
+    return MenuAnchor(
+      menuChildren: [
+        for (final (text, selected, onTap) in items)
+          MenuItemButton(
+            leadingIcon: Icon(selected ? Icons.check : null, size: 18),
+            onPressed: onTap,
+            child: Text(text),
           ),
       ],
+      builder: (context, menu, _) => OutlinedButton(
+        onPressed: () => menu.isOpen ? menu.close() : menu.open(),
+        style: OutlinedButton.styleFrom(
+          visualDensity: VisualDensity.compact,
+          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          padding: const EdgeInsetsDirectional.only(start: 12, end: 4),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [Text(label), const Icon(Icons.arrow_drop_down, size: 20)],
+        ),
+      ),
     );
   }
 }

@@ -324,13 +324,6 @@ class HomeAppBar {
     Widget build(ChromeAction a) =>
         action(context, a, glass: glass, onCalendar: onCalendar);
     if (layoutEdit() case final edit?) {
-      // Each slot scales down rather than overflow the island.
-      Widget slot(LayoutSlot s) => Flexible(
-        child: FittedBox(
-          fit: BoxFit.scaleDown,
-          child: LayoutSlotView(controller: edit, slot: s),
-        ),
-      );
       return KeyedSubtree(
         key: const Key('bottom_chrome_bar'),
         child: Padding(
@@ -342,8 +335,13 @@ class HomeAppBar {
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    slot(LayoutSlot.rowStart),
-                    slot(LayoutSlot.rowEnd),
+                    Flexible(
+                      child: LayoutSlotView(
+                        controller: edit,
+                        slot: LayoutSlot.rowStart,
+                      ),
+                    ),
+                    LayoutSlotView(controller: edit, slot: LayoutSlot.rowEnd),
                   ],
                 ),
               ),

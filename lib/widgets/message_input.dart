@@ -42,6 +42,9 @@ class MessageInput extends StatelessWidget {
   // drops its own.
   final bool sendOutside;
 
+  // The field shows but takes no focus, so no keyboard opens.
+  final bool readOnly;
+
   const MessageInput({
     super.key,
     required this.controller,
@@ -62,6 +65,7 @@ class MessageInput extends StatelessWidget {
     this.suffixOverride,
     this.emoteInRow = false,
     this.sendOutside = false,
+    this.readOnly = false,
   });
 
   Color _inputAccent(BuildContext context) {
@@ -122,6 +126,8 @@ class MessageInput extends StatelessWidget {
                         onContentInserted: onContentInserted!,
                       ),
                 enabled: enabled,
+                readOnly: readOnly,
+                canRequestFocus: !readOnly,
                 minLines: 1,
                 maxLines: searchMode ? 1 : 6,
                 decoration: InputDecoration(

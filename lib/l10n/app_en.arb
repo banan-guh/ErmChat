@@ -3189,15 +3189,13 @@
   "layoutEditSubtitle": "Move the buttons on the real screen",
   "layoutJoinFirst": "Join a channel to edit the layout",
   "layoutDone": "Done",
-  "layoutDropToRemove": "Drop here to remove",
-  "layoutHeader": "Header",
+  "layoutDropToRemove": "Drop to remove",
   "layoutHeaderStrip": "Strip",
   "layoutHeaderAppBar": "App bar",
   "layoutHeaderBubbles": "Pills",
   "layoutSendColumn": "Side column",
   "layoutPlaceField": "Field",
-  "layoutKeyboardDown": "Keyboard down",
-  "layoutKeyboardUp": "Keyboard up",
+  "layoutPreviewTyping": "Preview typing",
   "layoutFlushIsland": "Edge to edge",
   "layoutBusyBar": "Loading bar",
   "layoutSlotStrip": "Tab strip",
@@ -3222,7 +3220,8 @@
       }
     }
   },
-  "layoutLockedSettings": "Settings stays unless the more menu is placed to hold it",
-  "layoutLockedViewPath": "Keep the view menu or the more menu so search and fullscreen stay reachable",
+  "layoutLockedSettings": "Needs the more menu",
+  "layoutLockedPart": "Always shown",
+  "layoutLockedViewPath": "Needs the view or more menu",
   "layoutDefaultName": "My layout"
 }

@@ -35,6 +35,7 @@ class ComposerBar extends StatelessWidget {
     this.sendOutside = false,
     this.emoteSlot,
     this.sendSlot,
+    this.readOnly = false,
     this.modeRow = false,
     this.uploads,
   });
@@ -67,6 +68,9 @@ class ComposerBar extends StatelessWidget {
   /// editor's chips and drop targets.
   final Widget? emoteSlot;
   final Widget? sendSlot;
+
+  /// Keeps the field from taking focus, for the layout editor.
+  final bool readOnly;
 
   @override
   Widget build(BuildContext context) {
@@ -157,6 +161,7 @@ class ComposerBar extends StatelessWidget {
                   suffixOverride: sendSlot,
                   emoteInRow: emoteInRow,
                   sendOutside: sendOutside,
+                  readOnly: readOnly,
                 ),
               ),
           ],

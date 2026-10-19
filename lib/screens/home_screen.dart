@@ -2105,6 +2105,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                     sendOutside: sendOutside,
                     emoteSlot: partSlot(ComposerPart.emote, PartPlace.field),
                     sendSlot: partSlot(ComposerPart.send, PartPlace.field),
+                    readOnly: edit != null,
                     modeRow: modeRow,
                     uploads: _uploadController,
                   )
