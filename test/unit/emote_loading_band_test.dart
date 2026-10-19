@@ -76,7 +76,7 @@ void main() {
       expect(await memo.probe('u', (_) async => true), isTrue);
     });
 
-    test('over-cap inserts evict the oldest memoized result', () async {
+    test('over-cap inserts evict the least recently used result', () async {
       final memo = EmoteProbeMemo(maxEntries: 3);
       final calls = <String>[];
       Future<bool> probe(String url) async {
@@ -92,11 +92,12 @@ void main() {
       await memo.probe('oldest', probe);
       expect(calls, isEmpty);
 
-      // One more insert evicts the oldest entry.
+      // One more insert evicts u0: the hit above made oldest recent.
       await memo.probe('u2', probe);
       calls.clear();
       await memo.probe('oldest', probe);
-      expect(calls, ['oldest']);
+      await memo.probe('u0', probe);
+      expect(calls, ['u0']);
     });
   });
 }

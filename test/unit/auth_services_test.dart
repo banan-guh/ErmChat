@@ -486,7 +486,8 @@ void main() {
             );
             final emotes = service.topEmotes('chan', 10);
             expect(emotes, hasLength(1));
-            expect(emotes.first.emote.id, 'b1');
+            // The IRC tag names the Twitch emote; a same-code BTTV one loses.
+            expect(emotes.first.emote.id, '123');
             expect(emotes.first.count, 2);
             expect(service.topWords('chan', 10), isEmpty);
           },
