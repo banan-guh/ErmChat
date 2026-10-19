@@ -191,9 +191,15 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
     return zone.contains(paragraph.globalToLocal(globalPosition));
   }
 
+  /// Set when a tap landed on the name, so the row's `onTap` that follows the
+  /// same gesture is skipped.
+  bool _nameTapped = false;
+
   void _handleTapUp(TapUpDetails details) {
     final onTapUser = widget.onTapUser;
+    _nameTapped = false;
     if (onTapUser != null && _hitsName(details.globalPosition)) {
+      _nameTapped = true;
       final msg = widget.message;
       void open() => onTapUser(msg.login, msg.userId);
       final onDoubleTapUser = widget.onDoubleTapUser;
@@ -286,6 +292,8 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
       child: Align(
         alignment: Alignment.centerLeft,
         child: ImageEmbedPreview(
+          // A different URL needs fresh state, not the old bytes.
+          key: ValueKey(url),
           url: url,
           maxWidth: 300 * s,
           maxHeight: widget.imageHeight * s,
@@ -337,6 +345,7 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
                 ),
               ),
             ];
+      _trackBodySpans(base, false);
       // PubSub redemption headers: the reward image, then the cost, like
       // DankChat. A missing or broken image falls back to a points glyph.
       final redemptionImage = msg.redemptionImageUrl;
@@ -611,7 +620,13 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
         widget.onTapUser != null) {
       child = InkWell(
         onTapUp: _handleTapUp,
-        onTap: widget.onTap ?? () {},
+        onTap: () {
+          if (_nameTapped) {
+            _nameTapped = false;
+            return;
+          }
+          widget.onTap?.call();
+        },
         onLongPress: widget.onLongPress,
         child: child,
       );

@@ -851,7 +851,8 @@ class _ChatViewState extends State<ChatView>
     ).tile(context, msg, alternate: parity, scale: s, surface: surface);
 
     // Key by messageId for rematch on index shifts; cached tiles short-circuit.
-    if (cache != null && msg.messageId != null) {
+    // System rows (welcome, sign-in) read account and locale, so they rebuild.
+    if (cache != null && msg.messageId != null && !msg.isSystem) {
       cache[msg.messageId!] = tile;
       // Mark the freshly cached row as live for this frame. The eviction check
       // below reads the buffer snapshot taken before this frame, which does not

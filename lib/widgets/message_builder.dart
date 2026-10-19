@@ -376,7 +376,7 @@ class MessageBuilder {
                 badgeService.resolveChannelDisplayName(
                   msg.sourceBroadcasterId!,
                 ) ??
-                'shared chat',
+                '',
             circular: true,
           ),
         );
@@ -402,12 +402,7 @@ class MessageBuilder {
     if (msg.userId != null) {
       final tp = thirdPartyBadgeService.resolveBadge(msg.userId!);
       if (tp != null) {
-        out.add(
-          CardBadge(
-            url: tp.url,
-            label: tp.name.isEmpty ? 'Third-party badge' : tp.name,
-          ),
-        );
+        out.add(CardBadge(url: tp.url, label: tp.name));
       }
     }
     return out;

@@ -803,6 +803,20 @@ void main() {
       expect(path.single.text, 'kappa.lol/tests');
     });
 
+    test('links a domain closing the message or before punctuation', () {
+      for (final text in [
+        'foo.online',
+        'visit foo.online.',
+        'see foo.online!',
+      ]) {
+        expect(
+          urlsOf(text, ['online']).single.url,
+          'https://foo.online',
+          reason: text,
+        );
+      }
+    });
+
     test('bare linking works, fractures need detection on', () {
       final bare = WhitelistLinkifier(const [
         'x.com',
@@ -956,6 +970,11 @@ void main() {
       for (final text in cases) {
         expect(runSingle(text), isEmpty, reason: text);
       }
+    });
+
+    test('keeps a balanced closing paren, drops an unmatched one', () {
+      expect(runSingle('x.com/a_(b)').single.text, 'x.com/a_(b)');
+      expect(runSingle('(see x.com/a)').single.text, 'x.com/a');
     });
 
     test('links scheme URLs and trims trailing sentence periods', () {

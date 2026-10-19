@@ -273,7 +273,10 @@ class UserSheets {
     Timer? restTimer;
     void settleIfStranded() {
       if (sheetDragging || !sheetController.isAttached) return;
-      if (autoSeek.value != null) return;
+      // A seek still short of its target owns the motion; one that landed
+      // leaves autoSeek set, so compare against the live size.
+      final seek = autoSeek.value;
+      if (seek != null && (sheetController.size - seek).abs() > 0.005) return;
       final target = userSheetRestTarget(
         sheetController.size,
         minExtent: minExtent,

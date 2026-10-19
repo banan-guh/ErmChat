@@ -328,7 +328,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     channelChatReady: () => _channelChatReady,
     showNotice: showNotice,
     strings: () => context.l10n,
-    emoteSheetOpen: () => _emoteSheetOpen,
+    emoteSheetOpen: () => _emoteSheetOpen && !_panelManager.emoteSheetClosing,
     closeEmoteSheet: _closeEmoteSheet,
     showEmoteMenu: _showEmoteMenu,
     markDirty: markDirty,
@@ -721,7 +721,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       WidgetsBinding.instance.addTimingsCallback(_reportStalls);
     }
     _predictiveBackHandler = PanelPredictiveBackHandler(
-      isPanelOpen: () => _activePanel != OverlayPanel.closed || _emoteSheetOpen,
+      // A modal route above the home screen takes the back gesture itself.
+      isPanelOpen: () =>
+          (_activePanel != OverlayPanel.closed || _emoteSheetOpen) &&
+          (!mounted || (ModalRoute.of(context)?.isCurrent ?? true)),
       onProgress: (progress) {
         _panelScaleCtrl.value = 1.0 - 0.10 * progress;
       },

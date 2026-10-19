@@ -52,7 +52,8 @@ class EmoteMenuPanelWidgetState extends ConsumerState<EmoteMenuPanelWidget> {
   bool _recentEmotesLoaded = false;
   // Cached grid cells by emote id, validated against URL and padding on each
   // rebuild so a changed asset or cell size rebuilds the cell.
-  final Map<String, ({double padding, Widget widget})> _cellCache = {};
+  final Map<String, ({double padding, String code, Widget widget})> _cellCache =
+      {};
   double? _lastPanelWidth;
 
   @override
@@ -412,7 +413,9 @@ class EmoteMenuPanelWidgetState extends ConsumerState<EmoteMenuPanelWidget> {
   Widget _buildEmoteGridItem(Emote emote, double cellPadding) {
     // Cells resolve their own scale, so the cache only tracks layout.
     final cached = _cellCache[emote.id];
-    if (cached != null && cached.padding == cellPadding) {
+    if (cached != null &&
+        cached.padding == cellPadding &&
+        cached.code == emote.code) {
       return cached.widget;
     }
     // Usage marks deferred via post-frame callback (side effect, must not run during build).
@@ -440,7 +443,11 @@ class EmoteMenuPanelWidgetState extends ConsumerState<EmoteMenuPanelWidget> {
       ),
     );
     if (emote.id.isNotEmpty) {
-      _cellCache[emote.id] = (padding: cellPadding, widget: cell);
+      _cellCache[emote.id] = (
+        padding: cellPadding,
+        code: emote.code,
+        widget: cell,
+      );
     }
     return cell;
   }

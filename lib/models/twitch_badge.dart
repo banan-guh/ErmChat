@@ -25,6 +25,8 @@ class MessageBadge {
 /// order, one third-party badge.
 class CardBadge {
   final String url;
+
+  /// Empty when the badge has no name; the card supplies a localized fallback.
   final String label;
   final bool circular;
 

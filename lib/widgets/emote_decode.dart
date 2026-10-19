@@ -115,9 +115,15 @@ Future<EmoteFrameData> _decodeWithEngineCodecSafe(Uint8List bytes) async {
   final durations = <Duration>[];
   try {
     for (var i = 0; i < codec.frameCount; i++) {
-      final frame = await codec.getNextFrame().timeout(
-        const Duration(seconds: 3),
-      );
+      final pending = codec.getNextFrame();
+      final ui.FrameInfo frame;
+      try {
+        frame = await pending.timeout(const Duration(seconds: 3));
+      } on TimeoutException {
+        // The stalled frame still completes later; free it then.
+        pending.then((f) => f.image.dispose(), onError: (_) {});
+        rethrow;
+      }
       frames.add(frame.image);
       durations.add(frame.duration);
     }
@@ -181,6 +187,11 @@ Future<EmoteFrameData> _decodeWithEngineCodec(Uint8List bytes) async {
       frames.add(frame.image);
       durations.add(frame.duration);
     }
+  } catch (_) {
+    for (final f in frames) {
+      f.dispose();
+    }
+    rethrow;
   } finally {
     // Engine codec holds native memory; must dispose here too.
     codec.dispose();

@@ -22,6 +22,7 @@ import '../util/mention.dart';
 import '../util/prefs.dart';
 import 'app_snack.dart';
 import 'badge_chip.dart';
+import 'chat_rows.dart';
 import 'mod_view.dart';
 import 'sheet_action_row.dart';
 
@@ -148,6 +149,8 @@ class UserProfileSheetState extends State<UserProfileSheet> {
   String? _followDate;
   bool _anonymous = false;
   bool _arrowVisible = false;
+  final Set<RowGateState> _gates = {};
+  bool _gateSyncScheduled = false;
 
   /// Whether the mod actions overlay the user actions.
   bool _modOpen = false;
@@ -215,6 +218,17 @@ class UserProfileSheetState extends State<UserProfileSheet> {
     }
   }
 
+  /// Freezes emotes in rows outside the viewport once layout settles.
+  void _scheduleGateSync() {
+    if (_gateSyncScheduled) return;
+    _gateSyncScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _gateSyncScheduled = false;
+      if (!mounted || !_scrollController.hasClients) return;
+      syncRowGates(_gates, _scrollController.position);
+    });
+  }
+
   void _onArrowTap() {
     if (!_scrollController.hasClients) return;
     iosHaptic(HapticFeedback.lightImpact);
@@ -232,7 +246,10 @@ class UserProfileSheetState extends State<UserProfileSheet> {
     if (controller == null || !controller.isAttached) return;
     final dy = details.primaryDelta;
     if (dy == null || dy == 0) return;
-    final fullH = MediaQuery.sizeOf(context).height;
+    // The sheet's own viewport height, which excludes system insets.
+    final fullH = controller.size > 0
+        ? controller.pixels / controller.size
+        : MediaQuery.sizeOf(context).height;
     if (fullH <= 0) return;
     controller.jumpTo(
       (controller.size - dy / fullH)
@@ -241,15 +258,15 @@ class UserProfileSheetState extends State<UserProfileSheet> {
     );
   }
 
-  // Reads the offstage card height; reports and rebuilds only on change.
+  // Reads the offstage card height and reports it, so a resize that leaves the
+  // height unchanged still refreshes the detent; rebuilds only on change.
   void _syncMeasure() {
     if (!_measureDirty) return;
     final h = _cardMeasureKey.currentContext?.size?.height;
     if (h == null) return;
     _measureDirty = false;
-    if (h == _naturalCardH) return;
     if (!mounted) return;
-    setState(() => _naturalCardH = h);
+    if (h != _naturalCardH) setState(() => _naturalCardH = h);
     widget.onCardMeasured?.call(h);
   }
 
@@ -390,15 +407,29 @@ class UserProfileSheetState extends State<UserProfileSheet> {
         : NotificationListener<ScrollUpdateNotification>(
             onNotification: (notification) {
               _onScrollPixels(notification.metrics.pixels);
+              _scheduleGateSync();
               return false;
             },
-            child: ListView.builder(
-              controller: _scrollController,
-              reverse: true,
-              itemCount: widget.userMessages.length,
-              itemBuilder: (context, i) => widget.messageRowBuilder!(
-                context,
-                widget.userMessages[widget.userMessages.length - 1 - i],
+            child: NotificationListener<ScrollMetricsNotification>(
+              // A sheet resize moves rows in or out of view without a scroll.
+              onNotification: (_) {
+                _scheduleGateSync();
+                return false;
+              },
+              child: ListView.builder(
+                controller: _scrollController,
+                reverse: true,
+                itemCount: widget.userMessages.length,
+                itemBuilder: (context, i) {
+                  _scheduleGateSync();
+                  return RowGate(
+                    gates: _gates,
+                    child: widget.messageRowBuilder!(
+                      context,
+                      widget.userMessages[widget.userMessages.length - 1 - i],
+                    ),
+                  );
+                },
               ),
             ),
           );
@@ -721,7 +752,11 @@ class UserProfileSheetState extends State<UserProfileSheet> {
                       children: [
                         for (final badge in widget.cardBadges)
                           BadgeChip(
-                            label: badge.label,
+                            label: badge.label.isNotEmpty
+                                ? badge.label
+                                : badge.circular
+                                ? context.l10n.badgeSharedChat
+                                : context.l10n.badgeThirdParty,
                             child: _cardBadgeImage(badge),
                           ),
                       ],

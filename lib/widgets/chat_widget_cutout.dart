@@ -486,6 +486,19 @@ class _HypeTrainCardState extends State<HypeTrainCard> {
   @override
   void initState() {
     super.initState();
+    _arm();
+  }
+
+  @override
+  void didUpdateWidget(HypeTrainCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.event.expiresAt != widget.event.expiresAt) _arm();
+  }
+
+  /// Restarts the countdown for the current expiry.
+  void _arm() {
+    _timer?.cancel();
+    _timer = null;
     _updateRemaining();
     if (widget.event.expiresAt != null) {
       _timer = Timer.periodic(const Duration(seconds: 1), (_) {

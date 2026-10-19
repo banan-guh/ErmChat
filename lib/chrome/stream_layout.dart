@@ -451,7 +451,8 @@ class StreamPanels {
         channel == null ||
         showStreamVideo(
           maxWidth: maxWidth,
-          maxHeight: maxHeight,
+          // maxHeight is the room above the composer; the rule subtracts it.
+          maxHeight: maxHeight + composerH,
           keyboardH: keyboardH,
           inputH: composerH,
         );

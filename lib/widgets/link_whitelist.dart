@@ -23,10 +23,12 @@ class WhitelistLinkifier extends Linkifier {
 
   // Matches fractured (spaced) link runs. The lookahead scans across dots
   // and slashes so a space after a separator still counts as fractured.
-  // Dots allow hugging spaces; a bare slash needs a glued path so the next
-  // prose word is not eaten, while a spaced slash keeps fracture mode.
+  // The scan may end at the string end or sentence punctuation, so a domain
+  // closing the message still links. Dots allow hugging spaces; a bare slash
+  // needs a glued path so the next prose word is not eaten, while a spaced
+  // slash keeps fracture mode.
   static final _regex = RegExp(
-    r'(?=(?:[A-Za-z0-9-./]|\s)*\s)'
+    r'(?=(?:[A-Za-z0-9-./]|\s)*(?:\s|$|[,;:!?)]))'
     r'([A-Za-z0-9-]+(?:\s*\.\s*[A-Za-z0-9-._~%#+?=&]+)*'
     r'(?:\s+\/\s*[A-Za-z0-9-._~%#+?=&]*|\/[A-Za-z0-9-._~%#+?=&]*)*)',
     caseSensitive: false,
@@ -78,7 +80,13 @@ class WhitelistLinkifier extends Linkifier {
     }
     var lastEnd = 0;
     for (final m in matches) {
-      final raw = m.group(1)!;
+      // A closing sentence dot belongs to the prose, not the TLD.
+      var raw = m.group(1)!;
+      var end = m.end;
+      while (raw.endsWith('.')) {
+        raw = raw.substring(0, raw.length - 1);
+        end--;
+      }
       final fractured = _hasSpace.hasMatch(raw);
       final glued = _gluedToLink(text, m.start);
       // Fractured host after a scheme belongs to that URL.
@@ -119,7 +127,7 @@ class WhitelistLinkifier extends Linkifier {
       }
       final display = schemeRaw == null
           ? raw
-          : text.substring(schemeStart, m.end);
+          : text.substring(schemeStart, end);
       final url = schemeRaw == null
           ? 'https://$normalized'
           : '$schemeRaw$normalized';
@@ -129,7 +137,7 @@ class WhitelistLinkifier extends Linkifier {
         // Bare links show without the scheme, like humanized stock links.
         out.add(UrlElement(url, normalized, raw));
       }
-      lastEnd = m.end;
+      lastEnd = end;
     }
     if (lastEnd < text.length) {
       out.add(TextElement(text.substring(lastEnd)));
@@ -182,7 +190,7 @@ class SingleCharDomainLinkifier extends Linkifier {
     r'(?<![A-Za-z0-9@:.])((?:https?://)?[A-Za-z0-9]\.[A-Za-z]{2,}(?:\/[^\s]*)?)',
     caseSensitive: false,
   );
-  static final _trailingPunct = RegExp(r'[.,;:!?)]+$');
+  static final _trailingPunct = RegExp(r'[.,;:!?]+$');
   static final _schemePrefix = RegExp(r'^https?://', caseSensitive: false);
 
   @override
@@ -198,11 +206,21 @@ class SingleCharDomainLinkifier extends Linkifier {
     return result;
   }
 
+  // Drops trailing sentence punctuation and any closing paren with no opener.
+  static String _trimTrailing(String raw) {
+    var s = raw.replaceAll(_trailingPunct, '');
+    while (s.endsWith(')') &&
+        '('.allMatches(s).length < ')'.allMatches(s).length) {
+      s = s.substring(0, s.length - 1).replaceAll(_trailingPunct, '');
+    }
+    return s;
+  }
+
   void _splitElement(String text, List<LinkifyElement> out) {
     var lastEnd = 0;
     for (final m in _regex.allMatches(text)) {
       final raw = m.group(1)!;
-      final shown = raw.replaceAll(_trailingPunct, '');
+      final shown = _trimTrailing(raw);
       final bare = shown.replaceFirst(_schemePrefix, '');
       if (!domains.contains(bare.split('/').first.toLowerCase())) continue;
       if (m.start > lastEnd) {

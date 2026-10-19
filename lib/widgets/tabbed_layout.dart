@@ -408,14 +408,20 @@ class TabbedLayoutState extends State<TabbedLayout>
 
   bool get _isProgrammaticJump => _programmaticTarget != null;
 
+  int? _pendingActiveIndex;
+
   /// Marks [index] as the visible page. Defers out of the layout phase so a
   /// scroll notification cannot setState mid-build.
   void _setActiveIndex(int index) {
+    // The latest request wins; a queued older one is dropped.
+    _pendingActiveIndex = null;
     if (_activeIndex == index) return;
     if (SchedulerBinding.instance.schedulerPhase ==
         SchedulerPhase.persistentCallbacks) {
+      _pendingActiveIndex = index;
       SchedulerBinding.instance.addPostFrameCallback((_) {
-        if (mounted) _setActiveIndex(index);
+        final pending = _pendingActiveIndex;
+        if (mounted && pending != null) _setActiveIndex(pending);
       });
       return;
     }

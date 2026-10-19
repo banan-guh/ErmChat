@@ -1678,6 +1678,9 @@ class _HistoryViewState extends State<HistoryView> {
     return null;
   }
 
+  /// The checker stripe each cached tile was built with.
+  static final _tileParity = Expando<bool>();
+
   /// The row's tile from the cache, touched on use so eviction drops rows
   /// scrolled away from, or a fresh one cached under its message id.
   Widget _cachedTile(
@@ -1689,7 +1692,9 @@ class _HistoryViewState extends State<HistoryView> {
     final cache = widget.tileCache?.putIfAbsent(widget.channel, () => {});
     final id = msg.messageId;
     final hit = id == null ? null : cache?.remove(id);
-    if (hit != null) {
+    // A tile baked with the other stripe (after a jump or built by ChatView)
+    // is rebuilt.
+    if (hit != null && _tileParity[hit] == alternate) {
       cache![id] = hit;
       return hit;
     }
@@ -1702,6 +1707,7 @@ class _HistoryViewState extends State<HistoryView> {
     );
     if (cache != null && id != null) {
       cache[id] = tile;
+      _tileParity[tile] = alternate;
       if (cache.length > _maxCachedTiles) cache.remove(cache.keys.first);
     }
     return tile;

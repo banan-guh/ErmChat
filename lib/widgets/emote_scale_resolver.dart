@@ -69,6 +69,9 @@ class _EmoteScaleResolverState extends State<EmoteScaleResolver> {
     if (!identical(oldWidget.emote, widget.emote) ||
         oldWidget.surface != widget.surface ||
         oldWidget.images != widget.images) {
+      _url = null;
+      _placeholder = null;
+      _resolved = false;
       _applySync();
       _resolve();
     }

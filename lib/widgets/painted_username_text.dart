@@ -70,11 +70,19 @@ class PaintedUsernameText extends StatelessWidget {
     return Semantics(label: text, child: name);
   }
 
+  // Measured sizes by text, style and scaler: a texture revision rebuilds the
+  // name but never changes its size.
+  static final _sizes =
+      <(String, TextStyle, TextDirection, TextScaler), Size>{};
+
   Size _measure(
     TextStyle style,
     TextDirection textDirection,
     TextScaler textScaler,
   ) {
+    final key = (text, style, textDirection, textScaler);
+    final known = _sizes[key];
+    if (known != null) return known;
     final painter = TextPainter(
       text: TextSpan(text: text, style: style),
       textDirection: textDirection,
@@ -82,7 +90,8 @@ class PaintedUsernameText extends StatelessWidget {
     )..layout();
     final size = painter.size;
     painter.dispose();
-    return size;
+    if (_sizes.length >= 512) _sizes.clear();
+    return _sizes[key] = size;
   }
 }
 

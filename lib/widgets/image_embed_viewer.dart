@@ -80,6 +80,8 @@ class _ImageEmbedViewerState extends State<_ImageEmbedViewer>
     final opacity = (1 - _drag / (height * 0.6)).clamp(0.0, 1.0);
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
+      // The opaque detector covers the route barrier, so a scrim tap pops here.
+      onTap: () => Navigator.of(context).pop(),
       onVerticalDragUpdate: _onDragUpdate,
       onVerticalDragEnd: _onDragEnd,
       child: Opacity(

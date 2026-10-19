@@ -73,44 +73,55 @@ class BroadcastWidgets {
   }
 
   // Live polls, predictions and hype trains are a dev opt-in until their
-  // cards are verified against real streams; pins always show.
+  // cards are verified against real streams; pins always show. End events
+  // apply regardless, so flipping the pref off lets a shown card finish.
   static bool get _liveWidgets => Prefs.loaded?.liveChatWidgets ?? true;
 
   void onHypeTrain(HypeTrainEvent event) {
-    if (!mounted || !_liveWidgets) return;
+    if (!mounted) return;
+    final shown = _shownCard();
     if (event.kind == HypeTrainKind.end) {
       hypeTrains.remove(event.channel);
-    } else {
+    } else if (_liveWidgets) {
       hypeTrains[event.channel] = event;
+    } else {
+      return;
     }
     notifier.value++;
-    clampPage();
+    _clampPage(shown);
   }
 
   void onPoll(PollEvent event) {
-    if (!mounted || !_liveWidgets) return;
+    if (!mounted) return;
+    final shown = _shownCard();
     if (event.kind == PollKind.end) {
       polls.remove(event.channel);
-    } else {
+    } else if (_liveWidgets) {
       polls[event.channel] = event;
+    } else {
+      return;
     }
     notifier.value++;
-    clampPage();
+    _clampPage(shown);
   }
 
   void onPrediction(PredictionEvent event) {
-    if (!mounted || !_liveWidgets) return;
+    if (!mounted) return;
+    final shown = _shownCard();
     if (event.kind == PredictionKind.end) {
       predictions.remove(event.channel);
-    } else {
+    } else if (_liveWidgets) {
       predictions[event.channel] = event;
+    } else {
+      return;
     }
     notifier.value++;
-    clampPage();
+    _clampPage(shown);
   }
 
   void onPinned(PinnedMessageEvent event) {
     if (!mounted) return;
+    final shown = _shownCard();
     final channel = event.channel;
     if (event.removed) {
       if (event.id.isNotEmpty && pins[channel]?.id != event.id) return;
@@ -130,7 +141,7 @@ class BroadcastWidgets {
       }
     }
     notifier.value++;
-    clampPage();
+    _clampPage(shown);
   }
 
   /// Pins the user closed; a repeat push of the same pin stays hidden.
@@ -146,9 +157,11 @@ class BroadcastWidgets {
 
   void _dropPin(String channel) {
     _pinExpiry.remove(channel)?.cancel();
-    if (pins.remove(channel) == null || !mounted) return;
+    if (!pins.containsKey(channel) || !mounted) return;
+    final shown = _shownCard();
+    pins.remove(channel);
     notifier.value++;
-    clampPage();
+    _clampPage(shown);
   }
 
   Future<void> loadTestWidgets() async {
@@ -254,7 +267,7 @@ class BroadcastWidgets {
       status: 'ACTIVE',
     );
     notifier.value++;
-    clampPage();
+    _clampPage();
   }
 
   /// [unpin], when the user moderates [channel], offers Unpin on its pin.
@@ -325,7 +338,10 @@ class BroadcastWidgets {
     final cards = _cardsFor(channel);
     final ctrl = pageCtrlFor(channel);
     final heights = _cardHeights.putIfAbsent(channel, () => {});
-    final tallest = cards.map((c) => heights[c] ?? 0.0).fold(0.0, max);
+    // The displayed height is capped, so a tall card is not cramped by itself.
+    final tallest = cards
+        .map((c) => min(heights[c] ?? 0.0, ChatWidgetCutout.maxHeight))
+        .fold(0.0, max);
     final cramped = tallest > room / 2;
     final carryInk = _inkCarried.remove(channel);
     if (!cramped) _keptOpen.remove(channel);
@@ -395,7 +411,20 @@ class BroadcastWidgets {
     _Card.hypeTrain => Icons.train_outlined,
   };
 
-  void clampPage() {
+  /// The card on screen for the selected channel, before a change reorders
+  /// the pager.
+  _Card? _shownCard() {
+    final channel = selectedChannel();
+    if (channel == null) return null;
+    final ctrl = _pageCtrls[channel];
+    if (ctrl == null || ctrl.positions.length != 1) return null;
+    final cards = _cardsFor(channel);
+    final idx = ctrl.page?.round() ?? 0;
+    return idx >= 0 && idx < cards.length ? cards[idx] : null;
+  }
+
+  /// Keeps the pager on [shown] after cards come or go, else clamps it.
+  void _clampPage([_Card? shown]) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final channel = selectedChannel();
       if (!mounted || channel == null) return;
@@ -404,7 +433,10 @@ class BroadcastWidgets {
       final pages = pagesFor(channel).length;
       if (pages == 0) return;
       final idx = pageCtrl.page?.round() ?? 0;
-      if (idx >= pages) {
+      final at = shown == null ? -1 : _cardsFor(channel).indexOf(shown);
+      if (at >= 0) {
+        if (at != idx) pageCtrl.jumpToPage(at);
+      } else if (idx >= pages) {
         pageCtrl.jumpToPage(pages - 1);
       }
     });

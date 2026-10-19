@@ -26,6 +26,11 @@ class PanelManager {
 
   OverlayPanel activePanel = OverlayPanel.closed;
   bool emoteSheetOpen = false;
+
+  /// True from the start of the emote sheet's close animation until it
+  /// lands, so a toggle in between reopens instead of closing again.
+  bool emoteSheetClosing = false;
+  int _emoteCloseGen = 0;
   TwitchMessage? _openThreadRoot;
   TwitchMessage? get openThreadRoot => _openThreadRoot;
   set openThreadRoot(TwitchMessage? root) {
@@ -58,6 +63,10 @@ class PanelManager {
   static const fullHeightFraction = 1.0;
 
   void dispose() {
+    for (final c in _animations) {
+      c.dispose();
+    }
+    _animations.clear();
     panelScaleCtrl.dispose();
     emoteSheetCtrl.dispose();
     threadSheetRatio.dispose();
@@ -77,6 +86,7 @@ class PanelManager {
 
   Future<void> closePanel() async {
     final panelToClose = activePanel;
+    final rootToClose = openThreadRoot;
     if (panelToClose == OverlayPanel.closed && !emoteSheetOpen) return;
     await closeEmoteSheet();
     if (panelToClose == OverlayPanel.closed) {
@@ -107,9 +117,9 @@ class PanelManager {
     }
     if (isMounted()) {
       // A reopen racing the close animation wins: only clear when the panel
-      // is still the one that started closing (e.g. rapid thread-to-thread
-      // taps must not wipe the newly opened root).
-      if (activePanel == panelToClose) {
+      // and its thread root are still the ones that started closing.
+      if (activePanel == panelToClose &&
+          identical(openThreadRoot, rootToClose)) {
         activePanel = OverlayPanel.closed;
         openThreadRoot = null;
         onPanelClosed?.call(panelToClose);
@@ -119,6 +129,9 @@ class PanelManager {
     }
   }
 
+  // In-flight panel animations, so dispose can stop them.
+  final _animations = <AnimationController>{};
+
   Future<void> animateRatio(
     ValueNotifier<double> ratio,
     double from,
@@ -127,6 +140,7 @@ class PanelManager {
   ) async {
     if (from == to) return;
     final controller = AnimationController(vsync: vsync, duration: duration);
+    _animations.add(controller);
     final animation = Tween(
       begin: from,
       end: to,
@@ -138,7 +152,8 @@ class PanelManager {
     animation.addListener(listener);
     await controller.forward();
     animation.removeListener(listener);
-    controller.dispose();
+    // Already disposed when the manager went first.
+    if (_animations.remove(controller)) controller.dispose();
   }
 
   Widget buildPanelDragHandle({
@@ -364,6 +379,8 @@ class PanelManager {
       unawaited(emoteManager.preloadGlobalEmotes());
     }
     emoteSheetOpen = true;
+    emoteSheetClosing = false;
+    _emoteCloseGen++;
     markDirty();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!isMounted() || !emoteSheetCtrl.isAttached) return;
@@ -390,6 +407,8 @@ class PanelManager {
       }
       final fraction = (emoteSheetCtrl.size / emoteMaxFraction).clamp(0.0, 1.0);
       final duration = Duration(milliseconds: (80 + 180 * fraction).round());
+      emoteSheetClosing = true;
+      final gen = ++_emoteCloseGen;
       unawaited(
         emoteSheetCtrl
             .animateTo(
@@ -398,7 +417,9 @@ class PanelManager {
               curve: Curves.easeInOutCubicEmphasized,
             )
             .then((_) {
-              if (!isMounted()) return;
+              // A reopen mid-close owns the sheet now.
+              if (!isMounted() || gen != _emoteCloseGen) return;
+              emoteSheetClosing = false;
               emoteSheetOpen = false;
               panelScaleCtrl.value = 1.0;
               markDirty();

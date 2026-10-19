@@ -232,9 +232,10 @@ class RenderEmoteEffect extends RenderProxyBox {
         }
         return;
       }
+      // The outermost layer runs last, so the list is pushed in reverse.
       context.pushColorFilter(
         offset,
-        ColorFilter.matrix(filters[i]),
+        ColorFilter.matrix(filters[filters.length - 1 - i]),
         (context, offset) => paintFiltered(context, offset, i + 1),
       );
     }
