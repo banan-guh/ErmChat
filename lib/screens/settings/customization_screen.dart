@@ -11,10 +11,19 @@ import 'custom_layout_screen.dart';
 import 'prefs_tiles.dart';
 import 'settings_page.dart';
 import 'settings_search.dart';
-import 'theme_builder_chip_placement.dart' as chips;
-import 'theme_builder_gallery_flow.dart' as gallery;
-import 'theme_builder_preview_truth.dart' as preview;
-import 'theme_builder_screen.dart';
+
+String chromeThemeLabel(AppLocalizations l, ChromeTheme t) => switch (t) {
+  ChromeTheme.ermchat => l.chromeThemeErmchat,
+  ChromeTheme.dankchat3 => l.chromeThemeDankchat3,
+  ChromeTheme.dankchat4 => l.chromeThemeDankchat4,
+};
+
+/// A custom theme's name, or a numbered stand-in when it has none.
+String customChromeThemeName(
+  AppLocalizations l,
+  ChromeThemeSpec spec,
+  int index,
+) => spec.name.isNotEmpty ? spec.name : l.themeBuilderUntitled(index + 1);
 
 class CustomizationScreen extends StatefulWidget {
   const CustomizationScreen({super.key, this.onEditLayout});
@@ -113,6 +122,10 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
 
   String get _chromeThemeKey =>
       _prefs?.chromeThemeKey ?? ChromeTheme.ermchat.name;
+
+  bool get _chromeIsIsland =>
+      !(_prefs?.chromeTheme.islandFlush ??
+          ChromeTheme.ermchat.spec.islandFlush);
 
   String _chromeThemeLabel(String key) {
     for (final t in ChromeTheme.values) {
@@ -318,48 +331,13 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
             ),
           ),
           SettingAnchor(
-            Setting.themeBuilder,
-            child: Column(
-              children: [
-                // TODO: keep one builder after trying the variants.
-                for (final (label, screen) in <(String, Widget)>[
-                  (
-                    Setting.themeBuilder.titleOf(context.l10n),
-                    const ThemeBuilderScreen(),
-                  ),
-                  (
-                    context.l10n.themeBuilderTrial('B', 'chips and arrows'),
-                    const chips.ThemeBuilderScreen(),
-                  ),
-                  (
-                    context.l10n.themeBuilderTrial('C', 'gallery flow'),
-                    const gallery.ThemeBuilderScreen(),
-                  ),
-                  (
-                    context.l10n.themeBuilderTrial('D', 'true preview'),
-                    const preview.ThemeBuilderScreen(),
-                  ),
-                ])
-                  ListTile(
-                    title: Text(label),
-                    trailing: const Icon(Icons.chevron_right),
-                    onTap: () async {
-                      await Navigator.of(
-                        context,
-                      ).push(MaterialPageRoute<void>(builder: (_) => screen));
-                      if (!mounted) return;
-                      _prefs = await Prefs.load();
-                      if (mounted) setState(() {});
-                    },
-                  ),
-              ],
-            ),
-          ),
-          SettingAnchor(
             Setting.liquidGlass,
             child: PrefsSwitchTile(
               title: Setting.liquidGlass.titleOf(context.l10n),
-              subtitle: context.l10n.experimental,
+              subtitle: _chromeIsIsland
+                  ? context.l10n.experimental
+                  : context.l10n.liquidGlassIslandOnly,
+              enabled: _chromeIsIsland,
               read: (p) => p.liquidGlass,
               write: (p, v) => p.setLiquidGlass(v),
             ),

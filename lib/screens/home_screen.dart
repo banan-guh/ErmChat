@@ -1936,7 +1936,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     );
     // Reply card floats above the composer. Hidden while search or the terms
     // box borrows the input, and while the composer is disabled.
-    final glass = glassEnabled(context, _liquidGlass);
+    final glass = glassEnabled(
+      context,
+      _liquidGlass && !(_layoutEdit?.draft ?? _chromeTheme).islandFlush,
+    );
     // With channels the app bar folds away, so the bell, overflow and
     // settings live in the island's button row. The welcome view keeps them
     // in the app bar.

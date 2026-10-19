@@ -94,7 +94,6 @@ class Setting {
     'liquid_glass' => l.settingLiquidGlass,
     'chrome_theme' => l.settingChromeTheme,
     'edit_layout' => l.settingEditLayout,
-    'theme_builder' => l.settingThemeBuilder,
     'keyboard_buttons' => l.settingKeyboardButtons,
     'chat_font_size' => l.settingChatFontSize,
     'chat_font_weight' => l.settingChatFontWeight,
@@ -268,13 +267,6 @@ class Setting {
     'Edit layout',
     SettingsPageId.appearance,
     keywords: 'buttons drag move rearrange chrome header row',
-  );
-  static const themeBuilder = Setting(
-    'theme_builder',
-    'Build a theme',
-    SettingsPageId.appearance,
-    section: 'Layout',
-    keywords: 'custom chrome buttons rearrange',
   );
   static const liquidGlass = Setting(
     'liquid_glass',
@@ -753,7 +745,6 @@ class Setting {
     layout,
     chromeTheme,
     editLayout,
-    themeBuilder,
     liquidGlass,
     chatFontSize,
     chatFontWeight,

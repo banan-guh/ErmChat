@@ -394,7 +394,7 @@ class UserSheets {
                   builder: (_, scrollController) {
                     listController = historyController;
                     return UserProfileSheet(
-                      glass: glassEnabled(context, prefs.liquidGlass),
+                      glass: glassEnabled(context, prefs.islandGlass),
                       username: username,
                       displayName: displayName ?? username,
                       userId: userId,
