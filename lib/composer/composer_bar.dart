@@ -496,6 +496,7 @@ class ComposerStatusRow extends StatelessWidget {
     required this.mod,
     required this.dragTick,
     this.modeRow = false,
+    this.classic = false,
   });
 
   final ComposerController controller;
@@ -506,6 +507,10 @@ class ComposerStatusRow extends StatelessWidget {
 
   /// See [ComposerBar.modeRow].
   final bool modeRow;
+
+  /// See [ComposerBar.classic]: the line sits left under the outlined field
+  /// and eases in over a longer beat.
+  final bool classic;
 
   @override
   Widget build(BuildContext context) => ListenableBuilder(
@@ -523,6 +528,7 @@ class ComposerStatusRow extends StatelessWidget {
         selectedTabIndex: selectedTabIndex,
         showStatus: !landscape,
         modeRow: modeRow,
+        classic: classic,
       );
     },
   );
@@ -592,12 +598,14 @@ class _StatusRow extends StatelessWidget {
     required this.selectedTabIndex,
     required this.showStatus,
     required this.modeRow,
+    required this.classic,
   });
 
   final ComposerController controller;
   final ValueListenable<int> selectedTabIndex;
   final bool showStatus;
   final bool modeRow;
+  final bool classic;
 
   @override
   Widget build(BuildContext context) => _ChannelListener(
@@ -606,7 +614,7 @@ class _StatusRow extends StatelessWidget {
     builder: (context) {
       final channel = controller.selectedChannel;
       return AnimatedSize(
-        duration: const Duration(milliseconds: 100),
+        duration: Duration(milliseconds: classic ? 170 : 100),
         curve: Curves.easeInOut,
         alignment: Alignment.topCenter,
         child: channel == null
@@ -629,21 +637,28 @@ class _StatusRow extends StatelessWidget {
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: classic
+            ? CrossAxisAlignment.start
+            : CrossAxisAlignment.center,
         children: [
           if (status.isNotEmpty)
             Padding(
-              padding: const EdgeInsets.only(left: 12, right: 12, bottom: 4),
+              padding: EdgeInsets.only(
+                left: classic ? 20 : 12,
+                right: 12,
+                bottom: 4,
+              ),
               child: Text(
                 status,
                 style: _statusStyle(context),
-                textAlign: TextAlign.center,
+                textAlign: classic ? TextAlign.start : TextAlign.center,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
               ),
             ),
           if (hasLoadFailure)
             Padding(
-              padding: const EdgeInsets.only(bottom: 4),
+              padding: EdgeInsets.only(left: classic ? 20 : 0, bottom: 4),
               child: InkWell(
                 onTap: () => controller.chatConn.retryChannelData(channel),
                 child: Text(

@@ -79,6 +79,10 @@ class MessageInput extends StatelessWidget {
   /// Narrowest bar that still shows the emote button.
   static const double minWidthForEmoteMenu = 240;
 
+  /// Room above the outlined field for its label, which floats half out of
+  /// the outline when focused.
+  static const double _labelRoom = 10;
+
   @override
   Widget build(BuildContext context) {
     final effectiveHint = hintText ?? context.l10n.typeMessageHint;
@@ -166,11 +170,12 @@ class MessageInput extends StatelessWidget {
         final start = [for (final item in startItems) ?button(item)];
         final end = [for (final item in endItems) ?button(item)];
         return Padding(
-          // In-flow the field sits flush under the list (top 0). In a glass
-          // pill it must breathe evenly or the text reads high in the pill.
+          // The outlined field leaves room above for its floated label, which
+          // the island would clip. In a glass pill it must breathe evenly or
+          // the text reads high in the pill.
           padding: borderless
               ? EdgeInsets.fromLTRB(8, gap, 8, gap)
-              : EdgeInsets.fromLTRB(8, 0, 8, gap * 2),
+              : EdgeInsets.fromLTRB(8, _labelRoom, 8, gap * 2),
           child: Stack(
             children: [
               TextField(

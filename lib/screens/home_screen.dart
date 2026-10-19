@@ -2167,6 +2167,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                     mod: _mod,
                     dragTick: _panelDragTick,
                     modeRow: modeRow,
+                    classic: spec.composer == ComposerStyle.classic,
                   )
                 : null,
             // Send runs down the island's side while the row stays up.
