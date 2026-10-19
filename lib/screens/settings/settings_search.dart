@@ -148,6 +148,7 @@ class Setting {
     'tts' => l.settingTts,
     'uploader' => l.settingUploader,
     'analytics' => l.settingAnalytics,
+    'data_usage' => l.settingDataUsage,
     'pip' => l.settingPip,
     'updates' => l.settingCheckForUpdates,
     'enable_tts' => l.settingEnableTts,
@@ -634,6 +635,12 @@ class Setting {
     SettingsPageId.tools,
     keywords: 'stats',
   );
+  static const dataUsage = Setting(
+    'data_usage',
+    'Data usage',
+    SettingsPageId.tools,
+    keywords: 'bandwidth mobile data bytes',
+  );
   static const updates = Setting(
     'updates',
     'Check for updates',
@@ -763,6 +770,7 @@ class Setting {
     tts,
     uploader,
     analytics,
+    dataUsage,
     updates,
     pip,
     enableTts,

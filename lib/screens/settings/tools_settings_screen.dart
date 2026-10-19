@@ -7,6 +7,7 @@ import '../../services/emote_images.dart';
 import '../../services/tts_controller.dart';
 import '../../util/prefs.dart';
 import 'analytics_screen.dart';
+import 'data_usage_screen.dart';
 import 'prefs_tiles.dart';
 import 'settings_page.dart';
 import 'settings_search.dart';
@@ -118,6 +119,17 @@ class ToolsSettingsScreen extends StatelessWidget {
                 ),
               ),
             ),
+          SettingAnchor(
+            Setting.dataUsage,
+            child: SettingsNavTile(
+              icon: Icons.data_usage,
+              title: Setting.dataUsage.titleOf(context.l10n),
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const DataUsageScreen()),
+              ),
+            ),
+          ),
           SettingAnchor(
             Setting.updates,
             child: SettingsNavTile(
