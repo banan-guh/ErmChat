@@ -76,9 +76,10 @@ class _PrefsSwitchTileState extends State<PrefsSwitchTile> {
       title: widget.titleTrailing == null
           ? Text(widget.title)
           : Row(
+              mainAxisSize: MainAxisSize.min,
               children: [
-                Expanded(child: Text(widget.title)),
-                const SizedBox(width: 12),
+                Flexible(child: Text(widget.title)),
+                const SizedBox(width: 8),
                 widget.titleTrailing!,
               ],
             ),
