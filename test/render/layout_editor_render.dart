@@ -136,6 +136,22 @@ void main() {
     }
   }
 
+  testWidgets('render fullscreen', (tester) async {
+    await boot(tester, {'layout_density': 'compact', 'liquid_glass': true});
+    Future<void> pick(String label) async {
+      await tester.tap(find.byIcon(Icons.expand_more).last);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(label).last);
+      await tester.pumpAndSettle();
+    }
+
+    await pick('Toggle fullscreen');
+    await _shot(tester, 'fullscreen');
+    await pick('Toggle input');
+    await _shot(tester, 'fullscreen_no_input');
+    await tester.pump(const Duration(seconds: 30));
+  });
+
   for (final preset in ChromeTheme.values) {
     testWidgets('render preset ${preset.name}', (tester) async {
       await boot(tester, {

@@ -1925,8 +1925,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     // With channels the app bar folds away, so the bell, overflow and
     // settings live in the island's button row. The welcome view keeps them
     // in the app bar.
+    // Fullscreen with the input hidden drops the island entirely, unless its
+    // row holds the view menu. Otherwise that menu floats where the strip was.
     final hasBottomBar =
-        _chat.names.isNotEmpty || _channelManager.session.channelsPending;
+        (_chat.names.isNotEmpty || _channelManager.session.channelsPending) &&
+        !(_isFullscreen &&
+            !_showInput &&
+            !(_layoutEdit?.draft ?? _chromeTheme).rowActions.contains(
+              ChromeAction.viewMenu,
+            ));
     // A compact theme hides the row under the keyboard, leaving the field
     // row. A theme with no row actions drops the row.
     final edit = _layoutEdit;
@@ -2147,8 +2154,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                             dragTick: _panelDragTick,
                           )
                         : null,
-                    // Fullscreen hides the strip, which holds the view menu.
-                    withMenu: _isFullscreen,
                     onCalendar: _channels.openCalendar,
                   )
                 : null,

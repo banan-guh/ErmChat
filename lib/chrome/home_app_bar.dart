@@ -312,16 +312,14 @@ class HomeAppBar {
 
   /// The island's button row: [leading] (the composer's emote button), the
   /// theme's row actions, then [trailing] (send) on the right. The island
-  /// draws the surface, so the row is bare. [withMenu] adds the view menu,
-  /// for when the strip that holds it is hidden. [middle] fills the free
-  /// space between the buttons.
+  /// draws the surface, so the row is bare. [middle] fills the free space
+  /// between the buttons.
   Widget bottomBar(
     BuildContext context, {
     bool glass = false,
     Widget? leading,
     Widget? middle,
     List<Widget> trailing = const [],
-    bool withMenu = false,
     VoidCallback? onCalendar,
   }) {
     final spec = themeSpec();
@@ -356,11 +354,7 @@ class HomeAppBar {
       );
     }
     final start = [for (final a in spec.rowStart) build(a)];
-    final end = [
-      for (final a in spec.rowEnd) build(a),
-      if (withMenu && !spec.rowActions.contains(ChromeAction.viewMenu))
-        chromeMenu(glass: glass, onCalendar: onCalendar),
-    ];
+    final end = [for (final a in spec.rowEnd) build(a)];
     // The action groups sit a little closer than the stock 48pt; the leading
     // and trailing slots keep it, lining up with the field's emote and send.
     // A narrow island's compact density still wins.

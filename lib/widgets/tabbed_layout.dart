@@ -145,6 +145,10 @@ class TabbedLayout extends StatefulWidget {
   /// Pinned after the scrolling tabs (compact layout's top bar actions).
   final Widget? stripTrailing;
 
+  /// Floats as a small pill where the strip's end was while [fullscreen]
+  /// hides the strip: the view menu, the way back out.
+  final Widget? fullscreenMenu;
+
   /// Splits the strip into floating pills, tabs then [stripTrailing], over
   /// a clear strip.
   final bool stripBubbles;
@@ -191,6 +195,7 @@ class TabbedLayout extends StatefulWidget {
     this.addTab,
     this.onAddTab,
     this.stripTrailing,
+    this.fullscreenMenu,
     this.stripBubbles = false,
     this.stripTopInset = 0,
     this.belowTabBar,
@@ -756,6 +761,19 @@ class TabbedLayoutState extends State<TabbedLayout>
           width: rightExclude,
           child: const EdgeExclusionZone(),
         ),
+        if (widget.fullscreen && widget.fullscreenMenu != null)
+          Positioned(
+            top: widget.stripTopInset + (bubbles ? TabbedLayout._bubbleGap : 0),
+            right: 8,
+            height: bubbles ? TabbedLayout._bubbleH : 40,
+            child: DecoratedBox(
+              decoration: ShapeDecoration(
+                color: theme.colorScheme.surfaceContainerHigh,
+                shape: const StadiumBorder(),
+              ),
+              child: Center(child: widget.fullscreenMenu),
+            ),
+          ),
         if (widget.pagesOverlay != null)
           AnimatedPositioned(
             duration: const Duration(milliseconds: 200),

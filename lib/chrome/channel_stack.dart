@@ -612,7 +612,7 @@ class ChannelPanels {
                     // Join stays the last tab unless the theme places a join
                     // button; the theme's strip actions pin to the strip's
                     // end. Fullscreen hides the strip, so the view menu
-                    // drops into the island's row then.
+                    // floats in its place then.
                     addTab: merged && homeAppBar.stripJoinTab
                         ? homeAppBar.joinTab()
                         : null,
@@ -621,6 +621,18 @@ class ChannelPanels {
                         homeAppBar.themeSpec().header == HeaderStyle.bubbles,
                     stripTrailing: merged || appBarHeader
                         ? homeAppBar.stripTrailing(
+                            glass: glassOverlay || glassChrome,
+                            onCalendar: openCalendar,
+                          )
+                        : null,
+                    fullscreenMenu:
+                        isFullscreen() &&
+                            !homeAppBar.themeSpec().rowActions.contains(
+                              ChromeAction.viewMenu,
+                            )
+                        ? homeAppBar.action(
+                            context,
+                            ChromeAction.viewMenu,
                             glass: glassOverlay || glassChrome,
                             onCalendar: openCalendar,
                           )
