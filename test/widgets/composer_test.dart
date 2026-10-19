@@ -685,12 +685,14 @@ void main() {
       text: text,
       maxLines: 6,
       keyboardHidesButtons: true,
-      bottomBar: const SizedBox(height: 48),
+      bottomBar: const SizedBox(key: Key('test_bar'), height: 48),
       onBodyBuild: (inner) {
         clearance = GlassChromeScope.maybeOf(inner)?.clearanceFor(null) ?? 0;
       },
     );
     await tester.pumpAndSettle();
+    final island = find.byKey(const ValueKey('composer_island'));
+    final bar = find.byKey(const Key('test_bar'));
     double fieldGap() =>
         tester.getRect(find.byType(ChatBody)).bottom -
         tester.getRect(find.byKey(const Key('message_input'))).top;
@@ -709,7 +711,17 @@ void main() {
       reason: 'sending left a gap under the newest message',
     );
 
+    // Shipped bug: while the field grew, the row read as shorter than it is
+    // and peeked out under the field until the animation ended.
     text.text = 'a\nb';
+    for (var f = 0; f < 20; f++) {
+      await tester.pump(const Duration(milliseconds: 16));
+      expect(
+        tester.getRect(bar).top,
+        greaterThanOrEqualTo(tester.getRect(island).bottom - 0.5),
+        reason: 'frame $f showed the hidden row',
+      );
+    }
     await tester.pumpAndSettle();
     expect(
       clearance,

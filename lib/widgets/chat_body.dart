@@ -188,6 +188,12 @@ class _ChatBodyState extends State<ChatBody>
   final _islandKey = GlobalKey();
   final _islandOuterKey = GlobalKey();
 
+  // The field's animated slot, and the island below it (row plus footer).
+  // Both come from one measure, so a field growing inside its animation
+  // never reads as a shorter row and lets the hidden row peek out.
+  final _flowKey = GlobalKey();
+  double? _rowH;
+
   // Keyboard height by which the hidden row is gone (nav bar plus row), or
   // zero when the row never hides.
   double _hideSpan = 0;
@@ -412,6 +418,13 @@ class _ChatBodyState extends State<ChatBody>
     if (h != null && (h - _islandH).abs() > 0.5) {
       setState(() => _islandH = h);
     }
+    final flow = _flowKey.currentContext?.size?.height;
+    if (h != null && flow != null) {
+      final row = h - flow;
+      if (_rowH == null || (row - _rowH!).abs() > 0.5) {
+        setState(() => _rowH = row);
+      }
+    }
     // The clip leaves the island's own layout whole (field and footer), so
     // it measures true under the keyboard too.
     final footer = _footerKey.currentContext?.size?.height ?? 0;
@@ -496,7 +509,7 @@ class _ChatBodyState extends State<ChatBody>
     // status footer included.
     final rowH = composer == null
         ? _islandH
-        : (_islandH - _composerH).clamp(0.0, _islandH);
+        : (_rowH ?? _islandH - _composerH).clamp(0.0, _islandH);
     final islandBottom = flush ? 0.0 : kComposerIslandMargin + bottomPad;
     // Hidden mode pins the island above the nav bar (the padding shrinks
     // under the keyboard, the nav bar does not) and clips the row from below
@@ -630,12 +643,10 @@ class _ChatBodyState extends State<ChatBody>
       },
       child: SizeChangedLayoutNotifier(
         child: AnimatedSize(
+          key: _flowKey,
           duration: const Duration(milliseconds: 220),
           curve: Curves.easeInOut,
-          // The field takes its new height at once and the field's icons
-          // center on it; centered here, they stay centered in the growing
-          // island instead of snapping to an edge and sliding back.
-          alignment: Alignment.center,
+          alignment: Alignment.bottomCenter,
           child: composer == null
               ? const SizedBox.shrink()
               : Padding(
