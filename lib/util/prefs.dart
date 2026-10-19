@@ -41,6 +41,7 @@ class Prefs {
         await p.setBool(_kWelcomeSeen, true);
       }
     }
+    await prefs._repairChromeThemeKey();
     return prefs;
   }
 
@@ -377,21 +378,45 @@ class Prefs {
   static const _kCustomChromeThemes = 'chrome_themes_custom';
 
   /// The selected theme: a preset's name, or `custom:<index>` into
-  /// [customChromeThemes].
-  String get chromeThemeKey =>
-      _p.getString(_kChromeTheme) ?? ChromeTheme.ermchat.name;
+  /// [customChromeThemes]. A stale key reads as the default preset.
+  String get chromeThemeKey {
+    final saved = _p.getString(_kChromeTheme);
+    return saved != null && _isChromeThemeKey(saved)
+        ? saved
+        : ChromeTheme.ermchat.name;
+  }
+
+  /// Whether [key] names a preset or a custom theme that still exists.
+  bool _isChromeThemeKey(String key) {
+    if (ChromeTheme.values.any((t) => t.name == key)) return true;
+    if (!key.startsWith(customChromeThemePrefix)) return false;
+    final i = int.tryParse(key.substring(customChromeThemePrefix.length));
+    return i != null && i >= 0 && i < customChromeThemes.length;
+  }
 
   Future<void> setChromeThemeKey(String value) =>
       _p.setString(_kChromeTheme, value);
 
+  /// Persists the fallback when the stored selection names no theme, so the
+  /// picker cannot show a phantom selection after a theme is dropped.
+  Future<void> _repairChromeThemeKey() async {
+    final saved = _p.getString(_kChromeTheme);
+    if (saved != null && !_isChromeThemeKey(saved)) {
+      await _p.setString(_kChromeTheme, ChromeTheme.ermchat.name);
+    }
+  }
+
   /// The selected theme's spec; a missing custom theme falls back to the
-  /// default preset.
+  /// default preset. An unusable spec is normalized so it cannot lock the
+  /// user out of settings or the view menu.
   ChromeThemeSpec get chromeTheme {
     final key = chromeThemeKey;
     if (key.startsWith(customChromeThemePrefix)) {
       final i = int.tryParse(key.substring(customChromeThemePrefix.length));
       final custom = customChromeThemes;
-      if (i != null && i >= 0 && i < custom.length) return custom[i];
+      if (i != null && i >= 0 && i < custom.length) {
+        return custom[i].normalized();
+      }
     }
     return ChromeTheme.values
         .firstWhere((t) => t.name == key, orElse: () => ChromeTheme.ermchat)

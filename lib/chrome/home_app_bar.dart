@@ -78,6 +78,13 @@ class HomeAppBar {
   bool _isChannelLive(String channel) =>
       chat.channelFor(channel)?.info.isLive ?? false;
 
+  /// Whether the view menu offers the stream toggle: a running stream, no
+  /// login to fetch one, or a live channel.
+  bool _showStreamToggle() =>
+      streamPlayer.isActive ||
+      !twitchAuth.isConfigured ||
+      (selectedChannel() != null && _isChannelLive(selectedChannel()!));
+
   void _onBellPressed() {
     chat.clearAllUnread();
     mentions.clearUnreadWhispers();
@@ -98,10 +105,7 @@ class HomeAppBar {
       onToggleFullscreen: toggleFullscreen,
       onToggleInput: toggleInput,
       onToggleStream: toggleStream,
-      showStreamToggle: () =>
-          streamPlayer.isActive ||
-          !twitchAuth.isConfigured ||
-          (selectedChannel() != null && _isChannelLive(selectedChannel()!)),
+      showStreamToggle: _showStreamToggle,
       streamActive: () => streamPlayer.isActive,
       onShowModView: mod.showModView,
       showModView: () {
@@ -242,14 +246,16 @@ class HomeAppBar {
     onPressed: openSettings,
   );
 
-  /// The ⋮ menu. Settings heads it when the theme folds it in, and threads
-  /// joins it when the theme places no threads button.
+  /// The ⋮ menu. Settings heads it when the theme folds it in; threads,
+  /// mentions and the view menu's entries join it when the theme places no
+  /// button for them, so none of them can go missing.
   Widget overflowMenu(BuildContext context, {bool glass = false}) {
     final l10n = context.l10n;
+    final spec = themeSpec();
     return ChromeMenu(
       glass: glass,
       entries: () => [
-        if (themeSpec().settingsInMenu) ...[
+        if (spec.settingsInMenu) ...[
           ChromeMenuEntry(
             l10n.settingsTitle,
             openSettings,
@@ -257,11 +263,23 @@ class HomeAppBar {
           ),
           const ChromeMenuEntry.divider(),
         ],
-        if (!themeSpec().places(ChromeAction.threads))
+        if (!spec.places(ChromeAction.threads))
           ChromeMenuEntry(
             l10n.threads,
             () => threads.showThreadsDashboard(tab: 1),
           ),
+        if (!spec.places(ChromeAction.mentions))
+          ChromeMenuEntry(l10n.sectionMentions, _onBellPressed),
+        if (!spec.places(ChromeAction.viewMenu)) ...[
+          ChromeMenuEntry(l10n.search, toggleSearch),
+          ChromeMenuEntry(l10n.toggleFullscreen, toggleFullscreen),
+          ChromeMenuEntry(l10n.toggleInput, toggleInput),
+          if (_showStreamToggle())
+            ChromeMenuEntry(
+              streamPlayer.isActive ? l10n.hideStream : l10n.showStream,
+              toggleStream,
+            ),
+        ],
         ChromeMenuEntry(
           l10n.uploadMedia,
           () => uploadController.pickAndUpload(context),

@@ -26,7 +26,7 @@
   "themeBuilderImportFailed": "The clipboard doesn't hold a theme",
   "themeBuilderStartFrom": "Start from",
   "themeBuilderBlank": "Blank",
-  "themeBuilderBlankHint": "A tab strip with just settings",
+  "themeBuilderBlankHint": "A tab strip with settings and the view menu",
   "themeBuilderUntitled": "Theme {number}",
   "@themeBuilderUntitled": {
     "placeholders": {

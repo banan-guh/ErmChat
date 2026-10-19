@@ -131,6 +131,31 @@ class ChromeThemeSpec {
   bool get reachesSettings =>
       places(ChromeAction.settings) || places(ChromeAction.overflow);
 
+  /// Whether the theme keeps the app usable: settings are reachable and the
+  /// view menu (search, input, fullscreen) has a button or the ⋮ menu it can
+  /// fall back to.
+  bool get isUsable =>
+      reachesSettings &&
+      (places(ChromeAction.viewMenu) || places(ChromeAction.overflow));
+
+  /// A copy that is [isUsable]: settings and a view path are restored on the
+  /// strip when the theme hid them, so it cannot lock the user out.
+  ChromeThemeSpec normalized() {
+    var spec = this;
+    if (!spec.reachesSettings) {
+      spec = spec.copyWith(
+        stripActions: [...spec.stripActions, ChromeAction.settings],
+      );
+    }
+    if (!spec.places(ChromeAction.viewMenu) &&
+        !spec.places(ChromeAction.overflow)) {
+      spec = spec.copyWith(
+        stripActions: [...spec.stripActions, ChromeAction.viewMenu],
+      );
+    }
+    return spec;
+  }
+
   ChromeThemeSpec copyWith({
     String? name,
     HeaderStyle? header,
@@ -204,6 +229,8 @@ class ChromeThemeSpec {
       name = Uri.decodeComponent(fields['n'] ?? '');
     } on ArgumentError {
       name = '';
+    } on FormatException {
+      name = '';
     }
     final flags = fields['f'] ?? '';
     return ChromeThemeSpec(
@@ -223,11 +250,11 @@ class ChromeThemeSpec {
     );
   }
 
-  /// A plain strip with settings, emote and send in the field: the start
-  /// for a theme built from nothing.
+  /// A plain strip with settings and the view menu, emote and send in the
+  /// field: the start for a theme built from nothing.
   static const blank = ChromeThemeSpec(
     header: HeaderStyle.strip,
-    stripActions: [ChromeAction.settings],
+    stripActions: [ChromeAction.settings, ChromeAction.viewMenu],
   );
 
   @override

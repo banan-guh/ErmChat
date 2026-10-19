@@ -99,7 +99,7 @@ class _ThemeBuilderScreenState extends State<ThemeBuilderScreen> {
       );
       return;
     }
-    await _save([..._themes, spec]);
+    await _save([..._themes, spec.normalized()]);
   }
 
   Future<void> _copy(ChromeThemeSpec spec) async {
@@ -457,7 +457,7 @@ class _ThemeEditorScreenState extends State<ThemeEditorScreen> {
   Widget build(BuildContext context) {
     final l = context.l10n;
     final theme = Theme.of(context);
-    final valid = _spec.reachesSettings;
+    final valid = _spec.isUsable;
     final hidden = [
       for (final a in ChromeAction.values)
         if (_zoneOf(_Item.of(a)) == _Zone.hidden) _Item.of(a),
