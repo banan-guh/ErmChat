@@ -302,6 +302,7 @@ class TtsController {
   }
 
   Future<void> stop() async {
+    _previousUser = null;
     try {
       await _tts.stop();
     } catch (_) {}

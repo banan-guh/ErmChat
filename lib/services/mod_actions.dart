@@ -49,6 +49,7 @@ class ModActions {
   final String? Function() getCurrentUserId;
   final AppLocalizations Function() strings;
 
+  static const _userIdCacheCap = 500;
   final _userIdCache = <String, String>{};
 
   Future<String?> resolveUserId(TwitchAuth auth, String login) async {
@@ -56,7 +57,10 @@ class ModActions {
     final cached = _userIdCache[lower];
     if (cached != null) return cached;
     final id = await twitchApi.getUserId(auth, login);
-    if (id != null) _userIdCache[lower] = id;
+    if (id != null) {
+      if (_userIdCache.length >= _userIdCacheCap) _userIdCache.clear();
+      _userIdCache[lower] = id;
+    }
     return id;
   }
 

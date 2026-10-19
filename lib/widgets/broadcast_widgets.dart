@@ -127,7 +127,7 @@ class BroadcastWidgets {
       if (event.id.isNotEmpty && pins[channel]?.id != event.id) return;
       _dropPin(channel);
     } else {
-      if (_dismissedPins.contains(event.messageId)) return;
+      if (_dismissedPins.containsKey(event.messageId)) return;
       _pinExpiry.remove(channel)?.cancel();
       pins[channel] = event.senderColor != null
           ? event
@@ -144,14 +144,15 @@ class BroadcastWidgets {
     _clampPage(shown);
   }
 
-  /// Pins the user closed; a repeat push of the same pin stays hidden.
-  final _dismissedPins = <String>{};
+  /// Pins the user closed (message id to channel); a repeat push of the same
+  /// pin stays hidden.
+  final _dismissedPins = <String, String>{};
 
   /// Hides [channel]'s current pin on this device; a new pin still shows.
   void dismissPin(String channel) {
     final pin = pins[channel];
     if (pin == null) return;
-    _dismissedPins.add(pin.messageId);
+    _dismissedPins[pin.messageId] = channel;
     _dropPin(channel);
   }
 
@@ -449,6 +450,7 @@ class BroadcastWidgets {
     predictions.remove(channel);
     _pinExpiry.remove(channel)?.cancel();
     pins.remove(channel);
+    _dismissedPins.removeWhere((_, c) => c == channel);
     widgetsMinimized.remove(channel);
     _focused.remove(channel);
     _keptOpen.remove(channel);

@@ -1803,6 +1803,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     ref.listen(emoteStateProvider, (_, next) {
       _emotesVersion.value = next.version;
     });
+    // Blocking from a command sweeps rows in the provider; drop their tiles.
+    ref.listen(blockedLoginsProvider, (prev, next) {
+      if (next.length > (prev?.length ?? 0)) _tileCache.clear();
+    });
     ref.listen(twitchAuthTickProvider, (_, _) => _onAuthChanged());
     ref.listen(connectivityTickProvider, (_, _) => _onConnectivityChanged());
     ref.listen(connectionStateProvider, (_, _) => _onConnectionChanged());

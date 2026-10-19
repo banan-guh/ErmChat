@@ -144,6 +144,7 @@ class ThreadPanels {
   // global and intentionally survive.
   void forgetChannel(String channel) {
     threadLastSeen.removeWhere((k, _) => k.startsWith('$channel:'));
+    _syncedHead.remove(channel);
     if (panelManager.openThreadRoot?.channel == channel) {
       panelManager.openThreadRoot = null;
     }
