@@ -62,7 +62,7 @@ A test earns its place when a bug there would be quiet, rare to trigger, or expe
 ## Rules
 
 When you make a commit, ALWAYS read [RULES.md](RULES.md) first: short jab titles (4 words target, 8 hard max), body essentially never. RULES.md also holds code-consistency and subagent rules; follow those too. Read RULES.md on first init.
-IMPORTANT: NO em-dashes.
+IMPORTANT: NO em-dashes. Limit semicolons too: split into two sentences or use a comma.
 TODO.md entries are one line: what, not how. Design notes belong in the PR or docs.
 If a comment is multiple lines long, see if you can rephrase it to be shorter. ALWAYS review a comment if you write one more than 3 lines long.
 Comments and doc comments state what the code does and why, in the present tense. Never narrate the change (no "previously", "used to", "moved from").
