@@ -123,8 +123,10 @@ class Channel {
     if (outcome.inserted.isNotEmpty) {
       threads.index(outcome.inserted, lookupRoot: messages.byId);
     }
-    info.touch();
-    moveConnectedToTop();
+    if (outcome.inserted.isNotEmpty) {
+      info.touch();
+      moveConnectedToTop();
+    }
     return outcome;
   }
 

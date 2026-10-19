@@ -266,6 +266,41 @@ void main() {
     });
   });
 
+  group('Messages limit boundary', () {
+    test('removing or moving the boundary row keeps thread rows held', () {
+      var t = DateTime(2026, 1, 1);
+      final messages = Messages(channel: 'test', now: () => t);
+      addTearDown(messages.dispose);
+      TruncateExemptions build() =>
+          const TruncateExemptions(savedRootIds: {'r1'}, pinnedMessageIds: {});
+      void add(TwitchMessage m) {
+        t = t.add(const Duration(seconds: 1));
+        messages.add(m, maxMessages: 3, buildExemptions: build);
+      }
+
+      List<String?> shown() => [for (final m in messages.chatRows) m.messageId];
+
+      add(_live('r1'));
+      messages.addConnStatus(SystemLine.connected);
+      for (final m in [_reply('c1', 'r1'), _live('s1'), _live('s2')]) {
+        add(m);
+      }
+      messages.truncate(3, build);
+
+      // The connect line is the boundary; moving it up makes c1 the boundary.
+      expect(messages.moveConnectedToTop(), isTrue);
+      expect(shown().length, 4);
+      expect(shown(), isNot(contains('r1')));
+
+      messages.removeWhere((m) => m.messageId == 'c1');
+      expect(
+        shown(),
+        isNot(contains('r1')),
+        reason: 'a removed boundary row must not release held thread rows',
+      );
+    });
+  });
+
   group('Messages.truncate slack', () {
     test(
       'live trims wait for slack past the cap and chat never shows more',
@@ -395,6 +430,31 @@ void main() {
       expect(channel.messages.byId('h0'), isNull);
       expect(channel.threads.threadFor('h0'), isNull);
       expect(channel.messages.length, 3);
+    });
+
+    test('a fully deduped merge keeps version and the connect line', () {
+      final chat = Chat();
+      addTearDown(chat.dispose);
+      final channel = chat.ensure('test');
+      channel.addConnStatus(SystemLine.connected, maxMessages: 10);
+      final rows = [_live('l1'), _live('l2')];
+      for (final m in rows) {
+        channel.receive(m, maxMessages: 10, isSelected: true, ownLogin: null);
+      }
+      channel.addSystemMessage('later', maxMessages: 10);
+      final before = channel.messages.version.value;
+      final order = channel.messages.items.map((m) => m.text).toList();
+
+      chat.receiveHistory(
+        'test',
+        [_live('l1'), _live('l2')],
+        rawHistory: [_live('l1'), _live('l2')],
+        maxMessages: 10,
+        ownLogin: null,
+      );
+
+      expect(channel.messages.version.value, before);
+      expect(channel.messages.items.map((m) => m.text), order);
     });
 
     test('a fetch reaching back past the newest held row notes no gap', () {

@@ -330,7 +330,9 @@ class Messages {
       for (final m in inserted)
         if (!evictedSet.contains(m)) m,
     ];
-    _bump();
+    if (inserted.isNotEmpty || evicted.isNotEmpty || bridged.isNotEmpty) {
+      _bump();
+    }
     return MergeOutcome(
       inserted: resident,
       evicted: evicted,
@@ -690,9 +692,15 @@ class Messages {
 
   int _removeRows(bool Function(TwitchMessage) test) {
     final before = _items.length;
+    // The newest kept row above a removed boundary becomes the boundary.
+    TwitchMessage? newer;
     _items.removeWhere((m) {
-      if (!test(m)) return false;
+      if (!test(m)) {
+        newer = m;
+        return false;
+      }
       _unindex(m);
+      if (identical(m, _limitEnd)) _limitEnd = newer;
       return true;
     });
     return before - _items.length;
@@ -716,8 +724,8 @@ class Messages {
         : _items.indexWhere((m) => _isConn(m, SystemLine.connected));
     if (idx <= 0) return false;
     final msg = _items.removeAt(idx);
+    if (identical(msg, _limitEnd)) _limitEnd = _items[idx - 1];
     _items.insert(0, msg);
-    if (identical(msg, _limitEnd)) _limitEnd = null;
     _bump();
     return true;
   }

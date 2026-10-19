@@ -163,6 +163,27 @@ void main() {
       chat.remove('missing');
     });
 
+    test('remove drops the channel rows from the mentions mirror', () {
+      final chat = Chat();
+      addTearDown(chat.dispose);
+      for (final name in ['a', 'b']) {
+        chat.ensure(name);
+        chat.receive(
+          name,
+          _live('m-$name', channel: name, highlight: _mention),
+          maxMessages: 100,
+          isSelected: false,
+          ownLogin: null,
+        );
+      }
+      final before = chat.mentions.version.value;
+
+      chat.remove('a');
+
+      expect(chat.mentions.items.map((m) => m.channel), ['b']);
+      expect(chat.mentions.version.value, greaterThan(before));
+    });
+
     test('removeBlocked sweeps channels and the mentions mirror', () {
       final chat = Chat();
       addTearDown(chat.dispose);

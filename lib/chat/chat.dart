@@ -267,6 +267,7 @@ class Chat {
       _setUnreadMentions(_unreadMentions - droppedMentions);
     }
     channel.dispose();
+    mentions.removeWhere((m) => m.channel == name);
     unreadVersion.value++;
     rebuildLoadFailures();
   }
