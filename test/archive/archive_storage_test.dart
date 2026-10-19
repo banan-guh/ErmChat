@@ -774,41 +774,6 @@ void main() {
       await store.close();
     });
 
-    test('the search rail gives each match an equal share', () async {
-      final store = await _open(_newPath());
-      final writer = _writer(store, sealCount: 2);
-      const hour = 3600 * 1000;
-      final t = _t0.millisecondsSinceEpoch;
-      for (final (i, text, ts) in [
-        (0, 'pog early', t),
-        (1, 'chat', t + 1000),
-        (2, 'chat', t + 5 * hour),
-        (3, 'chat', t + 5 * hour + 1000),
-        (4, 'pog late', t + 10 * hour),
-        (5, 'chat', t + 10 * hour + 1000),
-      ]) {
-        writer.add(_channel, _msg(i, tsMs: ts)..text = text);
-        if (i == 0) await writer.settled();
-      }
-      await writer.flush();
-      ArchiveFindSource source(String q) => ArchiveFindSource.search(
-        _channel,
-        _reader(store),
-        query: q,
-        scope: ChatSearchScope.messages,
-        now: () => _t0.add(const Duration(hours: 10, minutes: 1)),
-      );
-      final rail = (await source('pog').rail(const []))!;
-      expect(rail.from.isAfter(_t0), isFalse);
-      expect(
-        rail.positionOf(_t0.add(const Duration(hours: 1))),
-        closeTo(0.5, 0.01),
-        reason: 'each match gets half; the chat-only middle gets none',
-      );
-      expect(await source('nothing').rail(const []), isNull);
-      await store.close();
-    });
-
     test('unindexed blocks are searched, then indexed', () async {
       final path = _newPath();
       final (store, _) = await fill(path);
@@ -1123,8 +1088,8 @@ void main() {
         writer.add(_channel, _msg(i));
       }
       await writer.flush();
-      await store.addEdit(_channel, _id(1), ArchiveEdit.remove);
-      await store.addEdit(_channel, _id(2), ArchiveEdit.deleted);
+      await store.addEdits(_channel, [_id(1)], ArchiveEdit.remove);
+      await store.addEdits(_channel, [_id(2)], ArchiveEdit.deleted);
 
       final rows = await _reader(store).newestRows(_channel, 100);
       expect(
@@ -1149,10 +1114,10 @@ void main() {
         writer.add(_channel, _msg(i));
       }
       await writer.flush();
-      await store.addEdit(_channel, _id(1), ArchiveEdit.remove);
-      await store.addEdit(_channel, _id(2), ArchiveEdit.deleted);
+      await store.addEdits(_channel, [_id(1)], ArchiveEdit.remove);
+      await store.addEdits(_channel, [_id(2)], ArchiveEdit.deleted);
       // An id no block holds must not keep the table alive.
-      await store.addEdit(_channel, _id(99), ArchiveEdit.deleted);
+      await store.addEdits(_channel, [_id(99)], ArchiveEdit.deleted);
 
       final counts = [
         for (final b in await store.newestBlocks(_channel, 100)) b.count,
@@ -1202,7 +1167,7 @@ void main() {
       final writer = _writer(store);
       writer.add(_channel, _msg(0));
       await writer.flush();
-      await store.addEdit(_channel, _id(99), ArchiveEdit.deleted);
+      await store.addEdits(_channel, [_id(99)], ArchiveEdit.deleted);
 
       expect(
         await store.bakeEdits(held: (_) => {_id(99)}),
@@ -1240,7 +1205,7 @@ void main() {
       writer.add(_channel, _msg(1));
       // Let the seal reach the encoder, so the rows live only in the seal.
       await Future<void>.delayed(Duration.zero);
-      await writer.recordEdit(_channel, _id(1), ArchiveEdit.deleted);
+      await writer.recordEdits(_channel, [_id(1)], ArchiveEdit.deleted);
       expect(
         await store.edits(_channel),
         hasLength(1),
@@ -1264,8 +1229,8 @@ void main() {
         writer.add(_channel, _msg(i));
       }
       await writer.settled();
-      await writer.recordEdit(_channel, _id(1), ArchiveEdit.remove);
-      await writer.recordEdit(_channel, _id(2), ArchiveEdit.deleted);
+      await writer.recordEdits(_channel, [_id(1)], ArchiveEdit.remove);
+      await writer.recordEdits(_channel, [_id(2)], ArchiveEdit.deleted);
       expect(
         [for (final m in writer.unsealed(_channel)) m.messageId],
         [_id(0), _id(2)],
@@ -1298,7 +1263,7 @@ void main() {
       await db.close();
 
       store = await _open(path);
-      await store.addEdit(_channel, _id(0), ArchiveEdit.deleted);
+      await store.addEdits(_channel, [_id(0)], ArchiveEdit.deleted);
       final rows = await _reader(store).newestRows(_channel, 10);
       expect(rows.single.deleted, isTrue, reason: 'the migrated table works');
       await store.close();

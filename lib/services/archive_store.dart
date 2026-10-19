@@ -744,11 +744,6 @@ class ArchiveStore {
     _moderated[channel] = Future.value(true);
   }
 
-  /// Records an edit of the row [messageId]: drop it or mark it deleted.
-  /// A later kind for the same id replaces the earlier one.
-  Future<void> addEdit(String channel, String messageId, ArchiveEdit edit) =>
-      addEdits(channel, [messageId], edit);
-
   /// Records an edit of every id in [messageIds] in one transaction.
   Future<void> addEdits(
     String channel,

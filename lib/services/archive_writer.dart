@@ -150,13 +150,6 @@ class ArchiveWriter {
     }
   }
 
-  /// Applies an edit to [messageId]: a row still parked or in the tail changes
-  /// there; a row already sealed gets a store edit for a read or upkeep to
-  /// apply. [recordEdits] writes the whole batch in one transaction. Never
-  /// blocks the caller.
-  Future<void> recordEdit(String channel, String messageId, ArchiveEdit edit) =>
-      recordEdits(channel, [messageId], edit);
-
   /// Records an edit of every id in [messageIds]. Ids the writer still holds
   /// change in place; the rest are written to the store in one transaction.
   Future<void> recordEdits(

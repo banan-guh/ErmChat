@@ -65,7 +65,8 @@ abstract interface class HistorySource {
   /// Broadcasts over the retained range, oldest first.
   Future<List<HistoryStream>> streams();
 
-  /// The rail over the retained range, or null when nothing is retained.
+  /// The days rail over the retained range, or null when nothing is
+  /// retained or the source has none.
   Future<ActivityRail?> rail(List<HistoryStream> streams);
 
   /// Calls [onClear] for each delete that lands after rows were read: rows
@@ -231,14 +232,6 @@ List<HistoryMarker> markersBefore({
   return out;
 }
 
-/// A run of the rail, as positions from 0 (oldest) to 1 (newest).
-class RailSpan {
-  const RailSpan(this.start, this.end);
-
-  final double start;
-  final double end;
-}
-
 /// Maps a time range onto a 0..1 rail position, oldest at 0.
 abstract interface class RailScale {
   DateTime get from;
@@ -249,43 +242,6 @@ abstract interface class RailScale {
 
   /// Time at rail position [p], clamped to the range.
   DateTime timeAt(double p);
-}
-
-/// Plain time from [from] to [to]: equal time, equal length.
-class TimeWindow implements RailScale {
-  TimeWindow(this.from, this.to)
-    : _ms = math.max(1, to.difference(from).inMilliseconds);
-
-  /// [length] of time around [t] (or all of [from]..[to] when shorter),
-  /// kept inside [from]..[to].
-  factory TimeWindow.around(
-    DateTime t,
-    Duration length,
-    DateTime from,
-    DateTime to,
-  ) {
-    if (to.difference(from) <= length) return TimeWindow(from, to);
-    var start = t.subtract(length ~/ 2);
-    if (start.isBefore(from)) start = from;
-    if (start.add(length).isAfter(to)) start = to.subtract(length);
-    return TimeWindow(start, start.add(length));
-  }
-
-  @override
-  final DateTime from;
-  @override
-  final DateTime to;
-  final int _ms;
-
-  bool contains(DateTime t) => !t.isBefore(from) && !t.isAfter(to);
-
-  @override
-  double positionOf(DateTime t) =>
-      (t.difference(from).inMilliseconds / _ms).clamp(0.0, 1.0);
-
-  @override
-  DateTime timeAt(double p) =>
-      from.add(Duration(milliseconds: (p.clamp(0.0, 1.0) * _ms).round()));
 }
 
 /// A stretch of an [ActivityRail] weighted by activity; see
@@ -319,11 +275,8 @@ class _ActivityWindow implements RailScale {
 typedef RailDay = ({DateTime start, int day, int count});
 
 /// Message counts per bucket over the retained range, with the streams in
-/// it. As a [RailScale] it gives each message equal length and empty time
-/// none, like a plain scrollbar over a results list; a [calendar] rail is
-/// shown over time instead (see [TimeWindow]) with a month of days beside
 /// it. Built once per list; lookups are O(1) or O(log n).
-class ActivityRail implements RailScale {
+class ActivityRail {
   ActivityRail({
     required this.from,
     required this.to,
@@ -331,10 +284,8 @@ class ActivityRail implements RailScale {
     required List<int> counts,
     this.streams = const [],
     this.local = _deviceLocal,
-    this.calendar = true,
   }) : _bucketMs = bucket.inMilliseconds,
        _n = counts.length {
-    final cum = Float64List(_n + 1);
     final sums = Int64List(_n + 1);
     final weights = Float64List(_n + 1);
     var sum = 0;
@@ -347,12 +298,6 @@ class ActivityRail implements RailScale {
       weights[i + 1] = weight;
     }
     _weights = weights;
-    final total = sum == 0 ? 1 : sum;
-    for (var i = 0; i <= _n; i++) {
-      cum[i] = sums[i] / total;
-    }
-    cum[_n] = 1;
-    _cum = cum;
     _sums = sums;
   }
 
@@ -362,20 +307,14 @@ class ActivityRail implements RailScale {
   /// Weight of an empty bucket in [window], against 1 for one message.
   static const double gapWeight = 0.05;
 
-  @override
   final DateTime from;
-  @override
   final DateTime to;
   final Duration bucket;
   final List<HistoryStream> streams;
   final LocalTime local;
 
-  /// Shown as a calendar: a time window plus a month of days. Otherwise the
-  /// rail is its own scale.
-  final bool calendar;
   final int _bucketMs;
   final int _n;
-  late final Float64List _cum;
 
   /// _sums[i] holds the messages before bucket i.
   late final Int64List _sums;
@@ -391,35 +330,6 @@ class ActivityRail implements RailScale {
     final i = _indexOf(a).clamp(0, _n);
     final j = _indexOf(b).clamp(0, _n);
     return j > i ? _sums[j] - _sums[i] : 0;
-  }
-
-  @override
-  double positionOf(DateTime t) {
-    final ms = t.difference(from).inMilliseconds;
-    if (ms <= 0) return 0;
-    final i = ms ~/ _bucketMs;
-    if (i >= _n) return 1;
-    final frac = (ms - i * _bucketMs) / _bucketMs;
-    return _cum[i] + (_cum[i + 1] - _cum[i]) * frac;
-  }
-
-  @override
-  DateTime timeAt(double p) {
-    if (p <= 0) return from;
-    if (p >= 1) return to;
-    var lo = 0;
-    var hi = _n;
-    while (hi - lo > 1) {
-      final mid = (lo + hi) >> 1;
-      if (_cum[mid] <= p) {
-        lo = mid;
-      } else {
-        hi = mid;
-      }
-    }
-    final span = _cum[lo + 1] - _cum[lo];
-    final frac = span <= 0 ? 0.0 : (p - _cum[lo]) / span;
-    return from.add(Duration(milliseconds: ((lo + frac) * _bucketMs).round()));
   }
 
   /// [from]..[to] weighted by activity: each bucket as long as

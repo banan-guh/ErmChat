@@ -33,7 +33,7 @@ class ArchiveWindowBlock {
   final List<TwitchMessage> rows;
 }
 
-/// Rows per minute for the scrubber and waveforms.
+/// Rows per minute for the days waveforms.
 class MinuteCount {
   const MinuteCount(this.minute, this.count);
 
@@ -85,12 +85,6 @@ bool _rowMatches(ArchiveRow r, ArchiveRowFilter f) =>
     (f.fromMs == null || r.timestampMs >= f.fromMs!) &&
     (f.toMs == null || r.timestampMs <= f.toMs!) &&
     (f.states.contains(r.user) || f.texts.any(r.text.toLowerCase().contains));
-
-/// Times (epoch ms) of the rows in [blocks] [keep] accepts.
-List<int> matchTimes(List<Uint8List> blocks, ArchiveRowFilter keep) => [
-  for (final rows in decodeBlocks(blocks, keep))
-    for (final r in rows ?? const <ArchiveRow>[]) r.timestampMs,
-];
 
 /// What an archive lookup decodes: blocks holding every word of one of
 /// [texts] (as substrings of indexed words), or a row by a chatter
@@ -521,38 +515,6 @@ class ArchiveReader {
         : unique.sublist(0, limit);
   }
 
-  /// Times (epoch ms, in no order) of the rows [terms] describes: chat rows whose
-  /// text holds one of its texts, or whose sender it accepts. Decodes every
-  /// allowed block and matches off the UI isolate, so it skips [test]
-  /// (unsealed rows aside) and the moderation [find] applies; close enough
-  /// for a scrollbar.
-  Future<List<int>> findTimes(
-    ArchiveTerms terms,
-    bool Function(TwitchMessage m) test, {
-    List<String>? channels,
-  }) async {
-    final store = await _store;
-    if (store == null) return const [];
-    final names = channels ?? await store.channels();
-    final blocks = await _candidates(store, names, terms);
-    final out = <int>[];
-    for (final c in {for (final b in blocks) b.channel}) {
-      final keep = await _filter(store, c, terms);
-      final stored = await store.blocksByKey([
-        for (final b in blocks)
-          if (b.channel == c) b.id,
-      ]);
-      final data = [for (final b in stored) b.data];
-      out.addAll(await _matchTimesOffIsolate(data, keep));
-    }
-    for (final c in names) {
-      for (final m in unsealed(c)) {
-        if (test(m)) out.add(m.timestamp.millisecondsSinceEpoch);
-      }
-    }
-    return out;
-  }
-
   static int? _bound(int? a, int? b, int Function(int, int) pick) =>
       a == null ? b : (b == null ? a : pick(a, b));
 
@@ -583,12 +545,6 @@ class ArchiveReader {
       },
     );
   }
-
-  /// A static hop, so the isolate closure captures only its arguments.
-  static Future<List<int>> _matchTimesOffIsolate(
-    List<Uint8List> blocks,
-    ArchiveRowFilter keep,
-  ) => Isolate.run(() => matchTimes(blocks, keep));
 
   /// Blocks of [channels] that may hold rows [terms] looks for.
   Future<List<({String channel, int id, int start, int end})>> _candidates(

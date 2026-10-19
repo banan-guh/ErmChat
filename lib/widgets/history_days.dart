@@ -55,8 +55,7 @@ class HistoryDays extends StatefulWidget {
   final bool glass;
 
   /// Whether [rail] has days to pick from.
-  static bool hasDays(ActivityRail rail) =>
-      rail.calendar && rail.days.isNotEmpty;
+  static bool hasDays(ActivityRail rail) => rail.days.isNotEmpty;
 
   @override
   State<HistoryDays> createState() => _HistoryDaysState();

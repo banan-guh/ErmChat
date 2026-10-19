@@ -25,6 +25,9 @@ void main() {
     bool keyboardHidesButtons = false,
     Widget? bottomBar,
     Widget? islandFooter,
+    TextEditingController? text,
+    int maxLines = 1,
+    void Function(BuildContext body)? onBodyBuild,
   }) {
     return tester.pumpWidget(
       MaterialApp(
@@ -36,7 +39,13 @@ void main() {
             onKeyboardDismissed: dismissUnfocuses ? focus.unfocus : null,
             bodyReadsKeyboard: bodyReadsKeyboard,
             composer: showComposer
-                ? TextField(key: const Key('message_input'), focusNode: focus)
+                ? TextField(
+                    key: const Key('message_input'),
+                    controller: text,
+                    focusNode: focus,
+                    minLines: 1,
+                    maxLines: maxLines,
+                  )
                 : null,
             bottomBar: bottomBar,
             islandFooter: islandFooter,
@@ -50,7 +59,13 @@ void main() {
                   required composerH,
                 }) {
                   keyboardHs?.add(keyboardH);
-                  return const SizedBox.expand();
+                  if (onBodyBuild == null) return const SizedBox.expand();
+                  return Builder(
+                    builder: (inner) {
+                      onBodyBuild(inner);
+                      return const SizedBox.expand();
+                    },
+                  );
                 },
             threadPanel: const SizedBox.shrink(),
             mentionsPanel: const SizedBox.shrink(),
@@ -661,46 +676,16 @@ void main() {
     final focus = FocusNode();
     addTearDown(text.dispose);
     addTearDown(focus.dispose);
-    await tester.pumpWidget(
-      MaterialApp(
-        home: Scaffold(
-          body: ChatBody(
-            liquidGlass: false,
-            emoteMaxFraction: 0.5,
-            composer: TextField(
-              key: const Key('message_input'),
-              controller: text,
-              focusNode: focus,
-              minLines: 1,
-              maxLines: 6,
-            ),
-            bottomBar: const SizedBox(height: 48),
-            bodyBuilder:
-                (
-                  context, {
-                  required hideChromeForKeyboard,
-                  required maxWidth,
-                  required maxHeight,
-                  required keyboardH,
-                  required composerH,
-                }) => Builder(
-                  builder: (inner) {
-                    clearance =
-                        GlassChromeScope.maybeOf(inner)?.clearanceFor(null) ??
-                        0;
-                    return const SizedBox.expand();
-                  },
-                ),
-            threadPanel: const SizedBox.shrink(),
-            mentionsPanel: const SizedBox.shrink(),
-            modViewPanel: const SizedBox.shrink(),
-            emotePickerBuilder:
-                (_, {required sheetBoxHeight, required inset}) =>
-                    const SizedBox.shrink(),
-            autocomplete: const SizedBox.shrink(),
-          ),
-        ),
-      ),
+    await pumpBody(
+      tester,
+      liquidGlass: false,
+      focus: focus,
+      text: text,
+      maxLines: 6,
+      bottomBar: const SizedBox(height: 48),
+      onBodyBuild: (inner) {
+        clearance = GlassChromeScope.maybeOf(inner)?.clearanceFor(null) ?? 0;
+      },
     );
     await tester.pumpAndSettle();
     final screenH =
@@ -738,47 +723,17 @@ void main() {
     final focus = FocusNode();
     addTearDown(text.dispose);
     addTearDown(focus.dispose);
-    await tester.pumpWidget(
-      MaterialApp(
-        home: Scaffold(
-          body: ChatBody(
-            liquidGlass: false,
-            keyboardHidesButtons: true,
-            emoteMaxFraction: 0.5,
-            composer: TextField(
-              key: const Key('message_input'),
-              controller: text,
-              focusNode: focus,
-              minLines: 1,
-              maxLines: 6,
-            ),
-            bottomBar: const SizedBox(height: 48),
-            bodyBuilder:
-                (
-                  context, {
-                  required hideChromeForKeyboard,
-                  required maxWidth,
-                  required maxHeight,
-                  required keyboardH,
-                  required composerH,
-                }) => Builder(
-                  builder: (inner) {
-                    clearance =
-                        GlassChromeScope.maybeOf(inner)?.clearanceFor(null) ??
-                        0;
-                    return const SizedBox.expand();
-                  },
-                ),
-            threadPanel: const SizedBox.shrink(),
-            mentionsPanel: const SizedBox.shrink(),
-            modViewPanel: const SizedBox.shrink(),
-            emotePickerBuilder:
-                (_, {required sheetBoxHeight, required inset}) =>
-                    const SizedBox.shrink(),
-            autocomplete: const SizedBox.shrink(),
-          ),
-        ),
-      ),
+    await pumpBody(
+      tester,
+      liquidGlass: false,
+      focus: focus,
+      text: text,
+      maxLines: 6,
+      keyboardHidesButtons: true,
+      bottomBar: const SizedBox(height: 48),
+      onBodyBuild: (inner) {
+        clearance = GlassChromeScope.maybeOf(inner)?.clearanceFor(null) ?? 0;
+      },
     );
     await tester.pumpAndSettle();
     double fieldGap() =>

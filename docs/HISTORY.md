@@ -106,7 +106,7 @@ Rules:
 - Tables: `blocks(channel, start_ts, end_ts, count, data BLOB)` keyed for time seeks,
   `users`, `looks`, `ref_ids` (referenced message ids), `streams` (stream id, channel,
   started_at, ended_at, title, game, vod id), `minute_counts(channel, minute, count)`
-  for the scrubber and waveforms, `pins` (pinned days), and the saved thread tables
+  for the days waveforms, `pins` (pinned days), and the saved thread tables
   (`saved_threads`, `thread_messages`).
 - Package: see Open questions.
 

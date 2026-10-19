@@ -1,5 +1,3 @@
-import 'dart:math';
-
 import 'package:clock/clock.dart';
 
 import '../models/twitch_message.dart';
@@ -90,8 +88,7 @@ class ArchiveHistorySource implements HistorySource {
 
 /// [HistorySource] over the archived rows passing [test] in [channels]
 /// (every channel when null), so the history list pages through matches
-/// like through chat. The rail shows where matches lie; streams are left
-/// out.
+/// like through chat. Streams and the rail are left out.
 class ArchiveFindSource implements HistorySource {
   ArchiveFindSource(
     this.reader,
@@ -163,38 +160,8 @@ class ArchiveFindSource implements HistorySource {
   @override
   Future<List<HistoryStream>> streams() async => const [];
 
-  /// Gives every match an equal share of the rail, like a plain scrollbar
-  /// over the results.
   @override
-  Future<ActivityRail?> rail(List<HistoryStream> streams) async {
-    final times = await reader.findTimes(terms, test, channels: channels);
-    if (times.isEmpty) return null;
-    // Twitch's clock can run ahead of the phone's, so a match may land
-    // after now; the rail then ends at the match.
-    final now = _now().toUtc();
-    final last = times.reduce(max);
-    final to = last > now.millisecondsSinceEpoch
-        ? DateTime.fromMillisecondsSinceEpoch(last, isUtc: true)
-        : now;
-    const bucket = ActivityRail.defaultBucket;
-    final ms = bucket.inMilliseconds;
-    final first = times.reduce(min) ~/ ms * ms;
-    final from = DateTime.fromMillisecondsSinceEpoch(first, isUtc: true);
-    final buckets = List<int>.filled(
-      (to.millisecondsSinceEpoch - first) ~/ ms + 2,
-      0,
-    );
-    for (final t in times) {
-      buckets[((t - first) ~/ ms).clamp(0, buckets.length - 1)]++;
-    }
-    return ActivityRail(
-      from: from,
-      to: to,
-      bucket: bucket,
-      counts: buckets,
-      calendar: false,
-    );
-  }
+  Future<ActivityRail?> rail(List<HistoryStream> streams) async => null;
 
   @override
   void Function() watchClears(void Function(HistoryClear clear) onClear) =>

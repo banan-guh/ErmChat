@@ -206,35 +206,6 @@ void main() {
       local: fixedOffset(0),
     );
 
-    test('maps time to the rail and back', () {
-      expect(rail.positionOf(from), 0);
-      expect(rail.positionOf(to), 1);
-      // Empty days have no length, so only busy minutes round trip.
-      for (final min in [0, 7, 130, 1000, 4400, 5000, 5759]) {
-        final t = from.add(Duration(minutes: min));
-        final back = rail.timeAt(rail.positionOf(t));
-        expect(
-          back.difference(t).inSeconds.abs(),
-          lessThanOrEqualTo(1),
-          reason: 'round trip drifted at minute $min',
-        );
-      }
-      var last = -1.0;
-      for (var min = 0; min < 5760; min += 37) {
-        final p = rail.positionOf(from.add(Duration(minutes: min)));
-        expect(p, greaterThanOrEqualTo(last), reason: 'not monotonic');
-        last = p;
-      }
-    });
-
-    test('each message gets equal length, empty time none', () {
-      expect(rail.positionOf(from.add(day)), closeTo(20 / 22, 1e-9));
-      expect(
-        rail.positionOf(from.add(day * 3)),
-        closeTo(rail.positionOf(from.add(day)), 1e-9),
-      );
-    });
-
     test('days split at local midnight with their counts', () {
       expect([for (final d in rail.days) d.count], [5760, 0, 0, 576]);
       expect(rail.days[1].start, from.add(day));
@@ -257,17 +228,6 @@ void main() {
           reason: 'round trip drifted at minute $min',
         );
       }
-    });
-
-    test('a window around a time stays inside the range', () {
-      final w = TimeWindow.around(to, day * 2, from, to);
-      expect(w.to, to);
-      expect(w.from, to.subtract(day * 2));
-      final mid = TimeWindow.around(from.add(day * 2), day * 2, from, to);
-      expect(mid.from, from.add(day));
-      expect(mid.positionOf(from.add(day * 2)), 0.5);
-      final all = TimeWindow.around(from, day * 9, from, to);
-      expect([all.from, all.to], [from, to]);
     });
   });
 }

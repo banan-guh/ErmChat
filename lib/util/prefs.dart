@@ -389,9 +389,15 @@ class Prefs {
   /// Whether [key] names a preset or a custom theme that still exists.
   bool _isChromeThemeKey(String key) {
     if (ChromeTheme.values.any((t) => t.name == key)) return true;
-    if (!key.startsWith(customChromeThemePrefix)) return false;
+    return _customChromeThemeIndex(key) != null;
+  }
+
+  /// The index into [customChromeThemes] that [key] names, or null when it
+  /// names none that exists.
+  int? _customChromeThemeIndex(String key) {
+    if (!key.startsWith(customChromeThemePrefix)) return null;
     final i = int.tryParse(key.substring(customChromeThemePrefix.length));
-    return i != null && i >= 0 && i < customChromeThemes.length;
+    return i != null && i >= 0 && i < customChromeThemes.length ? i : null;
   }
 
   Future<void> setChromeThemeKey(String value) =>
@@ -411,13 +417,8 @@ class Prefs {
   /// user out of settings or the view menu.
   ChromeThemeSpec get chromeTheme {
     final key = chromeThemeKey;
-    if (key.startsWith(customChromeThemePrefix)) {
-      final i = int.tryParse(key.substring(customChromeThemePrefix.length));
-      final custom = customChromeThemes;
-      if (i != null && i >= 0 && i < custom.length) {
-        return custom[i].normalized();
-      }
-    }
+    final i = _customChromeThemeIndex(key);
+    if (i != null) return customChromeThemes[i].normalized();
     return ChromeTheme.values
         .firstWhere((t) => t.name == key, orElse: () => ChromeTheme.ermchat)
         .spec;

@@ -30,14 +30,11 @@ void main() {
     expect(spec.reachesSettings, isTrue);
     // It still needs a view path; normalizing gives it one.
     expect(spec.normalized().isUsable, isTrue);
-  });
-
-  test('an invalid UTF-8 name percent decodes to an empty name', () {
-    // %FF is not valid UTF-8, so Uri.decodeComponent throws FormatException
-    // on a crafted paste.
-    final spec = ChromeThemeSpec.decode('ermchat-theme:1;n=%FF;h=s;t=s')!;
-    expect(spec.name, isEmpty);
-    expect(spec.header, HeaderStyle.strip);
+    // %FF is not valid UTF-8, so Uri.decodeComponent throws on a crafted
+    // paste; the name decodes empty.
+    final badName = ChromeThemeSpec.decode('ermchat-theme:1;n=%FF;h=s;t=s')!;
+    expect(badName.name, isEmpty);
+    expect(badName.header, HeaderStyle.strip);
   });
 
   test('a theme is usable only with settings and a view path', () {
@@ -45,44 +42,58 @@ void main() {
       header: HeaderStyle.strip,
       stripActions: [ChromeAction.settings],
     );
-    expect(settingsOnly.isUsable, isFalse, reason: 'no view menu or overflow');
-    expect(
-      settingsOnly
-          .copyWith(
-            stripActions: [ChromeAction.settings, ChromeAction.viewMenu],
-          )
-          .isUsable,
-      isTrue,
-    );
-    expect(
-      settingsOnly
-          .copyWith(
-            stripActions: [ChromeAction.settings, ChromeAction.overflow],
-          )
-          .isUsable,
-      isTrue,
-    );
-    const viewOnly = ChromeThemeSpec(
-      header: HeaderStyle.strip,
-      stripActions: [ChromeAction.viewMenu],
-    );
-    expect(viewOnly.isUsable, isFalse, reason: 'settings unreachable');
-  });
-
-  test('blank and its presets reach settings and the view menu', () {
-    expect(ChromeThemeSpec.blank.isUsable, isTrue);
-    expect(ChromeThemeSpec.blank.normalized(), ChromeThemeSpec.blank);
-    for (final t in ChromeTheme.values) {
-      expect(t.spec.isUsable, isTrue, reason: t.name);
+    final cases = <(String, ChromeThemeSpec, bool)>[
+      ('no view menu or overflow', settingsOnly, false),
+      (
+        'settings and view menu',
+        settingsOnly.copyWith(
+          stripActions: [ChromeAction.settings, ChromeAction.viewMenu],
+        ),
+        true,
+      ),
+      (
+        'settings and overflow',
+        settingsOnly.copyWith(
+          stripActions: [ChromeAction.settings, ChromeAction.overflow],
+        ),
+        true,
+      ),
+      (
+        'settings unreachable',
+        const ChromeThemeSpec(
+          header: HeaderStyle.strip,
+          stripActions: [ChromeAction.viewMenu],
+        ),
+        false,
+      ),
+      (
+        'locked theme with no actions',
+        const ChromeThemeSpec(header: HeaderStyle.strip, stripActions: []),
+        false,
+      ),
+      ('blank', ChromeThemeSpec.blank, true),
+      for (final t in ChromeTheme.values) ('preset ${t.name}', t.spec, true),
+    ];
+    for (final (name, spec, usable) in cases) {
+      expect(spec.isUsable, usable, reason: name);
+      final fixed = spec.normalized();
+      expect(
+        fixed.isUsable,
+        isTrue,
+        reason: '$name: normalizing left it locked',
+      );
+      if (usable) {
+        expect(
+          fixed,
+          spec,
+          reason: '$name: normalizing changed a usable theme',
+        );
+      }
+      if (spec.stripActions.isEmpty) {
+        expect(fixed.places(ChromeAction.settings), isTrue, reason: name);
+        expect(fixed.places(ChromeAction.viewMenu), isTrue, reason: name);
+      }
     }
-  });
-
-  test('normalizing a locked theme restores both paths', () {
-    const locked = ChromeThemeSpec(header: HeaderStyle.strip, stripActions: []);
-    final fixed = locked.normalized();
-    expect(fixed.isUsable, isTrue);
-    expect(fixed.places(ChromeAction.settings), isTrue);
-    expect(fixed.places(ChromeAction.viewMenu), isTrue);
   });
 
   group('chromeTheme pref', () {
