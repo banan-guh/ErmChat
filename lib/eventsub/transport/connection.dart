@@ -81,7 +81,9 @@ class EventSubService {
     try {
       _ensureConnectivityListener();
       if (url != null) _reconnectAttempt = 0;
-      disconnect(emitStatus: false);
+      // A retry keeps its backoff; only a welcome or an explicit disconnect
+      // starts it over.
+      _disconnect(emitStatus: false);
       _sessionCompleter = Completer<String?>();
       _statusController.add(EventSubStatus.connecting);
 
@@ -264,6 +266,11 @@ class EventSubService {
   }
 
   void disconnect({bool emitStatus = true}) {
+    _reconnectAttempt = 0;
+    _disconnect(emitStatus: emitStatus);
+  }
+
+  void _disconnect({required bool emitStatus}) {
     _reconnecting = false;
     _reconnectTimer?.cancel();
     _reconnectTimer = null;
@@ -276,10 +283,12 @@ class EventSubService {
     _streamSub = null;
     _channel?.sink.close();
     _channel = null;
-    _reconnectAttempt = 0;
     _safeComplete(null);
     if (emitStatus) _statusController.add(EventSubStatus.disconnected);
   }
+
+  @visibleForTesting
+  int get reconnectAttempt => _reconnectAttempt;
 
   @visibleForTesting
   void handleRawMessage(Map<String, dynamic> msg) => _handleMessage(msg);
