@@ -1371,8 +1371,8 @@
   "blockTermHint": "Block a word or phrase...",
   "retryFailedEmotes": "Retry failed emotes/badges",
   "connectToChat": "Connect an account to chat",
-  "whisperUsageNotice": "Type /w <username> <message> to whisper",
-  "whisperUsageHint": "Type /w <username> <message>",
+  "whisperUsageNotice": "Start with @username to whisper someone",
+  "whisperUsageHint": "@username message",
   "whisperToHint": "Whisper to {user}...",
   "@whisperToHint": {
     "placeholders": {

@@ -266,23 +266,26 @@ class ComposerController {
     }
 
     // Whispers tab composes whispers: slash commands go through the
-    // handler, plain text replies to the latest whisper partner.
+    // handler, a leading @name addresses that user, and plain text replies
+    // to the latest whisper partner.
     if (isWhispersTabActive()) {
+      final addressed = RegExp(
+        r'^@(\w+)\s+(\S.*)$',
+        dotAll: true,
+      ).firstMatch(text);
+      final target = addressed?.group(1) ?? whisperTarget();
+      final body = addressed?.group(2) ?? text;
       if (text.startsWith('/')) {
         _lastSentText = text;
         autocompleteRevert.clear();
         messageController.clear();
         chatConn.doSendMessage(text, channel);
-      } else if (whisperTarget() != null) {
+      } else if (target != null) {
         _lastSentText = text;
         autocompleteRevert.clear();
         messageController.clear();
         unawaited(
-          commandHandler.handle(
-            '/w ${whisperTarget()} $text',
-            channel,
-            twitchAuth,
-          ),
+          commandHandler.handle('/w $target $body', channel, twitchAuth),
         );
       } else {
         showNotice(strings().whisperUsageNotice);
