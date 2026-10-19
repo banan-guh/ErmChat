@@ -96,6 +96,7 @@ class Setting {
     'theme_builder' => l.settingThemeBuilder,
     'keyboard_buttons' => l.settingKeyboardButtons,
     'chat_font_size' => l.settingChatFontSize,
+    'chat_font_weight' => l.settingChatFontWeight,
     'show_timestamps' => l.settingShowTimestamps,
     'timestamp_format' => l.settingTimestampFormat,
     'checkered' => l.settingCheckered,
@@ -125,6 +126,7 @@ class Setting {
     'image_height' => l.settingImageHeight,
     'notifications' => l.settingNotifications,
     'whisper_push' => l.settingWhisperPush,
+    'mention_foreground' => l.settingMentionForeground,
     'my_username' => l.settingMyUsername,
     'replies_to_me' => l.settingRepliesToMe,
     'threads_im_in' => l.settingThreadsImIn,
@@ -280,6 +282,13 @@ class Setting {
     SettingsPageId.appearance,
     section: 'Chat display',
     keywords: 'text',
+  );
+  static const chatFontWeight = Setting(
+    'chat_font_weight',
+    'Chat font weight',
+    SettingsPageId.appearance,
+    section: 'Chat display',
+    keywords: 'text bold thickness',
   );
   static const showTimestamps = Setting(
     'show_timestamps',
@@ -485,6 +494,14 @@ class Setting {
     SettingsPageId.highlights,
     section: 'Mentions',
     keywords: 'notify push dm',
+    visible: _notIos,
+  );
+  static const mentionForeground = Setting(
+    'mention_foreground',
+    'Notify while app is open',
+    SettingsPageId.highlights,
+    section: 'Mentions',
+    keywords: 'ping push foreground',
     visible: _notIos,
   );
   static const myUsername = Setting(
@@ -731,6 +748,7 @@ class Setting {
     themeBuilder,
     liquidGlass,
     chatFontSize,
+    chatFontWeight,
     showTimestamps,
     timestampFormat,
     checkered,
@@ -761,6 +779,7 @@ class Setting {
     imageHeight,
     notifications,
     whisperPush,
+    mentionForeground,
     myUsername,
     repliesToMe,
     threadsImIn,

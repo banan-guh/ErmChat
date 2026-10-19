@@ -48,6 +48,10 @@ class MessageBuilder {
   /// Inline image preview max height at textScale 1.0.
   double imageHeight;
 
+  /// Weight of chat body text. Rows read it; spans carry no weight, so it
+  /// stays out of the cache key.
+  FontWeight fontWeight = FontWeight.w400;
+
   /// Whether a double tap on a name copies it. Off opens the user card on
   /// the first tap instead of waiting out the double-tap window.
   bool doubleTapNameCopy = false;

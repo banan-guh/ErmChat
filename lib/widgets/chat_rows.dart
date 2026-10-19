@@ -100,6 +100,7 @@ class ChatRows {
       channel: tileChannel,
       surface: surface,
       textScale: scale,
+      fontWeight: messageBuilder.fontWeight,
       showTimestamp: showTimestamp,
       timestampFormat: timestampFormat,
       buildBadgeSpans: messageBuilder.buildBadgeSpans,

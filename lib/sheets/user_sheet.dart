@@ -482,6 +482,7 @@ class UserSheets {
             MediaQuery.textScalerOf(context).scale(1.0) *
             prefs.chatFontSize /
             14.0,
+        fontWeight: messageBuilder.fontWeight,
         buildBadgeSpans: messageBuilder.buildBadgeSpans,
         buildMessageSpans: messageBuilder.buildMessageSpans,
         bodyIsCached: messageBuilder.bodyIsCached,

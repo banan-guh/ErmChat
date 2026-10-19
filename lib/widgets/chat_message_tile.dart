@@ -19,6 +19,7 @@ class ChatMessageTile extends StatefulWidget {
   final String channel;
   final Color surface;
   final double textScale;
+  final FontWeight fontWeight;
   final List<WidgetSpan> Function(
     String channel,
     TwitchMessage msg, {
@@ -85,6 +86,7 @@ class ChatMessageTile extends StatefulWidget {
     required this.channel,
     required this.surface,
     required this.textScale,
+    this.fontWeight = FontWeight.w400,
     required this.buildBadgeSpans,
     required this.buildMessageSpans,
     required this.bodyIsCached,
@@ -413,7 +415,9 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
           : '${msg.formattedUsername}: ';
       final nameStyle = TextStyle(
         fontSize: 14 * s,
-        fontWeight: FontWeight.w500,
+        fontWeight: widget.fontWeight.value > 500
+            ? widget.fontWeight
+            : FontWeight.w500,
         decoration: TextDecoration.none,
       );
       final usernameColor = parseColor(msg.color, background: widget.surface);
@@ -496,6 +500,7 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
     );
     final bodyTextStyle = TextStyle(
       fontSize: 14 * s,
+      fontWeight: widget.fontWeight,
       color: msg.isSystem
           ? theme.colorScheme.onSurfaceVariant
           : theme.colorScheme.onSurface,

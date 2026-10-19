@@ -817,6 +817,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     if (!mounted) return;
     ref.read(mentionPushProvider.notifier).set(mentionPush);
     ref
+        .read(mentionForegroundProvider.notifier)
+        .set(prefs.mentionNotifyForeground);
+    ref
         .read(notificationPauseProvider.notifier)
         .restore(prefs.notificationsPausedUntil);
     setState(() {
@@ -1402,6 +1405,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
         _showTimestamps != prefs.showTimestamps ||
         _timestampFormat != prefs.timestampFormat ||
         _chatFontSize != prefs.chatFontSize ||
+        _messageBuilder.fontWeight.value != prefs.chatFontWeight ||
         _highlightOpacity != prefs.highlightOpacity ||
         _checkeredMessages != prefs.checkeredMessages ||
         _lineSeparator != prefs.lineSeparator ||
@@ -1434,6 +1438,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
             .read(recentMessagesLimitProvider.notifier)
             .set(prefs.recentMessagesLimit);
         ref.read(sharedChatModeProvider.notifier).set(prefs.sharedChatMode);
+        ref
+            .read(mentionForegroundProvider.notifier)
+            .set(prefs.mentionNotifyForeground);
       }
       _replyToRoot = prefs.replyToThreadRoot;
       _preferEmotesFirst = prefs.preferEmotesFirst;
@@ -1461,6 +1468,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       _messageBuilder.ffzEffects = prefs.ffzEffects;
       _messageBuilder.bttvModifiers = prefs.bttvModifiers;
       _messageBuilder.doubleTapNameCopy = prefs.doubleTapNameCopy;
+      _messageBuilder.fontWeight = FontWeight.values.firstWhere(
+        (w) => w.value == prefs.chatFontWeight,
+        orElse: () => FontWeight.w400,
+      );
     }
 
     if (initial) {

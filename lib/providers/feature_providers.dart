@@ -184,8 +184,9 @@ final commandHandlerProvider = Provider<CommandHandler>((ref) {
 });
 
 /// Routes a mention ping to the notification service when mention push is on
-/// and the app is backgrounded. Owns the ping dedup set (shared-chat mirrors a
-/// message under a different room-local id but the same source id).
+/// and the app is backgrounded, or foreground when opted in. Owns the ping
+/// dedup set (shared-chat mirrors a message under a different room-local id
+/// but the same source id).
 class MentionNotifier {
   MentionNotifier(this._ref);
 
@@ -195,7 +196,12 @@ class MentionNotifier {
   void handle(String channel, TwitchMessage msg) {
     if (!_ref.read(mentionPushProvider)) return;
     if (_ref.read(notificationPauseProvider.notifier).paused) return;
-    if (!_ref.read(backgroundedProvider)) return;
+    if (!_ref.read(backgroundedProvider)) {
+      if (!_ref.read(mentionForegroundProvider)) return;
+      // The user is already reading the channel on screen.
+      final shown = _ref.read(selectedChannelProvider);
+      if (shown != null && shown.toLowerCase() == channel.toLowerCase()) return;
+    }
     if (msg.isHistory) return;
     // Per-rule opt-in: only rules with "notify" enabled may buzz.
     if (!(msg.highlight?.notify ?? false)) return;

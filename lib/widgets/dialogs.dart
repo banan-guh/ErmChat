@@ -65,7 +65,7 @@ Future<T?> showChoiceDialog<T>(
                 RadioListTile<T>(
                   value: val,
                   title: Text(label),
-                  subtitle: Text(sub),
+                  subtitle: sub.isEmpty ? null : Text(sub),
                 ),
             ],
           ),

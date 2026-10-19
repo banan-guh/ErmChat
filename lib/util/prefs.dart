@@ -111,6 +111,7 @@ class Prefs {
   static const _kMentionPush = 'mention_push';
   static const _kNotificationsPausedUntil = 'notifications_paused_until';
   static const _kWhisperNotifications = 'whisper_notifications';
+  static const _kMentionNotifyForeground = 'mention_notify_foreground';
   static const _kPreferEmotesFirst = 'prefer_emotes_first';
   static const _kDoubleTapNameCopy = 'double_tap_name_copy';
   static const _kSharedChatMode = 'shared_chat_mode';
@@ -167,6 +168,12 @@ class Prefs {
   Future<void> setNotificationsPausedUntil(int? value) => value == null
       ? _p.remove(_kNotificationsPausedUntil)
       : _p.setInt(_kNotificationsPausedUntil, value);
+
+  bool get mentionNotifyForeground =>
+      _p.getBool(_kMentionNotifyForeground) ?? false;
+
+  Future<void> setMentionNotifyForeground(bool value) =>
+      _p.setBool(_kMentionNotifyForeground, value);
 
   bool get whisperNotifications => _p.getBool(_kWhisperNotifications) ?? false;
 
@@ -306,6 +313,7 @@ class Prefs {
 
   // ── Customization ───────────────────────────────────────────────────
   static const _kChatFontSize = 'chat_font_size';
+  static const _kChatFontWeight = 'chat_font_weight';
   static const _kHighlightOpacity = 'highlight_opacity';
   static const _kCheckeredMessages = 'checkered_messages';
   static const _kLineSeparator = 'line_separator';
@@ -315,6 +323,12 @@ class Prefs {
 
   Future<void> setChatFontSize(double value) =>
       _p.setDouble(_kChatFontSize, value);
+
+  /// Chat body weight as a CSS value: 400, 500, 600 or 700.
+  int get chatFontWeight => _p.getInt(_kChatFontWeight) ?? 400;
+
+  Future<void> setChatFontWeight(int value) =>
+      _p.setInt(_kChatFontWeight, value);
 
   double get highlightOpacity => _p.getDouble(_kHighlightOpacity) ?? 0.6;
 

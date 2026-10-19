@@ -121,6 +121,20 @@ final mentionPushProvider = NotifierProvider<MentionPushNotifier, bool>(
   MentionPushNotifier.new,
 );
 
+/// Whether mentions notify while the app is open. Mirrors the pref;
+/// [HomeScreen] applies it on load and on every prefs change.
+class MentionForegroundNotifier extends Notifier<bool> {
+  @override
+  bool build() => false;
+
+  void set(bool value) => state = value;
+}
+
+final mentionForegroundProvider =
+    NotifierProvider<MentionForegroundNotifier, bool>(
+      MentionForegroundNotifier.new,
+    );
+
 /// When muted notifications come back, or null when they aren't muted.
 /// Rules keep their notify setting; a mute only silences them.
 class NotificationPauseNotifier extends Notifier<DateTime?> {

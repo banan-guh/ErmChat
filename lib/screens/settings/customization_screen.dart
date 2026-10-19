@@ -178,6 +178,29 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
     setState(() {});
   }
 
+  int get _fontWeight => _prefs?.chatFontWeight ?? 400;
+
+  Future<void> _pickFontWeight() async {
+    final l = context.l10n;
+    final selected = await showChoiceDialog<int>(
+      context,
+      title: Setting.chatFontWeight.titleOf(l),
+      value: _fontWeight,
+      options: [
+        (400, l.fontWeightNormal, ''),
+        (500, l.fontWeightMedium, ''),
+        (600, l.fontWeightSemibold, ''),
+        (700, l.fontWeightBold, ''),
+      ],
+    );
+    if (selected == null || selected == _fontWeight) return;
+    final prefs = _prefs ?? await Prefs.load();
+    await prefs.setChatFontWeight(selected);
+    PrefsStore.instance.notifyChanged();
+    if (!mounted) return;
+    setState(() {});
+  }
+
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
@@ -330,6 +353,20 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
               defaultValue: 14,
               read: (p) => p.chatFontSize,
               write: (p, v) => p.setChatFontSize(v),
+            ),
+          ),
+          SettingAnchor(
+            Setting.chatFontWeight,
+            child: SettingsNavTile(
+              icon: Icons.format_bold,
+              title: Setting.chatFontWeight.titleOf(context.l10n),
+              subtitle: switch (_fontWeight) {
+                500 => context.l10n.fontWeightMedium,
+                600 => context.l10n.fontWeightSemibold,
+                700 => context.l10n.fontWeightBold,
+                _ => context.l10n.fontWeightNormal,
+              },
+              onTap: _pickFontWeight,
             ),
           ),
           SettingAnchor(

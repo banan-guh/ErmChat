@@ -453,6 +453,20 @@ class _PingsScreenState extends ConsumerState<PingsScreen> {
           .map((r) => _tile(r, paused)),
     if (_pushSupported)
       SettingAnchor(
+        Setting.mentionForeground,
+        child: _blockedTap(
+          pushOn ? null : _masterOffSnack,
+          PrefsSwitchTile(
+            secondary: const Icon(Icons.notifications_active_outlined),
+            title: Setting.mentionForeground.titleOf(context.l10n),
+            enabled: pushOn,
+            read: (p) => p.mentionNotifyForeground,
+            write: (p, v) => p.setMentionNotifyForeground(v),
+          ),
+        ),
+      ),
+    if (_pushSupported)
+      SettingAnchor(
         Setting.whisperPush,
         child: _blockedTap(
           !_keepAlive
