@@ -164,6 +164,27 @@ void main() {
     });
   }
 
+  testWidgets('render side column', (tester) async {
+    await boot(tester, {'layout_density': 'compact'});
+    await openEditor(tester);
+    // Compact keeps send in the field, so the column needs it off.
+    await tester.tap(find.text('Hide row while typing'));
+    await tester.pump(const Duration(milliseconds: 300));
+    final send = find.byIcon(Icons.send).first;
+    final gesture = await tester.startGesture(tester.getCenter(send));
+    await tester.pump(const Duration(milliseconds: 250));
+    final island = tester.getRect(find.byKey(const Key('bottom_chrome_bar')));
+    await gesture.moveTo(Offset(island.right - 20, island.top));
+    await tester.pump(const Duration(milliseconds: 100));
+    final right = tester.view.physicalSize.width / tester.view.devicePixelRatio;
+    await gesture.moveTo(Offset(right - 34, island.center.dy - 30));
+    await _shot(tester, 'side_drag', settle: const Duration(milliseconds: 50));
+    await gesture.up();
+    await tester.pump(const Duration(milliseconds: 400));
+    await _shot(tester, 'side_placed');
+    await tester.pump(const Duration(seconds: 30));
+  });
+
   final scenarios = <String, Map<String, Object>>{
     'compact': {'layout_density': 'compact'},
     'compact_glass': {'layout_density': 'compact', 'liquid_glass': true},

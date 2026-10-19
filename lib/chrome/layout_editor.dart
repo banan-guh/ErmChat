@@ -188,11 +188,15 @@ class _InsertTarget extends StatelessWidget {
     required this.hot,
     this.icon = Icons.add,
     this.slim = false,
+    this.tall = false,
     this.onTap,
   });
 
   final bool hot;
   final bool slim;
+
+  /// Fills its box instead of a button cell: the island's side column.
+  final bool tall;
   final IconData icon;
   final VoidCallback? onTap;
 
@@ -200,8 +204,8 @@ class _InsertTarget extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     return SizedBox(
-      width: slim ? 28 : _cell,
-      height: _cell,
+      width: tall ? double.infinity : (slim ? 28 : _cell),
+      height: tall ? double.infinity : _cell,
       child: Padding(
         padding: const EdgeInsets.all(2),
         child: CustomPaint(
@@ -272,11 +276,15 @@ class _EditFace extends StatelessWidget {
     required this.onTap,
     this.lifted = false,
     this.plain = false,
+    this.tall = false,
   });
 
   final IconData icon;
   final VoidCallback? onTap;
   final bool lifted;
+
+  /// Fills its box instead of a button cell: the island's side column.
+  final bool tall;
 
   /// Drops the dashed outline, for buttons that are not placed yet.
   final bool plain;
@@ -285,8 +293,9 @@ class _EditFace extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final glyph = Icon(icon, size: 24, color: scheme.onSurface);
-    return SizedBox.square(
-      dimension: _cell,
+    return SizedBox(
+      width: tall ? double.infinity : _cell,
+      height: tall ? double.infinity : _cell,
       child: Padding(
         padding: const EdgeInsets.all(2),
         child: lifted
@@ -520,6 +529,34 @@ class PartSlot extends StatelessWidget {
   Widget build(BuildContext context) {
     if (!controller.shows(part, place)) return const SizedBox.shrink();
     final placed = controller.draft.placeOf(part) == place;
+    final target = DragTarget<ComposerPart>(
+      onWillAcceptWithDetails: (d) =>
+          d.data == part && controller.draft.canPlacePart(part, place),
+      onAcceptWithDetails: (d) {
+        HapticFeedback.lightImpact();
+        controller.placePart(part, place);
+      },
+      builder: (context, candidates, _) => _InsertTarget(
+        hot: candidates.isNotEmpty,
+        icon: part.icon,
+        tall: place == PartPlace.column,
+      ),
+    );
+    // The side column runs the island's full height, so its button and its
+    // target fill the column to show it.
+    if (place == PartPlace.column) {
+      return Padding(
+        padding: const EdgeInsets.all(4),
+        child: placed
+            ? PartChip(
+                key: ValueKey(part),
+                controller: controller,
+                part: part,
+                tall: true,
+              )
+            : target,
+      );
+    }
     return SizedBox(
       width: _cell,
       height: 40,
@@ -535,19 +572,7 @@ class PartSlot extends StatelessWidget {
                   controller: controller,
                   part: part,
                 )
-              : DragTarget<ComposerPart>(
-                  onWillAcceptWithDetails: (d) =>
-                      d.data == part &&
-                      controller.draft.canPlacePart(part, place),
-                  onAcceptWithDetails: (d) {
-                    HapticFeedback.lightImpact();
-                    controller.placePart(part, place);
-                  },
-                  builder: (context, candidates, _) => _InsertTarget(
-                    hot: candidates.isNotEmpty,
-                    icon: part.icon,
-                  ),
-                ),
+              : target,
         ),
       ),
     );
@@ -557,10 +582,18 @@ class PartSlot extends StatelessWidget {
 /// The emote or send button as an editable button. It moves between places
 /// but never leaves.
 class PartChip extends StatefulWidget {
-  const PartChip({super.key, required this.controller, required this.part});
+  const PartChip({
+    super.key,
+    required this.controller,
+    required this.part,
+    this.tall = false,
+  });
 
   final LayoutEditController controller;
   final ComposerPart part;
+
+  /// Fills the island's side column, as send does there.
+  final bool tall;
 
   @override
   State<PartChip> createState() => _PartChipState();
@@ -591,6 +624,7 @@ class _PartChipState extends State<PartChip> {
   Widget _body({bool lifted = false}) => _EditFace(
     icon: widget.part.icon,
     lifted: lifted,
+    tall: widget.tall && !lifted,
     onTap: lifted ? null : _openMenu,
   );
 
