@@ -11,29 +11,64 @@ import '../models/point_rewards.dart';
 import '../models/polls.dart';
 import 'twitch_auth.dart';
 
-/// Applies [httpTimeout] to every Helix call: to the response headers and to
-/// each gap between body chunks. A stalled request throws [TimeoutException],
-/// the same shape callers already get from an offline [SocketException],
-/// instead of hanging the join/moderation path forever.
+/// Applies [httpTimeout] to every Helix call: a streamed send to its headers,
+/// the whole-response calls to headers and body together. A stalled request
+/// throws [TimeoutException], the same shape callers already get from an
+/// offline [SocketException], instead of hanging the join/moderation path
+/// forever.
 class _TimeoutClient extends http.BaseClient {
   _TimeoutClient(http.Client inner) : _inner = inner;
 
   final http.Client _inner;
 
   @override
-  Future<http.StreamedResponse> send(http.BaseRequest request) async {
-    final res = await _inner.send(request).timeout(httpTimeout);
-    return http.StreamedResponse(
-      res.stream.timeout(httpTimeout),
-      res.statusCode,
-      contentLength: res.contentLength,
-      request: res.request,
-      headers: res.headers,
-      isRedirect: res.isRedirect,
-      persistentConnection: res.persistentConnection,
-      reasonPhrase: res.reasonPhrase,
-    );
+  Future<http.StreamedResponse> send(http.BaseRequest request) {
+    return _inner.send(request).timeout(httpTimeout);
   }
+
+  @override
+  Future<http.Response> get(Uri url, {Map<String, String>? headers}) =>
+      super.get(url, headers: headers).timeout(httpTimeout);
+
+  @override
+  Future<http.Response> post(
+    Uri url, {
+    Map<String, String>? headers,
+    Object? body,
+    Encoding? encoding,
+  }) => super
+      .post(url, headers: headers, body: body, encoding: encoding)
+      .timeout(httpTimeout);
+
+  @override
+  Future<http.Response> put(
+    Uri url, {
+    Map<String, String>? headers,
+    Object? body,
+    Encoding? encoding,
+  }) => super
+      .put(url, headers: headers, body: body, encoding: encoding)
+      .timeout(httpTimeout);
+
+  @override
+  Future<http.Response> patch(
+    Uri url, {
+    Map<String, String>? headers,
+    Object? body,
+    Encoding? encoding,
+  }) => super
+      .patch(url, headers: headers, body: body, encoding: encoding)
+      .timeout(httpTimeout);
+
+  @override
+  Future<http.Response> delete(
+    Uri url, {
+    Map<String, String>? headers,
+    Object? body,
+    Encoding? encoding,
+  }) => super
+      .delete(url, headers: headers, body: body, encoding: encoding)
+      .timeout(httpTimeout);
 
   @override
   void close() => _inner.close();
