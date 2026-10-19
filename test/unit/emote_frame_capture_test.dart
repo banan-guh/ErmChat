@@ -217,6 +217,44 @@ void main() {
     stream.removeListener(listener);
   });
 
+  testWidgets('the lazy WebP fallback survives a pause and hands off', (
+    tester,
+  ) async {
+    // Two bugs, both quiet: a pause mid-decode freed the compositor's
+    // retained canvas (the emote froze for good), and the lazy path never
+    // counted a full cycle (it re-decoded every frame forever).
+    final webp = File('test/fixtures/7tv_uneven_2x.webp').readAsBytesSync();
+    EmoteUrlProvider.debugFetchOverride = (url) async => webp;
+    EmoteUrlProvider.debugWebpEngineFailAfter = 1;
+    addTearDown(() => EmoteUrlProvider.debugWebpEngineFailAfter = -1);
+
+    const url = 'https://capture.test/lazy.webp';
+    EmoteUrlProvider.markChatUse(url);
+    final stream = EmoteUrlProvider(
+      url,
+      images: images,
+    ).resolve(ImageConfiguration.empty);
+    final listener = ImageStreamListener((_, _) {});
+    stream.addListener(listener);
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 200)),
+    );
+    await tester.pump();
+    for (var i = 0; i < 200 && !EmoteUrlProvider.isFullyCaptured(url); i++) {
+      await tester.pump(const Duration(milliseconds: 70));
+      final pause = i < 12 && i % 3 == 1;
+      if (pause) EmoteUrlProvider.applyGifsEnabled(false);
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 35)),
+      );
+      if (!pause) continue;
+      await tester.pump();
+      EmoteUrlProvider.applyGifsEnabled(true);
+    }
+    expect(EmoteUrlProvider.isFullyCaptured(url), isTrue);
+    stream.removeListener(listener);
+  });
+
   testWidgets('a seeded stream starts in phase with its source scale', (
     tester,
   ) async {

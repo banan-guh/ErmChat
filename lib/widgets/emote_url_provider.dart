@@ -1298,7 +1298,7 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
       if (!EmoteUrlProvider.animating && _hasStreamFrame) {
         // Toggled off mid-decode with a frame showing: consume the frame
         // without emitting it, mirroring the engine path's dropped decode.
-        out.dispose();
+        // [out] is the compositor's retained canvas, which it frees itself.
         _lazyIndex = (i + 1) % meta.frames.length;
         _streamDecoding = false;
         return;
@@ -1307,6 +1307,9 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
       _hasStreamFrame = true;
       _captureFrame(i, out, Duration(milliseconds: frameMeta.durationMs));
       _emitDecoded(out.clone());
+      // Counts toward a full cycle, so a captured set hands off to array
+      // playback instead of re-decoding every frame forever.
+      _streamEmitted++;
     } on Object catch (error, stack) {
       bitmap?.dispose();
       codec?.dispose();
@@ -1366,12 +1369,12 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
 
   @override
   void removeListener(ImageStreamListener listener) {
-    // Drop the decode watchdog so it cannot outlive the view, then pause only
-    // when the last listener leaves. An in-flight decode still resolves and
-    // continues for any remaining listener.
-    _cancelStreamDecode();
+    // Pause only when the last listener leaves. Until then the decode
+    // watchdog stays, so a stalled decode still times out for the rows that
+    // remain.
     super.removeListener(listener);
     if (hasListeners) return;
+    _cancelStreamDecode();
     _stopPlayback();
   }
 
