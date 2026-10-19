@@ -6,13 +6,15 @@ import '../l10n/l10n.dart';
 import '../util/history_timeline.dart';
 
 /// Every archived stream of a channel, newest first, with its thumbnail,
-/// title, date and length. A tap opens the stream at its start.
-class HistoryStreamsPage extends StatelessWidget {
+/// title, date and length. A tap opens the stream at its start. [focus]
+/// opens the page scrolled to that stream, highlighted.
+class HistoryStreamsPage extends StatefulWidget {
   const HistoryStreamsPage({
     super.key,
     required this.streams,
     required this.thumbnails,
     required this.onOpen,
+    this.focus,
   });
 
   /// Newest first.
@@ -24,32 +26,79 @@ class HistoryStreamsPage extends StatelessWidget {
 
   final ValueChanged<HistoryStream> onOpen;
 
+  final HistoryStream? focus;
+
+  @override
+  State<HistoryStreamsPage> createState() => _HistoryStreamsPageState();
+}
+
+class _HistoryStreamsPageState extends State<HistoryStreamsPage> {
+  /// A row's height when its title fits one line, to start near [focus]
+  /// before its row is built.
+  static const _rowH = 88.0;
+
+  late final int _focusAt = widget.focus == null
+      ? -1
+      : widget.streams.indexWhere((s) => s.id == widget.focus!.id);
+  late final ScrollController _scroll = ScrollController(
+    initialScrollOffset: _focusAt > 0 ? (_focusAt - 1) * _rowH : 0,
+  );
+  final GlobalKey _focusKey = GlobalKey();
+
+  @override
+  void initState() {
+    super.initState();
+    if (_focusAt > 0) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        final row = _focusKey.currentContext;
+        if (row != null) Scrollable.ensureVisible(row, alignment: 0.3);
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _scroll.dispose();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
+    final streams = widget.streams;
     return Scaffold(
       appBar: AppBar(title: Text(l10n.historyAllStreams)),
       body: streams.isEmpty
           ? Center(child: Text(l10n.historyNoStreams))
           : FutureBuilder<Map<String, String>>(
-              future: thumbnails,
+              future: widget.thumbnails,
               builder: (context, snap) {
                 final thumbs = snap.data ?? const {};
                 return ListView.builder(
+                  controller: _scroll,
                   padding: EdgeInsets.only(
                     top: 4,
                     bottom: 4 + MediaQuery.paddingOf(context).bottom,
                   ),
                   itemCount: streams.length,
-                  itemBuilder: (context, i) =>
-                      _row(context, streams[i], thumbs[streams[i].id]),
+                  itemBuilder: (context, i) => _row(
+                    context,
+                    streams[i],
+                    thumbs[streams[i].id],
+                    focused: i == _focusAt,
+                  ),
                 );
               },
             ),
     );
   }
 
-  Widget _row(BuildContext context, HistoryStream stream, String? thumb) {
+  Widget _row(
+    BuildContext context,
+    HistoryStream stream,
+    String? thumb, {
+    required bool focused,
+  }) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     final l10n = context.l10n;
@@ -66,8 +115,9 @@ class HistoryStreamsPage extends StatelessWidget {
       color: scheme.surfaceContainerHigh,
       child: Icon(Icons.videocam_outlined, color: scheme.onSurfaceVariant),
     );
-    return InkWell(
-      onTap: () => onOpen(stream),
+    final row = InkWell(
+      key: focused ? _focusKey : null,
+      onTap: () => widget.onOpen(stream),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         child: Row(
@@ -126,5 +176,11 @@ class HistoryStreamsPage extends StatelessWidget {
         ),
       ),
     );
+    return focused
+        ? ColoredBox(
+            color: scheme.primaryContainer.withValues(alpha: 0.35),
+            child: row,
+          )
+        : row;
   }
 }

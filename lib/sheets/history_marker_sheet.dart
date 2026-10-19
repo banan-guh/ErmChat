@@ -7,7 +7,8 @@ import '../l10n/l10n.dart';
 /// video on demand, null when it has none; [onWatchVod] opens it. [kept] is
 /// whether the day is kept past retention; [onKeep] sets it. [onJumpToStart]
 /// scrolls an ended stream back to its first row. [onOpenStreamMap] opens
-/// the calendar on the stream's day.
+/// the calendar on the stream's day, [onOpenInStreams] the streams page on
+/// the stream.
 Future<void> showHistoryMarkerSheet(
   BuildContext context, {
   required String title,
@@ -16,6 +17,7 @@ Future<void> showHistoryMarkerSheet(
   ValueChanged<String>? onWatchVod,
   VoidCallback? onJumpToStart,
   VoidCallback? onOpenStreamMap,
+  VoidCallback? onOpenInStreams,
   bool? kept,
   ValueChanged<bool>? onKeep,
 }) {
@@ -78,6 +80,12 @@ Future<void> showHistoryMarkerSheet(
                   Icons.calendar_month_outlined,
                   l10n.historyOpenStreamMap,
                   onOpenStreamMap,
+                ),
+              if (onOpenInStreams != null)
+                action(
+                  Icons.video_library_outlined,
+                  l10n.historyShowInStreams,
+                  onOpenInStreams,
                 ),
             ],
             if (kept != null && onKeep != null)

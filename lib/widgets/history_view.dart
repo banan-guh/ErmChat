@@ -649,6 +649,7 @@ class _HistoryViewState extends State<HistoryView> {
               _calendarTime = stream.start;
               unawaited(_openDays());
             },
+      onOpenInStreams: stream == null ? null : () => _openStreams(stream),
       kept: actions == null ? null : _kept.value.contains(day),
       onKeep: actions == null ? null : (keep) => _keepDay(day, keep),
     );
@@ -1593,9 +1594,9 @@ class _HistoryViewState extends State<HistoryView> {
     return _window.at(_viewportPos(pos.viewportDimension / 2))?.timestamp;
   }
 
-  /// Every stream of the channel on its own page; a pick opens it at its
-  /// start.
-  void _openStreams() {
+  /// Every stream of the channel on its own page, scrolled to [focus]; a
+  /// pick opens it at its start.
+  void _openStreams([HistoryStream? focus]) {
     final streams = [..._window.streams]
       ..sort((a, b) => b.start.compareTo(a.start));
     unawaited(
@@ -1604,6 +1605,7 @@ class _HistoryViewState extends State<HistoryView> {
           builder: (page) => HistoryStreamsPage(
             streams: streams,
             thumbnails: widget.actions?.thumbnails(),
+            focus: focus,
             onOpen: (stream) {
               Navigator.of(page).pop();
               _jumpTo(stream.start, fraction: _startFraction);

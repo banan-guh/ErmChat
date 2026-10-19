@@ -3097,6 +3097,7 @@
   },
   "historyOpenStreamMap": "Show in calendar",
   "historyAllStreams": "All streams",
+  "historyShowInStreams": "Show in all streams",
   "historyNoStreams": "No streams recorded yet",
   "historyUntitledStream": "Untitled stream",
   "historyLiveNow": "Live now",
