@@ -93,6 +93,7 @@ class Setting {
     'layout' => l.settingLayout,
     'liquid_glass' => l.settingLiquidGlass,
     'chrome_theme' => l.settingChromeTheme,
+    'edit_layout' => l.settingEditLayout,
     'theme_builder' => l.settingThemeBuilder,
     'keyboard_buttons' => l.settingKeyboardButtons,
     'chat_font_size' => l.settingChatFontSize,
@@ -261,6 +262,12 @@ class Setting {
     SettingsPageId.appearance,
     section: 'Layout',
     keywords: 'dankchat style',
+  );
+  static const editLayout = Setting(
+    'edit_layout',
+    'Edit layout',
+    SettingsPageId.appearance,
+    keywords: 'buttons drag move rearrange chrome header row',
   );
   static const themeBuilder = Setting(
     'theme_builder',
@@ -745,6 +752,7 @@ class Setting {
     trueDark,
     layout,
     chromeTheme,
+    editLayout,
     themeBuilder,
     liquidGlass,
     chatFontSize,

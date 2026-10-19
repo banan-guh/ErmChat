@@ -67,6 +67,30 @@ enum SendPlace {
   final String code;
 }
 
+/// A place a [ChromeAction] can sit.
+enum LayoutSlot {
+  /// The strip's end (the action pill for [HeaderStyle.bubbles]).
+  strip,
+
+  /// The app bar, for [HeaderStyle.appBar].
+  appBar,
+
+  /// The island's button row, left of its gap.
+  rowStart,
+
+  /// The island's button row, right of its gap.
+  rowEnd,
+}
+
+/// Why an action cannot leave the layout.
+enum LayoutBlock {
+  /// It would leave settings unreachable.
+  settings,
+
+  /// It would leave no way to the view menu.
+  viewPath,
+}
+
 @immutable
 class ChromeThemeSpec {
   const ChromeThemeSpec({
@@ -154,6 +178,75 @@ class ChromeThemeSpec {
       );
     }
     return spec;
+  }
+
+  /// The slots this header style shows.
+  List<LayoutSlot> get slots => [
+    LayoutSlot.strip,
+    if (header == HeaderStyle.appBar) LayoutSlot.appBar,
+    LayoutSlot.rowStart,
+    LayoutSlot.rowEnd,
+  ];
+
+  List<ChromeAction> actionsIn(LayoutSlot slot) => switch (slot) {
+    LayoutSlot.strip => stripActions,
+    LayoutSlot.appBar => appBarActions,
+    LayoutSlot.rowStart => rowStart,
+    LayoutSlot.rowEnd => rowEnd,
+  };
+
+  /// Where [action] shows, or null when it is not placed.
+  LayoutSlot? slotOf(ChromeAction action) {
+    for (final slot in slots) {
+      if (actionsIn(slot).contains(action)) return slot;
+    }
+    return null;
+  }
+
+  /// A copy with [action] moved to [slot] at [index] (the end by default),
+  /// or removed when [slot] is null. An action sits in one place.
+  ChromeThemeSpec place(ChromeAction action, LayoutSlot? slot, {int? index}) {
+    final lists = {
+      for (final s in LayoutSlot.values) s: [...actionsIn(s)]..remove(action),
+    };
+    if (slot != null) {
+      final target = lists[slot]!;
+      var at = index ?? actionsIn(slot).length;
+      final from = actionsIn(slot).indexOf(action);
+      if (from >= 0 && from < at) at--;
+      target.insert(at.clamp(0, target.length), action);
+    }
+    return copyWith(
+      stripActions: lists[LayoutSlot.strip],
+      appBarActions: lists[LayoutSlot.appBar],
+      rowStart: lists[LayoutSlot.rowStart],
+      rowEnd: lists[LayoutSlot.rowEnd],
+    );
+  }
+
+  /// Why [action] cannot be removed, or null when it can. A layout that
+  /// already lacks a path blocks nothing about it.
+  LayoutBlock? removeBlock(ChromeAction action) {
+    final after = place(action, null);
+    if (reachesSettings && !after.reachesSettings) return LayoutBlock.settings;
+    if (isUsable && !after.isUsable) return LayoutBlock.viewPath;
+    return null;
+  }
+
+  /// A copy in header style [style]. Leaving the app bar moves its actions
+  /// onto the strip so none are lost.
+  ChromeThemeSpec withHeader(HeaderStyle style) {
+    if (style == header) return this;
+    if (style == HeaderStyle.appBar) return copyWith(header: style);
+    return copyWith(
+      header: style,
+      appBarActions: const [],
+      stripActions: [
+        ...stripActions,
+        for (final a in appBarActions)
+          if (!stripActions.contains(a)) a,
+      ],
+    );
   }
 
   ChromeThemeSpec copyWith({

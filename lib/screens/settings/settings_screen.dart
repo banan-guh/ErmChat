@@ -36,6 +36,9 @@ class SettingsScreen extends StatelessWidget {
   final ValueChanged<int>? onEmoteCacheMaxChanged;
   final ValueChanged<EmoteFetchAutoMode>? onEmoteAutoModeChanged;
   final VoidCallback? onNukeEmotes;
+
+  /// Closes settings and puts the home screen into layout edit mode.
+  final VoidCallback? onEditLayout;
   final ValueNotifier<bool>? mobileNotifier;
   final ValueNotifier<List<String>>? channelNotifier;
   final ValueChanged<String>? onLeaveChannel;
@@ -67,6 +70,7 @@ class SettingsScreen extends StatelessWidget {
     this.onEmoteCacheMaxChanged,
     this.onEmoteAutoModeChanged,
     this.onNukeEmotes,
+    this.onEditLayout,
     this.mobileNotifier,
     this.channelNotifier,
     this.onLeaveChannel,
@@ -93,7 +97,7 @@ class SettingsScreen extends StatelessWidget {
     onRenameChannel: onRenameChannel,
   );
 
-  Widget _appearance() => const CustomizationScreen();
+  Widget _appearance() => CustomizationScreen(onEditLayout: onEditLayout);
 
   Widget _chat() => ChatSettingsScreen(
     twitchAuth: twitchAuth,

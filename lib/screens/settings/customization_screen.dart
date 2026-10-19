@@ -17,7 +17,10 @@ import 'theme_builder_preview_truth.dart' as preview;
 import 'theme_builder_screen.dart';
 
 class CustomizationScreen extends StatefulWidget {
-  const CustomizationScreen({super.key});
+  const CustomizationScreen({super.key, this.onEditLayout});
+
+  /// Asks the home screen to enter layout edit mode.
+  final VoidCallback? onEditLayout;
 
   @override
   State<CustomizationScreen> createState() => _CustomizationScreenState();
@@ -209,6 +212,26 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
       title: Text(context.l10n.pageAppearance),
       body: ListView(
         children: [
+          SettingAnchor(
+            Setting.editLayout,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+              child: Card.filled(
+                margin: EdgeInsets.zero,
+                color: Theme.of(context).colorScheme.primaryContainer,
+                child: ListTile(
+                  leading: const Icon(Icons.dashboard_customize),
+                  title: Text(Setting.editLayout.titleOf(context.l10n)),
+                  subtitle: Text(context.l10n.layoutEditSubtitle),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () {
+                    widget.onEditLayout?.call();
+                    Navigator.of(context).popUntil((r) => r.isFirst);
+                  },
+                ),
+              ),
+            ),
+          ),
           SettingsSectionHeader(context.l10n.sectionTheme),
           SettingAnchor(
             Setting.theme,

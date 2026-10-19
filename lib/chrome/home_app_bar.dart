@@ -15,6 +15,7 @@ import '../services/stream_player_controller.dart';
 import '../services/twitch_auth.dart';
 import '../util/chrome_theme.dart';
 import '../util/constants.dart';
+import 'layout_editor.dart';
 import '../widgets/chrome_menu_button.dart';
 import '../widgets/media_upload_controller.dart';
 import '../widgets/panel_manager.dart';
@@ -47,6 +48,8 @@ class HomeAppBar {
     required this.reconnect,
     required this.openSettings,
     required this.themeSpec,
+    required this.layoutEdit,
+    required this.editLayout,
   });
 
   final Chat chat;
@@ -76,6 +79,11 @@ class HomeAppBar {
 
   /// The chrome theme: which actions sit where.
   final ChromeThemeSpec Function() themeSpec;
+
+  /// The layout editor while edit mode is on, else null. The slots then
+  /// render as editable chips instead of working buttons.
+  final LayoutEditController? Function() layoutEdit;
+  final VoidCallback editLayout;
 
   bool _isChannelLive(String channel) =>
       chat.channelFor(channel)?.info.isLive ?? false;
@@ -137,6 +145,9 @@ class HomeAppBar {
 
   /// The strip's end: the theme's strip actions.
   Widget stripTrailing({bool glass = false, VoidCallback? onCalendar}) {
+    if (layoutEdit() case final edit?) {
+      return LayoutSlotView(controller: edit, slot: LayoutSlot.strip);
+    }
     final actions = themeSpec().stripActions;
     return Builder(
       builder: (context) => Row(
@@ -288,6 +299,7 @@ class HomeAppBar {
         ),
         ChromeMenuEntry(l10n.reloadEmotes, reloadEmotes),
         ChromeMenuEntry(l10n.reconnect, reconnect),
+        ChromeMenuEntry(l10n.settingEditLayout, editLayout),
       ],
       buttonStyle: const ButtonStyle(),
       trigger: const Icon(Icons.more_vert),
@@ -311,6 +323,36 @@ class HomeAppBar {
     final spec = themeSpec();
     Widget build(ChromeAction a) =>
         action(context, a, glass: glass, onCalendar: onCalendar);
+    if (layoutEdit() case final edit?) {
+      // Each slot scales down rather than overflow the island.
+      Widget slot(LayoutSlot s) => Flexible(
+        child: FittedBox(
+          fit: BoxFit.scaleDown,
+          child: LayoutSlotView(controller: edit, slot: s),
+        ),
+      );
+      return KeyedSubtree(
+        key: const Key('bottom_chrome_bar'),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: _rowInset),
+          child: Row(
+            children: [
+              ?leading,
+              Expanded(
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    slot(LayoutSlot.rowStart),
+                    slot(LayoutSlot.rowEnd),
+                  ],
+                ),
+              ),
+              ...trailing,
+            ],
+          ),
+        ),
+      );
+    }
     final start = [for (final a in spec.rowStart) build(a)];
     final end = [
       for (final a in spec.rowEnd) build(a),
@@ -395,6 +437,7 @@ class HomeAppBar {
   Widget appBar(BuildContext context, {bool transparent = false}) {
     final theme = Theme.of(context);
     final spec = themeSpec();
+    final edit = spec.header == HeaderStyle.appBar ? layoutEdit() : null;
     final actions = spec.header == HeaderStyle.appBar
         ? spec.appBarActions
         : [
@@ -413,11 +456,12 @@ class HomeAppBar {
             child: LayoutBuilder(
               builder: (context, constraints) => Row(
                 children: [
-                  if (appTitleFits(
-                    context,
-                    constraints.maxWidth,
-                    actions.length,
-                  ))
+                  if (edit == null &&
+                      appTitleFits(
+                        context,
+                        constraints.maxWidth,
+                        actions.length,
+                      ))
                     Padding(
                       padding: const EdgeInsets.only(left: _titleInset),
                       child: Text(
@@ -426,7 +470,10 @@ class HomeAppBar {
                       ),
                     ),
                   const Spacer(),
-                  for (final a in actions) action(context, a),
+                  if (edit != null)
+                    LayoutSlotView(controller: edit, slot: LayoutSlot.appBar)
+                  else
+                    for (final a in actions) action(context, a),
                 ],
               ),
             ),

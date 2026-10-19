@@ -71,7 +71,9 @@ import '../sheets/user_sheet.dart';
 import '../channels/channel_manager.dart';
 import '../chrome/channel_stack.dart';
 import '../chrome/home_app_bar.dart';
+import '../chrome/layout_editor.dart';
 import '../chrome/stream_layout.dart';
+import '../widgets/dialogs.dart' show confirmDialog;
 import '../panels/threads.dart';
 import '../panels/mentions.dart';
 import '../panels/mod_panel.dart';
@@ -248,6 +250,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   /// Liquid glass chrome (default off; toggled in Customization).
   bool _liquidGlass = false;
   ChromeThemeSpec _chromeTheme = ChromeTheme.ermchat.spec;
+
+  /// The draft layout while edit mode is on; the chrome renders from it.
+  LayoutEditController? _layoutEdit;
+
+  /// Settings asked for edit mode; it starts once settings has closed.
+  bool _editLayoutPending = false;
 
   /// 7TV name paints (default off; toggled in Chat settings).
   bool _showNamePaints = false;
@@ -515,7 +523,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     reloadEmotes: _emotes.reload,
     reconnect: _reconnect,
     openSettings: _openSettings,
-    themeSpec: () => _chromeTheme,
+    themeSpec: () => _layoutEdit?.draft ?? _chromeTheme,
+    layoutEdit: () => _layoutEdit,
+    editLayout: _startLayoutEdit,
   );
 
   late final ChannelPanels _channels = ChannelPanels(
@@ -1523,6 +1533,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   @override
   void dispose() {
     _pasteHost?.paste = null;
+    _layoutEdit?.dispose();
     widget.routeObserver?.unsubscribe(this);
     _fakeChat.dispose();
     _isMobile.dispose();
@@ -1700,6 +1711,74 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     showJoinChannelDialog(context, onJoin: _channelManager.addChannel);
   }
 
+  /// Puts the chrome into edit mode on a draft of the current layout. It
+  /// needs channels: the strip and the island row only exist with them.
+  void _startLayoutEdit() {
+    if (!mounted || _layoutEdit != null) return;
+    if (_chat.names.isEmpty) {
+      AppSnack.show(context, context.l10n.layoutJoinFirst);
+      return;
+    }
+    _composer.unfocus();
+    if (_isFullscreen) _toggleFullscreen();
+    final edit = LayoutEditController(_chromeTheme);
+    edit.addListener(markDirty);
+    setState(() => _layoutEdit = edit);
+  }
+
+  void _endLayoutEdit() {
+    final edit = _layoutEdit;
+    if (edit == null) return;
+    setState(() => _layoutEdit = null);
+    // The tray listens until this frame rebuilds without it.
+    WidgetsBinding.instance.addPostFrameCallback((_) => edit.dispose());
+  }
+
+  /// Saves the draft over the selected custom theme, or as a new one, and
+  /// selects it.
+  Future<void> _saveLayoutEdit() async {
+    final edit = _layoutEdit;
+    if (edit == null) return;
+    if (!edit.dirty) return _endLayoutEdit();
+    final name = context.l10n.layoutDefaultName;
+    final spec = edit.draft.normalized();
+    final prefs = await Prefs.load();
+    final themes = [...prefs.customChromeThemes];
+    final current = int.tryParse(
+      prefs.chromeThemeKey.replaceFirst(Prefs.customChromeThemePrefix, ''),
+    );
+    var index = current;
+    if (index != null && index < themes.length) {
+      themes[index] = spec.copyWith(name: themes[index].name);
+    } else {
+      themes.add(spec.copyWith(name: name));
+      index = themes.length - 1;
+    }
+    await prefs.setCustomChromeThemes(themes);
+    await prefs.setChromeThemeKey('${Prefs.customChromeThemePrefix}$index');
+    PrefsStore.instance.notifyChanged();
+    if (!mounted) return;
+    _chromeTheme = spec;
+    _endLayoutEdit();
+  }
+
+  /// Back asks first when the draft holds changes.
+  Future<void> _backFromLayoutEdit() async {
+    final edit = _layoutEdit;
+    if (edit == null) return;
+    if (edit.dirty) {
+      final l = context.l10n;
+      final discard = await confirmDialog(
+        context,
+        title: l.themeBuilderDiscardTitle,
+        confirmLabel: l.themeBuilderDiscard,
+        destructive: true,
+      );
+      if (!discard || !mounted) return;
+    }
+    _endLayoutEdit();
+  }
+
   Future<void> _openSettings() async {
     _composer.unfocus();
     // The menu hands focus back to the search field on close, which
@@ -1721,6 +1800,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
           onEmoteCacheMaxChanged: _emotes.applyCacheCap,
           onEmoteAutoModeChanged: _emotes.applyAutoMode,
           onNukeEmotes: _nukeEmotes,
+          onEditLayout: () => _editLayoutPending = true,
           mobileNotifier: _isMobile,
           channelNotifier: _channelNotifier,
           onLeaveChannel: _channelManager.removeChannel,
@@ -1740,6 +1820,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       ),
     );
     if (mounted) ref.invalidate(macrosProvider);
+    if (_editLayoutPending) {
+      _editLayoutPending = false;
+      _startLayoutEdit();
+    }
     if (_nukePending) {
       _nukePending = false;
       if (!mounted) return;
@@ -1846,8 +1930,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     // (the pane keeps it up in either mode), so send sits under the thumb.
     // A theme with no row actions drops the row; one with send in the row
     // keeps it up while typing.
-    final spec = _chromeTheme;
-    final rowless = !spec.hasRow;
+    final spec = _layoutEdit?.draft ?? _chromeTheme;
+    // Edit mode keeps the row up so its slots can take drops.
+    final rowless = !spec.hasRow && _layoutEdit == null;
     final keyboardHidesRow =
         !spec.sendInRow &&
         resolveLayoutOverride(context, (o) => o.keyboardHidesRow);
@@ -1879,6 +1964,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     // callback after any rebuild and skip its predictive dip.
     return PopScope(
       canPop:
+          _layoutEdit == null &&
           !_isFullscreen &&
           !_streamPlayer.isTheaterMode &&
           _activePanel == OverlayPanel.closed &&
@@ -1886,7 +1972,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
           !_search.open,
       onPopInvokedWithResult: (didPop, _) {
         if (didPop) return;
-        if (_search.open) {
+        if (_layoutEdit != null) {
+          unawaited(_backFromLayoutEdit());
+        } else if (_search.open) {
           _search.closeSearch();
         } else if (_emoteSheetOpen) {
           unawaited(_closeEmoteSheet());
@@ -1905,6 +1993,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
         // the system motion (behind-ahead-behind). ChatBody reads the
         // keyboard itself, so this screen never rebuilds per keyboard tick.
         resizeToAvoidBottomInset: true,
+        bottomNavigationBar: _layoutEdit == null
+            ? null
+            : LayoutEditTray(
+                controller: _layoutEdit!,
+                onDone: () => unawaited(_saveLayoutEdit()),
+                onCancel: _endLayoutEdit,
+              ),
         body: ListenableBuilder(
           listenable: _streamPlayer,
           builder: (_, _) => ChatBody(

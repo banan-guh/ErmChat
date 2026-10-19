@@ -96,6 +96,133 @@ void main() {
     }
   });
 
+  test('place moves an action to one spot, in order', () {
+    const a = ChromeAction.mentions;
+    const spec = ChromeThemeSpec(
+      header: HeaderStyle.appBar,
+      stripActions: [ChromeAction.settings, ChromeAction.viewMenu, a],
+      rowStart: [ChromeAction.threads],
+    );
+    final cases =
+        <(String, LayoutSlot?, int?, ChromeAction, List<List<ChromeAction>>)>[
+          // strip, appBar, rowStart, rowEnd after the move.
+          (
+            'to another slot, end',
+            LayoutSlot.rowEnd,
+            null,
+            a,
+            [
+              [ChromeAction.settings, ChromeAction.viewMenu],
+              [],
+              [ChromeAction.threads],
+              [a],
+            ],
+          ),
+          (
+            'before an existing one',
+            LayoutSlot.rowStart,
+            0,
+            a,
+            [
+              [ChromeAction.settings, ChromeAction.viewMenu],
+              [],
+              [a, ChromeAction.threads],
+              [],
+            ],
+          ),
+          (
+            'forward in its own slot lands where dropped',
+            LayoutSlot.strip,
+            3,
+            ChromeAction.settings,
+            [
+              [ChromeAction.viewMenu, a, ChromeAction.settings],
+              [],
+              [ChromeAction.threads],
+              [],
+            ],
+          ),
+          (
+            'removed',
+            null,
+            null,
+            ChromeAction.threads,
+            [
+              [ChromeAction.settings, ChromeAction.viewMenu, a],
+              [],
+              [],
+              [],
+            ],
+          ),
+        ];
+    for (final (name, slot, index, action, want) in cases) {
+      final got = spec.place(action, slot, index: index);
+      expect(
+        [got.stripActions, got.appBarActions, got.rowStart, got.rowEnd],
+        want,
+        reason: name,
+      );
+    }
+  });
+
+  test('removeBlock keeps settings and a view path reachable', () {
+    const strip = ChromeThemeSpec(
+      header: HeaderStyle.strip,
+      stripActions: [ChromeAction.settings, ChromeAction.viewMenu],
+    );
+    final viaOverflow = strip.copyWith(
+      stripActions: [ChromeAction.viewMenu, ChromeAction.overflow],
+    );
+    final cases = <(String, ChromeThemeSpec, ChromeAction, LayoutBlock?)>[
+      (
+        'settings with no menu',
+        strip,
+        ChromeAction.settings,
+        LayoutBlock.settings,
+      ),
+      (
+        'view menu with no overflow',
+        strip,
+        ChromeAction.viewMenu,
+        LayoutBlock.viewPath,
+      ),
+      (
+        'overflow carries settings',
+        viaOverflow,
+        ChromeAction.overflow,
+        LayoutBlock.settings,
+      ),
+      ('unplaced action', strip, ChromeAction.threads, null),
+      (
+        'settings behind overflow may go',
+        strip.copyWith(
+          stripActions: [
+            ChromeAction.settings,
+            ChromeAction.viewMenu,
+            ChromeAction.overflow,
+          ],
+        ),
+        ChromeAction.settings,
+        null,
+      ),
+    ];
+    for (final (name, spec, action, block) in cases) {
+      expect(spec.removeBlock(action), block, reason: name);
+    }
+  });
+
+  test('leaving the app bar keeps its actions on the strip', () {
+    final spec = ChromeTheme.dankchat3.spec.withHeader(HeaderStyle.bubbles);
+    expect(spec.appBarActions, isEmpty);
+    expect(spec.stripActions, [
+      ChromeAction.viewMenu,
+      ChromeAction.join,
+      ChromeAction.mentions,
+      ChromeAction.overflow,
+    ]);
+    expect(spec.slots, isNot(contains(LayoutSlot.appBar)));
+  });
+
   group('chromeTheme pref', () {
     test('a stale custom key repairs to the default preset', () async {
       SharedPreferences.setMockInitialValues({

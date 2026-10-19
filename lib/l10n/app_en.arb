@@ -3184,5 +3184,48 @@
         "type": "String"
       }
     }
-  }
+  },
+  "settingEditLayout": "Edit layout",
+  "layoutEditSubtitle": "Move the buttons on the real screen",
+  "layoutEditHint": "Drag a button, or tap it for options",
+  "layoutJoinFirst": "Join a channel to edit the layout",
+  "layoutDone": "Done",
+  "layoutNotPlaced": "Not placed",
+  "layoutDropToRemove": "Drop here to remove",
+  "layoutStartFrom": "Start from",
+  "layoutHeader": "Header",
+  "layoutHeaderStrip": "Strip",
+  "layoutHeaderAppBar": "App bar",
+  "layoutHeaderBubbles": "Pills",
+  "layoutSend": "Send",
+  "layoutSendField": "In the field",
+  "layoutSendColumn": "Side column",
+  "layoutSendRow": "Row",
+  "layoutFlushIsland": "Edge to edge",
+  "layoutBusyBar": "Loading bar",
+  "layoutSlotStrip": "Tab strip",
+  "layoutSlotAppBar": "Top bar",
+  "layoutSlotRowStart": "Row, left",
+  "layoutSlotRowEnd": "Row, right",
+  "layoutActionOverflow": "More menu",
+  "layoutActionView": "View menu",
+  "layoutMoveTo": "Move to {slot}",
+  "@layoutMoveTo": {
+    "placeholders": {
+      "slot": {
+        "type": "String"
+      }
+    }
+  },
+  "layoutAddTo": "Add to {slot}",
+  "@layoutAddTo": {
+    "placeholders": {
+      "slot": {
+        "type": "String"
+      }
+    }
+  },
+  "layoutLockedSettings": "Settings stays unless the more menu is placed to hold it",
+  "layoutLockedViewPath": "Keep the view menu or the more menu so search and fullscreen stay reachable",
+  "layoutDefaultName": "My layout"
 }
