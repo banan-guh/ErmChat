@@ -88,6 +88,8 @@ class ChatLifecycle {
 
   bool _wasConnected = false;
   bool _wasDisconnected = false;
+  // Set by an account swap: the next write connect edge backfills history.
+  bool _swapBackfill = false;
   // Guards the one-shot read-connect waiter below: connect() re-runs on
   // every auth change, and each call must not stack another broadcast
   // listener while the read socket stays down.
@@ -296,10 +298,11 @@ class ChatLifecycle {
             final isReconnect = _wasDisconnected;
             _wasConnected = true;
             _wasDisconnected = false;
-            // Re-fetch history after a reconnect (not on first connect) so
-            // messages missed while disconnected are recovered. Fires before
-            // subscribeAll so reconnect flapping still re-fetches.
-            if (isReconnect) {
+            // Chat arrives on the read socket, so its recovery refills the
+            // gap. The write edge only does it for an account swap, which
+            // replaces the read socket without reporting an outage.
+            if (isReconnect && _swapBackfill) {
+              _swapBackfill = false;
               onReconnected?.call();
             }
             // Per-channel "Connected" now waits for that channel's own JOIN
@@ -546,6 +549,7 @@ class ChatLifecycle {
         if (_lastIrcToken != null) {
           _wasConnected = false;
           _wasDisconnected = true;
+          _swapBackfill = true;
         }
       }
 

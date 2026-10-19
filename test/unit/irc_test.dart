@@ -2855,23 +2855,34 @@ void main() {
 
   group('reconnect callback', () {
     test(
-      'fires on IRC reconnect but not on first connect or repeated status',
+      'fires once per read-socket recovery, never for the write socket',
       () async {
         var calls = 0;
         final irc = _TestIrc();
+        final read = _TestIrcRead();
         final conn = _makeReconnectConn(
           eventSub: _NoopEventSub(),
           irc: irc,
+          ircRead: read,
           onReconnected: () => calls++,
         );
         await conn.connect();
         irc.emitConnected();
+        read.emitConnected();
         expect(calls, 0, reason: 'first connect must not trigger a re-fetch');
-        irc.emitConnected();
-        expect(calls, 0, reason: 'repeated status must not fire');
+
         irc.emitDisconnected();
         irc.emitConnected();
-        expect(calls, 1, reason: 'reconnect must trigger a re-fetch');
+        expect(calls, 0, reason: 'chat never stopped: the read socket held');
+
+        // A blip drops both; only the read socket's return refills chat.
+        irc.emitDisconnected();
+        read.emitDisconnected();
+        irc.emitConnected();
+        read.emitConnected();
+        expect(calls, 1, reason: 'one blip must fetch history once');
+        read.emitConnected();
+        expect(calls, 1, reason: 'repeated status must not fire');
         conn.dispose();
       },
     );
