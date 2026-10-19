@@ -70,6 +70,7 @@ class ChatBody extends StatefulWidget {
     this.liquidGlass = false,
     this.keyboardHidesButtons = false,
     this.islandFlush = false,
+    this.classic = false,
     this.busyListenable,
     this.isBusy,
     this.onKeyboardDismissed,
@@ -122,6 +123,10 @@ class ChatBody extends StatefulWidget {
   /// The island runs edge to edge and down under the nav bar, rounded only
   /// on top, instead of floating a margin in. Takes no hidden row.
   final bool islandFlush;
+
+  /// The field sits edge to edge on the chat's own background, with no
+  /// island shell around it (ComposerStyle.classic).
+  final bool classic;
 
   /// Rings the island with the stock loading motion while [isBusy] holds,
   /// re-read whenever [busyListenable] fires. Null for no ring.
@@ -501,7 +506,8 @@ class _ChatBodyState extends State<ChatBody>
     final hasBar = widget.bottomBar != null && !widget.isInPip;
     final glass = widget.liquidGlass && !MediaQuery.highContrastOf(context);
     // Hidden-by-keyboard applies to the full-width island only.
-    final flush = widget.islandFlush && !pane && !widget.isInPip;
+    final classic = widget.classic && !pane && !widget.isInPip;
+    final flush = (widget.islandFlush || classic) && !pane && !widget.isInPip;
     final hidden =
         widget.keyboardHidesButtons && !flush && !pane && !widget.isInPip;
     final showIsland = !widget.isInPip && !pane && (composer != null || hasBar);
@@ -684,7 +690,9 @@ class _ChatBodyState extends State<ChatBody>
     // paints the fill, one surface tone above the chat plane, and this clear
     // Material only clips and carries the ink.
     const corner = Radius.circular(kComposerIslandRadius);
-    final radius = flush
+    final radius = classic
+        ? BorderRadius.zero
+        : flush
         ? const BorderRadius.vertical(top: corner)
         : const BorderRadius.all(corner);
     Widget islandShell(Widget child) {
@@ -735,12 +743,25 @@ class _ChatBodyState extends State<ChatBody>
             flush: flush,
             child: island,
           );
-    final island = ComposerFocusGlow(
-      key: _islandOuterKey,
-      shape: glass
-          ? RoundedSuperellipseBorder(borderRadius: radius)
-          : RoundedRectangleBorder(borderRadius: radius),
-      surface: glass ? null : Theme.of(context).colorScheme.surfaceContainer,
+    // Classic is just the outlined field on the chat's background, so the
+    // field's own outline shows focus instead of a tinted shell.
+    Widget outer({required Widget child}) => classic
+        ? ColoredBox(
+            key: _islandOuterKey,
+            color: Theme.of(context).scaffoldBackgroundColor,
+            child: child,
+          )
+        : ComposerFocusGlow(
+            key: _islandOuterKey,
+            shape: glass
+                ? RoundedSuperellipseBorder(borderRadius: radius)
+                : RoundedRectangleBorder(borderRadius: radius),
+            surface: glass
+                ? null
+                : Theme.of(context).colorScheme.surfaceContainer,
+            child: child,
+          );
+    final island = outer(
       child: islandShell(
         ClipRect(
           child: Align(

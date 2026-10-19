@@ -136,6 +136,18 @@ void main() {
     }
   }
 
+  for (final preset in ChromeTheme.values) {
+    testWidgets('render preset ${preset.name}', (tester) async {
+      await boot(tester, {
+        'layout_density': 'compact',
+        'liquid_glass': true,
+        'chrome_theme': preset.name,
+      });
+      await _shot(tester, 'preset_${preset.name}');
+      await tester.pump(const Duration(seconds: 30));
+    });
+  }
+
   final scenarios = <String, Map<String, Object>>{
     'compact': {'layout_density': 'compact'},
     'compact_glass': {'layout_density': 'compact', 'liquid_glass': true},
