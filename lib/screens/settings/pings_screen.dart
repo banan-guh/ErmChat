@@ -461,7 +461,10 @@ class _PingsScreenState extends ConsumerState<PingsScreen> {
             title: Setting.mentionForeground.titleOf(context.l10n),
             enabled: pushOn,
             read: (p) => p.mentionNotifyForeground,
-            write: (p, v) => p.setMentionNotifyForeground(v),
+            write: (p, v) {
+              ref.read(mentionForegroundProvider.notifier).set(v);
+              return p.setMentionNotifyForeground(v);
+            },
           ),
         ),
       ),
