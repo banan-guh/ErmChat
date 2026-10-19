@@ -35,12 +35,13 @@ void main() {
 
   for (final borderless in [true, false]) {
     // The icons ignore theme density, so the text line must too, or compact
-    // lifts it above their centerline.
+    // lifts it above their centerline. An empty field shows its label in
+    // the text line; typed text drops below a floated label by design.
     for (final compact in [false, true]) {
       testWidgets('text centers on the icons '
           '(compact $compact, borderless $borderless)', (tester) async {
         await pumpInput(tester, compact: compact, borderless: borderless);
-        final text = tester.getCenter(find.byType(EditableText)).dy;
+        final text = tester.getCenter(find.text('Type a message...')).dy;
         final send = tester.getCenter(find.byIcon(Icons.send)).dy;
         expect(text, closeTo(send, 0.5));
       });
