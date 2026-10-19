@@ -35,4 +35,6 @@ class CardBadge {
     required this.label,
     this.circular = false,
   });
+
+  bool get isSvg => Uri.tryParse(url)?.path.endsWith('.svg') ?? false;
 }

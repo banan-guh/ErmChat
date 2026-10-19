@@ -2,6 +2,7 @@ import 'dart:collection';
 
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 
 import '../color_utils.dart';
 import '../emotes/emote.dart';
@@ -416,18 +417,29 @@ class MessageBuilder {
     final badgeSize = 18.0 * badgeScale;
     final spans = <WidgetSpan>[];
     for (final badge in resolveCardBadges(channel, msg)) {
-      final image = CachedNetworkImage(
-        imageUrl: badge.url,
-        width: badgeSize,
-        height: badgeSize,
-        fit: badge.circular ? BoxFit.cover : BoxFit.contain,
-        fadeInDuration: Duration.zero,
-        placeholder: (_, _) => SizedBox(width: badgeSize, height: badgeSize),
-        errorWidget: (_, url, error) {
-          logDebug('Badge image load failed: $url - $error');
-          return SizedBox(width: badgeSize, height: badgeSize);
-        },
-      );
+      // BTTV serves its badges as SVG only, which the image decoder can't
+      // read.
+      final image = badge.isSvg
+          ? SvgPicture.network(
+              badge.url,
+              width: badgeSize,
+              height: badgeSize,
+              placeholderBuilder: (_) =>
+                  SizedBox(width: badgeSize, height: badgeSize),
+            )
+          : CachedNetworkImage(
+              imageUrl: badge.url,
+              width: badgeSize,
+              height: badgeSize,
+              fit: badge.circular ? BoxFit.cover : BoxFit.contain,
+              fadeInDuration: Duration.zero,
+              placeholder: (_, _) =>
+                  SizedBox(width: badgeSize, height: badgeSize),
+              errorWidget: (_, url, error) {
+                logDebug('Badge image load failed: $url - $error');
+                return SizedBox(width: badgeSize, height: badgeSize);
+              },
+            );
       spans.add(
         WidgetSpan(
           alignment: PlaceholderAlignment.middle,

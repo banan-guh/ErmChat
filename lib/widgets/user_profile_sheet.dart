@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 import 'package:flutter/services.dart' show HapticFeedback;
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../chat/channel/moderation.dart';
 import '../l10n/l10n.dart';
@@ -777,20 +778,31 @@ class UserProfileSheetState extends State<UserProfileSheet> {
   static const _cardBadgeSize = 24.0;
 
   Widget _cardBadgeImage(CardBadge badge) {
-    final image = CachedNetworkImage(
-      imageUrl: badge.url,
-      width: _cardBadgeSize,
-      height: _cardBadgeSize,
-      fit: badge.circular ? BoxFit.cover : BoxFit.contain,
-      fadeInDuration: Duration.zero,
-      fadeOutDuration: Duration.zero,
-      placeholder: (_, _) =>
-          const SizedBox(width: _cardBadgeSize, height: _cardBadgeSize),
-      errorWidget: (_, url, error) {
-        logDebug('User card badge image failed: $url - $error');
-        return const SizedBox(width: _cardBadgeSize, height: _cardBadgeSize);
-      },
-    );
+    final image = badge.isSvg
+        ? SvgPicture.network(
+            badge.url,
+            width: _cardBadgeSize,
+            height: _cardBadgeSize,
+            placeholderBuilder: (_) =>
+                const SizedBox(width: _cardBadgeSize, height: _cardBadgeSize),
+          )
+        : CachedNetworkImage(
+            imageUrl: badge.url,
+            width: _cardBadgeSize,
+            height: _cardBadgeSize,
+            fit: badge.circular ? BoxFit.cover : BoxFit.contain,
+            fadeInDuration: Duration.zero,
+            fadeOutDuration: Duration.zero,
+            placeholder: (_, _) =>
+                const SizedBox(width: _cardBadgeSize, height: _cardBadgeSize),
+            errorWidget: (_, url, error) {
+              logDebug('User card badge image failed: $url - $error');
+              return const SizedBox(
+                width: _cardBadgeSize,
+                height: _cardBadgeSize,
+              );
+            },
+          );
     return badge.circular ? ClipOval(child: image) : image;
   }
 
