@@ -47,16 +47,19 @@ class _QueueTabState extends State<QueueTab> with ModTabState<QueueTab> {
 
   Future<void> _timeout(HeldMessage held) async {
     final picked = await showTimeoutDialog(context, held.userLogin);
-    if (picked == null) return;
-    await mod.report(
-      mod.actions.timeoutUser(
-        mod.auth,
-        mod.channel,
-        login: held.userLogin,
-        duration: picked.seconds,
-        reason: picked.reason,
+    if (picked == null || !mounted) return;
+    await busy(
+      held.messageId,
+      () => mod.report(
+        mod.actions.timeoutUser(
+          mod.auth,
+          mod.channel,
+          login: held.userLogin,
+          duration: picked.seconds,
+          reason: picked.reason,
+        ),
+        done: mod.l10n.timedOutUser(held.userLogin),
       ),
-      done: mod.l10n.timedOutUser(held.userLogin),
     );
   }
 
@@ -68,15 +71,18 @@ class _QueueTabState extends State<QueueTab> with ModTabState<QueueTab> {
       confirmLabel: mod.l10n.ban,
       allowEmpty: true,
     );
-    if (reason == null) return;
-    await mod.report(
-      mod.actions.banUser(
-        mod.auth,
-        mod.channel,
-        login: held.userLogin,
-        reason: reason.isEmpty ? null : reason,
+    if (reason == null || !mounted) return;
+    await busy(
+      held.messageId,
+      () => mod.report(
+        mod.actions.banUser(
+          mod.auth,
+          mod.channel,
+          login: held.userLogin,
+          reason: reason.isEmpty ? null : reason,
+        ),
+        done: mod.l10n.bannedUser(held.userLogin),
       ),
-      done: mod.l10n.bannedUser(held.userLogin),
     );
   }
 
