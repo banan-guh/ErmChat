@@ -180,7 +180,7 @@ void main() {
         (
           'own timeout reads in the second person',
           '@ban-duration=300;target-user-id=974273622;$ts;historical=1 :tmi.twitch.tv CLEARCHAT #ermugo2 :ermugo1',
-          'You are timed out for 5m.',
+          'You were timed out for 5m.',
           null,
           'ErmUgo1',
         ),

@@ -1473,6 +1473,7 @@
   "pinnedBy": "Pinned by {name}",
   "pinHideForYourself": "Hide for yourself",
   "pinMessage": "Pin message",
+  "deleteMessage": "Delete message",
   "unpinMessage": "Unpin",
   "@pinnedBy": {
     "placeholders": {
@@ -2272,7 +2273,7 @@
     }
   },
   "chatWasCleared": "Chat was cleared.",
-  "selfTimedOutFor": "You are timed out for {duration}",
+  "selfTimedOutFor": "You were timed out for {duration}",
   "@selfTimedOutFor": {
     "placeholders": {
       "duration": {
@@ -2280,7 +2281,7 @@
       }
     }
   },
-  "selfTimedOut": "You are timed out",
+  "selfTimedOut": "You were timed out",
   "selfBanned": "You were banned",
   "banLineStacked": "{text} ({count} times).",
   "@banLineStacked": {
