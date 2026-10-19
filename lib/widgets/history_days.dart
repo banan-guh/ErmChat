@@ -26,8 +26,12 @@ class HistoryDays extends StatefulWidget {
     required this.onPick,
     required this.kept,
     required this.onLongPress,
+    this.takeOpenDay,
     this.glass = false,
   });
+
+  /// Read on open: a day number to open straight into, or null for the list.
+  final int? Function()? takeOpenDay;
 
   final ActivityRail rail;
 
@@ -178,6 +182,9 @@ class _HistoryDaysState extends State<HistoryDays>
       });
       if (!_portal.isShowing) _portal.show();
       _anim.forward();
+      final day = widget.takeOpenDay?.call();
+      final i = widget.rail.days.indexWhere((d) => d.day == day);
+      if (i >= 0) _open(i);
     } else {
       _anim.reverse();
     }
@@ -457,12 +464,26 @@ class _HistoryDaysState extends State<HistoryDays>
             child: Row(
               children: [
                 Expanded(
-                  child: Text(
-                    _dayLabel!.format(dayFromNumber(days[i].day)),
-                    style: style?.copyWith(
-                      color: on ? scheme.primary : scheme.onSurface,
-                      fontWeight: on ? FontWeight.w600 : null,
-                    ),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        _dayLabel!.format(dayFromNumber(days[i].day)),
+                        style: style?.copyWith(
+                          color: on ? scheme.primary : scheme.onSurface,
+                          fontWeight: on ? FontWeight.w600 : null,
+                        ),
+                      ),
+                      if (_streamsLine(i) case final line?)
+                        Text(
+                          line,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.bodySmall
+                              ?.copyWith(color: scheme.onSurfaceVariant),
+                        ),
+                    ],
                   ),
                 ),
                 if (kept)
@@ -477,6 +498,28 @@ class _HistoryDaysState extends State<HistoryDays>
         ),
       ),
     );
+  }
+
+  /// The streams that ran on day [i]: one by its game (or title) and
+  /// length, several by count and total length. Null on a day without one.
+  String? _streamsLine(int i) {
+    final from = widget.rail.days[i].start;
+    final to = _endOf(i);
+    final streams = [
+      for (final s in widget.rail.streams)
+        if (s.end.isAfter(from) && s.start.isBefore(to)) s,
+    ];
+    if (streams.isEmpty) return null;
+    final length = formatStreamLength(
+      streams.fold(Duration.zero, (sum, s) => sum + s.end.difference(s.start)),
+    );
+    final l10n = context.l10n;
+    if (streams.length > 1) {
+      return l10n.historyDayStreams(streams.length, length);
+    }
+    final s = streams.single;
+    final name = s.game.isNotEmpty ? s.game : s.title;
+    return name.isEmpty ? length : l10n.historyDayStream(name, length);
   }
 
   /// The touched time, in a pill left of the drawer.

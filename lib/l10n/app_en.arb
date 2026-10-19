@@ -3106,7 +3106,21 @@
   },
   "historyWatchVod": "Watch VOD",
   "historyJumpToStart": "Jump to start",
-  "historyOpenStreamMap": "Open stream map",
+  "historyDayStream": "{name} · {length}",
+  "@historyDayStream": {
+    "placeholders": {
+      "name": {"type": "String"},
+      "length": {"type": "String"}
+    }
+  },
+  "historyDayStreams": "{count, plural, other{{count} streams}} · {length}",
+  "@historyDayStreams": {
+    "placeholders": {
+      "count": {"type": "int"},
+      "length": {"type": "String"}
+    }
+  },
+  "historyOpenStreamMap": "Show in calendar",
   "historyKeepDay": "Keep this day",
   "historyUnkeepDay": "Stop keeping this day",
   "historyNoVod": "No VOD available",
