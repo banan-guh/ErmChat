@@ -18,6 +18,7 @@ class PrefsSwitchTile extends StatefulWidget {
     required this.title,
     this.subtitle,
     this.secondary,
+    this.titleTrailing,
     this.defaultValue = false,
     required this.read,
     required this.write,
@@ -28,6 +29,9 @@ class PrefsSwitchTile extends StatefulWidget {
   final String title;
   final String? subtitle;
   final Widget? secondary;
+
+  /// Sits at the end of the title row, before the switch.
+  final Widget? titleTrailing;
   final bool defaultValue;
   final bool Function(Prefs prefs) read;
   final Future<void> Function(Prefs prefs, bool value) write;
@@ -69,7 +73,15 @@ class _PrefsSwitchTileState extends State<PrefsSwitchTile> {
   Widget build(BuildContext context) {
     return SwitchListTile(
       secondary: widget.secondary,
-      title: Text(widget.title),
+      title: widget.titleTrailing == null
+          ? Text(widget.title)
+          : Row(
+              children: [
+                Expanded(child: Text(widget.title)),
+                const SizedBox(width: 12),
+                widget.titleTrailing!,
+              ],
+            ),
       subtitle: widget.subtitle == null ? null : Text(widget.subtitle!),
       value: _value ?? widget.defaultValue,
       onChanged: widget.enabled ? _onChanged : null,

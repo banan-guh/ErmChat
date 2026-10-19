@@ -13,19 +13,6 @@ import 'prefs_tiles.dart';
 import 'settings_page.dart';
 import 'settings_search.dart';
 
-String chromeThemeLabel(AppLocalizations l, ChromeTheme t) => switch (t) {
-  ChromeTheme.ermchat => l.chromeThemeErmchat,
-  ChromeTheme.dankchat3 => l.chromeThemeDankchat3,
-  ChromeTheme.dankchat4 => l.chromeThemeDankchat4,
-};
-
-/// A custom theme's name, or a numbered stand-in when it has none.
-String customChromeThemeName(
-  AppLocalizations l,
-  ChromeThemeSpec spec,
-  int index,
-) => spec.name.isNotEmpty ? spec.name : l.themeBuilderUntitled(index + 1);
-
 class CustomizationScreen extends StatefulWidget {
   const CustomizationScreen({super.key, this.onEditLayout});
 
@@ -121,55 +108,8 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
     setState(() {});
   }
 
-  String get _chromeThemeKey =>
-      _prefs?.chromeThemeKey ?? ChromeTheme.ermchat.name;
-
   bool get _chromeIsIsland =>
       (_prefs?.chromeTheme ?? ChromeTheme.ermchat.spec).isIsland;
-
-  String _chromeThemeLabel(String key) {
-    for (final t in ChromeTheme.values) {
-      if (t.name == key) return chromeThemeLabel(context.l10n, t);
-    }
-    final custom = _prefs?.customChromeThemes ?? const [];
-    final i = int.tryParse(key.replaceFirst(Prefs.customChromeThemePrefix, ''));
-    return i != null && i >= 0 && i < custom.length
-        ? customChromeThemeName(context.l10n, custom[i], i)
-        : chromeThemeLabel(context.l10n, ChromeTheme.ermchat);
-  }
-
-  Future<void> _pickChromeTheme() async {
-    final custom = _prefs?.customChromeThemes ?? const [];
-    final selected = await showChoiceDialog<String>(
-      context,
-      title: Setting.chromeTheme.titleOf(context.l10n),
-      value: _chromeThemeKey,
-      options: [
-        for (final t in ChromeTheme.values)
-          (
-            t.name,
-            chromeThemeLabel(context.l10n, t),
-            switch (t) {
-              ChromeTheme.ermchat => context.l10n.chromeThemeErmchatHint,
-              ChromeTheme.dankchat3 => context.l10n.chromeThemeDankchat3Hint,
-              ChromeTheme.dankchat4 => context.l10n.chromeThemeDankchat4Hint,
-            },
-          ),
-        for (var i = 0; i < custom.length; i++)
-          (
-            '${Prefs.customChromeThemePrefix}$i',
-            customChromeThemeName(context.l10n, custom[i], i),
-            context.l10n.chromeThemeCustomHint,
-          ),
-      ],
-    );
-    if (selected == null || selected == _chromeThemeKey) return;
-    final prefs = _prefs ?? await Prefs.load();
-    await prefs.setChromeThemeKey(selected);
-    PrefsStore.instance.notifyChanged();
-    if (!mounted) return;
-    setState(() {});
-  }
 
   String get _timestampFormat =>
       _prefs?.timestampFormat ?? kDefaultTimestampFormat;
@@ -225,26 +165,6 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
       title: Text(context.l10n.pageAppearance),
       body: ListView(
         children: [
-          SettingAnchor(
-            Setting.editLayout,
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-              child: Card.filled(
-                margin: EdgeInsets.zero,
-                color: Theme.of(context).colorScheme.primaryContainer,
-                child: ListTile(
-                  leading: const Icon(Icons.dashboard_customize),
-                  title: Text(Setting.editLayout.titleOf(context.l10n)),
-                  subtitle: Text(context.l10n.layoutEditSubtitle),
-                  trailing: const Icon(Icons.chevron_right),
-                  onTap: () {
-                    widget.onEditLayout?.call();
-                    Navigator.of(context).popUntil((r) => r.isFirst);
-                  },
-                ),
-              ),
-            ),
-          ),
           SettingsSectionHeader(context.l10n.sectionTheme),
           SettingAnchor(
             Setting.theme,
@@ -322,12 +242,15 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
             ),
           ),
           SettingAnchor(
-            Setting.chromeTheme,
+            Setting.editLayout,
             child: ListTile(
-              title: Text(Setting.chromeTheme.titleOf(context.l10n)),
-              subtitle: Text(_chromeThemeLabel(_chromeThemeKey)),
+              title: Text(Setting.editLayout.titleOf(context.l10n)),
+              subtitle: Text(context.l10n.layoutEditSubtitle),
               trailing: const Icon(Icons.chevron_right),
-              onTap: _pickChromeTheme,
+              onTap: () {
+                widget.onEditLayout?.call();
+                Navigator.of(context).popUntil((r) => r.isFirst);
+              },
             ),
           ),
           SettingAnchor(
@@ -341,7 +264,7 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
               // Draws real glass once it is on, so the GPU builds the glass
               // shaders here on the tap rather than while this page animates
               // away, which would crawl.
-              secondary: _GlassSwatch(
+              titleTrailing: _GlassSwatch(
                 on: _chromeIsIsland && (_prefs?.liquidGlass ?? false),
               ),
               read: (p) => p.liquidGlass,

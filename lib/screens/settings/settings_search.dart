@@ -92,7 +92,6 @@ class Setting {
     'true_dark' => l.settingTrueDark,
     'layout' => l.settingLayout,
     'liquid_glass' => l.settingLiquidGlass,
-    'chrome_theme' => l.settingChromeTheme,
     'edit_layout' => l.settingEditLayout,
     'chat_font_size' => l.settingChatFontSize,
     'chat_font_weight' => l.settingChatFontWeight,
@@ -253,13 +252,6 @@ class Setting {
     SettingsPageId.appearance,
     section: 'Layout',
     keywords: 'compact full density',
-  );
-  static const chromeTheme = Setting(
-    'chrome_theme',
-    'Chrome theme',
-    SettingsPageId.appearance,
-    section: 'Layout',
-    keywords: 'dankchat style',
   );
   static const editLayout = Setting(
     'edit_layout',
@@ -736,7 +728,6 @@ class Setting {
     accentColor,
     trueDark,
     layout,
-    chromeTheme,
     editLayout,
     liquidGlass,
     chatFontSize,
