@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -5,13 +6,6 @@ import 'package:flutter/services.dart';
 
 import '../l10n/l10n.dart';
 import '../util/chrome_theme.dart';
-
-/// A composer button the editor places but never removes.
-enum ComposerPart { emote, send }
-
-/// Where a [ComposerPart] can sit: in the field, down the island's side
-/// (send only), or at the row's end (the emote button takes its start).
-enum PartPlace { field, column, row }
 
 /// Holds the draft layout while the home screen is in edit mode. The chrome
 /// renders from [draft], so every change shows live.
@@ -24,11 +18,6 @@ class LayoutEditController extends ChangeNotifier {
   ChromeThemeSpec _draft;
   LayoutBlock? _blocked;
   Object? _dragging;
-  bool _previewTyping = false;
-
-  /// Whether the row hides while typing and takes the buttons' places in
-  /// the field with it. The home screen syncs it on each build.
-  bool hiddenRow = false;
 
   ChromeThemeSpec get draft => _draft;
 
@@ -40,61 +29,32 @@ class LayoutEditController extends ChangeNotifier {
   /// The [ChromeAction] or [ComposerPart] being dragged, if any.
   Object? get dragging => _dragging;
 
-  /// Whether the island shows as it does while typing: the row hidden.
-  bool get typing => _previewTyping && hiddenRow;
-
-  set previewTyping(bool value) {
-    if (_previewTyping == value) return;
-    _previewTyping = value;
-    notifyListeners();
-  }
-
   void drag(Object? item) {
     if (_dragging == item) return;
     _dragging = item;
     notifyListeners();
   }
 
-  /// Where [part] shows now. A hidden row leaves both in the field.
-  PartPlace placeOf(ComposerPart part) {
-    if (hiddenRow) return PartPlace.field;
-    return switch (part) {
-      ComposerPart.emote =>
-        _draft.emote == EmotePlace.row ? PartPlace.row : PartPlace.field,
-      ComposerPart.send => switch (_draft.send) {
-        SendPlace.field => PartPlace.field,
-        SendPlace.column => PartPlace.column,
-        SendPlace.row => PartPlace.row,
-      },
-    };
-  }
-
-  /// Whether [part] may be dropped at [place] and show a change.
-  bool allows(ComposerPart part, PartPlace place) {
-    if (place == PartPlace.field) return true;
-    if (typing) return false;
-    if (part == ComposerPart.emote) return place == PartPlace.row && !hiddenRow;
-    return !hiddenRow || place == PartPlace.row;
-  }
-
   /// Whether [place] draws [part]: it sits there, or a drag of it may land.
   bool shows(ComposerPart part, PartPlace place) =>
-      placeOf(part) == place || (_dragging == part && allows(part, place));
+      _draft.placeOf(part) == place ||
+      (_dragging == part && _draft.canPlacePart(part, place));
 
-  void placePart(ComposerPart part, PartPlace place) {
-    if (!allows(part, place)) return;
+  /// Whether a field side offers a "+": the field has room, or the drag
+  /// in flight is already in the field and may move across.
+  bool fieldOffers() {
+    final dragged = _dragging;
+    return switch (dragged) {
+      ChromeAction() => _draft.canPlaceField(FieldItem.action(dragged)),
+      ComposerPart() => _draft.canPlaceField(FieldItem.part(dragged)),
+      _ => _draft.fieldItems.length < ChromeThemeSpec.fieldCap,
+    };
+  }
+
+  void placePart(ComposerPart part, PartPlace place, {int? index}) {
     _blocked = null;
     _dragging = null;
-    _draft = switch (part) {
-      ComposerPart.send => _draft.placeSend(switch (place) {
-        PartPlace.field => SendPlace.field,
-        PartPlace.column => SendPlace.column,
-        PartPlace.row => SendPlace.row,
-      }),
-      ComposerPart.emote => _draft.copyWith(
-        emote: place == PartPlace.row ? EmotePlace.row : EmotePlace.field,
-      ),
-    };
+    _draft = _draft.placePart(part, place, index: index).fitted();
     notifyListeners();
   }
 
@@ -112,14 +72,14 @@ class LayoutEditController extends ChangeNotifier {
       }
     }
     _blocked = null;
-    _draft = _draft.place(action, slot, index: index);
+    _draft = _draft.place(action, slot, index: index).fitted();
     notifyListeners();
   }
 
   void update(ChromeThemeSpec spec) {
     _blocked = null;
     _dragging = null;
-    _draft = spec;
+    _draft = spec.fitted();
     notifyListeners();
   }
 
@@ -151,6 +111,8 @@ String _slotLabel(AppLocalizations l, LayoutSlot slot) => switch (slot) {
   LayoutSlot.appBar => l.layoutSlotAppBar,
   LayoutSlot.rowStart => l.layoutSlotRowStart,
   LayoutSlot.rowEnd => l.layoutSlotRowEnd,
+  LayoutSlot.fieldStart => l.layoutSlotFieldStart,
+  LayoutSlot.fieldEnd => l.layoutSlotFieldEnd,
 };
 
 const _cell = 48.0;
@@ -226,11 +188,13 @@ class _InsertTarget extends StatelessWidget {
     required this.hot,
     this.icon = Icons.add,
     this.slim = false,
+    this.onTap,
   });
 
   final bool hot;
   final bool slim;
   final IconData icon;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
@@ -246,11 +210,18 @@ class _InsertTarget extends StatelessWidget {
             fill: hot ? scheme.primary.withValues(alpha: 0.2) : null,
             radius: 12,
           ),
-          child: Center(
-            child: Icon(
-              icon,
-              size: 18,
-              color: hot ? scheme.primary : scheme.outlineVariant,
+          child: Semantics(
+            container: true,
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: onTap,
+              child: Center(
+                child: Icon(
+                  icon,
+                  size: 18,
+                  color: hot ? scheme.primary : scheme.outlineVariant,
+                ),
+              ),
             ),
           ),
         ),
@@ -421,7 +392,7 @@ class _EditChipState extends State<EditChip> {
     final block = spec.removeBlock(widget.action);
     final choice = await _showMenuAt<Object>(context, [
       for (final s in spec.slots)
-        if (s != widget.slot)
+        if (s != widget.slot && spec.canPlace(widget.action, s))
           PopupMenuItem<Object>(
             value: s,
             child: Text(
@@ -487,7 +458,9 @@ class _EditChipState extends State<EditChip> {
     );
     if (!_placed) return chip;
     return DragTarget<ChromeAction>(
-      onWillAcceptWithDetails: (d) => d.data != widget.action,
+      onWillAcceptWithDetails: (d) =>
+          d.data != widget.action &&
+          widget.controller.draft.canPlace(d.data, widget.slot!),
       onAcceptWithDetails: (d) {
         HapticFeedback.lightImpact();
         widget.controller.move(d.data, widget.slot, index: widget.index);
@@ -510,7 +483,8 @@ class _EditChipState extends State<EditChip> {
 
 String _placeLabel(AppLocalizations l, ComposerPart part, PartPlace place) =>
     switch (place) {
-      PartPlace.field => l.layoutPlaceField,
+      PartPlace.fieldStart => l.layoutSlotFieldStart,
+      PartPlace.fieldEnd => l.layoutSlotFieldEnd,
       PartPlace.column => l.layoutSendColumn,
       PartPlace.row =>
         part == ComposerPart.emote ? l.layoutSlotRowStart : l.layoutSlotRowEnd,
@@ -520,6 +494,11 @@ extension on ComposerPart {
   IconData get icon => switch (this) {
     ComposerPart.emote => Icons.emoji_emotions_outlined,
     ComposerPart.send => Icons.send,
+  };
+
+  String label(AppLocalizations l) => switch (this) {
+    ComposerPart.emote => l.pickerEmotes,
+    ComposerPart.send => l.send,
   };
 }
 
@@ -540,7 +519,7 @@ class PartSlot extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (!controller.shows(part, place)) return const SizedBox.shrink();
-    final placed = controller.placeOf(part) == place;
+    final placed = controller.draft.placeOf(part) == place;
     return SizedBox(
       width: _cell,
       height: 40,
@@ -558,7 +537,8 @@ class PartSlot extends StatelessWidget {
                 )
               : DragTarget<ComposerPart>(
                   onWillAcceptWithDetails: (d) =>
-                      d.data == part && controller.allows(part, place),
+                      d.data == part &&
+                      controller.draft.canPlacePart(part, place),
                   onAcceptWithDetails: (d) {
                     HapticFeedback.lightImpact();
                     controller.placePart(part, place);
@@ -592,10 +572,10 @@ class _PartChipState extends State<PartChip> {
   Future<void> _openMenu() async {
     final l = context.l10n;
     final c = widget.controller;
-    final here = c.placeOf(widget.part);
+    final here = c.draft.placeOf(widget.part);
     final choice = await _showMenuAt<Object>(context, [
       for (final p in PartPlace.values)
-        if (p != here && c.allows(widget.part, p) && !_noColumn(p))
+        if (p != here && c.draft.canPlacePart(widget.part, p))
           PopupMenuItem<Object>(
             value: p,
             child: Text(l.layoutMoveTo(_placeLabel(l, widget.part, p))),
@@ -607,9 +587,6 @@ class _PartChipState extends State<PartChip> {
     HapticFeedback.selectionClick();
     c.placePart(widget.part, choice);
   }
-
-  bool _noColumn(PartPlace p) =>
-      widget.part == ComposerPart.emote && p == PartPlace.column;
 
   Widget _body({bool lifted = false}) => _EditFace(
     icon: widget.part.icon,
@@ -650,6 +627,114 @@ class _PartChipState extends State<PartChip> {
   }
 }
 
+/// One side of the field row in edit mode: its buttons, then a "+" while
+/// the field row has room (or a drag of a button already in it may land).
+class FieldSideView extends StatelessWidget {
+  const FieldSideView({
+    super.key,
+    required this.controller,
+    required this.side,
+  });
+
+  final LayoutEditController controller;
+  final LayoutSlot side;
+
+  PartPlace get _place =>
+      side == LayoutSlot.fieldStart ? PartPlace.fieldStart : PartPlace.fieldEnd;
+
+  Future<void> _openAdd(BuildContext context) async {
+    final l = context.l10n;
+    final spec = controller.draft;
+    final choice = await _showMenuAt<Object>(context, [
+      for (final p in ComposerPart.values)
+        if (!spec.inField(FieldItem.part(p)) && spec.canPlacePart(p, _place))
+          PopupMenuItem<Object>(
+            value: p,
+            child: _MenuLabel(icon: p.icon, text: p.label(l)),
+          ),
+      for (final a in ChromeAction.values)
+        if (!spec.inField(FieldItem.action(a)))
+          PopupMenuItem<Object>(
+            value: a,
+            child: _MenuLabel(icon: a.icon, text: a.label(l)),
+          ),
+    ]);
+    if (choice == null) return;
+    HapticFeedback.selectionClick();
+    if (choice is ChromeAction) controller.move(choice, side);
+    if (choice is ComposerPart) controller.placePart(choice, _place);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final items = controller.draft.itemsIn(side);
+    return SizedBox(
+      height: 40,
+      width: (items.length + (controller.fieldOffers() ? 1 : 0)) * _cell,
+      child: OverflowBox(
+        minHeight: _cell,
+        maxHeight: _cell,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (var i = 0; i < items.length; i++)
+              if (items[i].action case final a?)
+                EditChip(
+                  key: ValueKey(a),
+                  controller: controller,
+                  action: a,
+                  slot: side,
+                  index: i,
+                )
+              else
+                PartChip(
+                  key: ValueKey(items[i].part),
+                  controller: controller,
+                  part: items[i].part!,
+                ),
+            if (controller.fieldOffers())
+              DragTarget<Object>(
+                onWillAcceptWithDetails: (d) => switch (d.data) {
+                  ChromeAction a => controller.draft.canPlace(a, side),
+                  ComposerPart p => controller.draft.canPlacePart(p, _place),
+                  _ => false,
+                },
+                onAcceptWithDetails: (d) {
+                  HapticFeedback.lightImpact();
+                  switch (d.data) {
+                    case ChromeAction a:
+                      controller.move(a, side);
+                    case ComposerPart p:
+                      controller.placePart(p, _place);
+                  }
+                },
+                builder: (context, candidates, _) => Builder(
+                  builder: (context) => _InsertTarget(
+                    hot: candidates.isNotEmpty,
+                    onTap: () => unawaited(_openAdd(context)),
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// A menu entry: an icon, then its text.
+class _MenuLabel extends StatelessWidget {
+  const _MenuLabel({required this.icon, required this.text});
+
+  final IconData icon;
+  final String text;
+
+  @override
+  Widget build(BuildContext context) => Row(
+    children: [Icon(icon, size: 20), const SizedBox(width: 12), Text(text)],
+  );
+}
+
 /// The edit-mode panel under the real chrome: header actions, the spare
 /// buttons, the preset and header menus, and the few toggles.
 class LayoutEditTray extends StatelessWidget {
@@ -658,17 +743,11 @@ class LayoutEditTray extends StatelessWidget {
     required this.controller,
     required this.onDone,
     required this.onCancel,
-    required this.hideButtons,
-    required this.onHideButtons,
   });
 
   final LayoutEditController controller;
   final VoidCallback onDone;
   final VoidCallback onCancel;
-
-  /// Whether the row hides while typing, and how to change it.
-  final bool hideButtons;
-  final ValueChanged<bool> onHideButtons;
 
   @override
   Widget build(BuildContext context) {
@@ -724,15 +803,6 @@ class LayoutEditTray extends StatelessWidget {
           visualDensity: compact,
           onPressed: controller.dirty ? controller.reset : null,
         ),
-        if (controller.hiddenRow)
-          IconButton(
-            icon: const Icon(Icons.keyboard_outlined),
-            selectedIcon: const Icon(Icons.keyboard),
-            tooltip: l.layoutPreviewTyping,
-            visualDensity: compact,
-            isSelected: controller.typing,
-            onPressed: () => controller.previewTyping = !controller.typing,
-          ),
         TextButton(
           onPressed: onCancel,
           style: TextButton.styleFrom(visualDensity: compact),
@@ -902,10 +972,12 @@ class LayoutEditTray extends StatelessWidget {
             draft.busyBar,
             (v) => controller.update(draft.copyWith(busyBar: v)),
           ),
-          toggle(l.settingKeyboardButtons, hideButtons, (v) {
-            controller.previewTyping = false;
-            onHideButtons(v);
-          }),
+          if (!draft.islandFlush)
+            toggle(
+              l.layoutHideRowTyping,
+              draft.compact,
+              (v) => controller.update(draft.copyWith(compact: v)),
+            ),
         ],
       ),
     );

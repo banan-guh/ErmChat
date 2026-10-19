@@ -1,3 +1,4 @@
+import 'package:ermchat/util/chrome_theme.dart';
 import 'package:ermchat/util/layout_density.dart';
 import 'package:ermchat/util/prefs.dart';
 import 'package:ermchat/util/prefs_store.dart';
@@ -85,18 +86,24 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  testWidgets('overrides apply only with custom layout on', (tester) async {
+  testWidgets('a compact layout keeps emote in the field, not the row', (
+    tester,
+  ) async {
     await pumpJoined(tester, glass: false, density: LayoutDensity.compact);
 
-    // Master off: the override is ignored and compact still hides the row
-    // under the keyboard, so the emote button stays in the field.
-    final prefs = await Prefs.load();
-    await prefs.setOverrideKeyboardHidesRow(false);
-    await settlePrefs(tester);
     final rowEmote = inBottomBar(find.byIcon(Icons.emoji_emotions_outlined));
     expect(rowEmote, findsNothing);
 
-    await prefs.setCustomLayoutEnabled(true);
+    // The same layout without compact leaves the emote button in the row.
+    final prefs = await Prefs.load();
+    await prefs.setCustomChromeThemes([
+      ChromeTheme.ermchat.spec.copyWith(
+        compact: false,
+        fieldStart: [],
+        fieldEnd: [FieldItem.send],
+      ),
+    ]);
+    await prefs.setChromeThemeKey('${Prefs.customChromeThemePrefix}0');
     await settlePrefs(tester);
     expect(rowEmote, findsOneWidget);
   });

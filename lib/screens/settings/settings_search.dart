@@ -94,7 +94,6 @@ class Setting {
     'liquid_glass' => l.settingLiquidGlass,
     'chrome_theme' => l.settingChromeTheme,
     'edit_layout' => l.settingEditLayout,
-    'keyboard_buttons' => l.settingKeyboardButtons,
     'chat_font_size' => l.settingChatFontSize,
     'chat_font_weight' => l.settingChatFontWeight,
     'show_timestamps' => l.settingShowTimestamps,
@@ -351,12 +350,6 @@ class Setting {
     'compact_density',
     'Compact density',
     SettingsPageId.customLayout,
-  );
-  static const keyboardButtons = Setting(
-    'keyboard_buttons',
-    'Hide buttons while typing',
-    SettingsPageId.customLayout,
-    keywords: 'keyboard composer island row',
   );
 
   // ── Chat ────────────────────────────────────────────────────────────
@@ -758,7 +751,6 @@ class Setting {
     tighterComposer,
     horizontalSheetActions,
     compactDensity,
-    keyboardButtons,
     maxMessages,
     sharedChat,
     inlineEmbeds,

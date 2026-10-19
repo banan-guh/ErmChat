@@ -388,14 +388,6 @@ class Prefs {
   Future<void> setOverrideCompactDensity(bool value) =>
       _p.setBool(_kOverrideCompactDensity, value);
 
-  static const _kOverrideKeyboardHidesRow = 'override_keyboard_hides_row';
-
-  bool get overrideKeyboardHidesRow =>
-      _p.getBool(_kOverrideKeyboardHidesRow) ?? true;
-
-  Future<void> setOverrideKeyboardHidesRow(bool value) =>
-      _p.setBool(_kOverrideKeyboardHidesRow, value);
-
   static const _kChromeTheme = 'chrome_theme';
 
   static const _kCustomChromeThemes = 'chrome_themes_custom';
@@ -776,7 +768,6 @@ class Prefs {
     _kOverrideTightComposer: bool,
     _kOverrideSheetActionRow: bool,
     _kOverrideCompactDensity: bool,
-    _kOverrideKeyboardHidesRow: bool,
     _kChromeTheme: String,
     _kCustomChromeThemes: List<String>,
     _kLiquidGlass: bool,

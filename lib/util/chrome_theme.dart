@@ -51,7 +51,7 @@ enum ChromeAction {
 
 /// Where send goes.
 enum SendPlace {
-  /// Emote and send sit in the field.
+  /// Send sits in the field row.
   field('f'),
 
   /// Send runs down the island's side, beside the field and the row.
@@ -66,19 +66,53 @@ enum SendPlace {
   final String code;
 }
 
-/// Where the emote button goes. A spec that never set it follows send: in
-/// the field while send is, otherwise at the row's start.
-enum EmotePlace {
-  /// The field's start.
-  field('f'),
+/// A composer button the layout places but never removes.
+enum ComposerPart {
+  emote('e'),
+  send('x');
 
-  /// The row's start.
-  row('r');
-
-  const EmotePlace(this.code);
+  const ComposerPart(this.code);
 
   /// One letter in [ChromeThemeSpec.encode].
   final String code;
+}
+
+/// A place a [ComposerPart] can sit: either side of the field, down the
+/// island's side (send only), or in the button row (the emote button takes
+/// its start, send its end).
+enum PartPlace { fieldStart, fieldEnd, column, row }
+
+/// A button in the field row: a chrome action or a composer part.
+@immutable
+class FieldItem {
+  const FieldItem.action(ChromeAction this.action) : part = null;
+  const FieldItem.part(ComposerPart this.part) : action = null;
+
+  static const emote = FieldItem.part(ComposerPart.emote);
+  static const send = FieldItem.part(ComposerPart.send);
+
+  final ChromeAction? action;
+  final ComposerPart? part;
+
+  /// One letter in [ChromeThemeSpec.encode].
+  String get code => action?.code ?? part!.code;
+
+  static FieldItem? fromCode(String c) {
+    for (final a in ChromeAction.values) {
+      if (a.code == c) return FieldItem.action(a);
+    }
+    for (final p in ComposerPart.values) {
+      if (p.code == c) return FieldItem.part(p);
+    }
+    return null;
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      other is FieldItem && other.action == action && other.part == part;
+
+  @override
+  int get hashCode => Object.hash(action, part);
 }
 
 /// A place a [ChromeAction] can sit.
@@ -94,6 +128,14 @@ enum LayoutSlot {
 
   /// The island's button row, right of its gap.
   rowEnd,
+
+  /// The field row, before the text field.
+  fieldStart,
+
+  /// The field row, after the text field.
+  fieldEnd;
+
+  bool get isField => this == fieldStart || this == fieldEnd;
 }
 
 /// Why an action cannot leave the layout.
@@ -114,8 +156,10 @@ class ChromeThemeSpec {
     this.rowStart = const [],
     this.rowEnd = const [],
     this.appBarActions = const [],
-    this.send = SendPlace.field,
-    this._emote,
+    this.fieldStart = const [FieldItem.emote],
+    this.fieldEnd = const [FieldItem.send],
+    this.sendAside = SendPlace.column,
+    this.compact = false,
     this.islandFlush = false,
     this.busyBar = false,
   });
@@ -132,19 +176,25 @@ class ChromeThemeSpec {
   /// The app bar's actions, in order, for [HeaderStyle.appBar].
   final List<ChromeAction> appBarActions;
 
-  /// The island's button row, left of its free gap, after emote.
+  /// The island's button row, left of its free gap.
   final List<ChromeAction> rowStart;
 
-  /// The island's button row, right of its free gap, before send.
+  /// The island's button row, right of its free gap.
   final List<ChromeAction> rowEnd;
 
-  final SendPlace send;
+  /// The field row's buttons before the text field, in order.
+  final List<FieldItem> fieldStart;
 
-  final EmotePlace? _emote;
+  /// The field row's buttons after the text field, in order.
+  final List<FieldItem> fieldEnd;
 
-  /// Where the emote button sits: the place set, else the one send implies.
-  EmotePlace get emote =>
-      _emote ?? (send == SendPlace.field ? EmotePlace.field : EmotePlace.row);
+  /// Where send sits while it is not in the field row: the side column or
+  /// the row's end.
+  final SendPlace sendAside;
+
+  /// The island's button row hides while typing, leaving the field row.
+  /// Only an island (not [islandFlush]) can have it.
+  final bool compact;
 
   /// The island runs edge to edge under the nav bar, rounded only on top.
   final bool islandFlush;
@@ -153,19 +203,38 @@ class ChromeThemeSpec {
   /// spinner in the join button.
   final bool busyBar;
 
+  /// Most buttons the field row holds, both sides together.
+  static const fieldCap = 2;
+
+  /// The field row's buttons, start then end.
+  List<FieldItem> get fieldItems => [...fieldStart, ...fieldEnd];
+
+  bool inField(FieldItem item) =>
+      fieldStart.contains(item) || fieldEnd.contains(item);
+
+  /// Where send sits: in the field, else where it was put aside.
+  SendPlace get send => inField(FieldItem.send)
+      ? SendPlace.field
+      : sendAside == SendPlace.row
+      ? SendPlace.row
+      : SendPlace.column;
+
+  /// Whether the emote button sits at the row's start instead of the field.
+  bool get emoteInRow => !inField(FieldItem.emote);
+
   /// The row's actions, start then end.
   List<ChromeAction> get rowActions => [...rowStart, ...rowEnd];
+
+  /// The actions in the field row.
+  List<ChromeAction> get fieldActions => [
+    for (final i in fieldItems)
+      if (i.action != null) i.action!,
+  ];
 
   /// Whether the island has a button row: it holds an action, or emote or
   /// send left the field for it.
   bool get hasRow =>
-      rowActions.isNotEmpty ||
-      send != SendPlace.field ||
-      emote == EmotePlace.row;
-
-  /// A copy with send at [place] and the emote button where it is now.
-  ChromeThemeSpec placeSend(SendPlace place) =>
-      copyWith(send: place, emote: emote);
+      rowActions.isNotEmpty || send != SendPlace.field || emoteInRow;
 
   /// Send ends the row instead of running down the island's side. The row
   /// then stays up while typing.
@@ -174,7 +243,8 @@ class ChromeThemeSpec {
   bool places(ChromeAction action) =>
       stripActions.contains(action) ||
       (header == HeaderStyle.appBar && appBarActions.contains(action)) ||
-      rowActions.contains(action);
+      rowActions.contains(action) ||
+      fieldActions.contains(action);
 
   /// Settings heads the ⋮ menu whenever it isn't placed as a button.
   bool get settingsInMenu => !places(ChromeAction.settings);
@@ -191,9 +261,10 @@ class ChromeThemeSpec {
       (places(ChromeAction.viewMenu) || places(ChromeAction.overflow));
 
   /// A copy that is [isUsable]: settings and a view path are restored on the
-  /// strip when the theme hid them, so it cannot lock the user out.
+  /// strip when the theme hid them, so it cannot lock the user out. It is
+  /// also [fitted].
   ChromeThemeSpec normalized() {
-    var spec = this;
+    var spec = fitted();
     if (!spec.reachesSettings) {
       spec = spec.copyWith(
         stripActions: [...spec.stripActions, ChromeAction.settings],
@@ -208,19 +279,64 @@ class ChromeThemeSpec {
     return spec;
   }
 
+  /// A copy that obeys the field row's rules. It holds at most [fieldCap]
+  /// buttons, and an action cut from it lands at the row's end. Edge to edge
+  /// clears [compact]. Under [compact] send sits in the field, since the row
+  /// and the side column are gone while typing.
+  ChromeThemeSpec fitted() {
+    final start = [...fieldStart];
+    final end = [...fieldEnd];
+    final spill = <ChromeAction>[];
+    void cutLast() {
+      final cut = end.isNotEmpty ? end.removeLast() : start.removeLast();
+      if (cut.action != null) spill.add(cut.action!);
+    }
+
+    while (start.length + end.length > fieldCap) {
+      cutLast();
+    }
+    final keepsCompact = compact && !islandFlush;
+    if (keepsCompact &&
+        !start.contains(FieldItem.send) &&
+        !end.contains(FieldItem.send)) {
+      if (start.length + end.length >= fieldCap) cutLast();
+      end.add(FieldItem.send);
+    }
+    return copyWith(
+      fieldStart: start,
+      fieldEnd: end,
+      rowEnd: [...rowEnd, ...spill],
+      compact: keepsCompact,
+    );
+  }
+
   /// The slots this header style shows.
   List<LayoutSlot> get slots => [
     LayoutSlot.strip,
     if (header == HeaderStyle.appBar) LayoutSlot.appBar,
     LayoutSlot.rowStart,
     LayoutSlot.rowEnd,
+    LayoutSlot.fieldStart,
+    LayoutSlot.fieldEnd,
   ];
 
+  /// The actions in [slot], in order.
   List<ChromeAction> actionsIn(LayoutSlot slot) => switch (slot) {
     LayoutSlot.strip => stripActions,
     LayoutSlot.appBar => appBarActions,
     LayoutSlot.rowStart => rowStart,
     LayoutSlot.rowEnd => rowEnd,
+    LayoutSlot.fieldStart || LayoutSlot.fieldEnd => [
+      for (final i in itemsIn(slot))
+        if (i.action != null) i.action!,
+    ],
+  };
+
+  /// Everything in [slot], in order. Only the field holds parts.
+  List<FieldItem> itemsIn(LayoutSlot slot) => switch (slot) {
+    LayoutSlot.fieldStart => fieldStart,
+    LayoutSlot.fieldEnd => fieldEnd,
+    _ => [for (final a in actionsIn(slot)) FieldItem.action(a)],
   };
 
   /// Where [action] shows, or null when it is not placed.
@@ -231,13 +347,62 @@ class ChromeThemeSpec {
     return null;
   }
 
+  /// Whether the field row can take [item]: it is in the field already or
+  /// the field has room.
+  bool canPlaceField(FieldItem item) =>
+      inField(item) || fieldItems.length < fieldCap;
+
+  /// Whether [action] may go to [slot].
+  bool canPlace(ChromeAction action, LayoutSlot slot) =>
+      !slot.isField || canPlaceField(FieldItem.action(action));
+
+  /// Where [part] shows now.
+  PartPlace placeOf(ComposerPart part) {
+    final item = FieldItem.part(part);
+    if (fieldStart.contains(item)) return PartPlace.fieldStart;
+    if (fieldEnd.contains(item)) return PartPlace.fieldEnd;
+    if (part == ComposerPart.emote) return PartPlace.row;
+    return send == SendPlace.row ? PartPlace.row : PartPlace.column;
+  }
+
+  /// Whether [part] may be put at [place]. Under [compact] send stays in
+  /// the field, the only place that survives typing.
+  bool canPlacePart(ComposerPart part, PartPlace place) => switch (place) {
+    PartPlace.fieldStart ||
+    PartPlace.fieldEnd => canPlaceField(FieldItem.part(part)),
+    PartPlace.column => part == ComposerPart.send && !compact,
+    PartPlace.row => part == ComposerPart.emote || !compact,
+  };
+
+  static List<FieldItem> _with(
+    List<FieldItem> side,
+    FieldItem item,
+    int? index,
+  ) {
+    final out = [...side]..remove(item);
+    var at = index ?? side.length;
+    final from = side.indexOf(item);
+    if (from >= 0 && from < at) at--;
+    return out..insert(at.clamp(0, out.length), item);
+  }
+
   /// A copy with [action] moved to [slot] at [index] (the end by default),
-  /// or removed when [slot] is null. An action sits in one place.
+  /// or removed when [slot] is null. An action sits in one place. A full
+  /// field row refuses it.
   ChromeThemeSpec place(ChromeAction action, LayoutSlot? slot, {int? index}) {
+    if (slot != null && !canPlace(action, slot)) return this;
+    final item = FieldItem.action(action);
     final lists = {
-      for (final s in LayoutSlot.values) s: [...actionsIn(s)]..remove(action),
+      for (final s in LayoutSlot.values)
+        if (!s.isField) s: [...actionsIn(s)]..remove(action),
     };
-    if (slot != null) {
+    var start = [...fieldStart]..remove(item);
+    var end = [...fieldEnd]..remove(item);
+    if (slot == LayoutSlot.fieldStart) {
+      start = _with(fieldStart, item, index);
+    } else if (slot == LayoutSlot.fieldEnd) {
+      end = _with(fieldEnd, item, index);
+    } else if (slot != null) {
       final target = lists[slot]!;
       var at = index ?? actionsIn(slot).length;
       final from = actionsIn(slot).indexOf(action);
@@ -249,6 +414,30 @@ class ChromeThemeSpec {
       appBarActions: lists[LayoutSlot.appBar],
       rowStart: lists[LayoutSlot.rowStart],
       rowEnd: lists[LayoutSlot.rowEnd],
+      fieldStart: start,
+      fieldEnd: end,
+    );
+  }
+
+  /// A copy with [part] at [place], at [index] on a field side. A place it
+  /// cannot take leaves the copy unchanged.
+  ChromeThemeSpec placePart(ComposerPart part, PartPlace place, {int? index}) {
+    if (!canPlacePart(part, place)) return this;
+    final item = FieldItem.part(part);
+    var start = [...fieldStart]..remove(item);
+    var end = [...fieldEnd]..remove(item);
+    if (place == PartPlace.fieldStart) start = _with(fieldStart, item, index);
+    if (place == PartPlace.fieldEnd) end = _with(fieldEnd, item, index);
+    return copyWith(
+      fieldStart: start,
+      fieldEnd: end,
+      sendAside: part != ComposerPart.send
+          ? sendAside
+          : place == PartPlace.row
+          ? SendPlace.row
+          : place == PartPlace.column
+          ? SendPlace.column
+          : sendAside,
     );
   }
 
@@ -284,8 +473,10 @@ class ChromeThemeSpec {
     List<ChromeAction>? appBarActions,
     List<ChromeAction>? rowStart,
     List<ChromeAction>? rowEnd,
-    SendPlace? send,
-    EmotePlace? emote,
+    List<FieldItem>? fieldStart,
+    List<FieldItem>? fieldEnd,
+    SendPlace? sendAside,
+    bool? compact,
     bool? islandFlush,
     bool? busyBar,
   }) => ChromeThemeSpec(
@@ -295,8 +486,10 @@ class ChromeThemeSpec {
     appBarActions: appBarActions ?? this.appBarActions,
     rowStart: rowStart ?? this.rowStart,
     rowEnd: rowEnd ?? this.rowEnd,
-    send: send ?? this.send,
-    emote: emote ?? _emote,
+    fieldStart: fieldStart ?? this.fieldStart,
+    fieldEnd: fieldEnd ?? this.fieldEnd,
+    sendAside: sendAside ?? this.sendAside,
+    compact: compact ?? this.compact,
     islandFlush: islandFlush ?? this.islandFlush,
     busyBar: busyBar ?? this.busyBar,
   );
@@ -306,29 +499,34 @@ class ChromeThemeSpec {
 
   static const _prefix = 'ermchat-theme:1';
 
-  /// A short single line for pasting. Every action letter appears at most
-  /// once, so a theme stays well under a hundred characters plus its name.
+  /// A short single line for pasting. Every letter appears at most once, so
+  /// a theme stays well under a hundred characters plus its name.
   String encode() {
-    String codes(List<ChromeAction> a) => a.map((x) => x.code).join();
+    String actions(List<ChromeAction> a) => a.map((x) => x.code).join();
+    String items(List<FieldItem> a) => a.map((x) => x.code).join();
     final flags = [if (islandFlush) 'F', if (busyBar) 'B'].join();
     return [
       _prefix,
       if (name.isNotEmpty) 'n=${Uri.encodeComponent(name)}',
       'h=${header.code}',
-      if (stripActions.isNotEmpty) 't=${codes(stripActions)}',
-      if (appBarActions.isNotEmpty) 'a=${codes(appBarActions)}',
-      if (rowStart.isNotEmpty) 'r=${codes(rowStart)}',
-      if (rowEnd.isNotEmpty) 'R=${codes(rowEnd)}',
+      if (stripActions.isNotEmpty) 't=${actions(stripActions)}',
+      if (appBarActions.isNotEmpty) 'a=${actions(appBarActions)}',
+      if (rowStart.isNotEmpty) 'r=${actions(rowStart)}',
+      if (rowEnd.isNotEmpty) 'R=${actions(rowEnd)}',
+      if (fieldStart.isNotEmpty) 'fs=${items(fieldStart)}',
+      if (fieldEnd.isNotEmpty) 'fe=${items(fieldEnd)}',
       's=${send.code}',
-      'e=${emote.code}',
+      'c=${compact ? 1 : 0}',
       if (flags.isNotEmpty) 'f=$flags',
     ].join(';');
   }
 
   /// Parses [encode]'s line, or null when it isn't one. Unknown letters are
-  /// skipped and an action placed twice keeps its first place, so a
-  /// hand-edited line still loads as something usable. A line without an
-  /// emote place follows send, as every line did before it existed.
+  /// skipped and a button placed twice keeps its first place, so a
+  /// hand-edited line still loads as something usable. A line with no `c=`
+  /// predates the field row: its emote and send places map onto the field,
+  /// and an island with a row, send not in it, gets [compact] (the layout it
+  /// always showed on a phone).
   static ChromeThemeSpec? decode(String text) {
     final parts = text.trim().split(';');
     if (parts.isEmpty || parts.first != _prefix) return null;
@@ -342,12 +540,16 @@ class ChromeThemeSpec {
         .where((h) => h.code == fields['h'])
         .firstOrNull;
     if (header == null) return null;
-    final seen = <ChromeAction>{};
+    final seen = <FieldItem>{};
     List<ChromeAction> actions(String key) => [
       for (final c in (fields[key] ?? '').split(''))
-        if (ChromeAction.values.where((a) => a.code == c).firstOrNull
-            case final a? when seen.add(a))
-          a,
+        if (FieldItem.fromCode(c) case final i?
+            when i.action != null && seen.add(i))
+          i.action!,
+    ];
+    List<FieldItem> items(String key) => [
+      for (final c in (fields[key] ?? '').split(''))
+        if (FieldItem.fromCode(c) case final i? when seen.add(i)) i,
     ];
     String name;
     try {
@@ -358,22 +560,52 @@ class ChromeThemeSpec {
       name = '';
     }
     final flags = fields['f'] ?? '';
+    final flush = flags.contains('F');
+    final send =
+        SendPlace.values.where((s) => s.code == fields['s']).firstOrNull ??
+        SendPlace.field;
+    final strip = actions('t');
+    final appBar = actions('a');
+    final rowStart = actions('r');
+    final rowEnd = actions('R');
+    List<FieldItem> start;
+    List<FieldItem> end;
+    bool compact;
+    if (fields.containsKey('c')) {
+      start = items('fs');
+      end = items('fe');
+      compact = fields['c'] == '1';
+    } else {
+      final emoteInField = switch (fields['e']) {
+        'f' => true,
+        'r' => false,
+        _ => send == SendPlace.field,
+      };
+      final hadRow =
+          rowStart.isNotEmpty ||
+          rowEnd.isNotEmpty ||
+          send != SendPlace.field ||
+          !emoteInField;
+      compact = !flush && hadRow && send != SendPlace.row;
+      start = [if (emoteInField || compact) FieldItem.emote];
+      end = [if (send == SendPlace.field || compact) FieldItem.send];
+    }
     return ChromeThemeSpec(
       name: name.length > maxNameLength
           ? name.substring(0, maxNameLength)
           : name,
       header: header,
-      stripActions: actions('t'),
-      appBarActions: actions('a'),
-      rowStart: actions('r'),
-      rowEnd: actions('R'),
-      send:
-          SendPlace.values.where((s) => s.code == fields['s']).firstOrNull ??
-          SendPlace.field,
-      emote: EmotePlace.values.where((e) => e.code == fields['e']).firstOrNull,
-      islandFlush: flags.contains('F'),
+      stripActions: strip,
+      appBarActions: appBar,
+      rowStart: rowStart,
+      rowEnd: rowEnd,
+      fieldStart: start,
+      fieldEnd: end,
+      sendAside: send == SendPlace.row ? SendPlace.row : SendPlace.column,
+      compact: compact,
+      islandFlush: flush,
       busyBar: flags.contains('B'),
-    );
+    ).fitted();
   }
 
   /// A plain strip with settings and the view menu, emote and send in the
@@ -392,8 +624,10 @@ class ChromeThemeSpec {
       listEquals(other.appBarActions, appBarActions) &&
       listEquals(other.rowStart, rowStart) &&
       listEquals(other.rowEnd, rowEnd) &&
+      listEquals(other.fieldStart, fieldStart) &&
+      listEquals(other.fieldEnd, fieldEnd) &&
       other.send == send &&
-      other.emote == emote &&
+      other.compact == compact &&
       other.islandFlush == islandFlush &&
       other.busyBar == busyBar;
 
@@ -405,8 +639,10 @@ class ChromeThemeSpec {
     Object.hashAll(appBarActions),
     Object.hashAll(rowStart),
     Object.hashAll(rowEnd),
+    Object.hashAll(fieldStart),
+    Object.hashAll(fieldEnd),
     send,
-    emote,
+    compact,
     islandFlush,
     busyBar,
   );
@@ -423,7 +659,7 @@ enum ChromeTheme {
         ChromeAction.threads,
         ChromeAction.mentions,
       ],
-      send: SendPlace.column,
+      compact: true,
     ),
   ),
 
@@ -450,7 +686,9 @@ enum ChromeTheme {
         ChromeAction.overflow,
       ],
       rowEnd: [ChromeAction.threads, ChromeAction.viewMenu],
-      send: SendPlace.row,
+      fieldStart: [],
+      fieldEnd: [],
+      sendAside: SendPlace.row,
       islandFlush: true,
       busyBar: true,
     ),

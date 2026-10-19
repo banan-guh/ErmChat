@@ -25,7 +25,6 @@ class LayoutOverrides {
     this.tightComposer = true,
     this.sheetActionRow = false,
     this.compactDensity = true,
-    this.keyboardHidesRow = true,
   });
 
   /// Master switch: when false the individual switches are ignored.
@@ -41,9 +40,6 @@ class LayoutOverrides {
   /// Material's compact density for buttons, list tiles and menus.
   final bool compactDensity;
 
-  /// The keyboard covers the island's button row, leaving only the field.
-  final bool keyboardHidesRow;
-
   /// Whether the sheets use the icon row. Only custom turns it on.
   bool get horizontalSheetActions => enabled && sheetActionRow;
 
@@ -58,17 +54,11 @@ class LayoutOverrides {
       other.enabled == enabled &&
       other.tightComposer == tightComposer &&
       other.sheetActionRow == sheetActionRow &&
-      other.compactDensity == compactDensity &&
-      other.keyboardHidesRow == keyboardHidesRow;
+      other.compactDensity == compactDensity;
 
   @override
-  int get hashCode => Object.hash(
-    enabled,
-    tightComposer,
-    sheetActionRow,
-    compactDensity,
-    keyboardHidesRow,
-  );
+  int get hashCode =>
+      Object.hash(enabled, tightComposer, sheetActionRow, compactDensity);
 }
 
 /// Resolved compact flag from the app root, notifying only when it flips.

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../models/twitch_message.dart';
+import '../util/chrome_theme.dart';
 import '../util/constants.dart';
 import '../util/layout_density.dart';
 import '../util/thread_utils.dart';
@@ -34,13 +35,14 @@ class MessageInput extends StatelessWidget {
   final Widget? prefixOverride;
   final Widget? suffixOverride;
 
-  // The emote button lives in the island's button row instead, so the field
-  // drops its own.
-  final bool emoteInRow;
+  // The field row's buttons before and after the text field. Emote and send
+  // leave the field by leaving these lists, for the island's row or side
+  // column.
+  final List<FieldItem> startItems;
+  final List<FieldItem> endItems;
 
-  // Send lives in the island's row or side column instead, so the field
-  // drops its own.
-  final bool sendOutside;
+  // Builds a chrome action's button, for the actions in the lists above.
+  final Widget Function(ChromeAction action)? actionBuilder;
 
   // The field shows but takes no focus, so no keyboard opens.
   final bool readOnly;
@@ -63,8 +65,9 @@ class MessageInput extends StatelessWidget {
     this.borderless = false,
     this.prefixOverride,
     this.suffixOverride,
-    this.emoteInRow = false,
-    this.sendOutside = false,
+    this.startItems = const [FieldItem.emote],
+    this.endItems = const [FieldItem.send],
+    this.actionBuilder,
     this.readOnly = false,
   });
 
@@ -95,6 +98,73 @@ class MessageInput extends StatelessWidget {
     return LayoutBuilder(
       builder: (context, constraints) {
         final emoteFits = constraints.maxWidth >= minWidthForEmoteMenu;
+        Widget? button(FieldItem item) {
+          final action = item.action;
+          if (action != null) {
+            final build = actionBuilder;
+            return build == null
+                ? null
+                : _IconSlot(height: slotH, child: build(action));
+          }
+          if (item == FieldItem.emote) {
+            return !emoteFits
+                ? null
+                : _IconSlot(
+                    height: slotH,
+                    child: Material(
+                      type: MaterialType.transparency,
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(iconBox / 2),
+                        onTap: onEmoteToggle,
+                        child: ListenableBuilder(
+                          listenable: focusNode,
+                          // Explicit size: a dense field shrinks its icons
+                          // to 18pt, and compact is dense.
+                          builder: (_, _) => Tooltip(
+                            message: context.l10n.pickerEmotes,
+                            child: Icon(
+                              Icons.emoji_emotions_outlined,
+                              size: 24,
+                              color: _inputAccent(context),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  );
+          }
+          return _IconSlot(
+            height: slotH,
+            child: Material(
+              type: MaterialType.transparency,
+              child: InkWell(
+                borderRadius: BorderRadius.circular(iconBox / 2),
+                onTap: enabled ? onSend : null,
+                onLongPress: enabled ? onSendLongPress : null,
+                child: ListenableBuilder(
+                  listenable: focusNode,
+                  builder: (_, _) {
+                    final theme = Theme.of(context);
+                    return Icon(
+                      Icons.send,
+                      size: 24,
+                      color: !enabled
+                          ? theme.colorScheme.onSurface.withValues(alpha: 0.38)
+                          : _inputAccent(context),
+                    );
+                  },
+                ),
+              ),
+            ),
+          );
+        }
+
+        Widget? side(List<Widget> buttons) => buttons.isEmpty
+            ? null
+            : Row(mainAxisSize: MainAxisSize.min, children: buttons);
+
+        final start = [for (final item in startItems) ?button(item)];
+        final end = [for (final item in endItems) ?button(item)];
         return Padding(
           // In-flow the field sits flush under the list (top 0). In a glass
           // pill it must breathe evenly or the text reads high in the pill.
@@ -162,74 +232,17 @@ class MessageInput extends StatelessWidget {
                               : (compact ? 8 : 12),
                         )
                       : null,
-                  prefixIcon:
-                      prefixOverride ??
-                      (!emoteFits || emoteInRow
-                          ? null
-                          : _IconSlot(
-                              height: slotH,
-                              child: Material(
-                                type: MaterialType.transparency,
-                                child: InkWell(
-                                  borderRadius: BorderRadius.circular(
-                                    iconBox / 2,
-                                  ),
-                                  onTap: onEmoteToggle,
-                                  child: ListenableBuilder(
-                                    listenable: focusNode,
-                                    // Explicit size: a dense field shrinks its icons
-                                    // to 18pt, and compact is dense.
-                                    builder: (_, _) => Tooltip(
-                                      message: context.l10n.pickerEmotes,
-                                      child: Icon(
-                                        Icons.emoji_emotions_outlined,
-                                        size: 24,
-                                        color: _inputAccent(context),
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            )),
-                  suffixIcon:
-                      suffixOverride ??
-                      (sendOutside
-                          ? null
-                          : _IconSlot(
-                              height: slotH,
-                              child: Material(
-                                type: MaterialType.transparency,
-                                child: InkWell(
-                                  borderRadius: BorderRadius.circular(
-                                    iconBox / 2,
-                                  ),
-                                  onTap: enabled ? onSend : null,
-                                  onLongPress: enabled ? onSendLongPress : null,
-                                  child: ListenableBuilder(
-                                    listenable: focusNode,
-                                    builder: (_, _) {
-                                      final theme = Theme.of(context);
-                                      return Icon(
-                                        Icons.send,
-                                        size: 24,
-                                        color: !enabled
-                                            ? theme.colorScheme.onSurface
-                                                  .withValues(alpha: 0.38)
-                                            : _inputAccent(context),
-                                      );
-                                    },
-                                  ),
-                                ),
-                              ),
-                            )),
+                  prefixIcon: prefixOverride ?? side(start),
+                  suffixIcon: suffixOverride ?? side(end),
                 ),
               ),
               // The floated label owns the top-left corner; the counter
-              // takes the top-right, clear of the send button.
+              // takes the top-right, clear of the end buttons.
               if (!searchMode)
                 Positioned(
                   top: compact ? 2 : 6,
-                  right: 16 + (sendOutside ? 0 : iconBox),
+                  right:
+                      16 + (suffixOverride == null ? end.length * iconBox : 0),
                   child: _CharsLeft(controller: controller),
                 ),
             ],

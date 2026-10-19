@@ -146,7 +146,11 @@ class HomeAppBar {
   /// The strip's end: the theme's strip actions.
   Widget stripTrailing({bool glass = false, VoidCallback? onCalendar}) {
     if (layoutEdit() case final edit?) {
-      return LayoutSlotView(controller: edit, slot: LayoutSlot.strip);
+      // The end target needs room, or the screen edge clips it.
+      return Padding(
+        padding: const EdgeInsetsDirectional.only(end: 8),
+        child: LayoutSlotView(controller: edit, slot: LayoutSlot.strip),
+      );
     }
     final actions = themeSpec().stripActions;
     return Builder(

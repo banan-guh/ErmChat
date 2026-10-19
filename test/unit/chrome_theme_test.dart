@@ -16,67 +16,204 @@ void main() {
     }
     final named = ChromeThemeSpec.blank.copyWith(name: 'a;b=c %d');
     expect(ChromeThemeSpec.decode(named.encode()), named);
-    for (final send in SendPlace.values) {
-      for (final emote in EmotePlace.values) {
-        final spec = ChromeThemeSpec.blank.copyWith(send: send, emote: emote);
-        expect(
-          ChromeThemeSpec.decode(spec.encode()),
-          spec,
-          reason: 'send ${send.name}, emote ${emote.name}',
-        );
-      }
+    final shapes = <(String, ChromeThemeSpec)>[
+      ('emote and send in the field', ChromeThemeSpec.blank),
+      (
+        'send in the column, emote in the row',
+        ChromeThemeSpec.blank.copyWith(fieldStart: [], fieldEnd: []),
+      ),
+      (
+        'send in the row',
+        ChromeThemeSpec.blank.copyWith(
+          fieldStart: [],
+          fieldEnd: [],
+          sendAside: SendPlace.row,
+        ),
+      ),
+      (
+        'both on one side with an action ahead',
+        ChromeThemeSpec.blank.copyWith(
+          fieldStart: [FieldItem.action(ChromeAction.threads), FieldItem.send],
+          fieldEnd: [],
+        ),
+      ),
+      ('compact', ChromeThemeSpec.blank.copyWith(compact: true)),
+    ];
+    for (final (name, spec) in shapes) {
+      expect(ChromeThemeSpec.decode(spec.encode()), spec, reason: name);
     }
   });
 
-  test('emote follows send unless it is placed, old lines included', () {
-    // Lines saved before the emote place existed carry no e= field.
-    final cases = <(String, String, EmotePlace)>[
-      (
-        'old line, send in field',
-        'ermchat-theme:1;h=s;t=sv;s=f',
-        EmotePlace.field,
-      ),
-      (
-        'old line, send in column',
-        'ermchat-theme:1;h=s;t=sv;s=c',
-        EmotePlace.row,
-      ),
-      ('old line, send in row', 'ermchat-theme:1;h=s;t=sv;s=r', EmotePlace.row),
-      ('placed in the row', 'ermchat-theme:1;h=s;t=sv;s=f;e=r', EmotePlace.row),
-      (
-        'placed in the field',
-        'ermchat-theme:1;h=s;t=sv;s=c;e=f',
-        EmotePlace.field,
-      ),
-      ('unknown place', 'ermchat-theme:1;h=s;t=sv;s=c;e=z', EmotePlace.row),
-    ];
-    for (final (name, line, want) in cases) {
-      expect(ChromeThemeSpec.decode(line)!.emote, want, reason: name);
+  test('old lines map emote and send onto the field row', () {
+    // Lines saved before the field row carry s= and maybe e=, never c=. An
+    // island with a row and send out of it was compact on a phone, which
+    // kept both buttons in the field.
+    final cases =
+        <(String, String, List<FieldItem>, List<FieldItem>, SendPlace, bool)>[
+          (
+            'send in field, no row',
+            'ermchat-theme:1;h=s;t=sv;s=f',
+            [FieldItem.emote],
+            [FieldItem.send],
+            SendPlace.field,
+            false,
+          ),
+          (
+            'send in field, emote in row',
+            'ermchat-theme:1;h=s;t=sv;s=f;e=r',
+            [FieldItem.emote],
+            [FieldItem.send],
+            SendPlace.field,
+            true,
+          ),
+          (
+            'send in column',
+            'ermchat-theme:1;h=s;t=sv;s=c',
+            [FieldItem.emote],
+            [FieldItem.send],
+            SendPlace.field,
+            true,
+          ),
+          (
+            'unknown emote place follows send',
+            'ermchat-theme:1;h=s;t=sv;s=c;e=z',
+            [FieldItem.emote],
+            [FieldItem.send],
+            SendPlace.field,
+            true,
+          ),
+          (
+            'send in row kept the row up while typing',
+            'ermchat-theme:1;h=s;t=sv;s=r',
+            [],
+            [],
+            SendPlace.row,
+            false,
+          ),
+          (
+            'edge to edge never hid its row',
+            'ermchat-theme:1;h=s;t=sv;s=c;f=F',
+            [],
+            [],
+            SendPlace.column,
+            false,
+          ),
+          (
+            'edge to edge, emote placed in the field',
+            'ermchat-theme:1;h=s;t=sv;s=c;e=f;f=F',
+            [FieldItem.emote],
+            [],
+            SendPlace.column,
+            false,
+          ),
+          (
+            'row actions make a row',
+            'ermchat-theme:1;h=s;t=v;r=s;s=f',
+            [FieldItem.emote],
+            [FieldItem.send],
+            SendPlace.field,
+            true,
+          ),
+        ];
+    for (final (name, line, start, end, send, compact) in cases) {
+      final spec = ChromeThemeSpec.decode(line)!;
+      expect(spec.fieldStart, start, reason: '$name: field start');
+      expect(spec.fieldEnd, end, reason: '$name: field end');
+      expect(spec.send, send, reason: '$name: send');
+      expect(spec.compact, compact, reason: '$name: compact');
     }
-    const spec = ChromeThemeSpec(
-      header: HeaderStyle.strip,
-      stripActions: [ChromeAction.settings, ChromeAction.viewMenu],
+  });
+
+  test('the field row holds two buttons, and compact keeps send in it', () {
+    final threads = FieldItem.action(ChromeAction.threads);
+    final mentions = FieldItem.action(ChromeAction.mentions);
+    final cases = <(String, ChromeThemeSpec, List<FieldItem>, List<FieldItem>)>[
+      (
+        'three cut from the end, send falls out of the field',
+        ChromeThemeSpec.blank.copyWith(
+          fieldStart: [mentions, FieldItem.emote],
+          fieldEnd: [FieldItem.send],
+        ),
+        [mentions, FieldItem.emote],
+        [],
+      ),
+      (
+        'both on one side is fine',
+        ChromeThemeSpec.blank.copyWith(
+          fieldStart: [],
+          fieldEnd: [threads, FieldItem.send],
+        ),
+        [],
+        [threads, FieldItem.send],
+      ),
+      (
+        'a cut action lands at the row end',
+        ChromeThemeSpec.blank.copyWith(
+          fieldStart: [FieldItem.emote],
+          fieldEnd: [threads, mentions],
+        ),
+        [FieldItem.emote],
+        [threads],
+      ),
+      (
+        'compact moves a row send to the field end',
+        ChromeThemeSpec.blank.copyWith(
+          fieldStart: [],
+          fieldEnd: [],
+          sendAside: SendPlace.row,
+          compact: true,
+        ),
+        [],
+        [FieldItem.send],
+      ),
+      (
+        'compact makes room for send by cutting the last button',
+        ChromeThemeSpec.blank.copyWith(
+          fieldStart: [threads],
+          fieldEnd: [FieldItem.emote],
+          sendAside: SendPlace.row,
+          compact: true,
+        ),
+        [threads],
+        [FieldItem.send],
+      ),
+    ];
+    for (final (name, spec, start, end) in cases) {
+      final fitted = spec.fitted();
+      expect(fitted.fieldStart, start, reason: '$name: start');
+      expect(fitted.fieldEnd, end, reason: '$name: end');
+      expect(ChromeThemeSpec.decode(spec.encode())!.fieldItems, [
+        ...start,
+        ...end,
+      ], reason: '$name: a pasted line fits the same way');
+    }
+    expect(
+      ChromeThemeSpec.blank
+          .copyWith(fieldStart: [threads], fieldEnd: [FieldItem.send])
+          .place(ChromeAction.mentions, LayoutSlot.fieldEnd)
+          .fieldItems,
+      [threads, FieldItem.send],
+      reason: 'a full field refuses another action',
+    );
+    final tight = ChromeThemeSpec.blank.copyWith(compact: true);
+    expect(tight.canPlacePart(ComposerPart.send, PartPlace.row), isFalse);
+    expect(tight.canPlacePart(ComposerPart.send, PartPlace.column), isFalse);
+    expect(tight.canPlacePart(ComposerPart.emote, PartPlace.row), isTrue);
+    expect(
+      tight.copyWith(islandFlush: true).normalized().compact,
+      isFalse,
+      reason: 'edge to edge clears compact',
     );
     expect(
-      spec.copyWith(send: SendPlace.column).emote,
-      EmotePlace.row,
-      reason: 'an unplaced emote keeps following send',
+      ChromeThemeSpec.decode(
+        tight.copyWith(islandFlush: true).encode(),
+      )!.compact,
+      isFalse,
+      reason: 'a pasted compact edge-to-edge line is not compact',
     );
-    expect(
-      spec.copyWith(send: SendPlace.column, emote: EmotePlace.field).emote,
-      EmotePlace.field,
-      reason: 'a placed emote stays put when send moves',
-    );
-    final moved = spec.placeSend(SendPlace.column);
-    expect(moved.emote, EmotePlace.field, reason: 'placeSend pins the emote');
-    expect(moved.placeSend(SendPlace.field).emote, EmotePlace.field);
-    expect(
-      spec.copyWith(emote: EmotePlace.row).hasRow,
-      isTrue,
-      reason: 'emote at the row start makes a row',
-    );
-    expect(moved.hasRow, isTrue, reason: 'send in the column makes a row');
-    expect(spec.hasRow, isFalse);
+    expect(ChromeTheme.ermchat.spec.compact, isTrue);
+    expect(ChromeTheme.dankchat3.spec.compact, isFalse);
+    expect(ChromeTheme.dankchat4.spec.compact, isFalse);
   });
 
   test('a mangled line decodes to null or something usable', () {

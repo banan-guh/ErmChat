@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 
 import '../panels/mod_panel.dart';
 import '../panels/search.dart';
+import '../util/chrome_theme.dart';
 import '../widgets/media_upload_controller.dart';
 import '../widgets/message_input.dart';
 import '../widgets/tabbed_layout.dart' show swipeShown;
@@ -33,8 +34,11 @@ class ComposerBar extends StatelessWidget {
     required this.dragTick,
     this.emoteInRow = false,
     this.sendOutside = false,
-    this.emoteSlot,
-    this.sendSlot,
+    this.startItems = const [FieldItem.emote],
+    this.endItems = const [FieldItem.send],
+    this.actionBuilder,
+    this.startSlot,
+    this.endSlot,
     this.readOnly = false,
     this.modeRow = false,
     this.uploads,
@@ -64,10 +68,16 @@ class ComposerBar extends StatelessWidget {
   /// Send sits in the island's row or side column instead of the field.
   final bool sendOutside;
 
-  /// Stand-ins for the field's emote and send buttons, for the layout
-  /// editor's chips and drop targets.
-  final Widget? emoteSlot;
-  final Widget? sendSlot;
+  /// The field row's buttons before and after the text field, and how to
+  /// build a chrome action among them.
+  final List<FieldItem> startItems;
+  final List<FieldItem> endItems;
+  final Widget Function(ChromeAction action)? actionBuilder;
+
+  /// Stand-ins for the field row's sides, for the layout editor's chips and
+  /// drop targets.
+  final Widget? startSlot;
+  final Widget? endSlot;
 
   /// Keeps the field from taking focus, for the layout editor.
   final bool readOnly;
@@ -107,8 +117,8 @@ class ComposerBar extends StatelessWidget {
                 prefixOverride: search.closeButton(),
                 // With send outside the field, the filter moves out with it.
                 suffixOverride: sendOutside ? null : search.filterButton(),
-                emoteInRow: emoteInRow,
-                sendOutside: sendOutside,
+                startItems: const [],
+                endItems: const [],
               )
             else if (termsBorrowed)
               MessageInput(
@@ -124,8 +134,8 @@ class ComposerBar extends StatelessWidget {
                 // standing in for an emote button that left.
                 prefixOverride: emoteInRow ? null : mod.termsPrefixSlot(),
                 suffixOverride: sendOutside ? null : mod.termsSubmitSlot(),
-                emoteInRow: emoteInRow,
-                sendOutside: sendOutside,
+                startItems: const [],
+                endItems: const [],
               )
             else
               // The hint carries the channel status, so it follows the
@@ -157,10 +167,11 @@ class ComposerBar extends StatelessWidget {
                       ? null
                       : (content) => uploads!.uploadInserted(context, content),
                   borderless: true,
-                  prefixOverride: emoteSlot,
-                  suffixOverride: sendSlot,
-                  emoteInRow: emoteInRow,
-                  sendOutside: sendOutside,
+                  prefixOverride: startSlot,
+                  suffixOverride: endSlot,
+                  startItems: startItems,
+                  endItems: endItems,
+                  actionBuilder: actionBuilder,
                   readOnly: readOnly,
                 ),
               ),

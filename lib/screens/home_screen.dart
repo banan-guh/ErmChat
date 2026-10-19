@@ -19,7 +19,6 @@ import '../models/twitch_message.dart';
 import '../util/chat_text.dart';
 import '../util/haptics.dart';
 import '../util/chrome_theme.dart';
-import '../util/layout_density.dart';
 import '../services/app_updates.dart';
 import '../services/twitch_api.dart';
 import '../services/twitch_auth.dart';
@@ -1726,23 +1725,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     setState(() => _layoutEdit = edit);
   }
 
-  /// Writes the pref the "Hide buttons while typing" tile writes. When custom
-  /// layout is off it turns on, holding the other overrides at what they
-  /// resolve to now so only this behavior changes.
-  Future<void> _setHideButtons(bool value) async {
-    final compact = isCompactLayout(context);
-    final custom = layoutOverridesOf(context).enabled;
-    final prefs = await Prefs.load();
-    if (!custom) {
-      await prefs.setOverrideTightComposer(compact);
-      await prefs.setOverrideCompactDensity(compact);
-      await prefs.setOverrideSheetActionRow(false);
-      await prefs.setCustomLayoutEnabled(true);
-    }
-    await prefs.setOverrideKeyboardHidesRow(value);
-    PrefsStore.instance.notifyChanged();
-  }
-
   void _endLayoutEdit() {
     final edit = _layoutEdit;
     if (edit == null) return;
@@ -1945,28 +1927,24 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     // in the app bar.
     final hasBottomBar =
         _chat.names.isNotEmpty || _channelManager.session.channelsPending;
-    // The compact layout hides the row under the keyboard (a layout
-    // override). Emote and send leave the field for the row when it stays up
-    // while typing (the pane keeps it up in either mode), so send sits under
-    // the thumb. A theme with no row actions drops the row, and one with
-    // send in the row keeps it up while typing.
+    // A compact theme hides the row under the keyboard, leaving the field
+    // row. A theme with no row actions drops the row.
     final edit = _layoutEdit;
     final spec = edit?.draft ?? _chromeTheme;
     // Edit mode keeps the row up so its slots can take drops.
     final rowless = !spec.hasRow && edit == null;
-    final hidesRowPref = resolveLayoutOverride(
-      context,
-      (o) => o.keyboardHidesRow,
-    );
-    final keyboardHidesRow = !spec.sendInRow && hidesRowPref;
-    final inPane = _stream.chatInPane(context);
-    edit?.hiddenRow = keyboardHidesRow && !inPane;
-    // The editor can show the island as it is while typing: row hidden.
-    final typingPreview = edit != null && edit.typing;
-    final buttonsFree =
-        hasBottomBar && _showInput && !rowless && (!keyboardHidesRow || inPane);
-    final emoteInRow = buttonsFree && spec.emote == EmotePlace.row;
-    final sendOutside = buttonsFree && spec.send != SendPlace.field;
+    // Without a row, emote and send fall back to the field row.
+    final rowShown = hasBottomBar && _showInput && !rowless;
+    final emoteInRow = rowShown && spec.emoteInRow;
+    final sendOutside = rowShown && spec.send != SendPlace.field;
+    final fieldStart = [
+      if (!rowShown && spec.emoteInRow) FieldItem.emote,
+      ...spec.fieldStart,
+    ];
+    final fieldEnd = [
+      ...spec.fieldEnd,
+      if (!rowShown && spec.send != SendPlace.field) FieldItem.send,
+    ];
     final modeRow = _modeRow;
     final sendButton = ComposerRowButton.send(
       controller: _composer,
@@ -2029,8 +2007,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                 controller: _layoutEdit!,
                 onDone: () => unawaited(_saveLayoutEdit()),
                 onCancel: _endLayoutEdit,
-                hideButtons: hidesRowPref,
-                onHideButtons: (v) => unawaited(_setHideButtons(v)),
               ),
         body: ListenableBuilder(
           listenable: _streamPlayer,
@@ -2106,14 +2082,32 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                     dragTick: _panelDragTick,
                     emoteInRow: emoteInRow,
                     sendOutside: sendOutside,
-                    emoteSlot: partSlot(ComposerPart.emote, PartPlace.field),
-                    sendSlot: partSlot(ComposerPart.send, PartPlace.field),
+                    startItems: fieldStart,
+                    endItems: fieldEnd,
+                    actionBuilder: (a) => _chrome.action(
+                      context,
+                      a,
+                      glass: glass,
+                      onCalendar: _channels.openCalendar,
+                    ),
+                    startSlot: edit == null
+                        ? null
+                        : FieldSideView(
+                            controller: edit,
+                            side: LayoutSlot.fieldStart,
+                          ),
+                    endSlot: edit == null
+                        ? null
+                        : FieldSideView(
+                            controller: edit,
+                            side: LayoutSlot.fieldEnd,
+                          ),
                     readOnly: edit != null,
                     modeRow: modeRow,
                     uploads: _uploadController,
                   )
                 : null,
-            bottomBar: hasBottomBar && !rowless && !typingPreview
+            bottomBar: hasBottomBar && !rowless
                 ? _chrome.bottomBar(
                     context,
                     glass: glass,
@@ -2179,7 +2173,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
             notice: ChatNoticeBar(controller: _chatNotice),
             replyHeader: replyHeader,
             liquidGlass: glass,
-            keyboardHidesButtons: keyboardHidesRow && !typingPreview,
+            keyboardHidesButtons: spec.compact,
           ),
         ),
       ),

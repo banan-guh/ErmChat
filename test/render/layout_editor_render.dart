@@ -142,14 +142,6 @@ void main() {
       await _shot(tester, '${name}_home');
       await openEditor(tester);
       await _shot(tester, '${name}_edit');
-      final preview = find.byTooltip('Preview typing');
-      if (preview.evaluate().isNotEmpty) {
-        await tester.tap(preview);
-        await tester.pump(const Duration(milliseconds: 500));
-        await _shot(tester, '${name}_edit_typing');
-        await tester.tap(preview);
-        await tester.pump(const Duration(milliseconds: 500));
-      }
       await tester.tap(find.byIcon(Icons.forum_outlined).first);
       await tester.pumpAndSettle();
       await _shot(tester, '${name}_edit_menu');
@@ -172,7 +164,34 @@ void main() {
       await _shot(tester, '${name}_edit_drag_tray');
       await gesture.up();
       await tester.pumpAndSettle();
-      await tester.pump(const Duration(seconds: 3));
+      // Emote leaves the field: room on both sides of the text field.
+      await tester.tap(find.byIcon(Icons.emoji_emotions_outlined).first);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Move to Row, left'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
+      await tester.pump(const Duration(milliseconds: 500));
+      await _shot(tester, '${name}_edit_field_room');
+      // A row action dragged onto the start "+" fills the field row.
+      final plus = find.descendant(
+        of: find.byType(TextField),
+        matching: find.byIcon(Icons.add),
+      );
+      final drag = await tester.startGesture(
+        tester.getCenter(find.byIcon(Icons.forum_outlined).first),
+      );
+      await tester.pump(const Duration(milliseconds: 250));
+      await drag.moveBy(const Offset(0, -60));
+      await tester.pump(const Duration(milliseconds: 100));
+      await drag.moveTo(tester.getCenter(plus.first));
+      await _shot(tester, '${name}_edit_field_drag');
+      await drag.up();
+      await tester.pumpAndSettle();
+      await _shot(tester, '${name}_edit_field_full');
+      await tester.tap(find.text('Done'));
+      await tester.pumpAndSettle();
+      await _shot(tester, '${name}_saved_home');
+      await tester.pump(const Duration(seconds: 30));
     });
   }
 }
