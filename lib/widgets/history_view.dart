@@ -641,7 +641,7 @@ class _HistoryViewState extends State<HistoryView> {
       onOpenStreamMap: stream == null
           ? null
           : () {
-              _calendarDay = dayNumber(stream.start.toLocal());
+              _calendarTime = stream.start;
               unawaited(_openDays());
             },
       kept: actions == null ? null : _kept.value.contains(day),
@@ -689,8 +689,8 @@ class _HistoryViewState extends State<HistoryView> {
 
   static const _followEvery = Duration(seconds: 8);
 
-  /// A day the next calendar open goes straight into (a stream's day).
-  int? _calendarDay;
+  /// A time the next calendar open goes straight to (a stream's start).
+  DateTime? _calendarTime;
 
   /// A stream's first row lands near the top, with a little lead-in above.
   static const _startFraction = 0.8;
@@ -1871,10 +1871,10 @@ class _HistoryViewState extends State<HistoryView> {
                   onPick: _onPick,
                   kept: _kept,
                   onLongPress: _onDayLongPress,
-                  takeOpenDay: () {
-                    final day = _calendarDay;
-                    _calendarDay = null;
-                    return day;
+                  takeOpenTime: () {
+                    final time = _calendarTime;
+                    _calendarTime = null;
+                    return time;
                   },
                   glass: glass,
                 ),

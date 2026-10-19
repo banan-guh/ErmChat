@@ -26,12 +26,13 @@ class HistoryDays extends StatefulWidget {
     required this.onPick,
     required this.kept,
     required this.onLongPress,
-    this.takeOpenDay,
+    this.takeOpenTime,
     this.glass = false,
   });
 
-  /// Read on open: a day number to open straight into, or null for the list.
-  final int? Function()? takeOpenDay;
+  /// Read on open: a time whose day opens straight away with the time
+  /// marked, or null for the list.
+  final DateTime? Function()? takeOpenTime;
 
   final ActivityRail rail;
 
@@ -157,7 +158,20 @@ class _HistoryDaysState extends State<HistoryDays>
       widget.open.addListener(_sync);
       _sync();
     }
-    if (old.rail != widget.rail) _reset();
+    if (old.rail != widget.rail) {
+      // A rail rebuilt while a day is open keeps that day open.
+      final picked = _picked;
+      final day = picked == null ? null : old.rail.days[picked].day;
+      final touch = _touch.value;
+      final at = touch == null ? null : _scale?.timeAt(touch);
+      _reset();
+      final i = widget.rail.days.indexWhere((d) => d.day == day);
+      if (i >= 0) {
+        _pick(i);
+        _expand.value = 1;
+        if (at != null) _touch.value = _scale!.positionOf(at);
+      }
+    }
   }
 
   @override
@@ -181,9 +195,13 @@ class _HistoryDaysState extends State<HistoryDays>
       });
       if (!_portal.isShowing) _portal.show();
       _anim.forward();
-      final day = widget.takeOpenDay?.call();
+      final time = widget.takeOpenTime?.call();
+      final day = time == null ? null : dayNumber(widget.rail.local(time));
       final i = widget.rail.days.indexWhere((d) => d.day == day);
-      if (i >= 0) _open(i);
+      if (i >= 0) {
+        _open(i);
+        _touch.value = _scale!.positionOf(time!);
+      }
     } else {
       _anim.reverse();
     }
@@ -206,34 +224,37 @@ class _HistoryDaysState extends State<HistoryDays>
 
   void _open(int i) {
     HapticFeedback.selectionClick();
+    setState(() => _pick(i));
+    _expand.forward();
+  }
+
+  /// Makes [i] the open day, without rebuilding.
+  void _pick(int i) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     final l10n = context.l10n;
     final scale = widget.rail.window(widget.rail.days[i].start, _endOf(i));
-    setState(() {
-      _picked = i;
-      _scale = scale;
-      _wave = _WavePainter(
-        rail: widget.rail,
-        scale: scale,
-        from: widget.rail.days[i].start,
-        to: _endOf(i),
-        touch: _touch,
-        time: _time!,
-        quiet: (d) => l10n.historyQuiet(
-          d.inMinutes >= 90 ? '${d.inHours}h' : '${d.inMinutes}m',
-        ),
-        curve: scheme.primary.withValues(alpha: 0.5),
-        tint: scheme.primary.withValues(alpha: 0.16),
-        line: scheme.primary,
-        muted: scheme.onSurfaceVariant.withValues(alpha: 0.7),
-        labelStyle: (theme.textTheme.labelSmall ?? const TextStyle()).copyWith(
-          color: scheme.onSurfaceVariant.withValues(alpha: 0.8),
-          fontSize: 10,
-        ),
-      );
-    });
-    _expand.forward();
+    _picked = i;
+    _scale = scale;
+    _wave = _WavePainter(
+      rail: widget.rail,
+      scale: scale,
+      from: widget.rail.days[i].start,
+      to: _endOf(i),
+      touch: _touch,
+      time: _time!,
+      quiet: (d) => l10n.historyQuiet(
+        d.inMinutes >= 90 ? '${d.inHours}h' : '${d.inMinutes}m',
+      ),
+      curve: scheme.primary.withValues(alpha: 0.5),
+      tint: scheme.primary.withValues(alpha: 0.16),
+      line: scheme.primary,
+      muted: scheme.onSurfaceVariant.withValues(alpha: 0.7),
+      labelStyle: (theme.textTheme.labelSmall ?? const TextStyle()).copyWith(
+        color: scheme.onSurfaceVariant.withValues(alpha: 0.8),
+        fontSize: 10,
+      ),
+    );
   }
 
   void _onTouch(double y) {
