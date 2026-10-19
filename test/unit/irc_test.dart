@@ -2404,6 +2404,7 @@ void main() {
     );
 
     test('read-socket auth failure triggers re-auth', () async {
+      final expired = <String>[];
       final irc = _RecordingIrc();
       final auth = TwitchAuth();
       auth.setUser('alice', '111');
@@ -2420,6 +2421,9 @@ void main() {
         auth: auth,
         chat: chat,
         onReconnected: () {},
+        onSystemMessage: (c, t, {Color? accent, String? messageId}) {
+          if (t.startsWith('Login expired')) expired.add(t);
+        },
         client: http_testing.MockClient(
           (request) async => http.Response(
             '{"data":[{"id":"999","login":"test","display_name":"Test"}]}',
@@ -2445,6 +2449,11 @@ void main() {
         'anonymous',
         reason: 'an expired token must fall back to anonymous',
       );
+      // Shipped bug: the anonymous swap re-armed expiry, so the twin
+      // socket's late failure for the same token posted a second line.
+      irc.handleLine(':tmi.twitch.tv NOTICE * :Login authentication failed');
+      await Future<void>.delayed(Duration.zero);
+      expect(expired, hasLength(1), reason: 'one dead token, one line');
       conn.dispose();
     });
 

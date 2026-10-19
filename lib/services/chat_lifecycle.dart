@@ -104,10 +104,11 @@ class ChatLifecycle {
   // a login landing while a startup connect is still in-flight). Drained at
   // the end of the in-flight connect so the dropped credentials are honored.
   bool _connectRetryRequested = false;
-  // Expired-token handling: deduplicates the global expiry message and tracks
-  // the last anonymous-vs-authed state so the sockets actually tear down when
+  // The token already handled as expired, so both sockets and the validate
+  // call report one death once. A new token re-arms it. The last
+  // anonymous-vs-authed state makes the sockets actually tear down when
   // expiry flips us from authed to anonymous mid-session.
-  bool _expiryHandled = false;
+  String? _expiredToken;
   bool _lastIrcAnonymous = true;
   String? _lastValidatedToken;
   bool _disposed = false;
@@ -530,9 +531,6 @@ class ChatLifecycle {
         // on the same channel after a switch.
         eventSubTopics.resetAccountScope();
         channelSetup.resetJoinFailureState();
-        // New credentials re-arm expiry handling; without this a second dead
-        // token after a mid-session re-auth would fail silently forever.
-        _expiryHandled = false;
         // The suppressed disconnect skips the status-listener cleanup, so the
         // switch drops per-session/per-account state here explicitly: old
         // JOIN confirmations must not gate sends, self badges and slow-mode/
@@ -620,11 +618,12 @@ class ChatLifecycle {
 
   /// Central handler for an expired/dead access token. Marks the active
   /// account expired, broadcasts a message to every open channel, and
-  /// signals the snackbar. Subsequent calls are no-ops until the
-  /// credentials change (which resets [_expiryHandled]).
+  /// signals the snackbar. Later calls for the same token are no-ops, so
+  /// the anonymous fallback swap does not re-arm a second report.
   void _handleExpiredToken() {
-    if (_expiryHandled) return;
-    _expiryHandled = true;
+    final token = twitchAuth.accessToken;
+    if (token == _expiredToken) return;
+    _expiredToken = token;
     twitchAuth.markActiveExpired();
     session.apply(null);
     // Logged-out identity keeps no queue, and the dead token's subs will
