@@ -156,6 +156,9 @@ class ThirdPartyBadgeService {
         final providerId = item['providerId'] as String? ?? '';
         final badge = item['badge'] as Map<String, dynamic>?;
         final svg = badge?['svg'] as String? ?? '';
+        // BTTV serves SVG only, which the image decoder cannot read; a badge
+        // it would fail on every row stays out instead.
+        if (svg.toLowerCase().endsWith('.svg')) continue;
         if (providerId.isNotEmpty && svg.isNotEmpty) {
           _bttvUsers[providerId] = (
             url: svg,
