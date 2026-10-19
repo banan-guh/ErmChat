@@ -59,6 +59,8 @@ void main() {
   late List<String> seenTypes;
   late int calls;
 
+  // The moderator families wait for a mod role. The fixture user moderates
+  // testchannel, reported before the join as a first JOIN's USERSTATE is.
   void buildTopics() {
     topics = EventSubTopics(
       twitchApi: api,
@@ -66,7 +68,7 @@ void main() {
       session: session,
       chat: chat,
       eventSub: eventSub,
-    );
+    )..noteSelfModerator('testchannel', true);
   }
 
   setUp(() {
@@ -427,6 +429,8 @@ void main() {
           .length;
 
       topics.resetAccountScope();
+      // The switched account's rejoin reports its role again.
+      topics.noteSelfModerator('testchannel', true);
       topics.subscribeChannel('testchannel', 'broadcaster1');
       await flush();
       // Active kept: no moderation re-subscribe. Skip dropped: hold retried.
@@ -444,6 +448,7 @@ void main() {
     test('forgetChannel drops one channel actives, skips survive', () async {
       chat.ensure('other');
       chat.channelFor('other')!.info.setBroadcasterId('broadcaster2');
+      topics.noteSelfModerator('other', true);
       topics.subscribeChannel('testchannel', 'broadcaster1');
       topics.subscribeChannel('other', 'broadcaster2');
       await flush();
@@ -453,6 +458,8 @@ void main() {
       topics.forgetChannel('testchannel');
       expect(topics.isModerationActive('testchannel'), isFalse);
       expect(topics.isModerationActive('other'), isTrue);
+      // The rejoin's USERSTATE reports the role again.
+      topics.noteSelfModerator('testchannel', true);
 
       topics.resubscribeEventSubChannels(['testchannel', 'other']);
       await flush();
@@ -486,6 +493,29 @@ void main() {
         'moderator_user_id': moderator,
       },
     };
+
+    test('moderator topics wait for a mod role', () async {
+      topics = EventSubTopics(
+        twitchApi: api,
+        twitchAuth: auth,
+        session: session,
+        chat: chat,
+        eventSub: eventSub,
+      );
+      // Shipped noise: every non-mod channel drew a 403 per family on each
+      // startup, probing for a role USERSTATE already reports.
+      topics.noteSelfModerator('testchannel', false);
+      topics.subscribeChannel('testchannel', 'broadcaster1');
+      await flush();
+      expect(calls, 0, reason: 'a non-mod channel was probed');
+
+      // A role that lands after the join (a rejoin with a cached id)
+      // subscribes then.
+      topics.noteSelfModerator('testchannel', true);
+      await flush();
+      expect(topics.isModerationActive('testchannel'), isTrue);
+      expect(topics.isAutomodActive('testchannel'), isTrue);
+    });
 
     test('a mod grant retries the families a 403 skipped', () async {
       script['channel.moderate'] = 403;

@@ -29,6 +29,10 @@ class EventSubTopics {
   final _selfModerator = <String, bool>{};
   final _roleRetriedAt = <String, DateTime>{};
 
+  // Channels whose families a join or resubscribe has asked for, so a mod
+  // role reported after the join still subscribes the moderator ones.
+  final _joined = <String>{};
+
   final TwitchApi twitchApi;
   final TwitchAuth twitchAuth;
   final Session session;
@@ -144,6 +148,7 @@ class EventSubTopics {
   /// Drops per-channel subscription state (channel left). Skip sets survive:
   /// they record the account's rejection, which a rejoin would hit again.
   void forgetChannel(String channel) {
+    _joined.remove(channel);
     _moderationChannels.remove(channel);
     _automodChannels.remove(channel);
     _feedChannels.remove(channel);
@@ -155,11 +160,13 @@ class EventSubTopics {
     _roleRetriedAt.remove(channel);
   }
 
-  /// Applies the user's role from a channel USERSTATE. Losing mod drops the
-  /// moderator families; gaining it retries families a 403 or drop skipped.
-  /// A mod Twitch still refuses (a missing scope, a role change Twitch has
-  /// not caught up on) retries on later USERSTATEs, at most every
-  /// [roleRetryInterval], since one arrives after every own message.
+  /// Applies the user's role from a channel USERSTATE. The moderator
+  /// families wait for it, so a role reported after the join subscribes
+  /// them. Losing mod drops them; gaining it again retries families a 403
+  /// or drop skipped. A mod Twitch still refuses (a missing scope, a role
+  /// change Twitch has not caught up on) retries on later USERSTATEs, at
+  /// most every [roleRetryInterval], since one arrives after every own
+  /// message.
   void noteSelfModerator(String channel, bool moderator) {
     final wasModerator = _selfModerator[channel] ?? false;
     _selfModerator[channel] = moderator;
@@ -169,7 +176,14 @@ class EventSubTopics {
       }
       return;
     }
-    if (!_moderationSkippedChannels.contains(channel)) return;
+    final channelUserId = chat.channelFor(channel)?.info.broadcasterId;
+    if (channelUserId == null) return;
+    if (!_moderationSkippedChannels.contains(channel)) {
+      if (!wasModerator && _joined.contains(channel)) {
+        _subscribeModerator(channel, channelUserId);
+      }
+      return;
+    }
     final now = _now();
     final last = _roleRetriedAt[channel];
     if (wasModerator &&
@@ -177,14 +191,20 @@ class EventSubTopics {
         now.difference(last) < roleRetryInterval) {
       return;
     }
-    final channelUserId = chat.channelFor(channel)?.info.broadcasterId;
-    if (channelUserId == null) return;
     _roleRetriedAt[channel] = now;
     for (final family in _moderatorFamilies) {
       family.skipSet.remove(channel);
       family.typeSkips.remove(channel);
     }
-    subscribeChannel(channel, channelUserId);
+    _subscribeModerator(channel, channelUserId);
+  }
+
+  void _subscribeModerator(String channel, String channelUserId) {
+    if (session.userId == null) return;
+    for (final family in _moderatorFamilies) {
+      if (family.activeSet.contains(channel)) continue;
+      unawaited(_subscribeFamily(channel, channelUserId, family));
+    }
   }
 
   /// Drops the moderator families for [channel] (unmodded or revoked) and
@@ -233,6 +253,7 @@ class EventSubTopics {
   /// Subscribes the EventSub families for a joined channel.
   void subscribeChannel(String channelName, String channelUserId) {
     if (session.login == null || session.userId == null) return;
+    _joined.add(channelName);
     // Guard like resubscribeEventSubChannels; a run already in flight for the
     // same family drops out inside _subscribeFamily.
     for (final family in _families) {
@@ -353,6 +374,14 @@ class EventSubTopics {
       final auth = twitchAuth;
       if (!auth.isConfigured || session.userId == null) return;
       if (family.broadcasterOnly && session.userId != channelUserId) return;
+      // Moderator families wait for USERSTATE to report the role; the
+      // owner needs none. Probing every channel draws a 403 per family
+      // wherever the user is not a mod.
+      if (!family.broadcasterOnly &&
+          session.userId != channelUserId &&
+          _selfModerator[channelName] != true) {
+        return;
+      }
       if (family.skipSet.contains(channelName)) return;
       // Not a retry loop: the subscription is attempted at most once. The
       // loop only bounds the wait (~3s) for the EventSub websocket session
@@ -452,6 +481,7 @@ class EventSubTopics {
     for (final channel in channels) {
       final channelUserId = chat.channelFor(channel)?.info.broadcasterId;
       if (channelUserId == null) continue;
+      _joined.add(channel);
       for (final family in _families) {
         if (family.broadcasterOnly && uid != channelUserId) continue;
         if (family.activeSet.contains(channel)) continue;
