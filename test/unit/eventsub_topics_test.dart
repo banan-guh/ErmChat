@@ -487,6 +487,42 @@ void main() {
       expect(topics.isModerationActive('testchannel'), isTrue);
     });
 
+    test(
+      'a mod Twitch keeps refusing retries at most every interval',
+      () async {
+        var now = DateTime(2026, 10, 18);
+        topics = EventSubTopics(
+          twitchApi: api,
+          twitchAuth: auth,
+          session: session,
+          chat: chat,
+          eventSub: eventSub,
+          now: () => now,
+        );
+        script['channel.moderate'] = 403;
+        topics.noteSelfModerator('testchannel', true);
+        topics.subscribeChannel('testchannel', 'broadcaster1');
+        await flush();
+        topics.noteSelfModerator('testchannel', true);
+        await flush();
+        final afterRetry = calls;
+
+        topics.noteSelfModerator('testchannel', true);
+        await flush();
+        expect(
+          calls,
+          afterRetry,
+          reason: 'a USERSTATE follows every own message; no retry per message',
+        );
+
+        script.remove('channel.moderate');
+        now = now.add(EventSubTopics.roleRetryInterval);
+        topics.noteSelfModerator('testchannel', true);
+        await flush();
+        expect(topics.isModerationActive('testchannel'), isTrue);
+      },
+    );
+
     test('a mod role on join does not double-subscribe', () async {
       topics.subscribeChannel('testchannel', 'broadcaster1');
       await flush();

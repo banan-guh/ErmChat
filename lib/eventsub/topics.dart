@@ -16,7 +16,18 @@ class EventSubTopics {
     required this.session,
     required this.chat,
     required this.eventSub,
+    this._now = DateTime.now,
   });
+
+  final DateTime Function() _now;
+
+  /// How often a mod whose families Twitch keeps refusing retries them.
+  static const roleRetryInterval = Duration(minutes: 10);
+
+  // Last role USERSTATE reported per channel, and when a refused family was
+  // last retried for it.
+  final _selfModerator = <String, bool>{};
+  final _roleRetriedAt = <String, DateTime>{};
 
   final TwitchApi twitchApi;
   final TwitchAuth twitchAuth;
@@ -126,6 +137,8 @@ class EventSubTopics {
     for (final family in _families) {
       family.typeSkips.clear();
     }
+    _selfModerator.clear();
+    _roleRetriedAt.clear();
   }
 
   /// Drops per-channel subscription state (channel left). Skip sets survive:
@@ -138,11 +151,18 @@ class EventSubTopics {
     _trustChannels.remove(channel);
     _pointsChannels.remove(channel);
     _widgetChannels.remove(channel);
+    _selfModerator.remove(channel);
+    _roleRetriedAt.remove(channel);
   }
 
   /// Applies the user's role from a channel USERSTATE. Losing mod drops the
   /// moderator families; gaining it retries families a 403 or drop skipped.
+  /// A mod Twitch still refuses (a missing scope, a role change Twitch has
+  /// not caught up on) retries on later USERSTATEs, at most every
+  /// [roleRetryInterval], since one arrives after every own message.
   void noteSelfModerator(String channel, bool moderator) {
+    final wasModerator = _selfModerator[channel] ?? false;
+    _selfModerator[channel] = moderator;
     if (!moderator) {
       if (_moderatorFamilies.any((f) => f.activeSet.contains(channel))) {
         dropModerator(channel);
@@ -150,8 +170,16 @@ class EventSubTopics {
       return;
     }
     if (!_moderationSkippedChannels.contains(channel)) return;
+    final now = _now();
+    final last = _roleRetriedAt[channel];
+    if (wasModerator &&
+        last != null &&
+        now.difference(last) < roleRetryInterval) {
+      return;
+    }
     final channelUserId = chat.channelFor(channel)?.info.broadcasterId;
     if (channelUserId == null) return;
+    _roleRetriedAt[channel] = now;
     for (final family in _moderatorFamilies) {
       family.skipSet.remove(channel);
       family.typeSkips.remove(channel);
@@ -343,6 +371,9 @@ class EventSubTopics {
             continue;
           }
           if (twitchApi.lastErrorStatus == 403) {
+            logDebug(
+              '[ChatConn] $type refused for $channelName (${twitchApi.lastError ?? "403"})',
+            );
             // A first 403 reads as no role in this channel, which dooms the
             // family. One after a success is that type alone (a missing
             // scope), so its siblings keep working across reconnects.
