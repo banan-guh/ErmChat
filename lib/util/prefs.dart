@@ -762,6 +762,8 @@ class Prefs {
     _kAdaptiveEmoteFps: bool,
     _kIdleEmoteFps: int,
     _kChatFontSize: double,
+    _kChatFontWeight: int,
+    _kMentionNotifyForeground: bool,
     _kHighlightOpacity: double,
     _kCheckeredMessages: bool,
     _kLineSeparator: bool,
