@@ -18,12 +18,16 @@ class EmoteVisibility extends ChangeNotifier {
   bool _disposed = false;
   final Set<EmoteType> _disabled = {};
   bool _allowUnlisted = true;
+  bool _allowPersonal = true;
 
   /// Disabled providers as an immutable snapshot.
   Set<EmoteType> get disabledProviders => Set.unmodifiable(_disabled);
 
   /// Whether unlisted 7TV emotes render.
   bool get allowUnlisted7tv => _allowUnlisted;
+
+  /// Whether 7TV personal emotes render, the viewer's and other chatters'.
+  bool get allowPersonal7tv => _allowPersonal;
 
   /// Whether the persisted values have been read. [isProviderEnabled] and
   /// [allowUnlisted7tv] return the last-known value while the load is in
@@ -66,6 +70,7 @@ class EmoteVisibility extends ChangeNotifier {
         }
       }
       _allowUnlisted = prefs.emoteAllowUnlisted7tv;
+      _allowPersonal = prefs.emoteAllowPersonal7tv;
       _loaded = true;
       _notify();
     } catch (e) {
@@ -96,6 +101,17 @@ class EmoteVisibility extends ChangeNotifier {
     _allowUnlisted = allowed;
     final prefs = await _getPrefs();
     await prefs.setEmoteAllowUnlisted7tv(allowed);
+    _notify();
+    return true;
+  }
+
+  /// Sets personal 7TV rendering; returns true when the value changed.
+  Future<bool> setAllowPersonal(bool allowed) async {
+    await ensureLoaded();
+    if (allowed == _allowPersonal) return false;
+    _allowPersonal = allowed;
+    final prefs = await _getPrefs();
+    await prefs.setEmoteAllowPersonal7tv(allowed);
     _notify();
     return true;
   }

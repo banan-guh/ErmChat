@@ -4511,6 +4511,24 @@ void main() {
       expect(codes, isNot(contains('Fresh')));
     });
 
+    test('personal emotes off hides foreign sets until back on', () async {
+      SharedPreferences.setMockInitialValues({});
+      final manager = socketManager(
+        sets: {
+          'set-1': [personal('p1', 'TheirCode')],
+        },
+      );
+      await manager.applySevenTvEntitlement(grant('set-1'));
+      Set<String> codes() =>
+          manager.byCodeForSender('ch', 'sender-1')?.byCode.keys.toSet() ??
+          const {};
+
+      await manager.setAllowPersonal7tv(false);
+      expect(codes(), isNot(contains('TheirCode')));
+      await manager.setAllowPersonal7tv(true);
+      expect(codes(), contains('TheirCode'), reason: 'the set is kept');
+    });
+
     test('a tracked socket set still fills from a later grant', () async {
       SharedPreferences.setMockInitialValues({});
       final manager = socketManager(

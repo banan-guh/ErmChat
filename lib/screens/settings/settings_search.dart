@@ -157,6 +157,7 @@ class Setting {
     'idle_fps' => l.settingIdleFps,
     'providers' => l.settingProviders,
     'unlisted_emotes' => l.settingUnlistedEmotes,
+    'personal_emotes' => l.settingPersonalEmotes,
     'tts' => l.settingTts,
     'uploader' => l.settingUploader,
     'analytics' => l.settingAnalytics,
@@ -647,6 +648,12 @@ class Setting {
     'Unlisted 7TV emotes',
     SettingsPageId.emotes,
   );
+  static const personalEmotes = Setting(
+    'personal_emotes',
+    'Personal 7TV emotes',
+    SettingsPageId.emotes,
+    keywords: 'seventv subscriber',
+  );
 
   // ── Tools ───────────────────────────────────────────────────────────
   static const tts = Setting(
@@ -812,6 +819,7 @@ class Setting {
     idleFps,
     providers,
     unlistedEmotes,
+    personalEmotes,
     tts,
     uploader,
     analytics,

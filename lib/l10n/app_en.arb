@@ -85,6 +85,8 @@
   "settingIdleFps": "Idle frame rate",
   "settingProviders": "Providers",
   "settingUnlistedEmotes": "Unlisted 7TV emotes",
+  "settingPersonalEmotes": "Personal 7TV emotes",
+  "personalEmotesSubtitle": "Emotes 7TV subscribers bring into every chat",
   "settingTts": "Text-to-speech",
   "settingUploader": "Image uploader",
   "settingAnalytics": "Analytics",

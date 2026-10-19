@@ -314,7 +314,7 @@ class EmoteManager implements EmoteLookupSource {
   // The store owns the cache; the manager supplies the account overlays.
   EmoteLookup? byCode(String channel) => _store.byCode(
     channel,
-    personal: _personalSets.viewerEmotes,
+    personal: _viewerPersonal,
     unlocks: _twitchSets.unlockedEmotes,
   );
 
@@ -347,7 +347,7 @@ class EmoteManager implements EmoteLookupSource {
   /// follower emotes only exist in their home channel, so no extra merge.
   List<Emote> sendableEmotes(String channel) => _store.sendableEmotes(
     channel,
-    personal: _personalSets.viewerEmotes,
+    personal: _viewerPersonal,
     unlocks: _twitchSets.unlockedEmotes,
   );
 
@@ -368,14 +368,14 @@ class EmoteManager implements EmoteLookupSource {
   /// tab instead: they only render from the IRC tag.
   List<Emote> channelTabEmotes(String channel) => _store.channelTabEmotes(
     channel,
-    personal: _personalSets.viewerEmotes,
+    personal: _viewerPersonal,
     unlocks: _twitchSets.unlockedEmotes,
   );
 
   Map<String, List<Emote>> channelEmotesByProvider(String channel) =>
       _store.channelEmotesByProvider(
         channel,
-        personal: _personalSets.viewerEmotes,
+        personal: _viewerPersonal,
         unlocks: _twitchSets.unlockedEmotes,
       );
 
@@ -396,9 +396,11 @@ class EmoteManager implements EmoteLookupSource {
   EmoteLookup? byCodeForSender(String channel, String? senderTwitchId) =>
       _store.byCodeForSender(
         channel,
-        personal: _personalSets.viewerEmotes,
+        personal: _viewerPersonal,
         unlocks: _twitchSets.unlockedEmotes,
-        foreign: _personalSets.foreignFor(senderTwitchId),
+        foreign: _visibility.allowPersonal7tv
+            ? _personalSets.foreignFor(senderTwitchId)
+            : null,
       );
 
   /// [EmoteLookupSource] view: the sender-scoped lookup the render path uses.
@@ -480,7 +482,7 @@ class EmoteManager implements EmoteLookupSource {
   // Global emotes by provider, in display order, sorted by code.
   Map<String, List<Emote>> globalEmotesByProvider() =>
       _store.globalEmotesByProvider(
-        personal: _personalSets.viewerEmotes,
+        personal: _viewerPersonal,
         unlocks: _twitchSets.unlockedEmotes,
       );
 
@@ -533,6 +535,21 @@ class EmoteManager implements EmoteLookupSource {
     final changed = await _visibility.setAllowUnlisted(allowed);
     if (changed) _store.notifyVisibilityChanged();
   }
+
+  /// Whether personal 7TV emotes render (sync view).
+  bool get allowPersonal7tv {
+    if (!_visibility.isLoaded) unawaited(_visibility.ensureLoaded());
+    return _visibility.allowPersonal7tv;
+  }
+
+  Future<void> setAllowPersonal7tv(bool allowed) async {
+    final changed = await _visibility.setAllowPersonal(allowed);
+    if (changed) _store.notifyVisibilityChanged();
+  }
+
+  // The viewer's personal 7TV emotes, empty while personal emotes are off.
+  Iterable<Emote> get _viewerPersonal =>
+      _visibility.allowPersonal7tv ? _personalSets.viewerEmotes : const [];
 
   bool _hasGlobalList(EmoteType type) =>
       _store.globalCatalog.listFor(EmoteScope.global, type).isNotEmpty;
@@ -629,7 +646,7 @@ class EmoteManager implements EmoteLookupSource {
   /// unlock overlays.
   Emote? emoteById(String id) => _store.emoteById(
     id,
-    personal: _personalSets.viewerEmotes,
+    personal: _viewerPersonal,
     unlocks: _twitchSets.unlockedEmotes,
   );
 

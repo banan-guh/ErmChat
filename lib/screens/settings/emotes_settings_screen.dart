@@ -54,6 +54,7 @@ class EmotesSettingsScreen extends StatefulWidget {
 class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
   final _providerEnabled = <EmoteType, bool>{};
   bool _allowUnlisted = true;
+  bool _allowPersonal = true;
   bool _ffzEffects = true;
   bool _bttvModifiers = true;
   bool _sevenTvCosmetics = false;
@@ -87,6 +88,7 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
         _providerEnabled[type] = enabled.contains(type);
       }
       _allowUnlisted = manager.allowUnlisted7tv;
+      _allowPersonal = manager.allowPersonal7tv;
     });
   }
 
@@ -124,6 +126,11 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
   Future<void> _onAllowUnlistedChanged(bool allowed) async {
     setState(() => _allowUnlisted = allowed);
     await widget.emoteManager?.setAllowUnlisted7tv(allowed);
+  }
+
+  Future<void> _onAllowPersonalChanged(bool allowed) async {
+    setState(() => _allowPersonal = allowed);
+    await widget.emoteManager?.setAllowPersonal7tv(allowed);
   }
 
   Future<void> _loadPrefs() async {
@@ -173,6 +180,16 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
                 title: Text(Setting.unlistedEmotes.titleOf(context.l10n)),
                 value: _allowUnlisted,
                 onChanged: _onAllowUnlistedChanged,
+              ),
+            ),
+            SettingAnchor(
+              Setting.personalEmotes,
+              child: SwitchListTile(
+                secondary: const Icon(Icons.person_outline),
+                title: Text(Setting.personalEmotes.titleOf(context.l10n)),
+                subtitle: Text(context.l10n.personalEmotesSubtitle),
+                value: _allowPersonal,
+                onChanged: _onAllowPersonalChanged,
               ),
             ),
           ],

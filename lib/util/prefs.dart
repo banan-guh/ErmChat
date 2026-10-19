@@ -499,6 +499,7 @@ class Prefs {
   static const _kEmoteCacheMb = 'emote_cache_mb';
   static const _kEmoteProvidersDisabled = 'emote_providers_disabled';
   static const _kEmoteAllowUnlisted7tv = 'emote_7tv_allow_unlisted';
+  static const _kEmoteAllowPersonal7tv = 'emote_7tv_allow_personal';
   static const _kRecentEmotes = 'recent_emotes';
   static const _kEmoteGcMigratedV1 = 'emote_gc_migrated_v1';
   static const _kEmoteGcMigratedV2 = 'emote_gc_migrated_v2';
@@ -529,6 +530,11 @@ class Prefs {
 
   Future<void> setEmoteAllowUnlisted7tv(bool value) =>
       _p.setBool(_kEmoteAllowUnlisted7tv, value);
+
+  bool get emoteAllowPersonal7tv => _p.getBool(_kEmoteAllowPersonal7tv) ?? true;
+
+  Future<void> setEmoteAllowPersonal7tv(bool value) =>
+      _p.setBool(_kEmoteAllowPersonal7tv, value);
 
   String? get recentEmotes => _p.getString(_kRecentEmotes);
 
@@ -787,6 +793,7 @@ class Prefs {
     _kEmoteCacheMb: int,
     _kEmoteProvidersDisabled: List<String>,
     _kEmoteAllowUnlisted7tv: bool,
+    _kEmoteAllowPersonal7tv: bool,
     _kTtsEnabled: bool,
     _kTtsQueueMode: String,
     _kTtsFormatMode: String,
