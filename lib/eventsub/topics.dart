@@ -203,7 +203,23 @@ class EventSubTopics {
     final condition = subscription['condition'] as Map<String, dynamic>?;
     final moderatorId = condition?['moderator_user_id'];
     final broadcasterId = condition?['broadcaster_user_id'];
-    if (moderatorId == null || moderatorId != session.userId) return;
+    // Points and widgets carry no moderator: a revoked one only stops
+    // counting as live, so the next session's resubscribe tries again.
+    if (moderatorId == null) {
+      if (broadcasterId == null || broadcasterId != session.userId) return;
+      final type = subscription['type'];
+      for (final family in _families) {
+        if (!family.broadcasterOnly) continue;
+        if (!family.types.any((t) => t.$1 == type)) continue;
+        for (final name in chat.names) {
+          if (chat.channelFor(name)?.info.broadcasterId == broadcasterId) {
+            family.activeSet.remove(name);
+          }
+        }
+      }
+      return;
+    }
+    if (moderatorId != session.userId) return;
     for (final name in chat.names) {
       if (chat.channelFor(name)?.info.broadcasterId == broadcasterId) {
         dropModerator(name);
@@ -332,6 +348,7 @@ class EventSubTopics {
     // Reserved before any await: a join and a connected edge racing here
     // must not both subscribe the same channel and family.
     if (!family.inflight.add(channelName)) return;
+    var rerun = false;
     try {
       final auth = twitchAuth;
       if (!auth.isConfigured || session.userId == null) return;
@@ -392,6 +409,13 @@ class EventSubTopics {
             break;
           }
         }
+        if (chat.channelFor(channelName) == null) return;
+        // The session changed mid-run and took these subscriptions with it;
+        // its resubscribe found this run in flight, so run again for it.
+        if (eventSub.sessionId != sessionId) {
+          rerun = true;
+          return;
+        }
         final complete =
             !failed &&
             (family.success == _TopicSuccess.all
@@ -413,6 +437,9 @@ class EventSubTopics {
       logDebug('[ChatConn] ${family.name} failed for $channelName');
     } finally {
       family.inflight.remove(channelName);
+      if (rerun) {
+        unawaited(_subscribeFamily(channelName, channelUserId, family));
+      }
     }
   }
 

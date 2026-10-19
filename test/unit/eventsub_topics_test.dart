@@ -122,6 +122,18 @@ void main() {
     );
   });
 
+  test('a session change mid-subscribe resubscribes on the new one', () async {
+    topics.subscribeChannel('testchannel', 'broadcaster1');
+    // session_reconnect lands while the first run awaits Helix; its
+    // resubscribe finds that run in flight.
+    eventSub.sessionOverride = 'sess-2';
+    topics.clearSessionState();
+    topics.resubscribeEventSubChannels(['testchannel']);
+    await flush();
+    expect(seenTypes.where((t) => t == 'channel.moderate'), hasLength(2));
+    expect(topics.isModerationActive('testchannel'), isTrue);
+  });
+
   group('moderation (single)', () {
     test('success sets the active set and wakes the mod view', () async {
       topics.subscribeChannel('testchannel', 'broadcaster1');
@@ -554,6 +566,21 @@ void main() {
       expect(topics.isModerationActive('testchannel'), isTrue);
       topics.handleRevocation(revoked());
       expect(topics.isModerationActive('testchannel'), isFalse);
+    });
+
+    test('a broadcaster-only revocation drops that family alone', () async {
+      session.seed('owner', userId: 'broadcaster1');
+      buildTopics();
+      topics.subscribeChannel('testchannel', 'broadcaster1');
+      await flush();
+      topics.handleRevocation({
+        'type': 'channel.poll.begin',
+        'status': 'authorization_revoked',
+        'condition': {'broadcaster_user_id': 'broadcaster1'},
+      });
+      expect(topics.isWidgetActive('testchannel'), isFalse);
+      expect(topics.isPointsActive('testchannel'), isTrue);
+      expect(topics.isModerationActive('testchannel'), isTrue);
     });
   });
 }
