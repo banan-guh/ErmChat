@@ -194,6 +194,13 @@ class _ChatBodyState extends State<ChatBody>
   // clip; the outer height feeds the list clearance.
   double _islandH = 56.0;
   double _islandOuterH = 56.0;
+
+  // The nav bar pad a flush island paid inside its shell in the last build,
+  // and the pad inside [_islandOuterH] when it was measured. The clearance
+  // swaps the measured pad for the live one, so a keyboard closing over the
+  // nav bar moves the rows on the same frame as the island.
+  double _padInShell = 0;
+  double _padInOuter = 0;
   // Outer minus content: the shell's border and padding, which a clipped
   // island can't measure.
   double _islandShellH = 0;
@@ -449,6 +456,7 @@ class _ChatBodyState extends State<ChatBody>
       _islandShellH = measured - h;
     }
     final outer = _rowClip > 0 ? (h ?? _islandH) + _islandShellH : measured;
+    if (outer != null) _padInOuter = _padInShell;
     if (outer != null && (outer - _islandOuterH).abs() > 0.5) {
       setState(() => _islandOuterH = outer);
     }
@@ -549,7 +557,7 @@ class _ChatBodyState extends State<ChatBody>
           : hidden
           ? hiddenBottom + _islandOuterH
           : flush
-          ? _islandOuterH
+          ? _islandOuterH - _padInOuter + bottomPad
           : glassComposerOverlayHeight(_islandOuterH) + bottomPad,
       animate: floatingFlipped,
     );
@@ -695,6 +703,7 @@ class _ChatBodyState extends State<ChatBody>
         : flush
         ? const BorderRadius.vertical(top: corner)
         : const BorderRadius.all(corner);
+    _padInShell = flush ? bottomPad : 0;
     Widget islandShell(Widget child) {
       // Flush, the island pays the nav bar inside its own fill.
       final body = flush

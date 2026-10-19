@@ -22,6 +22,7 @@ void main() {
     List<double>? keyboardHs,
     bool bodyReadsKeyboard = true,
     bool keyboardHidesButtons = false,
+    bool islandFlush = false,
     Widget? bottomBar,
     Widget? islandFooter,
     TextEditingController? text,
@@ -34,6 +35,7 @@ void main() {
           body: ChatBody(
             liquidGlass: liquidGlass,
             keyboardHidesButtons: keyboardHidesButtons,
+            islandFlush: islandFlush,
             emoteMaxFraction: 0.5,
             onKeyboardDismissed: dismissUnfocuses ? focus.unfocus : null,
             bodyReadsKeyboard: bodyReadsKeyboard,
@@ -227,6 +229,54 @@ void main() {
         tester.getRect(field).bottom,
         lessThanOrEqualTo(rest + 0.5),
         reason: 'keyboard at $kb dragged the field below its rest',
+      );
+    }
+  });
+
+  testWidgets('a flush island and its rows clear the nav bar together', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(400, 800);
+    tester.view.devicePixelRatio = 1;
+    tester.view.padding = const FakeViewPadding(bottom: 42);
+    tester.view.viewPadding = const FakeViewPadding(bottom: 42);
+    addTearDown(tester.view.reset);
+    final focus = FocusNode();
+    addTearDown(focus.dispose);
+    var clearance = 0.0;
+    await pumpBody(
+      tester,
+      liquidGlass: false,
+      focus: focus,
+      islandFlush: true,
+      onBodyBuild: (body) =>
+          clearance = GlassChromeScope.maybeOf(body)?.bottomClearance ?? 0,
+    );
+    await tester.pumpAndSettle();
+    final island = find.byKey(const ValueKey('composer_island'));
+    focus.requestFocus();
+    await tester.pump();
+    void moveKeyboard(double kb) {
+      tester.view.viewInsets = FakeViewPadding(bottom: kb);
+      // The system pads the nav bar only where the keyboard leaves it.
+      tester.view.padding = FakeViewPadding(bottom: kb >= 42 ? 0 : 42 - kb);
+    }
+
+    for (var kb = 0.0; kb <= 300; kb += 30) {
+      moveKeyboard(kb);
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    await tester.pumpAndSettle();
+    // The last stretch of a close uncovers the nav bar, growing the
+    // island's own padding every frame; the rows must track it, not lag.
+    for (var kb = 60.0; kb >= 0; kb -= 6) {
+      moveKeyboard(kb);
+      await tester.pump(const Duration(milliseconds: 16));
+      final top = tester.getRect(island).top;
+      expect(
+        clearance,
+        moreOrLessEquals(800 - kb - top, epsilon: 0.5),
+        reason: 'keyboard at $kb: rows lag the island',
       );
     }
   });
