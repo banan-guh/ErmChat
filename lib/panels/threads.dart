@@ -91,6 +91,11 @@ class ThreadPanels {
   /// restores it so the tab replies to the thread it shows.
   TwitchMessage? _lastThreadRoot;
 
+  /// Bumped when a show verb reopens the sheet. The tab view stays built
+  /// while closed and would slide to a new index, so it remounts on the
+  /// target tab instead.
+  int _openCount = 0;
+
   /// Half-drag focus: crossings report at 50% via [_onThreadsFocus],
   /// settle syncs through [onThreadsTabChanged].
   late final tabDragFocus = TabDragFocus(
@@ -194,6 +199,7 @@ class ThreadPanels {
     // Jump, don't animate: the panel opens already on the Thread tab, so an
     // animateTo would flash the strip swiping over from Active/Saved.
     // jumpTo (not a bare index set) so the warp swallows travel updates.
+    if (!inPlace) _openCount++;
     tabDragFocus.jumpTo(0);
     if (inPlace) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -240,6 +246,7 @@ class ThreadPanels {
     // Same no-flash jump as showThreadView: the sheet opens already on the
     // requested tab. jumpTo (not a bare index set) so the warp swallows
     // travel updates.
+    _openCount++;
     tabDragFocus.jumpTo(tab.clamp(0, 2));
     threadsListVersion.value++;
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -578,6 +585,7 @@ class ThreadPanels {
       body: NotificationListener<ScrollNotification>(
         onNotification: tabDragFocus.onNotification,
         child: TabBarView(
+          key: ValueKey(_openCount),
           controller: threadsTab(),
           children: [
             ChatView(
