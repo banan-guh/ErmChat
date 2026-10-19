@@ -250,8 +250,8 @@ Widget glassCard({required Widget child}) => GlassSurface(
 // Focus state for the composer island while any inner field holds focus.
 // With a [surface], it paints the island's fill: a hair see-through at rest,
 // opaque and faintly tinted toward primary when focused, so the state shows
-// without a line. Without one (glass), it rings the island in primary over
-// the shell's edge, in the shell's own [shape]. Neither shifts layout.
+// without a line. Without one (glass), it tints the whole glass toward
+// primary, in the shell's own [shape]. Neither shifts layout.
 class ComposerFocusGlow extends StatelessWidget {
   const ComposerFocusGlow({
     super.key,
@@ -293,13 +293,8 @@ class ComposerFocusGlow extends StatelessWidget {
             duration: const Duration(milliseconds: 150),
             curve: Curves.easeOut,
             foregroundDecoration: ShapeDecoration(
-              shape: shape.copyWith(
-                side: BorderSide(
-                  color: primary.withValues(alpha: lit ? 0.8 : 0),
-                  width: 1.5,
-                  strokeAlign: BorderSide.strokeAlignInside,
-                ),
-              ),
+              shape: shape,
+              color: primary.withValues(alpha: lit ? 0.12 : 0),
             ),
             child: child,
           );
