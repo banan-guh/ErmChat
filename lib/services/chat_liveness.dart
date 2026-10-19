@@ -45,9 +45,11 @@ class ChatLiveness {
   /// this only needs to run while the app is in the foreground.
   void startWatchdog() {
     _watchdogTimer?.cancel();
+    // No probe here: each IRC socket's own 60s keepalive already catches a
+    // dead peer, and a second PING every 30s would triple idle traffic.
     _watchdogTimer = Timer.periodic(const Duration(seconds: 30), (_) {
       if (_disposed) return;
-      reconnectIfNecessary();
+      reconnectIfNecessary(probe: false);
     });
   }
 
@@ -62,7 +64,9 @@ class ChatLiveness {
     unawaited(sevenTvClient?.forceReconnect());
   }
 
-  void reconnectIfNecessary() {
+  /// Reconnects whatever is down. With [probe], a socket that looks connected
+  /// must also answer a PING (a resume, where the OS may have frozen it).
+  void reconnectIfNecessary({bool probe = true}) {
     final login = session.login;
     final token = twitchAuth.accessToken;
     final anonymous = login == null || token == null;
@@ -73,7 +77,9 @@ class ChatLiveness {
     // backgrounding). When it looks connected, verify with a PING/PONG
     // round-trip instead of trusting isConnected; force a reconnect if the
     // PONG never comes back.
-    if (irc.isConnected) {
+    if (!irc.isConnected) {
+      unawaited(irc.connect(username: username, accessToken: accessToken));
+    } else if (probe) {
       unawaited(
         irc.checkAlive().then((alive) {
           if (!alive) {
@@ -82,19 +88,8 @@ class ChatLiveness {
           }
         }),
       );
-    } else {
-      unawaited(irc.connect(username: username, accessToken: accessToken));
     }
-    if (ircRead.isConnected) {
-      unawaited(
-        ircRead.checkAlive().then((alive) {
-          if (!alive) {
-            logDebug('[ChatConn] IRC read zombie detected - forcing reconnect');
-            ircRead.forceReconnect();
-          }
-        }),
-      );
-    } else {
+    if (!ircRead.isConnected) {
       unawaited(
         ircRead.connect(
           username: anonymous ? anonymousNick(2) : username,
@@ -102,6 +97,15 @@ class ChatLiveness {
           // The proxy rejects anonymous nicks.
           useProxy: !anonymous,
         ),
+      );
+    } else if (probe) {
+      unawaited(
+        ircRead.checkAlive().then((alive) {
+          if (!alive) {
+            logDebug('[ChatConn] IRC read zombie detected - forcing reconnect');
+            ircRead.forceReconnect();
+          }
+        }),
       );
     }
     // EventSub/7TV have no PING/PONG equivalent, so `isConnected` alone can't
