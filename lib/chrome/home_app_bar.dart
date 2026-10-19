@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
@@ -315,12 +317,32 @@ class HomeAppBar {
       if (withMenu && !spec.rowActions.contains(ChromeAction.viewMenu))
         chromeMenu(glass: glass, onCalendar: onCalendar),
     ];
+    // The action groups sit a little closer than the stock 48pt; the leading
+    // and trailing slots keep it, lining up with the field's emote and send.
+    // A narrow island's compact density still wins.
+    Widget group(List<Widget> actions) => actions.isEmpty
+        ? const SizedBox.shrink()
+        : Builder(
+            builder: (context) {
+              final theme = Theme.of(context);
+              final density = theme.visualDensity;
+              return Theme(
+                data: theme.copyWith(
+                  visualDensity: VisualDensity(
+                    horizontal: math.min(density.horizontal, -1),
+                    vertical: density.vertical,
+                  ),
+                ),
+                child: Row(mainAxisSize: MainAxisSize.min, children: actions),
+              );
+            },
+          );
     final row = Row(
       children: [
         ?leading,
-        ...start,
+        group(start),
         Expanded(child: middle ?? const SizedBox.shrink()),
-        ...end,
+        group(end),
         ...trailing,
       ],
     );
