@@ -71,21 +71,45 @@ class _PrefsSwitchTileState extends State<PrefsSwitchTile> {
 
   @override
   Widget build(BuildContext context) {
+    final trailing = widget.titleTrailing;
+    final subtitle = widget.subtitle;
     return SwitchListTile(
       secondary: widget.secondary,
-      title: widget.titleTrailing == null
+      // With a title trailing, the subtitle joins the title slot so the
+      // trailing centers on both lines, not on the title alone.
+      title: trailing == null
           ? Text(widget.title)
           : Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Flexible(child: Text(widget.title)),
+                Flexible(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(widget.title),
+                      if (subtitle != null)
+                        Text(subtitle, style: _subtitleStyle(context)),
+                    ],
+                  ),
+                ),
                 const SizedBox(width: 8),
-                widget.titleTrailing!,
+                trailing,
               ],
             ),
-      subtitle: widget.subtitle == null ? null : Text(widget.subtitle!),
+      subtitle: subtitle == null || trailing != null ? null : Text(subtitle),
       value: _value ?? widget.defaultValue,
       onChanged: widget.enabled ? _onChanged : null,
+    );
+  }
+
+  /// The list tile's own subtitle look, dimmed when disabled.
+  TextStyle? _subtitleStyle(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return theme.textTheme.bodyMedium?.copyWith(
+      color: widget.enabled
+          ? scheme.onSurfaceVariant
+          : scheme.onSurface.withValues(alpha: 0.38),
     );
   }
 }

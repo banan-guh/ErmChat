@@ -537,15 +537,14 @@ class _GlassSwatch extends StatelessWidget {
   final bool on;
 
   @override
-  // Shorter than the title's line, so the title row keeps its height.
   Widget build(BuildContext context) => SizedBox(
-    width: 30,
-    height: 20,
+    width: 40,
+    height: 28,
     child: on
         ? glassIsland(child: const SizedBox.expand())
         : DecoratedBox(
             decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(8),
+              borderRadius: BorderRadius.circular(10),
               border: Border.all(
                 color: Theme.of(context).colorScheme.outlineVariant,
               ),
