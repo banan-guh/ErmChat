@@ -7,6 +7,7 @@ import '../../util/connectivity.dart';
 import '../../util/constants.dart';
 import '../../util/log.dart';
 import 'events.dart';
+import '../../util/data_usage.dart';
 
 class EventSubService {
   static const _wsUrl = 'wss://eventsub.wss.twitch.tv/ws';
@@ -94,6 +95,7 @@ class EventSubService {
         _streamSub = _channel!.stream.listen(
           (raw) {
             if (raw is! String) return;
+            DataUsageStats.I.recordEvent(DataUsageStats.utf8Length(raw));
             try {
               final msg = jsonDecode(raw) as Map<String, dynamic>;
               _handleMessage(msg);

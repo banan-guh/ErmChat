@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 import '../l10n/l10n.dart';
 import '../twitch_config.dart';
 import '../util/constants.dart';
+import '../util/data_usage.dart';
 import '../util/friendly_error.dart';
 import '../models/point_rewards.dart';
 import '../models/polls.dart';
@@ -21,6 +22,11 @@ class _TimeoutClient extends http.BaseClient {
 
   final http.Client _inner;
 
+  static http.Response _count(http.Response res) {
+    DataUsageStats.I.recordHelix(res.bodyBytes.length);
+    return res;
+  }
+
   @override
   Future<http.StreamedResponse> send(http.BaseRequest request) {
     return _inner.send(request).timeout(httpTimeout);
@@ -28,7 +34,7 @@ class _TimeoutClient extends http.BaseClient {
 
   @override
   Future<http.Response> get(Uri url, {Map<String, String>? headers}) =>
-      super.get(url, headers: headers).timeout(httpTimeout);
+      super.get(url, headers: headers).timeout(httpTimeout).then(_count);
 
   @override
   Future<http.Response> post(
@@ -38,7 +44,8 @@ class _TimeoutClient extends http.BaseClient {
     Encoding? encoding,
   }) => super
       .post(url, headers: headers, body: body, encoding: encoding)
-      .timeout(httpTimeout);
+      .timeout(httpTimeout)
+      .then(_count);
 
   @override
   Future<http.Response> put(
@@ -48,7 +55,8 @@ class _TimeoutClient extends http.BaseClient {
     Encoding? encoding,
   }) => super
       .put(url, headers: headers, body: body, encoding: encoding)
-      .timeout(httpTimeout);
+      .timeout(httpTimeout)
+      .then(_count);
 
   @override
   Future<http.Response> patch(
@@ -58,7 +66,8 @@ class _TimeoutClient extends http.BaseClient {
     Encoding? encoding,
   }) => super
       .patch(url, headers: headers, body: body, encoding: encoding)
-      .timeout(httpTimeout);
+      .timeout(httpTimeout)
+      .then(_count);
 
   @override
   Future<http.Response> delete(
@@ -68,7 +77,8 @@ class _TimeoutClient extends http.BaseClient {
     Encoding? encoding,
   }) => super
       .delete(url, headers: headers, body: body, encoding: encoding)
-      .timeout(httpTimeout);
+      .timeout(httpTimeout)
+      .then(_count);
 
   @override
   void close() => _inner.close();

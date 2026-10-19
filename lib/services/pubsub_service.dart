@@ -9,6 +9,7 @@ import '../models/twitch_message.dart' show EmotePosition;
 import '../util/connectivity.dart';
 import '../util/constants.dart';
 import '../util/log.dart';
+import '../util/data_usage.dart';
 
 /// One PubSub redemption, already resolved to its channel.
 class PubSubPointRedemption {
@@ -149,6 +150,7 @@ class PubSubService {
         _streamSub = _channel!.stream.listen(
           (raw) {
             if (raw is! String) return;
+            DataUsageStats.I.recordEvent(DataUsageStats.utf8Length(raw));
             _handleFrame(raw);
           },
           onError: (_) => _scheduleReconnect(),

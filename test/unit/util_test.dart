@@ -1,3 +1,6 @@
+import 'dart:convert';
+
+import 'package:ermchat/util/data_usage.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -1219,5 +1222,11 @@ void main() {
     expect(resolveThreadRootId('c', {'c': 'b', 'b': 'a'}), 'a');
     expect(resolveThreadRootId('a', {'a': 'b', 'b': 'a'}), isNotEmpty);
     expect(resolveThreadRootId('a', {'a': 'a'}), 'a');
+  });
+
+  test('data usage counts UTF-8 bytes, not string length', () {
+    for (final s in ['PRIVMSG #a :hi', 'привет', '你好世界', 'pog 😂👍', 'é']) {
+      expect(DataUsageStats.utf8Length(s), utf8.encode(s).length, reason: s);
+    }
   });
 }

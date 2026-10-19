@@ -7,6 +7,7 @@ import '../util/connectivity.dart';
 import 'emote_providers/seven_tv_emotes.dart';
 import '../util/constants.dart';
 import '../util/log.dart';
+import '../util/data_usage.dart';
 
 class SevenTvEmoteUpdateEvent {
   final String emoteSetId;
@@ -226,7 +227,12 @@ class SevenTvEventClient {
         await _waitForReady();
 
         _streamSub = _channel!.stream.listen(
-          (raw) => _handleMessage(raw as String),
+          (raw) {
+            DataUsageStats.I.recordEvent(
+              DataUsageStats.utf8Length(raw as String),
+            );
+            _handleMessage(raw);
+          },
           onError: (e) {
             logDebug('7TV event stream error: $e');
             _scheduleReconnect();

@@ -16,6 +16,7 @@ import '../irc/decode/codec.dart'
 import '../irc/decode/copy.dart'
     show buildUserNoticeText, userNoticeAccent, userNoticeLabelId;
 import '../irc/message.dart' show IrcMessage, parseIrcMessage;
+import '../util/data_usage.dart';
 
 /// Fetch failure. [definitive] = per-channel, no failover helps.
 class RecentMessagesException implements Exception {
@@ -278,6 +279,7 @@ class RecentMessagesService {
         );
       }
 
+      DataUsageStats.I.recordHistory(res.bodyBytes.length);
       return res.bodyBytes;
     } finally {
       ownClient?.close();

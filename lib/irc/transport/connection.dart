@@ -548,7 +548,7 @@ abstract class IrcConnection {
 
   void sendLine(String message) {
     try {
-      DataUsageStats.I.recordIrcWrite(message.length);
+      DataUsageStats.I.recordIrcWrite(DataUsageStats.utf8Length(message));
       channel?.sink.add(message);
     } catch (e) {
       logDebug('$debugPrefix send failed: $e');
@@ -584,7 +584,7 @@ abstract class IrcConnection {
   }
 
   void _handleLine(String raw) {
-    DataUsageStats.I.recordIrcRead(raw.length);
+    DataUsageStats.I.recordIrcRead(DataUsageStats.utf8Length(raw));
     for (final line in raw.split('\r\n')) {
       if (line.isEmpty) continue;
 
