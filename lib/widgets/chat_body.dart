@@ -632,7 +632,10 @@ class _ChatBodyState extends State<ChatBody>
         child: AnimatedSize(
           duration: const Duration(milliseconds: 220),
           curve: Curves.easeInOut,
-          alignment: Alignment.bottomCenter,
+          // The field takes its new height at once and the field's icons
+          // center on it; centered here, they stay centered in the growing
+          // island instead of snapping to an edge and sliding back.
+          alignment: Alignment.center,
           child: composer == null
               ? const SizedBox.shrink()
               : Padding(
