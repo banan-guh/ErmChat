@@ -1239,6 +1239,7 @@
     }
   },
   "timedOut": "Timed out",
+  "modToolsUnavailable": "Mod tools are available where you moderate.",
   "restrictedUser": "Restricted user",
   "monitoredUser": "Monitored user",
   "flaggedUser": "Flagged user",

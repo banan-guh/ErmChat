@@ -6,8 +6,8 @@ import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 import 'package:flutter/services.dart' show HapticFeedback;
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:url_launcher/url_launcher.dart';
+import '../chat/channel/moderation.dart';
 import '../l10n/l10n.dart';
-import '../models/moderation_entries.dart';
 import '../models/twitch_badge.dart';
 import '../models/twitch_message.dart';
 import '../services/mod_actions.dart';
@@ -48,13 +48,9 @@ class UserProfileSheet extends StatefulWidget {
   /// Broadcaster user id for the follow-age lookup. Null hides the row.
   final String? broadcasterUserId;
 
-  /// Local moderation record snapshot from the opener (warn log + active
-  /// ban/timeout). Empty/absent hides the record rows.
-  final List<WarnEntry> userWarnings;
-  final BanEntry? banEntry;
-
-  /// Last-seen suspicious context from the opener. Null hides the row.
-  final SuspiciousInfo? suspiciousInfo;
+  /// Channel moderation record (warn log, ban/timeout, suspicious flag) read
+  /// live for this user. Null hides the record rows.
+  final Moderation? moderation;
 
   /// True for your own card; mod rows never apply to yourself.
   final bool isSelf;
@@ -121,9 +117,7 @@ class UserProfileSheet extends StatefulWidget {
     this.channel,
     this.canModerate = false,
     this.broadcasterUserId,
-    this.userWarnings = const [],
-    this.banEntry,
-    this.suspiciousInfo,
+    this.moderation,
     this.isSelf = false,
     this.scrollController,
     this.anchor,
@@ -190,7 +184,14 @@ class UserProfileSheetState extends State<UserProfileSheet> {
   @override
   void initState() {
     super.initState();
+    widget.moderation?.modActivityVersion.addListener(_onRecordChanged);
     _fetchProfile();
+  }
+
+  void _onRecordChanged() {
+    if (!mounted) return;
+    _measureDirty = true;
+    setState(() {});
   }
 
   @override
@@ -201,6 +202,7 @@ class UserProfileSheetState extends State<UserProfileSheet> {
 
   @override
   void dispose() {
+    widget.moderation?.modActivityVersion.removeListener(_onRecordChanged);
     _fallbackController?.dispose();
     widget.onDispose?.call();
     super.dispose();
@@ -841,6 +843,7 @@ class UserProfileSheetState extends State<UserProfileSheet> {
         login: widget.username,
         userId: _targetUserId,
       );
+      if (result.ok) widget.moderation?.removeBan(widget.username);
       if (!mounted) return;
       showModError(context, result);
     }
@@ -879,6 +882,7 @@ class UserProfileSheetState extends State<UserProfileSheet> {
       login: widget.username,
       userId: _targetUserId,
     );
+    if (result.ok) widget.moderation?.removeSuspicious(widget.username);
     if (!mounted) return;
     if (result.ok) {
       AppSnack.show(context, context.l10n.flagClearedFor(widget.displayName));
@@ -896,9 +900,16 @@ class UserProfileSheetState extends State<UserProfileSheet> {
   // Display-only moderation record: active ban/timeout, warning history,
   // and suspicious context. Empty hides the whole block.
   List<Widget> _recordTiles() {
-    final ban = widget.banEntry;
-    final warnings = widget.userWarnings;
-    final suspicious = widget.suspiciousInfo;
+    final moderation = widget.moderation;
+    final liveBan = moderation?.banFor(widget.username);
+    // A lapsed timeout is no longer an active record.
+    final ban =
+        liveBan != null &&
+            (liveBan.expiresAt?.isAfter(moderation!.now()) ?? true)
+        ? liveBan
+        : null;
+    final warnings = moderation?.warningsFor(widget.username) ?? const [];
+    final suspicious = moderation?.suspiciousFor(widget.username);
     if (ban == null && warnings.isEmpty && suspicious == null) {
       return const [];
     }
@@ -1045,7 +1056,7 @@ class UserProfileSheetState extends State<UserProfileSheet> {
         label: context.l10n.warn,
         onTap: _modWarn,
       ),
-      if (widget.suspiciousInfo != null)
+      if (widget.moderation?.suspiciousFor(widget.username) != null)
         SheetAction(
           icon: Icons.visibility_off_outlined,
           label: context.l10n.clearFlag,

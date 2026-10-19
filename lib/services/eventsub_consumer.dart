@@ -263,17 +263,21 @@ class EventSubConsumer {
     final user = event.userLogin;
     if (user.isEmpty) return;
     final suspiciousModeration = chat.channelFor(event.channel)?.moderation;
-    suspiciousModeration?.noteSuspicious(
-      SuspiciousInfo(
-        at: DateTime.now(),
-        channel: event.channel,
-        login: user,
-        status: event.status,
-        types: event.types,
-        banEvasion: event.banEvasion,
-        sharedBanChannelIds: event.sharedBanChannelIds,
-      ),
-    );
+    if (event.kind == SuspiciousUserKind.update && event.status == 'none') {
+      suspiciousModeration?.removeSuspicious(user);
+    } else {
+      suspiciousModeration?.noteSuspicious(
+        SuspiciousInfo(
+          at: DateTime.now(),
+          channel: event.channel,
+          login: user,
+          status: event.status,
+          types: event.types,
+          banEvasion: event.banEvasion,
+          sharedBanChannelIds: event.sharedBanChannelIds,
+        ),
+      );
+    }
     if (event.kind == SuspiciousUserKind.message) return;
     chat
         .channelFor(event.channel)

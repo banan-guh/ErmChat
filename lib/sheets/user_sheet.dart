@@ -406,25 +406,9 @@ class UserSheets {
                       broadcasterUserId: channel == null
                           ? null
                           : chat.channelFor(channel)?.info.broadcasterId,
-                      userWarnings: channel == null
-                          ? const []
-                          : chat
-                                    .channelFor(channel)
-                                    ?.moderation
-                                    .warningsFor(username) ??
-                                const [],
-                      banEntry: channel == null
+                      moderation: channel == null
                           ? null
-                          : chat
-                                .channelFor(channel)
-                                ?.moderation
-                                .banFor(username),
-                      suspiciousInfo: channel == null
-                          ? null
-                          : chat
-                                .channelFor(channel)
-                                ?.moderation
-                                .suspiciousFor(username),
+                          : chat.channelFor(channel)?.moderation,
                       isSelf: isSelf,
                       messageController: composer.messageController,
                       focusNode: composer.focusNode,

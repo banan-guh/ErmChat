@@ -141,6 +141,20 @@ class ModerationHub {
     // the precedence is decided.
     if (isModerationActive(channel)) return;
     onAnalyticsModeration?.call(channel, isTimeout);
+    chat
+        .channelFor(channel)
+        ?.moderation
+        .putBan(
+          BanEntry(
+            at: _now(),
+            channel: channel,
+            login: user,
+            expiresAt: isTimeout && duration != null
+                ? _now().add(Duration(seconds: duration))
+                : null,
+            moderator: '',
+          ),
+        );
     final result = _processBanInChannel(channel, user, isTimeout);
     final isSelf = user.toLowerCase() == session.login?.toLowerCase();
     final base = banNoticeText(
@@ -266,7 +280,11 @@ class ModerationHub {
             : '';
         onSystemMessage(
           event.channel,
-          strings().modDeletedMessage(mod, '$target', body),
+          strings().modDeletedMessage(
+            mod,
+            target ?? strings().modActSomeone,
+            body,
+          ),
         );
         feed();
         break;
@@ -413,11 +431,13 @@ class ModerationHub {
       case ModerationAction.addPermittedTerm:
       case ModerationAction.removePermittedTerm:
         feed();
+        chat.channelFor(event.channel)?.moderation.touchTerms();
         onSystemMessage(event.channel, line);
         break;
       case ModerationAction.approveUnbanRequest:
       case ModerationAction.denyUnbanRequest:
         feed();
+        chat.channelFor(event.channel)?.moderation.touchInbox();
         onSystemMessage(
           event.channel,
           target != null && target.isNotEmpty

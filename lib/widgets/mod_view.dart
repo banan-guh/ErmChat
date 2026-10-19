@@ -80,7 +80,7 @@ class ModViewPanel extends StatelessWidget {
     );
     return ListenableBuilder(
       listenable: refresh,
-      builder: (_, _) {
+      builder: (context, _) {
         final moderationActive = isModerationActive(channel);
         final automodActive = isAutomodActive(channel);
         if (!moderationActive && !automodActive) {
@@ -90,11 +90,11 @@ class ModViewPanel extends StatelessWidget {
           WidgetsBinding.instance.addPostFrameCallback(
             (_) => dragFocus.reset(),
           );
-          return const Center(
+          return Center(
             child: Padding(
-              padding: EdgeInsets.symmetric(horizontal: 24),
+              padding: const EdgeInsets.symmetric(horizontal: 24),
               child: Text(
-                'Mod tools are available where you moderate.',
+                context.l10n.modToolsUnavailable,
                 textAlign: TextAlign.center,
               ),
             ),

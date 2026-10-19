@@ -69,7 +69,7 @@ class _UsersTabState extends State<UsersTab> with ModTabState<UsersTab> {
       valueListenable: moderation.modActivityVersion,
       builder: (context, _, _) {
         // Lapsed timeouts are hidden here; the kernel prunes them on insert.
-        final now = DateTime.now();
+        final now = moderation.now();
         final bans = [
           for (final ban in moderation.bans.values)
             if (ban.expiresAt?.isAfter(now) ?? true) ban,
