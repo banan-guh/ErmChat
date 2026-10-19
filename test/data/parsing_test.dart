@@ -1607,7 +1607,7 @@ void main() {
               {
                 'unban_request': {
                   'user_name': 'spammer',
-                  'resolution_text': 'second chance',
+                  'moderator_message': 'second chance',
                 },
               },
               (e) {

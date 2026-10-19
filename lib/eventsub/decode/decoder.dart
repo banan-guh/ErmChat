@@ -588,9 +588,7 @@ class EventSubDecoder {
         final requestObj =
             event['unban_request'] as Map<String, dynamic>? ?? metaObj;
         targetName = requestObj?['user_name'] as String?;
-        reason =
-            requestObj?['resolution_text'] as String? ??
-            requestObj?['reason'] as String?;
+        reason = requestObj?['moderator_message'] as String?;
         break;
       case ModerationAction.slow:
       case ModerationAction.slowOff:
