@@ -97,6 +97,8 @@
   "dataUsageEvents": "Live events",
   "dataUsageEmoteLists": "Emote lists",
   "dataUsageEmoteImages": "Emote images",
+  "dataUsageAllNetworks": "All networks",
+  "dataUsageMobileOnly": "Mobile data",
   "dataUsageFooter": "Since the app started. Streams, avatars, badges and link previews are not counted.",
   "settingExportSettings": "Export settings",
   "settingImportSettings": "Import settings",

@@ -3,6 +3,17 @@ import 'dart:async';
 import '../models/emote_fetch_tier.dart';
 import 'log.dart';
 
+/// Where counted bytes come from, one per usage row.
+enum DataSource {
+  chat,
+  sent,
+  history,
+  twitchApi,
+  events,
+  emoteLists,
+  emoteImages,
+}
+
 /// Lightweight numeric data-usage aggregator for the mobile data-saver work.
 ///
 /// Counts bytes by source (IRC sockets, emote image downloads, provider JSON)
@@ -28,19 +39,69 @@ class DataUsageStats {
 
   Timer? _emitTimer;
 
-  void recordIrcRead(int bytes) => ircReadBytes += bytes;
-  void recordIrcWrite(int bytes) => ircWriteBytes += bytes;
-  void recordEmoteDownload(int bytes) => emoteDownloadBytes += bytes;
-  void recordJson(int bytes) => jsonBytes += bytes;
+  // The same counts taken only while [mobile], indexed by [DataSource].
+  final _mobileBytes = List<int>.filled(DataSource.values.length, 0);
+
+  void _countMobile(DataSource source, int bytes) {
+    if (mobile) _mobileBytes[source.index] += bytes;
+  }
+
+  void recordIrcRead(int bytes) {
+    ircReadBytes += bytes;
+    _countMobile(DataSource.chat, bytes);
+  }
+
+  void recordIrcWrite(int bytes) {
+    ircWriteBytes += bytes;
+    _countMobile(DataSource.sent, bytes);
+  }
+
+  void recordEmoteDownload(int bytes) {
+    emoteDownloadBytes += bytes;
+    _countMobile(DataSource.emoteImages, bytes);
+  }
+
+  void recordJson(int bytes) {
+    jsonBytes += bytes;
+    _countMobile(DataSource.emoteLists, bytes);
+  }
 
   /// Recent-messages (robotty, zneix) response bodies.
-  void recordHistory(int bytes) => historyBytes += bytes;
+  void recordHistory(int bytes) {
+    historyBytes += bytes;
+    _countMobile(DataSource.history, bytes);
+  }
 
   /// Helix response bodies.
-  void recordHelix(int bytes) => helixBytes += bytes;
+  void recordHelix(int bytes) {
+    helixBytes += bytes;
+    _countMobile(DataSource.twitchApi, bytes);
+  }
 
   /// EventSub, PubSub and 7TV socket frames.
-  void recordEvent(int bytes) => eventBytes += bytes;
+  void recordEvent(int bytes) {
+    eventBytes += bytes;
+    _countMobile(DataSource.events, bytes);
+  }
+
+  /// Bytes for [source], or only those sent or received on mobile data.
+  int bytesFor(DataSource source, {bool mobileOnly = false}) {
+    if (mobileOnly) return _mobileBytes[source.index];
+    return switch (source) {
+      DataSource.chat => ircReadBytes,
+      DataSource.sent => ircWriteBytes,
+      DataSource.history => historyBytes,
+      DataSource.twitchApi => helixBytes,
+      DataSource.events => eventBytes,
+      DataSource.emoteLists => jsonBytes,
+      DataSource.emoteImages => emoteDownloadBytes,
+    };
+  }
+
+  int totalFor({bool mobileOnly = false}) => DataSource.values.fold(
+    0,
+    (sum, source) => sum + bytesFor(source, mobileOnly: mobileOnly),
+  );
   void recordEviction() => evictions++;
 
   /// [s]'s length in UTF-8 bytes, without encoding it.
@@ -68,14 +129,7 @@ class DataUsageStats {
     if (isMobile != null) mobile = isMobile;
   }
 
-  int get totalBytes =>
-      ircReadBytes +
-      ircWriteBytes +
-      emoteDownloadBytes +
-      jsonBytes +
-      historyBytes +
-      helixBytes +
-      eventBytes;
+  int get totalBytes => totalFor();
 
   /// Starts the 10-minute summary emitter. Idempotent; safe to call once at
   /// startup.
