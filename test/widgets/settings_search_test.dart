@@ -93,6 +93,35 @@ void main() {
     }
   });
 
+  // A switch added without a Setting would ship unsearchable.
+  testWidgets('every switch tile on a searchable page is anchored', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1000, 12000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+
+    var seen = 0;
+    for (final page in SettingsPageId.values) {
+      final widget = _page(page);
+      if (widget == null) continue;
+      await _pump(tester, widget);
+      final loose = find.byWidgetPredicate(
+        (w) => w is SwitchListTile,
+        skipOffstage: false,
+      );
+      for (final e in loose.evaluate()) {
+        seen++;
+        expect(
+          e.findAncestorWidgetOfExactType<SettingAnchor>(),
+          isNotNull,
+          reason: 'a switch on $page has no SettingAnchor',
+        );
+      }
+    }
+    expect(seen, greaterThan(0), reason: 'switches exist to check');
+  });
+
   testWidgets('a result far down an unbuilt list scrolls into view', (
     tester,
   ) async {

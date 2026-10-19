@@ -45,6 +45,26 @@ void main() {
     expect(tester.takeException(), isNull);
     expect(clock.debugListening, isTrue);
 
+    // A frozen row (TickerMode off) must not keep the shared clock running.
+    await tester.pumpWidget(
+      const Directionality(
+        textDirection: TextDirection.ltr,
+        child: TickerMode(
+          enabled: false,
+          child: SizedBox(
+            width: 28,
+            height: 28,
+            child: EmoteEffectBox(
+              effects: FfzEffect.bounce,
+              unit: 1,
+              child: ColoredBox(color: Color(0xFF00FF00)),
+            ),
+          ),
+        ),
+      ),
+    );
+    expect(clock.debugListening, isFalse, reason: 'frozen effect ticks');
+
     await tester.pumpWidget(const SizedBox());
     expect(clock.debugListening, isFalse, reason: 'unmounted effects leak');
   });

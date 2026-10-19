@@ -792,6 +792,11 @@ void main() {
       await pumpEmote(tester);
       expect(fetches, 2);
       expect(find.byType(RawImage), findsOneWidget);
+
+      // The cache's pending listener keeps the decode watchdog armed until
+      // the cache clears, which would outlive the test's timer check.
+      await tester.pumpWidget(const MaterialApp(home: SizedBox.shrink()));
+      PaintingBinding.instance.imageCache.clear();
     });
   });
 

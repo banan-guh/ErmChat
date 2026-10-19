@@ -61,6 +61,18 @@ void main() {
     );
   });
 
+  test('the kernel imports no Flutter beyond foundation', () {
+    // `dart:ui` stays for the Color value type; widgets and rendering do not.
+    _expectRawClean(
+      rule: 'the kernel imports no Flutter beyond foundation',
+      violations: _scanRawDirectivesUnder(const ['chat/']).where(
+        (d) =>
+            d.raw.startsWith('package:flutter/') &&
+            d.raw != 'package:flutter/foundation.dart',
+      ),
+    );
+  });
+
   test('the emote domain imports nothing upward', () {
     // The emote domain is a pure typed model plus catalog: it must not reach
     // services, the kernel, providers, UI, transports, or Flutter at all.

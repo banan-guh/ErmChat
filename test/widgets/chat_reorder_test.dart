@@ -257,9 +257,11 @@ void main() {
 
     final screen = Offset.zero & tester.view.physicalSize / 3.0;
     final rows = find.byWidgetPredicate(
-      (w) => w.runtimeType.toString() == '_RowGate',
+      (w) => w is RowGate,
       skipOffstage: false,
     );
+    expect(rows, findsWidgets, reason: 'gates exist to assert on');
+    var checked = 0;
     for (final e in rows.evaluate()) {
       final box = e.renderObject! as RenderBox;
       if (!(box.localToGlobal(Offset.zero) & box.size).overlaps(screen)) {
@@ -275,6 +277,8 @@ void main() {
         isTrue,
         reason: '${gate.value} is on screen but frozen',
       );
+      checked++;
     }
+    expect(checked, greaterThan(0), reason: 'some row is on screen');
   });
 }
