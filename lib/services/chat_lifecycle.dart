@@ -391,8 +391,12 @@ class ChatLifecycle {
       });
 
       // Use the cached account if available so cold start skips the Helix
-      // user lookup entirely.
-      if (session.login == null && auth.login != null && auth.userId != null) {
+      // user lookup entirely. An expired token stays anonymous until re-auth.
+      final expired = auth.isActiveExpired;
+      if (session.login == null &&
+          !expired &&
+          auth.login != null &&
+          auth.userId != null) {
         session.apply(auth.login, userId: auth.userId);
       }
 
@@ -413,7 +417,7 @@ class ChatLifecycle {
       // EventSub needs no credentials - connect it in parallel with the
       // current-user lookup. Only IRC needs the login, so the sockets wait
       // for the lookup but not for each other.
-      var hasToken = auth.accessToken != null;
+      var hasToken = auth.accessToken != null && !expired;
 
       // Validate the token on startup / credential change, off the critical
       // path: the IRC sockets below must not wait an HTTPS round trip for

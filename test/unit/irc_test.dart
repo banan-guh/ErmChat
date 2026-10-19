@@ -2422,6 +2422,14 @@ void main() {
         isTrue,
         reason: 'read-side login failure must mark the token expired',
       );
+      // Shipped bug: the next connect re-seeded the dead login and redialed
+      // with it, so chat stayed dead until a manual re-login.
+      await conn.connect();
+      expect(
+        irc.token,
+        'anonymous',
+        reason: 'an expired token must fall back to anonymous',
+      );
       conn.dispose();
     });
 
