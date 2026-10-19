@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show OffsetLayer, TransformLayer;
 import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 
 import '../util/insets.dart';
@@ -504,7 +505,8 @@ class _IslandRingPainter extends CustomPainter {
       old.color != color || old.flush != flush || old.still != still;
 }
 
-/// Logs where a paint transform turns non-finite, once per spot. Liquid
+/// Logs where a paint transform or a layer offset turns non-finite, once per
+/// spot. Liquid
 /// glass repaints its surfaces through these transforms unchecked, so the
 /// surface vanishes while the engine logs "TransformLayer is constructed
 /// with an invalid matrix". Off in release builds.
@@ -516,8 +518,27 @@ void watchPaintTransforms() {
     final root = WidgetsBinding.instance.rootElement?.renderObject;
     if (root == null) return;
     final path = <RenderObject>[];
+    String chain(Object last) => [
+      for (final o in path.skip(path.length > 8 ? path.length - 8 : 0))
+        o.runtimeType,
+      last,
+    ].join(' > ');
     void visit(RenderObject node, Matrix4 toNode) {
       path.add(node);
+      // A child painted at a NaN offset never shows in applyPaintTransform,
+      // but its layer carries it to the engine.
+      // ignore: invalid_use_of_protected_member
+      final layer = node.layer;
+      final bad = switch (layer) {
+        TransformLayer(:final transform?) => !finite(transform),
+        OffsetLayer(:final offset) =>
+          !offset.dx.isFinite || !offset.dy.isFinite,
+        _ => false,
+      };
+      if (bad) {
+        final where = chain('${layer.runtimeType}');
+        if (reported.add(where)) logDebug('[glassnan] layer $where');
+      }
       node.visitChildren((child) {
         if (!child.attached) return;
         final m = toNode.clone();
@@ -530,14 +551,10 @@ void watchPaintTransforms() {
           visit(child, m);
           return;
         }
-        final chain = [
-          for (final o in path.skip(path.length > 8 ? path.length - 8 : 0))
-            o.runtimeType,
-          child.runtimeType,
-        ].join(' > ');
+        final where = chain(child.runtimeType);
         final size = node is RenderBox && node.hasSize ? node.size : null;
-        if (reported.add(chain)) {
-          logDebug('[glassnan] $chain parentSize=$size');
+        if (reported.add(where)) {
+          logDebug('[glassnan] $where parentSize=$size');
         }
       });
       path.removeLast();
