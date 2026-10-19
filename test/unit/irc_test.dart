@@ -1575,7 +1575,7 @@ void main() {
     });
   });
 
-  group('USERNOTICE / NOTICE / WHISPER', () {
+  group('USERNOTICE / NOTICE', () {
     test('USERNOTICE routes to onUserNotice, NOTICE to onNotice', () async {
       final notices = <IrcNoticeEvent>[];
       final userNotices = <UserNoticeEvent>[];
@@ -1600,24 +1600,6 @@ void main() {
       await flush();
       expect(notices.single.msgId, 'slow_on');
       expect(userNotices, hasLength(1));
-    });
-
-    test('WHISPER emits a TwitchMessage via onWhisper', () async {
-      final whispers = <TwitchMessage>[];
-      decoder.onWhisper.listen(whispers.add);
-
-      service.handleLine(
-        '@badges=;color=#FF0000;display-name=SomeUser;emotes=25:0-4;message-id=whisper-1;thread-id=abc;turbo=0;user-id=999;user-type= :someuser!someuser@someuser.tmi.twitch.tv WHISPER recipient :hey there',
-      );
-      await flush();
-
-      final w = whispers.single;
-      expect(w.login, 'someuser');
-      expect(w.displayName, 'SomeUser');
-      expect(w.text, 'hey there');
-      expect(w.messageId, 'whisper-1');
-      expect(w.channel, isNull);
-      expect(w.color, '#FF0000');
     });
   });
 

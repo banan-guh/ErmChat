@@ -11,6 +11,7 @@ import '../irc/decode/codec.dart' show parseIrcChatMessage;
 import '../irc/decode/copy.dart'
     show buildUserNoticeText, userNoticeAccent, userNoticeLabelId;
 import '../irc/decode/decoder.dart' show IrcChatDecoder;
+import '../eventsub/decode/events.dart' show WhisperEvent;
 import '../irc/decode/events.dart' show UserNoticeEvent;
 import '../irc/message.dart' show IrcMessage;
 import '../irc/transport/read.dart' show IrcReadService;
@@ -197,13 +198,34 @@ class ChatIngestion {
         if (_disposed) return;
         onSystemMessage(event.channel, event.message);
       }),
-      readDecoder.onWhisper.listen(_onWhisperEvent),
       readDecoder.onUserNotice.listen((event) {
         if (_disposed) return;
         onUserNotice(event);
       }),
     ];
   }
+
+  /// Applies a whisper from EventSub. Ids from EventSub are stable, so a
+  /// redelivery after a session swap drops here.
+  void receiveWhisper(WhisperEvent event) {
+    if (_disposed) return;
+    if (event.whisperId.isNotEmpty && !_whisperIds.add(event.whisperId)) {
+      return;
+    }
+    if (_whisperIds.length > 200) _whisperIds.remove(_whisperIds.first);
+    _onWhisperEvent(
+      TwitchMessage(
+        login: event.fromLogin,
+        displayName: event.fromName,
+        userId: event.fromUserId,
+        text: event.text,
+        messageId: event.whisperId.isEmpty ? null : event.whisperId,
+        channel: null,
+      ),
+    );
+  }
+
+  final _whisperIds = <String>{};
 
   void _onWhisperEvent(TwitchMessage msg) {
     if (_disposed) return;

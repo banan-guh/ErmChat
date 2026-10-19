@@ -46,9 +46,6 @@ class IrcChatDecoder {
   final _roomStateController = StreamController<IrcRoomStateEvent>.broadcast(
     sync: true,
   );
-  final _whisperController = StreamController<TwitchMessage>.broadcast(
-    sync: true,
-  );
   final _selfModController = StreamController<(String, bool)>.broadcast(
     sync: true,
   );
@@ -65,7 +62,6 @@ class IrcChatDecoder {
       _deleteController.stream;
   Stream<TwitchMessage> get onMessage => _messageController.stream;
   Stream<UserNoticeEvent> get onUserNotice => _userNoticeController.stream;
-  Stream<TwitchMessage> get onWhisper => _whisperController.stream;
   Stream<IrcMessage> get onOwnMessage => _ownMessageController.stream;
 
   /// Channel USERSTATE role: whether the user moderates (or owns) it. Sent
@@ -91,9 +87,6 @@ class IrcChatDecoder {
         return;
       case 'NOTICE':
         _handleNotice(msg);
-        return;
-      case 'WHISPER':
-        _handleWhisper(msg);
         return;
       case 'USERSTATE':
       case 'GLOBALUSERSTATE':
@@ -281,11 +274,6 @@ class IrcChatDecoder {
     }
   }
 
-  void _handleWhisper(IrcMessage msg) {
-    if (msg.trailing == null) return;
-    _whisperController.add(parseIrcChatMessage(msg, channel: null));
-  }
-
   /// Channel name from a `#channel` param, or null when the frame has none.
   String? _channelNameOf(IrcMessage msg) {
     if (msg.params.isEmpty) return null;
@@ -311,7 +299,6 @@ class IrcChatDecoder {
     _userNoticeController.close();
     _clearController.close();
     _roomStateController.close();
-    _whisperController.close();
     _selfModController.close();
   }
 }

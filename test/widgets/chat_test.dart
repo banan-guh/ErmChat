@@ -1019,10 +1019,11 @@ void main() {
     WidgetTester tester,
   ) async {
     final ircRead = FakeIrcReadService();
+    final eventSub = FakeEventSubService();
     await tester.pumpWidget(
       TwitchChatApp(
         key: UniqueKey(),
-        eventSubService: FakeEventSubService(),
+        eventSubService: eventSub,
         ircService: FakeIrcService(),
         ircReadService: ircRead,
         recentMessagesService: ConfigurableRecentMessagesService(const []),
@@ -1045,7 +1046,7 @@ void main() {
         messageId: 'm-panel-1',
       ),
     );
-    ircRead.emitWhisper(
+    eventSub.emitWhisper(
       TwitchMessage(
         login: 'carol',
         text: 'psst',
@@ -1112,7 +1113,7 @@ void main() {
       await tester.pump(const Duration(milliseconds: 600));
       await tester.pump();
 
-      ircRead.emitWhisper(
+      eventSub.emitWhisper(
         TwitchMessage(
           login: 'carol',
           text: 'hi',

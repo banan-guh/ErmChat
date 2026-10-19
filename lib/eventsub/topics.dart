@@ -78,6 +78,11 @@ class EventSubTopics {
   // Channels where the widget subscriptions were rejected with a 403 (not the
   // broadcaster). Persists so we don't re-attempt doomed subscriptions.
   final _widgetSkippedChannels = <String>{};
+  // The account's user.whisper.message subscription: active dies with the
+  // session, refused (a token without the whisper scope) with the account.
+  bool _whispersActive = false;
+  bool _whispersInflight = false;
+  bool _whispersRefused = false;
 
   /// Whether the EventSub channel.moderate v2 subscription is active for a
   /// channel; while it is, IRC moderation echoes and room-mode NOTICEs are
@@ -125,6 +130,7 @@ class EventSubTopics {
     _trustChannels.clear();
     _pointsChannels.clear();
     _widgetChannels.clear();
+    _whispersActive = false;
   }
 
   /// 403 skip sets are account-scoped: a non-mod account's rejection must not
@@ -138,6 +144,7 @@ class EventSubTopics {
     _trustSkippedChannels.clear();
     _pointsSkippedChannels.clear();
     _widgetSkippedChannels.clear();
+    _whispersRefused = false;
     for (final family in _families) {
       family.typeSkips.clear();
     }
@@ -254,6 +261,7 @@ class EventSubTopics {
   void subscribeChannel(String channelName, String channelUserId) {
     if (session.login == null || session.userId == null) return;
     _joined.add(channelName);
+    unawaited(subscribeWhispers());
     // Guard like resubscribeEventSubChannels; a run already in flight for the
     // same family drops out inside _subscribeFamily.
     for (final family in _families) {
@@ -472,12 +480,55 @@ class EventSubTopics {
     }
   }
 
+  /// Subscribes user.whisper.message for the session user, once per
+  /// EventSub session. Whispers need no channel, so every join and session
+  /// edge asks, and the first one with a user and a session wins.
+  Future<void> subscribeWhispers() async {
+    final uid = session.userId;
+    if (uid == null || _whispersActive || _whispersRefused) return;
+    if (_whispersInflight || !twitchAuth.isConfigured) return;
+    _whispersInflight = true;
+    try {
+      // Bounds the wait for the websocket session, like _subscribeFamily.
+      for (var attempt = 0; attempt < 3; attempt++) {
+        final sessionId = eventSub.sessionId;
+        if (sessionId == null) {
+          await Future.delayed(const Duration(seconds: 1));
+          continue;
+        }
+        final ok = await twitchApi.createEventSubSubscription(
+          auth: twitchAuth,
+          sessionId: sessionId,
+          type: 'user.whisper.message',
+          version: '1',
+          condition: {'user_id': uid},
+        );
+        if (session.userId != uid || eventSub.sessionId != sessionId) return;
+        if (ok) {
+          _whispersActive = true;
+        } else {
+          final status = twitchApi.lastErrorStatus;
+          logDebug(
+            '[ChatConn] user.whisper.message failed (${twitchApi.lastError ?? status})',
+          );
+          if (status == 401 || status == 403) _whispersRefused = true;
+        }
+        return;
+      }
+    } catch (_) {
+      logDebug('[ChatConn] subscribeWhispers failed');
+    } finally {
+      _whispersInflight = false;
+    }
+  }
+
   /// Re-creates the session-scoped EventSub subscriptions after a new session
   /// comes up (session_reconnect / keepalive reconnect). Skip sets and the
   /// already-subscribed sets are respected by the per-channel methods.
   void resubscribeEventSubChannels(List<String> channels) {
     final uid = session.userId;
     if (uid == null) return;
+    unawaited(subscribeWhispers());
     for (final channel in channels) {
       final channelUserId = chat.channelFor(channel)?.info.broadcasterId;
       if (channelUserId == null) continue;

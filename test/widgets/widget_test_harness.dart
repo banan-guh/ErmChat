@@ -85,6 +85,12 @@ import 'package:url_launcher_platform_interface/url_launcher_platform_interface.
 
 class FakeEventSubService extends EventSubService {
   final _statusCtrl = StreamController<EventSubStatus>.broadcast(sync: true);
+  final _notificationCtrl = StreamController<Map<String, dynamic>>.broadcast(
+    sync: true,
+  );
+
+  @override
+  Stream<Map<String, dynamic>> get onNotification => _notificationCtrl.stream;
 
   @override
   Future<void> connect({String? url}) async {}
@@ -95,9 +101,34 @@ class FakeEventSubService extends EventSubService {
   void triggerConnect() => _statusCtrl.add(EventSubStatus.connected);
   void triggerDisconnect() => _statusCtrl.add(EventSubStatus.disconnected);
 
+  /// Delivers a user.whisper.message notification in Twitch's frame shape.
+  void emitWhisper(TwitchMessage msg) => _notificationCtrl.add({
+    'metadata': {
+      'message_type': 'notification',
+      'subscription_type': 'user.whisper.message',
+    },
+    'payload': {
+      'subscription': {
+        'type': 'user.whisper.message',
+        'condition': {'user_id': '42'},
+      },
+      'event': {
+        'from_user_id': msg.userId ?? '1',
+        'from_user_login': msg.login,
+        'from_user_name': msg.displayName,
+        'to_user_id': '42',
+        'to_user_login': 'me',
+        'to_user_name': 'me',
+        'whisper_id': msg.messageId ?? '',
+        'whisper': {'text': msg.text},
+      },
+    },
+  });
+
   @override
   void dispose() {
     _statusCtrl.close();
+    _notificationCtrl.close();
     super.dispose();
   }
 }
@@ -275,21 +306,6 @@ class FakeIrcReadService extends IrcReadService {
     handleLine(
       '@${tags.join(';')} '
       ':$login!$login@$login.tmi.twitch.tv PRIVMSG #${msg.channel} :${msg.text}',
-    );
-  }
-
-  void emitWhisper(TwitchMessage msg) {
-    final login = msg.login.isEmpty ? 'user' : msg.login;
-    final displayName = msg.displayName.isEmpty ? login : msg.displayName;
-    final tags = <String>[
-      'display-name=${_escapeTag(displayName)}',
-      if (msg.messageId != null) 'id=${_escapeTag(msg.messageId!)}',
-      if (msg.userId != null) 'user-id=${_escapeTag(msg.userId!)}',
-      if (msg.color != null) 'color=${_escapeTag(msg.color!)}',
-    ];
-    handleLine(
-      '@${tags.join(';')} '
-      ':$login!$login@$login.tmi.twitch.tv WHISPER me :${msg.text}',
     );
   }
 

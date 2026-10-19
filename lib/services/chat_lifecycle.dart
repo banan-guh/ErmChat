@@ -507,6 +507,7 @@ class ChatLifecycle {
       if (auth.accessToken != validatedToken) return;
       if (currentUser != null) {
         session.apply(currentUser['login'], userId: currentUser['id']);
+        unawaited(eventSubTopics.subscribeWhispers());
       }
 
       // Account switch: an already-connected socket would skip the reconnect

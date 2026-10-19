@@ -507,7 +507,11 @@ void main() {
       topics.noteSelfModerator('testchannel', false);
       topics.subscribeChannel('testchannel', 'broadcaster1');
       await flush();
-      expect(calls, 0, reason: 'a non-mod channel was probed');
+      expect(
+        seenTypes.where((t) => t != 'user.whisper.message'),
+        isEmpty,
+        reason: 'a non-mod channel was probed',
+      );
 
       // A role that lands after the join (a rejoin with a cached id)
       // subscribes then.
@@ -515,6 +519,32 @@ void main() {
       await flush();
       expect(topics.isModerationActive('testchannel'), isTrue);
       expect(topics.isAutomodActive('testchannel'), isTrue);
+    });
+
+    test('whispers subscribe once per session for the account', () async {
+      int whisperCalls() =>
+          seenTypes.where((t) => t == 'user.whisper.message').length;
+      topics.subscribeChannel('testchannel', 'broadcaster1');
+      topics.resubscribeEventSubChannels(['testchannel']);
+      await flush();
+      expect(whisperCalls(), 1, reason: 'join and edge both subscribed');
+
+      // Subscriptions die with the session; the next one subscribes again.
+      topics.clearSessionState();
+      eventSub.sessionOverride = 'sess-2';
+      topics.resubscribeEventSubChannels(['testchannel']);
+      await flush();
+      expect(whisperCalls(), 2, reason: 'the new session lost whispers');
+
+      // A token without the scope stops asking until the account changes.
+      script['user.whisper.message'] = 403;
+      topics.clearSessionState();
+      await topics.subscribeWhispers();
+      await topics.subscribeWhispers();
+      expect(whisperCalls(), 3, reason: 'a refused scope kept retrying');
+      topics.resetAccountScope();
+      await topics.subscribeWhispers();
+      expect(whisperCalls(), 4, reason: 'a new account never subscribed');
     });
 
     test('a mod grant retries the families a 403 skipped', () async {

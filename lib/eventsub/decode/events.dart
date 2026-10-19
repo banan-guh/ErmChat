@@ -117,6 +117,23 @@ class AutomodHeldEvent {
   });
 }
 
+/// A whisper to the session user (user.whisper.message).
+class WhisperEvent {
+  final String whisperId;
+  final String fromUserId;
+  final String fromLogin;
+  final String fromName;
+  final String text;
+
+  WhisperEvent({
+    required this.whisperId,
+    required this.fromUserId,
+    required this.fromLogin,
+    required this.fromName,
+    required this.text,
+  });
+}
+
 /// A shield mode toggle. [active] is true on begin, false on end.
 class ShieldModeEvent {
   final String channel;

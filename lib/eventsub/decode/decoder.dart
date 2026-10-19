@@ -59,6 +59,9 @@ class EventSubDecoder {
   );
   final _pointRedemptionController =
       StreamController<PointRedemptionEvent>.broadcast(sync: true);
+  final _whisperController = StreamController<WhisperEvent>.broadcast(
+    sync: true,
+  );
 
   Stream<ModerationEvent> get onModeration => _moderationController.stream;
   Stream<AutomodHeldEvent> get onAutomodHeld => _automodHeldController.stream;
@@ -79,6 +82,7 @@ class EventSubDecoder {
   Stream<PointRewardEvent> get onPointReward => _pointRewardController.stream;
   Stream<PointRedemptionEvent> get onPointRedemption =>
       _pointRedemptionController.stream;
+  Stream<WhisperEvent> get onWhisper => _whisperController.stream;
 
   void setChannelMapping(String broadcasterUserId, String channelName) {
     _channelUserIds[broadcasterUserId] = channelName;
@@ -243,9 +247,26 @@ class EventSubDecoder {
       if (channel == null) return;
       final status = (event['status'] as String?)?.toLowerCase() ?? 'updated';
       _emitAutomodHeld(channel, event, status);
+    } else if (type == 'user.whisper.message') {
+      _emitWhisper(event);
     } else {
       logDebug('EventSub unknown subscription type: $type');
     }
+  }
+
+  void _emitWhisper(Map<String, dynamic> event) {
+    final login = event['from_user_login'] as String?;
+    final text = (event['whisper'] as Map?)?['text'] as String?;
+    if (login == null || login.isEmpty || text == null) return;
+    _whisperController.add(
+      WhisperEvent(
+        whisperId: event['whisper_id'] as String? ?? '',
+        fromUserId: event['from_user_id'] as String? ?? '',
+        fromLogin: login,
+        fromName: event['from_user_name'] as String? ?? login,
+        text: text,
+      ),
+    );
   }
 
   void _emitAutomodHeld(
@@ -646,5 +667,6 @@ class EventSubDecoder {
     _suspiciousUserController.close();
     _pointRewardController.close();
     _pointRedemptionController.close();
+    _whisperController.close();
   }
 }

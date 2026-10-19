@@ -615,7 +615,8 @@ class ChatConnectionManager {
     }
     _ingestionSubs
       ..clear()
-      ..addAll(_ingestion.attach());
+      ..addAll(_ingestion.attach())
+      ..add(eventSubDecoder.onWhisper.listen(_ingestion.receiveWhisper));
 
     final pubSub = config.services.pubSub;
     if (pubSub != null) {
