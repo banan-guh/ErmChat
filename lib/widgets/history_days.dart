@@ -27,12 +27,16 @@ class HistoryDays extends StatefulWidget {
     required this.kept,
     required this.onLongPress,
     this.takeOpenTime,
+    this.onStreams,
     this.glass = false,
   });
 
   /// Read on open: a time whose day opens straight away with the time
   /// marked, or null for the list.
   final DateTime? Function()? takeOpenTime;
+
+  /// Opens the list of every stream; null hides its button.
+  final VoidCallback? onStreams;
 
   final ActivityRail rail;
 
@@ -452,12 +456,36 @@ class _HistoryDaysState extends State<HistoryDays>
   /// The days, newest at the bottom; scrolls when they do not fit.
   Widget _list(ColorScheme scheme, EdgeInsets inset) {
     final n = widget.rail.days.length;
-    return ListView.builder(
+    final onStreams = widget.onStreams;
+    final days = ListView.builder(
       reverse: true,
       itemExtent: _rowH,
       itemCount: n,
-      padding: EdgeInsets.fromLTRB(10, inset.top + 8, 10, inset.bottom + 8),
+      padding: EdgeInsets.fromLTRB(
+        10,
+        onStreams == null ? inset.top + 8 : 0,
+        10,
+        inset.bottom + 8,
+      ),
       itemBuilder: (context, k) => _day(scheme, n - 1 - k),
+    );
+    if (onStreams == null) return days;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: EdgeInsets.fromLTRB(10, inset.top + 4, 10, 4),
+          child: TextButton.icon(
+            onPressed: () {
+              _close();
+              onStreams();
+            },
+            icon: const Icon(Icons.video_library_outlined),
+            label: Text(context.l10n.historyAllStreams),
+          ),
+        ),
+        Expanded(child: days),
+      ],
     );
   }
 

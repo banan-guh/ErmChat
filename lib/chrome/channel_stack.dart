@@ -342,6 +342,7 @@ class ChannelPanels {
       keepDay: (start, end, keep) =>
           archive.setDayKept(channel, start, end, keep: keep),
       findVod: (stream) => _findVod(archive, channel, stream),
+      thumbnails: () => _thumbnails(channel),
       watchVod: (stream, vodId) =>
           streamPlayer.watchVod(channel, vodId, stream.start),
       follow: streamPlayer.vodPlayback,
@@ -359,9 +360,24 @@ class ChannelPanels {
     final broadcaster = chat.channelFor(channel)?.info.broadcasterId;
     if (broadcaster == null || !twitchAuth.isConfigured) return null;
     final videos = await twitchApi.getArchiveVideos(twitchAuth, broadcaster);
-    final id = videos?[stream.id];
+    final id = videos?[stream.id]?.id;
     if (id != null) unawaited(archive.setVod(stream.id, id));
     return id;
+  }
+
+  /// Thumbnails of [channel]'s past broadcasts by stream id, sized for a
+  /// list row. Empty when signed out or the lookup fails.
+  Future<Map<String, String>> _thumbnails(String channel) async {
+    final broadcaster = chat.channelFor(channel)?.info.broadcasterId;
+    if (broadcaster == null || !twitchAuth.isConfigured) return const {};
+    final videos = await twitchApi.getArchiveVideos(twitchAuth, broadcaster);
+    return {
+      for (final MapEntry(:key, :value) in (videos ?? const {}).entries)
+        if (value.thumbnail.isNotEmpty)
+          key: value.thumbnail
+              .replaceFirst('%{width}', '320')
+              .replaceFirst('%{height}', '180'),
+    };
   }
 
   /// [channel]'s page as the windowed history list continuing into the live

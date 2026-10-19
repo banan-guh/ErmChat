@@ -22,6 +22,7 @@ import 'chat_message_tile.dart';
 import 'chat_rows.dart';
 import 'glass_chrome.dart';
 import 'history_days.dart';
+import 'history_streams.dart';
 
 /// What a history page can do with its days and streams beyond reading them.
 class HistoryActions {
@@ -29,6 +30,7 @@ class HistoryActions {
     required this.keptDays,
     required this.keepDay,
     required this.findVod,
+    required this.thumbnails,
     required this.watchVod,
     required this.follow,
   });
@@ -41,6 +43,9 @@ class HistoryActions {
 
   /// The video on demand of a stream, null when it has none.
   final Future<String?> Function(HistoryStream stream) findVod;
+
+  /// Thumbnail URLs by stream id, for the streams that still have a video.
+  final Future<Map<String, String>> Function() thumbnails;
 
   /// Plays the video on demand of a stream.
   final void Function(HistoryStream stream, String vodId) watchVod;
@@ -1588,6 +1593,27 @@ class _HistoryViewState extends State<HistoryView> {
     return _window.at(_viewportPos(pos.viewportDimension / 2))?.timestamp;
   }
 
+  /// Every stream of the channel on its own page; a pick opens it at its
+  /// start.
+  void _openStreams() {
+    final streams = [..._window.streams]
+      ..sort((a, b) => b.start.compareTo(a.start));
+    unawaited(
+      Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (page) => HistoryStreamsPage(
+            streams: streams,
+            thumbnails: widget.actions?.thumbnails(),
+            onOpen: (stream) {
+              Navigator.of(page).pop();
+              _jumpTo(stream.start, fraction: _startFraction);
+            },
+          ),
+        ),
+      ),
+    );
+  }
+
   /// A time picked in the days, centered.
   void _onPick(DateTime time) => _jumpTo(time, fraction: 0.5);
 
@@ -1876,6 +1902,7 @@ class _HistoryViewState extends State<HistoryView> {
                     _calendarTime = null;
                     return time;
                   },
+                  onStreams: _openStreams,
                   glass: glass,
                 ),
         ),

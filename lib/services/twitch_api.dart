@@ -519,9 +519,10 @@ class TwitchApi {
     return byId;
   }
 
-  /// Past broadcast video ids by the id of the stream they recorded, newest
-  /// 100 of the broadcaster. Null on failure, empty when there are none.
-  Future<Map<String, String>?> getArchiveVideos(
+  /// Past broadcast videos by the id of the stream they recorded, newest
+  /// 100 of the broadcaster: the video id and its thumbnail URL template
+  /// (`%{width}x%{height}`). Null on failure, empty when there are none.
+  Future<Map<String, ({String id, String thumbnail})>?> getArchiveVideos(
     TwitchAuth auth,
     String broadcasterId,
   ) async {
@@ -535,7 +536,10 @@ class TwitchApi {
       return {
         for (final v in list.cast<Map>())
           if (v['stream_id'] case final String stream when stream.isNotEmpty)
-            stream: v['id'] as String,
+            stream: (
+              id: v['id'] as String,
+              thumbnail: v['thumbnail_url'] as String? ?? '',
+            ),
       };
     } catch (e) {
       _setError('getArchiveVideos: bad response');

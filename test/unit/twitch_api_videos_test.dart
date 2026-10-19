@@ -12,7 +12,8 @@ void main() {
         asked = req.url;
         return http.Response(
           '{"data":[{"id":"2100","stream_id":"4001","user_id":"9",'
-          '"type":"archive","created_at":"2026-10-14T18:00:00Z"},'
+          '"type":"archive","created_at":"2026-10-14T18:00:00Z",'
+          '"thumbnail_url":"https://t/%{width}x%{height}.jpg"},'
           '{"id":"2101","stream_id":null,"type":"archive"},'
           '{"id":"2102","type":"archive"}]}',
           200,
@@ -21,7 +22,9 @@ void main() {
     );
     final auth = TwitchAuth()..accessToken = 'tok';
     final videos = await api.getArchiveVideos(auth, '9');
-    expect(videos, {'4001': '2100'}, reason: 'rows without a stream id skip');
+    expect(videos, {
+      '4001': (id: '2100', thumbnail: 'https://t/%{width}x%{height}.jpg'),
+    }, reason: 'rows without a stream id skip');
     expect(asked?.queryParameters['type'], 'archive');
     expect(asked?.queryParameters['user_id'], '9');
   });
