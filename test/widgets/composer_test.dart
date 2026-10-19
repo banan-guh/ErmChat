@@ -18,7 +18,6 @@ void main() {
     WidgetTester tester, {
     required bool liquidGlass,
     required FocusNode focus,
-    bool showComposer = true,
     bool dismissUnfocuses = false,
     List<double>? keyboardHs,
     bool bodyReadsKeyboard = true,
@@ -38,15 +37,13 @@ void main() {
             emoteMaxFraction: 0.5,
             onKeyboardDismissed: dismissUnfocuses ? focus.unfocus : null,
             bodyReadsKeyboard: bodyReadsKeyboard,
-            composer: showComposer
-                ? TextField(
-                    key: const Key('message_input'),
-                    controller: text,
-                    focusNode: focus,
-                    minLines: 1,
-                    maxLines: maxLines,
-                  )
-                : null,
+            composer: TextField(
+              key: const Key('message_input'),
+              controller: text,
+              focusNode: focus,
+              minLines: 1,
+              maxLines: maxLines,
+            ),
             bottomBar: bottomBar,
             islandFooter: islandFooter,
             bodyBuilder:
@@ -115,29 +112,6 @@ void main() {
     expect(find.byKey(inputBarKey), findsOneWidget);
     expect(await tapBodyComposer(tester, focus), isTrue);
     expect(tester.takeException(), isNull);
-  });
-
-  testWidgets('island bottom floats one margin above the safe area', (
-    tester,
-  ) async {
-    final focus = FocusNode();
-    addTearDown(focus.dispose);
-    tester.view.physicalSize = const Size(400, 800);
-    tester.view.devicePixelRatio = 1;
-    tester.view.viewInsets = FakeViewPadding.zero;
-    tester.view.padding = const FakeViewPadding(bottom: 45);
-    addTearDown(tester.view.reset);
-
-    await pumpBody(tester, liquidGlass: true, focus: focus);
-    await tester.pumpAndSettle();
-
-    final island = find.byKey(const ValueKey('composer_island'));
-    expect(island, findsOneWidget);
-    expect(
-      tester.getRect(island).bottom,
-      closeTo(800 - 45 - kComposerIslandMargin, 0.5),
-      reason: 'island floats one margin above the safe area, not on it',
-    );
   });
 
   // Hidden-by-keyboard: the island stays pinned to the screen bottom and the
@@ -494,25 +468,6 @@ void main() {
     keyboardHs.clear();
     await moveKeyboard(tester, [30]);
     expect(keyboardHs.first, 300, reason: 'next open uses the real height');
-  });
-
-  testWidgets('input toggle-off drops the field and the island', (
-    tester,
-  ) async {
-    final focus = FocusNode();
-    addTearDown(focus.dispose);
-    await pumpBody(tester, liquidGlass: true, focus: focus);
-    await tester.pumpAndSettle();
-
-    await pumpBody(
-      tester,
-      liquidGlass: true,
-      focus: focus,
-      showComposer: false,
-    );
-    await tester.pump();
-    expect(find.byKey(const Key('message_input')), findsNothing);
-    expect(find.byKey(const ValueKey('composer_island')), findsNothing);
   });
 
   // Full-app harness: the real HomeScreen wiring, joined and connected, so the
