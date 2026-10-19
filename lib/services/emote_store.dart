@@ -291,8 +291,10 @@ class EmoteStore {
     while (i < text.length) {
       final pos = posAt(i);
       if (pos != null) {
+        // Resolve by id so a same-code third-party emote cannot replace it.
+        final known = byCode[pos.emoteCode];
         final emote = canonical(
-          byCode[pos.emoteCode] ??
+          (known != null && known.id == pos.emoteId ? known : null) ??
               Emote(
                 id: pos.emoteId,
                 code: pos.emoteCode,
@@ -803,7 +805,9 @@ class EmoteStore {
             (e) => isTwitchSub(e) || _kindOf(e) == TwitchEmoteKind.follower,
           )
           .toList();
-      catalog = catalog.copyWith(twitchSubs: [...subs, ...twitchNonSub]);
+      catalog = catalog.copyWith(
+        twitchSubs: [...subs, ...twitchNonSub.where(isTwitchLocked)],
+      );
       _subsByChannelCache = null;
       // Other channels' lookups include this channel's bits and subs.
       _mergedCache.clear();
