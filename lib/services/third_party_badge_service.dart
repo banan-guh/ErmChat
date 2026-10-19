@@ -22,7 +22,7 @@ class ThirdPartyBadgeService {
   final _sevenTvBadges = <String, ThirdPartyBadge>{};
 
   /// Whether 7TV badges resolve (the 7TV cosmetics setting).
-  bool showSevenTv = true;
+  bool showSevenTv = false;
   // 7TV: twitchUserId -> cosmeticId
   final _sevenTvUsers = <String, String>{};
 

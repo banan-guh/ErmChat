@@ -197,7 +197,7 @@ class Prefs {
       _p.setString(_kSharedChatMode, value);
 
   /// 7TV name paints and badges.
-  bool get sevenTvCosmetics => _p.getBool(_kSeventvNamePaints) ?? true;
+  bool get sevenTvCosmetics => _p.getBool(_kSeventvNamePaints) ?? false;
 
   Future<void> setSevenTvCosmetics(bool value) =>
       _p.setBool(_kSeventvNamePaints, value);

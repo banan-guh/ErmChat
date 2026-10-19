@@ -209,7 +209,7 @@ class ChatChannelSetup {
   }
 
   bool _sevenTvEmotes = true;
-  bool _sevenTvCosmetics = true;
+  bool _sevenTvCosmetics = false;
 
   /// Matches the 7TV socket to the settings. Emote sets and user updates
   /// follow [emotes]; the channel feed (paints, badges, personal emotes)

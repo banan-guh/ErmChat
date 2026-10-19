@@ -61,7 +61,7 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
   bool _animateGifs = true;
   bool _ffzEffects = true;
   bool _bttvModifiers = true;
-  bool _sevenTvCosmetics = true;
+  bool _sevenTvCosmetics = false;
   bool _adaptiveFps = true;
   int _idleFps = kIdleEmoteFps;
 
