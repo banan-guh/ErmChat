@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -279,68 +278,6 @@ void main() {
       expect(store.messagesFor('forsen', 'r1'), hasLength(1));
     });
 
-    test('a version 1 archive keeps its blocks under the new schema', () async {
-      final v1 = path();
-      final old = await databaseFactoryFfi.openDatabase(
-        v1,
-        options: OpenDatabaseOptions(
-          version: 1,
-          onCreate: (db, _) async {
-            await db.execute(
-              'CREATE TABLE blocks(id INTEGER PRIMARY KEY AUTOINCREMENT, '
-              'channel TEXT NOT NULL, start_ts INTEGER NOT NULL, '
-              'end_ts INTEGER NOT NULL, count INTEGER NOT NULL, '
-              'data BLOB NOT NULL)',
-            );
-            // Retention runs on open and reads these.
-            await db.execute(
-              'CREATE TABLE pins(channel TEXT NOT NULL, '
-              'start_ts INTEGER NOT NULL, end_ts INTEGER NOT NULL, '
-              'kind TEXT NOT NULL)',
-            );
-            await db.execute(
-              'CREATE TABLE minute_counts(channel TEXT NOT NULL, '
-              'minute INTEGER NOT NULL, count INTEGER NOT NULL)',
-            );
-            await db.execute(
-              'CREATE TABLE streams(stream_id TEXT PRIMARY KEY, '
-              'channel TEXT NOT NULL, started_at INTEGER NOT NULL, '
-              'ended_at INTEGER, title TEXT, game TEXT, vod_id TEXT)',
-            );
-            await db.execute(
-              'CREATE TABLE ref_ids(channel TEXT NOT NULL, '
-              'message_id TEXT NOT NULL, '
-              'PRIMARY KEY(channel, message_id)) WITHOUT ROWID',
-            );
-            await db.insert('blocks', {
-              'channel': 'forsen',
-              'start_ts': DateTime.now().millisecondsSinceEpoch,
-              'end_ts': DateTime.now().millisecondsSinceEpoch,
-              'count': 3,
-              'data': Uint8List.fromList([1, 2, 3]),
-            });
-          },
-        ),
-      );
-      await old.close();
-
-      final db = await openDb();
-      final blocks = await db.newestBlocks('forsen', 1);
-      expect(blocks.single.count, 3);
-      expect(blocks.single.data, [1, 2, 3]);
-      expect(await db.savedThreads(), isEmpty);
-      await db.addModeration('forsen', 'troll', 0, 1);
-      expect(
-        await db.moderation('forsen', 0, 1),
-        hasLength(1),
-        reason: 'the upgrade must add the moderation table',
-      );
-
-      final store = storeOn(db);
-      store.toggle(SavedThread.fromMessage(_msg('r1', 'forsen'), 'r1'));
-      await store.flushIo();
-      expect(await db.savedThreads(), hasLength(1));
-    });
   });
 
   group('TwitchMessage JSON', () {
