@@ -8,7 +8,6 @@ import '../emotes/emote.dart';
 import '../emotes/emote_picker.dart';
 import '../models/emote_fetch_tier.dart';
 import '../util/data_usage.dart';
-import '../util/log.dart';
 import '../util/set_notifier.dart';
 import 'emote_cache_manager.dart';
 import 'emote_probe_memo.dart';
@@ -16,9 +15,8 @@ import 'emote_usage_registry.dart';
 
 /// The image black box: owns every emote image byte on disk and in flight.
 ///
-/// Wraps the capped [EmoteCacheManager] (disk repo and byte-budget trim),
-/// the [EmoteProbeMemo] existence cache and the seen-emote precache
-/// queue. Priority scoring arrives through an
+/// Wraps the capped [EmoteCacheManager] (disk repo and byte-budget trim) and
+/// the [EmoteProbeMemo] existence cache. Priority scoring arrives through an
 /// [EmoteImagePolicy], so bytes depend on policy and policy depends on
 /// nothing here.
 class EmoteImages {
@@ -64,10 +62,6 @@ class EmoteImages {
 
   /// Bumped when the tier or a cached URL changes, so render layers recompute.
   final SetValueNotifier<int> scaleRevision = SetValueNotifier<int>(0);
-
-  /// Called after a precache download lands, so the owner can prune dominated
-  /// lower scales for [emote].
-  void Function(Emote emote)? onStored;
 
   void setTier(EmoteFetchTier value) {
     if (value == _tier) return;
@@ -132,9 +126,6 @@ class EmoteImages {
 
   set cacheCapMb(int value) {
     final next = value.clamp(minEmoteCacheMb, maxEmoteCacheMb).toInt();
-    // Ids seen at cap 0 were never queued; forgetting them lets the next
-    // render precache them.
-    if (_cacheCapMb <= 0 && next > 0) _seenEmoteIds.clear();
     _cacheCapMb = next;
     _cache.maxBytes = _cacheCapMb * bytesPerMb;
   }
@@ -203,93 +194,11 @@ class EmoteImages {
     _probe.reset();
   }
 
-  // ── Precache queue for seen emotes ──────────────────────────────────
-  final Set<String> _seenEmoteIds = {};
-  final _precacheQueue = <Emote>[];
-  bool _isProcessingPrecache = false;
-  static const _maxConcurrentPrecache = 5;
-  // Bounded dedup and queue to prevent unbounded growth.
-  static const _maxSeenEmoteIds = 2000;
-  static const _maxPrecacheQueue = 300;
-
-  /// Queues unseen [emotes] for background disk precache and returns the
-  /// newly seen subset. Duplicates and over-cap ids are dropped; the queue
-  /// drains at a bounded concurrency.
-  List<Emote> precache(List<Emote> emotes) {
-    final fresh = <Emote>[];
-    for (final e in emotes) {
-      if (_seenEmoteIds.add(e.id)) {
-        fresh.add(e);
-      }
-    }
-    if (fresh.isEmpty) return const [];
-    // Evict oldest-seen ids instead of clearing the set.
-    while (_seenEmoteIds.length > _maxSeenEmoteIds) {
-      final it = _seenEmoteIds.iterator;
-      it.moveNext();
-      _seenEmoteIds.remove(it.current);
-    }
-    // Zero cap: skip precache (eviction would delete immediately).
-    if (_cacheCapMb <= 0) return fresh;
-    _precacheQueue.addAll(fresh);
-    // Bound queue: drop oldest pending when outpacing drain.
-    if (_precacheQueue.length > _maxPrecacheQueue) {
-      _precacheQueue.removeRange(0, _precacheQueue.length - _maxPrecacheQueue);
-    }
-    if (!_isProcessingPrecache) {
-      _processPrecacheQueue();
-    }
-    return fresh;
-  }
-
-  void _processPrecacheQueue() {
-    _isProcessingPrecache = true;
-    _stepPrecache();
-  }
-
-  void _stepPrecache() {
-    if (_precacheQueue.isEmpty) {
-      _isProcessingPrecache = false;
-      return;
-    }
-    final batch = _precacheQueue.take(_maxConcurrentPrecache).toList();
-    _precacheQueue.removeRange(0, batch.length);
-    Future.wait(
-      batch.map(_precacheEmote),
-      eagerError: false,
-    ).then((_) => _stepPrecache());
-  }
-
-  Future<void> _precacheEmote(Emote emote) async {
-    final target = EmotePicker.downloadTarget(emote, EmoteSurface.chat, _tier);
-    if (target == null) return;
-    final targetScale = EmotePicker.scaleOf(emote, target);
-    // A cached scale at least as good as the target makes the fetch redundant
-    // (e.g. a cached 2x while sitting at low tier).
-    for (final entry in emote.scales.entries) {
-      if (targetScale != null &&
-          EmotePicker.quality(entry.key) < EmotePicker.quality(targetScale)) {
-        continue;
-      }
-      if (await isCached(entry.value)) return;
-    }
-    try {
-      await _cache.getSingleFile(target);
-      _noteDownload(target);
-      onStored?.call(emote);
-    } catch (_) {
-      logDebug('[EmoteImages] failed to precache emote: ${emote.code}');
-    }
-  }
-
-  int get precacheQueueLength => _precacheQueue.length;
-
-  /// Releases the disk cache this owner created and drops the precache queue.
+  /// Releases the disk cache this owner created.
   /// Safe to call more than once.
   void dispose() {
     if (_disposed) return;
     _disposed = true;
-    _precacheQueue.clear();
     scaleRevision.dispose();
     // An unopened repo can throw on close; the cache is being torn down anyway.
     if (_ownsCache && _started) {

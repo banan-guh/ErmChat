@@ -2754,19 +2754,6 @@ void main() {
         reason: 'continuous touches postponed the flush indefinitely',
       );
     });
-
-    test('enqueueSeenEmotes skips precache when the cap is zero', () async {
-      SharedPreferences.setMockInitialValues({});
-      final capped = EmoteManager(
-        fetchStagger: Duration.zero,
-        cacheCapMb: 0,
-        usageFlushDelay: Duration.zero,
-        now: () => DateTime(2026, 1, 1, 12),
-        cacheManager: testCacheManager(),
-      );
-      capped.enqueueSeenEmotes(makeEmotes(7));
-      expect(capped.precacheQueueLengthForTesting, 0);
-    });
   });
 
   group('nothing fetch tier guards', () {
@@ -2881,7 +2868,7 @@ void main() {
       },
     );
 
-    test('nothing tier skips stores usage tracking and precache', () async {
+    test('nothing tier skips stores and usage tracking', () async {
       SharedPreferences.setMockInitialValues({});
       final manager = EmoteManager(
         fetchStagger: Duration.zero,

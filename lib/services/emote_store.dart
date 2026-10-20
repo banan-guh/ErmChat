@@ -192,7 +192,7 @@ class EmoteStore {
   // ── Canonical pool ────────────────────────────────────────────────
   // Every Emote instance live surfaces share, keyed by id. Merge exits,
   // commits, seeds, deltas, and the tokenizer all intern through here, so
-  // repeated lookups, picker tabs, precache hits, and baked message tokens
+  // repeated lookups, picker tabs, and baked message tokens
   // hold identical() instances for the same id. Last write wins; merge
   // order is deterministic, so the pool converges to the merge winner on
   // every read, and every pool write coincides with merged-cache

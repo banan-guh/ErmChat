@@ -348,7 +348,7 @@ class ChatIngestion {
       onMention?.call(channel, msg);
     }
 
-    precacheMessageEmotes(msg);
+    _noteMessageEmotes(msg);
     onChatMessage?.call(channel, msg);
   }
 
@@ -385,9 +385,9 @@ class ChatIngestion {
     }
   }
 
-  /// Pre-warms image decode for emotes the user is staring at right now.
-  /// Reads the tokens stamped at ingest, so the text is tokenized once.
-  void precacheMessageEmotes(TwitchMessage msg) {
+  /// Feeds a live message's emotes to the usage registry, which ranks image
+  /// eviction. Reads the tokens stamped at ingest.
+  void _noteMessageEmotes(TwitchMessage msg) {
     if (emoteManager.tier == EmoteFetchTier.nothing) return;
     if (msg.isSystem || msg.isHistory) return;
     final tokens = msg.emoteTokens;
@@ -397,7 +397,7 @@ class ChatIngestion {
       for (final token in tokens)
         if (token.emote case final emote? when seen.add(emote.id)) emote,
     ];
-    if (found.isNotEmpty) emoteManager.enqueueSeenEmotes(found);
+    if (found.isNotEmpty) emoteManager.noteSeenEmotes(found);
   }
 
   // ---- USERNOTICE ---------------------------------------------------------
@@ -564,7 +564,7 @@ class ChatIngestion {
     onAnalyticsMessage?.call(channel, msg);
     onArchiveMessage?.call(channel, msg);
 
-    precacheMessageEmotes(msg);
+    _noteMessageEmotes(msg);
     // Own messages arrive on the read socket (not the channel echo), so they
     // would otherwise never be read aloud; surface them like any other chat
     // message so TTS can speak them too.

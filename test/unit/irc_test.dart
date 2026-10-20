@@ -353,8 +353,8 @@ class _TestIrcRead extends IrcReadService {
   }
 }
 
-/// EmoteManager that surfaces whether [enqueueSeenEmotes] is called and feeds
-/// a fake channel cache, so precache behavior is observable without fetching.
+/// EmoteManager that records viewed emotes and feeds a fake channel cache, so
+/// usage tracking is observable without fetching.
 class _SpyEmoteManager extends EmoteManager {
   _SpyEmoteManager({required super.tier})
     : super(fetchStagger: Duration.zero, cacheCapMb: 0);
@@ -366,14 +366,7 @@ class _SpyEmoteManager extends EmoteManager {
     scales: {EmoteScale.medium: 'https://example.com/e1.png'},
   );
 
-  int enqueueSeenCalls = 0;
   final List<String> viewedIds = [];
-
-  @override
-  void enqueueSeenEmotes(List<Emote> emotes) {
-    enqueueSeenCalls++;
-    super.enqueueSeenEmotes(emotes);
-  }
 
   @override
   void markEmoteViewed(Emote emote) {
@@ -3444,7 +3437,7 @@ void main() {
     );
   });
 
-  group('message emote precache', () {
+  group('message emote usage', () {
     test('live messages feed the usage registry through emote positions', () {
       final emoteManager = _SpyEmoteManager(tier: EmoteFetchTier.high);
       final msgs = <String, List<TwitchMessage>>{'test': []};

@@ -73,7 +73,7 @@ class EmoteManager implements EmoteLookupSource {
   final EmoteStore _store;
   final bool _ownsStore;
 
-  /// Image byte black box (disk cache, precache).
+  /// Image byte black box (disk cache).
   late final EmoteImages _images;
   late final bool _ownsImages;
 
@@ -226,8 +226,6 @@ class EmoteManager implements EmoteLookupSource {
           now: _now,
         );
     _images.cacheCapMb = cacheCapMb;
-    // A landed precache download can make a lower scale redundant.
-    _images.onStored = (emote) => unawaited(_discardDominatedScales([emote]));
   }
 
   /// Catalog store backing lookups and commits.
@@ -1029,9 +1027,6 @@ class EmoteManager implements EmoteLookupSource {
   Duration effectiveTtlForTesting() => _fetcher.effectiveTtl();
 
   @visibleForTesting
-  int get precacheQueueLengthForTesting => _images.precacheQueueLength;
-
-  @visibleForTesting
   Future<void> enqueueFetchForTesting(Future<void> Function() action) =>
       _fetcher.enqueue(action);
 
@@ -1091,12 +1086,22 @@ class EmoteManager implements EmoteLookupSource {
     await _images.startCacheGc();
   }
 
-  /// Queues seen [emotes] for usage tracking and background precache.
-  void enqueueSeenEmotes(List<Emote> emotes) {
-    // Nothing tier: skip fetch and usage tracking.
+  // Ids already touched this session, bounded by dropping the oldest.
+  final Set<String> _seenEmoteIds = {};
+  static const _maxSeenEmoteIds = 2000;
+
+  /// Touches the usage registry once per session for each newly seen emote.
+  void noteSeenEmotes(List<Emote> emotes) {
+    // Nothing tier: skip usage tracking.
     if (tier == EmoteFetchTier.nothing) return;
-    final fresh = _images.precache(emotes);
+    final fresh = [
+      for (final e in emotes)
+        if (_seenEmoteIds.add(e.id)) e,
+    ];
     if (fresh.isEmpty) return;
+    while (_seenEmoteIds.length > _maxSeenEmoteIds) {
+      _seenEmoteIds.remove(_seenEmoteIds.first);
+    }
     _usage.touchAll(
       fresh
           .map((e) => EmotePicker.chatDownloadUrl(e, tier))

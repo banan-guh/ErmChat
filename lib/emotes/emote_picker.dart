@@ -40,7 +40,7 @@ class EmotePicker {
   }
 
   /// The scale the chat surface would fetch when nothing is cached, or null
-  /// for nothing tier. Used by precache and usage tracking.
+  /// for nothing tier. Keys usage tracking.
   static String? chatDownloadUrl(Emote emote, EmoteFetchTier tier) =>
       downloadTarget(emote, EmoteSurface.chat, tier);
 
