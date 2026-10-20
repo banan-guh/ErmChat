@@ -63,6 +63,16 @@ class StreamPlayerController extends ChangeNotifier {
   /// chat to follow; null when no VOD plays.
   final vodPlayback = ValueNotifier<({String channel, DateTime time})?>(null);
 
+  /// The viewer switched the VOD channel's page to live chat; otherwise the
+  /// page replays the VOD's chat.
+  final vodChatLive = ValueNotifier<bool>(false);
+
+  /// Whether [channel]'s page replays the playing VOD's chat.
+  bool replaysVod(String? channel) =>
+      channel != null &&
+      vodPlayback.value?.channel == channel &&
+      !vodChatLive.value;
+
   String playerUrl(String channel) {
     final vod = _vodId;
     if (vod != null) {
@@ -93,6 +103,7 @@ class StreamPlayerController extends ChangeNotifier {
   }) {
     _vodId = vodId;
     _vodStart = streamStart;
+    vodChatLive.value = false;
     _vodAt = at;
     _currentChannel = channel;
     _isAudioOnly = false;
@@ -115,11 +126,13 @@ class StreamPlayerController extends ChangeNotifier {
     _vodStart = null;
     _vodAt = Duration.zero;
     vodPlayback.value = null;
+    vodChatLive.value = false;
   }
 
   @override
   void dispose() {
     vodPlayback.dispose();
+    vodChatLive.dispose();
     super.dispose();
   }
 

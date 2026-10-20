@@ -346,6 +346,7 @@ class ChannelPanels {
       watchVod: (stream, vodId) =>
           streamPlayer.watchVod(channel, vodId, stream.start),
       follow: streamPlayer.vodPlayback,
+      vodLive: streamPlayer.vodChatLive,
     );
   }
 

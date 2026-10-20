@@ -339,6 +339,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     preferEmotesFirst: () => _preferEmotesFirst,
     computeThreadMessages: () => _threads.computeThreadMessages(),
     channelChatReady: () => _channelChatReady,
+    replayingVod: () => _streamPlayer.replaysVod(selectedChannel),
     showNotice: showNotice,
     strings: () => context.l10n,
     emoteSheetOpen: () => _emoteSheetOpen && !_panelManager.emoteSheetClosing,
@@ -720,6 +721,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     _pip.onPipAction = _pipActionHandler;
     _streamPlayer.addListener(_stream.onStreamPlayerChanged);
     _streamPlayer.addListener(_syncSystemUiMode);
+    _streamPlayer.vodPlayback.addListener(_onVodReplay);
+    _streamPlayer.vodChatLive.addListener(_onVodReplay);
     // Launching in landscape gets no metrics change, so sync once up front.
     WidgetsBinding.instance.addPostFrameCallback((_) => _syncSystemUiMode());
     _linkWhitelist.addListener(_onLinkWhitelistChanged);
@@ -1564,6 +1567,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     PrefsStore.instance.removeListener(_onPrefsChanged);
     _streamPlayer.removeListener(_stream.onStreamPlayerChanged);
     _streamPlayer.removeListener(_syncSystemUiMode);
+    _streamPlayer.vodPlayback.removeListener(_onVodReplay);
+    _streamPlayer.vodChatLive.removeListener(_onVodReplay);
     if (_pip.onPipChanged == _pipChangedHandler) {
       _pip.onPipChanged = null;
     }
@@ -1673,6 +1678,16 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   }
 
   void _toggleInputVisibility() => setShowInput(!_showInput);
+
+  bool _replayingVod = false;
+
+  /// Rebuilds the composer when the selected page starts or stops replaying
+  /// a VOD. Playback ticks every second, so it skips unchanged states.
+  void _onVodReplay() {
+    final replaying = _streamPlayer.replaysVod(selectedChannel);
+    if (replaying == _replayingVod || !mounted) return;
+    setState(() => _replayingVod = replaying);
+  }
 
   /// The island footer [channel] shows, for its page's pre-placed clearance.
   double _statusHeightFor(String channel) =>

@@ -325,6 +325,7 @@ HistoryActions _vodActions(
   thumbnails: () async => const {},
   watchVod: (_, _) {},
   follow: follow,
+  vodLive: ValueNotifier(false),
 );
 
 void main() {

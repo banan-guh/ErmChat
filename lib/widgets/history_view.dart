@@ -33,6 +33,7 @@ class HistoryActions {
     required this.thumbnails,
     required this.watchVod,
     required this.follow,
+    required this.vodLive,
   });
 
   /// Starts of the days kept past retention.
@@ -52,6 +53,9 @@ class HistoryActions {
 
   /// The playing VOD's channel and archive time; the matching page follows.
   final ValueListenable<({String channel, DateTime time})?> follow;
+
+  /// The viewer chose live chat while the VOD plays.
+  final ValueNotifier<bool> vodLive;
 }
 
 /// Windowed history list over a [HistorySource].
@@ -342,8 +346,6 @@ class _HistoryViewState extends State<HistoryView> {
   /// to the bottom or the VOD seeks.
   bool _replayPaused = false;
 
-  /// A VOD plays but the viewer switched this page to live chat.
-  bool _vodLive = false;
   bool _scrolled = false;
   String? _fmtLocale;
   DateFormat? _dayFmt;
@@ -688,20 +690,18 @@ class _HistoryViewState extends State<HistoryView> {
     final at = widget.actions?.follow.value;
     if (at == null) {
       _playedTo = null;
-      _vodLive = false;
       if (_replayAt != null) _endReplay();
       return;
     }
     if (!mounted) return;
     if (at.channel != widget.channel) {
       // The VOD moved to another channel.
-      _vodLive = false;
       if (_replayAt != null) _endReplay();
       return;
     }
     final played = _playedTo;
     _playedTo = at.time;
-    if (_vodLive) return;
+    if (widget.actions!.vodLive.value) return;
     final seek = played != null && at.time.difference(played).abs() > _seekGap;
     if (seek) _replayPaused = false;
     if (_replayPaused) return;
@@ -864,10 +864,11 @@ class _HistoryViewState extends State<HistoryView> {
 
   /// Flips between live chat and the replay of the playing VOD.
   void _toggleVodChat() {
-    final at = widget.actions?.follow.value;
+    final actions = widget.actions!;
+    final at = actions.follow.value;
     if (at == null) return;
-    setState(() => _vodLive = !_vodLive);
-    if (_vodLive) {
+    final live = actions.vodLive.value = !actions.vodLive.value;
+    if (live) {
       _endReplay();
     } else {
       _replayPaused = false;
@@ -2161,16 +2162,16 @@ class _HistoryViewState extends State<HistoryView> {
               ),
             ),
           ),
-        if (widget.actions?.follow case final follow?)
-          ValueListenableBuilder(
-            valueListenable: follow,
-            builder: (_, at, _) => at?.channel != widget.channel
+        if (widget.actions case final actions?)
+          ListenableBuilder(
+            listenable: Listenable.merge([actions.follow, actions.vodLive]),
+            builder: (_, _) => actions.follow.value?.channel != widget.channel
                 ? const SizedBox.shrink()
                 : Positioned(
                     right: 16,
                     top: widget.topPadding + 8,
                     child: VodChatButton(
-                      live: _vodLive,
+                      live: actions.vodLive.value,
                       glass: glass,
                       heroTag: 'vod_chat_${widget.channel}',
                       onPressed: _toggleVodChat,

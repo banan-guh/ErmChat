@@ -43,6 +43,7 @@ class ComposerController {
     required this.preferEmotesFirst,
     required this.computeThreadMessages,
     required this.channelChatReady,
+    required this.replayingVod,
     required this.showNotice,
     required this.strings,
     required this.emoteSheetOpen,
@@ -77,6 +78,15 @@ class ComposerController {
   final bool Function() preferEmotesFirst;
   final List<TwitchMessage> Function() computeThreadMessages;
   final bool Function() channelChatReady;
+
+  /// The selected page replays a VOD's chat, so typing would land in live
+  /// chat the viewer is not reading.
+  final bool Function() replayingVod;
+
+  bool get _vodBlocks =>
+      replayingVod() &&
+      activePanel() == OverlayPanel.closed &&
+      !isWhispersTabActive();
   final void Function(String text) showNotice;
   final AppLocalizations Function() strings;
   final bool Function() emoteSheetOpen;
@@ -390,7 +400,8 @@ class ComposerController {
       // (account switch, fresh login): the pipeline would drop the send.
       session.login != null &&
       chatConn.isChatPipeConnected &&
-      (isWhispersTabActive() || channelChatReady());
+      (isWhispersTabActive() || channelChatReady()) &&
+      !_vodBlocks;
 
   /// [withStatus] lets the channel status fill the generic hint; landscape
   /// uses it in place of the status row under the input. [modesInRow]
@@ -407,6 +418,7 @@ class ComposerController {
             )) {
               (ChatPhase.connecting, _, _, _) => strings().connectingHint,
               (ChatPhase.reconnecting, _, _, _) => strings().reconnectingHint,
+              _ when _vodBlocks => strings().vodReplayHint,
               (ChatPhase.online, _, false, false)
                   when getSelectedChannel() != null =>
                 strings().disconnectedHint,
