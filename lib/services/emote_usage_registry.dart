@@ -374,14 +374,15 @@ class EmoteUsageRegistry implements EmoteImagePolicy {
         _emoteUsage.remove(entry.key);
       }
     }
-    final data = <String, dynamic>{
-      'v': 2,
-      'e': {
-        for (final entry in _emoteUsage.entries)
-          entry.key: entry.value.toJson(),
-      },
-    };
-    final encoded = await Isolate.run(() => jsonEncode(data));
+    // The records copy to the isolate as is: building their JSON here costs
+    // the UI thread a frame per flush.
+    final usage = _emoteUsage;
+    final encoded = await Isolate.run(
+      () => jsonEncode({
+        'v': 2,
+        'e': {for (final e in usage.entries) e.key: e.value.toJson()},
+      }),
+    );
     await _store.write(_usageKey, encoded);
   }
 
