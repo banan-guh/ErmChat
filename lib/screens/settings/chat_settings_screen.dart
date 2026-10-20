@@ -283,8 +283,9 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
   }
 }
 
-/// Spam pace: Auto stays under Twitch's limits; a fixed gap faster than
-/// them shows red with "!" and says which limit it breaks.
+/// Spam pace per role, plain and mod/VIP, in one row that opens a sheet.
+/// Auto stays under Twitch's limits; a gap faster than the role's limit
+/// shows red with "!".
 class _SpamSpeedTile extends StatefulWidget {
   const _SpamSpeedTile({required this.menuOn});
 
@@ -311,36 +312,36 @@ class _SpamSpeedTileState extends State<_SpamSpeedTile> {
     3000,
   ];
 
-  int? _ms;
+  int _plainMs = 0;
+  int _modMs = 0;
 
   @override
   void initState() {
     super.initState();
-    Prefs.load().then((p) {
-      if (mounted) setState(() => _ms = p.spamIntervalMs);
+    _load();
+  }
+
+  Future<void> _load() async {
+    final p = await Prefs.load();
+    if (!mounted) return;
+    setState(() {
+      _plainMs = p.spamIntervalMs;
+      _modMs = p.spamIntervalModMs;
     });
   }
 
-  int _stepOf(int ms) {
+  static int _stepOf(int ms) {
     final i = _steps.indexOf(ms);
     return i < 0 ? 0 : i;
   }
 
-  String? _overLimit(AppLocalizations l, int ms) {
-    if (ms <= 0) return null;
-    if (ms < ChatSender.privilegedRepeatGap.inMilliseconds) {
-      return l.spamOverLimit;
-    }
-    if (ms < ChatSender.plainRepeatGap.inMilliseconds) {
-      return l.spamOverLimitPlain;
-    }
-    return null;
-  }
+  static bool _over(int ms, Duration limit) =>
+      ms > 0 && ms < limit.inMilliseconds;
 
-  String _value(AppLocalizations l, int ms) {
+  String _value(AppLocalizations l, int ms, Duration limit) {
     if (ms <= 0) return l.spamSpeedAuto;
     final text = l.spamSpeedMs(ms);
-    return _overLimit(l, ms) == null ? text : '$text !';
+    return _over(ms, limit) ? '$text !' : text;
   }
 
   void _offSnack() => ScaffoldMessenger.of(context)
@@ -359,48 +360,95 @@ class _SpamSpeedTileState extends State<_SpamSpeedTile> {
       ),
     );
 
+  Widget _slider(
+    AppLocalizations l, {
+    required String role,
+    required Duration limit,
+    required double Function(Prefs p) read,
+    required Future<void> Function(Prefs p, int ms) write,
+  }) {
+    final error = Theme.of(context).colorScheme.error;
+    return PrefsSliderTile(
+      label: (v) => '$role: ${_value(l, _steps[v.round()], limit)}',
+      sliderLabel: (v) => _value(l, _steps[v.round()], limit),
+      min: 0,
+      max: (_steps.length - 1).toDouble(),
+      divisions: _steps.length - 1,
+      defaultValue: 0,
+      read: read,
+      write: (p, v) async {
+        await write(p, _steps[v.round()]);
+        await _load();
+      },
+      tint: (v) => _over(_steps[v.round()], limit) ? error : null,
+    );
+  }
+
+  Future<void> _openSheet() async {
+    final l = context.l10n;
+    await showModalBottomSheet<void>(
+      context: context,
+      useSafeArea: true,
+      builder: (sheetContext) => SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _slider(
+                l,
+                role: l.spamSpeedPlain,
+                limit: ChatSender.plainRepeatGap,
+                read: (p) => _stepOf(p.spamIntervalMs).toDouble(),
+                write: (p, ms) => p.setSpamIntervalMs(ms),
+              ),
+              _slider(
+                l,
+                role: l.spamSpeedMod,
+                limit: ChatSender.privilegedRepeatGap,
+                read: (p) => _stepOf(p.spamIntervalModMs).toDouble(),
+                write: (p, ms) => p.setSpamIntervalModMs(ms),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final l = context.l10n;
-    final error = Theme.of(context).colorScheme.error;
-    final warning = widget.menuOn ? _overLimit(l, _ms ?? 0) : null;
-    Widget tile = Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        PrefsSliderTile(
-          enabled: widget.menuOn,
-          label: (v) =>
-              '${Setting.spamSpeed.titleOf(l)}: ${_value(l, _steps[v.round()])}',
-          sliderLabel: (v) => _value(l, _steps[v.round()]),
-          min: 0,
-          max: (_steps.length - 1).toDouble(),
-          divisions: _steps.length - 1,
-          defaultValue: 0,
-          read: (p) => _stepOf(p.spamIntervalMs).toDouble(),
-          write: (p, v) => p.setSpamIntervalMs(_steps[v.round()]),
-          onChanged: (v) => setState(() => _ms = _steps[v.round()]),
-          tint: (v) => _overLimit(l, _steps[v.round()]) == null ? null : error,
-        ),
-        if (warning != null)
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-            child: Text(
-              warning,
-              style: Theme.of(
-                context,
-              ).textTheme.bodySmall?.copyWith(color: error),
-            ),
-          ),
-      ],
+    final over =
+        _over(_plainMs, ChatSender.plainRepeatGap) ||
+        _over(_modMs, ChatSender.privilegedRepeatGap);
+    final subtitle =
+        '${_value(l, _plainMs, ChatSender.plainRepeatGap)} · '
+        '${_value(l, _modMs, ChatSender.privilegedRepeatGap)}';
+    final tile = ListTile(
+      enabled: widget.menuOn,
+      leading: const Icon(Icons.speed),
+      title: Text(Setting.spamSpeed.titleOf(l)),
+      subtitle: Text(
+        subtitle,
+        style: over && widget.menuOn
+            ? TextStyle(color: Theme.of(context).colorScheme.error)
+            : null,
+      ),
+      onTap: _openSheet,
     );
-    if (!widget.menuOn) {
-      tile = GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: _offSnack,
-        child: tile,
-      );
-    }
-    return SettingAnchor(Setting.spamSpeed, child: tile);
+    return SettingAnchor(
+      Setting.spamSpeed,
+      // Greyed while the menu is off; a tap says what to turn on.
+      child: widget.menuOn
+          ? tile
+          : GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: _offSnack,
+              child: tile,
+            ),
+    );
   }
 }
 

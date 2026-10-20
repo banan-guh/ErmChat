@@ -236,6 +236,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   bool _preferEmotesFirst = false;
   bool _sendSwipeMenu = false;
   int _spamIntervalMs = 0;
+  int _spamIntervalModMs = 0;
   // True while a manual emote refresh (Reload emotes) is in flight. The
   // connect/reconnect + per-channel-join loading is read live from
   // [_chatLoading] (driven by ChatConnectionManager.connectionStateNotifier),
@@ -341,6 +342,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     preferEmotesFirst: () => _preferEmotesFirst,
     sendSwipeMenu: () => _sendSwipeMenu,
     spamIntervalMs: () => _spamIntervalMs,
+    spamIntervalModMs: () => _spamIntervalModMs,
     computeThreadMessages: () => _threads.computeThreadMessages(),
     channelChatReady: () => _channelChatReady,
     replayingVod: () => _streamPlayer.replaysVod(selectedChannel),
@@ -1452,6 +1454,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
         _preferEmotesFirst != prefs.preferEmotesFirst ||
         _sendSwipeMenu != prefs.sendSwipeMenu ||
         _spamIntervalMs != prefs.spamIntervalMs ||
+        _spamIntervalModMs != prefs.spamIntervalModMs ||
         _fastSnap != prefs.fastChannelSnap ||
         _liquidGlass != prefs.liquidGlass ||
         _chromeTheme != prefs.chromeTheme ||
@@ -1473,6 +1476,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       _preferEmotesFirst = prefs.preferEmotesFirst;
       _sendSwipeMenu = prefs.sendSwipeMenu;
       _spamIntervalMs = prefs.spamIntervalMs;
+      _spamIntervalModMs = prefs.spamIntervalModMs;
       _showTimestamps = prefs.showTimestamps;
       _timestampFormat = prefs.timestampFormat;
       _chatFontSize = prefs.chatFontSize;

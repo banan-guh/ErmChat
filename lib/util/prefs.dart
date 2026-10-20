@@ -118,6 +118,7 @@ class Prefs {
   static const _kPreferEmotesFirst = 'prefer_emotes_first';
   static const _kSendSwipeMenu = 'send_swipe_menu';
   static const _kSpamIntervalMs = 'spam_interval_ms';
+  static const _kSpamIntervalModMs = 'spam_interval_mod_ms';
   static const _kDoubleTapNameCopy = 'double_tap_name_copy';
   static const _kSharedChatMode = 'shared_chat_mode';
   static const _kSeventvNamePaints = 'seventv_name_paints';
@@ -221,12 +222,18 @@ class Prefs {
   Future<void> setSendSwipeMenu(bool value) =>
       _p.setBool(_kSendSwipeMenu, value);
 
-  /// Gap between spam sends in ms; 0 paces automatically under Twitch's
-  /// limits.
+  /// Gap between spam sends in ms for a plain account; 0 paces
+  /// automatically under Twitch's limits.
   int get spamIntervalMs => _p.getInt(_kSpamIntervalMs) ?? 0;
 
   Future<void> setSpamIntervalMs(int value) =>
       _p.setInt(_kSpamIntervalMs, value);
+
+  /// [spamIntervalMs] where you are broadcaster, mod or VIP.
+  int get spamIntervalModMs => _p.getInt(_kSpamIntervalModMs) ?? 0;
+
+  Future<void> setSpamIntervalModMs(int value) =>
+      _p.setInt(_kSpamIntervalModMs, value);
 
   bool get doubleTapNameCopy => _p.getBool(_kDoubleTapNameCopy) ?? false;
 
@@ -781,6 +788,7 @@ class Prefs {
     _kPreferEmotesFirst: bool,
     _kSendSwipeMenu: bool,
     _kSpamIntervalMs: int,
+    _kSpamIntervalModMs: int,
     _kDoubleTapNameCopy: bool,
     kShowTimestampsPrefKey: bool,
     kTimestampFormatPrefKey: String,

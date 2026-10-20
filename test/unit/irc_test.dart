@@ -3268,6 +3268,11 @@ void main() {
         const Duration(milliseconds: 330),
         reason: 'mods get the 100 per 30s pace',
       );
+      expect(
+        sender.repeatDelay('test', gap: const Duration(seconds: 3)),
+        const Duration(milliseconds: 330),
+        reason: 'a plain-account speed does not apply as mod',
+      );
       badges = {};
 
       // 18 sends 1.6s apart fill the plain budget: the next waits for the

@@ -157,14 +157,20 @@ class ChatSender {
   /// limits: 20 messages per 30 seconds and one per second per channel, or
   /// 100 per 30 seconds with a privileged badge, plus slow mode. Overrunning
   /// the plain limit silences the account for an hour, so each carries a
-  /// margin. A [gap] the user chose replaces that pacing, slow mode aside.
-  /// Zero when a send may go now.
-  Duration repeatDelay(String channel, {Duration? gap}) {
+  /// margin. A gap the user chose for the role replaces that pacing, slow
+  /// mode aside: [gap] for a plain account, [privilegedGap] with a privileged
+  /// badge. Zero when a send may go now.
+  Duration repeatDelay(
+    String channel, {
+    Duration? gap,
+    Duration? privilegedGap,
+  }) {
     final at = now();
     _recentSends.removeWhere((t) => at.difference(t) >= _rateWindow);
     final privileged = selfBadges(
       channel,
     ).intersection(_rateExemptBadges).isNotEmpty;
+    final chosen = privileged ? privilegedGap : gap;
     var wait = Duration.zero;
     void atLeast(Duration d) {
       if (d > wait) wait = d;
@@ -172,12 +178,13 @@ class ChatSender {
 
     // Windowed budget: the oldest send that must age out first.
     final budget = privileged ? 95 : 18;
-    if (gap == null && _recentSends.length >= budget) {
+    if (chosen == null && _recentSends.length >= budget) {
       final oldest = _recentSends[_recentSends.length - budget];
       atLeast(oldest.add(_rateWindow).difference(at));
     }
     if (_recentSends.isNotEmpty) {
-      final step = gap ?? (privileged ? privilegedRepeatGap : plainRepeatGap);
+      final step =
+          chosen ?? (privileged ? privilegedRepeatGap : plainRepeatGap);
       atLeast(_recentSends.last.add(step).difference(at));
     }
     final slow = remainingSlowCooldown(channel);
