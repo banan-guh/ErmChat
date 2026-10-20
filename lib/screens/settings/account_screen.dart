@@ -281,12 +281,20 @@ class _AccountScreenState extends State<AccountScreen> {
                         : isActive
                         ? Text(context.l10n.accountActive)
                         : null,
-                    trailing: isActive && !isExpired
-                        ? Icon(Icons.check, color: theme.colorScheme.primary)
-                        : null,
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (isActive && !isExpired)
+                          Icon(Icons.check, color: theme.colorScheme.primary),
+                        IconButton(
+                          icon: const Icon(Icons.delete_outline),
+                          tooltip: context.l10n.remove,
+                          onPressed: () => _confirmRemove(account),
+                        ),
+                      ],
+                    ),
                     onTap: () =>
                         _switchAccount(() => auth.switchTo(account.login)),
-                    onLongPress: () => _confirmRemove(account),
                   );
                   return isExpired ? Opacity(opacity: 0.5, child: tile) : tile;
                 },

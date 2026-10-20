@@ -702,7 +702,12 @@ void main() {
         await tester.pumpWidget(wrapAccountScreen(auth));
         await tester.pump();
 
-        await tester.longPress(find.text('alice', skipOffstage: false));
+        await tester.tap(
+          find.descendant(
+            of: find.widgetWithText(ListTile, 'alice'),
+            matching: find.byTooltip('Remove'),
+          ),
+        );
         await tester.pumpAndSettle();
         expect(
           find.text('Remove account?', skipOffstage: false),
@@ -729,7 +734,12 @@ void main() {
         await tester.pumpWidget(wrapAccountScreen(auth));
         await tester.pump();
 
-        await tester.longPress(find.text('alice', skipOffstage: false));
+        await tester.tap(
+          find.descendant(
+            of: find.widgetWithText(ListTile, 'alice'),
+            matching: find.byTooltip('Remove'),
+          ),
+        );
         await tester.pumpAndSettle();
         await tester.tap(find.text('Remove', skipOffstage: false));
         await tester.pumpAndSettle();
