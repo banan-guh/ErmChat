@@ -1,6 +1,5 @@
 import 'dart:async';
 
-import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/foundation.dart';
 
 import '../emotes/emote.dart';
@@ -119,7 +118,7 @@ class EmoteManager implements EmoteLookupSource {
     SevenTvPersonalSets? personalSets,
     TwitchEmoteSets? twitchSets,
     EmotePersistence? persistence,
-    Future<List<ConnectivityResult>> Function()? probe,
+    bool Function()? isMobile,
     Duration fetchStagger = defaultEmoteFetchStagger,
     Future<void> Function(String url)? removeCachedFile,
     DateTime Function()? now,
@@ -183,11 +182,10 @@ class EmoteManager implements EmoteLookupSource {
     _fetcher =
         fetcher ??
         EmoteFetcher(
-          now: _now,
           tier: () => tier,
           isProviderEnabled: (type) => _visibility.isProviderEnabled(type),
           accessToken: () => _twitchSets.accessToken,
-          probe: probe,
+          isMobile: isMobile,
           fetchStagger: fetchStagger,
           sevenTvChannelFetcher: sevenTvChannelFetcher,
           sevenTvGlobalFetcher: sevenTvGlobalFetcher,
@@ -674,7 +672,7 @@ class EmoteManager implements EmoteLookupSource {
     final epoch = force ? _store.bumpGlobalEpoch() : _store.globalEpoch;
     await _visibility.ensureLoaded();
     if (_store.hasGlobalCache && !force) return;
-    final ttl = await _fetcher.effectiveTtl();
+    final ttl = _fetcher.effectiveTtl();
     EmoteCatalog? cached;
     if (!force) {
       final loaded = await _persistence.load('emotes5_global', ttl);
@@ -755,7 +753,7 @@ class EmoteManager implements EmoteLookupSource {
         : _store.channelEpoch(channel);
     await _visibility.ensureLoaded();
     if (broadcasterId != null) _channelBroadcasterIds[channel] = broadcasterId;
-    final ttl = await _fetcher.effectiveTtl();
+    final ttl = _fetcher.effectiveTtl();
     if (force) {
       // Nothing tier: render cached only.
       if (tier == EmoteFetchTier.nothing) return;
@@ -860,7 +858,7 @@ class EmoteManager implements EmoteLookupSource {
       _sevenTvSaves.remove(channel);
       final savedAt = _savedAt[channel];
       if (savedAt == null || !_store.isSevenTvFull(channel)) return;
-      await _saveChannel(channel, await _fetcher.effectiveTtl(), savedAt);
+      await _saveChannel(channel, _fetcher.effectiveTtl(), savedAt);
     });
   }
 
@@ -1028,7 +1026,7 @@ class EmoteManager implements EmoteLookupSource {
   bool get _registryFrozen => tier == EmoteFetchTier.low;
 
   @visibleForTesting
-  Future<Duration> effectiveTtlForTesting() => _fetcher.effectiveTtl();
+  Duration effectiveTtlForTesting() => _fetcher.effectiveTtl();
 
   @visibleForTesting
   int get precacheQueueLengthForTesting => _images.precacheQueueLength;

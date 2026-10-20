@@ -100,12 +100,11 @@ final emoteCacheCapProvider = NotifierProvider<EmoteCacheCapNotifier, int>(
 /// Emote network fetching and fetch policy.
 final emoteFetcherProvider = Provider<EmoteFetcher>((ref) {
   final fetcher = EmoteFetcher(
-    now: DateTime.now,
     tier: () => ref.read(emoteFetchTierProvider),
     isProviderEnabled: (type) =>
         ref.read(emoteVisibilityProvider).isProviderEnabled(type),
     accessToken: () => ref.read(twitchAuthProvider).accessToken,
-    probe: ref.read(connectivityServiceProvider).checkConnectivity,
+    isMobile: () => ref.read(connectivityServiceProvider).isMobile,
   );
   ref.onDispose(fetcher.dispose);
   return fetcher;

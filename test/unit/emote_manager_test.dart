@@ -13,7 +13,6 @@ import 'package:ermchat/widgets/emote_image.dart';
 import 'package:ermchat/widgets/emote_scale_resolver.dart';
 import 'package:ermchat/widgets/emote_url_provider.dart';
 import 'dart:convert';
-import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:ermchat/models/emote_fetch_tier.dart';
@@ -1879,79 +1878,41 @@ void main() {
     test(
       'refresh policy resolves TTLs across tiers and connectivity',
       () async {
-        final failing = EmoteManager(
-          probe: () async => throw Exception('probe failed'),
-        );
-        expect(
-          await failing.effectiveTtlForTesting(),
-          const Duration(hours: 1),
-        );
-
         final unconfigured = EmoteManager();
-        expect(
-          await unconfigured.effectiveTtlForTesting(),
-          const Duration(hours: 1),
-        );
+        expect(unconfigured.effectiveTtlForTesting(), const Duration(hours: 1));
 
         final nothing = EmoteManager(
           tier: EmoteFetchTier.nothing,
-          probe: () async => [ConnectivityResult.mobile],
+          isMobile: () => true,
         );
-        expect(
-          await nothing.effectiveTtlForTesting(),
-          const Duration(days: 365000),
-        );
+        expect(nothing.effectiveTtlForTesting(), const Duration(days: 365000));
 
         final mediumMobile = EmoteManager(
           tier: EmoteFetchTier.medium,
-          probe: () async => [ConnectivityResult.mobile],
+          isMobile: () => true,
         );
         final mediumWifi = EmoteManager(
           tier: EmoteFetchTier.medium,
-          probe: () async => [ConnectivityResult.wifi],
+          isMobile: () => false,
         );
         expect(
-          await mediumMobile.effectiveTtlForTesting(),
+          mediumMobile.effectiveTtlForTesting(),
           const Duration(hours: 24),
         );
-        expect(
-          await mediumWifi.effectiveTtlForTesting(),
-          const Duration(hours: 24),
-        );
+        expect(mediumWifi.effectiveTtlForTesting(), const Duration(hours: 24));
 
         final highMobile = EmoteManager(
           tier: EmoteFetchTier.high,
-          probe: () async => [ConnectivityResult.mobile],
+          isMobile: () => true,
         );
         final highWifi = EmoteManager(
           tier: EmoteFetchTier.high,
-          probe: () async => [ConnectivityResult.wifi],
+          isMobile: () => false,
         );
-        expect(
-          await highMobile.effectiveTtlForTesting(),
-          const Duration(hours: 24),
-        );
-        expect(
-          await highWifi.effectiveTtlForTesting(),
-          const Duration(hours: 1),
-        );
+        expect(highMobile.effectiveTtlForTesting(), const Duration(hours: 24));
+        expect(highWifi.effectiveTtlForTesting(), const Duration(hours: 1));
       },
     );
-
-    test('connectivity probe result is cached within the 60s window', () async {
-      var probeCalls = 0;
-      final manager = EmoteManager(
-        probe: () async {
-          probeCalls++;
-          return [ConnectivityResult.mobile];
-        },
-      );
-
-      await manager.effectiveTtlForTesting();
-      await manager.effectiveTtlForTesting();
-
-      expect(probeCalls, 1);
-    });
 
     test('fetch queue serializes actions and survives failures', () async {
       final manager = EmoteManager(fetchStagger: Duration.zero);

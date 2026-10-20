@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'package:connectivity_plus/connectivity_plus.dart';
 import '../emotes/emote.dart';
 import '../emotes/emote_catalog.dart';
 import '../models/emote_fetch_tier.dart';
@@ -58,11 +57,10 @@ class ChannelEmoteFetch {
 /// time arrives through callbacks so the manager keeps single ownership of it.
 class EmoteFetcher {
   // Refresh TTLs: emote caches are only refetched once they're older than
-  // the TTL. Unmetered connections refresh every 12h; cellular gets 24h so
+  // the TTL. Unmetered connections refresh every hour; cellular gets 24h so
   // the rake uses less data.
   static const _wifiTtl = Duration(hours: 1);
   static const _mobileTtl = Duration(hours: 24);
-  static const _connectivityProbeTtl = Duration(seconds: 60);
   static const _infiniteTtl = Duration(days: 365000);
 
   // Bounds in-flight channel fetches so a full refresh doesn't burst the
@@ -75,15 +73,12 @@ class EmoteFetcher {
   // instead of retaining its closure until it runs.
   bool _disposed = false;
 
-  late final DateTime Function() _now;
   late final EmoteFetchTier Function() _tier;
   late final bool Function(EmoteType) _isProviderEnabled;
   late final String? Function() _accessToken;
 
-  final Future<List<ConnectivityResult>> Function()? _connectivityProbe;
+  final bool Function() _isMobile;
   late final Duration _fetchStagger;
-  ConnectivityResult _probeResult = ConnectivityResult.wifi;
-  DateTime? _probeAt;
 
   final Future<SevenTvChannelResponse> Function(String channelId)
   _sevenTvChannelFetcher;
@@ -99,11 +94,10 @@ class EmoteFetcher {
   _fetchUserEmotes;
 
   EmoteFetcher({
-    required DateTime Function() now,
     required EmoteFetchTier Function() tier,
     required bool Function(EmoteType) isProviderEnabled,
     required String? Function() accessToken,
-    Future<List<ConnectivityResult>> Function()? probe,
+    bool Function()? isMobile,
     Duration fetchStagger = defaultEmoteFetchStagger,
     Future<SevenTvChannelResponse> Function(String channelId)?
     sevenTvChannelFetcher,
@@ -117,7 +111,7 @@ class EmoteFetcher {
       String? accessToken,
     })?
     fetchUserEmotes,
-  }) : _connectivityProbe = probe,
+  }) : _isMobile = isMobile ?? (() => false),
        _sevenTvChannelFetcher =
            sevenTvChannelFetcher ??
            ((String channelId) =>
@@ -133,7 +127,6 @@ class EmoteFetcher {
            resolveOwnerLogins ?? TwitchApi().getUserLoginsByIds,
        _fetchUserEmotes =
            fetchUserEmotes ?? TwitchEmoteProvider.fetchUserEmotes {
-    _now = now;
     _tier = tier;
     _isProviderEnabled = isProviderEnabled;
     _accessToken = accessToken;
@@ -429,7 +422,7 @@ class EmoteFetcher {
   ) => emotes.isEmpty ? const {} : {type: emotes};
 
   /// TTL varies by tier and connectivity (longer on cellular).
-  Future<Duration> effectiveTtl() async {
+  Duration effectiveTtl() {
     switch (_tier()) {
       case EmoteFetchTier.low:
       case EmoteFetchTier.nothing:
@@ -437,9 +430,7 @@ class EmoteFetcher {
       case EmoteFetchTier.medium:
         return const Duration(hours: 24);
       case EmoteFetchTier.high:
-        final isMobile =
-            await _probeConnectivity() == ConnectivityResult.mobile;
-        return isMobile ? _mobileTtl : _wifiTtl;
+        return _isMobile() ? _mobileTtl : _wifiTtl;
     }
   }
 
@@ -523,28 +514,6 @@ class EmoteFetcher {
       ],
       unlockIds: keys.ids,
     );
-  }
-
-  /// Cached connectivity probe (avoids per-fetch platform calls).
-  Future<ConnectivityResult> _probeConnectivity() async {
-    final probe = _connectivityProbe;
-    if (probe == null) return ConnectivityResult.wifi;
-    final now = _now();
-    final probedAt = _probeAt;
-    if (probedAt != null && now.difference(probedAt) < _connectivityProbeTtl) {
-      return _probeResult;
-    }
-    try {
-      final results = await probe();
-      _probeResult = results.contains(ConnectivityResult.mobile)
-          ? ConnectivityResult.mobile
-          : ConnectivityResult.wifi;
-    } catch (e) {
-      logDebug('[EmoteFetcher] connectivity probe failed, assuming wifi: $e');
-      _probeResult = ConnectivityResult.wifi;
-    }
-    _probeAt = _now();
-    return _probeResult;
   }
 
   /// Runs each provider, returning the types that threw. Per-provider errors

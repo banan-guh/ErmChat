@@ -47,10 +47,6 @@ class ConnectivityService extends ChangeNotifier {
     }
   }
 
-  /// Live probe, used where a fresh answer is wanted (e.g. emote tiering).
-  Future<List<ConnectivityResult>> checkConnectivity() =>
-      _connectivity.checkConnectivity();
-
   void _setResults(List<ConnectivityResult> results) {
     // plus_plugins#2527: an empty report means "unknown", not "offline".
     if (results.isEmpty || _disposed) return;
