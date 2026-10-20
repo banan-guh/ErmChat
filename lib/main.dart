@@ -45,9 +45,10 @@ Future<void> _boot() async {
   // Decoded-image memory budget. The image cache accounts every displayed
   // frame at true size (width x height x 4) and evicts least-recently-used
   // entries past either cap; eviction disposes our emote completers, which
-  // free their codec, compositor canvas, seed, and frames.
+  // free their codec, compositor canvas, seed, and frames. Some GPUs pad
+  // each texture to 64KB, so the count cap binds first for tiny emotes.
   final imageCache = PaintingBinding.instance.imageCache;
-  imageCache.maximumSize = 1000;
+  imageCache.maximumSize = 500;
   imageCache.maximumSizeBytes = 100 << 20;
   if (Platform.isAndroid) unawaited(_shrinkForLowRam(imageCache));
   // Edge-to-edge: draw behind the system bars and take manual ownership
@@ -99,6 +100,7 @@ Future<void> _shrinkForLowRam(ImageCache imageCache) async {
       'ermchat/device',
     ).invokeMethod<int>('totalMemBytes');
     if (total == null || total >= 7 << 29) return;
+    imageCache.maximumSize = 250;
     imageCache.maximumSizeBytes = 48 << 20;
     EmoteUrlProvider.maxCapturedEmotes = 10;
     EmoteUrlProvider.maxCapturedFrames = 240;
