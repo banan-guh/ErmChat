@@ -322,6 +322,11 @@ class SevenTvPaintService extends ChangeNotifier {
           if (_pendingUsers.isNotEmpty) _scheduleFlush();
         }),
       );
+    } else {
+      for (final texture in _images.values) {
+        texture.release();
+      }
+      _images.clear();
     }
     notifyListeners();
     _refreshAllUserNotifiers();
@@ -361,10 +366,10 @@ class SevenTvPaintService extends ChangeNotifier {
       _userNotifiers.remove(userId);
       return;
     }
-    SevenTvPaint? paint;
-    final assignment = _assignments[userId];
-    if (assignment != null) paint = _paintsById[assignment.paintId];
-    notifier.value = paint;
+    final assignment = _enabled ? _assignments[userId] : null;
+    notifier.value = assignment == null
+        ? null
+        : _paintsById[assignment.paintId];
   }
 
   void _refreshAllUserNotifiers() {
@@ -561,7 +566,8 @@ class SevenTvPaintService extends ChangeNotifier {
   }
 
   /// Stores fetched paint items as single rows, encoded off the UI thread.
-  Future<void> _savePaints(List<dynamic> items) async {
+  /// [all] marks the whole catalog, which replaces the stored one.
+  Future<void> _savePaints(List<dynamic> items, {bool all = false}) async {
     final db = _db;
     if (db == null) return;
     final rows = await Isolate.run(
@@ -571,7 +577,7 @@ class SevenTvPaintService extends ChangeNotifier {
             (item['id'] as String, jsonEncode(item)),
       ],
     );
-    await db.writePaints(rows);
+    await db.writePaints(rows, replace: all);
   }
 
   /// Downloads the catalog once per session; failures allow retry. The disk
@@ -598,7 +604,7 @@ class SevenTvPaintService extends ChangeNotifier {
       final list = root?['paints'] as List<dynamic>?;
       if (list == null) return;
       _addCatalog(list);
-      await _savePaints(list);
+      await _savePaints(list, all: true);
     } catch (e) {
       logDebug('7TV paint catalog fetch failed: $e');
       _catalogFuture = null;

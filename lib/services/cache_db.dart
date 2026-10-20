@@ -256,16 +256,20 @@ class CacheDb {
     ];
   });
 
-  /// Upserts paints as (id, 7TV JSON).
-  Future<void> writePaints(List<(String, String)> paints) =>
-      _run(null, (db) async {
-        final batch = db.batch();
-        for (final (id, data) in paints) {
-          batch.insert('paints', {
-            'id': id,
-            'data': data,
-          }, conflictAlgorithm: ConflictAlgorithm.replace);
-        }
-        await batch.commit(noResult: true);
-      });
+  /// Upserts paints as (id, 7TV JSON). With [replace], [paints] is the whole
+  /// catalog and paints 7TV retired are dropped.
+  Future<void> writePaints(
+    List<(String, String)> paints, {
+    bool replace = false,
+  }) => _run(null, (db) async {
+    final batch = db.batch();
+    if (replace) batch.delete('paints');
+    for (final (id, data) in paints) {
+      batch.insert('paints', {
+        'id': id,
+        'data': data,
+      }, conflictAlgorithm: ConflictAlgorithm.replace);
+    }
+    await batch.commit(noResult: true);
+  });
 }

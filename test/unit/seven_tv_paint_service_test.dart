@@ -239,6 +239,24 @@ void main() {
   });
 
   group('SevenTvPaintService user resolution', () {
+    test('turning paints off clears names already painted', () {
+      final service = SevenTvPaintService(gqlQuery: (_) async => null)
+        ..addPaintForTesting(
+          const SevenTvPaint(id: 'p1', name: 'Known', layers: [], shadows: []),
+        )
+        ..enabled = true
+        ..assignForTesting('111', 'p1');
+      final notifier = service.lookupNotifier('111');
+      void listener() {}
+      notifier.addListener(listener);
+      expect(notifier.value?.id, 'p1');
+
+      service.enabled = false;
+      expect(notifier.value, isNull, reason: 'a pinned name stayed painted');
+      notifier.removeListener(listener);
+      service.dispose();
+    });
+
     test('resolves batched users and stays idle while disabled', () async {
       var queried = false;
       final disabled = SevenTvPaintService(

@@ -72,6 +72,10 @@ void main() {
     expect(await CacheDb.I.paintUsers(beforeMs: 0, keep: 10), [
       (userId: 'a', paintId: 'p', at: 5),
     ]);
+    await CacheDb.I.writePaints([('q', '{"id":"q"}')], replace: true);
+    expect(await CacheDb.I.paints(), [
+      '{"id":"q"}',
+    ], reason: 'a full catalog drops retired paints');
   });
 
   test('paint users prune by age, then keep the newest', () async {
