@@ -114,6 +114,13 @@ class _StreamPlayerViewState extends State<StreamPlayerView> {
     widget.controller.removeListener(_consumePipAction);
     _resumeTimer?.cancel();
     _overlayTimer?.cancel();
+    // The native WebView outlives this state until the controller is
+    // collected, still holding the player page and its video buffers.
+    unawaited(
+      _webController
+          .loadRequest(Uri.parse(_blankUrl))
+          .catchError((Object _) {}),
+    );
     super.dispose();
   }
 
