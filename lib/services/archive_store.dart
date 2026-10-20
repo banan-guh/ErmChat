@@ -1498,10 +1498,12 @@ class ArchiveStore {
               [e.value, channel, e.key],
             );
           }
+          // Matching the kind keeps an edit that replaced this one mid-bake.
           for (final id in applied) {
             b.rawDelete(
-              'DELETE FROM edits WHERE channel = ? AND message_id = ?',
-              [channel, id],
+              'DELETE FROM edits WHERE channel = ? AND message_id = ? '
+              'AND kind = ?',
+              [channel, id, pending[id]!.name],
             );
           }
           await b.commit(noResult: true);
@@ -1525,8 +1527,8 @@ class ArchiveStore {
         }
         await _db.delete(
           'edits',
-          where: 'channel = ? AND message_id = ?',
-          whereArgs: [channel, id],
+          where: 'channel = ? AND message_id = ? AND kind = ?',
+          whereArgs: [channel, id, pending[id]!.name],
         );
       }
     }
