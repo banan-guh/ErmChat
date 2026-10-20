@@ -189,6 +189,21 @@ void main() {
       addTearDown(chat.dispose);
       final msg = _live('m1', login: 'spammer', highlight: _mention);
       chat.ensure('test');
+      // History mentions never counted, so they can't hold the count up.
+      chat.receive(
+        'test',
+        TwitchMessage(
+          login: 'bob',
+          text: 'hi',
+          messageId: 'h1',
+          channel: 'test',
+          highlight: _mention,
+          isHistory: true,
+        ),
+        maxMessages: 100,
+        isSelected: false,
+        ownLogin: null,
+      );
       chat.receive(
         'test',
         msg,
@@ -196,8 +211,7 @@ void main() {
         isSelected: false,
         ownLogin: null,
       );
-      expect(chat.mentions.items, hasLength(1));
-      expect(chat.channelFor('test')!.messages.items, hasLength(1));
+      expect(chat.channelFor('test')!.messages.items, hasLength(2));
       expect(chat.unreadMentions, 1);
 
       final touched = chat.removeBlocked({'spammer'});
@@ -205,8 +219,11 @@ void main() {
       expect(touched, {'test'});
       expect(chat.unreadMentions, 0, reason: 'blocked mention still counted');
       expect(chat.channelFor('test')!.unread.hasMention, isFalse);
-      expect(chat.channelFor('test')!.messages.items, isEmpty);
-      expect(chat.mentions.isEmpty, isTrue);
+      expect(chat.channelFor('test')!.messages.items, hasLength(1));
+      expect(
+        chat.mentions.items.map((m) => m.login),
+        isNot(contains('spammer')),
+      );
     });
 
     test('live message for a removed channel does not recreate it', () {

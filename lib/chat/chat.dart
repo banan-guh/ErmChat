@@ -164,7 +164,10 @@ class Chat {
     final before = unread.mentionCount;
     if (before == 0) return;
     final remaining = c.messages.items
-        .where((m) => !m.isSystem && (m.highlight?.hasMention ?? false))
+        .where(
+          (m) =>
+              !m.isSystem && !m.isHistory && (m.highlight?.hasMention ?? false),
+        )
         .length;
     final dropped = unread.dropMentions(remaining);
     if (dropped == 0) return;
