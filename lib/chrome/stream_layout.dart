@@ -456,18 +456,21 @@ class StreamPanels {
           keyboardH: keyboardH,
           inputH: composerH,
         );
-    // Chat-only portrait floats one glass block above full-height pages.
-    // Both layouts share this Column shape so the strip and player slot
-    // survive the flip and opening a stream slides the tabs down.
+    // Portrait floats one glass block above full-height pages. Under a
+    // stream that block is the strip alone, so it needs the strip to hold
+    // the app bar's actions. Both layouts share this Column shape so the
+    // strip and player slot survive the flip and opening a stream slides
+    // the tabs down.
     final glass = liquidGlass && !MediaQuery.highContrastOf(context);
-    final glassChatOnly = glass && !hideChrome && channel == null;
+    final glassChatOnly = glass && !hideChrome && (channel == null || merged);
+    final stripH = header == HeaderStyle.bubbles
+        ? TabbedLayout.bubbleStripHeight
+        : kGlassTabStripHeight;
     final headerH = !hasChannels
         ? glassWelcomeHeaderHeight(context)
-        : statusBarHeight(context) +
-              (merged ? 0 : kGlassAppBarHeight) +
-              (header == HeaderStyle.bubbles
-                  ? TabbedLayout.bubbleStripHeight
-                  : kGlassTabStripHeight);
+        : channel != null
+        ? stripH
+        : statusBarHeight(context) + (merged ? 0 : kGlassAppBarHeight) + stripH;
     // The welcome view keeps the top app bar; with channels the strip owns
     // the row and the player rides above it, attached to the chat's top edge.
     return Column(
