@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../util/log.dart';
 import '../util/prefs.dart';
 
 /// File-backed persistence for MB-scale emote metadata blobs.
@@ -115,7 +116,9 @@ class EmoteMetaStore {
         await _writeAtomic(file, contents);
         return;
       }
-    } catch (_) {}
+    } catch (e) {
+      logDebug('[EmoteMetaStore] write $key failed, kept in memory: $e');
+    }
     _fallback[key] = contents;
   }
 

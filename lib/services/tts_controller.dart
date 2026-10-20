@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import '../l10n/l10n.dart';
 import '../models/twitch_message.dart';
+import '../util/log.dart';
 import '../util/prefs.dart';
 
 enum TtsQueueMode { queue, newest }
@@ -198,7 +199,9 @@ class TtsController {
       }
       _selectedOption = option;
       await _persistOption(option);
-    } catch (_) {}
+    } catch (e) {
+      logDebug('[tts] select failed: $e');
+    }
   }
 
   Future<void> _applyToEngine(TtsOption option) async {
@@ -361,7 +364,9 @@ class TtsController {
       if (option != null && !(overrideIsAndroid ?? Platform.isAndroid)) {
         await _applyToVoice(option);
       }
-    } catch (_) {}
+    } catch (e) {
+      logDebug('[tts] language failed: $e');
+    }
   }
 
   Future<void> _speak(String text) async {
@@ -369,6 +374,8 @@ class TtsController {
       // QUEUE_ADD (1) vs QUEUE_FLUSH (0); flutter_tts defaults to FLUSH.
       await _tts.setQueueMode(_queueMode == TtsQueueMode.queue ? 1 : 0);
       await _tts.speak(text);
-    } catch (_) {}
+    } catch (e) {
+      logDebug('[tts] speak failed: $e');
+    }
   }
 }
