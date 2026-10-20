@@ -526,7 +526,10 @@ class Prefs {
   static const _kEmoteGcMigratedV2 = 'emote_gc_migrated_v2';
 
   int get emoteFetchTier =>
-      _p.getInt(_kEmoteFetchTier) ?? EmoteFetchTier.high.index;
+      (_p.getInt(_kEmoteFetchTier) ?? EmoteFetchTier.high.index).clamp(
+        0,
+        EmoteFetchTier.values.length - 1,
+      );
 
   Future<void> setEmoteFetchTier(int value) =>
       _p.setInt(_kEmoteFetchTier, value);

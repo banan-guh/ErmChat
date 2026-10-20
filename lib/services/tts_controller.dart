@@ -222,8 +222,13 @@ class TtsController {
   Future<void> loadFromPrefs() async {
     final prefs = await Prefs.load();
     _enabled = prefs.ttsEnabled;
-    _queueMode = TtsQueueMode.values.byName(prefs.ttsQueueMode);
-    _formatMode = TtsFormatMode.values.byName(prefs.ttsFormatMode);
+    // Imported settings can carry names this build doesn't know.
+    _queueMode =
+        TtsQueueMode.values.asNameMap()[prefs.ttsQueueMode] ??
+        TtsQueueMode.queue;
+    _formatMode =
+        TtsFormatMode.values.asNameMap()[prefs.ttsFormatMode] ??
+        TtsFormatMode.userAndMessage;
     _ignoreUrls = prefs.ttsIgnoreUrls;
     _ignoreEmotes = prefs.ttsIgnoreEmotes;
     _forceEnglish = prefs.ttsForceEnglish;
