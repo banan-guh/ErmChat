@@ -3137,6 +3137,39 @@ void main() {
       await tester.pumpAndSettle();
       expect(toggled, isTrue);
     });
+
+    testWidgets('glass menu closes the keyboard so it never opens under it', (
+      tester,
+    ) async {
+      final focus = FocusNode();
+      addTearDown(focus.dispose);
+      var searched = false;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Column(
+              children: [
+                TextField(focusNode: focus),
+                ChromeMenuButton(
+                  glass: true,
+                  onToggleFullscreen: () {},
+                  onToggleInput: () {},
+                  onToggleSearch: () => searched = true,
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+      focus.requestFocus();
+      await tester.pump();
+      await openChromeMenu(tester);
+      expect(focus.hasFocus, isFalse, reason: 'the keyboard stayed up');
+      await tester.tap(find.text('Search'));
+      await tester.pumpAndSettle();
+      expect(searched, isTrue);
+      expect(find.text('Search'), findsNothing, reason: 'menu stayed open');
+    });
   });
 
   testWidgets('PiP collapse keeps only the video', (tester) async {

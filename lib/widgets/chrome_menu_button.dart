@@ -1,4 +1,8 @@
+import 'dart:math';
+import 'dart:ui' show ImageFilter, lerpDouble;
+
 import 'package:flutter/material.dart';
+import 'package:flutter/physics.dart';
 import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 
 import '../l10n/l10n.dart';
@@ -128,57 +132,11 @@ class _ChromeMenuState extends State<ChromeMenu> {
   @override
   Widget build(BuildContext context) {
     if (widget.glass) {
-      // Rows sized like the Material popup, not the library's iOS 17pt.
-      final title = TextStyle(
-        fontSize: 14,
-        color: Theme.of(context).colorScheme.onSurface,
-      );
-      return GlassMenu(
-        menuAlignment: GlassMenuAlignment.topRight,
-        autoAdjustToScreen: true,
-        menuPadding: const EdgeInsets.all(4),
-        menuWidth: 200,
-        // A short, calm open: the stiffest spring (about 170 ms, barely any
-        // overshoot), no rubber-band stretch or press scaling.
-        morphSpeed: MorphSpeed.instant,
-        stretch: 0,
-        interactionScale: 1,
-        settings: kGlassPillSettings,
-        onClose: () => widget.onOpenChanged?.call(false),
-        triggerBuilder: (context, toggle) {
-          void open() {
-            setState(() => _entries = widget.entries());
-            widget.onOpenChanged?.call(true);
-            toggle();
-          }
-
-          if (widget.buttonStyle case final style?) {
-            return IconButton(
-              style: style,
-              icon: widget.trigger,
-              tooltip: MaterialLocalizations.of(context).showMenuTooltip,
-              onPressed: open,
-            );
-          }
-          return GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTap: open,
-            child: widget.trigger,
-          );
-        },
-        items: [
-          for (final e in _entries)
-            if (e.label case final label?)
-              GlassMenuItem(
-                title: label,
-                icon: e.icon == null ? null : Icon(e.icon),
-                titleStyle: title,
-                height: 40,
-                onTap: e.onTap!,
-              )
-            else
-              const GlassMenuDivider(height: 8),
-        ],
+      return _BloomMenu(
+        trigger: widget.trigger,
+        buttonStyle: widget.buttonStyle,
+        entries: widget.entries,
+        onOpenChanged: widget.onOpenChanged,
       );
     }
     return PopupMenuButton<int>(
@@ -220,4 +178,303 @@ class _ChromeMenuState extends State<ChromeMenu> {
       child: widget.buttonStyle == null ? widget.trigger : null,
     );
   }
+}
+
+const double _kMenuWidth = 200;
+const double _kMenuPad = 4;
+const double _kRowHeight = 40;
+const double _kDividerHeight = 8;
+const double _kMenuRadius = 16;
+
+/// A liquid glass menu that blooms out of its trigger: a circle grows from
+/// the button, then squares off into the menu while its rows sharpen out of
+/// a blur. It covers the trigger's corner and opens toward the roomier side.
+/// Opening closes the keyboard, and the menu follows the trigger as the
+/// keyboard slides away.
+class _BloomMenu extends StatefulWidget {
+  const _BloomMenu({
+    required this.trigger,
+    required this.entries,
+    this.buttonStyle,
+    this.onOpenChanged,
+  });
+
+  final Widget trigger;
+  final ButtonStyle? buttonStyle;
+  final List<ChromeMenuEntry> Function() entries;
+  final ValueChanged<bool>? onOpenChanged;
+
+  @override
+  State<_BloomMenu> createState() => _BloomMenuState();
+}
+
+class _BloomMenuState extends State<_BloomMenu>
+    with SingleTickerProviderStateMixin {
+  // About the system menu's spring: settles in ~350 ms with a slight overshoot.
+  static const _spring = SpringDescription(
+    mass: 1,
+    stiffness: 121,
+    damping: 16,
+  );
+
+  final _link = LayerLink();
+  final _portal = OverlayPortalController();
+  late final _morph = AnimationController.unbounded(vsync: this);
+  List<ChromeMenuEntry> _entries = const [];
+  Size _trigger = Size.zero;
+  Alignment _corner = Alignment.topRight;
+  bool _closing = false;
+
+  @override
+  void dispose() {
+    _morph.dispose();
+    super.dispose();
+  }
+
+  void _open() {
+    final box = context.findRenderObject() as RenderBox?;
+    if (box == null || !box.hasSize) return;
+    FocusManager.instance.primaryFocus?.unfocus();
+    final screen = MediaQuery.sizeOf(context);
+    final center = box.localToGlobal(box.size.center(Offset.zero));
+    setState(() {
+      _entries = widget.entries();
+      _trigger = box.size;
+      _corner = Alignment(
+        center.dx > screen.width / 2 ? 1 : -1,
+        center.dy > screen.height / 2 ? 1 : -1,
+      );
+      _closing = false;
+    });
+    widget.onOpenChanged?.call(true);
+    _portal.show();
+    if (MediaQuery.disableAnimationsOf(context)) {
+      _morph.value = 1;
+    } else {
+      _morph.animateWith(SpringSimulation(_spring, _morph.value, 1, 0));
+    }
+  }
+
+  Future<void> _close() async {
+    if (!_portal.isShowing || _closing) return;
+    setState(() => _closing = true);
+    widget.onOpenChanged?.call(false);
+    if (!MediaQuery.disableAnimationsOf(context)) {
+      try {
+        await _morph
+            .animateTo(
+              0,
+              duration: const Duration(milliseconds: 200),
+              curve: Curves.easeInCubic,
+            )
+            .orCancel;
+      } on TickerCanceled {
+        return; // Reopened mid-close.
+      }
+    }
+    if (mounted && _closing) setState(_portal.hide);
+  }
+
+  void _select(ChromeMenuEntry entry) {
+    _close();
+    entry.onTap?.call();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final style = widget.buttonStyle;
+    final trigger = style != null
+        ? IconButton(
+            style: style,
+            icon: widget.trigger,
+            tooltip: MaterialLocalizations.of(context).showMenuTooltip,
+            onPressed: _open,
+          )
+        : GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: _open,
+            child: widget.trigger,
+          );
+    // The menu grows out of the button, so the button gives way to it.
+    return CompositedTransformTarget(
+      link: _link,
+      child: OverlayPortal(
+        controller: _portal,
+        overlayChildBuilder: _overlay,
+        child: AnimatedOpacity(
+          opacity: _portal.isShowing && !_closing ? 0 : 1,
+          duration: const Duration(milliseconds: 120),
+          child: trigger,
+        ),
+      ),
+    );
+  }
+
+  Widget _overlay(BuildContext context) {
+    var height = _kMenuPad * 2;
+    for (final e in _entries) {
+      height += e.label == null ? _kDividerHeight : _kRowHeight;
+    }
+    final size = Size(_kMenuWidth, height);
+    final rows = _rows(context);
+    return SizedBox.expand(
+      child: Stack(
+        children: [
+          Positioned.fill(
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: _close,
+            ),
+          ),
+          CompositedTransformFollower(
+            link: _link,
+            targetAnchor: _corner,
+            followerAnchor: _corner,
+            child: PopScope(
+              canPop: false,
+              onPopInvokedWithResult: (didPop, _) {
+                if (!didPop) _close();
+              },
+              child: SizedBox.fromSize(
+                size: size,
+                child: AnimatedBuilder(
+                  animation: _morph,
+                  builder: (context, _) => _bloom(size, rows),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// The menu at the morph's current value: a circle over the trigger that
+  /// grows to the menu's width, then squares off into the full menu.
+  Widget _bloom(Size size, Widget rows) {
+    final p = _morph.value;
+    final t = p.clamp(0.0, 1.0);
+    // Center of a box of [s] tucked into the anchored corner.
+    Offset tucked(Size s) =>
+        _corner.alongSize(size) - _corner.alongSize(s) + s.center(Offset.zero);
+    final grow = Curves.easeOut.transform((t / 0.45).clamp(0.0, 1.0));
+    final square = Curves.easeInOut.transform(
+      ((t - 0.3) / 0.7).clamp(0.0, 1.0),
+    );
+    final full = min(size.width, size.height);
+    final d = lerpDouble(_trigger.shortestSide, full, grow)!;
+    final circle = Rect.fromCenter(
+      center: Offset.lerp(tucked(_trigger), tucked(Size.square(full)), grow)!,
+      width: d,
+      height: d,
+    );
+    // The spring's overshoot swells the settled menu a touch.
+    final rect = Rect.lerp(
+      circle,
+      Offset.zero & size,
+      square,
+    )!.inflate(max(0.0, p - 1) * 40);
+    final radius = lerpDouble(d / 2, _kMenuRadius, square)!;
+    final blur = (1 - square) * 12;
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        Positioned.fromRect(
+          rect: rect,
+          child: GlassSurface(
+            settings: kGlassPillSettings.copyWith(
+              visibility: (t / 0.15).clamp(0.0, 1.0),
+            ),
+            shape: LiquidRoundedRectangle(borderRadius: radius),
+            child: const SizedBox.expand(),
+          ),
+        ),
+        Positioned.fill(
+          child: IgnorePointer(
+            ignoring: _closing || t < 0.8,
+            child: ClipRRect(
+              clipper: _RRectClip(
+                RRect.fromRectAndRadius(rect, Radius.circular(radius)),
+              ),
+              child: Opacity(
+                opacity: ((t - 0.2) / 0.4).clamp(0.0, 1.0),
+                child: blur < 0.1
+                    ? rows
+                    : ImageFiltered(
+                        imageFilter: ImageFilter.blur(
+                          sigmaX: blur,
+                          sigmaY: blur,
+                        ),
+                        child: rows,
+                      ),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _rows(BuildContext context) {
+    final color = Theme.of(context).colorScheme.onSurface;
+    final style = TextStyle(fontSize: 14, color: color);
+    return Material(
+      type: MaterialType.transparency,
+      child: Padding(
+        padding: const EdgeInsets.all(_kMenuPad),
+        child: Column(
+          children: [
+            for (final e in _entries)
+              if (e.label case final label?)
+                SizedBox(
+                  height: _kRowHeight,
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(
+                      _kMenuRadius - _kMenuPad,
+                    ),
+                    onTap: () => _select(e),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      child: Row(
+                        children: [
+                          if (e.icon case final icon?) ...[
+                            Icon(icon, size: 20, color: color),
+                            const SizedBox(width: 12),
+                          ],
+                          Expanded(
+                            child: Text(
+                              label,
+                              style: style,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                )
+              else
+                Divider(
+                  height: _kDividerHeight,
+                  thickness: 0.5,
+                  color: color.withValues(alpha: 0.15),
+                ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _RRectClip extends CustomClipper<RRect> {
+  const _RRectClip(this.rrect);
+
+  final RRect rrect;
+
+  @override
+  RRect getClip(Size size) => rrect;
+
+  @override
+  bool shouldReclip(_RRectClip old) => old.rrect != rrect;
 }
