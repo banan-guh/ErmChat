@@ -2,7 +2,8 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart' show OffsetLayer, TransformLayer;
+import 'package:flutter/rendering.dart'
+    show BoxParentData, OffsetLayer, TransformLayer;
 import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 
 import '../util/insets.dart';
@@ -530,10 +531,21 @@ class _IslandRingPainter extends CustomPainter {
 void watchPaintTransforms() {
   if (kReleaseMode) return;
   final reported = <String>{};
+  var probed = false;
   bool finite(Matrix4 m) => m.storage.every((v) => v.isFinite);
   Timer.periodic(const Duration(seconds: 2), (_) {
     final root = WidgetsBinding.instance.rootElement?.renderObject;
     if (root == null) return;
+    var bad = false;
+    void report(String line) {
+      bad = true;
+      if (!reported.add(line)) return;
+      logDebug('[glassnan] $line');
+      // The layout state at the first new report of a burst.
+      if (!probed) logDebug('[glassnan] state ${glassNanProbe?.call()}');
+      probed = true;
+    }
+
     final path = <RenderObject>[];
     String chain(Object last) => [
       for (final o in path.skip(path.length > 8 ? path.length - 8 : 0))
@@ -553,8 +565,7 @@ void watchPaintTransforms() {
         _ => false,
       };
       if (bad) {
-        final where = chain('${layer.runtimeType}');
-        if (reported.add(where)) logDebug('[glassnan] layer $where');
+        report('layer ${chain('${layer.runtimeType}')}');
       }
       node.visitChildren((child) {
         if (!child.attached) return;
@@ -569,14 +580,27 @@ void watchPaintTransforms() {
           return;
         }
         final where = chain(child.runtimeType);
-        final size = node is RenderBox && node.hasSize ? node.size : null;
-        if (reported.add(where)) {
-          logDebug('[glassnan] $where parentSize=$size');
-        }
+        // dart:ui strips toString from Size and Offset outside debug.
+        final size = node is RenderBox && node.hasSize
+            ? '${node.size.width}x${node.size.height}'
+            : null;
+        final at = switch (child.parentData) {
+          BoxParentData(:final offset) => '${offset.dx},${offset.dy}',
+          _ => null,
+        };
+        final own = child is RenderBox && child.hasSize
+            ? '${child.size.width}x${child.size.height}'
+            : null;
+        report('$where parentSize=$size childAt=$at childSize=$own');
       });
       path.removeLast();
     }
 
     visit(root, Matrix4.identity());
+    if (!bad) probed = false;
   });
 }
+
+/// Layout state [watchPaintTransforms] logs with a burst's first report.
+/// The chat body sets it while mounted.
+String Function()? glassNanProbe;
