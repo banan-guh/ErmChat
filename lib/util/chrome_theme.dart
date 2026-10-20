@@ -711,6 +711,7 @@ enum ChromeTheme {
       // would pull it into the field, so the preset leaves compact off.
       fieldEnd: [],
       sendAside: SendPlace.column,
+      busyBar: true,
     ),
   ),
 
@@ -737,7 +738,7 @@ enum ChromeTheme {
         ChromeAction.mentions,
         ChromeAction.overflow,
       ],
-      rowEnd: [ChromeAction.threads, ChromeAction.viewMenu],
+      rowEnd: [ChromeAction.viewMenu, ChromeAction.threads],
       fieldStart: [],
       fieldEnd: [],
       sendAside: SendPlace.row,
