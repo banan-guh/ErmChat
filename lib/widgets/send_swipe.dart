@@ -6,10 +6,10 @@ import 'package:flutter/services.dart';
 
 import '../l10n/l10n.dart';
 
-/// Hold-and-swipe menu on a send button. Holding shows a path up to a hub
-/// above the button, then across the screen to the actions. The thumb only
-/// moves along the path, and an action runs only while the thumb rests in
-/// its zone. Releasing a hold that never moved runs [onRecall] instead.
+/// Hold-and-swipe menu on a send button. Holding runs [onRecall] at once;
+/// dragging up then opens a path to a hub above the button and across the
+/// screen to the actions. The thumb only moves along the path, and an action
+/// runs only while the thumb rests in its zone.
 class SendSwipe extends StatefulWidget {
   const SendSwipe({
     super.key,
@@ -60,8 +60,8 @@ class _SendSwipeState extends State<SendSwipe> {
   static const _zoneShare = 0.25;
   // Resting in the zone this long starts spam, so passing through never does.
   static const _charge = Duration(milliseconds: 250);
-  // A hold that wanders less than this still counts as a still release.
-  static const _stillSlop = 24.0;
+  // Dragging this far up from the hold opens the menu.
+  static const _openRise = 24.0;
 
   final _portal = OverlayPortalController();
 
@@ -70,13 +70,13 @@ class _SendSwipeState extends State<SendSwipe> {
   double _dir = -1;
   double _rise = 0;
   double _run = 0;
-  // Where the hold landed: the finger is read relative to it, since the send
-  // target can be wider than the slack.
-  double _startX = 0;
+  // Where the hold landed. The finger is read as an offset from here, so a
+  // send target wider than the slack, or a keyboard that opens on recall and
+  // moves the button, never shifts the path under it.
+  Offset _anchor = Offset.zero;
 
   // Distance along the path (up, then across) the thumb sits at.
   double _progress = 0;
-  bool _moved = false;
   bool _offPath = false;
   bool _charging = false;
   bool _spamming = false;
@@ -94,11 +94,17 @@ class _SendSwipeState extends State<SendSwipe> {
   RenderBox get _overlayBox =>
       Overlay.of(context).context.findRenderObject() as RenderBox;
 
+  // Holding recalls the last message at once, as it always has. The menu
+  // waits for an upward drag.
   void _start(LongPressStartDetails d) {
-    _moved = false;
     _offPath = false;
     _progress = 0;
-    if (!widget._hasMenu) return;
+    widget.onRecall?.call();
+    _anchor = _overlayBox.globalToLocal(d.globalPosition);
+  }
+
+  // Lays the path out from where the button sits now.
+  void _open() {
     final box = context.findRenderObject() as RenderBox;
     final overlay = _overlayBox;
     final area = overlay.size;
@@ -113,9 +119,8 @@ class _SendSwipeState extends State<SendSwipe> {
     _dir = _origin.dx > area.width / 2 ? -1 : 1;
     final end = _dir < 0 ? _edgeInset : area.width - _edgeInset;
     _run = (end - _origin.dx).abs();
-    _startX = overlay.globalToLocal(d.globalPosition).dx;
     HapticFeedback.selectionClick();
-    setState(_portal.show);
+    _portal.show();
   }
 
   /// The path distance nearest [f], or null when [f] is off the path.
@@ -140,10 +145,13 @@ class _SendSwipeState extends State<SendSwipe> {
   // before that point, never past it. Every other state follows from where
   // the thumb sits, so backing off undoes it.
   void _move(LongPressMoveUpdateDetails d) {
-    if (d.offsetFromOrigin.distance > _stillSlop) _moved = true;
     if (!widget._hasMenu) return;
-    final local = _overlayBox.globalToLocal(d.globalPosition);
-    final s = _project(local - Offset(_startX - _origin.dx, 0));
+    final drag = _overlayBox.globalToLocal(d.globalPosition) - _anchor;
+    if (!_portal.isShowing) {
+      if (drag.dy > -_openRise) return;
+      _open();
+    }
+    final s = _project(_origin + drag);
     final reach = _offPath ? _rejoinSlack : _maxAdvance;
     final wasArmed = _armed;
     if (s != null && s <= _progress + reach) {
@@ -179,10 +187,7 @@ class _SendSwipeState extends State<SendSwipe> {
     }
   }
 
-  void _end(LongPressEndDetails _) {
-    if (!_moved) widget.onRecall?.call();
-    _close();
-  }
+  void _end(LongPressEndDetails _) => _close();
 
   void _close() {
     _chargeTimer?.cancel();
@@ -254,9 +259,9 @@ class _SendSwipeState extends State<SendSwipe> {
         builder: (context, t, child) => Opacity(opacity: t, child: child),
         child: Stack(
           children: [
-            // Dims the chat so the menu reads as its own layer.
+            // Dims the chat to 0.8x so the menu reads as its own layer. so the menu reads as its own layer.
             Positioned.fill(
-              child: ColoredBox(color: scheme.scrim.withValues(alpha: 0.6)),
+              child: ColoredBox(color: scheme.scrim.withValues(alpha: 0.2)),
             ),
             track(_origin, _hub, idle),
             track(_hub, _spamAt, idle),
