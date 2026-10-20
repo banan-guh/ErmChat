@@ -393,7 +393,7 @@ class _PingsScreenState extends ConsumerState<PingsScreen> {
   Widget _tile(PingRule r, bool paused) => _RuleTile(
     rule: r,
     paused: paused,
-    levels: _pushSupported && _canNotify(r) ? 5 : 2,
+    levels: _levelCount(r),
     onLevel: (level) => _setLevel(r, level),
     onBlocked: _keepAlive ? null : _keepAliveSnack,
     onTap: () => _edit(r),
@@ -1019,6 +1019,13 @@ bool _canNotify(PingRule rule) =>
     rule.kind == PingRuleKind.message &&
         const {'username', 'reply', 'thread'}.contains(rule.type);
 
+/// Stops on [rule]'s switch. A list rule can reach @mentions without push.
+int _levelCount(PingRule rule) => _pushSupported && _canNotify(rule)
+    ? 5
+    : _isListRule(rule)
+    ? 3
+    : 2;
+
 /// 0 off, 1 highlight, 2 mention, 3 notify, 4 notify without the tint.
 int _levelOf(PingRule rule) => !rule.enabled
     ? 0
@@ -1192,7 +1199,7 @@ class _RuleEditorState extends State<_RuleEditor> {
   late int? _color = widget.rule.colorArgb;
 
   PingRule get _rule => widget.rule;
-  int get _levels => _pushSupported && _canNotify(_rule) ? 5 : 2;
+  int get _levels => _levelCount(_rule);
   bool get _isKeyword =>
       _rule.kind == PingRuleKind.message && _rule.type == 'custom';
   bool get _isUserList =>
@@ -1468,8 +1475,8 @@ class _RuleEditorState extends State<_RuleEditor> {
       pattern: _hasPattern ? _pattern : _rule.pattern,
       wholeWord: _wholeWord,
       mention: listRule ? _level >= 2 : _rule.mention,
-      notify: _levels > 2 ? _level >= 3 : _rule.notify,
-      tint: _levels > 2 ? _level != 4 : _rule.tint,
+      notify: _levels > 3 ? _level >= 3 : _rule.notify,
+      tint: _levels > 3 ? _level != 4 : _rule.tint,
       enabled: _level > 0,
       colorArgb: _color,
     );
