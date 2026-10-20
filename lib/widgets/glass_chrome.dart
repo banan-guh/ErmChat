@@ -509,9 +509,10 @@ class _IslandRingPainter extends CustomPainter {
 /// spot. Liquid
 /// glass repaints its surfaces through these transforms unchecked, so the
 /// surface vanishes while the engine logs "TransformLayer is constructed
-/// with an invalid matrix". Off in release builds.
+/// with an invalid matrix". Off in release and profile builds, where its
+/// tree walk would skew perf runs.
 void watchPaintTransforms() {
-  if (kReleaseMode) return;
+  if (kReleaseMode || kProfileMode) return;
   final reported = <String>{};
   var probed = false;
   bool finite(Matrix4 m) => m.storage.every((v) => v.isFinite);
