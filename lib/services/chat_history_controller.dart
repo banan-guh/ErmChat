@@ -7,6 +7,7 @@ import '../chat/chat.dart';
 import '../client/session.dart';
 import '../emotes/emote.dart';
 import '../models/twitch_message.dart';
+import '../util/data_usage.dart';
 import '../util/log.dart';
 import '../util/prefs.dart';
 import '../util/signal.dart';
@@ -180,11 +181,15 @@ class ChatHistoryController {
             .then<DateTime?>((t) => t, onError: (_) => null),
       );
       if (!shouldFetchGap(mode, newest.length, expected)) return newest;
-      return await recentMessages.fetchRecent(
+      final gap = await recentMessages.fetchRecent(
         channel,
         limit: robottyBuffer,
         after: lastSeen.subtract(_gapOverlap),
       );
+      DataUsageStats.I.recordGapFetch(
+        filled: gap.any((m) => !m.isSystem && !m.timestamp.isAfter(lastSeen!)),
+      );
+      return gap;
     } catch (e) {
       logDebug('[ChatHistoryController] gap fill failed for $channel: $e');
       return newest;

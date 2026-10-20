@@ -102,6 +102,8 @@ class _DataUsageScreenState extends State<DataUsageScreen> {
                 backgroundColor: scheme.surfaceContainerHighest,
               ),
             ),
+          SettingsSectionHeader(l.dataSavedSection),
+          ..._saved(context, s, _mobileOnly),
           Padding(
             padding: const EdgeInsets.all(16),
             child: Text(
@@ -115,6 +117,51 @@ class _DataUsageScreenState extends State<DataUsageScreen> {
       ),
     );
   }
+}
+
+/// What each data saver served without a download, against what it fetched.
+List<Widget> _saved(BuildContext context, DataUsageStats s, bool mobileOnly) {
+  final l = context.l10n;
+  int n(SessionCount c) => c.of(mobileOnly: mobileOnly);
+  final fromDisk = n(s.imagesFromDisk);
+  final images = fromDisk + n(s.imagesDownloaded);
+  final lists = n(s.listsFromDisk) + n(s.listsFetched);
+  final gaps = n(s.gapFetches);
+  Widget tile(
+    IconData icon,
+    String title,
+    int total,
+    String value,
+    String hint,
+  ) => ListTile(
+    leading: Icon(icon),
+    title: Text(title),
+    subtitle: total == 0 ? null : Text(hint),
+    trailing: Text(total == 0 ? l.dataSavedNone : value),
+  );
+  return [
+    tile(
+      Icons.image_outlined,
+      l.dataUsageEmoteImages,
+      images,
+      DataUsageScreen.format(n(s.imageBytesFromDisk)),
+      l.dataSavedFromDisk(images == 0 ? 0 : (100 * fromDisk / images).round()),
+    ),
+    tile(
+      Icons.list_alt,
+      l.dataUsageEmoteLists,
+      lists,
+      l.dataSavedOf(n(s.listsFromDisk), lists),
+      l.dataSavedListsHint,
+    ),
+    tile(
+      Icons.history,
+      l.settingGapFill,
+      gaps,
+      l.dataSavedOf(n(s.gapsFilled), gaps),
+      l.dataSavedGapsHint,
+    ),
+  ];
 }
 
 /// Two-icon switch between all networks (globe) and mobile data (bars).

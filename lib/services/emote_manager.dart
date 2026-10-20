@@ -8,6 +8,7 @@ import '../emotes/emote_catalog.dart';
 import '../emotes/emote_picker.dart';
 import '../models/emote_fetch_tier.dart';
 import '../models/twitch_message.dart';
+import '../util/data_usage.dart';
 import '../util/log.dart';
 import 'emote_cache_manager.dart';
 import 'emote_fetcher.dart';
@@ -684,6 +685,7 @@ class EmoteManager implements EmoteLookupSource {
       if (cached != null) {
         if (!_store.seedGlobalFromCache(epoch, cached)) return;
         if (loaded.fresh || _registryFrozen || tier == EmoteFetchTier.nothing) {
+          DataUsageStats.I.recordEmoteList(fromDisk: true);
           // Fresh cache: render, then background-refresh Twitch globals.
           if (!_skipTwitchBackgroundRefresh) {
             unawaited(
@@ -711,6 +713,7 @@ class EmoteManager implements EmoteLookupSource {
       // fetch (429/5xx/timeout), without clobbering in-memory data.
       if (!_store.fillMissingGlobal(epoch, cached)) return;
     }
+    DataUsageStats.I.recordEmoteList(fromDisk: false);
     final fetch = await _fetcher.enqueue(
       () => _fetcher.fetchAllGlobal(
         onProvider: (landed) => _commitGlobal(epoch, landed, partial: true),
@@ -803,6 +806,7 @@ class EmoteManager implements EmoteLookupSource {
       final savedAt = loaded.savedAt;
       if (savedAt != null) _savedAt[channel] = savedAt;
       if (loaded.fresh || _registryFrozen || tier == EmoteFetchTier.nothing) {
+        DataUsageStats.I.recordEmoteList(fromDisk: true);
         // Fresh: render, background-refresh Twitch channel emotes.
         if (!_skipTwitchBackgroundRefresh) {
           unawaited(
@@ -851,6 +855,7 @@ class EmoteManager implements EmoteLookupSource {
     }
     // Nothing tier: render cached only.
     if (tier == EmoteFetchTier.nothing) return;
+    DataUsageStats.I.recordEmoteList(fromDisk: false);
     final fetch = await _fetcher.enqueue(
       () => _fetcher.fetchAllChannel(
         broadcasterId,

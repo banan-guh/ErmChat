@@ -88,6 +88,23 @@
   "dataUsageEmoteImages": "Emote images",
   "dataUsageAllNetworks": "All networks",
   "dataUsageMobileOnly": "Mobile data",
+  "dataSavedSection": "Saved",
+  "dataSavedFromDisk": "{percent}% from disk",
+  "@dataSavedFromDisk": {
+    "placeholders": {
+      "percent": {"type": "int"}
+    }
+  },
+  "dataSavedOf": "{count} of {total}",
+  "@dataSavedOf": {
+    "placeholders": {
+      "count": {"type": "int"},
+      "total": {"type": "int"}
+    }
+  },
+  "dataSavedListsHint": "From disk",
+  "dataSavedGapsHint": "Reached the gap",
+  "dataSavedNone": "None yet",
   "dataUsageFooter": "Since the app started. Streams, avatars, badges and link previews are not counted.",
   "settingExportSettings": "Export settings",
   "settingImportSettings": "Import settings",

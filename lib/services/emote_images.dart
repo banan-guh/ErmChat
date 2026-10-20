@@ -7,6 +7,7 @@ import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import '../emotes/emote.dart';
 import '../emotes/emote_picker.dart';
 import '../models/emote_fetch_tier.dart';
+import '../util/data_usage.dart';
 import '../util/log.dart';
 import '../util/prefs.dart';
 import '../util/set_notifier.dart';
@@ -188,7 +189,16 @@ class EmoteImages {
       try {
         await for (final response in _cache.getFileStream(url)) {
           if (response is FileInfo) {
-            return await response.file.readAsBytes();
+            final bytes = await response.file.readAsBytes();
+            if (response.source == FileSource.Online) {
+              _noteDownload(url);
+            } else if (!_downloaded.contains(url)) {
+              DataUsageStats.I.recordEmoteImage(
+                fromDisk: true,
+                bytes: bytes.length,
+              );
+            }
+            return bytes;
           }
         }
       } on FileSystemException {
@@ -196,6 +206,19 @@ class EmoteImages {
       }
     }
     throw StateError('no emote bytes for $url');
+  }
+
+  // Urls downloaded this session, so a later disk read of one counts as
+  // neither a saving nor a second download.
+  final Set<String> _downloaded = {};
+  static const _maxDownloaded = 2000;
+
+  void _noteDownload(String url) {
+    DataUsageStats.I.recordEmoteImage(fromDisk: false);
+    _downloaded.add(url);
+    if (_downloaded.length > _maxDownloaded) {
+      _downloaded.remove(_downloaded.first);
+    }
   }
 
   /// Removes [url] from the disk cache (live 7TV eviction).
@@ -285,6 +308,7 @@ class EmoteImages {
     }
     try {
       await _cache.getSingleFile(target);
+      _noteDownload(target);
       onStored?.call(emote);
     } catch (_) {
       logDebug('[EmoteImages] failed to precache emote: ${emote.code}');

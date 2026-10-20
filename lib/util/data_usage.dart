@@ -14,6 +14,14 @@ enum DataSource {
   emoteImages,
 }
 
+/// A count since the app started, and the part taken on mobile data.
+class SessionCount {
+  int all = 0;
+  int mobile = 0;
+
+  int of({required bool mobileOnly}) => mobileOnly ? mobile : all;
+}
+
 /// Lightweight numeric data-usage aggregator for the mobile data-saver work.
 ///
 /// Counts bytes by source (IRC sockets, emote image downloads, provider JSON)
@@ -33,6 +41,16 @@ class DataUsageStats {
   int helixBytes = 0;
   int eventBytes = 0;
   int evictions = 0;
+
+  // What the data savers served without a download, against what they
+  // fetched, for the Saved rows.
+  final imagesFromDisk = SessionCount();
+  final imageBytesFromDisk = SessionCount();
+  final imagesDownloaded = SessionCount();
+  final listsFromDisk = SessionCount();
+  final listsFetched = SessionCount();
+  final gapFetches = SessionCount();
+  final gapsFilled = SessionCount();
 
   EmoteFetchTier? appliedTier;
   bool mobile = false;
@@ -103,6 +121,31 @@ class DataUsageStats {
     (sum, source) => sum + bytesFor(source, mobileOnly: mobileOnly),
   );
   void recordEviction() => evictions++;
+
+  void _add(SessionCount c, [int n = 1]) {
+    c.all += n;
+    if (mobile) c.mobile += n;
+  }
+
+  /// An emote image read from disk ([bytes] long) or downloaded.
+  void recordEmoteImage({required bool fromDisk, int bytes = 0}) {
+    if (fromDisk) {
+      _add(imagesFromDisk);
+      _add(imageBytesFromDisk, bytes);
+    } else {
+      _add(imagesDownloaded);
+    }
+  }
+
+  /// An emote list served from its fresh disk copy, or fetched.
+  void recordEmoteList({required bool fromDisk}) =>
+      _add(fromDisk ? listsFromDisk : listsFetched);
+
+  /// A fetch of the whole history gap, and whether it reached the gap.
+  void recordGapFetch({required bool filled}) {
+    _add(gapFetches);
+    if (filled) _add(gapsFilled);
+  }
 
   /// [s]'s length in UTF-8 bytes, without encoding it.
   static int utf8Length(String s) {
