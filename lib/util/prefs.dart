@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'chrome_theme.dart';
-import 'constants.dart';
 import 'layout_density.dart';
 import 'settings.dart';
 
@@ -117,10 +116,7 @@ class Prefs {
   Future<void> setHistoryDynamicFetch(bool on) =>
       Settings.historyGapFill.set(on ? 1 : 0);
 
-  /// Messages the first history fetch loads: the default page under dynamic
-  /// fetch, which tops up the gap itself, else the manual count.
-  int get historyFetchLimit =>
-      historyDynamicFetch ? kRecentMessagesLimitDefault : recentMessagesLimit;
+  int get historyFetchLimit => Settings.historyFetchLimit;
 
   bool get replyToThreadRoot => Settings.replyToThreadRoot.value;
   Future<void> setReplyToThreadRoot(bool value) =>

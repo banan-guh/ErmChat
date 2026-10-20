@@ -3,6 +3,7 @@ import 'package:ermchat/models/twitch_message.dart';
 import 'package:ermchat/providers/feature_providers.dart';
 import 'package:ermchat/providers/ui_state_providers.dart';
 import 'package:ermchat/services/notification_service.dart';
+import 'package:ermchat/util/settings.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -19,7 +20,7 @@ class _FakeNotifications extends NotificationService {
 }
 
 void main() {
-  test('foreground mentions notify only when opted in and off-screen', () {
+  test('foreground mentions notify when opted in and off-screen', () async {
     SharedPreferences.setMockInitialValues({});
     final fake = _FakeNotifications();
     final container = ProviderContainer(
@@ -43,7 +44,7 @@ void main() {
     ping('other');
     expect(fake.channels, isEmpty, reason: 'foreground pref off');
 
-    container.read(mentionForegroundProvider.notifier).set(true);
+    await Settings.mentionNotifyForeground.set(true);
     ping('Viewed');
     expect(fake.channels, isEmpty, reason: 'channel already on screen');
     ping('other');

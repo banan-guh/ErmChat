@@ -17,7 +17,6 @@ import '../emotes/emote.dart';
 import '../l10n/l10n.dart';
 import '../models/twitch_message.dart';
 import '../util/chat_text.dart';
-import '../util/haptics.dart';
 import '../util/chrome_theme.dart';
 import '../services/app_updates.dart';
 import '../services/twitch_api.dart';
@@ -42,10 +41,9 @@ import '../services/twitch_badge_service.dart';
 import '../services/third_party_badge_service.dart';
 import '../widgets/seven_tv_paint_service.dart';
 import '../util/log.dart';
-import '../util/constants.dart';
 import '../util/prefs.dart';
 import '../util/prefs_store.dart';
-import '../util/timestamp_formatter.dart';
+import '../util/settings.dart';
 import '../screens/intro_screen.dart';
 import '../screens/settings/settings_screen.dart';
 import '../widgets/panel_manager.dart';
@@ -162,11 +160,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     thirdPartyBadgeService: _thirdPartyBadgeService,
     onShowEmoteSheet: (emotes) => _userSheets.showEmoteSheet(context, emotes),
     linkWhitelist: LinkWhitelist.instance,
-    showGifs: _showGifs,
-    gifHeight: _gifHeight,
-    showImages: _showImages,
-    imageHeight: _imageHeight,
-    animateGifs: _animateGifs,
   );
   Map<String, String> _channelUserIds() => ref.read(channelUserIdsProvider)();
 
@@ -231,13 +224,65 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 
   BroadcastWidgets get _broadcastWidgets => ref.read(broadcastWidgetsProvider);
 
-  // Appearance, stream, and panel prefs live here; composer-owned input
-  // state (text, reply, suggestions, cooldown) lives in _composer.
-  bool _replyToRoot = false;
-  bool _preferEmotesFirst = false;
-  bool _sendSwipeMenu = false;
-  int _spamIntervalMs = 0;
-  int _spamIntervalModMs = 0;
+  // Settings the shell reads. Composer-owned input state (text, reply,
+  // suggestions, cooldown) lives in _composer.
+  bool get _replyToRoot => Settings.replyToThreadRoot.value;
+  bool get _preferEmotesFirst => Settings.preferEmotesFirst.value;
+  bool get _sendSwipeMenu => Settings.sendSwipeMenu.value;
+  int get _spamIntervalMs => Settings.spamIntervalMs.value;
+  int get _spamIntervalModMs => Settings.spamIntervalModMs.value;
+  bool get _showTimestamps => Settings.showTimestamps.value;
+  String get _timestampFormat => Settings.timestampFormat.value;
+  double get _chatFontSize => Settings.chatFontSize.value;
+  double get _highlightOpacity => Settings.highlightOpacity.value;
+  bool get _checkeredMessages => Settings.checkeredMessages.value;
+  bool get _lineSeparator => Settings.lineSeparator.value;
+  bool get _fastSnap => Settings.fastChannelSnap.value;
+  bool get _liquidGlass => Settings.liquidGlass.value;
+  bool get _showNamePaints => Settings.sevenTvCosmetics.value;
+
+  /// Whether the chat input box + status row is shown.
+  bool get _showInput => Settings.showInput.value;
+
+  /// Settings baked into cached message spans; a change rebuilds them.
+  late final _spanSettings = Listenable.merge([
+    Settings.showTimestamps,
+    Settings.timestampFormat,
+    Settings.chatFontSize,
+    Settings.chatFontWeight,
+    Settings.highlightOpacity,
+    Settings.checkeredMessages,
+    Settings.lineSeparator,
+    Settings.sevenTvCosmetics,
+    Settings.giphyInlineEnabled,
+    Settings.giphyInlineHeight,
+    Settings.imageEmbedEnabled,
+    Settings.imageEmbedHeight,
+    Settings.animateGifs,
+    Settings.ffzEffects,
+    Settings.bttvModifiers,
+    Settings.doubleTapNameCopy,
+    Settings.sharedChatMode,
+  ]);
+
+  /// Settings the shell builds from, beyond [_spanSettings].
+  late final _shellSettings = Listenable.merge([
+    Settings.replyToThreadRoot,
+    Settings.preferEmotesFirst,
+    Settings.sendSwipeMenu,
+    Settings.spamIntervalMs,
+    Settings.spamIntervalModMs,
+    Settings.fastChannelSnap,
+    Settings.liquidGlass,
+    Settings.showInput,
+    Settings.chromeTheme,
+    Settings.customChromeThemes,
+  ]);
+
+  late final _sevenTvSettings = Listenable.merge([
+    Settings.sevenTvCosmetics,
+    Settings.emoteProvidersDisabled,
+  ]);
   // True while a manual emote refresh (Reload emotes) is in flight. The
   // connect/reconnect + per-channel-join loading is read live from
   // [_chatLoading] (driven by ChatConnectionManager.connectionStateNotifier),
@@ -247,17 +292,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   late final PipService _pip;
   ValueChanged<bool>? _pipChangedHandler;
   ValueChanged<String>? _pipActionHandler;
-  bool _showTimestamps = true;
-  String _timestampFormat = kDefaultTimestampFormat;
-  double _chatFontSize = 14.0;
-  double _highlightOpacity = 0.6;
-  bool _checkeredMessages = false;
   Color? _lastSurface;
-  bool _lineSeparator = false;
-  bool _fastSnap = true;
 
-  /// Liquid glass chrome (default off; toggled in Customization).
-  bool _liquidGlass = false;
+  /// The saved chrome theme, decoded once per change.
   ChromeThemeSpec _chromeTheme = ChromeTheme.ermchat.spec;
 
   /// The draft layout while edit mode is on; the chrome renders from it.
@@ -265,19 +302,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 
   /// Settings asked for edit mode; it starts once settings has closed.
   bool _editLayoutPending = false;
-
-  /// 7TV name paints (default off; toggled in Chat settings).
-  bool _showNamePaints = false;
-
-  /// Giphy inline embeds (default off; toggled in Chat > Inline embeds).
-  bool _showGifs = kGiphyInlineEnabledDefault;
-  double _gifHeight = kGiphyInlineHeightDefault;
-  bool _showImages = kImageEmbedEnabledDefault;
-  double _imageHeight = kImageEmbedHeightDefault;
-
-  /// Animated emotes play (default on; toggled in Emotes settings). Mirrored
-  /// into the message builder so frozen Twitch GIFs swap render paths.
-  bool _animateGifs = true;
 
   /// Hidden-chrome mode: drops the ErmChat header (title, join, mentions,
   /// overflow) and the channel tab bar so the chat fills the screen. Transient
@@ -287,9 +311,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   /// Mirror of the live system UI mode, so redundant SystemChrome calls are
   /// skipped while a forced re-apply (app resume) stays explicit.
   _SystemBars _bars = _SystemBars.all;
-
-  /// Whether the chat input box + status row is shown. Persisted.
-  bool _showInput = true;
 
   // The provider owns teardown; the shell only binds PiP and observes it.
   late final StreamPlayerController _streamPlayer = ref.read(
@@ -431,7 +452,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     checkeredMessages: () => _checkeredMessages,
     highlightOpacity: () => _highlightOpacity,
     lineSeparator: () => _lineSeparator,
-    sharedChatMode: () => ref.read(sharedChatModeProvider),
+    sharedChatMode: () => Settings.sharedChatMode.value,
     namePaintService: () => _showNamePaints ? _sevenTvPaintService : null,
     copyMessage: _copyMessageToClipboard,
     strings: () => context.l10n,
@@ -460,7 +481,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     checkeredMessages: () => _checkeredMessages,
     highlightOpacity: () => _highlightOpacity,
     lineSeparator: () => _lineSeparator,
-    sharedChatMode: () => ref.read(sharedChatModeProvider),
+    sharedChatMode: () => Settings.sharedChatMode.value,
     copyMessage: _copyMessageToClipboard,
     namePaintService: () => _showNamePaints ? _sevenTvPaintService : null,
     pingManager: _pingManager,
@@ -569,7 +590,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     checkeredMessages: () => _checkeredMessages,
     highlightOpacity: () => _highlightOpacity,
     lineSeparator: () => _lineSeparator,
-    sharedChatMode: () => ref.read(sharedChatModeProvider),
+    sharedChatMode: () => Settings.sharedChatMode.value,
     showNamePaints: () => _showNamePaints,
     isFullscreen: () => _isFullscreen,
     fastSnap: () => _fastSnap,
@@ -638,11 +659,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     _search.toggleSearch();
   }
 
-  void setShowInput(bool value) {
-    if (_showInput == value) return;
-    setState(() => _showInput = value);
-    unawaited(Prefs.load().then((prefs) => prefs.setShowInput(value)));
-  }
+  void setShowInput(bool value) => unawaited(Settings.showInput.set(value));
 
   void _forgetSearch(String channel) {
     _search.forget(channel);
@@ -697,11 +714,22 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
           break;
       }
     };
-    // Main loaded prefs before the home screen, so the first frame can use
-    // them; the async pass then only picks up later writes.
-    final loaded = Prefs.loaded;
-    if (loaded != null) _applyPrefsFrom(loaded, initial: true);
-    _applyPrefs();
+    // Main bound settings before the home screen, so the first frame reads
+    // them; a test that boots without main applies them once bound.
+    _applySettings();
+    _spanSettings.addListener(_onSpanSettings);
+    _shellSettings.addListener(_onShellSettings);
+    _sevenTvSettings.addListener(_applySevenTvSettings);
+    Settings.animateGifs.addListener(_applyAnimateGifs);
+    if (Prefs.loaded == null) {
+      unawaited(
+        Prefs.load().then((_) {
+          if (!mounted) return;
+          _applySettings();
+          _onSpanSettings();
+        }),
+      );
+    }
     unawaited(_threads.loadSaved());
     unawaited(
       _channelManager.loadRecentMessagesConfig().then((_) {
@@ -733,7 +761,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     // Launching in landscape gets no metrics change, so sync once up front.
     WidgetsBinding.instance.addPostFrameCallback((_) => _syncSystemUiMode());
     _linkWhitelist.addListener(_onLinkWhitelistChanged);
-    PrefsStore.instance.addListener(_onPrefsChanged);
     _loadNotificationSettings();
     _broadcastWidgets.loadTestWidgets();
     _channelNotifier.addListener(_syncChannelSubs);
@@ -844,9 +871,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     final whisperNotify = prefs.whisperNotifications;
     if (!mounted) return;
     ref.read(mentionPushProvider.notifier).set(mentionPush);
-    ref
-        .read(mentionForegroundProvider.notifier)
-        .set(prefs.mentionNotifyForeground);
     ref
         .read(notificationPauseProvider.notifier)
         .restore(prefs.notificationsPausedUntil);
@@ -1401,139 +1425,56 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     if (_activePanel == OverlayPanel.modView) _mod.refreshOnData(null);
   }
 
-  /// Re-reads every persisted chat preference into its mirror field and
-  /// applies the matching side effects. Runs at startup and whenever settings
-  /// write through [PrefsStore].
-  Future<void> _applyPrefs() async {
-    final prefs = await Prefs.load();
-    if (!mounted) return;
-    _applyPrefsFrom(prefs);
+  /// Applies every setting the shell pushes into owners, without a rebuild.
+  void _applySettings() {
+    _chromeTheme = Prefs.loaded?.chromeTheme ?? _chromeTheme;
+    _syncMessageBuilder();
+    _applySevenTvSettings();
+    _applyAnimateGifs();
   }
 
-  /// [initial] runs from initState, before the first frame: fields only, no
-  /// setState and no cache churn, so the first frame already has the saved
-  /// chrome instead of animating over from defaults.
-  void _applyPrefsFrom(Prefs prefs, {bool initial = false}) {
-    final gifHeight = prefs.giphyInlineHeight.clamp(
-      kGiphyInlineHeightMin,
-      kGiphyInlineHeightMax,
-    );
-    final imageHeight = prefs.imageEmbedHeight.clamp(
-      kImageEmbedHeightMin,
-      kImageEmbedHeightMax,
-    );
-    final recentLimitChanged =
-        ref.read(recentMessagesLimitProvider) != prefs.historyFetchLimit;
-    final sharedChatChanged =
-        ref.read(sharedChatModeProvider) != prefs.sharedChatMode;
-    final animateChanged = _animateGifs != prefs.animateGifs;
-    // Only appearance prefs rebuild frozen spans; unchanged ones skip the
-    // churn so unrelated settings writes stay cheap.
-    final appearanceChanged =
-        _showTimestamps != prefs.showTimestamps ||
-        _timestampFormat != prefs.timestampFormat ||
-        _chatFontSize != prefs.chatFontSize ||
-        _messageBuilder.fontWeight.value != prefs.chatFontWeight ||
-        _highlightOpacity != prefs.highlightOpacity ||
-        _checkeredMessages != prefs.checkeredMessages ||
-        _lineSeparator != prefs.lineSeparator ||
-        _showNamePaints != prefs.sevenTvCosmetics ||
-        _showGifs != prefs.giphyInlineEnabled ||
-        _gifHeight != gifHeight ||
-        animateChanged ||
-        _messageBuilder.ffzEffects != prefs.ffzEffects ||
-        _messageBuilder.bttvModifiers != prefs.bttvModifiers ||
-        _showImages != prefs.imageEmbedEnabled ||
-        _imageHeight != imageHeight ||
-        _messageBuilder.doubleTapNameCopy != prefs.doubleTapNameCopy;
-    // Every field apply() writes; any change keeps the rebuild.
-    final fieldsChanged =
-        appearanceChanged ||
-        recentLimitChanged ||
-        sharedChatChanged ||
-        _replyToRoot != prefs.replyToThreadRoot ||
-        _preferEmotesFirst != prefs.preferEmotesFirst ||
-        _sendSwipeMenu != prefs.sendSwipeMenu ||
-        _spamIntervalMs != prefs.spamIntervalMs ||
-        _spamIntervalModMs != prefs.spamIntervalModMs ||
-        _fastSnap != prefs.fastChannelSnap ||
-        _liquidGlass != prefs.liquidGlass ||
-        _chromeTheme != prefs.chromeTheme ||
-        _showInput != prefs.showInput;
-
-    void apply() {
-      // Providers cannot change during initState; none of these touch the
-      // chrome, so the async pass sets them a beat later.
-      if (!initial) {
-        ref
-            .read(recentMessagesLimitProvider.notifier)
-            .set(prefs.historyFetchLimit);
-        ref.read(sharedChatModeProvider.notifier).set(prefs.sharedChatMode);
-        ref
-            .read(mentionForegroundProvider.notifier)
-            .set(prefs.mentionNotifyForeground);
-      }
-      _replyToRoot = prefs.replyToThreadRoot;
-      _preferEmotesFirst = prefs.preferEmotesFirst;
-      _sendSwipeMenu = prefs.sendSwipeMenu;
-      _spamIntervalMs = prefs.spamIntervalMs;
-      _spamIntervalModMs = prefs.spamIntervalModMs;
-      _showTimestamps = prefs.showTimestamps;
-      _timestampFormat = prefs.timestampFormat;
-      _chatFontSize = prefs.chatFontSize;
-      _highlightOpacity = prefs.highlightOpacity;
-      _checkeredMessages = prefs.checkeredMessages;
-      _lineSeparator = prefs.lineSeparator;
-      _fastSnap = prefs.fastChannelSnap;
-      _liquidGlass = prefs.liquidGlass;
-      _chromeTheme = prefs.chromeTheme;
-      _showNamePaints = prefs.sevenTvCosmetics;
-      _showGifs = prefs.giphyInlineEnabled;
-      _gifHeight = gifHeight;
-      _showImages = prefs.imageEmbedEnabled;
-      _imageHeight = imageHeight;
-      _showInput = prefs.showInput;
-      _animateGifs = prefs.animateGifs;
-      _messageBuilder.showGifs = _showGifs;
-      _messageBuilder.gifHeight = _gifHeight;
-      _messageBuilder.showImages = _showImages;
-      _messageBuilder.imageHeight = _imageHeight;
-      _messageBuilder.animateGifs = _animateGifs;
-      _messageBuilder.ffzEffects = prefs.ffzEffects;
-      _messageBuilder.bttvModifiers = prefs.bttvModifiers;
-      _messageBuilder.doubleTapNameCopy = prefs.doubleTapNameCopy;
-      _messageBuilder.fontWeight = FontWeight.values.firstWhere(
-        (w) => w.value == prefs.chatFontWeight,
+  void _syncMessageBuilder() {
+    _messageBuilder
+      ..showGifs = Settings.giphyInlineEnabled.value
+      ..gifHeight = Settings.giphyInlineHeight.value
+      ..showImages = Settings.imageEmbedEnabled.value
+      ..imageHeight = Settings.imageEmbedHeight.value
+      ..animateGifs = Settings.animateGifs.value
+      ..ffzEffects = Settings.ffzEffects.value
+      ..bttvModifiers = Settings.bttvModifiers.value
+      ..doubleTapNameCopy = Settings.doubleTapNameCopy.value
+      ..fontWeight = FontWeight.values.firstWhere(
+        (w) => w.value == Settings.chatFontWeight.value,
         orElse: () => FontWeight.w400,
       );
-    }
-
-    if (initial) {
-      apply();
-    } else {
-      apply();
-      if (fieldsChanged) setState(() {});
-    }
-    _sevenTvPaintService.enabled = _showNamePaints;
-    _thirdPartyBadgeService.showSevenTv = _showNamePaints;
-    _chatConn.applySevenTvSettings(
-      emotes: !(prefs.emoteProvidersDisabled ?? const []).contains(
-        EmoteType.sevenTv.name,
-      ),
-      cosmetics: _showNamePaints,
-    );
-    if (animateChanged) EmoteUrlProvider.applyGifsEnabled(_animateGifs);
-    Haptics.enabled = prefs.haptics;
-    if (initial) return;
-    if (appearanceChanged || sharedChatChanged) {
-      _tileCache.clear();
-      for (final channel in List.of(_chat.names)) {
-        _chat.channelFor(channel)?.info.touch();
-      }
-    }
   }
 
-  void _onPrefsChanged() => unawaited(_applyPrefs());
+  void _applySevenTvSettings() {
+    _sevenTvPaintService.enabled = _showNamePaints;
+    _thirdPartyBadgeService.showSevenTv = _showNamePaints;
+    final disabled = Settings.emoteProvidersDisabled.value ?? const [];
+    _chatConn.applySevenTvSettings(
+      emotes: !disabled.contains(EmoteType.sevenTv.name),
+      cosmetics: _showNamePaints,
+    );
+  }
+
+  void _applyAnimateGifs() =>
+      EmoteUrlProvider.applyGifsEnabled(Settings.animateGifs.value);
+
+  /// Rebuilds frozen spans and tiles from the changed display settings.
+  void _onSpanSettings() {
+    _syncMessageBuilder();
+    _tileCache.clear();
+    for (final channel in List.of(_chat.names)) {
+      _chat.channelFor(channel)?.info.touch();
+    }
+    setState(() {});
+  }
+
+  void _onShellSettings() {
+    setState(() => _chromeTheme = Prefs.loaded?.chromeTheme ?? _chromeTheme);
+  }
 
   // The emote sheet lives in this route's tree, so a sheet, menu or page
   // pushed on top would otherwise open with it still up underneath.
@@ -1578,7 +1519,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     _uploadController.dispose();
     _networkBusy.dispose();
     _linkWhitelist.removeListener(_onLinkWhitelistChanged);
-    PrefsStore.instance.removeListener(_onPrefsChanged);
+    _spanSettings.removeListener(_onSpanSettings);
+    _shellSettings.removeListener(_onShellSettings);
+    _sevenTvSettings.removeListener(_applySevenTvSettings);
+    Settings.animateGifs.removeListener(_applyAnimateGifs);
     _streamPlayer.removeListener(_stream.onStreamPlayerChanged);
     _streamPlayer.removeListener(_syncSystemUiMode);
     _streamPlayer.vodPlayback.removeListener(_onVodReplay);

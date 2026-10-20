@@ -23,6 +23,7 @@ import 'app_providers.dart';
 import 'chat_signals.dart';
 import 'emote_providers.dart';
 import 'ui_state_providers.dart';
+import '../util/settings.dart';
 
 /// App-scope feature owners that screens consume instead of constructing.
 /// Providers own construction and teardown; each resource owner registers
@@ -126,7 +127,7 @@ final chatHistoryControllerProvider = Provider<ChatHistoryController>((ref) {
     emoteManager: ref.read(emoteManagerProvider),
     badgeService: ref.read(badgeServiceProvider),
     maxMessages: () => ref.read(maxMessagesPerChannelProvider),
-    recentMessagesLimit: () => ref.read(recentMessagesLimitProvider),
+    recentMessagesLimit: () => Settings.historyFetchLimit,
     isBlocked: (login) =>
         ref.read(blockedLoginsProvider).contains(login.toLowerCase()),
     emoteReloading: ref.read(emoteSignalsProvider).busy,
@@ -204,7 +205,7 @@ class MentionNotifier {
     if (!_ref.read(mentionPushProvider)) return;
     if (_ref.read(notificationPauseProvider.notifier).paused) return;
     if (!_ref.read(backgroundedProvider)) {
-      if (!_ref.read(mentionForegroundProvider)) return;
+      if (!Settings.mentionNotifyForeground.value) return;
       // The user is already reading the channel on screen.
       final shown = _ref.read(selectedChannelProvider);
       if (shown != null && shown.toLowerCase() == channel.toLowerCase()) return;

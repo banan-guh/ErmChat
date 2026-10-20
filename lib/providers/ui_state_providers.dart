@@ -32,18 +32,6 @@ class MaxMessagesNotifier extends Notifier<int> {
 final maxMessagesPerChannelProvider =
     NotifierProvider<MaxMessagesNotifier, int>(MaxMessagesNotifier.new);
 
-class RecentMessagesLimitNotifier extends Notifier<int> {
-  @override
-  int build() => kRecentMessagesLimitDefault;
-
-  void set(int value) => state = value;
-}
-
-final recentMessagesLimitProvider =
-    NotifierProvider<RecentMessagesLimitNotifier, int>(
-      RecentMessagesLimitNotifier.new,
-    );
-
 class ReplyToNotifier extends Notifier<TwitchMessage?> {
   @override
   TwitchMessage? build() => null;
@@ -72,17 +60,6 @@ final blockedLoginsProvider =
     NotifierProvider<BlockedLoginsNotifier, Set<String>>(
       BlockedLoginsNotifier.new,
     );
-
-class SharedChatModeNotifier extends Notifier<String> {
-  @override
-  String build() => 'spotlight';
-
-  void set(String value) => state = value;
-}
-
-final sharedChatModeProvider = NotifierProvider<SharedChatModeNotifier, String>(
-  SharedChatModeNotifier.new,
-);
 
 class ChatReadyNotifier extends Notifier<bool> {
   @override
@@ -123,18 +100,6 @@ final mentionPushProvider = NotifierProvider<MentionPushNotifier, bool>(
 
 /// Whether mentions notify while the app is open. Mirrors the pref;
 /// [HomeScreen] applies it on load and on every prefs change.
-class MentionForegroundNotifier extends Notifier<bool> {
-  @override
-  bool build() => false;
-
-  void set(bool value) => state = value;
-}
-
-final mentionForegroundProvider =
-    NotifierProvider<MentionForegroundNotifier, bool>(
-      MentionForegroundNotifier.new,
-    );
-
 /// When muted notifications come back, or null when they aren't muted.
 /// Rules keep their notify setting; a mute only silences them.
 class NotificationPauseNotifier extends Notifier<DateTime?> {

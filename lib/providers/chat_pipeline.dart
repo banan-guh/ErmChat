@@ -10,6 +10,7 @@ import 'app_providers.dart';
 import 'chat_signals.dart';
 import 'feature_providers.dart';
 import 'ui_state_providers.dart';
+import '../util/settings.dart';
 
 export 'chat_signals.dart';
 
@@ -112,7 +113,7 @@ final chatPipelineProvider = Provider<ChatConnectionManager>((ref) {
         isChatReady: () => ref.read(chatReadyProvider),
         isBlocked: (login) =>
             ref.read(blockedLoginsProvider).contains(login.toLowerCase()),
-        getSharedChatMode: () => ref.read(sharedChatModeProvider),
+        getSharedChatMode: () => Settings.sharedChatMode.value,
         onAnalyticsMessage: (channel, msg) =>
             ref.read(analyticsServiceProvider).recordMessage(channel, msg),
         onArchiveMessage: archive == null

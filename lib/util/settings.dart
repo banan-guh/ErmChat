@@ -195,6 +195,12 @@ abstract final class Settings {
 
   /// Nonzero sizes the history fetch to the gap since the last message seen.
   static final historyGapFill = IntPref('history_gap_fill', 1);
+
+  /// Messages the first history fetch loads: the default page under gap
+  /// fill, which tops up the gap itself, else the manual count.
+  static int get historyFetchLimit => historyGapFill.value != 0
+      ? kRecentMessagesLimitDefault
+      : recentMessagesLimit.value;
   static final replyToThreadRoot = Pref('reply_to_thread_root', false);
   static final backgroundService = Pref('background_service', false);
   static final whisperNotifications = Pref('whisper_notifications', false);

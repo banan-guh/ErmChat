@@ -5,6 +5,7 @@ import 'app_providers.dart';
 import 'chat_pipeline.dart';
 import 'feature_providers.dart';
 import 'ui_state_providers.dart';
+import '../util/settings.dart';
 
 /// Channel membership, history backfill, and selection, owned by the
 /// composition root. Constructs the UI-free [ChannelSession] from the shared
@@ -30,7 +31,7 @@ final channelSessionProvider = Provider<ChannelSession>((ref) {
     setSelectedChannel: (value) =>
         ref.read(selectedChannelProvider.notifier).set(value),
     maxMessages: () => ref.read(maxMessagesPerChannelProvider),
-    recentMessagesLimit: () => ref.read(recentMessagesLimitProvider),
+    recentMessagesLimit: () => Settings.historyFetchLimit,
     strings: ref.read(stringsProvider),
   );
   ref.onDispose(session.dispose);
