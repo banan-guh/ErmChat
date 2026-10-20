@@ -216,7 +216,7 @@ class Prefs {
       _p.setBool(_kPreferEmotesFirst, value);
 
   /// Swiping up from send opens the send menu (spam).
-  bool get sendSwipeMenu => _p.getBool(_kSendSwipeMenu) ?? true;
+  bool get sendSwipeMenu => _p.getBool(_kSendSwipeMenu) ?? false;
 
   Future<void> setSendSwipeMenu(bool value) =>
       _p.setBool(_kSendSwipeMenu, value);

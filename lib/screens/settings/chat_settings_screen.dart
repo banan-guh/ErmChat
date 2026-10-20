@@ -224,12 +224,13 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
             child: PrefsSwitchTile(
               secondary: const Icon(Icons.swipe_up),
               title: Setting.sendSwipe.titleOf(context.l10n),
-              defaultValue: true,
+              subtitle: context.l10n.sendSwipeHint,
+              defaultValue: false,
               read: (p) => p.sendSwipeMenu,
               write: (p, v) => p.setSendSwipeMenu(v),
             ),
           ),
-          _SpamSpeedTile(menuOn: _prefs?.sendSwipeMenu ?? true),
+          _SpamSpeedTile(menuOn: _prefs?.sendSwipeMenu ?? false),
           if (widget.twitchAuth != null)
             SettingAnchor(
               Setting.macros,

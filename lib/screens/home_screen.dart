@@ -234,7 +234,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   // state (text, reply, suggestions, cooldown) lives in _composer.
   bool _replyToRoot = false;
   bool _preferEmotesFirst = false;
-  bool _sendSwipeMenu = true;
+  bool _sendSwipeMenu = false;
   int _spamIntervalMs = 0;
   // True while a manual emote refresh (Reload emotes) is in flight. The
   // connect/reconnect + per-channel-join loading is read live from
