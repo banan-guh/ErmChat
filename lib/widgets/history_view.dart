@@ -341,6 +341,9 @@ class _HistoryViewState extends State<HistoryView> {
   /// The user scrolled up during a VOD: the replay waits until they return
   /// to the bottom or the VOD seeks.
   bool _replayPaused = false;
+
+  /// A VOD plays but the viewer switched this page to live chat.
+  bool _vodLive = false;
   bool _scrolled = false;
   String? _fmtLocale;
   DateFormat? _dayFmt;
@@ -685,17 +688,20 @@ class _HistoryViewState extends State<HistoryView> {
     final at = widget.actions?.follow.value;
     if (at == null) {
       _playedTo = null;
+      _vodLive = false;
       if (_replayAt != null) _endReplay();
       return;
     }
     if (!mounted) return;
     if (at.channel != widget.channel) {
       // The VOD moved to another channel.
+      _vodLive = false;
       if (_replayAt != null) _endReplay();
       return;
     }
     final played = _playedTo;
     _playedTo = at.time;
+    if (_vodLive) return;
     final seek = played != null && at.time.difference(played).abs() > _seekGap;
     if (seek) _replayPaused = false;
     if (_replayPaused) return;
@@ -831,6 +837,19 @@ class _HistoryViewState extends State<HistoryView> {
     }
     final at = _replayAt;
     if (mounted && epoch == _epoch && at != null) _advanceReplay(at);
+  }
+
+  /// Flips between live chat and the replay of the playing VOD.
+  void _toggleVodChat() {
+    final at = widget.actions?.follow.value;
+    if (at == null) return;
+    setState(() => _vodLive = !_vodLive);
+    if (_vodLive) {
+      _endReplay();
+    } else {
+      _replayPaused = false;
+      _startReplay(at.time);
+    }
   }
 
   /// Leaves the replay for the newest rows.
@@ -2106,6 +2125,22 @@ class _HistoryViewState extends State<HistoryView> {
                 onPressed: _jumpToNewest,
               ),
             ),
+          ),
+        if (widget.actions?.follow case final follow?)
+          ValueListenableBuilder(
+            valueListenable: follow,
+            builder: (_, at, _) => at?.channel != widget.channel
+                ? const SizedBox.shrink()
+                : Positioned(
+                    right: 16,
+                    top: widget.topPadding + 8,
+                    child: VodChatButton(
+                      live: _vodLive,
+                      glass: glass,
+                      heroTag: 'vod_chat_${widget.channel}',
+                      onPressed: _toggleVodChat,
+                    ),
+                  ),
           ),
         if (widget.debugControls)
           Positioned(

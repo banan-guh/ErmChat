@@ -266,6 +266,52 @@ void syncRowGates(Set<RowGateState> gates, ScrollPosition pos) {
 
 /// Jump-to-newest button, shown while [atBottom] is false. Glass chrome
 /// ([glass]) gets the glass button, otherwise a FAB tagged [heroTag].
+/// Switches a channel page between replaying chat with its playing VOD and
+/// live chat. [live] means the page shows live chat right now.
+class VodChatButton extends StatelessWidget {
+  const VodChatButton({
+    super.key,
+    required this.live,
+    required this.glass,
+    required this.heroTag,
+    required this.onPressed,
+  });
+
+  final bool live;
+  final bool glass;
+  final Object heroTag;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final l = context.l10n;
+    void press() {
+      iosHaptic(HapticFeedback.lightImpact);
+      onPressed();
+    }
+
+    final icon = Icon(live ? Icons.ondemand_video : Icons.sensors);
+    final tooltip = live ? l.vodChat : l.liveChat;
+    return Tooltip(
+      message: tooltip,
+      child: glass
+          ? GlassIconButton(
+              icon: icon,
+              shape: GlassIconButtonShape.roundedSquare,
+              onPressed: press,
+              useOwnLayer: true,
+              settings: kGlassPillSettings,
+              quality: GlassQuality.premium,
+            )
+          : FloatingActionButton.small(
+              heroTag: heroTag,
+              onPressed: press,
+              child: icon,
+            ),
+    );
+  }
+}
+
 class ScrollDownButton extends StatelessWidget {
   const ScrollDownButton({
     super.key,

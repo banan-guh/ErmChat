@@ -182,6 +182,8 @@
       }
     }
   },
+  "liveChat": "Live chat",
+  "vodChat": "VOD chat",
   "archiveShortenTitle": "Delete older chat?",
   "archiveShortenMessage": "Chat older than {days} is deleted now. Days you keep from the calendar stay.",
   "@archiveShortenMessage": {
