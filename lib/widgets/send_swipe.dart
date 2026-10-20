@@ -2,9 +2,10 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
 import '../l10n/l10n.dart';
+import 'design_tokens.dart';
+import '../util/haptics.dart';
 
 /// Hold-and-swipe menu on a send button. Holding runs [onRecall] at once;
 /// dragging up then opens a path to a hub above the button and across the
@@ -154,7 +155,7 @@ class _SendSwipeState extends State<SendSwipe> {
     final end = _dir < 0 ? _edgeInset : area.width - _edgeInset;
     _run = (end - _origin.dx).abs();
     widget.onRecallUndo?.call();
-    HapticFeedback.selectionClick();
+    Haptics.select();
     if (!_portal.isShowing) _portal.show();
   }
 
@@ -195,7 +196,7 @@ class _SendSwipeState extends State<SendSwipe> {
     } else {
       _offPath = true;
     }
-    if (_armed && !wasArmed) HapticFeedback.selectionClick();
+    if (_armed && !wasArmed) Haptics.select();
     _updateSpam();
     setState(() {});
   }
@@ -208,7 +209,7 @@ class _SendSwipeState extends State<SendSwipe> {
       _chargeTimer = Timer(_charge, () {
         _charging = false;
         _spamming = true;
-        HapticFeedback.mediumImpact();
+        Haptics.major();
         widget.onSpamStart!();
         if (mounted) setState(() {});
       });
@@ -299,8 +300,8 @@ class _SendSwipeState extends State<SendSwipe> {
       child: IgnorePointer(
         child: TweenAnimationBuilder<double>(
           tween: Tween(begin: 0.4, end: 1),
-          duration: const Duration(milliseconds: 200),
-          curve: Curves.easeOutBack,
+          duration: Motion.normal,
+          curve: Motion.enter,
           builder: (context, t, child) => Transform.scale(
             scale: t,
             child: Opacity(opacity: t.clamp(0.0, 1.0), child: child),
@@ -347,8 +348,8 @@ class _SendSwipeState extends State<SendSwipe> {
     final thumb = _pointAt(_progress);
     final menu = TweenAnimationBuilder<double>(
       tween: Tween(begin: 0, end: 1),
-      duration: const Duration(milliseconds: 160),
-      curve: Curves.easeOut,
+      duration: Motion.fast,
+      curve: Motion.enter,
       builder: (context, t, child) => Opacity(opacity: t, child: child),
       child: Stack(
         children: [
@@ -368,7 +369,7 @@ class _SendSwipeState extends State<SendSwipe> {
             _hubRadius * 2,
             AnimatedScale(
               scale: _armed ? 1.15 : 1,
-              duration: const Duration(milliseconds: 150),
+              duration: Motion.fast,
               child: DecoratedBox(
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
@@ -452,13 +453,13 @@ class _SpamAction extends StatelessWidget {
         // A new key per send restarts the pulse.
         key: ValueKey(active ? count : -1),
         tween: Tween(begin: active ? 1.2 : 1, end: 1),
-        duration: const Duration(milliseconds: 220),
+        duration: Motion.normal,
         builder: (context, scale, child) =>
             Transform.scale(scale: scale, child: child),
         child: child,
       ),
       child: AnimatedContainer(
-        duration: const Duration(milliseconds: 150),
+        duration: Motion.fast,
         decoration: BoxDecoration(
           shape: BoxShape.circle,
           color: active ? scheme.primary : scheme.surfaceContainerHighest,

@@ -1,7 +1,8 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart' show HapticFeedback;
+import 'design_tokens.dart';
+import '../util/haptics.dart';
 
 /// A switch with one stop per name, the first being off. Two stops act as a
 /// plain switch. Once on, the track takes [color]. Tap a stop or drag to it;
@@ -47,7 +48,7 @@ class _LevelSwitchState extends State<LevelSwitch> {
   static const _border = 2.0;
   static const _thumb = 24.0;
   static const _offThumb = 16.0;
-  static const _duration = Duration(milliseconds: 160);
+  static const _duration = Motion.fast;
 
   final _bubble = OverlayPortalController();
   final _link = LayerLink();
@@ -94,7 +95,7 @@ class _LevelSwitchState extends State<LevelSwitch> {
       _blockedShown = dragging;
       return;
     }
-    HapticFeedback.selectionClick();
+    Haptics.select();
     widget.onChanged(next);
     _showBubble(linger: dragging ? null : const Duration(milliseconds: 900));
   }
@@ -137,7 +138,7 @@ class _LevelSwitchState extends State<LevelSwitch> {
               DecoratedBox(
                 decoration: BoxDecoration(
                   color: scheme.inverseSurface,
-                  borderRadius: BorderRadius.circular(8),
+                  borderRadius: BorderRadius.circular(Radii.medium),
                 ),
                 child: Padding(
                   padding: const EdgeInsets.symmetric(
@@ -258,7 +259,7 @@ class _LevelSwitchState extends State<LevelSwitch> {
                             ),
                       AnimatedAlign(
                         duration: _duration,
-                        curve: Curves.easeOutCubic,
+                        curve: Motion.enter,
                         alignment: Alignment(x, 0),
                         child: SizedBox(
                           width: _thumb - 4,

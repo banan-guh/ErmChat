@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 
 import '../l10n/l10n.dart';
 import '../util/history_timeline.dart';
+import 'design_tokens.dart';
 
 /// Every archived stream of a channel, newest first, with its thumbnail,
 /// title, date and length. A tap opens the stream at its start. [focus]
@@ -124,7 +125,7 @@ class _HistoryStreamsPageState extends State<HistoryStreamsPage> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             ClipRRect(
-              borderRadius: BorderRadius.circular(8),
+              borderRadius: BorderRadius.circular(Radii.medium),
               child: SizedBox(
                 width: 128,
                 height: 72,

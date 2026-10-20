@@ -7,6 +7,7 @@ import '../l10n/l10n.dart';
 import '../util/insets.dart';
 import 'chrome_menu_button.dart';
 import 'glass_chrome.dart';
+import 'design_tokens.dart';
 
 // M3 Expressive fastSpatial spring (stiffness 800), critically damped.
 class _SnapPhysics extends PageScrollPhysics {
@@ -246,7 +247,7 @@ class TabbedLayoutState extends State<TabbedLayout>
 
   // Width of the fade where tabs meet the pinned strip actions.
   static const double _stripFade = 12;
-  static const _jumpDuration = Duration(milliseconds: 300);
+  static const _jumpDuration = Motion.slow;
   // Longest span animated in one go. Longer jumps land within this distance
   // first, so the flight only builds a few pages (as ViewPager2 does).
   static const _jumpSpan = 3;
@@ -300,7 +301,7 @@ class TabbedLayoutState extends State<TabbedLayout>
   // latest one and the glide ends exactly on it.
   late final _stripCatchUp = AnimationController(
     vsync: this,
-    duration: const Duration(milliseconds: 200),
+    duration: Motion.normal,
   )..addListener(_glideStrip);
   double _glideFrom = 0;
   double _glideTo = 0;
@@ -325,7 +326,7 @@ class TabbedLayoutState extends State<TabbedLayout>
       _stripCatchUp.stop();
       return;
     }
-    final t = Curves.easeOut.transform(_stripCatchUp.value);
+    final t = Motion.enter.transform(_stripCatchUp.value);
     strip.jumpTo(_glideFrom + (_glideTo - _glideFrom) * t);
   }
 
@@ -505,7 +506,7 @@ class TabbedLayoutState extends State<TabbedLayout>
       pc.jumpToPage(index > current ? index - _jumpSpan : index + _jumpSpan);
       _preJumping = false;
     }
-    pc.animateToPage(index, duration: _jumpDuration, curve: Curves.ease);
+    pc.animateToPage(index, duration: _jumpDuration, curve: Motion.move);
   }
 
   void _onTabTap(int index) {
@@ -858,8 +859,8 @@ class TabbedLayoutState extends State<TabbedLayout>
           ),
         if (widget.pagesOverlay != null)
           AnimatedPositioned(
-            duration: const Duration(milliseconds: 200),
-            curve: Curves.easeInOut,
+            duration: Motion.normal,
+            curve: Motion.move,
             top: cardsTop - TabbedLayout.cardInset,
             left: 0,
             right: 0,
@@ -910,8 +911,8 @@ class TabbedLayoutState extends State<TabbedLayout>
     return Column(
       children: [
         AnimatedSize(
-          duration: const Duration(milliseconds: 200),
-          curve: Curves.easeInOut,
+          duration: Motion.normal,
+          curve: Motion.move,
           child: widget.showTabBar
               ? ColoredBox(
                   color: bubbles

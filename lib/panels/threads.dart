@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
 import '../chat/channel/threads.dart';
 import '../chat/chat.dart';
@@ -522,7 +521,7 @@ class ThreadPanels {
   }
 
   void _onThreadsFocus(int index) {
-    iosHaptic(HapticFeedback.selectionClick);
+    Haptics.select(iosOnly: true);
     // Returning to the Thread tab marks the open thread seen so its Active
     // row clears its unread highlight.
     if (index == 0 && panelManager.openThreadRoot != null) {

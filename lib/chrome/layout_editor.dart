@@ -2,10 +2,11 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
 import '../l10n/l10n.dart';
 import '../util/chrome_theme.dart';
+import '../widgets/design_tokens.dart';
+import '../util/haptics.dart';
 
 /// Holds the draft layout while the home screen is in edit mode. The chrome
 /// renders from [draft], so every change shows live.
@@ -70,7 +71,7 @@ class LayoutEditController extends ChangeNotifier {
     if (slot == null) {
       final block = _draft.removeBlock(action);
       if (block != null) {
-        HapticFeedback.heavyImpact();
+        Haptics.major();
         _blocked = block;
         notifyListeners();
         return;
@@ -163,8 +164,8 @@ class LayoutSlotView extends StatelessWidget {
   Widget build(BuildContext context) {
     final actions = controller.draft.actionsIn(slot);
     return AnimatedSize(
-      duration: const Duration(milliseconds: 160),
-      curve: Curves.easeOutCubic,
+      duration: Motion.fast,
+      curve: Motion.enter,
       alignment: AlignmentDirectional.centerStart,
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -197,7 +198,7 @@ class _SlotEnd extends StatelessWidget {
     return DragTarget<ChromeAction>(
       onWillAcceptWithDetails: (_) => true,
       onAcceptWithDetails: (d) {
-        HapticFeedback.lightImpact();
+        Haptics.press();
         controller.move(d.data, slot);
       },
       builder: (context, candidates, _) =>
@@ -326,7 +327,7 @@ class _EditFace extends StatelessWidget {
             ? Material(
                 color: scheme.surfaceContainerHighest,
                 elevation: 8,
-                borderRadius: BorderRadius.circular(12),
+                borderRadius: BorderRadius.circular(Radii.medium),
                 child: Center(child: glyph),
               )
             : CustomPaint(
@@ -339,7 +340,7 @@ class _EditFace extends StatelessWidget {
                       ),
                 child: InkWell(
                   customBorder: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
+                    borderRadius: BorderRadius.circular(Radii.medium),
                   ),
                   onTap: onTap,
                   child: Center(child: glyph),
@@ -440,7 +441,7 @@ class _EditChipState extends State<EditChip> {
       ],
     ]);
     if (choice == null) return;
-    HapticFeedback.selectionClick();
+    Haptics.select();
     widget.controller.move(widget.action, choice is LayoutSlot ? choice : null);
   }
 
@@ -469,7 +470,7 @@ class _EditChipState extends State<EditChip> {
           const Offset(_cell / 2, _cell + 24),
       onDragStarted: () {
         _travel = 0;
-        HapticFeedback.mediumImpact();
+        Haptics.press();
         widget.controller.drag(widget.action);
       },
       onDragUpdate: (d) => _travel += d.delta.distance,
@@ -495,7 +496,7 @@ class _EditChipState extends State<EditChip> {
           d.data != widget.action &&
           widget.controller.draft.canPlace(d.data, widget.slot!),
       onAcceptWithDetails: (d) {
-        HapticFeedback.lightImpact();
+        Haptics.press();
         widget.controller.move(d.data, widget.slot, index: widget.index);
       },
       builder: (context, candidates, _) {
@@ -505,7 +506,7 @@ class _EditChipState extends State<EditChip> {
               ? null
               : BoxDecoration(
                   color: scheme.primary.withValues(alpha: 0.2),
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(Radii.medium),
                 ),
           child: chip,
         );
@@ -557,7 +558,7 @@ class PartSlot extends StatelessWidget {
       onWillAcceptWithDetails: (d) =>
           d.data == part && controller.draft.canPlacePart(part, place),
       onAcceptWithDetails: (d) {
-        HapticFeedback.lightImpact();
+        Haptics.press();
         controller.placePart(part, place);
       },
       builder: (context, candidates, _) => _InsertTarget(
@@ -641,7 +642,7 @@ class _PartChipState extends State<PartChip> {
       _removeItem(context, l.layoutLockedPart),
     ]);
     if (choice is! PartPlace) return;
-    HapticFeedback.selectionClick();
+    Haptics.select();
     c.placePart(widget.part, choice);
   }
 
@@ -662,7 +663,7 @@ class _PartChipState extends State<PartChip> {
           const Offset(_cell / 2, _cell + 24),
       onDragStarted: () {
         _travel = 0;
-        HapticFeedback.mediumImpact();
+        Haptics.press();
         widget.controller.drag(widget.part);
       },
       onDragUpdate: (d) => _travel += d.delta.distance,
@@ -718,7 +719,7 @@ class FieldSideView extends StatelessWidget {
           ),
     ]);
     if (choice == null) return;
-    HapticFeedback.selectionClick();
+    Haptics.select();
     if (choice is ChromeAction) controller.move(choice, side);
     if (choice is ComposerPart) controller.placePart(choice, _place);
   }
@@ -758,7 +759,7 @@ class FieldSideView extends StatelessWidget {
                   _ => false,
                 },
                 onAcceptWithDetails: (d) {
-                  HapticFeedback.lightImpact();
+                  Haptics.press();
                   switch (d.data) {
                     case ChromeAction a:
                       controller.move(a, side);
@@ -814,7 +815,7 @@ class LayoutEditTray extends StatelessWidget {
       color: scheme.surfaceContainer,
       elevation: 6,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(Radii.large)),
       ),
       child: SafeArea(
         top: false,
@@ -893,7 +894,7 @@ class LayoutEditTray extends StatelessWidget {
       content = DragTarget<ChromeAction>(
         onWillAcceptWithDetails: (d) => spec.slotOf(d.data) != null,
         onAcceptWithDetails: (d) {
-          HapticFeedback.lightImpact();
+          Haptics.press();
           controller.move(d.data, null);
         },
         builder: (context, candidates, _) {
@@ -906,7 +907,7 @@ class LayoutEditTray extends StatelessWidget {
               color: hot
                   ? scheme.primary.withValues(alpha: 0.2)
                   : scheme.surfaceContainerHigh,
-              borderRadius: BorderRadius.circular(16),
+              borderRadius: BorderRadius.circular(Radii.medium),
             ),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.center,
@@ -931,7 +932,7 @@ class LayoutEditTray extends StatelessWidget {
         padding: const EdgeInsets.fromLTRB(2, 6, 2, 2),
         decoration: BoxDecoration(
           color: scheme.surfaceContainerHigh,
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(Radii.medium),
           border: Border.all(color: scheme.outline, width: 1.5),
         ),
         child: Column(
@@ -961,7 +962,7 @@ class LayoutEditTray extends StatelessWidget {
       );
     }
     return AnimatedSize(
-      duration: const Duration(milliseconds: 160),
+      duration: Motion.fast,
       alignment: Alignment.topCenter,
       child: content,
     );
@@ -1001,7 +1002,7 @@ class LayoutEditTray extends StatelessWidget {
                   preset(t),
                   current.contains(t),
                   () {
-                    HapticFeedback.selectionClick();
+                    Haptics.select();
                     controller.update(t.spec.copyWith(name: draft.name));
                   },
                 ),

@@ -4,6 +4,7 @@ import '../../l10n/l10n.dart';
 import '../../services/link_whitelist.dart';
 import '../../widgets/dialogs.dart';
 import 'settings_page.dart';
+import '../../widgets/design_tokens.dart';
 
 /// Lets the user manage the link-whitelist used to linkify bare/short domains
 /// (e.g. `kappa.lol`) that stock linkify skips. Entries are auto-classified as
@@ -199,7 +200,7 @@ class _TypeBadge extends StatelessWidget {
         color: isTld
             ? Colors.orange.withValues(alpha: 0.18)
             : Colors.green.withValues(alpha: 0.18),
-        borderRadius: BorderRadius.circular(4),
+        borderRadius: BorderRadius.circular(Radii.small),
       ),
       child: Text(
         isTld ? context.l10n.linkTypeTld : context.l10n.linkTypeDomain,

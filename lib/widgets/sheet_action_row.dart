@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'design_tokens.dart';
 
 /// One button in a [SheetActionRow].
 class SheetAction {
@@ -38,7 +39,7 @@ class SheetActionRow extends StatelessWidget {
           for (final action in actions)
             Expanded(
               child: InkWell(
-                borderRadius: BorderRadius.circular(8),
+                borderRadius: BorderRadius.circular(Radii.medium),
                 onTap: action.onTap,
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,

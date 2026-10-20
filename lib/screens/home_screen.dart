@@ -87,6 +87,7 @@ import '../widgets/join_channel_dialog.dart';
 import '../widgets/mod_view/dialogs.dart' show showModError;
 import '../services/fake_chat_feed.dart';
 import '../services/foreground_task.dart';
+import '../widgets/design_tokens.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
   // Test seam: when true the join ("+") button never shows its loading spinner.
@@ -821,7 +822,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       PageRouteBuilder<void>(
         fullscreenDialog: true,
         transitionDuration: Duration.zero,
-        reverseTransitionDuration: const Duration(milliseconds: 250),
+        reverseTransitionDuration: Motion.normal,
         transitionsBuilder: (_, animation, _, child) =>
             FadeTransition(opacity: animation, child: child),
         pageBuilder: (_, _, _) => IntroScreen(
@@ -1883,7 +1884,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   }
 
   Future<void> _closeEmoteSheet() {
-    iosHaptic(HapticFeedback.lightImpact);
+    Haptics.press(iosOnly: true);
     return _panelManager.closeEmoteSheet();
   }
 

@@ -4,7 +4,6 @@ import 'dart:math';
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart' show HapticFeedback;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../color_utils.dart' show highlightRowColor;
@@ -23,6 +22,8 @@ import 'ignores_screen.dart';
 import 'prefs_tiles.dart';
 import 'settings_page.dart';
 import 'settings_search.dart';
+import '../../widgets/design_tokens.dart';
+import '../../util/haptics.dart';
 
 /// Per-rule notify levels ride the Android foreground-service path; iOS has
 /// none.
@@ -240,7 +241,7 @@ class _PingsScreenState extends ConsumerState<PingsScreen> {
       _muteSteps.length - 1,
     );
     if (next == _muteDrag) return;
-    HapticFeedback.selectionClick();
+    Haptics.select();
     setState(() => _muteDrag = next);
   }
 
@@ -309,7 +310,7 @@ class _PingsScreenState extends ConsumerState<PingsScreen> {
     final moon = GestureDetector(
       onLongPressStart: canMute
           ? (d) {
-              HapticFeedback.mediumImpact();
+              Haptics.press();
               _dragMute(d.globalPosition.dx);
             }
           : null,
@@ -611,10 +612,10 @@ class _PingsScreenState extends ConsumerState<PingsScreen> {
             border: Border.all(
               color: Theme.of(context).colorScheme.outlineVariant,
             ),
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(Radii.medium),
           ),
           child: ClipRRect(
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(Radii.medium),
             child: Column(
               children: [
                 for (final (i, words) in _previewLines.indexed)
@@ -1395,7 +1396,7 @@ class _RuleEditorState extends State<_RuleEditor> {
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
         color: scheme.surfaceContainerHigh,
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(Radii.medium),
       ),
       child: Text.rich(
         TextSpan(
@@ -1450,7 +1451,7 @@ class _RuleEditorState extends State<_RuleEditor> {
         if (n > 0) ...[
           const SizedBox(height: 8),
           ClipRRect(
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(Radii.medium),
             child: Column(
               children: [
                 for (final m in matches.take(3))

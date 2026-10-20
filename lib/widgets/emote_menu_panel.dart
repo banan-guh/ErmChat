@@ -11,6 +11,7 @@ import '../util/sheet_drag.dart';
 import '../widgets/tabbed_layout.dart';
 import 'glass_chrome.dart' show kComposerIslandMargin;
 import 'emote_scale_resolver.dart';
+import 'design_tokens.dart';
 
 class EmoteMenuPanelWidget extends ConsumerStatefulWidget {
   final ScrollController scrollController;
@@ -105,7 +106,7 @@ class EmoteMenuPanelWidgetState extends ConsumerState<EmoteMenuPanelWidget> {
     final theme = Theme.of(context);
     // The island's tone, so the panel reads as the same chrome.
     final panelColor = theme.colorScheme.surfaceContainer;
-    final radius = BorderRadius.circular(16);
+    final radius = BorderRadius.circular(Radii.medium);
     return Center(
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: _maxPanelWidth),
@@ -161,7 +162,7 @@ class EmoteMenuPanelWidgetState extends ConsumerState<EmoteMenuPanelWidget> {
                   widget.sheetCtrl.animateTo(
                     widget.emoteMaxFraction,
                     duration: duration,
-                    curve: Curves.easeInOutCubicEmphasized,
+                    curve: Motion.move,
                   );
                 }
               },
@@ -179,7 +180,7 @@ class EmoteMenuPanelWidgetState extends ConsumerState<EmoteMenuPanelWidget> {
                         child: DecoratedBox(
                           decoration: BoxDecoration(
                             color: Colors.grey.shade400,
-                            borderRadius: BorderRadius.circular(2),
+                            borderRadius: BorderRadius.circular(Radii.small),
                           ),
                         ),
                       ),

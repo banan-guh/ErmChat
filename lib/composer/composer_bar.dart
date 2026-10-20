@@ -10,6 +10,7 @@ import '../widgets/send_swipe.dart';
 import '../widgets/tabbed_layout.dart' show swipeShown;
 import 'composer_controller.dart';
 import '../l10n/l10n.dart';
+import '../widgets/design_tokens.dart';
 
 // Single key for measuring the composer (snackbar margin, video sizing).
 // Shared by the pill and the in-flow wrapper: keeping it on both lets the
@@ -628,8 +629,8 @@ class _StatusRow extends StatelessWidget {
     builder: (context) {
       final channel = controller.selectedChannel;
       return AnimatedSize(
-        duration: Duration(milliseconds: classic ? 170 : 100),
-        curve: Curves.easeInOut,
+        duration: Motion.fast,
+        curve: Motion.move,
         alignment: Alignment.topCenter,
         child: channel == null
             ? const SizedBox.shrink()

@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
 import '../models/twitch_message.dart';
 import '../services/emote_manager.dart';
@@ -9,6 +8,7 @@ import '../util/haptics.dart';
 import '../util/insets.dart';
 import '../util/sheet_drag.dart';
 import '../util/thread_utils.dart';
+import 'design_tokens.dart';
 
 enum OverlayPanel { closed, thread, mentions, modView }
 
@@ -48,7 +48,7 @@ class PanelManager {
   final modSheetRatio = ValueNotifier(0.0);
   late final AnimationController panelScaleCtrl = AnimationController(
     vsync: vsync,
-    duration: const Duration(milliseconds: 200),
+    duration: Motion.normal,
     value: 1.0,
   );
   late final DraggableScrollableController emoteSheetCtrl =
@@ -57,8 +57,8 @@ class PanelManager {
   double panelDragStartRatio = 0.0;
   double panelDragStartY = 0.0;
 
-  static const sheetAnimDuration = Duration(milliseconds: 250);
-  static const sheetCloseDuration = Duration(milliseconds: 180);
+  static const sheetAnimDuration = Motion.normal;
+  static const sheetCloseDuration = Motion.normal;
   static const emoteMaxFraction = 0.6;
   static const fullHeightFraction = 1.0;
 
@@ -144,7 +144,7 @@ class PanelManager {
     final animation = Tween(
       begin: from,
       end: to,
-    ).animate(CurvedAnimation(parent: controller, curve: Curves.easeOutCubic));
+    ).animate(CurvedAnimation(parent: controller, curve: Motion.enter));
     void listener() {
       ratio.value = animation.value;
     }
@@ -206,7 +206,7 @@ class PanelManager {
                 height: 4,
                 decoration: BoxDecoration(
                   color: Colors.grey.shade400,
-                  borderRadius: BorderRadius.circular(2),
+                  borderRadius: BorderRadius.circular(Radii.small),
                 ),
               ),
             ),
@@ -365,7 +365,7 @@ class PanelManager {
     required EmoteManager emoteManager,
     required Map<String, String> channelUserIds,
   }) {
-    iosHaptic(HapticFeedback.lightImpact);
+    Haptics.press(iosOnly: true);
     if (selectedChannel != null &&
         !emoteManager.hasChannelCache(selectedChannel)) {
       unawaited(
@@ -388,7 +388,7 @@ class PanelManager {
         emoteSheetCtrl.animateTo(
           emoteMaxFraction,
           duration: sheetAnimDuration,
-          curve: Curves.easeInOutCubicEmphasized,
+          curve: Motion.move,
         ),
       );
     });
@@ -411,11 +411,7 @@ class PanelManager {
       final gen = ++_emoteCloseGen;
       unawaited(
         emoteSheetCtrl
-            .animateTo(
-              0,
-              duration: duration,
-              curve: Curves.easeInOutCubicEmphasized,
-            )
+            .animateTo(0, duration: duration, curve: Motion.move)
             .then((_) {
               // A reopen mid-close owns the sheet now.
               if (!isMounted() || gen != _emoteCloseGen) return;

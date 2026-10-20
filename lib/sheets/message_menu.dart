@@ -34,7 +34,7 @@ class MessageMenus {
   final void Function(BuildContext context, TwitchMessage msg) deleteMessage;
 
   void showMessageMenu(BuildContext context, TwitchMessage msg) {
-    iosHaptic(HapticFeedback.mediumImpact);
+    Haptics.press(iosOnly: true);
     final threadRoot = findThreadRoot(msg);
     final hasThread = threadRoot != null;
     showModalBottomSheet(

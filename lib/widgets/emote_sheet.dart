@@ -9,6 +9,7 @@ import '../emotes/emote.dart';
 import '../emotes/emote_picker.dart';
 import '../services/emote_images.dart';
 import '../util/layout_density.dart';
+import 'design_tokens.dart';
 
 class EmoteSheet extends StatefulWidget {
   final List<Emote> emotes;
@@ -165,7 +166,7 @@ class _EmoteSheetState extends State<EmoteSheet>
               Padding(
                 padding: const EdgeInsets.only(bottom: 8),
                 child: ClipRRect(
-                  borderRadius: BorderRadius.circular(8),
+                  borderRadius: BorderRadius.circular(Radii.medium),
                   child: SizedBox(
                     width: 128,
                     height: 128,
@@ -302,7 +303,7 @@ class _EmoteSheetState extends State<EmoteSheet>
               height: 4,
               decoration: BoxDecoration(
                 color: Colors.grey[400],
-                borderRadius: BorderRadius.circular(2),
+                borderRadius: BorderRadius.circular(Radii.small),
               ),
             ),
           ),

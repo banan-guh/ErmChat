@@ -6,6 +6,7 @@ import '../chat/chat.dart';
 import '../l10n/l10n.dart';
 import '../models/twitch_message.dart';
 import '../util/chat_search.dart';
+import '../widgets/design_tokens.dart';
 
 // Hide drops non-matches; dim fades them in place.
 enum ChatSearchDisplay { hide, dim }
@@ -295,7 +296,7 @@ class SearchPanels {
         child: Material(
           type: MaterialType.transparency,
           child: InkWell(
-            borderRadius: BorderRadius.circular(24),
+            borderRadius: BorderRadius.circular(Radii.large),
             onTap: () => closeSearch(focusComposer: true),
             child: ListenableBuilder(
               listenable: focusNode,
@@ -325,9 +326,7 @@ class SearchPanels {
         // above the keyboard. Top-down growth, like every popup.
         position: PopupMenuPosition.over,
         offset: const Offset(0, -_menuH),
-        popUpAnimationStyle: const AnimationStyle(
-          duration: Duration(milliseconds: 175),
-        ),
+        popUpAnimationStyle: const AnimationStyle(duration: Motion.fast),
         onSelected: (value) {
           final channel = selectedChannel();
           if (channel != null) _select(channel, value);

@@ -6,6 +6,7 @@ import '../l10n/l10n.dart';
 import '../services/twitch_auth.dart';
 import 'settings/account_screen.dart';
 import 'settings/language_screen.dart';
+import '../widgets/design_tokens.dart';
 
 /// First-install introduction: full-screen pages that showcase features.
 /// Each page carries its control, untouched unless the user taps it; nothing
@@ -48,10 +49,7 @@ class _IntroScreenState extends State<IntroScreen> {
       Navigator.pop(context);
       return;
     }
-    _pages.nextPage(
-      duration: const Duration(milliseconds: 300),
-      curve: Curves.easeOutCubic,
-    );
+    _pages.nextPage(duration: Motion.slow, curve: Motion.enter);
   }
 
   Future<void> _logIn() async {
@@ -191,7 +189,7 @@ class _IntroScreenState extends State<IntroScreen> {
                 children: [
                   for (var i = 0; i < _pageCount; i++)
                     AnimatedContainer(
-                      duration: const Duration(milliseconds: 200),
+                      duration: Motion.normal,
                       margin: const EdgeInsets.only(right: 6),
                       width: i == _page ? 20 : 8,
                       height: 8,
@@ -199,7 +197,7 @@ class _IntroScreenState extends State<IntroScreen> {
                         color: i == _page
                             ? theme.colorScheme.primary
                             : theme.colorScheme.outlineVariant,
-                        borderRadius: BorderRadius.circular(4),
+                        borderRadius: BorderRadius.circular(Radii.small),
                       ),
                     ),
                   const Spacer(),
@@ -305,11 +303,11 @@ class _EmoteTourState extends State<_EmoteTour> {
       shotHeight - _frameHeight,
     );
     const duration = Duration(milliseconds: 500);
-    const curve = Curves.easeInOutCubic;
+    const curve = Motion.move;
     return Column(
       children: [
         ClipRRect(
-          borderRadius: BorderRadius.circular(20),
+          borderRadius: BorderRadius.circular(Radii.large),
           child: SizedBox(
             width: _frameWidth,
             height: _frameHeight,
@@ -342,7 +340,7 @@ class _EmoteTourState extends State<_EmoteTour> {
                           color: theme.colorScheme.primary,
                           width: 2,
                         ),
-                        borderRadius: BorderRadius.circular(12),
+                        borderRadius: BorderRadius.circular(Radii.medium),
                       ),
                     ),
                   ),
@@ -356,7 +354,7 @@ class _EmoteTourState extends State<_EmoteTour> {
           width: _frameWidth,
           height: 48,
           child: AnimatedSwitcher(
-            duration: const Duration(milliseconds: 300),
+            duration: Motion.slow,
             child: Text(
               captions[_index],
               key: ValueKey(_index),

@@ -24,6 +24,7 @@ import '../widgets/message_builder.dart';
 import '../widgets/panel_manager.dart';
 import '../widgets/user_profile_sheet.dart';
 import 'message_menu.dart';
+import '../widgets/design_tokens.dart';
 
 // Speed above which release direction overrides distance when choosing the
 // user-card target. Mirrors the framework's dismiss-fling scale.
@@ -204,7 +205,7 @@ class UserSheets {
       sheetController.animateTo(
         target,
         duration: PanelManager.sheetAnimDuration,
-        curve: Curves.easeOutCubic,
+        curve: Motion.enter,
       );
     }
 
@@ -289,7 +290,7 @@ class UserSheets {
       sheetController.animateTo(
         target,
         duration: PanelManager.sheetAnimDuration,
-        curve: Curves.easeOutCubic,
+        curve: Motion.enter,
       );
     }
 
@@ -307,9 +308,7 @@ class UserSheets {
       enableDrag: false,
       // Dismissal pops mid-fling, so the exit must start fast and ease out.
       // The stock reverse curve starts flat, stalling the released sheet.
-      sheetAnimationStyle: const AnimationStyle(
-        reverseCurve: Curves.easeInCubic,
-      ),
+      sheetAnimationStyle: const AnimationStyle(reverseCurve: Motion.exit),
       builder: (ctx) {
         var tracker = VelocityTracker.withKind(PointerDeviceKind.touch);
         var sizeAtDown = initialChildSize;
@@ -375,7 +374,7 @@ class UserSheets {
               sheetController.animateTo(
                 target,
                 duration: PanelManager.sheetAnimDuration,
-                curve: Curves.easeOutCubic,
+                curve: Motion.enter,
               );
             },
             child: LayoutBuilder(

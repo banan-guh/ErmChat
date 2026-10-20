@@ -3,7 +3,6 @@ import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
-import 'package:flutter/services.dart' show HapticFeedback;
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -26,6 +25,7 @@ import 'badge_chip.dart';
 import 'chat_rows.dart';
 import 'mod_view.dart';
 import 'sheet_action_row.dart';
+import 'design_tokens.dart';
 
 class UserProfileSheet extends StatefulWidget {
   final String username;
@@ -234,11 +234,11 @@ class UserProfileSheetState extends State<UserProfileSheet> {
 
   void _onArrowTap() {
     if (!_scrollController.hasClients) return;
-    iosHaptic(HapticFeedback.lightImpact);
+    Haptics.press(iosOnly: true);
     _scrollController.animateTo(
       _scrollController.position.minScrollExtent,
-      duration: const Duration(milliseconds: 250),
-      curve: Curves.easeOut,
+      duration: Motion.normal,
+      curve: Motion.enter,
     );
   }
 
@@ -365,7 +365,7 @@ class UserProfileSheetState extends State<UserProfileSheet> {
 
   // Top rounding follows the sheet theme; falls back to the M3 default.
   BorderRadius _topRadius(ThemeData theme) {
-    const fallback = BorderRadius.vertical(top: Radius.circular(28));
+    const fallback = BorderRadius.vertical(top: Radius.circular(Radii.large));
     final shape = theme.bottomSheetTheme.shape;
     if (shape is RoundedRectangleBorder) {
       final resolved = shape.borderRadius.resolve(Directionality.of(context));
@@ -487,7 +487,7 @@ class UserProfileSheetState extends State<UserProfileSheet> {
                       bottom: 16 + MediaQuery.paddingOf(context).bottom,
                       child: AnimatedOpacity(
                         opacity: shown ? 1 : 0,
-                        duration: const Duration(milliseconds: 200),
+                        duration: Motion.normal,
                         child: IgnorePointer(
                           ignoring: !shown,
                           child: ExcludeSemantics(
@@ -553,7 +553,7 @@ class UserProfileSheetState extends State<UserProfileSheet> {
               height: 4,
               decoration: BoxDecoration(
                 color: Colors.grey[400],
-                borderRadius: BorderRadius.circular(2),
+                borderRadius: BorderRadius.circular(Radii.small),
               ),
             ),
           ),
@@ -578,7 +578,7 @@ class UserProfileSheetState extends State<UserProfileSheet> {
             ignoring: _loading,
             child: AnimatedOpacity(
               opacity: _loading ? 0.5 : 1,
-              duration: const Duration(milliseconds: 150),
+              duration: Motion.fast,
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: actions,
@@ -638,7 +638,7 @@ class UserProfileSheetState extends State<UserProfileSheet> {
             height: 64,
             decoration: BoxDecoration(
               color: theme.colorScheme.surfaceContainerHighest,
-              borderRadius: BorderRadius.circular(8),
+              borderRadius: BorderRadius.circular(Radii.medium),
             ),
             child: Icon(
               Icons.person,
@@ -688,7 +688,7 @@ class UserProfileSheetState extends State<UserProfileSheet> {
         Row(
           children: [
             ClipRRect(
-              borderRadius: BorderRadius.circular(8),
+              borderRadius: BorderRadius.circular(Radii.medium),
               child: _profile == null
                   ? avatarSlot
                   : CachedNetworkImage(
@@ -1129,7 +1129,7 @@ class UserProfileSheetState extends State<UserProfileSheet> {
                     ignoring: !_modOpen,
                     child: AnimatedOpacity(
                       opacity: _modOpen ? 1 : 0,
-                      duration: const Duration(milliseconds: 120),
+                      duration: Motion.fast,
                       // A Material, so the overlaid tiles keep their ink.
                       child: Material(
                         color: surface,

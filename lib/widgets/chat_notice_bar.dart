@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import 'app_snack.dart';
+import 'design_tokens.dart';
 
 // Inline chat notice: lives in the chat column above the composer, so it
 // tracks keyboard and composer height changes by layout instead of a
@@ -97,8 +98,8 @@ class ChatNoticeBar extends StatelessWidget {
       builder: (context, _) {
         final notice = controller.current;
         return AnimatedSize(
-          duration: const Duration(milliseconds: 200),
-          curve: Curves.easeInOut,
+          duration: Motion.normal,
+          curve: Motion.move,
           alignment: Alignment.bottomCenter,
           child: notice == null
               ? const SizedBox.shrink()
@@ -110,7 +111,7 @@ class ChatNoticeBar extends StatelessWidget {
                     onDismissed: (_) => controller.dismiss(),
                     child: Material(
                       color: Theme.of(context).colorScheme.inverseSurface,
-                      borderRadius: BorderRadius.circular(8),
+                      borderRadius: BorderRadius.circular(Radii.medium),
                       elevation: 3,
                       child: Padding(
                         padding: const EdgeInsets.fromLTRB(16, 14, 8, 14),

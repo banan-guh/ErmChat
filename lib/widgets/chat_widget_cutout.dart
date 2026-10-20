@@ -14,6 +14,7 @@ import 'mod_view/dialogs.dart' show showModError;
 import 'painted_username_text.dart';
 import 'seven_tv_paint_service.dart';
 import 'tabbed_layout.dart';
+import 'design_tokens.dart';
 
 // The cards' controls sit in their top-right corner, inset
 // [TabbedLayout.cardInset], in one row of small buttons: the header row.
@@ -225,7 +226,7 @@ class _ChatWidgetCutoutState extends State<ChatWidgetCutout> {
                       children: [
                         for (var i = 0; i < pages.length; i++)
                           AnimatedContainer(
-                            duration: const Duration(milliseconds: 150),
+                            duration: Motion.fast,
                             width: i == current ? 14 : 6,
                             height: 6,
                             margin: const EdgeInsets.symmetric(horizontal: 2),
@@ -233,7 +234,7 @@ class _ChatWidgetCutoutState extends State<ChatWidgetCutout> {
                               color: i == current
                                   ? theme.colorScheme.primary
                                   : theme.colorScheme.outlineVariant,
-                              borderRadius: BorderRadius.circular(3),
+                              borderRadius: BorderRadius.circular(Radii.small),
                             ),
                           ),
                       ],
@@ -313,7 +314,7 @@ Widget _cardSurface(
     return glassCard(
       child: Material(
         type: MaterialType.transparency,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(Radii.medium),
         clipBehavior: Clip.antiAlias,
         child: child,
       ),
@@ -322,7 +323,9 @@ Widget _cardSurface(
   return Material(
     // The top bar's color, so the cards read as part of the chrome.
     color: theme.colorScheme.surfaceContainer,
-    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+    shape: RoundedRectangleBorder(
+      borderRadius: BorderRadius.circular(Radii.medium),
+    ),
     clipBehavior: Clip.antiAlias,
     child: child,
   );
@@ -344,14 +347,14 @@ class _CarriedInkState extends State<_CarriedInk>
     with SingleTickerProviderStateMixin {
   late final _fade = AnimationController(
     vsync: this,
-    duration: const Duration(milliseconds: 300),
+    duration: Motion.slow,
     value: widget.active ? 1 : 0,
   );
 
   @override
   void initState() {
     super.initState();
-    if (widget.active) _fade.animateTo(0, curve: Curves.easeOut);
+    if (widget.active) _fade.animateTo(0, curve: Motion.enter);
   }
 
   @override
@@ -575,7 +578,7 @@ class _HypeTrainCardState extends State<HypeTrainCard> {
           ),
           const SizedBox(height: 4),
           ClipRRect(
-            borderRadius: BorderRadius.circular(4),
+            borderRadius: BorderRadius.circular(Radii.small),
             child: LinearProgressIndicator(value: ratio, minHeight: 8),
           ),
           const SizedBox(height: 4),
@@ -623,9 +626,7 @@ class _PinMenu extends StatelessWidget {
     icon: const Icon(Icons.more_vert, size: 18),
     padding: EdgeInsets.zero,
     style: _controlStyle,
-    popUpAnimationStyle: const AnimationStyle(
-      duration: Duration(milliseconds: 175),
-    ),
+    popUpAnimationStyle: const AnimationStyle(duration: Motion.fast),
     itemBuilder: (menuContext) => [
       if (onUnpin case final unpin?)
         PopupMenuItem(
@@ -843,7 +844,7 @@ class _ResultBar extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.only(bottom: 4),
       child: ClipRRect(
-        borderRadius: BorderRadius.circular(6),
+        borderRadius: BorderRadius.circular(Radii.small),
         child: SizedBox(
           height: 24,
           child: Stack(

@@ -13,6 +13,7 @@ import 'prefs_tiles.dart';
 import 'settings_page.dart';
 import 'setting_info.dart';
 import 'settings_search.dart';
+import '../../widgets/design_tokens.dart';
 
 class CustomizationScreen extends StatefulWidget {
   const CustomizationScreen({super.key, this.onEditLayout});
@@ -345,9 +346,9 @@ class _AccentSwatch extends StatelessWidget {
         : Colors.black;
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(24),
+      borderRadius: BorderRadius.circular(Radii.large),
       child: AnimatedContainer(
-        duration: const Duration(milliseconds: 150),
+        duration: Motion.fast,
         width: 40,
         height: 40,
         decoration: BoxDecoration(
@@ -388,7 +389,7 @@ class _ThemePickerSheet extends StatelessWidget {
               height: 4,
               decoration: BoxDecoration(
                 color: Colors.grey[400],
-                borderRadius: BorderRadius.circular(2),
+                borderRadius: BorderRadius.circular(Radii.small),
               ),
             ),
           ),
@@ -451,7 +452,7 @@ class _LayoutPickerSheet extends StatelessWidget {
               height: 4,
               decoration: BoxDecoration(
                 color: Colors.grey[400],
-                borderRadius: BorderRadius.circular(2),
+                borderRadius: BorderRadius.circular(Radii.small),
               ),
             ),
           ),
@@ -596,7 +597,7 @@ class _GlassSwatch extends StatelessWidget {
         ? glassIsland(child: const SizedBox.expand())
         : DecoratedBox(
             decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(10),
+              borderRadius: BorderRadius.circular(Radii.medium),
               border: Border.all(
                 color: Theme.of(context).colorScheme.outlineVariant,
               ),

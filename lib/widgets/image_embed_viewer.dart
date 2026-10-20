@@ -1,6 +1,7 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import '../l10n/l10n.dart';
+import 'design_tokens.dart';
 
 /// Full-screen viewer for an expanded chat image embed.
 Future<void> showImageEmbedViewer(BuildContext context, String url) {
@@ -9,7 +10,7 @@ Future<void> showImageEmbedViewer(BuildContext context, String url) {
     barrierDismissible: true,
     barrierLabel: context.l10n.dismissImage,
     barrierColor: Colors.black.withValues(alpha: 0.8),
-    transitionDuration: const Duration(milliseconds: 150),
+    transitionDuration: Motion.fast,
     pageBuilder: (_, _, _) => _ImageEmbedViewer(url: url),
     transitionBuilder: (_, animation, _, child) =>
         FadeTransition(opacity: animation, child: child),
@@ -33,11 +34,11 @@ class _ImageEmbedViewerState extends State<_ImageEmbedViewer>
   /// Snap-back driver for under-threshold releases.
   late final AnimationController _snapBack = AnimationController(
     vsync: this,
-    duration: const Duration(milliseconds: 150),
+    duration: Motion.fast,
   );
   late final CurvedAnimation _snapCurve = CurvedAnimation(
     parent: _snapBack,
-    curve: Curves.easeOut,
+    curve: Motion.enter,
   );
   double _snapFrom = 0;
 

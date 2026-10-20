@@ -7,6 +7,7 @@ import 'dialogs.dart';
 import 'scope.dart';
 import 'widgets.dart';
 import '../glass_chrome.dart';
+import '../design_tokens.dart';
 
 /// AutoMod held-message queue with per-category filters.
 class QueueTab extends ModTabWidget {
@@ -219,7 +220,7 @@ class _HeldCard extends StatelessWidget {
                     ),
                     decoration: BoxDecoration(
                       color: theme.colorScheme.surfaceContainerHighest,
-                      borderRadius: BorderRadius.circular(10),
+                      borderRadius: BorderRadius.circular(Radii.medium),
                     ),
                     child: Text(
                       held.category,

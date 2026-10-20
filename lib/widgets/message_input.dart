@@ -9,6 +9,7 @@ import '../util/thread_utils.dart';
 import '../l10n/l10n.dart';
 import 'media_upload_controller.dart';
 import 'send_swipe.dart';
+import 'design_tokens.dart';
 
 class MessageInput extends StatelessWidget {
   final TextEditingController controller;
@@ -344,7 +345,7 @@ class _ReplyHeaderState extends State<ReplyHeader>
     with SingleTickerProviderStateMixin {
   late final AnimationController _controller = AnimationController(
     vsync: this,
-    duration: const Duration(milliseconds: 220),
+    duration: Motion.normal,
   )..forward();
 
   // The framework flings the controller to 0 on a dismiss drag; clear the
@@ -406,7 +407,7 @@ class _ReplyHeaderState extends State<ReplyHeader>
             // The island's tone and no rim, so it reads as the same chrome.
             decoration: BoxDecoration(
               color: theme.colorScheme.surfaceContainer,
-              borderRadius: BorderRadius.circular(16),
+              borderRadius: BorderRadius.circular(Radii.medium),
             ),
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -419,7 +420,7 @@ class _ReplyHeaderState extends State<ReplyHeader>
                     child: DecoratedBox(
                       decoration: BoxDecoration(
                         color: Colors.grey.shade400,
-                        borderRadius: BorderRadius.circular(2),
+                        borderRadius: BorderRadius.circular(Radii.small),
                       ),
                     ),
                   ),

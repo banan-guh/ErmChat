@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../../l10n/l10n.dart';
 import '../../util/data_usage.dart';
 import 'settings_page.dart';
+import '../../widgets/design_tokens.dart';
 
 /// Bytes downloaded and sent since the app started, by source, largest
 /// first. Refreshes every second while open.
@@ -65,7 +66,7 @@ class _DataUsageScreenState extends State<DataUsageScreen> {
         children: [
           Text(l.settingDataUsage),
           AnimatedSwitcher(
-            duration: const Duration(milliseconds: 200),
+            duration: Motion.normal,
             child: Text(
               scope,
               key: ValueKey(_mobileOnly),
@@ -186,13 +187,13 @@ class _NetworkToggle extends StatelessWidget {
           child: GestureDetector(
             onTap: () => onChanged(value),
             child: AnimatedContainer(
-              duration: const Duration(milliseconds: 200),
-              curve: Curves.easeOut,
+              duration: Motion.normal,
+              curve: Motion.enter,
               width: 36,
               height: 28,
               decoration: BoxDecoration(
                 color: selected ? scheme.primaryContainer : Colors.transparent,
-                borderRadius: BorderRadius.circular(14),
+                borderRadius: BorderRadius.circular(Radii.medium),
               ),
               child: Icon(
                 icon,
@@ -211,7 +212,7 @@ class _NetworkToggle extends StatelessWidget {
       padding: const EdgeInsets.all(2),
       decoration: BoxDecoration(
         color: scheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(Radii.medium),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,

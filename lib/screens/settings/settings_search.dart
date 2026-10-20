@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 
 import '../../l10n/l10n.dart';
+import '../../widgets/design_tokens.dart';
 
 /// Settings pages a search result can open.
 enum SettingsPageId {
@@ -966,8 +967,8 @@ class _SettingAnchorState extends State<SettingAnchor>
       await Scrollable.ensureVisible(
         context,
         alignment: 0.3,
-        duration: const Duration(milliseconds: 250),
-        curve: Curves.easeOutCubic,
+        duration: Motion.normal,
+        curve: Motion.enter,
       );
       if (mounted) unawaited(_pulse.forward(from: 0));
     });

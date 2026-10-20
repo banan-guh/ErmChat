@@ -4,6 +4,7 @@ import '../../l10n/l10n.dart';
 import '../../util/constants.dart';
 import '../../widgets/join_channel_dialog.dart';
 import 'settings_page.dart';
+import '../../widgets/design_tokens.dart';
 
 class ChannelSettingsScreen extends StatefulWidget {
   final ValueNotifier<List<String>> channelNotifier;
@@ -102,7 +103,7 @@ class _ChannelSettingsScreenState extends State<ChannelSettingsScreen> {
   }
 
   Widget _proxyDecorator(Widget child, int index, Animation<double> animation) {
-    final t = Curves.easeInOut.transform(animation.value);
+    final t = Motion.move.transform(animation.value);
     return Material(
       color: Color.lerp(
         Theme.of(context).colorScheme.surface,
@@ -110,7 +111,7 @@ class _ChannelSettingsScreenState extends State<ChannelSettingsScreen> {
         0.08 * t,
       ),
       elevation: 4 + 6 * t,
-      borderRadius: BorderRadius.circular(8),
+      borderRadius: BorderRadius.circular(Radii.medium),
       clipBehavior: Clip.antiAlias,
       child: Transform.scale(scale: 1.0 + 0.02 * t, child: child),
     );
@@ -198,9 +199,9 @@ class _ReorderableChannelTileState extends State<_ReorderableChannelTile>
                       color: Color.lerp(
                         Colors.transparent,
                         Colors.white,
-                        Curves.easeOut.transform(_charge.value) * 0.35,
+                        Motion.enter.transform(_charge.value) * 0.35,
                       ),
-                      borderRadius: BorderRadius.circular(8),
+                      borderRadius: BorderRadius.circular(Radii.medium),
                     ),
                   ),
                 ),

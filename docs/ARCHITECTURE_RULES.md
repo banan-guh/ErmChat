@@ -112,7 +112,13 @@ composition root     lib/providers
 6. **Time is injected.** Timing code takes an injectable clock, and per-item periodic
    work joins a shared tick instead of starting a timer per item.
 
-7. **Size is not a rule, coupling is.** There is no line budget. A file that every
+7. **UI values come from the tokens.** Animation durations and curves use `Motion`,
+   corner radii use `Radii` (`lib/widgets/design_tokens.dart`), haptics use
+   `Haptics` (`lib/util/haptics.dart`), snackbars use `AppSnack`, and dialogs use the
+   shared kit in `lib/widgets/dialogs.dart`. A new value means changing the scale, not
+   a one-off literal.
+
+8. **Size is not a rule, coupling is.** There is no line budget. A file that every
    feature has to edit in unrelated places is the signal to extract, along ownership
    lines rather than by line count.
 

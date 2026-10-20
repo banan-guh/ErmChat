@@ -2,7 +2,6 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
 import '../composer/composer_controller.dart';
 import '../panels/threads.dart';
@@ -159,7 +158,7 @@ class ChannelManager {
     unawaited(closePanel());
     var clearedUnread = 0;
     void mutate() {
-      iosHaptic(HapticFeedback.selectionClick);
+      Haptics.select(iosOnly: true);
       clearedUnread = session.selectChannel(channel) ?? 0;
       composer.refreshCooldown();
       threads.clearOpenThread();

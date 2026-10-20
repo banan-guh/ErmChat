@@ -4,13 +4,14 @@ import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 
 import '../l10n/l10n.dart';
 import '../util/history_timeline.dart';
 import 'glass_chrome.dart';
+import 'design_tokens.dart';
+import '../util/haptics.dart';
 
 /// The days of a history list, opened from the menu's calendar: a full-height
 /// drawer that slides in from the right edge over the whole app, one row per
@@ -84,7 +85,7 @@ class _HistoryDaysState extends State<HistoryDays>
   static const double _header = 48;
   static const double _pad = 12;
   static const double _radius = 24;
-  static const Duration _duration = Duration(milliseconds: 200);
+  static const Duration _duration = Motion.normal;
 
   final OverlayPortalController _portal = OverlayPortalController();
 
@@ -95,7 +96,7 @@ class _HistoryDaysState extends State<HistoryDays>
   );
   late final Animation<double> _curve = CurvedAnimation(
     parent: _anim,
-    curve: Curves.easeOutCubic,
+    curve: Motion.enter,
   );
 
   /// 0 with the days listed, 1 with [_picked] shown.
@@ -105,7 +106,7 @@ class _HistoryDaysState extends State<HistoryDays>
   );
   late final Animation<double> _expandCurve = CurvedAnimation(
     parent: _expand,
-    curve: Curves.easeOutCubic,
+    curve: Motion.enter,
   );
 
   DateFormat? _dayLabel;
@@ -227,7 +228,7 @@ class _HistoryDaysState extends State<HistoryDays>
   }
 
   void _open(int i) {
-    HapticFeedback.selectionClick();
+    Haptics.select();
     setState(() => _pick(i));
     _expand.forward();
   }
@@ -265,7 +266,7 @@ class _HistoryDaysState extends State<HistoryDays>
     final p = ((y - _barTop) / _barH).clamp(0.0, 1.0);
     _touch.value = p;
     final hour = widget.rail.local(_scale!.timeAt(p)).hour;
-    if (_lastHour >= 0 && hour != _lastHour) HapticFeedback.selectionClick();
+    if (_lastHour >= 0 && hour != _lastHour) Haptics.select();
     _lastHour = hour;
   }
 
@@ -500,7 +501,7 @@ class _HistoryDaysState extends State<HistoryDays>
       padding: const EdgeInsets.symmetric(vertical: 2),
       child: Material(
         color: on ? scheme.primary.withValues(alpha: 0.16) : Colors.transparent,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(Radii.medium),
         clipBehavior: Clip.antiAlias,
         child: InkWell(
           onTap: _picked == null ? () => _open(i) : null,
@@ -593,7 +594,7 @@ class _HistoryDaysState extends State<HistoryDays>
         child: DecoratedBox(
           decoration: BoxDecoration(
             color: scheme.primary,
-            borderRadius: BorderRadius.circular(14),
+            borderRadius: BorderRadius.circular(Radii.medium),
           ),
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 10),

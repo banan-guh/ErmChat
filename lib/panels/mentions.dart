@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
 import '../chat/chat.dart';
 import '../client/session.dart';
@@ -222,7 +221,7 @@ class MentionsPanels {
   }
 
   void _onMentionsFocus(int index) {
-    iosHaptic(HapticFeedback.selectionClick);
+    Haptics.select(iosOnly: true);
     if (index == 1 && unreadWhispers > 0) {
       chat.markWhispersSeen(unreadWhispers);
       unreadWhispers = 0;

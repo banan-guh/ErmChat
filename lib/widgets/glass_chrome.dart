@@ -8,6 +8,7 @@ import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 
 import '../util/insets.dart';
 import '../util/log.dart';
+import 'design_tokens.dart';
 
 // Shared metrics and builders for the liquid glass chrome. The header block
 // fuses the app bar and the channel tab strip, so both layers derive its
@@ -221,8 +222,8 @@ Widget glassHeaderBar({
   ignoring: hidden,
   child: TweenAnimationBuilder<double>(
     tween: Tween(end: hidden ? 0 : 1),
-    duration: const Duration(milliseconds: 200),
-    curve: Curves.easeInOut,
+    duration: Motion.normal,
+    curve: Motion.move,
     child: Padding(
       padding: const EdgeInsets.fromLTRB(
         kGlassEdgeBleed,
@@ -292,8 +293,8 @@ class ComposerFocusGlow extends StatelessWidget {
           final fill = surface;
           if (fill != null) {
             return AnimatedContainer(
-              duration: const Duration(milliseconds: 150),
-              curve: Curves.easeOut,
+              duration: Motion.fast,
+              curve: Motion.enter,
               decoration: ShapeDecoration(
                 shape: shape,
                 color: lit
@@ -304,8 +305,8 @@ class ComposerFocusGlow extends StatelessWidget {
             );
           }
           return AnimatedContainer(
-            duration: const Duration(milliseconds: 150),
-            curve: Curves.easeOut,
+            duration: Motion.fast,
+            curve: Motion.enter,
             foregroundDecoration: ShapeDecoration(
               shape: shape,
               color: primary.withValues(alpha: lit ? 0.12 : 0),
@@ -347,10 +348,7 @@ class _IslandBusyRingState extends State<IslandBusyRing>
     vsync: this,
     duration: _IslandRingPainter.cycle * _IslandRingPainter.cyclesPerLap,
   );
-  late final _fade = AnimationController(
-    vsync: this,
-    duration: const Duration(milliseconds: 200),
-  );
+  late final _fade = AnimationController(vsync: this, duration: Motion.normal);
 
   @override
   void initState() {

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../l10n/l10n.dart';
 import 'scope.dart';
+import '../design_tokens.dart';
 
 class ModSectionHeader extends StatelessWidget {
   const ModSectionHeader(this.title, {super.key});
@@ -258,9 +259,9 @@ class ModTile extends StatelessWidget {
       opacity: dimmed || onTap == null ? 0.55 : 1.0,
       child: Material(
         color: bg,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(Radii.medium),
         child: InkWell(
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(Radii.medium),
           onTap: busy ? null : onTap,
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),

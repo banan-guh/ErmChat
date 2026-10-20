@@ -8,6 +8,7 @@ import 'package:http/http.dart' as http;
 
 import '../util/log.dart';
 import 'image_embed_viewer.dart';
+import 'design_tokens.dart';
 
 /// Inline preview for an image link. Streams the bytes itself so it can
 /// count progress and drop anything that is not an image (a video, a web
@@ -291,7 +292,7 @@ class _EmbedProgress extends StatelessWidget {
       alignment: Alignment.center,
       decoration: BoxDecoration(
         color: theme.colorScheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(6),
+        borderRadius: BorderRadius.circular(Radii.small),
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,

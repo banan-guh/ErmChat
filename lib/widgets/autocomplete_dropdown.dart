@@ -4,6 +4,7 @@ import '../emotes/emote.dart';
 import '../emotes/emote_picker.dart';
 import '../services/emote_images.dart';
 import '../composer/suggestion.dart';
+import 'design_tokens.dart';
 
 class AutocompleteDropdown extends StatefulWidget {
   final List<Suggestion> suggestions;
@@ -33,9 +34,9 @@ class _AutocompleteDropdownState extends State<AutocompleteDropdown> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return AnimatedSwitcher(
-      duration: const Duration(milliseconds: 150),
-      switchInCurve: Curves.decelerate,
-      switchOutCurve: Curves.easeIn,
+      duration: Motion.fast,
+      switchInCurve: Motion.enter,
+      switchOutCurve: Motion.exit,
       transitionBuilder: (child, animation) => FadeTransition(
         opacity: animation,
         child: SizeTransition(
@@ -48,8 +49,8 @@ class _AutocompleteDropdownState extends State<AutocompleteDropdown> {
       child: widget.suggestions.isEmpty
           ? const SizedBox.shrink()
           : AnimatedSize(
-              duration: const Duration(milliseconds: 300),
-              curve: Curves.ease,
+              duration: Motion.slow,
+              curve: Motion.move,
               alignment: Alignment.topCenter,
               child: _buildChild(theme),
             ),

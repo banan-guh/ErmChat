@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
 import '../emotes/emote.dart';
 import '../models/twitch_message.dart';
@@ -287,7 +286,7 @@ class ComposerController {
   }
 
   void send() {
-    iosHaptic(HapticFeedback.lightImpact);
+    Haptics.press(iosOnly: true);
     clearSuggestions();
 
     final text = messageController.text.trim();

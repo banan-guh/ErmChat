@@ -14,6 +14,7 @@ import '../../widgets/emote_frame_rate.dart';
 import 'settings_page.dart';
 import 'setting_info.dart';
 import 'settings_search.dart';
+import '../../widgets/design_tokens.dart';
 
 class EmotesSettingsScreen extends StatefulWidget {
   final ValueChanged<int>? onEmoteTierChanged;
@@ -433,8 +434,8 @@ class _EmoteQualitySectionState extends State<EmoteQualitySection> {
           ),
         ),
         TweenAnimationBuilder<double>(
-          duration: const Duration(milliseconds: 350),
-          curve: Curves.easeInOut,
+          duration: Motion.slow,
+          curve: Motion.move,
           tween: Tween<double>(end: displayTier.index.toDouble()),
           builder: (context, animatedValue, _) {
             return Column(
@@ -446,7 +447,7 @@ class _EmoteQualitySectionState extends State<EmoteQualitySection> {
                     vertical: 8,
                   ),
                   child: AnimatedSwitcher(
-                    duration: const Duration(milliseconds: 250),
+                    duration: Motion.normal,
                     child: Text(
                       _tierLabel(context.l10n, displayTier),
                       key: ValueKey('tier_label_${displayTier.label}'),
@@ -476,7 +477,7 @@ class _EmoteQualitySectionState extends State<EmoteQualitySection> {
             child: Align(
               alignment: Alignment.centerLeft,
               child: AnimatedSwitcher(
-                duration: const Duration(milliseconds: 250),
+                duration: Motion.normal,
                 child: autoOn
                     ? Text(
                         isMobile

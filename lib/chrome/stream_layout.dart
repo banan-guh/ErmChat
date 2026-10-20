@@ -14,6 +14,7 @@ import '../widgets/stream_player_view.dart';
 import '../widgets/tabbed_layout.dart';
 import 'channel_stack.dart';
 import 'home_app_bar.dart';
+import '../widgets/design_tokens.dart';
 
 // Pure rule for the stacked player: hide video when the keyboard leaves
 // under 9 chat lines; audio keeps playing. Extracted so unit tests cover
@@ -93,7 +94,9 @@ Widget buildStackedPlayer({
                           height: 4,
                           decoration: const BoxDecoration(
                             color: Colors.grey,
-                            borderRadius: BorderRadius.all(Radius.circular(2)),
+                            borderRadius: BorderRadius.all(
+                              Radius.circular(Radii.small),
+                            ),
                           ),
                         ),
                       ),
@@ -351,7 +354,9 @@ class StreamPanels {
                         child: DecoratedBox(
                           decoration: BoxDecoration(
                             color: Colors.grey,
-                            borderRadius: BorderRadius.all(Radius.circular(2)),
+                            borderRadius: BorderRadius.all(
+                              Radius.circular(Radii.small),
+                            ),
                           ),
                         ),
                       ),
@@ -476,15 +481,15 @@ class StreamPanels {
     return Column(
       children: [
         AnimatedSize(
-          duration: const Duration(milliseconds: 200),
-          curve: Curves.easeInOut,
+          duration: Motion.normal,
+          curve: Motion.move,
           child: !isFullscreen() && !hideChrome && !merged && !glassChatOnly
               ? homeAppBar.appBar(context)
               : const SizedBox.shrink(),
         ),
         AnimatedSize(
-          duration: const Duration(milliseconds: 200),
-          curve: Curves.easeInOut,
+          duration: Motion.normal,
+          curve: Motion.move,
           alignment: Alignment.topCenter,
           child: channel == null
               ? const SizedBox(width: double.infinity)

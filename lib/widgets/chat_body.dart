@@ -9,6 +9,7 @@ import '../util/insets.dart';
 import '../util/log.dart';
 import '../util/prefs.dart';
 import 'glass_chrome.dart';
+import 'design_tokens.dart';
 
 /// Builds the chat content above the composer. [maxHeight] and [keyboardH]
 /// feed keyboard decisions only: while the keyboard is up they describe the
@@ -733,8 +734,8 @@ class _ChatBodyState extends State<ChatBody>
       child: SizeChangedLayoutNotifier(
         child: AnimatedSize(
           key: _flowKey,
-          duration: const Duration(milliseconds: 220),
-          curve: Curves.easeInOut,
+          duration: Motion.normal,
+          curve: Motion.move,
           alignment: Alignment.bottomCenter,
           child: composer == null
               ? const SizedBox.shrink()
@@ -829,7 +830,7 @@ class _ChatBodyState extends State<ChatBody>
                   final busy = isBusy();
                   return AnimatedOpacity(
                     opacity: busy ? 1 : 0,
-                    duration: const Duration(milliseconds: 200),
+                    duration: Motion.normal,
                     child: TickerMode(
                       enabled: busy,
                       child: const LinearProgressIndicator(
@@ -1062,10 +1063,8 @@ class _ChatBodyState extends State<ChatBody>
 /// snaps when told to. Read during build; [onTick] rebuilds while it runs.
 class _Eased {
   _Eased(TickerProvider vsync, VoidCallback onTick)
-    : _ctrl = AnimationController(
-        vsync: vsync,
-        duration: const Duration(milliseconds: 220),
-      )..addListener(onTick);
+    : _ctrl = AnimationController(vsync: vsync, duration: Motion.normal)
+        ..addListener(onTick);
 
   final AnimationController _ctrl;
   bool _seeded = false;
@@ -1079,7 +1078,7 @@ class _Eased {
   double get value {
     if (_startPending) return _from;
     if (!_ctrl.isAnimating) return _to;
-    return ui.lerpDouble(_from, _to, Curves.easeInOut.transform(_ctrl.value))!;
+    return ui.lerpDouble(_from, _to, Motion.move.transform(_ctrl.value))!;
   }
 
   double resolve(double target, {required bool animate}) {

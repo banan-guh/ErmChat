@@ -35,6 +35,7 @@ import '../widgets/history_view.dart';
 import '../widgets/message_builder.dart';
 import '../widgets/tabbed_layout.dart';
 import 'home_app_bar.dart';
+import '../widgets/design_tokens.dart';
 
 // Fallback when the channel is gone; never bumps.
 final _emptyNotifier = ValueNotifier<int>(0);
@@ -706,13 +707,13 @@ class ChannelPanels {
       return Padding(
         padding: const EdgeInsets.symmetric(horizontal: TabbedLayout.cardInset),
         child: AnimatedSize(
-          duration: const Duration(milliseconds: 200),
-          curve: Curves.easeOutCubic,
+          duration: Motion.normal,
+          curve: Motion.enter,
           alignment: Alignment.topCenter,
           child: AnimatedSwitcher(
-            duration: const Duration(milliseconds: 200),
-            switchInCurve: Curves.easeOut,
-            switchOutCurve: Curves.easeOut,
+            duration: Motion.normal,
+            switchInCurve: Motion.enter,
+            switchOutCurve: Motion.enter,
             transitionBuilder: (child, animation) => SizeTransition(
               sizeFactor: animation,
               alignment: Alignment.topCenter,
@@ -869,13 +870,13 @@ class _ChannelTabState extends State<_ChannelTab>
     with SingleTickerProviderStateMixin {
   late final AnimationController _flash = AnimationController(
     vsync: this,
-    duration: const Duration(milliseconds: 200),
+    duration: Motion.normal,
   );
   // One out-and-back pulse per new mention.
   late final Animation<double> _pulse = TweenSequence<double>([
     TweenSequenceItem(tween: Tween(begin: 0.0, end: 1.0), weight: 1),
     TweenSequenceItem(tween: Tween(begin: 1.0, end: 0.0), weight: 1),
-  ]).animate(CurvedAnimation(parent: _flash, curve: Curves.easeOut));
+  ]).animate(CurvedAnimation(parent: _flash, curve: Motion.enter));
 
   bool _hadMention = false;
 

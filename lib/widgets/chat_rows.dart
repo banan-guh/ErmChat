@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart'
-    show Clipboard, ClipboardData, HapticFeedback;
+import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 import '../l10n/l10n.dart';
@@ -17,6 +16,7 @@ import 'emote_text.dart';
 import 'glass_chrome.dart' show kGlassPillSettings;
 import 'message_builder.dart';
 import 'seven_tv_paint_service.dart';
+import 'design_tokens.dart';
 
 /// How the chat lists build one row: the tile, its taps and its reply line.
 /// [ChatView] and the channel history list share it, so a row behaves the
@@ -287,7 +287,7 @@ class VodChatButton extends StatelessWidget {
   Widget build(BuildContext context) {
     final l = context.l10n;
     void press() {
-      iosHaptic(HapticFeedback.lightImpact);
+      Haptics.press(iosOnly: true);
       onPressed();
     }
 
@@ -330,12 +330,12 @@ class ScrollDownButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     void press() {
-      iosHaptic(HapticFeedback.lightImpact);
+      Haptics.press(iosOnly: true);
       onPressed();
     }
 
     return AnimatedSwitcher(
-      duration: const Duration(milliseconds: 100),
+      duration: Motion.fast,
       transitionBuilder: (child, animation) =>
           FadeTransition(opacity: animation, child: child),
       child: atBottom

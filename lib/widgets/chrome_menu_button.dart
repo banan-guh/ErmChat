@@ -7,6 +7,7 @@ import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 
 import '../l10n/l10n.dart';
 import 'glass_chrome.dart';
+import 'design_tokens.dart';
 
 /// Side of the chat widget cards' header controls.
 const double kChromeMenuSize = 28;
@@ -103,7 +104,7 @@ class ChromeMenuButtonState extends State<ChromeMenuButton> {
       buttonStyle: const ButtonStyle(),
       trigger: AnimatedRotation(
         turns: _open ? 0.0 : 0.5,
-        duration: const Duration(milliseconds: 175),
+        duration: Motion.fast,
         child: const Icon(Icons.expand_more),
       ),
     );
@@ -162,9 +163,7 @@ class _ChromeMenuState extends State<ChromeMenu> {
     }
     return PopupMenuButton<int>(
       position: PopupMenuPosition.under,
-      popUpAnimationStyle: const AnimationStyle(
-        duration: Duration(milliseconds: 175),
-      ),
+      popUpAnimationStyle: const AnimationStyle(duration: Motion.fast),
       onOpened: () => widget.onOpenChanged?.call(true),
       onCanceled: () => widget.onOpenChanged?.call(false),
       onSelected: (i) {
@@ -299,8 +298,8 @@ class _BloomMenuState extends State<_BloomMenu>
         await _morph
             .animateTo(
               0,
-              duration: const Duration(milliseconds: 200),
-              curve: opening ? Curves.easeOutCubic : Curves.easeInCubic,
+              duration: Motion.normal,
+              curve: opening ? Motion.enter : Motion.exit,
             )
             .orCancel;
       } on TickerCanceled {
@@ -338,7 +337,7 @@ class _BloomMenuState extends State<_BloomMenu>
         overlayChildBuilder: _overlay,
         child: AnimatedOpacity(
           opacity: _portal.isShowing && !_closing ? 0 : 1,
-          duration: const Duration(milliseconds: 120),
+          duration: Motion.fast,
           child: trigger,
         ),
       ),
@@ -395,10 +394,8 @@ class _BloomMenuState extends State<_BloomMenu>
         _corner.alongSize(size) - _corner.alongSize(s) + s.center(Offset.zero);
     // The trigger sits off the corner by the edge shift.
     final from = tucked(_trigger) - _shift;
-    final grow = Curves.easeOut.transform((t / 0.45).clamp(0.0, 1.0));
-    final square = Curves.easeInOut.transform(
-      ((t - 0.3) / 0.7).clamp(0.0, 1.0),
-    );
+    final grow = Motion.enter.transform((t / 0.45).clamp(0.0, 1.0));
+    final square = Motion.move.transform(((t - 0.3) / 0.7).clamp(0.0, 1.0));
     final full = min(size.width, size.height);
     final d = lerpDouble(_trigger.shortestSide, full, grow)!;
     final circle = Rect.fromCenter(

@@ -12,6 +12,7 @@ import '../services/twitch_auth.dart';
 import '../widgets/mod_view.dart';
 import '../widgets/panel_manager.dart';
 import '../widgets/tab_drag_focus.dart';
+import '../widgets/design_tokens.dart';
 
 // Moderation panel and its show verb.
 class ModPanels {
@@ -295,7 +296,7 @@ class ModPanels {
         child: Material(
           type: MaterialType.transparency,
           child: InkWell(
-            borderRadius: BorderRadius.circular(24),
+            borderRadius: BorderRadius.circular(Radii.large),
             onTap: submitTerms,
             child: ListenableBuilder(
               listenable: Listenable.merge([termsAdding, composerFocusNode]),
