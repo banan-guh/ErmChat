@@ -122,6 +122,14 @@ class MainActivity : FlutterActivity() {
         }
     }
 
+    // Auto-enter covers the home and recents gestures only. Leaving because
+    // the app opened something else (a link, a share target) or a
+    // notification was tapped lands here instead, so enter by hand.
+    override fun onUserLeaveHint() {
+        super.onUserLeaveHint()
+        if (pipAutoEnter && !isInPictureInPictureMode) enterPipNow()
+    }
+
     // Both overloads: the single-arg version is deprecated since API 26 and
     // is not reliably called on newer releases, so the two-arg version is
     // the one that actually fires. Dart dedupes via setPipActive anyway.
