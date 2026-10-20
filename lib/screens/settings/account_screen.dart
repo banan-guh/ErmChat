@@ -7,6 +7,7 @@ import '../../services/twitch_api.dart';
 import '../../services/twitch_auth.dart';
 import '../../services/twitch_oauth.dart';
 import '../../twitch_config.dart';
+import '../../util/log.dart';
 import '../../util/prefs.dart';
 import '../../widgets/app_snack.dart';
 import '../../widgets/dialogs.dart';
@@ -199,16 +200,24 @@ class _AccountScreenState extends State<AccountScreen> {
     });
   }
 
-  // Puts the active account's web session in the WebView jar. An account
-  // without a saved one gets an empty jar rather than [left]'s session.
+  // Puts the active account's web session in the WebView jar once the
+  // active account changed from [left]. An account without a saved one gets
+  // an empty jar rather than the previous account's session.
   Future<void> _followSession(String? left) async {
-    final next = widget.twitchAuth.activeAccount?.webCookies;
-    if (next != null) return TwitchLoginPage.useSession(next);
-    if (left != null) return TwitchLoginPage.clearSession();
+    final active = widget.twitchAuth.activeAccount;
+    if (active?.login == left) return;
+    final next = active?.webCookies;
+    try {
+      if (next != null) return await TwitchLoginPage.useSession(next);
+      await TwitchLoginPage.clearSession();
+    } catch (e) {
+      // A jar that fails to change must not stop the switch itself.
+      logDebug('[Account] web session swap failed: $e');
+    }
   }
 
   Future<void> _clearCredentials() async {
-    final left = widget.twitchAuth.activeAccount?.webCookies;
+    final left = widget.twitchAuth.activeAccount?.login;
     await widget.twitchAuth.clear();
     await _followSession(left);
     if (!mounted) return;
@@ -314,7 +323,7 @@ class _AccountScreenState extends State<AccountScreen> {
   // while anonymous), so sync it back to the auth state when no login flow
   // is in progress.
   Future<void> _switchAccount(Future<void> Function() switchOp) async {
-    final left = widget.twitchAuth.activeAccount?.webCookies;
+    final left = widget.twitchAuth.activeAccount?.login;
     await switchOp();
     await _followSession(left);
     if (!mounted) return;
@@ -343,7 +352,7 @@ class _AccountScreenState extends State<AccountScreen> {
       destructive: true,
     );
     if (!confirmed || !mounted) return;
-    final left = widget.twitchAuth.activeAccount?.webCookies;
+    final left = widget.twitchAuth.activeAccount?.login;
     await widget.twitchAuth.removeAccount(account.login);
     await _followSession(left);
     if (!mounted) return;
