@@ -625,6 +625,9 @@ void main() {
       }
       stream.removeListener(counter);
       expect(delivered, lessThanOrEqualTo(12));
+      // A decode still in flight keeps its watchdog until it times out.
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump(const Duration(seconds: 1));
     });
 
     testWidgets('animations off freezes WebP mid-loop', (tester) async {
@@ -672,6 +675,9 @@ void main() {
         frozen.add(EmoteUrlProvider.currentFrame(url));
       }
       expect(frozen.length, greaterThan(1));
+      // A decode still in flight keeps its watchdog until it times out.
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump(const Duration(seconds: 1));
     });
 
     testWidgets('animations off freezes animated GIFs and resumes on toggle', (
@@ -709,6 +715,9 @@ void main() {
       }
       expect(EmoteUrlProvider.currentFrame(url), isNot(0));
       expect(fetches, 1);
+      // A decode still in flight keeps its watchdog until it times out.
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump(const Duration(seconds: 1));
     });
 
     testWidgets('a second engine-path widget mounting mid-build does not '
