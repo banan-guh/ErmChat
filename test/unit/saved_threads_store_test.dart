@@ -307,6 +307,11 @@ void main() {
               'channel TEXT NOT NULL, started_at INTEGER NOT NULL, '
               'ended_at INTEGER, title TEXT, game TEXT, vod_id TEXT)',
             );
+            await db.execute(
+              'CREATE TABLE ref_ids(channel TEXT NOT NULL, '
+              'message_id TEXT NOT NULL, '
+              'PRIMARY KEY(channel, message_id)) WITHOUT ROWID',
+            );
             await db.insert('blocks', {
               'channel': 'forsen',
               'start_ts': DateTime.now().millisecondsSinceEpoch,
