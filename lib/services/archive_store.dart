@@ -10,6 +10,7 @@ import '../archive/archive_io.dart';
 import '../archive/archive_row.dart';
 import '../archive/archive_users.dart';
 import '../archive/archive_words.dart';
+import '../archive/intern_table.dart';
 import '../util/log.dart';
 
 /// One sealed block as stored: metadata plus the packed `ArchiveBlock` bytes.
@@ -406,7 +407,7 @@ class ArchiveStore {
         if (v.length > first) {
           b.insert('vocab', {
             'first': first,
-            'words': encodeVocabChunk(v.words.sublist(first)),
+            'words': encodeVocabChunk(v.from(first)),
           });
         }
         for (var i = saved.whoSaved; i < whoTo; i++) {
@@ -423,17 +424,7 @@ class ArchiveStore {
         for (var i = saved.lookSaved; i < lookTo; i++) {
           final l = t.looks[i];
           if (l == null) continue;
-          b.insert('looks', {
-            'channel': channel,
-            'id': i,
-            'color': l.color,
-            'badges': l.badges,
-            'extra': l.extra.isEmpty
-                ? null
-                : jsonEncode([
-                    for (final (k, v) in l.extra) [k, v],
-                  ]),
-          });
+          b.insert('looks', _lookRow(channel, i, l));
         }
         for (var i = saved.stateSaved; i < stateTo; i++) {
           final s = t.states[i];
@@ -566,7 +557,7 @@ class ArchiveStore {
             if (v.length > first) {
               b.insert('vocab', {
                 'first': first,
-                'words': encodeVocabChunk(v.words.sublist(first)),
+                'words': encodeVocabChunk(v.from(first)),
               });
             }
             for (var i = 0; i < r.length; i++) {
@@ -1203,6 +1194,10 @@ class ArchiveStore {
   Set<String> Function(String channel)? heldEdits;
   Set<int> Function(String channel)? heldStates;
 
+  /// Whether the writer holds [channel]'s user tables. Upkeep keeps those
+  /// cached: dropping one would split the writer from the store.
+  bool Function(String channel)? writing;
+
   /// Prunes when none ran in the last [pruneEvery]. Returns blocks deleted.
   Future<int> pruneIfDue() async {
     final now = _now();
@@ -1264,7 +1259,10 @@ class ArchiveStore {
           // or taken rows since the call.
           live.addAll((held ?? heldStates)?.call(channel) ?? const {});
           final dead = t.prune(live);
-          if (dead.states.isEmpty) continue;
+          if (dead.states.isEmpty) {
+            _release(channel);
+            continue;
+          }
           dropped += dead.states.length;
           await _db.transaction((txn) async {
             final b = txn.batch();
@@ -1284,9 +1282,107 @@ class ArchiveStore {
             }
             await b.commit(noResult: true);
           });
+          if (t.sparse) await _compactUsers(channel);
+          _release(channel);
         }
         return dropped;
       });
+
+  /// Drops [channel]'s user tables from memory unless the writer holds them.
+  /// The next read loads them again.
+  void _release(String channel) {
+    if (writing?.call(channel) ?? false) return;
+    _tables.remove(channel);
+  }
+
+  /// Closes the gaps pruning left in [channel]'s whos and looks. The stored
+  /// rows that name them change first, so a failed write leaves memory
+  /// matching the store. Users interned meanwhile sit past the plan and
+  /// shift down with it.
+  Future<void> _compactUsers(String channel) async {
+    final saved = await _tables[channel]!;
+    final t = saved.tables;
+    final plan = t.compactPlan();
+    int whoTo(int id) => plan.whos[id];
+    int lookTo(int id) => plan.looks[id];
+    final whoSaved = saved.whoSaved;
+    final lookSaved = saved.lookSaved;
+    final blocks = await _db.rawQuery(
+      'SELECT id, senders FROM blocks WHERE channel = ? AND senders IS NOT NULL',
+      [channel],
+    );
+    await _db.transaction((txn) async {
+      final b = txn.batch();
+      for (final table in ['users', 'looks', 'user_states']) {
+        b.delete(table, where: 'channel = ?', whereArgs: [channel]);
+      }
+      for (final (id, w) in t.whos.entries) {
+        if (id >= whoSaved) break;
+        b.insert('users', {
+          'channel': channel,
+          'id': whoTo(id),
+          'user_id': w.userId,
+          'login': w.login,
+          'display_name': w.displayName,
+        });
+      }
+      for (final (id, l) in t.looks.entries) {
+        if (id >= lookSaved) break;
+        b.insert('looks', _lookRow(channel, lookTo(id), l));
+      }
+      for (final (id, s) in t.states.entries) {
+        if (id >= saved.stateSaved) continue;
+        b.insert('user_states', {
+          'channel': channel,
+          'id': id,
+          'who': whoTo(s.who),
+          'look': lookTo(s.look),
+        });
+      }
+      for (final row in blocks) {
+        final List<int> who;
+        try {
+          who = decodeWordList(row['senders']! as Uint8List);
+        } on ArchiveFormatException {
+          // Indexing builds a damaged list again.
+          b.update(
+            'blocks',
+            {'senders': null},
+            where: 'id = ?',
+            whereArgs: [row['id']],
+          );
+          continue;
+        }
+        b.update(
+          'blocks',
+          {
+            'senders': encodeWordList([
+              for (final id in who)
+                if (id < plan.whos.length && whoTo(id) >= 0) whoTo(id),
+            ]),
+          },
+          where: 'id = ?',
+          whereArgs: [row['id']],
+        );
+      }
+      await b.commit(noResult: true);
+    });
+    t.compact();
+    saved.whoSaved = plan.whos.take(whoSaved).where((id) => id >= 0).length;
+    saved.lookSaved = plan.looks.take(lookSaved).where((id) => id >= 0).length;
+  }
+
+  static Map<String, Object?> _lookRow(String channel, int id, Look l) => {
+    'channel': channel,
+    'id': id,
+    'color': l.color,
+    'badges': l.badges,
+    'extra': l.extra.isEmpty
+        ? null
+        : jsonEncode([
+            for (final (k, v) in l.extra) [k, v],
+          ]),
+  };
 
   static Future<Set<int>> _statesOffIsolate(List<Uint8List> lists) =>
       Isolate.run(() => {for (final l in lists) ...decodeWordList(l)});
@@ -1310,7 +1406,7 @@ class ArchiveStore {
     final used = await _usedOffIsolate(lists);
     if (used.length * 2 > v.length) return 0;
     final remapped = await _renumberOffIsolate(lists, used);
-    final words = [for (final id in used) v.words[id]];
+    final words = [for (final id in used) v.table[id] ?? ''];
     await _db.transaction((txn) async {
       final b = txn.batch();
       b.delete('vocab');
@@ -1899,58 +1995,46 @@ bakeBlocks(List<Uint8List> blocks, Map<String, ArchiveEdit> edits) => [
     }(),
 ];
 
-/// The search vocabulary in memory: words in id order and their ids.
+/// The search vocabulary in memory: words interned to their ids.
 class _Vocab {
   _Vocab();
 
   /// Rebuilds from stored runs. A run that overlaps one before it skips the
-  /// overlap; a gap pads with empty words, so ids stay where they were.
+  /// overlap; a gap stays empty, so ids stay where they were.
   factory _Vocab.fromChunks(List<(int, Uint8List)> chunks) {
     final v = _Vocab();
     for (final (first, data) in chunks) {
-      while (v.words.length < first) {
-        v.words.add('');
-      }
       final run = decodeVocabChunk(data);
-      for (var i = v.words.length - first; i < run.length; i++) {
-        v.ids[run[i]] = v.words.length;
-        v.words.add(run[i]);
+      for (var i = max(0, v.length - first); i < run.length; i++) {
+        v.table.put(first + i, run[i]);
       }
     }
     return v;
   }
 
-  final List<String> words = [];
-  final Map<String, int> ids = {};
+  final table = InternTable<String>();
 
-  int get length => words.length;
+  int get length => table.length;
+
+  /// Words from id [first] on, a gap as empty.
+  List<String> from(int first) => [
+    for (var id = first; id < table.length; id++) table[id] ?? '',
+  ];
 
   /// Ids of [ws], adding the new ones.
   List<int> assign(Iterable<String> ws) => [
-    for (final w in ws)
-      ids.putIfAbsent(w, () {
-        words.add(w);
-        return words.length - 1;
-      }),
+    for (final w in ws) table.intern(w),
   ];
 
-  /// Swaps in [replacement], ids by position.
-  void replaceWith(List<String> replacement) {
-    words
-      ..clear()
-      ..addAll(replacement);
-    ids
-      ..clear()
-      ..addAll({for (var i = 0; i < words.length; i++) words[i]: i});
+  /// Swaps in [words], ids by position; an empty word is a gap.
+  void replaceWith(List<String> words) {
+    table.reset([for (final w in words) w.isEmpty ? null : w]);
     _joined = null;
   }
 
   /// Drops words from id [length] on, after a write that added them failed.
   void truncate(int length) {
-    for (var i = length; i < words.length; i++) {
-      ids.remove(words[i]);
-    }
-    words.length = length;
+    table.truncate(length);
     _joined = null;
   }
 
@@ -1963,7 +2047,8 @@ class _Vocab {
   /// [words] as a newline-joined string and each word's offset in it.
   (String, Int32List) joined() {
     var joined = _joined;
-    if (joined == null || _starts.length != words.length) {
+    if (joined == null || _starts.length != length) {
+      final words = from(0);
       joined = _joined = words.join('\n');
       _starts = Int32List(words.length);
       var at = 0;

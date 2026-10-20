@@ -941,7 +941,7 @@ void main() {
 
     store = await _open(path, now: () => now);
     final logins = {
-      for (final w in (await store.tables(_channel)).whos.values) w.login,
+      for (final (_, w) in (await store.tables(_channel)).whos.entries) w.login,
     };
     expect(logins, {'alice', 'carol'}, reason: 'held rows keep their user');
     expect(
@@ -976,6 +976,50 @@ void main() {
       reason: 'kept users read back after a restart, a returning one anew',
     );
     await writer.dispose();
+  });
+
+  test('pruning compacts a mostly dead user table and names survive', () async {
+    final old = _t0.millisecondsSinceEpoch;
+    var now = _t0;
+    final path = _newPath();
+    var store = await _open(path, now: () => now);
+    var writer = _writer(store, sealCount: 4);
+    // Eight chatters age out; two stay, so the who table is mostly gaps.
+    for (var i = 0; i < 8; i++) {
+      writer.add(_channel, _msg(i, login: 'gone$i', tsMs: old + i * 1000));
+    }
+    final recent = _t0.add(const Duration(days: 39)).millisecondsSinceEpoch;
+    writer.add(_channel, _msg(8, login: 'stays', tsMs: recent));
+    writer.add(_channel, _msg(9, login: 'kept', tsMs: recent + 1000));
+    await writer.dispose();
+
+    now = _t0.add(const Duration(days: 40));
+    store = await _open(path, now: () => now);
+    writer = _writer(store);
+    await store.pruneUsers();
+    final t = await store.tables(_channel);
+    expect(t.nextWho, 2, reason: 'the gaps closed');
+
+    writer.add(_channel, _msg(10, login: 'fresh', tsMs: recent + 2000));
+    await writer.dispose();
+    store = await _open(path, now: () => now);
+    final reader = _reader(store);
+    expect(
+      [for (final m in await reader.newestRows(_channel, 10)) m.login],
+      ['stays', 'kept', 'fresh'],
+      reason: 'rows name the right chatter after renumbering and a restart',
+    );
+    final found = await reader.find(
+      ArchiveTerms(sender: (login, _) => login == 'kept'),
+      (m) => m.login == 'kept',
+      limit: 10,
+    );
+    expect(
+      [for (final m in found) m.login],
+      ['kept'],
+      reason: 'the search index follows the new ids',
+    );
+    await store.close();
   });
 
   test('reader returns rows in order across blocks and skips damage', () async {

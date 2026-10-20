@@ -1,3 +1,5 @@
+import 'intern_table.dart';
+
 /// Who a user is: written once per user.
 class Who {
   const Who({required this.userId, required this.login, this.displayName});
@@ -60,89 +62,83 @@ class UserState {
   int get hashCode => Object.hash(who, look);
 }
 
-/// Interned user tables by id. Ids are handed out in order and never reused,
-/// so [prune] leaves gaps that stored rows never point into.
+/// Interned user tables by id. Ids are handed out in order. Rows store
+/// state ids, so states never renumber and live in a sparse table; whos and
+/// looks are only named by states and the search index, so [compact] can
+/// close their gaps.
 class UserTables {
-  final Map<int, Who> whos = {};
-  final Map<int, Look> looks = {};
-  final Map<int, UserState> states = {};
+  final whos = InternTable<Who>();
+  final looks = InternTable<Look>();
+  final states = InternTable<UserState>.sparse();
 
   /// The ids the next new entries get.
-  int nextWho = 0;
-  int nextLook = 0;
-  int nextState = 0;
+  int get nextWho => whos.length;
+  int get nextLook => looks.length;
+  int get nextState => states.length;
 
-  final Map<Who, int> _whoIds = {};
-  final Map<Look, int> _lookIds = {};
-  final Map<UserState, int> _stateIds = {};
+  int internWho(Who who) => whos.intern(who);
 
-  int internWho(Who who) => _whoIds.putIfAbsent(who, () {
-    whos[nextWho] = who;
-    return nextWho++;
-  });
-
-  int internLook(Look look) => _lookIds.putIfAbsent(look, () {
-    looks[nextLook] = look;
-    return nextLook++;
-  });
+  int internLook(Look look) => looks.intern(look);
 
   /// Returns the id a row stores for this who/look pair.
   int internState(int who, int look) {
-    if (!whos.containsKey(who) || !looks.containsKey(look)) {
+    if (whos[who] == null || looks[look] == null) {
       throw RangeError('unknown who $who or look $look');
     }
-    return _stateIds.putIfAbsent(UserState(who, look), () {
-      states[nextState] = UserState(who, look);
-      return nextState++;
-    });
+    return states.intern(UserState(who, look));
   }
 
   /// Restores saved entries at their ids, in any order.
-  void putWho(int id, Who who) {
-    whos[id] = who;
-    _whoIds[who] = id;
-    if (id >= nextWho) nextWho = id + 1;
-  }
+  void putWho(int id, Who who) => whos.put(id, who);
 
-  void putLook(int id, Look look) {
-    looks[id] = look;
-    _lookIds[look] = id;
-    if (id >= nextLook) nextLook = id + 1;
-  }
+  void putLook(int id, Look look) => looks.put(id, look);
 
-  void putState(int id, int who, int look) {
-    final state = UserState(who, look);
-    states[id] = state;
-    _stateIds[state] = id;
-    if (id >= nextState) nextState = id + 1;
-  }
+  void putState(int id, int who, int look) =>
+      states.put(id, UserState(who, look));
 
   /// Drops every state outside [live], then the whos and looks no state
   /// left uses. Returns the dropped ids.
   ({List<int> whos, List<int> looks, List<int> states}) prune(Set<int> live) {
     final deadStates = [
-      for (final id in states.keys)
+      for (final (id, _) in states.entries)
         if (!live.contains(id)) id,
     ];
-    for (final id in deadStates) {
-      _stateIds.remove(states.remove(id));
+    states.remove(deadStates);
+    final usedWhos = <int>{};
+    final usedLooks = <int>{};
+    for (final (_, s) in states.entries) {
+      usedWhos.add(s.who);
+      usedLooks.add(s.look);
     }
-    final usedWhos = {for (final s in states.values) s.who};
-    final usedLooks = {for (final s in states.values) s.look};
     final deadWhos = [
-      for (final id in whos.keys)
+      for (final (id, _) in whos.entries)
         if (!usedWhos.contains(id)) id,
     ];
     final deadLooks = [
-      for (final id in looks.keys)
+      for (final (id, _) in looks.entries)
         if (!usedLooks.contains(id)) id,
     ];
-    for (final id in deadWhos) {
-      _whoIds.remove(whos.remove(id));
-    }
-    for (final id in deadLooks) {
-      _lookIds.remove(looks.remove(id));
-    }
+    whos.remove(deadWhos);
+    looks.remove(deadLooks);
     return (whos: deadWhos, looks: deadLooks, states: deadStates);
+  }
+
+  /// Whether [compact] would at least halve the whos or the looks.
+  bool get sparse => whos.sparse || looks.sparse;
+
+  /// What [compact] would do now, without doing it: each old id's new id,
+  /// or -1 for a gap.
+  ({List<int> whos, List<int> looks}) compactPlan() =>
+      (whos: whos.compactPlan(), looks: looks.compactPlan());
+
+  /// Closes the gaps in whos and looks and points every state at the new
+  /// ids. Returns the remaps, as [compactPlan] gave them.
+  ({List<int> whos, List<int> looks}) compact() {
+    final w = whos.compact();
+    final l = looks.compact();
+    for (final (id, s) in states.entries.toList()) {
+      states.replace(id, UserState(w[s.who], l[s.look]));
+    }
+    return (whos: w, looks: l);
   }
 }

@@ -548,7 +548,7 @@ class ArchiveReader {
       toMs: null,
       texts: texts,
       states: {
-        for (final MapEntry(key: id, value: s) in t.states.entries)
+        for (final (id, s) in t.states.entries)
           if (t.whos[s.who] case final w? when sender(w.login, w.displayName))
             id,
       },
@@ -574,7 +574,7 @@ class ArchiveReader {
       for (final channel in channels) {
         final t = await store.tables(channel);
         final who = {
-          for (final MapEntry(key: id, value: w) in t.whos.entries)
+          for (final (id, w) in t.whos.entries)
             if (sender(w.login, w.displayName)) id,
         };
         if (who.isNotEmpty) senders[channel] = who;

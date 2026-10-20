@@ -57,6 +57,7 @@ class ArchiveWriter {
     _store.then((s) {
       s?.heldEdits = heldIds;
       s?.heldStates = heldStates;
+      s?.writing = _chans.containsKey;
     }, onError: (_) {});
   }
 
