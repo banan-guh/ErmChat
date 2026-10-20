@@ -180,5 +180,8 @@ void main() {
   stdout.writeln(
     'decode us/block      : ${(dec.elapsedMicroseconds / blocks).toStringAsFixed(0)}',
   );
-  stdout.writeln('user tables bytes    : ${tables.encode().length}');
+  stdout.writeln(
+    'user tables          : ${tables.whos.length} whos, '
+    '${tables.looks.length} looks, ${tables.states.length} states',
+  );
 }
