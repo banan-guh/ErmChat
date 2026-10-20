@@ -191,6 +191,23 @@ widespread, so the rule now names them instead of pretending they are absent.
 Accepted tradeoff: existing code that breaks a code-shape rule stays until it is next
 changed.
 
+### D16: One typed entry per setting
+
+Decision: every user setting is one line in `Settings` (`lib/util/settings.dart`): a
+`Pref` with its key, default and export flag, which is also its own change signal.
+Consumers read `Settings.x.value` where they use it and listen to the entries they
+render; groups use `Listenable.merge`. Settings tiles take the `Pref`. Exports iterate
+`Settings.all`. `Prefs` keeps device state, caches and per-account data, plus
+shorthands for older call sites. `PrefsStore.notifyChanged` stays as the bulk signal
+for raw writes (imports): it re-checks every entry and notifies the changed ones.
+
+Reason: one untyped "something changed" signal made every owner reload all prefs and
+diff them by hand, and a setting was spread over a key constant, getter, setter,
+export map, tile default and a screen mirror. A missed field went stale silently.
+
+Scope: new settings go in `Settings`. Old `Prefs` shorthands and `PrefsStore`
+listeners move when their area is touched.
+
 ## Why
 
 - **Why a framework at all**: the app is leaving a churn phase and needs rules. It

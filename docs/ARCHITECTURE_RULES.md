@@ -61,8 +61,8 @@ composition root     lib/providers
    `ref.watch`/`ref.read`. Never construct one in a widget, and never keep a global
    handle to it. Carve-outs: process-lifetime singletons a provider surfaces
    (`PingManager.instance`, `IgnoreManager.instance`), which consumers still obtain
-   through the provider, and the settings store `PrefsStore`, a `lib/util` leaf any
-   layer may read.
+   through the provider, and the settings registry `Settings` (with `Prefs` and
+   `PrefsStore`), a `lib/util` leaf any layer may read.
 
 4. **`watch` to react, `read` for one-shots.** Builds are pure. Effects (requests,
    subscriptions, timers) start in lifecycle methods, `ref.listen`, or notifier
@@ -97,9 +97,10 @@ composition root     lib/providers
    back with `setState` lags a frame and can feed stale or non-finite values forward.
    Where layout truly cannot do it, the measurement carries a comment saying why.
 
-3. **Read settings where they are used.** The widget or owner that needs a pref reads
-   it and listens for its change. A screen does not mirror prefs into its own fields
-   to hand down.
+3. **Read settings where they are used.** The widget or owner that needs a setting
+   reads `Settings.x.value` and listens to that entry (or a `Listenable.merge` of
+   several). A screen does not mirror settings into its own fields to hand down, and
+   nothing diffs all prefs by hand. A new setting is one line in `Settings`.
 
 4. **One owner per behavior.** A second copy of stateful logic (gesture tracking,
    scroll following, drag focus) means extracting one owner both use. Repeating a few
