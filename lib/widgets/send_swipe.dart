@@ -98,13 +98,18 @@ class _SendSwipeState extends State<SendSwipe> {
   RenderBox get _overlayBox =>
       Overlay.of(context).context.findRenderObject() as RenderBox;
 
-  // Holding recalls the last message at once, as it always has. The menu
-  // waits for an upward drag.
-  void _start(LongPressStartDetails d) {
+  // The finger can reach the menu two ways: swiping up straight from the
+  // touch, or holding first. Holding recalls the last message at once, as it
+  // always has, and the menu still waits for an upward drag.
+  void _down(Offset global) {
     _offPath = false;
     _progress = 0;
+    _anchor = _overlayBox.globalToLocal(global);
+  }
+
+  void _hold(LongPressStartDetails d) {
     widget.onRecall?.call();
-    _anchor = _overlayBox.globalToLocal(d.globalPosition);
+    _down(d.globalPosition);
   }
 
   // Lays the path out from where the button sits now.
@@ -149,9 +154,9 @@ class _SendSwipeState extends State<SendSwipe> {
   // thumb where it was, and the finger picks it back up anywhere at or
   // before that point, never past it. Every other state follows from where
   // the thumb sits, so backing off undoes it.
-  void _move(LongPressMoveUpdateDetails d) {
+  void _move(Offset global) {
     if (!widget._hasMenu) return;
-    final drag = _overlayBox.globalToLocal(d.globalPosition) - _anchor;
+    final drag = _overlayBox.globalToLocal(global) - _anchor;
     if (!_portal.isShowing) {
       if (drag.dy > -_openRise) return;
       _open();
@@ -192,8 +197,6 @@ class _SendSwipeState extends State<SendSwipe> {
     }
   }
 
-  void _end(LongPressEndDetails _) => _close();
-
   void _close() {
     _chargeTimer?.cancel();
     _charging = false;
@@ -225,10 +228,21 @@ class _SendSwipeState extends State<SendSwipe> {
     controller: _portal,
     overlayChildBuilder: _menu,
     child: GestureDetector(
-      onLongPressStart: widget.enabled ? _start : null,
-      onLongPressMoveUpdate: widget.enabled ? _move : null,
-      onLongPressEnd: widget.enabled ? _end : null,
-      onLongPressCancel: widget.enabled ? _close : null,
+      onLongPressStart: widget.enabled ? _hold : null,
+      onLongPressMoveUpdate: widget.enabled
+          ? (d) => _move(d.globalPosition)
+          : null,
+      onLongPressEnd: widget.enabled ? (_) => _close() : null,
+      // A swipe without the hold. Down only records the anchor, so a tap or
+      // a hold that wins the arena instead is unaffected.
+      onVerticalDragDown: widget.enabled && widget._hasMenu
+          ? (d) => _down(d.globalPosition)
+          : null,
+      onVerticalDragUpdate: widget.enabled && widget._hasMenu
+          ? (d) => _move(d.globalPosition)
+          : null,
+      onVerticalDragEnd: widget.enabled ? (_) => _close() : null,
+      onVerticalDragCancel: widget.enabled ? _close : null,
       child: widget.child,
     ),
   );
