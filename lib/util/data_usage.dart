@@ -79,9 +79,19 @@ class DataUsageStats {
     _countMobile(DataSource.emoteImages, bytes);
   }
 
-  void recordJson(int bytes) {
+  /// Emote list bytes per endpoint, ids starred, so the perf log shows
+  /// which list fetches cost the most.
+  final jsonByEndpoint = <String, int>{};
+
+  void recordJson(int bytes, Uri uri) {
     jsonBytes += bytes;
     _countMobile(DataSource.emoteLists, bytes);
+    final path = [
+      for (final s in uri.pathSegments)
+        s.length >= 12 || int.tryParse(s) != null ? '*' : s,
+    ].join('/');
+    final key = '${uri.host}/$path';
+    jsonByEndpoint[key] = (jsonByEndpoint[key] ?? 0) + bytes;
   }
 
   /// Recent-messages (robotty, zneix) response bodies.
@@ -188,7 +198,8 @@ class DataUsageStats {
           'ircR=${ircReadBytes}B ircW=${ircWriteBytes}B '
           'emote=${emoteDownloadBytes}B json=${jsonBytes}B '
           'history=${historyBytes}B helix=${helixBytes}B event=${eventBytes}B '
-          'evict=$evictions tier=${appliedTier?.label ?? '?'} mobile=$mobile',
+          'evict=$evictions tier=${appliedTier?.label ?? '?'} mobile=$mobile '
+          'jsonBy=$jsonByEndpoint',
     );
   }
 
