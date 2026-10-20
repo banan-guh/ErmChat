@@ -370,20 +370,40 @@ class ActivityRail {
     return from.add(Duration(milliseconds: ((lo + frac) * _bucketMs).round()));
   }
 
+  /// The instant of local midnight on [t]'s local day. Steps back by the
+  /// wall time, then once more by what a DST change that day left over.
+  DateTime _midnightOf(DateTime t) {
+    Duration sinceMidnight(DateTime instant) {
+      final w = local(instant);
+      return DateTime.utc(
+        w.year,
+        w.month,
+        w.day,
+        w.hour,
+        w.minute,
+        w.second,
+        w.millisecond,
+        w.microsecond,
+      ).difference(DateTime.utc(w.year, w.month, w.day));
+    }
+
+    final day = dayNumber(local(t));
+    var at = t.subtract(sinceMidnight(t));
+    // Landing on the previous day's evening, or past midnight, after a jump.
+    final w = local(at);
+    if (dayNumber(w) != day) {
+      at = at.add(const Duration(days: 1) - sinceMidnight(at));
+    } else {
+      at = at.subtract(sinceMidnight(at));
+    }
+    return at;
+  }
+
   /// Every local day the rail touches, oldest first.
   late final List<RailDay> days = () {
     final out = <RailDay>[];
-    final wall = local(from);
-    var start = from.subtract(
-      Duration(
-        hours: wall.hour,
-        minutes: wall.minute,
-        seconds: wall.second,
-        milliseconds: wall.millisecond,
-        microseconds: wall.microsecond,
-      ),
-    );
-    var day = dayNumber(wall);
+    var start = _midnightOf(from);
+    var day = dayNumber(local(from));
     for (var i = 1; i < _n; i++) {
       final at = from.add(Duration(milliseconds: i * _bucketMs));
       // The last bucket can reach past [to]; the closing day ends there.

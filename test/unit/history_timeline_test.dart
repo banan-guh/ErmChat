@@ -234,6 +234,28 @@ void main() {
       );
     });
 
+    test('DST: days start at local midnight on both sides of the jump', () {
+      // From 08:00 EDT on Mar 8, the 23 hour day, into Mar 9.
+      final start = DateTime.utc(2026, 3, 8, 12);
+      final dst = ActivityRail(
+        from: start,
+        to: DateTime.utc(2026, 3, 10, 4),
+        bucket: bucket,
+        counts: List.filled(40 * 12, 1),
+        local: newYork,
+      );
+      expect(
+        [for (final d in dst.days) d.start],
+        [DateTime.utc(2026, 3, 8, 5), DateTime.utc(2026, 3, 9, 4)],
+        reason: 'midnight EST opens Mar 8, midnight EDT opens Mar 9',
+      );
+      expect(
+        [for (final d in dst.days) d.count],
+        [16 * 12, 24 * 12],
+        reason: 'counts start at the first bucket, not at midnight',
+      );
+    });
+
     test('a weighted window shrinks empty days to a sliver', () {
       final w = rail.window(from, to);
       final empty =
