@@ -93,7 +93,7 @@ class ArchiveRetentionTile extends ConsumerStatefulWidget {
   const ArchiveRetentionTile({super.key});
 
   /// The choices, in days.
-  static const days = [7, 14, 30, 90, 365];
+  static const days = [1, 3, 7, 14, 30];
 
   @override
   ConsumerState<ArchiveRetentionTile> createState() =>

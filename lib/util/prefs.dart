@@ -149,8 +149,9 @@ class Prefs {
   Future<void> setRecentMessagesLimit(int value) =>
       _p.setInt(_kRecentMessagesLimit, value);
 
-  /// Days of chat the archive keeps.
-  int get archiveRetentionDays => _p.getInt(_kArchiveRetentionDays) ?? 30;
+  /// Days of chat the archive keeps, at most 30.
+  int get archiveRetentionDays =>
+      (_p.getInt(_kArchiveRetentionDays) ?? 30).clamp(1, 30);
 
   Future<void> setArchiveRetentionDays(int value) =>
       _p.setInt(_kArchiveRetentionDays, value);
