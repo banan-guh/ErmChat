@@ -1175,11 +1175,13 @@ void main() {
       _t0.millisecondsSinceEpoch,
       _t0.add(const Duration(seconds: 5)).millisecondsSinceEpoch,
     );
+    final deletedAt = _t0.add(const Duration(minutes: 3));
     await store.addModeration(
       _channel,
       'alice',
       _t0.add(const Duration(seconds: 7)).millisecondsSinceEpoch,
       _t0.add(const Duration(seconds: 7)).millisecondsSinceEpoch,
+      atTs: deletedAt.millisecondsSinceEpoch,
     );
     final rows = await _reader(
       store,
@@ -1191,6 +1193,15 @@ void main() {
       ],
       ['0', '2', '4', '7'],
       reason: 'row 6 is after the ban; alice rows 1-5 were never deleted',
+    );
+    expect(
+      [for (final m in rows) ?m.deletedAt?.millisecondsSinceEpoch],
+      [
+        for (var i = 0; i < 3; i++)
+          _t0.add(const Duration(seconds: 5)).millisecondsSinceEpoch,
+        deletedAt.millisecondsSinceEpoch,
+      ],
+      reason: 'a replay fades each row when its moderation happened',
     );
     await store.close();
   });

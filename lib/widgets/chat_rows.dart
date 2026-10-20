@@ -89,6 +89,7 @@ class ChatRows {
     required bool alternate,
     required double scale,
     required Color surface,
+    bool? fadeDeleted,
   }) {
     // Lists cache the returned tile, so no closure here may capture
     // [context]: it would pin the page that built it after disposal.
@@ -139,7 +140,7 @@ class ChatRows {
       highlightOpacity: highlightOpacity,
       lineSeparator: lineSeparator,
       isAlternateBackground: alternate,
-      fadeDeleted: fadeDeleted,
+      fadeDeleted: fadeDeleted ?? this.fadeDeleted,
       sharedChatMode: sharedChatMode,
       showChannel: showChannel,
       paintService: chatRow ? paintService : null,

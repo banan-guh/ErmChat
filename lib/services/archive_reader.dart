@@ -324,9 +324,13 @@ class ArchiveReader {
     }
     // Ranges per login (null = whole chat), so a channel with many bans
     // checks each row against its own sender's ranges only.
-    final cleared = <String?, List<({int fromTs, int toTs})>>{};
+    final cleared = <String?, List<({int fromTs, int toTs, int? atTs})>>{};
     for (final c in await store.moderation(channel, lo, hi)) {
-      (cleared[c.login] ??= []).add((fromTs: c.fromTs, toTs: c.toTs));
+      (cleared[c.login] ??= []).add((
+        fromTs: c.fromTs,
+        toTs: c.toTs,
+        atTs: c.atTs,
+      ));
     }
     final all = cleared[null] ?? const [];
     final defs = await _defsFor(channel, decoded);
@@ -349,10 +353,18 @@ class ArchiveReader {
         if (edit == ArchiveEdit.deleted) m.deleted = true;
         if (!m.isSystem && !m.deleted && cleared.isNotEmpty) {
           final ts = m.timestamp.millisecondsSinceEpoch;
-          bool hit(({int fromTs, int toTs}) c) =>
+          bool hit(({int fromTs, int toTs, int? atTs}) c) =>
               ts >= c.fromTs && ts <= c.toTs;
-          if (all.any(hit) || (cleared[m.login]?.any(hit) ?? false)) {
+          final c =
+              cleared[m.login]?.where(hit).firstOrNull ??
+              all.where(hit).firstOrNull;
+          if (c != null) {
             m.deleted = true;
+            // A range from before action times were kept ends at the action.
+            m.deletedAt = DateTime.fromMillisecondsSinceEpoch(
+              c.atTs ?? c.toTs,
+              isUtc: true,
+            );
           }
         }
         messages.add(m);

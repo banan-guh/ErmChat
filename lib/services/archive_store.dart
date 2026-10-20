@@ -89,7 +89,7 @@ class _ChannelTables {
 class ArchiveStore {
   ArchiveStore._(this._db, this._now);
 
-  static const int schemaVersion = 8;
+  static const int schemaVersion = 9;
   static const Duration defaultRetention = Duration(days: 30);
 
   /// How long chat stays before pruning. The History settings set it, and
@@ -123,6 +123,12 @@ class ArchiveStore {
           await db.rawQuery('PRAGMA journal_size_limit=$_walLimit');
         },
         onCreate: (db, version) => _create(db),
+        // Version 9 records when moderation happened, for VOD replay.
+        onUpgrade: (db, from, to) async {
+          if (from < 9) {
+            await db.execute('ALTER TABLE moderation ADD COLUMN at_ts INTEGER');
+          }
+        },
       ),
     );
     final store = ArchiveStore._(db, now ?? DateTime.now);
@@ -220,7 +226,7 @@ class ArchiveStore {
   static Future<void> _createModeration(Database db) async {
     await db.execute('''CREATE TABLE moderation(
            channel TEXT NOT NULL, login TEXT,
-           from_ts INTEGER NOT NULL, to_ts INTEGER NOT NULL)''');
+           from_ts INTEGER NOT NULL, to_ts INTEGER NOT NULL, at_ts INTEGER)''');
     await db.execute(
       'CREATE INDEX moderation_by_end ON moderation(channel, to_ts)',
     );
@@ -755,13 +761,15 @@ class ArchiveStore {
     String channel,
     String? login,
     int fromTs,
-    int toTs,
-  ) async {
+    int toTs, {
+    int? atTs,
+  }) async {
     await _db.insert('moderation', {
       'channel': channel,
       'login': login,
       'from_ts': fromTs,
       'to_ts': toTs,
+      'at_ts': atTs,
     });
     _moderated[channel] = Future.value(true);
   }
@@ -817,7 +825,7 @@ class ArchiveStore {
   }
 
   /// Moderation ranges of [channel] overlapping [fromTs]..[toTs].
-  Future<List<({String? login, int fromTs, int toTs})>> moderation(
+  Future<List<({String? login, int fromTs, int toTs, int? atTs})>> moderation(
     String channel,
     int fromTs,
     int toTs,
@@ -829,7 +837,7 @@ class ArchiveStore {
         .then((r) => r.isNotEmpty));
     if (!any) return const [];
     final r = await _db.rawQuery(
-      'SELECT login, from_ts, to_ts FROM moderation '
+      'SELECT login, from_ts, to_ts, at_ts FROM moderation '
       'WHERE channel = ? AND to_ts >= ? AND from_ts <= ?',
       [channel, fromTs, toTs],
     );
@@ -839,6 +847,7 @@ class ArchiveStore {
           login: row['login'] as String?,
           fromTs: row['from_ts']! as int,
           toTs: row['to_ts']! as int,
+          atTs: row['at_ts'] as int?,
         ),
     ];
   }

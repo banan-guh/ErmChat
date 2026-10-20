@@ -211,6 +211,11 @@ void main() {
 
       final before = messages.version.value;
       expect(messages.markUserDeleted('alice'), isTrue);
+      expect(
+        messages.byId('m1')!.deletedAt,
+        isNotNull,
+        reason: 'a VOD replay fades the row when the delete happened',
+      );
 
       expect(messages.version.value, before + 1);
       expect(allCount, 0);

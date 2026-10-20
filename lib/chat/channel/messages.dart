@@ -744,6 +744,7 @@ class Messages {
     for (final msg in _items) {
       if (msg.login == needle && !msg.isSystem && !msg.deleted) {
         msg.deleted = true;
+        msg.deletedAt = now();
         touched = true;
         final id = msg.messageId;
         if (id != null) touchedIds.add(id);
@@ -763,6 +764,7 @@ class Messages {
     for (final msg in _items) {
       if (msg.messageId == messageId && !msg.isSystem && !msg.deleted) {
         msg.deleted = true;
+        msg.deletedAt = now();
         _noteMutation(messageId);
         return true;
       }
@@ -772,8 +774,11 @@ class Messages {
 
   /// Marks every non-system message deleted. Emits one whole-channel evict.
   void markAllDeleted() {
+    final at = now();
     for (final m in _items) {
-      if (!m.isSystem) m.deleted = true;
+      if (m.isSystem || m.deleted) continue;
+      m.deleted = true;
+      m.deletedAt = at;
     }
     _bump();
     mutations.emitAll();

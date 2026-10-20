@@ -153,6 +153,7 @@ class Archive {
         login,
         from.millisecondsSinceEpoch,
         to.millisecondsSinceEpoch,
+        atTs: DateTime.now().millisecondsSinceEpoch,
       ),
     );
   }

@@ -753,10 +753,33 @@ class _HistoryViewState extends State<HistoryView> {
     });
   }
 
+  /// Whether [m] is deleted only later than the replay has reached, so it
+  /// still shows unfaded.
+  bool _deletedLater(TwitchMessage m) {
+    final at = _replayAt;
+    final deletedAt = m.deletedAt;
+    return at != null &&
+        m.deleted &&
+        deletedAt != null &&
+        deletedAt.isAfter(at);
+  }
+
   /// Moves the replay on to [time]: queued rows it has reached join the
   /// list, and the queue reads ahead when it runs short.
   void _advanceReplay(DateTime time) {
+    final before = _replayAt;
     _replayAt = time;
+    // Rows whose delete the replay just passed fade now.
+    if (before != null) {
+      final w = _window;
+      for (var p = w.first; p < w.end; p++) {
+        final d = w[p].deletedAt;
+        if (d != null && d.isAfter(before) && !d.isAfter(time)) {
+          setState(() {});
+          break;
+        }
+      }
+    }
     if (!_loaded || _loadingNewer || _replayJumping) return;
     final due = <TwitchMessage>[];
     var k = 0;
@@ -1241,6 +1264,7 @@ class _HistoryViewState extends State<HistoryView> {
           continue;
         }
         m.deleted = true;
+        m.deletedAt ??= clear.to;
         cache?.remove(m.messageId);
         hit = true;
       }
@@ -1947,6 +1971,17 @@ class _HistoryViewState extends State<HistoryView> {
     String key,
     bool alternate,
   ) {
+    // Left out of the shared cache: live chat must never get the unfaded row.
+    if (_deletedLater(msg)) {
+      return widget.rows.tile(
+        context,
+        msg,
+        alternate: alternate,
+        scale: widget.textScale * _systemScale,
+        surface: Theme.of(context).scaffoldBackgroundColor,
+        fadeDeleted: false,
+      );
+    }
     final cache = widget.tileCache?.putIfAbsent(widget.channel, () => {});
     final id = msg.messageId;
     final hit = id == null ? null : cache?.remove(id);

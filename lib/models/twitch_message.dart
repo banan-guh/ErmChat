@@ -75,6 +75,9 @@ class TwitchMessage {
   String? messageId;
   final String? channel;
   bool deleted;
+
+  /// When moderation deleted this row, so a VOD replay fades it on time.
+  DateTime? deletedAt;
   final bool isHistory;
 
   /// Backfilled from history after a reconnect gap; UI greys these out.

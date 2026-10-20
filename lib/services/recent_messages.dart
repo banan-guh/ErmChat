@@ -423,7 +423,10 @@ class RecentMessagesService {
     for (final other in messages) {
       if (other.isSystem) continue;
       final ban = latestBan[other.login];
-      if (ban != null && !ban.isBefore(other.timestamp)) other.deleted = true;
+      if (ban != null && !ban.isBefore(other.timestamp)) {
+        other.deleted = true;
+        other.deletedAt = ban;
+      }
     }
   }
 
