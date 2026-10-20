@@ -199,9 +199,7 @@ class _PingsScreenState extends ConsumerState<PingsScreen> {
     );
   }
 
-  /// Zero is "Nevermind": letting go there leaves notifications as they were.
   static const _muteSteps = [
-    Duration.zero,
     Duration(minutes: 15),
     Duration(minutes: 30),
     Duration(hours: 1),
@@ -210,14 +208,10 @@ class _PingsScreenState extends ConsumerState<PingsScreen> {
     Duration(hours: 8),
     Duration(hours: 12),
   ];
-  static const _defaultMute = 3;
+  static const _defaultMute = 2;
 
-  /// Step under the finger while the moon is held, else null.
-  int? _muteDrag;
-  final _muteRow = GlobalKey();
-
-  /// Inset of the mute slider's track from the row's edges.
-  static const _muteInset = 16.0;
+  /// Step picked in the open mute panel, else null (closed).
+  int? _muteChoice;
 
   static String _muteLabel(AppLocalizations l, Duration d) => d.inMinutes < 60
       ? l.durationMinutes(d.inMinutes)
@@ -228,63 +222,55 @@ class _PingsScreenState extends ConsumerState<PingsScreen> {
     _scheduleResumeRebuild();
   }
 
-  /// Puts the held mute slider's thumb under the finger.
-  void _dragMute(double x) {
-    final box = _muteRow.currentContext?.findRenderObject() as RenderBox?;
-    if (box == null || !box.hasSize) return;
-    final width = box.size.width - 2 * _muteInset;
-    final along = box.globalToLocal(Offset(x, 0)).dx - _muteInset;
-    final next = (along / width * (_muteSteps.length - 1)).round().clamp(
-      0,
-      _muteSteps.length - 1,
-    );
-    if (next == _muteDrag) return;
-    Haptics.select();
-    setState(() => _muteDrag = next);
-  }
-
-  /// The held moon's slider, laid over the hidden row. It fades in as the
-  /// mute gets longer.
-  Widget _muteSlider(int drag) {
-    final d = _muteSteps[drag];
+  /// The mute panel under the notifications row: pick a duration, then mute.
+  Widget _mutePanel(int choice) {
+    final l = context.l10n;
     final last = _muteSteps.length - 1;
-    return IgnorePointer(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: _muteInset),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              d == Duration.zero
-                  ? context.l10n.muteNevermind
-                  : context.l10n.muteFor(_muteLabel(context.l10n, d)),
-              style: Theme.of(context).textTheme.bodyLarge,
-            ),
-            Opacity(
-              opacity: 0.4 + 0.6 * drag / last,
-              child: SliderTheme(
-                data: SliderTheme.of(context).copyWith(
-                  padding: EdgeInsets.zero,
-                  showValueIndicator: ShowValueIndicator.never,
-                ),
-                child: Slider(
-                  value: drag.toDouble(),
-                  max: last.toDouble(),
-                  divisions: last,
-                  onChanged: (_) {},
-                ),
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            l.muteFor(_muteLabel(l, _muteSteps[choice])),
+            style: Theme.of(context).textTheme.bodyLarge,
+          ),
+          Slider(
+            value: choice.toDouble(),
+            max: last.toDouble(),
+            divisions: last,
+            onChanged: (v) {
+              final next = v.round();
+              if (next == _muteChoice) return;
+              Haptics.select();
+              setState(() => _muteChoice = next);
+            },
+          ),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              TextButton(
+                onPressed: () => setState(() => _muteChoice = null),
+                child: Text(l.cancel),
               ),
-            ),
-          ],
-        ),
+              const SizedBox(width: 8),
+              FilledButton(
+                onPressed: () {
+                  setState(() => _muteChoice = null);
+                  _mute(_muteSteps[choice]);
+                },
+                child: Text(l.mute),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }
 
   /// Master switch for rule and whisper notifications, plus a moon that
-  /// mutes them for a while: tap for an hour, hold and slide to choose.
-  /// Neither changes the rules. The row keeps one height in every state.
+  /// opens a panel to mute them for a while, or unmutes. Neither changes
+  /// the rules.
   Widget _notificationsTile(bool pushOn, bool muted) {
     final pause = ref.read(notificationPauseProvider.notifier);
     final until = ref.read(notificationPauseProvider);
@@ -292,7 +278,6 @@ class _PingsScreenState extends ConsumerState<PingsScreen> {
     final showMute = pushOn && muted && until != null;
     // The proxy doesn't know about mutes, so iOS can't have one.
     final canMute = _keepAlive && pushOn && !_proxyPush;
-    final drag = _muteDrag;
     final String status;
     if (!pushOn) {
       status = context.l10n.off;
@@ -304,45 +289,27 @@ class _PingsScreenState extends ConsumerState<PingsScreen> {
     } else {
       status = context.l10n.on;
     }
-    // The moon keeps its place in the tree while held, or the hold would end.
-    final moon = GestureDetector(
-      onLongPressStart: canMute
-          ? (d) {
-              Haptics.press();
-              _dragMute(d.globalPosition.dx);
-            }
-          : null,
-      onLongPressMoveUpdate: canMute
-          ? (d) => _dragMute(d.globalPosition.dx)
-          : null,
-      onLongPressEnd: canMute
-          ? (_) {
-              final i = _muteDrag;
-              setState(() => _muteDrag = null);
-              if (i != null && i > 0) _mute(_muteSteps[i]);
-            }
-          : null,
-      onLongPressCancel: () => setState(() => _muteDrag = null),
-      child: Semantics(
-        button: true,
-        label: showMute ? context.l10n.unmute : context.l10n.muteForHour,
-        child: InkWell(
-          customBorder: const CircleBorder(),
-          onTap: !canMute
-              ? null
-              : showMute
-              ? pause.resume
-              : () => _mute(_muteSteps[_defaultMute]),
-          child: SizedBox.square(
-            dimension: 48,
-            child: Icon(
-              showMute || drag != null ? Icons.bedtime : Icons.bedtime_outlined,
-              color: !canMute
-                  ? scheme.onSurface.withValues(alpha: 0.38)
-                  : showMute || drag != null
-                  ? scheme.primary
-                  : scheme.onSurfaceVariant,
-            ),
+    final choosing = _muteChoice != null;
+    final moon = Semantics(
+      button: true,
+      label: showMute ? context.l10n.unmute : context.l10n.muteNotifications,
+      child: InkWell(
+        customBorder: const CircleBorder(),
+        onTap: !canMute
+            ? null
+            : showMute
+            ? pause.resume
+            : () =>
+                  setState(() => _muteChoice = choosing ? null : _defaultMute),
+        child: SizedBox.square(
+          dimension: 48,
+          child: Icon(
+            showMute || choosing ? Icons.bedtime : Icons.bedtime_outlined,
+            color: !canMute
+                ? scheme.onSurface.withValues(alpha: 0.38)
+                : showMute || choosing
+                ? scheme.primary
+                : scheme.onSurfaceVariant,
           ),
         ),
       ),
@@ -351,39 +318,38 @@ class _PingsScreenState extends ConsumerState<PingsScreen> {
       Setting.notifications,
       child: _blockedTap(
         _keepAlive ? null : _keepAliveSnack,
-        SizedBox(
-          key: _muteRow,
-          height: 72,
-          // While the moon is held the row hides under the slider but stays
-          // laid out, so nothing shifts and the hold keeps its gesture.
-          child: Stack(
-            children: [
-              Opacity(
-                opacity: drag == null ? 1 : 0,
-                child: ListTile(
-                  enabled: _keepAlive,
-                  leading: const SizedBox(
-                    width: 28,
-                    child: Icon(Icons.notifications_outlined),
-                  ),
-                  title: Text(Setting.notifications.titleOf(context.l10n)),
-                  subtitle: Text(status),
-                  onTap: () => _setPush(!pushOn),
-                  trailing: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      moon,
-                      Switch(
-                        value: pushOn,
-                        onChanged: _keepAlive ? _setPush : null,
-                      ),
-                    ],
-                  ),
-                ),
+        Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              enabled: _keepAlive,
+              leading: const SizedBox(
+                width: 28,
+                child: Icon(Icons.notifications_outlined),
               ),
-              if (drag != null) Positioned.fill(child: _muteSlider(drag)),
-            ],
-          ),
+              title: Text(Setting.notifications.titleOf(context.l10n)),
+              subtitle: Text(status),
+              onTap: () => _setPush(!pushOn),
+              trailing: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  moon,
+                  Switch(
+                    value: pushOn,
+                    onChanged: _keepAlive ? _setPush : null,
+                  ),
+                ],
+              ),
+            ),
+            AnimatedSize(
+              duration: Motion.normal,
+              curve: Motion.move,
+              alignment: Alignment.topCenter,
+              child: canMute && !showMute && choosing
+                  ? _mutePanel(_muteChoice!)
+                  : const SizedBox(width: double.infinity),
+            ),
+          ],
         ),
       ),
     );

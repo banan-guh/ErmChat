@@ -443,7 +443,6 @@
       }
     }
   },
-  "muteNevermind": "Nevermind...",
   "muteFor": "Mute for {duration}",
   "@muteFor": {
     "placeholders": {
@@ -461,7 +460,8 @@
     }
   },
   "unmute": "Unmute",
-  "muteForHour": "Mute for 1 hour",
+  "muteNotifications": "Mute notifications",
+  "mute": "Mute",
   "notificationsNeedBackground": "Notifications need Stay connected in background",
   "turnOn": "Turn on",
   "turnOff": "Turn off",
