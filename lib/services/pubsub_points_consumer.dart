@@ -22,6 +22,7 @@ class PubSubPointsConsumer {
     required this.chat,
     required this.getMaxMessages,
     this.isHiddenUser,
+    this.onArchive,
     this.clock,
     this.strings = englishStrings,
   });
@@ -31,6 +32,9 @@ class PubSubPointsConsumer {
 
   /// Blocked or ignored logins; their redemptions post nothing.
   final bool Function(String login)? isHiddenUser;
+
+  /// Archives a redemption header once it is in chat.
+  final void Function(String channel, TwitchMessage header)? onArchive;
   final DateTime Function()? clock;
   final AppLocalizations Function() strings;
 
@@ -140,6 +144,7 @@ class PubSubPointsConsumer {
       isSelected: true,
       ownLogin: null,
     );
+    if (result.inserted) onArchive?.call(channel, header);
     return result.inserted;
   }
 
@@ -150,13 +155,14 @@ class PubSubPointsConsumer {
       logDebug('PubSub points: no channel $channel for standalone header');
       return;
     }
-    chat.receive(
+    final result = chat.receive(
       channel,
       header,
       maxMessages: getMaxMessages(),
       isSelected: true,
       ownLogin: null,
     );
+    if (result.inserted) onArchive?.call(channel, header);
   }
 
   bool _retroInsert(
@@ -167,11 +173,13 @@ class PubSubPointsConsumer {
     final header = _headerMessage(channel, redemption, withUser: false);
     final target = chat.channelFor(channel);
     if (target == null) return false;
-    return target.insertHeaderAbove(
+    final inserted = target.insertHeaderAbove(
       targetMessageId,
       header,
       maxMessages: getMaxMessages(),
     );
+    if (inserted) onArchive?.call(channel, header);
+    return inserted;
   }
 
   /// Builds the header row. Input-required headers omit the user because the

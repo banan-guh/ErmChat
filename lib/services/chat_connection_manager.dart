@@ -311,6 +311,7 @@ class ChatConnectionManager {
     isHiddenUser: (login) =>
         config.sinks.isBlocked?.call(login) == true ||
         config.services.ignoreManager?.isIgnored(login) == true,
+    onArchive: config.sinks.onArchiveMessage,
     strings: config.bridge.strings,
   );
 
