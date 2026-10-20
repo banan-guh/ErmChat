@@ -709,6 +709,10 @@ class TabbedLayoutState extends State<TabbedLayout>
                       PopupMenuButton<int>(
                         tooltip: context.l10n.pageChannels,
                         onSelected: _onTabTap,
+                        // Four rows plus the menu's padding, then it scrolls.
+                        constraints: const BoxConstraints(
+                          maxHeight: 4 * kMinInteractiveDimension + 16,
+                        ),
                         itemBuilder: (_) => [
                           for (var i = 0; i < tabs.length; i++)
                             CheckedPopupMenuItem(
