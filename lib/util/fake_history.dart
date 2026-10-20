@@ -1,4 +1,4 @@
-import 'package:flutter/foundation.dart' show kReleaseMode;
+import 'package:flutter/foundation.dart' show kReleaseMode, visibleForTesting;
 
 import '../models/twitch_message.dart';
 import 'history_timeline.dart';
@@ -26,8 +26,10 @@ class FakeHistory {
   static const Duration _denseStep = Duration(milliseconds: 500);
   static const int _seed = 7;
 
-  /// Fixed at launch so row times stay stable for the whole run.
-  static final DateTime _end = DateTime.fromMillisecondsSinceEpoch(
+  /// Fixed at launch so row times stay stable for the whole run. Tests pin
+  /// it, since where local days fall depends on the time of day.
+  @visibleForTesting
+  static DateTime end = DateTime.fromMillisecondsSinceEpoch(
     DateTime.now().millisecondsSinceEpoch ~/ 1000 * 1000,
   );
 
@@ -53,7 +55,7 @@ class FakeHistory {
   static int get _gapRow => _gapAt.inMilliseconds ~/ _testStep.inMilliseconds;
 
   /// Fixed clock of the prototype: the end of the archive.
-  static DateTime get now => _end;
+  static DateTime get now => end;
 
   /// Oldest retained time for [channel].
   static DateTime startOf(String channel) => _start(channel);
@@ -61,7 +63,7 @@ class FakeHistory {
   /// Message counts per bucket, derived from the generated rows.
   static const ActivityIndex activity = _FakeActivity();
 
-  static DateTime _start(String channel) => _end.subtract(_span);
+  static DateTime _start(String channel) => end.subtract(_span);
 
   /// Row time: a fixed step plus a deterministic jitter below the step, and
   /// the gap added to rows after it.
@@ -107,8 +109,8 @@ class FakeHistory {
       for (final (i, (daysAgo, hours, title, game)) in plan.indexed)
         HistoryStream(
           id: 'fake-stream-${i + 1}',
-          start: _end.subtract(Duration(minutes: (daysAgo * 1440).round())),
-          end: _end.subtract(
+          start: end.subtract(Duration(minutes: (daysAgo * 1440).round())),
+          end: end.subtract(
             Duration(minutes: (daysAgo * 1440).round() - (hours * 60).round()),
           ),
           title: title,

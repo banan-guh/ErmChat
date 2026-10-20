@@ -328,6 +328,10 @@ HistoryActions _vodActions(
 );
 
 void main() {
+  // Day boundaries follow the archive's end, so a real clock just past
+  // midnight leaves the last day empty. Noon, away from DST changes.
+  FakeHistory.end = DateTime(2026, 6, 15, 12);
+
   testWidgets('a VOD replays its chat up to playback, through 48 hours', (
     tester,
   ) async {
