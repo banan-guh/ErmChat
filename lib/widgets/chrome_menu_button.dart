@@ -290,6 +290,8 @@ class _BloomMenuState extends State<_BloomMenu>
 
   Future<void> _close() async {
     if (!_portal.isShowing || _closing) return;
+    // Closing mid-open turns straight back instead of easing in from a stop.
+    final opening = _morph.isAnimating;
     setState(() => _closing = true);
     widget.onOpenChanged?.call(false);
     if (!MediaQuery.disableAnimationsOf(context)) {
@@ -298,7 +300,7 @@ class _BloomMenuState extends State<_BloomMenu>
             .animateTo(
               0,
               duration: const Duration(milliseconds: 200),
-              curve: Curves.easeInCubic,
+              curve: opening ? Curves.easeOutCubic : Curves.easeInCubic,
             )
             .orCancel;
       } on TickerCanceled {
