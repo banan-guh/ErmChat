@@ -1,7 +1,3 @@
-import 'dart:typed_data';
-
-import 'archive_io.dart';
-
 /// Who a user is: written once per user.
 class Who {
   const Who({required this.userId, required this.login, this.displayName});
@@ -64,109 +60,89 @@ class UserState {
   int get hashCode => Object.hash(who, look);
 }
 
-/// Interned user tables. Ids are the insertion index and stay stable.
+/// Interned user tables by id. Ids are handed out in order and never reused,
+/// so [prune] leaves gaps that stored rows never point into.
 class UserTables {
-  static const int version = 1;
+  final Map<int, Who> whos = {};
+  final Map<int, Look> looks = {};
+  final Map<int, UserState> states = {};
 
-  final List<Who> whos = [];
-  final List<Look> looks = [];
-  final List<UserState> states = [];
+  /// The ids the next new entries get.
+  int nextWho = 0;
+  int nextLook = 0;
+  int nextState = 0;
+
   final Map<Who, int> _whoIds = {};
   final Map<Look, int> _lookIds = {};
   final Map<UserState, int> _stateIds = {};
 
   int internWho(Who who) => _whoIds.putIfAbsent(who, () {
-    whos.add(who);
-    return whos.length - 1;
+    whos[nextWho] = who;
+    return nextWho++;
   });
 
   int internLook(Look look) => _lookIds.putIfAbsent(look, () {
-    looks.add(look);
-    return looks.length - 1;
+    looks[nextLook] = look;
+    return nextLook++;
   });
 
   /// Returns the id a row stores for this who/look pair.
   int internState(int who, int look) {
-    if (who < 0 || who >= whos.length || look < 0 || look >= looks.length) {
+    if (!whos.containsKey(who) || !looks.containsKey(look)) {
       throw RangeError('unknown who $who or look $look');
     }
-    final state = UserState(who, look);
-    return _stateIds.putIfAbsent(state, () {
-      states.add(state);
-      return states.length - 1;
+    return _stateIds.putIfAbsent(UserState(who, look), () {
+      states[nextState] = UserState(who, look);
+      return nextState++;
     });
   }
 
-  /// Packed like a block: the three tables, deflated.
-  Uint8List encode() {
-    final body = ByteWriter();
-    body.varint(whos.length);
-    for (final w in whos) {
-      body.string(w.userId);
-      body.string(w.login);
-      body.string(w.displayName ?? '');
-      body.byte(w.displayName == null ? 0 : 1);
-    }
-    body.varint(looks.length);
-    for (final l in looks) {
-      body.string(l.color ?? '');
-      body.byte(l.color == null ? 0 : 1);
-      body.string(l.badges);
-      body.varint(l.extra.length);
-      for (final (k, v) in l.extra) {
-        body.string(k);
-        body.string(v);
-      }
-    }
-    body.varint(states.length);
-    for (final s in states) {
-      body.varint(s.who);
-      body.varint(s.look);
-    }
-    return packPayload(version, body.takeBytes());
+  /// Restores saved entries at their ids, in any order.
+  void putWho(int id, Who who) {
+    whos[id] = who;
+    _whoIds[who] = id;
+    if (id >= nextWho) nextWho = id + 1;
   }
 
-  /// Throws [ArchiveFormatException] on truncated, corrupt, or unknown data.
-  static UserTables decode(Uint8List data) {
-    final raw = unpackPayload(version, data, 'user tables');
-    final r = ByteReader(raw);
-    final t = UserTables();
-    int count() {
-      final n = r.varint();
-      if (n > r.remaining) {
-        throw const ArchiveFormatException('implausible count');
-      }
-      return n;
-    }
+  void putLook(int id, Look look) {
+    looks[id] = look;
+    _lookIds[look] = id;
+    if (id >= nextLook) nextLook = id + 1;
+  }
 
-    try {
-      for (var i = count(); i > 0; i--) {
-        final id = r.string();
-        final login = r.string();
-        final name = r.string();
-        final has = r.byte() == 1;
-        t.internWho(
-          Who(userId: id, login: login, displayName: has ? name : null),
-        );
-      }
-      for (var i = count(); i > 0; i--) {
-        final color = r.string();
-        final hasColor = r.byte() == 1;
-        final badges = r.string();
-        final extra = <(String, String)>[];
-        for (var j = count(); j > 0; j--) {
-          extra.add((r.string(), r.string()));
-        }
-        t.internLook(
-          Look(color: hasColor ? color : null, badges: badges, extra: extra),
-        );
-      }
-      for (var i = count(); i > 0; i--) {
-        t.internState(r.varint(), r.varint());
-      }
-    } on RangeError {
-      throw const ArchiveFormatException('state references unknown user');
+  void putState(int id, int who, int look) {
+    final state = UserState(who, look);
+    states[id] = state;
+    _stateIds[state] = id;
+    if (id >= nextState) nextState = id + 1;
+  }
+
+  /// Drops every state outside [live], then the whos and looks no state
+  /// left uses. Returns the dropped ids.
+  ({List<int> whos, List<int> looks, List<int> states}) prune(Set<int> live) {
+    final deadStates = [
+      for (final id in states.keys)
+        if (!live.contains(id)) id,
+    ];
+    for (final id in deadStates) {
+      _stateIds.remove(states.remove(id));
     }
-    return t;
+    final usedWhos = {for (final s in states.values) s.who};
+    final usedLooks = {for (final s in states.values) s.look};
+    final deadWhos = [
+      for (final id in whos.keys)
+        if (!usedWhos.contains(id)) id,
+    ];
+    final deadLooks = [
+      for (final id in looks.keys)
+        if (!usedLooks.contains(id)) id,
+    ];
+    for (final id in deadWhos) {
+      _whoIds.remove(whos.remove(id));
+    }
+    for (final id in deadLooks) {
+      _lookIds.remove(looks.remove(id));
+    }
+    return (whos: deadWhos, looks: deadLooks, states: deadStates);
   }
 }

@@ -416,6 +416,8 @@ void main() {
     await db.execute('DROP TABLE vocab');
     await db.execute('ALTER TABLE blocks DROP COLUMN words');
     await db.execute('ALTER TABLE blocks DROP COLUMN senders');
+    await db.execute('ALTER TABLE blocks DROP COLUMN states');
+    await db.execute('ALTER TABLE ref_ids DROP COLUMN ts');
     await db.setVersion(3);
     await db.close();
 
@@ -896,6 +898,11 @@ void main() {
       ['live'],
       reason: 'an ended broadcast past retention goes, a live one stays',
     );
+    expect(
+      (await store.streams(_channel, 0)).single.endedTs,
+      DateTime.utc(2026, 9, 25, 1).millisecondsSinceEpoch,
+      reason: 'one left open with no chat for a day ends at the last row',
+    );
     await store.endStream('live', now.millisecondsSinceEpoch);
     expect(
       await store.putStream(channel: _channel, id: 'live', startedTs: 0),
@@ -962,6 +969,85 @@ void main() {
       [hour[0], hour[2]],
       reason: 'the newest block and the pinned one stay under a cap',
     );
+    await store.close();
+  });
+
+  test('a launch drops users, roots and words no kept row needs', () async {
+    final old = _t0.millisecondsSinceEpoch;
+    var now = _t0;
+    final path = _newPath();
+    var store = await _open(path, now: () => now);
+    var writer = _writer(store);
+    // Bob's rows age out, with a thread root and words only they use.
+    for (var i = 0; i < 300; i++) {
+      writer.add(
+        _channel,
+        _msg(i, login: 'bob', tsMs: old + i * 1000)
+          ..text = 'olda$i oldb$i oldc$i oldd$i'
+          ..replyThreadRootId = _id(0),
+      );
+    }
+    await writer.flush();
+    final recent = _t0.add(const Duration(days: 39)).millisecondsSinceEpoch;
+    writer.add(_channel, _msg(300, tsMs: recent)..text = 'freshword');
+    await writer.dispose();
+
+    // The launch prunes and runs upkeep in the background while chat
+    // arrives: Carol's row is in the writer's tail as it runs.
+    now = _t0.add(const Duration(days: 40));
+    store = await _open(path, now: () => now);
+    writer = _writer(store);
+    writer.add(_channel, _msg(301, login: 'carol', tsMs: recent + 1000));
+    await writer.dispose();
+
+    store = await _open(path, now: () => now);
+    final logins = {
+      for (final w in (await store.tables(_channel)).whos.values) w.login,
+    };
+    expect(logins, {'alice', 'carol'}, reason: 'held rows keep their user');
+    expect(
+      (await store.wordIds(['old'])).single,
+      isEmpty,
+      reason: 'words only pruned rows held are gone',
+    );
+    expect(
+      [
+        for (final m in await _reader(store).search(_channel, 'freshword'))
+          m.text,
+      ],
+      ['freshword'],
+      reason: 'kept words still find their rows after renumbering',
+    );
+    final db = await databaseFactoryFfi.openDatabase(
+      path,
+      options: OpenDatabaseOptions(singleInstance: false),
+    );
+    expect(
+      (await db.rawQuery('SELECT count(*) AS n FROM ref_ids')).first['n'],
+      0,
+      reason: 'a root goes with its last reply',
+    );
+    await db.close();
+    writer = _writer(store);
+    writer.add(_channel, _msg(302, login: 'bob', tsMs: recent + 2000));
+    await writer.flush();
+    expect(
+      [for (final m in await _reader(store).newestRows(_channel, 10)) m.login],
+      ['alice', 'carol', 'bob'],
+      reason: 'kept users read back after a restart, a returning one anew',
+    );
+    await writer.dispose();
+  });
+
+  test('a file made without auto vacuum converts once', () async {
+    final path = _newPath();
+    final db = await databaseFactoryFfi.openDatabase(path);
+    await db.execute('PRAGMA auto_vacuum=NONE');
+    await db.execute('CREATE TABLE early(x)');
+    await db.close();
+    final store = await _open(path);
+    expect(await store.reclaimSpace(), -1, reason: 'rebuilt once');
+    expect(await store.reclaimSpace(), 0, reason: 'then vacuums in steps');
     await store.close();
   });
 
@@ -1331,9 +1417,11 @@ void main() {
       writer.add(_channel, _msg(0));
       await writer.flush();
       await store.close();
-      // Back to schema 6: no edits table.
+      // Back to schema 6: no edits table, no block states or root times.
       final db = await databaseFactoryFfi.openDatabase(path);
       await db.execute('DROP TABLE edits');
+      await db.execute('ALTER TABLE blocks DROP COLUMN states');
+      await db.execute('ALTER TABLE ref_ids DROP COLUMN ts');
       await db.setVersion(6);
       await db.close();
 

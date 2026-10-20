@@ -536,12 +536,9 @@ class ArchiveReader {
       toMs: null,
       texts: texts,
       states: {
-        for (var i = 0; i < t.states.length; i++)
-          if (sender(
-            t.whos[t.states[i].who].login,
-            t.whos[t.states[i].who].displayName,
-          ))
-            i,
+        for (final MapEntry(key: id, value: s) in t.states.entries)
+          if (t.whos[s.who] case final w? when sender(w.login, w.displayName))
+            id,
       },
     );
   }
@@ -565,8 +562,8 @@ class ArchiveReader {
       for (final channel in channels) {
         final t = await store.tables(channel);
         final who = {
-          for (var i = 0; i < t.whos.length; i++)
-            if (sender(t.whos[i].login, t.whos[i].displayName)) i,
+          for (final MapEntry(key: id, value: w) in t.whos.entries)
+            if (sender(w.login, w.displayName)) id,
         };
         if (who.isNotEmpty) senders[channel] = who;
       }

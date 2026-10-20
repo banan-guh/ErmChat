@@ -65,9 +65,7 @@ class Archive {
   /// Sets how long chat stays and prunes to it now. Never throws.
   Future<void> setRetention(Duration retention) async {
     ArchiveStore.retention = retention;
-    await _quiet((s) async {
-      await s.prune(DateTime.now());
-    });
+    await _shrink();
   }
 
   /// Bytes for a per-channel cap of [mb] megabytes, null for 0 (no cap).
@@ -76,10 +74,16 @@ class Archive {
   /// Sets the per-channel cap and prunes to it now. Never throws.
   Future<void> setChannelCap(int? bytes) async {
     ArchiveStore.channelCapBytes = bytes;
-    await _quiet((s) async {
-      await s.prune(DateTime.now());
-    });
+    await _shrink();
   }
+
+  /// Prunes to the current limits and hands the freed space back to the
+  /// file system, so the size shown drops at once.
+  Future<void> _shrink() => _quiet((s) async {
+    await s.prune(DateTime.now());
+    await s.pruneUsers();
+    await s.reclaimSpace(all: true);
+  });
 
   /// Records a broadcast seen live. Never throws.
   Future<void> recordStream({

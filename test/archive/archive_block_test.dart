@@ -179,7 +179,7 @@ void main() {
     );
   });
 
-  test('user tables intern by value and round-trip', () {
+  test('user tables intern by value', () {
     final t = UserTables();
     final alice = t.internWho(
       const Who(userId: '1', login: 'alice', displayName: 'Alice'),
@@ -200,14 +200,6 @@ void main() {
     t.internState(bob, plain);
     t.internState(bob, red);
 
-    final back = UserTables.decode(t.encode());
-    expect(back.whos, t.whos);
-    expect(back.looks, t.looks);
-    expect(back.states, t.states);
-    expect(back.whos[bob].displayName, isNull);
-    expect(
-      () => UserTables.decode(t.encode().sublist(0, 6)),
-      throwsA(isA<ArchiveFormatException>()),
-    );
+    expect(t.whos[bob]!.displayName, isNull);
   });
 }

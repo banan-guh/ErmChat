@@ -22,6 +22,9 @@ class _Chan {
   final waiting = <TwitchMessage>[];
   final tail = <ArchiveRow>[];
 
+  /// Rows of seals still writing.
+  final sealing = <List<ArchiveRow>>[];
+
   /// The tail's messages plus those of seals still writing, oldest first.
   final unsealed = <TwitchMessage>[];
 
@@ -49,7 +52,13 @@ class ArchiveWriter {
     this.sealAfter = const Duration(seconds: 30),
     this.createTimer = Timer.new,
     this.encode = encodeOffIsolate,
-  });
+  }) {
+    // Registered before any row arrives, so no upkeep misses one.
+    _store.then((s) {
+      s?.heldEdits = heldIds;
+      s?.heldStates = heldStates;
+    }, onError: (_) {});
+  }
 
   /// Message ids remembered per channel for dedup.
   static const int idWindow = 4096;
@@ -179,6 +188,18 @@ class ArchiveWriter {
     };
   }
 
+  /// User states the unsealed rows of [channel] name. Pruning the user
+  /// tables must keep them.
+  Set<int> heldStates(String channel) {
+    final c = _chans[channel];
+    if (c == null) return const {};
+    return {
+      for (final r in c.tail) r.user,
+      for (final rows in c.sealing)
+        for (final r in rows) r.user,
+    };
+  }
+
   /// [edit] on [messageId] in the unchanging tail. A row in a seal still
   /// writing is already sealed from this side, so the store takes that edit.
   bool _applyEdit(_Chan c, String messageId, ArchiveEdit edit) {
@@ -234,8 +255,10 @@ class ArchiveWriter {
     final defs = Map.of(c.defs);
     c.sentDefs.addAll(defs.keys);
     c.defs.clear();
+    c.sealing.add(rows);
     c.chain = c.chain.then((_) async {
       final ok = await _write(channel, rows, defs);
+      c.sealing.remove(rows);
       // Readable from the store now, or lost to a failed write. Lost rows
       // forget their ids and defs so a re-fetch stores them.
       if (!ok) {
@@ -285,25 +308,24 @@ class ArchiveWriter {
         data: data,
         minutes: minutes,
         emoteDefs: defs,
-        refIds: {
-          for (final r in rows) ...[?r.replyParentId, ?r.threadRootId],
-        },
+        refs: replyRoots(rows),
         words: {
           for (final r in rows)
             if (!r.isSystem) ...searchWords(r.text),
         },
         senders: {
           for (final r in rows)
-            if (!r.isSystem && r.user < tables.states.length)
-              tables.states[r.user].who,
+            if (!r.isSystem)
+              if (tables.states[r.user] case final s?) s.who,
         },
+        states: {for (final r in rows) r.user},
       );
     } catch (e) {
       logDebug('[ArchiveWriter] seal failed for $channel: $e');
       return false;
     }
     try {
-      await (await _store)?.pruneIfDue(heldEdits: heldIds);
+      await (await _store)?.pruneIfDue();
     } catch (e) {
       logDebug('[ArchiveWriter] prune failed for $channel: $e');
     }

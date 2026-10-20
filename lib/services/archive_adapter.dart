@@ -28,6 +28,9 @@ class ArchiveAdapter {
   static const _redeemPoints = 'x-redeem-points';
   static const _gifs = 'x-gifs';
 
+  // Stands in for a user a damaged row points past.
+  static const _unknown = Who(userId: '', login: '');
+
   /// Key of [e]'s stored definition: provider, id and code, so a renamed
   /// alias stays its own version.
   static String defKey(Emote e) => '${e.type.name}:${e.id}:${e.code}';
@@ -116,8 +119,8 @@ class ArchiveAdapter {
     Map<String, Emote> defs = const {},
   }) {
     final state = users.states[r.user];
-    final who = users.whos[state.who];
-    final look = users.looks[state.look];
+    final who = users.whos[state?.who] ?? _unknown;
+    final look = users.looks[state?.look] ?? const Look();
     final extra = {for (final (k, v) in r.extraTags) k: v};
     final gifs = extra[_gifs];
     final accent = int.tryParse(extra[_accent] ?? '');

@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:isolate';
+import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:sqflite/sqflite.dart';
@@ -67,9 +68,9 @@ class StoredThreadMessage {
 
 class _ChannelTables {
   _ChannelTables(this.tables)
-    : whoSaved = tables.whos.length,
-      lookSaved = tables.looks.length,
-      stateSaved = tables.states.length;
+    : whoSaved = tables.nextWho,
+      lookSaved = tables.nextLook,
+      stateSaved = tables.nextState;
 
   final UserTables tables;
   int whoSaved;
@@ -88,7 +89,7 @@ class _ChannelTables {
 class ArchiveStore {
   ArchiveStore._(this._db, this._now);
 
-  static const int schemaVersion = 7;
+  static const int schemaVersion = 8;
   static const Duration defaultRetention = Duration(days: 30);
 
   /// How long chat stays before pruning. The History settings set it, and
@@ -116,8 +117,12 @@ class ArchiveStore {
       options: OpenDatabaseOptions(
         version: schemaVersion,
         onConfigure: (db) async {
+          // Takes effect only on a new file; older ones convert in
+          // [reclaimSpace].
+          await db.execute('PRAGMA auto_vacuum=INCREMENTAL');
           await db.rawQuery('PRAGMA journal_mode=WAL');
           await db.execute('PRAGMA synchronous=NORMAL');
+          await db.rawQuery('PRAGMA journal_size_limit=$_walLimit');
         },
         onCreate: (db, version) => _create(db),
         onUpgrade: migrate,
@@ -180,6 +185,21 @@ class ArchiveStore {
     await _addBlockFlags(db);
     await _createSearchIndex(db);
     await _createEdits(db);
+    await _addUpkeepColumns(db);
+  }
+
+  /// Per block: the user states its rows name (`states`), so pruning the user
+  /// tables reads small lists. Per reply root: the time of the newest reply
+  /// to it (`ts`), so the reference ages out with that reply.
+  static Future<void> _addUpkeepColumns(Database db) async {
+    await db.execute('ALTER TABLE blocks ADD COLUMN states BLOB');
+    await db.execute(
+      'ALTER TABLE ref_ids ADD COLUMN ts INTEGER NOT NULL DEFAULT 0',
+    );
+    // References from before the column age out a retention from now.
+    await db.rawUpdate(
+      "UPDATE ref_ids SET ts = CAST(strftime('%s', 'now') AS INTEGER) * 1000",
+    );
   }
 
   /// Saved threads live in their own tables, so block retention never
@@ -298,6 +318,9 @@ class ArchiveStore {
     if (from < 7) {
       await _createEdits(db);
     }
+    if (from < 8) {
+      await _addUpkeepColumns(db);
+    }
   }
 
   Future<void> close() async {
@@ -382,7 +405,8 @@ class ArchiveStore {
 
   /// Stores one sealed block, any user rows not yet saved for [channel], and
   /// the per-minute counts, in one transaction. [minutes] maps epoch minute to
-  /// the number of rows the block adds.
+  /// the number of rows the block adds, [refs] each reply root to its newest
+  /// reply's time, and [states] the user states the rows name.
   Future<void> appendBlock({
     required String channel,
     required int startTs,
@@ -391,16 +415,17 @@ class ArchiveStore {
     required Uint8List data,
     required Map<int, int> minutes,
     Map<String, String> emoteDefs = const {},
-    Set<String> refIds = const {},
+    Map<String, int> refs = const {},
     Set<String>? words,
     Set<int>? senders,
+    Set<int>? states,
   }) => _withVocab((v) async {
     await tables(channel);
     final saved = await _tables[channel]!;
     final t = saved.tables;
-    final whoTo = t.whos.length;
-    final lookTo = t.looks.length;
-    final stateTo = t.states.length;
+    final whoTo = t.nextWho;
+    final lookTo = t.nextLook;
+    final stateTo = t.nextState;
     final first = v.length;
     final ids = words == null ? null : v.assign(words);
     try {
@@ -414,6 +439,7 @@ class ArchiveStore {
         }
         for (var i = saved.whoSaved; i < whoTo; i++) {
           final w = t.whos[i];
+          if (w == null) continue;
           b.insert('users', {
             'channel': channel,
             'id': i,
@@ -424,6 +450,7 @@ class ArchiveStore {
         }
         for (var i = saved.lookSaved; i < lookTo; i++) {
           final l = t.looks[i];
+          if (l == null) continue;
           b.insert('looks', {
             'channel': channel,
             'id': i,
@@ -437,11 +464,13 @@ class ArchiveStore {
           });
         }
         for (var i = saved.stateSaved; i < stateTo; i++) {
+          final s = t.states[i];
+          if (s == null) continue;
           b.insert('user_states', {
             'channel': channel,
             'id': i,
-            'who': t.states[i].who,
-            'look': t.states[i].look,
+            'who': s.who,
+            'look': s.look,
           });
         }
         b.insert('blocks', {
@@ -453,13 +482,9 @@ class ArchiveStore {
           'refs': 1,
           'words': ids == null ? null : encodeWordList(ids),
           'senders': senders == null ? null : encodeWordList(senders),
+          'states': states == null ? null : encodeWordList(states),
         });
-        for (final id in refIds) {
-          b.insert('ref_ids', {
-            'channel': channel,
-            'message_id': id,
-          }, conflictAlgorithm: ConflictAlgorithm.ignore);
-        }
+        _putRefs(b, channel, refs);
         for (final e in emoteDefs.entries) {
           b.insert('emote_defs', {
             'channel': channel,
@@ -492,6 +517,21 @@ class ArchiveStore {
     }
   });
 
+  /// Records reply roots with the time of their newest reply.
+  static void _putRefs(Batch b, String channel, Map<String, int> refs) {
+    for (final MapEntry(key: id, value: ts) in refs.entries) {
+      b.rawInsert(
+        'INSERT OR IGNORE INTO ref_ids(channel, message_id, ts) VALUES(?, ?, ?)',
+        [channel, id, ts],
+      );
+      b.rawUpdate(
+        'UPDATE ref_ids SET ts = ? WHERE channel = ? AND message_id = ? '
+        'AND ts < ?',
+        [ts, channel, id, ts],
+      );
+    }
+  }
+
   // ---- Search index --------------------------------------------------------
 
   Future<_Vocab>? _vocab;
@@ -519,14 +559,14 @@ class ArchiveStore {
   static Future<_Vocab> _vocabOffIsolate(List<(int, Uint8List)> chunks) =>
       Isolate.run(() => _Vocab.fromChunks(chunks));
 
-  /// Indexes blocks sealed before the index existed, or merged since.
-  /// Returns blocks indexed.
+  /// Indexes blocks sealed before the index existed, or merged since, and
+  /// lists their user states. Returns blocks indexed.
   Future<int> backfillWords() async {
     var done = 0;
     while (true) {
       final r = await _db.rawQuery(
         'SELECT id, channel, data FROM blocks '
-        'WHERE words IS NULL OR senders IS NULL LIMIT 64',
+        'WHERE words IS NULL OR senders IS NULL OR states IS NULL LIMIT 64',
       );
       if (r.isEmpty) return done;
       final found = await _wordsOffIsolate([
@@ -539,7 +579,7 @@ class ArchiveStore {
         senders.add(
           encodeWordList({
             for (final s in found[i].states)
-              if (s >= 0 && s < t.states.length) t.states[s].who,
+              if (t.states[s] case final st?) st.who,
           }),
         );
       }
@@ -559,8 +599,14 @@ class ArchiveStore {
             }
             for (var i = 0; i < r.length; i++) {
               b.rawUpdate(
-                'UPDATE blocks SET words = ?, senders = ? WHERE id = ?',
-                [lists[i], senders[i], r[i]['id']],
+                'UPDATE blocks SET words = ?, senders = ?, states = ? '
+                'WHERE id = ?',
+                [
+                  lists[i],
+                  senders[i],
+                  encodeWordList(found[i].all),
+                  r[i]['id'],
+                ],
               );
             }
             await b.commit(noResult: true);
@@ -574,9 +620,9 @@ class ArchiveStore {
     }
   }
 
-  static Future<List<({Set<String> words, Set<int> states})>> _wordsOffIsolate(
-    List<Uint8List> blocks,
-  ) => Isolate.run(() => blockWords(blocks));
+  static Future<List<({Set<String> words, Set<int> states, Set<int> all})>>
+  _wordsOffIsolate(List<Uint8List> blocks) =>
+      Isolate.run(() => blockWords(blocks));
 
   /// Vocabulary ids of every word containing each of [tokens].
   Future<List<Set<int>>> wordIds(List<String> tokens) async {
@@ -1173,12 +1219,15 @@ class ArchiveStore {
 
   // ---- Retention -----------------------------------------------------------
 
+  /// The writer's uncommitted message ids and the user states its unsealed
+  /// rows name, per channel, so upkeep never clears an edit or drops a user
+  /// a seal still needs. [ArchiveWriter] sets them as the store opens, before
+  /// it takes any row.
+  Set<String> Function(String channel)? heldEdits;
+  Set<int> Function(String channel)? heldStates;
+
   /// Prunes when none ran in the last [pruneEvery]. Returns blocks deleted.
-  /// [heldEdits] answers the writer's uncommitted ids per channel, so upkeep
-  /// never clears an edit for a row a seal is still writing.
-  Future<int> pruneIfDue({
-    Set<String> Function(String channel)? heldEdits,
-  }) async {
+  Future<int> pruneIfDue() async {
     final now = _now();
     final last = _lastPrune;
     if (last != null && now.difference(last) < pruneEvery) {
@@ -1187,7 +1236,7 @@ class ArchiveStore {
     _lastPrune = now;
     final deleted = await prune(now);
     // A long gap leaves seconds of merging; nothing waits on it.
-    _compacting ??= _upkeep(now, heldEdits: heldEdits)
+    _compacting ??= _upkeep(now)
         .then<void>(
           (_) {},
           onError: (Object e) {
@@ -1202,16 +1251,155 @@ class ArchiveStore {
 
   /// Background upkeep after a prune: merge small blocks, record reply
   /// references of blocks sealed before `ref_ids` was kept, bake pending edits,
-  /// then strip ids.
-  Future<void> _upkeep(
-    DateTime now, {
-    Set<String> Function(String channel)? heldEdits,
-  }) async {
+  /// strip ids, index, drop users and words nothing names, then hand free
+  /// pages back.
+  Future<void> _upkeep(DateTime now) async {
     await compact(now);
     await backfillRefs();
-    await bakeEdits(held: heldEdits);
+    await bakeEdits();
     await strip(now);
     await backfillWords();
+    await pruneUsers();
+    await pruneVocab();
+    await reclaimSpace();
+  }
+
+  /// Drops user states no block names and no row in [held] (the writer's
+  /// unsealed rows, [heldStates] by default) uses, then the whos and looks left unused. Runs under
+  /// the write lock, so no block lands between the scan and the drop. A
+  /// channel with blocks not yet listed waits. Returns states dropped.
+  Future<int> pruneUsers({Set<int> Function(String channel)? held}) =>
+      _withVocab((_) async {
+        var dropped = 0;
+        final channels = await _db.rawQuery(
+          'SELECT DISTINCT channel FROM user_states',
+        );
+        for (final c in channels) {
+          final channel = c['channel']! as String;
+          final r = await _db.rawQuery(
+            'SELECT states FROM blocks WHERE channel = ?',
+            [channel],
+          );
+          if (r.any((row) => row['states'] == null)) continue;
+          final live = await _statesOffIsolate([
+            for (final row in r) row['states']! as Uint8List,
+          ]);
+          final t = await tables(channel);
+          // Read now, after the last await: the writer may have registered
+          // or taken rows since the call.
+          live.addAll((held ?? heldStates)?.call(channel) ?? const {});
+          final dead = t.prune(live);
+          if (dead.states.isEmpty) continue;
+          dropped += dead.states.length;
+          await _db.transaction((txn) async {
+            final b = txn.batch();
+            for (final (table, ids) in [
+              ('user_states', dead.states),
+              ('users', dead.whos),
+              ('looks', dead.looks),
+            ]) {
+              for (var i = 0; i < ids.length; i += 500) {
+                final part = ids.skip(i).take(500);
+                b.rawDelete(
+                  'DELETE FROM $table WHERE channel = ? AND id IN '
+                  '(${part.join(',')})',
+                  [channel],
+                );
+              }
+            }
+            await b.commit(noResult: true);
+          });
+        }
+        return dropped;
+      });
+
+  static Future<Set<int>> _statesOffIsolate(List<Uint8List> lists) =>
+      Isolate.run(() => {for (final l in lists) ...decodeWordList(l)});
+
+  /// Vocabulary size at the last check of how much of it blocks still use.
+  int? _vocabChecked;
+
+  /// Rebuilds the vocabulary from the words blocks still hold once pruned
+  /// blocks leave most of it unused, renumbering every block's list in one
+  /// transaction. Checks again after the vocabulary grows by a quarter.
+  /// Returns words dropped.
+  Future<int> pruneVocab() => _withVocab((v) async {
+    final checked = _vocabChecked;
+    if (v.length < 1000) return 0;
+    if (checked != null && v.length < checked * 5 ~/ 4) return 0;
+    _vocabChecked = v.length;
+    final r = await _db.rawQuery(
+      'SELECT id, words FROM blocks WHERE words IS NOT NULL',
+    );
+    final lists = [for (final row in r) row['words']! as Uint8List];
+    final used = await _usedOffIsolate(lists);
+    if (used.length * 2 > v.length) return 0;
+    final remapped = await _renumberOffIsolate(lists, used);
+    final words = [for (final id in used) v.words[id]];
+    await _db.transaction((txn) async {
+      final b = txn.batch();
+      b.delete('vocab');
+      for (var i = 0; i < words.length; i += _vocabChunk) {
+        b.insert('vocab', {
+          'first': i,
+          'words': encodeVocabChunk(
+            words.sublist(i, min(i + _vocabChunk, words.length)),
+          ),
+        });
+      }
+      for (var i = 0; i < r.length; i++) {
+        b.rawUpdate('UPDATE blocks SET words = ? WHERE id = ?', [
+          remapped[i],
+          r[i]['id'],
+        ]);
+      }
+      await b.commit(noResult: true);
+    });
+    final dropped = v.length - words.length;
+    v.replaceWith(words);
+    _vocabChecked = words.length;
+    return dropped;
+  });
+
+  static Future<List<int>> _usedOffIsolate(List<Uint8List> lists) =>
+      Isolate.run(() => usedWords(lists));
+
+  static Future<List<Uint8List?>> _renumberOffIsolate(
+    List<Uint8List> lists,
+    List<int> used,
+  ) => Isolate.run(() => renumberWords(lists, used));
+
+  /// Words per vocabulary row a rebuild writes, so a row stays far below
+  /// Android's 2 MB cursor window.
+  static const int _vocabChunk = 20000;
+
+  /// Write-ahead log bytes kept after a checkpoint.
+  static const int _walLimit = 4 * 1024 * 1024;
+
+  /// Hands free pages back to the file system once they pass a quarter of
+  /// the file or 8 MB, or always with [all]. A file made before automatic
+  /// vacuuming was on converts once with a full rebuild. Returns bytes
+  /// freed, or -1 when the file was rebuilt.
+  Future<int> reclaimSpace({bool all = false}) async {
+    Future<int> pragma(String name) async =>
+        (await _db.rawQuery('PRAGMA $name')).first.values.first as int? ?? 0;
+    final pageSize = await pragma('page_size');
+    if (await pragma('auto_vacuum') == 0) {
+      // VACUUM needs as much free disk as the file, once.
+      await _db.execute('PRAGMA auto_vacuum=INCREMENTAL');
+      await _db.execute('VACUUM');
+      await _db.rawQuery('PRAGMA wal_checkpoint(TRUNCATE)');
+      return -1;
+    }
+    final free = await pragma('freelist_count');
+    final pages = await pragma('page_count');
+    if (free == 0) return 0;
+    if (!all && free * 4 < pages && free * pageSize < 8 * 1024 * 1024) {
+      return 0;
+    }
+    await _db.rawQuery('PRAGMA incremental_vacuum');
+    await _db.rawQuery('PRAGMA wal_checkpoint(TRUNCATE)');
+    return free * pageSize;
   }
 
   /// Message ids kept per channel, newest first. Robotty's fetch (800) and
@@ -1225,8 +1413,8 @@ class ArchiveStore {
   static const Duration keepIdAge = Duration(hours: 24);
   static const int keepIdMaxRows = 100000;
 
-  /// Records the reply parent and root ids of blocks sealed before they were
-  /// kept at seal. Returns blocks done.
+  /// Records the reply roots of blocks sealed before they were kept at seal.
+  /// Returns blocks done.
   Future<int> backfillRefs() async {
     var done = 0;
     while (true) {
@@ -1240,12 +1428,7 @@ class ArchiveStore {
       await _db.transaction((txn) async {
         final b = txn.batch();
         for (var i = 0; i < r.length; i++) {
-          for (final id in refs[i]) {
-            b.insert('ref_ids', {
-              'channel': r[i]['channel'],
-              'message_id': id,
-            }, conflictAlgorithm: ConflictAlgorithm.ignore);
-          }
+          _putRefs(b, r[i]['channel']! as String, refs[i]);
           b.rawUpdate('UPDATE blocks SET refs = 1 WHERE id = ?', [r[i]['id']]);
         }
         await b.commit(noResult: true);
@@ -1323,14 +1506,15 @@ class ArchiveStore {
     return stripped;
   }
 
-  static Future<List<Set<String>>> _refsOffIsolate(List<Uint8List> blocks) =>
-      Isolate.run(() => blockRefs(blocks));
+  static Future<List<Map<String, int>>> _refsOffIsolate(
+    List<Uint8List> blocks,
+  ) => Isolate.run(() => blockRefs(blocks));
 
   /// Applies pending edits to the blocks that still hold message ids
   /// (`stripped = 0`), then clears them. Ids no block holds were stripped or
   /// never sealed, so they are cleared too, unless a reply keeps the id alive
-  /// in a stripped block or the writer still holds it in [held]. Returns edits
-  /// baked.
+  /// in a stripped block or the writer still holds it in [held] ([heldEdits]
+  /// by default). Returns edits baked.
   Future<int> bakeEdits({Set<String> Function(String channel)? held}) async {
     var baked = 0;
     final channels = await _db.rawQuery('SELECT DISTINCT channel FROM edits');
@@ -1395,7 +1579,7 @@ class ArchiveStore {
       // Reply parents keep their id in a stripped block, and a seal still
       // writing may yet store the row, so an edit for one stays pending
       // rather than being dropped as gone.
-      final keep = held?.call(channel) ?? const <String>{};
+      final keep = (held ?? heldEdits)?.call(channel) ?? const <String>{};
       final refs = {
         for (final r in await _db.rawQuery(
           'SELECT message_id FROM ref_ids WHERE channel = ?',
@@ -1527,11 +1711,19 @@ class ArchiveStore {
     return removed;
   }
 
-  /// Deletes blocks, minute counts, moderation and ended broadcasts older than
-  /// [retention] relative to [now], then each channel's oldest blocks past
-  /// [channelCapBytes]. Pinned ranges stay. Returns blocks deleted.
+  /// A broadcast still open with no chat stored for this long was left
+  /// while live (the channel parted, so no poll saw it end).
+  static const Duration staleLive = Duration(days: 1);
+
+  /// Deletes blocks, minute counts, moderation, reply roots and ended
+  /// broadcasts older than [retention] relative to [now], then each
+  /// channel's oldest blocks past [channelCapBytes]. Pinned ranges stay.
+  /// Broadcasts left open past [staleLive] end at their channel's last
+  /// stored row; a poll that sees one live opens it again. Returns blocks
+  /// deleted.
   Future<int> prune(DateTime now) async {
     final cutoff = now.toUtc().subtract(retention).millisecondsSinceEpoch;
+    final stale = now.toUtc().subtract(staleLive).millisecondsSinceEpoch;
     final cap = channelCapBytes;
     return _db.transaction((txn) async {
       var deleted = await txn.rawDelete(
@@ -1558,6 +1750,20 @@ class ArchiveStore {
         'SELECT 1 FROM pins p WHERE p.channel = moderation.channel '
         'AND p.start_ts <= moderation.to_ts AND p.end_ts >= moderation.from_ts)',
         [cutoff],
+      );
+      await txn.rawDelete(
+        'DELETE FROM ref_ids WHERE ts < ? AND NOT EXISTS ('
+        'SELECT 1 FROM pins p WHERE p.channel = ref_ids.channel '
+        'AND p.start_ts <= ref_ids.ts AND p.end_ts >= ref_ids.ts)',
+        [cutoff],
+      );
+      await txn.rawUpdate(
+        'UPDATE streams SET ended_at = max(started_at, ifnull(('
+        'SELECT max(end_ts) FROM blocks b WHERE b.channel = streams.channel'
+        '), started_at)) WHERE ended_at IS NULL AND started_at < ? '
+        'AND NOT EXISTS (SELECT 1 FROM blocks b '
+        'WHERE b.channel = streams.channel AND b.end_ts >= ?)',
+        [stale, stale],
       );
       if (cap == null) return deleted;
       final over = await txn.rawQuery(
@@ -1586,37 +1792,44 @@ class ArchiveStore {
             'DELETE FROM blocks WHERE id IN (${ids.join(',')})',
           );
         }
+        // The rail shows no activity older than the rows that remain.
+        await txn.rawDelete(
+          'DELETE FROM minute_counts WHERE channel = ? AND minute < ('
+          'SELECT min(start_ts) / 60000 FROM blocks WHERE channel = ?'
+          ') AND NOT EXISTS (SELECT 1 FROM pins p WHERE p.channel = ? '
+          'AND p.start_ts <= minute_counts.minute * 60000 + 59999 '
+          'AND p.end_ts >= minute_counts.minute * 60000)',
+          [channel, channel, channel],
+        );
       }
       return deleted;
     });
   }
 }
 
-/// Rebuilds the user tables from joined table strings, interning in id
-/// order so every id lands at its saved index.
+/// Rebuilds the user tables from joined table strings, each entry at its
+/// saved id.
 UserTables parseJoinedTables(
   List<String> users,
   List<String> looks,
   List<String> states,
 ) {
-  List<List<String>> rows(List<String> joined) {
-    final out = [
-      for (final g in joined)
-        for (final row in g.split('\u001e')) row.split('\u001f'),
-    ];
-    out.sort((a, b) => int.parse(a[0]).compareTo(int.parse(b[0])));
-    return out;
-  }
+  Iterable<List<String>> rows(List<String> joined) => [
+    for (final g in joined)
+      for (final row in g.split('\u001e')) row.split('\u001f'),
+  ];
 
   final t = UserTables();
   for (final r in rows(users)) {
-    t.internWho(
+    t.putWho(
+      int.parse(r[0]),
       Who(userId: r[1], login: r[2], displayName: r[4] == '1' ? null : r[3]),
     );
   }
   for (final r in rows(looks)) {
     final extra = r[4];
-    t.internLook(
+    t.putLook(
+      int.parse(r[0]),
       Look(
         color: r[2] == '1' ? null : r[1],
         badges: r[3],
@@ -1630,7 +1843,7 @@ UserTables parseJoinedTables(
     );
   }
   for (final r in rows(states)) {
-    t.internState(int.parse(r[1]), int.parse(r[2]));
+    t.putState(int.parse(r[0]), int.parse(r[1]), int.parse(r[2]));
   }
   return t;
 }
@@ -1650,22 +1863,33 @@ List<Uint8List?> mergeBlocks(List<List<Uint8List>> groups) => [
     }(),
 ];
 
-/// Reply parent and root ids each block references; empty for a damaged one.
-List<Set<String>> blockRefs(List<Uint8List> blocks) => [
+/// Reply roots each block references, with the time of the newest reply;
+/// empty for a damaged one.
+List<Map<String, int>> blockRefs(List<Uint8List> blocks) => [
   for (final b in blocks)
     () {
       try {
-        return {
-          for (final r in ArchiveBlock.decode(b)) ...[
-            ?r.replyParentId,
-            ?r.threadRootId,
-          ],
-        };
+        return replyRoots(ArchiveBlock.decode(b));
       } on ArchiveFormatException {
-        return <String>{};
+        return <String, int>{};
       }
     }(),
 ];
+
+/// The thread root each reply in [rows] answers (its parent when the root is
+/// missing), with the time of the newest reply to it. Roots keep their ids
+/// so archived threads still group; a reply carries its parent's name and
+/// text itself.
+Map<String, int> replyRoots(Iterable<ArchiveRow> rows) {
+  final out = <String, int>{};
+  for (final r in rows) {
+    final root = r.threadRootId ?? r.replyParentId;
+    if (root == null) continue;
+    final ts = r.timestampMs;
+    if ((out[root] ?? -1) < ts) out[root] = ts;
+  }
+  return out;
+}
 
 /// Each block re-packed without message ids outside [keep] and without
 /// shared-chat source ids, or null for a damaged one.
@@ -1765,6 +1989,17 @@ class _Vocab {
       }),
   ];
 
+  /// Swaps in [replacement], ids by position.
+  void replaceWith(List<String> replacement) {
+    words
+      ..clear()
+      ..addAll(replacement);
+    ids
+      ..clear()
+      ..addAll({for (var i = 0; i < words.length; i++) words[i]: i});
+    _joined = null;
+  }
+
   /// Drops words from id [length] on, after a write that added them failed.
   void truncate(int length) {
     for (var i = length; i < words.length; i++) {
@@ -1827,9 +2062,39 @@ List<Set<int>> wordsContaining(
     }(),
 ];
 
-/// Each block's distinct search words and the user states that wrote it;
-/// empty for a damaged one.
-List<({Set<String> words, Set<int> states})> blockWords(
+/// Every word id the packed [lists] hold, ascending. A damaged list holds
+/// none.
+List<int> usedWords(List<Uint8List> lists) {
+  final used = <int>{};
+  for (final l in lists) {
+    try {
+      used.addAll(decodeWordList(l));
+    } on ArchiveFormatException {
+      continue;
+    }
+  }
+  return used.toList()..sort();
+}
+
+/// [lists] with each id replaced by its index in [used] (ascending). A
+/// damaged list comes back null, so indexing builds it again.
+List<Uint8List?> renumberWords(List<Uint8List> lists, List<int> used) {
+  final to = {for (var i = 0; i < used.length; i++) used[i]: i};
+  return [
+    for (final l in lists)
+      () {
+        try {
+          return encodeWordList([for (final id in decodeWordList(l)) to[id]!]);
+        } on ArchiveFormatException {
+          return null;
+        }
+      }(),
+  ];
+}
+
+/// Each block's distinct search words, the user states that wrote it, and
+/// every user state its rows name; empty for a damaged one.
+List<({Set<String> words, Set<int> states, Set<int> all})> blockWords(
   List<Uint8List> blocks,
 ) => [
   for (final b in blocks)
@@ -1837,14 +2102,16 @@ List<({Set<String> words, Set<int> states})> blockWords(
       try {
         final words = <String>{};
         final states = <int>{};
+        final all = <int>{};
         for (final r in ArchiveBlock.decode(b)) {
+          all.add(r.user);
           if (r.isSystem) continue;
           words.addAll(searchWords(r.text));
           states.add(r.user);
         }
-        return (words: words, states: states);
+        return (words: words, states: states, all: all);
       } on ArchiveFormatException {
-        return (words: <String>{}, states: <int>{});
+        return (words: <String>{}, states: <int>{}, all: <int>{});
       }
     }(),
 ];
