@@ -1073,6 +1073,54 @@ void main() {
     },
   );
 
+  test('a stream keeps its VOD through polls, and the rail buckets', () async {
+    final store = await _open(_newPath());
+    final reader = _reader(store);
+    final t0 = _t0.millisecondsSinceEpoch;
+    await store.putStream(channel: _channel, id: 's1', startedTs: t0);
+    await store.setVod('s1', 'v9');
+    expect(
+      await store.putStream(channel: _channel, id: 's1', startedTs: t0),
+      isFalse,
+      reason: 'a live poll changes nothing',
+    );
+    await store.endStream('s1', t0 + 3600000);
+    final streams = await reader.streams(
+      _channel,
+      _t0.subtract(const Duration(days: 1)),
+      _t0.add(const Duration(days: 1)),
+    );
+    expect(streams.single.vodId, 'v9', reason: 'the found VOD is remembered');
+
+    final m0 = t0 ~/ 60000;
+    await store.appendBlock(
+      channel: _channel,
+      startTs: t0,
+      endTs: t0 + 8 * 60000,
+      count: 9,
+      data: ArchiveBlock.encode(const []),
+      minutes: {m0: 3, m0 + 1: 2, m0 + 7: 4},
+    );
+    final rail = await ArchiveHistorySource(
+      _channel,
+      reader,
+      now: () => _t0.add(const Duration(hours: 1)),
+    ).rail(streams);
+    expect(rail, isNotNull);
+    const five = Duration(minutes: 5);
+    expect(rail!.from, _t0);
+    expect(
+      [
+        rail.countBetween(_t0, _t0.add(five)),
+        rail.countBetween(_t0.add(five), _t0.add(five * 2)),
+        rail.countBetween(_t0, rail.to),
+      ],
+      [5, 4, 9],
+      reason: 'minutes land in their five minute buckets, none lost',
+    );
+    await store.close();
+  });
+
   test('moderation after a seal shows on read, scoped to its rows', () async {
     final store = await _open(_newPath());
     final writer = _writer(store, sealCount: 4);
