@@ -16,8 +16,8 @@ Done:
 - History parsing in an isolate; join timeout with "Couldn't join, retrying".
 - Saved threads live in the archive database, with no migration from the old JSON store (see Saved threads).
 - Channel pages run on the windowed list: archive reads cut at block seams, the live
-  buffer continues it at the newest end. Search, mentions and thread panels stay on
-  `ChatView`. Streams are recorded from the poll; moderation that lands after a seal
+  buffer continues it at the newest end. Mentions read the archive through the same
+  list. Search and thread panels stay on `ChatView`. Streams are recorded from the poll; moderation that lands after a seal
   is stored in a sparse `moderation` table and applied on read.
 
 Next, in order:

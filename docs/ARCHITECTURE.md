@@ -15,7 +15,7 @@ flowchart TD
   ui["<b>UI</b><br/>chrome, panels, composer, sheets, widgets<br/>63 files, 20.0k lines"]
   app["<b>App services</b><br/>services, channels<br/>57 files, 19.9k lines"]
   kernel["<b>Chat kernel</b><br/>chat, client<br/>10 files, 2.0k lines"]
-  transport["<b>Transports</b><br/>irc, eventsub<br/>16 files, 3.7k lines"]
+  transport["<b>Transports</b><br/>irc, eventsub, archive codec<br/>16 files, 3.7k lines"]
   base["<b>Base</b><br/>models, emotes, util, config<br/>39 files, 3.6k lines"]
 
   shell -->|53| ui
@@ -330,7 +330,8 @@ flowchart LR
   ignore["IgnoreManager"] --> prefs
   uploader["MediaUploader"] --> prefs
   stream["StreamPlayerController"] --> prefs
-  threads -->|saved thread metadata + logs| appfiles["Archive database: saved_threads, thread_messages"]
+  archivew["ArchiveWriter"] -->|sealed blocks, users, streams, moderation| appfiles["Archive database (SQLite)"]
+  threads -->|saved thread metadata + logs| appfiles
   notif -->|mention/whisper local notifications| home
 ```
 
@@ -418,6 +419,8 @@ Every entry calls a public method on the child; none reaches into private state.
 | `CommandHandler` | `lib/services/command_handler.dart` | Slash-command routing to `ModActions`, Helix, and the IRC write socket. |
 | `ChannelManager` | `lib/channels/channel_manager.dart` | Channel membership, join/leave, history backfill, selection commit, join-progress system lines. |
 | `RecentMessagesService` | `lib/services/recent_messages.dart` | Fetches robotty/zneix recent-message history with provider failover. |
+| `Archive` | `lib/services/archive.dart` | The history archive: one lazily opened SQLite `ArchiveStore` with its `ArchiveWriter` (tail per channel, sealed into `lib/archive` blocks) and `ArchiveReader` (windowed reads, search, days). Acts empty if the store cannot open. |
+| `ArchiveHistorySource` | `lib/services/archive_history_source.dart` | `HistorySource` over one channel of the archive, feeding `HistoryView`. |
 | `SavedThreadsStore` | `lib/services/saved_threads_store.dart` | Archive-database-backed saved-thread metadata and full per-thread message logs. No migration from the old JSON store; memory only if the database cannot open. |
 | `PingManager` | `lib/services/ping_manager.dart` | Highlight/mention rules, own-message participation, display-name tracking. |
 | `IgnoreManager` | `lib/services/ignore_manager.dart` | Ignored users and keyword block/rewrite rules applied before pings. |
