@@ -170,12 +170,12 @@ class ChannelSession extends ChangeNotifier {
     );
     if (history.archive == null) return fetch();
     // Both start now; the network rows wait for the archived ones only so the
-    // merge sees them.
+    // merge sees them, and so the gap fill knows the last row held.
     final network = fetch();
     return Future.wait<Object?>([
       history.restoreFromArchive(name),
       network,
-    ]).then((_) => network);
+    ]).then((_) async => history.fillGap(name, await network));
   }
 
   void maybeAddConnected(String channel) {

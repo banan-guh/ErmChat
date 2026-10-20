@@ -10,6 +10,7 @@ import 'package:ermchat/services/archive.dart';
 import 'package:ermchat/services/archive_store.dart';
 import 'package:ermchat/services/chat_history_controller.dart';
 import 'package:ermchat/services/emote_manager.dart';
+import 'package:ermchat/services/gap_fill.dart';
 import 'package:ermchat/services/ignore_manager.dart';
 import 'package:ermchat/services/ping_manager.dart';
 import 'package:ermchat/services/recent_messages.dart';
@@ -19,6 +20,7 @@ import 'package:ermchat/util/signal.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 Emote sevenTv(String id, String code) => Emote(
@@ -282,6 +284,66 @@ void main() {
     await store.close();
   });
 
+  test('gap fill reaches back only when the gap likely fits', () async {
+    final lastSeen = DateTime.utc(2026, 10, 19, 12);
+    TwitchMessage row(int second) => TwitchMessage(
+      login: 'alice',
+      text: 's$second',
+      messageId: 'r$second',
+      channel: 'ch',
+      timestamp: lastSeen.add(Duration(seconds: second)),
+    );
+    // (level, first fetched second, reaches back?): rows run one a second
+    // up to [start] + 100, so [start] seconds of the gap are missing.
+    final cases = [
+      (GapFill.off, 200, false),
+      (GapFill.low, 200, true),
+      (GapFill.low, 600, false),
+      (GapFill.high, 600, true),
+    ];
+    for (final (mode, start, reaches) in cases) {
+      SharedPreferences.setMockInitialValues({'history_gap_fill': mode.index});
+      final chat = Chat()..ensure('ch');
+      final emotes = EmoteManager();
+      final afters = <DateTime?>[];
+      final recent = _RecordingRecentMessages(afters, [
+        for (var s = 0; s <= start + 100; s++) row(s),
+      ]);
+      final controller = _controller(chat, emotes, recent: recent);
+      controller.mergeHistory('ch', [row(0)]);
+
+      final newest = [for (var s = start; s < start + 100; s++) row(s)];
+      final got = await controller.fillGap('ch', newest);
+      expect(
+        got.any((m) => m.messageId == 'r0'),
+        reaches,
+        reason: '$mode missing $start seconds',
+      );
+      if (reaches) {
+        expect(afters.single!.isBefore(lastSeen), isTrue);
+        controller.mergeHistory('ch', got);
+        expect(
+          chat
+              .channelFor('ch')!
+              .messages
+              .items
+              .where(
+                (m) =>
+                    m.messageId?.startsWith(Messages.historyGapIdPrefix) ??
+                    false,
+              ),
+          isEmpty,
+          reason: 'a filled gap leaves no note',
+        );
+      } else {
+        expect(afters, isEmpty);
+      }
+      controller.dispose();
+      emotes.dispose();
+      chat.dispose();
+    }
+  });
+
   test('a bridged gap note stays gone after a cold start', () async {
     sqfliteFfiInit();
     final dir = await Directory.systemTemp.createTemp('bridge');
@@ -460,4 +522,27 @@ void main() {
 
     expect(chat.channelFor('ch')!.messages.byId('h1')!.emoteTokens, isEmpty);
   });
+}
+
+/// Serves [rows] received after the requested time, newest [limit] of them,
+/// and records each `after`.
+class _RecordingRecentMessages extends RecentMessagesService {
+  _RecordingRecentMessages(this.afters, this.rows);
+
+  final List<DateTime?> afters;
+  final List<TwitchMessage> rows;
+
+  @override
+  Future<List<TwitchMessage>> fetchRecent(
+    String channel, {
+    int limit = 100,
+    DateTime? after,
+  }) async {
+    afters.add(after);
+    final kept = [
+      for (final m in rows)
+        if (after == null || m.timestamp.isAfter(after)) m,
+    ];
+    return kept.length <= limit ? kept : kept.sublist(kept.length - limit);
+  }
 }

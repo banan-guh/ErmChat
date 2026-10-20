@@ -4,10 +4,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../l10n/l10n.dart';
 import '../../providers/feature_providers.dart';
 import '../../services/archive.dart';
+import '../../services/gap_fill.dart';
 import '../../services/recent_messages.dart';
 import '../../util/constants.dart';
 import '../../util/prefs.dart';
 import '../../widgets/dialogs.dart';
+import '../../widgets/level_switch.dart';
 import 'data_usage_screen.dart';
 import 'prefs_tiles.dart';
 import 'recent_messages_settings_screen.dart';
@@ -31,6 +33,7 @@ class HistorySettingsScreen extends StatelessWidget {
             SettingsPageIntro(context.l10n.historyPageIntro),
             RecentMessagesSourceTile(onChanged: onRecentMessagesModeChanged),
             const RecentMessagesLimitTile(),
+            const GapFillTile(),
             SettingsSectionHeader(context.l10n.sectionArchive),
             const ArchiveRetentionTile(),
           ],
@@ -61,6 +64,54 @@ class RecentMessagesLimitTile extends StatelessWidget {
       write: (p, v) => p.setRecentMessagesLimit(v.round()),
     ),
   );
+}
+
+/// How hard history fills the gap since the last message seen. Shown on
+/// History and mirrored on Data.
+class GapFillTile extends StatefulWidget {
+  const GapFillTile({super.key});
+
+  @override
+  State<GapFillTile> createState() => _GapFillTileState();
+}
+
+class _GapFillTileState extends State<GapFillTile> {
+  GapFill _mode = GapFill.low;
+
+  @override
+  void initState() {
+    super.initState();
+    Prefs.load().then((p) {
+      if (mounted) setState(() => _mode = GapFill.fromIndex(p.historyGapFill));
+    });
+  }
+
+  Future<void> _set(int index) async {
+    setState(() => _mode = GapFill.fromIndex(index));
+    await (await Prefs.load()).setHistoryGapFill(index);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l = context.l10n;
+    return SettingAnchor(
+      Setting.gapFill,
+      child: ListTile(
+        title: TitleWithInfo(Setting.gapFill.titleOf(l), Setting.gapFill),
+        subtitle: Text(switch (_mode) {
+          GapFill.off => l.gapFillOffSubtitle,
+          GapFill.low => l.gapFillLowSubtitle,
+          GapFill.high => l.gapFillHighSubtitle,
+        }),
+        trailing: LevelSwitch(
+          level: _mode.index,
+          names: [l.gapFillOff, l.gapFillLow, l.gapFillHigh],
+          color: Theme.of(context).colorScheme.primary,
+          onChanged: _set,
+        ),
+      ),
+    );
+  }
 }
 
 /// Opens the history provider picker.

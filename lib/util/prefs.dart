@@ -107,6 +107,7 @@ class Prefs {
   static const _kMaxMessagesPerChannel = 'max_messages_per_channel';
   static const _kRecentMessagesLimit = 'recent_messages_limit';
   static const _kArchiveRetentionDays = 'archive_retention_days';
+  static const _kHistoryGapFill = 'history_gap_fill';
   static const _kReplyToThreadRoot = 'reply_to_thread_root';
   static const _kBackgroundService = 'background_service';
   static const _kMentionPush = 'mention_push';
@@ -155,6 +156,12 @@ class Prefs {
 
   Future<void> setArchiveRetentionDays(int value) =>
       _p.setInt(_kArchiveRetentionDays, value);
+
+  /// A [GapFill] index: how hard history fills the gap since last seen.
+  int get historyGapFill => _p.getInt(_kHistoryGapFill) ?? 1;
+
+  Future<void> setHistoryGapFill(int value) =>
+      _p.setInt(_kHistoryGapFill, value);
 
   bool get replyToThreadRoot => _p.getBool(_kReplyToThreadRoot) ?? false;
 
@@ -751,6 +758,8 @@ class Prefs {
     _kAccentColor: String,
     _kMaxMessagesPerChannel: int,
     _kRecentMessagesLimit: int,
+    _kArchiveRetentionDays: int,
+    _kHistoryGapFill: int,
     _kReplyToThreadRoot: bool,
     _kBackgroundService: bool,
     _kWhisperNotifications: bool,

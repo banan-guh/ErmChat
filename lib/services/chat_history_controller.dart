@@ -8,10 +8,12 @@ import '../client/session.dart';
 import '../emotes/emote.dart';
 import '../models/twitch_message.dart';
 import '../util/log.dart';
+import '../util/prefs.dart';
 import '../util/signal.dart';
 import 'archive.dart';
 import 'emote_manager.dart';
 import 'emote_store.dart';
+import 'gap_fill.dart';
 import 'ignore_manager.dart';
 import 'message_policy.dart';
 import 'ping_manager.dart';
@@ -37,6 +39,7 @@ class ChatHistoryController {
     this.isBlocked,
     ChatSignal<bool>? emoteReloading,
     this.archive,
+    this.liveSince,
     DateTime Function()? now,
   }) : now = now ?? clock.now,
        _policy = ChatMessagePolicy(
@@ -65,6 +68,10 @@ class ChatHistoryController {
 
   /// Null when no archive is wired (tests).
   final Archive? archive;
+
+  /// When [channel]'s current stream started, or null when it is offline
+  /// or unknown (logged out). Splits a gap into its offline and live parts.
+  final Future<DateTime?> Function(String channel)? liveSince;
 
   /// Clock for where a failed fetch notes its gap.
   final DateTime Function() now;
@@ -123,6 +130,84 @@ class ChatHistoryController {
   void noteFetchFailed(String channel, DateTime at) {
     final note = chat.channelFor(channel)?.messages.noteHistoryGap(at);
     if (note != null) archive?.writer.add(channel, note);
+  }
+
+  /// Gap from this far before the last seen message, so the fetch overlaps
+  /// it: robotty filters by receive time, a little after the send time.
+  static const _gapOverlap = Duration(seconds: 5);
+
+  /// [newest], the newest-first fetch, or a fetch reaching back to the last
+  /// message held when [newest] falls short and the gap fill setting judges
+  /// the whole gap fits robotty's buffer. What stays missing gets the
+  /// kernel's gap note on merge.
+  Future<List<TwitchMessage>> fillGap(
+    String channel,
+    List<TwitchMessage> newest,
+  ) async {
+    DateTime? lastSeen;
+    for (final m in chat.channelFor(channel)?.messages.items ?? const []) {
+      if (!m.isSystem) {
+        lastSeen = m.timestamp;
+        break;
+      }
+    }
+    final chatRows = [
+      for (final m in newest)
+        if (!m.isSystem) m.timestamp,
+    ];
+    // Nothing held, or the fetch already reaches it. A fetch well short of
+    // its limit means robotty holds nothing older, so a bigger one would not
+    // help; folded system lines keep a full page a little short.
+    if (lastSeen == null ||
+        chatRows.length < 2 ||
+        newest.length < recentMessagesLimit() ~/ 2 ||
+        chatRows.any((t) => !t.isAfter(lastSeen!))) {
+      return newest;
+    }
+    try {
+      final mode = GapFill.fromIndex((await Prefs.load()).historyGapFill);
+      if (mode == GapFill.off) return newest;
+      final oldest = chatRows.reduce((a, b) => a.isBefore(b) ? a : b);
+      final latest = chatRows.reduce((a, b) => a.isAfter(b) ? a : b);
+      final span = latest.difference(oldest).inMilliseconds / 1000;
+      final expected = expectedGapMessages(
+        lastSeen: lastSeen,
+        oldestFetched: oldest,
+        recentRate: chatRows.length / (span < 1 ? 1 : span),
+        archiveRate: await _archiveRate(channel, lastSeen),
+        liveSince: await liveSince
+            ?.call(channel)
+            .then<DateTime?>((t) => t, onError: (_) => null),
+      );
+      if (!shouldFetchGap(mode, newest.length, expected)) return newest;
+      return await recentMessages.fetchRecent(
+        channel,
+        limit: robottyBuffer,
+        after: lastSeen.subtract(_gapOverlap),
+      );
+    } catch (e) {
+      logDebug('[ChatHistoryController] gap fill failed for $channel: $e');
+      return newest;
+    }
+  }
+
+  /// [channel]'s usual messages a second over the day before [until], from
+  /// the archive: rows over the minutes that had any, so time spent away
+  /// does not dilute it. Null without enough archived chat.
+  Future<double?> _archiveRate(String channel, DateTime until) async {
+    final reader = archive?.reader;
+    if (reader == null) return null;
+    final counts = await reader.minuteCounts(
+      channel,
+      until.subtract(const Duration(days: 1)),
+      until,
+    );
+    var rows = 0;
+    for (final c in counts) {
+      rows += c.count;
+    }
+    if (counts.length < 10) return null;
+    return rows / (counts.length * 60);
   }
 
   /// Rows a cold start restores per channel: enough to fill a screen and
@@ -301,9 +386,9 @@ class ChatHistoryController {
     _refetchingChannels.add(channel);
     final at = now();
     try {
-      final history = await recentMessages.fetchRecent(
+      final history = await fillGap(
         channel,
-        limit: recentMessagesLimit(),
+        await recentMessages.fetchRecent(channel, limit: recentMessagesLimit()),
       );
       if (!chat.contains(channel)) return;
       final existing = chat.channelFor(channel)?.messages;

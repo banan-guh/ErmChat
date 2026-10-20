@@ -166,16 +166,20 @@ class RecentMessagesService {
     return fetchRecent(channel, limit: limit);
   }
 
-  static String _path(String channel, int limit) =>
+  static String _path(String channel, int limit, {DateTime? after}) =>
       '/${Uri.encodeComponent(channel.toLowerCase())}'
-      '?limit=${limit.clamp(1, 800)}';
+      '?limit=${limit.clamp(1, 800)}'
+      '${after == null ? '' : '&after=${after.millisecondsSinceEpoch}'}';
 
+  /// The newest [limit] messages, only those received after [after] when
+  /// set.
   Future<List<TwitchMessage>> fetchRecent(
     String channel, {
     int limit = 100,
+    DateTime? after,
   }) async {
     if (FakeHistory.isFake(channel)) return const [];
-    final path = _path(channel, limit);
+    final path = _path(channel, limit, after: after);
     final providers = _config.providers;
     Object? lastError;
     List<TwitchMessage>? staleFallback;

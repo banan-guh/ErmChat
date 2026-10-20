@@ -138,6 +138,7 @@ class FakeRecentMessagesService extends RecentMessagesService {
   Future<List<TwitchMessage>> fetchRecent(
     String channel, {
     int limit = 100,
+    DateTime? after,
   }) async {
     final now = DateTime.now();
     return [
@@ -177,6 +178,7 @@ class GappedRecentMessagesService extends RecentMessagesService {
   Future<List<TwitchMessage>> fetchRecent(
     String channel, {
     int limit = 100,
+    DateTime? after,
   }) async {
     calls++;
     final now = DateTime.now();
@@ -401,6 +403,7 @@ class ConfigurableRecentMessagesService extends RecentMessagesService {
   Future<List<TwitchMessage>> fetchRecent(
     String channel, {
     int limit = 100,
+    DateTime? after,
   }) async => messages;
 }
 
@@ -413,6 +416,7 @@ class ScriptedRecentMessagesService extends RecentMessagesService {
   Future<List<TwitchMessage>> fetchRecent(
     String channel, {
     int limit = 100,
+    DateTime? after,
   }) async {
     final idx = callCount < responses.length ? callCount : responses.length - 1;
     callCount++;
@@ -425,8 +429,11 @@ class CompleterRecentMessagesService extends RecentMessagesService {
   CompleterRecentMessagesService(this.completer);
 
   @override
-  Future<List<TwitchMessage>> fetchRecent(String channel, {int limit = 100}) =>
-      completer.future;
+  Future<List<TwitchMessage>> fetchRecent(
+    String channel, {
+    int limit = 100,
+    DateTime? after,
+  }) => completer.future;
 }
 
 class GatedRecentMessagesService extends RecentMessagesService {
@@ -445,6 +452,7 @@ class GatedRecentMessagesService extends RecentMessagesService {
   Future<List<TwitchMessage>> fetchRecent(
     String channel, {
     int limit = 100,
+    DateTime? after,
   }) async {
     callCount++;
     final idx = (callCount - 1).clamp(0, responses.length - 1);

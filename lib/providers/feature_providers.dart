@@ -131,6 +131,13 @@ final chatHistoryControllerProvider = Provider<ChatHistoryController>((ref) {
         ref.read(blockedLoginsProvider).contains(login.toLowerCase()),
     emoteReloading: ref.read(emoteSignalsProvider).busy,
     archive: ref.read(archiveProvider),
+    liveSince: (channel) async {
+      final auth = ref.read(twitchAuthProvider);
+      final id = ref.read(chatProvider).channelFor(channel)?.info.broadcasterId;
+      if (!auth.isConfigured || id == null) return null;
+      final stream = await ref.read(twitchApiProvider).getStreamInfo(auth, id);
+      return DateTime.tryParse(stream?['started_at'] as String? ?? '');
+    },
   );
   ref.onDispose(controller.dispose);
   return controller;

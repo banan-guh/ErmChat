@@ -68,6 +68,7 @@ class DataSettingsScreen extends StatelessWidget {
             ),
             SettingsSectionHeader(l.pageHistory),
             const RecentMessagesLimitTile(),
+            const GapFillTile(),
             SettingsSectionHeader(l.inlineEmbedsTitle),
             const ShowGiphyTile(),
             const ShowImagesTile(),

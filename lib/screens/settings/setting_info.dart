@@ -90,6 +90,11 @@ SettingHelp? settingHelp(Setting setting, AppLocalizations l) =>
         gain: l.helpRecentMessagesSourceGain,
         lose: l.helpRecentMessagesSourceLose,
       ),
+      'gap_fill' => SettingHelp(
+        why: l.helpGapFillWhy,
+        gain: l.helpGapFillGain,
+        lose: l.helpGapFillLose,
+      ),
       'archive_retention' => SettingHelp(
         why: l.helpArchiveRetentionWhy,
         gain: l.helpArchiveRetentionGain,

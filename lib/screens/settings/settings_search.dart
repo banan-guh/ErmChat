@@ -123,6 +123,7 @@ class Setting {
     'recent_messages_limit' => l.settingRecentMessagesLimit,
     'recent_messages_source' => l.settingRecentMessagesSource,
     'archive_retention' => l.settingArchiveRetention,
+    'gap_fill' => l.settingGapFill,
     'prefer_emotes' => l.settingPreferEmotes,
     'mention_format' => l.settingMentionFormat,
     'reply_thread_root' => l.settingReplyThreadRoot,
@@ -394,6 +395,13 @@ class Setting {
     'Recent messages to load',
     SettingsPageId.history,
     keywords: 'history',
+    mirrors: {SettingsPageId.data},
+  );
+  static const gapFill = Setting(
+    'gap_fill',
+    'Fill gaps',
+    SettingsPageId.history,
+    keywords: 'history reconnect missed messages robotty',
     mirrors: {SettingsPageId.data},
   );
   static const archiveRetention = Setting(
@@ -784,6 +792,7 @@ class Setting {
     splitLinks,
     recentMessagesLimit,
     recentMessagesSource,
+    gapFill,
     archiveRetention,
     preferEmotes,
     mentionFormat,
