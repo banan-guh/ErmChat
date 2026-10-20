@@ -77,7 +77,7 @@ class EmoteManager implements EmoteLookupSource {
   final EmoteStore _store;
   final bool _ownsStore;
 
-  /// Image byte black box (disk cache, precache, migrations).
+  /// Image byte black box (disk cache, precache).
   late final EmoteImages _images;
   late final bool _ownsImages;
 
@@ -1117,9 +1117,9 @@ class EmoteManager implements EmoteLookupSource {
     if (_ownsVisibility) _visibility.dispose();
   }
 
-  // ── Cache init + migrations ─────────────────────────────────────────
+  // ── Cache init ──────────────────────────────────────────────────────
 
-  /// Loads usage history, runs cache migrations, and enforces the cap.
+  /// Loads usage history and enforces the cap.
   Future<void> startCacheGc() async {
     await _usage.ensureLoaded();
     await _images.startCacheGc();

@@ -124,21 +124,6 @@ void main() {
       expect(back.profileImageUrl, 'https://example.com/a.png');
     });
 
-    test('load restores legacy single-account storage keys', () async {
-      FlutterSecureStorage.setMockInitialValues({
-        'access_token': 'stored_token',
-        'refresh_token': 'stored_refresh',
-        'user_login': 'stored_login',
-        'user_id': 'stored_id',
-      });
-      final auth = await reload();
-      expect(auth.accessToken, 'stored_token');
-      expect(auth.refreshToken, 'stored_refresh');
-      expect(auth.login, 'stored_login');
-      expect(auth.userId, 'stored_id');
-      expect(auth.isConfigured, isTrue);
-    });
-
     test('multiple accounts register, switch and persist', () async {
       final auth = twoAccounts();
       expect(auth.accounts.map((a) => a.login), ['alice', 'bob']);

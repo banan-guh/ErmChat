@@ -522,8 +522,6 @@ class Prefs {
   static const _kEmoteAllowUnlisted7tv = 'emote_7tv_allow_unlisted';
   static const _kEmoteAllowPersonal7tv = 'emote_7tv_allow_personal';
   static const _kRecentEmotes = 'recent_emotes';
-  static const _kEmoteGcMigratedV1 = 'emote_gc_migrated_v1';
-  static const _kEmoteGcMigratedV2 = 'emote_gc_migrated_v2';
 
   int get emoteFetchTier =>
       (_p.getInt(_kEmoteFetchTier) ?? EmoteFetchTier.high.index).clamp(
@@ -564,16 +562,6 @@ class Prefs {
 
   Future<void> setRecentEmotes(String value) =>
       _p.setString(_kRecentEmotes, value);
-
-  bool get emoteGcMigratedV1 => _p.getBool(_kEmoteGcMigratedV1) ?? false;
-
-  Future<void> setEmoteGcMigratedV1(bool value) =>
-      _p.setBool(_kEmoteGcMigratedV1, value);
-
-  bool get emoteGcMigratedV2 => _p.getBool(_kEmoteGcMigratedV2) ?? false;
-
-  Future<void> setEmoteGcMigratedV2(bool value) =>
-      _p.setBool(_kEmoteGcMigratedV2, value);
 
   // ── TTS ─────────────────────────────────────────────────────────────
   static const _kTtsEnabled = 'tts_enabled';
@@ -673,7 +661,6 @@ class Prefs {
   static const _kLocalIgnores = 'local_ignores_v1';
   static const _kKeywordReplacements = 'keyword_replacements_v1';
   static const _kPingRules = 'ping_rules_v1';
-  static const _kLegacyAltPings = 'alt_pings';
   static const _kUploaderConfig = 'uploader_config';
   static const _kRecentUploads = 'recent_uploads';
   static const _kAnalyticsFilterStopwords = 'analytics_filter_stopwords';
@@ -695,10 +682,6 @@ class Prefs {
   String? get pingRules => _p.getString(_kPingRules);
 
   Future<void> setPingRules(String value) => _p.setString(_kPingRules, value);
-
-  bool get hasLegacyAltPings => _p.containsKey(_kLegacyAltPings);
-
-  Future<void> removeLegacyAltPings() => _p.remove(_kLegacyAltPings);
 
   String? get uploaderConfig => _p.getString(_kUploaderConfig);
 

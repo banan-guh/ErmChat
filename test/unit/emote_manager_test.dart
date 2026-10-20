@@ -2832,23 +2832,6 @@ void main() {
       capped.enqueueSeenEmotes(makeEmotes(7));
       expect(capped.precacheQueueLengthForTesting, 0);
     });
-
-    test('cache gc start sets the migration flags', () async {
-      SharedPreferences.setMockInitialValues({});
-      PathProviderPlatform.instance = _FakePathProvider(
-        Directory.systemTemp.path,
-      );
-      final manager = EmoteManager(
-        fetchStagger: Duration.zero,
-        cacheManager: testCacheManager(),
-      );
-      await manager.startCacheGc();
-      manager.dispose();
-
-      final prefs = await SharedPreferences.getInstance();
-      expect(prefs.getBool('emote_gc_migrated_v1'), isTrue);
-      expect(prefs.getBool('emote_gc_migrated_v2'), isTrue);
-    });
   });
 
   group('nothing fetch tier guards', () {

@@ -93,10 +93,6 @@ class PingManager extends ChangeNotifier {
 
   Future<void> load() async {
     final prefs = await Prefs.load();
-    // Legacy: remove old alt_pings key.
-    if (prefs.hasLegacyAltPings) {
-      await prefs.removeLegacyAltPings();
-    }
     final raw = prefs.pingRules;
     if (raw == null) {
       _rules = _seedDefaults();

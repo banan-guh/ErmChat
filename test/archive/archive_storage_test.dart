@@ -400,56 +400,6 @@ void main() {
     await store.close();
   });
 
-  test('a schema 3 archive upgrades and keeps its rows', () async {
-    final path = _newPath();
-    var store = await _open(path);
-    var writer = _writer(store);
-    writer.add(_channel, _msg(0));
-    await writer.flush();
-    await store.close();
-    // Back to schema 3: no emote_defs table, no block upkeep flags, no edits.
-    final db = await databaseFactoryFfi.openDatabase(path);
-    await db.execute('DROP TABLE emote_defs');
-    await db.execute('DROP TABLE edits');
-    await db.execute('ALTER TABLE blocks DROP COLUMN refs');
-    await db.execute('ALTER TABLE blocks DROP COLUMN stripped');
-    await db.execute('DROP TABLE vocab');
-    await db.execute('ALTER TABLE blocks DROP COLUMN words');
-    await db.execute('ALTER TABLE blocks DROP COLUMN senders');
-    await db.execute('ALTER TABLE blocks DROP COLUMN states');
-    await db.execute('ALTER TABLE ref_ids DROP COLUMN ts');
-    await db.setVersion(3);
-    await db.close();
-
-    store = await _open(path);
-    writer = _writer(store);
-    writer.add(
-      _channel,
-      _msg(1)
-        ..text = 'catJAM'
-        ..emoteTokens = [
-          EmoteToken(
-            emote: const Emote(
-              id: '01F6',
-              code: 'catJAM',
-              meta: SevenTvMeta(),
-              scales: {
-                EmoteScale.large: 'https://cdn.7tv.app/emote/01F6/4x.webp',
-              },
-            ),
-            text: 'catJAM',
-            start: 0,
-            end: 6,
-          ),
-        ],
-    );
-    await writer.flush();
-    final rows = await _reader(store).newestRows(_channel, 10);
-    expect([for (final r in rows) r.messageId], [_id(0), _id(1)]);
-    expect(rows[1].emoteTokens?.single.emote?.id, '01F6');
-    await store.close();
-  });
-
   test('compaction merges old small blocks and keeps every row', () async {
     // The clock sits two hours after the first rows.
     final store = await _open(
@@ -572,31 +522,6 @@ void main() {
       ].fold<int>(0, (a, b) => a + b);
       expect(after, lessThan(before));
       expect(await store.strip(), 0, reason: 'stripping runs once per block');
-      await store.close();
-    });
-
-    test('waits for older blocks\' references before stripping', () async {
-      final path = _newPath();
-      final store = await fill(path);
-      // As sealed before references were recorded. A second connection, so
-      // closing it leaves the store's open.
-      final db = await databaseFactoryFfi.openDatabase(
-        path,
-        options: OpenDatabaseOptions(singleInstance: false),
-      );
-      await db.execute('UPDATE blocks SET refs = 0');
-      await db.execute('DELETE FROM ref_ids');
-      await db.close();
-      expect(await store.strip(), 0, reason: 'a reply parent could be lost');
-      expect(await store.backfillRefs(), 6);
-      expect(await store.strip(), 1);
-      final all = await rows(store);
-      expect(
-        all[10].messageId,
-        _id(10),
-        reason: 'the reply parent kept its id',
-      );
-      expect(all[11].messageId, isNull);
       await store.close();
     });
   });
@@ -1052,18 +977,6 @@ void main() {
     await writer.dispose();
   });
 
-  test('a file made without auto vacuum converts once', () async {
-    final path = _newPath();
-    final db = await databaseFactoryFfi.openDatabase(path);
-    await db.execute('PRAGMA auto_vacuum=NONE');
-    await db.execute('CREATE TABLE early(x)');
-    await db.close();
-    final store = await _open(path);
-    expect(await store.reclaimSpace(), -1, reason: 'rebuilt once');
-    expect(await store.reclaimSpace(), 0, reason: 'then vacuums in steps');
-    await store.close();
-  });
-
   test('reader returns rows in order across blocks and skips damage', () async {
     final store = await _open(_newPath());
     final writer = _writer(store, sealCount: 4);
@@ -1420,28 +1333,6 @@ void main() {
       final rows = await _reader(store).newestRows(_channel, 10);
       expect([for (final m in rows) m.messageId], [_id(0), _id(2)]);
       expect(rows.last.deleted, isTrue);
-      await store.close();
-    });
-
-    test('a schema 6 archive upgrades and takes edits', () async {
-      final path = _newPath();
-      var store = await _open(path);
-      final writer = _writer(store);
-      writer.add(_channel, _msg(0));
-      await writer.flush();
-      await store.close();
-      // Back to schema 6: no edits table, no block states or root times.
-      final db = await databaseFactoryFfi.openDatabase(path);
-      await db.execute('DROP TABLE edits');
-      await db.execute('ALTER TABLE blocks DROP COLUMN states');
-      await db.execute('ALTER TABLE ref_ids DROP COLUMN ts');
-      await db.setVersion(6);
-      await db.close();
-
-      store = await _open(path);
-      await store.addEdits(_channel, [_id(0)], ArchiveEdit.deleted);
-      final rows = await _reader(store).newestRows(_channel, 10);
-      expect(rows.single.deleted, isTrue, reason: 'the migrated table works');
       await store.close();
     });
   });

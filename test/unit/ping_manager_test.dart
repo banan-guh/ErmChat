@@ -55,15 +55,6 @@ void main() {
   }
 
   group('PingManager defaults', () {
-    test('drops the legacy alt_pings key', () async {
-      await makeManager({
-        'alt_pings': <String>['kekw'],
-      });
-      final prefs = await SharedPreferences.getInstance();
-      expect(prefs.containsKey('alt_pings'), isFalse);
-      expect(prefs.containsKey('ping_rules_v1'), isTrue);
-    });
-
     test('round-trips rules through JSON and tolerates garbage input', () {
       const rule = PingRule(
         id: 'r1',

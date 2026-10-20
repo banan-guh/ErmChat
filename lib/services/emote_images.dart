@@ -9,7 +9,6 @@ import '../emotes/emote_picker.dart';
 import '../models/emote_fetch_tier.dart';
 import '../util/data_usage.dart';
 import '../util/log.dart';
-import '../util/prefs.dart';
 import '../util/set_notifier.dart';
 import 'emote_cache_manager.dart';
 import 'emote_probe_memo.dart';
@@ -18,8 +17,8 @@ import 'emote_usage_registry.dart';
 /// The image black box: owns every emote image byte on disk and in flight.
 ///
 /// Wraps the capped [EmoteCacheManager] (disk repo and byte-budget trim),
-/// the [EmoteProbeMemo] existence cache, the seen-emote precache
-/// queue, and the cache-GC migrations. Priority scoring arrives through an
+/// the [EmoteProbeMemo] existence cache and the seen-emote precache
+/// queue. Priority scoring arrives through an
 /// [EmoteImagePolicy], so bytes depend on policy and policy depends on
 /// nothing here.
 class EmoteImages {
@@ -140,45 +139,13 @@ class EmoteImages {
     _cache.maxBytes = _cacheCapMb * bytesPerMb;
   }
 
-  /// Runs cache migrations, wires the cap, and enforces it once. One-time
-  /// cache GC; usage loading happens in the coordinator before this.
+  /// Wires the cap and enforces it once. Usage loading happens in the
+  /// coordinator before this.
   Future<void> startCacheGc() async {
     _started = true;
     _cache.maxBytes = _cacheCapMb * bytesPerMb;
-    final prefs = await Prefs.load();
-    if (!_migrationRan) {
-      if (prefs.emoteGcMigratedV1) {
-        _migrationRan = true;
-      } else {
-        // First launch after GC: clear old cache (untracked by usage registry).
-        await _emptyLegacyCache('cache migration');
-        _migrationRan = true;
-        await prefs.setEmoteGcMigratedV1(true);
-      }
-    }
-    if (!_migrationRanV2) {
-      if (prefs.emoteGcMigratedV2) {
-        _migrationRanV2 = true;
-      } else {
-        // v2 migration: clear v1 DefaultCacheManager leftovers.
-        await _emptyLegacyCache('cache v2 migration');
-        _migrationRanV2 = true;
-        await prefs.setEmoteGcMigratedV2(true);
-      }
-    }
     await _cache.enforceNow();
   }
-
-  Future<void> _emptyLegacyCache(String label) async {
-    try {
-      await DefaultCacheManager().emptyCache();
-    } catch (_) {
-      logDebug('[EmoteImages] $label emptyCache failed');
-    }
-  }
-
-  bool _migrationRan = false;
-  bool _migrationRanV2 = false;
 
   // ── Bytes ───────────────────────────────────────────────────────────
   /// Fetches emote bytes through the disk cache, downloading on a miss.

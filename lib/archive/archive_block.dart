@@ -13,7 +13,7 @@ import 'archive_row.dart';
 class ArchiveBlock {
   const ArchiveBlock._();
 
-  /// Version 2 adds third-party emote tokens; version 1 blocks still decode.
+  /// Version 2 adds third-party emote tokens.
   static const int version = 2;
 
   /// Rows past this count are refused on decode as corrupt.
@@ -32,7 +32,6 @@ class ArchiveBlock {
   static const _bitEmotes = 1 << 10;
   static const _bitTags = 1 << 11;
   static const _bitTokens = 1 << 12;
-  static const _knownBitsV1 = (1 << 12) - 1;
   static const _knownBits = (1 << 13) - 1;
 
   /// Flag bit: the row's emote tokens were stored (version 2).
@@ -191,7 +190,6 @@ class ArchiveBlock {
         ..section(d.codes)
         ..section(d.strings);
     }
-    // Version 2 appends after the version 1 layout.
     payload
       ..section(tokenCol)
       ..section(tokenKeys.codes)
@@ -201,10 +199,9 @@ class ArchiveBlock {
 
   /// Throws [ArchiveFormatException] on truncated, corrupt, or unknown data.
   static List<ArchiveRow> decode(Uint8List data) {
-    final v = data.isNotEmpty && data[0] == 1 ? 1 : version;
-    final raw = unpackPayload(v, data, 'block');
+    final raw = unpackPayload(version, data, 'block');
     try {
-      return _decodePayload(raw, v);
+      return _decodePayload(raw);
     } on ArchiveFormatException {
       rethrow;
     } on Object {
@@ -212,7 +209,7 @@ class ArchiveBlock {
     }
   }
 
-  static List<ArchiveRow> _decodePayload(Uint8List raw, int v) {
+  static List<ArchiveRow> _decodePayload(Uint8List raw) {
     final r = ByteReader(raw);
     final count = r.varint();
     if (count > maxRows) {
@@ -238,11 +235,8 @@ class ArchiveBlock {
     final sourceBroadcasters = dict();
     final emoteIds = dict();
     final tagKeys = dict();
-    final v2 = v >= 2;
-    final tokenCol = v2 ? r.section() : ByteReader(Uint8List(0));
-    final tokenKeys = v2 ? dict() : _DictReader.empty();
-    final known = v2 ? _knownBits : _knownBitsV1;
-    final flagMask = v2 ? 0x7f | _flagTokens : 0x7f;
+    final tokenCol = r.section();
+    final tokenKeys = dict();
     if (count > flags.remaining) {
       throw const ArchiveFormatException('implausible row count');
     }
@@ -259,7 +253,7 @@ class ArchiveBlock {
       final stamp = prevTs += ts.zigzag();
       final f = flags.byte();
       final p = presence.varint();
-      if (p & ~known != 0 || f & ~flagMask != 0) {
+      if (p & ~_knownBits != 0 || f & ~(0x7f | _flagTokens) != 0) {
         throw const ArchiveFormatException('unknown field bits');
       }
       final userRef = user.varint();
@@ -502,10 +496,6 @@ class _DictWriter {
 
 class _DictReader {
   _DictReader(this._codes, this._strings);
-
-  /// For a column a version lacks.
-  _DictReader.empty()
-    : this(ByteReader(Uint8List(0)), ByteReader(Uint8List(0)));
 
   final ByteReader _codes;
   final ByteReader _strings;

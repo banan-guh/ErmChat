@@ -106,7 +106,7 @@ class ArchiveStore {
   final Map<String, Future<_ChannelTables>> _tables = {};
   DateTime? _lastPrune;
 
-  /// Opens (creating or migrating) the archive at [path] and prunes once.
+  /// Opens (creating if needed) the archive at [path] and prunes once.
   static Future<ArchiveStore> open(
     String path, {
     DatabaseFactory? factory,
@@ -117,15 +117,12 @@ class ArchiveStore {
       options: OpenDatabaseOptions(
         version: schemaVersion,
         onConfigure: (db) async {
-          // Takes effect only on a new file; older ones convert in
-          // [reclaimSpace].
           await db.execute('PRAGMA auto_vacuum=INCREMENTAL');
           await db.rawQuery('PRAGMA journal_mode=WAL');
           await db.execute('PRAGMA synchronous=NORMAL');
           await db.rawQuery('PRAGMA journal_size_limit=$_walLimit');
         },
         onCreate: (db, version) => _create(db),
-        onUpgrade: migrate,
       ),
     );
     final store = ArchiveStore._(db, now ?? DateTime.now);
@@ -196,10 +193,6 @@ class ArchiveStore {
     await db.execute(
       'ALTER TABLE ref_ids ADD COLUMN ts INTEGER NOT NULL DEFAULT 0',
     );
-    // References from before the column age out a retention from now.
-    await db.rawUpdate(
-      "UPDATE ref_ids SET ts = CAST(strftime('%s', 'now') AS INTEGER) * 1000",
-    );
   }
 
   /// Saved threads live in their own tables, so block retention never
@@ -242,8 +235,7 @@ class ArchiveStore {
          PRIMARY KEY(channel, key)) WITHOUT ROWID''');
 
   /// Per block: `refs` once its reply parent and root ids are in `ref_ids`
-  /// (new blocks at seal, older ones by [backfillRefs]), and `stripped`
-  /// once its message ids are gone ([strip]).
+  /// (at seal), and `stripped` once its message ids are gone ([strip]).
   static Future<void> _addBlockFlags(Database db) async {
     await db.execute(
       'ALTER TABLE blocks ADD COLUMN refs INTEGER NOT NULL DEFAULT 0',
@@ -295,32 +287,6 @@ class ArchiveStore {
       }
     }
     return out;
-  }
-
-  /// Schema upgrade hook: add one `if (from < n)` step per version bump.
-  /// Version 1 data is never touched; each step only adds tables.
-  static Future<void> migrate(Database db, int from, int to) async {
-    if (from < 2) {
-      await _createThreads(db);
-    }
-    if (from < 3) {
-      await _createModeration(db);
-    }
-    if (from < 4) {
-      await _createEmoteDefs(db);
-    }
-    if (from < 5) {
-      await _addBlockFlags(db);
-    }
-    if (from < 6) {
-      await _createSearchIndex(db);
-    }
-    if (from < 7) {
-      await _createEdits(db);
-    }
-    if (from < 8) {
-      await _addUpkeepColumns(db);
-    }
   }
 
   Future<void> close() async {
@@ -1251,13 +1217,11 @@ class ArchiveStore {
 
   Future<void>? _compacting;
 
-  /// Background upkeep after a prune: merge small blocks, record reply
-  /// references of blocks sealed before `ref_ids` was kept, bake pending edits,
+  /// Background upkeep after a prune: merge small blocks, bake pending edits,
   /// strip ids, index, drop users and words nothing names, then hand free
   /// pages back.
   Future<void> _upkeep(DateTime now) async {
     await compact(now);
-    await backfillRefs();
     await bakeEdits();
     await strip(now);
     await backfillWords();
@@ -1379,20 +1343,11 @@ class ArchiveStore {
   static const int _walLimit = 4 * 1024 * 1024;
 
   /// Hands free pages back to the file system once they pass a quarter of
-  /// the file or 8 MB, or always with [all]. A file made before automatic
-  /// vacuuming was on converts once with a full rebuild. Returns bytes
-  /// freed, or -1 when the file was rebuilt.
+  /// the file or 8 MB, or always with [all]. Returns bytes freed.
   Future<int> reclaimSpace({bool all = false}) async {
     Future<int> pragma(String name) async =>
         (await _db.rawQuery('PRAGMA $name')).first.values.first as int? ?? 0;
     final pageSize = await pragma('page_size');
-    if (await pragma('auto_vacuum') == 0) {
-      // VACUUM needs as much free disk as the file, once.
-      await _db.execute('PRAGMA auto_vacuum=INCREMENTAL');
-      await _db.execute('VACUUM');
-      await _db.rawQuery('PRAGMA wal_checkpoint(TRUNCATE)');
-      return -1;
-    }
     final free = await pragma('freelist_count');
     final pages = await pragma('page_count');
     if (free == 0) return 0;
@@ -1414,30 +1369,6 @@ class ArchiveStore {
   /// 15 bytes each).
   static const Duration keepIdAge = Duration(hours: 24);
   static const int keepIdMaxRows = 100000;
-
-  /// Records the reply roots of blocks sealed before they were kept at seal.
-  /// Returns blocks done.
-  Future<int> backfillRefs() async {
-    var done = 0;
-    while (true) {
-      final r = await _db.rawQuery(
-        'SELECT id, channel, data FROM blocks WHERE refs = 0 LIMIT 64',
-      );
-      if (r.isEmpty) return done;
-      final refs = await _refsOffIsolate([
-        for (final row in r) row['data']! as Uint8List,
-      ]);
-      await _db.transaction((txn) async {
-        final b = txn.batch();
-        for (var i = 0; i < r.length; i++) {
-          _putRefs(b, r[i]['channel']! as String, refs[i]);
-          b.rawUpdate('UPDATE blocks SET refs = 1 WHERE id = ?', [r[i]['id']]);
-        }
-        await b.commit(noResult: true);
-      });
-      done += r.length;
-    }
-  }
 
   /// Drops message ids from blocks wholly past the newest [keepIdRows] rows
   /// of their channel and older than [keepIdAge] (or past [keepIdMaxRows]),
@@ -1507,10 +1438,6 @@ class ArchiveStore {
     }
     return stripped;
   }
-
-  static Future<List<Map<String, int>>> _refsOffIsolate(
-    List<Uint8List> blocks,
-  ) => Isolate.run(() => blockRefs(blocks));
 
   /// Applies pending edits to the blocks that still hold message ids
   /// (`stripped = 0`), then clears them. Ids no block holds were stripped or
@@ -1864,19 +1791,6 @@ List<Uint8List?> mergeBlocks(List<List<Uint8List>> groups) => [
         ]);
       } on ArchiveFormatException {
         return null;
-      }
-    }(),
-];
-
-/// Reply roots each block references, with the time of the newest reply;
-/// empty for a damaged one.
-List<Map<String, int>> blockRefs(List<Uint8List> blocks) => [
-  for (final b in blocks)
-    () {
-      try {
-        return replyRoots(ArchiveBlock.decode(b));
-      } on ArchiveFormatException {
-        return <String, int>{};
       }
     }(),
 ];

@@ -7,9 +7,6 @@ enum BugReportKind { bug, suggestion }
 /// whenever the app can reach the report server; failed ones need an edit.
 enum BugReportStatus { draft, queued, sent, failed }
 
-/// Steps template older drafts were saved with; it counts as empty.
-const _legacyStepsTemplate = '1. \n2. \n3. ';
-
 /// Server caps in code points (ermchatbot `maxReportTitle` / `maxReportBody`).
 const kBugReportMaxTitle = 200;
 const kBugReportMaxBody = 20000;
@@ -140,21 +137,10 @@ class BugReport {
     return BugReport(
       id: id,
       createdAt: created,
-      // Older drafts had finer kinds; "idea" became a suggestion and the
-      // rest were all problems.
-      kind: json['kind'] == 'idea'
-          ? BugReportKind.suggestion
-          : byName(BugReportKind.values, json['kind'], BugReportKind.bug),
+      kind: byName(BugReportKind.values, json['kind'], BugReportKind.bug),
       summary: json['summary'] as String? ?? '',
-      whatHappened: _withLegacyExpected(
-        json['whatHappened'] as String? ?? '',
-        json['expected'] as String? ?? '',
-      ),
-      steps: switch (json['steps']) {
-        _legacyStepsTemplate => '',
-        final String s => s,
-        _ => '',
-      },
+      whatHappened: json['whatHappened'] as String? ?? '',
+      steps: json['steps'] as String? ?? '',
       screenshots: [
         for (final url in json['screenshots'] as List<dynamic>? ?? const [])
           if (url is String) url,
@@ -174,14 +160,5 @@ class BugReport {
       replies: json['replies'] as int? ?? 0,
       seenReplies: json['seenReplies'] as int? ?? 0,
     );
-  }
-
-  // Older drafts had a separate "expected" field; keep its text.
-  static String _withLegacyExpected(String what, String expected) {
-    final e = expected.trim();
-    if (e.isEmpty) return what;
-    return what.trim().isEmpty
-        ? 'Expected: $e'
-        : '${what.trimRight()}\n\nExpected: $e';
   }
 }

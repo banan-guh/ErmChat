@@ -44,22 +44,6 @@ void main() {
       expect(report().title, 'App closes');
     });
 
-    test('drafts saved by older versions keep their text', () {
-      final old = BugReport.fromJson({
-        'id': 'id-12345678',
-        'createdAt': '2026-09-28T00:00:00.000Z',
-        'whatHappened': 'It closed.',
-        'steps': '1. \n2. \n3. ',
-        'expected': 'It stays open.',
-        'kind': 'crash',
-      })!;
-      expect(old.whatHappened, 'It closed.\n\nExpected: It stays open.');
-      expect(old.steps, '', reason: 'the untouched template is empty');
-      expect(old.kind, BugReportKind.bug, reason: 'old problem kinds');
-      final idea = BugReport.fromJson({...old.toJson(), 'kind': 'idea'})!;
-      expect(idea.kind, BugReportKind.suggestion);
-    });
-
     test('JSON round trip keeps every field', () {
       final r = report()
         ..status = BugReportStatus.sent

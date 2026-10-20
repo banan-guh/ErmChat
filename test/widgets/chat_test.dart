@@ -1081,9 +1081,9 @@ void main() {
     (WidgetTester tester) async {
       SharedPreferences.setMockInitialValues({'access_token': 'test_token'});
       FlutterSecureStorage.setMockInitialValues({
-        'access_token': 'test_token',
-        'user_login': 'me',
-        'user_id': '42',
+        'accounts':
+            '[{"login":"me","user_id":"42","access_token":"test_token"}]',
+        'active_login': 'me',
       });
       final eventSub = FakeEventSubService();
       final irc = FakeIrcService();
@@ -1179,9 +1179,8 @@ void main() {
   ) async {
     SharedPreferences.setMockInitialValues({'access_token': 'test_token'});
     FlutterSecureStorage.setMockInitialValues({
-      'access_token': 'test_token',
-      'user_login': 'me',
-      'user_id': '42',
+      'accounts': '[{"login":"me","user_id":"42","access_token":"test_token"}]',
+      'active_login': 'me',
     });
     final irc = FakeIrcService();
     final ircRead = FakeIrcReadService();
@@ -1238,9 +1237,8 @@ void main() {
   ) async {
     SharedPreferences.setMockInitialValues({'access_token': 'test_token'});
     FlutterSecureStorage.setMockInitialValues({
-      'access_token': 'test_token',
-      'user_login': 'me',
-      'user_id': '42',
+      'accounts': '[{"login":"me","user_id":"42","access_token":"test_token"}]',
+      'active_login': 'me',
     });
     final irc = _RecordingIrcService();
     final ircRead = FakeIrcReadService();

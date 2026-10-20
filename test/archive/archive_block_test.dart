@@ -100,33 +100,6 @@ void main() {
     }
   });
 
-  test('a version 1 block still decodes', () {
-    // Version 1 is version 2 without the trailing token sections (three
-    // empty sections, one zero length byte each).
-    final rows = [
-      for (final r in _mixedBlock())
-        if (!r.tokensStored) r,
-    ];
-    final v2 = unpackPayload(
-      ArchiveBlock.version,
-      ArchiveBlock.encode(rows),
-      'block',
-    );
-    expect(v2.sublist(v2.length - 3), [0, 0, 0]);
-    final v1 = packPayload(1, Uint8List.sublistView(v2, 0, v2.length - 3));
-    expect(ArchiveBlock.decode(v1), rows);
-    // Version 1 never carried the token flag or column.
-    final withTokens = unpackPayload(
-      ArchiveBlock.version,
-      ArchiveBlock.encode(_mixedBlock()),
-      'block',
-    );
-    expect(
-      () => ArchiveBlock.decode(packPayload(1, withTokens)),
-      throwsA(isA<ArchiveFormatException>()),
-    );
-  });
-
   test('empty block round-trips', () {
     expect(ArchiveBlock.decode(ArchiveBlock.encode(const [])), isEmpty);
   });

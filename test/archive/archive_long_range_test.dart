@@ -115,7 +115,6 @@ void main() {
         await writer.flush();
         await store.prune(now);
         await store.compact(now);
-        await store.backfillRefs();
         await store.bakeEdits(held: writer.heldIds);
         await store.strip(now);
         await store.backfillWords();

@@ -57,11 +57,6 @@ class TwitchAuth extends ChangeNotifier {
   static const _kAnonymousLogin = '__anonymous__';
   static const _kPendingToken = 'pending_token';
   static const _kPendingRefresh = 'pending_refresh_token';
-  // Legacy single-account keys (pre multi-account), migrated on load.
-  static const _kLegacyToken = 'access_token';
-  static const _kLegacyRefresh = 'refresh_token';
-  static const _kLegacyLogin = 'user_login';
-  static const _kLegacyUserId = 'user_id';
 
   /// Active account credentials. login/userId stay null until resolved.
   String? accessToken;
@@ -159,46 +154,6 @@ class TwitchAuth extends ChangeNotifier {
 
   Future<void> load() async {
     accounts = _decodeAccounts(await _readKey(_kAccounts));
-
-    // Migrate the legacy single-account keys into the registry.
-    if (accounts.isEmpty) {
-      final legacyToken = await _readKey(_kLegacyToken);
-      if (legacyToken != null && legacyToken.isNotEmpty) {
-        final legacyLogin = await _readKey(_kLegacyLogin);
-        if (legacyLogin != null && legacyLogin.isNotEmpty) {
-          final legacyRefresh = await _readKey(_kLegacyRefresh);
-          final legacyUserId = await _readKey(_kLegacyUserId);
-          accounts = [
-            TwitchAccount(
-              login: legacyLogin,
-              userId: (legacyUserId == null || legacyUserId.isEmpty)
-                  ? null
-                  : legacyUserId,
-              accessToken: legacyToken,
-              refreshToken: (legacyRefresh == null || legacyRefresh.isEmpty)
-                  ? null
-                  : legacyRefresh,
-            ),
-          ];
-          await _saveAccounts();
-        } else {
-          // A token whose user was never resolved: keep it pending.
-          final legacyRefresh = await _readKey(_kLegacyRefresh);
-          accessToken = legacyToken;
-          refreshToken = (legacyRefresh == null || legacyRefresh.isEmpty)
-              ? null
-              : legacyRefresh;
-          login = null;
-          userId = null;
-          await _writeKey(_kPendingToken, accessToken!);
-          await _writeKey(_kPendingRefresh, refreshToken ?? '');
-        }
-        await _deleteKey(_kLegacyToken);
-        await _deleteKey(_kLegacyRefresh);
-        await _deleteKey(_kLegacyLogin);
-        await _deleteKey(_kLegacyUserId);
-      }
-    }
 
     if (accounts.isNotEmpty) {
       final activeLogin = await _readKey(_kActiveLogin);
