@@ -29,7 +29,7 @@ class ArchiveAdapter {
   static const _gifs = 'x-gifs';
 
   // Stands in for a user a damaged row points past.
-  static const _unknown = Who(userId: '', login: '');
+  static final _unknown = Who(userId: '', login: '');
 
   /// Key of [e]'s stored definition: provider, id and code, so a renamed
   /// alias stays its own version.

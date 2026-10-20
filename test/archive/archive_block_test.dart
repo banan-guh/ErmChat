@@ -155,9 +155,25 @@ void main() {
   test('user tables intern by value', () {
     final t = UserTables();
     final alice = t.internWho(
-      const Who(userId: '1', login: 'alice', displayName: 'Alice'),
+      Who(userId: '1', login: 'alice', displayName: 'Alice'),
     );
-    final bob = t.internWho(const Who(userId: '2', login: 'bob'));
+    final bob = t.internWho(Who(userId: '2', login: 'bob'));
+    // One string per who: the login comes back from the display name unless
+    // it differs, and a non-numeric id survives as text.
+    for (final (id, login, name) in [
+      ('1', 'alice', 'Alice'),
+      ('', 'anon', null),
+      ('007', 'x', 'X'),
+      ('9', 'jp_user', 'ジェイピー'),
+    ]) {
+      final w = t
+          .whos[t.internWho(Who(userId: id, login: login, displayName: name))]!;
+      expect(
+        (w.userId, w.login, w.displayName),
+        (id, login, name),
+        reason: login,
+      );
+    }
     final red = t.internLook(
       const Look(color: '#FF0000', badges: 'subscriber/12,vip/1'),
     );

@@ -1,24 +1,49 @@
 import 'intern_table.dart';
 
-/// Who a user is: written once per user.
+/// Who a user is: written once per user. Busy channels keep tens of
+/// thousands, so it holds one string: the display name, with the login only
+/// when it is not that name lowercased, and a numeric user id as an int.
 class Who {
-  const Who({required this.userId, required this.login, this.displayName});
+  factory Who({
+    required String userId,
+    required String login,
+    String? displayName,
+  }) {
+    final name = displayName ?? login;
+    final id = int.tryParse(userId);
+    final numeric = id != null && '$id' == userId;
+    return Who._(
+      numeric ? id : null,
+      numeric ? null : userId,
+      name,
+      name.toLowerCase() == login ? null : login,
+    );
+  }
 
-  final String userId;
-  final String login;
+  const Who._(this._id, this._idText, this._name, this._login);
+
+  final int? _id;
+  final String? _idText;
+  final String _name;
+  final String? _login;
+
+  String get userId => _idText ?? '$_id';
+
+  String get login => _login ?? _name.toLowerCase();
 
   /// Null when it equals [login].
-  final String? displayName;
+  String? get displayName => _name == login ? null : _name;
 
   @override
   bool operator ==(Object other) =>
       other is Who &&
-      other.userId == userId &&
-      other.login == login &&
-      other.displayName == displayName;
+      other._id == _id &&
+      other._idText == _idText &&
+      other._name == _name &&
+      other._login == _login;
 
   @override
-  int get hashCode => Object.hash(userId, login, displayName);
+  int get hashCode => Object.hash(_id, _idText, _name, _login);
 }
 
 /// How a user looked at one point in time, interned by value.
