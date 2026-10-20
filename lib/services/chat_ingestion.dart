@@ -320,23 +320,6 @@ class ChatIngestion {
     if (!result.inserted) return;
     if (PerfProbe.enabled) PerfProbe.messages++;
 
-    // Feed the emote usage registry from live chat: the emotes people are
-    // actually staring at get cache priority. History/backfill are skipped
-    // (they would re-touch old messages on every reconnect and skew the
-    // 24-hour histograms). Batched by id: spam repeats one emote dozens of
-    // times per message but needs a single touch and flush schedule.
-    if (!msg.isHistory && !msg.isSystem) {
-      final positions = msg.emotePositions;
-      if (positions != null && positions.isNotEmpty) {
-        final seenIds = <String>{};
-        for (final position in positions) {
-          if (!seenIds.add(position.emoteId)) continue;
-          final emote = emoteManager.emoteById(position.emoteId);
-          if (emote != null) emoteManager.markEmoteViewed(emote);
-        }
-      }
-    }
-
     onAnalyticsMessage?.call(channel, msg);
     onArchiveMessage?.call(channel, msg);
 
@@ -385,8 +368,9 @@ class ChatIngestion {
     }
   }
 
-  /// Feeds a live message's emotes to the usage registry, which ranks image
-  /// eviction. Reads the tokens stamped at ingest.
+  /// Feeds a live message's emotes, all providers alike, to the usage registry
+  /// that ranks image eviction, one touch per id. History is skipped so
+  /// reconnect backfill cannot skew the 24-hour histograms.
   void _noteMessageEmotes(TwitchMessage msg) {
     if (emoteManager.tier == EmoteFetchTier.nothing) return;
     if (msg.isSystem || msg.isHistory) return;
@@ -397,7 +381,7 @@ class ChatIngestion {
       for (final token in tokens)
         if (token.emote case final emote? when seen.add(emote.id)) emote,
     ];
-    if (found.isNotEmpty) emoteManager.noteSeenEmotes(found);
+    if (found.isNotEmpty) emoteManager.markEmotesViewed(found);
   }
 
   // ---- USERNOTICE ---------------------------------------------------------

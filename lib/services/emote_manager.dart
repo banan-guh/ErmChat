@@ -1086,14 +1086,23 @@ class EmoteManager implements EmoteLookupSource {
     await _images.startCacheGc();
   }
 
-  // Ids already touched this session, bounded by dropping the oldest.
+  // Ids pruned of dominated scales this session, bounded by dropping the
+  // oldest.
   final Set<String> _seenEmoteIds = {};
   static const _maxSeenEmoteIds = 2000;
 
-  /// Touches the usage registry once per session for each newly seen emote.
-  void noteSeenEmotes(List<Emote> emotes) {
+  /// Touches the usage registry for every emote in one live message, with a
+  /// single flush schedule. Each emote is checked for dominated scales once
+  /// per session.
+  void markEmotesViewed(List<Emote> emotes) {
     // Nothing tier: skip usage tracking.
     if (tier == EmoteFetchTier.nothing) return;
+    _usage.touchAll(
+      emotes
+          .map((e) => EmotePicker.chatDownloadUrl(e, tier))
+          .whereType<String>(),
+    );
+    _usage.scheduleFlush();
     final fresh = [
       for (final e in emotes)
         if (_seenEmoteIds.add(e.id)) e,
@@ -1102,12 +1111,6 @@ class EmoteManager implements EmoteLookupSource {
     while (_seenEmoteIds.length > _maxSeenEmoteIds) {
       _seenEmoteIds.remove(_seenEmoteIds.first);
     }
-    _usage.touchAll(
-      fresh
-          .map((e) => EmotePicker.chatDownloadUrl(e, tier))
-          .whereType<String>(),
-    );
-    _usage.scheduleFlush();
     unawaited(_discardDominatedScales(fresh));
   }
 }

@@ -369,9 +369,9 @@ class _SpyEmoteManager extends EmoteManager {
   final List<String> viewedIds = [];
 
   @override
-  void markEmoteViewed(Emote emote) {
-    viewedIds.add(emote.id);
-    super.markEmoteViewed(emote);
+  void markEmotesViewed(List<Emote> emotes) {
+    viewedIds.addAll(emotes.map((e) => e.id));
+    super.markEmotesViewed(emotes);
   }
 
   @override
@@ -380,6 +380,10 @@ class _SpyEmoteManager extends EmoteManager {
   @override
   EmoteLookup? byCode(String channel) =>
       EmoteLookup(byCode: const {'E1': _emote}, suggestions: const [_emote]);
+
+  @override
+  EmoteLookup? byCodeForSender(String channel, String? senderTwitchId) =>
+      byCode(channel);
 }
 
 /// SevenTvEventClient that counts subscribe calls, so channel-setup dedup
@@ -3438,7 +3442,7 @@ void main() {
   });
 
   group('message emote usage', () {
-    test('live messages feed the usage registry through emote positions', () {
+    test('live messages feed the usage registry once per emote id', () {
       final emoteManager = _SpyEmoteManager(tier: EmoteFetchTier.high);
       final msgs = <String, List<TwitchMessage>>{'test': []};
       final conn = _makeConn(
