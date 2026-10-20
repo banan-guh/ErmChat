@@ -66,8 +66,16 @@ class _SendSwipeState extends State<SendSwipe> {
   static const _charge = Duration(milliseconds: 250);
   // Dragging this far up from the hold opens the menu.
   static const _openRise = 24.0;
+  // A press this long shows the swipe hint, so quick taps never flash it.
+  static const _hintDelay = Duration(milliseconds: 150);
 
   final _portal = OverlayPortalController();
+  // Pins the hint above the button even while a keyboard moves it.
+  final _link = LayerLink();
+
+  // The portal shows the hint alone until the swipe opens the menu.
+  bool _menuOpen = false;
+  Timer? _hintTimer;
 
   Offset _origin = Offset.zero;
   // The cross rail runs this way along x: -1 left, 1 right.
@@ -105,15 +113,25 @@ class _SendSwipeState extends State<SendSwipe> {
     _offPath = false;
     _progress = 0;
     _anchor = _overlayBox.globalToLocal(global);
+    _hintTimer?.cancel();
+    _hintTimer = Timer(_hintDelay, _showHint);
   }
 
   void _hold(LongPressStartDetails d) {
     widget.onRecall?.call();
     _down(d.globalPosition);
+    _showHint();
+  }
+
+  void _showHint() {
+    _hintTimer?.cancel();
+    if (mounted && !_portal.isShowing) setState(_portal.show);
   }
 
   // Lays the path out from where the button sits now.
-  void _open() {
+  void _openMenu() {
+    _hintTimer?.cancel();
+    _menuOpen = true;
     final box = context.findRenderObject() as RenderBox;
     final overlay = _overlayBox;
     final area = overlay.size;
@@ -130,7 +148,7 @@ class _SendSwipeState extends State<SendSwipe> {
     _run = (end - _origin.dx).abs();
     widget.onRecallUndo?.call();
     HapticFeedback.selectionClick();
-    _portal.show();
+    if (!_portal.isShowing) _portal.show();
   }
 
   /// The path distance nearest [f], or null when [f] is off the path.
@@ -157,9 +175,9 @@ class _SendSwipeState extends State<SendSwipe> {
   void _move(Offset global) {
     if (!widget._hasMenu) return;
     final drag = _overlayBox.globalToLocal(global) - _anchor;
-    if (!_portal.isShowing) {
+    if (!_menuOpen) {
       if (drag.dy > -_openRise) return;
-      _open();
+      _openMenu();
     }
     final s = _project(_origin + drag);
     final reach = _offPath ? _rejoinSlack : _maxAdvance;
@@ -198,6 +216,8 @@ class _SendSwipeState extends State<SendSwipe> {
   }
 
   void _close() {
+    _hintTimer?.cancel();
+    _menuOpen = false;
     _chargeTimer?.cancel();
     _charging = false;
     if (_spamming) widget.onSpamStop?.call();
@@ -218,6 +238,7 @@ class _SendSwipeState extends State<SendSwipe> {
 
   @override
   void dispose() {
+    _hintTimer?.cancel();
     _chargeTimer?.cancel();
     if (_spamming) widget.onSpamStop?.call();
     super.dispose();
@@ -243,12 +264,59 @@ class _SendSwipeState extends State<SendSwipe> {
           : null,
       onVerticalDragEnd: widget.enabled ? (_) => _close() : null,
       onVerticalDragCancel: widget.enabled ? _close : null,
-      child: widget.child,
+      child: CompositedTransformTarget(link: _link, child: widget.child),
+    ),
+  );
+
+  BoxDecoration _thumbDecoration(ColorScheme scheme) => BoxDecoration(
+    shape: BoxShape.circle,
+    color: _offPath ? scheme.surface : scheme.primary,
+    border: Border.all(
+      color: _offPath ? scheme.error : scheme.onPrimary,
+      width: 3,
+    ),
+    boxShadow: const [BoxShadow(blurRadius: 8, color: Colors.black45)],
+  );
+
+  // Before the swipe: an arrow pops up above the button, styled like the
+  // thumb it turns into once the menu opens.
+  Widget _hint(ColorScheme scheme) => Positioned(
+    left: 0,
+    top: 0,
+    child: CompositedTransformFollower(
+      link: _link,
+      showWhenUnlinked: false,
+      targetAnchor: Alignment.topCenter,
+      followerAnchor: Alignment.bottomCenter,
+      offset: const Offset(0, -8),
+      child: IgnorePointer(
+        child: TweenAnimationBuilder<double>(
+          tween: Tween(begin: 0.4, end: 1),
+          duration: const Duration(milliseconds: 200),
+          curve: Curves.easeOutBack,
+          builder: (context, t, child) => Transform.scale(
+            scale: t,
+            child: Opacity(opacity: t.clamp(0.0, 1.0), child: child),
+          ),
+          child: SizedBox.square(
+            dimension: _thumbSize,
+            child: DecoratedBox(
+              decoration: _thumbDecoration(scheme),
+              child: Icon(
+                Icons.keyboard_arrow_up,
+                size: 20,
+                color: scheme.onPrimary,
+              ),
+            ),
+          ),
+        ),
+      ),
     ),
   );
 
   Widget _menu(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    if (!_menuOpen) return Stack(children: [_hint(scheme)]);
     Widget at(Offset c, double size, Widget child) => Positioned(
       left: c.dx - size / 2,
       top: c.dy - size / 2,
@@ -270,86 +338,80 @@ class _SendSwipeState extends State<SendSwipe> {
     final idle = scheme.surfaceContainerHighest;
     final fill = scheme.primary;
     final thumb = _pointAt(_progress);
-    return IgnorePointer(
-      child: TweenAnimationBuilder<double>(
-        tween: Tween(begin: 0, end: 1),
-        duration: const Duration(milliseconds: 160),
-        curve: Curves.easeOut,
-        builder: (context, t, child) => Opacity(opacity: t, child: child),
-        child: Stack(
-          children: [
-            // Dims the chat to 0.8x so the menu reads as its own layer. so the menu reads as its own layer.
-            Positioned.fill(
-              child: ColoredBox(color: scheme.scrim.withValues(alpha: 0.2)),
-            ),
-            track(_origin, _hub, idle),
-            track(_hub, _spamAt, idle),
-            // The zone where spam runs.
-            track(_pointAt(_zoneStart), _spamAt, fill.withValues(alpha: 0.3)),
-            // Progress fills behind the thumb, like a slider.
-            track(_origin, _pointAt(_progress.clamp(0, _rise)), fill),
-            if (_armed) track(_hub, thumb, fill),
-            at(
-              _hub,
-              _hubRadius * 2,
-              AnimatedScale(
-                scale: _armed ? 1.15 : 1,
-                duration: const Duration(milliseconds: 150),
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: _armed ? fill : idle,
-                  ),
-                  child: Icon(
-                    _dir < 0 ? Icons.chevron_left : Icons.chevron_right,
-                    color: _armed ? scheme.onPrimary : scheme.onSurfaceVariant,
-                  ),
-                ),
-              ),
-            ),
-            at(
-              _spamAt,
-              _actionRadius * 2,
-              _SpamAction(
-                active: _spamming,
-                charging: _charging,
-                charge: _charge,
-                reachable: _armed && !_offPath,
-                sends: widget.spamSends!,
-              ),
-            ),
-            Positioned(
-              left: _spamAt.dx - 60,
-              top: _spamAt.dy + _actionRadius + 6,
-              width: 120,
-              child: Text(
-                context.l10n.sendMenuSpam,
-                textAlign: TextAlign.center,
-                style: Theme.of(
-                  context,
-                ).textTheme.labelLarge?.copyWith(color: scheme.onSurface),
-              ),
-            ),
-            // Off the path the thumb waits, hollow, for the finger to return.
-            at(
-              thumb,
-              _thumbSize,
-              DecoratedBox(
+    final menu = TweenAnimationBuilder<double>(
+      tween: Tween(begin: 0, end: 1),
+      duration: const Duration(milliseconds: 160),
+      curve: Curves.easeOut,
+      builder: (context, t, child) => Opacity(opacity: t, child: child),
+      child: Stack(
+        children: [
+          // Dims the chat to 0.8x so the menu reads as its own layer.
+          Positioned.fill(
+            child: ColoredBox(color: scheme.scrim.withValues(alpha: 0.2)),
+          ),
+          track(_origin, _hub, idle),
+          track(_hub, _spamAt, idle),
+          // The zone where spam runs.
+          track(_pointAt(_zoneStart), _spamAt, fill.withValues(alpha: 0.3)),
+          // Progress fills behind the thumb, like a slider.
+          track(_origin, _pointAt(_progress.clamp(0, _rise)), fill),
+          if (_armed) track(_hub, thumb, fill),
+          at(
+            _hub,
+            _hubRadius * 2,
+            AnimatedScale(
+              scale: _armed ? 1.15 : 1,
+              duration: const Duration(milliseconds: 150),
+              child: DecoratedBox(
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
-                  color: _offPath ? scheme.surface : fill,
-                  border: Border.all(
-                    color: _offPath ? scheme.error : scheme.onPrimary,
-                    width: 3,
-                  ),
-                  boxShadow: const [
-                    BoxShadow(blurRadius: 8, color: Colors.black45),
-                  ],
+                  color: _armed ? fill : idle,
+                ),
+                child: Icon(
+                  _dir < 0 ? Icons.chevron_left : Icons.chevron_right,
+                  color: _armed ? scheme.onPrimary : scheme.onSurfaceVariant,
                 ),
               ),
             ),
-          ],
-        ),
+          ),
+          at(
+            _spamAt,
+            _actionRadius * 2,
+            _SpamAction(
+              active: _spamming,
+              charging: _charging,
+              charge: _charge,
+              reachable: _armed && !_offPath,
+              sends: widget.spamSends!,
+            ),
+          ),
+          Positioned(
+            left: _spamAt.dx - 60,
+            top: _spamAt.dy + _actionRadius + 6,
+            width: 120,
+            child: Text(
+              context.l10n.sendMenuSpam,
+              textAlign: TextAlign.center,
+              style: Theme.of(
+                context,
+              ).textTheme.labelLarge?.copyWith(color: scheme.onSurface),
+            ),
+          ),
+        ],
+      ),
+    );
+    return IgnorePointer(
+      child: Stack(
+        children: [
+          Positioned.fill(child: menu),
+          // Outside the fade, so the hint arrow turns straight into it. Off
+          // the path the thumb waits, hollow, for the finger to return.
+          at(
+            thumb,
+            _thumbSize,
+            DecoratedBox(decoration: _thumbDecoration(scheme)),
+          ),
+        ],
       ),
     );
   }
