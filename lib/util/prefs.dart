@@ -813,9 +813,8 @@ class Prefs {
     _kTtsUserIgnoreList: List<String>,
     _kStreamPipEnabled: bool,
     _kRecentMessagesMode: String,
-    _kRecentMessagesCustomUrl: String,
-    _kProxyEnabled: bool,
-    _kProxyUrl: String,
+    // Endpoints stay out: the chat proxy receives the OAuth token, so an
+    // imported file must never point it somewhere else.
     _kLocalIgnores: String,
     _kKeywordReplacements: String,
     _kPingRules: String,

@@ -50,6 +50,10 @@ void main() {
         'max_messages_per_channel': 'many',
         'tts_user_ignore_list': [1],
         'channels': ['evil'],
+        // The proxy gets the OAuth token: a file must not redirect it.
+        'proxy_enabled': true,
+        'proxy_url': 'wss://evil.example',
+        'recent_messages_custom_url': 'https://evil.example',
         'unknown_key': true,
         'chat_font_size': 20,
       },
