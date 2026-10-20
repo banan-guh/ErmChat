@@ -211,6 +211,27 @@ void main() {
       expect(rail.days[1].start, from.add(day));
       expect(rail.days.first.start, from);
       expect(rail.countBetween(from, to), 6336);
+
+      final nine = from.add(const Duration(hours: 9));
+      final late = ActivityRail(
+        from: nine,
+        to: to,
+        bucket: bucket,
+        counts: counts.sublist(108),
+        local: fixedOffset(0),
+      );
+      expect(
+        late.days.first.start,
+        from,
+        reason: 'a day the archive starts mid-way still opens at midnight',
+      );
+      final w = late.window(from, from.add(day));
+      expect(w.positionOf(nine), inExclusiveRange(0.0, 0.05));
+      expect(
+        w.timeAt(w.positionOf(nine) / 2).isBefore(nine),
+        isTrue,
+        reason: 'the empty morning is a quiet sliver, not cut off',
+      );
     });
 
     test('a weighted window shrinks empty days to a sliver', () {

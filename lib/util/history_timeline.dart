@@ -271,7 +271,7 @@ class _ActivityWindow implements RailScale {
 }
 
 /// One local day of a rail: when it starts (to the bucket; the first day
-/// starts at the rail's start) and how many messages it holds.
+/// starts at its local midnight) and how many messages it holds.
 typedef RailDay = ({DateTime start, int day, int count});
 
 /// Message counts per bucket over the retained range, with the streams in
@@ -338,9 +338,10 @@ class ActivityRail {
   RailScale window(DateTime from, DateTime to) =>
       _ActivityWindow(this, from, to);
 
+  /// Before [from] the rail holds nothing, so that stretch weighs as gaps.
   double _weightAt(DateTime t) {
     final ms = t.difference(from).inMilliseconds;
-    if (ms <= 0) return 0;
+    if (ms <= 0) return ms / _bucketMs * gapWeight;
     final i = ms ~/ _bucketMs;
     if (i >= _n) return _weights[_n];
     final frac = (ms - i * _bucketMs) / _bucketMs;
@@ -348,7 +349,11 @@ class ActivityRail {
   }
 
   DateTime _timeAtWeight(double w) {
-    if (w <= 0) return from;
+    if (w <= 0) {
+      return from.add(
+        Duration(milliseconds: (w / gapWeight * _bucketMs).round()),
+      );
+    }
     if (w >= _weights[_n]) return to;
     var lo = 0;
     var hi = _n;
@@ -368,8 +373,17 @@ class ActivityRail {
   /// Every local day the rail touches, oldest first.
   late final List<RailDay> days = () {
     final out = <RailDay>[];
-    var start = from;
-    var day = dayNumber(local(from));
+    final wall = local(from);
+    var start = from.subtract(
+      Duration(
+        hours: wall.hour,
+        minutes: wall.minute,
+        seconds: wall.second,
+        milliseconds: wall.millisecond,
+        microseconds: wall.microsecond,
+      ),
+    );
+    var day = dayNumber(wall);
     for (var i = 1; i < _n; i++) {
       final at = from.add(Duration(milliseconds: i * _bucketMs));
       // The last bucket can reach past [to]; the closing day ends there.
