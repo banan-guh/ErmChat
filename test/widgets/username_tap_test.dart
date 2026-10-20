@@ -35,7 +35,7 @@ void main() {
                       <InlineSpan>[const TextSpan(text: 'hi there friend')],
               bodyIsCached: (_, _) => false,
               onTapUser: (login, _) => taps.add('user:$login'),
-              onDoubleTapUser: doubleTapUser ? () => taps.add('copy') : null,
+              onDoubleTapUser: doubleTapUser ? (_) => taps.add('copy') : null,
               onDoubleTap: () => taps.add('message'),
               onLongPress: () {},
             ),

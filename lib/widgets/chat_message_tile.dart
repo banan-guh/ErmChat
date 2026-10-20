@@ -43,8 +43,9 @@ class ChatMessageTile extends StatefulWidget {
   systemBodyBuilder;
   final void Function(String login, String? userId)? onTapUser;
 
-  /// Double tap on the name zone. Null keeps single taps instant.
-  final VoidCallback? onDoubleTapUser;
+  /// Double tap on the name zone, given the tile's own context. Null keeps
+  /// single taps instant.
+  final void Function(BuildContext context)? onDoubleTapUser;
   final VoidCallback? onLongPress;
   final VoidCallback? onDoubleTap;
 
@@ -209,7 +210,7 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
         open();
       } else if (_nameTapTile == this && (_nameTapTimer?.isActive ?? false)) {
         _nameTapTimer!.cancel();
-        onDoubleTapUser();
+        onDoubleTapUser(context);
       } else {
         _nameTapTimer?.cancel();
         _nameTapTile = this;

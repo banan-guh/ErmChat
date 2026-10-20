@@ -90,6 +90,8 @@ class ChatRows {
     required double scale,
     required Color surface,
   }) {
+    // Lists cache the returned tile, so no closure here may capture
+    // [context]: it would pin the page that built it after disposal.
     // Use the row's own channel for badge/emote resolution.
     final tileChannel = msg.channel ?? channel;
     // System rows take no taps, reply line, paint, or embeds; the tile reads
@@ -116,7 +118,7 @@ class ChatRows {
                 onShowUserProfile(login, userId, displayName: msg.displayName)
           : null,
       onDoubleTapUser: chatRow && messageBuilder.doubleTapNameCopy
-          ? () => _copyUsername(context, msg)
+          ? (tileContext) => _copyUsername(tileContext, msg)
           : null,
       onLongPress: chatRow && onShowMessageMenu != null
           ? () => onShowMessageMenu!(msg)
