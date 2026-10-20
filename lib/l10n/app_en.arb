@@ -10,23 +10,10 @@
   "settingTrueDark": "True dark mode",
   "settingLayout": "Layout",
   "settingLiquidGlass": "Liquid glass",
-  "settingChromeTheme": "Chrome theme",
   "appTitle": "ErmChat",
   "chromeThemeErmchat": "ErmChat",
   "chromeThemeDankchat3": "DankChat 3",
   "chromeThemeDankchat4": "DankChat 4",
-  "chromeThemeErmchatHint": "Floating island with a button row",
-  "chromeThemeDankchat3Hint": "Just the field; actions in the tab strip",
-  "chromeThemeDankchat4Hint": "Edge-to-edge bar with send in the row",
-  "chromeThemeCustomHint": "Your theme",
-  "themeBuilderUntitled": "Theme {number}",
-  "@themeBuilderUntitled": {
-    "placeholders": {
-      "number": {
-        "type": "int"
-      }
-    }
-  },
   "themeBuilderDiscardTitle": "Discard changes?",
   "themeBuilderDiscard": "Discard",
   "settingChatFontSize": "Chat font size",
