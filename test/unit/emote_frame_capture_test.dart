@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
@@ -5,6 +6,7 @@ import 'dart:ui' as ui;
 import 'package:ermchat/services/emote_images.dart';
 import 'package:ermchat/widgets/emote_url_provider.dart';
 import 'package:flutter/painting.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 // Decoded-frame capture + array playback timing for EmoteUrlProvider.
@@ -411,5 +413,40 @@ void main() {
     expect(advanced, isTrue);
     expect(EmoteUrlProvider.debugCompleterBuilds, builds);
     stream.removeListener(listener);
+  });
+
+  testWidgets('a replaced completer leaves the live one in the capture LRU', (
+    tester,
+  ) async {
+    // Bytes never arrive, so nothing decodes or schedules frames.
+    EmoteUrlProvider.debugFetchOverride = (url) =>
+        Completer<Uint8List>().future;
+    const url = 'https://capture.test/replaced.webp';
+    final cache = PaintingBinding.instance.imageCache;
+    final provider = EmoteUrlProvider(url, images: images);
+    final listener = ImageStreamListener((_, _) {});
+
+    // A paused completer survives the cache on another holder's handle.
+    final old = provider.resolve(ImageConfiguration.empty);
+    old.addListener(listener);
+    final handle = old.completer!.keepAlive();
+    old.removeListener(listener);
+    cache.evict(provider);
+    // The cache drops its handle after a frame.
+    SchedulerBinding.instance.scheduleFrame();
+    await tester.pump();
+
+    final fresh = provider.resolve(ImageConfiguration.empty);
+    fresh.addListener(listener);
+    expect(fresh.completer, isNot(same(old.completer)));
+    EmoteUrlProvider.debugSeedCaptured(url);
+
+    handle.dispose();
+    expect(
+      EmoteUrlProvider.debugCapturedEmotes,
+      contains(url),
+      reason: 'frames the live completer holds must stay on the budget',
+    );
+    fresh.removeListener(listener);
   });
 }

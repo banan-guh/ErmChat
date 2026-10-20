@@ -586,10 +586,14 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
       return;
     }
     final frame = await codec.getNextFrame();
-    // Clone before disposing the codec/frame so the image outlives them.
+    codec.dispose();
+    if (_disposed) {
+      frame.image.dispose();
+      return;
+    }
+    // Clone before disposing the frame so the image outlives it.
     final image = frame.image.clone();
     frame.image.dispose();
-    codec.dispose();
     _frames = EmoteFrameData(frames: [image], durations: [frame.duration]);
     _emitFrame(0);
   }
@@ -1404,9 +1408,9 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
     _heldEmit = null;
     _heldFrame?.dispose();
     _heldFrame = null;
-    if (EmoteUrlProvider._liveByUrl[url] == this) {
-      EmoteUrlProvider._liveByUrl.remove(url);
-    }
+    // A newer completer for this URL owns the live and captured entries.
+    final live = EmoteUrlProvider._liveByUrl[url] == this;
+    if (live) EmoteUrlProvider._liveByUrl.remove(url);
     _stopPlayback();
     _cancelStreamDecode();
     _seedFromUrl = null;
@@ -1435,7 +1439,7 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
     _capturedDurations = [];
     _capturedCount = 0;
     _expectedFrameCount = 0;
-    EmoteUrlProvider._capturedOrder.remove(url);
+    if (live) EmoteUrlProvider._capturedOrder.remove(url);
     super.onDisposed();
   }
 }
