@@ -1,13 +1,16 @@
 import 'dart:convert';
+import 'dart:io';
 import 'dart:ui' show PictureRecorder;
 
 import 'package:fake_async/fake_async.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ermchat/models/twitch_message.dart';
+import 'package:ermchat/services/emote_images.dart';
 import 'package:ermchat/services/seven_tv_event_client.dart';
 import 'package:ermchat/widgets/seven_tv_paint_service.dart';
 import 'package:ermchat/widgets/chat_message_tile.dart';
+import 'package:ermchat/widgets/emote_url_provider.dart';
 import 'package:ermchat/widgets/painted_username_text.dart';
 
 Map<String, dynamic> _paintItem(
@@ -502,5 +505,72 @@ void main() {
       expect(find.byType(ShaderMask), findsNothing);
       service.dispose();
     });
+  });
+
+  // An animated paint holds a frame, not its cycle, so it must stop decoding
+  // once no name on screen follows it.
+  testWidgets('image paints stream while followed and pause after', (
+    tester,
+  ) async {
+    final webp = File('test/fixtures/7tv_kiss_2x.webp').readAsBytesSync();
+    EmoteUrlProvider.debugFetchOverride = (_) async => webp;
+    final service = SevenTvPaintService(
+      gqlQuery: (_) async => null,
+      images: EmoteImages(),
+    )..enabled = true;
+    addTearDown(() {
+      EmoteUrlProvider.debugFetchOverride = null;
+      service.dispose();
+      PaintingBinding.instance.imageCache
+        ..clearLiveImages()
+        ..clear();
+    });
+    const paint = SevenTvPaint(
+      id: 'p',
+      name: 'p',
+      layers: [
+        SevenTvImagePaintLayer(
+          images: [
+            SevenTvPaintImage(
+              url: 'https://paint.test/p/2x.webp',
+              width: 128,
+              height: 128,
+              scale: 2,
+            ),
+          ],
+          opacity: 1,
+        ),
+      ],
+      shadows: [],
+    );
+    final layer = paint.layers.single as SevenTvImagePaintLayer;
+
+    Future<void> run(int ticks) async {
+      for (var i = 0; i < ticks; i++) {
+        await tester.pump(const Duration(milliseconds: 70));
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 35)),
+        );
+      }
+    }
+
+    expect(service.imageFor(layer), isNull);
+    await run(10);
+    expect(service.imageFor(layer), isNotNull, reason: 'first frame lands');
+
+    var frames = 0;
+    void onFrame() => frames++;
+    final ticker = service.frameTicker(paint)!..addListener(onFrame);
+    await run(15);
+    expect(frames, greaterThan(3), reason: 'a followed paint animates');
+
+    ticker.removeListener(onFrame);
+    final paused = service.imageFor(layer);
+    await run(10);
+    expect(
+      identical(service.imageFor(layer), paused),
+      isTrue,
+      reason: 'an unfollowed paint stops decoding',
+    );
   });
 }

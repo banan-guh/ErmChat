@@ -6,11 +6,19 @@ import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart'
     show Color, Matrix4, Offset, Shader, Size;
+import 'package:flutter/painting.dart'
+    show
+        ImageConfiguration,
+        ImageInfo,
+        ImageStream,
+        ImageStreamCompleterHandle,
+        ImageStreamListener;
 import 'package:http/http.dart' as http;
 import '../util/log.dart';
+import '../services/emote_images.dart';
 import '../services/emote_meta_store.dart';
 import '../services/seven_tv_event_client.dart';
-import 'emote_effect.dart';
+import 'emote_url_provider.dart';
 
 class SevenTvPaintStop {
   final double at;
@@ -169,65 +177,92 @@ class SevenTvPaint {
   }
 }
 
-/// A decoded paint image: one frame for stills, every frame for animated
-/// ones. While anything listens, an animated texture follows the shared
-/// [EmoteEffectClock] and notifies only when its frame changes.
+/// A paint image streamed through the emote pipeline: disk cached and
+/// decoded a frame at a time on the shared emote tick, so an animated paint
+/// holds a frame or two instead of its whole cycle. Names that follow it
+/// keep it playing; with none it pauses on the frame it shows.
 class _PaintTexture extends ChangeNotifier {
-  _PaintTexture(this.frames, this.endsMs)
-    : bytes = frames.fold(0, (sum, f) => sum + f.width * f.height * 4);
+  _PaintTexture(this._provider, this._onFirstFrame);
 
-  final List<ui.Image> frames;
+  final EmoteUrlProvider _provider;
+  final VoidCallback _onFirstFrame;
+  ImageStream? _stream;
+  ImageStreamCompleterHandle? _keepAlive;
+  bool _playing = false;
+  bool _released = false;
+  ImageInfo? _info;
 
-  /// Cumulative frame end times; the last is the loop length.
-  final List<int> endsMs;
-  final int bytes;
-  int _index = 0;
-  bool _following = false;
+  late final ImageStreamListener _listener = ImageStreamListener(
+    _onFrame,
+    onError: (_, _) {},
+  );
 
-  bool get animated => frames.length > 1 && endsMs.last > 0;
-  ui.Image get current => frames[_index];
+  ui.Image? get current => _info?.image;
 
   /// A name on screen follows it; evicting it would reload it at once.
   bool get inUse => hasListeners;
 
-  void _onClock() {
-    final t = (EmoteEffectClock.instance.seconds * 1000).floor() % endsMs.last;
-    var i = 0;
-    while (i < endsMs.length - 1 && endsMs[i] <= t) {
-      i++;
+  /// Subscribes until the first frame lands. Started outside build and paint,
+  /// since a cached completer answers synchronously.
+  void start() {
+    if (_released || _stream != null) return;
+    _stream = _provider.resolve(ImageConfiguration.empty);
+    _play();
+  }
+
+  void _onFrame(ImageInfo info, bool synchronousCall) {
+    if (_released) {
+      info.dispose();
+      return;
     }
-    if (i == _index) return;
-    _index = i;
+    final first = _info == null;
+    _info?.dispose();
+    _info = info;
+    if (first) {
+      _onFirstFrame();
+      if (!hasListeners) _pause();
+    }
     notifyListeners();
+  }
+
+  void _play() {
+    final stream = _stream;
+    if (_playing || stream == null) return;
+    _playing = true;
+    stream.addListener(_listener);
+    _keepAlive?.dispose();
+    _keepAlive = null;
+  }
+
+  /// Keeps the completer and its frame while nothing follows.
+  void _pause() {
+    final stream = _stream;
+    if (!_playing || stream == null) return;
+    _keepAlive ??= stream.completer?.keepAlive();
+    stream.removeListener(_listener);
+    _playing = false;
   }
 
   @override
   void addListener(VoidCallback listener) {
     super.addListener(listener);
-    if (animated && !_following) {
-      _following = true;
-      EmoteEffectClock.instance.addListener(_onClock);
-    }
+    if (_info != null) _play();
   }
 
   @override
   void removeListener(VoidCallback listener) {
     super.removeListener(listener);
-    if (!hasListeners) _unfollow();
+    if (!hasListeners && _info != null) _pause();
   }
 
-  void _unfollow() {
-    if (!_following) return;
-    _following = false;
-    EmoteEffectClock.instance.removeListener(_onClock);
-  }
-
-  /// Frees the frames; names still listening rebuild on the next revision.
+  /// Drops the stream and frame; names still painting it reload it.
   void release() {
-    _unfollow();
-    for (final frame in frames) {
-      frame.dispose();
-    }
+    _released = true;
+    _pause();
+    _keepAlive?.dispose();
+    _keepAlive = null;
+    _info?.dispose();
+    _info = null;
   }
 }
 
@@ -266,7 +301,9 @@ class SevenTvPaintService extends ChangeNotifier {
       '} } shadows { blur offsetX offsetY color { hex } } }';
 
   final Future<Map<String, dynamic>?> Function(String query) _gqlQuery;
-  final Future<Uint8List> Function(Uri uri) _fetchBytes;
+
+  /// Byte owner for paint images. Null leaves image paints unloaded (tests).
+  final EmoteImages? _emoteImages;
   final DateTime Function() _now;
 
   bool _enabled = false;
@@ -375,28 +412,17 @@ class SevenTvPaintService extends ChangeNotifier {
   final _userNotifiers = <String, ValueNotifier<SevenTvPaint?>>{};
 
   static const _maxCachedPaintImages = 50;
-
-  // Decoded frames are raw RGBA; animated paints run to dozens of frames.
-  static const _maxPaintImageBytes = 24 << 20;
-  static const _maxPaintFrames = 150;
-
-  /// A name's height on dense screens, which a paint image never needs to
-  /// exceed.
-  static const _maxPaintImageHeight = 96;
-  int _imageBytes = 0;
   final _images = <String, _PaintTexture>{};
-  final _imageInflight = <String>{};
-  final _imageAccessOrder = <String>[];
 
   StreamSubscription<SevenTvEntitlementEvent>? _entitlementSub;
 
   SevenTvPaintService({
     Future<Map<String, dynamic>?> Function(String query)? gqlQuery,
-    Future<Uint8List> Function(Uri uri)? fetchBytes,
+    EmoteImages? images,
     DateTime Function()? now,
     this._store,
   }) : _gqlQuery = gqlQuery ?? _defaultGqlQuery,
-       _fetchBytes = fetchBytes ?? _defaultFetchBytes,
+       _emoteImages = images,
        _now = now ?? DateTime.now;
 
   static Future<Map<String, dynamic>?> _defaultGqlQuery(String query) async {
@@ -416,12 +442,6 @@ class SevenTvPaintService extends ChangeNotifier {
       return null;
     }
   }
-
-  static Future<Uint8List> _defaultFetchBytes(Uri uri) =>
-      http.get(uri).then((res) {
-        if (res.statusCode != 200) throw Exception('HTTP ${res.statusCode}');
-        return res.bodyBytes;
-      });
 
   /// Live entitlement updates bypass the lookup TTL.
   void bindSevenTvEvents(SevenTvEventClient client) {
@@ -809,92 +829,40 @@ class SevenTvPaintService extends ChangeNotifier {
 
   _PaintTexture? _textureFor(SevenTvImagePaintLayer layer) {
     final variant = layer.pickVariant();
-    if (variant == null) return null;
-    final cached = _images[variant.url];
+    final images = _emoteImages;
+    if (variant == null || images == null || _disposed) return null;
+    final url = variant.url;
+    final cached = _images.remove(url);
     if (cached != null) {
-      _imageAccessOrder.remove(variant.url);
-      _imageAccessOrder.add(variant.url);
+      _images[url] = cached;
       return cached;
     }
-    if (_imageInflight.add(variant.url)) {
-      unawaited(_loadImage(variant));
+    final texture = _PaintTexture(EmoteUrlProvider(url, images: images), () {
+      if (_enabled && !_disposed) imageRevision.value++;
+    });
+    _images[url] = texture;
+    scheduleMicrotask(texture.start);
+    // Oldest first, skipping textures on screen.
+    for (final key in _images.keys.toList()) {
+      if (_images.length <= _maxCachedPaintImages) break;
+      final oldest = _images[key]!;
+      if (oldest.inUse || identical(oldest, texture)) continue;
+      _images.remove(key);
+      oldest.release();
     }
-    return null;
+    return texture;
   }
 
   /// Resolved texture (current frame) for an image layer. Null until loaded.
   ui.Image? imageFor(SevenTvImagePaintLayer layer) =>
       _textureFor(layer)?.current;
 
-  /// Notifies when [paint]'s image advances a frame; null for stills and
-  /// non-image paints.
+  /// Notifies when [paint]'s image advances a frame; null for non-image
+  /// paints. A still notifies once, when it lands.
   Listenable? frameTicker(SevenTvPaint paint) {
     final layer = paint.layers.firstOrNull;
     if (layer is! SevenTvImagePaintLayer) return null;
-    final texture = _textureFor(layer);
-    return texture != null && texture.animated ? texture : null;
-  }
-
-  Future<void> _loadImage(SevenTvPaintImage variant) async {
-    ui.Codec? codec;
-    final frames = <ui.Image>[];
-    try {
-      final bytes = await _fetchBytes(Uri.parse(variant.url));
-      // Paints fill a name's height, so frames decode no taller than that.
-      codec = await ui.instantiateImageCodecWithSize(
-        await ui.ImmutableBuffer.fromUint8List(bytes),
-        getTargetSize: (w, h) => h > _maxPaintImageHeight
-            ? const ui.TargetImageSize(height: _maxPaintImageHeight)
-            : ui.TargetImageSize(width: w, height: h),
-      );
-      final count = math.min(codec.frameCount, _maxPaintFrames);
-      final endsMs = <int>[];
-      var at = 0;
-      for (var i = 0; i < count; i++) {
-        final frame = await codec.getNextFrame();
-        frames.add(frame.image);
-        // Browsers stretch near-zero GIF delays to 100ms; match them.
-        final ms = frame.duration.inMilliseconds;
-        at += ms < 20 ? 100 : ms;
-        endsMs.add(at);
-      }
-      if (_disposed) {
-        for (final frame in frames) {
-          frame.dispose();
-        }
-        return;
-      }
-      final texture = _PaintTexture(frames, endsMs);
-      _images[variant.url] = texture;
-      _imageBytes += texture.bytes;
-      _imageAccessOrder.add(variant.url);
-      // Oldest first, skipping textures on screen.
-      var i = 0;
-      while (i < _imageAccessOrder.length - 1 &&
-          (_imageAccessOrder.length > _maxCachedPaintImages ||
-              _imageBytes > _maxPaintImageBytes)) {
-        final url = _imageAccessOrder[i];
-        final oldest = _images[url];
-        if (oldest != null && oldest.inUse) {
-          i++;
-          continue;
-        }
-        _imageAccessOrder.removeAt(i);
-        _images.remove(url);
-        if (oldest == null) continue;
-        _imageBytes -= oldest.bytes;
-        oldest.release();
-      }
-      if (_enabled && !_disposed) imageRevision.value++;
-    } catch (e) {
-      logDebug('7TV paint image failed: ${variant.url}: $e');
-      for (final frame in frames) {
-        frame.dispose();
-      }
-    } finally {
-      codec?.dispose();
-      _imageInflight.remove(variant.url);
-    }
+    return _textureFor(layer);
   }
 
   /// Builds the fill shader for [paint] across [size]. Null when not ready.
@@ -1103,8 +1071,6 @@ class SevenTvPaintService extends ChangeNotifier {
       texture.release();
     }
     _images.clear();
-    _imageBytes = 0;
-    _imageAccessOrder.clear();
     imageRevision.dispose();
     super.dispose();
   }

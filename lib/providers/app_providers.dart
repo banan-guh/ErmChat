@@ -173,7 +173,10 @@ final thirdPartyBadgeServiceProvider = Provider<ThirdPartyBadgeService>((ref) {
 });
 
 final sevenTvPaintServiceProvider = Provider<SevenTvPaintService>((ref) {
-  final service = SevenTvPaintService(store: EmoteMetaStore.I);
+  final service = SevenTvPaintService(
+    store: EmoteMetaStore.I,
+    images: ref.watch(emoteImagesProvider),
+  );
   ref.onDispose(service.dispose);
   return service;
 });
