@@ -120,7 +120,16 @@ composition root     lib/providers
    thresholds); plain taps never buzz. Long-press is a shortcut, never the only way to
    reach an action.
 
-8. **Size is not a rule, coupling is.** There is no line budget. A file that every
+8. **Code reads like pseudocode.** `build` builds: decisions that are not about
+   widgets (which row shows, where send goes) live in a named function or a resolved
+   record above it. No ternary inside a ternary; use a `switch`. Names say what they
+   hold once a function is longer than a few lines. A long setup step (listeners,
+   subscriptions) is its own method.
+
+9. **Failures leave a trace.** An empty `catch` is only for cleanup (closing, deleting,
+   stopping) or a fallback the code states. Anything else logs with `logDebug`.
+
+10. **Size is not a rule, coupling is.** There is no line budget. A file that every
    feature has to edit in unrelated places is the signal to extract, along ownership
    lines rather than by line count.
 

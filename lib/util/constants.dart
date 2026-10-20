@@ -42,7 +42,7 @@ const kMaxMessagesPerChannelValues = <int>[
 const kMaxMessagesPerChannelDefault = 500;
 
 /// Rows each channel's live buffer keeps. Fixed: history past it reads from
-/// the archive, so the max messages setting no longer applies. Covers
+/// the archive. Covers
 /// robotty's 800-row fetch, which dedups against the buffer.
 const kLiveBufferMessages = 1000;
 

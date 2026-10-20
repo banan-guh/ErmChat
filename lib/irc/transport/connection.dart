@@ -31,7 +31,7 @@ abstract class IrcConnection {
   // Twitch IRC keepalive: PING every ~60s. Answering the server's own PINGs
   // is the only strict requirement; the client-side PING keeps the TCP path
   // warm (mobile NATs drop idle connections silently) and detects a dead
-  // socket within ~90s instead of the old 5-10 minute blind spot.
+  // socket within ~90s instead of the OS's 5-10 minute blind spot.
   static const _pingInterval = Duration(seconds: 60);
   static const _pongTimeout = Duration(seconds: 5);
   // How long a keepalive PING may go unanswered before we declare the

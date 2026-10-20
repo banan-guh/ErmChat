@@ -459,7 +459,7 @@ class EmoteFetcher {
   /// The /global endpoint returns defaults only, so the picker and
   /// autocomplete miss Prime/Turbo/2FA/Hype Train emotes without this.
   /// Both fetches run in parallel with isolated errors: a defaults failure
-  /// no longer aborts the unlockable fetch. A defaults throw still surfaces
+  /// never aborts the unlockable fetch. A defaults throw still surfaces
   /// when nothing usable arrived, so fetch-failure reporting keeps working.
   Future<({List<Emote> emotes, Set<String> unlockIds})>
   _fetchTwitchGlobal() async {

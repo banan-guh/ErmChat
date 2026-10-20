@@ -226,8 +226,8 @@ class EmoteUrlProvider extends ImageProvider<EmoteUrlProvider> {
 
   /// Live custom-loop completers by URL (animated WebP, playing GIFs,
   /// frozen stills). Engine-routable bytes never enter: they resolve through
-  /// the stock provider at call sites, so this map no longer decides
-  /// lifetime for the hot path. Entries leave on dispose (zero listeners).
+  /// the stock provider at call sites, so this map doesn't decide lifetime
+  /// for the hot path. Entries leave on dispose (zero listeners).
   static final Map<String, _EmoteImageCompleter> _liveByUrl = {};
 
   /// Live completer count, for the growth probe.

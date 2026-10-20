@@ -676,8 +676,8 @@ class EmoteStore {
 
   // Channel-only merged view for live 7TV delta diffs (no global, no
   // personal, unlisted included). Winners are interned for pool convergence.
-  // The picker channel tab no longer uses this: it slices the same base
-  // mixer chat renders from instead.
+  // The picker channel tab doesn't use this: it slices the mixer chat
+  // renders from.
   EmoteLookup _channelLookup(String channel) => _internLookup(
     mergeEmoteLookup(
       global: EmoteCatalog(),
