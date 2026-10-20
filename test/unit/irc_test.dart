@@ -3235,6 +3235,65 @@ void main() {
       expect(sender.remainingSelfTimeout('test'), isNull);
     });
 
+    test('repeat sends stay under Twitch rate limits', () async {
+      var now = DateTime(2026, 1, 1);
+      var badges = <String>{};
+      var slow = 0;
+      final irc = _TestIrc()..emitConnected();
+      final sender = ChatSender(
+        irc: irc,
+        session: Session()..seed('viewer'),
+        twitchAuth: TwitchAuth(),
+        onCommand: (_, _, _) {},
+        getReplyToMsg: () => null,
+        setReplyToMsg: (_) {},
+        onSystemMessage: (_, _) {},
+        slowModeSeconds: (_) => slow,
+        selfBadges: (_) => badges,
+        now: () => now,
+      );
+      void tick(int ms) => now = now.add(Duration(milliseconds: ms));
+
+      expect(sender.repeatDelay('test'), Duration.zero);
+      await sender.send('hi', 'test');
+      expect(
+        sender.repeatDelay('test'),
+        const Duration(milliseconds: 1600),
+        reason: 'plain accounts get one send per 1.6s',
+      );
+
+      badges = {'moderator'};
+      expect(
+        sender.repeatDelay('test'),
+        const Duration(milliseconds: 330),
+        reason: 'mods get the 100 per 30s pace',
+      );
+      badges = {};
+
+      // 18 sends 1.6s apart fill the plain budget: the next waits for the
+      // first to leave the 30s window.
+      for (var i = 1; i < 18; i++) {
+        tick(1600);
+        await sender.send('hi', 'test');
+      }
+      tick(1600);
+      expect(
+        sender.repeatDelay('test'),
+        const Duration(milliseconds: 1200),
+        reason: 'the 20 per 30s budget held the send',
+      );
+
+      tick(30000);
+      slow = 10;
+      sender.noteOwnMessageSent('test');
+      expect(
+        sender.repeatDelay('test'),
+        const Duration(milliseconds: 10500),
+        reason: 'slow mode outlasts the rate gap',
+      );
+      irc.dispose();
+    });
+
     test(
       'own timeout clears on zero duration and on an accepted echo',
       () async {

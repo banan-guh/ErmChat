@@ -6,6 +6,7 @@ import '../panels/search.dart';
 import '../util/chrome_theme.dart';
 import '../widgets/media_upload_controller.dart';
 import '../widgets/message_input.dart';
+import '../widgets/send_swipe.dart';
 import '../widgets/tabbed_layout.dart' show swipeShown;
 import 'composer_controller.dart';
 import '../l10n/l10n.dart';
@@ -153,6 +154,9 @@ class ComposerBar extends StatelessWidget {
                   focusNode: controller.focusNode,
                   onSend: controller.send,
                   onSendLongPress: controller.recallLastSent,
+                  onSpamStart: controller.startSpam,
+                  onSpamStop: controller.stopSpam,
+                  spamSends: controller.spamSends,
                   onTap: controller.onTapClearSuggestions,
                   onEmoteToggle: controller.toggleEmoteMenu,
                   enabled: controller.enabled,
@@ -265,28 +269,34 @@ class ComposerRowButton extends StatelessWidget {
       final enabled = controller.enabled;
       return Material(
         type: MaterialType.transparency,
-        child: InkWell(
-          onTap: enabled ? controller.send : null,
-          onLongPress: enabled ? controller.recallLastSent : null,
-          // The strip is far larger than a button, so its ink runs at about
-          // half the stock strength.
-          splashColor: scheme.onSurface.withValues(alpha: 0.06),
-          highlightColor: scheme.onSurface.withValues(alpha: 0.04),
-          // Room modes reaching under the column push the icon up beside
-          // the field's first line.
-          child: Align(
-            alignment: controller.modesUnderSend.value
-                ? Alignment.topCenter
-                : Alignment.center,
-            child: Padding(
-              padding: EdgeInsets.only(
-                top: controller.modesUnderSend.value ? 16 : 0,
-              ),
-              child: Icon(
-                Icons.send,
-                color: enabled
-                    ? accent
-                    : scheme.onSurface.withValues(alpha: 0.38),
+        child: SendSwipe(
+          enabled: enabled,
+          onRecall: controller.recallLastSent,
+          onSpamStart: controller.startSpam,
+          onSpamStop: controller.stopSpam,
+          spamSends: controller.spamSends,
+          child: InkWell(
+            onTap: enabled ? controller.send : null,
+            // The strip is far larger than a button, so its ink runs at about
+            // half the stock strength.
+            splashColor: scheme.onSurface.withValues(alpha: 0.06),
+            highlightColor: scheme.onSurface.withValues(alpha: 0.04),
+            // Room modes reaching under the column push the icon up beside
+            // the field's first line.
+            child: Align(
+              alignment: controller.modesUnderSend.value
+                  ? Alignment.topCenter
+                  : Alignment.center,
+              child: Padding(
+                padding: EdgeInsets.only(
+                  top: controller.modesUnderSend.value ? 16 : 0,
+                ),
+                child: Icon(
+                  Icons.send,
+                  color: enabled
+                      ? accent
+                      : scheme.onSurface.withValues(alpha: 0.38),
+                ),
               ),
             ),
           ),

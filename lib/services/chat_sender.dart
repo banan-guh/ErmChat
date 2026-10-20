@@ -92,6 +92,14 @@ class ChatSender {
     'global_mod',
   };
 
+  // Badge set-ids that lift Twitch's chat rate limit from 20 to 100 messages
+  // per 30 seconds.
+  static const _rateExemptBadges = {'broadcaster', 'moderator', 'vip'};
+
+  // Own sends in the last 30 seconds, every channel, for repeat pacing.
+  final _recentSends = <DateTime>[];
+  static const _rateWindow = Duration(seconds: 30);
+
   void dispose() => _disposed = true;
 
   // ---- Send gates ----------------------------------------------------------
@@ -139,6 +147,39 @@ class ChatSender {
   /// echo is the only signal a send went through, so rejected attempts never
   /// reset the countdown. Called from the ingestion own-echo path.
   void noteOwnMessageSent(String channel) => _lastOwnMessageAt[channel] = now();
+
+  /// Wait before the next repeated send to [channel] stays under Twitch's
+  /// limits: 20 messages per 30 seconds and one per second per channel, or
+  /// 100 per 30 seconds with a privileged badge, plus slow mode. Overrunning
+  /// the plain limit silences the account for an hour, so each carries a
+  /// margin. Zero when a send may go now.
+  Duration repeatDelay(String channel) {
+    final at = now();
+    _recentSends.removeWhere((t) => at.difference(t) >= _rateWindow);
+    final privileged = selfBadges(
+      channel,
+    ).intersection(_rateExemptBadges).isNotEmpty;
+    var wait = Duration.zero;
+    void atLeast(Duration d) {
+      if (d > wait) wait = d;
+    }
+
+    // Windowed budget: the oldest send that must age out first.
+    final budget = privileged ? 95 : 18;
+    if (_recentSends.length >= budget) {
+      final oldest = _recentSends[_recentSends.length - budget];
+      atLeast(oldest.add(_rateWindow).difference(at));
+    }
+    if (_recentSends.isNotEmpty) {
+      final gap = privileged
+          ? const Duration(milliseconds: 330)
+          : const Duration(milliseconds: 1600);
+      atLeast(_recentSends.last.add(gap).difference(at));
+    }
+    final slow = remainingSlowCooldown(channel);
+    if (slow != null) atLeast(Duration(seconds: slow) + _sendGrace);
+    return wait;
+  }
 
   // ---- Send ----------------------------------------------------------------
 
@@ -193,6 +234,7 @@ class ChatSender {
     // be sent, so we surface a notice instead of silently dropping it.
     if (irc.isConnected) {
       _lastSentWireText[channel] = wireText;
+      _recentSends.add(now());
       irc.sendMessage(
         channel,
         wireText,
@@ -231,6 +273,7 @@ class ChatSender {
     _lastSentWireText.clear();
     _selfTimeoutUntil.clear();
     _lastOwnMessageAt.clear();
+    _recentSends.clear();
   }
 
   @visibleForTesting

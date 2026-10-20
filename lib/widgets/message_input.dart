@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../models/twitch_message.dart';
@@ -7,12 +8,18 @@ import '../util/layout_density.dart';
 import '../util/thread_utils.dart';
 import '../l10n/l10n.dart';
 import 'media_upload_controller.dart';
+import 'send_swipe.dart';
 
 class MessageInput extends StatelessWidget {
   final TextEditingController controller;
   final FocusNode focusNode;
   final VoidCallback onSend;
   final VoidCallback? onSendLongPress;
+
+  // The send button's hold-and-swipe spam action; see [SendSwipe].
+  final VoidCallback? onSpamStart;
+  final VoidCallback? onSpamStop;
+  final ValueListenable<int>? spamSends;
   final VoidCallback? onEmoteToggle;
   final VoidCallback? onTap;
   final ValueChanged<String>? onChanged;
@@ -56,6 +63,9 @@ class MessageInput extends StatelessWidget {
     this.onChanged,
     this.onSubmitted,
     this.onSendLongPress,
+    this.onSpamStart,
+    this.onSpamStop,
+    this.spamSends,
     this.onEmoteToggle,
     this.enabled = true,
     this.hintText,
@@ -141,22 +151,30 @@ class MessageInput extends StatelessWidget {
             height: slotH,
             child: Material(
               type: MaterialType.transparency,
-              child: InkWell(
-                borderRadius: BorderRadius.circular(iconBox / 2),
-                onTap: enabled ? onSend : null,
-                onLongPress: enabled ? onSendLongPress : null,
-                child: ListenableBuilder(
-                  listenable: focusNode,
-                  builder: (_, _) {
-                    final theme = Theme.of(context);
-                    return Icon(
-                      Icons.send,
-                      size: 24,
-                      color: !enabled
-                          ? theme.colorScheme.onSurface.withValues(alpha: 0.38)
-                          : _inputAccent(context),
-                    );
-                  },
+              child: SendSwipe(
+                enabled: enabled,
+                onRecall: onSendLongPress,
+                onSpamStart: onSpamStart,
+                onSpamStop: onSpamStop,
+                spamSends: spamSends,
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(iconBox / 2),
+                  onTap: enabled ? onSend : null,
+                  child: ListenableBuilder(
+                    listenable: focusNode,
+                    builder: (_, _) {
+                      final theme = Theme.of(context);
+                      return Icon(
+                        Icons.send,
+                        size: 24,
+                        color: !enabled
+                            ? theme.colorScheme.onSurface.withValues(
+                                alpha: 0.38,
+                              )
+                            : _inputAccent(context),
+                      );
+                    },
+                  ),
                 ),
               ),
             ),

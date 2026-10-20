@@ -1568,6 +1568,7 @@
   "emoteTabChannel": "Channel",
   "emoteTabGlobal": "Global",
   "pickerEmotes": "Emotes",
+  "sendMenuSpam": "Spam",
   "noRecentEmotes": "No recently used emotes",
   "noSubEmotes": "No subscriber emotes available",
   "noChannelEmotes": "No channel emotes",

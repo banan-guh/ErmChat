@@ -584,6 +584,9 @@ class ChatConnectionManager {
   int? remainingSlowCooldown(String channel) =>
       _sender.remainingSlowCooldown(channel);
 
+  /// Wait before a repeated send to [channel] stays under Twitch's limits.
+  Duration repeatDelay(String channel) => _sender.repeatDelay(channel);
+
   Future<void> subscribeChannel(String channelName) async {
     // Clear stale readiness so a re-subscribe re-earns its JOIN confirm.
     _readiness.forgetChannel(channelName);

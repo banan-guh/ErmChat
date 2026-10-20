@@ -114,6 +114,14 @@ class ComposerController {
   String? _lastSentText;
   Timer? _cooldownTickTimer;
 
+  // Repeat-send loop while a finger holds the send menu's spam action.
+  Timer? _spamTimer;
+  String? _spamText;
+  String? _spamChannel;
+
+  /// Bumped on each repeated send, so the spam action can pulse.
+  final spamSends = ValueNotifier<int>(0);
+
   String? get selectedChannel => getSelectedChannel();
 
   void dispose() {
@@ -126,6 +134,8 @@ class ComposerController {
     cooldownLabel.dispose();
     modeGap.dispose();
     modesUnderSend.dispose();
+    stopSpam();
+    spamSends.dispose();
   }
 
   void focus() => focusNode.requestFocus();
@@ -347,6 +357,55 @@ class ComposerController {
     } else {
       chatConn.doSendMessage(text, channel);
     }
+  }
+
+  bool get _canSpam =>
+      enabled && activePanel() == OverlayPanel.closed && !isWhispersTabActive();
+
+  /// Re-sends the field's text, or the last sent text when the field is
+  /// empty, to the selected channel at the pace Twitch accepts, until
+  /// [stopSpam]. Commands never repeat.
+  void startSpam() {
+    if (_spamTimer != null || !_canSpam) return;
+    final channel = getSelectedChannel();
+    final typed = messageController.text.trim();
+    final text = typed.isNotEmpty ? typed : _lastSentText;
+    if (channel == null || text == null || text.isEmpty) return;
+    if (text.startsWith('/')) return;
+    _spamText = text;
+    _spamChannel = channel;
+    _spamTimer = Timer(chatConn.repeatDelay(channel), _spamTick);
+  }
+
+  void _spamTick() {
+    final channel = _spamChannel;
+    final text = _spamText;
+    if (channel == null || text == null) return;
+    if (!_canSpam || getSelectedChannel() != channel) {
+      stopSpam();
+      return;
+    }
+    // The pace can tighten after scheduling (slow mode, a send elsewhere).
+    final wait = chatConn.repeatDelay(channel);
+    if (wait > Duration.zero) {
+      _spamTimer = Timer(wait, _spamTick);
+      return;
+    }
+    _lastSentText = text;
+    if (messageController.text.trim() == text) {
+      autocompleteRevert.clear();
+      messageController.clear();
+    }
+    chatConn.doSendMessage(text, channel);
+    spamSends.value++;
+    _spamTimer = Timer(chatConn.repeatDelay(channel), _spamTick);
+  }
+
+  void stopSpam() {
+    _spamTimer?.cancel();
+    _spamTimer = null;
+    _spamText = null;
+    _spamChannel = null;
   }
 
   // Long-press send recalls the last sent text for quick re-send/edit.
