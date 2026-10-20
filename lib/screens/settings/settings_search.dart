@@ -400,7 +400,7 @@ class Setting {
   );
   static const gapFill = Setting(
     'gap_fill',
-    'Fill gaps',
+    'Dynamic history fetch',
     SettingsPageId.history,
     keywords: 'history reconnect missed messages robotty',
     mirrors: {SettingsPageId.data},

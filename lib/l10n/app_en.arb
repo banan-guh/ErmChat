@@ -134,7 +134,7 @@
   "historyPageIntro": "Where past messages come from and how many load when you join or reconnect.",
   "settingArchiveRetention": "Keep chat for",
   "settingArchiveChannelCap": "Space per channel",
-  "settingGapFill": "Fill gaps",
+  "settingGapFill": "Dynamic history fetch",
   "gapFillOff": "Off",
   "gapFillLow": "Low",
   "gapFillHigh": "High",
