@@ -311,7 +311,8 @@ class PingManager extends ChangeNotifier {
   /// What a row needs to be a mention: text holding one of [texts], or a
   /// sender in [logins]. A superset for an archive lookup to narrow by;
   /// [evaluate] decides. Replies carry the parent's `@login`, so the
-  /// username covers the reply rules too.
+  /// username covers replies to you. Thread replies to others carry no term
+  /// and stay live-only, since own thread ids last a session.
   ({List<String> texts, Set<String> logins}) mentionTerms() {
     final texts = <String>[];
     final logins = <String>{};
