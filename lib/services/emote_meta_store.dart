@@ -14,8 +14,8 @@ class EmoteMetaStore {
 
   // Cache keys moved through emotes3_ and emotes4_ to emotes5_ as the catalog
   // shape changed, so legacy prefixes still map to files during migration.
-  // emote_usage is the usage registry, too large and too often written for
-  // prefs; seventv_paints_ holds the 7TV paint catalog and user paints.
+  // emote_usage and seventv_paints_ moved to [CacheDb] and stay mapped only
+  // so it can delete their old files.
   static const _prefixes = [
     'emotes3_',
     'emotes4_',

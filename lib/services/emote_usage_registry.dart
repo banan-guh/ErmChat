@@ -1,13 +1,12 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:isolate';
 import 'dart:math' as math;
 
 import '../emotes/emote.dart';
 import '../emotes/emote_picker.dart';
 import '../util/log.dart';
 import '../util/prefs.dart';
-import 'emote_meta_store.dart';
+import 'cache_db.dart';
 
 /// Eviction-priority contract the image byte cache reads.
 ///
@@ -145,28 +144,26 @@ class EmoteUsageRecord {
     return entropy / math.log(_bucketCount.toDouble());
   }
 
-  Map<String, dynamic> toJson() => {
-    't': lastUsedAt.millisecondsSinceEpoch,
-    'h': bucketBase,
-    'b': buckets.join(','),
-  };
+  UsageRow toRow(String url) => (
+    url: url,
+    lastUsed: lastUsedAt.millisecondsSinceEpoch,
+    hour: bucketBase,
+    buckets: buckets.join(','),
+  );
 
-  static EmoteUsageRecord? fromJson(Map<String, dynamic> json) {
-    final t = json['t'];
-    final h = json['h'];
-    final b = json['b'];
-    if (t is! int || h is! int || b is! String) return null;
+  /// Null for a row whose buckets do not parse.
+  static EmoteUsageRecord? fromRow(UsageRow row) {
     final buckets = <int>[];
-    for (final part in b.split(',')) {
+    for (final part in row.buckets.split(',')) {
       final v = int.tryParse(part);
       if (v == null || v < 0) return null;
       buckets.add(v);
     }
     if (buckets.length != _bucketCount) return null;
     return EmoteUsageRecord(
-      lastUsedAt: DateTime.fromMillisecondsSinceEpoch(t),
+      lastUsedAt: DateTime.fromMillisecondsSinceEpoch(row.lastUsed),
       buckets: buckets,
-      bucketBase: h,
+      bucketBase: row.hour,
     );
   }
 }
@@ -182,11 +179,9 @@ class EmoteUsageRegistry implements EmoteImagePolicy {
     required this._capacity,
     DateTime Function()? now,
     this._flushDelay = _defaultFlushDelay,
-    EmoteMetaStore? store,
+    CacheDb? db,
   }) : _now = now ?? DateTime.now,
-       _store = store ?? EmoteMetaStore.I;
-
-  static const _usageKey = 'emote_usage';
+       _db = db ?? CacheDb.I;
 
   static const _usageMinEntries = 300;
   static const _maxRecent = 100;
@@ -198,19 +193,23 @@ class EmoteUsageRegistry implements EmoteImagePolicy {
 
   // How long view touches wait before persisting. Busy chat touches emotes
   // every message, and a touch only shifts eviction priority, so one write
-  // per half minute keeps the full sort and encode off the frame budget.
+  // per half minute batches a burst into one transaction.
   static const _defaultFlushDelay = Duration(seconds: 30);
 
   final int Function() _capacity;
   final DateTime Function() _now;
   final Duration _flushDelay;
-  final EmoteMetaStore _store;
+  final CacheDb _db;
 
   Prefs? _prefs;
   bool _usageLoaded = false;
   Future<void>? _usageLoad;
   Future<void> _usageFlushes = Future.value();
-  bool _usageDirty = false;
+
+  /// Records changed or dropped since the last flush; a flush writes only
+  /// these rows.
+  final Set<String> _dirtyUrls = {};
+  final Set<String> _removedUrls = {};
   Timer? _usageFlushTimer;
   final Map<String, EmoteUsageRecord> _emoteUsage = {};
   final Set<String> _pendingUsageTouches = {};
@@ -273,7 +272,8 @@ class EmoteUsageRegistry implements EmoteImagePolicy {
             buckets: List.filled(EmoteUsageRecord._bucketCount, 0),
           ).bumpedAt(hour, now: now)
         : EmoteUsageRecord.bumped(existing, hour, now: now);
-    _usageDirty = true;
+    _dirtyUrls.add(url);
+    _removedUrls.remove(url);
   }
 
   /// Drops usage records for [urls] (live 7TV eviction) and flushes.
@@ -282,10 +282,12 @@ class EmoteUsageRegistry implements EmoteImagePolicy {
     var removed = false;
     for (final url in urls) {
       if (url.isEmpty) continue;
-      if (_emoteUsage.remove(url) != null) removed = true;
+      if (_emoteUsage.remove(url) == null) continue;
+      _dirtyUrls.remove(url);
+      _removedUrls.add(url);
+      removed = true;
     }
     if (!removed) return;
-    _usageDirty = true;
     await _flushUsage();
   }
 
@@ -314,36 +316,16 @@ class EmoteUsageRegistry implements EmoteImagePolicy {
       for (final url in _pendingUsageTouches) {
         _touchUsage(url);
       }
-      if (_pendingUsageTouches.isNotEmpty) _usageDirty = true;
       _pendingUsageTouches.clear();
     }
   }
 
   Future<void> _readUsage() async {
-    final prefs = await _getPrefs();
-    await _store.migrateFromPrefs(prefs.raw);
-    final raw = await _store.read(_usageKey);
-    if (raw != null) {
-      try {
-        final data = jsonDecode(raw) as Map<String, dynamic>;
-        final entries = data['e'];
-        if (entries is Map<String, dynamic>) {
-          final now = _now();
-          final hour = now.millisecondsSinceEpoch ~/ _hourMs;
-          for (final entry in entries.entries) {
-            final value = entry.value;
-            if (value is! Map<String, dynamic>) continue;
-            final record = EmoteUsageRecord.fromJson(value);
-            if (record == null) continue;
-            _emoteUsage[entry.key] = EmoteUsageRecord.rolledForward(
-              record,
-              hour,
-            );
-          }
-        }
-      } catch (_) {
-        logDebug('[EmoteUsageRegistry] failed to parse emote usage registry');
-      }
+    final hour = _now().millisecondsSinceEpoch ~/ _hourMs;
+    for (final row in await _db.usage()) {
+      final record = EmoteUsageRecord.fromRow(row);
+      if (record == null) continue;
+      _emoteUsage[row.url] = EmoteUsageRecord.rolledForward(record, hour);
     }
   }
 
@@ -358,8 +340,6 @@ class EmoteUsageRegistry implements EmoteImagePolicy {
   Future<void> _writeUsage() async {
     if (!_usageLoaded) return;
     await _ensureUsageLoaded();
-    if (!_usageDirty) return;
-    _usageDirty = false;
     if (_emoteUsage.length > _usageMaxEntries) {
       // Drop lowest-scored entries.
       // Scored once each: score() runs exp and log over every bucket, too
@@ -372,18 +352,19 @@ class EmoteUsageRegistry implements EmoteImagePolicy {
       final overflow = entries.length - _usageMaxEntries;
       for (final entry in entries.take(overflow)) {
         _emoteUsage.remove(entry.key);
+        _dirtyUrls.remove(entry.key);
+        _removedUrls.add(entry.key);
       }
     }
-    // The records copy to the isolate as is: building their JSON here costs
-    // the UI thread a frame per flush.
-    final usage = _emoteUsage;
-    final encoded = await Isolate.run(
-      () => jsonEncode({
-        'v': 2,
-        'e': {for (final e in usage.entries) e.key: e.value.toJson()},
-      }),
-    );
-    await _store.write(_usageKey, encoded);
+    if (_dirtyUrls.isEmpty && _removedUrls.isEmpty) return;
+    final rows = [
+      for (final url in _dirtyUrls)
+        if (_emoteUsage[url] case final record?) record.toRow(url),
+    ];
+    final removed = _removedUrls.toList();
+    _dirtyUrls.clear();
+    _removedUrls.clear();
+    await _db.writeUsage(rows, removed);
   }
 
   /// Loads the persisted usage registry. Safe to call from cache setup.
@@ -497,7 +478,9 @@ class EmoteUsageRegistry implements EmoteImagePolicy {
     _usageFlushTimer?.cancel();
     _usageFlushTimer = null;
     // Best-effort flush so a pending debounce is not dropped on teardown.
-    if (_usageDirty) unawaited(_flushUsage());
+    if (_dirtyUrls.isNotEmpty || _removedUrls.isNotEmpty) {
+      unawaited(_flushUsage());
+    }
     _pendingUsageTouches.clear();
   }
 }

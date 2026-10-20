@@ -6,6 +6,7 @@ import 'package:fake_async/fake_async.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ermchat/models/twitch_message.dart';
+import 'package:ermchat/services/cache_db.dart';
 import 'package:ermchat/services/emote_images.dart';
 import 'package:ermchat/services/seven_tv_event_client.dart';
 import 'package:ermchat/widgets/seven_tv_paint_service.dart';
@@ -306,6 +307,44 @@ void main() {
       expect(queryCount, countAfterFirstPass);
       service.dispose();
     });
+  });
+
+  // Names paint from the first row of a cold start only if both the catalog
+  // and the user's assignment come back from disk.
+  test('a restart restores the catalog and user paints', () async {
+    await CacheDb.I.reset();
+    addTearDown(CacheDb.I.reset);
+    final first = SevenTvPaintService(
+      db: CacheDb.I,
+      gqlQuery: (query) async => query.contains('{ users {')
+          ? {
+              'users': {
+                'u0': {
+                  'style': {
+                    'activePaint': {'id': 'p1'},
+                  },
+                },
+              },
+            }
+          : {
+              'paints': {
+                'paints': [_paintItem('p1', 'Known', _linearData)],
+              },
+            },
+    )..enabled = true;
+    await first.ensureCatalog();
+    expect(first.lookup('111'), isNull);
+    await first.flushForTesting();
+    await first.saveUsersForTesting();
+    first.dispose();
+
+    final second = SevenTvPaintService(
+      db: CacheDb.I,
+      gqlQuery: (_) async => null,
+    )..enabled = true;
+    await second.ensureCatalog();
+    expect(second.lookup('111')?.name, 'Known');
+    second.dispose();
   });
 
   group('SevenTvEventClient entitlement dispatches', () {

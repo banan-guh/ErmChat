@@ -1,5 +1,6 @@
 import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:ermchat/services/cache_db.dart';
 import 'package:ermchat/services/emote_cache_manager.dart';
 import '../helpers/fake_cache_repo.dart';
 import 'dart:async';
@@ -2657,7 +2658,12 @@ void main() {
       EmoteMetaStore.I.overrideDirectory(dir);
       addTearDown(() => EmoteMetaStore.I.reset());
       addTearDown(() => dir.delete(recursive: true));
+      addTearDown(CacheDb.I.reset);
     });
+
+    // Persisted usage urls, space separated; empty before the first flush.
+    Future<String> storedUsage() async =>
+        (await CacheDb.I.usage()).map((r) => r.url).join(' ');
 
     Future<EmoteManager> makeManager({
       required DateTime Function() clock,
@@ -2719,10 +2725,7 @@ void main() {
         manager.markEmoteViewed(makeEmotes(1)[0]);
         await manager.flushUsageForTesting();
 
-        expect(
-          await EmoteMetaStore.I.read('emote_usage'),
-          contains('https://example.com/e0.png'),
-        );
+        expect(await storedUsage(), contains('https://example.com/e0.png'));
 
         final cache = testCacheManager();
         await makeManager(clock: () => clock, cache: cache);
@@ -2748,14 +2751,14 @@ void main() {
       final emotes = makeEmotes(3);
       manager.markEmoteViewed(emotes[0]);
       // Immediately after the first touch, nothing is persisted yet.
-      expect(await EmoteMetaStore.I.read('emote_usage'), isNull);
+      expect(await storedUsage(), isEmpty);
 
       // A burst of touches within the debounce window lands as one write.
       manager.markEmoteViewed(emotes[1]);
       manager.markEmoteViewed(emotes[2]);
-      expect(await EmoteMetaStore.I.read('emote_usage'), isNull);
+      expect(await storedUsage(), isEmpty);
       await Future<void>.delayed(const Duration(milliseconds: 150));
-      final persisted = await EmoteMetaStore.I.read('emote_usage');
+      final persisted = await storedUsage();
       expect(persisted, contains('https://example.com/e0.png'));
       expect(persisted, contains('https://example.com/e1.png'));
       expect(persisted, contains('https://example.com/e2.png'));
@@ -2811,7 +2814,7 @@ void main() {
         await Future<void>.delayed(const Duration(milliseconds: 20));
       }
       expect(
-        await EmoteMetaStore.I.read('emote_usage'),
+        await storedUsage(),
         contains('https://example.com/e0.png'),
         reason: 'continuous touches postponed the flush indefinitely',
       );

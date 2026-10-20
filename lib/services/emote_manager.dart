@@ -1030,7 +1030,7 @@ class EmoteManager implements EmoteLookupSource {
   }
 
   Future<void> _evictEmoteImages(List<String> urls) async {
-    await _usage.forgetUrls(urls);
+    unawaited(_usage.forgetUrls(urls));
     for (final url in urls) {
       if (url.isEmpty) continue;
       try {

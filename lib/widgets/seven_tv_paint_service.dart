@@ -16,7 +16,7 @@ import 'package:flutter/painting.dart'
 import 'package:http/http.dart' as http;
 import '../util/log.dart';
 import '../services/emote_images.dart';
-import '../services/emote_meta_store.dart';
+import '../services/cache_db.dart';
 import '../services/seven_tv_event_client.dart';
 import 'emote_url_provider.dart';
 
@@ -420,7 +420,7 @@ class SevenTvPaintService extends ChangeNotifier {
     Future<Map<String, dynamic>?> Function(String query)? gqlQuery,
     EmoteImages? images,
     DateTime Function()? now,
-    this._store,
+    this._db,
   }) : _gqlQuery = gqlQuery ?? _defaultGqlQuery,
        _emoteImages = images,
        _now = now ?? DateTime.now;
@@ -453,8 +453,8 @@ class SevenTvPaintService extends ChangeNotifier {
           _pendingDeletes.remove(userId)?.cancel();
           _assignments[userId] = (paintId: event.cosmeticId, at: _now());
           _refreshUserNotifier(userId);
+          _saveUser(userId);
         }
-        _scheduleUsersSave();
         if (_enabled) {
           unawaited(_ensurePaint(event.cosmeticId));
           notifyListeners();
@@ -468,7 +468,7 @@ class SevenTvPaintService extends ChangeNotifier {
             if (_assignments[userId]?.paintId != event.cosmeticId) return;
             _assignments.remove(userId);
             _refreshUserNotifier(userId);
-            _scheduleUsersSave();
+            _saveUser(userId);
             if (_enabled) notifyListeners();
           });
         }
@@ -485,58 +485,93 @@ class SevenTvPaintService extends ChangeNotifier {
 
   // The catalog and known user paints persist so a cold start paints names
   // from the first row instead of flicking them over once 7TV answers.
-  static const _catalogKey = 'seventv_paints_catalog';
-  static const _usersKey = 'seventv_paints_users';
   static const _usersSaveDelay = Duration(seconds: 10);
 
+  /// Stored assignments past the newest this many drop at the next start.
+  static const _maxStoredUsers = 20000;
+
   /// Null keeps everything in memory (tests).
-  final EmoteMetaStore? _store;
+  final CacheDb? _db;
   bool _restored = false;
   Timer? _usersSaveTimer;
 
+  /// Users whose assignment changed since the last save.
+  final _unsavedUsers = <String>{};
+
   Future<void> _restore() async {
-    final store = _store;
-    if (_restored || store == null) return;
+    final db = _db;
+    if (_restored || db == null) return;
     _restored = true;
     try {
-      final catalog = await store.read(_catalogKey);
-      if (catalog != null && _paintsById.isEmpty) {
-        final list = await Isolate.run(() => jsonDecode(catalog) as List);
+      final catalog = await db.paints();
+      if (catalog.isNotEmpty && _paintsById.isEmpty) {
+        final list = await Isolate.run(
+          () => [for (final data in catalog) jsonDecode(data)],
+        );
         _addCatalog(list);
       }
-      final users = await store.read(_usersKey);
-      if (users != null) {
-        final map = jsonDecode(users) as Map<String, dynamic>;
-        for (final entry in map.entries) {
-          final value = entry.value as List;
-          _assignments.putIfAbsent(
-            entry.key,
-            () => (
-              paintId: value[0] as String,
-              at: DateTime.fromMillisecondsSinceEpoch(value[1] as int),
-            ),
-          );
-        }
-        _refreshAllUserNotifiers();
+      final users = await db.paintUsers(
+        beforeMs: _now().subtract(_assignmentKeep).millisecondsSinceEpoch,
+        keep: _maxStoredUsers,
+      );
+      for (final row in users) {
+        _assignments.putIfAbsent(
+          row.userId,
+          () => (
+            paintId: row.paintId,
+            at: DateTime.fromMillisecondsSinceEpoch(row.at),
+          ),
+        );
       }
+      if (users.isNotEmpty) _refreshAllUserNotifiers();
     } catch (e) {
       logDebug('7TV paint cache restore failed: $e');
     }
   }
 
-  void _scheduleUsersSave() {
-    if (_store == null || _disposed) return;
+  /// Queues [userId]'s assignment, or its removal, for the next save.
+  void _saveUser(String userId) {
+    if (_db == null || _disposed) return;
+    _unsavedUsers.add(userId);
     _usersSaveTimer ??= Timer(_usersSaveDelay, () {
       _usersSaveTimer = null;
-      final encoded = jsonEncode({
-        for (final entry in _assignments.entries)
-          entry.key: [
-            entry.value.paintId,
-            entry.value.at.millisecondsSinceEpoch,
-          ],
-      });
-      unawaited(_store.write(_usersKey, encoded));
+      unawaited(_writeUnsavedUsers());
     });
+  }
+
+  Future<void> _writeUnsavedUsers() async {
+    final db = _db;
+    if (db == null || _unsavedUsers.isEmpty) return;
+    final rows = <PaintUserRow>[];
+    final removed = <String>[];
+    for (final id in _unsavedUsers) {
+      final assignment = _assignments[id];
+      if (assignment == null) {
+        removed.add(id);
+      } else {
+        rows.add((
+          userId: id,
+          paintId: assignment.paintId,
+          at: assignment.at.millisecondsSinceEpoch,
+        ));
+      }
+    }
+    _unsavedUsers.clear();
+    await db.writePaintUsers(rows, removed);
+  }
+
+  /// Stores fetched paint items as single rows, encoded off the UI thread.
+  Future<void> _savePaints(List<dynamic> items) async {
+    final db = _db;
+    if (db == null) return;
+    final rows = await Isolate.run(
+      () => [
+        for (final item in items)
+          if (item is Map<String, dynamic> && item['id'] is String)
+            (item['id'] as String, jsonEncode(item)),
+      ],
+    );
+    await db.writePaints(rows);
   }
 
   /// Downloads the catalog once per session; failures allow retry. The disk
@@ -563,11 +598,7 @@ class SevenTvPaintService extends ChangeNotifier {
       final list = root?['paints'] as List<dynamic>?;
       if (list == null) return;
       _addCatalog(list);
-      final store = _store;
-      if (store != null) {
-        final encoded = await Isolate.run(() => jsonEncode(list));
-        await store.write(_catalogKey, encoded);
-      }
+      await _savePaints(list);
     } catch (e) {
       logDebug('7TV paint catalog fetch failed: $e');
       _catalogFuture = null;
@@ -665,18 +696,19 @@ class SevenTvPaintService extends ChangeNotifier {
             (style?['activePaint'] as Map<String, dynamic>?)?['id'] as String?;
         if (paintId == null || paintId.isEmpty) {
           _negative[entry.value] = now;
-          if (_assignments.remove(entry.value) != null) changed = true;
+          if (_assignments.remove(entry.value) != null) {
+            changed = true;
+            _saveUser(entry.value);
+          }
         } else {
           _assignments[entry.value] = (paintId: paintId, at: now);
           unawaited(_ensurePaint(paintId));
           changed = true;
+          _saveUser(entry.value);
         }
         _refreshUserNotifier(entry.value);
       }
-      if (changed) {
-        notifyListeners();
-        _scheduleUsersSave();
-      }
+      if (changed) notifyListeners();
     } finally {
       _resolvingBatch = false;
       if (_pendingUsers.isNotEmpty) _scheduleFlush();
@@ -705,6 +737,7 @@ class SevenTvPaintService extends ChangeNotifier {
         final paint = _parsePaint(item);
         if (paint != null) {
           _paintsById[paint.id] = paint;
+          unawaited(_savePaints([item]));
           for (final userId in List.of(_userNotifiers.keys)) {
             if (_assignments[userId]?.paintId == paint.id) {
               _refreshUserNotifier(userId);
@@ -1039,6 +1072,9 @@ class SevenTvPaintService extends ChangeNotifier {
 
   @visibleForTesting
   Future<void> flushForTesting() => _flush();
+
+  @visibleForTesting
+  Future<void> saveUsersForTesting() => _writeUnsavedUsers();
 
   @visibleForTesting
   void addPaintForTesting(SevenTvPaint paint) => _paintsById[paint.id] = paint;

@@ -1,8 +1,10 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:ermchat/services/cache_db.dart';
 import 'package:ermchat/util/log.dart';
 import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 /// Temp-dir path provider for all tests: span building constructs image
 /// providers backed by [EmoteCacheManager], whose config touches the file
@@ -28,5 +30,8 @@ FutureOr<void> testExecutable(FutureOr<void> Function() testMain) async {
   // at the app's logDebug hook instead.
   debugLogEnabled = false;
   PathProviderPlatform.instance = _FakePathProvider();
+  // Usage history and paints persist in memory; [CacheDb.reset] empties it.
+  sqfliteFfiInit();
+  CacheDb.I.overrideForTesting(databaseFactoryFfi, inMemoryDatabasePath);
   await testMain();
 }
