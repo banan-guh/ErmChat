@@ -484,8 +484,8 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
   int? _frameCallbackId;
   bool _disposed = false;
 
-  /// Guards one engine frame decode; cancelled on detach or dispose so a
-  /// stalled engine never holds a live timer.
+  /// Guards one engine frame decode; cancelled on dispose so a stalled
+  /// engine never holds a live timer past the completer.
   Timer? _streamTimeoutTimer;
 
   /// Ideal wall time (microseconds, wall clock) the next streamed frame is
@@ -1189,7 +1189,7 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
   }
 
   /// Awaits an engine decode, failing after [_streamFrameTimeout]. Tracks the
-  /// timeout timer so detach and dispose can cancel it; a raw `.timeout`
+  /// timeout timer so dispose can cancel it; a raw `.timeout`
   /// leaves an uncancellable timer behind that outlives the completer.
   Future<T> _withDecodeTimeout<T>(Future<T> future) {
     final completer = Completer<T>();
@@ -1239,7 +1239,7 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
   Future<ui.FrameInfo> _nextStreamFrame(ui.Codec codec) =>
       _withDecodeTimeout(codec.getNextFrame());
 
-  /// Cancels the engine decode watchdog so it never outlives the view.
+  /// Cancels the engine decode watchdog so it never outlives the completer.
   void _cancelStreamDecode() {
     _streamTimeoutTimer?.cancel();
     _streamTimeoutTimer = null;
@@ -1391,12 +1391,10 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
 
   @override
   void removeListener(ImageStreamListener listener) {
-    // Pause only when the last listener leaves. Until then the decode
-    // watchdog stays, so a stalled decode still times out for the rows that
-    // remain.
+    // Pause only when the last listener leaves. The decode watchdog keeps
+    // running: a stalled decode must still time out and free its slot.
     super.removeListener(listener);
     if (hasListeners) return;
-    _cancelStreamDecode();
     _stopPlayback();
   }
 
