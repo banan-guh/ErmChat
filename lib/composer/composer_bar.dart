@@ -154,6 +154,7 @@ class ComposerBar extends StatelessWidget {
                   focusNode: controller.focusNode,
                   onSend: controller.send,
                   onSendLongPress: controller.recallLastSent,
+                  onRecallUndo: controller.undoRecall,
                   onSpamStart: controller.startSpam,
                   onSpamStop: controller.stopSpam,
                   spamSends: controller.spamSends,
@@ -272,6 +273,7 @@ class ComposerRowButton extends StatelessWidget {
         child: SendSwipe(
           enabled: enabled,
           onRecall: controller.recallLastSent,
+          onRecallUndo: controller.undoRecall,
           onSpamStart: controller.startSpam,
           onSpamStop: controller.stopSpam,
           spamSends: controller.spamSends,

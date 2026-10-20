@@ -16,6 +16,7 @@ class SendSwipe extends StatefulWidget {
     required this.enabled,
     required this.child,
     this.onRecall,
+    this.onRecallUndo,
     this.onSpamStart,
     this.onSpamStop,
     this.spamSends,
@@ -23,6 +24,9 @@ class SendSwipe extends StatefulWidget {
 
   final bool enabled;
   final VoidCallback? onRecall;
+
+  /// Reverts [onRecall] when the hold turns into a swipe.
+  final VoidCallback? onRecallUndo;
 
   /// Without these the hold only recalls and no menu shows.
   final VoidCallback? onSpamStart;
@@ -119,6 +123,7 @@ class _SendSwipeState extends State<SendSwipe> {
     _dir = _origin.dx > area.width / 2 ? -1 : 1;
     final end = _dir < 0 ? _edgeInset : area.width - _edgeInset;
     _run = (end - _origin.dx).abs();
+    widget.onRecallUndo?.call();
     HapticFeedback.selectionClick();
     _portal.show();
   }

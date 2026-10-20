@@ -15,6 +15,7 @@ class MessageInput extends StatelessWidget {
   final FocusNode focusNode;
   final VoidCallback onSend;
   final VoidCallback? onSendLongPress;
+  final VoidCallback? onRecallUndo;
 
   // The send button's hold-and-swipe spam action; see [SendSwipe].
   final VoidCallback? onSpamStart;
@@ -63,6 +64,7 @@ class MessageInput extends StatelessWidget {
     this.onChanged,
     this.onSubmitted,
     this.onSendLongPress,
+    this.onRecallUndo,
     this.onSpamStart,
     this.onSpamStop,
     this.spamSends,
@@ -154,6 +156,7 @@ class MessageInput extends StatelessWidget {
               child: SendSwipe(
                 enabled: enabled,
                 onRecall: onSendLongPress,
+                onRecallUndo: onRecallUndo,
                 onSpamStart: onSpamStart,
                 onSpamStop: onSpamStop,
                 spamSends: spamSends,

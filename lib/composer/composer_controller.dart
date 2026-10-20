@@ -411,6 +411,7 @@ class ComposerController {
   // Long-press send recalls the last sent text for quick re-send/edit.
   void recallLastSent() {
     if (_lastSentText != null && _lastSentText!.isNotEmpty) {
+      _draftBeforeRecall = messageController.text;
       autocompleteRevert.clear();
       messageController.text = _lastSentText!;
       messageController.selection = TextSelection.fromPosition(
@@ -418,6 +419,21 @@ class ComposerController {
       );
       focusNode.requestFocus();
     }
+  }
+
+  // The field's text before the last recall, for [undoRecall].
+  String? _draftBeforeRecall;
+
+  /// Puts back the draft a recall replaced, while the field still holds the
+  /// recalled text: swiping into the send menu after the hold spams the
+  /// draft, not the old message.
+  void undoRecall() {
+    final draft = _draftBeforeRecall;
+    _draftBeforeRecall = null;
+    if (draft == null || messageController.text != _lastSentText) return;
+    autocompleteRevert.clear();
+    messageController.text = draft;
+    messageController.selection = TextSelection.collapsed(offset: draft.length);
   }
 
   // Emote picker tap: insert the code at the cursor plus a space.
