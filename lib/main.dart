@@ -138,9 +138,20 @@ ThemeData buildDarkTheme({
     seedColor: seedColor,
     brightness: Brightness.dark,
   );
+  // True dark keeps raised surfaces a step above black, at half their grey,
+  // so sheets and menus still read as layers over the chat.
+  Color half(Color c) => Color.lerp(Colors.black, c, 0.5)!;
   return ThemeData(
     colorScheme: trueDark
-        ? base.copyWith(surface: Colors.black, onSurface: Colors.white)
+        ? base.copyWith(
+            surface: Colors.black,
+            onSurface: Colors.white,
+            surfaceContainerLowest: Colors.black,
+            surfaceContainerLow: half(base.surfaceContainerLow),
+            surfaceContainer: half(base.surfaceContainer),
+            surfaceContainerHigh: half(base.surfaceContainerHigh),
+            surfaceContainerHighest: half(base.surfaceContainerHighest),
+          )
         : base,
     useMaterial3: true,
     sliderTheme: const SliderThemeData(year2023: false),
