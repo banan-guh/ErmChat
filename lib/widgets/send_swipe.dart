@@ -123,9 +123,16 @@ class _SendSwipeState extends State<SendSwipe> {
     _showHint();
   }
 
+  // With the keyboard down the composer is idle, so a swipe there is more
+  // likely a stray drag than a send. Read from the view, since the Scaffold
+  // strips the inset from its body.
+  bool get _keyboardUp => View.of(context).viewInsets.bottom > 0;
+
   void _showHint() {
     _hintTimer?.cancel();
-    if (mounted && !_portal.isShowing) setState(_portal.show);
+    if (mounted && _keyboardUp && !_portal.isShowing) {
+      setState(_portal.show);
+    }
   }
 
   // Lays the path out from where the button sits now.
@@ -176,7 +183,7 @@ class _SendSwipeState extends State<SendSwipe> {
     if (!widget._hasMenu) return;
     final drag = _overlayBox.globalToLocal(global) - _anchor;
     if (!_menuOpen) {
-      if (drag.dy > -_openRise) return;
+      if (drag.dy > -_openRise || !_keyboardUp) return;
       _openMenu();
     }
     final s = _project(_origin + drag);
