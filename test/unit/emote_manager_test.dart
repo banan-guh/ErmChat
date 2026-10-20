@@ -1156,38 +1156,6 @@ void main() {
       );
     });
 
-    test('a list checked within the hour skips the launch reconcile', () async {
-      final now = DateTime(2026, 10, 19, 12);
-      for (final (age, refetch) in [
-        (const Duration(minutes: 10), false),
-        (const Duration(hours: 2), true),
-      ]) {
-        SharedPreferences.setMockInitialValues({
-          'emotes5_ch': jsonEncode({
-            'ts': now.subtract(const Duration(hours: 3)).toIso8601String(),
-            'checked': now.subtract(age).toIso8601String(),
-            'emotes': _catalogJson([
-              sevenTv('a', 'Alpha'),
-            ], scope: EmoteScope.channel),
-          }),
-        });
-        var fetches = 0;
-        final manager = EmoteManager(
-          fetchStagger: Duration.zero,
-          tier: EmoteFetchTier.medium,
-          now: () => now,
-          removeCachedFile: (url) async {},
-          sevenTvChannelFetcher: (id) async {
-            fetches++;
-            return SevenTvChannelResponse(emotes: [sevenTv('a', 'Alpha')]);
-          },
-        );
-        await manager.resolveEmotes('ch', 'b1');
-        await pumpEventQueue();
-        expect(fetches, refetch ? 1 : 0, reason: 'checked $age ago');
-      }
-    });
-
     test('reconcile early returns keep the cache untouched', () async {
       Future<void> checkKept({
         required EmoteFetchTier tier,
@@ -1267,23 +1235,20 @@ void main() {
         removeCachedFile: (url) async {},
         sevenTvChannelFetcher: (id) async {
           fetches++;
-          return SevenTvChannelResponse(
-            emotes: [sevenTv('b', fetches == 1 ? 'Bravo' : 'Charlie')],
-          );
+          return SevenTvChannelResponse(emotes: [sevenTv('b', 'Bravo')]);
         },
       );
 
       await manager.resolveEmotes('ch', 'b1');
       await pumpEventQueue();
-      expect(fetches, 1);
-      // The startup reconcile diffed the catalogue against the cache.
-      expect(manager.byCode('ch')!.suggestions.map((e) => e.code), ['Bravo']);
+      expect(fetches, 0, reason: 'a fresh cache serves the launch');
+      expect(manager.byCode('ch')!.suggestions.map((e) => e.code), ['Alpha']);
 
       manager.evictChannel('ch');
       await manager.resolveEmotes('ch', 'b1', force: true);
       await pumpEventQueue();
-      expect(fetches, 2, reason: 'force must refetch the fresh channel');
-      expect(manager.byCode('ch')!.suggestions.map((e) => e.code), ['Charlie']);
+      expect(fetches, 1, reason: 'force must refetch the fresh channel');
+      expect(manager.byCode('ch')!.suggestions.map((e) => e.code), ['Bravo']);
     });
   });
 

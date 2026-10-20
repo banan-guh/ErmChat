@@ -43,23 +43,17 @@ class EmotePersistence {
   }
 
   /// Loads a persisted catalog for [key], dropping subs and flagging whether
-  /// the tier and TTL still match. [savedAt] is the stored fetch time and
-  /// [checkedAt] the last time anything confirmed the list (a fetch, a
-  /// recheck or a live edit).
-  Future<
-    ({
-      EmoteCatalog? catalog,
-      bool fresh,
-      DateTime? savedAt,
-      DateTime? checkedAt,
-    })
-  >
-  load(String key, Duration ttl, {DateTime? fetchTime}) async {
+  /// the tier and TTL still match. [savedAt] is the stored fetch time.
+  Future<({EmoteCatalog? catalog, bool fresh, DateTime? savedAt})> load(
+    String key,
+    Duration ttl, {
+    DateTime? fetchTime,
+  }) async {
     final prefs = await _getPrefs();
     await _metaStore.migrateFromPrefs(prefs.raw);
     final raw = await _metaStore.read(key);
     if (raw == null) {
-      return (catalog: null, fresh: false, savedAt: null, checkedAt: null);
+      return (catalog: null, fresh: false, savedAt: null);
     }
     try {
       // Decode off main isolate for smooth startup.
@@ -75,22 +69,16 @@ class EmotePersistence {
           catalog: catalog,
           tierMatches: tierMatches && !_hasFlaglessModifier(catalog),
           ts: data['ts'] as String,
-          checked: data['checked'] as String?,
         );
       });
       final ts = DateTime.parse(parsed.ts);
       final cachedTime = fetchTime ?? ts;
       final withinTtl = _now().difference(cachedTime) <= ttl;
       final fresh = withinTtl && parsed.tierMatches;
-      return (
-        catalog: _dropSubs(parsed.catalog),
-        fresh: fresh,
-        savedAt: ts,
-        checkedAt: DateTime.tryParse(parsed.checked ?? ''),
-      );
+      return (catalog: _dropSubs(parsed.catalog), fresh: fresh, savedAt: ts);
     } catch (_) {
       logDebug('[EmotePersistence] failed to parse cached emotes');
-      return (catalog: null, fresh: false, savedAt: null, checkedAt: null);
+      return (catalog: null, fresh: false, savedAt: null);
     }
   }
 
@@ -113,7 +101,7 @@ class EmotePersistence {
     twitchSubs: const [],
   );
 
-  /// Persists [catalog] stamped with [savedAt] (default now) and checked now.
+  /// Persists [catalog] stamped with [savedAt] (default now).
   /// Live edits pass the original fetch time so they never extend the TTL.
   Future<void> save(
     String key,
@@ -150,7 +138,6 @@ class EmotePersistence {
     try {
       final data = {
         'ts': (savedAt ?? _now()).toIso8601String(),
-        'checked': _now().toIso8601String(),
         'tier': _tier().index,
         if (key == _globalKey) 'v': _globalVersion,
         'emotes': saved.toJsonMap(),
