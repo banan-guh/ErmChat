@@ -17,6 +17,10 @@ class LayoutEditController extends ChangeNotifier {
 
   ChromeThemeSpec _draft;
   LayoutBlock? _blocked;
+
+  /// The draft before [setCompact] pulled send into the field, kept until
+  /// another edit.
+  ChromeThemeSpec? _beforePull;
   Object? _dragging;
 
   ChromeThemeSpec get draft => _draft;
@@ -52,6 +56,7 @@ class LayoutEditController extends ChangeNotifier {
   }
 
   void placePart(ComposerPart part, PartPlace place, {int? index}) {
+    _beforePull = null;
     _blocked = null;
     _dragging = null;
     _draft = _draft.placePart(part, place, index: index).fitted();
@@ -71,12 +76,14 @@ class LayoutEditController extends ChangeNotifier {
         return;
       }
     }
+    _beforePull = null;
     _blocked = null;
     _draft = _draft.place(action, slot, index: index).fitted();
     notifyListeners();
   }
 
   void update(ChromeThemeSpec spec) {
+    _beforePull = null;
     _blocked = null;
     _dragging = null;
     _draft = spec.fitted();
@@ -84,6 +91,23 @@ class LayoutEditController extends ChangeNotifier {
   }
 
   void reset() => update(original);
+
+  /// Turns [ChromeThemeSpec.compact] on or off. Compact pulls send into the
+  /// field, and turning it off right after puts the layout back.
+  void setCompact(bool on) {
+    final before = _beforePull;
+    if (!on && before != null) {
+      _blocked = null;
+      _beforePull = null;
+      _draft = before;
+      notifyListeners();
+      return;
+    }
+    final pulls = on && !_draft.inField(FieldItem.send);
+    final was = _draft;
+    update(_draft.copyWith(compact: on));
+    if (pulls) _beforePull = was;
+  }
 }
 
 extension on ChromeAction {
@@ -1036,11 +1060,7 @@ class LayoutEditTray extends StatelessWidget {
             (v) => controller.update(draft.copyWith(busyBar: v)),
           ),
           if (draft.isIsland)
-            toggle(
-              l.layoutHideRowTyping,
-              draft.compact,
-              (v) => controller.update(draft.copyWith(compact: v)),
-            ),
+            toggle(l.layoutHideRowTyping, draft.compact, controller.setCompact),
         ],
       ),
     );
