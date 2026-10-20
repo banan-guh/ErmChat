@@ -25,6 +25,7 @@ import 'settings_search.dart';
 import '../../widgets/design_tokens.dart';
 import '../../util/haptics.dart';
 import '../../widgets/app_snack.dart';
+import '../../util/settings.dart';
 
 /// Per-rule notify levels ride the Android foreground-service path; iOS has
 /// none.
@@ -416,8 +417,7 @@ class _PingsScreenState extends ConsumerState<PingsScreen> {
             secondary: const Icon(Icons.notifications_active_outlined),
             title: Setting.mentionForeground.titleOf(context.l10n),
             enabled: pushOn,
-            read: (p) => p.mentionNotifyForeground,
-            write: (p, v) => p.setMentionNotifyForeground(v),
+            pref: Settings.mentionNotifyForeground,
           ),
         ),
       ),
@@ -434,8 +434,7 @@ class _PingsScreenState extends ConsumerState<PingsScreen> {
             secondary: const Icon(Icons.mail_outline),
             title: Setting.whisperPush.titleOf(context.l10n),
             enabled: _keepAlive && pushOn,
-            read: (p) => p.whisperNotifications,
-            write: (p, v) => p.setWhisperNotifications(v),
+            pref: Settings.whisperNotifications,
             onChanged: widget.onWhisperNotifyChanged,
           ),
         ),

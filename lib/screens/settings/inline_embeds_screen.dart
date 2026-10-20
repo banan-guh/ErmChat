@@ -7,6 +7,7 @@ import 'prefs_tiles.dart';
 import 'settings_page.dart';
 import 'setting_info.dart';
 import 'settings_search.dart';
+import '../../util/settings.dart';
 
 class InlineEmbedsScreen extends StatefulWidget {
   const InlineEmbedsScreen({super.key});
@@ -115,9 +116,7 @@ class ShowGiphyTile extends StatelessWidget {
       secondary: const Icon(Icons.gif_box),
       title: Setting.showGiphy.titleOf(context.l10n),
       info: const SettingInfoButton(Setting.showGiphy),
-      defaultValue: kGiphyInlineEnabledDefault,
-      read: (p) => p.giphyInlineEnabled,
-      write: (p, v) => p.setGiphyInlineEnabled(v),
+      pref: Settings.giphyInlineEnabled,
     ),
   );
 }
@@ -134,9 +133,7 @@ class ShowImagesTile extends StatelessWidget {
       title: Setting.showImages.titleOf(context.l10n),
       subtitle: context.l10n.imagePreviewHint,
       info: const SettingInfoButton(Setting.showImages),
-      defaultValue: kImageEmbedEnabledDefault,
-      read: (p) => p.imageEmbedEnabled,
-      write: (p, v) => p.setImageEmbedEnabled(v),
+      pref: Settings.imageEmbedEnabled,
     ),
   );
 }

@@ -18,6 +18,7 @@ import 'tts_settings_screen.dart';
 import 'uploader_settings_screen.dart';
 import '../../widgets/app_snack.dart';
 import '../../widgets/dialogs.dart';
+import '../../util/settings.dart';
 
 /// Features too small for a top-level entry: TTS, uploads, analytics,
 /// feedback, and the stream player toggles.
@@ -206,9 +207,7 @@ class ToolsSettingsScreen extends StatelessWidget {
               child: PrefsSwitchTile(
                 secondary: const Icon(Icons.picture_in_picture),
                 title: Setting.pip.titleOf(context.l10n),
-                defaultValue: false,
-                read: (p) => p.streamPipEnabled,
-                write: (p, v) => p.setStreamPipEnabled(v),
+                pref: Settings.streamPipEnabled,
                 onChanged: onPipEnabledChanged,
               ),
             ),

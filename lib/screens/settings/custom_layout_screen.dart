@@ -4,6 +4,7 @@ import '../../util/prefs.dart';
 import 'prefs_tiles.dart';
 import 'settings_page.dart';
 import 'settings_search.dart';
+import '../../util/settings.dart';
 
 /// Custom layout overrides. The master switch turns the override layer on;
 /// each behavior switch then forces that behavior in both compact and full.
@@ -41,8 +42,7 @@ class _CustomLayoutScreenState extends State<CustomLayoutScreen> {
             Setting.customLayout,
             child: PrefsSwitchTile(
               title: Setting.customLayout.titleOf(context.l10n),
-              read: (p) => p.customLayoutEnabled,
-              write: (p, v) => p.setCustomLayoutEnabled(v),
+              pref: Settings.customLayoutEnabled,
               onChanged: (v) => setState(() => _enabled = v),
             ),
           ),
@@ -53,8 +53,7 @@ class _CustomLayoutScreenState extends State<CustomLayoutScreen> {
               enabled: _enabled,
               title: Setting.tighterComposer.titleOf(context.l10n),
               subtitle: context.l10n.tighterComposerHint,
-              read: (p) => p.overrideTightComposer,
-              write: (p, v) => p.setOverrideTightComposer(v),
+              pref: Settings.overrideTightComposer,
             ),
           ),
           SettingAnchor(
@@ -63,8 +62,7 @@ class _CustomLayoutScreenState extends State<CustomLayoutScreen> {
               enabled: _enabled,
               title: Setting.horizontalSheetActions.titleOf(context.l10n),
               subtitle: context.l10n.horizontalSheetActionsHint,
-              read: (p) => p.overrideSheetActionRow,
-              write: (p, v) => p.setOverrideSheetActionRow(v),
+              pref: Settings.overrideSheetActionRow,
             ),
           ),
           SettingAnchor(
@@ -73,8 +71,7 @@ class _CustomLayoutScreenState extends State<CustomLayoutScreen> {
               enabled: _enabled,
               title: Setting.compactDensity.titleOf(context.l10n),
               subtitle: context.l10n.compactDensityHint,
-              read: (p) => p.overrideCompactDensity,
-              write: (p, v) => p.setOverrideCompactDensity(v),
+              pref: Settings.overrideCompactDensity,
             ),
           ),
         ],

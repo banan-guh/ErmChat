@@ -714,22 +714,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
           break;
       }
     };
-    // Main bound settings before the home screen, so the first frame reads
-    // them; a test that boots without main applies them once bound.
+    // Main binds settings before the home screen, so the first frame reads
+    // them. A later bind (tests) notifies whatever it changed.
     _applySettings();
     _spanSettings.addListener(_onSpanSettings);
     _shellSettings.addListener(_onShellSettings);
     _sevenTvSettings.addListener(_applySevenTvSettings);
     Settings.animateGifs.addListener(_applyAnimateGifs);
-    if (Prefs.loaded == null) {
-      unawaited(
-        Prefs.load().then((_) {
-          if (!mounted) return;
-          _applySettings();
-          _onSpanSettings();
-        }),
-      );
-    }
     unawaited(_threads.loadSaved());
     unawaited(
       _channelManager.loadRecentMessagesConfig().then((_) {

@@ -44,25 +44,22 @@ class Pref<T> extends ChangeNotifier implements ValueListenable<T> {
   /// type.
   Object? importable(Object? raw) => raw is T ? raw : null;
 
+  /// Writes [value]. Listeners hear it at once, since the store caches the
+  /// write before persisting it.
   Future<void> set(T value) async {
     assert(Settings.all.contains(this), '$key is missing from Settings.all');
     final store = _store ?? await Settings.bind();
-    final raw = encode(value);
-    switch (raw) {
-      case null:
-        await store.remove(key);
-      case final bool v:
-        await store.setBool(key, v);
-      case final int v:
-        await store.setInt(key, v);
-      case final double v:
-        await store.setDouble(key, v);
-      case final String v:
-        await store.setString(key, v);
-      case final List<String> v:
-        await store.setStringList(key, v);
-    }
+    final Future<bool> persisted = switch (encode(value)) {
+      null => store.remove(key),
+      final bool v => store.setBool(key, v),
+      final int v => store.setInt(key, v),
+      final double v => store.setDouble(key, v),
+      final String v => store.setString(key, v),
+      final List<String> v => store.setStringList(key, v),
+      final other => throw ArgumentError.value(other, key, 'unstorable'),
+    };
     _announce();
+    await persisted;
   }
 
   void _announce() {
@@ -106,6 +103,20 @@ class DoublePref extends Pref<double> {
   Object? importable(Object? raw) => raw is num ? raw.toDouble() : null;
 }
 
+/// A flag stored as an int, nonzero on.
+class IntFlagPref extends Pref<bool> {
+  IntFlagPref(super.key, super.fallback, {super.exported});
+
+  @override
+  bool decode(Object? raw) => raw is int ? raw != 0 : fallback;
+
+  @override
+  Object? encode(bool value) => value ? 1 : 0;
+
+  @override
+  Object? importable(Object? raw) => raw is int ? raw : null;
+}
+
 /// An enum stored by name; an unknown name reads as the fallback.
 class EnumPref<E extends Enum> extends Pref<E> {
   EnumPref(super.key, super.fallback, this.values, {super.exported});
@@ -139,15 +150,13 @@ class ListPref<L extends List<String>?> extends Pref<L> {
 /// Every user setting, one line each. Keys and defaults live here and
 /// nowhere else; `Prefs` keeps device state, caches and per-account data.
 abstract final class Settings {
-  /// Points every setting at the plugin's store. A new store instance (tests
-  /// swapping mock values) resets what listeners heard without notifying.
+  /// Points every setting at the plugin's store, then notifies the ones
+  /// whose value differs from what listeners heard before it.
   static Future<SharedPreferences> bind() async {
     final store = await SharedPreferences.getInstance();
     if (identical(store, Pref._store)) return store;
     Pref._store = store;
-    for (final p in all) {
-      p._heard = p.value;
-    }
+    refresh();
     return store;
   }
 
@@ -193,12 +202,13 @@ abstract final class Settings {
   /// Megabytes of chat the archive keeps per channel, 0 for no cap.
   static final archiveChannelCapMb = IntPref('archive_channel_cap_mb', 0);
 
-  /// Nonzero sizes the history fetch to the gap since the last message seen.
-  static final historyGapFill = IntPref('history_gap_fill', 1);
+  /// History sizes its fetch to the gap since the last message seen,
+  /// instead of loading [recentMessagesLimit].
+  static final historyDynamicFetch = IntFlagPref('history_gap_fill', true);
 
-  /// Messages the first history fetch loads: the default page under gap
-  /// fill, which tops up the gap itself, else the manual count.
-  static int get historyFetchLimit => historyGapFill.value != 0
+  /// Messages the first history fetch loads: the default page under dynamic
+  /// fetch, which tops up the gap itself, else the manual count.
+  static int get historyFetchLimit => historyDynamicFetch.value
       ? kRecentMessagesLimitDefault
       : recentMessagesLimit.value;
   static final replyToThreadRoot = Pref('reply_to_thread_root', false);
@@ -358,6 +368,38 @@ abstract final class Settings {
   static final proxyEnabled = Pref('proxy_enabled', false, exported: false);
   static final proxyUrl = Pref('proxy_url', '', exported: false);
 
+  // ── Developer ───────────────────────────────────────────────────────
+  static final testChatWidgets = Pref(
+    'test_chat_widgets',
+    false,
+    exported: false,
+  );
+
+  /// Live poll, prediction and hype train cards. Pins always show.
+  static final liveChatWidgets = Pref(
+    'dev_live_chat_widgets',
+    true,
+    exported: false,
+  );
+  static final useBrowserOAuth = Pref(
+    'use_browser_oauth',
+    false,
+    exported: false,
+  );
+
+  /// The next launch shows What's new regardless of version.
+  static final armWhatsNew = Pref('dev_arm_whats_new', false, exported: false);
+
+  /// The next update check reports a fake newer version.
+  static final armUpdate = Pref('dev_arm_update', false, exported: false);
+
+  /// The user card shows mod actions in any channel, live or not.
+  static final forceModActions = Pref(
+    'dev_force_mod_actions',
+    false,
+    exported: false,
+  );
+
   static final List<Pref<Object?>> all = [
     themeMode,
     locale,
@@ -368,7 +410,7 @@ abstract final class Settings {
     recentMessagesLimit,
     archiveRetentionDays,
     archiveChannelCapMb,
-    historyGapFill,
+    historyDynamicFetch,
     replyToThreadRoot,
     backgroundService,
     whisperNotifications,
@@ -434,5 +476,11 @@ abstract final class Settings {
     linkWhitelistEnabled,
     proxyEnabled,
     proxyUrl,
+    testChatWidgets,
+    liveChatWidgets,
+    useBrowserOAuth,
+    armWhatsNew,
+    armUpdate,
+    forceModActions,
   ];
 }

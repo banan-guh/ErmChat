@@ -16,6 +16,7 @@ import 'setting_info.dart';
 import 'settings_page.dart';
 import 'settings_search.dart';
 import '../../widgets/app_snack.dart';
+import '../../util/settings.dart';
 
 /// Where past messages come from and how many load.
 class HistorySettingsScreen extends StatelessWidget {
@@ -53,20 +54,9 @@ class HistoryFetchTiles extends StatefulWidget {
 }
 
 class _HistoryFetchTilesState extends State<HistoryFetchTiles> {
-  bool _dynamic = true;
-
-  @override
-  void initState() {
-    super.initState();
-    Prefs.load().then((p) {
-      if (mounted) setState(() => _dynamic = p.historyDynamicFetch);
-    });
-  }
-
   Future<void> _turnOff() async {
-    await (await Prefs.load()).setHistoryDynamicFetch(false);
+    await Settings.historyDynamicFetch.set(false);
     PrefsStore.instance.notifyChanged();
-    if (mounted) setState(() => _dynamic = false);
   }
 
   void _blockedSnack() => AppSnack.show(
@@ -79,43 +69,45 @@ class _HistoryFetchTilesState extends State<HistoryFetchTiles> {
   @override
   Widget build(BuildContext context) {
     final l = context.l10n;
-    final limit = PrefsSliderTile(
-      label: (v) => '${Setting.recentMessagesLimit.titleOf(l)}: ${v.round()}',
-      labelTrailing: const SettingInfoButton(Setting.recentMessagesLimit),
-      sliderLabel: (v) => '${v.round()}',
-      min: 0,
-      max: 800,
-      divisions: 8,
-      enabled: !_dynamic,
-      defaultValue: kRecentMessagesLimitDefault.toDouble(),
-      read: (p) => p.recentMessagesLimit.clamp(0, 800).toDouble(),
-      write: (p, v) => p.setRecentMessagesLimit(v.round()),
-    );
     return Column(
       children: [
         SettingAnchor(
           Setting.gapFill,
           child: PrefsSwitchTile(
-            // Remounts with the snackbar's change, starting at the new value.
-            key: ValueKey(_dynamic),
             title: Setting.gapFill.titleOf(l),
             subtitle: l.gapFillSubtitle,
             info: const SettingInfoButton(Setting.gapFill),
-            defaultValue: _dynamic,
-            read: (p) => p.historyDynamicFetch,
-            write: (p, v) => p.setHistoryDynamicFetch(v),
-            onChanged: (v) => setState(() => _dynamic = v),
+            pref: Settings.historyDynamicFetch,
           ),
         ),
         SettingAnchor(
           Setting.recentMessagesLimit,
-          child: _dynamic
-              ? GestureDetector(
-                  behavior: HitTestBehavior.opaque,
-                  onTap: _blockedSnack,
-                  child: limit,
-                )
-              : limit,
+          child: ValueListenableBuilder(
+            valueListenable: Settings.historyDynamicFetch,
+            builder: (context, dynamicFetch, _) {
+              final limit = PrefsSliderTile(
+                label: (v) =>
+                    '${Setting.recentMessagesLimit.titleOf(l)}: ${v.round()}',
+                labelTrailing: const SettingInfoButton(
+                  Setting.recentMessagesLimit,
+                ),
+                sliderLabel: (v) => '${v.round()}',
+                min: 0,
+                max: 800,
+                divisions: 8,
+                enabled: !dynamicFetch,
+                defaultValue: kRecentMessagesLimitDefault.toDouble(),
+                read: (p) => p.recentMessagesLimit.clamp(0, 800).toDouble(),
+                write: (p, v) => p.setRecentMessagesLimit(v.round()),
+              );
+              if (!dynamicFetch) return limit;
+              return GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: _blockedSnack,
+                child: limit,
+              );
+            },
+          ),
         ),
       ],
     );

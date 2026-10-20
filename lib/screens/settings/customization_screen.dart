@@ -14,6 +14,7 @@ import 'settings_page.dart';
 import 'setting_info.dart';
 import 'settings_search.dart';
 import '../../widgets/design_tokens.dart';
+import '../../util/settings.dart';
 
 class CustomizationScreen extends StatefulWidget {
   const CustomizationScreen({super.key, this.onEditLayout});
@@ -247,9 +248,7 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
             child: PrefsSwitchTile(
               secondary: const Icon(Icons.vibration),
               title: Setting.haptics.titleOf(context.l10n),
-              defaultValue: true,
-              read: (p) => p.haptics,
-              write: (p, v) => p.setHaptics(v),
+              pref: Settings.haptics,
             ),
           ),
           SettingsSectionHeader(context.l10n.sectionChatDisplay),
@@ -285,9 +284,7 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
             child: PrefsSwitchTile(
               secondary: const Icon(Icons.schedule),
               title: Setting.showTimestamps.titleOf(context.l10n),
-              defaultValue: true,
-              read: (p) => p.showTimestamps,
-              write: (p, v) => p.setShowTimestamps(v),
+              pref: Settings.showTimestamps,
             ),
           ),
           SettingAnchor(
@@ -304,18 +301,14 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
             child: PrefsSwitchTile(
               title: Setting.checkered.titleOf(context.l10n),
               subtitle: context.l10n.checkeredHint,
-              defaultValue: false,
-              read: (p) => p.checkeredMessages,
-              write: (p, v) => p.setCheckeredMessages(v),
+              pref: Settings.checkeredMessages,
             ),
           ),
           SettingAnchor(
             Setting.lineSeparator,
             child: PrefsSwitchTile(
               title: Setting.lineSeparator.titleOf(context.l10n),
-              defaultValue: false,
-              read: (p) => p.lineSeparator,
-              write: (p, v) => p.setLineSeparator(v),
+              pref: Settings.lineSeparator,
             ),
           ),
           SettingsSectionHeader(context.l10n.sectionDisplay),
@@ -325,9 +318,7 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
             Setting.fastChannelSwipe,
             child: PrefsSwitchTile(
               title: Setting.fastChannelSwipe.titleOf(context.l10n),
-              defaultValue: true,
-              read: (p) => p.fastChannelSnap,
-              write: (p, v) => p.setFastChannelSnap(v),
+              pref: Settings.fastChannelSnap,
             ),
           ),
         ],
@@ -513,10 +504,8 @@ class TrueDarkTile extends StatelessWidget {
     child: PrefsSwitchTile(
       title: Setting.trueDark.titleOf(context.l10n),
       info: const SettingInfoButton(Setting.trueDark),
-      defaultValue: false,
       enabled: Theme.of(context).brightness == Brightness.dark,
-      read: (p) => p.trueDark,
-      write: (p, v) => p.setTrueDark(v),
+      pref: Settings.trueDark,
     ),
   );
 }
@@ -531,9 +520,7 @@ class KeepScreenOnTile extends StatelessWidget {
     child: PrefsSwitchTile(
       title: Setting.keepScreenOn.titleOf(context.l10n),
       info: const SettingInfoButton(Setting.keepScreenOn),
-      defaultValue: true,
-      read: (p) => p.keepScreenOn,
-      write: (p, v) => p.setKeepScreenOn(v),
+      pref: Settings.keepScreenOn,
     ),
   );
 }
@@ -587,8 +574,7 @@ class _LiquidGlassTileState extends State<LiquidGlassTile> {
         titleTrailing: _GlassSwatch(
           on: island && (_prefs?.liquidGlass ?? false),
         ),
-        read: (p) => p.liquidGlass,
-        write: (p, v) => p.setLiquidGlass(v),
+        pref: Settings.liquidGlass,
       ),
     );
   }

@@ -17,6 +17,7 @@ import 'settings_page.dart';
 import 'setting_info.dart';
 import 'settings_search.dart';
 import '../../widgets/dialogs.dart';
+import '../../util/settings.dart';
 
 class ChatSettingsScreen extends StatefulWidget {
   final TwitchAuth? twitchAuth;
@@ -183,9 +184,7 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
             child: PrefsSwitchTile(
               secondary: const Icon(Icons.sentiment_very_satisfied),
               title: Setting.preferEmotes.titleOf(context.l10n),
-              defaultValue: false,
-              read: (p) => p.preferEmotesFirst,
-              write: (p, v) => p.setPreferEmotesFirst(v),
+              pref: Settings.preferEmotesFirst,
             ),
           ),
           const _MentionFormatTile(),
@@ -194,9 +193,7 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
             child: PrefsSwitchTile(
               secondary: const Icon(Icons.reply),
               title: Setting.replyThreadRoot.titleOf(context.l10n),
-              defaultValue: false,
-              read: (p) => p.replyToThreadRoot,
-              write: (p, v) => p.setReplyToThreadRoot(v),
+              pref: Settings.replyToThreadRoot,
             ),
           ),
           SettingAnchor(
@@ -205,9 +202,7 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
               secondary: const Icon(Icons.swipe_up),
               title: Setting.sendSwipe.titleOf(context.l10n),
               subtitle: context.l10n.sendSwipeHint,
-              defaultValue: false,
-              read: (p) => p.sendSwipeMenu,
-              write: (p, v) => p.setSendSwipeMenu(v),
+              pref: Settings.sendSwipeMenu,
             ),
           ),
           if (_prefs?.sendSwipeMenu ?? false) const _SpamSpeedSliders(),
@@ -235,9 +230,7 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
               secondary: const Icon(Icons.content_copy),
               title: Setting.doubleTapCopy.titleOf(context.l10n),
               subtitle: context.l10n.delaysUserCard,
-              defaultValue: false,
-              read: (p) => p.doubleTapNameCopy,
-              write: (p, v) => p.setDoubleTapNameCopy(v),
+              pref: Settings.doubleTapNameCopy,
             ),
           ),
           SettingsSectionHeader(context.l10n.sectionConnection),
@@ -415,9 +408,7 @@ class StayConnectedTile extends StatelessWidget {
         title: Setting.stayConnected.titleOf(context.l10n),
         subtitle: context.l10n.persistentNotification,
         info: const SettingInfoButton(Setting.stayConnected),
-        defaultValue: false,
-        read: (p) => p.backgroundService,
-        write: (p, v) => p.setBackgroundService(v),
+        pref: Settings.backgroundService,
         onChanged: onChanged,
       ),
     );

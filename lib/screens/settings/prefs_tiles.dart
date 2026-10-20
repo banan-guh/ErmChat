@@ -2,18 +2,18 @@ import 'package:flutter/material.dart';
 
 import '../../util/prefs.dart';
 import '../../util/prefs_store.dart';
+import '../../util/settings.dart';
 import 'settings_page.dart';
 
-/// Settings rows bound directly to one [Prefs] value.
+/// Settings rows bound directly to one stored value.
 ///
-/// Each tile loads [Prefs] once, shows its default until the store arrives,
-/// then rebuilds from the persisted value. A change writes through, announces
-/// it on [PrefsStore] so owners re-read, then optionally forwards to
-/// [onChanged] for callers that need an inline action. This removes the
-/// per-setting field, load line, and setter method a screen would otherwise
-/// keep.
+/// A change writes through, announces it on [PrefsStore] for owners that
+/// re-read everything, then optionally forwards to [onChanged] for callers
+/// that need an inline action.
 
-class PrefsSwitchTile extends StatefulWidget {
+/// Switch row for one [Settings] flag. It shows the live value, so a write
+/// from anywhere else moves it too.
+class PrefsSwitchTile extends StatelessWidget {
   const PrefsSwitchTile({
     super.key,
     required this.title,
@@ -21,9 +21,7 @@ class PrefsSwitchTile extends StatefulWidget {
     this.secondary,
     this.titleTrailing,
     this.info,
-    this.defaultValue = false,
-    required this.read,
-    required this.write,
+    required this.pref,
     this.onChanged,
     this.enabled = true,
   });
@@ -37,75 +35,50 @@ class PrefsSwitchTile extends StatefulWidget {
 
   /// Sits right after the title text, such as an info button.
   final Widget? info;
-  final bool defaultValue;
-  final bool Function(Prefs prefs) read;
-  final Future<void> Function(Prefs prefs, bool value) write;
+  final Pref<bool> pref;
   final ValueChanged<bool>? onChanged;
   final bool enabled;
 
-  @override
-  State<PrefsSwitchTile> createState() => _PrefsSwitchTileState();
-}
-
-class _PrefsSwitchTileState extends State<PrefsSwitchTile> {
-  Prefs? _prefs;
-  bool? _value;
-
-  @override
-  void initState() {
-    super.initState();
-    _load();
-  }
-
-  Future<void> _load() async {
-    final prefs = await Prefs.load();
-    if (!mounted) return;
-    setState(() {
-      _prefs = prefs;
-      _value = widget.read(prefs);
-    });
-  }
-
   Future<void> _onChanged(bool value) async {
-    setState(() => _value = value);
-    final prefs = _prefs ?? await Prefs.load();
-    await widget.write(prefs, value);
+    await pref.set(value);
     PrefsStore.instance.notifyChanged();
-    widget.onChanged?.call(value);
+    onChanged?.call(value);
   }
 
   @override
   Widget build(BuildContext context) {
-    final trailing = widget.titleTrailing;
-    final subtitle = widget.subtitle;
-    final info = widget.info;
-    final title = TextWithTrailing(widget.title, trailing: info);
-    return SwitchListTile(
-      secondary: widget.secondary,
-      // With a title trailing, the subtitle joins the title slot so the
-      // trailing centers on both lines, not on the title alone.
-      title: trailing == null
-          ? title
-          : Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Flexible(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      title,
-                      if (subtitle != null)
-                        Text(subtitle, style: _subtitleStyle(context)),
-                    ],
+    final trailing = titleTrailing;
+    final subtitle = this.subtitle;
+    final title = TextWithTrailing(this.title, trailing: info);
+    return ValueListenableBuilder(
+      valueListenable: pref,
+      builder: (context, value, _) => SwitchListTile(
+        secondary: secondary,
+        // With a title trailing, the subtitle joins the title slot so the
+        // trailing centers on both lines, not on the title alone.
+        title: trailing == null
+            ? title
+            : Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Flexible(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        title,
+                        if (subtitle != null)
+                          Text(subtitle, style: _subtitleStyle(context)),
+                      ],
+                    ),
                   ),
-                ),
-                const SizedBox(width: 8),
-                trailing,
-              ],
-            ),
-      subtitle: subtitle == null || trailing != null ? null : Text(subtitle),
-      value: _value ?? widget.defaultValue,
-      onChanged: widget.enabled ? _onChanged : null,
+                  const SizedBox(width: 8),
+                  trailing,
+                ],
+              ),
+        subtitle: subtitle == null || trailing != null ? null : Text(subtitle),
+        value: value,
+        onChanged: enabled ? _onChanged : null,
+      ),
     );
   }
 
@@ -114,7 +87,7 @@ class _PrefsSwitchTileState extends State<PrefsSwitchTile> {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     return theme.textTheme.bodyMedium?.copyWith(
-      color: widget.enabled
+      color: enabled
           ? scheme.onSurfaceVariant
           : scheme.onSurface.withValues(alpha: 0.38),
     );

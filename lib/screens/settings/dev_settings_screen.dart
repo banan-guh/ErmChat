@@ -9,6 +9,7 @@ import '../../util/data_usage.dart';
 import '../../widgets/app_snack.dart';
 import 'prefs_tiles.dart';
 import 'settings_page.dart';
+import '../../util/settings.dart';
 
 class DevSettingsScreen extends StatefulWidget {
   final ValueChanged<bool>? onTestWidgetsChanged;
@@ -47,9 +48,7 @@ class _DevSettingsScreenState extends State<DevSettingsScreen> {
             title: 'Test chat widgets',
             subtitle:
                 'Show poll, prediction and hype train cards with updating fake data',
-            defaultValue: false,
-            read: (p) => p.testChatWidgets,
-            write: (p, v) => p.setTestChatWidgets(v),
+            pref: Settings.testChatWidgets,
             onChanged: widget.onTestWidgetsChanged,
           ),
           PrefsSwitchTile(
@@ -57,9 +56,7 @@ class _DevSettingsScreenState extends State<DevSettingsScreen> {
             title: 'Live chat widgets',
             subtitle:
                 'Real polls, predictions and hype trains. Pins always show',
-            defaultValue: true,
-            read: (p) => p.liveChatWidgets,
-            write: (p, v) => p.setLiveChatWidgets(v),
+            pref: Settings.liveChatWidgets,
           ),
           if (widget.fakeChat case final fake?) ...[
             const Divider(),
@@ -91,9 +88,7 @@ class _DevSettingsScreenState extends State<DevSettingsScreen> {
             title: 'Use browser for OAuth',
             subtitle:
                 'Opens Twitch login in external browser instead of in-app WebView',
-            defaultValue: false,
-            read: (p) => p.useBrowserOAuth,
-            write: (p, v) => p.setUseBrowserOAuth(v),
+            pref: Settings.useBrowserOAuth,
           ),
           const Divider(),
           ListTile(
@@ -107,27 +102,21 @@ class _DevSettingsScreenState extends State<DevSettingsScreen> {
             secondary: const Icon(Icons.new_releases_outlined),
             title: "Arm What's new",
             subtitle: 'Next launch shows it as if you just updated',
-            defaultValue: false,
-            read: (p) => p.armWhatsNew,
-            write: (p, v) => p.setArmWhatsNew(v),
+            pref: Settings.armWhatsNew,
           ),
           PrefsSwitchTile(
             secondary: const Icon(Icons.system_update),
             title: 'Arm update available',
             subtitle:
                 'Next launch fakes a newer version: snackbar, sheet, Settings banner',
-            defaultValue: false,
-            read: (p) => p.armUpdate,
-            write: (p, v) => p.setArmUpdate(v),
+            pref: Settings.armUpdate,
           ),
           PrefsSwitchTile(
             secondary: const Icon(Icons.gavel),
             title: 'Always show mod actions',
             subtitle:
                 'User cards show timeout, ban and warn in any channel. Twitch still refuses them without mod',
-            defaultValue: false,
-            read: (p) => p.forceModActions,
-            write: (p, v) => p.setForceModActions(v),
+            pref: Settings.forceModActions,
           ),
           const Divider(),
           ListTile(

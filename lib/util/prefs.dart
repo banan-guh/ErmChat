@@ -31,8 +31,10 @@ class Prefs {
 
   /// Loads the shared preferences store.
   static Future<Prefs> load() async {
-    final prefs = Prefs._(await Settings.bind());
+    final prefs = Prefs._(await SharedPreferences.getInstance());
+    // Set before binding, so listeners woken by the bind read this store.
     _loaded = prefs;
+    await Settings.bind();
     if (!_installChecked) {
       _installChecked = true;
       // Saved prefs on the first load mean an install from before the
@@ -90,9 +92,6 @@ class Prefs {
   static const _kNotifiedUpdate = 'notified_update_version';
   static const _kAvailableUpdate = 'available_update_version';
   static const _kDismissedUpdate = 'dismissed_update_version';
-  static const _kArmWhatsNew = 'dev_arm_whats_new';
-  static const _kArmUpdate = 'dev_arm_update';
-  static const _kForceModActions = 'dev_force_mod_actions';
 
   int get maxMessagesPerChannel => Settings.maxMessagesPerChannel.value;
   Future<void> setMaxMessagesPerChannel(int value) =>
@@ -112,9 +111,9 @@ class Prefs {
 
   /// Whether history sizes its fetch to the gap since the last message seen,
   /// instead of loading [recentMessagesLimit].
-  bool get historyDynamicFetch => Settings.historyGapFill.value != 0;
+  bool get historyDynamicFetch => Settings.historyDynamicFetch.value;
   Future<void> setHistoryDynamicFetch(bool on) =>
-      Settings.historyGapFill.set(on ? 1 : 0);
+      Settings.historyDynamicFetch.set(on);
 
   int get historyFetchLimit => Settings.historyFetchLimit;
 
@@ -239,21 +238,15 @@ class Prefs {
       ? _p.remove(_kDismissedUpdate)
       : _p.setString(_kDismissedUpdate, value);
 
-  /// Dev: the next launch shows What's new regardless of version.
-  bool get armWhatsNew => _p.getBool(_kArmWhatsNew) ?? false;
+  bool get armWhatsNew => Settings.armWhatsNew.value;
+  Future<void> setArmWhatsNew(bool value) => Settings.armWhatsNew.set(value);
 
-  Future<void> setArmWhatsNew(bool value) => _p.setBool(_kArmWhatsNew, value);
+  bool get armUpdate => Settings.armUpdate.value;
+  Future<void> setArmUpdate(bool value) => Settings.armUpdate.set(value);
 
-  /// Dev: the next update check reports a fake newer version.
-  bool get armUpdate => _p.getBool(_kArmUpdate) ?? false;
-
-  Future<void> setArmUpdate(bool value) => _p.setBool(_kArmUpdate, value);
-
-  /// Dev: the user card shows mod actions in any channel, live or not.
-  bool get forceModActions => _p.getBool(_kForceModActions) ?? false;
-
+  bool get forceModActions => Settings.forceModActions.value;
   Future<void> setForceModActions(bool value) =>
-      _p.setBool(_kForceModActions, value);
+      Settings.forceModActions.set(value);
 
   bool get animateGifs => Settings.animateGifs.value;
   Future<void> setAnimateGifs(bool value) => Settings.animateGifs.set(value);
@@ -503,9 +496,6 @@ class Prefs {
   // ── Local stores ────────────────────────────────────────────────────
   static const _kUploaderConfig = 'uploader_config';
   static const _kRecentUploads = 'recent_uploads';
-  static const _kTestChatWidgets = 'test_chat_widgets';
-  static const _kLiveChatWidgets = 'dev_live_chat_widgets';
-  static const _kUseBrowserOAuth = 'use_browser_oauth';
   static const _kKeyboardSettledHeight = 'keyboard_settled_h';
 
   String get localIgnores => Settings.localIgnores.value;
@@ -535,21 +525,17 @@ class Prefs {
   Future<void> setAnalyticsFilterStopwords(bool value) =>
       Settings.analyticsFilterStopwords.set(value);
 
-  bool get testChatWidgets => _p.getBool(_kTestChatWidgets) ?? false;
-
+  bool get testChatWidgets => Settings.testChatWidgets.value;
   Future<void> setTestChatWidgets(bool value) =>
-      _p.setBool(_kTestChatWidgets, value);
+      Settings.testChatWidgets.set(value);
 
-  /// Dev: live poll, prediction and hype train cards. Pins always show.
-  bool get liveChatWidgets => _p.getBool(_kLiveChatWidgets) ?? true;
-
+  bool get liveChatWidgets => Settings.liveChatWidgets.value;
   Future<void> setLiveChatWidgets(bool value) =>
-      _p.setBool(_kLiveChatWidgets, value);
+      Settings.liveChatWidgets.set(value);
 
-  bool get useBrowserOAuth => _p.getBool(_kUseBrowserOAuth) ?? false;
-
+  bool get useBrowserOAuth => Settings.useBrowserOAuth.value;
   Future<void> setUseBrowserOAuth(bool value) =>
-      _p.setBool(_kUseBrowserOAuth, value);
+      Settings.useBrowserOAuth.set(value);
 
   double get keyboardSettledHeight =>
       _p.getDouble(_kKeyboardSettledHeight) ?? 0;
