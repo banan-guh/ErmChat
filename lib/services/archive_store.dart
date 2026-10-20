@@ -1552,8 +1552,11 @@ class ArchiveStore {
               b.rawDelete('DELETE FROM blocks WHERE id = ?', [blocks[i]['id']]);
               continue;
             }
+            // The removed rows' words and users go with them on the next
+            // index pass.
             b.rawUpdate(
-              'UPDATE blocks SET data = ?, count = count - ? WHERE id = ?',
+              'UPDATE blocks SET data = ?, count = count - ?, words = NULL, '
+              'senders = NULL, states = NULL WHERE id = ?',
               [r.data, removed, blocks[i]['id']],
             );
           }
