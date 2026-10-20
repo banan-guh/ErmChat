@@ -114,8 +114,9 @@ class ChatHistoryController {
       'prep=${prepMs}ms merge=${sw.elapsedMilliseconds - prepMs}ms '
       'new=${outcome.inserted.length}',
     );
-    // Gap rows from robotty join the archive; restored rows were deduped out.
-    for (final msg in outcome.inserted) {
+    // Gap rows from robotty join the archive, trimmed ones too; restored
+    // rows were deduped out.
+    for (final msg in outcome.accepted) {
       archive?.writer.add(channel, msg);
     }
     // Notes a later fetch bridged left the buffer, so drop them from the

@@ -422,12 +422,17 @@ void main() {
         timestamp: DateTime(2026, 1, 1, 0, 0, 1),
       );
 
-      chat.receiveHistory(
+      final outcome = chat.receiveHistory(
         'test',
         [root, reply],
         rawHistory: [root, reply],
         maxMessages: 3,
         ownLogin: null,
+      );
+      expect(
+        outcome.accepted,
+        containsAll([root, reply]),
+        reason: 'gap rows the cap trims must still reach the archive',
       );
 
       // The older history rows fell off the cap, so the thread index must not

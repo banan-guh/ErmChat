@@ -39,10 +39,15 @@ class MergeOutcome {
   const MergeOutcome({
     required this.inserted,
     required this.evicted,
+    this.accepted = const [],
     this.removed = const [],
   });
 
   final List<TwitchMessage> inserted;
+
+  /// Every row the merge took in, including ones the cap trimmed right after,
+  /// so the archive keeps rows the buffer had no room for.
+  final List<TwitchMessage> accepted;
   final List<TwitchMessage> evicted;
   final List<TwitchMessage> removed;
 }
@@ -336,6 +341,7 @@ class Messages {
     return MergeOutcome(
       inserted: resident,
       evicted: evicted,
+      accepted: inserted,
       removed: bridged.toList(),
     );
   }
