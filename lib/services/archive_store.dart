@@ -527,60 +527,69 @@ class ArchiveStore {
   Future<int> backfillWords() async {
     var done = 0;
     while (true) {
-      final r = await _db.rawQuery(
+      final blocks = await _db.rawQuery(
         'SELECT id, channel, data FROM blocks '
         'WHERE words IS NULL OR senders IS NULL OR states IS NULL LIMIT 64',
       );
-      if (r.isEmpty) return done;
+      if (blocks.isEmpty) return done;
       final found = await _wordsOffIsolate([
-        for (final row in r) row['data']! as Uint8List,
+        for (final block in blocks) block['data']! as Uint8List,
       ]);
-      // Rows name user states; the index keeps who wrote.
-      final senders = <Uint8List>[];
-      for (var i = 0; i < r.length; i++) {
-        final t = await tables(r[i]['channel']! as String);
-        senders.add(
-          encodeWordList({
-            for (final s in found[i].states)
-              if (t.states[s] case final st?) st.who,
-          }),
-        );
-      }
-      await _withVocab((v) async {
-        final first = v.length;
-        final lists = [
-          for (final f in found) encodeWordList(v.assign(f.words)),
+      final senders = await _sendersOf(blocks, found);
+      await _withVocab((vocab) async {
+        final firstNew = vocab.length;
+        final words = [
+          for (final f in found) encodeWordList(vocab.assign(f.words)),
         ];
         try {
           await _db.transaction((txn) async {
-            final b = txn.batch();
-            if (v.length > first) {
-              b.insert('vocab', {
-                'first': first,
-                'words': encodeVocabChunk(v.from(first)),
+            final batch = txn.batch();
+            if (vocab.length > firstNew) {
+              batch.insert('vocab', {
+                'first': firstNew,
+                'words': encodeVocabChunk(vocab.from(firstNew)),
               });
             }
-            for (var i = 0; i < r.length; i++) {
-              b.rawUpdate(
+            for (var i = 0; i < blocks.length; i++) {
+              batch.rawUpdate(
                 'UPDATE blocks SET words = ?, senders = ?, states = ? '
                 'WHERE id = ?',
                 [
-                  lists[i],
+                  words[i],
                   senders[i],
                   encodeWordList(found[i].all),
-                  r[i]['id'],
+                  blocks[i]['id'],
                 ],
               );
             }
-            await b.commit(noResult: true);
+            await batch.commit(noResult: true);
           });
         } catch (_) {
-          v.truncate(first);
+          vocab.truncate(firstNew);
           rethrow;
         }
       });
-      done += r.length;
+      done += blocks.length;
     }
+  }
+
+  /// Each block's senders: rows name user states, and the index keeps who
+  /// wrote.
+  Future<List<Uint8List>> _sendersOf(
+    List<Map<String, Object?>> blocks,
+    List<({Set<String> words, Set<int> states, Set<int> all})> found,
+  ) async {
+    final senders = <Uint8List>[];
+    for (var i = 0; i < blocks.length; i++) {
+      final users = await tables(blocks[i]['channel']! as String);
+      senders.add(
+        encodeWordList({
+          for (final state in found[i].states)
+            if (users.states[state] case final user?) user.who,
+        }),
+      );
+    }
+    return senders;
   }
 
   static Future<List<({Set<String> words, Set<int> states, Set<int> all})>>

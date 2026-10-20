@@ -96,33 +96,21 @@ String formatTermAction(
 ) {
   final permitted = action.contains('permitted');
   final added = action.startsWith('add');
-  if (terms.length == 1) {
-    final t = terms.first;
-    return permitted
-        ? (added
-              ? l.modActAddedPermittedOne(mod, t)
-              : l.modActRemovedPermittedOne(mod, t))
-        : (added
-              ? l.modActAddedBlockedOne(mod, t)
-              : l.modActRemovedBlockedOne(mod, t));
-  }
-  if (terms.length > 1) {
-    final n = terms.length;
-    return permitted
-        ? (added
-              ? l.modActAddedPermittedMany(mod, n)
-              : l.modActRemovedPermittedMany(mod, n))
-        : (added
-              ? l.modActAddedBlockedMany(mod, n)
-              : l.modActRemovedBlockedMany(mod, n));
-  }
-  return permitted
-      ? (added
-            ? l.modActAddedPermittedUnnamed(mod)
-            : l.modActRemovedPermittedUnnamed(mod))
-      : (added
-            ? l.modActAddedBlockedUnnamed(mod)
-            : l.modActRemovedBlockedUnnamed(mod));
+  final n = terms.length;
+  return switch ((permitted, added)) {
+    (true, true) when n == 1 => l.modActAddedPermittedOne(mod, terms.first),
+    (true, false) when n == 1 => l.modActRemovedPermittedOne(mod, terms.first),
+    (false, true) when n == 1 => l.modActAddedBlockedOne(mod, terms.first),
+    (false, false) when n == 1 => l.modActRemovedBlockedOne(mod, terms.first),
+    (true, true) when n > 1 => l.modActAddedPermittedMany(mod, n),
+    (true, false) when n > 1 => l.modActRemovedPermittedMany(mod, n),
+    (false, true) when n > 1 => l.modActAddedBlockedMany(mod, n),
+    (false, false) when n > 1 => l.modActRemovedBlockedMany(mod, n),
+    (true, true) => l.modActAddedPermittedUnnamed(mod),
+    (true, false) => l.modActRemovedPermittedUnnamed(mod),
+    (false, true) => l.modActAddedBlockedUnnamed(mod),
+    (false, false) => l.modActRemovedBlockedUnnamed(mod),
+  };
 }
 
 /// Ban or timeout line without its closing period, for IRC CLEARCHAT rows.
