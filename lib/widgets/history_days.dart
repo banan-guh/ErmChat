@@ -558,8 +558,17 @@ class _HistoryDaysState extends State<HistoryDays>
         if (s.end.isAfter(from) && s.start.isBefore(to)) s,
     ];
     if (streams.isEmpty) return null;
+    // Only the part on this day, so a stream across midnight (or one that
+    // never ends) counts once.
     final length = formatStreamLength(
-      streams.fold(Duration.zero, (sum, s) => sum + s.end.difference(s.start)),
+      streams.fold(
+        Duration.zero,
+        (sum, s) =>
+            sum +
+            (s.end.isBefore(to) ? s.end : to).difference(
+              s.start.isAfter(from) ? s.start : from,
+            ),
+      ),
     );
     final l10n = context.l10n;
     if (streams.length > 1) {
