@@ -261,7 +261,14 @@ class ChatChannelSetup {
       if (channelUserId == null || channelUserId.isEmpty) {
         final signedIn = auth.accessToken != null;
         if (signedIn) unawaited(Future.microtask(_lookupJoinTail));
-        channelUserId = await _waitForRoomId(channelName);
+        // Joins go out at about 2/s, so a long join queue outlasts 10 s.
+        // Signed out there is no Helix fallback, so wait for the queue.
+        channelUserId = await _waitForRoomId(
+          channelName,
+          timeout: signedIn
+              ? const Duration(seconds: 10)
+              : const Duration(minutes: 2),
+        );
         if (_isStale(channelName, epoch)) return;
         // The JOIN never landed (socket down): ask Helix directly.
         if (channelUserId == null && signedIn) {
