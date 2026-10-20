@@ -42,8 +42,8 @@
   "settingPreferEmotes": "Prefer emote suggestions (autocomplete)",
   "settingMentionFormat": "Mention format",
   "settingReplyThreadRoot": "Reply to thread first message",
-  "settingSendSwipe": "Swipe up to spam",
-  "sendSwipeHint": "Swipe up from send, then across, and hold",
+  "settingSendSwipe": "Hold to spam",
+  "sendSwipeHint": "Hold send, then hold the spam button in the top corner",
   "spamSpeedAuto": "Auto",
   "spamSpeedMs": "{ms} ms",
   "@spamSpeedMs": {

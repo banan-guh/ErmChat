@@ -456,11 +456,11 @@ class Setting {
   );
   static const sendSwipe = Setting(
     'send_swipe',
-    'Swipe up to spam',
+    'Hold to spam',
     SettingsPageId.chat,
     section: 'Typing',
     // Its speed sliders show only while it is on, so they search here.
-    keywords: 'send menu repeat gesture speed interval rate limit ms',
+    keywords: 'send menu repeat swipe gesture speed interval rate limit ms',
   );
   static const macros = Setting(
     'macros',

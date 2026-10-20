@@ -8,7 +8,7 @@ import '../util/layout_density.dart';
 import '../util/thread_utils.dart';
 import '../l10n/l10n.dart';
 import 'media_upload_controller.dart';
-import 'send_swipe.dart';
+import 'send_hold.dart';
 import 'design_tokens.dart';
 
 class MessageInput extends StatelessWidget {
@@ -154,7 +154,7 @@ class MessageInput extends StatelessWidget {
             height: slotH,
             child: Material(
               type: MaterialType.transparency,
-              child: SendSwipe(
+              child: SendHold(
                 enabled: enabled,
                 onRecall: onSendLongPress,
                 onRecallUndo: onRecallUndo,

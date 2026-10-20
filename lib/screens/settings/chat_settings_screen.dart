@@ -199,13 +199,17 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
           SettingAnchor(
             Setting.sendSwipe,
             child: PrefsSwitchTile(
-              secondary: const Icon(Icons.swipe_up),
+              secondary: const Icon(Icons.repeat),
               title: Setting.sendSwipe.titleOf(context.l10n),
               subtitle: context.l10n.sendSwipeHint,
               pref: Settings.sendSwipeMenu,
             ),
           ),
-          if (_prefs?.sendSwipeMenu ?? false) const _SpamSpeedSliders(),
+          ValueListenableBuilder(
+            valueListenable: Settings.sendSwipeMenu,
+            builder: (context, on, _) =>
+                on ? const _SpamSpeedSliders() : const SizedBox.shrink(),
+          ),
           if (widget.twitchAuth != null)
             SettingAnchor(
               Setting.macros,

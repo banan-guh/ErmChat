@@ -6,7 +6,7 @@ import '../panels/search.dart';
 import '../util/chrome_theme.dart';
 import '../widgets/media_upload_controller.dart';
 import '../widgets/message_input.dart';
-import '../widgets/send_swipe.dart';
+import '../widgets/send_hold.dart';
 import '../widgets/tabbed_layout.dart' show swipeShown;
 import 'composer_controller.dart';
 import '../l10n/l10n.dart';
@@ -273,7 +273,7 @@ class ComposerRowButton extends StatelessWidget {
       final enabled = controller.enabled;
       return Material(
         type: MaterialType.transparency,
-        child: SendSwipe(
+        child: SendHold(
           enabled: enabled,
           onRecall: controller.recallLastSent,
           onRecallUndo: controller.undoRecall,
