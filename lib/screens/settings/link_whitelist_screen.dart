@@ -29,20 +29,18 @@ class _LinkWhitelistSettingsScreenState
     'youtu.be',
   ];
 
-  final _controller = TextEditingController();
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
   Future<void> _add(BuildContext context) async {
-    final value = _controller.text.trim();
-    if (LinkWhitelist.normalize(value).isEmpty) return;
-    LinkWhitelist.instance.add(value);
-    _controller.clear();
-    if (context.mounted) Navigator.pop(context);
+    final l = context.l10n;
+    final value = await showTextDialog(
+      context,
+      title: l.addLink,
+      label: l.domainOrTld,
+      helper: l.domainOrTldHint,
+      confirmLabel: l.add,
+      validate: (v) =>
+          LinkWhitelist.normalize(v).isEmpty ? l.domainOrTldHint : null,
+    );
+    if (value != null) LinkWhitelist.instance.add(value);
   }
 
   @override
@@ -62,31 +60,7 @@ class _LinkWhitelistSettingsScreenState
         listenable: LinkWhitelist.instance,
         builder: (context, _) => FloatingActionButton(
           onPressed: LinkWhitelist.instance.enabled
-              ? () => showDialog(
-                  context: context,
-                  builder: (ctx) => AlertDialog(
-                    title: Text(ctx.l10n.addLink),
-                    content: TextField(
-                      controller: _controller,
-                      autofocus: true,
-                      decoration: InputDecoration(
-                        labelText: ctx.l10n.domainOrTld,
-                        helperText: ctx.l10n.domainOrTldHint,
-                      ),
-                      onSubmitted: (_) => _add(ctx),
-                    ),
-                    actions: [
-                      TextButton(
-                        onPressed: () => Navigator.pop(context),
-                        child: Text(ctx.l10n.cancel),
-                      ),
-                      TextButton(
-                        onPressed: () => _add(ctx),
-                        child: Text(ctx.l10n.add),
-                      ),
-                    ],
-                  ),
-                )
+              ? () => _add(context)
               : null,
           child: const Icon(Icons.add),
         ),

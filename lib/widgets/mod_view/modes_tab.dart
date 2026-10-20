@@ -3,10 +3,10 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../services/mod_actions.dart';
-import 'dialogs.dart';
 import 'scope.dart';
 import 'widgets.dart';
 import '../glass_chrome.dart';
+import '../dialogs.dart';
 
 /// Chat mode toggles from ROOMSTATE, plus Shield mode from Helix.
 class ModesTab extends ModTabWidget {
@@ -74,17 +74,17 @@ class _ModesTabState extends State<ModesTab> with ModTabState<ModesTab> {
       return;
     }
     var seconds = await _pick(
-      () => showModChoiceDialog(
+      () => showChoiceDialog(
         context,
         title: mod.l10n.slowModeDelay,
         options: [
-          for (final s in const [3, 5, 10]) (mod.l10n.secondsCount(s), s),
-          (mod.l10n.customEllipsis, -1),
+          for (final s in const [3, 5, 10]) (s, mod.l10n.secondsCount(s), ''),
+          (-1, mod.l10n.customEllipsis, ''),
         ],
       ),
     );
     if (seconds == -1 && mounted) {
-      seconds = await showModNumberDialog(
+      seconds = await showNumberDialog(
         context,
         title: mod.l10n.slowModeDelay,
         label: mod.l10n.secondsRange,
@@ -116,23 +116,23 @@ class _ModesTabState extends State<ModesTab> with ModTabState<ModesTab> {
     }
     const custom = -2;
     var minutes = await _pick(
-      () => showModChoiceDialog(
+      () => showChoiceDialog(
         context,
         title: mod.l10n.minimumFollowAge,
         options: [
-          (mod.l10n.noMinimum, 0),
-          (mod.l10n.minutesCount(10), 10),
-          (mod.l10n.minutesCount(30), 30),
-          (mod.l10n.oneHour, 60),
-          (mod.l10n.oneDay, 1440),
-          (mod.l10n.oneWeek, 10080),
-          (mod.l10n.customEllipsis, custom),
+          (0, mod.l10n.noMinimum, ''),
+          (10, mod.l10n.minutesCount(10), ''),
+          (30, mod.l10n.minutesCount(30), ''),
+          (60, mod.l10n.oneHour, ''),
+          (1440, mod.l10n.oneDay, ''),
+          (10080, mod.l10n.oneWeek, ''),
+          (custom, mod.l10n.customEllipsis, ''),
         ],
       ),
     );
     if (minutes == custom && mounted) {
       // Twitch allows up to 3 months.
-      minutes = await showModNumberDialog(
+      minutes = await showNumberDialog(
         context,
         title: mod.l10n.minimumFollowAge,
         label: mod.l10n.minutesRange,

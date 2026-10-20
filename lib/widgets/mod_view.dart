@@ -17,7 +17,7 @@ import 'mod_view/users_tab.dart';
 import 'tab_drag_focus.dart';
 
 export 'mod_view/dialogs.dart'
-    show modErrorText, showModError, showModTextDialog, showTimeoutDialog;
+    show modErrorText, showModError, showTimeoutDialog;
 
 /// Mod View panel body: Queue / Activity / Modes / Channel / Users /
 /// Requests / Terms / Setup tabs. Scope and room modes are re-read on every

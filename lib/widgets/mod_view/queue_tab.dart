@@ -8,6 +8,7 @@ import 'scope.dart';
 import 'widgets.dart';
 import '../glass_chrome.dart';
 import '../design_tokens.dart';
+import '../dialogs.dart';
 
 /// AutoMod held-message queue with per-category filters.
 class QueueTab extends ModTabWidget {
@@ -65,7 +66,7 @@ class _QueueTabState extends State<QueueTab> with ModTabState<QueueTab> {
   }
 
   Future<void> _ban(HeldMessage held) async {
-    final reason = await showModTextDialog(
+    final reason = await showTextDialog(
       context,
       title: mod.l10n.banUserTitle(held.userLogin),
       label: mod.l10n.reasonOptional,

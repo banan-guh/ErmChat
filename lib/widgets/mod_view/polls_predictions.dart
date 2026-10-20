@@ -4,7 +4,6 @@ import '../../l10n/l10n.dart';
 import '../../models/polls.dart';
 import '../../util/date_format.dart';
 import '../dialogs.dart';
-import 'dialogs.dart';
 import 'scope.dart';
 import 'widgets.dart';
 
@@ -275,12 +274,12 @@ class _PredictionsSectionState extends State<PredictionsSection>
   }
 
   Future<void> _resolve(Prediction prediction) async {
-    final winner = await showModChoiceDialog(
+    final winner = await showChoiceDialog(
       context,
       title: mod.l10n.winningOutcome,
       options: [
         for (final outcome in prediction.outcomes)
-          (_outcomeLabel(mod.l10n, outcome), outcome.id),
+          (outcome.id, _outcomeLabel(mod.l10n, outcome), ''),
       ],
     );
     if (winner == null || winner.isEmpty || !mounted) return;

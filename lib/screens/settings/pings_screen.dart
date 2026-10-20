@@ -24,6 +24,7 @@ import 'settings_page.dart';
 import 'settings_search.dart';
 import '../../widgets/design_tokens.dart';
 import '../../util/haptics.dart';
+import '../../widgets/app_snack.dart';
 
 /// Per-rule notify levels ride the Android foreground-service path; iOS has
 /// none.
@@ -137,17 +138,14 @@ class _PingsScreenState extends ConsumerState<PingsScreen> {
       final removed = rule.kind == PingRuleKind.message
           ? context.l10n.keywordRemoved
           : context.l10n.userRemoved;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(removed),
-          action: SnackBarAction(
-            label: context.l10n.undo,
-            onPressed: () {
-              _manager.upsertRule(rule);
-              _manager.save();
-            },
-          ),
-        ),
+      AppSnack.show(
+        context,
+        removed,
+        actionLabel: context.l10n.undo,
+        onAction: () {
+          _manager.upsertRule(rule);
+          _manager.save();
+        },
       );
     } else if (saved.rule.notify && saved.rule.mention) {
       _ensurePush();
@@ -408,29 +406,19 @@ class _PingsScreenState extends ConsumerState<PingsScreen> {
 
   /// Notifications only arrive while the background connection runs, so
   /// without it notifying controls are greyed and a tap says what to turn on.
-  void _keepAliveSnack() => ScaffoldMessenger.of(context)
-    ..hideCurrentSnackBar()
-    ..showSnackBar(
-      SnackBar(
-        content: Text(context.l10n.notificationsNeedBackground),
-        action: SnackBarAction(
-          label: context.l10n.turnOn,
-          onPressed: _enableKeepAlive,
-        ),
-      ),
-    );
+  void _keepAliveSnack() => AppSnack.show(
+    context,
+    context.l10n.notificationsNeedBackground,
+    actionLabel: context.l10n.turnOn,
+    onAction: _enableKeepAlive,
+  );
 
-  void _masterOffSnack() => ScaffoldMessenger.of(context)
-    ..hideCurrentSnackBar()
-    ..showSnackBar(
-      SnackBar(
-        content: Text(context.l10n.notificationsOff),
-        action: SnackBarAction(
-          label: context.l10n.turnOn,
-          onPressed: () => _setPush(true),
-        ),
-      ),
-    );
+  void _masterOffSnack() => AppSnack.show(
+    context,
+    context.l10n.notificationsOff,
+    actionLabel: context.l10n.turnOn,
+    onAction: () => _setPush(true),
+  );
 
   /// Wraps a greyed tile so a tap explains what to turn on; a null
   /// [onBlocked] leaves the tile as is.

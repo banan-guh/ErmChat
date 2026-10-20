@@ -21,6 +21,7 @@ import '../../util/friendly_error.dart';
 import '../../util/log.dart';
 import '../../util/prefs.dart';
 import 'settings_page.dart';
+import '../../widgets/app_snack.dart';
 
 /// Report outbox: drafts, reports waiting to send, and sent history with
 /// each issue's status, checked again on open.
@@ -254,9 +255,7 @@ class _ReportEditorScreenState extends ConsumerState<ReportEditorScreen> {
 
   void _snack(String message) {
     if (!mounted) return;
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text(message)));
+    AppSnack.show(context, message);
   }
 
   Future<void> _send() async {

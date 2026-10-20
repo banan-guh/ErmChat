@@ -15,6 +15,7 @@ import 'recent_messages_settings_screen.dart';
 import 'setting_info.dart';
 import 'settings_page.dart';
 import 'settings_search.dart';
+import '../../widgets/app_snack.dart';
 
 /// Where past messages come from and how many load.
 class HistorySettingsScreen extends StatelessWidget {
@@ -68,17 +69,12 @@ class _HistoryFetchTilesState extends State<HistoryFetchTiles> {
     if (mounted) setState(() => _dynamic = false);
   }
 
-  void _blockedSnack() => ScaffoldMessenger.of(context)
-    ..hideCurrentSnackBar()
-    ..showSnackBar(
-      SnackBar(
-        content: Text(context.l10n.historyLimitDynamic),
-        action: SnackBarAction(
-          label: context.l10n.turnOff,
-          onPressed: _turnOff,
-        ),
-      ),
-    );
+  void _blockedSnack() => AppSnack.show(
+    context,
+    context.l10n.historyLimitDynamic,
+    actionLabel: context.l10n.turnOff,
+    onAction: _turnOff,
+  );
 
   @override
   Widget build(BuildContext context) {

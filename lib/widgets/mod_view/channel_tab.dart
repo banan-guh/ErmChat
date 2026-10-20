@@ -5,7 +5,6 @@ import '../../services/mod_actions.dart';
 import '../../services/twitch_api.dart';
 import '../../util/date_format.dart';
 import '../dialogs.dart';
-import 'dialogs.dart';
 import 'points_section.dart';
 import 'polls_predictions.dart';
 import 'scope.dart';
@@ -188,7 +187,7 @@ class _RosterSectionState extends State<RosterSection>
       : mod.actions.setVip(mod.auth, mod.channel, login: login, add: add);
 
   Future<void> _add() async {
-    final login = await showModTextDialog(
+    final login = await showTextDialog(
       context,
       title: _mods ? mod.l10n.addModerator : mod.l10n.addVip,
       label: mod.l10n.username,
@@ -285,7 +284,7 @@ class StreamActions extends ModTabWidget {
 class _StreamActionsState extends State<StreamActions>
     with ModTabState<StreamActions> {
   Future<void> _raid() async {
-    final login = await showModTextDialog(
+    final login = await showTextDialog(
       context,
       title: mod.l10n.raidChannelTitle,
       label: mod.l10n.username,
@@ -317,12 +316,12 @@ class _StreamActionsState extends State<StreamActions>
   }
 
   Future<void> _commercial() async {
-    final length = await showModChoiceDialog(
+    final length = await showChoiceDialog(
       context,
       title: mod.l10n.commercialLength,
       options: [
         for (final seconds in const [30, 60, 90, 120, 150, 180])
-          ('${seconds}s', seconds),
+          (seconds, '${seconds}s', ''),
       ],
     );
     if (length == null) return;
@@ -333,7 +332,7 @@ class _StreamActionsState extends State<StreamActions>
   }
 
   Future<void> _marker() async {
-    final description = await showModTextDialog(
+    final description = await showTextDialog(
       context,
       title: mod.l10n.addStreamMarker,
       label: mod.l10n.descriptionOptional,
@@ -352,7 +351,7 @@ class _StreamActionsState extends State<StreamActions>
   }
 
   Future<void> _announce() async {
-    final message = await showModTextDialog(
+    final message = await showTextDialog(
       context,
       title: mod.l10n.sendAnnouncement,
       label: mod.l10n.message,
@@ -387,7 +386,7 @@ class _StreamActionsState extends State<StreamActions>
   }
 
   Future<void> _shoutout() async {
-    final login = await showModTextDialog(
+    final login = await showTextDialog(
       context,
       title: mod.l10n.shoutoutTitle,
       label: mod.l10n.username,

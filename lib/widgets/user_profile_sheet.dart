@@ -26,6 +26,7 @@ import 'chat_rows.dart';
 import 'mod_view.dart';
 import 'sheet_action_row.dart';
 import 'design_tokens.dart';
+import 'dialogs.dart';
 
 class UserProfileSheet extends StatefulWidget {
   final String username;
@@ -831,7 +832,7 @@ class UserProfileSheetState extends State<UserProfileSheet> {
     final channel = widget.channel;
     if (modActions == null || channel == null) return;
     if (ban) {
-      final reason = await showModTextDialog(
+      final reason = await showTextDialog(
         context,
         title: context.l10n.banUserTitle(widget.username),
         label: context.l10n.reasonOptional,
@@ -865,7 +866,7 @@ class UserProfileSheetState extends State<UserProfileSheet> {
     final modActions = widget.modActions;
     final channel = widget.channel;
     if (modActions == null || channel == null) return;
-    final reason = await showModTextDialog(
+    final reason = await showTextDialog(
       context,
       title: context.l10n.warnUserTitle(widget.username),
       label: context.l10n.reasonOptional,
@@ -1003,24 +1004,14 @@ class UserProfileSheetState extends State<UserProfileSheet> {
       AppSnack.show(context, context.l10n.cannotBlockNoId);
       return;
     }
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text(ctx.l10n.blockUser),
-        content: Text(ctx.l10n.blockUserMessage(widget.displayName)),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: Text(ctx.l10n.cancel),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: Text(ctx.l10n.block),
-          ),
-        ],
-      ),
+    final confirmed = await confirmDialog(
+      context,
+      title: context.l10n.blockUser,
+      message: context.l10n.blockUserMessage(widget.displayName),
+      confirmLabel: context.l10n.block,
+      destructive: true,
     );
-    if (confirmed != true || !mounted) return;
+    if (!confirmed || !mounted) return;
     // Offline or timed out, the request throws instead of returning false.
     final ok = await widget.twitchApi
         .blockUser(widget.twitchAuth, userId)

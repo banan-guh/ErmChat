@@ -16,6 +16,7 @@ import 'proxy_settings_screen.dart';
 import 'settings_page.dart';
 import 'setting_info.dart';
 import 'settings_search.dart';
+import '../../widgets/dialogs.dart';
 
 class ChatSettingsScreen extends StatefulWidget {
   final TwitchAuth? twitchAuth;
@@ -83,37 +84,16 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
   };
 
   Future<void> _pickSharedChatMode() async {
-    final selected = await showDialog<String>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text(ctx.l10n.sharedChatTitle),
-        content: RadioGroup<String>(
-          groupValue: _sharedChatMode,
-          onChanged: (v) {
-            if (v != null) Navigator.pop(ctx, v);
-          },
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              RadioListTile<String>(
-                value: 'spotlight',
-                title: Text(ctx.l10n.sharedChatSpotlight),
-                subtitle: Text(ctx.l10n.sharedChatSpotlightHint),
-              ),
-              RadioListTile<String>(
-                value: 'fade',
-                title: Text(ctx.l10n.sharedChatFade),
-                subtitle: Text(ctx.l10n.sharedChatFadeHint),
-              ),
-              RadioListTile<String>(
-                value: 'hide',
-                title: Text(ctx.l10n.sharedChatHide),
-                subtitle: Text(ctx.l10n.sharedChatHideHint),
-              ),
-            ],
-          ),
-        ),
-      ),
+    final l = context.l10n;
+    final selected = await showChoiceDialog<String>(
+      context,
+      title: l.sharedChatTitle,
+      value: _sharedChatMode,
+      options: [
+        ('spotlight', l.sharedChatSpotlight, l.sharedChatSpotlightHint),
+        ('fade', l.sharedChatFade, l.sharedChatFadeHint),
+        ('hide', l.sharedChatHide, l.sharedChatHideHint),
+      ],
     );
     if (selected == null || selected == _sharedChatMode) return;
     final prefs = _prefs ?? await Prefs.load();
@@ -390,28 +370,13 @@ class _MentionFormatTileState extends State<_MentionFormatTile> {
   }
 
   Future<void> _pick() async {
-    final selected = await showDialog<String>(
-      context: context,
-      builder: (ctx) => SimpleDialog(
-        title: Text(ctx.l10n.mentionFormatTitle),
-        children: [
-          RadioGroup<String>(
-            groupValue: _format,
-            onChanged: (v) {
-              if (v != null) Navigator.pop(ctx, v);
-            },
-            child: Column(
-              children: [
-                for (final entry in formats.entries)
-                  RadioListTile<String>(
-                    value: entry.key,
-                    title: Text(entry.value),
-                  ),
-              ],
-            ),
-          ),
-        ],
-      ),
+    final selected = await showChoiceDialog<String>(
+      context,
+      title: context.l10n.mentionFormatTitle,
+      value: _format,
+      options: [
+        for (final entry in formats.entries) (entry.key, entry.value, ''),
+      ],
     );
     if (selected == null || selected == _format) return;
     final prefs = await Prefs.load();

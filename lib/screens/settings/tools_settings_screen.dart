@@ -16,6 +16,8 @@ import 'settings_page.dart';
 import 'settings_search.dart';
 import 'tts_settings_screen.dart';
 import 'uploader_settings_screen.dart';
+import '../../widgets/app_snack.dart';
+import '../../widgets/dialogs.dart';
 
 /// Features too small for a top-level entry: TTS, uploads, analytics,
 /// feedback, and the stream player toggles.
@@ -82,46 +84,31 @@ class ToolsSettingsScreen extends StatelessWidget {
       ClipboardData(text: prefs.exportSettings(info.version)),
     );
     if (!context.mounted) return;
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text(context.l10n.exportSettingsDone)));
+    AppSnack.show(context, context.l10n.exportSettingsDone);
   }
 
   Future<void> _import(BuildContext context) async {
     final l = context.l10n;
-    final messenger = ScaffoldMessenger.of(context);
     final prefs = await Prefs.load();
     final text = (await Clipboard.getData(Clipboard.kTextPlain))?.text ?? '';
     final changes = prefs.settingsToImport(text);
     if (changes == null || changes.isEmpty) {
-      messenger.showSnackBar(
-        SnackBar(
-          content: Text(
-            changes == null ? l.importSettingsInvalid : l.importSettingsNothing,
-          ),
-        ),
-      );
+      if (context.mounted) {
+        AppSnack.show(
+          context,
+          changes == null ? l.importSettingsInvalid : l.importSettingsNothing,
+        );
+      }
       return;
     }
     if (!context.mounted) return;
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: Text(l.importSettingsTitle),
-        content: Text(l.importSettingsMessage(changes.length)),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, false),
-            child: Text(l.cancel),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, true),
-            child: Text(l.importSettingsConfirm),
-          ),
-        ],
-      ),
+    final ok = await confirmDialog(
+      context,
+      title: l.importSettingsTitle,
+      message: l.importSettingsMessage(changes.length),
+      confirmLabel: l.importSettingsConfirm,
     );
-    if (ok != true) return;
+    if (!ok) return;
     await prefs.applySettings(changes);
     PrefsStore.instance.notifyChanged();
   }
