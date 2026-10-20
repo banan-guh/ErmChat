@@ -66,16 +66,37 @@ class ChromeMenuButtonState extends State<ChromeMenuButton> {
         final active = widget.streamActive?.call() ?? false;
         return [
           if (showMod)
-            ChromeMenuEntry(l10n.modView, () => widget.onShowModView?.call()),
-          ChromeMenuEntry(l10n.search, () => widget.onToggleSearch?.call()),
+            ChromeMenuEntry(
+              l10n.modView,
+              () => widget.onShowModView?.call(),
+              icon: Icons.shield_outlined,
+            ),
+          ChromeMenuEntry(
+            l10n.search,
+            () => widget.onToggleSearch?.call(),
+            icon: Icons.search,
+          ),
           if (widget.onCalendar case final onCalendar?)
-            ChromeMenuEntry(l10n.historyCalendar, onCalendar),
-          ChromeMenuEntry(l10n.toggleFullscreen, widget.onToggleFullscreen),
-          ChromeMenuEntry(l10n.toggleInput, widget.onToggleInput),
+            ChromeMenuEntry(
+              l10n.historyCalendar,
+              onCalendar,
+              icon: Icons.calendar_month_outlined,
+            ),
+          ChromeMenuEntry(
+            l10n.toggleFullscreen,
+            widget.onToggleFullscreen,
+            icon: Icons.fullscreen,
+          ),
+          ChromeMenuEntry(
+            l10n.toggleInput,
+            widget.onToggleInput,
+            icon: Icons.keyboard_outlined,
+          ),
           if (showStream)
             ChromeMenuEntry(
               active ? l10n.hideStream : l10n.showStream,
               () => widget.onToggleStream?.call(),
+              icon: Icons.live_tv_outlined,
             ),
         ];
       },
@@ -97,7 +118,7 @@ class ChromeMenuEntry {
   final String? label;
   final VoidCallback? onTap;
 
-  /// Leading icon, for an entry that heads the menu.
+  /// Leading icon.
   final IconData? icon;
 }
 
@@ -185,6 +206,7 @@ const double _kMenuPad = 4;
 const double _kRowHeight = 40;
 const double _kDividerHeight = 8;
 const double _kMenuRadius = 16;
+const double _kEdgeGap = 8;
 
 /// A liquid glass menu that blooms out of its trigger: a circle grows from
 /// the button, then squares off into the menu while its rows sharpen out of
@@ -223,6 +245,8 @@ class _BloomMenuState extends State<_BloomMenu>
   List<ChromeMenuEntry> _entries = const [];
   Size _trigger = Size.zero;
   Alignment _corner = Alignment.topRight;
+  // Shift that keeps the menu clear of the screen edges.
+  Offset _shift = Offset.zero;
   bool _closing = false;
 
   @override
@@ -236,13 +260,22 @@ class _BloomMenuState extends State<_BloomMenu>
     if (box == null || !box.hasSize) return;
     FocusManager.instance.primaryFocus?.unfocus();
     final screen = MediaQuery.sizeOf(context);
-    final center = box.localToGlobal(box.size.center(Offset.zero));
+    final safe = MediaQuery.paddingOf(context);
+    final at = box.localToGlobal(Offset.zero) & box.size;
+    final center = at.center;
+    final right = center.dx > screen.width / 2;
+    final up = center.dy > screen.height / 2;
     setState(() {
       _entries = widget.entries();
       _trigger = box.size;
-      _corner = Alignment(
-        center.dx > screen.width / 2 ? 1 : -1,
-        center.dy > screen.height / 2 ? 1 : -1,
+      _corner = Alignment(right ? 1 : -1, up ? 1 : -1);
+      _shift = Offset(
+        right
+            ? min(0, screen.width - _kEdgeGap - at.right)
+            : max(0, _kEdgeGap - at.left),
+        up
+            ? min(0, screen.height - safe.bottom - _kEdgeGap - at.bottom)
+            : max(0, safe.top + _kEdgeGap - at.top),
       );
       _closing = false;
     });
@@ -330,6 +363,7 @@ class _BloomMenuState extends State<_BloomMenu>
             link: _link,
             targetAnchor: _corner,
             followerAnchor: _corner,
+            offset: _shift,
             child: PopScope(
               canPop: false,
               onPopInvokedWithResult: (didPop, _) {
@@ -357,6 +391,8 @@ class _BloomMenuState extends State<_BloomMenu>
     // Center of a box of [s] tucked into the anchored corner.
     Offset tucked(Size s) =>
         _corner.alongSize(size) - _corner.alongSize(s) + s.center(Offset.zero);
+    // The trigger sits off the corner by the edge shift.
+    final from = tucked(_trigger) - _shift;
     final grow = Curves.easeOut.transform((t / 0.45).clamp(0.0, 1.0));
     final square = Curves.easeInOut.transform(
       ((t - 0.3) / 0.7).clamp(0.0, 1.0),
@@ -364,7 +400,7 @@ class _BloomMenuState extends State<_BloomMenu>
     final full = min(size.width, size.height);
     final d = lerpDouble(_trigger.shortestSide, full, grow)!;
     final circle = Rect.fromCenter(
-      center: Offset.lerp(tucked(_trigger), tucked(Size.square(full)), grow)!,
+      center: Offset.lerp(from, tucked(Size.square(full)), grow)!,
       width: d,
       height: d,
     );
@@ -416,8 +452,10 @@ class _BloomMenuState extends State<_BloomMenu>
   }
 
   Widget _rows(BuildContext context) {
-    final color = Theme.of(context).colorScheme.onSurface;
-    final style = TextStyle(fontSize: 14, color: color);
+    // The Material popup's text and icon styles, so both menus read alike.
+    final theme = Theme.of(context);
+    final color = theme.colorScheme.onSurface;
+    final style = theme.textTheme.labelLarge?.copyWith(color: color);
     return Material(
       type: MaterialType.transparency,
       child: Padding(
@@ -438,7 +476,11 @@ class _BloomMenuState extends State<_BloomMenu>
                       child: Row(
                         children: [
                           if (e.icon case final icon?) ...[
-                            Icon(icon, size: 20, color: color),
+                            Icon(
+                              icon,
+                              size: 20,
+                              color: theme.colorScheme.onSurfaceVariant,
+                            ),
                             const SizedBox(width: 12),
                           ],
                           Expanded(

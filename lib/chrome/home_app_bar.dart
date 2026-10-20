@@ -284,26 +284,49 @@ class HomeAppBar {
           ChromeMenuEntry(
             l10n.threads,
             () => threads.showThreadsDashboard(tab: 1),
+            icon: Icons.forum_outlined,
           ),
         if (!spec.places(ChromeAction.mentions))
-          ChromeMenuEntry(l10n.sectionMentions, _onBellPressed),
+          ChromeMenuEntry(
+            l10n.sectionMentions,
+            _onBellPressed,
+            icon: Icons.notifications_none,
+          ),
         if (!spec.places(ChromeAction.viewMenu)) ...[
-          ChromeMenuEntry(l10n.search, toggleSearch),
-          ChromeMenuEntry(l10n.toggleFullscreen, toggleFullscreen),
-          ChromeMenuEntry(l10n.toggleInput, toggleInput),
+          ChromeMenuEntry(l10n.search, toggleSearch, icon: Icons.search),
+          ChromeMenuEntry(
+            l10n.toggleFullscreen,
+            toggleFullscreen,
+            icon: Icons.fullscreen,
+          ),
+          ChromeMenuEntry(
+            l10n.toggleInput,
+            toggleInput,
+            icon: Icons.keyboard_outlined,
+          ),
           if (_showStreamToggle())
             ChromeMenuEntry(
               streamPlayer.isActive ? l10n.hideStream : l10n.showStream,
               toggleStream,
+              icon: Icons.live_tv_outlined,
             ),
         ],
         ChromeMenuEntry(
           l10n.uploadMedia,
           () => uploadController.pickAndUpload(context),
+          icon: Icons.upload_outlined,
         ),
-        ChromeMenuEntry(l10n.reloadEmotes, reloadEmotes),
-        ChromeMenuEntry(l10n.reconnect, reconnect),
-        ChromeMenuEntry(l10n.settingEditLayout, editLayout),
+        ChromeMenuEntry(
+          l10n.reloadEmotes,
+          reloadEmotes,
+          icon: Icons.emoji_emotions_outlined,
+        ),
+        ChromeMenuEntry(l10n.reconnect, reconnect, icon: Icons.sync),
+        ChromeMenuEntry(
+          l10n.settingEditLayout,
+          editLayout,
+          icon: Icons.dashboard_customize_outlined,
+        ),
       ],
       buttonStyle: const ButtonStyle(),
       trigger: const Icon(Icons.more_vert),
