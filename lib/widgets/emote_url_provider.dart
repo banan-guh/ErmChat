@@ -1018,7 +1018,8 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
       final index = codec.frameCount > 0
           ? _streamEmitted % codec.frameCount
           : _streamEmitted;
-      _captureFrame(index, frame.image, duration);
+      // A single frame has no loop to capture; the emitted frame is enough.
+      if (codec.frameCount > 1) _captureFrame(index, frame.image, duration);
       // Drop frames whose window already elapsed so playback tracks the wall
       // clock instead of the decode rate. Bounded to one cycle per tick so a
       // background gap cannot burst-decode the whole animation.
