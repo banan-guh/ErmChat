@@ -62,6 +62,15 @@ class Archive {
     }
   }
 
+  /// Bytes of chat that kept days hold, or null when the store is closed.
+  Future<int?> keptBytes() async {
+    try {
+      return await (await store)?.keptBytes();
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// Sets how long chat stays and prunes to it now. Never throws.
   Future<void> setRetention(Duration retention) async {
     ArchiveStore.retention = retention;

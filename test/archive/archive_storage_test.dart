@@ -895,7 +895,8 @@ void main() {
         minutes: const {},
       );
     }
-    await store.addPin('busy', hour[0], hour[0] + 1000, 'day');
+    await store.addPin('busy', hour[2], hour[2] + 1000, 'day');
+    expect(await store.keptBytes(), 1000);
     ArchiveStore.channelCapBytes = 1500;
     addTearDown(() => ArchiveStore.channelCapBytes = null);
     expect(await store.prune(now), 1, reason: 'one block past the cap');
@@ -904,8 +905,8 @@ void main() {
         for (final b in await store.blocksAround('busy', hour[1], 10, 10))
           b.startTs,
       ],
-      [hour[0], hour[2]],
-      reason: 'the newest block and the pinned one stay under a cap',
+      [hour[1], hour[2]],
+      reason: 'a kept day stays and never counts toward the cap',
     );
     await store.close();
   });

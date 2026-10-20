@@ -171,6 +171,7 @@ class _ArchiveLimitsTileState extends ConsumerState<ArchiveLimitsTile> {
   final _index = [_days.length - 1, _mb.length - 1];
   final _saved = [_days.length - 1, _mb.length - 1];
   int? _sizeBytes;
+  int? _keptBytes;
 
   @override
   void initState() {
@@ -196,8 +197,17 @@ class _ArchiveLimitsTileState extends ConsumerState<ArchiveLimitsTile> {
       _index[0] = _saved[0] = _snap(_days, prefs.archiveRetentionDays);
       _index[1] = _saved[1] = _snap(_mb, prefs.archiveChannelCapMb);
     });
+    await _readSizes();
+  }
+
+  Future<void> _readSizes() async {
     final size = await Archive.defaultSizeBytes();
-    if (mounted) setState(() => _sizeBytes = size);
+    final kept = await ref.read(archiveProvider)?.keptBytes();
+    if (!mounted) return;
+    setState(() {
+      _sizeBytes = size;
+      _keptBytes = kept;
+    });
   }
 
   String _label(AppLocalizations l, int slider, int index) => slider == 0
@@ -234,12 +244,9 @@ class _ArchiveLimitsTileState extends ConsumerState<ArchiveLimitsTile> {
       await prefs.setArchiveChannelCapMb(_mb[index]);
       await archive?.setChannelCap(Archive.capBytes(_mb[index]));
     }
-    final size = await Archive.defaultSizeBytes();
     if (!mounted) return;
-    setState(() {
-      _saved[slider] = index;
-      _sizeBytes = size;
-    });
+    setState(() => _saved[slider] = index);
+    await _readSizes();
   }
 
   Widget _slider(Setting setting, int slider, int choices) {
@@ -275,6 +282,10 @@ class _ArchiveLimitsTileState extends ConsumerState<ArchiveLimitsTile> {
     final l = context.l10n;
     final theme = Theme.of(context);
     final size = _sizeBytes;
+    final kept = _keptBytes ?? 0;
+    final note = theme.textTheme.bodySmall?.copyWith(
+      color: theme.colorScheme.onSurfaceVariant,
+    );
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -284,10 +295,11 @@ class _ArchiveLimitsTileState extends ConsumerState<ArchiveLimitsTile> {
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
             child: Text(
-              l.archiveSize(DataUsageScreen.format(size)),
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
+              [
+                l.archiveSize(DataUsageScreen.format(size)),
+                if (kept > 0) l.archiveKeptSize(DataUsageScreen.format(kept)),
+              ].join('. '),
+              style: note,
             ),
           ),
       ],

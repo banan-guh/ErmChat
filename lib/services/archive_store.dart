@@ -1649,9 +1649,24 @@ class ArchiveStore {
   /// while live (the channel parted, so no poll saw it end).
   static const Duration staleLive = Duration(days: 1);
 
+  /// SQL true when a kept day overlaps the `blocks` row.
+  static const _pinnedBlock =
+      'SELECT 1 FROM pins p WHERE p.channel = blocks.channel '
+      'AND p.start_ts <= blocks.end_ts AND p.end_ts >= blocks.start_ts';
+
+  /// Bytes of chat that kept days hold.
+  Future<int> keptBytes() async {
+    final rows = await _db.rawQuery(
+      'SELECT COALESCE(SUM(length(data)), 0) AS n FROM blocks '
+      'WHERE EXISTS ($_pinnedBlock)',
+    );
+    return (rows.first['n'] as num).toInt();
+  }
+
   /// Deletes blocks, minute counts, moderation, reply roots and ended
   /// broadcasts older than [retention] relative to [now], then each
-  /// channel's oldest blocks past [channelCapBytes]. Pinned ranges stay.
+  /// channel's oldest blocks past [channelCapBytes]. Pinned ranges stay
+  /// and do not count toward the cap.
   /// Broadcasts left open past [staleLive] end at their channel's last
   /// stored row; a poll that sees one live opens it again. Returns blocks
   /// deleted.
@@ -1661,9 +1676,7 @@ class ArchiveStore {
     final cap = channelCapBytes;
     return _db.transaction((txn) async {
       var deleted = await txn.rawDelete(
-        'DELETE FROM blocks WHERE end_ts < ? AND NOT EXISTS ('
-        'SELECT 1 FROM pins p WHERE p.channel = blocks.channel '
-        'AND p.start_ts <= blocks.end_ts AND p.end_ts >= blocks.start_ts)',
+        'DELETE FROM blocks WHERE end_ts < ? AND NOT EXISTS ($_pinnedBlock)',
         [cutoff],
       );
       await txn.rawDelete(
@@ -1700,25 +1713,25 @@ class ArchiveStore {
         [stale, stale],
       );
       if (cap == null) return deleted;
+      // Kept days are the user's own and never count toward the cap.
       final over = await txn.rawQuery(
-        'SELECT channel FROM blocks GROUP BY channel '
-        'HAVING SUM(length(data)) > ?',
+        'SELECT channel FROM blocks WHERE NOT EXISTS ($_pinnedBlock) '
+        'GROUP BY channel HAVING SUM(length(data)) > ?',
         [cap],
       );
       for (final row in over) {
         final channel = row['channel'] as String;
         final blocks = await txn.rawQuery(
-          'SELECT id, length(data) AS size, EXISTS ('
-          'SELECT 1 FROM pins p WHERE p.channel = blocks.channel '
-          'AND p.start_ts <= blocks.end_ts AND p.end_ts >= blocks.start_ts'
-          ') AS pinned FROM blocks WHERE channel = ? ORDER BY end_ts DESC',
+          'SELECT id, length(data) AS size FROM blocks '
+          'WHERE channel = ? AND NOT EXISTS ($_pinnedBlock) '
+          'ORDER BY end_ts DESC',
           [channel],
         );
         var kept = 0;
         final drop = <int>[];
         for (final b in blocks) {
           kept += b['size'] as int;
-          if (kept > cap && b['pinned'] == 0) drop.add(b['id'] as int);
+          if (kept > cap) drop.add(b['id'] as int);
         }
         for (var i = 0; i < drop.length; i += 500) {
           final ids = drop.skip(i).take(500);
@@ -1726,10 +1739,12 @@ class ArchiveStore {
             'DELETE FROM blocks WHERE id IN (${ids.join(',')})',
           );
         }
-        // The rail shows no activity older than the rows that remain.
+        // The rail shows no activity older than the rows that remain, kept
+        // days aside.
         await txn.rawDelete(
           'DELETE FROM minute_counts WHERE channel = ? AND minute < ('
-          'SELECT min(start_ts) / 60000 FROM blocks WHERE channel = ?'
+          'SELECT min(start_ts) / 60000 FROM blocks WHERE channel = ? '
+          'AND NOT EXISTS ($_pinnedBlock)'
           ') AND NOT EXISTS (SELECT 1 FROM pins p WHERE p.channel = ? '
           'AND p.start_ts <= minute_counts.minute * 60000 + 59999 '
           'AND p.end_ts >= minute_counts.minute * 60000)',
