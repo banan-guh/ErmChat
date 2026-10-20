@@ -42,13 +42,13 @@ double expectedGapMessages({
 
 /// Whether to fetch the whole gap: [fetched] newest messages plus
 /// [expectedMissing] must fit robotty's buffer, judged with [mode]'s margin.
-/// Chat rates swing about twofold, so Low wants a clear fit and High tries
-/// up to well past the buffer.
+/// Chat rates swing about twofold. Low's margin is tuned so few fetches
+/// come back short, and High tries up to well past the buffer.
 bool shouldFetchGap(GapFill mode, int fetched, double expectedMissing) {
   final total = fetched + expectedMissing;
   return switch (mode) {
     GapFill.off => false,
-    GapFill.low => total <= robottyBuffer * 0.55,
+    GapFill.low => total <= robottyBuffer * 0.85,
     GapFill.high => total <= robottyBuffer * 1.8,
   };
 }

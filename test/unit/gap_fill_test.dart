@@ -60,7 +60,8 @@ void main() {
     final cases = [
       (GapFill.off, 100, 0.0, false),
       (GapFill.low, 100, 300.0, true),
-      (GapFill.low, 100, 500.0, false),
+      (GapFill.low, 100, 500.0, true),
+      (GapFill.low, 100, 700.0, false),
       (GapFill.high, 100, 500.0, true),
       (GapFill.high, 100, 1300.0, true),
       (GapFill.high, 100, 1500.0, false),
@@ -199,7 +200,7 @@ void main() {
     expect(
       low.wasted / low.fetches,
       lessThan(0.05),
-      reason: 'low fetches only on a clear fit',
+      reason: 'low rarely fetches short',
     );
     expect(high.wasted, greaterThanOrEqualTo(low.wasted));
   });
