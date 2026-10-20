@@ -101,7 +101,16 @@ class ChatViewBridge {
   });
 
   final String mentionsChannel;
-  final void Function(String, String, {Color? accent, String? messageId})
+
+  /// Writes a system row. [keep] archives it too: moderation, notices and
+  /// set changes stay in history, connection and send status do not.
+  final void Function(
+    String,
+    String, {
+    Color? accent,
+    String? messageId,
+    bool keep,
+  })
   onSystemMessage;
 
   /// Connect-state rows; the kernel folds them and supplies their text.
@@ -265,6 +274,20 @@ class ChatConnectionManager {
     eventSub: config.services.eventSub,
   );
 
+  /// [ChatViewBridge.onSystemMessage] for rows history keeps.
+  void _keptSystemMessage(
+    String channel,
+    String text, {
+    Color? accent,
+    String? messageId,
+  }) => config.bridge.onSystemMessage(
+    channel,
+    text,
+    accent: accent,
+    messageId: messageId,
+    keep: true,
+  );
+
   // Single moderation ingest owner: IRC echoes and the EventSub
   // channel.moderate stream both route here, so precedence and the analytics,
   // feed, and system-line emission happen once per real action.
@@ -272,7 +295,7 @@ class ChatConnectionManager {
     chat: config.chat,
     session: config.session,
     isModerationActive: eventSubTopics.isModerationActive,
-    onSystemMessage: config.bridge.onSystemMessage,
+    onSystemMessage: _keptSystemMessage,
     onAnalyticsModeration: config.sinks.onAnalyticsModeration,
     onArchiveModeration: config.sinks.onArchiveModeration,
     onSelfTimeoutArmed: _sender.armTimeout,
@@ -296,7 +319,7 @@ class ChatConnectionManager {
     chat: config.chat,
     topics: eventSubTopics,
     moderation: _moderation,
-    onSystemMessage: config.bridge.onSystemMessage,
+    onSystemMessage: _keptSystemMessage,
     onHypeTrain: config.sinks.onHypeTrain,
     onPoll: config.sinks.onPoll,
     onPrediction: config.sinks.onPrediction,
@@ -307,7 +330,7 @@ class ChatConnectionManager {
   late final SevenTvConsumer _sevenTvConsumer = SevenTvConsumer(
     emoteManager: config.services.emoteManager,
     sevenTvClient: config.services.sevenTvClient,
-    onSystemMessage: config.bridge.onSystemMessage,
+    onSystemMessage: _keptSystemMessage,
     strings: config.bridge.strings,
   );
 
@@ -384,7 +407,7 @@ class ChatConnectionManager {
     getSharedChatMode: config.sinks.getSharedChatMode,
     isModerationActive: (channel) => eventSubTopics.isModerationActive(channel),
     isJoinFailureNotified: _channelSetup.isJoinFailureNotified,
-    onSystemMessage: config.bridge.onSystemMessage,
+    onSystemMessage: _keptSystemMessage,
     strings: config.bridge.strings,
     onAnalyticsMessage: config.sinks.onAnalyticsMessage,
     onArchiveMessage: config.sinks.onArchiveMessage,

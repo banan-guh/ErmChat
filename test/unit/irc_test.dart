@@ -475,7 +475,8 @@ ChatConnectionManager _makeConn({
       session: session,
       bridge: ChatViewBridge(
         mentionsChannel: '@mentions',
-        onSystemMessage: (c, t, {Color? accent, String? messageId}) {},
+        onSystemMessage:
+            (c, t, {Color? accent, String? messageId, bool keep = false}) {},
         onConnStatus: (c, s) {},
         getSelectedChannel: () => null,
         getMaxMessagesPerChannel: () => maxMessages,
@@ -497,7 +498,7 @@ ChatConnectionManager _makeReconnectConn({
   List<String>? channels,
   Map<String, List<TwitchMessage>>? channelMessages,
   Map<String, String>? chatStatus,
-  void Function(String, String, {Color? accent, String? messageId})?
+  void Function(String, String, {Color? accent, String? messageId, bool keep})?
   onSystemMessage,
   void Function(String, SystemLine)? onConnStatus,
   String? currentUserLogin,
@@ -551,7 +552,8 @@ ChatConnectionManager _makeReconnectConn({
       bridge: ChatViewBridge(
         mentionsChannel: '@mentions',
         onSystemMessage:
-            onSystemMessage ?? (c, t, {Color? accent, String? messageId}) {},
+            onSystemMessage ??
+            (c, t, {Color? accent, String? messageId, bool keep = false}) {},
         onConnStatus: onConnStatus ?? (c, s) {},
         getSelectedChannel: () => null,
         getMaxMessagesPerChannel: () => 100,
@@ -2403,9 +2405,10 @@ void main() {
         auth: auth,
         chat: chat,
         onReconnected: () {},
-        onSystemMessage: (c, t, {Color? accent, String? messageId}) {
-          if (t.startsWith('Login expired')) expired.add(t);
-        },
+        onSystemMessage:
+            (c, t, {Color? accent, String? messageId, bool keep = false}) {
+              if (t.startsWith('Login expired')) expired.add(t);
+            },
         client: http_testing.MockClient(
           (request) async => http.Response(
             '{"data":[{"id":"999","login":"test","display_name":"Test"}]}',
@@ -2461,8 +2464,9 @@ void main() {
         userStore: UserStore(),
         chat: Chat(),
         session: Session(),
-        onSystemMessage: (c, t, {Color? accent, String? messageId}) =>
-            messages.add(t),
+        onSystemMessage:
+            (c, t, {Color? accent, String? messageId, bool keep = false}) =>
+                messages.add(t),
         connectionStateNotifier: ValueNotifier(0),
         ensureCurrentUser: (_) async => null,
       );
@@ -2508,8 +2512,9 @@ void main() {
         userStore: UserStore(),
         chat: Chat(),
         session: Session(),
-        onSystemMessage: (c, t, {Color? accent, String? messageId}) =>
-            messages.add(t),
+        onSystemMessage:
+            (c, t, {Color? accent, String? messageId, bool keep = false}) =>
+                messages.add(t),
         connectionStateNotifier: ValueNotifier(0),
         ensureCurrentUser: (_) async => null,
       );
@@ -2561,8 +2566,9 @@ void main() {
         eventSub: _NoopEventSub(),
         irc: irc,
         ircRead: readConn,
-        onSystemMessage: (c, t, {Color? accent, String? messageId}) =>
-            system.add(t),
+        onSystemMessage:
+            (c, t, {Color? accent, String? messageId, bool keep = false}) =>
+                system.add(t),
         currentUserLogin: 'alice',
         auth: auth,
         chat: chat,
@@ -2672,7 +2678,7 @@ void main() {
         userStore: UserStore(),
         chat: chat,
         session: session,
-        onSystemMessage: (c, t, {accent, messageId}) {},
+        onSystemMessage: (c, t, {accent, messageId, keep = false}) {},
         connectionStateNotifier: notifier,
         ensureCurrentUser: (_) async => null,
       );
@@ -2793,7 +2799,7 @@ void main() {
       userStore: UserStore(),
       chat: chat,
       session: session,
-      onSystemMessage: (c, t, {accent, messageId}) {},
+      onSystemMessage: (c, t, {accent, messageId, keep = false}) {},
       connectionStateNotifier: notifier,
       ensureCurrentUser: (_) async => null,
     );
@@ -2915,9 +2921,10 @@ void main() {
         ircRead: ircRead,
         onReconnected: () {},
         channelMessages: <String, List<TwitchMessage>>{},
-        onSystemMessage: (c, t, {Color? accent, String? messageId}) {
-          systemMessages.add((c, t, accent));
-        },
+        onSystemMessage:
+            (c, t, {Color? accent, String? messageId, bool keep = false}) {
+              systemMessages.add((c, t, accent));
+            },
       );
       conn.chat.ensure('test');
       await conn.connect();
@@ -3063,9 +3070,10 @@ void main() {
         ircRead: ircRead,
         onReconnected: () {},
         channelMessages: channelMessages,
-        onSystemMessage: (c, t, {Color? accent, String? messageId}) {
-          systemMessages.add((c, t, accent));
-        },
+        onSystemMessage:
+            (c, t, {Color? accent, String? messageId, bool keep = false}) {
+              systemMessages.add((c, t, accent));
+            },
       );
       await conn.connect();
       irc.emitConnected();
@@ -3422,8 +3430,9 @@ void main() {
             onReconnected: () {},
             channels: const [],
             currentUserLogin: 'testuser',
-            onSystemMessage: (c, t, {Color? accent, String? messageId}) =>
-                empty.add((c, t)),
+            onSystemMessage:
+                (c, t, {Color? accent, String? messageId, bool keep = false}) =>
+                    empty.add((c, t)),
             onConnStatus: (c, s) => empty.add((c, s)),
           );
           conn2.connect();

@@ -573,7 +573,10 @@ class Messages {
     final row = TwitchMessage(
       login: '',
       text: text,
-      messageId: messageId ?? 'sys_${_nextSystemMessageId++}',
+      // The time keeps ids unique across launches, as the archive dedups.
+      messageId:
+          messageId ??
+          'sys_${now().microsecondsSinceEpoch}_${_nextSystemMessageId++}',
       isSystem: true,
       systemAccent: accent,
       channel: channel,

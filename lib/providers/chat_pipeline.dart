@@ -24,20 +24,26 @@ final chatPipelineProvider = Provider<ChatConnectionManager>((ref) {
   final archive = ref.read(archiveProvider);
 
   // Kernel system-line write plus truncate, shared by every system sink.
+  // [keep] archives the row it inserted, the newest one.
   void writeSystem(
     String channel,
     String text, {
     Color? accent,
     String? messageId,
+    bool keep = false,
   }) {
-    chat
-        .channelFor(channel)
-        ?.addSystemMessage(
+    final target = chat.channelFor(channel);
+    final added =
+        target?.addSystemMessage(
           text,
           accent: accent,
           messageId: messageId,
           maxMessages: ref.read(maxMessagesPerChannelProvider),
-        );
+        ) ??
+        false;
+    if (added && keep) {
+      archive?.writer.add(channel, target!.messages.items.first);
+    }
   }
 
   final manager = ChatConnectionManager(
@@ -64,8 +70,14 @@ final chatPipelineProvider = Provider<ChatConnectionManager>((ref) {
         mentionsChannel: '@mentions',
         getSelectedChannel: () => ref.read(selectedChannelProvider),
         getMaxMessagesPerChannel: () => ref.read(maxMessagesPerChannelProvider),
-        onSystemMessage: (channel, text, {accent, messageId}) =>
-            writeSystem(channel, text, accent: accent, messageId: messageId),
+        onSystemMessage: (channel, text, {accent, messageId, keep = false}) =>
+            writeSystem(
+              channel,
+              text,
+              accent: accent,
+              messageId: messageId,
+              keep: keep,
+            ),
         onConnStatus: (channel, status) => chat
             .channelFor(channel)
             ?.addConnStatus(
