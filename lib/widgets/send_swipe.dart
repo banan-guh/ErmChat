@@ -1,13 +1,15 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../l10n/l10n.dart';
 
-/// Hold-and-swipe menu on a send button. Holding shows a rail up to a hub
-/// circle far above the button and a second rail across the screen to the
-/// actions. An action runs only while the thumb rests on it. Releasing a
-/// hold that never moved runs [onRecall] instead.
+/// Hold-and-swipe menu on a send button. Holding shows a path up to a hub
+/// above the button, then across the screen to the actions. The thumb only
+/// moves along the path, and an action runs only while the thumb rests in
+/// its zone. Releasing a hold that never moved runs [onRecall] instead.
 class SendSwipe extends StatefulWidget {
   const SendSwipe({
     super.key,
@@ -39,43 +41,63 @@ class SendSwipe extends StatefulWidget {
 }
 
 class _SendSwipeState extends State<SendSwipe> {
-  // The hub sits this share of the screen above the button, so a stray drag
-  // never reaches it.
-  static const _riseShare = 0.4;
-  static const _minRise = 220.0;
+  static const _riseShare = 0.28;
+  static const _minRise = 180.0;
   static const _hubRadius = 26.0;
   static const _actionRadius = 30.0;
   // Actions sit this far in from the screen edge across from the button.
   static const _edgeInset = 44.0;
   static const _thumbSize = 32.0;
   static const _railWidth = 6.0;
-  // How far the finger may stray from a rail before the thumb derails.
-  static const _railSlack = 36.0;
+  // How far the finger may stray from the path and still drive the thumb.
+  static const _pathSlack = 56.0;
+  // How far one move may advance along the path. A bigger jump cuts a
+  // corner, which counts as leaving the path.
+  static const _maxAdvance = 80.0;
+  // Rejoining after leaving may land only this far past the thumb.
+  static const _rejoinSlack = 16.0;
+  // The last share of the cross rail where spam runs.
+  static const _zoneShare = 0.25;
+  // Resting in the zone this long starts spam, so passing through never does.
+  static const _charge = Duration(milliseconds: 250);
   // A hold that wanders less than this still counts as a still release.
   static const _stillSlop = 24.0;
 
   final _portal = OverlayPortalController();
 
   Offset _origin = Offset.zero;
-  Offset _hub = Offset.zero;
-  Offset _spamAt = Offset.zero;
-  Offset _thumb = Offset.zero;
-  // Where the hold landed: the vertical slack counts from here, since the
-  // send target can be wider than the slack.
+  // The cross rail runs this way along x: -1 left, 1 right.
+  double _dir = -1;
+  double _rise = 0;
+  double _run = 0;
+  // Where the hold landed: the finger is read relative to it, since the send
+  // target can be wider than the slack.
   double _startX = 0;
+
+  // Distance along the path (up, then across) the thumb sits at.
+  double _progress = 0;
   bool _moved = false;
-  bool _armed = false;
+  bool _offPath = false;
+  bool _charging = false;
   bool _spamming = false;
-  // Left the path: nothing runs until the finger lifts.
-  bool _derailed = false;
+  Timer? _chargeTimer;
+
+  Offset get _hub => _origin - Offset(0, _rise);
+  Offset get _spamAt => _hub + Offset(_dir * _run, 0);
+  bool get _armed => _progress >= _rise;
+  double get _zoneStart => _rise + _run * (1 - _zoneShare);
+
+  Offset _pointAt(double s) => s <= _rise
+      ? _origin - Offset(0, s)
+      : _hub + Offset(_dir * (s - _rise), 0);
 
   RenderBox get _overlayBox =>
       Overlay.of(context).context.findRenderObject() as RenderBox;
 
   void _start(LongPressStartDetails d) {
     _moved = false;
-    _armed = false;
-    _derailed = false;
+    _offPath = false;
+    _progress = 0;
     if (!widget._hasMenu) return;
     final box = context.findRenderObject() as RenderBox;
     final overlay = _overlayBox;
@@ -83,81 +105,78 @@ class _SendSwipeState extends State<SendSwipe> {
     _origin = overlay.globalToLocal(
       box.localToGlobal(box.size.center(Offset.zero)),
     );
-    final rise = (area.height * _riseShare).clamp(_minRise, double.infinity);
     final top = MediaQuery.paddingOf(context).top + _hubRadius * 2;
-    _hub = Offset(_origin.dx, (_origin.dy - rise).clamp(top, _origin.dy));
+    final room = _origin.dy - top;
+    final want = area.height * _riseShare;
+    _rise = (want < _minRise ? _minRise : want).clamp(0.0, room < 0 ? 0 : room);
     // Across the screen from the button, so reaching it takes a full swipe.
-    _spamAt = Offset(
-      _origin.dx > area.width / 2 ? _edgeInset : area.width - _edgeInset,
-      _hub.dy,
-    );
-    _thumb = _origin;
+    _dir = _origin.dx > area.width / 2 ? -1 : 1;
+    final end = _dir < 0 ? _edgeInset : area.width - _edgeInset;
+    _run = (end - _origin.dx).abs();
     _startX = overlay.globalToLocal(d.globalPosition).dx;
     HapticFeedback.selectionClick();
     setState(_portal.show);
   }
 
-  // The thumb rides the rails: up the vertical one to the hub, then across
-  // the horizontal one to the actions. Straying off a rail derails it until
-  // the finger lifts, so only the drawn path reaches an action. Every other
-  // state follows from where the thumb sits, so backing off undoes it.
+  /// The path distance nearest [f], or null when [f] is off the path.
+  double? _project(Offset f) {
+    final up = (_origin.dy - f.dy).clamp(0.0, _rise);
+    final upDist = (f.dx - _origin.dx).abs();
+    final across = ((f.dx - _origin.dx) * _dir).clamp(0.0, _run);
+    final acrossDist = (f.dy - _hub.dy).abs();
+    final onUp = upDist <= _pathSlack;
+    final onAcross = acrossDist <= _pathSlack;
+    if (onUp && onAcross) {
+      // Near the corner both rails match; the closer one wins.
+      return upDist < acrossDist ? up : _rise + across;
+    }
+    if (onUp) return up;
+    if (onAcross) return _rise + across;
+    return null;
+  }
+
+  // The thumb follows the finger along the path. Leaving the path holds the
+  // thumb where it was, and the finger picks it back up anywhere at or
+  // before that point, never past it. Every other state follows from where
+  // the thumb sits, so backing off undoes it.
   void _move(LongPressMoveUpdateDetails d) {
     if (d.offsetFromOrigin.distance > _stillSlop) _moved = true;
-    if (!widget._hasMenu || _derailed) return;
-    final finger = _overlayBox.globalToLocal(d.globalPosition);
-    final lo = _spamAt.dx < _hub.dx ? _spamAt.dx : _hub.dx;
-    final hi = _spamAt.dx < _hub.dx ? _hub.dx : _spamAt.dx;
-    if (_armed) {
-      final offRail =
-          (finger.dy - _hub.dy).abs() > _railSlack ||
-          finger.dx < lo - _railSlack ||
-          finger.dx > hi + _railSlack;
-      // Back down the vertical rail from the hub disarms; any other exit
-      // derails.
-      final backDown =
-          (finger.dx - _startX).abs() <= _railSlack &&
-          finger.dy > _hub.dy + _hubRadius;
-      if (backDown) {
-        _armed = false;
-      } else if (offRail) {
-        _derail();
-        return;
-      }
+    if (!widget._hasMenu) return;
+    final local = _overlayBox.globalToLocal(d.globalPosition);
+    final s = _project(local - Offset(_startX - _origin.dx, 0));
+    final reach = _offPath ? _rejoinSlack : _maxAdvance;
+    final wasArmed = _armed;
+    if (s != null && s <= _progress + reach) {
+      _progress = s;
+      _offPath = false;
     } else {
-      if ((finger.dx - _startX).abs() > _railSlack ||
-          finger.dy < _hub.dy - _railSlack) {
-        _derail();
-        return;
-      }
-      if ((finger.dy - _hub.dy).abs() <= _hubRadius) {
-        _armed = true;
-        HapticFeedback.selectionClick();
-      }
+      _offPath = true;
     }
-    _thumb = _armed
-        ? Offset(finger.dx.clamp(lo, hi), _hub.dy)
-        : Offset(_origin.dx, finger.dy.clamp(_hub.dy, _origin.dy));
-    final onSpam = _armed && (_thumb - _spamAt).distance <= _actionRadius;
-    if (onSpam != _spamming) {
-      _spamming = onSpam;
-      if (onSpam) {
-        HapticFeedback.mediumImpact();
-        widget.onSpamStart!();
-      } else {
-        widget.onSpamStop!();
-      }
-    }
+    if (_armed && !wasArmed) HapticFeedback.selectionClick();
+    _updateSpam();
     setState(() {});
   }
 
-  void _derail() {
-    if (_spamming) widget.onSpamStop?.call();
-    _spamming = false;
-    _armed = false;
-    _derailed = true;
-    _thumb = _origin;
-    HapticFeedback.heavyImpact();
-    setState(() {});
+  void _updateSpam() {
+    final inZone = !_offPath && _progress >= _zoneStart;
+    if (inZone) {
+      if (_charging || _spamming) return;
+      _charging = true;
+      _chargeTimer = Timer(_charge, () {
+        _charging = false;
+        _spamming = true;
+        HapticFeedback.mediumImpact();
+        widget.onSpamStart!();
+        if (mounted) setState(() {});
+      });
+    } else {
+      _chargeTimer?.cancel();
+      _charging = false;
+      if (_spamming) {
+        _spamming = false;
+        widget.onSpamStop!();
+      }
+    }
   }
 
   void _end(LongPressEndDetails _) {
@@ -166,9 +185,12 @@ class _SendSwipeState extends State<SendSwipe> {
   }
 
   void _close() {
+    _chargeTimer?.cancel();
+    _charging = false;
     if (_spamming) widget.onSpamStop?.call();
     _spamming = false;
-    _armed = false;
+    _offPath = false;
+    _progress = 0;
     if (mounted) setState(_portal.hide);
   }
 
@@ -183,6 +205,7 @@ class _SendSwipeState extends State<SendSwipe> {
 
   @override
   void dispose() {
+    _chargeTimer?.cancel();
     if (_spamming) widget.onSpamStop?.call();
     super.dispose();
   }
@@ -209,22 +232,20 @@ class _SendSwipeState extends State<SendSwipe> {
       height: size,
       child: child,
     );
-    // A rail from a to b (one axis shared), as a rounded track.
-    Widget track(Offset a, Offset b, Color color) {
-      final rect = Rect.fromPoints(a, b).inflate(_railWidth / 2);
-      return Positioned.fromRect(
-        rect: rect,
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            color: color,
-            borderRadius: BorderRadius.circular(_railWidth / 2),
-          ),
+    // A straight rail from a to b, as a rounded track.
+    Widget track(Offset a, Offset b, Color color) => Positioned.fromRect(
+      rect: Rect.fromPoints(a, b).inflate(_railWidth / 2),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: color,
+          borderRadius: BorderRadius.circular(_railWidth / 2),
         ),
-      );
-    }
+      ),
+    );
 
     final idle = scheme.surfaceContainerHighest;
-    final fill = _derailed ? scheme.error : scheme.primary;
+    final fill = scheme.primary;
+    final thumb = _pointAt(_progress);
     return IgnorePointer(
       child: TweenAnimationBuilder<double>(
         tween: Tween(begin: 0, end: 1),
@@ -239,12 +260,11 @@ class _SendSwipeState extends State<SendSwipe> {
             ),
             track(_origin, _hub, idle),
             track(_hub, _spamAt, idle),
+            // The zone where spam runs.
+            track(_pointAt(_zoneStart), _spamAt, fill.withValues(alpha: 0.3)),
             // Progress fills behind the thumb, like a slider.
-            if (!_armed) track(_origin, _thumb, fill),
-            if (_armed) ...[
-              track(_origin, _hub, fill),
-              track(_hub, _thumb, fill),
-            ],
+            track(_origin, _pointAt(_progress.clamp(0, _rise)), fill),
+            if (_armed) track(_hub, thumb, fill),
             at(
               _hub,
               _hubRadius * 2,
@@ -254,12 +274,10 @@ class _SendSwipeState extends State<SendSwipe> {
                 child: DecoratedBox(
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    color: _armed ? scheme.primary : idle,
+                    color: _armed ? fill : idle,
                   ),
                   child: Icon(
-                    _spamAt.dx < _hub.dx
-                        ? Icons.chevron_left
-                        : Icons.chevron_right,
+                    _dir < 0 ? Icons.chevron_left : Icons.chevron_right,
                     color: _armed ? scheme.onPrimary : scheme.onSurfaceVariant,
                   ),
                 ),
@@ -270,7 +288,9 @@ class _SendSwipeState extends State<SendSwipe> {
               _actionRadius * 2,
               _SpamAction(
                 active: _spamming,
-                reachable: _armed,
+                charging: _charging,
+                charge: _charge,
+                reachable: _armed && !_offPath,
                 sends: widget.spamSends!,
               ),
             ),
@@ -286,21 +306,24 @@ class _SendSwipeState extends State<SendSwipe> {
                 ).textTheme.labelLarge?.copyWith(color: scheme.onSurface),
               ),
             ),
-            if (!_derailed)
-              at(
-                _thumb,
-                _thumbSize,
-                DecoratedBox(
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: scheme.primary,
-                    border: Border.all(color: scheme.onPrimary, width: 3),
-                    boxShadow: const [
-                      BoxShadow(blurRadius: 8, color: Colors.black45),
-                    ],
+            // Off the path the thumb waits, hollow, for the finger to return.
+            at(
+              thumb,
+              _thumbSize,
+              DecoratedBox(
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: _offPath ? scheme.surface : fill,
+                  border: Border.all(
+                    color: _offPath ? scheme.error : scheme.onPrimary,
+                    width: 3,
                   ),
+                  boxShadow: const [
+                    BoxShadow(blurRadius: 8, color: Colors.black45),
+                  ],
                 ),
               ),
+            ),
           ],
         ),
       ),
@@ -308,15 +331,20 @@ class _SendSwipeState extends State<SendSwipe> {
   }
 }
 
-/// The spam bubble: fills while held and pulses on every repeated send.
+/// The spam bubble: a ring fills while it charges, then the bubble fills
+/// and pulses on every repeated send.
 class _SpamAction extends StatelessWidget {
   const _SpamAction({
     required this.active,
+    required this.charging,
+    required this.charge,
     required this.reachable,
     required this.sends,
   });
 
   final bool active;
+  final bool charging;
+  final Duration charge;
 
   /// The thumb is on the rail that leads here.
   final bool reachable;
@@ -325,7 +353,7 @@ class _SpamAction extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    return ValueListenableBuilder<int>(
+    final bubble = ValueListenableBuilder<int>(
       valueListenable: sends,
       builder: (context, count, child) => TweenAnimationBuilder<double>(
         // A new key per send restarts the pulse.
@@ -356,6 +384,29 @@ class _SpamAction extends StatelessWidget {
               : scheme.onSurfaceVariant,
         ),
       ),
+    );
+    if (!charging) return bubble;
+    return Stack(
+      fit: StackFit.expand,
+      clipBehavior: Clip.none,
+      children: [
+        bubble,
+        Positioned.fill(
+          left: -5,
+          top: -5,
+          right: -5,
+          bottom: -5,
+          child: TweenAnimationBuilder<double>(
+            tween: Tween(begin: 0, end: 1),
+            duration: charge,
+            builder: (context, t, _) => CircularProgressIndicator(
+              value: t,
+              strokeWidth: 3,
+              color: scheme.primary,
+            ),
+          ),
+        ),
+      ],
     );
   }
 }
