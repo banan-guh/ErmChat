@@ -298,7 +298,7 @@ class _ArchiveLimitsTileState extends ConsumerState<ArchiveLimitsTile> {
               [
                 l.archiveSize(DataUsageScreen.format(size)),
                 if (kept > 0) l.archiveKeptSize(DataUsageScreen.format(kept)),
-              ].join('. '),
+              ].join(', '),
               style: note,
             ),
           ),

@@ -174,7 +174,7 @@
       }
     }
   },
-  "archiveKeptSize": "Kept days use {size} of it, outside the space per channel",
+  "archiveKeptSize": "kept days {size}",
   "@archiveKeptSize": {
     "placeholders": {
       "size": {
