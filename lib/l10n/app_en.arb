@@ -55,7 +55,6 @@
   },
   "spamSpeedPlain": "Normal",
   "spamSpeedMod": "Mod or VIP",
-  "sendSwipeOff": "Swipe up to spam is off",
   "settingMacros": "Command macros",
   "settingDoubleTapCopy": "Double-tap name to copy",
   "settingStayConnected": "Stay connected in background",

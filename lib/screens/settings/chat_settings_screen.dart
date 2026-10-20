@@ -344,22 +344,6 @@ class _SpamSpeedTileState extends State<_SpamSpeedTile> {
     return _over(ms, limit) ? '$text !' : text;
   }
 
-  void _offSnack() => ScaffoldMessenger.of(context)
-    ..hideCurrentSnackBar()
-    ..showSnackBar(
-      SnackBar(
-        content: Text(context.l10n.sendSwipeOff),
-        action: SnackBarAction(
-          label: context.l10n.turnOn,
-          onPressed: () async {
-            final prefs = await Prefs.load();
-            await prefs.setSendSwipeMenu(true);
-            PrefsStore.instance.notifyChanged();
-          },
-        ),
-      ),
-    );
-
   Widget _slider(
     AppLocalizations l, {
     required String role,
@@ -438,17 +422,8 @@ class _SpamSpeedTileState extends State<_SpamSpeedTile> {
       ),
       onTap: _openSheet,
     );
-    return SettingAnchor(
-      Setting.spamSpeed,
-      // Greyed while the menu is off; a tap says what to turn on.
-      child: widget.menuOn
-          ? tile
-          : GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onTap: _offSnack,
-              child: tile,
-            ),
-    );
+    // Greyed while the menu is off.
+    return SettingAnchor(Setting.spamSpeed, child: tile);
   }
 }
 
