@@ -1884,13 +1884,13 @@ void main() {
         );
         expect(
           await failing.effectiveTtlForTesting(),
-          const Duration(hours: 12),
+          const Duration(hours: 1),
         );
 
         final unconfigured = EmoteManager();
         expect(
           await unconfigured.effectiveTtlForTesting(),
-          const Duration(hours: 12),
+          const Duration(hours: 1),
         );
 
         final nothing = EmoteManager(
@@ -1933,7 +1933,7 @@ void main() {
         );
         expect(
           await highWifi.effectiveTtlForTesting(),
-          const Duration(hours: 12),
+          const Duration(hours: 1),
         );
       },
     );

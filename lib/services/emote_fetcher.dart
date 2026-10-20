@@ -60,7 +60,7 @@ class EmoteFetcher {
   // Refresh TTLs: emote caches are only refetched once they're older than
   // the TTL. Unmetered connections refresh every 12h; cellular gets 24h so
   // the rake uses less data.
-  static const _wifiTtl = Duration(hours: 12);
+  static const _wifiTtl = Duration(hours: 1);
   static const _mobileTtl = Duration(hours: 24);
   static const _connectivityProbeTtl = Duration(seconds: 60);
   static const _infiniteTtl = Duration(days: 365000);
