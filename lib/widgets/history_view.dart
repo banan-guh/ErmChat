@@ -317,14 +317,29 @@ class _HistoryViewState extends State<HistoryView> {
   /// Day numbers kept past retention, as of the last read.
   final ValueNotifier<Set<int>> _kept = ValueNotifier(const {});
 
-  /// Archive time the list last followed a playing VOD to.
-  DateTime? _followedTo;
+  /// The VOD time the list shows chat up to, while it replays a VOD.
+  DateTime? _replayAt;
 
-  /// The last VOD time followed to or seen, to tell a seek from playback.
+  /// The last VOD time seen, to tell a seek from playback.
   DateTime? _playedTo;
 
-  /// The user scrolled during a VOD: following waits for a seek or the jump
-  /// to newest.
+  /// Rows after the window's end, read ahead of the VOD. Oldest first.
+  List<TwitchMessage> _replayQueue = [];
+
+  /// The source has nothing after [_replayQueue].
+  bool _replayDone = false;
+  bool _replayReading = false;
+
+  /// A replay load is in flight; ticks wait for it. Counts loads, so only
+  /// the latest one clears it.
+  int _replayLoads = 0;
+  bool _replayJumping = false;
+
+  /// A jump elsewhere left the replay's rows: resuming reloads them.
+  bool _replayStale = false;
+
+  /// The user scrolled up during a VOD: the replay waits until they return
+  /// to the bottom or the VOD seeks.
   bool _replayPaused = false;
   bool _scrolled = false;
   String? _fmtLocale;
@@ -662,38 +677,173 @@ class _HistoryViewState extends State<HistoryView> {
     );
   }
 
-  /// Follows a playing VOD: shows the chat up to its time, moving on once it
-  /// has run [_followEvery] past the last stop or jumped back. Closing the
-  /// VOD returns to the newest row.
+  /// Replays chat with a playing VOD: the list shows chat up to the VOD's
+  /// time and takes in rows as playback reaches them, like live chat. A
+  /// seek reloads around the new time. Closing the VOD returns to the newest
+  /// row.
   void _onFollow() {
     final at = widget.actions?.follow.value;
-    final last = _followedTo;
     if (at == null) {
       _playedTo = null;
-      if (last != null) {
-        _followedTo = null;
-        _jumpToNewest();
-      }
+      if (_replayAt != null) _endReplay();
       return;
     }
-    if (at.channel != widget.channel || !mounted) return;
+    if (!mounted) return;
+    if (at.channel != widget.channel) {
+      // The VOD moved to another channel.
+      if (_replayAt != null) _endReplay();
+      return;
+    }
     final played = _playedTo;
     _playedTo = at.time;
-    if (played != null &&
-        at.time.difference(played).abs() > _followEvery ~/ 2) {
-      _replayPaused = false;
-    }
+    final seek = played != null && at.time.difference(played).abs() > _seekGap;
+    if (seek) _replayPaused = false;
     if (_replayPaused) return;
-    if (last != null &&
-        !at.time.isBefore(last) &&
-        at.time.difference(last) < _followEvery) {
-      return;
+    final shown = _replayAt;
+    // Far behind (back from a pause) reloads rather than reading every
+    // block in between.
+    if (shown == null ||
+        seek ||
+        _replayStale ||
+        at.time.isBefore(shown) ||
+        at.time.difference(shown) > _replayAhead) {
+      _startReplay(at.time);
+    } else {
+      _advanceReplay(at.time);
     }
-    _followedTo = at.time;
-    _jumpTo(at.time);
   }
 
-  static const _followEvery = Duration(seconds: 8);
+  /// A VOD time step larger than this is a seek, not playback. Ticks come
+  /// about once a second, twice that at double speed.
+  static const _seekGap = Duration(seconds: 4);
+
+  /// Rows the replay reads ahead of the VOD, at least.
+  static const _replayAhead = Duration(minutes: 2);
+
+  /// Loads the chat up to [time] and pins the list to its newest row.
+  void _startReplay(DateTime time) {
+    _replayAt = time;
+    _replayQueue = [];
+    _replayDone = false;
+    _replayReading = false;
+    _replayStale = false;
+    _replayJumping = true;
+    final load = ++_replayLoads;
+    final source = widget.source;
+    final rows = source.around(time).then((rows) {
+      if (load == _replayLoads) {
+        _replayQueue = [
+          for (final m in rows)
+            if (m.timestamp.isAfter(time)) m,
+        ];
+      }
+      return [
+        for (final m in rows)
+          if (!m.timestamp.isAfter(time)) m,
+      ];
+    });
+    _jumpTo(time, rows: rows, replay: true).whenComplete(() {
+      if (load == _replayLoads) _replayJumping = false;
+    });
+  }
+
+  /// Moves the replay on to [time]: queued rows it has reached join the
+  /// list, and the queue reads ahead when it runs short.
+  void _advanceReplay(DateTime time) {
+    _replayAt = time;
+    if (!_loaded || _loadingNewer || _replayJumping) return;
+    final due = <TwitchMessage>[];
+    var k = 0;
+    while (k < _replayQueue.length &&
+        !_replayQueue[k].timestamp.isAfter(time)) {
+      due.add(_replayQueue[k++]);
+    }
+    if (k > 0) _replayQueue = _replayQueue.sublist(k);
+    if (due.isNotEmpty) {
+      setState(() {
+        final w = _window;
+        final from = w.end;
+        w.append(due);
+        if (w.length > _cap) {
+          _trim();
+          _rebuildItems();
+        } else {
+          _appendItems(from);
+        }
+      });
+      _scheduleMaintain();
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        final p = _pos;
+        if (!mounted || p == null || !p.hasContentDimensions) return;
+        _snapToNewest(p);
+        _syncAtBottom(p);
+      });
+    }
+    final ahead = _replayQueue.isEmpty
+        ? null
+        : _replayQueue.last.timestamp.difference(time);
+    if (!_replayDone && (ahead == null || ahead < _replayAhead)) {
+      unawaited(_readReplay());
+    }
+  }
+
+  /// Reads the next block after the queue (or the window) into the queue.
+  Future<void> _readReplay() async {
+    if (_replayReading) return;
+    final epoch = _epoch;
+    final tail = _replayQueue.isNotEmpty
+        ? _replayQueue.last
+        : (_window.isEmpty ? null : _window[_window.end - 1]);
+    final edge = tail?.timestamp ?? _replayAt;
+    if (edge == null) return;
+    _replayReading = true;
+    try {
+      final held = {
+        for (final m in _replayQueue) HistoryWindow.keyOf(m),
+        for (var p = _window.first; p < _window.end; p++)
+          HistoryWindow.keyOf(_window[p]),
+      };
+      var rows = await widget.source.newer(edge);
+      var fresh = [
+        for (final m in rows)
+          if (!held.contains(HistoryWindow.keyOf(m))) m,
+      ];
+      if (fresh.isEmpty && rows.isNotEmpty) {
+        // A block of rows sharing the edge's time: step past it.
+        rows = await widget.source.newer(
+          edge.add(const Duration(milliseconds: 1)),
+        );
+        fresh = [
+          for (final m in rows)
+            if (!held.contains(HistoryWindow.keyOf(m))) m,
+        ];
+      }
+      if (!mounted || epoch != _epoch) return;
+      if (fresh.isEmpty) {
+        _replayDone = true;
+        return;
+      }
+      _replayQueue = [..._replayQueue, ...fresh];
+    } catch (e) {
+      logDebug('[hist!] ${widget.channel}: replay read failed: $e');
+    } finally {
+      if (epoch == _epoch) _replayReading = false;
+    }
+    final at = _replayAt;
+    if (mounted && epoch == _epoch && at != null) _advanceReplay(at);
+  }
+
+  /// Leaves the replay for the newest rows.
+  void _endReplay() {
+    _replayAt = null;
+    _replayStale = false;
+    _replayJumping = false;
+    _replayLoads++;
+    _replayQueue = [];
+    _replayPaused = false;
+    _replayReading = false;
+    _jumpTo(null);
+  }
 
   /// A time the next calendar open goes straight to (a stream's start).
   DateTime? _calendarTime;
@@ -720,6 +870,12 @@ class _HistoryViewState extends State<HistoryView> {
   /// Back to the newest row: a scroll when it is already near, otherwise a
   /// fresh window.
   void _jumpToNewest() {
+    final replay = _replayAt;
+    if (replay != null) {
+      _replayPaused = false;
+      _startReplay(widget.actions?.follow.value?.time ?? replay);
+      return;
+    }
     _replayPaused = false;
     _follow = true;
     _atBottom = true;
@@ -857,11 +1013,17 @@ class _HistoryViewState extends State<HistoryView> {
     double fraction = 0,
     double offset = 0,
     Future<List<TwitchMessage>>? rows,
+    bool replay = false,
   }) async {
     final epoch = ++_epoch;
     _loadingOlder = false;
     _loadingNewer = false;
-    _follow = time == null;
+    if (_replayAt != null && !replay && time != null) {
+      // A jump elsewhere during a VOD (a picked day) holds the replay.
+      _replayPaused = true;
+      _replayStale = true;
+    }
+    _follow = time == null || replay;
     _hold = null;
     final sw = Stopwatch()..start();
     final source = widget.source;
@@ -921,7 +1083,11 @@ class _HistoryViewState extends State<HistoryView> {
       }
       _liveAttached = false;
       if (time == null) _attachLive();
-      final target = time == null ? _window.end : _window.positionAt(time);
+      // A replay's rows end at the VOD's time, which is its newest row.
+      if (replay) _window.atNewest = true;
+      final target = time == null || replay
+          ? _window.end
+          : _window.positionAt(time);
       // At the oldest end the anchor moves newer so the older sliver stays
       // long enough; the list then rests on the oldest row.
       _anchor = _window.atOldest && target - _window.first < _minOlderItems
@@ -952,7 +1118,7 @@ class _HistoryViewState extends State<HistoryView> {
         _snapToNewest(p);
         _syncAtBottom(p);
         if (pinOldest) _settleAtEnd(oldest: true);
-        if (time == null) _settleAtEnd(oldest: false);
+        if (time == null || replay) _settleAtEnd(oldest: false);
       }
       _scheduleMaintain();
     });
@@ -1270,10 +1436,17 @@ class _HistoryViewState extends State<HistoryView> {
     if (n is ScrollUpdateNotification &&
         (n.dragDetails != null || _pointerScroll)) {
       _follow = atEnd;
-      if (widget.actions?.follow.value != null) _replayPaused = true;
+      if (_replayAt != null && !atEnd) _replayPaused = true;
     } else if (n is ScrollEndNotification) {
       if (atEnd) {
         _follow = true;
+        // Back at the bottom, the replay catches up with the VOD.
+        if (_replayPaused) {
+          _replayPaused = false;
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) _onFollow();
+          });
+        }
       } else if (_pos case final p? when _fits(p)) {
         _follow = true;
         WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -1391,8 +1564,18 @@ class _HistoryViewState extends State<HistoryView> {
       _loadingNewer = false;
     }
     if (_window[_window.end - 1].timestamp != edge) return;
+    // A replay shows nothing past the VOD's time.
+    final replay = _replayAt;
+    if (replay != null) {
+      rows = [
+        for (final m in rows)
+          if (!m.timestamp.isAfter(replay)) m,
+      ];
+    }
     setState(() {
-      if (_window.append(rows) == 0) _attachLive();
+      if (_window.append(rows) == 0) {
+        replay == null ? _attachLive() : _window.atNewest = true;
+      }
       _trim();
       _rebuildItems();
     });

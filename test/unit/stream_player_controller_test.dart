@@ -154,6 +154,18 @@ void main() {
           controller.vodPlayback.value?.time,
           start.add(const Duration(seconds: 90)),
         );
+        const late = Duration(hours: 47, minutes: 59, seconds: 59);
+        controller.watchVod('foo', '123', start, at: late);
+        expect(
+          controller.playerUrl('foo'),
+          contains('time=47h59m59s'),
+          reason: 'a 48h VOD seeks past a day in hours, not days',
+        );
+        expect(
+          controller.vodPlayback.value?.time,
+          start.add(late),
+          reason: 'two days in maps to two days of archive',
+        );
         controller.closeStream();
         expect(
           controller.vodPlayback.value,

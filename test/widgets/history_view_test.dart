@@ -182,6 +182,7 @@ Future<void> _pumpView(
   Map<String, Map<String?, Widget>>? tileCache,
   ValueNotifier<DateTime?>? jumpRequest,
   ValueNotifier<bool>? calendarRequest,
+  HistoryActions? actions,
 }) async {
   FakeHistory.loadDelay = Duration.zero;
   tester.view.physicalSize = const Size(400, 800);
@@ -212,6 +213,7 @@ Future<void> _pumpView(
           tileCache: tileCache,
           jumpRequest: jumpRequest,
           calendarRequest: calendarRequest,
+          actions: actions,
           atBottomNotifier: atBottom,
           live: live,
           liveVersion: liveVersion,
@@ -313,7 +315,97 @@ Finder _tile(String id) => find.byWidgetPredicate(
   (w) => w is ChatMessageTile && w.message.messageId == id,
 );
 
+/// Actions with only a VOD to follow.
+HistoryActions _vodActions(
+  ValueNotifier<({String channel, DateTime time})?> follow,
+) => HistoryActions(
+  keptDays: () async => const {},
+  keepDay: (_, _, _) async {},
+  findVod: (_) async => null,
+  thumbnails: () async => const {},
+  watchVod: (_, _) {},
+  follow: follow,
+);
+
 void main() {
+  testWidgets('a VOD replays its chat up to playback, through 48 hours', (
+    tester,
+  ) async {
+    // A row a minute for 50 hours, longer than any VOD.
+    final rows = [
+      for (var i = 0; i < 3000; i++)
+        TwitchMessage(
+          login: 'v',
+          text: 'vod $i',
+          messageId: 'v-$i',
+          channel: _ch,
+          timestamp: _ListSource.t0.add(Duration(minutes: i)),
+        ),
+    ];
+    DateTime at(int i, [int s = 0]) =>
+        rows[i].timestamp.add(Duration(seconds: s));
+    final follow = ValueNotifier<({String channel, DateTime time})?>(null);
+    addTearDown(follow.dispose);
+    await _pumpView(
+      tester,
+      source: _BlockSource(rows),
+      actions: _vodActions(follow),
+    );
+    await _settle(tester);
+    expect(_items(tester).keys, contains('v-2999'), reason: 'opens at newest');
+
+    // Plays from a row 47 hours in, ticking about once a second.
+    var t = at(2820, 5);
+    follow.value = (channel: _ch, time: t);
+    await _settle(tester);
+    expect(_items(tester).keys, contains('v-2820'));
+    expect(_tile('v-2821'), findsNothing, reason: 'nothing past playback');
+    for (var i = 0; i < 70; i++) {
+      t = t.add(const Duration(seconds: 1));
+      follow.value = (channel: _ch, time: t);
+      await tester.runAsync(() => Future<void>.delayed(Duration.zero));
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    await _settle(tester);
+    expect(
+      _items(tester).keys,
+      contains('v-2821'),
+      reason: 'playback reaching a row shows it at the bottom',
+    );
+    expect(_tile('v-2822'), findsNothing);
+
+    // A seek back loads around the new time.
+    t = at(100, 30);
+    follow.value = (channel: _ch, time: t);
+    await _settle(tester);
+    expect(_items(tester).keys, contains('v-100'), reason: 'seek back');
+    expect(_tile('v-101'), findsNothing);
+
+    // Scrolled up, the replay holds; back at the bottom it catches up.
+    await tester.drag(find.byType(CustomScrollView), const Offset(0, 300));
+    await _settle(tester);
+    for (var i = 0; i < 40; i++) {
+      t = t.add(const Duration(seconds: 1));
+      follow.value = (channel: _ch, time: t);
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    await _settle(tester);
+    expect(_tile('v-101'), findsNothing, reason: 'a reader above holds');
+    await tester.drag(find.byType(CustomScrollView), const Offset(0, -3000));
+    await _settle(tester);
+    follow.value = (channel: _ch, time: t.add(const Duration(seconds: 1)));
+    await _settle(tester);
+    expect(_items(tester).keys, contains('v-101'), reason: 'caught up');
+
+    follow.value = null;
+    await _settle(tester);
+    expect(
+      _items(tester).keys,
+      contains('v-2999'),
+      reason: 'closing the VOD returns to the newest row',
+    );
+  });
+
   testWidgets('live rows: follow pins newest, a paused reader stays still', (
     tester,
   ) async {

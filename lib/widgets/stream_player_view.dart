@@ -200,9 +200,26 @@ class _StreamPlayerViewState extends State<StreamPlayerView> {
           v.addEventListener(e, () => PlayState.postMessage(e));
         }
         if (location.search.includes('video=')) {
+          // The seekbar's label is the VOD position; currentTime ticks
+          // smoothly but may count from where the player loaded. Each new
+          // label resets the offset between them.
           let last = -1;
+          let offset = 0;
+          let label = '';
           v.addEventListener('timeupdate', () => {
-            const s = Math.floor(v.currentTime);
+            const el = document.querySelector(
+              '[data-a-target="player-seekbar-current-time"]');
+            const text = el ? el.textContent.trim() : '';
+            if (text && text !== label) {
+              label = text;
+              const parts = text.split(':').map(Number);
+              if (parts.length >= 2 && !parts.some(isNaN)) {
+                const at = parts.reduce((a, b) => a * 60 + b, 0);
+                const next = at - Math.floor(v.currentTime);
+                if (Math.abs(next - offset) >= 2) offset = next;
+              }
+            }
+            const s = Math.max(0, Math.floor(v.currentTime) + offset);
             if (s !== last) {
               last = s;
               VodTime.postMessage(String(s));
