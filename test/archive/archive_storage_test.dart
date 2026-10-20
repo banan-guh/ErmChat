@@ -1130,6 +1130,33 @@ void main() {
       [5, 4, 9],
       reason: 'minutes land in their five minute buckets, none lost',
     );
+
+    // A day kept past retention stays on the calendar.
+    final old = t0 - 60 * Duration.millisecondsPerDay;
+    await store.appendBlock(
+      channel: _channel,
+      startTs: old,
+      endTs: old + 60000,
+      count: 1,
+      data: ArchiveBlock.encode(const []),
+      minutes: {old ~/ 60000: 1},
+    );
+    await store.addPin(
+      _channel,
+      old,
+      old + Duration.millisecondsPerDay - 1,
+      ArchiveReader.dayPin,
+    );
+    final kept = await ArchiveHistorySource(
+      _channel,
+      reader,
+      now: () => _t0.add(const Duration(hours: 1)),
+    ).rail(streams);
+    expect(
+      kept!.from.millisecondsSinceEpoch,
+      old,
+      reason: 'a kept day older than retention vanished from the calendar',
+    );
     await store.close();
   });
 

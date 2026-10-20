@@ -51,9 +51,19 @@ class ArchiveHistorySource implements HistorySource {
   void Function() watchStreams(void Function() onChange) =>
       reader.streamsChanged.add(onChange);
 
+  /// How far back the calendar reaches: the retention window, or the oldest
+  /// kept day, which outlives it.
+  Future<DateTime> _since() async {
+    var from = _now().subtract(ArchiveStore.retention);
+    for (final day in await reader.keptDays(channel)) {
+      if (day.isBefore(from)) from = day;
+    }
+    return from;
+  }
+
   @override
-  Future<List<HistoryStream>> streams() =>
-      reader.streams(channel, _now().subtract(ArchiveStore.retention), _now());
+  Future<List<HistoryStream>> streams() async =>
+      reader.streams(channel, await _since(), _now());
 
   @override
   Future<ActivityRail?> rail(List<HistoryStream> streams) async {
@@ -61,7 +71,7 @@ class ArchiveHistorySource implements HistorySource {
     const bucket = ActivityRail.defaultBucket;
     final counts = await reader.minuteCounts(
       channel,
-      to.subtract(ArchiveStore.retention),
+      (await _since()).toUtc(),
       to,
       per: bucket,
     );
