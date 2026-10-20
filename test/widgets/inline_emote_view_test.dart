@@ -449,40 +449,60 @@ void main() {
     tester,
   ) async {
     addTearDown(() => EmoteUrlProvider.applyFrameRate(60));
-    const emote = Emote(
-      id: 'gif',
-      code: 'KappaGif',
-      meta: TwitchMeta(kind: TwitchEmoteKind.standard),
-      scales: {EmoteScale.medium: 'https://inline.test/gif.gif'},
-      isAnimated: true,
-    );
-    await tester.pumpWidget(
-      MaterialApp(
-        home: EmoteScaleResolver(
-          emote: emote,
-          surface: EmoteSurface.chat,
-          images: _ResolvingEmoteImages(),
-          width: 28,
-          height: 28,
-          lean: true,
+    // (case, emote): a catalog GIF, and a sub emote known only from the
+    // message tag, which reads as static but serves its GIF.
+    const cases = [
+      (
+        'catalog GIF',
+        Emote(
+          id: 'gif',
+          code: 'KappaGif',
+          meta: TwitchMeta(kind: TwitchEmoteKind.standard),
+          scales: {EmoteScale.medium: 'https://inline.test/gif.gif'},
+          isAnimated: true,
         ),
       ),
-    );
-    await tester.pump();
+      (
+        'tag-only sub emote',
+        Emote(
+          id: 'sub',
+          code: 'subHype',
+          meta: TwitchMeta(kind: TwitchEmoteKind.standard),
+          scales: {EmoteScale.large: 'https://inline.test/sub/default'},
+        ),
+      ),
+    ];
+    for (final (name, emote) in cases) {
+      EmoteUrlProvider.applyFrameRate(60);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: EmoteScaleResolver(
+            key: ValueKey(name),
+            emote: emote,
+            surface: EmoteSurface.chat,
+            images: _ResolvingEmoteImages(),
+            width: 28,
+            height: 28,
+            lean: true,
+          ),
+        ),
+      );
+      await tester.pump();
 
-    // Playing Twitch GIFs take the stock path, which only TickerMode pauses.
-    expect(find.byType(InlineEmoteView), findsNothing);
-    bool ticking() =>
-        TickerMode.valuesOf(tester.element(find.byType(Image))).enabled;
-    expect(ticking(), isTrue);
+      // Playing Twitch GIFs take the stock path, which only TickerMode pauses.
+      expect(find.byType(InlineEmoteView), findsNothing, reason: name);
+      bool ticking() =>
+          TickerMode.valuesOf(tester.element(find.byType(Image))).enabled;
+      expect(ticking(), isTrue, reason: name);
 
-    EmoteUrlProvider.applyFrameRate(0);
-    await tester.pump();
-    expect(ticking(), isFalse);
+      EmoteUrlProvider.applyFrameRate(0);
+      await tester.pump();
+      expect(ticking(), isFalse, reason: name);
 
-    EmoteUrlProvider.applyFrameRate(30);
-    await tester.pump();
-    expect(ticking(), isTrue);
+      EmoteUrlProvider.applyFrameRate(30);
+      await tester.pump();
+      expect(ticking(), isTrue, reason: name);
+    }
   });
 
   testWidgets('a cache evict does not spawn a second decoder for a live url', (

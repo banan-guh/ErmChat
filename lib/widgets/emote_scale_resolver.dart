@@ -162,7 +162,11 @@ class _EmoteScaleResolverState extends State<EmoteScaleResolver> {
           widget.errorWidget ??
           SizedBox(width: widget.width, height: widget.height),
     );
-    if (!widget.emote.isAnimated) return image;
+    // A Twitch emote known only from the message tag reads as static, but
+    // its URL serves the animated GIF when there is one.
+    final mayAnimate =
+        widget.emote.isAnimated || widget.emote.type == EmoteType.twitch;
+    if (!mayAnimate) return image;
     // Stock GIFs play on their own clock; TickerMode holds the current frame
     // while the custom loop is frozen (idle freeze).
     return ValueListenableBuilder<bool>(
