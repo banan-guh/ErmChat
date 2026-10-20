@@ -182,6 +182,11 @@ void main() {
         ('wss://example.com/ws', true),
         ('ws://100.101.102.103:8080/ws', true),
         ('ws://172.32.0.1/ws', false),
+        ('ws://mynas:8080/ws', true),
+        ('ws://[::1]:8080/ws', true),
+        ('ws://[fd12::1]/ws', true),
+        ('ws://[2001:db8::1]/ws', false),
+        ('ws://box.tail1234.ts.net/ws', true),
       ]) {
         expect(
           ProxyConfig(enabled: true, url: url).readWsUrl != null,

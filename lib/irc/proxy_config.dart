@@ -24,6 +24,18 @@ class ProxyConfig {
 
   static bool _isLocalHost(String host) {
     if (host == 'localhost' || host.endsWith('.local')) return true;
+    // A bare name (ws://mynas) only resolves on the local network, and
+    // MagicDNS names ride the tailnet.
+    if (!host.contains('.') && !host.contains(':')) return true;
+    if (host.endsWith('.ts.net')) return true;
+    if (host.contains(':')) {
+      // IPv6: loopback, unique local (fc00::/7) and link local (fe80::/10).
+      final h = host.toLowerCase();
+      return h == '::1' ||
+          h.startsWith('fc') ||
+          h.startsWith('fd') ||
+          RegExp(r'^fe[89ab]').hasMatch(h);
+    }
     final o = host.split('.').map(int.tryParse).toList();
     if (o.length != 4 || o.any((n) => n == null)) return false;
     final a = o[0]!, b = o[1]!;
