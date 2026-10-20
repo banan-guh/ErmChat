@@ -211,6 +211,9 @@ class TabbedLayout extends StatefulWidget {
 
 class TabbedLayoutState extends State<TabbedLayout>
     with TickerProviderStateMixin {
+  /// Row height in the channel dropdown: denser than a menu's default.
+  static const double _channelRowH = 40;
+
   // Pager is single writer: indicator, focus, selection derived one-way from its position.
   PageController? _pageController;
 
@@ -709,16 +712,28 @@ class TabbedLayoutState extends State<TabbedLayout>
                       PopupMenuButton<int>(
                         tooltip: context.l10n.pageChannels,
                         onSelected: _onTabTap,
-                        // Four rows plus the menu's padding, then it scrolls.
+                        // Opens on the current channel, scrolled to it.
+                        initialValue: _lastReportedIndex,
+                        // Six rows plus the menu's padding, then it scrolls.
                         constraints: const BoxConstraints(
-                          maxHeight: 4 * kMinInteractiveDimension + 16,
+                          maxHeight: 6 * _channelRowH + 16,
                         ),
                         itemBuilder: (_) => [
                           for (var i = 0; i < tabs.length; i++)
-                            CheckedPopupMenuItem(
+                            PopupMenuItem(
                               value: i,
-                              checked: i == _lastReportedIndex,
-                              child: Text(tabs[i]),
+                              height: _channelRowH,
+                              child: Row(
+                                children: [
+                                  SizedBox(
+                                    width: 32,
+                                    child: i == _lastReportedIndex
+                                        ? const Icon(Icons.done, size: 20)
+                                        : null,
+                                  ),
+                                  Flexible(child: Text(tabs[i])),
+                                ],
+                              ),
                             ),
                         ],
                         child: const Padding(
