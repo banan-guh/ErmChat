@@ -925,13 +925,26 @@ void main() {
       [day],
       reason: 'a pinned day reads back',
     );
-    await store.removePin(
+    // Kept seven hours behind UTC, released from the day it shows on here.
+    await store.addPin(
       _channel,
-      day,
-      DateTime.utc(2026, 8, 6, 23, 59).millisecondsSinceEpoch,
+      DateTime.utc(2026, 8, 7, 7).millisecondsSinceEpoch,
+      DateTime.utc(2026, 8, 8, 6, 59).millisecondsSinceEpoch,
       'day',
     );
-    expect(await store.pins(_channel), isEmpty);
+    for (final d in [6, 7]) {
+      await store.removePin(
+        _channel,
+        DateTime.utc(2026, 8, d).millisecondsSinceEpoch,
+        DateTime.utc(2026, 8, d, 23, 59).millisecondsSinceEpoch,
+        'day',
+      );
+    }
+    expect(
+      await store.pins(_channel),
+      isEmpty,
+      reason: 'a day kept in another time zone could never be released',
+    );
     expect(
       await store.prune(now),
       1,

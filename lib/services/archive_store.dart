@@ -711,12 +711,14 @@ class ArchiveStore {
         'kind': kind,
       }, conflictAlgorithm: ConflictAlgorithm.ignore);
 
-  /// Releases a pin made with [addPin], so retention covers the range again.
+  /// Releases the [kind] pins that start within [startTs] to [endTs], so
+  /// retention covers them again. A day kept in another time zone has other
+  /// bounds but still starts inside the day it shows on.
   Future<void> removePin(String channel, int startTs, int endTs, String kind) =>
       _db.delete(
         'pins',
-        where: 'channel = ? AND start_ts = ? AND end_ts = ? AND kind = ?',
-        whereArgs: [channel, startTs, endTs, kind],
+        where: 'channel = ? AND kind = ? AND start_ts BETWEEN ? AND ?',
+        whereArgs: [channel, kind, startTs, endTs],
       );
 
   /// The pins of [channel], as (start, end, kind).
