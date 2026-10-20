@@ -172,6 +172,7 @@ class ChromeThemeSpec {
     this.fieldEnd = const [FieldItem.send],
     this.sendAside = SendPlace.column,
     this.compact = false,
+    this.sendPulled = false,
     this.composer = ComposerStyle.island,
     this.busyBar = false,
   });
@@ -207,6 +208,10 @@ class ChromeThemeSpec {
   /// The island's button row hides while typing, leaving the field row.
   /// Only an [isIsland] layout can have it.
   final bool compact;
+
+  /// Send sits in the field only because [compact] put it there, so turning
+  /// compact off returns it to [sendAside]. Placing send clears it.
+  final bool sendPulled;
 
   final ComposerStyle composer;
 
@@ -299,10 +304,17 @@ class ChromeThemeSpec {
   /// A copy that obeys the field row's rules. It holds at most [fieldCap]
   /// buttons, and an action cut from it lands at the row's end. Leaving the
   /// island clears [compact]. Under [compact] send sits in the field, since
-  /// the row and the side column are gone while typing.
+  /// the row and the side column are gone while typing; without it, send
+  /// that compact pulled in goes back aside.
   ChromeThemeSpec fitted() {
+    final keepsCompact = compact && isIsland;
     final start = [...fieldStart];
     final end = [...fieldEnd];
+    var pulled = sendPulled && keepsCompact;
+    if (sendPulled && !keepsCompact) {
+      start.remove(FieldItem.send);
+      end.remove(FieldItem.send);
+    }
     final spill = <ChromeAction>[];
     void cutLast() {
       final cut = end.isNotEmpty ? end.removeLast() : start.removeLast();
@@ -312,18 +324,19 @@ class ChromeThemeSpec {
     while (start.length + end.length > fieldCap) {
       cutLast();
     }
-    final keepsCompact = compact && isIsland;
     if (keepsCompact &&
         !start.contains(FieldItem.send) &&
         !end.contains(FieldItem.send)) {
       if (start.length + end.length >= fieldCap) cutLast();
       end.add(FieldItem.send);
+      pulled = true;
     }
     return copyWith(
       fieldStart: start,
       fieldEnd: end,
       rowEnd: [...rowEnd, ...spill],
       compact: keepsCompact,
+      sendPulled: pulled,
     );
   }
 
@@ -455,6 +468,7 @@ class ChromeThemeSpec {
           : place == PartPlace.column
           ? SendPlace.column
           : sendAside,
+      sendPulled: part == ComposerPart.send ? false : sendPulled,
     );
   }
 
@@ -494,6 +508,7 @@ class ChromeThemeSpec {
     List<FieldItem>? fieldEnd,
     SendPlace? sendAside,
     bool? compact,
+    bool? sendPulled,
     ComposerStyle? composer,
     bool? busyBar,
   }) => ChromeThemeSpec(
@@ -507,6 +522,7 @@ class ChromeThemeSpec {
     fieldEnd: fieldEnd ?? this.fieldEnd,
     sendAside: sendAside ?? this.sendAside,
     compact: compact ?? this.compact,
+    sendPulled: sendPulled ?? this.sendPulled,
     composer: composer ?? this.composer,
     busyBar: busyBar ?? this.busyBar,
   );
@@ -525,6 +541,7 @@ class ChromeThemeSpec {
       if (islandFlush) 'F',
       if (composer == ComposerStyle.classic) 'Q',
       if (busyBar) 'B',
+      if (sendPulled) 'P',
     ].join();
     return [
       _prefix,
@@ -536,7 +553,8 @@ class ChromeThemeSpec {
       if (rowEnd.isNotEmpty) 'R=${actions(rowEnd)}',
       if (fieldStart.isNotEmpty) 'fs=${items(fieldStart)}',
       if (fieldEnd.isNotEmpty) 'fe=${items(fieldEnd)}',
-      's=${send.code}',
+      // Pulled send keeps where it goes back to.
+      's=${(sendPulled ? sendAside : send).code}',
       'c=${compact ? 1 : 0}',
       if (flags.isNotEmpty) 'f=$flags',
     ].join(';');
@@ -630,6 +648,7 @@ class ChromeThemeSpec {
           ? ComposerStyle.classic
           : ComposerStyle.island,
       busyBar: flags.contains('B'),
+      sendPulled: flags.contains('P'),
     ).fitted();
   }
 
@@ -653,6 +672,8 @@ class ChromeThemeSpec {
       listEquals(other.fieldEnd, fieldEnd) &&
       other.send == send &&
       other.compact == compact &&
+      other.sendPulled == sendPulled &&
+      (!sendPulled || other.sendAside == sendAside) &&
       other.composer == composer &&
       other.busyBar == busyBar;
 
@@ -668,6 +689,8 @@ class ChromeThemeSpec {
     Object.hashAll(fieldEnd),
     send,
     compact,
+    sendPulled,
+    sendPulled ? sendAside : null,
     composer,
     busyBar,
   );

@@ -226,6 +226,29 @@ void main() {
       isFalse,
       reason: 'a pasted compact edge-to-edge line is not compact',
     );
+    // Shipped bug: send stayed in the field when compact was turned off in
+    // a later edit, after a save forgot that compact had pulled it there.
+    for (final aside in [SendPlace.row, SendPlace.column]) {
+      final pulled = ChromeThemeSpec.blank
+          .copyWith(fieldEnd: [], sendAside: aside)
+          .copyWith(compact: true)
+          .fitted();
+      final saved = ChromeThemeSpec.decode(pulled.encode())!;
+      expect(
+        saved.copyWith(compact: false).fitted().send,
+        aside,
+        reason: 'compact off after a save returns send to $aside',
+      );
+      expect(
+        saved
+            .placePart(ComposerPart.send, PartPlace.fieldStart)
+            .copyWith(compact: false)
+            .fitted()
+            .send,
+        SendPlace.field,
+        reason: 'send placed by hand stays put',
+      );
+    }
     expect(ChromeTheme.ermchat.spec.compact, isFalse);
     expect(ChromeTheme.dankchat3.spec.compact, isFalse);
     expect(ChromeTheme.dankchat4.spec.compact, isFalse);
