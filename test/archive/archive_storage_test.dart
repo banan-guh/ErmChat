@@ -935,6 +935,33 @@ void main() {
     expect(await store.pruneIfDue(), 0, reason: 'at most hourly');
     now = now.add(const Duration(minutes: 31));
     expect(await store.pruneIfDue(), 1);
+
+    final hour = [
+      for (final h in [1, 2, 3])
+        DateTime.utc(2026, 9, 30, h).millisecondsSinceEpoch,
+    ];
+    for (final ts in hour) {
+      await store.appendBlock(
+        channel: 'busy',
+        startTs: ts,
+        endTs: ts + 1000,
+        count: 0,
+        data: Uint8List(1000),
+        minutes: const {},
+      );
+    }
+    await store.addPin('busy', hour[0], hour[0] + 1000, 'day');
+    ArchiveStore.channelCapBytes = 1500;
+    addTearDown(() => ArchiveStore.channelCapBytes = null);
+    expect(await store.prune(now), 1, reason: 'one block past the cap');
+    expect(
+      [
+        for (final b in await store.blocksAround('busy', hour[1], 10, 10))
+          b.startTs,
+      ],
+      [hour[0], hour[2]],
+      reason: 'the newest block and the pinned one stay under a cap',
+    );
     await store.close();
   });
 

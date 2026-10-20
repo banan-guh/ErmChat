@@ -123,6 +123,7 @@ class Setting {
     'recent_messages_limit' => l.settingRecentMessagesLimit,
     'recent_messages_source' => l.settingRecentMessagesSource,
     'archive_retention' => l.settingArchiveRetention,
+    'archive_channel_cap' => l.settingArchiveChannelCap,
     'gap_fill' => l.settingGapFill,
     'prefer_emotes' => l.settingPreferEmotes,
     'mention_format' => l.settingMentionFormat,
@@ -409,6 +410,12 @@ class Setting {
     'Keep chat for',
     SettingsPageId.history,
     keywords: 'archive retention storage days delete',
+  );
+  static const archiveChannelCap = Setting(
+    'archive_channel_cap',
+    'Space per channel',
+    SettingsPageId.history,
+    keywords: 'archive storage size megabytes mb limit delete',
   );
   static const recentMessagesSource = Setting(
     'recent_messages_source',
@@ -794,6 +801,7 @@ class Setting {
     recentMessagesSource,
     gapFill,
     archiveRetention,
+    archiveChannelCap,
     preferEmotes,
     mentionFormat,
     replyThreadRoot,

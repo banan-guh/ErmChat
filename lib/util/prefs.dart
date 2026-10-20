@@ -108,6 +108,7 @@ class Prefs {
   static const _kRecentMessagesLimit = 'recent_messages_limit';
   static const _kArchiveRetentionDays = 'archive_retention_days';
   static const _kHistoryGapFill = 'history_gap_fill';
+  static const _kArchiveChannelCapMb = 'archive_channel_cap_mb';
   static const _kReplyToThreadRoot = 'reply_to_thread_root';
   static const _kBackgroundService = 'background_service';
   static const _kMentionPush = 'mention_push';
@@ -156,6 +157,12 @@ class Prefs {
 
   Future<void> setArchiveRetentionDays(int value) =>
       _p.setInt(_kArchiveRetentionDays, value);
+
+  /// Megabytes of chat the archive keeps per channel, 0 for no cap.
+  int get archiveChannelCapMb => _p.getInt(_kArchiveChannelCapMb) ?? 0;
+
+  Future<void> setArchiveChannelCapMb(int value) =>
+      _p.setInt(_kArchiveChannelCapMb, value);
 
   /// A [GapFill] index: how hard history fills the gap since last seen.
   int get historyGapFill => _p.getInt(_kHistoryGapFill) ?? 1;
@@ -760,6 +767,7 @@ class Prefs {
     _kRecentMessagesLimit: int,
     _kArchiveRetentionDays: int,
     _kHistoryGapFill: int,
+    _kArchiveChannelCapMb: int,
     _kReplyToThreadRoot: bool,
     _kBackgroundService: bool,
     _kWhisperNotifications: bool,

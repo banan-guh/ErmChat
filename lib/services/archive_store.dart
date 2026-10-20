@@ -94,6 +94,10 @@ class ArchiveStore {
   /// How long chat stays before pruning. The History settings set it, and
   /// the history views read it for the range they offer.
   static Duration retention = defaultRetention;
+
+  /// Block bytes one channel may keep, or null for no cap. Pruning deletes
+  /// a channel's oldest blocks past it. The History settings set it.
+  static int? channelCapBytes;
   static const Duration pruneEvery = Duration(hours: 1);
 
   final Database _db;
@@ -1524,11 +1528,13 @@ class ArchiveStore {
   }
 
   /// Deletes blocks, minute counts, moderation and ended broadcasts older than
-  /// [retention] relative to [now], except those overlapping a pin. Returns blocks deleted.
+  /// [retention] relative to [now], then each channel's oldest blocks past
+  /// [channelCapBytes]. Pinned ranges stay. Returns blocks deleted.
   Future<int> prune(DateTime now) async {
     final cutoff = now.toUtc().subtract(retention).millisecondsSinceEpoch;
+    final cap = channelCapBytes;
     return _db.transaction((txn) async {
-      final deleted = await txn.rawDelete(
+      var deleted = await txn.rawDelete(
         'DELETE FROM blocks WHERE end_ts < ? AND NOT EXISTS ('
         'SELECT 1 FROM pins p WHERE p.channel = blocks.channel '
         'AND p.start_ts <= blocks.end_ts AND p.end_ts >= blocks.start_ts)',
@@ -1553,6 +1559,34 @@ class ArchiveStore {
         'AND p.start_ts <= moderation.to_ts AND p.end_ts >= moderation.from_ts)',
         [cutoff],
       );
+      if (cap == null) return deleted;
+      final over = await txn.rawQuery(
+        'SELECT channel FROM blocks GROUP BY channel '
+        'HAVING SUM(length(data)) > ?',
+        [cap],
+      );
+      for (final row in over) {
+        final channel = row['channel'] as String;
+        final blocks = await txn.rawQuery(
+          'SELECT id, length(data) AS size, EXISTS ('
+          'SELECT 1 FROM pins p WHERE p.channel = blocks.channel '
+          'AND p.start_ts <= blocks.end_ts AND p.end_ts >= blocks.start_ts'
+          ') AS pinned FROM blocks WHERE channel = ? ORDER BY end_ts DESC',
+          [channel],
+        );
+        var kept = 0;
+        final drop = <int>[];
+        for (final b in blocks) {
+          kept += b['size'] as int;
+          if (kept > cap && b['pinned'] == 0) drop.add(b['id'] as int);
+        }
+        for (var i = 0; i < drop.length; i += 500) {
+          final ids = drop.skip(i).take(500);
+          deleted += await txn.rawDelete(
+            'DELETE FROM blocks WHERE id IN (${ids.join(',')})',
+          );
+        }
+      }
       return deleted;
     });
   }

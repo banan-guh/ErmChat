@@ -35,9 +35,10 @@ class Archive {
 
   static Future<ArchiveStore?> _openDefault() async {
     try {
-      // The open prunes once, so the chosen retention applies before it.
-      final days = (await Prefs.load()).archiveRetentionDays;
-      ArchiveStore.retention = Duration(days: days);
+      // The open prunes once, so the chosen limits apply before it.
+      final prefs = await Prefs.load();
+      ArchiveStore.retention = Duration(days: prefs.archiveRetentionDays);
+      ArchiveStore.channelCapBytes = capBytes(prefs.archiveChannelCapMb);
       return await ArchiveStore.open(await defaultPath());
     } catch (e) {
       logDebug('[Archive] open failed: $e');
@@ -64,6 +65,17 @@ class Archive {
   /// Sets how long chat stays and prunes to it now. Never throws.
   Future<void> setRetention(Duration retention) async {
     ArchiveStore.retention = retention;
+    await _quiet((s) async {
+      await s.prune(DateTime.now());
+    });
+  }
+
+  /// Bytes for a per-channel cap of [mb] megabytes, null for 0 (no cap).
+  static int? capBytes(int mb) => mb > 0 ? mb * 1024 * 1024 : null;
+
+  /// Sets the per-channel cap and prunes to it now. Never throws.
+  Future<void> setChannelCap(int? bytes) async {
+    ArchiveStore.channelCapBytes = bytes;
     await _quiet((s) async {
       await s.prune(DateTime.now());
     });

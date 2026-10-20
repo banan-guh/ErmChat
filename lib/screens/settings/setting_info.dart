@@ -100,6 +100,11 @@ SettingHelp? settingHelp(Setting setting, AppLocalizations l) =>
         gain: l.helpArchiveRetentionGain,
         lose: l.helpArchiveRetentionLose,
       ),
+      'archive_channel_cap' => SettingHelp(
+        why: l.helpArchiveChannelCapWhy,
+        gain: l.helpArchiveChannelCapGain,
+        lose: l.helpArchiveChannelCapLose,
+      ),
       _ => null,
     };
 

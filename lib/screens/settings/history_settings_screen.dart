@@ -35,7 +35,7 @@ class HistorySettingsScreen extends StatelessWidget {
             const RecentMessagesLimitTile(),
             const GapFillTile(),
             SettingsSectionHeader(context.l10n.sectionArchive),
-            const ArchiveRetentionTile(),
+            const ArchiveLimitsTile(),
           ],
         ),
       ),
@@ -138,23 +138,26 @@ class RecentMessagesSourceTile extends StatelessWidget {
   );
 }
 
-/// How long the archive keeps chat, with its size on disk. Shortening it
-/// asks first, since older chat is deleted at once.
-class ArchiveRetentionTile extends ConsumerStatefulWidget {
-  const ArchiveRetentionTile({super.key});
+/// How long and how much chat the archive keeps, with its size on disk.
+/// Tightening a limit asks first, since older chat is deleted at once.
+class ArchiveLimitsTile extends ConsumerStatefulWidget {
+  const ArchiveLimitsTile({super.key});
 
-  /// The choices, in days.
+  /// The retention choices, in days.
   static const days = [1, 3, 7, 14, 30];
 
+  /// The per-channel choices, in MB. 0 is no cap, so it comes last.
+  static const megabytes = [10, 25, 50, 100, 250, 0];
+
   @override
-  ConsumerState<ArchiveRetentionTile> createState() =>
-      _ArchiveRetentionTileState();
+  ConsumerState<ArchiveLimitsTile> createState() => _ArchiveLimitsTileState();
 }
 
-class _ArchiveRetentionTileState extends ConsumerState<ArchiveRetentionTile> {
-  static const _days = ArchiveRetentionTile.days;
-  int _index = _days.indexOf(30);
-  int _saved = _days.indexOf(30);
+class _ArchiveLimitsTileState extends ConsumerState<ArchiveLimitsTile> {
+  static const _days = ArchiveLimitsTile.days;
+  static const _mb = ArchiveLimitsTile.megabytes;
+  final _index = [_days.length - 1, _mb.length - 1];
+  final _saved = [_days.length - 1, _mb.length - 1];
   int? _sizeBytes;
 
   @override
@@ -163,49 +166,96 @@ class _ArchiveRetentionTileState extends ConsumerState<ArchiveRetentionTile> {
     _load();
   }
 
-  Future<void> _load() async {
-    final prefs = await Prefs.load();
-    final size = await Archive.defaultSizeBytes();
-    if (!mounted) return;
-    // A stored value off the list snaps down to the nearest choice.
+  /// The largest choice at or below [value], so a stored value off the list
+  /// snaps down. 0 (no cap) ranks above every size.
+  static int _snap(List<int> choices, int value) {
+    int rank(int v) => v == 0 ? 1 << 30 : v;
     var index = 0;
-    for (var i = 0; i < _days.length; i++) {
-      if (_days[i] <= prefs.archiveRetentionDays) index = i;
+    for (var i = 0; i < choices.length; i++) {
+      if (rank(choices[i]) <= rank(value)) index = i;
     }
-    setState(() {
-      _index = index;
-      _saved = index;
-      _sizeBytes = size;
-    });
+    return index;
   }
 
-  Future<void> _commit(int index) async {
-    if (index == _saved) return;
+  Future<void> _load() async {
+    final prefs = await Prefs.load();
+    if (!mounted) return;
+    setState(() {
+      _index[0] = _saved[0] = _snap(_days, prefs.archiveRetentionDays);
+      _index[1] = _saved[1] = _snap(_mb, prefs.archiveChannelCapMb);
+    });
+    final size = await Archive.defaultSizeBytes();
+    if (mounted) setState(() => _sizeBytes = size);
+  }
+
+  String _label(AppLocalizations l, int slider, int index) => slider == 0
+      ? l.archiveDays(_days[index])
+      : _mb[index] == 0
+      ? l.archiveNoCap
+      : l.archiveMegabytes(_mb[index]);
+
+  Future<void> _commit(int slider, int index) async {
+    if (index == _saved[slider]) return;
     final l = context.l10n;
-    final days = _days[index];
-    if (index < _saved) {
+    if (index < _saved[slider]) {
+      final value = _label(l, slider, index);
       final ok = await confirmDialog(
         context,
         title: l.archiveShortenTitle,
-        message: l.archiveShortenMessage(l.archiveDays(days)),
+        message: slider == 0
+            ? l.archiveShortenMessage(value)
+            : l.archiveCapMessage(value),
         confirmLabel: l.archiveShortenConfirm,
         destructive: true,
       );
       if (!ok) {
-        if (mounted) setState(() => _index = _saved);
+        if (mounted) setState(() => _index[slider] = _saved[slider]);
         return;
       }
     }
     final archive = ref.read(archiveProvider);
     final prefs = await Prefs.load();
-    await prefs.setArchiveRetentionDays(days);
-    await archive?.setRetention(Duration(days: days));
+    if (slider == 0) {
+      await prefs.setArchiveRetentionDays(_days[index]);
+      await archive?.setRetention(Duration(days: _days[index]));
+    } else {
+      await prefs.setArchiveChannelCapMb(_mb[index]);
+      await archive?.setChannelCap(Archive.capBytes(_mb[index]));
+    }
     final size = await Archive.defaultSizeBytes();
     if (!mounted) return;
     setState(() {
-      _saved = index;
+      _saved[slider] = index;
       _sizeBytes = size;
     });
+  }
+
+  Widget _slider(Setting setting, int slider, int choices) {
+    final l = context.l10n;
+    final label = _label(l, slider, _index[slider]);
+    return SettingAnchor(
+      setting,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+            child: TextWithTrailing(
+              '${setting.titleOf(l)}: $label',
+              trailing: SettingInfoButton(setting),
+            ),
+          ),
+          Slider(
+            value: _index[slider].toDouble(),
+            max: (choices - 1).toDouble(),
+            divisions: choices - 1,
+            label: label,
+            onChanged: (v) => setState(() => _index[slider] = v.round()),
+            onChangeEnd: (v) => _commit(slider, v.round()),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -213,39 +263,22 @@ class _ArchiveRetentionTileState extends ConsumerState<ArchiveRetentionTile> {
     final l = context.l10n;
     final theme = Theme.of(context);
     final size = _sizeBytes;
-    return SettingAnchor(
-      Setting.archiveRetention,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _slider(Setting.archiveRetention, 0, _days.length),
+        _slider(Setting.archiveChannelCap, 1, _mb.length),
+        if (size != null)
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-            child: TextWithTrailing(
-              '${Setting.archiveRetention.titleOf(l)}: '
-              '${l.archiveDays(_days[_index])}',
-              trailing: const SettingInfoButton(Setting.archiveRetention),
-            ),
-          ),
-          Slider(
-            value: _index.toDouble(),
-            max: (_days.length - 1).toDouble(),
-            divisions: _days.length - 1,
-            label: l.archiveDays(_days[_index]),
-            onChanged: (v) => setState(() => _index = v.round()),
-            onChangeEnd: (v) => _commit(v.round()),
-          ),
-          if (size != null)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-              child: Text(
-                l.archiveSize(DataUsageScreen.format(size)),
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
-                ),
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+            child: Text(
+              l.archiveSize(DataUsageScreen.format(size)),
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
               ),
             ),
-        ],
-      ),
+          ),
+      ],
     );
   }
 }

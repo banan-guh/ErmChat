@@ -146,6 +146,7 @@
   "batteryPageIntro": "Everything that changes how hard ermchat works the screen, the graphics chip and the radio. Each setting also lives on its usual page, and a change here applies there too.",
   "historyPageIntro": "Where past messages come from and how many load when you join or reconnect.",
   "settingArchiveRetention": "Keep chat for",
+  "settingArchiveChannelCap": "Space per channel",
   "settingGapFill": "Fill gaps",
   "gapFillOff": "Off",
   "gapFillLow": "Low",
@@ -186,6 +187,26 @@
   "helpArchiveRetentionWhy": "How long chat stays on this device before it is deleted. Days you keep from the calendar stay regardless.",
   "helpArchiveRetentionGain": "Longer means more history to scroll back through and search.",
   "helpArchiveRetentionLose": "Longer takes more storage, and busy channels add up fastest.",
+  "archiveMegabytes": "{count} MB",
+  "@archiveMegabytes": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "archiveNoCap": "No limit",
+  "archiveCapMessage": "Each channel's oldest chat past {size} is deleted now. Days you keep from the calendar stay.",
+  "@archiveCapMessage": {
+    "placeholders": {
+      "size": {
+        "type": "String"
+      }
+    }
+  },
+  "helpArchiveChannelCapWhy": "The most chat one channel keeps on this device. Past it, that channel's oldest chat is deleted first. Days you keep from the calendar stay regardless.",
+  "helpArchiveChannelCapGain": "A busy channel can't crowd out storage, or push quiet channels' history out sooner.",
+  "helpArchiveChannelCapLose": "Busy channels keep fewer days than the retention allows.",
   "dataUsageSummary": "{total} this session, {mobile} on mobile data",
   "@dataUsageSummary": {
     "placeholders": {
