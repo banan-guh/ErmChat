@@ -225,7 +225,7 @@ class _EmoteImageState extends State<EmoteImage> {
   @override
   Widget build(BuildContext context) {
     final altUrl = _placeholderUrl;
-    return Image(
+    final image = Image(
       // Key by URL: recycled widgets must not show stale frames during load.
       key: ValueKey(widget.url),
       image: _providerFor(widget.url),
@@ -264,6 +264,13 @@ class _EmoteImageState extends State<EmoteImage> {
       },
       errorBuilder: (context, error, stack) =>
           widget.errorWidget ?? const Icon(Icons.broken_image, size: 20),
+    );
+    if (_custom) return image;
+    // Stock GIFs hold their frame through the idle freeze, like chat's.
+    return ValueListenableBuilder<bool>(
+      valueListenable: EmoteUrlProvider.playing,
+      builder: (_, on, child) => TickerMode(enabled: on, child: child!),
+      child: image,
     );
   }
 }
