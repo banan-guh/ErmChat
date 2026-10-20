@@ -3,16 +3,16 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import '../models/emote_fetch_tier.dart';
-import '../theme_colors.dart';
-import 'constants.dart';
 import 'chrome_theme.dart';
+import 'constants.dart';
 import 'layout_density.dart';
-import 'timestamp_formatter.dart';
+import 'settings.dart';
 
-/// Typed facade over [SharedPreferences]. Every persisted key string and
-/// default lives here, grouped by feature. Callers load one instance with
-/// [Prefs.load] and then read synchronously or write asynchronously.
+/// Typed facade over [SharedPreferences]. User settings live in [Settings],
+/// one line each with key and default; the accessors here for them are
+/// shorthands. Device state, caches, timestamps and per-account data keep
+/// their keys here. Callers load one instance with [Prefs.load] and then read
+/// synchronously or write asynchronously.
 ///
 /// The backing store is the plugin's cached instance; the wrapper is rebuilt
 /// per call on purpose so tests that swap `SharedPreferences.setMockInitialValues`
@@ -32,7 +32,7 @@ class Prefs {
 
   /// Loads the shared preferences store.
   static Future<Prefs> load() async {
-    final prefs = Prefs._(await SharedPreferences.getInstance());
+    final prefs = Prefs._(await Settings.bind());
     _loaded = prefs;
     if (!_installChecked) {
       _installChecked = true;
@@ -60,43 +60,22 @@ class Prefs {
   String? rawGetString(String key) => _p.getString(key);
 
   // ── App / theme ─────────────────────────────────────────────────────
-  static const _kThemeMode = 'themeMode';
-  static const _kLocale = 'locale';
-  static const _kKeepScreenOn = 'keep_screen_on';
-  static const _kTrueDark = 'true_dark';
-  static const _kAccentColor = 'accent_color';
   static const _kChannels = 'channels';
 
-  ThemeMode get themeMode {
-    final saved = _p.getString(_kThemeMode);
-    if (saved == null) return ThemeMode.system;
-    return ThemeMode.values.firstWhere(
-      (e) => e.name == saved,
-      orElse: () => ThemeMode.system,
-    );
-  }
+  ThemeMode get themeMode => Settings.themeMode.value;
+  Future<void> setThemeMode(ThemeMode value) => Settings.themeMode.set(value);
 
-  Future<void> setThemeMode(ThemeMode value) =>
-      _p.setString(_kThemeMode, value.name);
+  String? get locale => Settings.locale.value;
+  Future<void> setLocale(String? value) => Settings.locale.set(value);
 
-  /// App language tag (`es`, `pt_BR`); null follows the system.
-  String? get locale => _p.getString(_kLocale);
+  bool get keepScreenOn => Settings.keepScreenOn.value;
+  Future<void> setKeepScreenOn(bool value) => Settings.keepScreenOn.set(value);
 
-  Future<void> setLocale(String? value) =>
-      value == null ? _p.remove(_kLocale) : _p.setString(_kLocale, value);
+  bool get trueDark => Settings.trueDark.value;
+  Future<void> setTrueDark(bool value) => Settings.trueDark.set(value);
 
-  bool get keepScreenOn => _p.getBool(_kKeepScreenOn) ?? true;
-
-  Future<void> setKeepScreenOn(bool value) => _p.setBool(_kKeepScreenOn, value);
-
-  bool get trueDark => _p.getBool(_kTrueDark) ?? false;
-
-  Future<void> setTrueDark(bool value) => _p.setBool(_kTrueDark, value);
-
-  String get accentColor => _p.getString(_kAccentColor) ?? kDefaultAccent;
-
-  Future<void> setAccentColor(String value) =>
-      _p.setString(_kAccentColor, value);
+  String get accentColor => Settings.accentColor.value;
+  Future<void> setAccentColor(String value) => Settings.accentColor.set(value);
 
   List<String> get channels => _p.getStringList(_kChannels) ?? const [];
 
@@ -104,30 +83,9 @@ class Prefs {
       _p.setStringList(_kChannels, value);
 
   // ── Chat behavior ───────────────────────────────────────────────────
-  static const _kMaxMessagesPerChannel = 'max_messages_per_channel';
-  static const _kRecentMessagesLimit = 'recent_messages_limit';
-  static const _kArchiveRetentionDays = 'archive_retention_days';
-  static const _kHistoryGapFill = 'history_gap_fill';
-  static const _kArchiveChannelCapMb = 'archive_channel_cap_mb';
-  static const _kReplyToThreadRoot = 'reply_to_thread_root';
-  static const _kBackgroundService = 'background_service';
   static const _kMentionPush = 'mention_push';
   static const _kNotificationsPausedUntil = 'notifications_paused_until';
-  static const _kWhisperNotifications = 'whisper_notifications';
-  static const _kMentionNotifyForeground = 'mention_notify_foreground';
-  static const _kPreferEmotesFirst = 'prefer_emotes_first';
-  static const _kSendSwipeMenu = 'send_swipe_menu';
-  static const _kHaptics = 'haptics';
-  static const _kSpamIntervalMs = 'spam_interval_ms';
-  static const _kSpamIntervalModMs = 'spam_interval_mod_ms';
-  static const _kDoubleTapNameCopy = 'double_tap_name_copy';
-  static const _kSharedChatMode = 'shared_chat_mode';
-  static const _kSeventvNamePaints = 'seventv_name_paints';
-  static const _kShowInput = 'show_input';
-  static const _kMentionFormat = 'mention_format';
   static const _kWelcomeSeen = 'welcome_seen';
-  static const _kWhatsNewEnabled = 'whats_new_enabled';
-  static const _kUpdateCheckEnabled = 'update_check_enabled';
   static const _kLastSeenVersion = 'last_seen_version';
   static const _kLastUpdateCheck = 'last_update_check';
   static const _kNotifiedUpdate = 'notified_update_version';
@@ -136,59 +94,41 @@ class Prefs {
   static const _kArmWhatsNew = 'dev_arm_whats_new';
   static const _kArmUpdate = 'dev_arm_update';
   static const _kForceModActions = 'dev_force_mod_actions';
-  static const _kAnalyticsEnabled = 'analytics_enabled';
-  static const _kAnimateGifs = 'animate_gifs';
-  static const _kFfzEffects = 'ffz_effects';
-  static const _kBttvModifiers = 'bttv_modifiers';
-  static const _kAdaptiveEmoteFps = 'adaptive_emote_fps';
-  static const _kIdleEmoteFps = 'idle_emote_fps';
 
-  int get maxMessagesPerChannel =>
-      _p.getInt(_kMaxMessagesPerChannel) ?? kMaxMessagesPerChannelDefault;
-
+  int get maxMessagesPerChannel => Settings.maxMessagesPerChannel.value;
   Future<void> setMaxMessagesPerChannel(int value) =>
-      _p.setInt(_kMaxMessagesPerChannel, value);
+      Settings.maxMessagesPerChannel.set(value);
 
-  int get recentMessagesLimit =>
-      _p.getInt(_kRecentMessagesLimit) ?? kRecentMessagesLimitDefault;
-
+  int get recentMessagesLimit => Settings.recentMessagesLimit.value;
   Future<void> setRecentMessagesLimit(int value) =>
-      _p.setInt(_kRecentMessagesLimit, value);
+      Settings.recentMessagesLimit.set(value);
 
-  /// Days of chat the archive keeps, at most 30.
-  int get archiveRetentionDays =>
-      (_p.getInt(_kArchiveRetentionDays) ?? 30).clamp(1, 30);
-
+  int get archiveRetentionDays => Settings.archiveRetentionDays.value;
   Future<void> setArchiveRetentionDays(int value) =>
-      _p.setInt(_kArchiveRetentionDays, value);
+      Settings.archiveRetentionDays.set(value);
 
-  /// Megabytes of chat the archive keeps per channel, 0 for no cap.
-  int get archiveChannelCapMb => _p.getInt(_kArchiveChannelCapMb) ?? 0;
-
+  int get archiveChannelCapMb => Settings.archiveChannelCapMb.value;
   Future<void> setArchiveChannelCapMb(int value) =>
-      _p.setInt(_kArchiveChannelCapMb, value);
+      Settings.archiveChannelCapMb.set(value);
 
   /// Whether history sizes its fetch to the gap since the last message seen,
-  /// instead of loading [recentMessagesLimit]. Stored as an int, nonzero on.
-  bool get historyDynamicFetch => (_p.getInt(_kHistoryGapFill) ?? 1) != 0;
-
+  /// instead of loading [recentMessagesLimit].
+  bool get historyDynamicFetch => Settings.historyGapFill.value != 0;
   Future<void> setHistoryDynamicFetch(bool on) =>
-      _p.setInt(_kHistoryGapFill, on ? 1 : 0);
+      Settings.historyGapFill.set(on ? 1 : 0);
 
   /// Messages the first history fetch loads: the default page under dynamic
   /// fetch, which tops up the gap itself, else the manual count.
   int get historyFetchLimit =>
       historyDynamicFetch ? kRecentMessagesLimitDefault : recentMessagesLimit;
 
-  bool get replyToThreadRoot => _p.getBool(_kReplyToThreadRoot) ?? false;
-
+  bool get replyToThreadRoot => Settings.replyToThreadRoot.value;
   Future<void> setReplyToThreadRoot(bool value) =>
-      _p.setBool(_kReplyToThreadRoot, value);
+      Settings.replyToThreadRoot.set(value);
 
-  bool get backgroundService => _p.getBool(_kBackgroundService) ?? false;
-
+  bool get backgroundService => Settings.backgroundService.value;
   Future<void> setBackgroundService(bool value) =>
-      _p.setBool(_kBackgroundService, value);
+      Settings.backgroundService.set(value);
 
   bool get mentionPush => _p.getBool(_kMentionPush) ?? false;
 
@@ -201,100 +141,75 @@ class Prefs {
       ? _p.remove(_kNotificationsPausedUntil)
       : _p.setInt(_kNotificationsPausedUntil, value);
 
-  bool get mentionNotifyForeground =>
-      _p.getBool(_kMentionNotifyForeground) ?? false;
-
+  bool get mentionNotifyForeground => Settings.mentionNotifyForeground.value;
   Future<void> setMentionNotifyForeground(bool value) =>
-      _p.setBool(_kMentionNotifyForeground, value);
+      Settings.mentionNotifyForeground.set(value);
 
-  bool get whisperNotifications => _p.getBool(_kWhisperNotifications) ?? false;
-
+  bool get whisperNotifications => Settings.whisperNotifications.value;
   Future<void> setWhisperNotifications(bool value) =>
-      _p.setBool(_kWhisperNotifications, value);
+      Settings.whisperNotifications.set(value);
 
-  bool get preferEmotesFirst => _p.getBool(_kPreferEmotesFirst) ?? false;
-
+  bool get preferEmotesFirst => Settings.preferEmotesFirst.value;
   Future<void> setPreferEmotesFirst(bool value) =>
-      _p.setBool(_kPreferEmotesFirst, value);
+      Settings.preferEmotesFirst.set(value);
 
-  /// Haptic feedback on gestures, sends and menus.
-  bool get haptics => _p.getBool(_kHaptics) ?? true;
+  bool get haptics => Settings.haptics.value;
+  Future<void> setHaptics(bool value) => Settings.haptics.set(value);
 
-  Future<void> setHaptics(bool value) => _p.setBool(_kHaptics, value);
-
-  /// Swiping up from send opens the send menu (spam).
-  bool get sendSwipeMenu => _p.getBool(_kSendSwipeMenu) ?? false;
-
+  bool get sendSwipeMenu => Settings.sendSwipeMenu.value;
   Future<void> setSendSwipeMenu(bool value) =>
-      _p.setBool(_kSendSwipeMenu, value);
+      Settings.sendSwipeMenu.set(value);
 
-  /// Gap between spam sends in ms for a plain account; 0 paces
-  /// automatically under Twitch's limits.
-  int get spamIntervalMs => _p.getInt(_kSpamIntervalMs) ?? 0;
-
+  int get spamIntervalMs => Settings.spamIntervalMs.value;
   Future<void> setSpamIntervalMs(int value) =>
-      _p.setInt(_kSpamIntervalMs, value);
+      Settings.spamIntervalMs.set(value);
 
-  /// [spamIntervalMs] where you are broadcaster, mod or VIP.
-  int get spamIntervalModMs => _p.getInt(_kSpamIntervalModMs) ?? 0;
-
+  int get spamIntervalModMs => Settings.spamIntervalModMs.value;
   Future<void> setSpamIntervalModMs(int value) =>
-      _p.setInt(_kSpamIntervalModMs, value);
+      Settings.spamIntervalModMs.set(value);
 
-  bool get doubleTapNameCopy => _p.getBool(_kDoubleTapNameCopy) ?? false;
-
+  bool get doubleTapNameCopy => Settings.doubleTapNameCopy.value;
   Future<void> setDoubleTapNameCopy(bool value) =>
-      _p.setBool(_kDoubleTapNameCopy, value);
+      Settings.doubleTapNameCopy.set(value);
 
-  bool get showTimestamps => _p.getBool(kShowTimestampsPrefKey) ?? true;
-
+  bool get showTimestamps => Settings.showTimestamps.value;
   Future<void> setShowTimestamps(bool value) =>
-      _p.setBool(kShowTimestampsPrefKey, value);
+      Settings.showTimestamps.set(value);
 
-  String get timestampFormat =>
-      _p.getString(kTimestampFormatPrefKey) ?? kDefaultTimestampFormat;
-
+  String get timestampFormat => Settings.timestampFormat.value;
   Future<void> setTimestampFormat(String value) =>
-      _p.setString(kTimestampFormatPrefKey, value);
+      Settings.timestampFormat.set(value);
 
-  String get sharedChatMode => _p.getString(_kSharedChatMode) ?? 'spotlight';
-
+  String get sharedChatMode => Settings.sharedChatMode.value;
   Future<void> setSharedChatMode(String value) =>
-      _p.setString(_kSharedChatMode, value);
+      Settings.sharedChatMode.set(value);
 
-  /// 7TV name paints and badges.
-  bool get sevenTvCosmetics => _p.getBool(_kSeventvNamePaints) ?? false;
-
+  bool get sevenTvCosmetics => Settings.sevenTvCosmetics.value;
   Future<void> setSevenTvCosmetics(bool value) =>
-      _p.setBool(_kSeventvNamePaints, value);
+      Settings.sevenTvCosmetics.set(value);
 
-  bool get showInput => _p.getBool(_kShowInput) ?? true;
+  bool get showInput => Settings.showInput.value;
+  Future<void> setShowInput(bool value) => Settings.showInput.set(value);
 
-  Future<void> setShowInput(bool value) => _p.setBool(_kShowInput, value);
-
-  String get mentionFormat => _p.getString(_kMentionFormat) ?? '@name';
-
+  String get mentionFormat => Settings.mentionFormat.value;
   Future<void> setMentionFormat(String value) =>
-      _p.setString(_kMentionFormat, value);
+      Settings.mentionFormat.set(value);
 
   bool get welcomeSeen => _p.getBool(_kWelcomeSeen) ?? false;
 
-  bool get analyticsEnabled => _p.getBool(_kAnalyticsEnabled) ?? false;
-
-  Future<void> setAnalyticsEnabled(bool value) =>
-      _p.setBool(_kAnalyticsEnabled, value);
-
   Future<void> setWelcomeSeen(bool value) => _p.setBool(_kWelcomeSeen, value);
 
-  bool get whatsNewEnabled => _p.getBool(_kWhatsNewEnabled) ?? true;
+  bool get analyticsEnabled => Settings.analyticsEnabled.value;
+  Future<void> setAnalyticsEnabled(bool value) =>
+      Settings.analyticsEnabled.set(value);
 
+  bool get whatsNewEnabled => Settings.whatsNewEnabled.value;
   Future<void> setWhatsNewEnabled(bool value) =>
-      _p.setBool(_kWhatsNewEnabled, value);
+      Settings.whatsNewEnabled.set(value);
 
-  bool get updateCheckEnabled => _p.getBool(_kUpdateCheckEnabled) ?? true;
-
+  bool get updateCheckEnabled => Settings.updateCheckEnabled.value;
   Future<void> setUpdateCheckEnabled(bool value) =>
-      _p.setBool(_kUpdateCheckEnabled, value);
+      Settings.updateCheckEnabled.set(value);
 
   /// App version at the last launch; null before the first one.
   String? get lastSeenVersion => _p.getString(_kLastSeenVersion);
@@ -344,114 +259,73 @@ class Prefs {
   Future<void> setForceModActions(bool value) =>
       _p.setBool(_kForceModActions, value);
 
-  bool get animateGifs => _p.getBool(_kAnimateGifs) ?? true;
+  bool get animateGifs => Settings.animateGifs.value;
+  Future<void> setAnimateGifs(bool value) => Settings.animateGifs.set(value);
 
-  Future<void> setAnimateGifs(bool value) => _p.setBool(_kAnimateGifs, value);
+  bool get ffzEffects => Settings.ffzEffects.value;
+  Future<void> setFfzEffects(bool value) => Settings.ffzEffects.set(value);
 
-  bool get ffzEffects => _p.getBool(_kFfzEffects) ?? true;
-
-  Future<void> setFfzEffects(bool value) => _p.setBool(_kFfzEffects, value);
-
-  bool get bttvModifiers => _p.getBool(_kBttvModifiers) ?? true;
-
+  bool get bttvModifiers => Settings.bttvModifiers.value;
   Future<void> setBttvModifiers(bool value) =>
-      _p.setBool(_kBttvModifiers, value);
+      Settings.bttvModifiers.set(value);
 
-  bool get adaptiveEmoteFps => _p.getBool(_kAdaptiveEmoteFps) ?? true;
-
+  bool get adaptiveEmoteFps => Settings.adaptiveEmoteFps.value;
   Future<void> setAdaptiveEmoteFps(bool value) =>
-      _p.setBool(_kAdaptiveEmoteFps, value);
+      Settings.adaptiveEmoteFps.set(value);
 
-  /// Emote frame rate while idle under adaptive, 0 to 60; 0 freezes.
-  int get idleEmoteFps => _p.getInt(_kIdleEmoteFps) ?? 30;
-
-  Future<void> setIdleEmoteFps(int value) => _p.setInt(_kIdleEmoteFps, value);
+  int get idleEmoteFps => Settings.idleEmoteFps.value;
+  Future<void> setIdleEmoteFps(int value) => Settings.idleEmoteFps.set(value);
 
   // ── Customization ───────────────────────────────────────────────────
-  static const _kChatFontSize = 'chat_font_size';
-  static const _kChatFontWeight = 'chat_font_weight';
-  static const _kHighlightOpacity = 'highlight_opacity';
-  static const _kCheckeredMessages = 'checkered_messages';
-  static const _kLineSeparator = 'line_separator';
-  static const _kFastChannelSnap = 'fast_channel_snap';
-
-  double get chatFontSize => _p.getDouble(_kChatFontSize) ?? 14.0;
-
+  double get chatFontSize => Settings.chatFontSize.value;
   Future<void> setChatFontSize(double value) =>
-      _p.setDouble(_kChatFontSize, value);
+      Settings.chatFontSize.set(value);
 
-  /// Chat body weight as a CSS value: 400, 500, 600 or 700.
-  int get chatFontWeight => _p.getInt(_kChatFontWeight) ?? 400;
-
+  int get chatFontWeight => Settings.chatFontWeight.value;
   Future<void> setChatFontWeight(int value) =>
-      _p.setInt(_kChatFontWeight, value);
+      Settings.chatFontWeight.set(value);
 
-  double get highlightOpacity => _p.getDouble(_kHighlightOpacity) ?? 0.6;
-
+  double get highlightOpacity => Settings.highlightOpacity.value;
   Future<void> setHighlightOpacity(double value) =>
-      _p.setDouble(_kHighlightOpacity, value);
+      Settings.highlightOpacity.set(value);
 
-  bool get checkeredMessages => _p.getBool(_kCheckeredMessages) ?? false;
-
+  bool get checkeredMessages => Settings.checkeredMessages.value;
   Future<void> setCheckeredMessages(bool value) =>
-      _p.setBool(_kCheckeredMessages, value);
+      Settings.checkeredMessages.set(value);
 
-  bool get lineSeparator => _p.getBool(_kLineSeparator) ?? false;
-
+  bool get lineSeparator => Settings.lineSeparator.value;
   Future<void> setLineSeparator(bool value) =>
-      _p.setBool(_kLineSeparator, value);
+      Settings.lineSeparator.set(value);
 
-  bool get fastChannelSnap => _p.getBool(_kFastChannelSnap) ?? true;
-
+  bool get fastChannelSnap => Settings.fastChannelSnap.value;
   Future<void> setFastChannelSnap(bool value) =>
-      _p.setBool(_kFastChannelSnap, value);
+      Settings.fastChannelSnap.set(value);
 
-  static const _kLayoutDensity = 'layout_density';
-
-  LayoutDensity get layoutDensity => LayoutDensity.values.firstWhere(
-    (e) => e.name == _p.getString(_kLayoutDensity),
-    orElse: () => LayoutDensity.auto,
-  );
-
+  LayoutDensity get layoutDensity => Settings.layoutDensity.value;
   Future<void> setLayoutDensity(LayoutDensity value) =>
-      _p.setString(_kLayoutDensity, value.name);
+      Settings.layoutDensity.set(value);
 
   // ── Custom layout overrides ─────────────────────────────────────────
-  static const _kCustomLayoutEnabled = 'custom_layout_enabled';
-  static const _kOverrideTightComposer = 'override_tight_composer';
-  static const _kOverrideSheetActionRow = 'override_sheet_action_row';
-  static const _kOverrideCompactDensity = 'override_compact_density';
-
-  bool get customLayoutEnabled => _p.getBool(_kCustomLayoutEnabled) ?? false;
-
+  bool get customLayoutEnabled => Settings.customLayoutEnabled.value;
   Future<void> setCustomLayoutEnabled(bool value) =>
-      _p.setBool(_kCustomLayoutEnabled, value);
+      Settings.customLayoutEnabled.set(value);
 
-  bool get overrideTightComposer => _p.getBool(_kOverrideTightComposer) ?? true;
-
+  bool get overrideTightComposer => Settings.overrideTightComposer.value;
   Future<void> setOverrideTightComposer(bool value) =>
-      _p.setBool(_kOverrideTightComposer, value);
+      Settings.overrideTightComposer.set(value);
 
-  bool get overrideSheetActionRow =>
-      _p.getBool(_kOverrideSheetActionRow) ?? false;
-
+  bool get overrideSheetActionRow => Settings.overrideSheetActionRow.value;
   Future<void> setOverrideSheetActionRow(bool value) =>
-      _p.setBool(_kOverrideSheetActionRow, value);
+      Settings.overrideSheetActionRow.set(value);
 
-  bool get overrideCompactDensity =>
-      _p.getBool(_kOverrideCompactDensity) ?? true;
-
+  bool get overrideCompactDensity => Settings.overrideCompactDensity.value;
   Future<void> setOverrideCompactDensity(bool value) =>
-      _p.setBool(_kOverrideCompactDensity, value);
-
-  static const _kChromeTheme = 'chrome_theme';
-
-  static const _kCustomChromeThemes = 'chrome_themes_custom';
+      Settings.overrideCompactDensity.set(value);
 
   /// The selected theme: a preset's name, or `custom:<index>` into
   /// [customChromeThemes]. A stale key reads as the default preset.
   String get chromeThemeKey {
-    final saved = _p.getString(_kChromeTheme);
+    final saved = Settings.chromeTheme.value;
     return saved != null && _isChromeThemeKey(saved)
         ? saved
         : ChromeTheme.ermchat.name;
@@ -472,14 +346,14 @@ class Prefs {
   }
 
   Future<void> setChromeThemeKey(String value) =>
-      _p.setString(_kChromeTheme, value);
+      Settings.chromeTheme.set(value);
 
   /// Persists the fallback when the stored selection names no theme, so the
   /// picker cannot show a phantom selection after a theme is dropped.
   Future<void> _repairChromeThemeKey() async {
-    final saved = _p.getString(_kChromeTheme);
+    final saved = Settings.chromeTheme.value;
     if (saved != null && !_isChromeThemeKey(saved)) {
-      await _p.setString(_kChromeTheme, ChromeTheme.ermchat.name);
+      await Settings.chromeTheme.set(ChromeTheme.ermchat.name);
     }
   }
 
@@ -499,92 +373,63 @@ class Prefs {
 
   /// The user's themes, in the order they were made.
   List<ChromeThemeSpec> get customChromeThemes => [
-    for (final line in _p.getStringList(_kCustomChromeThemes) ?? const [])
+    for (final line in Settings.customChromeThemes.value)
       ?ChromeThemeSpec.decode(line),
   ];
 
   Future<void> setCustomChromeThemes(List<ChromeThemeSpec> themes) =>
-      _p.setStringList(_kCustomChromeThemes, [
-        for (final t in themes) t.encode(),
-      ]);
+      Settings.customChromeThemes.set([for (final t in themes) t.encode()]);
 
-  static const _kLiquidGlass = 'liquid_glass';
-
-  bool get liquidGlass => _p.getBool(_kLiquidGlass) ?? false;
+  bool get liquidGlass => Settings.liquidGlass.value;
 
   /// Glass only applies to floating-island chrome themes.
   bool get islandGlass => liquidGlass && chromeTheme.isIsland;
 
-  Future<void> setLiquidGlass(bool value) => _p.setBool(_kLiquidGlass, value);
+  Future<void> setLiquidGlass(bool value) => Settings.liquidGlass.set(value);
 
   // ── Inline embeds ───────────────────────────────────────────────────
-  bool get giphyInlineEnabled =>
-      _p.getBool(kGiphyInlineEnabledPrefKey) ?? kGiphyInlineEnabledDefault;
-
+  bool get giphyInlineEnabled => Settings.giphyInlineEnabled.value;
   Future<void> setGiphyInlineEnabled(bool value) =>
-      _p.setBool(kGiphyInlineEnabledPrefKey, value);
+      Settings.giphyInlineEnabled.set(value);
 
-  double get giphyInlineHeight =>
-      _p.getDouble(kGiphyInlineHeightPrefKey) ?? kGiphyInlineHeightDefault;
-
+  double get giphyInlineHeight => Settings.giphyInlineHeight.value;
   Future<void> setGiphyInlineHeight(double value) =>
-      _p.setDouble(kGiphyInlineHeightPrefKey, value);
+      Settings.giphyInlineHeight.set(value);
 
-  bool get imageEmbedEnabled =>
-      _p.getBool(kImageEmbedEnabledPrefKey) ?? kImageEmbedEnabledDefault;
-
+  bool get imageEmbedEnabled => Settings.imageEmbedEnabled.value;
   Future<void> setImageEmbedEnabled(bool value) =>
-      _p.setBool(kImageEmbedEnabledPrefKey, value);
+      Settings.imageEmbedEnabled.set(value);
 
-  double get imageEmbedHeight =>
-      _p.getDouble(kImageEmbedHeightPrefKey) ?? kImageEmbedHeightDefault;
-
+  double get imageEmbedHeight => Settings.imageEmbedHeight.value;
   Future<void> setImageEmbedHeight(double value) =>
-      _p.setDouble(kImageEmbedHeightPrefKey, value);
+      Settings.imageEmbedHeight.set(value);
 
   // ── Emotes ──────────────────────────────────────────────────────────
-  static const _kEmoteFetchTier = 'emote_fetch_tier';
-  static const _kEmoteFetchAuto = 'emote_fetch_auto';
-  static const _kEmoteCacheMb = 'emote_cache_mb';
-  static const _kEmoteProvidersDisabled = 'emote_providers_disabled';
-  static const _kEmoteAllowUnlisted7tv = 'emote_7tv_allow_unlisted';
-  static const _kEmoteAllowPersonal7tv = 'emote_7tv_allow_personal';
   static const _kRecentEmotes = 'recent_emotes';
 
-  int get emoteFetchTier =>
-      (_p.getInt(_kEmoteFetchTier) ?? EmoteFetchTier.high.index).clamp(
-        0,
-        EmoteFetchTier.values.length - 1,
-      );
-
+  int get emoteFetchTier => Settings.emoteFetchTier.value;
   Future<void> setEmoteFetchTier(int value) =>
-      _p.setInt(_kEmoteFetchTier, value);
+      Settings.emoteFetchTier.set(value);
 
-  int get emoteFetchAuto =>
-      _p.getInt(_kEmoteFetchAuto) ?? defaultEmoteFetchAutoMode.index;
-
+  int get emoteFetchAuto => Settings.emoteFetchAuto.value;
   Future<void> setEmoteFetchAuto(int value) =>
-      _p.setInt(_kEmoteFetchAuto, value);
+      Settings.emoteFetchAuto.set(value);
 
-  int get emoteCacheMb => _p.getInt(_kEmoteCacheMb) ?? defaultEmoteCacheMb;
-
-  Future<void> setEmoteCacheMb(int value) => _p.setInt(_kEmoteCacheMb, value);
+  int get emoteCacheMb => Settings.emoteCacheMb.value;
+  Future<void> setEmoteCacheMb(int value) => Settings.emoteCacheMb.set(value);
 
   List<String>? get emoteProvidersDisabled =>
-      _p.getStringList(_kEmoteProvidersDisabled);
-
+      Settings.emoteProvidersDisabled.value;
   Future<void> setEmoteProvidersDisabled(List<String> value) =>
-      _p.setStringList(_kEmoteProvidersDisabled, value);
+      Settings.emoteProvidersDisabled.set(value);
 
-  bool get emoteAllowUnlisted7tv => _p.getBool(_kEmoteAllowUnlisted7tv) ?? true;
-
+  bool get emoteAllowUnlisted7tv => Settings.emoteAllowUnlisted7tv.value;
   Future<void> setEmoteAllowUnlisted7tv(bool value) =>
-      _p.setBool(_kEmoteAllowUnlisted7tv, value);
+      Settings.emoteAllowUnlisted7tv.set(value);
 
-  bool get emoteAllowPersonal7tv => _p.getBool(_kEmoteAllowPersonal7tv) ?? true;
-
+  bool get emoteAllowPersonal7tv => Settings.emoteAllowPersonal7tv.value;
   Future<void> setEmoteAllowPersonal7tv(bool value) =>
-      _p.setBool(_kEmoteAllowPersonal7tv, value);
+      Settings.emoteAllowPersonal7tv.set(value);
 
   String? get recentEmotes => _p.getString(_kRecentEmotes);
 
@@ -592,50 +437,35 @@ class Prefs {
       _p.setString(_kRecentEmotes, value);
 
   // ── TTS ─────────────────────────────────────────────────────────────
-  static const _kTtsEnabled = 'tts_enabled';
-  static const _kTtsQueueMode = 'tts_queue_mode';
-  static const _kTtsFormatMode = 'tts_format_mode';
-  static const _kTtsIgnoreUrls = 'tts_ignore_urls';
-  static const _kTtsIgnoreEmotes = 'tts_ignore_emotes';
-  static const _kTtsForceEnglish = 'tts_force_english';
-  static const _kTtsUserIgnoreList = 'tts_user_ignore_list';
   static const _kTtsVoiceId = 'tts_voice_id';
   static const _kTtsVoiceRaw = 'tts_voice_raw';
 
-  bool get ttsEnabled => _p.getBool(_kTtsEnabled) ?? false;
+  bool get ttsEnabled => Settings.ttsEnabled.value;
+  Future<void> setTtsEnabled(bool value) => Settings.ttsEnabled.set(value);
 
-  Future<void> setTtsEnabled(bool value) => _p.setBool(_kTtsEnabled, value);
-
-  String get ttsQueueMode => _p.getString(_kTtsQueueMode) ?? 'queue';
-
+  String get ttsQueueMode => Settings.ttsQueueMode.value;
   Future<void> setTtsQueueMode(String value) =>
-      _p.setString(_kTtsQueueMode, value);
+      Settings.ttsQueueMode.set(value);
 
-  String get ttsFormatMode => _p.getString(_kTtsFormatMode) ?? 'userAndMessage';
-
+  String get ttsFormatMode => Settings.ttsFormatMode.value;
   Future<void> setTtsFormatMode(String value) =>
-      _p.setString(_kTtsFormatMode, value);
+      Settings.ttsFormatMode.set(value);
 
-  bool get ttsIgnoreUrls => _p.getBool(_kTtsIgnoreUrls) ?? true;
-
+  bool get ttsIgnoreUrls => Settings.ttsIgnoreUrls.value;
   Future<void> setTtsIgnoreUrls(bool value) =>
-      _p.setBool(_kTtsIgnoreUrls, value);
+      Settings.ttsIgnoreUrls.set(value);
 
-  bool get ttsIgnoreEmotes => _p.getBool(_kTtsIgnoreEmotes) ?? true;
-
+  bool get ttsIgnoreEmotes => Settings.ttsIgnoreEmotes.value;
   Future<void> setTtsIgnoreEmotes(bool value) =>
-      _p.setBool(_kTtsIgnoreEmotes, value);
+      Settings.ttsIgnoreEmotes.set(value);
 
-  bool get ttsForceEnglish => _p.getBool(_kTtsForceEnglish) ?? false;
-
+  bool get ttsForceEnglish => Settings.ttsForceEnglish.value;
   Future<void> setTtsForceEnglish(bool value) =>
-      _p.setBool(_kTtsForceEnglish, value);
+      Settings.ttsForceEnglish.set(value);
 
-  List<String> get ttsUserIgnoreList =>
-      _p.getStringList(_kTtsUserIgnoreList) ?? const [];
-
+  List<String> get ttsUserIgnoreList => Settings.ttsUserIgnoreList.value;
   Future<void> setTtsUserIgnoreList(List<String> value) =>
-      _p.setStringList(_kTtsUserIgnoreList, value);
+      Settings.ttsUserIgnoreList.set(value);
 
   String? get ttsVoiceId => _p.getString(_kTtsVoiceId);
 
@@ -647,22 +477,16 @@ class Prefs {
       _p.setString(_kTtsVoiceRaw, value);
 
   // ── Stream player ───────────────────────────────────────────────────
-  static const _kStreamPipEnabled = 'stream_pip_enabled';
-
-  bool get streamPipEnabled => _p.getBool(_kStreamPipEnabled) ?? false;
-
+  bool get streamPipEnabled => Settings.streamPipEnabled.value;
   Future<void> setStreamPipEnabled(bool value) =>
-      _p.setBool(_kStreamPipEnabled, value);
+      Settings.streamPipEnabled.set(value);
 
   // ── Recent messages backend ─────────────────────────────────────────
-  static const _kRecentMessagesMode = 'recent_messages_mode';
   static const _kRecentMessagesCustomUrl = 'recent_messages_custom_url';
 
-  String get recentMessagesModeName =>
-      _p.getString(_kRecentMessagesMode) ?? 'auto';
-
+  String get recentMessagesModeName => Settings.recentMessagesMode.value;
   Future<void> setRecentMessagesModeName(String value) =>
-      _p.setString(_kRecentMessagesMode, value);
+      Settings.recentMessagesMode.set(value);
 
   String? get recentMessagesCustomUrl =>
       _p.getString(_kRecentMessagesCustomUrl);
@@ -686,30 +510,23 @@ class Prefs {
   Future<void> setProxyUrl(String value) => _p.setString(_kProxyUrl, value);
 
   // ── Local stores ────────────────────────────────────────────────────
-  static const _kLocalIgnores = 'local_ignores_v1';
-  static const _kKeywordReplacements = 'keyword_replacements_v1';
-  static const _kPingRules = 'ping_rules_v1';
   static const _kUploaderConfig = 'uploader_config';
   static const _kRecentUploads = 'recent_uploads';
-  static const _kAnalyticsFilterStopwords = 'analytics_filter_stopwords';
   static const _kTestChatWidgets = 'test_chat_widgets';
   static const _kLiveChatWidgets = 'dev_live_chat_widgets';
   static const _kUseBrowserOAuth = 'use_browser_oauth';
   static const _kKeyboardSettledHeight = 'keyboard_settled_h';
 
-  String get localIgnores => _p.getString(_kLocalIgnores) ?? '';
-
+  String get localIgnores => Settings.localIgnores.value;
   Future<void> setLocalIgnores(String value) =>
-      _p.setString(_kLocalIgnores, value);
+      Settings.localIgnores.set(value);
 
-  String get keywordReplacements => _p.getString(_kKeywordReplacements) ?? '';
-
+  String get keywordReplacements => Settings.keywordReplacements.value;
   Future<void> setKeywordReplacements(String value) =>
-      _p.setString(_kKeywordReplacements, value);
+      Settings.keywordReplacements.set(value);
 
-  String? get pingRules => _p.getString(_kPingRules);
-
-  Future<void> setPingRules(String value) => _p.setString(_kPingRules, value);
+  String? get pingRules => Settings.pingRules.value;
+  Future<void> setPingRules(String value) => Settings.pingRules.set(value);
 
   String? get uploaderConfig => _p.getString(_kUploaderConfig);
 
@@ -723,11 +540,9 @@ class Prefs {
 
   Future<void> removeRecentUploads() => _p.remove(_kRecentUploads);
 
-  bool get analyticsFilterStopwords =>
-      _p.getBool(_kAnalyticsFilterStopwords) ?? false;
-
+  bool get analyticsFilterStopwords => Settings.analyticsFilterStopwords.value;
   Future<void> setAnalyticsFilterStopwords(bool value) =>
-      _p.setBool(_kAnalyticsFilterStopwords, value);
+      Settings.analyticsFilterStopwords.set(value);
 
   bool get testChatWidgets => _p.getBool(_kTestChatWidgets) ?? false;
 
@@ -752,17 +567,13 @@ class Prefs {
       _p.setDouble(_kKeyboardSettledHeight, value);
 
   // ── Link whitelist ──────────────────────────────────────────────────
-  static const _kLinkWhitelistEnabled = 'link_whitelist_enabled';
-
-  List<String>? get linkWhitelist => _p.getStringList(kLinkWhitelistPrefKey);
-
+  List<String>? get linkWhitelist => Settings.linkWhitelist.value;
   Future<void> setLinkWhitelist(List<String> value) =>
-      _p.setStringList(kLinkWhitelistPrefKey, value);
+      Settings.linkWhitelist.set(value);
 
-  bool get linkWhitelistEnabled => _p.getBool(_kLinkWhitelistEnabled) ?? false;
-
+  bool get linkWhitelistEnabled => Settings.linkWhitelistEnabled.value;
   Future<void> setLinkWhitelistEnabled(bool value) =>
-      _p.setBool(_kLinkWhitelistEnabled, value);
+      Settings.linkWhitelistEnabled.set(value);
 
   // ── Per-account macros ──────────────────────────────────────────────
   List<String> macroEntries(String login) =>
@@ -772,87 +583,15 @@ class Prefs {
       _p.setStringList('macros_${login.toLowerCase()}', value);
 
   // ── Settings export ─────────────────────────────────────────────────
-  /// Every key a settings export carries, with its stored type. A new pref
-  /// is left out of exports until it is listed here. Account data, joined
-  /// channels, per-account macros, caches, timestamps, seen/dismissed flags,
-  /// migration flags, `dev_*` keys and device state stay out; so does the
-  /// uploader config, which can hold API keys.
-  static const _exportable = <String, Type>{
-    _kThemeMode: String,
-    _kLocale: String,
-    _kKeepScreenOn: bool,
-    _kTrueDark: bool,
-    _kAccentColor: String,
-    _kMaxMessagesPerChannel: int,
-    _kRecentMessagesLimit: int,
-    _kArchiveRetentionDays: int,
-    _kHistoryGapFill: int,
-    _kArchiveChannelCapMb: int,
-    _kReplyToThreadRoot: bool,
-    _kBackgroundService: bool,
-    _kWhisperNotifications: bool,
-    _kPreferEmotesFirst: bool,
-    _kSendSwipeMenu: bool,
-    _kHaptics: bool,
-    _kSpamIntervalMs: int,
-    _kSpamIntervalModMs: int,
-    _kDoubleTapNameCopy: bool,
-    kShowTimestampsPrefKey: bool,
-    kTimestampFormatPrefKey: String,
-    _kSharedChatMode: String,
-    _kSeventvNamePaints: bool,
-    _kShowInput: bool,
-    _kMentionFormat: String,
-    _kAnalyticsEnabled: bool,
-    _kWhatsNewEnabled: bool,
-    _kUpdateCheckEnabled: bool,
-    _kAnimateGifs: bool,
-    _kFfzEffects: bool,
-    _kBttvModifiers: bool,
-    _kAdaptiveEmoteFps: bool,
-    _kIdleEmoteFps: int,
-    _kChatFontSize: double,
-    _kChatFontWeight: int,
-    _kMentionNotifyForeground: bool,
-    _kHighlightOpacity: double,
-    _kCheckeredMessages: bool,
-    _kLineSeparator: bool,
-    _kFastChannelSnap: bool,
-    _kLayoutDensity: String,
-    _kCustomLayoutEnabled: bool,
-    _kOverrideTightComposer: bool,
-    _kOverrideSheetActionRow: bool,
-    _kOverrideCompactDensity: bool,
-    _kChromeTheme: String,
-    _kCustomChromeThemes: List<String>,
-    _kLiquidGlass: bool,
-    kGiphyInlineEnabledPrefKey: bool,
-    kGiphyInlineHeightPrefKey: double,
-    kImageEmbedEnabledPrefKey: bool,
-    kImageEmbedHeightPrefKey: double,
-    _kEmoteFetchTier: int,
-    _kEmoteFetchAuto: int,
-    _kEmoteCacheMb: int,
-    _kEmoteProvidersDisabled: List<String>,
-    _kEmoteAllowUnlisted7tv: bool,
-    _kEmoteAllowPersonal7tv: bool,
-    _kTtsEnabled: bool,
-    _kTtsQueueMode: String,
-    _kTtsFormatMode: String,
-    _kTtsIgnoreUrls: bool,
-    _kTtsIgnoreEmotes: bool,
-    _kTtsForceEnglish: bool,
-    _kTtsUserIgnoreList: List<String>,
-    _kStreamPipEnabled: bool,
-    _kRecentMessagesMode: String,
-    // Endpoints stay out: the chat proxy receives the OAuth token, so an
-    // imported file must never point it somewhere else.
-    _kLocalIgnores: String,
-    _kKeywordReplacements: String,
-    _kPingRules: String,
-    _kAnalyticsFilterStopwords: bool,
-    kLinkWhitelistPrefKey: List<String>,
-    _kLinkWhitelistEnabled: bool,
+  /// The settings an export carries: every [Settings] entry not marked
+  /// otherwise. Account data, joined channels, macros, caches, timestamps,
+  /// seen flags, `dev_*` keys and device state live outside [Settings]. So
+  /// do the uploader config, which can hold API keys, and the chat proxy and
+  /// history endpoints, since the proxy receives the OAuth token and an
+  /// imported file must never point it somewhere else.
+  static Map<String, Pref<Object?>> get _exportable => {
+    for (final p in Settings.all)
+      if (p.exported) p.key: p,
   };
 
   static const _exportFormat = 1;
@@ -877,16 +616,10 @@ class Prefs {
     if (doc is! Map || doc['format'] is! int) return null;
     final settings = doc['settings'];
     if (settings is! Map) return null;
+    final exportable = _exportable;
     final out = <String, Object>{};
     for (final MapEntry(:key, :value) in settings.entries) {
-      final type = _exportable[key];
-      if (type == null) continue;
-      final Object? typed = switch (type) {
-        const (double) when value is num => value.toDouble(),
-        const (List<String>) when value is List =>
-          value.every((e) => e is String) ? value.cast<String>() : null,
-        _ => value.runtimeType == type ? value : null,
-      };
+      final typed = exportable[key]?.importable(value);
       if (typed == null) continue;
       final current = _p.get(key);
       final same = typed is List ? _sameList(typed, current) : typed == current;
@@ -900,7 +633,8 @@ class Prefs {
       a.length == b.length &&
       a.indexed.every((e) => e.$2 == b[e.$1]);
 
-  /// Writes [settings] from [settingsToImport].
+  /// Writes [settings] from [settingsToImport]. The caller announces the
+  /// change through `PrefsStore`.
   Future<void> applySettings(Map<String, Object> settings) async {
     for (final MapEntry(:key, :value) in settings.entries) {
       switch (value) {

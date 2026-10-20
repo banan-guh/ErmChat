@@ -1,15 +1,22 @@
 import 'package:flutter/foundation.dart';
 
-/// Change signal for persisted settings.
+import 'settings.dart';
+
+/// Bulk change signal for persisted settings.
 ///
-/// Values stay in `Prefs`; this only announces a write so owners re-read and
-/// apply side effects. A global instance keeps settings tiles usable without
-/// a ProviderScope in widget tests.
+/// Each [Settings] entry notifies its own listeners on write; prefer those.
+/// This announces writes that bypass them (imports, raw store writes) and
+/// wakes owners that re-read everything. A global instance keeps settings
+/// tiles usable without a ProviderScope in widget tests.
 class PrefsStore extends ChangeNotifier {
   PrefsStore._();
 
   static final PrefsStore instance = PrefsStore._();
 
-  /// Announces that a persisted setting changed; owners re-read `Prefs`.
-  void notifyChanged() => notifyListeners();
+  /// Announces that persisted settings changed: each changed [Settings]
+  /// entry notifies, then owners that re-read `Prefs` wake.
+  void notifyChanged() {
+    Settings.refresh();
+    notifyListeners();
+  }
 }
