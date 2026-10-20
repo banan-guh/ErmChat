@@ -321,9 +321,8 @@ class ComposerFocusGlow extends StatelessWidget {
 // Indeterminate progress drawn as a ring along the island's outline. The
 // timing is the stock LinearProgressIndicator's (1800ms cycle, two lines,
 // same head and tail curves), mapped onto the outline's length clockwise.
-// On a closed outline the lines wrap past the start, which drifts a third
-// of a lap per cycle so no cycle ends on the same spot. Flush islands only
-// outline their rounded top, from the left edge. The ticker
+// The lines wrap past the start, which drifts a third of a lap per cycle
+// so no cycle ends on the same spot. The ticker
 // runs only while [busy] holds; the ring fades over 200ms and, with
 // animations disabled, shows static at reduced opacity.
 class IslandBusyRing extends StatefulWidget {
@@ -331,13 +330,11 @@ class IslandBusyRing extends StatefulWidget {
     super.key,
     required this.listenable,
     required this.busy,
-    required this.flush,
     required this.child,
   });
 
   final Listenable listenable;
   final bool Function() busy;
-  final bool flush;
   final Widget child;
 
   @override
@@ -405,7 +402,6 @@ class _IslandBusyRingState extends State<IslandBusyRing>
         spin: _spin,
         fade: _fade,
         color: Theme.of(context).colorScheme.primary,
-        flush: widget.flush,
         still: reduced,
       ),
       child: widget.child,
@@ -418,14 +414,12 @@ class _IslandRingPainter extends CustomPainter {
     required this.spin,
     required this.fade,
     required this.color,
-    required this.flush,
     required this.still,
   }) : super(repaint: Listenable.merge([spin, fade]));
 
   final Animation<double> spin;
   final Animation<double> fade;
   final Color color;
-  final bool flush;
   final bool still;
 
   static const _width = 2.5;
@@ -461,28 +455,16 @@ class _IslandRingPainter extends CustomPainter {
     final l = inset, t = inset, rt = size.width - inset;
     final b = size.height - inset;
     final arc = Radius.circular(r);
-    final path = Path();
-    if (flush) {
-      path
-        ..moveTo(l, size.height)
-        ..lineTo(l, t + r)
-        ..arcToPoint(Offset(l + r, t), radius: arc)
-        ..lineTo(rt - r, t)
-        ..arcToPoint(Offset(rt, t + r), radius: arc)
-        ..lineTo(rt, size.height);
-    } else {
-      path
-        ..moveTo(l + r, t)
-        ..lineTo(rt - r, t)
-        ..arcToPoint(Offset(rt, t + r), radius: arc)
-        ..lineTo(rt, b - r)
-        ..arcToPoint(Offset(rt - r, b), radius: arc)
-        ..lineTo(l + r, b)
-        ..arcToPoint(Offset(l, b - r), radius: arc)
-        ..lineTo(l, t + r)
-        ..arcToPoint(Offset(l + r, t), radius: arc);
-    }
-    return path;
+    return Path()
+      ..moveTo(l + r, t)
+      ..lineTo(rt - r, t)
+      ..arcToPoint(Offset(rt, t + r), radius: arc)
+      ..lineTo(rt, b - r)
+      ..arcToPoint(Offset(rt - r, b), radius: arc)
+      ..lineTo(l + r, b)
+      ..arcToPoint(Offset(l, b - r), radius: arc)
+      ..lineTo(l, t + r)
+      ..arcToPoint(Offset(l + r, t), radius: arc);
   }
 
   @override
@@ -501,7 +483,7 @@ class _IslandRingPainter extends CustomPainter {
     }
     final lap = spin.value;
     final t = (lap * cyclesPerLap) % 1;
-    final drift = flush ? 0.0 : lap;
+    final drift = lap;
     final metrics = path.computeMetrics().toList();
     if (metrics.isEmpty) return;
     final metric = metrics.first;
@@ -520,7 +502,7 @@ class _IslandRingPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_IslandRingPainter old) =>
-      old.color != color || old.flush != flush || old.still != still;
+      old.color != color || old.still != still;
 }
 
 /// Logs where a paint transform or a layer offset turns non-finite, once per

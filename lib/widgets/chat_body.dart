@@ -807,13 +807,40 @@ class _ChatBodyState extends State<ChatBody>
           );
     final busyListenable = widget.busyListenable;
     final isBusy = widget.isBusy;
-    Widget ringed(Widget island) => busyListenable == null || isBusy == null
+    final showsBusy = busyListenable != null && isBusy != null;
+    // A floating island runs loading around its outline. Edge to edge, it is
+    // a straight line between the field and the button row.
+    Widget ringed(Widget island) => !showsBusy || flush
         ? island
         : IslandBusyRing(
             listenable: busyListenable,
             busy: isBusy,
-            flush: flush,
             child: island,
+          );
+    final busyLine = !showsBusy || !flush
+        ? null
+        : SizedBox(
+            height: 0,
+            child: OverflowBox(
+              maxHeight: 3,
+              child: ListenableBuilder(
+                listenable: busyListenable,
+                builder: (_, _) {
+                  final busy = isBusy();
+                  return AnimatedOpacity(
+                    opacity: busy ? 1 : 0,
+                    duration: const Duration(milliseconds: 200),
+                    child: TickerMode(
+                      enabled: busy,
+                      child: const LinearProgressIndicator(
+                        minHeight: 3,
+                        backgroundColor: Colors.transparent,
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
           );
     // Classic is just the outlined field on the chat's background, so the
     // field's own outline shows focus instead of a tinted shell.
@@ -847,6 +874,7 @@ class _ChatBodyState extends State<ChatBody>
               children: [
                 if (widget.sideAction == null) ...[
                   flowComposer,
+                  ?busyLine,
                   ?widget.bottomBar,
                   ?footer,
                 ] else
@@ -867,7 +895,11 @@ class _ChatBodyState extends State<ChatBody>
                             ),
                             child: Column(
                               mainAxisSize: MainAxisSize.min,
-                              children: [flowComposer, ?widget.bottomBar],
+                              children: [
+                                flowComposer,
+                                ?busyLine,
+                                ?widget.bottomBar,
+                              ],
                             ),
                           ),
                           ?footer,
