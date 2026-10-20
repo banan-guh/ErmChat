@@ -130,7 +130,25 @@ class DataUsageStats {
     0,
     (sum, source) => sum + bytesFor(source, mobileOnly: mobileOnly),
   );
-  void recordEviction() => evictions++;
+
+  /// Downloads of a URL this session already evicted: the cost of a cap or
+  /// keep-priority that dropped the wrong file.
+  int refetches = 0;
+
+  // Bounded so a long session cannot grow it without limit.
+  final _evicted = <String>{};
+  static const _maxEvicted = 5000;
+
+  void recordEviction(String url) {
+    evictions++;
+    _evicted.add(url);
+    if (_evicted.length > _maxEvicted) _evicted.remove(_evicted.first);
+  }
+
+  /// An emote image download of [url] starting.
+  void recordEmoteFetch(String url) {
+    if (_evicted.remove(url)) refetches++;
+  }
 
   void _add(SessionCount c, [int n = 1]) {
     c.all += n;
@@ -198,7 +216,7 @@ class DataUsageStats {
           'ircR=${ircReadBytes}B ircW=${ircWriteBytes}B '
           'emote=${emoteDownloadBytes}B json=${jsonBytes}B '
           'history=${historyBytes}B helix=${helixBytes}B event=${eventBytes}B '
-          'evict=$evictions tier=${appliedTier?.label ?? '?'} mobile=$mobile '
+          'evict=$evictions refetch=$refetches tier=${appliedTier?.label ?? '?'} mobile=$mobile '
           'jsonBy=$jsonByEndpoint',
     );
   }

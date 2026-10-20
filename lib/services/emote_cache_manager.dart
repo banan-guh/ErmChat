@@ -165,8 +165,8 @@ class EmoteCacheRepository implements CacheInfoRepository {
   Future<List<CacheObject>> getObjectsOverCapacity(int capacity) async {
     if (budget.fits(await totalBytes())) return const [];
     final victims = budget.overBudget(await _inner.getAllObjects(), now());
-    for (final _ in victims) {
-      DataUsageStats.I.recordEviction();
+    for (final object in victims) {
+      DataUsageStats.I.recordEviction(object.url);
     }
     return victims;
   }
@@ -232,6 +232,7 @@ class _EmoteFileService extends FileService {
     String url, {
     Map<String, String>? headers,
   }) async {
+    DataUsageStats.I.recordEmoteFetch(url);
     final response = await _inner.get(
       url,
       headers: {'User-Agent': 'ermchat', ...?headers},
@@ -343,6 +344,7 @@ class EmoteCacheManager extends CacheManager {
         _repo.now(),
       );
       for (final object in victims) {
+        DataUsageStats.I.recordEviction(object.url);
         try {
           await removeFile(object.key);
         } catch (_) {

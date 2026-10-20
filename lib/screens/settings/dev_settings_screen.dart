@@ -241,6 +241,7 @@ class _PerfLogScreenState extends State<_PerfLogScreen> {
                       'emote images ${DataUsageStats.I.emoteDownloadBytes}B  '
                       'JSON ${DataUsageStats.I.jsonBytes}B\n'
                       'cache evictions ${DataUsageStats.I.evictions}  '
+                      'refetched ${DataUsageStats.I.refetches}  '
                       'tier ${DataUsageStats.I.appliedTier?.label ?? '?'}  '
                       'mobile ${DataUsageStats.I.mobile}',
                       style: Theme.of(context).textTheme.bodySmall,
