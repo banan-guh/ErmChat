@@ -122,6 +122,15 @@ class MainActivity : FlutterActivity() {
         }
     }
 
+    // Back at the root backgrounds the app like the home gesture instead of
+    // finishing it, so returning keeps chat, connections and the stream.
+    // A playing stream shrinks to PiP, as leaving by home does.
+    override fun popSystemNavigator(): Boolean {
+        if (pipAutoEnter && !isInPictureInPictureMode && enterPipNow()) return true
+        moveTaskToBack(true)
+        return true
+    }
+
     // Auto-enter covers the home and recents gestures only. Leaving because
     // the app opened something else (a link, a share target) or a
     // notification was tapped lands here instead, so enter by hand.
