@@ -26,7 +26,7 @@ import 'util/layout_density.dart';
 import 'util/log.dart';
 import 'util/perf_probe.dart';
 import 'util/prefs.dart';
-import 'util/prefs_store.dart';
+import 'util/settings.dart';
 import 'util/crash_report.dart';
 import 'widgets/app_snack.dart';
 import 'widgets/glass_chrome.dart';
@@ -235,20 +235,46 @@ class TwitchChatApp extends StatefulWidget {
 }
 
 class _TwitchChatAppState extends State<TwitchChatApp> {
-  ThemeMode _themeMode = ThemeMode.system;
+  ThemeMode get _themeMode => Settings.themeMode.value;
 
   /// Chosen app language; null follows the system.
-  Locale? _locale;
-  bool? _keepScreenOn;
-  bool _trueDark = false;
-  String _accentKey = kDefaultAccent;
-  LayoutDensity _layoutDensity = LayoutDensity.auto;
-  LayoutOverrides _layoutOverrides = const LayoutOverrides();
+  Locale? get _locale => parseLocalePref(Settings.locale.value);
+  bool get _trueDark => Settings.trueDark.value;
+  LayoutDensity get _layoutDensity => Settings.layoutDensity.value;
+  LayoutOverrides get _layoutOverrides => LayoutOverrides(
+    enabled: Settings.customLayoutEnabled.value,
+    tightComposer: Settings.overrideTightComposer.value,
+    sheetActionRow: Settings.overrideSheetActionRow.value,
+    compactDensity: Settings.overrideCompactDensity.value,
+  );
+  ProxyConfig get _proxyConfig => ProxyConfig(
+    enabled: Settings.proxyEnabled.value,
+    url: Settings.proxyUrl.value,
+  );
   Color get _seedColor =>
-      kAccentPresets[_accentKey] ?? kAccentPresets[kDefaultAccent]!;
+      kAccentPresets[Settings.accentColor.value] ??
+      kAccentPresets[kDefaultAccent]!;
+
+  /// Settings the app root builds from.
+  final _rootSettings = Listenable.merge([
+    Settings.themeMode,
+    Settings.locale,
+    Settings.trueDark,
+    Settings.accentColor,
+    Settings.layoutDensity,
+    Settings.customLayoutEnabled,
+    Settings.overrideTightComposer,
+    Settings.overrideSheetActionRow,
+    Settings.overrideCompactDensity,
+    Settings.proxyEnabled,
+    Settings.proxyUrl,
+  ]);
+  final _emoteFpsSettings = Listenable.merge([
+    Settings.adaptiveEmoteFps,
+    Settings.idleEmoteFps,
+  ]);
   final _twitchAuth = TwitchAuth();
   bool _loaded = false;
-  ProxyConfig _proxyConfig = const ProxyConfig();
   final _snackPopObserver = SnackPopObserver();
   final _routeObserver = RouteObserver<ModalRoute<Object?>>();
   final _emoteFrameRate = EmoteFrameRatePolicy();
@@ -282,13 +308,21 @@ class _TwitchChatAppState extends State<TwitchChatApp> {
   @override
   void initState() {
     super.initState();
-    PrefsStore.instance.addListener(_onPrefsChanged);
+    _rootSettings.addListener(_rebuild);
+    Settings.keepScreenOn.addListener(_applyKeepScreenOn);
+    _emoteFpsSettings.addListener(_applyEmoteFps);
     _emoteFrameRate.start();
     _loadPreferences();
   }
 
   Future<void> _loadPreferences() async {
-    await _applyThemePrefs();
+    try {
+      await Prefs.load();
+    } catch (e) {
+      logDebug('Failed to load preferences: $e');
+    }
+    _applyKeepScreenOn();
+    _applyEmoteFps();
     try {
       await _twitchAuth.load();
     } catch (e) {
@@ -298,55 +332,14 @@ class _TwitchChatAppState extends State<TwitchChatApp> {
     if (mounted) setState(() => _loaded = true);
   }
 
-  /// Re-reads theme, wakelock, accent, and proxy settings. Runs at startup
-  /// and whenever settings write through [PrefsStore]. Returns whether any
-  /// value [build] reads changed, so the caller can skip the rebuild.
-  Future<bool> _applyThemePrefs() async {
-    try {
-      final prefs = await Prefs.load();
-      final overrides = LayoutOverrides(
-        enabled: prefs.customLayoutEnabled,
-        tightComposer: prefs.overrideTightComposer,
-        sheetActionRow: prefs.overrideSheetActionRow,
-        compactDensity: prefs.overrideCompactDensity,
-      );
-      final proxy = ProxyConfig.fromPrefs(prefs);
-      final changed =
-          _themeMode != prefs.themeMode ||
-          _locale?.toLanguageTag() !=
-              parseLocalePref(prefs.locale)?.toLanguageTag() ||
-          _trueDark != prefs.trueDark ||
-          _accentKey != prefs.accentColor ||
-          _layoutDensity != prefs.layoutDensity ||
-          _layoutOverrides != overrides ||
-          _proxyConfig != proxy;
-      _themeMode = prefs.themeMode;
-      _locale = parseLocalePref(prefs.locale);
-      if (_keepScreenOn != prefs.keepScreenOn) {
-        _keepScreenOn = prefs.keepScreenOn;
-        WakelockPlus.toggle(enable: prefs.keepScreenOn).ignore();
-      }
-      _emoteFrameRate.adaptive = prefs.adaptiveEmoteFps;
-      _emoteFrameRate.idleFps = prefs.idleEmoteFps;
-      _trueDark = prefs.trueDark;
-      _accentKey = prefs.accentColor;
-      _layoutDensity = prefs.layoutDensity;
-      _layoutOverrides = overrides;
-      _proxyConfig = proxy;
-      return changed;
-    } catch (e) {
-      logDebug('Failed to load preferences: $e');
-      return false;
-    }
-  }
+  void _rebuild() => setState(() {});
 
-  void _onPrefsChanged() {
-    unawaited(
-      _applyThemePrefs().then((changed) {
-        if (mounted && changed) setState(() {});
-      }),
-    );
-  }
+  void _applyKeepScreenOn() =>
+      WakelockPlus.toggle(enable: Settings.keepScreenOn.value).ignore();
+
+  void _applyEmoteFps() => _emoteFrameRate
+    ..adaptive = Settings.adaptiveEmoteFps.value
+    ..idleFps = Settings.idleEmoteFps.value;
 
   Widget _appRoot(BuildContext context, Widget? child) => compactLayoutRoot(
     context,
@@ -391,7 +384,9 @@ class _TwitchChatAppState extends State<TwitchChatApp> {
 
   @override
   void dispose() {
-    PrefsStore.instance.removeListener(_onPrefsChanged);
+    _rootSettings.removeListener(_rebuild);
+    Settings.keepScreenOn.removeListener(_applyKeepScreenOn);
+    _emoteFpsSettings.removeListener(_applyEmoteFps);
     _emoteFrameRate.dispose();
     super.dispose();
   }

@@ -352,6 +352,12 @@ abstract final class Settings {
   );
   static final linkWhitelistEnabled = Pref('link_whitelist_enabled', false);
 
+  // ── Chat proxy (ermchat-server) ─────────────────────────────────────
+  // Never exported: the proxy receives the OAuth token, so an imported file
+  // must never point it somewhere else.
+  static final proxyEnabled = Pref('proxy_enabled', false, exported: false);
+  static final proxyUrl = Pref('proxy_url', '', exported: false);
+
   static final List<Pref<Object?>> all = [
     themeMode,
     locale,
@@ -426,5 +432,7 @@ abstract final class Settings {
     analyticsFilterStopwords,
     linkWhitelist,
     linkWhitelistEnabled,
+    proxyEnabled,
+    proxyUrl,
   ];
 }

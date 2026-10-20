@@ -494,16 +494,11 @@ class Prefs {
       _p.remove(_kRecentMessagesCustomUrl);
 
   // ── Chat proxy (ermchat-server) ─────────────────────────────────────
-  static const _kProxyEnabled = 'proxy_enabled';
-  static const _kProxyUrl = 'proxy_url';
+  bool get proxyEnabled => Settings.proxyEnabled.value;
+  Future<void> setProxyEnabled(bool value) => Settings.proxyEnabled.set(value);
 
-  bool get proxyEnabled => _p.getBool(_kProxyEnabled) ?? false;
-
-  Future<void> setProxyEnabled(bool value) => _p.setBool(_kProxyEnabled, value);
-
-  String get proxyUrl => _p.getString(_kProxyUrl) ?? '';
-
-  Future<void> setProxyUrl(String value) => _p.setString(_kProxyUrl, value);
+  String get proxyUrl => Settings.proxyUrl.value;
+  Future<void> setProxyUrl(String value) => Settings.proxyUrl.set(value);
 
   // ── Local stores ────────────────────────────────────────────────────
   static const _kUploaderConfig = 'uploader_config';
