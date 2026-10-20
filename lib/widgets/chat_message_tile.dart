@@ -634,6 +634,8 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
           widget.onTap?.call();
         },
         onLongPress: widget.onLongPress,
+        // The menu it opens fires Haptics, which owns the buzz.
+        enableFeedback: false,
         child: child,
       );
     }

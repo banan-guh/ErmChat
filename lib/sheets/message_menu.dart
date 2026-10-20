@@ -34,7 +34,7 @@ class MessageMenus {
   final void Function(BuildContext context, TwitchMessage msg) deleteMessage;
 
   void showMessageMenu(BuildContext context, TwitchMessage msg) {
-    Haptics.press(iosOnly: true);
+    Haptics.press();
     final threadRoot = findThreadRoot(msg);
     final hasThread = threadRoot != null;
     showModalBottomSheet(
@@ -103,6 +103,7 @@ class MessageMenus {
   // Panels (thread, mentions, whispers): copy + more menu. No reply (the
   // input bar belongs to the main chat) and no thread navigation.
   void showPanelMessageMenu(BuildContext context, TwitchMessage msg) {
+    Haptics.press();
     showModalBottomSheet(
       context: context,
       builder: (ctx) => SafeArea(

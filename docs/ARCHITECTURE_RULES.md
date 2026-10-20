@@ -116,7 +116,9 @@ composition root     lib/providers
    corner radii use `Radii` (`lib/widgets/design_tokens.dart`), haptics use
    `Haptics` (`lib/util/haptics.dart`), snackbars use `AppSnack`, and dialogs use the
    shared kit in `lib/widgets/dialogs.dart`. A new value means changing the scale, not
-   a one-off literal.
+   a one-off literal. Haptics confirm what a finger cannot see (holds, drags, crossed
+   thresholds); plain taps never buzz. Long-press is a shortcut, never the only way to
+   reach an action.
 
 8. **Size is not a rule, coupling is.** There is no line budget. A file that every
    feature has to edit in unrelated places is the signal to extract, along ownership

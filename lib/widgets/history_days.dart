@@ -228,7 +228,6 @@ class _HistoryDaysState extends State<HistoryDays>
   }
 
   void _open(int i) {
-    Haptics.select();
     setState(() => _pick(i));
     _expand.forward();
   }
@@ -506,8 +505,12 @@ class _HistoryDaysState extends State<HistoryDays>
         child: InkWell(
           onTap: _picked == null ? () => _open(i) : null,
           onLongPress: _picked == null
-              ? () => widget.onLongPress(days[i].day)
+              ? () {
+                  Haptics.press();
+                  widget.onLongPress(days[i].day);
+                }
               : null,
+          enableFeedback: false,
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
             child: Row(

@@ -6,7 +6,6 @@ import '../l10n/l10n.dart';
 import '../models/twitch_message.dart';
 import '../providers/feature_providers.dart' show chatNoticeProvider;
 import '../services/link_whitelist.dart';
-import '../util/haptics.dart';
 import '../util/mention.dart';
 import '../util/prefs.dart';
 import '../util/thread_utils.dart';
@@ -287,7 +286,6 @@ class VodChatButton extends StatelessWidget {
   Widget build(BuildContext context) {
     final l = context.l10n;
     void press() {
-      Haptics.press(iosOnly: true);
       onPressed();
     }
 
@@ -330,7 +328,6 @@ class ScrollDownButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     void press() {
-      Haptics.press(iosOnly: true);
       onPressed();
     }
 

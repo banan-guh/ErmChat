@@ -1,24 +1,21 @@
-import 'dart:io' show Platform;
-
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/services.dart';
 
-/// The app's haptics, named by meaning. [iosOnly] fires on iOS only.
+/// The app's haptics, named by meaning, on every platform. Widgets that
+/// fire one turn off their own system feedback so it never doubles.
 abstract final class Haptics {
+  /// The user's haptics setting.
+  static bool enabled = true;
+
   /// A value changed: slider steps, picked options, crossed thresholds.
-  static void select({bool iosOnly = false}) =>
-      _fire(HapticFeedback.selectionClick, iosOnly);
+  static void select() => _fire(HapticFeedback.selectionClick);
 
   /// A gesture took effect: a menu opened, a drag picked up or dropped.
-  static void press({bool iosOnly = false}) =>
-      _fire(HapticFeedback.lightImpact, iosOnly);
+  static void press() => _fire(HapticFeedback.lightImpact);
 
   /// Something destructive or major happened: a removal, a spam run.
-  static void major({bool iosOnly = false}) =>
-      _fire(HapticFeedback.mediumImpact, iosOnly);
+  static void major() => _fire(HapticFeedback.mediumImpact);
 
-  static void _fire(Future<void> Function() fire, bool iosOnly) {
-    if (iosOnly && (kIsWeb || !Platform.isIOS)) return;
-    fire();
+  static void _fire(Future<void> Function() fire) {
+    if (enabled) fire();
   }
 }

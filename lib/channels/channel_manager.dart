@@ -7,7 +7,6 @@ import '../composer/composer_controller.dart';
 import '../panels/threads.dart';
 import '../services/notification_service.dart';
 import '../services/recent_messages.dart';
-import '../util/haptics.dart';
 import '../util/log.dart';
 import '../widgets/broadcast_widgets.dart';
 import 'channel_session.dart';
@@ -158,7 +157,6 @@ class ChannelManager {
     unawaited(closePanel());
     var clearedUnread = 0;
     void mutate() {
-      Haptics.select(iosOnly: true);
       clearedUnread = session.selectChannel(channel) ?? 0;
       composer.refreshCooldown();
       threads.clearOpenThread();

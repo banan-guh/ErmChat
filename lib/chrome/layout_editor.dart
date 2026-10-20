@@ -441,7 +441,6 @@ class _EditChipState extends State<EditChip> {
       ],
     ]);
     if (choice == null) return;
-    Haptics.select();
     widget.controller.move(widget.action, choice is LayoutSlot ? choice : null);
   }
 
@@ -642,7 +641,6 @@ class _PartChipState extends State<PartChip> {
       _removeItem(context, l.layoutLockedPart),
     ]);
     if (choice is! PartPlace) return;
-    Haptics.select();
     c.placePart(widget.part, choice);
   }
 
@@ -719,7 +717,6 @@ class FieldSideView extends StatelessWidget {
           ),
     ]);
     if (choice == null) return;
-    Haptics.select();
     if (choice is ChromeAction) controller.move(choice, side);
     if (choice is ComposerPart) controller.placePart(choice, _place);
   }
@@ -1002,7 +999,6 @@ class LayoutEditTray extends StatelessWidget {
                   preset(t),
                   current.contains(t),
                   () {
-                    Haptics.select();
                     controller.update(t.spec.copyWith(name: draft.name));
                   },
                 ),

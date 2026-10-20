@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 
 import '../models/twitch_message.dart';
 import '../services/emote_manager.dart';
-import '../util/haptics.dart';
 import '../util/insets.dart';
 import '../util/sheet_drag.dart';
 import '../util/thread_utils.dart';
@@ -365,7 +364,6 @@ class PanelManager {
     required EmoteManager emoteManager,
     required Map<String, String> channelUserIds,
   }) {
-    Haptics.press(iosOnly: true);
     if (selectedChannel != null &&
         !emoteManager.hasChannelCache(selectedChannel)) {
       unawaited(

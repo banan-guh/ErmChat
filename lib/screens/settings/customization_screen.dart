@@ -242,6 +242,16 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
             ),
           ),
           const LiquidGlassTile(),
+          SettingAnchor(
+            Setting.haptics,
+            child: PrefsSwitchTile(
+              secondary: const Icon(Icons.vibration),
+              title: Setting.haptics.titleOf(context.l10n),
+              defaultValue: true,
+              read: (p) => p.haptics,
+              write: (p, v) => p.setHaptics(v),
+            ),
+          ),
           SettingsSectionHeader(context.l10n.sectionChatDisplay),
           SettingAnchor(
             Setting.chatFontSize,

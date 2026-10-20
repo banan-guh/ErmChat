@@ -1523,6 +1523,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       cosmetics: _showNamePaints,
     );
     if (animateChanged) EmoteUrlProvider.applyGifsEnabled(_animateGifs);
+    Haptics.enabled = prefs.haptics;
     if (initial) return;
     if (appearanceChanged || sharedChatChanged) {
       _tileCache.clear();
@@ -1884,7 +1885,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   }
 
   Future<void> _closeEmoteSheet() {
-    Haptics.press(iosOnly: true);
     return _panelManager.closeEmoteSheet();
   }
 

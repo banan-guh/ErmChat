@@ -117,6 +117,7 @@ class Prefs {
   static const _kMentionNotifyForeground = 'mention_notify_foreground';
   static const _kPreferEmotesFirst = 'prefer_emotes_first';
   static const _kSendSwipeMenu = 'send_swipe_menu';
+  static const _kHaptics = 'haptics';
   static const _kSpamIntervalMs = 'spam_interval_ms';
   static const _kSpamIntervalModMs = 'spam_interval_mod_ms';
   static const _kDoubleTapNameCopy = 'double_tap_name_copy';
@@ -215,6 +216,11 @@ class Prefs {
 
   Future<void> setPreferEmotesFirst(bool value) =>
       _p.setBool(_kPreferEmotesFirst, value);
+
+  /// Haptic feedback on gestures, sends and menus.
+  bool get haptics => _p.getBool(_kHaptics) ?? true;
+
+  Future<void> setHaptics(bool value) => _p.setBool(_kHaptics, value);
 
   /// Swiping up from send opens the send menu (spam).
   bool get sendSwipeMenu => _p.getBool(_kSendSwipeMenu) ?? false;
@@ -787,6 +793,7 @@ class Prefs {
     _kWhisperNotifications: bool,
     _kPreferEmotesFirst: bool,
     _kSendSwipeMenu: bool,
+    _kHaptics: bool,
     _kSpamIntervalMs: int,
     _kSpamIntervalModMs: int,
     _kDoubleTapNameCopy: bool,

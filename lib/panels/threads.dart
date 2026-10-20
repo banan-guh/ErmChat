@@ -12,7 +12,6 @@ import '../services/saved_threads_store.dart';
 import '../widgets/seven_tv_paint_service.dart';
 import '../sheets/message_menu.dart';
 import '../sheets/user_sheet.dart';
-import '../util/haptics.dart';
 import '../util/thread_utils.dart';
 import '../util/timestamp_formatter.dart';
 import '../widgets/chat_view.dart';
@@ -521,7 +520,6 @@ class ThreadPanels {
   }
 
   void _onThreadsFocus(int index) {
-    Haptics.select(iosOnly: true);
     // Returning to the Thread tab marks the open thread seen so its Active
     // row clears its unread highlight.
     if (index == 0 && panelManager.openThreadRoot != null) {

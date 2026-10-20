@@ -15,7 +15,6 @@ import '../services/twitch_api.dart';
 import '../services/twitch_auth.dart';
 import '../util/date_format.dart';
 import '../util/friendly_error.dart';
-import '../util/haptics.dart';
 import '../util/layout_density.dart';
 import '../util/log.dart';
 import '../util/mention.dart';
@@ -235,7 +234,6 @@ class UserProfileSheetState extends State<UserProfileSheet> {
 
   void _onArrowTap() {
     if (!_scrollController.hasClients) return;
-    Haptics.press(iosOnly: true);
     _scrollController.animateTo(
       _scrollController.position.minScrollExtent,
       duration: Motion.normal,

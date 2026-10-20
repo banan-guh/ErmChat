@@ -16,7 +16,6 @@ import '../services/twitch_auth.dart';
 import '../sheets/message_menu.dart';
 import '../sheets/user_sheet.dart';
 import '../util/constants.dart' show kWhispersChannel;
-import '../util/haptics.dart';
 import '../widgets/chat_rows.dart';
 import '../widgets/chat_view.dart';
 import '../widgets/history_view.dart';
@@ -221,7 +220,6 @@ class MentionsPanels {
   }
 
   void _onMentionsFocus(int index) {
-    Haptics.select(iosOnly: true);
     if (index == 1 && unreadWhispers > 0) {
       chat.markWhispersSeen(unreadWhispers);
       unreadWhispers = 0;
