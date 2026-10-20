@@ -179,6 +179,206 @@ class ChatLifecycle {
     }
   }
 
+  /// Listens to the sockets and EventSub for joins, room state, status and
+  /// auth failures. Each run replaces the previous listeners.
+  void _listenToTransports() {
+    // JOIN failures from the read socket are handled by the setup domain,
+    // which tracks the notified set that ingestion's NOTICE suppression reads.
+    _ircJoinFailedSub?.cancel();
+    _ircJoinFailedSub = ircRead.onJoinFailed.listen((event) {
+      if (_disposed) return;
+      channelSetup.handleJoinFailed(event);
+      if (readiness.noteJoinFailed(event.channel)) {
+        connectionStateNotifier.value++;
+      }
+    });
+
+    // A JOIN unconfirmed past the timeout stops the loading spinner and
+    // posts one notice; the transport keeps retrying.
+    _ircJoinTimedOutSub?.cancel();
+    _ircJoinTimedOutSub = ircRead.onJoinTimedOut.listen((channel) {
+      if (_disposed) return;
+      channelSetup.handleJoinTimedOut(channel);
+      if (readiness.noteJoinFailed(channel)) {
+        connectionStateNotifier.value++;
+      }
+    });
+
+    // The read socket is the sole JOINer: its ROOMSTATE resolves room status
+    // (slow mode, followers-only, ...), confirms the JOIN, and drives
+    // readiness.
+    _readRoomStateSub?.cancel();
+    _readRoomStateSub = readDecoder.onRoomState.listen((event) {
+      if (_disposed) return;
+      if (channelSetup.handleRoomState(event)) {
+        final isNew = readiness.noteReadRoomState(event.channel);
+        if (isNew) {
+          if (readiness.isChannelReady(event.channel)) {
+            _announceConnected(event.channel);
+            connectionStateNotifier.value++;
+          }
+        }
+      }
+    });
+
+    // The write socket also echoes ROOMSTATE after its own JOIN. Its JOIN
+    // confirmations let anonymous sessions resolve readiness without a read
+    // socket, and complete the both-sockets check for authenticated ones.
+    _writeRoomStateSub?.cancel();
+    _writeRoomStateSub = writeDecoder.onRoomState.listen((event) {
+      if (_disposed) return;
+      channelSetup.handleRoomState(event);
+      final isNew = readiness.noteWriteRoomState(event.channel);
+      if (isNew) {
+        if (readiness.isChannelReady(event.channel)) {
+          _announceConnected(event.channel);
+          connectionStateNotifier.value++;
+        }
+      }
+    });
+
+    // Mod grants and removals apply live: USERSTATE carries the role on
+    // JOIN and after each own message (the write socket sees the latter),
+    // and EventSub revokes moderator subscriptions on unmod.
+    void onSelfModerator((String, bool) event) {
+      if (_disposed) return;
+      eventSubTopics.noteSelfModerator(event.$1, event.$2);
+    }
+
+    _readSelfModSub?.cancel();
+    _readSelfModSub = readDecoder.onSelfModerator.listen(onSelfModerator);
+    _writeSelfModSub?.cancel();
+    _writeSelfModSub = writeDecoder.onSelfModerator.listen(onSelfModerator);
+    _revocationSub?.cancel();
+    _revocationSub = eventSub.onRevocation.listen((subscription) {
+      if (_disposed) return;
+      eventSubTopics.handleRevocation(subscription);
+    });
+
+    // EventSub session lifecycle: subscriptions are session-scoped, so drop
+    // moderation-channel state when the session dies (IRC fallback resumes)
+    // and re-subscribe when a new session comes up (session_reconnect or
+    // keepalive reconnect) - otherwise moderation and the broadcaster
+    // widgets stay dead until the next IRC reconnect.
+    statusSub?.cancel();
+    statusSub = eventSub.onStatus.listen((status) {
+      if (_disposed) return;
+      if (status == EventSubStatus.disconnected ||
+          status == EventSubStatus.connecting) {
+        // Connecting clears too: session_reconnect/keepalive paths replace
+        // the session inside connect() without emitting disconnected, so
+        // without this the stale active sets would skip every resubscribe
+        // on the new session (subs are session-scoped and die with it).
+        eventSubTopics.clearSessionState();
+      } else if (status == EventSubStatus.connected) {
+        eventSubTopics.resubscribeEventSubChannels(chat.names);
+      }
+    });
+
+    ircStatusSub?.cancel();
+    ircStatusSub = irc.onStatus.listen((status) {
+      if (_disposed) return;
+      connectionStateNotifier.value++;
+      if (status == IrcConnectionStatus.connected && irc.isConnected) {
+        readiness.noteWriteSocketConnected();
+        // Edge-triggered: subscribeAll once per connect.
+        if (!_wasConnected) {
+          final isReconnect = _wasDisconnected;
+          _wasConnected = true;
+          _wasDisconnected = false;
+          // Chat arrives on the read socket, so its recovery refills the
+          // gap. The write edge only does it for an account swap, which
+          // replaces the read socket without reporting an outage.
+          if (isReconnect && _swapBackfill) {
+            _swapBackfill = false;
+            onReconnected?.call();
+          }
+          // Per-channel "Connected" now waits for that channel's own JOIN
+          // confirmation (see the ROOMSTATE listener) - a socket being up
+          // says nothing about whether the channel can receive PRIVMSG.
+          subscribeAll();
+        }
+      }
+      if (status == IrcConnectionStatus.disconnected && !_wasDisconnected) {
+        _wasDisconnected = true;
+        _wasConnected = false;
+        readiness.resetForWriteDisconnect();
+        // Failure state is per socket lifetime: the fresh socket runs its
+        // own fast sweep, so it may legitimately fail (and re-announce)
+        // again.
+        channelSetup.resetJoinFailureState();
+        for (final channel in chat.names) {
+          onConnStatus(channel, SystemLine.disconnected);
+        }
+      }
+    });
+
+    // The read-only socket reconnects independently of the write socket. A
+    // read-socket outage alone (DNS failure, server move) would otherwise be
+    // invisible: chat freezes with no "Disconnected" (the write socket is
+    // still fine) and no recovery notice. Surface it as an explicit status.
+    // Its JOIN confirmations die with the socket, so the input gate must
+    // re-lock and the frame must rebuild.
+    ircReadStatusSub?.cancel();
+    ircReadStatusSub = ircRead.onStatus.listen((status) {
+      if (_disposed) return;
+      if (status == IrcConnectionStatus.connected &&
+          readiness.noteReadSocketRecovered()) {
+        // Chat arrives on this socket, so its outage is the gap to refill.
+        onReconnected?.call();
+        for (final channel in chat.names) {
+          // Same ack as the JOIN-confirm path below: a flapping write
+          // socket reports the same recovery, keep one line.
+          if (readiness.acknowledgeConnected(channel)) {
+            onConnStatus(channel, SystemLine.reconnected);
+          }
+        }
+        connectionStateNotifier.value++;
+      } else if (status == IrcConnectionStatus.disconnected &&
+          readiness.noteReadSocketDisconnected()) {
+        connectionStateNotifier.value++;
+        for (final channel in chat.names) {
+          onConnStatus(channel, SystemLine.reconnecting);
+        }
+      }
+    });
+
+    // Arm the read requirement on its very first connect (not just
+    // recoveries), so the pipe gate covers this session from the start.
+    // Armed once: connect() re-runs on every auth change and must not
+    // stack another waiter while the read socket stays down. The
+    // controller closing on dispose completes with an error; ignore.
+    if (!readiness.readEverConnected && !_readConnectWaiterArmed) {
+      _readConnectWaiterArmed = true;
+      unawaited(
+        ircRead.onStatus
+            .firstWhere((s) => s == IrcConnectionStatus.connected)
+            .then((_) {
+              _readConnectWaiterArmed = false;
+              if (!_disposed && !readiness.readEverConnected) {
+                readiness.noteReadSocketEverConnected();
+                connectionStateNotifier.value++;
+              }
+            })
+            .catchError((_) {
+              _readConnectWaiterArmed = false;
+            }),
+      );
+    }
+
+    ircAuthFailedSub?.cancel();
+    ircAuthFailedSub = irc.onAuthFailed.listen((_) {
+      if (_disposed) return;
+      _handleExpiredToken();
+    });
+
+    ircReadAuthFailedSub?.cancel();
+    ircReadAuthFailedSub = ircRead.onAuthFailed.listen((_) {
+      if (_disposed) return;
+      _handleExpiredToken();
+    });
+  }
+
   Future<void> connect() async {
     if (_disposed) return;
     if (_isConnecting) {
@@ -191,205 +391,9 @@ class ChatLifecycle {
 
       setupSubscriptions();
 
-      // JOIN failures from the read socket are handled by the setup domain,
-      // which tracks the notified set that ingestion's NOTICE suppression reads.
-      _ircJoinFailedSub?.cancel();
-      _ircJoinFailedSub = ircRead.onJoinFailed.listen((event) {
-        if (_disposed) return;
-        channelSetup.handleJoinFailed(event);
-        if (readiness.noteJoinFailed(event.channel)) {
-          connectionStateNotifier.value++;
-        }
-      });
-
-      // A JOIN unconfirmed past the timeout stops the loading spinner and
-      // posts one notice; the transport keeps retrying.
-      _ircJoinTimedOutSub?.cancel();
-      _ircJoinTimedOutSub = ircRead.onJoinTimedOut.listen((channel) {
-        if (_disposed) return;
-        channelSetup.handleJoinTimedOut(channel);
-        if (readiness.noteJoinFailed(channel)) {
-          connectionStateNotifier.value++;
-        }
-      });
-
-      // The read socket is the sole JOINer: its ROOMSTATE resolves room status
-      // (slow mode, followers-only, ...), confirms the JOIN, and drives
-      // readiness.
-      _readRoomStateSub?.cancel();
-      _readRoomStateSub = readDecoder.onRoomState.listen((event) {
-        if (_disposed) return;
-        if (channelSetup.handleRoomState(event)) {
-          final isNew = readiness.noteReadRoomState(event.channel);
-          if (isNew) {
-            if (readiness.isChannelReady(event.channel)) {
-              _announceConnected(event.channel);
-              connectionStateNotifier.value++;
-            }
-          }
-        }
-      });
-
-      // The write socket also echoes ROOMSTATE after its own JOIN. Its JOIN
-      // confirmations let anonymous sessions resolve readiness without a read
-      // socket, and complete the both-sockets check for authenticated ones.
-      _writeRoomStateSub?.cancel();
-      _writeRoomStateSub = writeDecoder.onRoomState.listen((event) {
-        if (_disposed) return;
-        channelSetup.handleRoomState(event);
-        final isNew = readiness.noteWriteRoomState(event.channel);
-        if (isNew) {
-          if (readiness.isChannelReady(event.channel)) {
-            _announceConnected(event.channel);
-            connectionStateNotifier.value++;
-          }
-        }
-      });
-
-      // Mod grants and removals apply live: USERSTATE carries the role on
-      // JOIN and after each own message (the write socket sees the latter),
-      // and EventSub revokes moderator subscriptions on unmod.
-      void onSelfModerator((String, bool) event) {
-        if (_disposed) return;
-        eventSubTopics.noteSelfModerator(event.$1, event.$2);
-      }
-
-      _readSelfModSub?.cancel();
-      _readSelfModSub = readDecoder.onSelfModerator.listen(onSelfModerator);
-      _writeSelfModSub?.cancel();
-      _writeSelfModSub = writeDecoder.onSelfModerator.listen(onSelfModerator);
-      _revocationSub?.cancel();
-      _revocationSub = eventSub.onRevocation.listen((subscription) {
-        if (_disposed) return;
-        eventSubTopics.handleRevocation(subscription);
-      });
-
+      _listenToTransports();
       liveness.startWatchdog();
-
       sevenTvClient?.connect();
-
-      // EventSub session lifecycle: subscriptions are session-scoped, so drop
-      // moderation-channel state when the session dies (IRC fallback resumes)
-      // and re-subscribe when a new session comes up (session_reconnect or
-      // keepalive reconnect) - otherwise moderation and the broadcaster
-      // widgets stay dead until the next IRC reconnect.
-      statusSub?.cancel();
-      statusSub = eventSub.onStatus.listen((status) {
-        if (_disposed) return;
-        if (status == EventSubStatus.disconnected ||
-            status == EventSubStatus.connecting) {
-          // Connecting clears too: session_reconnect/keepalive paths replace
-          // the session inside connect() without emitting disconnected, so
-          // without this the stale active sets would skip every resubscribe
-          // on the new session (subs are session-scoped and die with it).
-          eventSubTopics.clearSessionState();
-        } else if (status == EventSubStatus.connected) {
-          eventSubTopics.resubscribeEventSubChannels(chat.names);
-        }
-      });
-
-      ircStatusSub?.cancel();
-      ircStatusSub = irc.onStatus.listen((status) {
-        if (_disposed) return;
-        connectionStateNotifier.value++;
-        if (status == IrcConnectionStatus.connected && irc.isConnected) {
-          readiness.noteWriteSocketConnected();
-          // Edge-triggered: subscribeAll once per connect.
-          if (!_wasConnected) {
-            final isReconnect = _wasDisconnected;
-            _wasConnected = true;
-            _wasDisconnected = false;
-            // Chat arrives on the read socket, so its recovery refills the
-            // gap. The write edge only does it for an account swap, which
-            // replaces the read socket without reporting an outage.
-            if (isReconnect && _swapBackfill) {
-              _swapBackfill = false;
-              onReconnected?.call();
-            }
-            // Per-channel "Connected" now waits for that channel's own JOIN
-            // confirmation (see the ROOMSTATE listener) - a socket being up
-            // says nothing about whether the channel can receive PRIVMSG.
-            subscribeAll();
-          }
-        }
-        if (status == IrcConnectionStatus.disconnected && !_wasDisconnected) {
-          _wasDisconnected = true;
-          _wasConnected = false;
-          readiness.resetForWriteDisconnect();
-          // Failure state is per socket lifetime: the fresh socket runs its
-          // own fast sweep, so it may legitimately fail (and re-announce)
-          // again.
-          channelSetup.resetJoinFailureState();
-          for (final channel in chat.names) {
-            onConnStatus(channel, SystemLine.disconnected);
-          }
-        }
-      });
-
-      // The read-only socket reconnects independently of the write socket. A
-      // read-socket outage alone (DNS failure, server move) would otherwise be
-      // invisible: chat freezes with no "Disconnected" (the write socket is
-      // still fine) and no recovery notice. Surface it as an explicit status.
-      // Its JOIN confirmations die with the socket, so the input gate must
-      // re-lock and the frame must rebuild.
-      ircReadStatusSub?.cancel();
-      ircReadStatusSub = ircRead.onStatus.listen((status) {
-        if (_disposed) return;
-        if (status == IrcConnectionStatus.connected &&
-            readiness.noteReadSocketRecovered()) {
-          // Chat arrives on this socket, so its outage is the gap to refill.
-          onReconnected?.call();
-          for (final channel in chat.names) {
-            // Same ack as the JOIN-confirm path below: a flapping write
-            // socket reports the same recovery, keep one line.
-            if (readiness.acknowledgeConnected(channel)) {
-              onConnStatus(channel, SystemLine.reconnected);
-            }
-          }
-          connectionStateNotifier.value++;
-        } else if (status == IrcConnectionStatus.disconnected &&
-            readiness.noteReadSocketDisconnected()) {
-          connectionStateNotifier.value++;
-          for (final channel in chat.names) {
-            onConnStatus(channel, SystemLine.reconnecting);
-          }
-        }
-      });
-
-      // Arm the read requirement on its very first connect (not just
-      // recoveries), so the pipe gate covers this session from the start.
-      // Armed once: connect() re-runs on every auth change and must not
-      // stack another waiter while the read socket stays down. The
-      // controller closing on dispose completes with an error; ignore.
-      if (!readiness.readEverConnected && !_readConnectWaiterArmed) {
-        _readConnectWaiterArmed = true;
-        unawaited(
-          ircRead.onStatus
-              .firstWhere((s) => s == IrcConnectionStatus.connected)
-              .then((_) {
-                _readConnectWaiterArmed = false;
-                if (!_disposed && !readiness.readEverConnected) {
-                  readiness.noteReadSocketEverConnected();
-                  connectionStateNotifier.value++;
-                }
-              })
-              .catchError((_) {
-                _readConnectWaiterArmed = false;
-              }),
-        );
-      }
-
-      ircAuthFailedSub?.cancel();
-      ircAuthFailedSub = irc.onAuthFailed.listen((_) {
-        if (_disposed) return;
-        _handleExpiredToken();
-      });
-
-      ircReadAuthFailedSub?.cancel();
-      ircReadAuthFailedSub = ircRead.onAuthFailed.listen((_) {
-        if (_disposed) return;
-        _handleExpiredToken();
-      });
 
       // Use the cached account if available so cold start skips the Helix
       // user lookup entirely. An expired token stays anonymous until re-auth.
