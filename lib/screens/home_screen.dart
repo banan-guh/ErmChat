@@ -234,6 +234,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   // state (text, reply, suggestions, cooldown) lives in _composer.
   bool _replyToRoot = false;
   bool _preferEmotesFirst = false;
+  bool _sendSwipeMenu = true;
+  int _spamIntervalMs = 0;
   // True while a manual emote refresh (Reload emotes) is in flight. The
   // connect/reconnect + per-channel-join loading is read live from
   // [_chatLoading] (driven by ChatConnectionManager.connectionStateNotifier),
@@ -337,6 +339,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     openThreadRoot: () => _panelManager.openThreadRoot,
     replyToRoot: () => _replyToRoot,
     preferEmotesFirst: () => _preferEmotesFirst,
+    sendSwipeMenu: () => _sendSwipeMenu,
+    spamIntervalMs: () => _spamIntervalMs,
     computeThreadMessages: () => _threads.computeThreadMessages(),
     channelChatReady: () => _channelChatReady,
     replayingVod: () => _streamPlayer.replaysVod(selectedChannel),
@@ -1446,6 +1450,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
         sharedChatChanged ||
         _replyToRoot != prefs.replyToThreadRoot ||
         _preferEmotesFirst != prefs.preferEmotesFirst ||
+        _sendSwipeMenu != prefs.sendSwipeMenu ||
+        _spamIntervalMs != prefs.spamIntervalMs ||
         _fastSnap != prefs.fastChannelSnap ||
         _liquidGlass != prefs.liquidGlass ||
         _chromeTheme != prefs.chromeTheme ||
@@ -1465,6 +1471,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       }
       _replyToRoot = prefs.replyToThreadRoot;
       _preferEmotesFirst = prefs.preferEmotesFirst;
+      _sendSwipeMenu = prefs.sendSwipeMenu;
+      _spamIntervalMs = prefs.spamIntervalMs;
       _showTimestamps = prefs.showTimestamps;
       _timestampFormat = prefs.timestampFormat;
       _chatFontSize = prefs.chatFontSize;

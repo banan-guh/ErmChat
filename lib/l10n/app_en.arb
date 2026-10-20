@@ -41,6 +41,20 @@
   "settingPreferEmotes": "Prefer emote suggestions (autocomplete)",
   "settingMentionFormat": "Mention format",
   "settingReplyThreadRoot": "Reply to thread first message",
+  "settingSendSwipe": "Swipe up to spam",
+  "settingSpamSpeed": "Spam speed",
+  "spamSpeedAuto": "Auto",
+  "spamSpeedMs": "{ms} ms",
+  "@spamSpeedMs": {
+    "placeholders": {
+      "ms": {
+        "type": "int"
+      }
+    }
+  },
+  "spamOverLimit": "Over Twitch's limit",
+  "spamOverLimitPlain": "Over the limit unless mod or VIP",
+  "sendSwipeOff": "Swipe up to spam is off",
   "settingMacros": "Command macros",
   "settingDoubleTapCopy": "Double-tap name to copy",
   "settingStayConnected": "Stay connected in background",

@@ -116,6 +116,8 @@ class Prefs {
   static const _kWhisperNotifications = 'whisper_notifications';
   static const _kMentionNotifyForeground = 'mention_notify_foreground';
   static const _kPreferEmotesFirst = 'prefer_emotes_first';
+  static const _kSendSwipeMenu = 'send_swipe_menu';
+  static const _kSpamIntervalMs = 'spam_interval_ms';
   static const _kDoubleTapNameCopy = 'double_tap_name_copy';
   static const _kSharedChatMode = 'shared_chat_mode';
   static const _kSeventvNamePaints = 'seventv_name_paints';
@@ -212,6 +214,19 @@ class Prefs {
 
   Future<void> setPreferEmotesFirst(bool value) =>
       _p.setBool(_kPreferEmotesFirst, value);
+
+  /// Swiping up from send opens the send menu (spam).
+  bool get sendSwipeMenu => _p.getBool(_kSendSwipeMenu) ?? true;
+
+  Future<void> setSendSwipeMenu(bool value) =>
+      _p.setBool(_kSendSwipeMenu, value);
+
+  /// Gap between spam sends in ms; 0 paces automatically under Twitch's
+  /// limits.
+  int get spamIntervalMs => _p.getInt(_kSpamIntervalMs) ?? 0;
+
+  Future<void> setSpamIntervalMs(int value) =>
+      _p.setInt(_kSpamIntervalMs, value);
 
   bool get doubleTapNameCopy => _p.getBool(_kDoubleTapNameCopy) ?? false;
 
@@ -764,6 +779,8 @@ class Prefs {
     _kBackgroundService: bool,
     _kWhisperNotifications: bool,
     _kPreferEmotesFirst: bool,
+    _kSendSwipeMenu: bool,
+    _kSpamIntervalMs: int,
     _kDoubleTapNameCopy: bool,
     kShowTimestampsPrefKey: bool,
     kTimestampFormatPrefKey: String,

@@ -137,7 +137,11 @@ class PrefsSliderTile extends StatefulWidget {
     this.onChanged,
     this.enabled = true,
     this.labelTrailing,
+    this.tint,
   });
+
+  /// Colors the caption and track for a value, such as a warning red.
+  final Color? Function(double value)? tint;
 
   /// Renders the caption from the current slider value.
   final String Function(double value) label;
@@ -191,6 +195,7 @@ class _PrefsSliderTileState extends State<PrefsSliderTile> {
   Widget build(BuildContext context) {
     final value = _value ?? widget.defaultValue;
     final enabled = widget.enabled;
+    final tint = enabled ? widget.tint?.call(value) : null;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -201,7 +206,7 @@ class _PrefsSliderTileState extends State<PrefsSliderTile> {
             trailing: widget.labelTrailing,
             style: Theme.of(context).textTheme.bodyMedium?.copyWith(
               color: enabled
-                  ? null
+                  ? tint
                   : Theme.of(context).colorScheme.onSurfaceVariant,
             ),
           ),
@@ -211,6 +216,7 @@ class _PrefsSliderTileState extends State<PrefsSliderTile> {
           min: widget.min,
           max: widget.max,
           divisions: widget.divisions,
+          activeColor: tint,
           label: (widget.sliderLabel ?? widget.label)(value),
           onChanged: enabled
               ? (v) {

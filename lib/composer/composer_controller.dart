@@ -41,6 +41,8 @@ class ComposerController {
     required this.openThreadRoot,
     required this.replyToRoot,
     required this.preferEmotesFirst,
+    required this.sendSwipeMenu,
+    required this.spamIntervalMs,
     required this.computeThreadMessages,
     required this.channelChatReady,
     required this.replayingVod,
@@ -76,6 +78,18 @@ class ComposerController {
   final TwitchMessage? Function() openThreadRoot;
   final bool Function() replyToRoot;
   final bool Function() preferEmotesFirst;
+
+  /// Swiping up from send opens the spam menu.
+  final bool Function() sendSwipeMenu;
+
+  /// The user's spam gap in ms; 0 paces under Twitch's limits.
+  final int Function() spamIntervalMs;
+
+  Duration? get _spamGap {
+    final ms = spamIntervalMs();
+    return ms > 0 ? Duration(milliseconds: ms) : null;
+  }
+
   final List<TwitchMessage> Function() computeThreadMessages;
   final bool Function() channelChatReady;
 
@@ -374,7 +388,7 @@ class ComposerController {
     if (text.startsWith('/')) return;
     _spamText = text;
     _spamChannel = channel;
-    _spamTimer = Timer(chatConn.repeatDelay(channel), _spamTick);
+    _spamTimer = Timer(chatConn.repeatDelay(channel, gap: _spamGap), _spamTick);
   }
 
   void _spamTick() {
@@ -386,7 +400,7 @@ class ComposerController {
       return;
     }
     // The pace can tighten after scheduling (slow mode, a send elsewhere).
-    final wait = chatConn.repeatDelay(channel);
+    final wait = chatConn.repeatDelay(channel, gap: _spamGap);
     if (wait > Duration.zero) {
       _spamTimer = Timer(wait, _spamTick);
       return;
@@ -398,7 +412,7 @@ class ComposerController {
     }
     chatConn.doSendMessage(text, channel);
     spamSends.value++;
-    _spamTimer = Timer(chatConn.repeatDelay(channel), _spamTick);
+    _spamTimer = Timer(chatConn.repeatDelay(channel, gap: _spamGap), _spamTick);
   }
 
   void stopSpam() {

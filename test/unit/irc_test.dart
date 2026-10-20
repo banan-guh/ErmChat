@@ -3282,6 +3282,11 @@ void main() {
         const Duration(milliseconds: 1200),
         reason: 'the 20 per 30s budget held the send',
       );
+      expect(
+        sender.repeatDelay('test', gap: const Duration(milliseconds: 500)),
+        Duration.zero,
+        reason: 'a chosen spam speed replaces the safe pacing',
+      );
 
       tick(30000);
       slow = 10;

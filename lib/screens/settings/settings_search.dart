@@ -128,6 +128,8 @@ class Setting {
     'prefer_emotes' => l.settingPreferEmotes,
     'mention_format' => l.settingMentionFormat,
     'reply_thread_root' => l.settingReplyThreadRoot,
+    'send_swipe' => l.settingSendSwipe,
+    'spam_speed' => l.settingSpamSpeed,
     'macros' => l.settingMacros,
     'double_tap_copy' => l.settingDoubleTapCopy,
     'stay_connected' => l.settingStayConnected,
@@ -443,6 +445,20 @@ class Setting {
     SettingsPageId.chat,
     section: 'Typing',
     keywords: 'root',
+  );
+  static const sendSwipe = Setting(
+    'send_swipe',
+    'Swipe up to spam',
+    SettingsPageId.chat,
+    section: 'Typing',
+    keywords: 'send menu repeat gesture',
+  );
+  static const spamSpeed = Setting(
+    'spam_speed',
+    'Spam speed',
+    SettingsPageId.chat,
+    section: 'Typing',
+    keywords: 'interval rate limit ms repeat',
   );
   static const macros = Setting(
     'macros',
@@ -804,6 +820,8 @@ class Setting {
     preferEmotes,
     mentionFormat,
     replyThreadRoot,
+    sendSwipe,
+    spamSpeed,
     macros,
     doubleTapCopy,
     stayConnected,

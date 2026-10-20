@@ -155,7 +155,9 @@ class ComposerBar extends StatelessWidget {
                   onSend: controller.send,
                   onSendLongPress: controller.recallLastSent,
                   onRecallUndo: controller.undoRecall,
-                  onSpamStart: controller.startSpam,
+                  onSpamStart: controller.sendSwipeMenu()
+                      ? controller.startSpam
+                      : null,
                   onSpamStop: controller.stopSpam,
                   spamSends: controller.spamSends,
                   onTap: controller.onTapClearSuggestions,
@@ -274,7 +276,7 @@ class ComposerRowButton extends StatelessWidget {
           enabled: enabled,
           onRecall: controller.recallLastSent,
           onRecallUndo: controller.undoRecall,
-          onSpamStart: controller.startSpam,
+          onSpamStart: controller.sendSwipeMenu() ? controller.startSpam : null,
           onSpamStop: controller.stopSpam,
           spamSends: controller.spamSends,
           child: InkWell(

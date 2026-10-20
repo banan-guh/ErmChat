@@ -92,6 +92,11 @@ class ChatSender {
     'global_mod',
   };
 
+  /// Repeat gaps that stay under Twitch's limits, with a margin: plain
+  /// accounts, and broadcaster/mod/VIP.
+  static const plainRepeatGap = Duration(milliseconds: 1600);
+  static const privilegedRepeatGap = Duration(milliseconds: 330);
+
   // Badge set-ids that lift Twitch's chat rate limit from 20 to 100 messages
   // per 30 seconds.
   static const _rateExemptBadges = {'broadcaster', 'moderator', 'vip'};
@@ -152,8 +157,9 @@ class ChatSender {
   /// limits: 20 messages per 30 seconds and one per second per channel, or
   /// 100 per 30 seconds with a privileged badge, plus slow mode. Overrunning
   /// the plain limit silences the account for an hour, so each carries a
-  /// margin. Zero when a send may go now.
-  Duration repeatDelay(String channel) {
+  /// margin. A [gap] the user chose replaces that pacing, slow mode aside.
+  /// Zero when a send may go now.
+  Duration repeatDelay(String channel, {Duration? gap}) {
     final at = now();
     _recentSends.removeWhere((t) => at.difference(t) >= _rateWindow);
     final privileged = selfBadges(
@@ -166,15 +172,13 @@ class ChatSender {
 
     // Windowed budget: the oldest send that must age out first.
     final budget = privileged ? 95 : 18;
-    if (_recentSends.length >= budget) {
+    if (gap == null && _recentSends.length >= budget) {
       final oldest = _recentSends[_recentSends.length - budget];
       atLeast(oldest.add(_rateWindow).difference(at));
     }
     if (_recentSends.isNotEmpty) {
-      final gap = privileged
-          ? const Duration(milliseconds: 330)
-          : const Duration(milliseconds: 1600);
-      atLeast(_recentSends.last.add(gap).difference(at));
+      final step = gap ?? (privileged ? privilegedRepeatGap : plainRepeatGap);
+      atLeast(_recentSends.last.add(step).difference(at));
     }
     final slow = remainingSlowCooldown(channel);
     if (slow != null) atLeast(Duration(seconds: slow) + _sendGrace);

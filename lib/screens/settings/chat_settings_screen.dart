@@ -3,6 +3,7 @@ import 'dart:io' show Platform;
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import '../../l10n/l10n.dart';
+import '../../services/chat_sender.dart';
 import '../../services/twitch_auth.dart';
 import '../../util/constants.dart';
 import '../../util/prefs.dart';
@@ -218,6 +219,17 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
               write: (p, v) => p.setReplyToThreadRoot(v),
             ),
           ),
+          SettingAnchor(
+            Setting.sendSwipe,
+            child: PrefsSwitchTile(
+              secondary: const Icon(Icons.swipe_up),
+              title: Setting.sendSwipe.titleOf(context.l10n),
+              defaultValue: true,
+              read: (p) => p.sendSwipeMenu,
+              write: (p, v) => p.setSendSwipeMenu(v),
+            ),
+          ),
+          _SpamSpeedTile(menuOn: _prefs?.sendSwipeMenu ?? true),
           if (widget.twitchAuth != null)
             SettingAnchor(
               Setting.macros,
@@ -267,6 +279,127 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
         ],
       ),
     );
+  }
+}
+
+/// Spam pace: Auto stays under Twitch's limits; a fixed gap faster than
+/// them shows red with "!" and says which limit it breaks.
+class _SpamSpeedTile extends StatefulWidget {
+  const _SpamSpeedTile({required this.menuOn});
+
+  final bool menuOn;
+
+  @override
+  State<_SpamSpeedTile> createState() => _SpamSpeedTileState();
+}
+
+class _SpamSpeedTileState extends State<_SpamSpeedTile> {
+  // 0 is Auto.
+  static const _steps = [
+    0,
+    100,
+    200,
+    300,
+    400,
+    500,
+    750,
+    1000,
+    1250,
+    1500,
+    2000,
+    3000,
+  ];
+
+  int? _ms;
+
+  @override
+  void initState() {
+    super.initState();
+    Prefs.load().then((p) {
+      if (mounted) setState(() => _ms = p.spamIntervalMs);
+    });
+  }
+
+  int _stepOf(int ms) {
+    final i = _steps.indexOf(ms);
+    return i < 0 ? 0 : i;
+  }
+
+  String? _overLimit(AppLocalizations l, int ms) {
+    if (ms <= 0) return null;
+    if (ms < ChatSender.privilegedRepeatGap.inMilliseconds) {
+      return l.spamOverLimit;
+    }
+    if (ms < ChatSender.plainRepeatGap.inMilliseconds) {
+      return l.spamOverLimitPlain;
+    }
+    return null;
+  }
+
+  String _value(AppLocalizations l, int ms) {
+    if (ms <= 0) return l.spamSpeedAuto;
+    final text = l.spamSpeedMs(ms);
+    return _overLimit(l, ms) == null ? text : '$text !';
+  }
+
+  void _offSnack() => ScaffoldMessenger.of(context)
+    ..hideCurrentSnackBar()
+    ..showSnackBar(
+      SnackBar(
+        content: Text(context.l10n.sendSwipeOff),
+        action: SnackBarAction(
+          label: context.l10n.turnOn,
+          onPressed: () async {
+            final prefs = await Prefs.load();
+            await prefs.setSendSwipeMenu(true);
+            PrefsStore.instance.notifyChanged();
+          },
+        ),
+      ),
+    );
+
+  @override
+  Widget build(BuildContext context) {
+    final l = context.l10n;
+    final error = Theme.of(context).colorScheme.error;
+    final warning = widget.menuOn ? _overLimit(l, _ms ?? 0) : null;
+    Widget tile = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        PrefsSliderTile(
+          enabled: widget.menuOn,
+          label: (v) =>
+              '${Setting.spamSpeed.titleOf(l)}: ${_value(l, _steps[v.round()])}',
+          sliderLabel: (v) => _value(l, _steps[v.round()]),
+          min: 0,
+          max: (_steps.length - 1).toDouble(),
+          divisions: _steps.length - 1,
+          defaultValue: 0,
+          read: (p) => _stepOf(p.spamIntervalMs).toDouble(),
+          write: (p, v) => p.setSpamIntervalMs(_steps[v.round()]),
+          onChanged: (v) => setState(() => _ms = _steps[v.round()]),
+          tint: (v) => _overLimit(l, _steps[v.round()]) == null ? null : error,
+        ),
+        if (warning != null)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+            child: Text(
+              warning,
+              style: Theme.of(
+                context,
+              ).textTheme.bodySmall?.copyWith(color: error),
+            ),
+          ),
+      ],
+    );
+    if (!widget.menuOn) {
+      tile = GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: _offSnack,
+        child: tile,
+      );
+    }
+    return SettingAnchor(Setting.spamSpeed, child: tile);
   }
 }
 
