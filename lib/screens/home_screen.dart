@@ -183,6 +183,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   bool _backgroundService = false;
   bool _whisperNotify = true;
 
+  /// The introduction shows once per install, on phones only. Home stays
+  /// blank until it covers the screen. The app root loads prefs first.
+  bool _introPending =
+      (Platform.isAndroid || Platform.isIOS) &&
+      !(Prefs.loaded?.welcomeSeen ?? true);
+
   final _isMobile = ValueNotifier<bool>(false);
 
   late final EmoteManager _emoteManager = ref.read(emoteManagerProvider);
@@ -754,7 +760,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     );
     WidgetsBinding.instance.addObserver(_predictiveBackHandler);
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      unawaited(_maybeShowIntro());
+      _maybeShowIntro();
       unawaited(_runAppUpdates());
     });
   }
@@ -797,18 +803,19 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     );
   }
 
-  /// The introduction, once per install, on phones only.
-  Future<void> _maybeShowIntro() async {
-    if (!Platform.isAndroid && !Platform.isIOS) return;
-    final prefs = await Prefs.load();
-    if (prefs.welcomeSeen) return;
-    await prefs.setWelcomeSeen(true);
-    if (!mounted) return;
-    await Navigator.push(
+  /// Opens the introduction in place, with no entrance, so the app starts
+  /// on it. It fades out to home when done.
+  void _maybeShowIntro() {
+    if (!_introPending || !mounted) return;
+    Navigator.push(
       context,
-      MaterialPageRoute(
+      PageRouteBuilder<void>(
         fullscreenDialog: true,
-        builder: (_) => IntroScreen(
+        transitionDuration: Duration.zero,
+        reverseTransitionDuration: const Duration(milliseconds: 250),
+        transitionsBuilder: (_, animation, _, child) =>
+            FadeTransition(opacity: animation, child: child),
+        pageBuilder: (_, _, _) => IntroScreen(
           twitchAuth: _twitchAuth,
           onJoinChannel: (c) => _channelManager.addChannel(c, focus: false),
           mentionPush: ref.read(mentionPushProvider),
@@ -816,6 +823,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
         ),
       ),
     );
+    setState(() => _introPending = false);
+    unawaited(Prefs.load().then((p) => p.setWelcomeSeen(true)));
   }
 
   Future<void> _loadNotificationSettings() async {
@@ -1916,6 +1925,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       reconnectedTickProvider,
       (_, _) => unawaited(_emotes.refreshSubEmoteOwners()),
     );
+    if (_introPending) {
+      return ColoredBox(color: Theme.of(context).colorScheme.surface);
+    }
     // Reply card floats above the composer. Hidden while search or the terms
     // box borrows the input, and while the composer is disabled.
     final glass = glassEnabled(
