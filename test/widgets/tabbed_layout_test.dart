@@ -815,4 +815,55 @@ void main() {
     await g.up();
     await tester.pumpAndSettle();
   });
+
+  testWidgets('the strip glide tracks a swipe that keeps moving', (
+    tester,
+  ) async {
+    final tabs = [for (var i = 0; i < 20; i++) 'channel$i'];
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: TabbedLayout(
+            tabs: tabs,
+            selectedIndex: 10,
+            onFocusChanged: (_) {},
+            onSelectedIndexChanged: (_) {},
+            pageBuilder: (_, i) => Center(child: Text('page$i')),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    ScrollPosition strip() => tester
+        .state<ScrollableState>(
+          find
+              .descendant(
+                of: find.byType(TabBar),
+                matching: find.byType(Scrollable),
+              )
+              .first,
+        )
+        .position;
+    await tester.drag(find.byType(TabBar), const Offset(2000, 0));
+    await tester.pumpAndSettle();
+
+    final g = await tester.startGesture(tester.getCenter(find.text('page10')));
+    final seen = <double>[];
+    for (var i = 0; i < 24; i++) {
+      await g.moveBy(const Offset(-15, 0));
+      await tester.pump(const Duration(milliseconds: 16));
+      seen.add(strip().pixels);
+    }
+    // Frame 13 (208 ms) ends the glide; from there the strip only follows
+    // the swipe.
+    for (var i = 13; i < seen.length; i++) {
+      expect(
+        (seen[i] - seen[i - 1]).abs(),
+        lessThan(15),
+        reason: 'strip snapped at frame $i: $seen',
+      );
+    }
+    await g.up();
+    await tester.pumpAndSettle();
+  });
 }

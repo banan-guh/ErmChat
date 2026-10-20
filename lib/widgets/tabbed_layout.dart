@@ -295,10 +295,15 @@ class TabbedLayoutState extends State<TabbedLayout>
   // where the pager puts it.
   ScrollPosition? _stripPosition;
   bool _stripDisplaced = false;
-  // True while the strip animates back to the pager's place.
-  bool _stripCatchingUp = false;
-  double? _lastMirroredPage;
-  static const _stripCatchUpDuration = Duration(milliseconds: 200);
+  // Glides the strip from where the finger left it to where TabBar puts
+  // it. The target moves with the swipe, so each tick blends toward the
+  // latest one and the glide ends exactly on it.
+  late final _stripCatchUp = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 200),
+  )..addListener(_glideStrip);
+  double _glideFrom = 0;
+  double _glideTo = 0;
 
   bool _onStripNotification(ScrollNotification n) {
     if (n is ScrollStartNotification && n.dragDetails != null) {
@@ -307,21 +312,50 @@ class TabbedLayoutState extends State<TabbedLayout>
           ? null
           : Scrollable.maybeOf(context)?.position;
       _stripDisplaced = true;
+      _stripCatchUp.stop();
     }
     return false;
   }
 
-  void _mirrorPageToStrip(double page) {
-    _lastMirroredPage = page;
-    final ctrl = _tabController;
-    if (ctrl == null || ctrl.indexIsChanging || _stripCatchingUp) return;
+  void _glideStrip() {
     final strip = _stripPosition;
-    if (!_stripDisplaced || strip == null || !strip.hasPixels) {
+    if (strip == null ||
+        !strip.hasPixels ||
+        strip.context.notificationContext?.mounted != true) {
+      _stripCatchUp.stop();
+      return;
+    }
+    final t = Curves.easeOut.transform(_stripCatchUp.value);
+    strip.jumpTo(_glideFrom + (_glideTo - _glideFrom) * t);
+  }
+
+  void _mirrorPageToStrip(double page) {
+    final ctrl = _tabController;
+    if (ctrl == null) return;
+    if (ctrl.indexIsChanging) {
+      // A tab tap scrolls the strip itself.
+      _stripCatchUp.stop();
+      return;
+    }
+    final strip = _stripPosition;
+    if (strip == null || !strip.hasPixels) {
+      _syncStrip(ctrl, page);
+      return;
+    }
+    if (_stripCatchUp.isAnimating) {
+      // TabBar re-centres the strip on every offset tick: take that as
+      // the new target and put the strip back on the glide.
+      _syncStrip(ctrl, page);
+      _glideTo = strip.pixels;
+      _glideStrip();
+      return;
+    }
+    if (!_stripDisplaced) {
       _syncStrip(ctrl, page);
       return;
     }
     // TabBar jumps a scrolled-away strip back to the tab on the first
-    // offset tick. Read where it lands, then animate there instead.
+    // offset tick. Read where it lands, then glide there instead.
     final from = strip.pixels;
     _syncStrip(ctrl, page);
     final to = strip.pixels;
@@ -329,15 +363,10 @@ class TabbedLayoutState extends State<TabbedLayout>
     // strip displaced for the next.
     if ((to - from).abs() < 1) return;
     _stripDisplaced = false;
-    strip.jumpTo(from);
-    _stripCatchingUp = true;
-    strip
-        .animateTo(to, duration: _stripCatchUpDuration, curve: Curves.easeOut)
-        .whenComplete(() {
-          _stripCatchingUp = false;
-          final last = _lastMirroredPage;
-          if (mounted && last != null) _mirrorPageToStrip(last);
-        });
+    _glideFrom = from;
+    _glideTo = to;
+    _stripCatchUp.forward(from: 0);
+    _glideStrip();
   }
 
   void _syncStrip(TabController ctrl, double page) {
@@ -563,6 +592,7 @@ class TabbedLayoutState extends State<TabbedLayout>
 
   @override
   void dispose() {
+    _stripCatchUp.dispose();
     _pageController?.dispose();
     _tabController?.dispose();
     super.dispose();
