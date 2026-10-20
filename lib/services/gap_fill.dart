@@ -1,16 +1,5 @@
 import 'dart:math';
 
-/// How hard history tries to fill the gap since the last message seen.
-/// Off loads only the newest messages. Low fetches the whole gap when it
-/// likely fits robotty's buffer, High even on a long shot.
-enum GapFill {
-  off,
-  low,
-  high;
-
-  static GapFill fromIndex(int i) => values[i.clamp(0, values.length - 1)];
-}
-
 /// Messages robotty keeps per channel.
 const int robottyBuffer = 800;
 
@@ -41,14 +30,8 @@ double expectedGapMessages({
 }
 
 /// Whether to fetch the whole gap: [fetched] newest messages plus
-/// [expectedMissing] must fit robotty's buffer, judged with [mode]'s margin.
-/// Chat rates swing about twofold. Low's margin is tuned so few fetches
-/// come back short, and High tries up to well past the buffer.
-bool shouldFetchGap(GapFill mode, int fetched, double expectedMissing) {
-  final total = fetched + expectedMissing;
-  return switch (mode) {
-    GapFill.off => false,
-    GapFill.low => total <= robottyBuffer * 0.85,
-    GapFill.high => total <= robottyBuffer * 1.8,
-  };
-}
+/// [expectedMissing] must fit robotty's buffer with a margin. Chat rates
+/// swing about twofold, and the margin is tuned so few fetches come back
+/// short.
+bool shouldFetchGap(int fetched, double expectedMissing) =>
+    fetched + expectedMissing <= robottyBuffer * 0.85;

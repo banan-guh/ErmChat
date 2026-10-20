@@ -138,8 +138,8 @@ class ChatHistoryController {
   static const _gapOverlap = Duration(seconds: 5);
 
   /// [newest], the newest-first fetch, or a fetch reaching back to the last
-  /// message held when [newest] falls short and the gap fill setting judges
-  /// the whole gap fits robotty's buffer. What stays missing gets the
+  /// message held when [newest] falls short, dynamic fetch is on, and the
+  /// whole gap likely fits robotty's buffer. What stays missing gets the
   /// kernel's gap note on merge.
   Future<List<TwitchMessage>> fillGap(
     String channel,
@@ -166,8 +166,7 @@ class ChatHistoryController {
       return newest;
     }
     try {
-      final mode = GapFill.fromIndex((await Prefs.load()).historyGapFill);
-      if (mode == GapFill.off) return newest;
+      if (!(await Prefs.load()).historyDynamicFetch) return newest;
       final oldest = chatRows.reduce((a, b) => a.isBefore(b) ? a : b);
       final latest = chatRows.reduce((a, b) => a.isAfter(b) ? a : b);
       final span = latest.difference(oldest).inMilliseconds / 1000;
@@ -180,7 +179,7 @@ class ChatHistoryController {
             ?.call(channel)
             .then<DateTime?>((t) => t, onError: (_) => null),
       );
-      if (!shouldFetchGap(mode, newest.length, expected)) return newest;
+      if (!shouldFetchGap(newest.length, expected)) return newest;
       final gap = await recentMessages.fetchRecent(
         channel,
         limit: robottyBuffer,

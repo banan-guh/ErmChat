@@ -1404,7 +1404,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       kImageEmbedHeightMax,
     );
     final recentLimitChanged =
-        ref.read(recentMessagesLimitProvider) != prefs.recentMessagesLimit;
+        ref.read(recentMessagesLimitProvider) != prefs.historyFetchLimit;
     final sharedChatChanged =
         ref.read(sharedChatModeProvider) != prefs.sharedChatMode;
     final animateChanged = _animateGifs != prefs.animateGifs;
@@ -1445,7 +1445,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       if (!initial) {
         ref
             .read(recentMessagesLimitProvider.notifier)
-            .set(prefs.recentMessagesLimit);
+            .set(prefs.historyFetchLimit);
         ref.read(sharedChatModeProvider.notifier).set(prefs.sharedChatMode);
         ref
             .read(mentionForegroundProvider.notifier)

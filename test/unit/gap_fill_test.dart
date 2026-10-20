@@ -3,9 +3,9 @@ import 'dart:math';
 import 'package:ermchat/services/gap_fill.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-/// What one level did across the simulated reconnects.
+/// What one strategy did across the simulated reconnects.
 class _Tally {
-  int filled = 0, fetches = 0, wasted = 0, skipped = 0, extraRows = 0;
+  int filled = 0, rows = 0, fetches = 0, short = 0;
 }
 
 void main() {
@@ -55,33 +55,25 @@ void main() {
     );
   });
 
-  test('each level fetches the gap only within its margin', () {
-    // (mode, fetched, expected missing, fetch?)
-    final cases = [
-      (GapFill.off, 100, 0.0, false),
-      (GapFill.low, 100, 300.0, true),
-      (GapFill.low, 100, 500.0, true),
-      (GapFill.low, 100, 700.0, false),
-      (GapFill.high, 100, 500.0, true),
-      (GapFill.high, 100, 1300.0, true),
-      (GapFill.high, 100, 1500.0, false),
-    ];
-    for (final (mode, fetched, missing, fetch) in cases) {
+  test('the gap is fetched only within the margin', () {
+    // (fetched, expected missing, fetch?)
+    final cases = [(100, 300.0, true), (100, 500.0, true), (100, 700.0, false)];
+    for (final (fetched, missing, fetch) in cases) {
       expect(
-        shouldFetchGap(mode, fetched, missing),
+        shouldFetchGap(fetched, missing),
         fetch,
-        reason: '$mode with $missing missing',
+        reason: '$missing missing',
       );
     }
   });
 
-  test('levels trade fills against wasted fetches over simulated gaps', () {
+  test('dynamic fetch against manual counts over simulated gaps', () {
     // Reconnects over channel sizes, gap lengths and live states, with chat
     // rates swinging up to twofold from what the archive and the newest page
-    // suggest. A gap fills when the newest page reaches it, or when the level
-    // fetches and robotty's buffer holds it all. A fetch that cannot hold it
-    // is wasted, and a gap that fit but was not fetched is skipped.
-    const limit = 100;
+    // suggest. A manual count always loads that many and fills a gap it
+    // covers. Dynamic loads [page], then the whole gap when it judges robotty
+    // holds it all; a gap fetch robotty cannot hold comes back short.
+    const page = 100;
     final rng = Random(7);
     double swing() => pow(2, rng.nextDouble() * 2 - 1).toDouble();
     // (profile, usual offline messages a second, live messages a second)
@@ -96,13 +88,10 @@ void main() {
     DateTime at(double s) =>
         base.add(Duration(milliseconds: (s * 1000).round()));
 
-    final tallies = {for (final m in GapFill.values) m: _Tally()};
-    final byProfile = {
-      for (final p in profiles)
-        p.$1: {for (final m in GapFill.values) m: _Tally()},
-    };
-    var total = 0, fillable = 0, reached = 0;
-    for (final (name, usual, live) in profiles) {
+    const strategies = ['manual 100', 'manual 800', 'dynamic'];
+    final tallies = {for (final m in strategies) m: _Tally()};
+    var total = 0, fillable = 0;
+    for (final (_, usual, live) in profiles) {
       for (final gap in gaps) {
         // 0 offline, 1 live the whole gap, 2 went live during it.
         for (final state in [0, 1, 2]) {
@@ -123,25 +112,29 @@ void main() {
             final missing = rows(0, gap.toDouble()).round();
             total++;
             if (missing <= robottyBuffer) fillable++;
-            if (missing <= limit) {
-              reached++;
-              for (final m in GapFill.values) {
-                tallies[m]!.filled++;
-                byProfile[name]![m]!.filled++;
-              }
+            for (final (name, count) in [
+              ('manual 100', 100),
+              ('manual 800', 800),
+            ]) {
+              final t = tallies[name]!..rows += count;
+              if (missing <= count) t.filled++;
+            }
+            final dynamic = tallies['dynamic']!..rows += page;
+            if (missing <= page) {
+              dynamic.filled++;
               continue;
             }
-            // Where the newest page of [limit] rows starts.
+            // Where the newest page starts.
             final liveRows = liveStart == null
                 ? 0.0
                 : rows(max(0, liveStart), gap.toDouble());
             final oldest = liveStart == null
-                ? gap - limit / off
-                : liveRows >= limit
-                ? gap - limit / on
-                : max(0, liveStart) - (limit - liveRows) / off;
+                ? gap - page / off
+                : liveRows >= page
+                ? gap - page / on
+                : max(0, liveStart) - (page - liveRows) / off;
             final measured =
-                limit / (gap - oldest) * pow(2, rng.nextDouble() - 0.5);
+                page / (gap - oldest) * pow(2, rng.nextDouble() - 0.5);
             final expected = expectedGapMessages(
               lastSeen: base,
               oldestFetched: at(oldest),
@@ -150,20 +143,10 @@ void main() {
               archiveRate: rng.nextDouble() < 0.2 ? null : usual * swing(),
               liveSince: liveStart == null ? null : at(liveStart),
             );
-            for (final m in GapFill.values) {
-              for (final t in [tallies[m]!, byProfile[name]![m]!]) {
-                if (shouldFetchGap(m, limit, expected)) {
-                  t.fetches++;
-                  t.extraRows += min(missing, robottyBuffer);
-                  if (missing <= robottyBuffer) {
-                    t.filled++;
-                  } else {
-                    t.wasted++;
-                  }
-                } else if (missing <= robottyBuffer) {
-                  t.skipped++;
-                }
-              }
+            if (shouldFetchGap(page, expected)) {
+              dynamic.fetches++;
+              dynamic.rows += min(missing, robottyBuffer);
+              missing <= robottyBuffer ? dynamic.filled++ : dynamic.short++;
             }
           }
         }
@@ -172,36 +155,31 @@ void main() {
 
     String pct(int n, int of) =>
         '${(100 * n / max(1, of)).toStringAsFixed(1)}%'.padLeft(6);
-    String row(String label, _Tally t, int of) =>
-        '${label.padRight(12)} filled ${pct(t.filled, of)}'
-        '  fetches ${'${t.fetches}'.padLeft(4)}'
-        '  wasted ${pct(t.wasted, t.fetches)}'
-        '  skipped ${'${t.skipped}'.padLeft(4)}'
-        '  extra ${(t.extraRows * 440 / 1024 / max(1, of)).toStringAsFixed(1)} KB/reconnect';
     // ignore: avoid_print
     print(
       [
-        '$total reconnects, $fillable fit robotty '
-            '(${pct(fillable, total).trim()}), '
-            '$reached reached by the newest $limit',
-        for (final m in GapFill.values) row(m.name, tallies[m]!, total),
-        for (final p in profiles)
-          for (final m in [GapFill.low, GapFill.high])
-            row('${p.$1} ${m.name}', byProfile[p.$1]![m]!, total ~/ 4),
+        '$total reconnects, ${pct(fillable, total).trim()} fit robotty',
+        for (final m in strategies)
+          '${m.padRight(11)} filled ${pct(tallies[m]!.filled, total)}'
+              '  ${(tallies[m]!.rows * 440 / 1024 / total).toStringAsFixed(1).padLeft(5)} KB/reconnect'
+              '${tallies[m]!.fetches == 0 ? '' : '  gap fetches ${tallies[m]!.fetches}, short ${pct(tallies[m]!.short, tallies[m]!.fetches).trim()}'}',
       ].join('\n'),
     );
 
-    final off = tallies[GapFill.off]!;
-    final low = tallies[GapFill.low]!;
-    final high = tallies[GapFill.high]!;
-    expect(off.filled, reached, reason: 'off fills only what the page reaches');
-    expect(low.filled, greaterThan(off.filled));
-    expect(high.filled, greaterThanOrEqualTo(low.filled));
+    final small = tallies['manual 100']!;
+    final big = tallies['manual 800']!;
+    final dynamic = tallies['dynamic']!;
+    expect(dynamic.filled, greaterThan(small.filled));
     expect(
-      low.wasted / low.fetches,
-      lessThan(0.05),
-      reason: 'low rarely fetches short',
+      dynamic.filled,
+      greaterThan(big.filled * 0.85),
+      reason: 'dynamic fills most of what loading 800 every time would',
     );
-    expect(high.wasted, greaterThanOrEqualTo(low.wasted));
+    expect(dynamic.rows, lessThan(big.rows / 3), reason: 'at a fraction of it');
+    expect(
+      dynamic.short / dynamic.fetches,
+      lessThan(0.05),
+      reason: 'gap fetches rarely come back short',
+    );
   });
 }

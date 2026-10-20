@@ -10,7 +10,6 @@ import 'package:ermchat/services/archive.dart';
 import 'package:ermchat/services/archive_store.dart';
 import 'package:ermchat/services/chat_history_controller.dart';
 import 'package:ermchat/services/emote_manager.dart';
-import 'package:ermchat/services/gap_fill.dart';
 import 'package:ermchat/services/ignore_manager.dart';
 import 'package:ermchat/services/ping_manager.dart';
 import 'package:ermchat/services/recent_messages.dart';
@@ -293,16 +292,11 @@ void main() {
       channel: 'ch',
       timestamp: lastSeen.add(Duration(seconds: second)),
     );
-    // (level, first fetched second, reaches back?): rows run one a second
-    // up to [start] + 100, so [start] seconds of the gap are missing.
-    final cases = [
-      (GapFill.off, 200, false),
-      (GapFill.low, 200, true),
-      (GapFill.low, 600, false),
-      (GapFill.high, 600, true),
-    ];
-    for (final (mode, start, reaches) in cases) {
-      SharedPreferences.setMockInitialValues({'history_gap_fill': mode.index});
+    // (dynamic fetch on, first fetched second, reaches back?): rows run one
+    // a second up to [start] + 100, so [start] seconds of the gap are missing.
+    final cases = [(false, 200, false), (true, 200, true), (true, 600, false)];
+    for (final (on, start, reaches) in cases) {
+      SharedPreferences.setMockInitialValues({'history_gap_fill': on ? 1 : 0});
       final chat = Chat()..ensure('ch');
       final emotes = EmoteManager();
       final afters = <DateTime?>[];
@@ -317,7 +311,7 @@ void main() {
       expect(
         got.any((m) => m.messageId == 'r0'),
         reaches,
-        reason: '$mode missing $start seconds',
+        reason: '${on ? 'on' : 'off'} missing $start seconds',
       );
       if (reaches) {
         expect(afters.single!.isBefore(lastSeen), isTrue);

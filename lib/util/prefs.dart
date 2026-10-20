@@ -164,11 +164,17 @@ class Prefs {
   Future<void> setArchiveChannelCapMb(int value) =>
       _p.setInt(_kArchiveChannelCapMb, value);
 
-  /// A [GapFill] index: how hard history fills the gap since last seen.
-  int get historyGapFill => _p.getInt(_kHistoryGapFill) ?? 1;
+  /// Whether history sizes its fetch to the gap since the last message seen,
+  /// instead of loading [recentMessagesLimit]. Stored as an int, nonzero on.
+  bool get historyDynamicFetch => (_p.getInt(_kHistoryGapFill) ?? 1) != 0;
 
-  Future<void> setHistoryGapFill(int value) =>
-      _p.setInt(_kHistoryGapFill, value);
+  Future<void> setHistoryDynamicFetch(bool on) =>
+      _p.setInt(_kHistoryGapFill, on ? 1 : 0);
+
+  /// Messages the first history fetch loads: the default page under dynamic
+  /// fetch, which tops up the gap itself, else the manual count.
+  int get historyFetchLimit =>
+      historyDynamicFetch ? kRecentMessagesLimitDefault : recentMessagesLimit;
 
   bool get replyToThreadRoot => _p.getBool(_kReplyToThreadRoot) ?? false;
 

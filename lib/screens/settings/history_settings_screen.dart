@@ -4,12 +4,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../l10n/l10n.dart';
 import '../../providers/feature_providers.dart';
 import '../../services/archive.dart';
-import '../../services/gap_fill.dart';
 import '../../services/recent_messages.dart';
 import '../../util/constants.dart';
 import '../../util/prefs.dart';
+import '../../util/prefs_store.dart';
 import '../../widgets/dialogs.dart';
-import '../../widgets/level_switch.dart';
 import 'data_usage_screen.dart';
 import 'prefs_tiles.dart';
 import 'recent_messages_settings_screen.dart';
@@ -32,8 +31,7 @@ class HistorySettingsScreen extends StatelessWidget {
           children: [
             SettingsPageIntro(context.l10n.historyPageIntro),
             RecentMessagesSourceTile(onChanged: onRecentMessagesModeChanged),
-            const RecentMessagesLimitTile(),
-            const GapFillTile(),
+            const HistoryFetchTiles(),
             SettingsSectionHeader(context.l10n.sectionArchive),
             const ArchiveLimitsTile(),
           ],
@@ -43,73 +41,87 @@ class HistorySettingsScreen extends StatelessWidget {
   }
 }
 
-/// How many past messages load on join and reconnect. Shown on History and
-/// mirrored on Data.
-class RecentMessagesLimitTile extends StatelessWidget {
-  const RecentMessagesLimitTile({super.key});
-
-  @override
-  Widget build(BuildContext context) => SettingAnchor(
-    Setting.recentMessagesLimit,
-    child: PrefsSliderTile(
-      label: (v) =>
-          '${Setting.recentMessagesLimit.titleOf(context.l10n)}: ${v.round()}',
-      labelTrailing: const SettingInfoButton(Setting.recentMessagesLimit),
-      sliderLabel: (v) => '${v.round()}',
-      min: 0,
-      max: 800,
-      divisions: 8,
-      defaultValue: kRecentMessagesLimitDefault.toDouble(),
-      read: (p) => p.recentMessagesLimit.clamp(0, 800).toDouble(),
-      write: (p, v) => p.setRecentMessagesLimit(v.round()),
-    ),
-  );
-}
-
-/// How hard history fills the gap since the last message seen. Shown on
+/// Dynamic history fetch, and below it the manual count it replaces while
+/// on: greyed then, and a tap offers to turn dynamic fetch off. Shown on
 /// History and mirrored on Data.
-class GapFillTile extends StatefulWidget {
-  const GapFillTile({super.key});
+class HistoryFetchTiles extends StatefulWidget {
+  const HistoryFetchTiles({super.key});
 
   @override
-  State<GapFillTile> createState() => _GapFillTileState();
+  State<HistoryFetchTiles> createState() => _HistoryFetchTilesState();
 }
 
-class _GapFillTileState extends State<GapFillTile> {
-  GapFill _mode = GapFill.low;
+class _HistoryFetchTilesState extends State<HistoryFetchTiles> {
+  bool _dynamic = true;
 
   @override
   void initState() {
     super.initState();
     Prefs.load().then((p) {
-      if (mounted) setState(() => _mode = GapFill.fromIndex(p.historyGapFill));
+      if (mounted) setState(() => _dynamic = p.historyDynamicFetch);
     });
   }
 
-  Future<void> _set(int index) async {
-    setState(() => _mode = GapFill.fromIndex(index));
-    await (await Prefs.load()).setHistoryGapFill(index);
+  Future<void> _turnOff() async {
+    await (await Prefs.load()).setHistoryDynamicFetch(false);
+    PrefsStore.instance.notifyChanged();
+    if (mounted) setState(() => _dynamic = false);
   }
+
+  void _blockedSnack() => ScaffoldMessenger.of(context)
+    ..hideCurrentSnackBar()
+    ..showSnackBar(
+      SnackBar(
+        content: Text(context.l10n.historyLimitDynamic),
+        action: SnackBarAction(
+          label: context.l10n.turnOff,
+          onPressed: _turnOff,
+        ),
+      ),
+    );
 
   @override
   Widget build(BuildContext context) {
     final l = context.l10n;
-    return SettingAnchor(
-      Setting.gapFill,
-      child: ListTile(
-        title: TitleWithInfo(Setting.gapFill.titleOf(l), Setting.gapFill),
-        subtitle: Text(switch (_mode) {
-          GapFill.off => l.gapFillOffSubtitle,
-          GapFill.low => l.gapFillLowSubtitle,
-          GapFill.high => l.gapFillHighSubtitle,
-        }),
-        trailing: LevelSwitch(
-          level: _mode.index,
-          names: [l.gapFillOff, l.gapFillLow, l.gapFillHigh],
-          color: Theme.of(context).colorScheme.primary,
-          onChanged: _set,
+    final limit = PrefsSliderTile(
+      label: (v) => '${Setting.recentMessagesLimit.titleOf(l)}: ${v.round()}',
+      labelTrailing: const SettingInfoButton(Setting.recentMessagesLimit),
+      sliderLabel: (v) => '${v.round()}',
+      min: 0,
+      max: 800,
+      divisions: 8,
+      enabled: !_dynamic,
+      defaultValue: kRecentMessagesLimitDefault.toDouble(),
+      read: (p) => p.recentMessagesLimit.clamp(0, 800).toDouble(),
+      write: (p, v) => p.setRecentMessagesLimit(v.round()),
+    );
+    return Column(
+      children: [
+        SettingAnchor(
+          Setting.gapFill,
+          child: PrefsSwitchTile(
+            // Remounts with the snackbar's change, starting at the new value.
+            key: ValueKey(_dynamic),
+            title: Setting.gapFill.titleOf(l),
+            subtitle: l.gapFillSubtitle,
+            info: const SettingInfoButton(Setting.gapFill),
+            defaultValue: _dynamic,
+            read: (p) => p.historyDynamicFetch,
+            write: (p, v) => p.setHistoryDynamicFetch(v),
+            onChanged: (v) => setState(() => _dynamic = v),
+          ),
         ),
-      ),
+        SettingAnchor(
+          Setting.recentMessagesLimit,
+          child: _dynamic
+              ? GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: _blockedSnack,
+                  child: limit,
+                )
+              : limit,
+        ),
+      ],
     );
   }
 }
