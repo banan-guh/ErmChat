@@ -244,7 +244,7 @@ class _AccountScreenState extends State<AccountScreen> {
   }
 
   // Account switcher, always visible: saved accounts plus an Anonymous row
-  // at the bottom. Tap to switch, long-press a saved account to remove it.
+  // at the bottom. Tap to switch; Disconnect removes the active account.
   Widget _buildAccountSection() {
     final auth = widget.twitchAuth;
     return ListenableBuilder(
@@ -281,18 +281,9 @@ class _AccountScreenState extends State<AccountScreen> {
                         : isActive
                         ? Text(context.l10n.accountActive)
                         : null,
-                    trailing: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        if (isActive && !isExpired)
-                          Icon(Icons.check, color: theme.colorScheme.primary),
-                        IconButton(
-                          icon: const Icon(Icons.delete_outline),
-                          tooltip: context.l10n.remove,
-                          onPressed: () => _confirmRemove(account),
-                        ),
-                      ],
-                    ),
+                    trailing: isActive && !isExpired
+                        ? Icon(Icons.check, color: theme.colorScheme.primary)
+                        : null,
                     onTap: () =>
                         _switchAccount(() => auth.switchTo(account.login)),
                   );
@@ -349,6 +340,13 @@ class _AccountScreenState extends State<AccountScreen> {
     if (widget.twitchAuth.isConfigured) {
       _loadConnectedLogin();
     }
+  }
+
+  /// Disconnect forgets the active account, so it confirms first.
+  Future<void> _disconnect() async {
+    final active = widget.twitchAuth.activeAccount;
+    if (active == null) return _clearCredentials();
+    return _confirmRemove(active);
   }
 
   Future<void> _confirmRemove(TwitchAccount account) async {
@@ -570,7 +568,7 @@ class _AccountScreenState extends State<AccountScreen> {
                     ),
                     const SizedBox(width: 12),
                     TextButton.icon(
-                      onPressed: _clearCredentials,
+                      onPressed: _disconnect,
                       icon: const Icon(Icons.logout),
                       label: Text(context.l10n.disconnect),
                     ),

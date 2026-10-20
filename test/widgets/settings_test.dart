@@ -694,59 +694,42 @@ void main() {
     expect(auth.accessToken, 'token_a');
   });
 
-  testWidgets(
-    'Saved account removal asks for confirmation and falls back to login',
-    (WidgetTester tester) async {
-      {
-        final auth = twoAccounts();
-        await tester.pumpWidget(wrapAccountScreen(auth));
-        await tester.pump();
+  testWidgets('Disconnect asks for confirmation and falls back to login', (
+    WidgetTester tester,
+  ) async {
+    {
+      final auth = twoAccounts();
+      await tester.pumpWidget(wrapAccountScreen(auth));
+      await tester.pump();
 
-        await tester.tap(
-          find.descendant(
-            of: find.widgetWithText(ListTile, 'alice'),
-            matching: find.byTooltip('Remove'),
-          ),
-        );
-        await tester.pumpAndSettle();
-        expect(
-          find.text('Remove account?', skipOffstage: false),
-          findsOneWidget,
-        );
-        expect(
-          find.text(
-            'Are you sure you want to remove @alice?',
-            skipOffstage: false,
-          ),
-          findsOneWidget,
-        );
+      await tester.tap(find.text('Disconnect', skipOffstage: false));
+      await tester.pumpAndSettle();
+      expect(find.text('Remove account?', skipOffstage: false), findsOneWidget);
+      expect(
+        find.text('Are you sure you want to remove @bob?', skipOffstage: false),
+        findsOneWidget,
+      );
 
-        await tester.tap(find.text('Remove', skipOffstage: false));
-        await tester.pumpAndSettle();
-        expect(auth.accounts.length, 1);
-        expect(auth.accounts.single.login, 'bob');
-        expect(find.text('alice'), findsNothing);
-      }
-      {
-        final auth = TwitchAuth();
-        auth.setCredentials(accessToken: 'token_a');
-        auth.setUser('alice', '111');
-        await tester.pumpWidget(wrapAccountScreen(auth));
-        await tester.pump();
+      await tester.tap(find.text('Remove', skipOffstage: false));
+      await tester.pumpAndSettle();
+      expect(auth.accounts.length, 1);
+      expect(auth.accounts.single.login, 'alice');
+      expect(find.text('bob'), findsNothing);
+    }
+    {
+      final auth = TwitchAuth();
+      auth.setCredentials(accessToken: 'token_a');
+      auth.setUser('alice', '111');
+      await tester.pumpWidget(wrapAccountScreen(auth));
+      await tester.pump();
 
-        await tester.tap(
-          find.descendant(
-            of: find.widgetWithText(ListTile, 'alice'),
-            matching: find.byTooltip('Remove'),
-          ),
-        );
-        await tester.pumpAndSettle();
-        await tester.tap(find.text('Remove', skipOffstage: false));
-        await tester.pumpAndSettle();
+      await tester.tap(find.text('Disconnect', skipOffstage: false));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Remove', skipOffstage: false));
+      await tester.pumpAndSettle();
 
-        expect(auth.accounts, isEmpty);
-        expect(find.text('Log in', skipOffstage: false), findsOneWidget);
-      }
-    },
-  );
+      expect(auth.accounts, isEmpty);
+      expect(find.text('Log in', skipOffstage: false), findsOneWidget);
+    }
+  });
 }
