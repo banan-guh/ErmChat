@@ -4,10 +4,10 @@ import 'package:flutter/services.dart';
 
 import '../l10n/l10n.dart';
 
-/// Hold-and-swipe menu on a send button. Holding shows a hub circle far
-/// above the button; reaching it reveals the actions beside it, and an
-/// action runs only while the finger rests on it. Releasing a hold that
-/// never moved runs [onRecall] instead.
+/// Hold-and-swipe menu on a send button. Holding shows a rail up to a hub
+/// circle far above the button and a second rail across the screen to the
+/// actions. An action runs only while the thumb rests on it. Releasing a
+/// hold that never moved runs [onRecall] instead.
 class SendSwipe extends StatefulWidget {
   const SendSwipe({
     super.key,
@@ -39,56 +39,76 @@ class SendSwipe extends StatefulWidget {
 }
 
 class _SendSwipeState extends State<SendSwipe> {
-  // Far enough above the button that a stray drag never reaches it.
-  static const _hubRise = 150.0;
+  // The hub sits this share of the screen above the button, so a stray drag
+  // never reaches it.
+  static const _riseShare = 0.4;
+  static const _minRise = 220.0;
   static const _hubRadius = 26.0;
-  static const _actionGap = 76.0;
   static const _actionRadius = 30.0;
+  // Actions sit this far in from the screen edge across from the button.
+  static const _edgeInset = 44.0;
+  static const _thumbSize = 28.0;
   // A hold that wanders less than this still counts as a still release.
   static const _stillSlop = 24.0;
 
   final _portal = OverlayPortalController();
 
   Offset _origin = Offset.zero;
-  Offset _finger = Offset.zero;
+  Offset _hub = Offset.zero;
+  Offset _spamAt = Offset.zero;
+  Offset _thumb = Offset.zero;
   bool _moved = false;
   bool _armed = false;
   bool _spamming = false;
 
-  Offset get _hub => _origin - const Offset(0, _hubRise);
-
-  // Left of the hub, mirrored when the hub sits at the screen's left edge.
-  Offset get _spamAt {
-    final left = _hub - const Offset(_actionGap, 0);
-    return left.dx < _actionRadius + 8
-        ? _hub + const Offset(_actionGap, 0)
-        : left;
-  }
+  RenderBox get _overlayBox =>
+      Overlay.of(context).context.findRenderObject() as RenderBox;
 
   void _start(LongPressStartDetails d) {
-    final box = context.findRenderObject() as RenderBox;
-    final overlay = Overlay.of(context).context.findRenderObject() as RenderBox;
-    _origin = overlay.globalToLocal(
-      box.localToGlobal(box.size.center(Offset.zero)),
-    );
-    _finger = overlay.globalToLocal(d.globalPosition);
     _moved = false;
     _armed = false;
     if (!widget._hasMenu) return;
+    final box = context.findRenderObject() as RenderBox;
+    final overlay = _overlayBox;
+    final area = overlay.size;
+    _origin = overlay.globalToLocal(
+      box.localToGlobal(box.size.center(Offset.zero)),
+    );
+    final rise = (area.height * _riseShare).clamp(_minRise, double.infinity);
+    final top = MediaQuery.paddingOf(context).top + _hubRadius * 2;
+    _hub = Offset(_origin.dx, (_origin.dy - rise).clamp(top, _origin.dy));
+    // Across the screen from the button, so reaching it takes a full swipe.
+    _spamAt = Offset(
+      _origin.dx > area.width / 2 ? _edgeInset : area.width - _edgeInset,
+      _hub.dy,
+    );
+    _thumb = _origin;
     HapticFeedback.selectionClick();
     setState(_portal.show);
   }
 
+  // The thumb rides the rails: up the vertical one to the hub, then across
+  // the horizontal one to the actions. Every state follows from where it
+  // sits, so backing off undoes it.
   void _move(LongPressMoveUpdateDetails d) {
     if (d.offsetFromOrigin.distance > _stillSlop) _moved = true;
     if (!widget._hasMenu) return;
-    final overlay = Overlay.of(context).context.findRenderObject() as RenderBox;
-    _finger = overlay.globalToLocal(d.globalPosition);
-    if (!_armed && (_finger - _hub).distance <= _hubRadius) {
+    final finger = _overlayBox.globalToLocal(d.globalPosition);
+    final atHubColumn = (_thumb.dx - _hub.dx).abs() < _hubRadius;
+    if (!_armed && finger.dy <= _hub.dy + _hubRadius) {
       _armed = true;
       HapticFeedback.selectionClick();
+    } else if (_armed && atHubColumn && finger.dy > _hub.dy + _hubRadius * 2) {
+      _armed = false;
     }
-    final onSpam = _armed && (_finger - _spamAt).distance <= _actionRadius;
+    if (_armed) {
+      final lo = _spamAt.dx < _hub.dx ? _spamAt.dx : _hub.dx;
+      final hi = _spamAt.dx < _hub.dx ? _hub.dx : _spamAt.dx;
+      _thumb = Offset(finger.dx.clamp(lo, hi), _hub.dy);
+    } else {
+      _thumb = Offset(_origin.dx, finger.dy.clamp(_hub.dy, _origin.dy));
+    }
+    final onSpam = _armed && (_thumb - _spamAt).distance <= _actionRadius;
     if (onSpam != _spamming) {
       _spamming = onSpam;
       if (onSpam) {
@@ -150,16 +170,24 @@ class _SendSwipeState extends State<SendSwipe> {
       height: size,
       child: child,
     );
+    Color rail(bool lit) => scheme.primary.withValues(alpha: lit ? 0.5 : 0.18);
+    final left = _spamAt.dx < _hub.dx ? _spamAt.dx : _hub.dx;
     return IgnorePointer(
       child: Stack(
         children: [
-          // The path up to the hub.
           Positioned(
             left: _origin.dx - 1,
             top: _hub.dy,
             width: 2,
-            height: _hubRise,
-            child: ColoredBox(color: scheme.primary.withValues(alpha: 0.18)),
+            height: _origin.dy - _hub.dy,
+            child: ColoredBox(color: rail(!_armed)),
+          ),
+          Positioned(
+            left: left,
+            top: _hub.dy - 1,
+            width: (_spamAt.dx - _hub.dx).abs(),
+            height: 2,
+            child: ColoredBox(color: rail(_armed)),
           ),
           at(
             _hub,
@@ -175,35 +203,33 @@ class _SendSwipeState extends State<SendSwipe> {
               ),
             ),
           ),
+          // Shown from the first touch, dim until the hub is reached.
           at(
             _spamAt,
             _actionRadius * 2,
-            AnimatedScale(
-              scale: _armed ? 1 : 0,
-              duration: const Duration(milliseconds: 180),
-              curve: Curves.easeOutBack,
+            AnimatedOpacity(
+              opacity: _armed ? 1 : 0.45,
+              duration: const Duration(milliseconds: 150),
               child: _SpamAction(active: _spamming, sends: widget.spamSends!),
             ),
           ),
-          if (_armed)
-            Positioned(
-              left: _spamAt.dx - 60,
-              top: _spamAt.dy + _actionRadius + 4,
-              width: 120,
-              child: Text(
-                context.l10n.sendMenuSpam,
-                textAlign: TextAlign.center,
-                style: Theme.of(context).textTheme.labelMedium,
-              ),
+          Positioned(
+            left: _spamAt.dx - 60,
+            top: _spamAt.dy + _actionRadius + 4,
+            width: 120,
+            child: Text(
+              context.l10n.sendMenuSpam,
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.labelMedium,
             ),
-          // The finger's own marker, so the thumb never hides where it is.
+          ),
           at(
-            _finger,
-            28,
+            _thumb,
+            _thumbSize,
             DecoratedBox(
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: scheme.primary.withValues(alpha: 0.5),
+                color: scheme.primary.withValues(alpha: 0.6),
               ),
             ),
           ),
