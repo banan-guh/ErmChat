@@ -230,7 +230,7 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
               write: (p, v) => p.setSendSwipeMenu(v),
             ),
           ),
-          _SpamSpeedTile(menuOn: _prefs?.sendSwipeMenu ?? false),
+          if (_prefs?.sendSwipeMenu ?? false) const _SpamSpeedSliders(),
           if (widget.twitchAuth != null)
             SettingAnchor(
               Setting.macros,
@@ -283,19 +283,12 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
   }
 }
 
-/// Spam pace per role, plain and mod/VIP, in one row that opens a sheet.
-/// Auto stays under Twitch's limits; a gap faster than the role's limit
+/// Spam pace per role, plain and mod/VIP, shown only while the send menu is
+/// on. Auto stays under Twitch's limits; a gap faster than the role's limit
 /// shows red with "!".
-class _SpamSpeedTile extends StatefulWidget {
-  const _SpamSpeedTile({required this.menuOn});
+class _SpamSpeedSliders extends StatelessWidget {
+  const _SpamSpeedSliders();
 
-  final bool menuOn;
-
-  @override
-  State<_SpamSpeedTile> createState() => _SpamSpeedTileState();
-}
-
-class _SpamSpeedTileState extends State<_SpamSpeedTile> {
   // 0 is Auto.
   static const _steps = [
     0,
@@ -312,24 +305,6 @@ class _SpamSpeedTileState extends State<_SpamSpeedTile> {
     3000,
   ];
 
-  int _plainMs = 0;
-  int _modMs = 0;
-
-  @override
-  void initState() {
-    super.initState();
-    _load();
-  }
-
-  Future<void> _load() async {
-    final p = await Prefs.load();
-    if (!mounted) return;
-    setState(() {
-      _plainMs = p.spamIntervalMs;
-      _modMs = p.spamIntervalModMs;
-    });
-  }
-
   static int _stepOf(int ms) {
     final i = _steps.indexOf(ms);
     return i < 0 ? 0 : i;
@@ -338,19 +313,20 @@ class _SpamSpeedTileState extends State<_SpamSpeedTile> {
   static bool _over(int ms, Duration limit) =>
       ms > 0 && ms < limit.inMilliseconds;
 
-  String _value(AppLocalizations l, int ms, Duration limit) {
+  static String _value(AppLocalizations l, int ms, Duration limit) {
     if (ms <= 0) return l.spamSpeedAuto;
     final text = l.spamSpeedMs(ms);
     return _over(ms, limit) ? '$text !' : text;
   }
 
   Widget _slider(
-    AppLocalizations l, {
+    BuildContext context, {
     required String role,
     required Duration limit,
-    required double Function(Prefs p) read,
+    required int Function(Prefs p) read,
     required Future<void> Function(Prefs p, int ms) write,
   }) {
+    final l = context.l10n;
     final error = Theme.of(context).colorScheme.error;
     return PrefsSliderTile(
       label: (v) => '$role: ${_value(l, _steps[v.round()], limit)}',
@@ -359,72 +335,32 @@ class _SpamSpeedTileState extends State<_SpamSpeedTile> {
       max: (_steps.length - 1).toDouble(),
       divisions: _steps.length - 1,
       defaultValue: 0,
-      read: read,
-      write: (p, v) async {
-        await write(p, _steps[v.round()]);
-        await _load();
-      },
+      read: (p) => _stepOf(read(p)).toDouble(),
+      write: (p, v) => write(p, _steps[v.round()]),
       tint: (v) => _over(_steps[v.round()], limit) ? error : null,
     );
   }
 
-  Future<void> _openSheet() async {
-    final l = context.l10n;
-    await showModalBottomSheet<void>(
-      context: context,
-      useSafeArea: true,
-      builder: (sheetContext) => SafeArea(
-        top: false,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 8),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              _slider(
-                l,
-                role: l.spamSpeedPlain,
-                limit: ChatSender.plainRepeatGap,
-                read: (p) => _stepOf(p.spamIntervalMs).toDouble(),
-                write: (p, ms) => p.setSpamIntervalMs(ms),
-              ),
-              _slider(
-                l,
-                role: l.spamSpeedMod,
-                limit: ChatSender.privilegedRepeatGap,
-                read: (p) => _stepOf(p.spamIntervalModMs).toDouble(),
-                write: (p, ms) => p.setSpamIntervalModMs(ms),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
   @override
-  Widget build(BuildContext context) {
-    final l = context.l10n;
-    final over =
-        _over(_plainMs, ChatSender.plainRepeatGap) ||
-        _over(_modMs, ChatSender.privilegedRepeatGap);
-    final subtitle =
-        '${_value(l, _plainMs, ChatSender.plainRepeatGap)} · '
-        '${_value(l, _modMs, ChatSender.privilegedRepeatGap)}';
-    final tile = ListTile(
-      enabled: widget.menuOn,
-      leading: const Icon(Icons.speed),
-      title: Text(Setting.spamSpeed.titleOf(l)),
-      subtitle: Text(
-        subtitle,
-        style: over && widget.menuOn
-            ? TextStyle(color: Theme.of(context).colorScheme.error)
-            : null,
+  Widget build(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      _slider(
+        context,
+        role: context.l10n.spamSpeedPlain,
+        limit: ChatSender.plainRepeatGap,
+        read: (p) => p.spamIntervalMs,
+        write: (p, ms) => p.setSpamIntervalMs(ms),
       ),
-      onTap: _openSheet,
-    );
-    // Greyed while the menu is off.
-    return SettingAnchor(Setting.spamSpeed, child: tile);
-  }
+      _slider(
+        context,
+        role: context.l10n.spamSpeedMod,
+        limit: ChatSender.privilegedRepeatGap,
+        read: (p) => p.spamIntervalModMs,
+        write: (p, ms) => p.setSpamIntervalModMs(ms),
+      ),
+    ],
+  );
 }
 
 class _MentionFormatTile extends StatefulWidget {

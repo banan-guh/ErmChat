@@ -129,7 +129,6 @@ class Setting {
     'mention_format' => l.settingMentionFormat,
     'reply_thread_root' => l.settingReplyThreadRoot,
     'send_swipe' => l.settingSendSwipe,
-    'spam_speed' => l.settingSpamSpeed,
     'macros' => l.settingMacros,
     'double_tap_copy' => l.settingDoubleTapCopy,
     'stay_connected' => l.settingStayConnected,
@@ -451,14 +450,8 @@ class Setting {
     'Swipe up to spam',
     SettingsPageId.chat,
     section: 'Typing',
-    keywords: 'send menu repeat gesture',
-  );
-  static const spamSpeed = Setting(
-    'spam_speed',
-    'Spam speed',
-    SettingsPageId.chat,
-    section: 'Typing',
-    keywords: 'interval rate limit ms repeat',
+    // Its speed sliders show only while it is on, so they search here.
+    keywords: 'send menu repeat gesture speed interval rate limit ms',
   );
   static const macros = Setting(
     'macros',
@@ -821,7 +814,6 @@ class Setting {
     mentionFormat,
     replyThreadRoot,
     sendSwipe,
-    spamSpeed,
     macros,
     doubleTapCopy,
     stayConnected,

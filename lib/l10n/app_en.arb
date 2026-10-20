@@ -42,7 +42,6 @@
   "settingMentionFormat": "Mention format",
   "settingReplyThreadRoot": "Reply to thread first message",
   "settingSendSwipe": "Swipe up to spam",
-  "settingSpamSpeed": "Spam speed",
   "sendSwipeHint": "Swipe up from send, then across, and hold",
   "spamSpeedAuto": "Auto",
   "spamSpeedMs": "{ms} ms",
@@ -53,8 +52,8 @@
       }
     }
   },
-  "spamSpeedPlain": "Normal",
-  "spamSpeedMod": "Mod or VIP",
+  "spamSpeedPlain": "Normal speed",
+  "spamSpeedMod": "Mod or VIP speed",
   "settingMacros": "Command macros",
   "settingDoubleTapCopy": "Double-tap name to copy",
   "settingStayConnected": "Stay connected in background",
