@@ -102,7 +102,9 @@ void main() {
     return (stream, listener);
   }
 
-  testWidgets('capture is gated to chat-surfaced urls', (tester) async {
+  testWidgets('capture is gated to chat-surfaced urls within budget', (
+    tester,
+  ) async {
     final webp = File('test/fixtures/7tv_kiss_2x.webp').readAsBytesSync();
     EmoteUrlProvider.debugFetchOverride = (url) async => webp;
 
@@ -128,6 +130,23 @@ void main() {
     expect(EmoteUrlProvider.capturedFrameCount(marked), greaterThan(0));
     expect(EmoteUrlProvider.isFullyCaptured(marked), isFalse);
     markedStream.removeListener(markedListener);
+
+    // A 47-frame cycle over a quarter of the frame budget streams instead.
+    EmoteUrlProvider.maxCapturedFrames = 100;
+    addTearDown(() => EmoteUrlProvider.maxCapturedFrames = 480);
+    const long = 'https://capture.test/long.webp';
+    final (longStream, longListener) = await startStream(
+      tester,
+      long,
+      iterations: 20,
+      mark: true,
+    );
+    expect(
+      EmoteUrlProvider.capturedFrameCount(long),
+      0,
+      reason: 'a long cycle would hold a texture per frame',
+    );
+    longStream.removeListener(longListener);
   });
 
   testWidgets(

@@ -101,6 +101,7 @@ Future<void> _shrinkForLowRam(ImageCache imageCache) async {
     if (total == null || total >= 7 << 29) return;
     imageCache.maximumSizeBytes = 48 << 20;
     EmoteUrlProvider.maxCapturedEmotes = 10;
+    EmoteUrlProvider.maxCapturedFrames = 240;
   } catch (_) {
     // Unknown device: keep the defaults.
   }

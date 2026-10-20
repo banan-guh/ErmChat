@@ -274,6 +274,22 @@ class EmoteUrlProvider extends ImageProvider<EmoteUrlProvider> {
   static int _capturedSeq = 0;
   static int maxCapturedEmotes = 20;
 
+  /// Frames held across every captured emote. Each frame is its own GPU
+  /// texture, and some drivers round even a 64px frame up to 64KB, so the
+  /// frame count bounds memory better than the emote count. An emote whose
+  /// cycle exceeds a quarter of this streams instead.
+  static int maxCapturedFrames = 480;
+
+  static int _capturedFrameTotal() {
+    var total = 0;
+    for (final url in _capturedOrder.keys) {
+      final live = _liveByUrl[url];
+      if (live == null || live._disposed) continue;
+      total += live._frames?.frames.length ?? live._capturedCount;
+    }
+    return total;
+  }
+
   /// Records that [url] holds captured frames and trims the oldest evictable
   /// entries back to streaming. Visible emotes are never trimmed; if every
   /// entry is active the cache is allowed to overflow until something scrolls
@@ -281,7 +297,8 @@ class EmoteUrlProvider extends ImageProvider<EmoteUrlProvider> {
   static void _touchCaptured(String url) {
     _capturedOrder.remove(url);
     _capturedOrder[url] = ++_capturedSeq;
-    while (_capturedOrder.length > maxCapturedEmotes) {
+    while (_capturedOrder.length > maxCapturedEmotes ||
+        _capturedFrameTotal() > maxCapturedFrames) {
       String? victim;
       for (final candidate in _capturedOrder.keys) {
         final live = _liveByUrl[candidate];
@@ -719,6 +736,7 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
   void _captureFrame(int index, ui.Image image, Duration duration) {
     if (_frames != null) return;
     if (!EmoteUrlProvider._isChatUrl(url)) return;
+    if (_expectedFrameCount > EmoteUrlProvider.maxCapturedFrames ~/ 4) return;
     while (_captured.length <= index) {
       _captured.add(null);
       _capturedDurations.add(Duration.zero);
