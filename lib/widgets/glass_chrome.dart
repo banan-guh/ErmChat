@@ -319,8 +319,10 @@ class ComposerFocusGlow extends StatelessWidget {
 
 // Indeterminate progress drawn as a ring along the island's outline. The
 // timing is the stock LinearProgressIndicator's (1800ms cycle, two lines,
-// same head and tail curves), mapped onto the outline's length from the top
-// left, clockwise. Flush islands only outline their rounded top. The ticker
+// same head and tail curves), mapped onto the outline's length clockwise.
+// On a closed outline the lines wrap past the start, which drifts a third
+// of a lap per cycle so no cycle ends on the same spot. Flush islands only
+// outline their rounded top, from the left edge. The ticker
 // runs only while [busy] holds; the ring fades over 200ms and, with
 // animations disabled, shows static at reduced opacity.
 class IslandBusyRing extends StatefulWidget {
@@ -345,7 +347,7 @@ class _IslandBusyRingState extends State<IslandBusyRing>
     with TickerProviderStateMixin {
   late final _spin = AnimationController(
     vsync: this,
-    duration: const Duration(milliseconds: 1800),
+    duration: _IslandRingPainter.cycle * _IslandRingPainter.cyclesPerLap,
   );
   late final _fade = AnimationController(
     vsync: this,
@@ -426,6 +428,11 @@ class _IslandRingPainter extends CustomPainter {
   final bool still;
 
   static const _width = 2.5;
+  static const cycle = Duration(milliseconds: 1800);
+
+  /// Cycles per lap of the closed outline's drift. [spin] runs one lap, so
+  /// it wraps where the drift does.
+  static const cyclesPerLap = 3;
   static const line1Head = Interval(
     0.0,
     750.0 / 1800,
@@ -491,14 +498,19 @@ class _IslandRingPainter extends CustomPainter {
       canvas.drawPath(path, paint);
       return;
     }
-    final t = spin.value;
+    final lap = spin.value;
+    final t = (lap * cyclesPerLap) % 1;
+    final drift = flush ? 0.0 : lap;
     final metrics = path.computeMetrics().toList();
     if (metrics.isEmpty) return;
     final metric = metrics.first;
     final len = metric.length;
     void line(double tail, double head) {
       if (head - tail <= 0) return;
-      canvas.drawPath(metric.extractPath(tail * len, head * len), paint);
+      final from = (tail + drift) % 1;
+      final to = from + head - tail;
+      canvas.drawPath(metric.extractPath(from * len, to * len), paint);
+      if (to > 1) canvas.drawPath(metric.extractPath(0, (to - 1) * len), paint);
     }
 
     line(line1Tail.transform(t), line1Head.transform(t));
