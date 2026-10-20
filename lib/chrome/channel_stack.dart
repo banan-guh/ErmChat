@@ -912,6 +912,21 @@ class _ChannelTabState extends State<_ChannelTab>
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    // Sized to the bold name so selection and unread changes never resize
+    // the tab and shift the strip mid-swipe.
+    final painter = TextPainter(
+      text: TextSpan(
+        text: widget.channel,
+        style: DefaultTextStyle.of(context).style.merge(
+          const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+        ),
+      ),
+      textDirection: Directionality.of(context),
+      textScaler: MediaQuery.textScalerOf(context),
+      maxLines: 1,
+    )..layout();
+    final boldWidth = painter.width.ceilToDouble();
+    painter.dispose();
     return ListenableBuilder(
       listenable: Listenable.merge([widget.listenable, _pulse]),
       builder: (ctx, _) {
@@ -928,18 +943,24 @@ class _ChannelTabState extends State<_ChannelTab>
         return Stack(
           clipBehavior: Clip.none,
           children: [
-            Text(
-              widget.channel,
-              style: TextStyle(
-                fontSize: 14,
-                fontWeight: selected || hasUnread
-                    ? FontWeight.w600
-                    : FontWeight.normal,
-                // Flash toward the unread-dot color so it reads as a new
-                // mention, not a selection.
-                color: pulse <= 0
-                    ? base
-                    : Color.lerp(base, theme.colorScheme.error, pulse),
+            SizedBox(
+              width: boldWidth,
+              child: Text(
+                widget.channel,
+                textAlign: TextAlign.center,
+                maxLines: 1,
+                softWrap: false,
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: selected || hasUnread
+                      ? FontWeight.w600
+                      : FontWeight.normal,
+                  // Flash toward the unread-dot color so it reads as a new
+                  // mention, not a selection.
+                  color: pulse <= 0
+                      ? base
+                      : Color.lerp(base, theme.colorScheme.error, pulse),
+                ),
               ),
             ),
             if (hasUnreadMention && !selected)
