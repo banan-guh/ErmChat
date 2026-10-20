@@ -954,6 +954,7 @@ class _HistoryViewState extends State<HistoryView> {
     widget.emotesVersion?.removeListener(_onEmotes);
     widget.atBottomNotifier?.removeListener(_onAtBottomRequest);
     widget.jumpRequest?.removeListener(_onJumpRequest);
+    widget.calendarRequest?.removeListener(_onCalendarRequest);
     widget.actions?.follow.removeListener(_onFollow);
     _unwatchClears?.call();
     _unwatchStreams?.call();
