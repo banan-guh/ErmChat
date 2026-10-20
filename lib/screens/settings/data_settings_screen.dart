@@ -71,7 +71,6 @@ class DataSettingsScreen extends StatelessWidget {
             const GapFillTile(),
             SettingsSectionHeader(l.inlineEmbedsTitle),
             const ShowGiphyTile(),
-            const ShowImagesTile(),
             const SizedBox(height: 16),
           ],
         ),

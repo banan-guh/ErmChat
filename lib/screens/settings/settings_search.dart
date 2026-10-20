@@ -494,7 +494,6 @@ class Setting {
     'Show images inline',
     SettingsPageId.inlineEmbeds,
     section: 'Images',
-    mirrors: {SettingsPageId.data},
   );
   static const imageHeight = Setting(
     'image_height',
