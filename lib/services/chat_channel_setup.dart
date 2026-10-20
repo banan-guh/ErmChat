@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'dart:convert';
+import 'dart:isolate';
 
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
@@ -447,10 +448,16 @@ class ChatChannelSetup {
       final uri = Uri.parse('https://7tv.io/v3/users/twitch/$twitchChannelId');
       final res = await _httpClient.get(uri).timeout(httpTimeout);
       if (res.statusCode != 200) return null;
-      final data = jsonDecode(res.body) as Map<String, dynamic>;
-      final userId = (data['user'] as Map<String, dynamic>?)?['id'] as String?;
-      final emoteSetId =
-          (data['emote_set'] as Map<String, dynamic>?)?['id'] as String?;
+      // The body carries the whole emote set, megabytes for a big channel:
+      // decode off the UI isolate.
+      final bytes = res.bodyBytes;
+      final (userId, emoteSetId) = await Isolate.run(() {
+        final data = jsonDecode(utf8.decode(bytes)) as Map<String, dynamic>;
+        return (
+          (data['user'] as Map<String, dynamic>?)?['id'] as String?,
+          (data['emote_set'] as Map<String, dynamic>?)?['id'] as String?,
+        );
+      });
       if (userId == null || emoteSetId == null) return null;
       return (userId: userId, emoteSetId: emoteSetId);
     } catch (_) {

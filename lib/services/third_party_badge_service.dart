@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:isolate';
 import 'package:http/http.dart' as http;
 import '../util/constants.dart';
 import '../util/log.dart';
@@ -184,7 +185,12 @@ class ThirdPartyBadgeService {
     try {
       final res = await _get(Uri.parse(provider.url));
       if (res.statusCode != 200) return;
-      _listUsers[provider] = _parseList(provider, jsonDecode(res.body));
+      // The Homies list runs to megabytes: parse off the UI isolate so the
+      // startup spinner keeps turning.
+      final bytes = res.bodyBytes;
+      _listUsers[provider] = await Isolate.run(
+        () => _parseList(provider, jsonDecode(utf8.decode(bytes))),
+      );
       _version++;
     } catch (e) {
       logDebug('${provider.name} badge fetch error: $e');
