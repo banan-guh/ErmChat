@@ -1,13 +1,15 @@
 # Architecture rules
 
-This file is the single source of architecture rules for ermchat. It is the one place
-the rules live: AGENTS.md points here and keeps only operational facts, and
-docs/DECISIONS.md holds the rationale behind them. The architecture test enforces the
-mechanical subset of these rules, layer direction plus provider placement, and each
-assertion names the rule it checks so a failure points at the rule it breaks. What the
-test cannot see (ownership, purity, provider size) is enforced in review.
+The rulebook for ermchat, human or agent. Rules here are standing rules, not a
+snapshot: they say what new code must do and hold until this file changes.
+`docs/ARCHITECTURE.md` is the map of what exists, and `docs/DECISIONS.md` records
+why each rule exists plus every sanctioned exception. The architecture test enforces
+the mechanical subset; everything else is enforced in review.
 
-## Target dependency direction
+Existing code that breaks a code-shape rule is debt, not an emergency. Fix it when
+you are already changing that code, and never add to it.
+
+## Layers
 
 ```
 transport / codec   lib/irc, lib/eventsub/transport, lib/eventsub/decode,
@@ -20,102 +22,121 @@ transport / codec   lib/irc, lib/eventsub/transport, lib/eventsub/decode,
         UI           lib/widgets, lib/screens, lib/chrome, lib/composer,
                      lib/panels, lib/sheets
 shared leaves        lib/models, lib/util, lib/client, lib/emotes
+composition root     lib/providers
 ```
 
-- Transport and codec turn bytes and frames into typed events. They import their own
-  leaves and nothing upward. The one exception is `lib/eventsub/topics.dart`, the
-  EventSub client surface (subscribe/resubscribe), which reaches `lib/chat` and
-  `lib/services`; the transport and decode leaves stay pure and the direction test
-  scans only those.
-- The kernel (`lib/chat`) is the domain state model. It is framework-agnostic and does
-  not import `lib/services` or any UI directory.
-- Pipeline (`lib/services`) reads transports and decoders, applies logic, and mutates
-  the kernel through its verbs. It does not import UI or rendering (`dart:ui`, Flutter
-  painting/scheduler/widgets/material); the shared `Color` value type is reached through
-  the `lib/color_utils.dart` leaf.
-- The emote domain (`lib/emotes`) is a pure typed model plus catalog: `Emote`,
-  `EmoteMeta`, `EmoteCatalog`, and the merge functions. It has no Flutter and no
-  services dependency; render-side code (image providers, decode, name paints) lives in
-  the UI layer (`lib/widgets`).
-- UI reads kernel state through providers and the sanctioned `Listenable` builders and
-  never imports transport directly.
-- Shared leaves (`lib/models`, `lib/util`, `lib/client`, `lib/emotes`) are importable
-  from every layer and import nothing upward themselves.
-- Providers (`lib/providers`) are the composition root. They construct the app-scope
-  owners, register teardown, bridge provider-owned `ChangeNotifier`s to Riverpod
-  observation, and wire the pipeline. Pipeline (`lib/services`) must not import them;
-  the architecture test enforces this direction.
+- **Transport and codec** turn bytes and frames into typed events. They import their
+  own leaves and nothing upward.
+- **The kernel** (`lib/chat`) is the domain state model. It is framework-agnostic: no
+  services, no UI, no Flutter beyond `foundation`.
+- **The pipeline** (`lib/services`) reads transports, applies logic, and mutates the
+  kernel through its verbs. It imports no UI, no rendering (`dart:ui`, Flutter
+  painting/scheduler/widgets/material) and no providers. The shared `Color` type comes
+  through `lib/color_utils.dart`.
+- **The emote domain** (`lib/emotes`) is a pure model plus catalog. Render-side emote
+  code (image providers, decode, name paints) lives in `lib/widgets`.
+- **UI** reads kernel state through providers and the kernel's `Listenable`s, and
+  never imports a transport.
+- **Shared leaves** are importable from every layer and import nothing upward.
+- **Providers** construct the app-scope owners, register their teardown, bridge
+  `ChangeNotifier`s to Riverpod, and wire the pipeline.
 
-## Hard rules (non-negotiable)
+## Hard rules
 
-1. **One writer per state.** Rows mutate only through `Channel`/`Messages` verbs, and
-   coordinated multi-child writes go through `Channel` verbs such as `receive` and
-   `receiveHistory`. Do: route ingest through `Channel.receive`. Do not: let two owners
-   write the same field, or have a widget or pipeline component assign child internals.
-   Row-scoped moderation edits are the one documented `Messages` exception.
+1. **One writer per state.** Every piece of state has one owner, and only that owner's
+   methods change it. In the kernel, a child's public methods are its verbs, and a
+   write that spans several children goes through a `Channel` verb (`receive`,
+   `receiveHistory`) so dedup, insert, truncate and index happen in one call. Chat
+   data enters only through the pipeline. The UI calls a child verb for two things
+   only: reflecting a user action that just succeeded (an unban, a resolved
+   redemption) before its echo arrives, and user choices the kernel keeps (pinned
+   threads). Never assign another owner's fields, and never let two owners write the
+   same value.
 
-2. **One direction of dependency.** Transport leaves import nothing upward, and screens
-   import no transport. Do: a decoder exposes a typed callback consumed by pipeline.
-   Do not: import `lib/services` from `lib/chat`, or `lib/irc/transport` from a screen.
-   The one EventSub exception is `lib/eventsub/topics.dart`, the client surface rather
-   than a leaf: it may import `lib/chat` and `lib/services`. The transport and decode
-   leaves stay pure, and the direction test scans only those.
+2. **One direction of dependency.** Imports follow the layer diagram. When a lower
+   layer needs to tell a higher one something, it exposes a typed callback or
+   notifier that the higher layer subscribes to.
 
-3. **Providers are the only way to obtain shared objects.** Do: read a shared service
-   with `ref.watch(...)` or `ref.read(...)`. Do not: construct a shared service in a
-   widget, and do not keep a global or singleton handle to shared state. Process-lifetime
-   singletons that a provider surfaces (`PingManager.instance`, `IgnoreManager.instance`)
-   are the one carve-out; consumers still obtain them through the provider.
+3. **Shared objects come from providers.** Read a shared service with
+   `ref.watch`/`ref.read`. Never construct one in a widget, and never keep a global
+   handle to it. Carve-outs: process-lifetime singletons a provider surfaces
+   (`PingManager.instance`, `IgnoreManager.instance`), which consumers still obtain
+   through the provider, and the settings store `PrefsStore`, a `lib/util` leaf any
+   layer may read.
 
-4. **`watch` for reactive reads, `read` only for documented imperative one-shots.**
-   Builds are pure, and effects live in lifecycle methods, `ref.listen`, or notifier
-   methods. Do: `ref.watch(twitchAuthProvider)` to rebuild on change. Do not: call
-   `ref.read` to react to state, or start a request or subscription from `build`.
+4. **`watch` to react, `read` for one-shots.** Builds are pure. Effects (requests,
+   subscriptions, timers) start in lifecycle methods, `ref.listen`, or notifier
+   methods, never in `build`.
 
-5. **Every resource-owning provider registers `ref.onDispose`.** Do:
-   `chatPipelineProvider` registers `ref.onDispose(() => manager.dispose())`. Do not:
-   leave sockets, timers, streams, or notifiers alive when their provider is torn down.
+5. **Owners clean up what they start.** Every resource-owning provider registers
+   `ref.onDispose`, and every widget or owner cancels its own timers, subscriptions
+   and listeners on dispose.
 
-6. **Small, purpose-named providers.** A provider produces one thing with a name that
-   says what that thing is. A god provider that bundles transports, kernel, pipeline,
-   and managers is a review failure.
+6. **Small, purpose-named providers.** A provider produces one thing, and its name
+   says what. A provider that bundles transports, kernel, pipeline and managers fails
+   review.
 
-7. **The architecture test passes.** `test/architecture/architecture_test.dart` stays
-   green, and new violations are fixed at the source, not by weakening the test.
+7. **Owner ports, not parent state.** An owner exposes typed notifiers for what it
+   produces and takes a minimal interface for what it needs: typed callbacks, a
+   signal sink, or a small host interface. Never store a parent `State` or reach back
+   into a screen.
 
-8. **Owner ports, not parent state.** An extracted owner exposes typed
-   notifiers/signals for what it produces and takes one explicit, minimal interface
-   for what it needs. Do: pass typed callbacks, a signal sink, or a small host
-   interface. Do not: store the parent `State`, take `host: this`, or otherwise reach
-   back into the screen. Providers (`lib/providers`) are the composition root;
-   `lib/services` never imports `lib/providers`, and the kernel's `Listenable` leaves
-   remain the one sanctioned non-Riverpod observation exception.
+8. **No generic bus.** Each owner exposes typed notifiers or change streams, and the UI
+   subscribes to the owner it renders.
 
-## Excusable rules (allowed, with a note)
+## Code-shape rules
 
-1. **The mutable kernel is the one sanctioned non-Riverpod exception.** It is exposed
-   through a provider, and widgets observe its leaf `ValueNotifier`s with
-   `ListenableBuilder` / `ValueListenableBuilder`. This is the single sanctioned
-   non-Riverpod observation path, chosen over a fragile Riverpod adaptor for correctness
-   and low risk. Kernel mutations still never originate in widgets.
+1. **One state value, not a flag per case.** When several booleans or nullable fields
+   describe phases of one process (loading, replaying, jumping, settled), model them as
+   one enum or sealed state. A new edge case adds a state, not another flag that must
+   be checked in the right order.
 
-2. **A small adaptor layer is allowed during the strangler period.** A thin bridge may
-   translate between legacy hand-rolled wiring and providers while an area migrates.
-   It is temporary, and it must not become a second writer or a second source of truth.
+2. **Layout happens in layout.** A size that depends on other widgets' sizes is
+   computed during layout (`LayoutBuilder`, `CustomMultiChildLayout`, a render
+   object). Measuring through a `GlobalKey` after the frame and feeding the result
+   back with `setState` lags a frame and can feed stale or non-finite values forward.
+   Where layout truly cannot do it, the measurement carries a comment saying why.
 
-3. **Naming and placement can be sorted later.** Move a piece of state once, when its
-   area migrates. Never move the same state twice for tidiness.
+3. **Read settings where they are used.** The widget or owner that needs a pref reads
+   it and listens for its change. A screen does not mirror prefs into its own fields
+   to hand down.
 
-4. **File-size budgets have an allowlist.** A growing file is a signal to extract, not a
-   hard wall. Exceeding a budget needs a note, not an automatic split.
+4. **One owner per behavior.** A second copy of stateful logic (gesture tracking,
+   scroll following, drag focus) means extracting one owner both use. Repeating a few
+   stateless lines is fine.
 
-## How to apply
+5. **Simplify before guarding.** When a fix needs a new flag to suppress one case,
+   first check whether a simpler behavior removes the case. Prefer an instant jump
+   over an animation that needs guards to stay correct.
 
-- Mechanical rules are enforced by the test. Layer direction (rule 2) and provider
-  placement (no transports in screens, no `ref` in the kernel) live in
-  `test/architecture/architecture_test.dart`, and each assertion names its rule.
-- Ownership, purity, and provider size are review rules. Rules 1 and 3 through 6 are
-  caught by reading the diff, not by the test.
-- To break a rule, document it in `docs/DECISIONS.md` with the decision, the reason, and
-  the scope. An undocumented violation is a bug. If the violation is temporary, name the
-  phase that removes it.
+6. **Time is injected.** Timing code takes an injectable clock, and per-item periodic
+   work joins a shared tick instead of starting a timer per item.
+
+7. **Size is not a rule, coupling is.** There is no line budget. A file that every
+   feature has to edit in unrelated places is the signal to extract, along ownership
+   lines rather than by line count.
+
+## Sanctioned exceptions
+
+- **Kernel observation.** The kernel's leaf `ValueNotifier`s are observed directly with
+  `ListenableBuilder`/`ValueListenableBuilder`. This is the one non-Riverpod
+  observation path.
+- **Bridges.** A thin adaptor may bridge a `ChangeNotifier` or listener stream to
+  Riverpod (`ChangeNotifierTick`, `EmoteStoreNotifier`). It never becomes a second
+  writer or a second source of truth.
+- **Everything else** is recorded in `docs/DECISIONS.md` with the decision, the reason,
+  the scope, and what would remove it. The current list is in the "Known exceptions"
+  section of `docs/ARCHITECTURE.md`. An undocumented exception is a bug.
+- **Moving state.** Move state once, when its area is reworked. Never move the same
+  state twice for tidiness.
+
+## Enforcement
+
+- `test/architecture/architecture_test.dart` enforces layer direction, rendering-free
+  pipeline, and provider placement, and each assertion names the rule it checks. Fix a
+  failure at the source: no re-export shims, wrapper files, or new carve-outs that
+  sneak a forbidden import in, and never weaken the test.
+- Ownership, purity, provider size and the code-shape rules are enforced by reading the
+  diff.
+- When a rule blocks the obvious fix, put the code in the layer allowed to own it. If no
+  layer fits, ask before breaking the rule, then document the exception.

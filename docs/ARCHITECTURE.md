@@ -6,84 +6,42 @@ Everything below is based on imports, provider wiring in `lib/providers/`, and t
 
 ## Top-level overview
 
-`lib/` holds 220 files (58.3k lines) in six layers, grouped by folder. Edge labels count `import` lines between layers. Every layer also imports Base, so those edges are left out, as are pairs under 10 imports that point the right way. Dashed red edges point the wrong way.
+`lib/` groups into six layers by folder. Arrows mean "imports". Every layer also imports Base, so those edges are left out. The rules for these layers live in `docs/ARCHITECTURE_RULES.md`.
 
 ```mermaid
 %%{init: {"flowchart": {"nodeSpacing": 50, "rankSpacing": 60, "padding": 12}, "themeVariables": {"fontSize": "16px"}}}%%
 flowchart TD
-  shell["<b>Shell</b><br/>main, screens, providers<br/>34 files, 8.8k lines"]
-  ui["<b>UI</b><br/>chrome, panels, composer, sheets, widgets<br/>63 files, 20.0k lines"]
-  app["<b>App services</b><br/>services, channels<br/>57 files, 19.9k lines"]
-  kernel["<b>Chat kernel</b><br/>chat, client<br/>10 files, 2.0k lines"]
-  transport["<b>Transports</b><br/>irc, eventsub, archive codec<br/>16 files, 3.7k lines"]
-  base["<b>Base</b><br/>models, emotes, util, config<br/>39 files, 3.6k lines"]
+  shell["<b>Shell</b><br/>main, screens, providers"]
+  ui["<b>UI</b><br/>chrome, panels, composer, sheets, widgets"]
+  app["<b>App services</b><br/>services, channels"]
+  kernel["<b>Chat kernel</b><br/>chat, client"]
+  transport["<b>Transports</b><br/>irc, eventsub, archive codec"]
+  base["<b>Base</b><br/>models, emotes, util, config"]
 
-  shell -->|53| ui
-  shell -->|89| app
-  shell -->|10| transport
-  ui -->|52| app
-  ui -->|15| kernel
-  app -->|24| kernel
-  app -->|46| transport
+  shell --> ui
+  shell --> app
+  shell --> transport
+  ui --> app
+  ui --> kernel
+  app --> kernel
+  app --> transport
   kernel ~~~ base
   transport ~~~ base
-
-  ui -.->|3| shell
-  app -.->|3| ui
-  transport -.->|2| app
-  transport -.->|2| kernel
-
-  linkStyle 9,10,11,12 stroke:#c0392b,stroke-width:2px
 ```
 
-Out of 659 imports between layers, 10 point the wrong way. The folders involved, plus the two import cycles inside UI (orange):
+## Known exceptions
 
-```mermaid
-%%{init: {"flowchart": {"nodeSpacing": 50, "rankSpacing": 60, "padding": 12}, "themeVariables": {"fontSize": "16px"}}}%%
-flowchart TD
-  subgraph shellL["Shell"]
-    providers
-  end
-  subgraph uiL["UI"]
-    panels
-    composer
-    widgets
-  end
-  subgraph appL["App services"]
-    channels
-    services
-  end
-  subgraph lowL["Kernel and transports"]
-    chat
-    client
-    eventsub
-  end
+The sanctioned departures from the rules, each recorded in `docs/DECISIONS.md`. Keep this list current: add a row when an exception is sanctioned, delete it when the code stops needing it.
 
-  widgets -->|3| providers
-  channels -->|1| composer
-  channels -->|1| panels
-  channels -->|1| widgets
-  eventsub -->|2| services
-  eventsub -->|1| chat
-  eventsub -->|1| client
-  panels -->|3| composer
-  composer -->|2| panels
-  widgets -->|2| composer
-  composer -->|2| widgets
-
-  linkStyle 0,1,2,3,4,5,6 stroke:#c0392b,stroke-width:2px
-  linkStyle 7,8,9,10 stroke:#d68910,stroke-width:2px
-```
-
-| Edge | Where | Why |
+| Exception | Where | Why |
 |---|---|---|
-| widgets -> providers | `emote_menu_panel.dart`, `chat_rows.dart` | The emote menu reads the emote and app providers; `ChatRows` reads `chatNoticeProvider` for the copy notice. |
-| channels -> UI | `channel_manager.dart` | `ChannelManager` takes `ComposerController`, `ThreadPanels`, and `BroadcastWidgets` as constructor deps. |
-| eventsub -> services, kernel | `eventsub/topics.dart` | `EventSubTopics` holds `TwitchApi`, `TwitchAuth`, `Chat`, and `Session` to create subscriptions. |
-| panels <-> composer | `composer_bar.dart`, `mentions.dart`, `threads.dart`, `mod_panel.dart` | `ComposerBar` opens the mod and search panels; the panels write into `ComposerController`. |
-| widgets <-> composer | `chat_body.dart`, `autocomplete_dropdown.dart`, `composer_bar.dart`, `composer_controller.dart` | `ChatBody` hosts `ComposerBar`; the composer builds on `MessageInput` and `PanelManager`. |
-
-Size is the other pressure point. `services` is a third of the code (55 files, 19.4k lines) and `widgets` a quarter (50 files, 15.5k lines). The largest files are `screens/home_screen.dart` (1.6k lines), `services/twitch_api.dart` (1.4k), `widgets/emote_url_provider.dart`, `services/command_handler.dart`, and `services/emote_store.dart` (1.1k each). The Mod View lives in `widgets/mod_view/`, one file per tab.
+| widgets import providers | `emote_menu_panel.dart`, `chat_rows.dart` | The emote menu reads the emote and app providers; `ChatRows` reads `chatNoticeProvider` for the copy notice. |
+| channels import UI | `channel_manager.dart` | `ChannelManager` takes `ComposerController`, `ThreadPanels`, and `BroadcastWidgets` as constructor deps; `lib/channels` straddles pipeline and UI until its pass. |
+| eventsub topics import services and kernel | `eventsub/topics.dart` | `EventSubTopics` is the client surface, not a leaf: it holds `TwitchApi`, `TwitchAuth`, `Chat`, and `Session` to create subscriptions. |
+| UI import cycles | panels and composer, widgets and composer | `ComposerBar` opens the mod and search panels and the panels write into `ComposerController`; `ChatBody` hosts `ComposerBar`, which builds on `MessageInput` and `PanelManager`. All one layer. |
+| UI notifies the kernel | `home_screen.dart` | `ChannelInfo.touch()` (notify only) after settings that change tile content. |
+| HomeScreen owns UI owners | `home_screen.dart` | Composer, panels, chrome, message builder, media upload, panel manager, link whitelist and channel notifier still construct there and use `host: this` ports. |
+| `MessageBuilder` stamps tokens | `message_builder.dart` | Memoizes the first-render emote parse onto `TwitchMessage.emoteTokens` for restored threads; one idempotent assignment. |
 
 ## Chat data pipeline
 
@@ -335,49 +293,26 @@ flowchart LR
   notif -->|mention/whisper local notifications| home
 ```
 
-## Layer and dependency direction
+## Who writes what
 
-Intended direction (from AGENTS.md, verified in code):
-
-```
-transport (IRC / EventSub / 7TV websocket)
-  -> decode (IrcChatDecoder / EventSubDecoder)
-  -> domain + kernel (Chat / Channel / children, Session)
-  -> pipeline (ChatConnectionManager + ChatIngestion / ChatChannelSetup /
-     EventSubConsumer / SevenTvConsumer / ChatLifecycle / ChatSender / readiness)
-  -> presentation (HomeScreen / panels / chrome / composer / widgets)
-```
-
-Observed departures from the stated "only `Channel` verbs mutate children" and "pipeline must not re-implement state rules" conventions:
-
-- `ChatChannelSetup` calls `chat.channelFor(channel).info.setBroadcasterId(...)` directly, and `ChatStatusComposer` calls `ChannelInfo.setStatus(...)` directly. `ChannelInfo` is a kernel child and has no `Channel` verb wrapper.
-- `EventSubConsumer` mutates `Moderation` (`addFeed`, `putBan`, `removeBan`, `addWarning`, `addHeld`, `noteSuspicious`, `touchInbox`, `touchSettings`), `Messages` (`markDeleted`, `markUserDeleted`, `markAllDeleted`), and `Points` (`setRewards`, `upsertRedemption`, `resolveRedemption`) directly from the pipeline.
-- `HomeScreen._addSystemMessage` calls `Messages.addSystem` directly, and `_onEmotesChanged` / settings setters call `ChannelInfo.touch()` directly. `commandHandlerProvider.addSystemMessage` does the same and then calls `Channel.truncate`, mirroring the pipeline bridge.
-- `ChannelManager` calls `Messages.addSystem` / `removeSystem` / `upsertSystem` / `removeLoadingHistory` and `ChannelInfo.touch` directly.
-- `ChatIngestion` calls `Messages.markDeleted` / `markUserDeleted` / `markAllDeleted` and `Messages.updateText`; the row-scoped moderation edits are the documented exception, but `updateText` and the `ChannelInfo` writes are not wrapped in a `Channel` verb.
-
-These are all reads-and-writes against kernel children that are globally readable, so they do not violate the data-flow direction, but they do bypass the "verbs only" mutation boundary. A stale comment in `chat_sender.dart` says "the write socket also JOINs its channels": `IrcReadService` is documented as the sole JOINer, `IrcService` is join-free, and `ChatReadiness` notes the write JOIN set stays empty in production.
-
-The AGENTS.md phrase "EventSub is moderation-only" is a simplification: the code also subscribes to broadcaster-only channel points (`channel.channel_points_custom_reward*`), unban-request inbox, AutoMod terms/settings, feed (shield/shoutout/warning), and suspicious-user trust events, plus the broadcaster widgets.
-
-## Who writes what (mutation map)
-
-Most arrows in the diagrams are reads or constructor injection, which do not make change hard. What makes change hard is shared mutable state with several writers. Outside `lib/chat` the entire write surface is 33 call sites; after removing notify-only bumps (`ChannelInfo.touch()` is `version.value++`, `info.dart:54`) and the documented row-delete exception, about 19 real writes remain, all through public child methods.
+Most arrows in the diagrams are reads or constructor injection, which do not make change hard. Shared mutable state with several writers does, so these are the kernel writes from outside `lib/chat`. Every one calls a public method on the child; none reaches into private state.
 
 | Kernel state | Writer API | Outside-kernel writers |
 |---|---|---|
-| `ChannelInfo` | `setBroadcasterId` | `ChatChannelSetup` (`chat_channel_setup.dart:188`), `EmoteController` (`emote_controller.dart:169`) |
-| `ChannelInfo` | `setStatus` | `ChatStatusComposer` (`chat_status_composer.dart:154`) |
-| `ChannelInfo` | `Channel.setHistoryLoaded` (verb) | `ChannelManager` x4 (`channel_manager.dart:157,169,335,348`) |
-| `ChannelInfo` | `touch()` (notify only) | `HomeScreen` x13, `ChannelManager` x1 |
-| `Messages` | `markDeleted` / `markUserDeleted` / `markAllDeleted` | `ChatIngestion` x3, `EventSubConsumer` x2 (documented exception) |
-| `Messages` | `addSystem` / `removeLoadingHistory` | `ChannelManager` (`channel_manager.dart:329,297`) |
-| `Moderation` | `Channel.clearHeldModeration` (verb) | `ChannelManager` (`:377`), `ChatLifecycle` (`:512,594`) |
-| `Moderation` | `removeBan` | `EventSubConsumer` (`:205`), `UsersTab` (`mod_view/users_tab.dart:68`) |
-| `Moderation` | `touchInbox` | `EventSubConsumer` x2 (`:452,486`) |
-| `Moderation` | `resolveHeld` | `EventSubConsumer` (`:607`) |
+| `ChannelInfo` | `setBroadcasterId` | `ChatChannelSetup`, `EmoteController` |
+| `ChannelInfo` | `touch()` (notify only) | `HomeScreen` |
+| `Messages` | `markDeleted` / `markUserDeleted` / `markAllDeleted` / `updateText` | `ModerationHub` |
+| `Messages` | `removeSystem` | `ChatStatusComposer` |
+| `Messages` | `noteHistoryGap` | `ChatHistoryController` |
+| `Moderation` | `addFeed` / `addWarning` / `touchInbox` / `touchTerms` / `removeBan` | `ModerationHub` |
+| `Moderation` | `addFeed` / `addWarning` / `touchInbox` / `touchTerms` / `touchSettings` / `resolveHeld` / `noteSuspicious` / `removeSuspicious` / `dismissWarningsFor` | `EventSubConsumer` |
+| `Moderation` | `noteSubscribed` | `EventSubTopics` |
+| `Moderation` | `removeBan` / `removeSuspicious` / `dismissWarningsFor` / `resolveHeld` (after a successful action) | mod view tabs, `UserProfileSheet` |
+| `Points` | `setRewards` / `upsertRedemption` / `resolveRedemption` | `EventSubConsumer` |
+| `Points` | `resolveRedemption` (after a successful action) | mod view `PointsSection` |
+| `Threads` | `pin` / `clearPinned` / `syncSavedKeys` | `ThreadPanels` |
 
-Every entry calls a public method on the child; none reaches into private state. `ChannelInfo.setHistoryLoaded` and `Moderation.clearHeld` now funnel through the `Channel` verbs above, so each has a single writer path. The remaining coordination gap is the loading-history row (`Messages.addSystem` / `removeLoadingHistory` from `ChannelManager`), which a stable-id system line would close; the current fold renders several connection lines, so that change is deferred.
+Multi-child writes (`setHistoryLoaded`, `clearHeldModeration`, loading-history rows, system lines) go through `Channel` verbs and are left out.
 
 ## Services table
 

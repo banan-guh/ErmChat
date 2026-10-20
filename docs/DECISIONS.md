@@ -174,6 +174,23 @@ because the store's `EmoteChange` payload (channel plus delta codes) carries mor
 tick. Consumers currently refresh unconditionally; the payload is reserved for
 selective rebuilds.
 
+### D15: The rulebook states standing rules, not an audit
+
+Decision: `docs/ARCHITECTURE_RULES.md` states rules for new code, including code-shape
+rules (one state value over flags, layout in layout, prefs read where used, one owner
+per behavior, simplify before guarding). `docs/ARCHITECTURE.md` keeps the map plus a
+"Known exceptions" list, with no counts or line numbers. `PrefsStore` is a `lib/util`
+leaf any layer may read. The UI may call a kernel child verb to reflect a user action
+that just succeeded, or to store a user choice the kernel keeps (pinned threads).
+
+Reason: counts and line numbers went stale within weeks, and the hotspots that cost
+the most fixes (post-frame measuring, flag piles, pref mirroring) broke no rule
+because the rules only covered layering. Optimistic mod updates and pins were already
+widespread, so the rule now names them instead of pretending they are absent.
+
+Accepted tradeoff: existing code that breaks a code-shape rule stays until it is next
+changed.
+
 ## Why
 
 - **Why a framework at all**: the app is leaving a churn phase and needs rules. It
