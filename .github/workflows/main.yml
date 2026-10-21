@@ -63,6 +63,12 @@ jobs:
             echo "::error::CHANGELOG.md is $CHARS characters; Play allows 500."
             exit 1
           fi
+          # A stale CHANGELOG.md would ship the last release's notes.
+          PREV_TAG="$(git describe --tags --abbrev=0 "$GITHUB_REF_NAME^" 2>/dev/null || true)"
+          if [[ -n "$PREV_TAG" ]] && git diff --quiet "$PREV_TAG" "$GITHUB_REF_NAME" -- CHANGELOG.md; then
+            echo "::error::CHANGELOG.md is unchanged since $PREV_TAG."
+            exit 1
+          fi
 
   # --- JOB 0b: TESTS ---
   # Runs beside the builds; only the publish jobs wait on it, so a failing
@@ -182,8 +188,27 @@ jobs:
           mkdir -p whatsnew
           cp CHANGELOG.md whatsnew/whatsnew-en-US
 
+      # Play's API fails now and then on its side; one retry a minute later
+      # clears most of those.
       - name: Publish to Google Play
+        id: play
+        continue-on-error: true
         if: env.PLAY_SERVICE_ACCOUNT_JSON != '' && env.KEYSTORE_BASE64 != ''
+        uses: r0adkll/upload-google-play@v1
+        with:
+          serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+          packageName: io.github.bananguh.ErmChat
+          releaseFiles: app-release.aab
+          track: production
+          status: completed
+          whatsNewDirectory: whatsnew
+
+      - name: Wait before retrying Play
+        if: steps.play.outcome == 'failure'
+        run: sleep 60
+
+      - name: Retry Google Play
+        if: steps.play.outcome == 'failure'
         uses: r0adkll/upload-google-play@v1
         with:
           serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
@@ -423,7 +448,13 @@ jobs:
           else
             ARGS+=(--skip_waiting_for_build_processing true)
           fi
-          fastlane pilot upload "${ARGS[@]}"
+          # Apple's side fails now and then; most clear within a minute.
+          for attempt in 1 2 3; do
+            fastlane pilot upload "${ARGS[@]}" && exit 0
+            echo "::warning::TestFlight attempt $attempt failed."
+            sleep 60
+          done
+          exit 1
 
   # --- JOB 3: PUBLISH TO GITHUB RELEASE ---
   publish-release:
