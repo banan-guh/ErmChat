@@ -160,7 +160,6 @@ class ComposerBar extends StatelessWidget {
                       ? controller.startSpam
                       : null,
                   onSpamStop: controller.stopSpam,
-                  spamSends: controller.spamSends,
                   onTap: controller.onTapClearSuggestions,
                   onEmoteToggle: controller.toggleEmoteMenu,
                   enabled: controller.enabled,
@@ -279,7 +278,6 @@ class ComposerRowButton extends StatelessWidget {
           onRecallUndo: controller.undoRecall,
           onSpamStart: controller.sendSwipeMenu() ? controller.startSpam : null,
           onSpamStop: controller.stopSpam,
-          spamSends: controller.spamSends,
           child: InkWell(
             onTap: enabled ? controller.send : null,
             // The strip is far larger than a button, so its ink runs at about

@@ -1,4 +1,3 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../models/twitch_message.dart';
@@ -18,10 +17,9 @@ class MessageInput extends StatelessWidget {
   final VoidCallback? onSendLongPress;
   final VoidCallback? onRecallUndo;
 
-  // The send button's hold-and-swipe spam action; see [SendSwipe].
+  // The send button's hold spam action; see [SendHold].
   final VoidCallback? onSpamStart;
   final VoidCallback? onSpamStop;
-  final ValueListenable<int>? spamSends;
   final VoidCallback? onEmoteToggle;
   final VoidCallback? onTap;
   final ValueChanged<String>? onChanged;
@@ -68,7 +66,6 @@ class MessageInput extends StatelessWidget {
     this.onRecallUndo,
     this.onSpamStart,
     this.onSpamStop,
-    this.spamSends,
     this.onEmoteToggle,
     this.enabled = true,
     this.hintText,
@@ -160,7 +157,6 @@ class MessageInput extends StatelessWidget {
                 onRecallUndo: onRecallUndo,
                 onSpamStart: onSpamStart,
                 onSpamStop: onSpamStop,
-                spamSends: spamSends,
                 child: InkWell(
                   borderRadius: BorderRadius.circular(iconBox / 2),
                   onTap: enabled ? onSend : null,

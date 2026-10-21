@@ -131,9 +131,6 @@ class ComposerController {
   String? _spamText;
   String? _spamChannel;
 
-  /// Bumped on each repeated send, so the spam action can pulse.
-  final spamSends = ValueNotifier<int>(0);
-
   String? get selectedChannel => getSelectedChannel();
 
   void dispose() {
@@ -147,7 +144,6 @@ class ComposerController {
     modeGap.dispose();
     modesUnderSend.dispose();
     stopSpam();
-    spamSends.dispose();
   }
 
   void focus() => focusNode.requestFocus();
@@ -419,7 +415,6 @@ class ComposerController {
       messageController.clear();
     }
     chatConn.doSendMessage(text, channel);
-    spamSends.value++;
     _spamTimer = Timer(
       chatConn.repeatDelay(
         channel,

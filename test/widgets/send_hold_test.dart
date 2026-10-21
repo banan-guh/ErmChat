@@ -9,7 +9,6 @@ void main() {
     tester,
   ) async {
     final calls = <String>[];
-    final sends = ValueNotifier(0);
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
@@ -21,7 +20,6 @@ void main() {
               onRecallUndo: () => calls.add('undo'),
               onSpamStart: () => calls.add('start'),
               onSpamStop: () => calls.add('stop'),
-              spamSends: sends,
               child: const Icon(Icons.send, size: 48),
             ),
           ),
