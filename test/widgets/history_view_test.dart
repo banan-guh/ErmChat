@@ -128,6 +128,19 @@ class _ListSource implements HistorySource {
 /// [rows] read in 256-row blocks, the way the archive reads: around a time
 /// gives its block and the next, older gives the block holding the time, up
 /// to and including it.
+/// Records where each read of older rows starts.
+class _OlderCounting extends _ListSource {
+  _OlderCounting(super.rows);
+
+  final olderFrom = <DateTime>[];
+
+  @override
+  Future<List<TwitchMessage>> older(DateTime time) {
+    olderFrom.add(time);
+    return super.older(time);
+  }
+}
+
 class _BlockSource extends _ListSource {
   _BlockSource(super.rows);
 
@@ -183,6 +196,7 @@ Future<void> _pumpView(
   ValueNotifier<DateTime?>? jumpRequest,
   ValueNotifier<bool>? calendarRequest,
   HistoryActions? actions,
+  bool liveFirst = true,
 }) async {
   FakeHistory.loadDelay = Duration.zero;
   tester.view.physicalSize = const Size(400, 800);
@@ -216,6 +230,7 @@ Future<void> _pumpView(
           actions: actions,
           atBottomNotifier: atBottom,
           live: live,
+          liveFirst: liveFirst,
           liveVersion: liveVersion,
           topPadding: _inset,
         ),
@@ -875,6 +890,31 @@ void main() {
     await _pumpView(tester, source: source, live: () => buffer);
     await _settle(tester);
     expect(find.textContaining('Not all messages retrieved'), findsOneWidget);
+  });
+
+  // Search flashed on a big archive: its list opened on the buffer's few
+  // matches, then read the archive's behind them, though search had already
+  // waited for those.
+  testWidgets('a list that waited for its source opens on its rows', (
+    tester,
+  ) async {
+    final source = _OlderCounting(_ListSource.small(6).rows);
+    final buffer = source.rows.reversed.take(2).toList();
+    await _pumpView(
+      tester,
+      source: source,
+      live: () => buffer,
+      liveFirst: false,
+    );
+    expect(find.textContaining('small 0'), findsOneWidget);
+    // Paging past the oldest row is fine. Reading behind the buffer's
+    // matches is the slow query search already ran.
+    final oldest = source.rows.first.timestamp;
+    expect(
+      source.olderFrom.where((t) => t.isAfter(oldest)),
+      isEmpty,
+      reason: 'opened on the newest rows',
+    );
   });
 
   testWidgets('switching channels comes back at the bottom, no button', (

@@ -491,6 +491,9 @@ class ChannelPanels {
                   for (final m in messages.chatRows)
                     if (query.matches(m)) m,
                 ],
+          // The settle step already waited for the archive's matches, so
+          // the list opens on them instead of the buffer's few.
+          liveFirst: false,
           liveVersion: active ? messages?.version : null,
           emotesVersion: emotesVersion,
           rows: _rows(

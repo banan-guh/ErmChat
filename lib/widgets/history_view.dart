@@ -85,6 +85,7 @@ class HistoryView extends StatefulWidget {
     this.topPadding = 0,
     this.debugControls = false,
     this.live,
+    this.liveFirst = true,
     this.liveVersion,
     this.emotesVersion,
     this.tileCache,
@@ -117,6 +118,11 @@ class HistoryView extends StatefulWidget {
   /// The live buffer, newest first, continuing past the source's newest row.
   /// Null when the source has no live chat.
   final List<TwitchMessage> Function()? live;
+
+  /// Whether opening at the newest rows starts from [live] and reads the
+  /// source behind it, so live chat never waits on the source. Off when the
+  /// caller already waited for the source's newest rows (search).
+  final bool liveFirst;
 
   /// Bumps whenever [live] changes.
   final Listenable? liveVersion;
@@ -1073,7 +1079,8 @@ class _HistoryViewState extends State<HistoryView> {
     final source = widget.source;
     // With a live buffer the newest rows are on hand; history prepends as it
     // reads, so the archive never holds up live chat.
-    final liveFirst = time == null && rows == null && widget.live != null;
+    final liveFirst =
+        widget.liveFirst && time == null && rows == null && widget.live != null;
     final loaded = liveFirst
         ? const <TwitchMessage>[]
         : await (rows ??
