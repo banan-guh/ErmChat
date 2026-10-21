@@ -1,5 +1,7 @@
 import 'dart:io' show Platform;
 
+import 'package:clock/clock.dart';
+
 import '../services/app_updates.dart';
 
 /// One page of an update's showcase: a title, a few lines and optional art.
@@ -93,13 +95,22 @@ final _showcases = <String, List<ShowcasePage>>{
   ],
 };
 
+/// When each showcase stops: a few days after its release, when its art
+/// comes off the release. Later updaters get the changelog alone.
+final _showcaseEnds = <String, DateTime>{'0.10': DateTime(2026, 10, 26)};
+
 String _minor(String version) => version.split('.').take(2).join('.');
 
 /// The pages to show after updating from [from] to [current], or null for
 /// none. [from] is empty when the dev arm fired, which replays the current
-/// showcase, or the newest one while its version is unreleased.
-List<ShowcasePage>? showcaseFor(String current, String from) {
-  if (from.isNotEmpty && _minor(from) == _minor(current)) return null;
+/// showcase, or the newest one while its version is unreleased, past its
+/// end date too.
+List<ShowcasePage>? showcaseFor(String current, String from, {DateTime? now}) {
+  if (from.isNotEmpty) {
+    if (_minor(from) == _minor(current)) return null;
+    final end = _showcaseEnds[_minor(current)];
+    if (end != null && !(now ?? clock.now()).isBefore(end)) return null;
+  }
   final source =
       _showcases[_minor(current)] ??
       (from.isEmpty ? _showcases.values.lastOrNull : null);
