@@ -32,6 +32,7 @@ class HistorySettingsScreen extends StatelessWidget {
         child: ListView(
           children: [
             SettingsPageIntro(context.l10n.historyPageIntro),
+            const MaxMessagesTile(),
             RecentMessagesSourceTile(onChanged: onRecentMessagesModeChanged),
             const HistoryFetchTiles(),
             SettingsSectionHeader(context.l10n.sectionArchive),
@@ -44,7 +45,6 @@ class HistorySettingsScreen extends StatelessWidget {
               ),
             ),
             const ArchiveLimitsTile(),
-            const MaxMessagesTile(),
           ],
         ),
       ),
@@ -121,10 +121,10 @@ class _HistoryFetchTilesState extends State<HistoryFetchTiles> {
                 read: (p) => p.recentMessagesLimit.clamp(0, 800).toDouble(),
                 write: (p, v) => p.setRecentMessagesLimit(v.round()),
               );
-              if (!dynamicFetch) return limit;
+              // One tree either way, so the slider keeps its state.
               return GestureDetector(
                 behavior: HitTestBehavior.opaque,
-                onTap: _blockedSnack,
+                onTap: dynamicFetch ? _blockedSnack : null,
                 child: limit,
               );
             },
@@ -144,18 +144,20 @@ class NeedsArchive extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (archive) return child;
+    // One tree either way, so [child] keeps its state across the toggle.
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
-      onTap: () => AppSnack.show(
-        context,
-        context.l10n.archiveNeeded,
-        actionLabel: context.l10n.turnOn,
-        onAction: () async {
-          await Settings.archiveEnabled.set(true);
-          PrefsStore.instance.notifyChanged();
-        },
-      ),
+      onTap: archive
+          ? null
+          : () => AppSnack.show(
+              context,
+              context.l10n.archiveNeeded,
+              actionLabel: context.l10n.turnOn,
+              onAction: () async {
+                await Settings.archiveEnabled.set(true);
+                PrefsStore.instance.notifyChanged();
+              },
+            ),
       child: child,
     );
   }
@@ -205,18 +207,20 @@ class MaxMessagesTile extends StatelessWidget {
               kMaxMessagesPerChannelValues[v.round()],
             ),
           );
-          if (!archive) return slider;
+          // One tree either way, so the slider keeps its state.
           return GestureDetector(
             behavior: HitTestBehavior.opaque,
-            onTap: () => AppSnack.show(
-              context,
-              l.archiveSetsBuffer,
-              actionLabel: l.turnOff,
-              onAction: () async {
-                await Settings.archiveEnabled.set(false);
-                PrefsStore.instance.notifyChanged();
-              },
-            ),
+            onTap: !archive
+                ? null
+                : () => AppSnack.show(
+                    context,
+                    l.archiveSetsBuffer,
+                    actionLabel: l.turnOff,
+                    onAction: () async {
+                      await Settings.archiveEnabled.set(false);
+                      PrefsStore.instance.notifyChanged();
+                    },
+                  ),
             child: slider,
           );
         },
@@ -416,39 +420,57 @@ class _ArchiveLimitsTileState extends ConsumerState<ArchiveLimitsTile> {
           children: [
             _slider(Setting.archiveRetention, 0, _days.length),
             _slider(Setting.archiveChannelCap, 1, _mb.length),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: FilledButton(
+                      onPressed:
+                          archive &&
+                              (_index[0] != _saved[0] || _index[1] != _saved[1])
+                          ? _apply
+                          : null,
+                      child: Text(l.archiveApply),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: FilledButton(
+                      onPressed: archive ? _abandon : null,
+                      child: Text(l.archiveAbandon),
+                    ),
+                  ),
+                ],
+              ),
+            ),
             if (size != null)
               Padding(
-                padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-                child: Text(
-                  [
-                    l.archiveSize(DataUsageScreen.format(size)),
-                    if (kept > 0)
-                      l.archiveKeptSize(DataUsageScreen.format(kept)),
-                  ].join(', '),
-                  style: note,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 8,
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.storage,
+                      size: 16,
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        [
+                          l.archiveSize(DataUsageScreen.format(size)),
+                          if (kept > 0)
+                            l.archiveKeptSize(DataUsageScreen.format(kept)),
+                        ].join(' · '),
+                        style: note,
+                      ),
+                    ),
+                  ],
                 ),
               ),
-            OverflowBar(
-              alignment: MainAxisAlignment.end,
-              spacing: 8,
-              children: [
-                TextButton(
-                  onPressed: archive ? _abandon : null,
-                  style: TextButton.styleFrom(
-                    foregroundColor: theme.colorScheme.error,
-                  ),
-                  child: Text(l.archiveAbandon),
-                ),
-                FilledButton.tonal(
-                  onPressed:
-                      archive &&
-                          (_index[0] != _saved[0] || _index[1] != _saved[1])
-                      ? _apply
-                      : null,
-                  child: Text(l.archiveApply),
-                ),
-              ],
-            ),
           ],
         ),
       ),

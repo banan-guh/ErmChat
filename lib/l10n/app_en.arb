@@ -180,7 +180,7 @@
       }
     }
   },
-  "archiveSize": "The archive uses {size} on this device",
+  "archiveSize": "Archive: {size}",
   "@archiveSize": {
     "placeholders": {
       "size": {
@@ -188,7 +188,7 @@
       }
     }
   },
-  "archiveKeptSize": "kept days {size}",
+  "archiveKeptSize": "Kept days: {size}",
   "@archiveKeptSize": {
     "placeholders": {
       "size": {
