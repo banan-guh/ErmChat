@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show OverflowBoxFit;
 
 import '../panels/mod_panel.dart';
 import '../panels/search.dart';
@@ -404,8 +405,10 @@ class ComposerModeRow extends StatelessWidget {
                   );
                   if (!wide) return line;
                   // Paints on under the send column, which stays on top and
-                  // keeps every tap.
+                  // keeps every tap. The row's height is unbounded, so the
+                  // box takes the line's height instead of the biggest.
                   return OverflowBox(
+                    fit: OverflowBoxFit.deferToChild,
                     alignment: AlignmentDirectional.centerStart,
                     minWidth: gap + sendRoom,
                     maxWidth: gap + sendRoom,
