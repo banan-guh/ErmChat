@@ -188,7 +188,6 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
               child: SwitchListTile(
                 secondary: const Icon(Icons.person_outline),
                 title: Text(Setting.personalEmotes.titleOf(context.l10n)),
-                subtitle: Text(context.l10n.personalEmotesSubtitle),
                 value: _allowPersonal,
                 onChanged: _onAllowPersonalChanged,
               ),
