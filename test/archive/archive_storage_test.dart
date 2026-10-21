@@ -487,6 +487,35 @@ void main() {
     await store.close();
   });
 
+  test('keyword rules never edit the archive', () async {
+    final store = await _open(_newPath());
+    final writer = _writer(store);
+    String? rule;
+    void rewrite(TwitchMessage m) {
+      final from = m.sent?.text ?? m.text;
+      if (m.sent == null && rule == null) return;
+      m.sent ??= (text: from, positions: null, gifs: null);
+      m.text = rule == null ? from : from.replaceAll('darn', rule!);
+    }
+
+    rule = '***';
+    final sent = _msg(0)..text = 'darn it';
+    rewrite(sent);
+    expect(sent.text, '*** it');
+    writer.add(_channel, sent);
+    await writer.flush();
+    final reader = _reader(store);
+    expect((await reader.newestRows(_channel, 1)).single.text, 'darn it');
+    reader.rewrite = rewrite;
+    rule = 'heck';
+    expect(
+      (await reader.newestRows(_channel, 1)).single.text,
+      'heck it',
+      reason: 'a read applies today\'s rules to the text as sent',
+    );
+    await store.close();
+  });
+
   test('compaction merges old small blocks and keeps every row', () async {
     // The clock sits two hours after the first rows.
     final store = await _open(

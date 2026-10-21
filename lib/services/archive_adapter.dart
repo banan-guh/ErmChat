@@ -68,13 +68,14 @@ class ArchiveAdapter {
         ].join(','),
       ),
     );
-    final gifs = m.gifAttachments;
+    final sent = m.sent;
+    final gifs = sent == null ? m.gifAttachments : sent.gifs;
     final accent = m.systemAccent;
     final replyBody = m.replyToText;
     final tokens = storedTokens(m);
     return ArchiveRow(
       timestampMs: m.timestamp.millisecondsSinceEpoch,
-      text: m.text,
+      text: sent?.text ?? m.text,
       user: users.internState(who, look),
       isSystem: m.isSystem,
       isAction: m.isAction,
@@ -94,7 +95,9 @@ class ArchiveAdapter {
       sourceBroadcasterId: m.sourceBroadcasterId,
       sourceMessageId: m.sourceMessageId,
       emotes: [
-        for (final e in m.emotePositions ?? const <EmotePosition>[])
+        for (final e
+            in (sent == null ? m.emotePositions : sent.positions) ??
+                const <EmotePosition>[])
           ArchiveEmote(e.emoteId, e.startIndex, e.endIndex),
       ],
       tokensStored: tokens != null && m.sourceBroadcasterId != null,
@@ -118,12 +121,14 @@ class ArchiveAdapter {
   /// they never count unread, mentions, or TTS. [defs] holds the stored
   /// emote definitions by key, and [sets] the channel's emote and badge
   /// sets; without either the row parses against today's sets on render.
+  /// [rewrite] applies today's keyword rules to the text as sent.
   TwitchMessage fromRow(
     ArchiveRow r,
     String channel, {
     bool asHistory = false,
     Map<String, Emote> defs = const {},
     ChannelSets? sets,
+    void Function(TwitchMessage msg)? rewrite,
   }) {
     final state = users.states[r.user];
     final who = users.whos[state?.who] ?? _unknown;
@@ -132,7 +137,7 @@ class ArchiveAdapter {
     final gifs = extra[_gifs];
     final accent = int.tryParse(extra[_accent] ?? '');
     final positions = r.emotes.isEmpty ? null : _positions(r);
-    return TwitchMessage(
+    final m = TwitchMessage(
       login: who.login,
       displayName: who.displayName ?? who.login,
       userId: who.userId.isEmpty ? null : who.userId,
@@ -174,7 +179,9 @@ class ArchiveAdapter {
           : _badges(look.badges, sets?.badgesAt(r.timestampMs)),
       sourceBroadcasterId: r.sourceBroadcasterId,
       sourceMessageId: r.sourceMessageId,
-    )..emoteTokens = _tokens(r, positions, defs, sets);
+    );
+    rewrite?.call(m);
+    return m..emoteTokens = _tokens(r, m, defs, sets);
   }
 
   /// The row's emotes: the stored ones over the sets at the row's time,
@@ -182,7 +189,7 @@ class ArchiveAdapter {
   /// stored them all. Null sends the row through a parse on render.
   static List<EmoteToken>? _tokens(
     ArchiveRow r,
-    List<EmotePosition>? positions,
+    TwitchMessage m,
     Map<String, Emote> defs,
     ChannelSets? sets,
   ) {
@@ -190,16 +197,13 @@ class ArchiveAdapter {
     final byCode = <String, Emote>{};
     for (final t in r.tokens) {
       final emote = defs[t.key];
-      if (emote == null ||
-          t.start < 0 ||
-          t.end > r.text.length ||
-          t.start > t.end) {
+      if (emote == null) {
         if (r.tokensStored) return null;
         continue;
       }
-      byCode[r.text.substring(t.start, t.end)] = emote;
+      byCode[emote.code] = emote;
     }
-    var twitch = positions;
+    var twitch = m.emotePositions;
     if (!r.tokensStored) {
       if (r.sourceBroadcasterId != null) return null;
       final at = sets?.emotesAt(r.timestampMs);
@@ -210,7 +214,7 @@ class ArchiveAdapter {
     }
     return [
       for (final token in EmoteStore.tokenize(
-        text: r.text,
+        text: m.text,
         positions: twitch,
         byCode: byCode,
       ))

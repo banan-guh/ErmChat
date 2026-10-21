@@ -3,6 +3,7 @@ import 'dart:ui' show Color;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../services/chat_connection_manager.dart';
+import '../services/ignore_manager.dart';
 import '../services/message_policy.dart';
 import '../services/seven_tv_presence.dart';
 import '../util/friendly_error.dart';
@@ -57,12 +58,29 @@ final chatPipelineProvider = Provider<ChatConnectionManager>((ref) {
     sharedChatMode: () => Settings.sharedChatMode.value,
   ).call;
   final refilter = chat.filter.invalidate;
+  // Keyword rules start from the text as sent, so an edit reaches rows
+  // already in the buffer. A rewritten row parses its emotes again on render.
+  void rewrite() {
+    for (final name in chat.names) {
+      chat.channelFor(name)?.rewriteRows((msg) {
+        if (!rewriteMessageKeywords(msg, ignores)) return false;
+        msg.emoteTokens = null;
+        return true;
+      });
+    }
+  }
+
+  void onIgnores() {
+    rewrite();
+    refilter();
+  }
+
   ref.listen(chatReadyProvider, (_, _) => refilter());
   ref.listen(blockedLoginsProvider, (_, _) => refilter());
-  ignores.addListener(refilter);
+  ignores.addListener(onIgnores);
   Settings.sharedChatMode.addListener(refilter);
   ref.onDispose(() {
-    ignores.removeListener(refilter);
+    ignores.removeListener(onIgnores);
     Settings.sharedChatMode.removeListener(refilter);
   });
 

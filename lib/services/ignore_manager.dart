@@ -295,11 +295,30 @@ class IgnoreManager extends ChangeNotifier {
 /// Rewrites text and realigns emote positions; overlapping emotes dropped.
 /// GIF ranges only shift (never dropped): the image stays valid whatever the
 /// covered text rewrites to, and the replacement hides underneath it.
-void rewriteMessageKeywords(TwitchMessage msg, IgnoreManager manager) {
-  final result = manager.applyKeywordReplacements(msg.text);
-  if (!result.changed) return;
-  msg.text = result.text;
+/// Starts from the text as sent ([TwitchMessage.sent]), so it reruns after
+/// the rules change. Returns whether the shown text changed.
+bool rewriteMessageKeywords(TwitchMessage msg, IgnoreManager manager) {
+  final shown = msg.text;
   final gifs = msg.gifAttachments;
+  final positions = msg.emotePositions;
+  if (msg.sent case final sent?) {
+    msg.text = sent.text;
+    positions
+      ?..clear()
+      ..addAll(sent.positions ?? const []);
+    gifs
+      ?..clear()
+      ..addAll(sent.gifs ?? const []);
+    msg.sent = null;
+  }
+  final result = manager.applyKeywordReplacements(msg.text);
+  if (!result.changed) return msg.text != shown;
+  msg.sent = (
+    text: msg.text,
+    positions: positions == null ? null : List.of(positions),
+    gifs: gifs == null ? null : List.of(gifs),
+  );
+  msg.text = result.text;
   if (gifs != null && gifs.isNotEmpty) {
     final shifted = <GifAttachment>[
       for (final g in gifs)
@@ -314,8 +333,7 @@ void rewriteMessageKeywords(TwitchMessage msg, IgnoreManager manager) {
       ..clear()
       ..addAll(shifted);
   }
-  final positions = msg.emotePositions;
-  if (positions == null || positions.isEmpty) return;
+  if (positions == null || positions.isEmpty) return msg.text != shown;
   final kept = <EmotePosition>[];
   for (final p in positions) {
     var delta = 0;
@@ -343,6 +361,7 @@ void rewriteMessageKeywords(TwitchMessage msg, IgnoreManager manager) {
   positions
     ..clear()
     ..addAll(kept);
+  return msg.text != shown;
 }
 
 /// Maps an original-coordinate index through sorted [edits]. Indices inside

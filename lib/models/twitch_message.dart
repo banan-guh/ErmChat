@@ -126,6 +126,11 @@ class TwitchMessage {
   /// missed. Not persisted.
   bool emotesPartial = false;
   final List<GifAttachment>? gifAttachments;
+
+  /// The text, Twitch emote positions and gifs as sent, when keyword rules
+  /// rewrote them. The archive keeps these, so a rule never edits history.
+  ({String text, List<EmotePosition>? positions, List<GifAttachment>? gifs})?
+  sent;
   final List<MessageBadge>? badges;
   final String? sourceBroadcasterId;
 

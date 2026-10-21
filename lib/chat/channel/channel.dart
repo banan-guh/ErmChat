@@ -148,6 +148,10 @@ class Channel {
     resolve,
   ) => messages.restampAllEmotes(resolve);
 
+  /// Reruns the keyword rules over every row; see [Messages.rewriteRows].
+  int rewriteRows(bool Function(TwitchMessage msg) rewrite) =>
+      messages.rewriteRows(rewrite);
+
   /// Heals the recent rows of senders whose personal emotes just landed.
   int restampSenderEmotes(
     Set<String> userIds,

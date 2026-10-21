@@ -87,6 +87,7 @@ Rules:
   `subscriber`, `vip`, `turbo`, `returning-chatter`), repeated values (badge combos,
   `msg-id`, colors) as dictionary numbers, plus a catch-all key=value column so unknown
   tags are never lost.
+- Text is stored as sent; keyword rules rewrite it on read.
 - Third-party emotes are tokenized on read from the set history (see Set history). A
   row stores only what the sets cannot tell: the sender's personal 7TV emotes, or every
   emote of a shared-chat row. Rows written before the set history keep the full token

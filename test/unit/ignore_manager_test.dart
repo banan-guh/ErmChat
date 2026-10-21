@@ -158,10 +158,19 @@ void main() {
         text: 'verylongword Kappa',
         emotePositions: [pos(13, 18)],
       );
-      rewriteMessageKeywords(msg, m);
+      expect(rewriteMessageKeywords(msg, m), isTrue);
       expect(msg.text, 'x Kappa');
       expect(msg.emotePositions!.single.startIndex, 2);
       expect(msg.emotePositions!.single.endIndex, 7);
+
+      // A rerun starts from the text as sent, so an edited rule applies
+      // once and a removed one restores the original.
+      expect(rewriteMessageKeywords(msg, m), isFalse, reason: 'idempotent');
+      m.removeKeyword('e1');
+      expect(rewriteMessageKeywords(msg, m), isTrue);
+      expect(msg.text, 'verylongword Kappa');
+      expect(msg.emotePositions!.single.startIndex, 13);
+      expect(msg.sent, isNull);
     });
 
     test('emotes overlapping a replaced span are dropped', () async {

@@ -161,6 +161,9 @@ class ArchiveReader {
   /// rows draw with today's.
   final SetHistory? sets;
 
+  /// Today's keyword rules, applied to each row's text as sent.
+  void Function(TwitchMessage msg)? rewrite;
+
   /// Unpacks blocks, keeping only rows a filter allows (see
   /// [decodeBlocks]); off the UI isolate by default.
   final Future<List<List<ArchiveRow>?>> Function(
@@ -378,6 +381,7 @@ class ArchiveReader {
           asHistory: asHistory,
           defs: defs,
           sets: drawn,
+          rewrite: rewrite,
         );
         // The reconnect grey marks a catch-up in the session it happened.
         m.isBackfill = false;

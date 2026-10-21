@@ -12,6 +12,7 @@ import '../services/archive.dart';
 import '../services/app_updates.dart';
 import '../services/chat_history_controller.dart';
 import '../services/command_handler.dart';
+import '../services/ignore_manager.dart';
 import '../services/mod_actions.dart';
 import '../services/notification_service.dart';
 import '../services/tts_controller.dart';
@@ -152,6 +153,8 @@ final archiveProvider = Provider<Archive?>((ref) {
   // records nothing.
   final emotes = ref.read(emoteManagerProvider).store;
   final badges = ref.read(badgeServiceProvider);
+  final ignores = ref.read(ignoreManagerProvider);
+  archive.reader.rewrite = (m) => rewriteMessageKeywords(m, ignores);
   final sets = archive.sets
     ..visibility = () => (
       disabled: emotes.disabledProviders,

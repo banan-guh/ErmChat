@@ -389,18 +389,31 @@ class Messages {
     );
   }
 
+  /// Reruns [rewrite] over every row after the keyword rules changed. A row
+  /// it reports changed renders again.
+  int rewriteRows(bool Function(TwitchMessage msg) rewrite) =>
+      _touch(_items, rewrite);
+
   int _restamp(
     Iterable<TwitchMessage> rows,
     List<EmoteToken>? Function(TwitchMessage msg) resolve,
+  ) => _touch(rows, (msg) {
+    if (msg.isSystem) return false;
+    final tokens = resolve(msg);
+    if (tokens == null || !_addsEmotes(msg.emoteTokens, tokens)) return false;
+    msg.emoteTokens = tokens;
+    return true;
+  });
+
+  int _touch(
+    Iterable<TwitchMessage> rows,
+    bool Function(TwitchMessage msg) change,
   ) {
     final touchedIds = <String>[];
     var touchedIdless = false;
     var healed = 0;
     for (final msg in rows) {
-      if (msg.isSystem) continue;
-      final tokens = resolve(msg);
-      if (tokens == null || !_addsEmotes(msg.emoteTokens, tokens)) continue;
-      msg.emoteTokens = tokens;
+      if (!change(msg)) continue;
       healed++;
       final id = msg.messageId;
       if (id != null) {
