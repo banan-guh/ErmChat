@@ -197,6 +197,8 @@ Future<void> _pumpView(
   ValueNotifier<bool>? calendarRequest,
   HistoryActions? actions,
   bool liveFirst = true,
+  List<TwitchMessage>? newestRows,
+  bool settle = true,
 }) async {
   FakeHistory.loadDelay = Duration.zero;
   tester.view.physicalSize = const Size(400, 800);
@@ -231,12 +233,14 @@ Future<void> _pumpView(
           atBottomNotifier: atBottom,
           live: live,
           liveFirst: liveFirst,
+          newestRows: newestRows,
           liveVersion: liveVersion,
           topPadding: _inset,
         ),
       ),
     ),
   );
+  if (!settle) return;
   await tester.runAsync(() => Future<void>.delayed(Duration.zero));
   await tester.pump();
   await tester.pump();
@@ -915,6 +919,22 @@ void main() {
       isEmpty,
       reason: 'opened on the newest rows',
     );
+  });
+
+  // Search blacked out for a frame each time it settled: its new list
+  // awaited rows the settle step already held.
+  testWidgets('a list given its first rows paints them on its first frame', (
+    tester,
+  ) async {
+    final source = _ListSource.small(6);
+    await _pumpView(
+      tester,
+      source: source,
+      liveFirst: false,
+      newestRows: source.rows,
+      settle: false,
+    );
+    expect(find.textContaining('small 5'), findsOneWidget);
   });
 
   testWidgets('switching channels comes back at the bottom, no button', (

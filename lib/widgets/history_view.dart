@@ -86,6 +86,7 @@ class HistoryView extends StatefulWidget {
     this.debugControls = false,
     this.live,
     this.liveFirst = true,
+    this.newestRows,
     this.liveVersion,
     this.emotesVersion,
     this.tileCache,
@@ -123,6 +124,10 @@ class HistoryView extends StatefulWidget {
   /// source behind it, so live chat never waits on the source. Off when the
   /// caller already waited for the source's newest rows (search).
   final bool liveFirst;
+
+  /// The source's newest rows, already read. Opening at the newest rows
+  /// uses them without a read, so the first frame already shows them.
+  final List<TwitchMessage>? newestRows;
 
   /// Bumps whenever [live] changes.
   final Listenable? liveVersion;
@@ -1081,10 +1086,16 @@ class _HistoryViewState extends State<HistoryView> {
     // reads, so the archive never holds up live chat.
     final liveFirst =
         widget.liveFirst && time == null && rows == null && widget.live != null;
+    final ready = time == null && rows == null && !_loaded
+        ? widget.newestRows
+        : null;
+    // Awaiting even a finished read paints a frame first, so rows on hand
+    // skip the await.
     final loaded = liveFirst
         ? const <TwitchMessage>[]
-        : await (rows ??
-              (time == null ? source.newest() : source.around(time)));
+        : ready ??
+              await (rows ??
+                  (time == null ? source.newest() : source.around(time)));
     if (!mounted || epoch != _epoch) return;
     // A target near the oldest row needs the rows above it before the anchor
     // can sit there; otherwise the older sliver could not span the viewport.

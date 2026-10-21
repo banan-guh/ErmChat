@@ -477,7 +477,7 @@ class ChannelPanels {
       scope: filter.scope,
       source: (q, scope) =>
           ArchiveFindSource.search(channel, reader, query: q, scope: scope),
-      build: (source, q, scope) {
+      build: (source, newest, q, scope) {
         final query = ChatQuery.parse(q, scope);
         return HistoryView(
           // A new query or scope starts a new list.
@@ -494,6 +494,7 @@ class ChannelPanels {
           // The settle step already waited for the archive's matches, so
           // the list opens on them instead of the buffer's few.
           liveFirst: false,
+          newestRows: newest,
           liveVersion: active ? messages?.version : null,
           emotesVersion: emotesVersion,
           rows: _rows(
@@ -1015,6 +1016,7 @@ class _SettledSearch extends StatefulWidget {
   final ArchiveFindSource Function(String query, ChatSearchScope scope) source;
   final Widget Function(
     ArchiveFindSource source,
+    List<TwitchMessage>? newest,
     String query,
     ChatSearchScope scope,
   )
@@ -1030,6 +1032,7 @@ class _SettledSearchState extends State<_SettledSearch> {
   late String _query = widget.query;
   late ChatSearchScope _scope = widget.scope;
   late ArchiveFindSource _source = widget.source(_query, _scope);
+  List<TwitchMessage>? _newest;
 
   @override
   void didUpdateWidget(_SettledSearch old) {
@@ -1041,8 +1044,11 @@ class _SettledSearchState extends State<_SettledSearch> {
     final query = widget.query;
     final scope = widget.scope;
     final source = widget.source(query, scope);
+    List<TwitchMessage>? newest;
     try {
       await source.prefetch().timeout(_patience);
+      // Takes the prefetched rows, so a later newest read hits the archive.
+      newest = await source.newest();
     } catch (_) {
       // Slow or failed: the list shows its own loading or error state.
     }
@@ -1051,9 +1057,11 @@ class _SettledSearchState extends State<_SettledSearch> {
       _query = query;
       _scope = scope;
       _source = source;
+      _newest = newest;
     });
   }
 
   @override
-  Widget build(BuildContext context) => widget.build(_source, _query, _scope);
+  Widget build(BuildContext context) =>
+      widget.build(_source, _newest, _query, _scope);
 }
