@@ -218,6 +218,9 @@ class WhatsNewScreen extends StatefulWidget {
 }
 
 class _WhatsNewScreenState extends State<WhatsNewScreen> {
+  // Room a page's title and body take above the animation.
+  static const _textRoom = 240.0;
+
   final _pages = PageController();
   int _page = 0;
 
@@ -261,10 +264,16 @@ class _WhatsNewScreenState extends State<WhatsNewScreen> {
                 onPageChanged: (i) => setState(() => _page = i),
                 children: [
                   for (final p in widget.pages)
-                    _IntroPage(
-                      title: p.title(l10n),
-                      body: p.body(l10n),
-                      child: _Showcase(asset: p.asset),
+                    LayoutBuilder(
+                      builder: (context, box) => _IntroPage(
+                        title: p.title(l10n),
+                        body: p.body(l10n),
+                        // A page too short for the animation and its text
+                        // keeps the text.
+                        child: box.maxHeight < _Showcase.height + _textRoom
+                            ? const SizedBox.shrink()
+                            : _Showcase(asset: p.asset),
+                      ),
                     ),
                 ],
               ),
@@ -303,6 +312,7 @@ class _Showcase extends StatelessWidget {
 
   static const _width = 280.0;
   static const _aspect = 9 / 10;
+  static const height = _width / _aspect;
 
   @override
   Widget build(BuildContext context) {
@@ -311,7 +321,7 @@ class _Showcase extends StatelessWidget {
       borderRadius: BorderRadius.circular(Radii.large),
       child: SizedBox(
         width: _width,
-        height: _width / _aspect,
+        height: height,
         child: Image.asset(
           asset,
           fit: BoxFit.cover,
