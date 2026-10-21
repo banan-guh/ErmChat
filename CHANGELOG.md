@@ -5,4 +5,3 @@
 - Export and import settings
 - Paste images from the keyboard to upload
 - BIG ui/ux changes. expect bugs
-- iOS: push notifications aren't live yet. Turning them on does nothing for now
