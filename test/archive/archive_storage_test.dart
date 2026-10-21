@@ -495,7 +495,7 @@ void main() {
       final from = m.sent?.text ?? m.text;
       if (m.sent == null && rule == null) return;
       m.sent ??= (text: from, positions: null, gifs: null);
-      m.text = rule == null ? from : from.replaceAll('darn', rule!);
+      m.text = rule == null ? from : from.replaceAll('darn', rule);
     }
 
     rule = '***';
