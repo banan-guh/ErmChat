@@ -82,11 +82,35 @@ class SetLog {
   }
 
   /// The set as observed at [ms]: empty before the first observation.
-  Map<String, String> at(int ms) {
+  Map<String, String> at(int ms) =>
+      _rows.isEmpty || ms < _rows.first.atMs ? {} : stateAt(indexAt(ms));
+
+  /// The row in force at [ms]: the newest at or before it, or the first
+  /// when [ms] is older than every row (the nearest knowledge). -1 when
+  /// there are no rows.
+  int indexAt(int ms) {
+    var lo = 0;
+    var hi = _rows.length - 1;
+    while (lo < hi) {
+      final mid = (lo + hi + 1) >> 1;
+      if (_rows[mid].atMs <= ms) {
+        lo = mid;
+      } else {
+        hi = mid - 1;
+      }
+    }
+    return hi;
+  }
+
+  /// The set as of row [index], replayed from the full snapshot before it.
+  Map<String, String> stateAt(int index) {
+    var from = index;
+    while (from > 0 && !_rows[from].full) {
+      from--;
+    }
     var state = <String, String>{};
-    for (final o in _rows) {
-      if (o.atMs > ms) break;
-      state = _replay(o.full ? {} : state, o);
+    for (var i = from; i <= index; i++) {
+      state = _replay(state, _rows[i]);
     }
     return state;
   }

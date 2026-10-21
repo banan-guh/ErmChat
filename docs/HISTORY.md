@@ -87,8 +87,10 @@ Rules:
   `subscriber`, `vip`, `turbo`, `returning-chatter`), repeated values (badge combos,
   `msg-id`, colors) as dictionary numbers, plus a catch-all key=value column so unknown
   tags are never lost.
-- Emote tokens are stored as emote id references with positions, so a restore maps ids
-  to the cached catalog instead of re-tokenizing text.
+- Third-party emotes are tokenized on read from the set history (see Set history). A
+  row stores only what the sets cannot tell: the sender's personal 7TV emotes, or every
+  emote of a shared-chat row. Rows written before the set history keep the full token
+  list they were stored with.
 - User state lives in tables, not in messages (see User state).
 
 ## User state
@@ -235,6 +237,11 @@ Clickable, colored system rows. No dividers, no buttons.
   can reject a bad observation by hash.
 - Emote keys are `provider:id:code`, so a rename is a new key. Badge keys are
   `set/version/image url`, so a redrawn badge is a new key.
+- Reads (`ChannelSets`): a row tokenizes against the global and channel sets in force
+  at its time, merged like the live lookup and filtered by today's provider toggles,
+  and draws badges from the badge sets of its time. A row older than a set's first
+  observation reads that first one. A channel with no observations at all draws with
+  today's sets on render.
 
 ## Saved threads
 
@@ -290,7 +297,5 @@ Independent of all phases: per-account WebView profiles.
 
 - SQLite package: decided `sqflite` (platform SQLite, no bundled binary, F-Droid safe).
   Revisit `sqlite3` only if platform-channel cost shows up in profiles.
-- Lazy tokenizing: stored token references remove most of the need; the user has
-  concerns to share.
 - Server archive (ermchat-server): per channel, not per user, with a rolling window.
 - Strip-by-age for rows older than N days.

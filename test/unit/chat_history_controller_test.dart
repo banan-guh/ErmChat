@@ -462,6 +462,9 @@ void main() {
     );
     addTearDown(store.close);
     final archive = Archive(Future.value(store));
+    await archive.sets.observeEmotes('ch', EmoteType.sevenTv, [
+      sevenTv('01F6', 'catJAM'),
+    ], at: DateTime.utc(2026, 10, 15, 11));
     archive.writer.add(
       'ch',
       TwitchMessage(

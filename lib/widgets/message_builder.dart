@@ -390,11 +390,9 @@ class MessageBuilder {
     final badges = msg.badges;
     if (badges != null) {
       for (final badge in badges) {
-        final version = badgeService.resolveBadge(
-          channel,
-          badge.setId,
-          badge.versionId,
-        );
+        final version =
+            badge.drawn ??
+            badgeService.resolveBadge(channel, badge.setId, badge.versionId);
         if (version == null) continue;
         out.add(
           CardBadge(

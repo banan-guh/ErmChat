@@ -7,6 +7,7 @@ import '../models/twitch_badge.dart';
 import '../emotes/emote.dart';
 import '../models/twitch_message.dart';
 import 'emote_store.dart';
+import 'set_history.dart';
 
 /// Maps [TwitchMessage] to the codec's [ArchiveRow] and back. The codec cannot
 /// import models, so this lives in the pipeline layer. Identity and look go
@@ -14,9 +15,11 @@ import 'emote_store.dart';
 ///
 /// Fields without a codec column ride in `extraTags` under `x-` keys:
 /// reply body, system accent, redemption image and points, and gifs.
-/// Third-party emote tokens are stored as they were parsed on arrival, with
-/// each emote's definition kept once per channel (`emote_defs`), so history
-/// shows the emotes of its time. Highlights are session state.
+/// Third-party emotes are drawn on read from the channel's emote sets at
+/// the row's time ([ChannelSets]). Only what those cannot tell is stored:
+/// the sender's personal 7TV emotes, and every emote of a shared-chat row,
+/// whose sets belong to another channel. Each stored emote's definition is
+/// kept once per channel (`emote_defs`). Highlights are session state.
 class ArchiveAdapter {
   const ArchiveAdapter(this.users);
 
@@ -31,18 +34,20 @@ class ArchiveAdapter {
   // Stands in for a user a damaged row points past.
   static final _unknown = Who(userId: '', login: '');
 
-  /// Key of [e]'s stored definition: provider, id and code, so a renamed
-  /// alias stays its own version.
-  static String defKey(Emote e) => '${e.type.name}:${e.id}:${e.code}';
-
-  /// [m]'s third-party emotes, when its tokens are final: parsed against
-  /// complete catalogs. Null otherwise; such a row parses again on read.
+  /// The emotes of [m] the sets cannot tell (see [ArchiveAdapter]), or null
+  /// when there are none to store yet. A shared-chat row stores all its
+  /// third-party emotes once they are final.
   static List<EmoteToken>? storedTokens(TwitchMessage m) {
     final tokens = m.emoteTokens;
-    if (m.isSystem || tokens == null || m.emotesPartial) return null;
+    if (m.isSystem || tokens == null) return null;
+    final shared = m.sourceBroadcasterId != null;
+    if (shared && m.emotesPartial) return null;
     return [
       for (final t in tokens)
-        if (t.emote case final e? when e.type != EmoteType.twitch) t,
+        if (t.emote case final e?
+            when e.type != EmoteType.twitch &&
+                (shared || e.scope == EmoteScope.personal))
+          t,
     ];
   }
 
@@ -92,10 +97,10 @@ class ArchiveAdapter {
         for (final e in m.emotePositions ?? const <EmotePosition>[])
           ArchiveEmote(e.emoteId, e.startIndex, e.endIndex),
       ],
-      tokensStored: tokens != null,
+      tokensStored: tokens != null && m.sourceBroadcasterId != null,
       tokens: [
         for (final t in tokens ?? const <EmoteToken>[])
-          ArchiveToken(defKey(t.emote!), t.start, t.end),
+          ArchiveToken(SetHistory.emoteKey(t.emote!), t.start, t.end),
       ],
       extraTags: [
         if (replyBody != null) (_replyBody, replyBody),
@@ -110,13 +115,15 @@ class ArchiveAdapter {
   }
 
   /// Rebuilds a message for [channel]. [asHistory] marks restored rows so
-  /// they never count unread, mentions, or TTS. [defs] holds the emote
-  /// definitions of stored tokens by key; a row missing one parses again.
+  /// they never count unread, mentions, or TTS. [defs] holds the stored
+  /// emote definitions by key, and [sets] the channel's emote and badge
+  /// sets; without either the row parses against today's sets on render.
   TwitchMessage fromRow(
     ArchiveRow r,
     String channel, {
     bool asHistory = false,
     Map<String, Emote> defs = const {},
+    ChannelSets? sets,
   }) {
     final state = users.states[r.user];
     final who = users.whos[state?.who] ?? _unknown;
@@ -162,21 +169,24 @@ class ArchiveAdapter {
               for (final g in jsonDecode(gifs) as List)
                 GifAttachment.fromJson(Map<String, dynamic>.from(g as Map)),
             ],
-      badges: look.badges.isEmpty ? null : _badges(look.badges),
+      badges: look.badges.isEmpty
+          ? null
+          : _badges(look.badges, sets?.badgesAt(r.timestampMs)),
       sourceBroadcasterId: r.sourceBroadcasterId,
       sourceMessageId: r.sourceMessageId,
-    )..emoteTokens = _tokens(r, positions, defs);
+    )..emoteTokens = _tokens(r, positions, defs, sets);
   }
 
-  /// The row's emotes as first parsed: Twitch ones from their positions, the
-  /// rest from their stored definitions, through the live tokenizer. Null
-  /// sends the row through a fresh parse.
+  /// The row's emotes: the stored ones over the sets at the row's time,
+  /// through the live tokenizer, or only the stored ones for a row that
+  /// stored them all. Null sends the row through a parse on render.
   static List<EmoteToken>? _tokens(
     ArchiveRow r,
     List<EmotePosition>? positions,
     Map<String, Emote> defs,
+    ChannelSets? sets,
   ) {
-    if (!r.tokensStored) return null;
+    if (r.isSystem) return null;
     final byCode = <String, Emote>{};
     for (final t in r.tokens) {
       final emote = defs[t.key];
@@ -184,14 +194,24 @@ class ArchiveAdapter {
           t.start < 0 ||
           t.end > r.text.length ||
           t.start > t.end) {
-        return null;
+        if (r.tokensStored) return null;
+        continue;
       }
       byCode[r.text.substring(t.start, t.end)] = emote;
+    }
+    var twitch = positions;
+    if (!r.tokensStored) {
+      if (r.sourceBroadcasterId != null) return null;
+      final at = sets?.emotesAt(r.timestampMs);
+      if (at == null) return null;
+      // Personal emotes sit under the channel's, as in the live lookup.
+      byCode.addAll(at);
+      if (!sets!.twitchOn) twitch = null;
     }
     return [
       for (final token in EmoteStore.tokenize(
         text: r.text,
-        positions: positions,
+        positions: twitch,
         byCode: byCode,
       ))
         if (token.isEmote) token,
@@ -211,12 +231,18 @@ class ArchiveAdapter {
       ),
   ];
 
-  static List<MessageBadge> _badges(String combo) => [
+  /// Badges of [combo], drawn as [versions] held them when given; a badge
+  /// they miss draws as today.
+  static List<MessageBadge> _badges(
+    String combo,
+    Map<String, BadgeVersion>? versions,
+  ) => [
     for (final part in combo.split(','))
       if (part.contains('/'))
         MessageBadge(
           setId: part.substring(0, part.indexOf('/')),
           versionId: part.substring(part.indexOf('/') + 1),
+          drawn: versions?[part],
         ),
   ];
 }

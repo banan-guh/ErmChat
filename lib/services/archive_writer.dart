@@ -13,6 +13,7 @@ import '../util/log.dart';
 import 'archive_adapter.dart';
 import 'archive_store.dart';
 import 'fake_chat_feed.dart';
+import 'set_history.dart';
 
 Future<Uint8List> encodeOffIsolate(List<ArchiveRow> rows) =>
     Isolate.run(() => ArchiveBlock.encode(rows));
@@ -150,7 +151,7 @@ class ArchiveWriter {
     }
     c.tail.add(ArchiveAdapter(c.tables!).toRow(msg));
     for (final t in ArchiveAdapter.storedTokens(msg) ?? const []) {
-      final key = ArchiveAdapter.defKey(t.emote!);
+      final key = SetHistory.emoteKey(t.emote!);
       if (c.sentDefs.contains(key) || c.defs.containsKey(key)) continue;
       c.defs[key] = jsonEncode(t.emote!.toJson());
     }

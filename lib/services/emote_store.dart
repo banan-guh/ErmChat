@@ -199,6 +199,8 @@ class EmoteStore {
 
   bool isProviderEnabled(EmoteType type) => !_disabledProviders.contains(type);
 
+  Set<EmoteType> get disabledProviders => Set.unmodifiable(_disabledProviders);
+
   bool get allowUnlisted7tv => _allowUnlisted7tv;
 
   /// Sets unlisted 7TV rendering; true when the value actually changed.

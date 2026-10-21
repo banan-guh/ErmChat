@@ -152,15 +152,19 @@ final archiveProvider = Provider<Archive?>((ref) {
   // records nothing.
   final emotes = ref.read(emoteManagerProvider).store;
   final badges = ref.read(badgeServiceProvider);
+  final sets = archive.sets
+    ..visibility = () => (
+      disabled: emotes.disabledProviders,
+      allowUnlisted: emotes.allowUnlisted7tv,
+    );
   final stops = [
     emotes.fetched.add(
-      (f) => unawaited(
-        archive.observeEmotes(f.channel ?? '', f.provider, f.emotes),
-      ),
+      (f) =>
+          unawaited(sets.observeEmotes(f.channel ?? '', f.provider, f.emotes)),
     ),
     emotes.sevenTvChanged.add(
       (d) => unawaited(
-        archive.observeSevenTvDelta(
+        sets.observeSevenTvDelta(
           d.channel,
           added: d.added,
           removedIds: d.removedIds,
@@ -169,7 +173,7 @@ final archiveProvider = Provider<Archive?>((ref) {
       ),
     ),
     badges.fetched.add(
-      (f) => unawaited(archive.observeBadges(f.channel ?? '', f.sets)),
+      (f) => unawaited(sets.observeBadges(f.channel ?? '', f.sets)),
     ),
   ];
   ref.onDispose(() {

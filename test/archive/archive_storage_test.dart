@@ -10,13 +10,13 @@ import 'package:ermchat/emotes/emote.dart';
 import 'package:ermchat/irc/decode/decoder.dart';
 import 'package:ermchat/models/twitch_badge.dart';
 import 'package:ermchat/models/twitch_message.dart';
-import 'package:ermchat/services/archive.dart';
 import 'package:ermchat/services/archive_adapter.dart';
 import 'package:ermchat/services/archive_history_source.dart';
 import 'package:ermchat/services/archive_reader.dart';
 import 'package:ermchat/services/archive_store.dart';
 import 'package:ermchat/services/archive_writer.dart';
 import 'package:ermchat/services/fake_chat_feed.dart';
+import 'package:ermchat/services/set_history.dart';
 import 'package:ermchat/util/chat_search.dart';
 import 'package:ermchat/util/history_window.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -378,64 +378,112 @@ void main() {
     await store.close();
   });
 
-  test('third-party emotes read back as they were stored', () async {
+  test('emotes and badges read back as the sets held them', () async {
     final path = _newPath();
     var store = await _open(path);
     final writer = _writer(store);
-    Emote cat(String code, {double aspect = 1.0}) => Emote(
-      id: '01F6',
-      code: code,
-      meta: SevenTvMeta(baseName: 'catJAM', aspectRatio: aspect),
-      scales: {EmoteScale.large: 'https://cdn.7tv.app/emote/01F6/4x.webp'},
-      scope: EmoteScope.channel,
-      isAnimated: true,
-    );
-    TwitchMessage msg(
-      int i,
-      String text,
-      List<EmoteToken>? tokens, {
-      bool partial = false,
-    }) => _msg(i, tsMs: _t0.millisecondsSinceEpoch + i * 1000)
-      ..text = text
-      ..emoteTokens = tokens
-      ..emotesPartial = partial;
+    Emote cat(String code, {double aspect = 1.0, bool personal = false}) =>
+        Emote(
+          id: '01F6',
+          code: code,
+          meta: SevenTvMeta(baseName: 'catJAM', aspectRatio: aspect),
+          scales: {EmoteScale.large: 'https://cdn.7tv.app/emote/01F6/4x.webp'},
+          scope: personal ? EmoteScope.personal : EmoteScope.channel,
+          isAnimated: true,
+        );
+    DateTime at(int s) => _t0.add(Duration(seconds: s));
+    TwitchMessage msg(int i, String text, [List<EmoteToken>? tokens]) =>
+        TwitchMessage(
+          login: 'alice',
+          text: text,
+          messageId: _id(i),
+          channel: _channel,
+          timestamp: at(i),
+          badges: const [MessageBadge(setId: 'subscriber', versionId: '0')],
+        )..emoteTokens = tokens ?? const [];
     EmoteToken tok(Emote e, int start) => EmoteToken(
       emote: e,
       text: e.code,
       start: start,
       end: start + e.code.length,
     );
+    final sets = SetHistory(Future.value(store));
+    await sets.observeEmotes('', EmoteType.sevenTv, [
+      Emote(id: 'g', code: 'EZ', meta: const SevenTvMeta(), scales: const {}),
+    ], at: at(0));
+    await sets.observeEmotes(_channel, EmoteType.sevenTv, [
+      cat('catJAM', aspect: 1.5),
+    ], at: at(1));
+    // The channel renames the alias.
+    await sets.observeEmotes(_channel, EmoteType.sevenTv, [
+      cat('vibe'),
+    ], at: at(3));
+    BadgeSet sub(String url) =>
+        BadgeSet(versions: {'0': BadgeVersion(imageUrl: url)});
+    await sets.observeBadges('', {'subscriber': sub('global')}, at: at(0));
+    await sets.observeBadges(_channel, {'subscriber': sub('old')}, at: at(1));
+    await sets.observeBadges(_channel, {'subscriber': sub('new')}, at: at(3));
+    writer.add(_channel, msg(0, 'catJAM EZ'));
+    writer.add(_channel, msg(2, 'catJAM hi catJAM'));
+    writer.add(_channel, msg(4, 'vibe catJAM'));
     writer.add(
       _channel,
-      msg(0, 'catJAM hi catJAM', [
-        tok(cat('catJAM', aspect: 1.5), 0),
-        tok(cat('catJAM', aspect: 1.5), 10),
-      ]),
+      msg(5, 'pepe vibe', [tok(cat('pepe', personal: true), 0)]),
     );
-    // The channel later renamed the alias; both versions stay.
-    writer.add(_channel, msg(1, 'vibe', [tok(cat('vibe'), 0)]));
-    // Parsed before the catalogs landed: parses again on read.
-    writer.add(_channel, msg(2, 'catJAM', const [], partial: true));
-    // Parsed, nothing third-party: comes back parsed and empty.
-    writer.add(_channel, msg(3, 'hello', const []));
+    // A shared-chat row draws from another channel's sets: stored whole.
+    writer.add(
+      _channel,
+      TwitchMessage(
+        login: 'alice',
+        text: 'catJAM',
+        messageId: _id(6),
+        channel: _channel,
+        timestamp: at(6),
+        sourceBroadcasterId: '9',
+      )..emoteTokens = [tok(cat('catJAM'), 0)],
+    );
     await writer.flush();
     await store.close();
 
     // A restart, with no emote catalog anywhere on the read side.
     store = await _open(path);
-    final rows = await _reader(store).newestRows(_channel, 10);
-    expect(rows, hasLength(4));
-    List<(String, int, double, bool)>? shape(TwitchMessage m) => [
+    final read = ArchiveReader(
+      Future.value(store),
+      decode: (blocks, keep) async => decodeBlocks(blocks, keep),
+      sets: SetHistory(Future.value(store)),
+    );
+    final rows = await read.newestRows(_channel, 10);
+    List<(String, int, double)>? shape(TwitchMessage m) => [
       for (final t in m.emoteTokens ?? const <EmoteToken>[])
-        (t.emote!.code, t.start, t.emote!.aspectRatio, t.emote!.isAnimated),
+        (t.emote!.code, t.start, t.emote!.aspectRatio),
     ];
     expect(shape(rows[0]), [
-      ('catJAM', 0, 1.5, true),
-      ('catJAM', 10, 1.5, true),
+      ('catJAM', 0, 1.5),
+      ('EZ', 7, 1.0),
+    ], reason: 'a row older than the channel log reads its first set');
+    expect(shape(rows[1]), [
+      ('catJAM', 0, 1.5),
+      ('catJAM', 10, 1.5),
     ], reason: 'the emote as it was, without today\'s catalog');
-    expect(shape(rows[1]), [('vibe', 0, 1.0, true)]);
-    expect(rows[2].emoteTokens, isNull, reason: 'a partial parse re-parses');
-    expect(rows[3].emoteTokens, isEmpty);
+    expect(shape(rows[2]), [('vibe', 0, 1.0)], reason: 'renamed away');
+    expect(shape(rows[3]), [
+      ('pepe', 0, 1.0),
+      ('vibe', 5, 1.0),
+    ], reason: 'personal emotes are stored, the rest comes from the sets');
+    expect(shape(rows[4]), [('catJAM', 0, 1.0)]);
+    expect(
+      [for (final r in rows.take(4)) r.badges!.single.drawn!.imageUrl],
+      ['old', 'old', 'new', 'new'],
+      reason: 'a redrawn sub badge keeps its old art on old rows',
+    );
+
+    read.sets!.visibility = () =>
+        (disabled: {EmoteType.sevenTv}, allowUnlisted: false);
+    final hidden = await read.newestRows(_channel, 10);
+    expect(shape(hidden[1]), isEmpty, reason: 'today\'s provider toggles');
+
+    final bare = await _reader(store).newestRows(_channel, 10);
+    expect(bare[1].emoteTokens, isNull, reason: 'no sets: parse on render');
     await store.close();
   });
 
@@ -1332,7 +1380,7 @@ void main() {
 
   test('set history records fetches, live changes and badges', () async {
     final store = await _open(_newPath());
-    final archive = Archive(Future.value(store));
+    final archive = SetHistory(Future.value(store));
     Emote seven(String id, String code) =>
         Emote(id: id, code: code, meta: const SevenTvMeta(), scales: const {});
     final a = seven('1', 'catJAM');
@@ -1341,7 +1389,7 @@ void main() {
     DateTime at(int s) => _t0.add(Duration(seconds: s));
     Future<List<String>> codesAt(int s) async => [
       for (final k in (await archive.observedAt(
-        Archive.emoteKind,
+        SetHistory.emoteKind,
         'chan',
         'sevenTv',
         at(s),
@@ -1372,13 +1420,17 @@ void main() {
     expect(await codesAt(35), ['Clap', 'PogChamp', 'catJAM']);
 
     // A fresh archive reads the log back and diffs against it.
-    final again = Archive(Future.value(store));
+    final again = SetHistory(Future.value(store));
     await again.observeEmotes('chan', EmoteType.sevenTv, [
       a,
       seven('2', 'PogChamp'),
       c,
     ], at: at(40));
-    final rows = await store.observations(Archive.emoteKind, 'chan', 'sevenTv');
+    final rows = await store.observations(
+      SetHistory.emoteKind,
+      'chan',
+      'sevenTv',
+    );
     expect(rows, hasLength(3), reason: 'an unchanged fetch adds no row');
     expect(rows.last.seenMs, at(40).millisecondsSinceEpoch);
 
@@ -1388,7 +1440,7 @@ void main() {
     await archive.observeBadges('chan', {'subscriber': sub('old')}, at: at(10));
     await archive.observeBadges('chan', {'subscriber': sub('new')}, at: at(20));
     final badges = await archive.observedAt(
-      Archive.badgeKind,
+      SetHistory.badgeKind,
       'chan',
       'twitch',
       at(15),

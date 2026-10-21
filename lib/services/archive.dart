@@ -1,26 +1,24 @@
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:path_provider/path_provider.dart';
 
 import '../archive/archive_row.dart';
-import '../archive/set_log.dart';
-import '../emotes/emote.dart';
-import '../models/twitch_badge.dart';
 import '../util/log.dart';
 import '../util/prefs.dart';
-import 'archive_adapter.dart';
 import 'archive_reader.dart';
 import 'archive_store.dart';
 import 'archive_writer.dart';
+import 'set_history.dart';
 import 'fake_chat_feed.dart';
 
 /// The history archive: one SQLite store with its writer and reader. The
 /// store opens lazily on first use; if it cannot open (for example after a
 /// downgrade) the archive logs once and acts empty, and chat is unaffected.
 class Archive {
-  Archive(this.store) : writer = ArchiveWriter(store) {
-    reader = ArchiveReader(store, unsealed: writer.unsealed);
+  Archive(this.store)
+    : writer = ArchiveWriter(store),
+      sets = SetHistory(store) {
+    reader = ArchiveReader(store, unsealed: writer.unsealed, sets: sets);
   }
 
   /// The shared store; null once resolved when it could not open. Saved
@@ -32,6 +30,9 @@ class Archive {
 
   final ArchiveWriter writer;
   late final ArchiveReader reader;
+
+  /// The emote and badge sets over time, which reads draw rows with.
+  final SetHistory sets;
 
   /// Where [Archive.inAppSupport] keeps its database.
   static Future<String> defaultPath() async {
@@ -194,132 +195,6 @@ class Archive {
     }
   }
 
-  static const emoteKind = 'emote';
-  static const badgeKind = 'badge';
-
-  /// Set logs by kind, scope and source, loaded on first use.
-  final Map<String, Future<SetLog>> _logs = {};
-  Future<void> _observing = Future.value();
-
-  /// Notes that a fetch of one set ([SetLog]) returned [items], key to
-  /// definition JSON, at [at] (now by default). An empty result is skipped:
-  /// it cannot be told from a broken fetch, and the next one settles it.
-  /// Never throws.
-  Future<void> observe(
-    String kind,
-    String scope,
-    String source,
-    Map<String, String> items, {
-    DateTime? at,
-  }) => _observeWith(kind, scope, source, (_) => items, at);
-
-  Future<void> _observeWith(
-    String kind,
-    String scope,
-    String source,
-    Map<String, String> Function(Map<String, String> latest) build,
-    DateTime? at,
-  ) {
-    final atMs = (at ?? DateTime.now()).millisecondsSinceEpoch;
-    return _observing = _observing.then(
-      (_) => _quiet((s) async {
-        final log = await (_logs['$kind|$scope|$source'] ??= s
-            .observations(kind, scope, source)
-            .then(SetLog.new));
-        final rows = log.rows;
-        if (rows.isNotEmpty && atMs <= rows.last.atMs) return;
-        final items = build(log.latest);
-        if (items.isEmpty) return;
-        final o = log.diff(items, atMs);
-        if (o == null) {
-          await s.touchObservation(kind, scope, source, rows.last.atMs, atMs);
-          log.touch(atMs);
-          return;
-        }
-        await s.addObservation(kind, scope, source, o);
-        log.add(o);
-      }),
-    );
-  }
-
-  /// One set as observed at [at]: key to definition JSON.
-  Future<Map<String, String>> observedAt(
-    String kind,
-    String scope,
-    String source,
-    DateTime at,
-  ) async {
-    await _observing;
-    final s = await store;
-    if (s == null) return const {};
-    final log = await (_logs['$kind|$scope|$source'] ??= s
-        .observations(kind, scope, source)
-        .then(SetLog.new));
-    return log.at(at.millisecondsSinceEpoch);
-  }
-
-  /// A fetch of [provider]'s emotes for [scope] ('' for global). Twitch
-  /// emotes are left out: rows keep their positions.
-  Future<void> observeEmotes(
-    String scope,
-    EmoteType provider,
-    Iterable<Emote> emotes, {
-    DateTime? at,
-  }) {
-    if (provider == EmoteType.twitch) return Future.value();
-    return observe(emoteKind, scope, provider.name, {
-      for (final e in emotes) ArchiveAdapter.defKey(e): jsonEncode(e.toJson()),
-    }, at: at);
-  }
-
-  /// A 7TV live change to [channel]'s set, applied over the last observed
-  /// one. Without one there is nothing to apply it to, so it waits for the
-  /// next fetch.
-  Future<void> observeSevenTvDelta(
-    String channel, {
-    List<Emote> added = const [],
-    List<String> removedIds = const [],
-    Map<String, String> renamed = const {},
-    DateTime? at,
-  }) => _observeWith(emoteKind, channel, EmoteType.sevenTv.name, (latest) {
-    if (latest.isEmpty) return const {};
-    final next = <String, String>{};
-    for (final e in latest.entries) {
-      final id = e.key.split(':')[1];
-      if (removedIds.contains(id)) continue;
-      final name = renamed[id];
-      if (name == null) {
-        next[e.key] = e.value;
-        continue;
-      }
-      final def = jsonDecode(e.value) as Map<String, dynamic>;
-      def['code'] = name;
-      next['${EmoteType.sevenTv.name}:$id:$name'] = jsonEncode(def);
-    }
-    for (final e in added) {
-      next[ArchiveAdapter.defKey(e)] = jsonEncode(e.toJson());
-    }
-    return next;
-  }, at);
-
-  /// A fetch of [scope]'s Twitch badges ('' for global). A redrawn badge
-  /// keeps its set and version but not its image, so the image is part of
-  /// the key.
-  Future<void> observeBadges(
-    String scope,
-    Map<String, BadgeSet> sets, {
-    DateTime? at,
-  }) => observe(badgeKind, scope, 'twitch', {
-    for (final set in sets.entries)
-      for (final v in set.value.versions.entries)
-        '${set.key}/${v.key}/${v.value.imageUrl}': jsonEncode({
-          'set': set.key,
-          'version': v.key,
-          'url': v.value.imageUrl,
-          'title': ?v.value.title,
-        }),
-  }, at: at);
-
   Future<void> _quiet(Future<void> Function(ArchiveStore s) write) async {
     try {
       final s = await store;
@@ -332,8 +207,7 @@ class Archive {
   /// Deletes the whole archive. Never throws.
   Future<void> wipe() async {
     try {
-      await _observing;
-      _logs.clear();
+      await sets.clear();
       await writer.wipe();
     } catch (e) {
       logDebug('[Archive] wipe failed: $e');

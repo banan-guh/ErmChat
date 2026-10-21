@@ -15,6 +15,7 @@ import '../util/log.dart';
 import '../util/signal.dart';
 import 'archive_adapter.dart';
 import 'archive_store.dart';
+import 'set_history.dart';
 
 /// One decoded block of the windowed list.
 class ArchiveWindowBlock {
@@ -135,6 +136,7 @@ class ArchiveReader {
     this._store, {
     this.decode = decodeOffIsolate,
     this.unsealed = _none,
+    this.sets,
   });
 
   static List<TwitchMessage> _none(String channel) => const [];
@@ -154,6 +156,10 @@ class ArchiveReader {
   final List<TwitchMessage> Function(String channel) unsealed;
 
   final Future<ArchiveStore?> _store;
+
+  /// The emote and badge sets over time that rows draw with; without it
+  /// rows draw with today's.
+  final SetHistory? sets;
 
   /// Unpacks blocks, keeping only rows a filter allows (see
   /// [decodeBlocks]); off the UI isolate by default.
@@ -352,6 +358,7 @@ class ArchiveReader {
     }
     final all = cleared[null] ?? const [];
     final defs = await _defsFor(channel, decoded);
+    final drawn = await sets?.load(channel);
     final pending = edits ?? await store.edits(channel);
     final out = <ArchiveWindowBlock>[];
     for (var i = 0; i < blocks.length; i++) {
@@ -365,7 +372,13 @@ class ArchiveReader {
       for (final r in rows) {
         final edit = r.messageId == null ? null : pending[r.messageId];
         if (edit == ArchiveEdit.remove) continue;
-        final m = adapter.fromRow(r, channel, asHistory: asHistory, defs: defs);
+        final m = adapter.fromRow(
+          r,
+          channel,
+          asHistory: asHistory,
+          defs: defs,
+          sets: drawn,
+        );
         // The reconnect grey marks a catch-up in the session it happened.
         m.isBackfill = false;
         if (edit == ArchiveEdit.deleted) m.deleted = true;

@@ -17,7 +17,14 @@ class MessageBadge {
   final String setId;
   final String versionId;
 
-  const MessageBadge({required this.setId, required this.versionId});
+  /// The image and title an archived row had; null draws today's.
+  final BadgeVersion? drawn;
+
+  const MessageBadge({
+    required this.setId,
+    required this.versionId,
+    this.drawn,
+  });
 }
 
 /// Badge resolved for non-chat surfaces (user card). Same order and
