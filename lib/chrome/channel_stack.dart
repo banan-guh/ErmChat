@@ -478,6 +478,7 @@ class ChannelPanels {
       query: filter.query.trim().toLowerCase(),
       scope: filter.scope,
       empty: buffer,
+      onEnd: reader.endSearch,
       source: (q, scope) =>
           ArchiveFindSource.search(channel, reader, query: q, scope: scope),
       build: (source, newest, q, scope) {
@@ -1011,6 +1012,7 @@ class _SettledSearch extends StatefulWidget {
     required this.query,
     required this.scope,
     required this.empty,
+    required this.onEnd,
     required this.source,
     required this.build,
   });
@@ -1020,6 +1022,9 @@ class _SettledSearch extends StatefulWidget {
 
   /// Shown while the query is empty, and until the first query settles.
   final Widget empty;
+
+  /// Runs once search closes.
+  final VoidCallback onEnd;
   final ArchiveFindSource Function(String query, ChatSearchScope scope) source;
   final Widget Function(
     ArchiveFindSource source,
@@ -1070,6 +1075,12 @@ class _SettledSearchState extends State<_SettledSearch> {
       _source = source;
       _newest = newest;
     });
+  }
+
+  @override
+  void dispose() {
+    widget.onEnd();
+    super.dispose();
   }
 
   @override

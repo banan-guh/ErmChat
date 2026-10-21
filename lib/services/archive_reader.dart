@@ -468,6 +468,9 @@ class ArchiveReader {
     );
   }
 
+  /// Frees what searches keep between keystrokes, once search closes.
+  Future<void> endSearch() async => (await _store)?.dropSearchIndex();
+
   /// Rows passing [test] in [channels] (every archived channel when null),
   /// at most [limit], newest first; older than [before] when given, with
   /// [after] the oldest at or after it. Only blocks [terms] allows are

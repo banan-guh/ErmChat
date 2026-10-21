@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:ermchat/archive/archive_block.dart';
 import 'package:ermchat/archive/archive_row.dart';
 import 'package:ermchat/archive/archive_users.dart';
+import 'package:ermchat/archive/archive_words.dart';
 import 'package:ermchat/color_utils.dart';
 import 'package:ermchat/emotes/emote.dart';
 import 'package:ermchat/irc/decode/decoder.dart';
@@ -871,6 +872,25 @@ void main() {
       expect(textsOf(await reader.search(_channel, 'neuro')), ['Neuro sama']);
       expect(await store.backfillWords(), 4);
       expect(textsOf(await reader.search(_channel, 'neuro')), ['Neuro sama']);
+      await store.close();
+    });
+
+    test('a search reads a changed block word list again', () async {
+      final path = _newPath();
+      final (store, _) = await fill(path);
+      final reader = _reader(store);
+      expect(textsOf(await reader.search(_channel, 'neuro')), ['Neuro sama']);
+      final db = await databaseFactoryFfi.openDatabase(
+        path,
+        options: OpenDatabaseOptions(singleInstance: false),
+      );
+      await db.rawUpdate('UPDATE blocks SET words = ?', [encodeWordList([])]);
+      await db.close();
+      expect(
+        await reader.search(_channel, 'neuro'),
+        isEmpty,
+        reason: 'the first search\'s decoded lists answered the second',
+      );
       await store.close();
     });
 

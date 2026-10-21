@@ -722,13 +722,21 @@ class ArchiveStore {
       'WHERE $where',
       channels,
     );
-    final hit = await _matchOffIsolate(
-      [for (final row in r) row['words'] as Uint8List?],
-      [for (final row in r) row['senders'] as Uint8List?],
-      words,
-      [for (final row in r) senders[row['channel']]],
-      both,
-      system,
+    final index = await _indexOf(
+      channels,
+      r,
+      whole: beforeTs == null && afterTs == null,
+    );
+    final want = [for (final row in r) senders[row['channel']]];
+    final hit = await Isolate.run(
+      () => matchBlocks(
+        index.words,
+        index.senders,
+        words,
+        want,
+        both: both,
+        wantSystem: system,
+      ),
     );
     return [
       for (var i = 0; i < r.length; i++)
@@ -742,23 +750,63 @@ class ArchiveStore {
     ];
   }
 
-  static Future<List<bool>> _matchOffIsolate(
-    List<Uint8List?> words,
-    List<Uint8List?> senders,
-    List<List<Set<int>>>? wantWords,
-    List<Set<int>?> wantSenders,
-    bool both,
-    List<List<Set<int>>>? wantSystem,
-  ) => Isolate.run(
-    () => matchBlocks(
-      words,
-      senders,
-      wantWords,
-      wantSenders,
-      both: both,
-      wantSystem: wantSystem,
-    ),
-  );
+  /// Decoded word and sender lists of searched blocks, by block id, with the
+  /// stored bytes they came from. Typing re-runs a search per keystroke, and
+  /// these spare it the decode. [dropSearchIndex] frees them.
+  final Map<int, _BlockIndex> _searchIndex = {};
+
+  /// The decoded lists of [rows], from [_searchIndex] while a block's bytes
+  /// are unchanged. When [rows] are every block of [channels], blocks gone
+  /// from them leave the index.
+  Future<({List<Int32List?> words, List<Int32List?> senders})> _indexOf(
+    List<String> channels,
+    List<Map<String, Object?>> rows, {
+    required bool whole,
+  }) async {
+    final have = <int, _BlockIndex>{};
+    final stale = <Map<String, Object?>>[];
+    for (final row in rows) {
+      final e = _searchIndex[row['id']];
+      if (e != null &&
+          e.wordsRaw.sameAs(row['words'] as Uint8List?) &&
+          e.sendersRaw.sameAs(row['senders'] as Uint8List?)) {
+        have[row['id']! as int] = e;
+      } else {
+        stale.add(row);
+      }
+    }
+    final rawWords = [for (final row in stale) row['words'] as Uint8List?];
+    final rawSenders = [for (final row in stale) row['senders'] as Uint8List?];
+    final decoded = stale.isEmpty
+        ? null
+        : await Isolate.run(
+            () => (
+              words: [for (final w in rawWords) decodeIndexList(w)],
+              senders: [for (final s in rawSenders) decodeIndexList(s)],
+            ),
+          );
+    for (var i = 0; i < stale.length; i++) {
+      have[stale[i]['id']! as int] = _searchIndex[stale[i]['id']! as int] = (
+        channel: stale[i]['channel']! as String,
+        wordsRaw: rawWords[i],
+        words: decoded!.words[i],
+        sendersRaw: rawSenders[i],
+        senders: decoded.senders[i],
+      );
+    }
+    if (whole) {
+      _searchIndex.removeWhere(
+        (id, e) => channels.contains(e.channel) && !have.containsKey(id),
+      );
+    }
+    return (
+      words: [for (final row in rows) have[row['id']]!.words],
+      senders: [for (final row in rows) have[row['id']]!.senders],
+    );
+  }
+
+  /// Frees the decoded lists kept for searching.
+  void dropSearchIndex() => _searchIndex.clear();
 
   /// Channels with archived blocks.
   Future<List<String>> channels() async => [
@@ -2258,45 +2306,93 @@ List<({Set<String> words, Set<int> states, Set<int> all})> blockWords(
     }(),
 ];
 
+typedef _BlockIndex = ({
+  String channel,
+  Uint8List? wordsRaw,
+  Int32List? words,
+  Uint8List? sendersRaw,
+  Int32List? senders,
+});
+
+extension on Uint8List? {
+  bool sameAs(Uint8List? other) {
+    final a = this;
+    if (a == null || other == null) return a == other;
+    if (a.length != other.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (a[i] != other[i]) return false;
+    }
+    return true;
+  }
+}
+
+/// A block's word or sender list; null when missing or damaged, which
+/// [matchBlocks] treats as a possible match.
+Int32List? decodeIndexList(Uint8List? data) {
+  if (data == null) return null;
+  try {
+    return Int32List.fromList(decodeWordList(data));
+  } on ArchiveFormatException {
+    return null;
+  }
+}
+
 /// Whether each block may hold a match (see [ArchiveStore.searchBlocks]);
-/// [wantSenders] is per block. A missing or damaged list matches, so
-/// unindexed blocks are searched.
+/// [wantSenders] is per block. A null list matches, so unindexed blocks are
+/// searched.
 List<bool> matchBlocks(
-  List<Uint8List?> words,
-  List<Uint8List?> senders,
+  List<Int32List?> words,
+  List<Int32List?> senders,
   List<List<Set<int>>>? wantWords,
   List<Set<int>?> wantSenders, {
   bool both = false,
   List<List<Set<int>>>? wantSystem,
 }) {
-  // Lists are short and wanted sets are built once, so probing the sets
-  // beats building a set per block on every keystroke.
-  bool has(Uint8List? list, bool Function(List<int> ids) test) {
-    if (list == null) return true;
-    try {
-      return test(decodeWordList(list));
-    } on ArchiveFormatException {
-      return true;
+  // One bit per vocabulary id: a probe is a shift and a mask.
+  Uint32List bits(Set<int> ids) {
+    final b = Uint32List(ids.isEmpty ? 0 : (ids.reduce(max) >> 5) + 1);
+    for (final i in ids) {
+      b[i >> 5] |= 1 << (i & 31);
     }
+    return b;
   }
 
-  bool hasWords(Uint8List? list, List<List<Set<int>>>? want) =>
+  bool any(Int32List ids, Uint32List bits) {
+    for (final i in ids) {
+      final w = i >> 5;
+      if (w < bits.length && bits[w] & (1 << (i & 31)) != 0) return true;
+    }
+    return false;
+  }
+
+  List<List<Uint32List>>? bitsOf(List<List<Set<int>>>? want) => want == null
+      ? null
+      : [
+          for (final all in want) [for (final s in all) bits(s)],
+        ];
+  final textBits = bitsOf(wantWords);
+  final systemBits = bitsOf(wantSystem);
+  final senderBits = <Set<int>, Uint32List>{};
+
+  bool hasWords(Int32List? list, List<List<Uint32List>>? want) =>
       want != null &&
-      has(
-        list,
-        (ids) => want.any((all) => all.every((s) => ids.any(s.contains))),
-      );
+      (list == null || want.any((all) => all.every((b) => any(list, b))));
+
+  bool bySender(int i) {
+    final want = wantSenders[i];
+    if (want == null) return false;
+    final list = senders[i];
+    return list == null || any(list, senderBits[want] ??= bits(want));
+  }
 
   return [
     for (var i = 0; i < words.length; i++)
-      if ((
-            hasWords(words[i], wantWords),
-            wantSenders[i] != null &&
-                has(senders[i], (ids) => ids.any(wantSenders[i]!.contains)),
-          )
-          case (final byWords, final bySender))
+      if ((hasWords(words[i], textBits), bySender(i)) case (
+        final byWords,
+        final bySender,
+      ))
         both
             ? byWords && bySender
-            : byWords || bySender || hasWords(words[i], wantSystem),
+            : byWords || bySender || hasWords(words[i], systemBits),
   ];
 }
