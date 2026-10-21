@@ -138,7 +138,7 @@ class EmoteController {
   Future<void> _applyConnectivityContext() async {
     // The service seeds itself in init() and corrects on later events, so
     // here we just seed the data-usage context from its cached state.
-    DataUsageStats.I.setContext(isMobile: connectivityService.isMobile);
+    DataUsageStats.I.setMobile(connectivityService.isMobile);
   }
 
   // Computes the effective tier from the manual tier + auto mode and applies
@@ -167,10 +167,7 @@ class EmoteController {
   void _applyTier(EmoteFetchTier tier) {
     try {
       emoteManager.tier = tier;
-      DataUsageStats.I.setContext(
-        tier: tier,
-        isMobile: connectivityService.isMobile,
-      );
+      DataUsageStats.I.setMobile(connectivityService.isMobile);
       emoteManager.notifyConfigChanged();
     } catch (e) {
       logDebug('_applyTier failed: $e');

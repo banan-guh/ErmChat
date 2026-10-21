@@ -1,8 +1,3 @@
-import 'dart:async';
-
-import '../models/emote_fetch_tier.dart';
-import 'log.dart';
-
 /// Where counted bytes come from, one per usage row.
 enum DataSource {
   chat,
@@ -24,11 +19,9 @@ class SessionCount {
 
 /// Lightweight numeric data-usage aggregator for the mobile data-saver work.
 ///
-/// Counts bytes by source (IRC sockets, emote image downloads, provider JSON)
-/// plus cache churn (evictions), so we can see where bandwidth goes. A 10-minute
-/// timer synthesizes one summary line into [AppLog] (visible in Dev settings >
-/// App log). The counters are plain ints mutated only on the UI isolate,
-/// so no locking is needed.
+/// Counts bytes by source (IRC sockets, emote image downloads, provider JSON),
+/// so we can see where bandwidth goes. The counters are plain ints mutated
+/// only on the UI isolate, so no locking is needed.
 class DataUsageStats {
   DataUsageStats._();
   static final DataUsageStats I = DataUsageStats._();
@@ -40,7 +33,6 @@ class DataUsageStats {
   int historyBytes = 0;
   int helixBytes = 0;
   int eventBytes = 0;
-  int evictions = 0;
 
   // What the data savers served without a download, against what they
   // fetched, for the Saved rows.
@@ -52,10 +44,7 @@ class DataUsageStats {
   final gapFetches = SessionCount();
   final gapsFilled = SessionCount();
 
-  EmoteFetchTier? appliedTier;
   bool mobile = false;
-
-  Timer? _emitTimer;
 
   // The same counts taken only while [mobile], indexed by [DataSource].
   final _mobileBytes = List<int>.filled(DataSource.values.length, 0);
@@ -81,17 +70,9 @@ class DataUsageStats {
 
   /// Emote list bytes per endpoint, ids starred, so the perf log shows
   /// which list fetches cost the most.
-  final jsonByEndpoint = <String, int>{};
-
-  void recordJson(int bytes, Uri uri) {
+  void recordJson(int bytes) {
     jsonBytes += bytes;
     _countMobile(DataSource.emoteLists, bytes);
-    final path = [
-      for (final s in uri.pathSegments)
-        s.length >= 12 || int.tryParse(s) != null ? '*' : s,
-    ].join('/');
-    final key = '${uri.host}/$path';
-    jsonByEndpoint[key] = (jsonByEndpoint[key] ?? 0) + bytes;
   }
 
   /// Recent-messages (robotty, zneix) response bodies.
@@ -130,25 +111,6 @@ class DataUsageStats {
     0,
     (sum, source) => sum + bytesFor(source, mobileOnly: mobileOnly),
   );
-
-  /// Downloads of a URL this session already evicted: the cost of a cap or
-  /// keep-priority that dropped the wrong file.
-  int refetches = 0;
-
-  // Bounded so a long session cannot grow it without limit.
-  final _evicted = <String>{};
-  static const _maxEvicted = 5000;
-
-  void recordEviction(String url) {
-    evictions++;
-    _evicted.add(url);
-    if (_evicted.length > _maxEvicted) _evicted.remove(_evicted.first);
-  }
-
-  /// An emote image download of [url] starting.
-  void recordEmoteFetch(String url) {
-    if (_evicted.remove(url)) refetches++;
-  }
 
   void _add(SessionCount c, [int n = 1]) {
     c.all += n;
@@ -195,34 +157,5 @@ class DataUsageStats {
     return bytes;
   }
 
-  void setContext({EmoteFetchTier? tier, bool? isMobile}) {
-    if (tier != null) appliedTier = tier;
-    if (isMobile != null) mobile = isMobile;
-  }
-
-  int get totalBytes => totalFor();
-
-  /// Starts the 10-minute summary emitter. Idempotent; safe to call once at
-  /// startup.
-  void start() {
-    _emitTimer?.cancel();
-    _emitTimer = Timer.periodic(const Duration(minutes: 10), (_) => _emit());
-  }
-
-  void _emit() {
-    AppLog.I.record(
-      'DATA',
-      '10min total=${totalBytes}B '
-          'ircR=${ircReadBytes}B ircW=${ircWriteBytes}B '
-          'emote=${emoteDownloadBytes}B json=${jsonBytes}B '
-          'history=${historyBytes}B helix=${helixBytes}B event=${eventBytes}B '
-          'evict=$evictions refetch=$refetches tier=${appliedTier?.label ?? '?'} mobile=$mobile '
-          'jsonBy=$jsonByEndpoint',
-    );
-  }
-
-  void dispose() {
-    _emitTimer?.cancel();
-    _emitTimer = null;
-  }
+  void setMobile(bool isMobile) => mobile = isMobile;
 }

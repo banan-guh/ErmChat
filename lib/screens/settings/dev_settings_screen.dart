@@ -3,9 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../util/log.dart';
 import '../../util/prefs.dart';
-import '../../models/emote_fetch_tier.dart';
 import '../../services/fake_chat_feed.dart';
-import '../../util/data_usage.dart';
 import '../../widgets/app_snack.dart';
 import 'prefs_tiles.dart';
 import 'settings_page.dart';
@@ -192,36 +190,6 @@ class _AppLogScreenState extends State<_AppLogScreen> {
       ],
       body: Column(
         children: [
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            child: Card(
-              child: Padding(
-                padding: const EdgeInsets.all(12),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Data usage (since launch)',
-                      style: theme.textTheme.titleSmall,
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      'total ${DataUsageStats.I.totalBytes}B\n'
-                      'IRC read ${DataUsageStats.I.ircReadBytes}B  '
-                      'write ${DataUsageStats.I.ircWriteBytes}B\n'
-                      'emote images ${DataUsageStats.I.emoteDownloadBytes}B  '
-                      'JSON ${DataUsageStats.I.jsonBytes}B\n'
-                      'cache evictions ${DataUsageStats.I.evictions}  '
-                      'refetched ${DataUsageStats.I.refetches}  '
-                      'tier ${DataUsageStats.I.appliedTier?.label ?? '?'}  '
-                      'mobile ${DataUsageStats.I.mobile}',
-                      style: theme.textTheme.bodySmall,
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
             child: Align(

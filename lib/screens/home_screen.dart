@@ -689,7 +689,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     _pasteHost = _chatNotice..paste = _pasteFromClipboard;
     unawaited(_ttsController.init());
     unawaited(AppLog.I.init());
-    DataUsageStats.I.start();
     // Creating the outbox resends reports queued in an earlier session.
     ref.read(bugReportOutboxProvider);
     _session.seed(widget.initialCurrentUserLogin);
@@ -1105,7 +1104,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     final isMobile = _connectivityService.isMobile;
     if (isMobile == _isMobile.value) return;
     _isMobile.value = isMobile;
-    DataUsageStats.I.setContext(isMobile: isMobile);
+    DataUsageStats.I.setMobile(isMobile);
     _emotes.reconcileTier();
   }
 
@@ -1496,7 +1495,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     _fakeChat.dispose();
     _isMobile.dispose();
     _emotesVersion.dispose();
-    DataUsageStats.I.dispose();
     for (final unsubscribe in _signalUnsubs) {
       unsubscribe();
     }

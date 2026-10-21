@@ -36,7 +36,7 @@ Future<http.Response> getEmoteList(
   final res = await _client
       .get(uri, headers: {...headers, 'accept-encoding': 'gzip'})
       .timeout(httpTimeout);
-  DataUsageStats.I.recordJson(res.bodyBytes.length, uri);
+  DataUsageStats.I.recordJson(res.bodyBytes.length);
   throwOnTransientHttpError(res.statusCode, uri);
   if (res.headers['content-encoding']?.toLowerCase() != 'gzip') return res;
   final packed = res.bodyBytes;
