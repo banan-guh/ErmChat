@@ -309,6 +309,15 @@ jobs:
           </plist>
           EOF
 
+          # Mention push needs the aps-environment entitlement, which signs
+          # only when the profile grants it (Push Notifications on the App ID).
+          if security cms -D -i "$PP_PATH" | grep -q aps-environment; then
+            echo "CODE_SIGN_ENTITLEMENTS = Runner/Runner.entitlements" >> ios/Flutter/Release.xcconfig
+            echo "::notice::profile grants push: signing with Runner.entitlements"
+          else
+            echo "::warning::profile lacks Push Notifications: building without mention push"
+          fi
+
           echo "Signing ready: team=$TEAM_ID profile=$UUID bundle=$BUNDLE_ID"
 
       - name: Build signed iOS IPA
