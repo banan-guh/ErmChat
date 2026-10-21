@@ -80,6 +80,10 @@ class AppUpdates {
   static const _appId = 'io.github.bananguh.ErmChat';
   static const _testFlightAppId = '6805456131';
 
+  /// A file attached to the GitHub release tagged [tag].
+  static String releaseAsset(String tag, String name) =>
+      'https://github.com/$_repo/releases/download/$tag/$name';
+
   /// ermchatbot (the bug report host) serves the newest live version per
   /// store, for Play and TestFlight, which have no public version API.
   static const _botLatest = 'https://erm-machine-1.tail834800.ts.net/latest';

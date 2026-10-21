@@ -37,13 +37,7 @@ class _DevSettingsScreenState extends State<DevSettingsScreen> {
       AppSnack.show(context, 'No showcase for ${info.version}');
       return;
     }
-    await Navigator.push(
-      context,
-      MaterialPageRoute(
-        fullscreenDialog: true,
-        builder: (_) => WhatsNewScreen(pages: pages),
-      ),
-    );
+    await WhatsNewScreen.show(context, pages);
   }
 
   Future<void> _replayIntro(BuildContext context) async {

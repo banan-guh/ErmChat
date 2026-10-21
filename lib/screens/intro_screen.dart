@@ -205,14 +205,49 @@ class _IntroScreenState extends State<IntroScreen> {
   }
 }
 
-/// An update's showcase: one page per new feature, each a looping
-/// animation over a title and a line. Shown once after updating into a new
-/// minor version, never on a first install. Pops true when the user asks for
-/// the full changelog.
+/// An update's showcase: one page per new feature, a title and a few lines
+/// over its art. Shown once after updating into a new minor version, never
+/// on a first install.
 class WhatsNewScreen extends StatefulWidget {
-  const WhatsNewScreen({super.key, required this.pages});
+  const WhatsNewScreen({super.key, required this.pages, required this.art});
 
   final List<ShowcasePage> pages;
+
+  /// Art URLs that finished loading. A page missing any of its art shows
+  /// only its text.
+  final Set<String> art;
+
+  static const _artWait = Duration(seconds: 4);
+
+  /// Loads the pages' art for a few seconds, then opens the screen. Returns
+  /// true when the user asks for the full changelog.
+  static Future<bool> show(
+    BuildContext context,
+    List<ShowcasePage> pages,
+  ) async {
+    final loaded = <String>{}, failed = <String>{};
+    await Future.wait([
+      for (final url in {for (final p in pages) ...p.art})
+        precacheImage(
+          NetworkImage(url),
+          context,
+          onError: (_, _) => failed.add(url),
+        ).then((_) {
+          if (!failed.contains(url)) loaded.add(url);
+        }),
+    ]).timeout(_artWait, onTimeout: () => const []);
+    if (!context.mounted) return false;
+    // Art still loading at the timeout counts as missing.
+    final art = {...loaded};
+    return await Navigator.push<bool>(
+          context,
+          MaterialPageRoute(
+            fullscreenDialog: true,
+            builder: (_) => WhatsNewScreen(pages: pages, art: art),
+          ),
+        ) ??
+        false;
+  }
 
   @override
   State<WhatsNewScreen> createState() => _WhatsNewScreenState();
@@ -274,14 +309,16 @@ class _WhatsNewScreenState extends State<WhatsNewScreen> {
                           math.min(box.maxWidth - 48, _Showcase.maxWidth),
                           (box.maxHeight - _textRoom) * p.aspect,
                         );
+                        final hasArt =
+                            p.art.isNotEmpty && widget.art.containsAll(p.art);
                         return _IntroPage(
-                          title: p.title(l10n),
-                          body: p.body(l10n),
-                          child: width < _Showcase.minWidth
+                          title: p.title,
+                          body: p.body,
+                          child: !hasArt || width < _Showcase.minWidth
                               ? const SizedBox.shrink()
                               : Center(
                                   child: _Showcase(
-                                    asset: p.asset,
+                                    art: p.art,
                                     width: width,
                                     aspect: p.aspect,
                                   ),
@@ -317,16 +354,15 @@ class _WhatsNewScreenState extends State<WhatsNewScreen> {
   }
 }
 
-/// A feature's animation or still. A missing asset shows an empty frame, so
-/// pages can land before their art.
-class _Showcase extends StatelessWidget {
+/// A feature's art: one image, or stills that crossfade in turn.
+class _Showcase extends StatefulWidget {
   const _Showcase({
-    required this.asset,
+    required this.art,
     required this.width,
     required this.aspect,
   });
 
-  final String asset;
+  final List<String> art;
   final double width;
   final double aspect;
 
@@ -334,19 +370,52 @@ class _Showcase extends StatelessWidget {
   static const maxWidth = 480.0;
 
   @override
+  State<_Showcase> createState() => _ShowcaseState();
+}
+
+class _ShowcaseState extends State<_Showcase> {
+  static const _hold = Duration(milliseconds: 2200);
+  static const _fade = Duration(milliseconds: 500);
+
+  Timer? _cycle;
+  int _shown = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.art.length > 1) {
+      _cycle = Timer.periodic(_hold, (_) {
+        setState(() => _shown = (_shown + 1) % widget.art.length);
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _cycle?.cancel();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
+    final url = widget.art[_shown];
     return ClipRRect(
       borderRadius: BorderRadius.circular(Radii.large),
       child: SizedBox(
-        width: width,
-        height: width / aspect,
-        child: Image.asset(
-          asset,
-          fit: BoxFit.cover,
-          gaplessPlayback: true,
-          errorBuilder: (_, _, _) =>
-              ColoredBox(color: scheme.surfaceContainerHighest),
+        width: widget.width,
+        height: widget.width / widget.aspect,
+        child: AnimatedSwitcher(
+          duration: _fade,
+          switchInCurve: Motion.move,
+          switchOutCurve: Motion.move,
+          child: Image.network(
+            url,
+            key: ValueKey(url),
+            fit: BoxFit.cover,
+            width: widget.width,
+            height: widget.width / widget.aspect,
+            gaplessPlayback: true,
+          ),
         ),
       ),
     );

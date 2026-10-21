@@ -809,14 +809,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       final pages = showcaseFor(info.version, from);
       final changelog = pages == null
           ? true
-          : await Navigator.push<bool>(
-                  context,
-                  MaterialPageRoute(
-                    fullscreenDialog: true,
-                    builder: (_) => WhatsNewScreen(pages: pages),
-                  ),
-                ) ??
-                false;
+          : await WhatsNewScreen.show(context, pages);
       if (changelog && notes.isNotEmpty && mounted) {
         unawaited(
           showWhatsNewSheet(

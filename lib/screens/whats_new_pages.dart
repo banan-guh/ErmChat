@@ -1,57 +1,94 @@
 import 'dart:io' show Platform;
 
-import '../l10n/app_localizations.dart';
+import '../services/app_updates.dart';
 
-/// One page of an update's showcase: a looping animation or a still (a WebP
-/// under assets/whats_new/) with a title and a line about the feature.
+/// One page of an update's showcase: a title, a few lines and optional art.
+/// English only: the screen shows once per minor version, so it skips the
+/// translation pass.
 class ShowcasePage {
   const ShowcasePage({
-    required this.asset,
     required this.title,
     required this.body,
+    this.art = const [],
     this.aspect = 9 / 10,
     this.iosOnly = false,
   });
 
-  final String asset;
+  final String title;
+  final String body;
 
-  /// The asset's width over its height.
+  /// Image URLs on the minor's GitHub release. Several stills crossfade in
+  /// turn; one may be an animated WebP.
+  final List<String> art;
+
+  /// The art's width over its height.
   final double aspect;
-  final String Function(AppLocalizations l) title;
-  final String Function(AppLocalizations l) body;
   final bool iosOnly;
 }
+
+// Art lives on the minor's first release, beside the APKs, so it never
+// weighs on the app or the repo.
+List<String> _art(String minor, List<String> names) => [
+  for (final n in names) AppUpdates.releaseAsset('v$minor.0', 'whatsnew-$n'),
+];
 
 /// Showcases by minor version: updating into a new minor shows its pages
 /// once, and patch releases only get the changelog.
 final _showcases = <String, List<ShowcasePage>>{
   '0.10': [
     ShowcasePage(
-      asset: 'assets/whats_new/0.10/history.webp',
-      title: (l) => l.showcaseHistoryTitle,
-      body: (l) => l.showcaseHistoryBody,
+      title: 'A month of chat',
+      body:
+          'Every channel keeps 30 days of chat on your phone. Scroll back as '
+          'far as you like, or open the calendar to jump to any day and keep '
+          'the ones you want.',
+      art: _art('0.10', ['history.webp']),
+      aspect: 1080 / 1250,
     ),
     ShowcasePage(
-      asset: 'assets/whats_new/0.10/vods.webp',
-      title: (l) => l.showcaseVodsTitle,
-      body: (l) => l.showcaseVodsBody,
+      title: 'VODs with chat',
+      body:
+          'Watch a past stream with its chat replaying as it happened, and '
+          'switch back to live chat any time.',
+      art: _art('0.10', ['vods.webp']),
       aspect: 1080 / 700,
     ),
     ShowcasePage(
-      asset: 'assets/whats_new/0.10/island.webp',
-      title: (l) => l.showcaseIslandTitle,
-      body: (l) => l.showcaseIslandBody,
+      title: 'Your layout',
+      body:
+          'Pick a chrome theme, move any button where you want it, or build '
+          'your own. Edit the layout in place from the ⋮ menu.',
+      art: _art('0.10', [
+        'layout_ermchat.webp',
+        'layout_dankchat3.webp',
+        'layout_dankchat4.webp',
+      ]),
     ),
     ShowcasePage(
-      asset: 'assets/whats_new/0.10/spam.webp',
-      title: (l) => l.showcaseSpamTitle,
-      body: (l) => l.showcaseSpamBody,
+      title: 'Spam send',
+      body:
+          'Hold send, then hold the spam button to repeat your message. Turn '
+          'it on in Chat settings.',
     ),
     ShowcasePage(
-      asset: 'assets/whats_new/0.10/push.webp',
-      title: (l) => l.showcasePushTitle,
-      body: (l) => l.showcasePushBody,
+      title: 'Mentions while closed',
+      body: 'Get notified when someone mentions you, even with the app closed.',
       iosOnly: true,
+    ),
+    ShowcasePage(
+      title: 'Also new',
+      body:
+          '• Search reaches a channel\'s whole history. user:name finds '
+          'someone\'s messages and mod actions\n'
+          '• Drag highlight rules to set their priority\n'
+          '• Pause notifications from the moon button\n'
+          '• Export and import your settings\n'
+          '• Paste images from the keyboard to upload them\n'
+          '• Personal 7TV emotes and BTTV badges\n'
+          '• Mods delete messages from the message menu\n'
+          '• A characters-left counter near the limit\n'
+          '• Chat font weight and a haptics toggle\n'
+          '• Reopen the last channel on launch',
     ),
   ],
 };
