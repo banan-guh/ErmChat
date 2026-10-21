@@ -312,10 +312,7 @@ class ArchiveWriter {
         minutes: minutes,
         emoteDefs: defs,
         refs: replyRoots(rows),
-        words: {
-          for (final r in rows)
-            if (!r.isSystem) ...searchWords(r.text),
-        },
+        words: {for (final r in rows) ...searchWords(r.text)},
         senders: {
           for (final r in rows)
             if (!r.isSystem)

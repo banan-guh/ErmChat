@@ -90,7 +90,7 @@ class _ChannelTables {
 class ArchiveStore {
   ArchiveStore._(this._db, this._now);
 
-  static const int schemaVersion = 9;
+  static const int schemaVersion = 10;
   static const Duration defaultRetention = Duration(days: 30);
 
   /// How long chat stays before pruning. The History settings set it, and
@@ -125,10 +125,12 @@ class ArchiveStore {
         },
         onCreate: (db, version) => _create(db),
         // Version 9 records when moderation happened, for VOD replay.
+        // Version 10 indexes system rows' words, so blocks reindex.
         onUpgrade: (db, from, to) async {
           if (from < 9) {
             await db.execute('ALTER TABLE moderation ADD COLUMN at_ts INTEGER');
           }
+          if (from < 10) await db.execute('UPDATE blocks SET words = NULL');
         },
       ),
     );
@@ -617,10 +619,15 @@ class ArchiveStore {
     List<String> channels, {
     List<List<Set<int>>>? words,
     Map<String, Set<int>> senders = const {},
+    bool both = false,
+    List<List<Set<int>>>? system,
     int? beforeTs,
     int? afterTs,
   }) async {
-    if (channels.isEmpty || words == null && senders.isEmpty) return const [];
+    if (channels.isEmpty ||
+        words == null && senders.isEmpty && system == null) {
+      return const [];
+    }
     final where = [
       'channel IN (${List.filled(channels.length, '?').join(', ')})',
       if (beforeTs != null) 'start_ts <= $beforeTs',
@@ -636,6 +643,8 @@ class ArchiveStore {
       [for (final row in r) row['senders'] as Uint8List?],
       words,
       [for (final row in r) senders[row['channel']]],
+      both,
+      system,
     );
     return [
       for (var i = 0; i < r.length; i++)
@@ -654,7 +663,18 @@ class ArchiveStore {
     List<Uint8List?> senders,
     List<List<Set<int>>>? wantWords,
     List<Set<int>?> wantSenders,
-  ) => Isolate.run(() => matchBlocks(words, senders, wantWords, wantSenders));
+    bool both,
+    List<List<Set<int>>>? wantSystem,
+  ) => Isolate.run(
+    () => matchBlocks(
+      words,
+      senders,
+      wantWords,
+      wantSenders,
+      both: both,
+      wantSystem: wantSystem,
+    ),
+  );
 
   /// Channels with archived blocks.
   Future<List<String>> channels() async => [
@@ -2144,9 +2164,8 @@ List<({Set<String> words, Set<int> states, Set<int> all})> blockWords(
         final all = <int>{};
         for (final r in ArchiveBlock.decode(b)) {
           all.add(r.user);
-          if (r.isSystem) continue;
           words.addAll(searchWords(r.text));
-          states.add(r.user);
+          if (!r.isSystem) states.add(r.user);
         }
         return (words: words, states: states, all: all);
       } on ArchiveFormatException {
@@ -2162,8 +2181,10 @@ List<bool> matchBlocks(
   List<Uint8List?> words,
   List<Uint8List?> senders,
   List<List<Set<int>>>? wantWords,
-  List<Set<int>?> wantSenders,
-) {
+  List<Set<int>?> wantSenders, {
+  bool both = false,
+  List<List<Set<int>>>? wantSystem,
+}) {
   bool has(Uint8List? list, bool Function(Set<int> ids) test) {
     if (list == null) return true;
     try {
@@ -2173,16 +2194,23 @@ List<bool> matchBlocks(
     }
   }
 
+  bool hasWords(Uint8List? list, List<List<Set<int>>>? want) =>
+      want != null &&
+      has(
+        list,
+        (ids) => want.any((all) => all.every((s) => s.any(ids.contains))),
+      );
+
   return [
     for (var i = 0; i < words.length; i++)
-      (wantWords != null &&
-              has(
-                words[i],
-                (ids) => wantWords.any(
-                  (all) => all.every((s) => s.any(ids.contains)),
-                ),
-              )) ||
-          (wantSenders[i] != null &&
-              has(senders[i], (ids) => wantSenders[i]!.any(ids.contains))),
+      if ((
+            hasWords(words[i], wantWords),
+            wantSenders[i] != null &&
+                has(senders[i], (ids) => wantSenders[i]!.any(ids.contains)),
+          )
+          case (final byWords, final bySender))
+        both
+            ? byWords && bySender
+            : byWords || bySender || hasWords(words[i], wantSystem),
   ];
 }

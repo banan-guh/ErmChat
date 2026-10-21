@@ -639,27 +639,47 @@ void main() {
       final path = _newPath();
       final store = await _open(path);
       final writer = _writer(store, sealCount: 4);
-      // 'neuro' as a word in one row, as a chatter in another.
+      // 'neuro' as a word in one row, as a chatter in another, and in a
+      // timeout line.
       for (var i = 0; i < 12; i++) {
         final login = i == 9 ? 'neurofan' : 'alice';
         writer.add(
           _channel,
-          _msg(i, login: login)..text = i == 2 ? 'neuro is live' : 'chat $i',
+          i == 11
+              ? TwitchMessage(
+                  login: '',
+                  text: 'alice timed out neurofan',
+                  channel: _channel,
+                  isSystem: true,
+                  timestamp: _msg(i).timestamp,
+                )
+              : (_msg(i, login: login)
+                  ..text = i == 2 ? 'neuro is live' : 'chat $i'),
         );
         if (i == 0) await writer.settled();
       }
       await writer.flush();
       final reader = _reader(store);
-      Future<List<String>> find(ChatSearchScope scope) async => [
-        for (final m in await reader.search(_channel, 'NEURO', scope: scope))
+      Future<List<String>> find(
+        ChatSearchScope scope, [
+        String query = 'NEURO',
+      ]) async => [
+        for (final m in await reader.search(_channel, query, scope: scope))
           '${m.login}: ${m.text}',
       ];
       expect(await find(ChatSearchScope.messages), ['alice: neuro is live']);
-      expect(await find(ChatSearchScope.chatters), ['neurofan: chat 9']);
+      expect(await find(ChatSearchScope.chatters), [
+        ': alice timed out neurofan',
+        'neurofan: chat 9',
+      ], reason: 'a chatter search shows moderation lines naming them');
       expect(await find(ChatSearchScope.all), [
         'neurofan: chat 9',
         'alice: neuro is live',
       ]);
+      expect(await find(ChatSearchScope.all, 'user:alice live'), [
+        'alice: neuro is live',
+      ], reason: 'user: needs both the chatter and the text');
+      expect(await find(ChatSearchScope.messages, 'user:neurofan live'), []);
       // Forward from row 5: the oldest matches first, newest-first order.
       final later = await reader.search(
         _channel,

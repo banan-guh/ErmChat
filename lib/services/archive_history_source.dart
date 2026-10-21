@@ -108,7 +108,7 @@ class ArchiveFindSource implements HistorySource {
     DateTime Function()? now,
   }) : _now = now ?? clock.now;
 
-  /// [channel]'s matches of [query] in [scope] (see [searchMatchesLower]).
+  /// [channel]'s matches of [query] in [scope] (see [ChatQuery]).
   factory ArchiveFindSource.search(
     String channel,
     ArchiveReader reader, {
@@ -116,11 +116,11 @@ class ArchiveFindSource implements HistorySource {
     required ChatSearchScope scope,
     DateTime Function()? now,
   }) {
-    final q = query.trim().toLowerCase();
+    final q = ChatQuery.parse(query, scope);
     return ArchiveFindSource(
       reader,
-      ArchiveTerms.search(q, scope),
-      (m) => searchMatchesLower(m, q, scope),
+      ArchiveTerms.search(q),
+      q.matches,
       channels: [channel],
       now: now,
     );

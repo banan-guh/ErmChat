@@ -45,9 +45,9 @@ class ChatSearchFilter {
   }
 }
 
-// Case-insensitive substring match. System rows never match.
+// See [ChatQuery].
 bool searchMatches(TwitchMessage msg, ChatSearchFilter filter) =>
-    searchMatchesLower(msg, filter.query.trim().toLowerCase(), filter.scope);
+    ChatQuery.parse(filter.query, filter.scope).matches(msg);
 
 // Per-channel view-only search. Kernel lists are never touched;
 // ChatView gets a filtered copy and the tile cache stays valid.
@@ -119,7 +119,7 @@ class SearchPanels {
         cached.matches(filter: filter, version: version, frozen: frozen)) {
       return cached.rows;
     }
-    final q = filter.query.trim().toLowerCase();
+    final q = ChatQuery.parse(filter.query, filter.scope);
     var base = filter.live == ChatSearchLive.pause
         ? (frozen ?? const <TwitchMessage>[])
         : items;
@@ -135,7 +135,7 @@ class SearchPanels {
     }
     final rows = filter.display == ChatSearchDisplay.dim
         ? base
-        : base.where((m) => searchMatchesLower(m, q, filter.scope)).toList();
+        : base.where(q.matches).toList();
     _visibleCache[channel] = _SearchCache(
       query: filter.query,
       scope: filter.scope,
@@ -154,8 +154,8 @@ class SearchPanels {
     if (!open || !filter.isActive || filter.display != ChatSearchDisplay.dim) {
       return null;
     }
-    final q = filter.query.trim().toLowerCase();
-    return (m) => !searchMatchesLower(m, q, filter.scope);
+    final q = ChatQuery.parse(filter.query, filter.scope);
+    return (m) => !q.matches(m);
   }
 
   // Empty-state copy: hide mode with a query shows matches or nothing.

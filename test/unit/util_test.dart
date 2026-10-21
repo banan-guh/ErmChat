@@ -1177,6 +1177,28 @@ void main() {
         isTrue,
         reason: 'display names match case-insensitively',
       );
+
+      final timeout = searchMsg('mod timed out bob', isSystem: true);
+      expect(searchMatches(timeout, chatters), isTrue);
+      expect(
+        searchMatches(timeout, messages),
+        isFalse,
+        reason: 'only chatter searches show system rows',
+      );
+
+      const both = ChatSearchFilter(query: 'hi user:BOB there');
+      expect(searchMatches(searchMsg('hi there', login: 'bob'), both), isTrue);
+      expect(searchMatches(searchMsg('hi there'), both), isFalse);
+      expect(searchMatches(searchMsg('hello', login: 'bob'), both), isFalse);
+      expect(
+        searchMatches(timeout, both),
+        isFalse,
+        reason: 'user: with text is a content search',
+      );
+      expect(
+        searchMatches(timeout, const ChatSearchFilter(query: 'user:bob')),
+        isTrue,
+      );
     });
 
     test('visibleMessages reflects a message inserted mid-search', () {

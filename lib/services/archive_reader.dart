@@ -42,11 +42,14 @@ class MinuteCount {
   final int count;
 }
 
-/// Lowercased texts and sender states a row may match by, and the times
-/// (epoch ms, inclusive) it must fall in (see [decodeBlocks]).
+/// Lowercased texts and sender states a row may match by (both when
+/// [both]), text a system row must hold, and the times (epoch ms, inclusive)
+/// it must fall in (see [decodeBlocks]).
 typedef ArchiveRowFilter = ({
   List<String> texts,
   Set<int> states,
+  bool both,
+  String? system,
   int? fromMs,
   int? toMs,
 });
@@ -57,9 +60,8 @@ Future<List<List<ArchiveRow>?>> decodeOffIsolate(
   ArchiveRowFilter? keep,
 ) => Isolate.run(() => decodeBlocks(blocks, keep));
 
-/// Rows of each block, or null for a damaged one. With [keep], only chat
-/// rows in its times whose lowercased text holds one of its texts or whose
-/// sender state it lists.
+/// Rows of each block, or null for a damaged one. With [keep], only rows in
+/// its times that it matches (see [ArchiveRowFilter]).
 List<List<ArchiveRow>?> decodeBlocks(
   List<Uint8List> blocks, [
   ArchiveRowFilter? keep,
@@ -80,31 +82,47 @@ List<List<ArchiveRow>?> decodeBlocks(
     }(),
 ];
 
-bool _rowMatches(ArchiveRow r, ArchiveRowFilter f) =>
-    !r.isSystem &&
-    (f.fromMs == null || r.timestampMs >= f.fromMs!) &&
-    (f.toMs == null || r.timestampMs <= f.toMs!) &&
-    (f.states.contains(r.user) || f.texts.any(r.text.toLowerCase().contains));
+bool _rowMatches(ArchiveRow r, ArchiveRowFilter f) {
+  if (f.fromMs != null && r.timestampMs < f.fromMs!) return false;
+  if (f.toMs != null && r.timestampMs > f.toMs!) return false;
+  final text = r.text.toLowerCase();
+  if (r.isSystem) return f.system != null && text.contains(f.system!);
+  final bySender = f.states.contains(r.user);
+  final byText = f.texts.any(text.contains);
+  return f.both ? bySender && byText : bySender || byText;
+}
 
 /// What an archive lookup decodes: blocks holding every word of one of
 /// [texts] (as substrings of indexed words), or a row by a chatter
-/// [sender] accepts.
+/// [sender] accepts; both when [both]. System rows holding [system] count
+/// too.
 class ArchiveTerms {
-  const ArchiveTerms({this.texts = const [], this.sender});
+  const ArchiveTerms({
+    this.texts = const [],
+    this.sender,
+    this.both = false,
+    this.system,
+  });
 
-  /// Terms for the lowercased query [q] in [scope] (see
-  /// [searchMatchesLower]).
-  factory ArchiveTerms.search(String q, ChatSearchScope scope) => ArchiveTerms(
-    texts: [if (scope != ChatSearchScope.chatters) q],
-    sender: scope == ChatSearchScope.messages
-        ? null
-        : (login, displayName) =>
-              login.toLowerCase().contains(q) ||
-              (displayName?.toLowerCase().contains(q) ?? false),
-  );
+  /// Terms for [q] (see [ChatQuery]).
+  factory ArchiveTerms.search(ChatQuery q) {
+    final user = q.user;
+    return ArchiveTerms(
+      texts: [if (q.text.isNotEmpty) q.text],
+      sender: user == null
+          ? null
+          : (login, displayName) =>
+                login.toLowerCase().contains(user) ||
+                (displayName?.toLowerCase().contains(user) ?? false),
+      both: !q.either && user != null && q.text.isNotEmpty,
+      system: q.systemText,
+    );
+  }
 
   final List<String> texts;
   final bool Function(String login, String? displayName)? sender;
+  final bool both;
+  final String? system;
 }
 
 /// Reads blocks from the archive, decodes them off the UI isolate, and
@@ -409,8 +427,8 @@ class ArchiveReader {
     return cache;
   }
 
-  /// Messages of [channel] matching [query] in [scope] (see
-  /// [searchMatchesLower]), at most [limit]. Newest first, older than
+  /// Messages of [channel] matching [query] in [scope] (see [ChatQuery]),
+  /// at most [limit]. Newest first, older than
   /// [before] when given; with [after], the oldest at or after it. Only
   /// blocks the index allows are decoded.
   Future<List<TwitchMessage>> search(
@@ -421,11 +439,11 @@ class ArchiveReader {
     DateTime? before,
     DateTime? after,
   }) {
-    final q = query.trim().toLowerCase();
+    final q = ChatQuery.parse(query, scope);
     if (q.isEmpty) return Future.value(const []);
     return find(
-      ArchiveTerms.search(q, scope),
-      (m) => searchMatchesLower(m, q, scope),
+      ArchiveTerms.search(q),
+      q.matches,
       channels: [channel],
       limit: limit,
       before: before,
@@ -507,6 +525,8 @@ class ArchiveReader {
         final keep = (
           texts: f.texts,
           states: f.states,
+          both: f.both,
+          system: f.system,
           fromMs: forward ? afterMs : _bound(afterMs, e, max),
           toMs: forward ? _bound(lastMs, e, min) : lastMs,
         );
@@ -538,15 +558,25 @@ class ArchiveReader {
     ArchiveTerms terms,
   ) async {
     final texts = [for (final t in terms.texts) t.toLowerCase()];
+    final system = terms.system?.toLowerCase();
     final sender = terms.sender;
     if (sender == null) {
-      return (texts: texts, states: const <int>{}, fromMs: null, toMs: null);
+      return (
+        texts: texts,
+        states: const <int>{},
+        both: false,
+        system: system,
+        fromMs: null,
+        toMs: null,
+      );
     }
     final t = await store.tables(channel);
     return (
       fromMs: null,
       toMs: null,
       texts: texts,
+      both: terms.both,
+      system: system,
       states: {
         for (final (id, s) in t.states.entries)
           if (t.whos[s.who] case final w? when sender(w.login, w.displayName))
@@ -563,11 +593,13 @@ class ArchiveReader {
     int? beforeTs,
     int? afterTs,
   }) async {
-    final words = <List<Set<int>>>[];
-    for (final text in terms.texts) {
-      final tokens = searchWords(text).toSet().toList();
-      if (tokens.isNotEmpty) words.add(await store.wordIds(tokens));
-    }
+    Future<List<List<Set<int>>>> wordSets(Iterable<String> texts) async => [
+      for (final text in texts)
+        if (searchWords(text).toSet().toList() case final t when t.isNotEmpty)
+          await store.wordIds(t),
+    ];
+    final words = await wordSets(terms.texts);
+    final system = await wordSets([?terms.system]);
     final sender = terms.sender;
     final senders = <String, Set<int>>{};
     if (sender != null) {
@@ -584,6 +616,8 @@ class ArchiveReader {
       channels,
       words: words.isEmpty ? null : words,
       senders: senders,
+      both: terms.both,
+      system: system.isEmpty ? null : system,
       beforeTs: beforeTs,
       afterTs: afterTs,
     );

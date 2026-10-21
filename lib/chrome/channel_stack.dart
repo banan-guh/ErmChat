@@ -470,6 +470,7 @@ class ChannelPanels {
     }
     final q = filter.query.trim().toLowerCase();
     final scope = filter.scope;
+    final query = ChatQuery.parse(q, scope);
     final messages = chat.channelFor(channel)?.messages;
     return HistoryView(
       // A new query or scope starts a new list.
@@ -481,7 +482,7 @@ class ChannelPanels {
           ? null
           : () => [
               for (final m in messages.chatRows)
-                if (searchMatchesLower(m, q, scope)) m,
+                if (query.matches(m)) m,
             ],
       liveVersion: active ? messages?.version : null,
       emotesVersion: emotesVersion,
