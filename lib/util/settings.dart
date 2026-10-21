@@ -272,6 +272,14 @@ abstract final class Settings {
   static final checkeredMessages = Pref('checkered_messages', false);
   static final lineSeparator = Pref('line_separator', false);
   static final fastChannelSnap = Pref('fast_channel_snap', true);
+  static final reopenLastChannel = Pref('reopen_last_channel', true);
+
+  /// The channel last on screen, which a launch reopens.
+  static final lastChannel = Pref<String?>(
+    'last_channel',
+    null,
+    exported: false,
+  );
   static final layoutDensity = EnumPref(
     'layout_density',
     LayoutDensity.auto,
@@ -448,6 +456,8 @@ abstract final class Settings {
     checkeredMessages,
     lineSeparator,
     fastChannelSnap,
+    reopenLastChannel,
+    lastChannel,
     layoutDensity,
     customLayoutEnabled,
     overrideTightComposer,

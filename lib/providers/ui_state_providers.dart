@@ -17,7 +17,10 @@ class SelectedChannelNotifier extends Notifier<String?> {
   @override
   String? build() => null;
 
-  void set(String? value) => state = value;
+  void set(String? value) {
+    state = value;
+    if (value != null) unawaited(Settings.lastChannel.set(value));
+  }
 }
 
 final selectedChannelProvider =

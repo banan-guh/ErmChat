@@ -20,6 +20,7 @@ import '../util/constants.dart';
 import '../util/fake_history.dart';
 import '../util/log.dart';
 import '../util/prefs.dart';
+import '../util/settings.dart';
 
 // Channel membership, history backfill, and selection without any UI
 // dependency. The kernel `Chat` owns the registry itself; this session owns
@@ -129,7 +130,12 @@ class ChannelSession extends ChangeNotifier {
       if (chat.contains(name)) continue;
       chat.ensure(name);
     }
-    setSelectedChannel(chat.names.first);
+    final last = Settings.lastChannel.value;
+    setSelectedChannel(
+      Settings.reopenLastChannel.value && last != null && chat.contains(last)
+          ? last
+          : chat.names.first,
+    );
     notifyListeners();
     for (final name in saved) {
       subscribeChannel(name);

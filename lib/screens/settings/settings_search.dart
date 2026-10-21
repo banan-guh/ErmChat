@@ -114,6 +114,7 @@ class Setting {
     'line_separator' => l.settingLineSeparator,
     'keep_screen_on' => l.settingKeepScreenOn,
     'fast_channel_swipe' => l.settingFastChannelSwipe,
+    'reopen_last_channel' => l.settingReopenLastChannel,
     'custom_layout' => l.settingCustomLayout,
     'tighter_composer' => l.settingTighterComposer,
     'horizontal_sheet_actions' => l.settingHorizontalSheetActions,
@@ -349,6 +350,13 @@ class Setting {
     'Fast channel swipe',
     SettingsPageId.appearance,
     section: 'Navigation',
+  );
+  static const reopenLastChannel = Setting(
+    'reopen_last_channel',
+    'Open last channel',
+    SettingsPageId.appearance,
+    section: 'Navigation',
+    keywords: 'startup launch remember tab',
   );
 
   // ── Appearance › Layout › Custom ────────────────────────────────────
@@ -812,6 +820,7 @@ class Setting {
     lineSeparator,
     keepScreenOn,
     fastChannelSwipe,
+    reopenLastChannel,
     customLayout,
     tighterComposer,
     horizontalSheetActions,

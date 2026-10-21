@@ -321,6 +321,13 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
               pref: Settings.fastChannelSnap,
             ),
           ),
+          SettingAnchor(
+            Setting.reopenLastChannel,
+            child: PrefsSwitchTile(
+              title: Setting.reopenLastChannel.titleOf(context.l10n),
+              pref: Settings.reopenLastChannel,
+            ),
+          ),
         ],
       ),
     );
