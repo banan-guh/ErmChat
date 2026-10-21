@@ -482,5 +482,12 @@ Future<String> collectDiagnostics(BuildContext context) async {
         'max messages ${prefs.maxMessagesPerChannel}',
       );
   }
+  // The newest non-finite layout reports, so a rare rendering glitch arrives
+  // with its numbers.
+  final nan = (await AppLog.I.read())
+      .where((e) => e.contains(' [NAN] '))
+      .take(4)
+      .map((e) => e.length > 600 ? '${e.substring(0, 600)}…' : e);
+  if (nan.isNotEmpty) lines.addAll(['Layout NaN:', ...nan]);
   return scrubDiagnostics(lines.join('\n'));
 }

@@ -503,27 +503,28 @@ class _IslandRingPainter extends CustomPainter {
       old.color != color || old.still != still;
 }
 
-/// Logs where a paint transform or a layer offset turns non-finite, once per
-/// spot. Liquid
-/// glass repaints its surfaces through these transforms unchecked, so the
-/// surface vanishes while the engine logs "TransformLayer is constructed
-/// with an invalid matrix". Off in release and profile builds, where its
-/// tree walk would skew perf runs.
+/// Records in the app log where a paint transform or a layer offset turns
+/// non-finite, once per spot. The engine drops such a layer ("TransformLayer
+/// is constructed with an invalid matrix"), so its content vanishes. Off in
+/// profile builds, where the tree walk would skew perf runs, and while the
+/// app is in the background.
 void watchPaintTransforms() {
-  if (kReleaseMode || kProfileMode) return;
+  if (kProfileMode) return;
   final reported = <String>{};
   var probed = false;
   bool finite(Matrix4 m) => m.storage.every((v) => v.isFinite);
   Timer.periodic(const Duration(seconds: 2), (_) {
-    final root = WidgetsBinding.instance.rootElement?.renderObject;
+    final binding = WidgetsBinding.instance;
+    if (binding.lifecycleState != AppLifecycleState.resumed) return;
+    final root = binding.rootElement?.renderObject;
     if (root == null) return;
     var bad = false;
     void report(String line) {
       bad = true;
       if (!reported.add(line)) return;
-      logDebug('[glassnan] $line');
+      AppLog.I.record('NAN', line);
       // The layout state at the first new report of a burst.
-      if (!probed) logDebug('[glassnan] state ${glassNanProbe?.call()}');
+      if (!probed) AppLog.I.record('NAN', 'state ${glassNanProbe?.call()}');
       probed = true;
     }
 

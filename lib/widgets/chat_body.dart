@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:ui' as ui;
 
-import 'package:flutter/foundation.dart' show kReleaseMode;
 import 'package:flutter/material.dart';
 
 import '../composer/composer_bar.dart';
@@ -208,13 +207,30 @@ class _ChatBodyState extends State<ChatBody>
   // island can't measure.
   double _islandShellH = 0;
 
-  /// Whether a non-finite layout input is logged, so each burst logs once.
-  bool _reportedNan = false;
+  /// When a non-finite layout input was last logged, so a burst logs once.
+  DateTime? _nanLoggedAt;
+  static const _nanLogGap = Duration(seconds: 10);
 
-  /// The last build's layout inputs, for [glassNanProbe]. Debug and profile
-  /// only.
-  Map<String, double> _debugInputs = const {};
-  String _debugSheet = '';
+  /// The last build's layout inputs, for [glassNanProbe] and the NaN log.
+  Map<String, double> _inputs = const {};
+  String _sheet = '';
+
+  /// [value], or [fallback] when it is NaN or infinite. One non-finite input
+  /// would stick in the cached heights (NaN never compares as a change), so
+  /// it is dropped and logged.
+  double _finite(double value, double fallback, String what) {
+    if (value.isFinite) return value;
+    _logNan('$what=$value');
+    return fallback;
+  }
+
+  void _logNan(String what) {
+    final now = DateTime.now();
+    final last = _nanLoggedAt;
+    if (last != null && now.difference(last) < _nanLogGap) return;
+    _nanLoggedAt = now;
+    AppLog.I.record('NAN', 'chatBody $what $_inputs $_sheet');
+  }
 
   String _probe() {
     String size(GlobalKey key) {
@@ -222,7 +238,7 @@ class _ChatBodyState extends State<ChatBody>
       return s == null ? 'null' : '${s.width}x${s.height}';
     }
 
-    return '$_debugInputs $_debugSheet hideSpan=$_hideSpan rowHCache=$_rowH '
+    return '$_inputs $_sheet hideSpan=$_hideSpan rowHCache=$_rowH '
         'island=${size(_islandKey)} outer=${size(_islandOuterKey)} '
         'flow=${size(_flowKey)} footer=${size(_footerKey)} '
         'reply=${size(_replyKey)} bar=${size(inputBarKey)} '
@@ -262,8 +278,9 @@ class _ChatBodyState extends State<ChatBody>
 
   void _cacheReplyH() {
     if (!mounted) return;
-    final h = _replyKey.currentContext?.size?.height ?? 0;
-    if (h.isFinite && (h - _replyH).abs() > 0.5) setState(() => _replyH = h);
+    final size = _replyKey.currentContext?.size?.height ?? 0;
+    final h = _finite(size, _replyH, 'replyH');
+    if ((h - _replyH).abs() > 0.5) setState(() => _replyH = h);
   }
 
   // Keyboard overlap in dp. The Scaffold strips viewInsets from its body,
@@ -303,10 +320,11 @@ class _ChatBodyState extends State<ChatBody>
   /// The keyboard height in logical pixels. A view without a pixel ratio
   /// (detaching) reads as no change, since one NaN would stick in every
   /// cached height below.
-  double _readRawH() {
-    final h = _view.viewInsets.bottom / _view.devicePixelRatio;
-    return h.isFinite ? h : _rawH;
-  }
+  double _readRawH() => _finite(
+    _view.viewInsets.bottom / _view.devicePixelRatio,
+    _rawH,
+    'keyboardH',
+  );
 
   // Last learned open height, persisted so decisions start right even on a
   // cold start. Re-learned every session, so a stale value self-corrects.
@@ -337,7 +355,7 @@ class _ChatBodyState extends State<ChatBody>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _loadLearnedHeight();
-    if (!kReleaseMode) glassNanProbe = _probe;
+    glassNanProbe = _probe;
   }
 
   @override
@@ -450,7 +468,11 @@ class _ChatBodyState extends State<ChatBody>
   void _cacheComposerH() {
     if (!mounted || widget.composer == null) return;
     final h = inputBarKey.currentContext?.size?.height;
-    if (h == null || !h.isFinite) return;
+    if (h == null) return;
+    if (!h.isFinite) {
+      _logNan('composerH=$h');
+      return;
+    }
     // inputBarKey sits on the padded wrapper, so subtract its bottom inset to
     // cache the content height alone. The safe area is re-added from live
     // MediaQuery at build, so the list clearance cannot lag the keyboard.
@@ -468,16 +490,18 @@ class _ChatBodyState extends State<ChatBody>
     if (!mounted) return;
     // A non-finite size reads as unmeasured: the caches only update on a
     // change, and NaN never compares as one, so it would stick.
-    double? height(GlobalKey key) {
+    double? height(GlobalKey key, String what) {
       final h = key.currentContext?.size?.height;
-      return h != null && h.isFinite ? h : null;
+      if (h == null || h.isFinite) return h;
+      _logNan('$what=$h');
+      return null;
     }
 
-    final h = height(_islandKey);
+    final h = height(_islandKey, 'islandH');
     if (h != null && (h - _islandH).abs() > 0.5) {
       setState(() => _islandH = h);
     }
-    final flow = height(_flowKey);
+    final flow = height(_flowKey, 'flowH');
     if (h != null && flow != null) {
       final row = h - flow;
       if (_rowH == null || (row - _rowH!).abs() > 0.5) {
@@ -486,12 +510,12 @@ class _ChatBodyState extends State<ChatBody>
     }
     // The clip leaves the island's own layout whole (field and footer), so
     // it measures true under the keyboard too.
-    final footer = height(_footerKey) ?? 0;
+    final footer = height(_footerKey, 'footerH') ?? 0;
     final footerDelta = footer - _footerH;
     // A shortened island would read as a smaller one, so a clipped island
     // takes its full height from the unclipped content plus the shell
     // around it, measured while unclipped.
-    final measured = height(_islandOuterKey);
+    final measured = height(_islandOuterKey, 'outerH');
     if (_rowClip <= 0 && measured != null && h != null) {
       _islandShellH = measured - h;
     }
@@ -580,8 +604,13 @@ class _ChatBodyState extends State<ChatBody>
     // The Scaffold subtracts the keyboard from the body's viewPadding too,
     // so the nav bar height comes from the view itself.
     final view = View.of(context);
-    final viewNav = view.viewPadding.bottom / view.devicePixelRatio;
-    final navPad = frameKb > 0.5 && viewNav.isFinite ? viewNav : bottomPad;
+    final navPad = frameKb > 0.5
+        ? _finite(
+            view.viewPadding.bottom / view.devicePixelRatio,
+            bottomPad,
+            'navPad',
+          )
+        : bottomPad;
     _hideSpan = hidden && floating ? navPad + rowH : 0;
     final clipRow = (frameKb - navPad).clamp(0.0, rowH);
     final push = (frameKb - navPad - rowH).clamp(0.0, double.infinity);
@@ -600,31 +629,27 @@ class _ChatBodyState extends State<ChatBody>
           : glassComposerOverlayHeight(_islandOuterH) + bottomPad,
       animate: floatingFlipped,
     );
-    if (!kReleaseMode) {
-      final inputs = _debugInputs = {
-        'clearance': clearance,
-        'outerH': _islandOuterH,
-        'islandH': _islandH,
-        'shellH': _islandShellH,
-        'footerH': _footerH,
-        'rawH': _rawH,
-        'liftH': _liftH,
-        'bottomPad': bottomPad,
-        'navPad': navPad,
-        'hiddenBottom': hiddenBottom,
-        'clipRow': clipRow,
-        'paneBottom': _paneInsets.bottom,
-        'islandBottom': islandBottom,
-        'rowH': rowH,
-        'composerH': _composerH,
-        'replyH': _replyH,
-        'rowClip': _rowClip,
-        'emoteMaxFraction': widget.emoteMaxFraction,
-      };
-      final bad = inputs.values.any((v) => !v.isFinite);
-      if (bad && !_reportedNan) logDebug('[glassnan] chatBody $inputs');
-      _reportedNan = bad;
-    }
+    _inputs = {
+      'clearance': clearance,
+      'outerH': _islandOuterH,
+      'islandH': _islandH,
+      'shellH': _islandShellH,
+      'footerH': _footerH,
+      'rawH': _rawH,
+      'liftH': _liftH,
+      'bottomPad': bottomPad,
+      'navPad': navPad,
+      'hiddenBottom': hiddenBottom,
+      'clipRow': clipRow,
+      'paneBottom': _paneInsets.bottom,
+      'islandBottom': islandBottom,
+      'rowH': rowH,
+      'composerH': _composerH,
+      'replyH': _replyH,
+      'rowClip': _rowClip,
+      'emoteMaxFraction': widget.emoteMaxFraction,
+    };
+    if (_inputs.values.any((v) => !v.isFinite)) _logNan('input');
     // Rebuilt only when its inputs change, so keyboard ticks (including the
     // safe-area ticks that rebuild ChatBody) reuse the same instance and
     // the body subtree skips rebuilding. The body reads the content height
@@ -1010,12 +1035,10 @@ class _ChatBodyState extends State<ChatBody>
                                     (clearance - inFlowH) /
                                         widget.emoteMaxFraction
                               : fitH;
-                          if (!kReleaseMode) {
-                            _debugSheet =
-                                'sheetH=$sheetBoxHeight fitH=$fitH '
-                                'fullBoxH=$fullBoxH box=${constraints.maxHeight} '
-                                'fullBox=$_fullBoxHeight closedBody=$_closedBodyH';
-                          }
+                          _sheet =
+                              'sheetH=$sheetBoxHeight fitH=$fitH '
+                              'fullBoxH=$fullBoxH box=${constraints.maxHeight} '
+                              'fullBox=$_fullBoxHeight closedBody=$_closedBodyH';
                           return Stack(
                             clipBehavior: Clip.hardEdge,
                             children: [
