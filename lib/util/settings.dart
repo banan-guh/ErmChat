@@ -191,8 +191,12 @@ abstract final class Settings {
     kRecentMessagesLimitDefault,
   );
 
-  /// Whether chat is archived on this device. Read once at launch.
-  static final archiveEnabled = Pref('archive_enabled', true);
+  /// Whether chat is archived on this device. Read once at launch. Off by
+  /// default on iOS, which stops the app in the background and leaves gaps.
+  static final archiveEnabled = Pref(
+    'archive_enabled',
+    defaultTargetPlatform != TargetPlatform.iOS,
+  );
 
   /// Days of chat the archive keeps, at most 30.
   static final archiveRetentionDays = IntPref(
