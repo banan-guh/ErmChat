@@ -137,9 +137,7 @@ class ChatSinks {
     this.onMention,
     this.onWhisper,
     this.getMacros,
-    this.isChatReady,
     this.isBlocked,
-    this.getSharedChatMode,
     this.onAnalyticsMessage,
     this.onArchiveMessage,
     this.onArchiveStreamSeen,
@@ -160,9 +158,7 @@ class ChatSinks {
   final void Function(String channel, TwitchMessage msg)? onMention;
   final void Function(TwitchMessage msg)? onWhisper;
   final Map<String, String> Function()? getMacros;
-  final bool Function()? isChatReady;
   final bool Function(String login)? isBlocked;
-  final String Function()? getSharedChatMode;
   final void Function(String channel, TwitchMessage msg)? onAnalyticsMessage;
   final void Function(String channel, TwitchMessage msg)? onArchiveMessage;
   final void Function(
@@ -403,9 +399,7 @@ class ChatConnectionManager {
     mentionsChannel: config.bridge.mentionsChannel,
     getMaxMessagesPerChannel: config.bridge.getMaxMessagesPerChannel,
     getSelectedChannel: config.bridge.getSelectedChannel,
-    isChatReady: config.sinks.isChatReady,
     isBlocked: config.sinks.isBlocked,
-    getSharedChatMode: config.sinks.getSharedChatMode,
     isModerationActive: (channel) => eventSubTopics.isModerationActive(channel),
     isJoinFailureNotified: _channelSetup.isJoinFailureNotified,
     onSystemMessage: _keptSystemMessage,

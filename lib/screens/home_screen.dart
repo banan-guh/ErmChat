@@ -124,6 +124,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   IgnoreManager get _ignoreManager => ref.read(ignoreManagerProvider);
 
   final _linkWhitelist = LinkWhitelist.instance;
+  VoidCallback? _removeFilterListener;
 
   AnalyticsService get _analytics => ref.read(analyticsServiceProvider);
   TtsController get _ttsController => ref.read(ttsControllerProvider);
@@ -750,7 +751,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     _streamPlayer.vodChatLive.addListener(_onVodReplay);
     // Launching in landscape gets no metrics change, so sync once up front.
     WidgetsBinding.instance.addPostFrameCallback((_) => _syncSystemUiMode());
-    _linkWhitelist.addListener(_onLinkWhitelistChanged);
+    _linkWhitelist.addListener(_retile);
+    _removeFilterListener = _chat.filter.changed.add(_retile);
     _loadNotificationSettings();
     _broadcastWidgets.loadTestWidgets();
     _channelNotifier.addListener(_syncChannelSubs);
@@ -1078,21 +1080,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     if (!mounted || _twitchAuth.userId != userId) return;
     ref.read(blockedLoginsProvider.notifier).addAll(blocked);
     ref.read(chatReadyProvider.notifier).set(true);
-    _sweepBlockedMessages();
     _channelManager.loadChannels();
     setState(() {});
   }
 
-  void _sweepBlockedMessages() {
-    final blocked = ref.read(blockedLoginsProvider);
-    final touched = _chat.removeBlocked(blocked);
-    for (final name in touched) {
-      _tileCache.remove(name);
-    }
-  }
-
-  void _onLinkWhitelistChanged() {
-    // Re-render visible tiles so the new link-whitelist entries take effect.
+  /// Re-renders visible tiles after the link whitelist or the chat filter
+  /// changes.
+  void _retile() {
     _tileCache.clear();
     for (final channel in List.of(_chat.names)) {
       _chat.channelFor(channel)?.info.touch();
@@ -1508,7 +1502,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     _composer.dispose();
     _uploadController.dispose();
     _networkBusy.dispose();
-    _linkWhitelist.removeListener(_onLinkWhitelistChanged);
+    _linkWhitelist.removeListener(_retile);
+    _removeFilterListener?.call();
     _spanSettings.removeListener(_onSpanSettings);
     _shellSettings.removeListener(_onShellSettings);
     _sevenTvSettings.removeListener(_applySevenTvSettings);

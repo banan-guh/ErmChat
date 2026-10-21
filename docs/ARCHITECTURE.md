@@ -358,7 +358,7 @@ Multi-child writes (`setHistoryLoaded`, `clearHeldModeration`, loading-history r
 | `ArchiveHistorySource` | `lib/services/archive_history_source.dart` | `HistorySource` over one channel of the archive, feeding `HistoryView`. |
 | `SavedThreadsStore` | `lib/services/saved_threads_store.dart` | Archive-database-backed saved-thread metadata and full per-thread message logs. No migration from the old JSON store; memory only if the database cannot open. |
 | `PingManager` | `lib/services/ping_manager.dart` | Highlight/mention rules, own-message participation, display-name tracking. |
-| `IgnoreManager` | `lib/services/ignore_manager.dart` | Ignored users and keyword block/rewrite rules applied before pings. |
+| `IgnoreManager` | `lib/services/ignore_manager.dart` | Ignored users and keyword block/rewrite rules; ignores and block rules feed `ChatHideRule`, rewrites run before pings. |
 | `LinkWhitelist` | `lib/services/link_whitelist.dart` | Domain/TLD allow list gating link previews and click handling. |
 | `TtsController` | `lib/services/tts_controller.dart` | Reads chat messages aloud with queue/format/user-ignore settings. |
 | `MediaUploader` | `lib/services/media_uploader.dart` | Uploads pasted/selected media to configured hosts and records recent uploads. |

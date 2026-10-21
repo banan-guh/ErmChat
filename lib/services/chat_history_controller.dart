@@ -38,7 +38,6 @@ class ChatHistoryController {
     required this.badgeService,
     required this.maxMessages,
     required this.recentMessagesLimit,
-    this.isBlocked,
     ChatSignal<bool>? emoteReloading,
     this.archive,
     this.liveSince,
@@ -49,7 +48,6 @@ class ChatHistoryController {
          pingManager: pingManager,
          userStore: userStore,
          session: session,
-         isBlocked: isBlocked,
        ) {
     emoteManager.store.addListener(_onCatalogChanged);
     emoteManager.addPersonalSendersListener(_onPersonalSendersChanged);
@@ -66,7 +64,6 @@ class ChatHistoryController {
   final TwitchBadgeService badgeService;
   final int Function() maxMessages;
   final int Function() recentMessagesLimit;
-  final bool Function(String login)? isBlocked;
 
   /// Null when no archive is wired (tests).
   final Archive? archive;
@@ -243,18 +240,15 @@ class ChatHistoryController {
     }
   }
 
-  /// [history] minus ignored and blocked rows, with senders learned, mention
-  /// tint applied and emotes stamped.
+  /// [history] with senders learned, mention tint applied and emotes
+  /// stamped. Rows the chat filter hides are kept.
   List<TwitchMessage> _prepare(String channel, List<TwitchMessage> history) {
     final prepared = <TwitchMessage>[];
     for (final msg in history) {
-      if (_policy.shouldDropForIgnore(msg)) continue;
-      if (_policy.shouldDropForBlockedUser(msg)) continue;
-      if (_policy.shouldDropForBlockedPhrase(msg)) continue;
-      if (!msg.isSystem && msg.login.isNotEmpty) {
+      _policy.applyPingHighlight(msg, mentionOnly: true);
+      if (!msg.isSystem && msg.login.isNotEmpty && !chat.filter.hides(msg)) {
         _policy.learnUser(channel, msg);
       }
-      _policy.applyPingHighlight(msg, mentionOnly: true);
       _stampEmoteResolution(msg, channel);
       prepared.add(msg);
     }
@@ -369,7 +363,9 @@ class ChatHistoryController {
       for (final msg in items) {
         if (msg.highlight != null) continue;
         _policy.applyPingHighlight(msg, mentionOnly: true);
-        if (msg.highlight?.hasMention ?? false) hits.add(msg);
+        if ((msg.highlight?.hasMention ?? false) && !chat.filter.hides(msg)) {
+          hits.add(msg);
+        }
       }
     }
     if (hits.isNotEmpty) {

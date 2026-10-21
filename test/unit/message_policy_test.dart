@@ -52,53 +52,39 @@ void main() {
     });
   });
 
-  group('ignore filtering', () {
-    test('drops ignored senders but not system messages', () {
-      ignores.upsertUser(const IgnoreEntry(id: 'u1', pattern: 'baduser'));
-      expect(policy.shouldDropForIgnore(msg('hi', login: 'BadUser')), isTrue);
-      expect(policy.shouldDropForIgnore(msg('hi', login: 'gooduser')), isFalse);
-      expect(
-        policy.shouldDropForIgnore(msg('hi', login: 'baduser', isSystem: true)),
-        isFalse,
-      );
-    });
-
-    test('drops block-mode keyword matches', () {
-      ignores.upsertKeyword(
-        const IgnoreEntry(id: 'k1', pattern: 'banme', block: true),
-      );
-      expect(
-        policy.shouldDropForBlockedPhrase(msg('please banme now')),
-        isTrue,
-      );
-      expect(policy.shouldDropForBlockedPhrase(msg('nothing here')), isFalse);
-    });
-  });
-
-  group('blocked users', () {
-    test('drops blocked senders but not system messages', () {
-      final blocked = ChatMessagePolicy(
-        ignoreManager: ignores,
-        pingManager: pings,
-        userStore: users,
-        session: session,
-        isBlocked: (login) => login == 'blockeduser',
-      );
-      expect(
-        blocked.shouldDropForBlockedUser(msg('hi', login: 'blockeduser')),
-        isTrue,
-      );
-      expect(
-        blocked.shouldDropForBlockedUser(msg('hi', login: 'gooduser')),
-        isFalse,
-      );
-      expect(
-        blocked.shouldDropForBlockedUser(
-          msg('hi', login: 'blockeduser', isSystem: true),
-        ),
-        isFalse,
-      );
-    });
+  test('the hide rule covers blocks, ignores, phrases, shared hide, ready', () {
+    ignores.upsertUser(const IgnoreEntry(id: 'u1', pattern: 'baduser'));
+    ignores.upsertKeyword(
+      const IgnoreEntry(id: 'k1', pattern: 'banme', block: true),
+    );
+    var ready = true;
+    var mode = 'spotlight';
+    final hides = ChatHideRule(
+      isReady: () => ready,
+      isBlocked: (login) => login == 'blockeduser',
+      ignoreManager: ignores,
+      sharedChatMode: () => mode,
+    );
+    final foreign = TwitchMessage(
+      login: 'guest',
+      text: 'hi',
+      sourceBroadcasterId: '42',
+    );
+    expect(hides(msg('hi', login: 'BadUser')), isTrue, reason: 'ignored');
+    expect(hides(msg('hi', login: 'blockeduser')), isTrue, reason: 'blocked');
+    expect(hides(msg('please banme now')), isTrue, reason: 'block phrase');
+    expect(hides(msg('nothing here')), isFalse);
+    expect(hides(foreign), isFalse);
+    mode = 'hide';
+    expect(hides(foreign), isTrue, reason: 'foreign row in hide mode');
+    foreign.highlight = const HighlightState(types: {HighlightType.username});
+    expect(hides(foreign), isFalse, reason: 'pings survive hide mode');
+    ready = false;
+    expect(hides(msg('early')), isTrue, reason: 'live rows wait for ready');
+    expect(
+      hides(TwitchMessage(login: 'x', text: 'old', isHistory: true)),
+      isFalse,
+    );
   });
 
   group('keyword rewrite', () {

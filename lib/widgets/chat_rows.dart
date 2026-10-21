@@ -41,6 +41,7 @@ class ChatRows {
     this.sharedChatMode = 'spotlight',
     this.paintService,
     this.linkWhitelist,
+    this.hides,
   });
 
   final String channel;
@@ -80,6 +81,9 @@ class ChatRows {
   /// Link whitelist for system-message parser. Null = use messageBuilder's.
   final LinkWhitelist? linkWhitelist;
 
+  /// Rows the chat filter hides draw as nothing.
+  final bool Function(TwitchMessage msg)? hides;
+
   /// The row for [msg] at text [scale] over [surface], in a repaint
   /// boundary.
   Widget tile(
@@ -90,6 +94,7 @@ class ChatRows {
     required Color surface,
     bool? fadeDeleted,
   }) {
+    if (hides?.call(msg) ?? false) return const SizedBox.shrink();
     // Lists cache the returned tile, so no closure here may capture
     // [context]: it would pin the page that built it after disposal.
     // Use the row's own channel for badge/emote resolution.

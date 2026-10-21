@@ -184,46 +184,42 @@ void main() {
       expect(chat.mentions.version.value, greaterThan(before));
     });
 
-    test('removeBlocked sweeps channels and the mentions mirror', () {
+    test('filtered rows are kept but never counted', () {
       final chat = Chat();
       addTearDown(chat.dispose);
-      final msg = _live('m1', login: 'spammer', highlight: _mention);
+      var blocked = <String>{'spammer'};
+      chat.filter.rule = (m) => blocked.contains(m.login);
       chat.ensure('test');
-      // History mentions never counted, so they can't hold the count up.
-      chat.receive(
+      void receive(TwitchMessage m) => chat.receive(
         'test',
-        TwitchMessage(
-          login: 'bob',
-          text: 'hi',
-          messageId: 'h1',
-          channel: 'test',
-          highlight: _mention,
-          isHistory: true,
-        ),
+        m,
         maxMessages: 100,
         isSelected: false,
         ownLogin: null,
       );
-      chat.receive(
-        'test',
-        msg,
-        maxMessages: 100,
-        isSelected: false,
-        ownLogin: null,
-      );
-      expect(chat.channelFor('test')!.messages.items, hasLength(2));
-      expect(chat.unreadMentions, 1);
-
-      final touched = chat.removeBlocked({'spammer'});
-
-      expect(touched, {'test'});
-      expect(chat.unreadMentions, 0, reason: 'blocked mention still counted');
-      expect(chat.channelFor('test')!.unread.hasMention, isFalse);
+      receive(_live('m1', login: 'spammer', highlight: _mention));
       expect(chat.channelFor('test')!.messages.items, hasLength(1));
+      expect(chat.unreadMentions, 0, reason: 'a hidden mention counted');
+      expect(chat.mentions.items, isEmpty);
+
+      blocked = {};
+      chat.filter.invalidate();
+      receive(_live('m2', login: 'bob', highlight: _mention));
+      expect(chat.unreadMentions, 1);
       expect(
-        chat.mentions.items.map((m) => m.login),
-        isNot(contains('spammer')),
+        chat.filter.hides(chat.channelFor('test')!.messages.items.last),
+        isFalse,
+        reason: 'a rule change shows the kept row again',
       );
+
+      blocked = {'bob', 'spammer'};
+      chat.filter.invalidate();
+      expect(
+        chat.unreadMentions,
+        0,
+        reason: 'hiding a mention drops its count',
+      );
+      expect(chat.channelFor('test')!.unread.hasMention, isFalse);
     });
 
     test('live message for a removed channel does not recreate it', () {

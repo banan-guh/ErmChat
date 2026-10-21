@@ -587,6 +587,7 @@ class ThreadPanels {
           children: [
             ChatView(
               key: const ValueKey('thread_panel'),
+              hides: chat.filter.hides,
               channel: panelManager.threadChannel ?? '',
               messages: panelManager.threadMessages,
               atBottomNotifier: threadAtBottom,

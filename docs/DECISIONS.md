@@ -247,8 +247,9 @@ listeners move when their area is touched.
 - The chat kernel root owns ingest: `Chat.receive` and `Chat.receiveHistory` run the
   channel verb and then perform the root-owned writes (the `@mentions` mirror and the
   unread/mention totals), so live and history share one mention predicate and no
-  pipeline caller writes a root child. `Chat.removeBlocked` sweeps channels and the
-  mirror together.
+  pipeline caller writes a root child. Blocked, ignored and block-phrase rows are
+  kept and archived; `Chat.filter` hides them from lists and counts, so a rule
+  change shows them again.
 - `ModerationHub` is the single ingest owner for moderation facts: IRC echoes and the
   EventSub `channel.moderate` stream both route through it, so the precedence rule
   (EventSub when its subscription is live, IRC otherwise), the analytics report, the

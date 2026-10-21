@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import '../models/twitch_message.dart';
 import 'channel/channel.dart';
 import 'channel/messages.dart' show MergeOutcome, SystemLine;
+import 'chat_filter.dart';
 import 'mentions.dart';
 
 /// Cross-channel chat root: registry and aggregate totals. Per-channel laws
@@ -14,7 +15,9 @@ class Chat {
     DateTime Function()? now,
     this.systemText,
   }) : _now = now ?? DateTime.now,
-       mentions = Mentions(channel: mentionsChannel, now: now);
+       mentions = Mentions(channel: mentionsChannel, now: now) {
+    filter.changed.add(_recountAll);
+  }
 
   final DateTime Function() _now;
 
@@ -25,6 +28,9 @@ class Chat {
   final List<String> _order = [];
 
   final Mentions mentions;
+
+  /// Rows every channel hides; they are kept, never counted.
+  final filter = ChatFilter();
 
   int _unreadMentions = 0;
 
@@ -91,6 +97,7 @@ class Chat {
       maxMessages: maxMessages,
       isSelected: isSelected,
       ownLogin: ownLogin,
+      hidden: filter.hides(msg),
     );
     if (!result.inserted) return result;
     if (result.mentioned) {
@@ -136,29 +143,15 @@ class Chat {
     mentions.add(rows, maxMessages: maxMessages);
   }
 
-  /// Drops every non-system row from a blocked login across all channels and
-  /// the mentions mirror. Returns the channel names that changed so callers can
-  /// invalidate their tile caches.
-  Set<String> removeBlocked(Set<String> blockedLogins) {
-    final touched = <String>{};
-    for (final entry in _channels.entries) {
-      final removed = entry.value.removeMessages(
-        (m) => !m.isSystem && blockedLogins.contains(m.login.toLowerCase()),
-      );
-      if (removed.isEmpty) continue;
-      touched.add(entry.key);
-      if (removed.any((m) => m.highlight?.hasMention ?? false)) {
-        _recountUnread(entry.value);
-      }
+  void _recountAll() {
+    for (final c in _channels.values) {
+      _recountUnread(c);
     }
-    mentions.removeWhere(
-      (m) => !m.isSystem && blockedLogins.contains(m.login.toLowerCase()),
-    );
-    return touched;
   }
 
-  /// Recomputes a channel's unread mention count from the rows it still holds
-  /// after a purge. Dots survive only while a countable mention row remains.
+  /// Recomputes a channel's unread mention count from the rows it still
+  /// shows after a rule change. Dots survive only while a countable mention
+  /// row remains.
   void _recountUnread(Channel c) {
     final unread = c.unread;
     final before = unread.mentionCount;
@@ -166,7 +159,10 @@ class Chat {
     final remaining = c.messages.items
         .where(
           (m) =>
-              !m.isSystem && !m.isHistory && (m.highlight?.hasMention ?? false),
+              !m.isSystem &&
+              !m.isHistory &&
+              (m.highlight?.hasMention ?? false) &&
+              !filter.hides(m),
         )
         .length;
     final dropped = unread.dropMentions(remaining);
@@ -175,8 +171,8 @@ class Chat {
     unreadVersion.value++;
   }
 
-  static bool _isMentionRow(TwitchMessage m, String? ownLogin) {
-    if (!(m.highlight?.hasMention ?? false)) return false;
+  bool _isMentionRow(TwitchMessage m, String? ownLogin) {
+    if (!(m.highlight?.hasMention ?? false) || filter.hides(m)) return false;
     return ownLogin == null || m.login.toLowerCase() != ownLogin.toLowerCase();
   }
 
@@ -282,6 +278,7 @@ class Chat {
     _channels.clear();
     _order.clear();
     mentions.dispose();
+    filter.changed.clear();
     mentionsBump.dispose();
     unreadVersion.dispose();
     loadFailedChannels.dispose();

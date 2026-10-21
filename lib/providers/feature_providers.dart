@@ -128,8 +128,6 @@ final chatHistoryControllerProvider = Provider<ChatHistoryController>((ref) {
     badgeService: ref.read(badgeServiceProvider),
     maxMessages: () => ref.read(maxMessagesPerChannelProvider),
     recentMessagesLimit: () => Settings.historyFetchLimit,
-    isBlocked: (login) =>
-        ref.read(blockedLoginsProvider).contains(login.toLowerCase()),
     emoteReloading: ref.read(emoteSignalsProvider).busy,
     archive: ref.read(archiveProvider),
     liveSince: (channel) async {
@@ -160,12 +158,6 @@ final commandHandlerProvider = Provider<CommandHandler>((ref) {
   final session = ref.read(sessionProvider);
   final signals = ref.read(chatUiSignalsProvider);
 
-  // Blocked rows bypass truncation, so the root verb decays them and also
-  // clears their mirrored @mentions rows.
-  void sweepBlockedMessages() {
-    chat.removeBlocked(ref.read(blockedLoginsProvider));
-  }
-
   return CommandHandler(
     twitchApi: ref.read(twitchApiProvider),
     irc: ref.read(ircServiceProvider),
@@ -184,10 +176,8 @@ final commandHandlerProvider = Provider<CommandHandler>((ref) {
         signals.whisperSystem.emit((channel: channel, text: text)),
     onWhisperSent: (target, message) =>
         signals.whisperSent.emit((target: target, message: message)),
-    onUserBlocked: (login) {
-      ref.read(blockedLoginsProvider.notifier).add(login.toLowerCase());
-      sweepBlockedMessages();
-    },
+    onUserBlocked: (login) =>
+        ref.read(blockedLoginsProvider.notifier).add(login.toLowerCase()),
     onUserUnblocked: (login) =>
         ref.read(blockedLoginsProvider.notifier).remove(login.toLowerCase()),
   );

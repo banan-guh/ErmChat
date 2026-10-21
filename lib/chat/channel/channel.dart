@@ -65,6 +65,7 @@ class Channel {
     required int maxMessages,
     required bool isSelected,
     required String? ownLogin,
+    bool hidden = false,
   }) {
     final change = messages.add(
       msg,
@@ -83,7 +84,8 @@ class Channel {
     final own =
         ownLogin != null && msg.login.toLowerCase() == ownLogin.toLowerCase();
     final mention = msg.highlight?.hasMention ?? false;
-    if (own) {
+    // Own and hidden rows count for nothing.
+    if (own || hidden) {
       return const ReceiveResult(
         inserted: true,
         mentioned: false,

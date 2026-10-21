@@ -284,6 +284,7 @@ class MentionsPanels {
       liveVersion: chat.mentions.version,
       emotesVersion: emotesVersion,
       rows: ChatRows(
+        hides: chat.filter.hides,
         channel: mentionsChannel,
         messageBuilder: messageBuilder,
         linkWhitelist: LinkWhitelist.instance,
@@ -346,6 +347,7 @@ class MentionsPanels {
             _archivedMentions(context) ??
                 ChatView(
                   key: const ValueKey('mentions_panel'),
+                  hides: chat.filter.hides,
                   channel: mentionsChannel,
                   messages: chat.mentions.items,
                   atBottomNotifier: mentionsAtBottom,

@@ -85,6 +85,9 @@ class ChatView extends StatefulWidget {
   /// Null = no dimming; true fades the row (search dim mode).
   final bool Function(TwitchMessage)? isDimmed;
 
+  /// Rows the chat filter hides draw as nothing.
+  final bool Function(TwitchMessage)? hides;
+
   /// Glass overlay clearance above the oldest row, below the floating header.
   final double topOverlayPadding;
 
@@ -122,6 +125,7 @@ class ChatView extends StatefulWidget {
     this.keyboardDismissBehavior = ScrollViewKeyboardDismissBehavior.manual,
     this.linkWhitelist,
     this.isDimmed,
+    this.hides,
     this.topOverlayPadding = 0,
   });
 
@@ -848,6 +852,7 @@ class _ChatViewState extends State<ChatView>
       sharedChatMode: widget.sharedChatMode,
       paintService: widget.paintService,
       linkWhitelist: widget.linkWhitelist,
+      hides: widget.hides,
     ).tile(context, msg, alternate: parity, scale: s, surface: surface);
 
     // Key by messageId for rematch on index shifts; cached tiles short-circuit.

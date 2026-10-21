@@ -3,6 +3,7 @@ import 'dart:ui' show Color;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../services/chat_connection_manager.dart';
+import '../services/message_policy.dart';
 import '../services/seven_tv_presence.dart';
 import '../util/friendly_error.dart';
 import '../util/log.dart';
@@ -46,6 +47,24 @@ final chatPipelineProvider = Provider<ChatConnectionManager>((ref) {
       archive?.writer.add(channel, target!.messages.items.first);
     }
   }
+
+  final ignores = ref.read(ignoreManagerProvider);
+  chat.filter.rule = ChatHideRule(
+    isReady: () => ref.read(chatReadyProvider),
+    isBlocked: (login) =>
+        ref.read(blockedLoginsProvider).contains(login.toLowerCase()),
+    ignoreManager: ignores,
+    sharedChatMode: () => Settings.sharedChatMode.value,
+  ).call;
+  final refilter = chat.filter.invalidate;
+  ref.listen(chatReadyProvider, (_, _) => refilter());
+  ref.listen(blockedLoginsProvider, (_, _) => refilter());
+  ignores.addListener(refilter);
+  Settings.sharedChatMode.addListener(refilter);
+  ref.onDispose(() {
+    ignores.removeListener(refilter);
+    Settings.sharedChatMode.removeListener(refilter);
+  });
 
   final manager = ChatConnectionManager(
     ChatConnectionConfig(
@@ -110,10 +129,8 @@ final chatPipelineProvider = Provider<ChatConnectionManager>((ref) {
             ref.read(mentionNotifierProvider).handle(channel, msg),
         onWhisper: signals.whisper.emit,
         getMacros: () => ref.read(macrosProvider),
-        isChatReady: () => ref.read(chatReadyProvider),
         isBlocked: (login) =>
             ref.read(blockedLoginsProvider).contains(login.toLowerCase()),
-        getSharedChatMode: () => Settings.sharedChatMode.value,
         onAnalyticsMessage: (channel, msg) =>
             ref.read(analyticsServiceProvider).recordMessage(channel, msg),
         onArchiveMessage: archive == null

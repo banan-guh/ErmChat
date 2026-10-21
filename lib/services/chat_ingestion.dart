@@ -54,9 +54,7 @@ class ChatIngestion {
     required this.mentionsChannel,
     required this.getMaxMessagesPerChannel,
     required this.getSelectedChannel,
-    this.isChatReady,
     this.isBlocked,
-    this.getSharedChatMode,
     required this.isModerationActive,
     required this.isJoinFailureNotified,
     this.pubSubPoints,
@@ -93,15 +91,12 @@ class ChatIngestion {
     pingManager: pingManager,
     userStore: userStore,
     session: session,
-    isBlocked: isBlocked,
   );
 
   final String mentionsChannel;
   final int Function() getMaxMessagesPerChannel;
   final String? Function() getSelectedChannel;
-  final bool Function()? isChatReady;
   final bool Function(String login)? isBlocked;
-  final String Function()? getSharedChatMode;
 
   /// Whether the EventSub channel.moderate subscription is active for a
   /// channel; when true, IRC moderation echoes are suppressed in favor of
@@ -249,42 +244,24 @@ class ChatIngestion {
 
   // ---- PRIVMSG ------------------------------------------------------------
 
-  /// Translates one live chat message under the pipeline policies (blocks,
-  /// ignores, pings, shared-chat mode) and hands it to the channel.
+  /// Translates one live chat message under the pipeline policies (keyword
+  /// rules, pings) and hands it to the channel. Rows the chat filter hides
+  /// are kept and archived but cause nothing else.
   void onMessage(TwitchMessage msg) {
     if (_disposed) return;
-
-    // Chat content is hidden until the blocked-users list has been applied,
-    // and blocked users' messages never appear at all.
-    if (isChatReady?.call() == false) return;
-    if (_policy.shouldDropForBlockedUser(msg)) return;
 
     final channel = msg.channel;
     if (channel == null) return;
 
-    // Local ignores: ignored users' messages are dropped outright; keyword
-    // rules in block mode drop the whole message, other keyword rules
-    // rewrite the text (with emote position realignment) before ping
-    // evaluation so rewritten messages can still highlight.
-    if (_policy.shouldDropForIgnore(msg)) return;
-    if (_policy.shouldDropForBlockedPhrase(msg)) return;
+    // Keyword rules rewrite the text (with emote position realignment)
+    // before ping evaluation so rewritten messages can still highlight.
+    // Pings run before the filter reads the row, so a mirrored mention
+    // survives shared-chat hide mode.
     _policy.rewriteKeywords(msg);
-
-    // Ping evaluation runs before the shared-chat 'hide' check so a fresh
-    // mirrored mention survives hide mode (the native copy dedups later).
     _policy.applyPingHighlight(msg);
+    final hidden = chat.filter.hides(msg);
 
-    // Shared-chat 'hide' mode: drop foreign messages entirely. Mentions and
-    // system messages still flow through so the user doesn't miss pings.
-    final sharedMode = getSharedChatMode?.call() ?? 'spotlight';
-    if (sharedMode == 'hide' &&
-        !msg.isSystem &&
-        !msg.isHighlighted &&
-        msg.sourceBroadcasterId != null) {
-      return;
-    }
-
-    if (!msg.isSystem && msg.login.isNotEmpty) {
+    if (!hidden && !msg.isSystem && msg.login.isNotEmpty) {
       _policy.learnUser(channel, msg);
     }
 
@@ -300,7 +277,7 @@ class ChatIngestion {
           'gigantified-emote-message' || 'animated-message' => msg.msgId,
           _ => null,
         };
-    if (rewardId != null && rewardId.isNotEmpty && !msg.isSystem) {
+    if (!hidden && rewardId != null && rewardId.isNotEmpty && !msg.isSystem) {
       final partner = pubSubPoints?.takeStaged(channel, rewardId);
       if (partner != null) {
         pubSubPoints?.insertCompanionHeader(channel, partner);
@@ -320,8 +297,9 @@ class ChatIngestion {
     if (!result.inserted) return;
     if (PerfProbe.enabled) PerfProbe.messages++;
 
-    onAnalyticsMessage?.call(channel, msg);
     onArchiveMessage?.call(channel, msg);
+    if (hidden) return;
+    onAnalyticsMessage?.call(channel, msg);
 
     if (msg.sourceBroadcasterId != null && !msg.isHistory) {
       unawaited(_ensureSourceChannelData(msg.sourceBroadcasterId!));

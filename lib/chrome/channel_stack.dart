@@ -279,6 +279,7 @@ class ChannelPanels {
             messages: search.visibleMessages(channel),
             tileCache: tileCache,
             isDimmed: search.dimPredicate(channel),
+            hides: chat.filter.hides,
             emptyText:
                 search.emptyText(channel, context.l10n) ??
                 context.l10n.noMessagesYet,
@@ -446,6 +447,7 @@ class ChannelPanels {
     onFindThreadRoot: threads.findThreadRoot,
     onShowThreadView: (msg) => threads.showThreadView(msg),
     onTapMessage: onTapMessage,
+    hides: chat.filter.hides,
   );
 
   /// [channel]'s search as a history list of matches over the whole archive,
