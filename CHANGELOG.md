@@ -1,7 +1,3 @@
-- Chat archive: 30 days of lookback per channel, calendar for navigation
-- VODs with chat replay
-- Layout editor with presets: ermchat, dankchat 3 and dankchat 4
-- New "user:" search keyword
-- Export and import settings
-- Paste images from the keyboard to upload
-- BIG ui/ux changes. expect bugs
+- Faster search, no more flashing or jumping while typing
+- Cleaner History, Tools and spam speed settings, plus a manual update check
+- Fixed search not opening the keyboard from the menu
