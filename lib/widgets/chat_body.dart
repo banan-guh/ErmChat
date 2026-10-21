@@ -8,6 +8,7 @@ import '../util/insets.dart';
 import '../util/prefs.dart';
 import 'glass_chrome.dart';
 import 'design_tokens.dart';
+import 'message_input.dart' show MessageInput;
 
 /// Builds the chat content above the composer. [maxHeight] and [keyboardH]
 /// feed keyboard decisions only: while the keyboard is up they describe the
@@ -957,8 +958,12 @@ class _ChatBodyState extends State<ChatBody>
                   // Pages add their own channel's footer through
                   // [GlassChromeScope.footerFor], so a switch moves only
                   // the island.
+                  // The classic field's label room is already empty space
+                  // above its outline, so it counts toward the list's gap.
                   bottomClearance: clearance > 0.5
-                      ? clearance - _footerH
+                      ? clearance -
+                            _footerH -
+                            (classic ? MessageInput.labelRoom : 0)
                       : clearance,
                   footerFor: widget.islandFooterHeightFor,
                   footerHeight: _footerH,

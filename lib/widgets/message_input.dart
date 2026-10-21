@@ -91,7 +91,7 @@ class MessageInput extends StatelessWidget {
 
   /// Room above the outlined field for its label, which floats half out of
   /// the outline when focused.
-  static const double _labelRoom = 10;
+  static const double labelRoom = 10;
 
   @override
   Widget build(BuildContext context) {
@@ -193,7 +193,7 @@ class MessageInput extends StatelessWidget {
           // the text reads high in the pill.
           padding: borderless
               ? EdgeInsets.fromLTRB(8, gap, 8, gap)
-              : EdgeInsets.fromLTRB(8, _labelRoom, 8, gap * 2),
+              : EdgeInsets.fromLTRB(8, labelRoom, 8, gap * 2),
           child: Stack(
             children: [
               TextField(
