@@ -3,7 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart'
-    show BoxParentData, OffsetLayer, TransformLayer;
+    show BoxParentData, ContainerLayer, Layer, OffsetLayer, TransformLayer;
 import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 
 import '../util/insets.dart';
@@ -518,6 +518,29 @@ void watchPaintTransforms() {
     if (binding.lifecycleState != AppLifecycleState.resumed) return;
     final root = binding.rootElement?.renderObject;
     if (root == null) return;
+    // The layer tree is what the engine rejects, and a tenth the size of the
+    // render tree. The render walk below only runs to name a bad layer's spot.
+    bool layersFinite(Layer? first) {
+      for (var layer = first; layer != null; layer = layer.nextSibling) {
+        final ok = switch (layer) {
+          TransformLayer(:final transform?) => finite(transform),
+          OffsetLayer(:final offset) =>
+            offset.dx.isFinite && offset.dy.isFinite,
+          _ => true,
+        };
+        if (!ok) return false;
+        if (layer is ContainerLayer && !layersFinite(layer.firstChild)) {
+          return false;
+        }
+      }
+      return true;
+    }
+
+    // ignore: invalid_use_of_protected_member
+    if (layersFinite(root.layer)) {
+      probed = false;
+      return;
+    }
     var bad = false;
     void report(String line) {
       bad = true;
