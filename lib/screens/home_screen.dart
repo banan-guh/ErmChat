@@ -1918,11 +1918,18 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
         layout.stripActions.contains(inputMenu) ||
         (layout.header == HeaderStyle.appBar &&
             layout.appBarActions.contains(inputMenu));
+    // With the menu in the row, hiding the input leaves the menu alone,
+    // floating at the corner.
+    final menuFloats =
+        !_showInput &&
+        _layoutEdit == null &&
+        layout.rowActions.contains(inputMenu);
     final hasBottomBar =
         (_chat.names.isNotEmpty || _channelManager.session.channelsPending) &&
         (_showInput ||
-            layout.rowActions.contains(inputMenu) ||
-            !(_isFullscreen || menuOnTop));
+            (!menuFloats &&
+                (layout.rowActions.contains(inputMenu) ||
+                    !(_isFullscreen || menuOnTop))));
     // A compact theme hides the row under the keyboard, leaving the field
     // row. A theme with no row actions drops the row.
     final edit = _layoutEdit;
@@ -2164,6 +2171,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                 ? partSlot(ComposerPart.send, PartPlace.column)
                 : sendOutside && spec.send == SendPlace.column
                 ? sendButton
+                : null,
+            loneAction: menuFloats && _chat.names.isNotEmpty
+                ? _chrome.action(
+                    context,
+                    inputMenu,
+                    glass: glass,
+                    onCalendar: _channels.openCalendar,
+                  )
                 : null,
             islandFlush: spec.islandFlush,
             classic: spec.composer == ComposerStyle.classic,

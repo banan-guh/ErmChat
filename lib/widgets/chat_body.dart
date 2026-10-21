@@ -79,6 +79,7 @@ class ChatBody extends StatefulWidget {
     this.composer,
     this.bottomBar,
     this.sideAction,
+    this.loneAction,
     this.islandFooter,
     this.islandFooterHeightFor,
     this.notice,
@@ -105,6 +106,10 @@ class ChatBody extends StatefulWidget {
   /// A tall action down the island's right edge, beside the field and the
   /// row (send, while the row stays up as you type). Fills its column.
   final Widget? sideAction;
+
+  /// The one action left when there is no island (the view menu, with the
+  /// input hidden and the menu placed in the row). Floats at the corner.
+  final Widget? loneAction;
 
   /// A line at the island's foot across its full width, under the row and
   /// the side action (the channel status). Hides with the row.
@@ -967,6 +972,20 @@ class _ChatBodyState extends State<ChatBody>
             bottom: hidden ? hiddenBottom + clipRow : islandBottom,
             child: ringed(island),
           );
+    final lone = widget.loneAction == null || showIsland || pane
+        ? null
+        : Positioned(
+            right: 8,
+            bottom: 8,
+            height: 40,
+            child: DecoratedBox(
+              decoration: ShapeDecoration(
+                color: Theme.of(context).colorScheme.surfaceContainerHigh,
+                shape: const StadiumBorder(),
+              ),
+              child: Center(child: widget.loneAction),
+            ),
+          );
     // Nothing to show: keep the safe area so the chat never runs under the
     // nav bar.
     final emptyPad = (widget.isInPip || pane || showIsland)
@@ -1059,6 +1078,7 @@ class _ChatBodyState extends State<ChatBody>
                               autocomplete,
                               ?notice,
                               ?floatingIsland,
+                              ?lone,
                             ],
                           );
                         },
