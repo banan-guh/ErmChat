@@ -44,7 +44,7 @@ List<String> _art(String minor, List<String> names) => [
 final _showcases = <String, List<ShowcasePage>>{
   '0.10': [
     ShowcasePage(
-      title: 'A month of chat',
+      title: 'Endless chat archive',
       body:
           'Every channel keeps 30 days of chat on your phone. Scroll back as '
           'far as you like, or open the calendar to jump to any day and keep '
@@ -54,17 +54,13 @@ final _showcases = <String, List<ShowcasePage>>{
     ),
     ShowcasePage(
       title: 'VODs with chat',
-      body:
-          'Watch a past stream with its chat replaying as it happened, and '
-          'switch back to live chat any time.',
+      body: 'Watch a past stream with live chat playback (if recorded).',
       art: _art('0.10', ['vods.webp']),
       aspect: 1080 / 700,
     ),
     ShowcasePage(
       title: 'Your layout',
-      body:
-          'Pick a chrome theme, move any button where you want it, or build '
-          'your own. Edit the layout in place from the ⋮ menu.',
+      body: 'Pick a theme, or build your own.',
       art: _art('0.10', [
         'layout_ermchat.webp',
         'layout_dankchat3.webp',
@@ -72,14 +68,8 @@ final _showcases = <String, List<ShowcasePage>>{
       ]),
     ),
     ShowcasePage(
-      title: 'Spam send',
-      body:
-          'Hold send, then hold the spam button to repeat your message. Turn '
-          'it on in Chat settings.',
-    ),
-    ShowcasePage(
-      title: 'Mentions while closed',
-      body: 'Get notified when someone mentions you, even with the app closed.',
+      title: 'Finally, push notifications on iOS!',
+      body: 'The wait is over!',
       iosOnly: true,
     ),
     ShowcasePage(
@@ -88,19 +78,14 @@ final _showcases = <String, List<ShowcasePage>>{
       items: [
         (
           Icons.manage_search,
-          "Search reaches a channel's whole history. user:name finds "
-              "someone's messages and mod actions",
+          'New user: keyword! Find messages from a user across the entire '
+              'archive.',
         ),
-        (Icons.drag_indicator, 'Drag highlight rules to set their priority'),
-        (Icons.bedtime_outlined, 'Pause notifications from the moon button'),
         (Icons.import_export, 'Export and import your settings'),
         (Icons.image_outlined, 'Paste images from the keyboard to upload'),
-        (Icons.emoji_emotions_outlined, 'Personal 7TV emotes and BTTV badges'),
         (Icons.delete_outline, 'Mods delete messages from the message menu'),
-        (Icons.text_fields, 'A characters-left counter near the limit'),
-        (Icons.format_bold, 'Chat font weight'),
-        (Icons.vibration, 'A haptics toggle'),
-        (Icons.restore, 'Reopen the last channel on launch'),
+        (Icons.repeat, 'Spam send: hold send, then hold the spam button'),
+        (Icons.restore, 'Reopen last active channel'),
       ],
     ),
   ],
