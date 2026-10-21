@@ -4,7 +4,7 @@ import UserNotifications
 
 @main
 @objc class AppDelegate: FlutterAppDelegate {
-  // Mention push through the chat proxy (lib/services/apns_push.dart).
+  // Mention push through ermchat-notify (lib/services/apns_push.dart).
   private var apnsChannel: FlutterMethodChannel?
   private var tokenResults: [FlutterResult] = []
   private var launchChannel: String?

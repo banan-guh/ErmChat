@@ -65,16 +65,6 @@ abstract class IrcConnection {
   /// rejects anonymous nicks, so anonymous connects stay direct.
   bool _viaProxy = false;
 
-  /// Lines the proxy gets after the login on every connect, since it
-  /// forgets everything on restart. Direct connects skip them.
-  List<String> Function()? proxyHello;
-
-  /// Sends [line] when the live socket goes through the proxy; drops it
-  /// otherwise, as Twitch would reject it.
-  void sendToProxy(String line) {
-    if (_viaProxy && isConnected) sendLine(line);
-  }
-
   /// Shared JOIN pacing. When the app wires both sockets to one limiter,
   /// their combined JOIN rate stays inside Twitch's command budget; a null
   /// injection falls back to a private bucket with identical semantics.
@@ -311,7 +301,6 @@ abstract class IrcConnection {
         sendLine('CAP REQ :twitch.tv/tags twitch.tv/commands');
         sendLine('PASS oauth:$token');
         sendLine('NICK $username');
-        if (_viaProxy) proxyHello?.call().forEach(sendLine);
         JankLog.note('$debugPrefix connected');
         // Route the re-JOINs through the limiter: a burst of JOINs right
         // after connect is exactly what Twitch drops. The ROOMSTATE sweep

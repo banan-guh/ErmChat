@@ -58,6 +58,9 @@ class PingManager extends ChangeNotifier {
   bool get loaded => _loaded;
   List<PingRule> get rules => List.unmodifiable(_rules);
 
+  /// The account's display name, learned from its own messages.
+  String? get displayName => _displayName;
+
   void upsertRule(PingRule rule) {
     final i = _rules.indexWhere((r) => r.id == rule.id);
     if (i >= 0) {

@@ -880,8 +880,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     }
   }
 
-  /// iOS push through the proxy: taps open the channel, and the proxy
-  /// learns whether to push. No-ops elsewhere.
+  /// iOS push through the push server: taps open the channel, and the
+  /// server learns whether to push. No-ops elsewhere.
   void _initApnsPush(bool push) {
     final apns = ref.read(apnsPushProvider);
     if (!apns.active) return;

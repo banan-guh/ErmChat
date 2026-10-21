@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/twitch_message.dart';
+import '../push_config.dart';
 import '../report_config.dart';
 import '../services/bug_report_outbox.dart';
 import '../services/analytics_service.dart';
@@ -21,6 +22,7 @@ import '../util/prefs.dart';
 import '../widgets/broadcast_widgets.dart';
 import '../widgets/chat_notice_bar.dart';
 import 'app_providers.dart';
+import 'channel_providers.dart';
 import 'chat_signals.dart';
 import 'emote_providers.dart';
 import 'ui_state_providers.dart';
@@ -54,13 +56,49 @@ final appUpdatesProvider = Provider<AppUpdates>((ref) {
 });
 
 final apnsPushProvider = Provider<ApnsPush>((ref) {
+  final pings = ref.read(pingManagerProvider);
+  final ignores = ref.read(ignoreManagerProvider);
+  final session = ref.read(channelSessionProvider);
   final push = ApnsPush(
-    ircRead: ref.read(ircReadServiceProvider),
     active:
         defaultTargetPlatform == TargetPlatform.iOS &&
         !kIsWeb &&
-        ref.read(proxyConfigProvider).readWsUrl != null,
+        PushConfig.endpoint.isNotEmpty,
+    endpoint: PushConfig.endpoint,
+    registration: () async {
+      final token = ref.read(twitchAuthProvider).accessToken;
+      if (token == null) return null;
+      return (
+        token: token,
+        rules: ApnsPush.rules(
+          pingRules: pings.rules,
+          channels: session.channelNames,
+          displayName: pings.displayName,
+          blocked: {
+            ...ref.read(blockedLoginsProvider),
+            for (final u in ignores.users)
+              if (!u.isRegex) u.pattern,
+          },
+          pausedUntil: ref.read(notificationPauseProvider),
+        ),
+      );
+    },
   );
+  if (push.active) {
+    // The server's copy follows the rules, channels and mute; an unchanged
+    // registration is never resent.
+    final refresh = push.refresh;
+    pings.addListener(refresh);
+    ignores.addListener(refresh);
+    session.addListener(refresh);
+    ref.listen(blockedLoginsProvider, (_, _) => refresh());
+    ref.listen(notificationPauseProvider, (_, _) => refresh());
+    ref.onDispose(() {
+      pings.removeListener(refresh);
+      ignores.removeListener(refresh);
+      session.removeListener(refresh);
+    });
+  }
   ref.onDispose(push.dispose);
   return push;
 });

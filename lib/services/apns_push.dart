@@ -1,25 +1,46 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/services.dart';
+import 'package:http/http.dart' as http;
 
-import '../irc/transport/read.dart';
+import '../models/ping_rule.dart';
 import '../util/log.dart';
 
-/// iOS mention push through the chat proxy. iOS ends the socket soon after
-/// the app leaves the screen, so the proxy holds the APNs device token and
-/// pushes mentions itself. The native half is AppDelegate.swift.
+/// What a push registration carries: the Twitch token that proves whose
+/// mentions these are, and the rules ([ApnsPush.rules]). Null when logged
+/// out, which has no mentions to push.
+typedef PushRegistration = ({String token, Map<String, Object?> rules});
+
+/// iOS mention push through ermchat-notify. iOS ends the app's sockets
+/// soon after it leaves the screen, so the server holds the APNs device
+/// token, watches the user's channels and pushes mentions itself. The
+/// native half is AppDelegate.swift.
 class ApnsPush {
-  ApnsPush({required this.ircRead, required this.active}) {
+  ApnsPush({
+    required this.active,
+    required this.endpoint,
+    required this.registration,
+    http.Client? client,
+  }) : _client = client ?? http.Client() {
     if (active) _channel.setMethodCallHandler(_onCall);
   }
 
-  final IrcReadService ircRead;
-
-  /// iOS with the proxy on; everything here no-ops otherwise.
+  /// iOS with a push server; everything here no-ops otherwise.
   final bool active;
+  final String endpoint;
+  final Future<PushRegistration?> Function() registration;
+  final http.Client _client;
+
   static const _channel = MethodChannel('ermchat/apns');
+  static const _settle = Duration(seconds: 2);
   final _taps = StreamController<String>.broadcast();
   String? _token;
+  bool _push = false;
+  Timer? _refresh;
+
+  // The last registration the server took, so an unchanged one is skipped.
+  String? _sent;
 
   /// Channels whose pushed mention the user tapped.
   Stream<String> get onTap => _taps.stream;
@@ -42,19 +63,48 @@ class ApnsPush {
     }
   }
 
-  /// Turns push on (asking for permission) or off on the proxy. Off still
+  /// Turns push on (asking for permission) or off on the server. Off still
   /// fetches the token, so a device registered last session is removed.
   Future<void> sync({required bool push}) async {
+    _push = push;
     if (!active) return;
-    final token = await _deviceToken(prompt: push);
-    if (token == null) return;
-    if (push) {
-      ircRead.proxyHello = () => ['REGISTER apns $token'];
-      ircRead.sendToProxy('REGISTER apns $token');
-    } else {
-      ircRead.proxyHello = null;
-      ircRead.sendToProxy('UNREGISTER apns $token');
+    final device = await _deviceToken(prompt: push);
+    if (device == null) return;
+    if (!push) {
+      _sent = null;
+      await _post('unregister', {'device': device});
+      return;
     }
+    final reg = await registration();
+    if (reg == null || !_push) return;
+    final body = jsonEncode({'device': device, ...reg.rules});
+    if (body == _sent) return;
+    if (await _post('register', body, token: reg.token)) _sent = body;
+  }
+
+  /// Sends the registration again once its inputs settle, when push is on.
+  void refresh() {
+    if (!active || !_push) return;
+    _refresh?.cancel();
+    _refresh = Timer(_settle, () => unawaited(sync(push: true)));
+  }
+
+  Future<bool> _post(String path, Object body, {String? token}) async {
+    try {
+      final response = await _client.post(
+        Uri.parse('$endpoint/$path'),
+        headers: {
+          'content-type': 'application/json',
+          if (token != null) 'authorization': 'Bearer $token',
+        },
+        body: body is String ? body : jsonEncode(body),
+      );
+      if (response.statusCode == 204) return true;
+      logDebug('push $path: ${response.statusCode} ${response.body}');
+    } catch (e) {
+      logDebug('push $path: $e');
+    }
+    return false;
   }
 
   Future<String?> _deviceToken({required bool prompt}) async {
@@ -67,8 +117,58 @@ class ApnsPush {
     return _token;
   }
 
+  /// The server's copy of the highlight rules that notify: the name,
+  /// reply and thread builtins, keyword and user rules, and every sender
+  /// the app hides (blacklist rules, blocked and plainly ignored users;
+  /// regex ignores stay on the phone).
+  static Map<String, Object?> rules({
+    required List<PingRule> pingRules,
+    required Iterable<String> channels,
+    required String? displayName,
+    required Iterable<String> blocked,
+    DateTime? pausedUntil,
+  }) {
+    bool notifies(PingRule r) => r.enabled && r.notify && r.mention;
+    bool builtin(String type) => pingRules.any(
+      (r) => r.kind == PingRuleKind.message && r.type == type && notifies(r),
+    );
+    return {
+      'display': displayName ?? '',
+      'channels': [...channels],
+      'name': builtin('username'),
+      'replies': builtin('reply'),
+      'threads': builtin('thread'),
+      'words': [
+        for (final r in pingRules)
+          if (r.kind == PingRuleKind.message &&
+              r.type == 'custom' &&
+              notifies(r) &&
+              r.pattern.isNotEmpty)
+            {'pattern': r.pattern, 'wholeWord': r.wordBoundary},
+      ],
+      'users': [
+        for (final r in pingRules)
+          if (r.kind == PingRuleKind.user &&
+              notifies(r) &&
+              r.pattern.isNotEmpty)
+            r.pattern.toLowerCase(),
+      ],
+      'blocked': {
+        for (final r in pingRules)
+          if (r.kind == PingRuleKind.blacklist &&
+              r.enabled &&
+              r.pattern.isNotEmpty)
+            r.pattern.toLowerCase(),
+        for (final login in blocked) login.toLowerCase(),
+      }.toList(),
+      'pausedUntil': (pausedUntil?.millisecondsSinceEpoch ?? 0) ~/ 1000,
+    };
+  }
+
   void dispose() {
+    _refresh?.cancel();
     if (active) _channel.setMethodCallHandler(null);
     _taps.close();
+    _client.close();
   }
 }
