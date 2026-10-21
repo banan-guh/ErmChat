@@ -49,6 +49,7 @@ Future<void> _shot(
 void main() {
   setUpAll(_loadFonts);
   setUp(() {
+    WidgetsApp.debugAllowBannerOverride = false;
     HomeScreen.disableJoinSpinner = true;
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockStreamHandler(
@@ -106,10 +107,25 @@ void main() {
       read.triggerJoin(channel);
       await tester.pump(const Duration(milliseconds: 600));
     }
-    for (var i = 0; i < 12; i++) {
+    const lines = [
+      ('Mossbeard', '#E05A9B', 'that was so clean'),
+      ('pixelwren', '#4FB3FF', 'what game is this?'),
+      ('Tallgrass', '#7CD67C', 'no way she hits that first try'),
+      ('quietfox', '#F2A93B', 'LMAO'),
+      ('Embervale', '#B98CFF', 'chat is moving fast today'),
+      ('Mossbeard', '#E05A9B', '@pixelwren it says in the title'),
+      ('nightkite', '#FF6F61', 'gg'),
+      ('Driftwood', '#5FD3C4', 'first time here, the vibes are great'),
+      ('pixelwren', '#4FB3FF', 'oh lol thanks'),
+      ('Tallgrass', '#7CD67C', 'clip that'),
+      ('Saltmarsh', '#FFD166', 'hi chat'),
+      ('quietfox', '#F2A93B', 'the music in this level is so good'),
+    ];
+    for (final (i, (name, color, text)) in lines.indexed) {
+      final login = name.toLowerCase();
       read.handleLine(
-        '@id=m$i;display-name=chatter$i;color=#E05A9B :chatter$i!chatter$i'
-        '@chatter$i.tmi.twitch.tv PRIVMSG #camila :message number $i here',
+        '@id=m$i;display-name=$name;color=$color :$login!$login'
+        '@$login.tmi.twitch.tv PRIVMSG #camila :$text',
       );
     }
     await tester.pump(const Duration(milliseconds: 600));
