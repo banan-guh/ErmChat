@@ -234,7 +234,6 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
             Setting.editLayout,
             child: ListTile(
               title: Text(Setting.editLayout.titleOf(context.l10n)),
-              subtitle: Text(context.l10n.layoutEditSubtitle),
               trailing: const Icon(Icons.chevron_right),
               onTap: () {
                 widget.onEditLayout?.call();

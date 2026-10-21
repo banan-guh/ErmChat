@@ -3300,7 +3300,6 @@
     }
   },
   "settingEditLayout": "Edit layout",
-  "layoutEditSubtitle": "Move the buttons on the real screen",
   "layoutJoinFirst": "Join a channel to edit the layout",
   "layoutDone": "Done",
   "layoutDropToRemove": "Drop to remove",

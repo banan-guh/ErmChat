@@ -78,7 +78,7 @@ final _showcases = <String, List<ShowcasePage>>{
       items: [
         (
           Icons.manage_search,
-          'New user: keyword! Find messages from a user across the entire '
+          'New "user:" keyword! Find messages from a user across the entire '
               'archive.',
         ),
         (Icons.import_export, 'Export and import your settings'),
