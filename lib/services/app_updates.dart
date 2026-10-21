@@ -210,6 +210,20 @@ class AppUpdates {
     return AvailableUpdate(latest);
   }
 
+  /// A check the user asked for: past the daily limit and the toggle.
+  /// Returns the store's newest version, null when the check fails. A newer
+  /// one also sets the banner.
+  Future<String?> checkNow(String current, UpdateSource source) async {
+    final latest = await _latest(source);
+    if (latest == null) return null;
+    final prefs = await Prefs.load();
+    await prefs.setLastUpdateCheck(_now().millisecondsSinceEpoch);
+    if (compareVersions(latest, current) > 0) {
+      await prefs.setAvailableUpdate(latest);
+    }
+    return latest;
+  }
+
   Future<String?> _latest(UpdateSource source) async {
     try {
       final url = switch (source) {

@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import '../../l10n/l10n.dart';
 import '../../services/analytics_service.dart';
+import '../../services/app_updates.dart';
 import '../../services/emote_images.dart';
 import '../../services/tts_controller.dart';
 import '../../util/prefs.dart';
@@ -18,6 +19,7 @@ import 'tts_settings_screen.dart';
 import 'uploader_settings_screen.dart';
 import '../../widgets/app_snack.dart';
 import '../../widgets/dialogs.dart';
+import '../../widgets/whats_new_sheet.dart';
 import '../../util/settings.dart';
 
 /// Features too small for a top-level entry: TTS, uploads, analytics,
@@ -45,6 +47,8 @@ class ToolsSettingsScreen extends StatelessWidget {
   /// Both update toggles in one sheet; each saves as it flips.
   Future<void> _showUpdateOptions(BuildContext context) async {
     final prefs = await Prefs.load();
+    final info = await PackageInfo.fromPlatform();
+    final source = updateSourceFor(info.installerStore, ios: Platform.isIOS);
     if (!context.mounted) return;
     await showModalBottomSheet<void>(
       context: context,
@@ -71,11 +75,49 @@ class ToolsSettingsScreen extends StatelessWidget {
                   if (sheetContext.mounted) setState(() {});
                 },
               ),
+              if (source != null)
+                ListTile(
+                  leading: const Icon(Icons.refresh),
+                  title: Text(sheetContext.l10n.checkUpdatesNow),
+                  onTap: () {
+                    Navigator.pop(sheetContext);
+                    _checkNow(context, info.version, source);
+                  },
+                ),
             ],
           ),
         ),
       ),
     );
+  }
+
+  Future<void> _checkNow(
+    BuildContext context,
+    String current,
+    UpdateSource source,
+  ) async {
+    final l = context.l10n;
+    final updates = AppUpdates();
+    final latest = await updates.checkNow(current, source);
+    if (!context.mounted) return;
+    if (latest == null) {
+      AppSnack.show(context, l.updateCheckFailed);
+    } else if (compareVersions(latest, current) <= 0) {
+      AppSnack.show(context, l.updateUpToDate);
+    } else {
+      AppSnack.show(
+        context,
+        l.updateAvailableSnack(latest),
+        actionLabel: l.whatsNewAction,
+        onAction: () => showUpdateSheet(
+          context,
+          updates,
+          AvailableUpdate(latest),
+          source,
+          currentVersion: current,
+        ),
+      );
+    }
   }
 
   Future<void> _export(BuildContext context) async {
@@ -185,19 +227,23 @@ class ToolsSettingsScreen extends StatelessWidget {
             ),
           ),
           SettingAnchor(
-            Setting.exportSettings,
-            child: SettingsNavTile(
-              icon: Icons.file_upload_outlined,
-              title: Setting.exportSettings.titleOf(context.l10n),
-              onTap: () => _export(context),
-            ),
-          ),
-          SettingAnchor(
-            Setting.importSettings,
-            child: SettingsNavTile(
-              icon: Icons.file_download_outlined,
-              title: Setting.importSettings.titleOf(context.l10n),
-              onTap: () => _import(context),
+            Setting.settingsBackup,
+            child: ListTile(
+              leading: const Icon(Icons.import_export),
+              title: Text(Setting.settingsBackup.titleOf(context.l10n)),
+              trailing: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextButton(
+                    onPressed: () => _export(context),
+                    child: Text(context.l10n.exportAction),
+                  ),
+                  TextButton(
+                    onPressed: () => _import(context),
+                    child: Text(context.l10n.importAction),
+                  ),
+                ],
+              ),
             ),
           ),
           if (Platform.isAndroid) ...[

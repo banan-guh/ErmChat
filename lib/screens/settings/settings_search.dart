@@ -171,8 +171,7 @@ class Setting {
     'data_usage' => l.settingDataUsage,
     'pip' => l.settingPip,
     'updates' => l.settingCheckForUpdates,
-    'export_settings' => l.settingExportSettings,
-    'import_settings' => l.settingImportSettings,
+    'settings_backup' => l.settingSettingsBackup,
     'enable_tts' => l.settingEnableTts,
     'tts_engine' => l.settingTtsEngine,
     'tts_queue_mode' => l.settingTtsQueueMode,
@@ -732,17 +731,11 @@ class Setting {
     SettingsPageId.tools,
     keywords: "what's new changelog version",
   );
-  static const exportSettings = Setting(
-    'export_settings',
-    'Export settings',
+  static const settingsBackup = Setting(
+    'settings_backup',
+    'Settings backup',
     SettingsPageId.tools,
-    keywords: 'backup copy clipboard',
-  );
-  static const importSettings = Setting(
-    'import_settings',
-    'Import settings',
-    SettingsPageId.tools,
-    keywords: 'restore paste clipboard',
+    keywords: 'export import restore copy paste clipboard',
   );
   static const pip = Setting(
     'pip',
@@ -876,8 +869,7 @@ class Setting {
     analytics,
     dataUsage,
     updates,
-    exportSettings,
-    importSettings,
+    settingsBackup,
     pip,
     enableTts,
     ttsEngine,
