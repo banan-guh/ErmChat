@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Cuts a release: checks CHANGELOG.md, drafts the GitHub release notes for
-# editing, merges develop into main, bumps pubspec, tags, publishes, closes
-# the fixed-next issues and watches the store build.
+# editing, bumps pubspec on develop, fast-forwards main to it, tags,
+# publishes, closes the fixed-next issues and watches the store build.
 # Usage: tool/release.sh [x.y.z]   (default: the next patch)
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -88,19 +88,19 @@ cat "$NOTES"
 echo
 ask "Publish $TAG with these notes?" || die "stopped; nothing changed"
 
-git switch -q main
-git merge -q --ff-only origin/main
-if ! git merge -q --no-edit develop; then
+# Main only fast-forwards to develop. Weblate's merges land on main, so
+# develop takes them first, and the push refuses anything but a fast-forward.
+git switch -q develop
+git merge -q --ff-only origin/develop || die "develop has diverged from GitHub's"
+if ! git merge -q --no-edit origin/main; then
   git merge --abort
-  git switch -q develop
-  die "develop does not merge cleanly into main"
+  die "main does not merge cleanly into develop"
 fi
 sed -i -E "s/^version:.*/version: $VERSION+$((BUILD + 1))/" pubspec.yaml
 git commit -q -am "Version $TAG"
 git tag "$TAG"
-git switch -q develop
-git merge -q --ff-only main
-git push -q origin main develop "$TAG"
+git push -q origin develop develop:main "$TAG"
+git fetch -q . develop:main
 gh release create "$TAG" -R "$REPO" --title "$TAG" --notes-file "$NOTES" \
   --verify-tag
 
