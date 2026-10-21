@@ -2,6 +2,8 @@
 
 import 'dart:async';
 import 'dart:io';
+import 'package:flutter/foundation.dart'
+    show LicenseEntry, LicenseEntryWithLineBreaks, LicenseRegistry;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -40,6 +42,17 @@ import 'widgets/tabbed_layout.dart';
 void main() =>
     runZonedGuarded(_boot, reportError, zoneSpecification: PerfProbe.zoneSpec);
 
+/// The projects ErmChat adapts code from (THIRD_PARTY_LICENSES), for the
+/// licenses page, each named by its repository.
+Stream<LicenseEntry> _thirdPartyLicenses() async* {
+  final text = await rootBundle.loadString('THIRD_PARTY_LICENSES');
+  final repo = RegExp(r'github\.com/[^/]+/([^/)\s]+)');
+  for (final part in text.split(RegExp(r'^---$', multiLine: true))) {
+    final name = repo.firstMatch(part)?[1];
+    if (name != null) yield LicenseEntryWithLineBreaks([name], part.trim());
+  }
+}
+
 Future<void> _boot() async {
   WidgetsFlutterBinding.ensureInitialized();
   // Decoded-image memory budget. The image cache accounts every displayed
@@ -71,6 +84,7 @@ Future<void> _boot() async {
   // Liquid glass shaders warm up with disk I/O only, so the first frame
   // still presents immediately. Premium shaders preload for the bars.
   await LiquidGlassWidgets.initialize();
+  LicenseRegistry.addLicense(_thirdPartyLicenses);
   unawaited(_warmHistory());
   PerfProbe.start();
   watchPaintTransforms();
