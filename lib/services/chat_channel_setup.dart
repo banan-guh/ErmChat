@@ -544,10 +544,13 @@ class ChatChannelSetup {
   /// the caller records it to gate sends on joins.
   bool handleRoomState(IrcRoomStateEvent event) {
     if (_disposed) return false;
-    // A channel whose join previously failed just got in: announce the late
-    // success and clear the failure state.
+    // A channel whose join previously failed just got in: its failure row
+    // goes, and Connected reports the join.
     if (_joinFailureNotified.remove(event.channel)) {
-      onSystemMessage(event.channel, strings().joinedChannel(event.channel));
+      chat
+          .channelFor(event.channel)
+          ?.messages
+          .removeSystem(_joinFailedId(event.channel));
     }
     _status.onRoomState(event.channel, event.tags);
     final roomId = event.tags['room-id'];
@@ -557,11 +560,18 @@ class ChatChannelSetup {
     return true;
   }
 
+  /// The id of [channel]'s join failure row, which its ROOMSTATE removes.
+  static String _joinFailedId(String channel) => 'sys_join:$channel:failed';
+
   /// Posts the one "couldn't join, retrying" line for a JOIN that went
-  /// unconfirmed past the timeout. A later ROOMSTATE announces the join.
+  /// unconfirmed past the timeout. A later ROOMSTATE removes it.
   void handleJoinTimedOut(String channel) {
     if (_disposed || !_joinFailureNotified.add(channel)) return;
-    onSystemMessage(channel, strings().joinTimedOutRetrying(channel));
+    onSystemMessage(
+      channel,
+      strings().joinTimedOutRetrying(channel),
+      messageId: _joinFailedId(channel),
+    );
   }
 
   /// JOIN-failure handler for the write socket (the one ROOMSTATE gates sends
@@ -588,6 +598,10 @@ class ChatChannelSetup {
       ),
     };
     _joinFailureNotified.add(event.channel);
-    onSystemMessage(event.channel, text);
+    onSystemMessage(
+      event.channel,
+      text,
+      messageId: _joinFailedId(event.channel),
+    );
   }
 }

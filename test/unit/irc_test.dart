@@ -2530,8 +2530,10 @@ void main() {
     });
 
     test('join timeout posts one retry line, the later failure stays quiet, '
-        'and a ROOMSTATE announces the join', () {
+        'and a ROOMSTATE removes it', () {
       final messages = <String>[];
+      final chat = Chat();
+      final ghost = chat.ensure('ghost').messages;
       final api = TwitchApi(client: http.Client());
       final setup = ChatChannelSetup(
         twitchApi: api,
@@ -2550,11 +2552,13 @@ void main() {
         emoteManager: EmoteManager(),
         twitchAuth: TwitchAuth(),
         userStore: UserStore(),
-        chat: Chat(),
+        chat: chat,
         session: Session(),
         onSystemMessage:
-            (c, t, {Color? accent, String? messageId, bool keep = false}) =>
-                messages.add(t),
+            (c, t, {Color? accent, String? messageId, bool keep = false}) {
+              messages.add(t);
+              ghost.addSystem(t, messageId: messageId);
+            },
         connectionStateNotifier: ValueNotifier(0),
         ensureCurrentUser: (_) async => null,
       );
@@ -2572,8 +2576,12 @@ void main() {
       setup.handleRoomState(
         IrcRoomStateEvent(channel: 'ghost', tags: const {'room-id': '1'}),
       );
-      expect(messages, hasLength(2));
-      expect(messages.last, contains('Joined #ghost'));
+      expect(messages, hasLength(1), reason: 'no separate joined line');
+      expect(
+        ghost.items.where((m) => m.isSystem),
+        isEmpty,
+        reason: 'the confirmed join removes its failure row',
+      );
       setup.dispose();
     });
 

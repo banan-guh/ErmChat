@@ -2374,14 +2374,6 @@
   "roomEmoteOnly": "Emotes",
   "roomSubscribersOnly": "Subs",
   "roomUniqueChat": "Unique",
-  "joinedChannel": "Joined #{channel}.",
-  "@joinedChannel": {
-    "placeholders": {
-      "channel": {
-        "type": "String"
-      }
-    }
-  },
   "joinFailedSuspended": "Could not join #{channel}: the channel is suspended or deleted.",
   "@joinFailedSuspended": {
     "placeholders": {
