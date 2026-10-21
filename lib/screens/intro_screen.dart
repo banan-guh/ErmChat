@@ -6,6 +6,7 @@ import '../l10n/l10n.dart';
 import '../services/twitch_auth.dart';
 import 'settings/account_screen.dart';
 import 'settings/language_screen.dart';
+import 'whats_new_pages.dart';
 import '../widgets/design_tokens.dart';
 
 /// First-install introduction: full-screen pages that showcase features.
@@ -187,19 +188,7 @@ class _IntroScreenState extends State<IntroScreen> {
               padding: const EdgeInsets.fromLTRB(24, 8, 24, 16),
               child: Row(
                 children: [
-                  for (var i = 0; i < _pageCount; i++)
-                    AnimatedContainer(
-                      duration: Motion.normal,
-                      margin: const EdgeInsets.only(right: 6),
-                      width: i == _page ? 20 : 8,
-                      height: 8,
-                      decoration: BoxDecoration(
-                        color: i == _page
-                            ? theme.colorScheme.primary
-                            : theme.colorScheme.outlineVariant,
-                        borderRadius: BorderRadius.circular(Radii.small),
-                      ),
-                    ),
+                  _PageDots(count: _pageCount, page: _page),
                   const Spacer(),
                   FilledButton(
                     onPressed: _next,
@@ -211,6 +200,154 @@ class _IntroScreenState extends State<IntroScreen> {
           ],
         ),
       ),
+    );
+  }
+}
+
+/// An update's showcase: one page per new feature, each a looping
+/// animation over a title and a line. Shown once after updating into a new
+/// minor version, never on a first install. Pops true when the user asks for
+/// the full changelog.
+class WhatsNewScreen extends StatefulWidget {
+  const WhatsNewScreen({super.key, required this.pages});
+
+  final List<ShowcasePage> pages;
+
+  @override
+  State<WhatsNewScreen> createState() => _WhatsNewScreenState();
+}
+
+class _WhatsNewScreenState extends State<WhatsNewScreen> {
+  final _pages = PageController();
+  int _page = 0;
+
+  @override
+  void dispose() {
+    _pages.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = context.l10n;
+    final last = _page == widget.pages.length - 1;
+    return Scaffold(
+      body: SafeArea(
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(4, 4, 8, 0),
+              child: Row(
+                children: [
+                  IconButton(
+                    icon: const Icon(Icons.translate),
+                    tooltip: l10n.settingLanguage,
+                    onPressed: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => const LanguageScreen()),
+                    ),
+                  ),
+                  const Spacer(),
+                  TextButton(
+                    onPressed: () => Navigator.pop(context, true),
+                    child: Text(l10n.showcaseAllChanges),
+                  ),
+                ],
+              ),
+            ),
+            Expanded(
+              child: PageView(
+                controller: _pages,
+                onPageChanged: (i) => setState(() => _page = i),
+                children: [
+                  for (final p in widget.pages)
+                    _IntroPage(
+                      title: p.title(l10n),
+                      body: p.body(l10n),
+                      child: _Showcase(asset: p.asset),
+                    ),
+                ],
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(24, 8, 24, 16),
+              child: Row(
+                children: [
+                  _PageDots(count: widget.pages.length, page: _page),
+                  const Spacer(),
+                  FilledButton(
+                    onPressed: last
+                        ? () => Navigator.pop(context)
+                        : () => _pages.nextPage(
+                            duration: Motion.slow,
+                            curve: Motion.enter,
+                          ),
+                    child: Text(last ? l10n.showcaseDone : l10n.introNext),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// A feature's looping animation, sized like a phone screen crop. A missing
+/// asset shows an empty frame, so pages can land before their animation.
+class _Showcase extends StatelessWidget {
+  const _Showcase({required this.asset});
+
+  final String asset;
+
+  static const _width = 280.0;
+  static const _aspect = 9 / 10;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(Radii.large),
+      child: SizedBox(
+        width: _width,
+        height: _width / _aspect,
+        child: Image.asset(
+          asset,
+          fit: BoxFit.cover,
+          gaplessPlayback: true,
+          errorBuilder: (_, _, _) =>
+              ColoredBox(color: scheme.surfaceContainerHighest),
+        ),
+      ),
+    );
+  }
+}
+
+class _PageDots extends StatelessWidget {
+  const _PageDots({required this.count, required this.page});
+
+  final int count;
+  final int page;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        for (var i = 0; i < count; i++)
+          AnimatedContainer(
+            duration: Motion.normal,
+            margin: const EdgeInsets.only(right: 6),
+            width: i == page ? 20 : 8,
+            height: 8,
+            decoration: BoxDecoration(
+              color: i == page ? scheme.primary : scheme.outlineVariant,
+              borderRadius: BorderRadius.circular(Radii.small),
+            ),
+          ),
+      ],
     );
   }
 }

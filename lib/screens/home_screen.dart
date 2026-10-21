@@ -45,6 +45,7 @@ import '../util/prefs.dart';
 import '../util/prefs_store.dart';
 import '../util/settings.dart';
 import '../screens/intro_screen.dart';
+import '../screens/whats_new_pages.dart';
 import '../screens/settings/settings_screen.dart';
 import '../widgets/panel_manager.dart';
 import '../widgets/glass_chrome.dart';
@@ -803,7 +804,20 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     if (from != null) {
       final notes = await bundledNotes(info.version);
       if (!mounted) return;
-      if (notes.isNotEmpty) {
+      // A new minor version opens with its showcase; the changelog follows
+      // when asked for. Patch releases get the changelog alone.
+      final pages = showcaseFor(info.version, from);
+      final changelog = pages == null
+          ? true
+          : await Navigator.push<bool>(
+                  context,
+                  MaterialPageRoute(
+                    fullscreenDialog: true,
+                    builder: (_) => WhatsNewScreen(pages: pages),
+                  ),
+                ) ??
+                false;
+      if (changelog && notes.isNotEmpty && mounted) {
         unawaited(
           showWhatsNewSheet(
             context,
