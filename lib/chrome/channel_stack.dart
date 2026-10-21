@@ -272,51 +272,53 @@ class ChannelPanels {
         messageVersion,
         search.channelVersion(channel),
       ]),
-      builder: (_, active) =>
-          _searchResults(context, channel, topPadding, active) ??
-          ChatView(
-            channel: channel,
-            messages: search.visibleMessages(channel),
-            tileCache: tileCache,
-            isDimmed: search.dimPredicate(channel),
-            hides: chat.filter.hides,
-            emptyText:
-                search.emptyText(channel, context.l10n) ??
-                context.l10n.noMessagesYet,
-            atBottomNotifier: atBottomNotifier(channel),
-            messageNotifier: active ? messageVersion : _emptyNotifier,
-            scrollController: scrollCtrl(channel),
-            messageBuilder: messageBuilder,
-            linkWhitelist: linkWhitelist,
-            showTimestamp: showTimestamps(),
-            timestampFormat: timestampFormat(),
-            chatFontScale: chatFontSize() / 14.0,
-            checkeredMessages: checkeredMessages(),
-            highlightOpacity: highlightOpacity(),
-            lineSeparator: lineSeparator(),
-            sharedChatMode: sharedChatMode(),
-            paintService: showNamePaints() ? paintService : null,
-            topOverlayPadding: topPadding,
-            onShowUserProfile: (login, userId, {displayName}) =>
-                userSheets.showUserProfile(
-                  context,
-                  login,
-                  userId,
-                  displayName: displayName,
-                ),
-            onShowMessageMenu: (msg) => menus.showMessageMenu(context, msg),
-            onCopyMessage: copyMessage,
-            onScrollActivity: (c) {
-              chat.clearUnread(c);
-            },
-            onFindThreadRoot: threads.findThreadRoot,
-            onShowThreadView: (msg) => threads.showThreadView(msg),
-            keepAlive: false,
-            keepPosition: !search.open,
-            keyboardDismissBehavior: (!kIsWeb && Platform.isIOS)
-                ? ScrollViewKeyboardDismissBehavior.onDrag
-                : ScrollViewKeyboardDismissBehavior.manual,
-          ),
+      builder: (_, active) {
+        final buffer = ChatView(
+          channel: channel,
+          messages: search.visibleMessages(channel),
+          tileCache: tileCache,
+          isDimmed: search.dimPredicate(channel),
+          hides: chat.filter.hides,
+          emptyText:
+              search.emptyText(channel, context.l10n) ??
+              context.l10n.noMessagesYet,
+          atBottomNotifier: atBottomNotifier(channel),
+          messageNotifier: active ? messageVersion : _emptyNotifier,
+          scrollController: scrollCtrl(channel),
+          messageBuilder: messageBuilder,
+          linkWhitelist: linkWhitelist,
+          showTimestamp: showTimestamps(),
+          timestampFormat: timestampFormat(),
+          chatFontScale: chatFontSize() / 14.0,
+          checkeredMessages: checkeredMessages(),
+          highlightOpacity: highlightOpacity(),
+          lineSeparator: lineSeparator(),
+          sharedChatMode: sharedChatMode(),
+          paintService: showNamePaints() ? paintService : null,
+          topOverlayPadding: topPadding,
+          onShowUserProfile: (login, userId, {displayName}) =>
+              userSheets.showUserProfile(
+                context,
+                login,
+                userId,
+                displayName: displayName,
+              ),
+          onShowMessageMenu: (msg) => menus.showMessageMenu(context, msg),
+          onCopyMessage: copyMessage,
+          onScrollActivity: (c) {
+            chat.clearUnread(c);
+          },
+          onFindThreadRoot: threads.findThreadRoot,
+          onShowThreadView: (msg) => threads.showThreadView(msg),
+          keepAlive: false,
+          keepPosition: !search.open,
+          keyboardDismissBehavior: (!kIsWeb && Platform.isIOS)
+              ? ScrollViewKeyboardDismissBehavior.onDrag
+              : ScrollViewKeyboardDismissBehavior.manual,
+        );
+        return _searchResults(context, channel, topPadding, active, buffer) ??
+            buffer;
+      },
     );
   }
 
@@ -452,20 +454,20 @@ class ChannelPanels {
 
   /// [channel]'s search as a history list of matches over the whole archive,
   /// newest at the bottom and live matches joining it. A tap closes search
-  /// and shows the message in the channel's history. Null when the buffer
-  /// filter applies instead: dim or paused (both need every buffer row), no
-  /// query, or no archive.
+  /// and shows the message in the channel's history. [buffer] shows while
+  /// the query is empty. Null when the buffer filter applies instead: dim or
+  /// paused (both need every buffer row), or no archive.
   Widget? _searchResults(
     BuildContext context,
     String channel,
     double topPadding,
     bool active,
+    Widget buffer,
   ) {
     final reader = archiveReader;
     final filter = search.stateFor(channel);
     if (reader == null ||
         FakeHistory.isFake(channel) ||
-        !filter.isActive ||
         filter.display != ChatSearchDisplay.hide ||
         filter.live != ChatSearchLive.stream) {
       return null;
@@ -475,6 +477,7 @@ class ChannelPanels {
       key: ValueKey('search|$channel'),
       query: filter.query.trim().toLowerCase(),
       scope: filter.scope,
+      empty: buffer,
       source: (q, scope) =>
           ArchiveFindSource.search(channel, reader, query: q, scope: scope),
       build: (source, newest, q, scope) {
@@ -1007,12 +1010,16 @@ class _SettledSearch extends StatefulWidget {
     super.key,
     required this.query,
     required this.scope,
+    required this.empty,
     required this.source,
     required this.build,
   });
 
   final String query;
   final ChatSearchScope scope;
+
+  /// Shown while the query is empty, and until the first query settles.
+  final Widget empty;
   final ArchiveFindSource Function(String query, ChatSearchScope scope) source;
   final Widget Function(
     ArchiveFindSource source,
@@ -1031,7 +1038,9 @@ class _SettledSearchState extends State<_SettledSearch> {
 
   late String _query = widget.query;
   late ChatSearchScope _scope = widget.scope;
-  late ArchiveFindSource _source = widget.source(_query, _scope);
+  late ArchiveFindSource? _source = _query.isEmpty
+      ? null
+      : widget.source(_query, _scope);
   List<TwitchMessage>? _newest;
 
   @override
@@ -1043,14 +1052,16 @@ class _SettledSearchState extends State<_SettledSearch> {
   Future<void> _settle() async {
     final query = widget.query;
     final scope = widget.scope;
-    final source = widget.source(query, scope);
+    final source = query.isEmpty ? null : widget.source(query, scope);
     List<TwitchMessage>? newest;
-    try {
-      await source.prefetch().timeout(_patience);
-      // Takes the prefetched rows, so a later newest read hits the archive.
-      newest = await source.newest();
-    } catch (_) {
-      // Slow or failed: the list shows its own loading or error state.
+    if (source != null) {
+      try {
+        await source.prefetch().timeout(_patience);
+        // Takes the prefetched rows, so a later newest read hits the archive.
+        newest = await source.newest();
+      } catch (_) {
+        // Slow or failed: the list shows its own loading or error state.
+      }
     }
     if (!mounted || widget.query != query || widget.scope != scope) return;
     setState(() {
@@ -1062,6 +1073,8 @@ class _SettledSearchState extends State<_SettledSearch> {
   }
 
   @override
-  Widget build(BuildContext context) =>
-      widget.build(_source, _newest, _query, _scope);
+  Widget build(BuildContext context) => switch (_source) {
+    final source? => widget.build(source, _newest, _query, _scope),
+    null => widget.empty,
+  };
 }
