@@ -733,9 +733,9 @@ class Setting {
   );
   static const settingsBackup = Setting(
     'settings_backup',
-    'Settings backup',
+    'Import/export settings',
     SettingsPageId.tools,
-    keywords: 'export import restore copy paste clipboard',
+    keywords: 'backup restore copy paste clipboard file txt',
   );
   static const pip = Setting(
     'pip',
