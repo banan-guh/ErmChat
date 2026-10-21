@@ -221,6 +221,14 @@
     }
   },
   "archiveNoCap": "No limit",
+  "settingArchiveEnabled": "Chat archive",
+  "archiveRestartNote": "Applies after restart",
+  "archiveNeeded": "Needs the chat archive",
+  "archiveSetsBuffer": "The chat archive sets this",
+  "archiveApply": "Apply",
+  "archiveAbandon": "Abandon archive",
+  "archiveAbandonTitle": "Abandon archive?",
+  "archiveAbandonMessage": "Every archived message is deleted, kept days included.",
   "archiveCapMessage": "Each channel's oldest chat past {size} is deleted now. Days you keep from the calendar stay.",
   "@archiveCapMessage": {
     "placeholders": {

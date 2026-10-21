@@ -35,7 +35,16 @@ class HistorySettingsScreen extends StatelessWidget {
             RecentMessagesSourceTile(onChanged: onRecentMessagesModeChanged),
             const HistoryFetchTiles(),
             SettingsSectionHeader(context.l10n.sectionArchive),
+            SettingAnchor(
+              Setting.archiveEnabled,
+              child: PrefsSwitchTile(
+                title: Setting.archiveEnabled.titleOf(context.l10n),
+                subtitle: context.l10n.archiveRestartNote,
+                pref: Settings.archiveEnabled,
+              ),
+            ),
             const ArchiveLimitsTile(),
+            const MaxMessagesTile(),
           ],
         ),
       ),
@@ -44,8 +53,9 @@ class HistorySettingsScreen extends StatelessWidget {
 }
 
 /// Dynamic history fetch, and below it the manual count it replaces while
-/// on: greyed then, and a tap offers to turn dynamic fetch off. Shown on
-/// History and mirrored on Data.
+/// on: greyed then, and a tap offers to turn dynamic fetch off. Dynamic
+/// fetch greys out without the archive. Shown on History and mirrored on
+/// Data.
 class HistoryFetchTiles extends StatefulWidget {
   const HistoryFetchTiles({super.key});
 
@@ -73,18 +83,29 @@ class _HistoryFetchTilesState extends State<HistoryFetchTiles> {
       children: [
         SettingAnchor(
           Setting.gapFill,
-          child: PrefsSwitchTile(
-            title: Setting.gapFill.titleOf(l),
-            subtitle: l.gapFillSubtitle,
-            info: const SettingInfoButton(Setting.gapFill),
-            pref: Settings.historyDynamicFetch,
+          child: ValueListenableBuilder(
+            valueListenable: Settings.archiveEnabled,
+            builder: (context, archive, _) => NeedsArchive(
+              archive: archive,
+              child: PrefsSwitchTile(
+                title: Setting.gapFill.titleOf(l),
+                subtitle: l.gapFillSubtitle,
+                info: const SettingInfoButton(Setting.gapFill),
+                pref: Settings.historyDynamicFetch,
+                enabled: archive,
+              ),
+            ),
           ),
         ),
         SettingAnchor(
           Setting.recentMessagesLimit,
-          child: ValueListenableBuilder(
-            valueListenable: Settings.historyDynamicFetch,
-            builder: (context, dynamicFetch, _) {
+          child: ListenableBuilder(
+            listenable: Listenable.merge([
+              Settings.historyDynamicFetch,
+              Settings.archiveEnabled,
+            ]),
+            builder: (context, _) {
+              final dynamicFetch = Settings.dynamicFetchOn;
               final limit = PrefsSliderTile(
                 label: (v) =>
                     '${Setting.recentMessagesLimit.titleOf(l)}: ${v.round()}',
@@ -114,6 +135,96 @@ class _HistoryFetchTilesState extends State<HistoryFetchTiles> {
   }
 }
 
+/// Greys [child] while the archive is off; a tap offers to turn it on.
+class NeedsArchive extends StatelessWidget {
+  const NeedsArchive({super.key, required this.archive, required this.child});
+
+  final bool archive;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    if (archive) return child;
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () => AppSnack.show(
+        context,
+        context.l10n.archiveNeeded,
+        actionLabel: context.l10n.turnOn,
+        onAction: () async {
+          await Settings.archiveEnabled.set(true);
+          PrefsStore.instance.notifyChanged();
+        },
+      ),
+      child: child,
+    );
+  }
+}
+
+/// The live buffer's size. Only used without the archive, which reads
+/// anything older from disk; greyed while it is on, and a tap offers to
+/// turn it off.
+class MaxMessagesTile extends StatelessWidget {
+  const MaxMessagesTile({super.key});
+
+  static int _stepIndexFor(int value) {
+    var best = 0;
+    var bestDistance = (value - kMaxMessagesPerChannelValues[0]).abs();
+    for (var i = 1; i < kMaxMessagesPerChannelValues.length; i++) {
+      final distance = (value - kMaxMessagesPerChannelValues[i]).abs();
+      if (distance < bestDistance) {
+        best = i;
+        bestDistance = distance;
+      }
+    }
+    return best;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l = context.l10n;
+    return SettingAnchor(
+      Setting.maxMessages,
+      child: ValueListenableBuilder(
+        valueListenable: Settings.archiveEnabled,
+        builder: (context, archive, _) {
+          final slider = PrefsSliderTile(
+            enabled: !archive,
+            label: (v) =>
+                '${Setting.maxMessages.titleOf(l)}: '
+                '${kMaxMessagesPerChannelValues[v.round()]}',
+            sliderLabel: (v) => '${kMaxMessagesPerChannelValues[v.round()]}',
+            min: 0,
+            max: (kMaxMessagesPerChannelValues.length - 1).toDouble(),
+            divisions: kMaxMessagesPerChannelValues.length - 1,
+            defaultValue: _stepIndexFor(
+              kMaxMessagesPerChannelDefault,
+            ).toDouble(),
+            read: (p) => _stepIndexFor(p.maxMessagesPerChannel).toDouble(),
+            write: (p, v) => p.setMaxMessagesPerChannel(
+              kMaxMessagesPerChannelValues[v.round()],
+            ),
+          );
+          if (!archive) return slider;
+          return GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: () => AppSnack.show(
+              context,
+              l.archiveSetsBuffer,
+              actionLabel: l.turnOff,
+              onAction: () async {
+                await Settings.archiveEnabled.set(false);
+                PrefsStore.instance.notifyChanged();
+              },
+            ),
+            child: slider,
+          );
+        },
+      ),
+    );
+  }
+}
+
 /// Opens the history provider picker.
 class RecentMessagesSourceTile extends StatelessWidget {
   const RecentMessagesSourceTile({super.key, this.onChanged});
@@ -139,7 +250,8 @@ class RecentMessagesSourceTile extends StatelessWidget {
 }
 
 /// How long and how much chat the archive keeps, with its size on disk.
-/// Tightening a limit asks first, since older chat is deleted at once.
+/// Apply saves the sliders; tightening a limit asks first, since older chat
+/// is deleted at once. Abandon deletes the whole archive.
 class ArchiveLimitsTile extends ConsumerStatefulWidget {
   const ArchiveLimitsTile({super.key});
 
@@ -204,6 +316,26 @@ class _ArchiveLimitsTileState extends ConsumerState<ArchiveLimitsTile> {
       ? l.archiveNoCap
       : l.archiveMegabytes(_mb[index]);
 
+  Future<void> _apply() async {
+    await _commit(0, _index[0]);
+    await _commit(1, _index[1]);
+  }
+
+  Future<void> _abandon() async {
+    final l = context.l10n;
+    final ok = await confirmDialog(
+      context,
+      title: l.archiveAbandonTitle,
+      message: l.archiveAbandonMessage,
+      confirmLabel: l.archiveShortenConfirm,
+      destructive: true,
+    );
+    if (!ok) return;
+    final archive = ref.read(archiveProvider);
+    await (archive == null ? Archive.deleteDefault() : archive.wipe());
+    await _readSizes();
+  }
+
   Future<void> _commit(int slider, int index) async {
     if (index == _saved[slider]) return;
     final l = context.l10n;
@@ -257,8 +389,9 @@ class _ArchiveLimitsTileState extends ConsumerState<ArchiveLimitsTile> {
             max: (choices - 1).toDouble(),
             divisions: choices - 1,
             label: label,
-            onChanged: (v) => setState(() => _index[slider] = v.round()),
-            onChangeEnd: (v) => _commit(slider, v.round()),
+            onChanged: Settings.archiveEnabled.value
+                ? (v) => setState(() => _index[slider] = v.round())
+                : null,
           ),
         ],
       ),
@@ -274,23 +407,51 @@ class _ArchiveLimitsTileState extends ConsumerState<ArchiveLimitsTile> {
     final note = theme.textTheme.bodySmall?.copyWith(
       color: theme.colorScheme.onSurfaceVariant,
     );
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        _slider(Setting.archiveRetention, 0, _days.length),
-        _slider(Setting.archiveChannelCap, 1, _mb.length),
-        if (size != null)
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-            child: Text(
-              [
-                l.archiveSize(DataUsageScreen.format(size)),
-                if (kept > 0) l.archiveKeptSize(DataUsageScreen.format(kept)),
-              ].join(', '),
-              style: note,
+    return ValueListenableBuilder(
+      valueListenable: Settings.archiveEnabled,
+      builder: (context, archive, _) => NeedsArchive(
+        archive: archive,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            _slider(Setting.archiveRetention, 0, _days.length),
+            _slider(Setting.archiveChannelCap, 1, _mb.length),
+            if (size != null)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                child: Text(
+                  [
+                    l.archiveSize(DataUsageScreen.format(size)),
+                    if (kept > 0)
+                      l.archiveKeptSize(DataUsageScreen.format(kept)),
+                  ].join(', '),
+                  style: note,
+                ),
+              ),
+            OverflowBar(
+              alignment: MainAxisAlignment.end,
+              spacing: 8,
+              children: [
+                TextButton(
+                  onPressed: archive ? _abandon : null,
+                  style: TextButton.styleFrom(
+                    foregroundColor: theme.colorScheme.error,
+                  ),
+                  child: Text(l.archiveAbandon),
+                ),
+                FilledButton.tonal(
+                  onPressed:
+                      archive &&
+                          (_index[0] != _saved[0] || _index[1] != _saved[1])
+                      ? _apply
+                      : null,
+                  child: Text(l.archiveApply),
+                ),
+              ],
             ),
-          ),
-      ],
+          ],
+        ),
+      ),
     );
   }
 }

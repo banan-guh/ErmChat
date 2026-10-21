@@ -6,6 +6,7 @@ import '../models/twitch_message.dart';
 import '../services/command_macros.dart';
 import '../util/constants.dart';
 import '../util/prefs.dart';
+import '../util/settings.dart';
 import 'app_providers.dart';
 
 /// Pipeline-visible shell state. The chat pipeline reads these synchronously
@@ -25,8 +26,17 @@ final selectedChannelProvider =
     );
 
 class MaxMessagesNotifier extends Notifier<int> {
+  // With the archive on, history past the buffer reads from disk. Both read
+  // the toggle once at launch.
   @override
-  int build() => kLiveBufferMessages;
+  int build() {
+    final cap = Settings.maxMessagesPerChannel;
+    if (Settings.archiveEnabled.value) return kLiveBufferMessages;
+    void sync() => state = cap.value;
+    cap.addListener(sync);
+    ref.onDispose(() => cap.removeListener(sync));
+    return cap.value;
+  }
 }
 
 final maxMessagesPerChannelProvider =

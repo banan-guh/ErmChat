@@ -57,19 +57,6 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
     if (mounted) setState(() => _prefs = prefs);
   }
 
-  int _stepIndexFor(int value) {
-    var best = 0;
-    var bestDistance = (value - kMaxMessagesPerChannelValues[0]).abs();
-    for (var i = 1; i < kMaxMessagesPerChannelValues.length; i++) {
-      final distance = (value - kMaxMessagesPerChannelValues[i]).abs();
-      if (distance < bestDistance) {
-        best = i;
-        bestDistance = distance;
-      }
-    }
-    return best;
-  }
-
   String get _sharedChatMode => _prefs?.sharedChatMode ?? 'spotlight';
 
   bool get _showGifs =>
@@ -120,28 +107,6 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
       body: ListView(
         children: [
           SettingsSectionHeader(context.l10n.sectionMessages),
-          // Detached: the live buffer is fixed and history reads from the
-          // archive. Shows the size in use.
-          SettingAnchor(
-            Setting.maxMessages,
-            child: PrefsSliderTile(
-              enabled: false,
-              label: (v) =>
-                  '${Setting.maxMessages.titleOf(context.l10n)}: '
-                  '${kMaxMessagesPerChannelValues[v.round()]}',
-              sliderLabel: (v) => '${kMaxMessagesPerChannelValues[v.round()]}',
-              min: 0,
-              max: (kMaxMessagesPerChannelValues.length - 1).toDouble(),
-              divisions: kMaxMessagesPerChannelValues.length - 1,
-              defaultValue: _stepIndexFor(
-                kMaxMessagesPerChannelDefault,
-              ).toDouble(),
-              read: (_) => _stepIndexFor(kLiveBufferMessages).toDouble(),
-              write: (p, v) => p.setMaxMessagesPerChannel(
-                kMaxMessagesPerChannelValues[v.round()],
-              ),
-            ),
-          ),
           SettingAnchor(
             Setting.sharedChat,
             child: SettingsNavTile(

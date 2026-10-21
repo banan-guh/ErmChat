@@ -144,8 +144,10 @@ final chatHistoryControllerProvider = Provider<ChatHistoryController>((ref) {
   return controller;
 });
 
-/// The history archive. Nullable so tests can inject none.
+/// The history archive, or null when it is turned off. Nullable so tests
+/// can inject none.
 final archiveProvider = Provider<Archive?>((ref) {
+  if (!Settings.archiveEnabled.value) return null;
   final archive = Archive.inAppSupport();
   ref.onDispose(archive.dispose);
   return archive;

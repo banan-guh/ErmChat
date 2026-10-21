@@ -191,6 +191,9 @@ abstract final class Settings {
     kRecentMessagesLimitDefault,
   );
 
+  /// Whether chat is archived on this device. Read once at launch.
+  static final archiveEnabled = Pref('archive_enabled', true);
+
   /// Days of chat the archive keeps, at most 30.
   static final archiveRetentionDays = IntPref(
     'archive_retention_days',
@@ -208,9 +211,12 @@ abstract final class Settings {
 
   /// Messages the first history fetch loads: the default page under dynamic
   /// fetch, which tops up the gap itself, else the manual count.
-  static int get historyFetchLimit => historyDynamicFetch.value
-      ? kRecentMessagesLimitDefault
-      : recentMessagesLimit.value;
+  static int get historyFetchLimit =>
+      dynamicFetchOn ? kRecentMessagesLimitDefault : recentMessagesLimit.value;
+
+  /// Dynamic fetch sizes itself from the archive, so it needs one.
+  static bool get dynamicFetchOn =>
+      historyDynamicFetch.value && archiveEnabled.value;
   static final replyToThreadRoot = Pref('reply_to_thread_root', false);
   static final backgroundService = Pref('background_service', false);
   static final whisperNotifications = Pref('whisper_notifications', false);
@@ -408,6 +414,7 @@ abstract final class Settings {
     accentColor,
     maxMessagesPerChannel,
     recentMessagesLimit,
+    archiveEnabled,
     archiveRetentionDays,
     archiveChannelCapMb,
     historyDynamicFetch,

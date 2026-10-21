@@ -303,6 +303,23 @@ class ArchiveStore {
     await _db.close();
   }
 
+  /// Deletes everything archived and hands the pages back.
+  Future<void> wipe() async {
+    await _compacting;
+    final tables = await _db.rawQuery(
+      "SELECT name FROM sqlite_master WHERE type = 'table' "
+      "AND name NOT LIKE 'sqlite_%'",
+    );
+    await _db.transaction((txn) async {
+      for (final t in tables) {
+        await txn.delete(t['name']! as String);
+      }
+    });
+    _tables.clear();
+    _vocab = null;
+    await reclaimSpace(all: true);
+  }
+
   /// Journal mode, exposed so tests can assert WAL.
   Future<String> journalMode() async {
     final rows = await _db.rawQuery('PRAGMA journal_mode');

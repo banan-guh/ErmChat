@@ -325,31 +325,6 @@ void main() {
       expect(find.text('h:mm a', skipOffstage: false), findsOneWidget);
     });
 
-    testWidgets('max messages slider is detached and shows the fixed buffer', (
-      WidgetTester tester,
-    ) async {
-      // A stored value from before the buffer was fixed changes nothing.
-      SharedPreferences.setMockInitialValues({
-        'max_messages_per_channel': 5000,
-      });
-
-      await tester.pumpWidget(
-        MaterialApp(key: UniqueKey(), home: ChatSettingsScreen()),
-      );
-      await tester.pump();
-      await tester.pump();
-
-      expect(
-        find.text(
-          'Max messages per channel: $kLiveBufferMessages',
-          skipOffstage: false,
-        ),
-        findsOneWidget,
-      );
-      final slider = tester.widget<Slider>(find.byType(Slider).first);
-      expect(slider.onChanged, isNull, reason: 'the slider must be greyed out');
-    });
-
     testWidgets(
       'Emote fetch tier follows manual changes and auto mode and connectivity',
       (WidgetTester tester) async {

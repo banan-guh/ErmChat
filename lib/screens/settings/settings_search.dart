@@ -124,6 +124,7 @@ class Setting {
     'split_links' => l.settingSplitLinks,
     'recent_messages_limit' => l.settingRecentMessagesLimit,
     'recent_messages_source' => l.settingRecentMessagesSource,
+    'archive_enabled' => l.settingArchiveEnabled,
     'archive_retention' => l.settingArchiveRetention,
     'archive_channel_cap' => l.settingArchiveChannelCap,
     'gap_fill' => l.settingGapFill,
@@ -376,8 +377,7 @@ class Setting {
   static const maxMessages = Setting(
     'max_messages',
     'Max messages per channel',
-    SettingsPageId.chat,
-    section: 'Messages',
+    SettingsPageId.history,
     keywords: 'buffer limit',
   );
   static const sharedChat = Setting(
@@ -414,6 +414,12 @@ class Setting {
     SettingsPageId.history,
     keywords: 'history reconnect missed messages robotty',
     mirrors: {SettingsPageId.data},
+  );
+  static const archiveEnabled = Setting(
+    'archive_enabled',
+    'Chat archive',
+    SettingsPageId.history,
+    keywords: 'archive history storage disk save offline',
   );
   static const archiveRetention = Setting(
     'archive_retention',
@@ -817,6 +823,7 @@ class Setting {
     recentMessagesLimit,
     recentMessagesSource,
     gapFill,
+    archiveEnabled,
     archiveRetention,
     archiveChannelCap,
     preferEmotes,

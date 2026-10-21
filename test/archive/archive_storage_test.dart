@@ -691,6 +691,27 @@ void main() {
       await store.close();
     });
 
+    test('a wipe drops sealed rows and the tail, then archives anew', () async {
+      final store = await _open(_newPath());
+      final writer = _writer(store, sealCount: 4);
+      for (var i = 0; i < 6; i++) {
+        writer.add(_channel, _msg(i)..text = 'old $i');
+        if (i == 0) await writer.settled();
+      }
+      await writer.settled();
+      await writer.wipe();
+      final reader = _reader(store);
+      expect(await reader.search(_channel, 'old'), isEmpty);
+      writer.add(_channel, _msg(10)..text = 'new row');
+      await writer.flush();
+      expect(
+        [for (final m in await reader.search(_channel, 'row')) m.text],
+        ['new row'],
+        reason: 'the writer reloads its tables after a wipe',
+      );
+      await store.close();
+    });
+
     test('the search source pages through every match once', () async {
       final store = await _open(_newPath());
       final writer = _writer(store, sealCount: 16);

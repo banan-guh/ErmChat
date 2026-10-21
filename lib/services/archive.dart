@@ -63,6 +63,20 @@ class Archive {
     }
   }
 
+  /// Deletes the default database while no archive has it open. Never
+  /// throws.
+  static Future<void> deleteDefault() async {
+    try {
+      final path = await defaultPath();
+      for (final suffix in ['', '-wal', '-shm']) {
+        final file = File('$path$suffix');
+        if (await file.exists()) await file.delete();
+      }
+    } catch (e) {
+      logDebug('[Archive] delete failed: $e');
+    }
+  }
+
   /// Bytes of chat that kept days hold, or null when the store is closed.
   Future<int?> keptBytes() async {
     try {
@@ -181,6 +195,15 @@ class Archive {
       if (s != null) await write(s);
     } catch (e) {
       logDebug('[Archive] write failed: $e');
+    }
+  }
+
+  /// Deletes the whole archive. Never throws.
+  Future<void> wipe() async {
+    try {
+      await writer.wipe();
+    } catch (e) {
+      logDebug('[Archive] wipe failed: $e');
     }
   }
 

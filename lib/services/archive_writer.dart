@@ -82,10 +82,11 @@ class ArchiveWriter {
   /// Store edits not yet written, in order.
   Future<void> _pending = Future.value();
   bool _disposed = false;
+  bool _wiping = false;
 
   /// Queues [msg] for [channel]. Never throws and never blocks the caller.
   void add(String channel, TwitchMessage msg) {
-    if (_disposed || FakeChatFeed.owns(msg)) {
+    if (_disposed || _wiping || FakeChatFeed.owns(msg)) {
       return;
     }
     final c = _chans.putIfAbsent(channel, _Chan.new);
@@ -350,6 +351,22 @@ class ArchiveWriter {
       _seal(e.key, e.value);
     }
     await settled();
+  }
+
+  /// Drops every tail and wipes the store once no write is in flight. Rows
+  /// arriving meanwhile are dropped.
+  Future<void> wipe() async {
+    _wiping = true;
+    try {
+      for (final c in _chans.values) {
+        c.timer?.cancel();
+      }
+      await settled();
+      _chans.clear();
+      await (await _store)?.wipe();
+    } finally {
+      _wiping = false;
+    }
   }
 
   /// Seals what is pending, then closes the store.

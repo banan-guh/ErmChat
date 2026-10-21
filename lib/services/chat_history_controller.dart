@@ -10,6 +10,7 @@ import '../models/twitch_message.dart';
 import '../util/data_usage.dart';
 import '../util/log.dart';
 import '../util/prefs.dart';
+import '../util/settings.dart';
 import '../util/signal.dart';
 import 'archive.dart';
 import 'emote_manager.dart';
@@ -167,7 +168,8 @@ class ChatHistoryController {
       return newest;
     }
     try {
-      if (!(await Prefs.load()).historyDynamicFetch) return newest;
+      await Prefs.load();
+      if (!Settings.dynamicFetchOn) return newest;
       final oldest = chatRows.reduce((a, b) => a.isBefore(b) ? a : b);
       final latest = chatRows.reduce((a, b) => a.isAfter(b) ? a : b);
       final span = latest.difference(oldest).inMilliseconds / 1000;
