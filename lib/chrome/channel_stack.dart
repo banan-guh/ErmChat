@@ -1059,7 +1059,20 @@ class _SettledSearchState extends State<_SettledSearch> {
     final scope = widget.scope;
     final source = query.isEmpty ? null : widget.source(query, scope);
     List<TwitchMessage>? newest;
-    if (source != null) {
+    final held = _newest;
+    final q = ChatQuery.parse(query, scope);
+    if (source != null &&
+        held != null &&
+        q.narrows(ChatQuery.parse(_query, _scope))) {
+      // Typing on narrows the held rows, so they open at once; older
+      // matches load from the archive as the list asks for them.
+      newest = [
+        for (final m in held)
+          if (q.matches(m)) m,
+      ];
+    }
+    // None left could still mean older matches: the archive decides.
+    if (source != null && (newest?.isEmpty ?? true)) {
       try {
         await source.prefetch().timeout(_patience);
         // Takes the prefetched rows, so a later newest read hits the archive.

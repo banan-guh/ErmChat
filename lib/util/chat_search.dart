@@ -41,6 +41,16 @@ class ChatQuery {
   /// System rows naming [user] match: only for a search by chatter alone.
   String? get systemText => text.isEmpty ? user : null;
 
+  /// Whether every match of this query also matches [wider], so this
+  /// query's matches are [wider]'s matches it passes.
+  bool narrows(ChatQuery wider) {
+    final u = wider.user;
+    return !wider.isEmpty &&
+        either == wider.either &&
+        text.contains(wider.text) &&
+        (u == null || (user?.contains(u) ?? false));
+  }
+
   bool matches(TwitchMessage msg) {
     if (isEmpty) return true;
     if (msg.isSystem) {

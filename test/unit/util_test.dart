@@ -1150,6 +1150,26 @@ void main() {
       isSystem: isSystem,
     );
 
+    test('a longer query narrows only when its matches are a subset', () {
+      bool narrows(String now, String before, [ChatSearchScope? scope]) =>
+          ChatQuery.parse(
+            now,
+            scope ?? ChatSearchScope.messages,
+          ).narrows(ChatQuery.parse(before, scope ?? ChatSearchScope.messages));
+      expect(narrows('eerm', 'eer'), isTrue);
+      expect(narrows('ee', 'eer'), isFalse, reason: 'deleting widens');
+      expect(narrows('user:bo', 'user:b'), isTrue);
+      expect(narrows('user:b hi', 'user:b'), isTrue);
+      expect(
+        narrows('user:b', 'user'),
+        isFalse,
+        reason: 'typing a keyword is a new search',
+      );
+      expect(narrows('hi', 'user:b hi'), isFalse);
+      expect(narrows('bob', 'bo', ChatSearchScope.all), isTrue);
+      expect(narrows('bo', '', ChatSearchScope.all), isFalse);
+    });
+
     test('scopes decide whether text or sender is matched', () {
       const any = ChatSearchFilter(query: 'sys');
       expect(searchMatches(searchMsg('sys', isSystem: true), any), isFalse);
