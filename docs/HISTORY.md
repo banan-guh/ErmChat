@@ -129,7 +129,7 @@ Rules:
 ## Cold start and prefill
 
 Target: the selected channel's chat is visible within 300 ms of a cold start, and the
-rest fills in without dropping a frame. Measured through `PerfLog`.
+rest fills in without dropping a frame. Measured through `AppLog`.
 
 1. Read the newest window per channel from the archive. Decode in one background
    isolate and hand results over with `Isolate.exit` (no copy).

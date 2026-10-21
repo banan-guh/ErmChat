@@ -1032,14 +1032,14 @@ class _HistoryViewState extends State<HistoryView> {
   void _log(String message) {
     logDebug('[hist] $message');
     JankLog.note('hist $message');
-    if (PerfProbe.enabled) PerfLog.I.record('HIST', message);
+    if (PerfProbe.enabled) AppLog.I.record('HIST', message);
   }
 
   /// Logs a state the list should never reach, under its own tag so one
   /// filter finds every report.
   void _warn(String message) {
     logDebug('[hist!] ${widget.channel}: $message');
-    if (PerfProbe.enabled) PerfLog.I.record('HIST!', message);
+    if (PerfProbe.enabled) AppLog.I.record('HIST!', message);
   }
 
   ScrollPosition? get _pos =>

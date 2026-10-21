@@ -121,14 +121,12 @@ class _DevSettingsScreenState extends State<DevSettingsScreen> {
           const Divider(),
           ListTile(
             leading: const Icon(Icons.receipt_long),
-            title: const Text('Performance log'),
-            subtitle: const Text(
-              'Freeze diagnostics: lifecycle, truncation, sheet animations',
-            ),
+            title: const Text('App log'),
+            subtitle: const Text('Recent sessions, newest first'),
             onTap: () {
               Navigator.push(
                 context,
-                MaterialPageRoute(builder: (_) => const _PerfLogScreen()),
+                MaterialPageRoute(builder: (_) => const _AppLogScreen()),
               );
             },
           ),
@@ -138,78 +136,62 @@ class _DevSettingsScreenState extends State<DevSettingsScreen> {
   }
 }
 
-class _PerfLogScreen extends StatefulWidget {
-  const _PerfLogScreen();
+class _AppLogScreen extends StatefulWidget {
+  const _AppLogScreen();
 
   @override
-  State<_PerfLogScreen> createState() => _PerfLogScreenState();
+  State<_AppLogScreen> createState() => _AppLogScreenState();
 }
 
-class _PerfLogScreenState extends State<_PerfLogScreen> {
-  List<String>? _previousSession;
+class _AppLogScreenState extends State<_AppLogScreen> {
+  List<String>? _entries;
 
   @override
   void initState() {
     super.initState();
-    unawaited(_loadPreviousSession());
+    unawaited(_load());
   }
 
-  Future<void> _loadPreviousSession() async {
-    final text = await PerfLog.I.readPreviousSession();
-    if (!mounted) return;
-    setState(() {
-      _previousSession = text?.split('\n').where((l) => l.isNotEmpty).toList();
-    });
+  Future<void> _load() async {
+    final entries = await AppLog.I.read();
+    if (mounted) setState(() => _entries = entries);
   }
 
-  void _copyAll() {
-    final buffer = StringBuffer();
-    if (_previousSession != null) {
-      buffer
-        ..writeln('=== previous session ===')
-        ..writeAll(_previousSession!, '\n')
-        ..writeln();
-    }
-    buffer
-      ..writeln('=== current session ===')
-      ..writeAll(PerfLog.I.entries(), '\n')
-      ..writeln();
-    Clipboard.setData(ClipboardData(text: buffer.toString()));
-    AppSnack.show(context, 'Copied ${PerfLog.I.entries().length} entries');
+  void _copy() {
+    final entries = _entries;
+    if (entries == null) return;
+    final (text, copied) = AppLog.copyText(entries);
+    Clipboard.setData(ClipboardData(text: text));
+    AppSnack.show(
+      context,
+      copied < entries.length
+          ? 'Copied the newest $copied of ${entries.length} entries'
+          : 'Copied $copied entries',
+    );
   }
 
   @override
   Widget build(BuildContext context) {
-    final current = PerfLog.I.entries().reversed.toList();
+    final theme = Theme.of(context);
+    final entries = _entries;
+    const mono = TextStyle(fontFamily: 'monospace', fontSize: 11);
+    final session = mono.copyWith(color: theme.colorScheme.primary);
     return SettingsPage(
-      title: const Text('Performance log'),
+      title: const Text('App log'),
       actions: [
         IconButton(
+          icon: const Icon(Icons.refresh),
+          tooltip: 'Reload',
+          onPressed: _load,
+        ),
+        IconButton(
           icon: const Icon(Icons.copy),
-          tooltip: 'Copy all',
-          onPressed: _copyAll,
+          tooltip: 'Copy newest first',
+          onPressed: _copy,
         ),
       ],
       body: Column(
         children: [
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    'Current session: ${current.length} entries',
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                ),
-                if (_previousSession != null)
-                  Text(
-                    'Previous: ${_previousSession!.length} entries',
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-              ],
-            ),
-          ),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             child: Card(
@@ -220,7 +202,7 @@ class _PerfLogScreenState extends State<_PerfLogScreen> {
                   children: [
                     Text(
                       'Data usage (since launch)',
-                      style: Theme.of(context).textTheme.titleSmall,
+                      style: theme.textTheme.titleSmall,
                     ),
                     const SizedBox(height: 4),
                     Text(
@@ -233,39 +215,45 @@ class _PerfLogScreenState extends State<_PerfLogScreen> {
                       'refetched ${DataUsageStats.I.refetches}  '
                       'tier ${DataUsageStats.I.appliedTier?.label ?? '?'}  '
                       'mobile ${DataUsageStats.I.mobile}',
-                      style: Theme.of(context).textTheme.bodySmall,
+                      style: theme.textTheme.bodySmall,
                     ),
                   ],
                 ),
               ),
             ),
           ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+            child: Align(
+              alignment: AlignmentDirectional.centerStart,
+              child: Text(
+                entries == null
+                    ? 'Loading'
+                    : '${entries.length} entries, newest first',
+                style: theme.textTheme.bodySmall,
+              ),
+            ),
+          ),
+          // One selection area over the whole list, so a drag selects
+          // across entries.
           Expanded(
-            child: ListView.builder(
-              itemCount: current.length + (_previousSession?.length ?? 0),
-              itemBuilder: (context, i) {
-                final isPrev = i >= current.length;
-                final line = isPrev
-                    ? _previousSession![i - current.length]
-                    : current[i];
-                return Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 1,
-                  ),
-                  child: SelectableText(
-                    line,
-                    style: TextStyle(
-                      fontFamily: 'monospace',
-                      fontSize: 11,
-                      color: isPrev
-                          ? Theme.of(context).colorScheme.onSurfaceVariant
-                          : null,
+            child: entries == null
+                ? const SizedBox.shrink()
+                : SelectionArea(
+                    child: ListView.builder(
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      itemCount: entries.length,
+                      itemBuilder: (_, i) {
+                        final entry = entries[i];
+                        return Text(
+                          entry,
+                          style: entry.endsWith('[LOG] session start')
+                              ? session
+                              : mono,
+                        );
+                      },
                     ),
                   ),
-                );
-              },
-            ),
           ),
         ],
       ),

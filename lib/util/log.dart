@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:collection';
+import 'dart:convert';
 import 'dart:developer' show Timeline;
 import 'dart:io';
 
@@ -65,99 +66,162 @@ class JankLog {
   }
 }
 
-/// Ring-buffer performance log, flushed to perf_log.txt. Previous session rotated to perf_log.prev.txt on startup (Dev settings > Performance log).
-class PerfLog {
-  PerfLog._();
-  static final PerfLog I = PerfLog._();
+/// App event log, kept on disk across sessions so a rare bug leaves a trail
+/// (Dev settings > App log). Each session appends to its own files under
+/// `logs/`, and the oldest files go once the folder passes [maxBytes].
+class AppLog {
+  AppLog._();
+  static final AppLog I = AppLog._();
 
-  static const int maxEntries = 1000;
+  @visibleForTesting
+  AppLog.test();
+
+  /// Disk budget across all sessions.
+  static const int maxBytes = 8 << 20;
+
+  /// A session continues in a new file past this size, so pruning can drop
+  /// the old half of a long session instead of all of it.
+  static const int maxFileBytes = 1 << 20;
+
+  /// Characters [copyText] stops at. Larger clipboard writes can fail on
+  /// Android, and most paste targets truncate well before this.
+  static const int copyLimit = 100000;
+
   static const Duration flushInterval = Duration(seconds: 2);
 
-  final List<String> _entries = <String>[];
+  final List<String> _pending = <String>[];
+  Directory? _dir;
   File? _file;
-  File? _prevFile;
+  String _session = '';
+  int _part = 0;
+  int _fileBytes = 0;
   Timer? _flushTimer;
-  bool _dirty = false;
+  Future<void> _writing = Future<void>.value();
 
-  /// Lines already on disk, and how many ring entries they account for.
-  int _fileLines = 0;
-  int _flushedCount = 0;
-
-  /// Rotates previous log and prepares a fresh file. Idempotent.
-  Future<void> init() async {
-    if (_file != null) return;
+  /// Opens this session's file and prunes old sessions. Lines recorded
+  /// before it are kept and written on the first flush. Idempotent.
+  Future<void> init({Directory? dir}) async {
+    if (_dir != null) return;
     try {
-      final dir = await getApplicationDocumentsDirectory();
-      final sep = Platform.pathSeparator;
-      _file = File('${dir.path}${sep}perf_log.txt');
-      _prevFile = File('${dir.path}${sep}perf_log.prev.txt');
-      if (await _file!.exists()) {
-        try {
-          await _prevFile!.delete();
-        } catch (_) {}
-        await _file!.rename(_prevFile!.path);
+      final base = dir ?? await getApplicationDocumentsDirectory();
+      final logs = Directory('${base.path}${Platform.pathSeparator}logs');
+      await logs.create(recursive: true);
+      for (final name in const ['perf_log.txt', 'perf_log.prev.txt']) {
+        final old = File('${base.path}${Platform.pathSeparator}$name');
+        if (await old.exists()) await old.delete();
       }
-      record('PERF', 'session start');
+      _dir = logs;
+      _session = DateTime.now().millisecondsSinceEpoch.toString();
+      _file = _partFile();
+      await _prune();
     } catch (_) {
-      // No documents directory (tests, web): stay in-memory only.
+      // No documents directory (tests, web): stay in memory only.
+      _dir = null;
       _file = null;
-      _prevFile = null;
     }
+    record('LOG', 'session start');
   }
 
+  File _partFile() => File(
+    '${_dir!.path}${Platform.pathSeparator}'
+    '$_session-${_part.toString().padLeft(3, '0')}.txt',
+  );
+
+  /// Appends one entry. Continuation lines of a multi-line [message] are
+  /// indented, which is how [read] tells entries apart.
   void record(String tag, String message) {
-    final line = '${DateTime.now().toIso8601String()} [$tag] $message';
-    _entries.add(line);
-    if (_entries.length > maxEntries) {
-      final removed = _entries.length - maxEntries;
-      _entries.removeRange(0, removed);
-      _flushedCount -= removed;
-      if (_flushedCount < 0) _flushedCount = 0;
+    final body = message.replaceAll('\n', '\n    ');
+    _pending.add('${DateTime.now().toIso8601String()} [$tag] $body');
+    logDebug('[$tag] $message');
+    if (_file == null) {
+      // Memory only until init, or for good without a documents directory.
+      if (_pending.length > 2000) _pending.removeAt(0);
+      return;
     }
-    logDebug('[perf] $tag $message');
-    _dirty = true;
-    _scheduleFlush();
-  }
-
-  List<String> entries() => List.unmodifiable(_entries);
-
-  /// Contents of the previous session's log, or null when unavailable.
-  Future<String?> readPreviousSession() async {
-    final f = _prevFile;
-    if (f == null) return null;
-    try {
-      return await f.exists() ? await f.readAsString() : null;
-    } catch (_) {
-      return null;
-    }
-  }
-
-  void _scheduleFlush() {
-    if (_file == null || _flushTimer != null) return;
-    _flushTimer = Timer(flushInterval, () {
+    _flushTimer ??= Timer(flushInterval, () {
       _flushTimer = null;
-      _flush();
+      unawaited(flush());
     });
   }
 
-  /// Appends entries added since the last flush. Rewrites the ring when the
-  /// file would exceed [maxEntries], so the on-disk log stays bounded.
-  Future<void> _flush() async {
+  /// Writes pending entries. Writes run one at a time, in order.
+  Future<void> flush() => _writing = _writing.then((_) => _write());
+
+  Future<void> _write() async {
     final f = _file;
-    if (f == null || !_dirty) return;
-    _dirty = false;
-    final batch = _entries.sublist(_flushedCount);
-    if (batch.isEmpty) return;
-    // Advance before the await so a record that lands mid-write is not lost.
-    final rewrite = _fileLines + batch.length > maxEntries;
-    _flushedCount = _entries.length;
-    _fileLines = rewrite ? _entries.length : _fileLines + batch.length;
+    if (f == null || _pending.isEmpty) return;
+    final text = '${_pending.join('\n')}\n';
+    _pending.clear();
     try {
-      if (rewrite) {
-        await f.writeAsString('${_entries.join('\n')}\n');
-      } else {
-        await f.writeAsString('${batch.join('\n')}\n', mode: FileMode.append);
+      await f.writeAsString(text, mode: FileMode.append, flush: true);
+      _fileBytes += utf8.encode(text).length;
+      if (_fileBytes > maxFileBytes) {
+        _part++;
+        _fileBytes = 0;
+        _file = _partFile();
+        await _prune();
       }
-    } catch (_) {}
+    } catch (_) {
+      // Disk full or the folder gone: these lines are lost, later ones retry.
+    }
+  }
+
+  /// Deletes the oldest files until the folder fits [maxBytes]. File names
+  /// start with the session's epoch milliseconds, so name order is age order.
+  Future<void> _prune() async {
+    final files = await _files();
+    var total = 0;
+    for (final f in files.reversed) {
+      total += await f.length();
+      if (total > maxBytes && f.path != _file?.path) await f.delete();
+    }
+  }
+
+  Future<List<File>> _files() async {
+    final dir = _dir;
+    if (dir == null) return [];
+    final files = [
+      await for (final e in dir.list())
+        if (e is File && e.path.endsWith('.txt')) e,
+    ]..sort((a, b) => a.path.compareTo(b.path));
+    return files;
+  }
+
+  /// Every entry on disk plus any not yet written, newest first.
+  Future<List<String>> read() async {
+    await flush();
+    final lines = <String>[];
+    for (final f in await _files()) {
+      try {
+        lines.addAll(await f.readAsLines());
+      } catch (_) {}
+    }
+    lines.addAll(_pending.expand((e) => e.split('\n')));
+    final entries = <String>[];
+    for (final line in lines) {
+      if (line.isEmpty) continue;
+      if (line.startsWith(' ') && entries.isNotEmpty) {
+        entries.last = '${entries.last}\n$line';
+      } else {
+        entries.add(line);
+      }
+    }
+    return entries.reversed.toList();
+  }
+
+  /// [newestFirst] entries joined until [limit] characters, newest first,
+  /// and how many fit.
+  static (String, int) copyText(
+    List<String> newestFirst, {
+    int limit = copyLimit,
+  }) {
+    final out = StringBuffer();
+    var count = 0;
+    for (final entry in newestFirst) {
+      if (out.length + entry.length + 1 > limit) break;
+      out.writeln(entry);
+      count++;
+    }
+    return (out.toString(), count);
   }
 }

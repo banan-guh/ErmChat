@@ -688,7 +688,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     super.initState();
     _pasteHost = _chatNotice..paste = _pasteFromClipboard;
     unawaited(_ttsController.init());
-    unawaited(PerfLog.I.init());
+    unawaited(AppLog.I.init());
     DataUsageStats.I.start();
     // Creating the outbox resends reports queued in an earlier session.
     ref.read(bugReportOutboxProvider);
@@ -1016,12 +1016,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     JankLog.note('app ${state.name}');
     if (state == AppLifecycleState.paused) {
       _releaseDecodedImages();
-      // A paused app may be killed without warning; save stats, threads and
-      // the unsealed chat history.
+      // A paused app may be killed without warning; save stats, threads,
+      // the unsealed chat history and the app log.
       unawaited(_analytics.flush());
       unawaited(_threads.persistSaved());
       final archive = ref.read(archiveProvider);
       if (archive != null) unawaited(archive.writer.flush());
+      unawaited(AppLog.I.flush());
     }
     // Inactive is still on screen (notification shade, system dialog), so
     // only a hidden app counts as backgrounded for notifications.

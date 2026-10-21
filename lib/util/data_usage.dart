@@ -26,8 +26,8 @@ class SessionCount {
 ///
 /// Counts bytes by source (IRC sockets, emote image downloads, provider JSON)
 /// plus cache churn (evictions), so we can see where bandwidth goes. A 10-minute
-/// timer synthesizes one summary line into [PerfLog] (visible in Dev settings >
-/// Performance log). The counters are plain ints mutated only on the UI isolate,
+/// timer synthesizes one summary line into [AppLog] (visible in Dev settings >
+/// App log). The counters are plain ints mutated only on the UI isolate,
 /// so no locking is needed.
 class DataUsageStats {
   DataUsageStats._();
@@ -210,7 +210,7 @@ class DataUsageStats {
   }
 
   void _emit() {
-    PerfLog.I.record(
+    AppLog.I.record(
       'DATA',
       '10min total=${totalBytes}B '
           'ircR=${ircReadBytes}B ircW=${ircWriteBytes}B '
