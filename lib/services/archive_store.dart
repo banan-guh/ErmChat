@@ -2269,10 +2269,12 @@ List<bool> matchBlocks(
   bool both = false,
   List<List<Set<int>>>? wantSystem,
 }) {
-  bool has(Uint8List? list, bool Function(Set<int> ids) test) {
+  // Lists are short and wanted sets are built once, so probing the sets
+  // beats building a set per block on every keystroke.
+  bool has(Uint8List? list, bool Function(List<int> ids) test) {
     if (list == null) return true;
     try {
-      return test(decodeWordList(list).toSet());
+      return test(decodeWordList(list));
     } on ArchiveFormatException {
       return true;
     }
@@ -2282,7 +2284,7 @@ List<bool> matchBlocks(
       want != null &&
       has(
         list,
-        (ids) => want.any((all) => all.every((s) => s.any(ids.contains))),
+        (ids) => want.any((all) => all.every((s) => ids.any(s.contains))),
       );
 
   return [
@@ -2290,7 +2292,7 @@ List<bool> matchBlocks(
       if ((
             hasWords(words[i], wantWords),
             wantSenders[i] != null &&
-                has(senders[i], (ids) => wantSenders[i]!.any(ids.contains)),
+                has(senders[i], (ids) => ids.any(wantSenders[i]!.contains)),
           )
           case (final byWords, final bySender))
         both
