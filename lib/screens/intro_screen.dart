@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
@@ -265,15 +266,28 @@ class _WhatsNewScreenState extends State<WhatsNewScreen> {
                 children: [
                   for (final p in widget.pages)
                     LayoutBuilder(
-                      builder: (context, box) => _IntroPage(
-                        title: p.title(l10n),
-                        body: p.body(l10n),
-                        // A page too short for the animation and its text
-                        // keeps the text.
-                        child: box.maxHeight < _Showcase.height + _textRoom
-                            ? const SizedBox.shrink()
-                            : _Showcase(asset: p.asset),
-                      ),
+                      builder: (context, box) {
+                        // The art grows with the page up to a cap and leaves
+                        // the text its room. Too small to read, it drops and
+                        // the page keeps the text.
+                        final width = math.min(
+                          math.min(box.maxWidth - 48, _Showcase.maxWidth),
+                          (box.maxHeight - _textRoom) * p.aspect,
+                        );
+                        return _IntroPage(
+                          title: p.title(l10n),
+                          body: p.body(l10n),
+                          child: width < _Showcase.minWidth
+                              ? const SizedBox.shrink()
+                              : Center(
+                                  child: _Showcase(
+                                    asset: p.asset,
+                                    width: width,
+                                    aspect: p.aspect,
+                                  ),
+                                ),
+                        );
+                      },
                     ),
                 ],
               ),
@@ -303,16 +317,21 @@ class _WhatsNewScreenState extends State<WhatsNewScreen> {
   }
 }
 
-/// A feature's looping animation, sized like a phone screen crop. A missing
-/// asset shows an empty frame, so pages can land before their animation.
+/// A feature's animation or still. A missing asset shows an empty frame, so
+/// pages can land before their art.
 class _Showcase extends StatelessWidget {
-  const _Showcase({required this.asset});
+  const _Showcase({
+    required this.asset,
+    required this.width,
+    required this.aspect,
+  });
 
   final String asset;
+  final double width;
+  final double aspect;
 
-  static const _width = 280.0;
-  static const _aspect = 9 / 10;
-  static const height = _width / _aspect;
+  static const minWidth = 200.0;
+  static const maxWidth = 480.0;
 
   @override
   Widget build(BuildContext context) {
@@ -320,8 +339,8 @@ class _Showcase extends StatelessWidget {
     return ClipRRect(
       borderRadius: BorderRadius.circular(Radii.large),
       child: SizedBox(
-        width: _width,
-        height: height,
+        width: width,
+        height: width / aspect,
         child: Image.asset(
           asset,
           fit: BoxFit.cover,

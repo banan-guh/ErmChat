@@ -3208,8 +3208,6 @@
   "showcaseDone": "Done",
   "showcaseHistoryTitle": "Chat history",
   "showcaseHistoryBody": "Scroll back through days of chat. Open the calendar to jump to any day, and keep the ones you want past retention.",
-  "showcaseSearchTitle": "Search everything",
-  "showcaseSearchBody": "Search reaches all of a channel's history. Type user:name to find someone's messages and mod actions, then tap a result to jump there.",
   "showcaseVodsTitle": "VODs with chat",
   "showcaseVodsBody": "Watch a past stream with its chat replaying as it happened, and switch back to live chat any time.",
   "showcaseIslandTitle": "Your layout",

@@ -2,17 +2,21 @@ import 'dart:io' show Platform;
 
 import '../l10n/app_localizations.dart';
 
-/// One page of an update's showcase: a looping animation (an animated WebP
+/// One page of an update's showcase: a looping animation or a still (a WebP
 /// under assets/whats_new/) with a title and a line about the feature.
 class ShowcasePage {
   const ShowcasePage({
     required this.asset,
     required this.title,
     required this.body,
+    this.aspect = 9 / 10,
     this.iosOnly = false,
   });
 
   final String asset;
+
+  /// The asset's width over its height.
+  final double aspect;
   final String Function(AppLocalizations l) title;
   final String Function(AppLocalizations l) body;
   final bool iosOnly;
@@ -28,14 +32,10 @@ final _showcases = <String, List<ShowcasePage>>{
       body: (l) => l.showcaseHistoryBody,
     ),
     ShowcasePage(
-      asset: 'assets/whats_new/0.10/search.webp',
-      title: (l) => l.showcaseSearchTitle,
-      body: (l) => l.showcaseSearchBody,
-    ),
-    ShowcasePage(
       asset: 'assets/whats_new/0.10/vods.webp',
       title: (l) => l.showcaseVodsTitle,
       body: (l) => l.showcaseVodsBody,
+      aspect: 1080 / 700,
     ),
     ShowcasePage(
       asset: 'assets/whats_new/0.10/island.webp',
