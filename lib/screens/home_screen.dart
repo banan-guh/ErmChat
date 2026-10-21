@@ -1918,12 +1918,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
         layout.stripActions.contains(inputMenu) ||
         (layout.header == HeaderStyle.appBar &&
             layout.appBarActions.contains(inputMenu));
-    // With the menu in the row, hiding the input leaves the menu alone,
-    // floating at the corner.
+    // With the menu in the row or the field, hiding the input leaves the
+    // menu alone, floating at the corner. Fullscreen already floats a field
+    // menu where the strip was.
     final menuFloats =
         !_showInput &&
         _layoutEdit == null &&
-        layout.rowActions.contains(inputMenu);
+        (layout.rowActions.contains(inputMenu) ||
+            (layout.fieldActions.contains(inputMenu) && !_isFullscreen));
     final hasBottomBar =
         (_chat.names.isNotEmpty || _channelManager.session.channelsPending) &&
         (_showInput ||

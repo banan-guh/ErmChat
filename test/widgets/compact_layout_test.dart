@@ -185,4 +185,37 @@ void main() {
       }
     });
   }
+
+  // A softlock: with the view menu in the row or the field, hiding the input
+  // took the menu with it, and the menu is the only way back.
+  testWidgets('hiding the input never hides the view menu', (tester) async {
+    await pumpJoined(tester, glass: false, density: LayoutDensity.compact);
+    final prefs = await Prefs.load();
+    final dankchat4 = ChromeTheme.dankchat4.spec;
+    final placements = {
+      'row': dankchat4,
+      'field': dankchat4.copyWith(
+        rowEnd: [ChromeAction.threads],
+        fieldEnd: [FieldItem.action(ChromeAction.viewMenu)],
+      ),
+    };
+    for (final MapEntry(key: place, value: spec) in placements.entries) {
+      await prefs.setShowInput(true);
+      await prefs.setCustomChromeThemes([spec]);
+      await prefs.setChromeThemeKey('${Prefs.customChromeThemePrefix}0');
+      await settlePrefs(tester);
+      await prefs.setShowInput(false);
+      await settlePrefs(tester);
+      expect(
+        find.byIcon(Icons.expand_more),
+        findsOneWidget,
+        reason: 'menu in the $place',
+      );
+      expect(
+        find.byKey(const Key('bottom_chrome_bar')),
+        findsNothing,
+        reason: 'only the menu stays, menu in the $place',
+      );
+    }
+  });
 }
