@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math';
 
+import 'package:clock/clock.dart';
 import 'package:flutter/foundation.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
@@ -64,6 +65,15 @@ abstract class IrcConnection {
   /// Whether the current connect goes through [wsUrlOverride]. The proxy
   /// rejects anonymous nicks, so anonymous connects stay direct.
   bool _viaProxy = false;
+
+  /// Whether this run asked for the proxy. When the proxy can't be reached
+  /// the run dials Twitch instead, and goes back to the proxy on the first
+  /// reconnect after [_proxyRetryAt].
+  bool _proxyWanted = false;
+  int _proxyFailures = 0;
+  DateTime? _proxyRetryAt;
+  static const _proxyFailuresBeforeFallback = 2;
+  static const _proxyRetryAfter = Duration(minutes: 10);
 
   /// Shared JOIN pacing. When the app wires both sockets to one limiter,
   /// their combined JOIN rate stays inside Twitch's command budget; a null
@@ -222,9 +232,9 @@ abstract class IrcConnection {
     }
     this.username = username.toLowerCase();
     token = accessToken;
-    // Proxied sockets cost no Twitch budget: their JOINs bypass pacing.
-    _viaProxy = useProxy && wsUrlOverride != null;
-    _joinBudget.setBypass(role, _viaProxy);
+    _proxyWanted = useProxy && wsUrlOverride != null;
+    _proxyFailures = 0;
+    _route(viaProxy: _proxyWanted);
     _fatalAuth = false;
     _runGeneration++;
     final firstSettled = Completer<void>();
@@ -244,8 +254,20 @@ abstract class IrcConnection {
     _ensureConnectivityListener();
     _reconnectAttempt = 0;
     while (!_disposed && gen == _runGeneration) {
+      if (_proxyWanted && !_viaProxy && !clock.now().isBefore(_proxyRetryAt!)) {
+        _proxyFailures = 0;
+        _route(viaProxy: true);
+      }
       final outcome = await _attemptConnect(gen, settle);
       if (_disposed || gen != _runGeneration) break;
+      if (outcome == _AttemptOutcome.unreachable &&
+          _viaProxy &&
+          ++_proxyFailures >= _proxyFailuresBeforeFallback) {
+        logDebug('$debugPrefix proxy unreachable, dialing Twitch');
+        _route(viaProxy: false);
+        _proxyRetryAt = clock.now().add(_proxyRetryAfter);
+        continue;
+      }
       // A server-requested reconnect is honored immediately (no backoff).
       if (outcome == _AttemptOutcome.reconnect) continue;
       if (outcome == _AttemptOutcome.stopped) break;
@@ -316,6 +338,7 @@ abstract class IrcConnection {
 
         _emitStatus(IrcConnectionStatus.connected);
         _reconnectAttempt = 0;
+        _proxyFailures = 0;
         _startPingTimer();
 
         // Serve until the socket dies (error, close, server RECONNECT, PONG
@@ -341,11 +364,17 @@ abstract class IrcConnection {
         _streamSub = null;
         _socketDeath = null;
         _emitStatus(IrcConnectionStatus.disconnected);
-        return _AttemptOutcome.failure;
+        return _AttemptOutcome.unreachable;
       }
     } finally {
       _attemptInFlight = false;
     }
+  }
+
+  // Proxied sockets cost no Twitch budget: their JOINs bypass pacing.
+  void _route({required bool viaProxy}) {
+    _viaProxy = viaProxy;
+    _joinBudget.setBypass(role, viaProxy);
   }
 
   Duration _backoffDelay(int attempt) {
@@ -880,4 +909,6 @@ enum _DeathReason { error, closed, reconnect, authFailed }
 
 enum _WakeReason { timer, connectivity, stopped }
 
-enum _AttemptOutcome { failure, reconnect, stopped, fatalAuth }
+/// [unreachable] is a connect that never opened; [failure] is a socket that
+/// opened and later died.
+enum _AttemptOutcome { failure, unreachable, reconnect, stopped, fatalAuth }

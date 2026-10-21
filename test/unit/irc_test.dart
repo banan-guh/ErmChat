@@ -73,6 +73,19 @@ class _TestReadService extends IrcReadService {
   Future<WebSocketChannel> openChannel() async => channels.first;
 }
 
+/// A proxied read socket whose proxy never answers.
+class _RoutedReadService extends IrcReadService {
+  _RoutedReadService(this.dialed) : super(wsUrlOverride: 'ws://proxy.test/ws');
+
+  final List<String> dialed;
+
+  @override
+  Future<WebSocketChannel> openChannel() async {
+    dialed.add(socketUri.host);
+    return FakeWebSocketChannel(failReady: socketUri.host == 'proxy.test');
+  }
+}
+
 Map<String, dynamic> _welcome({String id = 'session-test', int timeout = 10}) =>
     {
       'metadata': {'message_type': 'session_welcome'},
@@ -585,6 +598,36 @@ void main() {
         );
         async.flushMicrotasks();
         expect(service.socketUri.host, 'irc-ws.chat.twitch.tv');
+        service.dispose();
+      });
+    });
+
+    test('an unreachable proxy falls back to Twitch, then retries it', () {
+      fakeAsync((async) {
+        final dialed = <String>[];
+        final service = _RoutedReadService(dialed);
+        service.connect(username: 'user', accessToken: 'token');
+        async.elapse(const Duration(seconds: 5));
+        expect(dialed, [
+          'proxy.test',
+          'proxy.test',
+          'irc-ws.chat.twitch.tv',
+        ], reason: 'two failed proxy dials, then Twitch at once');
+        expect(service.isConnected, isTrue);
+
+        service.handleLine(':tmi.twitch.tv RECONNECT');
+        async.flushMicrotasks();
+        expect(dialed.last, 'irc-ws.chat.twitch.tv', reason: 'still cooling');
+
+        async.elapse(const Duration(minutes: 10));
+        final before = dialed.length;
+        service.handleLine(':tmi.twitch.tv RECONNECT');
+        async.elapse(const Duration(seconds: 5));
+        expect(dialed.sublist(before), [
+          'proxy.test',
+          'proxy.test',
+          'irc-ws.chat.twitch.tv',
+        ], reason: 'cooldown over: the proxy gets another try');
         service.dispose();
       });
     });
