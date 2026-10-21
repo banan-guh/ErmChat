@@ -4,9 +4,11 @@ import 'dart:io' show Platform;
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:http/http.dart' as http;
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../l10n/l10n.dart';
+import '../../util/constants.dart' show httpTimeout;
 import '../../services/analytics_service.dart';
 import '../../services/app_updates.dart';
 import '../../services/emote_images.dart';
@@ -124,20 +126,26 @@ class ToolsSettingsScreen extends StatelessWidget {
   }
 
   /// Settings out and in, through the clipboard or a .txt file. A file
-  /// carries the few thousand characters where a paste gets cut or refused.
+  /// carries the few thousand characters where a paste gets cut or refused,
+  /// and so does a Pastebin link, which the clipboard import fetches.
   Future<void> _showBackupOptions(BuildContext context) async {
     final l = context.l10n;
-    Widget option(IconData icon, String title, Future<void> Function() run) =>
-        Builder(
-          builder: (sheetContext) => ListTile(
-            leading: Icon(icon),
-            title: Text(title),
-            onTap: () {
-              Navigator.pop(sheetContext);
-              run();
-            },
-          ),
-        );
+    Widget option(
+      IconData icon,
+      String title,
+      Future<void> Function() run, {
+      String? subtitle,
+    }) => Builder(
+      builder: (sheetContext) => ListTile(
+        leading: Icon(icon),
+        title: Text(title),
+        subtitle: subtitle == null ? null : Text(subtitle),
+        onTap: () {
+          Navigator.pop(sheetContext);
+          run();
+        },
+      ),
+    );
     await showModalBottomSheet<void>(
       context: context,
       useSafeArea: true,
@@ -153,16 +161,13 @@ class ToolsSettingsScreen extends StatelessWidget {
             ),
             option(Icons.save_alt, l.exportFile, () => _exportFile(context)),
             option(
-              Icons.open_in_new,
-              l.exportPastebin,
-              () => _exportPastebin(context),
-            ),
-            option(
               Icons.content_paste,
               l.importClipboard,
               () => _importClipboard(context),
+              subtitle: l.importClipboardHint,
             ),
             option(Icons.file_open, l.importFile, () => _importFile(context)),
+            _PastebinHint(onOpen: () => _openPastebin(context)),
           ],
         ),
       ),
@@ -191,23 +196,37 @@ class ToolsSettingsScreen extends StatelessWidget {
     AppSnack.show(context, context.l10n.exportSettingsSaved);
   }
 
-  /// Copies the export and opens Pastebin, where the user pastes it and
-  /// gets a link to share. No account or API key involved.
-  Future<void> _exportPastebin(BuildContext context) async {
-    await Clipboard.setData(ClipboardData(text: await _exportText()));
+  Future<void> _openPastebin(BuildContext context) async {
     final ok = await launchUrl(_pastebin, mode: LaunchMode.externalApplication);
-    if (!context.mounted) return;
-    final l = context.l10n;
-    AppSnack.show(
-      context,
-      ok ? l.exportSettingsDone : l.couldNotOpenUrl('$_pastebin'),
-    );
+    if (!ok && context.mounted) {
+      AppSnack.show(context, context.l10n.couldNotOpenUrl('$_pastebin'));
+    }
   }
 
   static final _pastebin = Uri.parse('https://pastebin.com');
 
+  /// A pastebin.com link to a paste, as the address of its raw text.
+  static final _pasteLink = RegExp(
+    r'^https?://(?:www\.)?pastebin\.com/(?:raw/)?([A-Za-z0-9]+)/?$',
+  );
+
   Future<void> _importClipboard(BuildContext context) async {
-    final text = (await Clipboard.getData(Clipboard.kTextPlain))?.text ?? '';
+    var text = (await Clipboard.getData(Clipboard.kTextPlain))?.text ?? '';
+    final paste = _pasteLink.firstMatch(text.trim())?.group(1);
+    if (paste != null) {
+      final raw = Uri.https('pastebin.com', '/raw/$paste');
+      http.Response? res;
+      try {
+        res = await http.get(raw).timeout(httpTimeout);
+      } catch (_) {}
+      if (res == null || res.statusCode != 200) {
+        if (context.mounted) {
+          AppSnack.show(context, context.l10n.importLinkFailed);
+        }
+        return;
+      }
+      text = utf8.decode(res.bodyBytes, allowMalformed: true);
+    }
     if (context.mounted) await _import(context, text);
   }
 
@@ -335,6 +354,52 @@ class ToolsSettingsScreen extends StatelessWidget {
             ),
           ],
         ],
+      ),
+    );
+  }
+}
+
+/// "Too long to send?" with pastebin.com as a plain link in the sentence.
+class _PastebinHint extends StatelessWidget {
+  const _PastebinHint({required this.onOpen});
+
+  final VoidCallback onOpen;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    const site = 'pastebin.com';
+    // The sentence is translated whole; the site name marks where the link
+    // goes.
+    final parts = context.l10n.exportPastebinHint(site).split(site);
+    final style = theme.textTheme.bodySmall?.copyWith(
+      color: theme.colorScheme.onSurfaceVariant,
+    );
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+      child: Text.rich(
+        TextSpan(
+          style: style,
+          children: [
+            TextSpan(text: parts.first),
+            WidgetSpan(
+              alignment: PlaceholderAlignment.baseline,
+              baseline: TextBaseline.alphabetic,
+              child: GestureDetector(
+                onTap: onOpen,
+                child: Text(
+                  site,
+                  style: style?.copyWith(
+                    color: theme.colorScheme.primary,
+                    decoration: TextDecoration.underline,
+                    decorationColor: theme.colorScheme.primary,
+                  ),
+                ),
+              ),
+            ),
+            TextSpan(text: parts.skip(1).join(site)),
+          ],
+        ),
       ),
     );
   }

@@ -126,9 +126,18 @@
   "settingSettingsBackup": "Import/export settings",
   "exportClipboard": "Copy to clipboard",
   "exportFile": "Save as file",
-  "exportPastebin": "Copy and open Pastebin",
+  "exportPastebinHint": "Too long to send? Paste it on {site} and share that link instead.",
+  "@exportPastebinHint": {
+    "placeholders": {
+      "site": {
+        "type": "String"
+      }
+    }
+  },
   "importClipboard": "Paste from clipboard",
   "importFile": "Open file",
+  "importClipboardHint": "Settings or a pastebin.com link",
+  "importLinkFailed": "Couldn't load that link",
   "checkUpdatesNow": "Check now",
   "updateUpToDate": "You're on the latest version",
   "updateCheckFailed": "Couldn't check for updates",
