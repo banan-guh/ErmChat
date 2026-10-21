@@ -1,10 +1,13 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import '../../util/log.dart';
 import '../../util/prefs.dart';
 import '../../services/fake_chat_feed.dart';
 import '../../widgets/app_snack.dart';
+import '../intro_screen.dart';
+import '../whats_new_pages.dart';
 import 'prefs_tiles.dart';
 import 'settings_page.dart';
 import '../../util/settings.dart';
@@ -26,6 +29,23 @@ class DevSettingsScreen extends StatefulWidget {
 }
 
 class _DevSettingsScreenState extends State<DevSettingsScreen> {
+  Future<void> _showShowcase(BuildContext context) async {
+    final info = await PackageInfo.fromPlatform();
+    final pages = showcaseFor(info.version, '');
+    if (!context.mounted) return;
+    if (pages == null) {
+      AppSnack.show(context, 'No showcase for ${info.version}');
+      return;
+    }
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        fullscreenDialog: true,
+        builder: (_) => WhatsNewScreen(pages: pages),
+      ),
+    );
+  }
+
   Future<void> _replayIntro(BuildContext context) async {
     final prefs = await Prefs.load();
     await prefs.setWelcomeSeen(false);
@@ -93,6 +113,12 @@ class _DevSettingsScreenState extends State<DevSettingsScreen> {
             title: "Arm What's new",
             subtitle: 'Next launch shows it as if you just updated',
             pref: Settings.armWhatsNew,
+          ),
+          ListTile(
+            leading: const Icon(Icons.slideshow),
+            title: const Text('Show update showcase'),
+            subtitle: const Text("This version's feature pages, now"),
+            onTap: () => _showShowcase(context),
           ),
           PrefsSwitchTile(
             secondary: const Icon(Icons.system_update),
