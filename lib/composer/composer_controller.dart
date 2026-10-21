@@ -14,6 +14,7 @@ import 'suggestion.dart';
 import '../services/twitch_auth.dart';
 import '../services/user_store.dart';
 import '../util/duration_format.dart';
+import '../util/haptics.dart';
 import '../widgets/panel_manager.dart';
 import 'autocomplete_revert.dart';
 import '../l10n/l10n.dart';
@@ -415,6 +416,7 @@ class ComposerController {
       messageController.clear();
     }
     chatConn.doSendMessage(text, channel);
+    Haptics.major();
     _spamTimer = Timer(
       chatConn.repeatDelay(
         channel,
