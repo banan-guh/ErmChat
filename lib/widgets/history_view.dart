@@ -231,6 +231,17 @@ class _HoldBouncingPhysics extends BouncingScrollPhysics
 /// Rows a re-anchor shifted within one sliver: each row's new index by its
 /// key, and the layout offset at each new index. Live for the one rebuild
 /// and layout that apply the re-anchor.
+/// Starts a new scroll position where [start] says, read when the list first
+/// lays out, so a list opening at its newest row needs no jump a frame later.
+class _StartController extends ScrollController {
+  _StartController(this.start);
+
+  final double Function() start;
+
+  @override
+  double get initialScrollOffset => start();
+}
+
 class _Moves {
   final Map<String, int> indexOf = {};
   final Map<int, double> offsets = {};
@@ -307,7 +318,12 @@ class _HistoryViewState extends State<HistoryView> {
   static final Map<String, int> _counters = {};
   static _HistoryViewState? _active;
 
-  final ScrollController _controller = ScrollController();
+  late final ScrollController _controller = _StartController(
+    () => _follow ? -_bottomGap : 0,
+  );
+
+  /// The newer end's padding: the newest row rests this far above offset 0.
+  double _bottomGap = 0;
   final GlobalKey _olderKey = GlobalKey();
   final GlobalKey _newerKey = GlobalKey();
   final _Moves _olderMoves = _Moves();
@@ -2069,7 +2085,7 @@ class _HistoryViewState extends State<HistoryView> {
     // above it. A floating island clears by its measured footprint plus the
     // same visual gap, and rows scroll on behind it.
     final island = floating ? scope!.clearanceFor(widget.channel) : 0.0;
-    final bottom =
+    final bottom = _bottomGap =
         (floating ? island + kFloatingComposerGap : kOpaqueComposerGap) +
         (scope?.listExtra ?? 0);
     _status =

@@ -935,6 +935,11 @@ void main() {
       settle: false,
     );
     expect(find.textContaining('small 5'), findsOneWidget);
+    // Search jumped a frame after settling: its first frame sat below the
+    // bottom gap that the newest row rests on.
+    final first = tester.getRect(find.textContaining('small 5'));
+    await tester.pump();
+    expect(tester.getRect(find.textContaining('small 5')), first);
   });
 
   testWidgets('switching channels comes back at the bottom, no button', (
