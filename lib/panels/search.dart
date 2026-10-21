@@ -89,7 +89,12 @@ class SearchPanels {
   // Shared with the composer: mode swaps keep focus, keyboard stays up.
   FocusNode get focusNode => composerFocusNode;
 
+  // Typing settles for this long before a query runs.
+  static const _typingPause = Duration(milliseconds: 100);
+  Timer? _typing;
+
   void dispose() {
+    _typing?.cancel();
     for (final v in _versions.values) {
       v.dispose();
     }
@@ -196,6 +201,7 @@ class SearchPanels {
   void closeSearch({bool focusComposer = false}) {
     if (!open) return;
     open = false;
+    _typing?.cancel();
     if (_restoredInput) {
       _restoredInput = false;
       setShowInput(false);
@@ -206,6 +212,17 @@ class SearchPanels {
     field.clear();
     if (!focusComposer) focusNode.unfocus();
     markDirty();
+  }
+
+  /// A keystroke in the field: the query runs once typing pauses, and a
+  /// cleared field clears at once.
+  void typeQuery(String channel, String query) {
+    _typing?.cancel();
+    if (query.trim().isEmpty) {
+      setQuery(channel, query);
+      return;
+    }
+    _typing = Timer(_typingPause, () => setQuery(channel, query));
   }
 
   void setQuery(String channel, String query) {

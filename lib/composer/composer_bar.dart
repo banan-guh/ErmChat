@@ -114,7 +114,7 @@ class ComposerBar extends StatelessWidget {
                 onSend: () {},
                 onChanged: (q) {
                   final channel = search.selectedChannel();
-                  if (channel != null) search.setQuery(channel, q);
+                  if (channel != null) search.typeQuery(channel, q);
                 },
                 onSubmitted: (_) => search.focusNode.unfocus(),
                 enabled: true,

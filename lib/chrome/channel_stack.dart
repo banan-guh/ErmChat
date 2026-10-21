@@ -470,40 +470,47 @@ class ChannelPanels {
         filter.live != ChatSearchLive.stream) {
       return null;
     }
-    final q = filter.query.trim().toLowerCase();
-    final scope = filter.scope;
-    final query = ChatQuery.parse(q, scope);
     final messages = chat.channelFor(channel)?.messages;
-    return HistoryView(
-      // A new query or scope starts a new list.
-      key: ValueKey('search|$channel|${scope.name}|$q'),
-      channel: channel,
-      source: ArchiveFindSource.search(channel, reader, query: q, scope: scope),
-      emptyStretches: false,
-      live: messages == null
-          ? null
-          : () => [
-              for (final m in messages.chatRows)
-                if (query.matches(m)) m,
-            ],
-      liveVersion: active ? messages?.version : null,
-      emotesVersion: emotesVersion,
-      rows: _rows(
-        context,
-        channel,
-        onTapMessage: (msg) {
-          search.closeSearch();
-          _jumpFor(channel).value = msg.timestamp;
-        },
-      ),
-      textScale: chatFontSize() / 14.0,
-      topPadding: topPadding,
-      tileCache: tileCache,
-      atBottomNotifier: atBottomNotifier(channel),
-      emptyText: context.l10n.noMatches,
-      keyboardDismissBehavior: (!kIsWeb && Platform.isIOS)
-          ? ScrollViewKeyboardDismissBehavior.onDrag
-          : ScrollViewKeyboardDismissBehavior.manual,
+    return _SettledSearch(
+      key: ValueKey('search|$channel'),
+      query: filter.query.trim().toLowerCase(),
+      scope: filter.scope,
+      source: (q, scope) =>
+          ArchiveFindSource.search(channel, reader, query: q, scope: scope),
+      build: (source, q, scope) {
+        final query = ChatQuery.parse(q, scope);
+        return HistoryView(
+          // A new query or scope starts a new list.
+          key: ValueKey('search|$channel|${scope.name}|$q'),
+          channel: channel,
+          source: source,
+          emptyStretches: false,
+          live: messages == null
+              ? null
+              : () => [
+                  for (final m in messages.chatRows)
+                    if (query.matches(m)) m,
+                ],
+          liveVersion: active ? messages?.version : null,
+          emotesVersion: emotesVersion,
+          rows: _rows(
+            context,
+            channel,
+            onTapMessage: (msg) {
+              search.closeSearch();
+              _jumpFor(channel).value = msg.timestamp;
+            },
+          ),
+          textScale: chatFontSize() / 14.0,
+          topPadding: topPadding,
+          tileCache: tileCache,
+          atBottomNotifier: atBottomNotifier(channel),
+          emptyText: context.l10n.noMatches,
+          keyboardDismissBehavior: (!kIsWeb && Platform.isIOS)
+              ? ScrollViewKeyboardDismissBehavior.onDrag
+              : ScrollViewKeyboardDismissBehavior.manual,
+        );
+      },
     );
   }
 
@@ -986,4 +993,64 @@ class _ChannelTabState extends State<_ChannelTab>
       },
     );
   }
+}
+
+/// Search results that keep the previous query's list on screen until the
+/// new one has its first rows, so typing never flashes an empty list. A
+/// search slower than [_patience] shows its list while it loads.
+class _SettledSearch extends StatefulWidget {
+  const _SettledSearch({
+    super.key,
+    required this.query,
+    required this.scope,
+    required this.source,
+    required this.build,
+  });
+
+  final String query;
+  final ChatSearchScope scope;
+  final ArchiveFindSource Function(String query, ChatSearchScope scope) source;
+  final Widget Function(
+    ArchiveFindSource source,
+    String query,
+    ChatSearchScope scope,
+  )
+  build;
+
+  @override
+  State<_SettledSearch> createState() => _SettledSearchState();
+}
+
+class _SettledSearchState extends State<_SettledSearch> {
+  static const _patience = Duration(milliseconds: 500);
+
+  late String _query = widget.query;
+  late ChatSearchScope _scope = widget.scope;
+  late ArchiveFindSource _source = widget.source(_query, _scope);
+
+  @override
+  void didUpdateWidget(_SettledSearch old) {
+    super.didUpdateWidget(old);
+    if (widget.query != old.query || widget.scope != old.scope) _settle();
+  }
+
+  Future<void> _settle() async {
+    final query = widget.query;
+    final scope = widget.scope;
+    final source = widget.source(query, scope);
+    try {
+      await source.prefetch().timeout(_patience);
+    } catch (_) {
+      // Slow or failed: the list shows its own loading or error state.
+    }
+    if (!mounted || widget.query != query || widget.scope != scope) return;
+    setState(() {
+      _query = query;
+      _scope = scope;
+      _source = source;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.build(_source, _query, _scope);
 }

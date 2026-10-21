@@ -164,8 +164,18 @@ class ArchiveFindSource implements HistorySource {
     return [...before, ...after.where((m) => !seen.contains(m))];
   }
 
+  Future<List<TwitchMessage>>? _prefetched;
+
+  /// Starts the first [newest] load now, so a caller can wait for it before
+  /// showing the list; the list's own first load then reuses it.
+  Future<List<TwitchMessage>> prefetch() => _prefetched ??= _find();
+
   @override
-  Future<List<TwitchMessage>> newest() => _find();
+  Future<List<TwitchMessage>> newest() {
+    final first = _prefetched;
+    _prefetched = null;
+    return first ?? _find();
+  }
 
   @override
   Future<List<HistoryStream>> streams() async => const [];
