@@ -1,5 +1,8 @@
-- Faster in-app Twitch login (you'll be prompted to relogin)
-- Unlocked global and Hype Train emotes work
-- Animated 7TV paints
-- resizable stream in portrait
-- landscape split on small phones fixed
+- Chat archive: 30 days of lookback per channel, calendar for navigation
+- VODs with chat replay
+- Layout editor with presets: ermchat, dankchat 3 and dankchat 4
+- New "user:" search keyword
+- Export and import settings
+- Paste images from the keyboard to upload
+- BIG ui/ux changes. expect bugs
+- iOS: push notifications aren't live yet. Turning them on does nothing for now
