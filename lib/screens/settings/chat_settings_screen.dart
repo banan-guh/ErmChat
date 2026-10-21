@@ -173,7 +173,7 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
           ValueListenableBuilder(
             valueListenable: Settings.sendSwipeMenu,
             builder: (context, on, _) =>
-                on ? const _SpamSpeedSliders() : const SizedBox.shrink(),
+                on ? const _SpamSpeedTile() : const SizedBox.shrink(),
           ),
           if (widget.twitchAuth != null)
             SettingAnchor(
@@ -226,8 +226,75 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
 }
 
 /// Spam pace per role, plain and mod/VIP, shown only while the send menu is
-/// on. Auto stays under Twitch's limits; a gap faster than the role's limit
-/// shows red with "!".
+/// on: one row with both values, and a tap opens their sliders. Auto stays
+/// under Twitch's limits; a gap faster than the role's limit shows red with
+/// "!".
+class _SpamSpeedTile extends StatefulWidget {
+  const _SpamSpeedTile();
+
+  @override
+  State<_SpamSpeedTile> createState() => _SpamSpeedTileState();
+}
+
+class _SpamSpeedTileState extends State<_SpamSpeedTile> {
+  ({int plain, int mod})? _ms;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final p = await Prefs.load();
+    if (mounted) {
+      setState(() => _ms = (plain: p.spamIntervalMs, mod: p.spamIntervalModMs));
+    }
+  }
+
+  Future<void> _open() async {
+    await showModalBottomSheet<void>(
+      context: context,
+      useSafeArea: true,
+      builder: (_) => const SafeArea(
+        top: false,
+        child: Padding(
+          padding: EdgeInsets.symmetric(vertical: 8),
+          child: _SpamSpeedSliders(),
+        ),
+      ),
+    );
+    await _load();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l = context.l10n;
+    final ms = _ms;
+    final over =
+        ms != null &&
+        (_SpamSpeedSliders._over(ms.plain, ChatSender.plainRepeatGap) ||
+            _SpamSpeedSliders._over(ms.mod, ChatSender.privilegedRepeatGap));
+    return ListTile(
+      leading: const Icon(Icons.speed),
+      title: Text(l.spamSpeed),
+      subtitle: ms == null
+          ? null
+          : Text(
+              '${l.spamSpeedPlainShort}: '
+              '${_SpamSpeedSliders._value(l, ms.plain, ChatSender.plainRepeatGap)} · '
+              '${l.spamSpeedModShort}: '
+              '${_SpamSpeedSliders._value(l, ms.mod, ChatSender.privilegedRepeatGap)}',
+              style: over
+                  ? TextStyle(color: Theme.of(context).colorScheme.error)
+                  : null,
+            ),
+      trailing: const Icon(Icons.chevron_right),
+      onTap: _open,
+    );
+  }
+}
+
 class _SpamSpeedSliders extends StatelessWidget {
   const _SpamSpeedSliders();
 
