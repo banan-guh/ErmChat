@@ -11,6 +11,7 @@ import '../archive/archive_row.dart';
 import '../archive/archive_users.dart';
 import '../archive/archive_words.dart';
 import '../archive/intern_table.dart';
+import '../archive/set_log.dart';
 import '../util/log.dart';
 
 /// One sealed block as stored: metadata plus the packed `ArchiveBlock` bytes.
@@ -90,7 +91,7 @@ class _ChannelTables {
 class ArchiveStore {
   ArchiveStore._(this._db, this._now);
 
-  static const int schemaVersion = 10;
+  static const int schemaVersion = 11;
   static const Duration defaultRetention = Duration(days: 30);
 
   /// How long chat stays before pruning. The History settings set it, and
@@ -125,12 +126,14 @@ class ArchiveStore {
         },
         onCreate: (db, version) => _create(db),
         // Version 9 records when moderation happened, for VOD replay.
-        // Version 10 indexes system rows' words, so blocks reindex.
+        // Version 10 indexes system rows' words, so blocks reindex. Version
+        // 11 records set history (emotes, badges).
         onUpgrade: (db, from, to) async {
           if (from < 9) {
             await db.execute('ALTER TABLE moderation ADD COLUMN at_ts INTEGER');
           }
           if (from < 10) await db.execute('UPDATE blocks SET words = NULL');
+          if (from < 11) await _createObservations(db);
         },
       ),
     );
@@ -192,7 +195,71 @@ class ArchiveStore {
     await _createSearchIndex(db);
     await _createEdits(db);
     await _addUpkeepColumns(db);
+    await _createObservations(db);
   }
+
+  /// Set history (see [SetLog]): what each fetch of a set returned, by
+  /// kind (`emote`, `badge`), scope (a channel, or '' for global sets) and
+  /// source (the provider).
+  static Future<void> _createObservations(Database db) =>
+      db.execute('''CREATE TABLE observations(
+         kind TEXT NOT NULL, scope TEXT NOT NULL, source TEXT NOT NULL,
+         at_ms INTEGER NOT NULL, seen_ms INTEGER NOT NULL,
+         full INTEGER NOT NULL, added TEXT NOT NULL, removed TEXT NOT NULL,
+         hash TEXT NOT NULL,
+         PRIMARY KEY(kind, scope, source, at_ms)) WITHOUT ROWID''');
+
+  /// Every observation of one set, oldest first.
+  Future<List<SetObservation>> observations(
+    String kind,
+    String scope,
+    String source,
+  ) async => [
+    for (final r in await _db.rawQuery(
+      'SELECT at_ms, seen_ms, full, added, removed, hash FROM observations '
+      'WHERE kind = ? AND scope = ? AND source = ? ORDER BY at_ms',
+      [kind, scope, source],
+    ))
+      SetObservation.fromJson(
+        atMs: r['at_ms']! as int,
+        seenMs: r['seen_ms']! as int,
+        full: r['full'] == 1,
+        added: r['added']! as String,
+        removed: r['removed']! as String,
+        hash: r['hash']! as String,
+      ),
+  ];
+
+  /// Stores [o] for one set; an observation already at its time is kept.
+  Future<void> addObservation(
+    String kind,
+    String scope,
+    String source,
+    SetObservation o,
+  ) => _db.insert('observations', {
+    'kind': kind,
+    'scope': scope,
+    'source': source,
+    'at_ms': o.atMs,
+    'seen_ms': o.seenMs,
+    'full': o.full ? 1 : 0,
+    'added': o.addedJson,
+    'removed': o.removedJson,
+    'hash': o.hash,
+  }, conflictAlgorithm: ConflictAlgorithm.ignore);
+
+  /// Moves the `seen_ms` of the observation at [atMs] to [seenMs].
+  Future<void> touchObservation(
+    String kind,
+    String scope,
+    String source,
+    int atMs,
+    int seenMs,
+  ) => _db.rawUpdate(
+    'UPDATE observations SET seen_ms = ? '
+    'WHERE kind = ? AND scope = ? AND source = ? AND at_ms = ?',
+    [seenMs, kind, scope, source, atMs],
+  );
 
   /// Per block: the user states its rows name (`states`), so pruning the user
   /// tables reads small lists. Per reply root: the time of the newest reply

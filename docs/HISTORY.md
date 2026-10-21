@@ -215,6 +215,27 @@ Clickable, colored system rows. No dividers, no buttons.
 - A small sync nudge corrects stream delay drift. Gaps show as gap rows.
 - Sub-only VODs need the matching login in the WebView (per-account WebView profiles).
 
+## Set history
+
+- Emote sets (BTTV, FFZ, 7TV; global and per channel) and Twitch badge sets are
+  logged as observations, so a read can rebuild a set as it was when a row was
+  written. Table `observations` (schema 11), keyed by kind (`emote`, `badge`), scope
+  (a channel, or '' for global), source (the provider) and `at_ms`.
+- Only real results are observations: a successful fetch, or a 7TV live change
+  applied over the last observed set. Cache seeds, evictions, providers turned off
+  and empty fetches record nothing, so none of them reads as a removal.
+- Each row is a diff against the one before (`added` key to definition JSON,
+  `removed` keys), or whole (`full`) at the start and after 32 diffs. `hash` is
+  FNV-1a over the whole set's sorted keys. `seen_ms` is the last fetch that saw the
+  set unchanged.
+- A removal counts from the first observation without the key. Between `seen_ms` of
+  one row and `at_ms` of the next the set is unknown, which a remote log can narrow.
+- Remote sync: observations are timestamped facts, so merging two logs is their union
+  by time; a client sends its newest hash per set and fetches what it lacks. A remote
+  can reject a bad observation by hash.
+- Emote keys are `provider:id:code`, so a rename is a new key. Badge keys are
+  `set/version/image url`, so a redrawn badge is a new key.
+
 ## Saved threads
 
 - Stored in the archive database (schema version 2): `saved_threads` (one bookmark row

@@ -4,6 +4,7 @@ import '../twitch_config.dart';
 import '../models/twitch_badge.dart';
 import '../util/constants.dart';
 import '../util/log.dart';
+import '../util/signal.dart';
 import 'twitch_auth.dart';
 
 class TwitchBadgeService {
@@ -12,7 +13,14 @@ class TwitchBadgeService {
   final http.Client _client;
 
   /// Closes the underlying HTTP client; the provider calls this on teardown.
-  void close() => _client.close();
+  void close() {
+    _client.close();
+    fetched.clear();
+  }
+
+  /// Each badge list a fetch returned (channel null for global), for the
+  /// archive's set history.
+  final fetched = ChatSignal<({String? channel, Map<String, BadgeSet> sets})>();
 
   final _globalBadges = <String, BadgeSet>{};
   final _channelBadges = <String, Map<String, BadgeSet>>{};
@@ -48,6 +56,7 @@ class TwitchBadgeService {
       }
       _globalBadges.addAll(sets);
       _globalFetched = true;
+      fetched.emit((channel: null, sets: sets));
       // Span caches keyed on the version drop their badge-less rows.
       _version++;
     }();
@@ -89,6 +98,7 @@ class TwitchBadgeService {
     if (sets.isNotEmpty) {
       _channelBadges[channel] = sets;
       _channelBadgesFetched.add(channel);
+      fetched.emit((channel: channel, sets: sets));
       _version++;
     }
   }

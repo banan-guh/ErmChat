@@ -10,6 +10,7 @@ import 'package:ermchat/emotes/emote.dart';
 import 'package:ermchat/irc/decode/decoder.dart';
 import 'package:ermchat/models/twitch_badge.dart';
 import 'package:ermchat/models/twitch_message.dart';
+import 'package:ermchat/services/archive.dart';
 import 'package:ermchat/services/archive_adapter.dart';
 import 'package:ermchat/services/archive_history_source.dart';
 import 'package:ermchat/services/archive_reader.dart';
@@ -1326,6 +1327,73 @@ void main() {
       ],
       reason: 'a replay fades each row when its moderation happened',
     );
+    await store.close();
+  });
+
+  test('set history records fetches, live changes and badges', () async {
+    final store = await _open(_newPath());
+    final archive = Archive(Future.value(store));
+    Emote seven(String id, String code) =>
+        Emote(id: id, code: code, meta: const SevenTvMeta(), scales: const {});
+    final a = seven('1', 'catJAM');
+    final b = seven('2', 'PogU');
+    final c = seven('3', 'Clap');
+    DateTime at(int s) => _t0.add(Duration(seconds: s));
+    Future<List<String>> codesAt(int s) async => [
+      for (final k in (await archive.observedAt(
+        Archive.emoteKind,
+        'chan',
+        'sevenTv',
+        at(s),
+      )).keys)
+        k.split(':')[2],
+    ]..sort();
+    Future<void> fetch(int s, List<Emote> set) =>
+        archive.observeEmotes('chan', EmoteType.sevenTv, set, at: at(s));
+
+    await archive.observeSevenTvDelta('chan', added: [c], at: at(5));
+    expect(await codesAt(6), isEmpty, reason: 'a delta needs a base set');
+    await fetch(10, [a, b]);
+    await fetch(15, []); // a broken or cleared fetch records nothing
+    await archive.observeSevenTvDelta(
+      'chan',
+      added: [c],
+      removedIds: ['1'],
+      renamed: {'2': 'PogChamp'},
+      at: at(20),
+    );
+    await fetch(30, [a, seven('2', 'PogChamp'), c]);
+    expect(await codesAt(12), ['PogU', 'catJAM']);
+    expect(await codesAt(16), [
+      'PogU',
+      'catJAM',
+    ], reason: 'empty fetch skipped');
+    expect(await codesAt(25), ['Clap', 'PogChamp']);
+    expect(await codesAt(35), ['Clap', 'PogChamp', 'catJAM']);
+
+    // A fresh archive reads the log back and diffs against it.
+    final again = Archive(Future.value(store));
+    await again.observeEmotes('chan', EmoteType.sevenTv, [
+      a,
+      seven('2', 'PogChamp'),
+      c,
+    ], at: at(40));
+    final rows = await store.observations(Archive.emoteKind, 'chan', 'sevenTv');
+    expect(rows, hasLength(3), reason: 'an unchanged fetch adds no row');
+    expect(rows.last.seenMs, at(40).millisecondsSinceEpoch);
+
+    // A redrawn badge keeps its set and version but is a new key.
+    BadgeSet sub(String url) =>
+        BadgeSet(versions: {'0': BadgeVersion(imageUrl: url)});
+    await archive.observeBadges('chan', {'subscriber': sub('old')}, at: at(10));
+    await archive.observeBadges('chan', {'subscriber': sub('new')}, at: at(20));
+    final badges = await archive.observedAt(
+      Archive.badgeKind,
+      'chan',
+      'twitch',
+      at(15),
+    );
+    expect(badges.keys, ['subscriber/0/old']);
     await store.close();
   });
 

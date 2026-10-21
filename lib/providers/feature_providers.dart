@@ -147,7 +147,37 @@ final chatHistoryControllerProvider = Provider<ChatHistoryController>((ref) {
 final archiveProvider = Provider<Archive?>((ref) {
   if (!Settings.archiveEnabled.value) return null;
   final archive = Archive.inAppSupport();
-  ref.onDispose(archive.dispose);
+  // Fetch results land in the set history, so reads can rebuild a set as it
+  // was. Only real results count: a cleared cache or a provider turned off
+  // records nothing.
+  final emotes = ref.read(emoteManagerProvider).store;
+  final badges = ref.read(badgeServiceProvider);
+  final stops = [
+    emotes.fetched.add(
+      (f) => unawaited(
+        archive.observeEmotes(f.channel ?? '', f.provider, f.emotes),
+      ),
+    ),
+    emotes.sevenTvChanged.add(
+      (d) => unawaited(
+        archive.observeSevenTvDelta(
+          d.channel,
+          added: d.added,
+          removedIds: d.removedIds,
+          renamed: d.renamed,
+        ),
+      ),
+    ),
+    badges.fetched.add(
+      (f) => unawaited(archive.observeBadges(f.channel ?? '', f.sets)),
+    ),
+  ];
+  ref.onDispose(() {
+    for (final stop in stops) {
+      stop();
+    }
+    archive.dispose();
+  });
   return archive;
 });
 

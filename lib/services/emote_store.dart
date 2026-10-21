@@ -1,6 +1,7 @@
 import '../emotes/emote.dart';
 import '../emotes/emote_catalog.dart';
 import '../models/twitch_message.dart';
+import '../util/signal.dart';
 import 'emote_fetcher.dart';
 
 /// One typed catalog change emitted by [EmoteStore].
@@ -46,9 +47,27 @@ class EmoteStore {
   void removeListener(void Function(EmoteChange) listener) =>
       _listeners.remove(listener);
 
+  /// Each provider list a fetch returned, for the archive's set history.
+  /// Cache seeds, evictions and dropped providers never fire it.
+  final fetched =
+      ChatSignal<({String? channel, EmoteType provider, List<Emote> emotes})>();
+
+  /// Each 7TV live change as it arrives; [renamed] maps id to new name.
+  final sevenTvChanged =
+      ChatSignal<
+        ({
+          String channel,
+          List<Emote> added,
+          List<String> removedIds,
+          Map<String, String> renamed,
+        })
+      >();
+
   void dispose() {
     _disposed = true;
     _listeners.clear();
+    fetched.clear();
+    sevenTvChanged.clear();
   }
 
   /// Records a catalog change. [bumpVersion] false is the live 7TV delta
@@ -742,6 +761,7 @@ class EmoteStore {
     }
     _globalCatalog = catalog;
     emitChange(channel: null);
+    _emitFetched(null, fetch.byProvider);
     return true;
   }
 
@@ -824,7 +844,14 @@ class EmoteStore {
     _reapplyLiveSevenTv(channel);
     _channelFetchTimes[channel] = DateTime.now();
     emitChange(channel: channel);
+    _emitFetched(channel, fetch.byProvider);
     return true;
+  }
+
+  void _emitFetched(String? channel, Map<EmoteType, List<Emote>> lists) {
+    for (final e in lists.entries) {
+      fetched.emit((channel: channel, provider: e.key, emotes: e.value));
+    }
   }
 
   // Re-applies live 7TV delta after fetch rebuild.
@@ -959,6 +986,12 @@ class EmoteStore {
     if (added.isEmpty && removedIds.isEmpty && renamed.isEmpty) {
       return const [];
     }
+    sevenTvChanged.emit((
+      channel: channel,
+      added: added,
+      removedIds: removedIds,
+      renamed: {for (final e in renamed.entries) e.key: e.value.newName},
+    ));
 
     final changedCodes = <String>{};
     final removedIdsWithUrls = <(String, List<String>)>[];
