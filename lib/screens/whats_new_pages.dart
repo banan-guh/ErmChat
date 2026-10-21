@@ -1,6 +1,7 @@
 import 'dart:io' show Platform;
 
 import 'package:clock/clock.dart';
+import 'package:flutter/material.dart';
 
 import '../services/app_updates.dart';
 
@@ -12,6 +13,7 @@ class ShowcasePage {
     required this.title,
     required this.body,
     this.art = const [],
+    this.items = const [],
     this.aspect = 9 / 10,
     this.iosOnly = false,
   });
@@ -22,6 +24,9 @@ class ShowcasePage {
   /// Image URLs on the minor's GitHub release. Several stills crossfade in
   /// turn; one may be an animated WebP.
   final List<String> art;
+
+  /// Smaller features listed under the body, one line each.
+  final List<(IconData, String)> items;
 
   /// The art's width over its height.
   final double aspect;
@@ -79,18 +84,24 @@ final _showcases = <String, List<ShowcasePage>>{
     ),
     ShowcasePage(
       title: 'Also new',
-      body:
-          '• Search reaches a channel\'s whole history. user:name finds '
-          'someone\'s messages and mod actions\n'
-          '• Drag highlight rules to set their priority\n'
-          '• Pause notifications from the moon button\n'
-          '• Export and import your settings\n'
-          '• Paste images from the keyboard to upload them\n'
-          '• Personal 7TV emotes and BTTV badges\n'
-          '• Mods delete messages from the message menu\n'
-          '• A characters-left counter near the limit\n'
-          '• Chat font weight and a haptics toggle\n'
-          '• Reopen the last channel on launch',
+      body: 'Smaller things in this update.',
+      items: [
+        (
+          Icons.manage_search,
+          "Search reaches a channel's whole history. user:name finds "
+              "someone's messages and mod actions",
+        ),
+        (Icons.drag_indicator, 'Drag highlight rules to set their priority'),
+        (Icons.bedtime_outlined, 'Pause notifications from the moon button'),
+        (Icons.import_export, 'Export and import your settings'),
+        (Icons.image_outlined, 'Paste images from the keyboard to upload'),
+        (Icons.emoji_emotions_outlined, 'Personal 7TV emotes and BTTV badges'),
+        (Icons.delete_outline, 'Mods delete messages from the message menu'),
+        (Icons.text_fields, 'A characters-left counter near the limit'),
+        (Icons.format_bold, 'Chat font weight'),
+        (Icons.vibration, 'A haptics toggle'),
+        (Icons.restore, 'Reopen the last channel on launch'),
+      ],
     ),
   ],
 };

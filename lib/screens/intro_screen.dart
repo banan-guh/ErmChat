@@ -314,7 +314,9 @@ class _WhatsNewScreenState extends State<WhatsNewScreen> {
                         return _IntroPage(
                           title: p.title,
                           body: p.body,
-                          child: !hasArt || width < _Showcase.minWidth
+                          child: p.items.isNotEmpty
+                              ? _FeatureList(items: p.items)
+                              : !hasArt || width < _Showcase.minWidth
                               ? const SizedBox.shrink()
                               : Center(
                                   child: _Showcase(
@@ -418,6 +420,35 @@ class _ShowcaseState extends State<_Showcase> {
           ),
         ),
       ),
+    );
+  }
+}
+
+/// A page's smaller features, an icon beside each line.
+class _FeatureList extends StatelessWidget {
+  const _FeatureList({required this.items});
+
+  final List<(IconData, String)> items;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        for (final (icon, text) in items)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 16),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(icon, size: 22, color: theme.colorScheme.primary),
+                const SizedBox(width: 16),
+                Expanded(child: Text(text, style: theme.textTheme.bodyLarge)),
+              ],
+            ),
+          ),
+      ],
     );
   }
 }
