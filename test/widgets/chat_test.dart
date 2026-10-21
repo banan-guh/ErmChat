@@ -256,6 +256,77 @@ void main() {
       expect(builds, opened);
     });
 
+    // Search from the view menu stayed without a keyboard: the menu took
+    // focus, the keyboard closed, and the close's dismiss unfocused the
+    // search field that focused mid-close.
+    testWidgets('a close only dismisses the focus it began with', (
+      tester,
+    ) async {
+      SharedPreferences.setMockInitialValues({});
+      tester.view.physicalSize = const Size(1080, 2340);
+      tester.view.devicePixelRatio = 3.0;
+      tester.view.viewInsets = FakeViewPadding(bottom: 0);
+      addTearDown(tester.view.reset);
+      final field = FocusNode();
+      addTearDown(field.dispose);
+      var dismissed = 0;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: ChatBody(
+              liquidGlass: true,
+              onKeyboardDismissed: () {
+                dismissed++;
+                field.unfocus();
+              },
+              bodyBuilder:
+                  (
+                    context, {
+                    required hideChromeForKeyboard,
+                    required maxWidth,
+                    required maxHeight,
+                    required keyboardH,
+                    required composerH,
+                  }) => const SizedBox.expand(),
+              threadPanel: const SizedBox.shrink(),
+              mentionsPanel: const SizedBox.shrink(),
+              modViewPanel: const SizedBox.shrink(),
+              emotePickerBuilder:
+                  (_, {required sheetBoxHeight, required inset}) =>
+                      const SizedBox.shrink(),
+              autocomplete: const SizedBox.shrink(),
+              emoteMaxFraction: 0.6,
+              composer: TextField(focusNode: field),
+            ),
+          ),
+        ),
+      );
+      Future<void> keyboard(List<double> heights) async {
+        for (final h in heights) {
+          tester.view.viewInsets = FakeViewPadding(bottom: h * 3.0);
+          await tester.pump(const Duration(milliseconds: 16));
+        }
+        await tester.pump(const Duration(milliseconds: 200));
+      }
+
+      field.requestFocus();
+      await keyboard([100, 300]);
+      // A menu takes focus, and the field asks again mid-close.
+      field.unfocus();
+      await tester.pump();
+      await keyboard([200]);
+      field.requestFocus();
+      await tester.pump();
+      await keyboard([0]);
+      expect(field.hasFocus, isTrue);
+      expect(dismissed, 0);
+      // The keyboard closing under a focused field is a dismiss.
+      await keyboard([100, 300]);
+      await keyboard([200, 0]);
+      expect(field.hasFocus, isFalse);
+      expect(dismissed, 1);
+    });
+
     // Decisions read the learned open height, so a reopen flips the video
     // on its first tick and holds, instead of flipping when the live box
     // crosses the threshold mid-animation.

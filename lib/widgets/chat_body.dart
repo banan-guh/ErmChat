@@ -311,6 +311,10 @@ class _ChatBodyState extends State<ChatBody>
   // A composer tap after the keyboard closes asks for it again before the
   // IME's first tick lands, so the pending settle must not unfocus.
   bool _retapped = false;
+  // What held focus as the keyboard began to close. A field focused since
+  // (search opened from a menu that took focus) asked for the keyboard, so
+  // that close is no dismiss.
+  FocusNode? _focusAtClose;
   // Whether the last tick moved up. Only an opening settles at the real
   // height; a close that stalls mid-way must not be learned.
   bool _opening = false;
@@ -401,6 +405,11 @@ class _ChatBodyState extends State<ChatBody>
     // those ticks rebuild, since the padding stops changing past the nav bar.
     if ((raw < _rawH ? raw : _rawH) < _hideSpan) setState(() {});
     final wasClosed = _rawH <= 0.5;
+    if (raw < _rawH) {
+      _focusAtClose ??= FocusManager.instance.primaryFocus;
+    } else {
+      _focusAtClose = null;
+    }
     _opening = raw > _rawH;
     _rawH = raw;
     if (raw > 0.5) _keyboardEngaged = true;
@@ -425,7 +434,17 @@ class _ChatBodyState extends State<ChatBody>
       // so it waits for the close to settle; a reopen cancels it.
       if (_rawH <= 0.5) {
         _keyboardEngaged = false;
-        if (!_retapped) widget.onKeyboardDismissed?.call();
+        final before = _focusAtClose;
+        _focusAtClose = null;
+        final now = FocusManager.instance.primaryFocus;
+        if (!identical(now, before)) {
+          // The field's request landed mid-close and the IME dropped it.
+          now?.context
+              ?.findAncestorStateOfType<EditableTextState>()
+              ?.requestKeyboard();
+        } else if (!_retapped) {
+          widget.onKeyboardDismissed?.call();
+        }
         _retapped = false;
         return;
       }
