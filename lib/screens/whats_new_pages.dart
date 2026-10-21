@@ -60,11 +60,14 @@ String _minor(String version) => version.split('.').take(2).join('.');
 
 /// The pages to show after updating from [from] to [current], or null for
 /// none. [from] is empty when the dev arm fired, which replays the current
-/// showcase.
+/// showcase, or the newest one while its version is unreleased.
 List<ShowcasePage>? showcaseFor(String current, String from) {
   if (from.isNotEmpty && _minor(from) == _minor(current)) return null;
+  final source =
+      _showcases[_minor(current)] ??
+      (from.isEmpty ? _showcases.values.lastOrNull : null);
   final pages = [
-    for (final p in _showcases[_minor(current)] ?? const <ShowcasePage>[])
+    for (final p in source ?? const <ShowcasePage>[])
       if (!p.iosOnly || Platform.isIOS) p,
   ];
   return pages.isEmpty ? null : pages;
