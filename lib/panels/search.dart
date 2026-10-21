@@ -188,7 +188,14 @@ class SearchPanels {
       syncFieldTo(channel);
       markDirty();
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (open && isMounted()) focusNode.requestFocus();
+        if (!open || !isMounted()) return;
+        // A closing menu hands focus back to the shared node, so focus alone
+        // is a no-op and the swapped-in field must open its own keyboard.
+        final editable = focusNode.context
+            ?.findAncestorStateOfType<EditableTextState>();
+        editable == null
+            ? focusNode.requestFocus()
+            : editable.requestKeyboard();
       });
     }
   }
