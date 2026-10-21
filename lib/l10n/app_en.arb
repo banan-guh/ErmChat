@@ -29,7 +29,7 @@
   "settingLineSeparator": "Separate messages with lines",
   "settingKeepScreenOn": "Keep screen on",
   "settingFastChannelSwipe": "Fast channel swipe",
-  "settingReopenLastChannel": "Open last channel",
+  "settingReopenLastChannel": "Start on last channel",
   "settingCustomLayout": "Enable custom layout",
   "settingTighterComposer": "Tighter composer",
   "settingHorizontalSheetActions": "Horizontal sheet actions",

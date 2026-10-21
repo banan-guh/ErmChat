@@ -353,10 +353,10 @@ class Setting {
   );
   static const reopenLastChannel = Setting(
     'reopen_last_channel',
-    'Open last channel',
+    'Start on last channel',
     SettingsPageId.appearance,
     section: 'Navigation',
-    keywords: 'startup launch remember tab',
+    keywords: 'open reopen startup launch remember tab',
   );
 
   // ── Appearance › Layout › Custom ────────────────────────────────────
