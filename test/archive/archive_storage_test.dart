@@ -7,6 +7,7 @@ import 'package:ermchat/archive/archive_row.dart';
 import 'package:ermchat/archive/archive_users.dart';
 import 'package:ermchat/color_utils.dart';
 import 'package:ermchat/emotes/emote.dart';
+import 'package:ermchat/irc/decode/decoder.dart';
 import 'package:ermchat/models/twitch_badge.dart';
 import 'package:ermchat/models/twitch_message.dart';
 import 'package:ermchat/services/archive_adapter.dart';
@@ -14,6 +15,7 @@ import 'package:ermchat/services/archive_history_source.dart';
 import 'package:ermchat/services/archive_reader.dart';
 import 'package:ermchat/services/archive_store.dart';
 import 'package:ermchat/services/archive_writer.dart';
+import 'package:ermchat/services/fake_chat_feed.dart';
 import 'package:ermchat/util/chat_search.dart';
 import 'package:ermchat/util/history_window.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -201,6 +203,42 @@ void main() {
       adapter.fromRow(decoded[0], _channel, asHistory: true).isHistory,
       true,
     );
+  });
+
+  test('fake chat rows never reach the archive', () async {
+    // A feed that ran this session is what makes rows count as fake.
+    FakeChatFeed(
+        decoder: IrcChatDecoder(const Stream.empty()),
+        channel: () => null,
+        emotes: (_) => const [],
+      )
+      ..setRate(1)
+      ..dispose();
+    final store = await _open(_newPath());
+    final writer = _writer(store, sealCount: 2);
+    writer.add(
+      _channel,
+      TwitchMessage(
+        login: 'fake_user7',
+        text: 'fake line',
+        messageId: 'fake-1-0',
+        channel: _channel,
+        timestamp: _t0,
+      ),
+    );
+    writer.add(_channel, _msg(1));
+    writer.add(_channel, _msg(2));
+    await writer.settled();
+    final rows = [
+      for (final b in await store.newestBlocks(_channel, 1000))
+        ...ArchiveBlock.decode(b.data),
+    ];
+    expect(
+      [for (final r in rows) r.text],
+      ['message number 1', 'message number 2'],
+      reason: 'the fake row is skipped, real ones seal',
+    );
+    await store.close();
   });
 
   test('writer seals on count', () async {

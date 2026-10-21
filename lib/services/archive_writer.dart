@@ -12,6 +12,7 @@ import '../models/twitch_message.dart';
 import '../util/log.dart';
 import 'archive_adapter.dart';
 import 'archive_store.dart';
+import 'fake_chat_feed.dart';
 
 Future<Uint8List> encodeOffIsolate(List<ArchiveRow> rows) =>
     Isolate.run(() => ArchiveBlock.encode(rows));
@@ -84,7 +85,7 @@ class ArchiveWriter {
 
   /// Queues [msg] for [channel]. Never throws and never blocks the caller.
   void add(String channel, TwitchMessage msg) {
-    if (_disposed) {
+    if (_disposed || FakeChatFeed.owns(msg)) {
       return;
     }
     final c = _chans.putIfAbsent(channel, _Chan.new);
@@ -171,6 +172,7 @@ class ArchiveWriter {
     final c = _chans[channel];
     final stored = <String>[];
     for (final id in messageIds) {
+      if (FakeChatFeed.ownsId(id)) continue;
       if (c != null && _applyEdit(c, id, edit)) continue;
       stored.add(id);
     }

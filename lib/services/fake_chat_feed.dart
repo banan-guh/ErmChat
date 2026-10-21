@@ -4,10 +4,11 @@ import 'dart:math';
 import '../emotes/emote.dart';
 import '../irc/decode/decoder.dart';
 import '../irc/message.dart';
+import '../models/twitch_message.dart';
 
 /// Seeded synthetic PRIVMSG load for battery tuning, fed through the real
 /// read decoder. Starts at `--dart-define=ERMCHAT_FAKE_CHAT=<msgs/sec>`; dev
-/// settings change the rate or fill the buffer at runtime. The same seed and
+/// settings change the rate at runtime. The same seed and
 /// emote pool produce the same stream every run.
 class FakeChatFeed {
   FakeChatFeed({
@@ -20,9 +21,6 @@ class FakeChatFeed {
   /// Starting messages per second; 0 leaves the feed off.
   static const int defaultRate = int.fromEnvironment('ERMCHAT_FAKE_CHAT');
 
-  /// Lines a fill feeds per timer tick.
-  static const _fillChunk = 250;
-
   final IrcChatDecoder decoder;
   final String? Function() channel;
 
@@ -32,7 +30,6 @@ class FakeChatFeed {
 
   late final Random _rng = Random(seed);
   Timer? _timer;
-  Timer? _fillTimer;
   int _n = 0;
 
   /// Current messages per second; 0 is off.
@@ -71,8 +68,31 @@ class FakeChatFeed {
   ];
   static const _colors = ['#FF4500', '#1E90FF', '#9ACD32', '#DAA520', ''];
 
+  /// Whether a feed has run this session. Only then can a row be fake, so a
+  /// real chatter named like a fake one is never mistaken for one.
+  static bool _ran = false;
+
+  /// Whether [msg] came from a feed: its id or sender, or for a system line
+  /// (a timeout notice), a fake chatter it names. The archive skips these.
+  static bool owns(TwitchMessage msg) =>
+      _ran &&
+      ((msg.messageId?.startsWith(_idPrefix) ?? false) ||
+          ownsLogin(msg.login) ||
+          msg.isSystem && msg.text.contains(_userPrefix));
+
+  /// Whether [login] is a feed's chatter.
+  static bool ownsLogin(String? login) =>
+      _ran && (login?.startsWith(_userPrefix) ?? false);
+
+  /// Whether [id] is a feed's message id.
+  static bool ownsId(String id) => _ran && id.startsWith(_idPrefix);
+
+  static const _idPrefix = 'fake-';
+  static const _userPrefix = 'fake_user';
+
   void start() {
     if (_rate <= 0 || _timer != null) return;
+    _ran = true;
     _timer = Timer.periodic(Duration(microseconds: 1000000 ~/ _rate), (_) {
       final ch = _channel();
       if (ch != null) _feed(_next(ch));
@@ -85,24 +105,6 @@ class FakeChatFeed {
     _timer?.cancel();
     _timer = null;
     start();
-  }
-
-  /// Feeds [count] chat lines into the selected channel, a chunk per frame,
-  /// so a full buffer lands in a second or two without one long frame.
-  void fill(int count) {
-    _fillTimer?.cancel();
-    var left = count;
-    _fillTimer = Timer.periodic(const Duration(milliseconds: 16), (t) {
-      final ch = _channel();
-      for (var i = 0; ch != null && i < _fillChunk && left > 0; i++) {
-        _feed(_line(ch));
-        left--;
-      }
-      if (ch == null || left <= 0) {
-        t.cancel();
-        _fillTimer = null;
-      }
-    });
   }
 
   String? _channel() {
@@ -120,8 +122,6 @@ class FakeChatFeed {
   void dispose() {
     _timer?.cancel();
     _timer = null;
-    _fillTimer?.cancel();
-    _fillTimer = null;
   }
 
   /// Recent (user, message id) pairs, targets for moderation lines.
@@ -146,8 +146,8 @@ class FakeChatFeed {
 
   String _line(String ch) {
     final n = _n++;
-    final user = 'fake_user${_rng.nextInt(400)}';
-    _recent.add((user, 'fake-$seed-$n'));
+    final user = '$_userPrefix${_rng.nextInt(400)}';
+    _recent.add((user, '$_idPrefix$seed-$n'));
     if (_recent.length > 50) _recent.removeAt(0);
     final pool = emotes(ch);
     final parts = <String>[];
@@ -165,7 +165,7 @@ class FakeChatFeed {
     final ts = DateTime.now().millisecondsSinceEpoch;
     final color = _colors[_rng.nextInt(_colors.length)];
     return '@badge-info=;badges=;color=$color;display-name=$user;emotes=;'
-        'first-msg=0;flags=;id=fake-$seed-$n;mod=0;room-id=1;subscriber=0;'
+        'first-msg=0;flags=;id=$_idPrefix$seed-$n;mod=0;room-id=1;subscriber=0;'
         'tmi-sent-ts=$ts;turbo=0;user-id=${900000 + n};user-type= '
         ':$user!$user@$user.tmi.twitch.tv PRIVMSG #$ch :${parts.join(' ')}';
   }

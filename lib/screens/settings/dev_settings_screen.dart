@@ -14,13 +14,11 @@ class DevSettingsScreen extends StatefulWidget {
 
   /// Synthetic chat load for the selected channel; null hides its controls.
   final FakeChatFeed? fakeChat;
-  final int Function()? fakeFillCount;
 
   const DevSettingsScreen({
     super.key,
     this.onTestWidgetsChanged,
     this.fakeChat,
-    this.fakeFillCount,
   });
 
   @override
@@ -72,12 +70,6 @@ class _DevSettingsScreenState extends State<DevSettingsScreen> {
                 fake.rate == 0 ? 'Off' : '${fake.rate}/s',
                 textAlign: TextAlign.end,
               ),
-            ),
-            ListTile(
-              leading: const Icon(Icons.vertical_align_top),
-              title: const Text('Fill to message limit'),
-              subtitle: const Text('Into the selected channel'),
-              onTap: () => fake.fill(widget.fakeFillCount?.call() ?? 500),
             ),
           ],
           const Divider(),

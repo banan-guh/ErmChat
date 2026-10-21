@@ -1786,7 +1786,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
           onPipEnabledChanged: _streamPlayer.setPipEnabled,
           onTestWidgetsChanged: _broadcastWidgets.setTestWidgets,
           fakeChat: _fakeChat,
-          fakeFillCount: () => ref.read(maxMessagesPerChannelProvider),
         ),
       ),
     );

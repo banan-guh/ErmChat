@@ -8,6 +8,7 @@ import '../util/prefs.dart';
 import 'archive_reader.dart';
 import 'archive_store.dart';
 import 'archive_writer.dart';
+import 'fake_chat_feed.dart';
 
 /// The history archive: one SQLite store with its writer and reader. The
 /// store opens lazily on first use; if it cannot open (for example after a
@@ -146,6 +147,7 @@ class Archive {
     DateTime from,
     DateTime to,
   ) {
+    if (FakeChatFeed.ownsLogin(login)) return Future.value();
     reader.clears.emit((channel, (login: login, from: from, to: to)));
     return _quiet(
       (s) => s.addModeration(

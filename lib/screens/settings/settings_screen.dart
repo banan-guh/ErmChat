@@ -59,7 +59,6 @@ class SettingsScreen extends StatelessWidget {
 
   /// Dev-only synthetic chat load and the fill size (message limit).
   final FakeChatFeed? fakeChat;
-  final int Function()? fakeFillCount;
 
   const SettingsScreen({
     super.key,
@@ -87,7 +86,6 @@ class SettingsScreen extends StatelessWidget {
     this.onPipEnabledChanged,
     this.onTestWidgetsChanged,
     this.fakeChat,
-    this.fakeFillCount,
   });
 
   // One builder per destination, shared by the tiles and the search index.
@@ -153,7 +151,6 @@ class SettingsScreen extends StatelessWidget {
   Widget _about() => AboutScreen(
     onTestWidgetsChanged: onTestWidgetsChanged,
     fakeChat: fakeChat,
-    fakeFillCount: fakeFillCount,
   );
 
   Widget _tts() => TtsSettingsScreen(ttsController: ttsController);

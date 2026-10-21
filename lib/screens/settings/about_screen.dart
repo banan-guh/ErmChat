@@ -10,14 +10,8 @@ import 'settings_page.dart';
 class AboutScreen extends StatefulWidget {
   final ValueChanged<bool>? onTestWidgetsChanged;
   final FakeChatFeed? fakeChat;
-  final int Function()? fakeFillCount;
 
-  const AboutScreen({
-    super.key,
-    this.onTestWidgetsChanged,
-    this.fakeChat,
-    this.fakeFillCount,
-  });
+  const AboutScreen({super.key, this.onTestWidgetsChanged, this.fakeChat});
 
   @override
   State<AboutScreen> createState() => _AboutScreenState();
@@ -55,7 +49,6 @@ class _AboutScreenState extends State<AboutScreen> {
           builder: (_) => DevSettingsScreen(
             onTestWidgetsChanged: widget.onTestWidgetsChanged,
             fakeChat: widget.fakeChat,
-            fakeFillCount: widget.fakeFillCount,
           ),
         ),
       );
