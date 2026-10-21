@@ -68,11 +68,6 @@ final _showcases = <String, List<ShowcasePage>>{
       ]),
     ),
     ShowcasePage(
-      title: 'Finally, push notifications on iOS!',
-      body: 'The wait is over!',
-      iosOnly: true,
-    ),
-    ShowcasePage(
       title: 'Also new',
       body: 'Smaller things in this update.',
       items: [
