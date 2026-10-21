@@ -126,6 +126,7 @@
   "settingSettingsBackup": "Import/export settings",
   "exportClipboard": "Copy to clipboard",
   "exportFile": "Save as file",
+  "exportPastebin": "Copy and open Pastebin",
   "importClipboard": "Paste from clipboard",
   "importFile": "Open file",
   "checkUpdatesNow": "Check now",

@@ -5,6 +5,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:package_info_plus/package_info_plus.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../l10n/l10n.dart';
 import '../../services/analytics_service.dart';
 import '../../services/app_updates.dart';
@@ -152,6 +153,11 @@ class ToolsSettingsScreen extends StatelessWidget {
             ),
             option(Icons.save_alt, l.exportFile, () => _exportFile(context)),
             option(
+              Icons.open_in_new,
+              l.exportPastebin,
+              () => _exportPastebin(context),
+            ),
+            option(
               Icons.content_paste,
               l.importClipboard,
               () => _importClipboard(context),
@@ -184,6 +190,21 @@ class ToolsSettingsScreen extends StatelessWidget {
     if (path == null || !context.mounted) return;
     AppSnack.show(context, context.l10n.exportSettingsSaved);
   }
+
+  /// Copies the export and opens Pastebin, where the user pastes it and
+  /// gets a link to share. No account or API key involved.
+  Future<void> _exportPastebin(BuildContext context) async {
+    await Clipboard.setData(ClipboardData(text: await _exportText()));
+    final ok = await launchUrl(_pastebin, mode: LaunchMode.externalApplication);
+    if (!context.mounted) return;
+    final l = context.l10n;
+    AppSnack.show(
+      context,
+      ok ? l.exportSettingsDone : l.couldNotOpenUrl('$_pastebin'),
+    );
+  }
+
+  static final _pastebin = Uri.parse('https://pastebin.com');
 
   Future<void> _importClipboard(BuildContext context) async {
     final text = (await Clipboard.getData(Clipboard.kTextPlain))?.text ?? '';
