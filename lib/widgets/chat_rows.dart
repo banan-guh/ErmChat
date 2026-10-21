@@ -182,7 +182,7 @@ class ChatRows {
     final preview = formatReplyPreview(msg.replyToText ?? '');
     final variant = Theme.of(context).colorScheme.onSurfaceVariant;
     return Padding(
-      padding: const EdgeInsets.only(left: 12, top: 2),
+      padding: const EdgeInsets.only(left: 12, right: 12, top: 2),
       child: InkWell(
         onTap: () {
           final root = onFindThreadRoot?.call(msg);
