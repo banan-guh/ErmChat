@@ -384,6 +384,7 @@ class EmoteCacheManager extends CacheManager {
       }
       return EmoteCacheStats(fileCount: count, totalBytes: bytes);
     } catch (_) {
+      // Stats are best effort: report an empty cache.
       return const EmoteCacheStats(fileCount: 0, totalBytes: 0);
     }
   }

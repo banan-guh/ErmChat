@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 
 import '../models/twitch_message.dart';
+import '../util/log.dart';
 import '../util/prefs.dart';
 
 /// Local ignore: null replacement deletes; with replacement rewrites; block drops whole message.
@@ -56,7 +57,8 @@ List<IgnoreEntry> decodeEntries(String raw) {
       for (final e in decoded)
         if (e is Map) IgnoreEntry.fromJson(Map<String, dynamic>.from(e)),
     ];
-  } catch (_) {
+  } catch (e) {
+    logDebug('[IgnoreManager] malformed ignore list: $e');
     return [];
   }
 }

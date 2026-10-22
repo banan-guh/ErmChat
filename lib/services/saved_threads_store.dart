@@ -359,6 +359,7 @@ class SavedThreadsStore {
         Map<String, dynamic>.from(jsonDecode(utf8.decode(data)) as Map),
       );
     } catch (_) {
+      // An unreadable thread is skipped.
       return null;
     }
   }

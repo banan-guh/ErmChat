@@ -39,6 +39,7 @@ Future<List<CommandMacro>> loadMacros(String login) async {
             jsonDecode(entry) as Map<String, dynamic>,
           );
         } catch (_) {
+          // A malformed macro is skipped.
           return null;
         }
       })

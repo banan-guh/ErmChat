@@ -204,7 +204,9 @@ class EmoteCatalog {
     for (final item in raw) {
       try {
         if (item is Map<String, dynamic>) out.add(Emote.fromJson(item));
-      } catch (_) {}
+      } catch (_) {
+        // A malformed emote drops only itself.
+      }
     }
     return out;
   }

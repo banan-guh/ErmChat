@@ -109,6 +109,7 @@ List<PingRule> decodeRules(String raw) {
         if (entry is Map) PingRule.fromJson(Map<String, dynamic>.from(entry)),
     ];
   } catch (_) {
+    // A corrupt list reads as empty.
     return [];
   }
 }

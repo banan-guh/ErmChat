@@ -129,7 +129,9 @@ class ModPanels {
     // jumpTo (not a bare index set) so the warp swallows travel updates.
     try {
       tabDragFocus.jumpTo(0);
-    } catch (_) {}
+    } catch (_) {
+      // Best effort: skip the tab reset and still open.
+    }
     panelManager.activePanel = OverlayPanel.modView;
     panelManager.openThreadRoot = null;
     markDirty();

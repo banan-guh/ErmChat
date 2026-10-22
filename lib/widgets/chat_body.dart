@@ -311,7 +311,9 @@ class _ChatBodyState extends State<ChatBody>
         _learnedH = v;
         _persistedH = v;
       }
-    } catch (_) {}
+    } catch (_) {
+      // Prefs unavailable: keep the default height.
+    }
   }
 
   void _saveLearnedHeight(double v) {

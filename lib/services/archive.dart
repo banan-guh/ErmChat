@@ -65,6 +65,7 @@ class Archive {
       }
       return total;
     } catch (_) {
+      // Unreadable files report no size.
       return null;
     }
   }
@@ -88,6 +89,7 @@ class Archive {
     try {
       return await (await store)?.keptBytes();
     } catch (_) {
+      // A closed store reports no size.
       return null;
     }
   }

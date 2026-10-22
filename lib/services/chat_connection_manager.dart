@@ -16,6 +16,7 @@ import '../irc/transport/write.dart' show IrcService;
 import '../services/emote_manager.dart';
 import '../irc/join_rate_limiter.dart';
 import '../services/seven_tv_event_client.dart';
+import '../util/log.dart';
 import '../services/seven_tv_presence.dart';
 import '../services/twitch_badge_service.dart';
 import '../services/user_store.dart';
@@ -469,7 +470,8 @@ class ChatConnectionManager {
         broadcasterId: broadcasterId,
         moderatorId: userId,
       );
-    } catch (_) {
+    } catch (e) {
+      logDebug('[ChatConn] pin fetch failed for $channel: $e');
       return;
     }
     if (_pinRequests[channel] != request) return;

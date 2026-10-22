@@ -8,6 +8,7 @@ import '../twitch_config.dart';
 import '../util/constants.dart';
 import '../util/data_usage.dart';
 import '../util/friendly_error.dart';
+import '../util/log.dart';
 import '../models/point_rewards.dart';
 import '../models/polls.dart';
 import 'twitch_auth.dart';
@@ -392,6 +393,7 @@ class TwitchApi {
       }
       return list[0]['id'] as String;
     } catch (e) {
+      logDebug('[TwitchApi] getUserId failed: $e');
       _setError('getUserId: bad response');
       return null;
     }
@@ -417,6 +419,7 @@ class TwitchApi {
         'profile_image_url': raw['profile_image_url'] as String?,
       };
     } catch (e) {
+      logDebug('[TwitchApi] getCurrentUser failed: $e');
       _setError('getCurrentUser: bad response');
       return null;
     }
@@ -453,6 +456,7 @@ class TwitchApi {
           if (id != null && login != null) result[id] = login;
         }
       } catch (e) {
+        logDebug('[TwitchApi] getUserLoginsByIds failed: $e');
         _setError('getUserLoginsByIds: bad response');
       }
     }
@@ -498,6 +502,7 @@ class TwitchApi {
       if (list.isEmpty) return null;
       return list[0] as Map<String, dynamic>;
     } catch (e) {
+      logDebug('[TwitchApi] getStreamInfo failed: $e');
       _setError('getStreamInfo: bad response');
       throw http.ClientException('getStreamInfo: bad response', uri);
     }
@@ -533,6 +538,7 @@ class TwitchApi {
           if (id != null) byId[id] = m;
         }
       } catch (e) {
+        logDebug('[TwitchApi] getStreams failed: $e');
         _setError('getStreams: bad response');
         throw http.ClientException('getStreams: bad response', uri);
       }
@@ -563,6 +569,7 @@ class TwitchApi {
             ),
       };
     } catch (e) {
+      logDebug('[TwitchApi] getArchiveVideos failed: $e');
       _setError('getArchiveVideos: bad response');
       return null;
     }
@@ -584,6 +591,7 @@ class TwitchApi {
       }
       return list[0] as Map<String, dynamic>;
     } catch (e) {
+      logDebug('[TwitchApi] getUserProfile failed: $e');
       _setError('getUserProfile: bad response');
       return null;
     }
@@ -607,6 +615,7 @@ class TwitchApi {
       if (list.isEmpty) return null;
       return (list[0] as Map)['followed_at'] as String?;
     } catch (e) {
+      logDebug('[TwitchApi] getFollowDate failed: $e');
       _setError('getFollowDate: bad response');
       return null;
     }
@@ -645,6 +654,7 @@ class TwitchApi {
         }
         cursor = ((data['pagination'] as Map?)?['cursor']) as String?;
       } catch (e) {
+        logDebug('[TwitchApi] getBlockedUsers failed: $e');
         _setError('getBlockedUsers: bad response');
         return logins;
       }
@@ -689,6 +699,7 @@ class TwitchApi {
       }
       return item['message_id'] as String;
     } catch (e) {
+      logDebug('[TwitchApi] sendChatMessage failed: $e');
       _setError('sendChatMessage: bad response');
       return null;
     }
@@ -706,7 +717,8 @@ class TwitchApi {
       final list = (jsonDecode(res.body) as Map)['data'] as List;
       final color = list.isEmpty ? null : (list[0] as Map)['color'] as String?;
       return color == null || color.isEmpty ? null : color;
-    } catch (_) {
+    } catch (e) {
+      logDebug('[TwitchApi] getUserChatColor failed: $e');
       return null;
     }
   }
@@ -782,6 +794,7 @@ class TwitchApi {
         }
         cursor = ((data['pagination'] as Map?)?['cursor']) as String?;
       } catch (e) {
+        logDebug('[TwitchApi] getBannedUsers failed: $e');
         _setError('getBannedUsers: bad response');
         return out;
       }
@@ -815,6 +828,7 @@ class TwitchApi {
           UnbanRequest.fromJson(item as Map<String, dynamic>),
       ];
     } catch (e) {
+      logDebug('[TwitchApi] getUnbanRequests failed: $e');
       _setError('getUnbanRequests: bad response');
       return const [];
     }
@@ -864,6 +878,7 @@ class TwitchApi {
           BlockedTerm.fromJson(item as Map<String, dynamic>),
       ];
     } catch (e) {
+      logDebug('[TwitchApi] getBlockedTerms failed: $e');
       _setError('getBlockedTerms: bad response');
       return const [];
     }
@@ -893,6 +908,7 @@ class TwitchApi {
       if (list.isEmpty) return null;
       return BlockedTerm.fromJson(list[0] as Map<String, dynamic>);
     } catch (e) {
+      logDebug('[TwitchApi] addBlockedTerm failed: $e');
       _setError('addBlockedTerm: bad response');
       return null;
     }
@@ -928,6 +944,7 @@ class TwitchApi {
       if (list.isEmpty) return null;
       return AutoModSettings.fromJson(list[0] as Map<String, dynamic>);
     } catch (e) {
+      logDebug('[TwitchApi] getAutoModSettings failed: $e');
       _setError('getAutoModSettings: bad response');
       return null;
     }
@@ -958,6 +975,7 @@ class TwitchApi {
       if (list.isEmpty) return null;
       return AutoModSettings.fromJson(list[0] as Map<String, dynamic>);
     } catch (e) {
+      logDebug('[TwitchApi] updateAutoModSettings failed: $e');
       _setError('updateAutoModSettings: bad response');
       return null;
     }
@@ -1016,6 +1034,7 @@ class TwitchApi {
           PointReward.fromJson(item as Map<String, dynamic>),
       ];
     } catch (e) {
+      logDebug('[TwitchApi] getCustomRewards failed: $e');
       _setError('getCustomRewards: bad response');
       return const [];
     }
@@ -1060,6 +1079,7 @@ class TwitchApi {
           PointRedemption.fromJson(item as Map<String, dynamic>),
       ];
     } catch (e) {
+      logDebug('[TwitchApi] getRedemptions failed: $e');
       _setError('getRedemptions: bad response');
       return const [];
     }
@@ -1171,6 +1191,7 @@ class TwitchApi {
       final list = (jsonDecode(res.body) as Map)['data'] as List;
       return list.isEmpty ? null : list[0] as Map<String, dynamic>;
     } catch (e) {
+      logDebug('[TwitchApi] getPinnedChatMessage failed: $e');
       throw http.ClientException('getPinnedChatMessage: bad response', uri);
     }
   }
@@ -1256,6 +1277,7 @@ class TwitchApi {
         }
         cursor = ((data['pagination'] as Map?)?['cursor']) as String?;
       } catch (e) {
+        logDebug('[TwitchApi] getModerators failed: $e');
         _setError('getModerators: bad response');
         return logins;
       }
@@ -1312,6 +1334,7 @@ class TwitchApi {
         }
         cursor = ((data['pagination'] as Map?)?['cursor']) as String?;
       } catch (e) {
+        logDebug('[TwitchApi] getVips failed: $e');
         _setError('getVips: bad response');
         return logins;
       }
@@ -1416,6 +1439,7 @@ class TwitchApi {
       if (list.isEmpty) return null;
       return (list[0] as Map)['is_active'] as bool?;
     } catch (e) {
+      logDebug('[TwitchApi] getShieldModeStatus failed: $e');
       _setError('getShieldModeStatus: bad response');
       return null;
     }
@@ -1486,7 +1510,8 @@ class TwitchApi {
       return [
         for (final p in data.cast<Map<String, dynamic>>()) Poll.fromJson(p),
       ];
-    } catch (_) {
+    } catch (e) {
+      logDebug('[TwitchApi] getPolls failed: $e');
       _setError('getPolls: bad response');
       return const [];
     }
@@ -1545,7 +1570,8 @@ class TwitchApi {
         for (final p in data.cast<Map<String, dynamic>>())
           Prediction.fromJson(p),
       ];
-    } catch (_) {
+    } catch (e) {
+      logDebug('[TwitchApi] getPredictions failed: $e');
       _setError('getPredictions: bad response');
       return const [];
     }
@@ -1598,6 +1624,7 @@ class TwitchApi {
             : const <String>[],
       );
     } catch (e) {
+      logDebug('[TwitchApi] validateToken failed: $e');
       _recordError('validateToken: $e');
       return null;
     }

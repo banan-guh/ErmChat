@@ -33,7 +33,7 @@ class _EasedProgressState extends State<EasedProgress>
   double _to = 0;
 
   double get _value =>
-      _from + (_to - _from) * Curves.easeOut.transform(_ease.value);
+      _from + (_to - _from) * Motion.enter.transform(_ease.value);
 
   @override
   void initState() {

@@ -78,6 +78,7 @@ class EmoteImages {
         (u) async => (await _cache.getFileFromCache(u)) != null,
       );
     } catch (_) {
+      // A failed lookup reads as not cached.
       return false;
     }
   }

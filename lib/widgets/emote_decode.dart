@@ -104,6 +104,7 @@ Future<EmoteFrameData> _decodeAnimatedWebpEngineFirst(Uint8List bytes) async {
   try {
     return await _decodeWithEngineCodecSafe(bytes);
   } catch (_) {
+    // Engine codec failed: decode frame by frame.
     return _decodeAnimatedWebpPerFrame(bytes);
   }
 }

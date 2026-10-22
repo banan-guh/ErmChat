@@ -467,7 +467,8 @@ class ChatChannelSetup {
       });
       if (userId == null || emoteSetId == null) return null;
       return (userId: userId, emoteSetId: emoteSetId);
-    } catch (_) {
+    } catch (e) {
+      logDebug('[ChatConn] 7TV ids failed for $channelName: $e');
       return null;
     }
   }

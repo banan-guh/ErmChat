@@ -586,7 +586,9 @@ class SevenTvPersonalSets {
         if (item is Map<String, dynamic>) {
           out.add(Emote.fromJson(item));
         }
-      } catch (_) {}
+      } catch (e) {
+        logDebug('[SevenTvPersonalSets] skipping malformed emote: $e');
+      }
     }
     return out;
   }

@@ -97,7 +97,9 @@ class TtsController {
   Future<void> openSystemTtsSettings() async {
     try {
       await _channel.invokeMethod('openTtsSettings');
-    } catch (_) {}
+    } catch (e) {
+      logDebug('[tts] open settings failed: $e');
+    }
   }
 
   /// Sentinel: "use system default". Returned when engine enumeration is
@@ -119,7 +121,9 @@ class TtsController {
             if (engines != null && engines.isNotEmpty) {
               return _parseAndroidEngines(engines);
             }
-          } catch (_) {}
+          } catch (e) {
+            logDebug('[tts] engine listing failed: $e');
+          }
           // Retry after delay: getEngines can be empty before init completes.
           if (attempt == 0) {
             await Future<void>.delayed(const Duration(milliseconds: 400));
@@ -133,7 +137,9 @@ class TtsController {
               TtsOption(id: def, label: def, raw: {'name': def}),
             ];
           }
-        } catch (_) {}
+        } catch (e) {
+          logDebug('[tts] default engine lookup failed: $e');
+        }
         // No way to enumerate: offer "use device default" so TTS still works.
         return [
           TtsOption(
@@ -147,7 +153,9 @@ class TtsController {
         if (voices == null) return [];
         return _parseIosVoices(voices);
       }
-    } catch (_) {}
+    } catch (e) {
+      logDebug('[tts] voice listing failed: $e');
+    }
     return [];
   }
 
@@ -216,7 +224,8 @@ class TtsController {
     try {
       final result = await _tts.isLanguageAvailable(_defaultLocale);
       return result == true;
-    } catch (_) {
+    } catch (e) {
+      logDebug('[tts] language check failed: $e');
       return false;
     }
   }
@@ -248,7 +257,8 @@ class TtsController {
             jsonDecode(voiceRaw) as Map<dynamic, dynamic>,
           ),
         );
-      } catch (_) {
+      } catch (e) {
+        logDebug('[tts] stored voice unreadable: $e');
         _selectedOption = null;
       }
     }

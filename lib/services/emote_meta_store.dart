@@ -104,6 +104,7 @@ class EmoteMetaStore {
       }
       return _fallback[key] ?? (await _legacyRead(key));
     } catch (_) {
+      // Disk read failed: use the in-memory copy.
       return _fallback[key];
     }
   }
@@ -165,6 +166,7 @@ class EmoteMetaStore {
                 .toSet();
       return {...fileKeys, ..._fallback.keys};
     } catch (_) {
+      // A missing or unreadable file has only the in-memory keys.
       return {..._fallback.keys};
     }
   }
@@ -174,6 +176,7 @@ class EmoteMetaStore {
       final prefs = await Prefs.load();
       return prefs.rawGetString(key);
     } catch (_) {
+      // Prefs unavailable: no legacy value.
       return null;
     }
   }

@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:flutter/services.dart';
 
+import '../util/log.dart';
+
 /// Thin bridge over the `ermchat/pip` MethodChannel (Android system
 /// Picture-in-Picture, DankChat pattern: manifest flag + activity params, no
 /// plugin). Injectable for tests via [HomeScreen]'s service params: pass a
@@ -54,7 +56,9 @@ class PipService {
   Future<void> setAutoEnter(bool enabled) async {
     try {
       await _channel.invokeMethod('setAutoEnter', {'enabled': enabled});
-    } catch (_) {}
+    } catch (e) {
+      logDebug('[Pip] set auto enter failed: $e');
+    }
   }
 
   /// Manual entry for the player overlay button. Returns whether the host
@@ -62,7 +66,8 @@ class PipService {
   Future<bool> enterPip() async {
     try {
       return await _channel.invokeMethod<bool>('enterPip') ?? false;
-    } catch (_) {
+    } catch (e) {
+      logDebug('[Pip] enter failed: $e');
       return false;
     }
   }
@@ -72,7 +77,9 @@ class PipService {
   Future<void> updatePipActions({required bool playing}) async {
     try {
       await _channel.invokeMethod('updateActions', {'playing': playing});
-    } catch (_) {}
+    } catch (e) {
+      logDebug('[Pip] update actions failed: $e');
+    }
   }
 
   void dispose() {

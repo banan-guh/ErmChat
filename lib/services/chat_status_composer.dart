@@ -268,6 +268,7 @@ class ChatStatusComposer {
         ended: m['ended'] == true,
       );
     } catch (_) {
+      // A malformed status entry is skipped.
       return null;
     }
   }

@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../twitch_config.dart';
+import '../util/log.dart';
 
 /// A saved Twitch account: login, OAuth credentials, optional profile
 /// image, and its twitch.tv web session.
@@ -131,7 +132,8 @@ class TwitchAuth extends ChangeNotifier {
         for (final entry in decoded)
           if (entry is Map<String, dynamic>) TwitchAccount.fromJson(entry),
       ];
-    } catch (_) {
+    } catch (e) {
+      logDebug('[TwitchAuth] account registry unreadable: $e');
       return [];
     }
   }

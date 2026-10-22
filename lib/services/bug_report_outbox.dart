@@ -240,6 +240,7 @@ class BugReportOutbox extends ChangeNotifier {
           )
           .timeout(sendTimeout);
     } catch (_) {
+      // Offline or timed out: the queue retries.
       return _retryable(r, _strings().outboxWaitingConnection);
     }
     final code = resp.statusCode;
@@ -288,6 +289,7 @@ class BugReportOutbox extends ChangeNotifier {
       final json = jsonDecode(body);
       return json is Map<String, dynamic> ? json : const {};
     } catch (_) {
+      // A non-JSON reply has no fields.
       return const {};
     }
   }
@@ -313,6 +315,7 @@ class BugReportOutbox extends ChangeNotifier {
     try {
       _dir ??= await getApplicationDocumentsDirectory();
     } catch (_) {
+      // No documents directory: the outbox stays in memory.
       return null;
     }
     return File('${_dir!.path}${Platform.pathSeparator}bug_reports.json');
