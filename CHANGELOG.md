@@ -1,3 +1,2 @@
-- Video uploads with progress, settings backup to a file or pastebin
-- Fixed reconnecting, improved mod errors
-- Fixed button layouts, wrapping on small screens, disappearing island bug
+- Fixed grey-screen bug caused by R8
+- Fixed screen layout for empty channels
