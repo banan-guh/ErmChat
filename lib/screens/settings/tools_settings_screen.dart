@@ -1,8 +1,8 @@
 import 'dart:convert' show utf8;
-import 'dart:io' show Platform;
+import 'dart:io' show File, Platform;
 
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_file_dialog/flutter_file_dialog.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:package_info_plus/package_info_plus.dart';
@@ -188,9 +188,11 @@ class ToolsSettingsScreen extends StatelessWidget {
 
   Future<void> _exportFile(BuildContext context) async {
     final bytes = utf8.encode(await _exportText());
-    final path = await FilePicker.saveFile(
-      fileName: 'ermchat-settings.txt',
-      bytes: bytes,
+    final path = await FlutterFileDialog.saveFile(
+      params: SaveFileDialogParams(
+        data: bytes,
+        fileName: 'ermchat-settings.txt',
+      ),
     );
     if (path == null || !context.mounted) return;
     AppSnack.show(context, context.l10n.exportSettingsSaved);
@@ -232,9 +234,10 @@ class ToolsSettingsScreen extends StatelessWidget {
 
   Future<void> _importFile(BuildContext context) async {
     // Any type: a shared .txt often arrives renamed or with another MIME.
-    final picked = await FilePicker.pickFiles(withData: true);
-    final bytes = picked?.files.singleOrNull?.bytes;
-    if (bytes == null || !context.mounted) return;
+    final path = await FlutterFileDialog.pickFile();
+    if (path == null) return;
+    final bytes = await File(path).readAsBytes();
+    if (!context.mounted) return;
     await _import(context, utf8.decode(bytes, allowMalformed: true));
   }
 
