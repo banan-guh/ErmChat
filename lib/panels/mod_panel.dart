@@ -76,12 +76,12 @@ class ModPanels {
 
   bool _termsRestoredInput = false;
   String? _termsChannel;
+
+  /// Whether the Terms tab has focus, following a drag live.
   bool _termsWasActive = false;
 
-  /// Layout work deferred from a live drag crossing to settle.
-  bool _termsLayoutPending = false;
-
-  /// Status-row hide follows only on settle; the input swap is live, and
+  /// [_termsWasActive] as of the last settle. Status-row hide and the
+  /// other layout effects follow this one; the input swap is live, and
   /// resizing the composer mid-drag would feed back into the page.
   bool _termsChromeActive = false;
 
@@ -175,24 +175,14 @@ class ModPanels {
         panelManager.activePanel == OverlayPanel.modView &&
         selectedChannel() != null &&
         index == termsTabIndex;
-    if (tabDragFocus.dragFocus.value != null) {
-      // Live drag: the morph follows the finger through ComposerBar's
-      // drag subscription alone, no HomeScreen rebuild; keyboard and
-      // layout effects wait for settle so the viewport never shifts
-      // mid-gesture.
-      if (active == _termsWasActive) return;
-      _termsWasActive = active;
-      _termsLayoutPending = true;
-      return;
-    }
-    // Settle path (also covers tab taps): full effects, including any
-    // layout work deferred from the drag.
-    final layoutOnly = active == _termsWasActive && _termsLayoutPending;
-    _termsLayoutPending = false;
-    if (!layoutOnly) {
-      if (active == _termsWasActive) return;
-      _termsWasActive = active;
-    }
+    _termsWasActive = active;
+    // Live drag: the morph follows the finger through ComposerBar's drag
+    // subscription alone, no HomeScreen rebuild; keyboard and layout
+    // effects wait for settle so the viewport never shifts mid-gesture.
+    if (tabDragFocus.dragFocus.value != null) return;
+    // Settle path (also covers tab taps): full effects, when the settled
+    // state changed.
+    if (active == _termsChromeActive) return;
     _termsChromeActive = active;
     if (active) {
       final channel = selectedChannel();
@@ -228,7 +218,6 @@ class ModPanels {
   /// Panel close hook: restore input visibility, drop the draft.
   void onPanelClosed() {
     tabDragFocus.reset();
-    _termsLayoutPending = false;
     _termsChromeActive = false;
     final wasTerms = _termsWasActive;
     _termsWasActive = false;
