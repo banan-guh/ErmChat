@@ -38,11 +38,10 @@ class ChatLiveness {
   String anonymousNick(int seed) =>
       'justinfan${(DateTime.now().millisecondsSinceEpoch + seed) % 80000 + 1000}';
 
-  /// Foreground liveness watchdog: periodically re-arms any socket whose
-  /// reconnect loop died without a pending connect (e.g. a fatal-auth break
-  /// or a generation bump that wasn't followed by a fresh connect). The
-  /// in-socket loop already retries forever on ordinary network drops, so
-  /// this only needs to run while the app is in the foreground.
+  /// Foreground liveness watchdog: periodically re-arms any socket no loop
+  /// is retrying (a fatal stop, a socket never started) and tears down
+  /// stale ones. Each socket's loop already retries forever on ordinary
+  /// drops, so this only needs to run while the app is in the foreground.
   void startWatchdog() {
     _watchdogTimer?.cancel();
     // No probe here: each IRC socket's own 60s keepalive already catches a
@@ -64,9 +63,14 @@ class ChatLiveness {
     unawaited(sevenTvClient?.forceReconnect());
   }
 
-  /// Reconnects whatever is down. With [probe], a socket that looks connected
-  /// must also answer a PING (a resume, where the OS may have frozen it).
+  /// Reconnects whatever is down. With [probe] (a resume, where the OS may
+  /// have frozen sockets), a socket that looks connected must also answer a
+  /// PING, and one waiting out a backoff dials at once. Without it (the
+  /// watchdog), a socket its loop is already retrying is left alone.
   void reconnectIfNecessary({bool probe = true}) {
+    bool needsDial(bool connected, bool reconnecting) =>
+        !connected && (probe || !reconnecting);
+
     final login = session.login;
     final token = twitchAuth.accessToken;
     final anonymous = login == null || token == null;
@@ -77,9 +81,9 @@ class ChatLiveness {
     // backgrounding). When it looks connected, verify with a PING/PONG
     // round-trip instead of trusting isConnected; force a reconnect if the
     // PONG never comes back.
-    if (!irc.isConnected) {
+    if (needsDial(irc.isConnected, irc.isReconnecting)) {
       unawaited(irc.connect(username: username, accessToken: accessToken));
-    } else if (probe) {
+    } else if (irc.isConnected && probe) {
       unawaited(
         irc.checkAlive().then((alive) {
           if (!alive) {
@@ -89,7 +93,7 @@ class ChatLiveness {
         }),
       );
     }
-    if (!ircRead.isConnected) {
+    if (needsDial(ircRead.isConnected, ircRead.isReconnecting)) {
       unawaited(
         ircRead.connect(
           username: anonymous ? anonymousNick(2) : username,
@@ -98,7 +102,7 @@ class ChatLiveness {
           useProxy: !anonymous,
         ),
       );
-    } else if (probe) {
+    } else if (ircRead.isConnected && probe) {
       unawaited(
         ircRead.checkAlive().then((alive) {
           if (!alive) {
@@ -110,16 +114,21 @@ class ChatLiveness {
     }
     // EventSub/7TV have no PING/PONG equivalent, so `isConnected` alone can't
     // spot a zombie socket; a stale session is torn down and re-established.
-    if (!eventSub.isConnected || eventSub.isStale) {
+    if (needsDial(eventSub.isConnected, eventSub.isReconnecting) ||
+        eventSub.isStale) {
       unawaited(eventSub.forceReconnect());
     }
     final points = pubSub;
-    if (points != null && (!points.isConnected || points.isStale)) {
+    if (points != null &&
+        (needsDial(points.isConnected, points.isReconnecting) ||
+            points.isStale)) {
       unawaited(points.forceReconnect());
     }
-    if (sevenTvClient != null &&
-        (!sevenTvClient!.isConnected || sevenTvClient!.isStale)) {
-      unawaited(sevenTvClient!.forceReconnect());
+    final sevenTv = sevenTvClient;
+    if (sevenTv != null &&
+        (needsDial(sevenTv.isConnected, sevenTv.isReconnecting) ||
+            sevenTv.isStale)) {
+      unawaited(sevenTv.forceReconnect());
     }
   }
 

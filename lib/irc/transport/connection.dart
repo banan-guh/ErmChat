@@ -153,6 +153,9 @@ abstract class IrcConnection {
   Stream<IrcConnectionStatus> get onStatus => _statusController.stream;
   bool get isConnected => channel != null;
 
+  /// Down, but the loop is already dialing or waiting to retry.
+  bool get isReconnecting => !isConnected && _loop.running;
+
   final _joinFailedController = StreamController<IrcJoinFailureEvent>.broadcast(
     sync: true,
   );

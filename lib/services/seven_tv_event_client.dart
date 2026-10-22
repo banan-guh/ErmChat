@@ -119,7 +119,6 @@ class SevenTvEventClient {
   static const _wsUrl = 'wss://events.7tv.io/v3';
   static const _connectTimeout = Duration(seconds: 10);
   static const _noReconnectCloseCodes = {4001, 4002, 4003, 4004, 4009, 4010};
-  static const _maxReconnectAttempts = 8;
   static const _reconnectMinDelay = Duration(seconds: 1);
 
   WebSocketChannel? _channel;
@@ -177,13 +176,15 @@ class SevenTvEventClient {
           : applyReconnectJitter(
               Duration(seconds: min(pow(2, failures - 2).toInt(), 30)),
             ),
-      maxAttempts: _maxReconnectAttempts,
       connectivity: connectivityService,
       connectTimeout: _connectTimeout,
     );
   }
 
   bool get isConnected => _channel != null;
+
+  /// Down, but the loop is already dialing or waiting to retry.
+  bool get isReconnecting => !isConnected && _loop.running;
 
   int _subscriptionSends = 0;
 

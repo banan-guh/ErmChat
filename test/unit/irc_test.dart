@@ -35,6 +35,7 @@ import 'package:ermchat/chat/channel/messages.dart' show SystemLine;
 import 'package:ermchat/client/session.dart';
 import 'package:ermchat/services/emote_manager.dart';
 import 'package:ermchat/services/twitch_api.dart';
+import 'package:ermchat/services/chat_liveness.dart';
 import 'package:ermchat/services/twitch_auth.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:ermchat/services/twitch_badge_service.dart';
@@ -240,13 +241,22 @@ class _LoopIrcRead extends IrcReadService {
 }
 
 class _StaleEventSub extends _NoopEventSub {
-  _StaleEventSub({this.stale = false});
+  _StaleEventSub({
+    this.stale = false,
+    this.connected = true,
+    this.reconnecting = false,
+  });
 
   final bool stale;
+  final bool connected;
+  final bool reconnecting;
   int forceCalls = 0;
 
   @override
-  bool get isConnected => true;
+  bool get isConnected => connected;
+
+  @override
+  bool get isReconnecting => reconnecting;
 
   @override
   bool get isStale => stale;
@@ -1848,27 +1858,8 @@ void main() {
       });
     });
 
-    test('a socket out of retries waits for the network, then dials', () {
-      fakeAsync((async) {
-        final conn = ConnectivityService();
-        conn.debugSetResults(const [ConnectivityResult.wifi]);
-        final c = _TestEventSub([
-          FakeWebSocketChannel(failReady: true),
-        ], connectivityService: conn);
-        c.connect();
-        async.elapse(const Duration(minutes: 10));
-        expect(c.opened, 9, reason: 'one dial plus 8 retries');
-        conn.debugSetResults(const [ConnectivityResult.none]);
-        conn.debugSetResults(const [ConnectivityResult.wifi]);
-        async.flushMicrotasks();
-        expect(c.opened, 10, reason: 'the network returning dials again');
-        c.dispose();
-        conn.dispose();
-      });
-    });
-
     // Shipped bug: connect() zeroed the counter, so EventSub retried every
-    // second forever and never reached its give-up cap.
+    // second forever instead of backing off.
     test('EventSub reconnect counter survives failed connect attempts', () {
       fakeAsync((async) {
         final c = EventSubService();
@@ -3466,27 +3457,73 @@ void main() {
       });
     }
 
-    for (final (name, stale, calls) in [
-      ('reconnects a stale EventSub session on resume', true, 1),
-      ('does not reconnect a healthy EventSub session on resume', false, 0),
+    // A socket its own loop is retrying is left to that loop by the
+    // watchdog; a resume dials at once instead of waiting out the backoff.
+    for (final (name, stale, connected, reconnecting, probe, calls) in [
+      (
+        'reconnects a stale EventSub session on resume',
+        true,
+        true,
+        false,
+        true,
+        1,
+      ),
+      (
+        'does not reconnect a healthy EventSub session',
+        false,
+        true,
+        false,
+        true,
+        0,
+      ),
+      (
+        'the watchdog leaves a retrying session alone',
+        false,
+        false,
+        true,
+        false,
+        0,
+      ),
+      (
+        'the watchdog dials a session nothing retries',
+        false,
+        false,
+        false,
+        false,
+        1,
+      ),
+      (
+        'a resume dials a retrying session at once',
+        false,
+        false,
+        true,
+        true,
+        1,
+      ),
     ]) {
       test(name, () {
         fakeAsync((async) {
           final irc = _TestIrc();
           irc.alive = true;
-          final eventSub = _StaleEventSub(stale: stale);
-          final conn = _makeReconnectConn(
-            eventSub: eventSub,
+          final eventSub = _StaleEventSub(
+            stale: stale,
+            connected: connected,
+            reconnecting: reconnecting,
+          );
+          final liveness = ChatLiveness(
             irc: irc,
-            onReconnected: () {},
-            currentUserLogin: 'testuser',
+            ircRead: _TestIrcRead()..fakeConnected = true,
+            eventSub: eventSub,
+            sevenTvClient: null,
+            session: Session(),
+            twitchAuth: TwitchAuth(),
           );
           irc.connect(username: 'testuser', accessToken: 'token');
           irc.emitConnected();
-          conn.reconnectIfNecessary();
+          liveness.reconnectIfNecessary(probe: probe);
           async.flushMicrotasks();
           expect(eventSub.forceCalls, calls, reason: name);
-          conn.dispose();
+          liveness.dispose();
         });
       });
     }

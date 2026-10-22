@@ -12,7 +12,6 @@ import '../../util/data_usage.dart';
 
 class EventSubService {
   static const _wsUrl = 'wss://eventsub.wss.twitch.tv/ws';
-  static const _maxReconnectAttempts = 8;
   static const _connectTimeout = Duration(seconds: 10);
 
   WebSocketChannel? _channel;
@@ -42,6 +41,9 @@ class EventSubService {
       StreamController<Map<String, dynamic>>.broadcast(sync: true);
 
   bool get isConnected => _channel != null;
+
+  /// Down, but the loop is already dialing or waiting to retry.
+  bool get isReconnecting => !isConnected && _loop.running;
   String? get sessionId => _sessionId;
 
   /// True when socket exists but no frame arrived for >1.5x keepalive
@@ -67,7 +69,6 @@ class EventSubService {
       backoff: (failures) => applyReconnectJitter(
         Duration(seconds: min(pow(2, failures - 1).toInt(), 30)),
       ),
-      maxAttempts: _maxReconnectAttempts,
       connectivity: connectivityService,
       connectTimeout: _connectTimeout,
     );

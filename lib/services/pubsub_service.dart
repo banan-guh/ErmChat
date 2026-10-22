@@ -35,7 +35,6 @@ class PubSubService {
   PubSubService({this.connectivityService});
 
   static const _wsUrl = 'wss://pubsub-edge.twitch.tv';
-  static const _maxReconnectAttempts = 8;
   static const _connectTimeout = Duration(seconds: 10);
 
   /// DankChat's ping cadence, minus a small jitter so reconnects desync.
@@ -67,7 +66,6 @@ class PubSubService {
     backoff: (failures) => applyReconnectJitter(
       Duration(seconds: min(pow(2, failures - 1).toInt(), 30)),
     ),
-    maxAttempts: _maxReconnectAttempts,
     connectivity: connectivityService,
     connectTimeout: _connectTimeout,
   );
@@ -106,6 +104,9 @@ class PubSubService {
     'pinned-chat-updates-v1.$channelId',
   ];
   bool get isConnected => _channel != null;
+
+  /// Down, but the loop is already dialing or waiting to retry.
+  bool get isReconnecting => !isConnected && _loop.running;
 
   /// True when the socket exists but nothing arrived for >1.5x the ping
   /// interval (zombie).

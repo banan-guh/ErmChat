@@ -23,16 +23,14 @@ enum SocketEnd {
 /// serving and waiting are where the loop is, never flags to keep in sync.
 ///
 /// [start] replaces any run in flight and [stop] ends it, so exactly one run
-/// can ever open a socket. Being offline never stops a retry: coming back
-/// online wakes the wait and starts the count over. After [maxAttempts]
-/// retries in a row the loop stops retrying until the network returns or
-/// the owner restarts it.
+/// can ever open a socket. A run retries until stopped or [SocketEnd.fatal];
+/// being offline never stops it, and coming back online wakes the wait and
+/// starts the count over.
 class SocketLoop {
   SocketLoop({
     required this.name,
     required this.attempt,
     required this.backoff,
-    this.maxAttempts,
     this.connectivity,
     this.connectTimeout = const Duration(seconds: 10),
   });
@@ -46,10 +44,6 @@ class SocketLoop {
 
   /// The wait before retry number `failures`, counted from 1.
   final Duration Function(int failures) backoff;
-
-  /// Retries in a row before the loop waits for the network instead.
-  /// Null retries forever.
-  final int? maxAttempts;
 
   final ConnectivityService? connectivity;
   final Duration connectTimeout;
@@ -104,13 +98,7 @@ class SocketLoop {
       if (!run.live || end == SocketEnd.fatal) break;
       if (end == SocketEnd.reconnectNow) continue;
       _failures++;
-      final cap = maxAttempts;
-      if (cap != null && _failures > cap) {
-        logDebug('$name gave up after $_failures attempts');
-        await run._sleep(null);
-      } else {
-        await run._sleep(backoff(_failures));
-      }
+      await run._sleep(backoff(_failures));
     }
     run._settle();
     if (identical(_run, run)) _run = null;
@@ -187,11 +175,11 @@ class SocketRun {
     if (!_settled.isCompleted) _settled.complete();
   }
 
-  /// Waits [delay], or until woken when null.
-  Future<void> _sleep(Duration? delay) {
+  /// Waits [delay], or until woken.
+  Future<void> _sleep(Duration delay) {
     final sleeper = Completer<void>();
     _sleeper = sleeper;
-    if (delay != null) _sleepTimer = Timer(delay, _wake);
+    _sleepTimer = Timer(delay, _wake);
     return sleeper.future;
   }
 
