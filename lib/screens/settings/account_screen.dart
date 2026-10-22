@@ -546,8 +546,10 @@ class _AccountScreenState extends State<AccountScreen> {
                   },
                 ),
                 const SizedBox(height: 16),
-                Row(
-                  mainAxisSize: MainAxisSize.min,
+                OverflowBar(
+                  spacing: 12,
+                  overflowSpacing: 8,
+                  alignment: MainAxisAlignment.center,
                   children: [
                     ListenableBuilder(
                       listenable: widget.twitchAuth,
@@ -566,7 +568,6 @@ class _AccountScreenState extends State<AccountScreen> {
                         );
                       },
                     ),
-                    const SizedBox(width: 12),
                     TextButton.icon(
                       onPressed: _disconnect,
                       icon: const Icon(Icons.logout),

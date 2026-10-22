@@ -249,15 +249,29 @@ class _HeldCard extends StatelessWidget {
                     Expanded(
                       child: FilledButton.icon(
                         onPressed: () => onDecide(true),
+                        style: FilledButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(horizontal: 12),
+                        ),
                         icon: const Icon(Icons.check, size: 18),
-                        label: Text(context.l10n.allow),
+                        label: Text(
+                          context.l10n.allow,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
                       ),
                     ),
                     Expanded(
                       child: OutlinedButton.icon(
                         onPressed: () => onDecide(false),
+                        style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(horizontal: 12),
+                        ),
                         icon: const Icon(Icons.close, size: 18),
-                        label: Text(context.l10n.deny),
+                        label: Text(
+                          context.l10n.deny,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
                       ),
                     ),
                     PopupMenuButton<VoidCallback>(
