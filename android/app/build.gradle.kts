@@ -81,6 +81,11 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            if (System.getenv("ERMCHAT_DEV_RELEASE") == "1") {
+                applicationIdSuffix = ".debug"
+                manifestPlaceholders["appLabel"] = "ErmChat Dev"
+                signingConfig = signingConfigs.getByName("debug")
+            }
         }
     }
 

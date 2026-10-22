@@ -8,7 +8,9 @@ import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 
 /// Whether debug logging is enabled. Tests set this to false.
-bool debugLogEnabled = !kReleaseMode;
+/// `--dart-define=ERMCHAT_RELEASE_LOG=true` keeps it on in release.
+bool debugLogEnabled =
+    !kReleaseMode || const bool.fromEnvironment('ERMCHAT_RELEASE_LOG');
 
 /// App logging hook. Use instead of [debugPrint] so tests can silence noise.
 void logDebug(String? message, {int? wrapWidth}) {
