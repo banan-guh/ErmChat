@@ -62,12 +62,12 @@ class ThirdPartyBadgeService {
   final _listUsers = <_ListProvider, Map<String, ThirdPartyBadge>>{};
   final _listInflight = <_ListProvider>{};
 
-  bool _ffzFetched = false;
-  bool _bttvFetched = false;
   int _version = 0;
 
-  bool _ffzInflight = false;
-  bool _bttvInflight = false;
+  // A running or finished catalog load. A failed one clears itself, so the
+  // next call retries.
+  Future<void>? _ffzLoad;
+  Future<void>? _bttvLoad;
 
   int get version => _version;
 
@@ -102,13 +102,15 @@ class ThirdPartyBadgeService {
     });
   }
 
-  Future<void> fetchFfzBadges() async {
-    if (_ffzFetched || _ffzInflight) return;
-    _ffzInflight = true;
+  Future<void> fetchFfzBadges() => _ffzLoad ??= _loadFfz().then((ok) {
+    if (!ok) _ffzLoad = null;
+  });
+
+  Future<bool> _loadFfz() async {
     try {
       final uri = Uri.parse('https://api.frankerfacez.com/v1/badges/ids');
       final res = await _get(uri);
-      if (res.statusCode != 200) return;
+      if (res.statusCode != 200) return false;
       final data = jsonDecode(res.body) as Map<String, dynamic>;
 
       final badgesList = data['badges'] as List<dynamic>? ?? [];
@@ -135,22 +137,23 @@ class ThirdPartyBadgeService {
           _ffzUsers[uid.toString()] = badgeId;
         }
       }
-      _ffzFetched = true;
       _version++;
+      return true;
     } catch (e) {
       logDebug('FFZ badge fetch error: $e');
-    } finally {
-      _ffzInflight = false;
+      return false;
     }
   }
 
-  Future<void> fetchBttvBadges() async {
-    if (_bttvFetched || _bttvInflight) return;
-    _bttvInflight = true;
+  Future<void> fetchBttvBadges() => _bttvLoad ??= _loadBttv().then((ok) {
+    if (!ok) _bttvLoad = null;
+  });
+
+  Future<bool> _loadBttv() async {
     try {
       final uri = Uri.parse('https://api.betterttv.net/3/cached/badges/twitch');
       final res = await _get(uri);
-      if (res.statusCode != 200) return;
+      if (res.statusCode != 200) return false;
       final list = jsonDecode(res.body) as List<dynamic>? ?? [];
       for (final entry in list) {
         final item = entry as Map<String, dynamic>;
@@ -164,12 +167,11 @@ class ThirdPartyBadgeService {
           );
         }
       }
-      _bttvFetched = true;
       _version++;
+      return true;
     } catch (e) {
       logDebug('BTTV badge fetch error: $e');
-    } finally {
-      _bttvInflight = false;
+      return false;
     }
   }
 
