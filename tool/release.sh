@@ -55,6 +55,11 @@ titles() {
     sed -nE "s/^($1): (.*)/- \2/p"
 }
 section() { [[ -z $2 ]] || printf '%s\n\n%s\n\n' "$1" "$2"; }
+# A big release is written by hand: its categories come as bare headings.
+COMMITS="$(git rev-list --count --no-merges "$PREV..develop")"
+category() {
+  if ((COMMITS >= 20)); then printf '%s\n\n' "$1"; else section "$1" "$2"; fi
+}
 FIXES="$(titles fix)"
 FEATS="$(titles feat)"
 ALSO="$(titles 'perf|refactor|style')"
@@ -69,13 +74,14 @@ NOTES="$(git rev-parse --git-dir)/RELEASE_NOTES.md"
   echo "// Lines starting with // are dropped. Write the intro, trim the lists."
   echo "// CHANGELOG.md:"
   sed 's|^|//   |' <<< "$CHANGELOG"
+  ((COMMITS < 20)) || echo "// $COMMITS commits since $PREV: git log $PREV..develop"
   echo "$INTRO"
   echo
   echo "---"
   echo "### What Happened: ###"
-  section "Architecture / Correctness Fixes" "$FIXES"
-  section "New Features" "$FEATS"
-  section "Also Fixed" "$ALSO"
+  category "Architecture / Correctness Fixes" "$FIXES"
+  category "New Features" "$FEATS"
+  category "Also Fixed" "$ALSO"
   section "issues (fixed):" "$ISSUE_LINES"
   echo ")"
   echo
