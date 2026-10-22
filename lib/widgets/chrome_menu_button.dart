@@ -111,9 +111,9 @@ class ChromeMenuButtonState extends State<ChromeMenuButton> {
   }
 }
 
-/// The view menu's pill while fullscreen floats it over the pages. Its
-/// width matches a small FAB's tap target, so a floating button under it
-/// at the same right edge shares its center.
+/// The view menu's pill while fullscreen floats it over the pages, glass
+/// under glass chrome. Its width matches a small FAB's tap target, so a
+/// floating button under it at the same right edge shares its center.
 class FloatingMenuShell extends StatelessWidget {
   const FloatingMenuShell({super.key, required this.child});
 
@@ -124,16 +124,23 @@ class FloatingMenuShell extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final glass = GlassChromeScope.maybeOf(context)?.glass ?? false;
     return SizedBox(
       width: width,
       height: height,
-      child: DecoratedBox(
-        decoration: ShapeDecoration(
-          color: Theme.of(context).colorScheme.surfaceContainerHigh,
-          shape: const StadiumBorder(),
-        ),
-        child: Center(child: child),
-      ),
+      child: glass
+          ? GlassSurface(
+              shape: const LiquidRoundedRectangle(borderRadius: height / 2),
+              settings: kGlassPillSettings,
+              child: Center(child: child),
+            )
+          : DecoratedBox(
+              decoration: ShapeDecoration(
+                color: Theme.of(context).colorScheme.surfaceContainerHigh,
+                shape: const StadiumBorder(),
+              ),
+              child: Center(child: child),
+            ),
     );
   }
 }

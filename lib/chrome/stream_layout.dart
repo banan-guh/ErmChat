@@ -498,7 +498,8 @@ class StreamPanels {
               ? homeAppBar.appBar(context, transparent: true)
               : null,
           glassHeaderHeight: glassChatOnly ? headerH : 0,
-          glassTopPadding: glassChatOnly ? headerH : 0,
+          // Fullscreen slides the header away, so the pages start at the top.
+          glassTopPadding: glassChatOnly && !isFullscreen() ? headerH : 0,
           underStream: channel != null,
         ),
       ],
