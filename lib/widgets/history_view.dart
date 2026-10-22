@@ -363,21 +363,16 @@ class _HistoryViewState extends State<HistoryView> {
   /// Rows after the window's end, read ahead of the VOD. Oldest first.
   List<TwitchMessage> _replayQueue = [];
 
-  /// The source has nothing after [_replayQueue].
-  bool _replayDone = false;
-  bool _replayReading = false;
+  /// Reading rows after [_replayQueue] from the source.
+  _ReadAhead _readAhead = _ReadAhead.idle;
 
   /// A replay load is in flight; ticks wait for it. Counts loads, so only
   /// the latest one clears it.
   int _replayLoads = 0;
   bool _replayJumping = false;
 
-  /// A jump elsewhere left the replay's rows: resuming reloads them.
-  bool _replayStale = false;
-
-  /// The user scrolled up during a VOD: the replay waits until they return
-  /// to the bottom or the VOD seeks.
-  bool _replayPaused = false;
+  /// Why the replay waits, if it does.
+  _ReplayPause _replayPause = _ReplayPause.none;
 
   bool _scrolled = false;
   String? _fmtLocale;
@@ -717,9 +712,9 @@ class _HistoryViewState extends State<HistoryView> {
 
   /// Replays chat with a playing VOD: the list shows chat up to the VOD's
   /// time and takes in rows as playback reaches them, like live chat. A
-  /// seek reloads around the new time. Closing the VOD returns to the newest
-  /// row.
-  void _onFollow() {
+  /// seek reloads around the new time, as does [reload] (resuming a replay
+  /// a jump elsewhere held). Closing the VOD returns to the newest row.
+  void _onFollow({bool reload = false}) {
     final at = widget.actions?.follow.value;
     if (at == null) {
       _playedTo = null;
@@ -735,14 +730,15 @@ class _HistoryViewState extends State<HistoryView> {
     _playedTo = at.time;
     if (widget.actions!.vodLive.value) return;
     final seek = played != null && at.time.difference(played).abs() > _seekGap;
-    if (seek) _replayPaused = false;
-    if (_replayPaused) return;
+    final held = reload || _replayPause == _ReplayPause.held;
+    if (seek) _replayPause = _ReplayPause.none;
+    if (_replayPause != _ReplayPause.none) return;
     final shown = _replayAt;
     // Far behind (back from a pause) reloads rather than reading every
     // block in between.
     if (shown == null ||
         seek ||
-        _replayStale ||
+        held ||
         at.time.isBefore(shown) ||
         at.time.difference(shown) > _replayAhead) {
       _startReplay(at.time);
@@ -762,9 +758,8 @@ class _HistoryViewState extends State<HistoryView> {
   void _startReplay(DateTime time) {
     _replayAt = time;
     _replayQueue = [];
-    _replayDone = false;
-    _replayReading = false;
-    _replayStale = false;
+    _readAhead = _ReadAhead.idle;
+    _replayPause = _ReplayPause.none;
     _replayJumping = true;
     final load = ++_replayLoads;
     final source = widget.source;
@@ -843,21 +838,22 @@ class _HistoryViewState extends State<HistoryView> {
     final ahead = _replayQueue.isEmpty
         ? null
         : _replayQueue.last.timestamp.difference(time);
-    if (!_replayDone && (ahead == null || ahead < _replayAhead)) {
+    if (_readAhead != _ReadAhead.done &&
+        (ahead == null || ahead < _replayAhead)) {
       unawaited(_readReplay());
     }
   }
 
   /// Reads the next block after the queue (or the window) into the queue.
   Future<void> _readReplay() async {
-    if (_replayReading) return;
+    if (_readAhead == _ReadAhead.reading) return;
     final epoch = _epoch;
     final tail = _replayQueue.isNotEmpty
         ? _replayQueue.last
         : (_window.isEmpty ? null : _window[_window.end - 1]);
     final edge = tail?.timestamp ?? _replayAt;
     if (edge == null) return;
-    _replayReading = true;
+    _readAhead = _ReadAhead.reading;
     try {
       final held = {
         for (final m in _replayQueue) HistoryWindow.keyOf(m),
@@ -881,14 +877,16 @@ class _HistoryViewState extends State<HistoryView> {
       }
       if (!mounted || epoch != _epoch) return;
       if (fresh.isEmpty) {
-        _replayDone = true;
+        _readAhead = _ReadAhead.done;
         return;
       }
       _replayQueue = [..._replayQueue, ...fresh];
     } catch (e) {
       logDebug('[hist!] ${widget.channel}: replay read failed: $e');
     } finally {
-      if (epoch == _epoch) _replayReading = false;
+      if (epoch == _epoch && _readAhead == _ReadAhead.reading) {
+        _readAhead = _ReadAhead.idle;
+      }
     }
     final at = _replayAt;
     if (mounted && epoch == _epoch && at != null) _advanceReplay(at);
@@ -903,7 +901,6 @@ class _HistoryViewState extends State<HistoryView> {
     if (live) {
       _endReplay();
     } else {
-      _replayPaused = false;
       _startReplay(at.time);
     }
   }
@@ -911,12 +908,11 @@ class _HistoryViewState extends State<HistoryView> {
   /// Leaves the replay for the newest rows.
   void _endReplay() {
     _replayAt = null;
-    _replayStale = false;
+    _replayPause = _ReplayPause.none;
     _replayJumping = false;
     _replayLoads++;
     _replayQueue = [];
-    _replayPaused = false;
-    _replayReading = false;
+    _readAhead = _ReadAhead.idle;
     _jumpTo(null);
   }
 
@@ -947,11 +943,9 @@ class _HistoryViewState extends State<HistoryView> {
   void _jumpToNewest() {
     final replay = _replayAt;
     if (replay != null) {
-      _replayPaused = false;
       _startReplay(widget.actions?.follow.value?.time ?? replay);
       return;
     }
-    _replayPaused = false;
     _follow = true;
     _atBottom = true;
     _panel.value = false;
@@ -1096,8 +1090,7 @@ class _HistoryViewState extends State<HistoryView> {
     _loadingNewer = false;
     if (_replayAt != null && !replay && time != null) {
       // A jump elsewhere during a VOD (a picked day) holds the replay.
-      _replayPaused = true;
-      _replayStale = true;
+      _replayPause = _ReplayPause.held;
     }
     _follow = time == null || replay;
     _hold = null;
@@ -1519,15 +1512,18 @@ class _HistoryViewState extends State<HistoryView> {
     if (n is ScrollUpdateNotification &&
         (n.dragDetails != null || _pointerScroll)) {
       _follow = atEnd;
-      if (_replayAt != null && !atEnd) _replayPaused = true;
+      if (_replayAt != null && !atEnd && _replayPause == _ReplayPause.none) {
+        _replayPause = _ReplayPause.scrolled;
+      }
     } else if (n is ScrollEndNotification) {
       if (atEnd) {
         _follow = true;
         // Back at the bottom, the replay catches up with the VOD.
-        if (_replayPaused) {
-          _replayPaused = false;
+        if (_replayPause != _ReplayPause.none) {
+          final reload = _replayPause == _ReplayPause.held;
+          _replayPause = _ReplayPause.none;
           WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (mounted) _onFollow();
+            if (mounted) _onFollow(reload: reload);
           });
         }
       } else if (_pos case final p? when _fits(p)) {
@@ -2269,3 +2265,12 @@ class _HistoryViewState extends State<HistoryView> {
     );
   }
 }
+
+/// Why a VOD replay waits. [scrolled]: the reader scrolled up, and coming
+/// back to the bottom resumes. [held]: a jump elsewhere left the replay's
+/// rows, so resuming reloads them.
+enum _ReplayPause { none, scrolled, held }
+
+/// The replay's read-ahead past its queue. [done]: the source has nothing
+/// newer.
+enum _ReadAhead { idle, reading, done }
