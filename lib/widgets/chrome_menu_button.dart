@@ -1,6 +1,7 @@
 import 'dart:math';
 import 'dart:ui' show ImageFilter, lerpDouble;
 
+import 'package:flutter/cupertino.dart' show CupertinoColors;
 import 'package:flutter/material.dart';
 import 'package:flutter/physics.dart';
 import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
@@ -107,6 +108,52 @@ class ChromeMenuButtonState extends State<ChromeMenuButton> {
         duration: Motion.fast,
         child: const Icon(Icons.expand_more),
       ),
+    );
+  }
+}
+
+/// A floating button's shell around a menu trigger, shaped like the chat
+/// pages' floating buttons: a small FAB, or a glass square under glass
+/// chrome.
+class FloatingMenuShell extends StatelessWidget {
+  const FloatingMenuShell({super.key, required this.child});
+
+  final Widget child;
+
+  /// The shell's side, matching the pages' floating buttons.
+  static double sizeFor({required bool glass}) => glass ? 44 : 40;
+
+  @override
+  Widget build(BuildContext context) {
+    final glass = GlassChromeScope.maybeOf(context)?.glass ?? false;
+    final scheme = Theme.of(context).colorScheme;
+    // Icon colors as GlassIconButton and the small FAB draw theirs.
+    final content = IconButtonTheme(
+      data: IconButtonThemeData(
+        style: IconButton.styleFrom(
+          foregroundColor: glass
+              ? CupertinoColors.label.resolveFrom(context)
+              : scheme.onPrimaryContainer,
+        ),
+      ),
+      child: Center(child: child),
+    );
+    return SizedBox.square(
+      dimension: sizeFor(glass: glass),
+      child: glass
+          ? GlassSurface(
+              shape: const LiquidRoundedRectangle(borderRadius: 12),
+              settings: kGlassPillSettings,
+              child: content,
+            )
+          : Material(
+              color: scheme.primaryContainer,
+              elevation: 6,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: content,
+            ),
     );
   }
 }

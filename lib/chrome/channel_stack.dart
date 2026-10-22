@@ -213,6 +213,12 @@ class ChannelPanels {
   // (see HomeScreen _setPref rerenderChannels); theme and text scale reach
   // tiles through inherited widgets, and late paints self-update inside
   // their own ListenableBuilder, so they need no token entry.
+  /// Whether fullscreen floats the view menu over the pages' top-right
+  /// corner, because the theme's button row does not carry it.
+  bool _menuFloats() =>
+      isFullscreen() &&
+      !homeAppBar.themeSpec().rowActions.contains(ChromeAction.viewMenu);
+
   String _pageToken() =>
       '${search.open}|${showTimestamps()}|${timestampFormat()}|'
       '${chatFontSize()}|${checkeredMessages()}|${highlightOpacity()}|'
@@ -231,7 +237,7 @@ class ChannelPanels {
     // Glass header clearance joins the token so toggling glass evicts stale
     // pages with stale spacers. The pill clearance arrives through
     // GlassChromeScope instead, so it never evicts a page.
-    final token = '${_pageToken()}|${topPadding.round()}';
+    final token = '${_pageToken()}|${topPadding.round()}|${_menuFloats()}';
     final cached = _pageCache[channel];
     if (cached != null && cached.token == token) return cached.widget;
     final page = _buildPage(context, channel, topPadding);
@@ -412,6 +418,7 @@ class ChannelPanels {
         jumpRequest: _jumpFor(channel),
         calendarRequest: _calendarFor(channel),
         actions: _actionsFor(channel),
+        underCornerMenu: _menuFloats(),
         rows: _rows(context, channel),
         textScale: chatFontSize() / 14.0,
         topPadding: topPadding,
@@ -645,11 +652,7 @@ class ChannelPanels {
                             onCalendar: openCalendar,
                           )
                         : null,
-                    fullscreenMenu:
-                        isFullscreen() &&
-                            !homeAppBar.themeSpec().rowActions.contains(
-                              ChromeAction.viewMenu,
-                            )
+                    fullscreenMenu: _menuFloats()
                         ? homeAppBar.action(
                             context,
                             ChromeAction.viewMenu,

@@ -20,6 +20,7 @@ import '../util/log.dart';
 import '../util/perf_probe.dart';
 import 'chat_message_tile.dart';
 import 'chat_rows.dart';
+import 'chrome_menu_button.dart';
 import 'glass_chrome.dart';
 import 'history_days.dart';
 import 'history_streams.dart';
@@ -99,6 +100,7 @@ class HistoryView extends StatefulWidget {
     this.jumpRequest,
     this.calendarRequest,
     this.actions,
+    this.underCornerMenu = false,
   });
 
   final String channel;
@@ -167,6 +169,10 @@ class HistoryView extends StatefulWidget {
 
   /// Keeping days and watching VODs; null offers neither.
   final HistoryActions? actions;
+
+  /// Whether the view menu floats in the top-right corner (fullscreen), so
+  /// the VOD chat toggle sits under it.
+  final bool underCornerMenu;
 
   @override
   State<HistoryView> createState() => _HistoryViewState();
@@ -2203,7 +2209,13 @@ class _HistoryViewState extends State<HistoryView> {
                 ? const SizedBox.shrink()
                 : Positioned(
                     right: 16,
-                    top: widget.topPadding + 8,
+                    top:
+                        widget.topPadding +
+                        kChromeMenuMargin +
+                        (widget.underCornerMenu
+                            ? FloatingMenuShell.sizeFor(glass: glass) +
+                                  kChromeMenuMargin
+                            : 0),
                     child: VodChatButton(
                       live: actions.vodLive.value,
                       glass: glass,
