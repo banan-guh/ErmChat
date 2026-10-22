@@ -142,7 +142,7 @@ class FloatingMenuShell extends StatelessWidget {
       dimension: sizeFor(glass: glass),
       child: glass
           ? GlassSurface(
-              shape: const LiquidRoundedRectangle(borderRadius: 12),
+              shape: const LiquidRoundedRectangle(borderRadius: Radii.medium),
               settings: kGlassPillSettings,
               child: content,
             )
@@ -150,7 +150,7 @@ class FloatingMenuShell extends StatelessWidget {
               color: scheme.primaryContainer,
               elevation: 6,
               shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
+                borderRadius: BorderRadius.circular(Radii.medium),
               ),
               child: content,
             ),
