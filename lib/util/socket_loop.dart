@@ -60,7 +60,6 @@ class SocketLoop {
   bool _wasOnline = true;
 
   /// Failed attempts since the last open, restart or return to the network.
-  @visibleForTesting
   int get failures => _failures;
 
   /// A run is connecting, serving or waiting to retry.
@@ -150,15 +149,15 @@ class SocketRun {
   /// Completes when [live] turns false.
   Future<void> get ended => _ended.future;
 
-  /// The handshake finished: the failure count starts over.
+  /// The protocol handshake finished (IRC login, EventSub welcome, 7TV
+  /// hello): the failure count starts over.
   void opened() {
-    if (!_live) return;
-    _loop._failures = 0;
-    _settle();
+    if (_live) _loop._failures = 0;
   }
 
-  /// Waits for [channel]'s handshake, up to the loop's connect timeout.
-  /// Throws when it fails, times out or the run ends first.
+  /// Waits for [channel]'s handshake, up to the loop's connect timeout, and
+  /// settles [SocketLoop.start] once it opens. Throws when it fails, times
+  /// out or the run ends first.
   Future<void> ready(WebSocketChannel channel) {
     final done = Completer<void>();
     void fail(Object e, [StackTrace? st]) {
@@ -171,7 +170,9 @@ class SocketRun {
       () => fail(TimeoutException('${_loop.name} connect timed out')),
     );
     channel.ready.then((_) {
-      if (!done.isCompleted) done.complete();
+      if (done.isCompleted) return;
+      done.complete();
+      _settle();
     }, onError: fail);
     _abortReady = () => fail(StateError('${_loop.name} stopped'));
     return done.future.whenComplete(() {

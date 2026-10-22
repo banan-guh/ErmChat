@@ -6,6 +6,7 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 import '../../util/connectivity.dart';
 import '../../util/constants.dart';
 import '../../util/log.dart';
+import '../../util/socket_loop.dart';
 import 'events.dart';
 import '../../util/data_usage.dart';
 
@@ -14,24 +15,23 @@ class EventSubService {
   static const _maxReconnectAttempts = 8;
   static const _connectTimeout = Duration(seconds: 10);
 
-  final ConnectivityService? _connectivityService;
-
   WebSocketChannel? _channel;
   String? _sessionId;
   // Last frame arrival time; used by [isStale].
   DateTime _lastActivity = DateTime.now();
   Timer? _keepaliveTimer;
-  Timer? _reconnectTimer;
-  Timer? _connectTimer;
   int _keepaliveTimeout = 10;
   var _sessionCompleter = Completer<String?>();
   StreamSubscription<dynamic>? _streamSub;
-  bool _reconnecting = false;
-  bool _connecting = false;
   bool _disposed = false;
-  int _reconnectAttempt = 0;
-  VoidCallback? _connectivityListener;
-  bool _isOnline = true;
+
+  // Completes when the serving socket ends, with how the loop goes on.
+  Completer<SocketEnd>? _socketEnd;
+  SocketRun? _run;
+  // Where the next attempt dials: a session_reconnect URL, once.
+  String? _reconnectUrl;
+
+  late final SocketLoop _loop;
 
   final _notificationController =
       StreamController<Map<String, dynamic>>.broadcast(sync: true);
@@ -54,12 +54,24 @@ class EventSubService {
 
   /// Tears down zombie session and reconnects. Used on app resume.
   Future<void> forceReconnect() {
-    if (_disposed || _connecting) return Future.value();
+    if (_disposed) return Future.value();
     disconnect();
     return connect();
   }
 
-  EventSubService({this._connectivityService});
+  EventSubService({ConnectivityService? connectivityService}) {
+    _loop = SocketLoop(
+      name: 'EventSub',
+      attempt: _attempt,
+      // Exponential (2^(n-1)), capped 30s with jitter.
+      backoff: (failures) => applyReconnectJitter(
+        Duration(seconds: min(pow(2, failures - 1).toInt(), 30)),
+      ),
+      maxAttempts: _maxReconnectAttempts,
+      connectivity: connectivityService,
+      connectTimeout: _connectTimeout,
+    );
+  }
 
   Stream<Map<String, dynamic>> get onNotification =>
       _notificationController.stream;
@@ -75,116 +87,78 @@ class EventSubService {
     return _sessionCompleter.future;
   }
 
-  Future<void> connect({String? url}) async {
-    if (_connecting || _disposed) return;
-    _connecting = true;
-    try {
-      _ensureConnectivityListener();
-      if (url != null) _reconnectAttempt = 0;
-      // A retry keeps its backoff; only a welcome or an explicit disconnect
-      // starts it over.
-      _disconnect(emitStatus: false);
-      _sessionCompleter = Completer<String?>();
-      _statusController.add(EventSubStatus.connecting);
-
-      try {
-        _channel = WebSocketChannel.connect(Uri.parse(url ?? _wsUrl));
-        await _waitForReady();
-        // A dispose during the handshake already closed the socket and the
-        // controllers.
-        if (_disposed) return;
-
-        _streamSub = _channel!.stream.listen(
-          (raw) {
-            if (raw is! String) return;
-            DataUsageStats.I.recordEvent(DataUsageStats.utf8Length(raw));
-            try {
-              final msg = jsonDecode(raw) as Map<String, dynamic>;
-              _handleMessage(msg);
-            } catch (e) {
-              logDebug('EventSub frame parse error: $e');
-            }
-          },
-          onError: (e) {
-            logDebug('EventSub stream error: $e');
-            _safeComplete(null);
-            _statusController.add(EventSubStatus.disconnected);
-            _scheduleReconnect();
-          },
-          onDone: () {
-            _safeComplete(null);
-            _statusController.add(EventSubStatus.disconnected);
-            _scheduleReconnect();
-          },
-        );
-      } catch (e) {
-        _safeComplete(null);
-        // Prevent stale socket from keeping isConnected true on resume; a
-        // timed-out handshake also gets its socket closed so it can't leak.
-        _channel?.sink.close();
-        _channel = null;
-        _streamSub = null;
-        if (_disposed) return;
-        _statusController.add(EventSubStatus.disconnected);
-        logDebug('EventSub connect error: $e');
-        _scheduleReconnect();
-      }
-    } finally {
-      _connecting = false;
-    }
+  /// Opens a new session, replacing any socket or retry in flight.
+  /// Completes once the first handshake opened or failed.
+  Future<void> connect() {
+    if (_disposed) return Future.value();
+    _teardown();
+    _reconnectUrl = null;
+    return _loop.start();
   }
 
-  // Exponential backoff (2^(n-1)), capped 30s with jitter.
-  void _scheduleReconnect() {
-    if (_reconnecting || _disposed) return;
-    if (!_isOnline) return;
-    if (_reconnectAttempt >= _maxReconnectAttempts) {
-      logDebug('EventSub max reconnect attempts reached - giving up');
-      return;
+  /// One socket: dials, serves it until it ends, and says how the loop goes
+  /// on.
+  Future<SocketEnd> _attempt(SocketRun run) async {
+    _run = run;
+    final url = _reconnectUrl ?? _wsUrl;
+    _reconnectUrl = null;
+    if (_sessionCompleter.isCompleted) _sessionCompleter = Completer<String?>();
+    _statusController.add(EventSubStatus.connecting);
+    final channel = openChannel(url);
+    try {
+      await run.ready(channel);
+    } catch (e) {
+      // A timed-out handshake gets its socket closed so it can't leak.
+      channel.sink.close();
+      _safeComplete(null);
+      if (!run.live) return SocketEnd.dropped;
+      logDebug('EventSub connect error: $e');
+      _statusController.add(EventSubStatus.disconnected);
+      return SocketEnd.dropped;
     }
-    _reconnecting = true;
-    _reconnectAttempt++;
-    final base = Duration(
-      seconds: min(pow(2, _reconnectAttempt - 1).toInt(), 30),
+    _channel = channel;
+    final end = Completer<SocketEnd>();
+    _socketEnd = end;
+    _streamSub = channel.stream.listen(
+      (raw) {
+        if (raw is! String) return;
+        DataUsageStats.I.recordEvent(DataUsageStats.utf8Length(raw));
+        try {
+          final msg = jsonDecode(raw) as Map<String, dynamic>;
+          _handleMessage(msg);
+        } catch (e) {
+          logDebug('EventSub frame parse error: $e');
+        }
+      },
+      onError: (e) {
+        logDebug('EventSub stream error: $e');
+        _endSocket(SocketEnd.dropped);
+      },
+      onDone: () => _endSocket(SocketEnd.dropped),
     );
-    final delay = applyReconnectJitter(base);
-    _reconnectTimer?.cancel();
-    _reconnectTimer = Timer(delay, () {
-      _reconnecting = false;
-      connect();
-    });
+    final how = await end.future;
+    // A disconnect or restart already tore this socket down.
+    if (!run.live) return SocketEnd.dropped;
+    _teardown();
+    _statusController.add(EventSubStatus.disconnected);
+    return how;
+  }
+
+  /// Opens the socket; overridable in tests.
+  @visibleForTesting
+  WebSocketChannel openChannel(String url) =>
+      WebSocketChannel.connect(Uri.parse(url));
+
+  void _endSocket(SocketEnd how) {
+    final end = _socketEnd;
+    _socketEnd = null;
+    if (end != null && !end.isCompleted) end.complete(how);
   }
 
   void _safeComplete(String? value) {
     if (!_sessionCompleter.isCompleted) {
       _sessionCompleter.complete(value);
     }
-  }
-
-  /// Waits for handshake with a timeout; timer cleaned up on
-  /// disconnect/dispose.
-  Future<void> _waitForReady() {
-    final channel = _channel;
-    if (channel == null) return Future.value();
-    final completer = Completer<void>();
-    _connectTimer?.cancel();
-    _connectTimer = Timer(_connectTimeout, () {
-      if (!completer.isCompleted) {
-        completer.completeError(TimeoutException('EventSub connect timed out'));
-      }
-    });
-    channel.ready.then(
-      (_) {
-        if (!completer.isCompleted) completer.complete();
-      },
-      onError: (Object e, StackTrace st) {
-        if (!completer.isCompleted) completer.completeError(e, st);
-      },
-    );
-    return completer.future.whenComplete(() {
-      _connectTimer?.cancel();
-      _connectTimer = null;
-    });
   }
 
   void _handleMessage(Map<String, dynamic> msg) {
@@ -221,7 +195,7 @@ class EventSubService {
     _keepaliveTimeout = session['keepalive_timeout_seconds'] as int? ?? 10;
     _resetKeepalive();
     _statusController.add(EventSubStatus.connected);
-    _reconnectAttempt = 0;
+    _run?.opened();
   }
 
   void _handleReconnect(Map<String, dynamic> msg) {
@@ -231,7 +205,8 @@ class EventSubService {
       final reconnectUrl = session['reconnect_url'] as String?;
       if (reconnectUrl != null && reconnectUrl.isNotEmpty) {
         logDebug('EventSub reconnecting to $reconnectUrl');
-        connect(url: reconnectUrl);
+        _reconnectUrl = reconnectUrl;
+        _endSocket(SocketEnd.reconnectNow);
       }
     } catch (e) {
       logDebug('EventSub reconnect failed: $e');
@@ -245,50 +220,31 @@ class EventSubService {
     final timeoutSeconds = (_keepaliveTimeout * 1.5).round();
     _keepaliveTimer = Timer(Duration(seconds: timeoutSeconds), () {
       logDebug('EventSub keepalive timeout - reconnecting');
-      _scheduleReconnect();
+      _endSocket(SocketEnd.dropped);
     });
   }
 
-  void _ensureConnectivityListener() {
-    final service = _connectivityService;
-    if (service == null || _connectivityListener != null) return;
-    _connectivityListener = () {
-      final online = service.isOnline;
-      final wasOffline = !_isOnline;
-      _isOnline = online;
-      if (wasOffline && online && _channel == null && !_connecting) {
-        _reconnectAttempt = 0;
-        connect();
-      }
-    };
-    _isOnline = service.isOnline;
-    service.addListener(_connectivityListener!);
-  }
-
+  /// Closes the session and stops reconnecting until the next [connect].
   void disconnect({bool emitStatus = true}) {
-    _reconnectAttempt = 0;
-    _disconnect(emitStatus: emitStatus);
+    _loop.stop();
+    _teardown();
+    if (emitStatus) _statusController.add(EventSubStatus.disconnected);
   }
 
-  void _disconnect({required bool emitStatus}) {
-    _reconnecting = false;
-    _reconnectTimer?.cancel();
-    _reconnectTimer = null;
+  void _teardown() {
     _keepaliveTimer?.cancel();
     _keepaliveTimer = null;
-    _connectTimer?.cancel();
-    _connectTimer = null;
     _sessionId = null;
     _streamSub?.cancel();
     _streamSub = null;
     _channel?.sink.close();
     _channel = null;
     _safeComplete(null);
-    if (emitStatus) _statusController.add(EventSubStatus.disconnected);
+    _endSocket(SocketEnd.dropped);
   }
 
   @visibleForTesting
-  int get reconnectAttempt => _reconnectAttempt;
+  int get reconnectAttempt => _loop.failures;
 
   @visibleForTesting
   void handleRawMessage(Map<String, dynamic> msg) => _handleMessage(msg);
@@ -303,9 +259,7 @@ class EventSubService {
   void dispose() {
     _disposed = true;
     disconnect();
-    final listener = _connectivityListener;
-    if (listener != null) _connectivityService?.removeListener(listener);
-    _connectivityListener = null;
+    _loop.dispose();
     _notificationController.close();
     _statusController.close();
     _revocationController.close();

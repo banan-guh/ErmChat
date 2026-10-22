@@ -43,6 +43,17 @@ import 'package:http/testing.dart' as http_testing;
 import 'package:http/testing.dart';
 import 'package:ermchat/services/recent_messages.dart';
 
+class _TestEventSub extends EventSubService {
+  _TestEventSub(this.channels, {super.connectivityService});
+
+  final List<FakeWebSocketChannel> channels;
+  int opened = 0;
+
+  @override
+  WebSocketChannel openChannel(String url) =>
+      channels[(opened++).clamp(0, channels.length - 1)];
+}
+
 class _TestService extends IrcService {
   _TestService(
     this.channels, {
@@ -1869,6 +1880,42 @@ void main() {
         c.dispose();
       });
     });
+
+    // Shipped bug: a socket that died while offline kept its dead channel,
+    // and the back-online listener only dialed with no channel, so nothing
+    // reconnected until the 30s watchdog.
+    test(
+      'EventSub reconnects when the network returns after an offline drop',
+      () {
+        fakeAsync((async) {
+          final conn = ConnectivityService();
+          conn.debugSetResults(const [ConnectivityResult.wifi]);
+          final first = FakeWebSocketChannel();
+          final c = _TestEventSub([
+            first,
+            FakeWebSocketChannel(failReady: true),
+            FakeWebSocketChannel(),
+          ], connectivityService: conn);
+          c.connect();
+          async.flushMicrotasks();
+          expect(c.isConnected, isTrue);
+
+          conn.debugSetResults(const [ConnectivityResult.none]);
+          first.failNow();
+          async.flushMicrotasks();
+          expect(c.isConnected, isFalse, reason: 'the dead socket is dropped');
+
+          async.elapse(const Duration(milliseconds: 1500));
+          expect(c.opened, 2, reason: 'offline retries keep going');
+          conn.debugSetResults(const [ConnectivityResult.wifi]);
+          async.flushMicrotasks();
+          expect(c.opened, 3, reason: 'back online dials at once');
+          expect(c.isConnected, isTrue);
+          c.dispose();
+          conn.dispose();
+        });
+      },
+    );
 
     test('events after dispose are ignored', () {
       client.handleRawMessage(_hello());
