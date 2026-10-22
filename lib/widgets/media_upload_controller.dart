@@ -4,9 +4,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import '../services/media_uploader.dart';
+import '../util/prefs.dart';
 import '../util/friendly_error.dart';
 import '../util/log.dart';
 import 'app_snack.dart';
+import 'dialogs.dart';
 import '../l10n/l10n.dart';
 
 /// Notice sink for upload results. Home wires the inline notice bar;
@@ -29,11 +31,18 @@ class MediaUploadController {
   /// the screen that owns the composer so the upload notice can offer Paste.
   final VoidCallback? onPaste;
 
-  bool _isUploading = false;
+  /// The share of the running upload sent, from 0 to 1, or null when none
+  /// runs. The composer draws it as a bar along its top edge.
+  final progress = ValueNotifier<double?>(null);
+
+  bool get _isUploading => progress.value != null;
 
   /// Releases the uploader's HTTP client. The owning screen calls this in its
   /// own dispose.
-  void dispose() => _uploader.close();
+  void dispose() {
+    _uploader.close();
+    progress.dispose();
+  }
 
   Future<void> pickAndUpload(BuildContext context) async {
     if (_isUploading) return;
@@ -62,7 +71,10 @@ class MediaUploadController {
     final picker = ImagePicker();
     final XFile? picked;
     try {
-      picked = await picker.pickImage(source: source);
+      // The gallery offers videos too; the camera takes photos.
+      picked = source == ImageSource.gallery
+          ? await picker.pickMedia()
+          : await picker.pickImage(source: source);
     } catch (e) {
       if (context.mounted) {
         _showSnack(context, context.l10n.mediaPickerFailed('$e'));
@@ -70,7 +82,36 @@ class MediaUploadController {
       return;
     }
     if (picked == null || !context.mounted) return;
-    await _upload(context, File(picked.path));
+    final file = File(picked.path);
+    if (await file.length() > MediaUploader.maxBytes) {
+      if (context.mounted) {
+        _showSnack(
+          context,
+          context.l10n.uploadTooLarge(MediaUploader.maxBytes ~/ (1024 * 1024)),
+        );
+      }
+      return;
+    }
+    if (!context.mounted) return;
+    if (MediaUploader.isVideo(file) && !await _videoNoted(context)) return;
+    if (!context.mounted) return;
+    await _upload(context, file);
+  }
+
+  /// Asks once, on the first video, whether to upload it with its metadata.
+  Future<bool> _videoNoted(BuildContext context) async {
+    final prefs = await Prefs.load();
+    if (prefs.videoUploadNoted) return true;
+    if (!context.mounted) return false;
+    final l = context.l10n;
+    final ok = await confirmDialog(
+      context,
+      title: l.videoUploadTitle,
+      message: l.videoUploadMessage,
+      confirmLabel: l.videoUploadConfirm,
+    );
+    if (ok) await prefs.setVideoUploadNoted();
+    return ok;
   }
 
   /// Image mime types the field accepts from keyboard content insertion.
@@ -105,9 +146,12 @@ class MediaUploadController {
   }
 
   Future<void> _upload(BuildContext context, File file) async {
-    _isUploading = true;
+    progress.value = 0;
     try {
-      final result = await _uploader.uploadMedia(file);
+      final result = await _uploader.uploadMedia(
+        file,
+        onProgress: (sent) => progress.value = sent,
+      );
       if (!context.mounted) return;
       await _uploader.addRecent(result);
       if (!context.mounted) return;
@@ -127,7 +171,7 @@ class MediaUploadController {
         );
       }
     } finally {
-      _isUploading = false;
+      progress.value = null;
     }
   }
 

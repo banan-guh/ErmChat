@@ -1541,6 +1541,17 @@
     }
   },
   "uploadFailedFallback": "Upload failed. Check Tools > Image uploader.",
+  "uploadTooLarge": "Too large to upload (max {mb} MB)",
+  "@uploadTooLarge": {
+    "placeholders": {
+      "mb": {
+        "type": "int"
+      }
+    }
+  },
+  "videoUploadTitle": "Upload anyway?",
+  "videoUploadMessage": "Metadata stripping doesn't support videos.",
+  "videoUploadConfirm": "Upload",
   "typeMessageHint": "Type a message...",
   "replyingTo": "Replying to @{user}",
   "@replyingTo": {

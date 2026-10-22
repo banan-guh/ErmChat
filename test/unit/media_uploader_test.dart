@@ -1,7 +1,9 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:ermchat/services/media_uploader.dart';
+import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -111,6 +113,45 @@ void main() {
   });
 
   group('MediaUploader.uploadMedia', () {
+    // Shipped bug: a fixed 10s cap failed every photo a slow connection
+    // took longer than that to send.
+    test('a slow upload finishes; a stalled one times out', () {
+      fakeAsync((async) {
+        final bytes = Uint8List(300 * 1024);
+        final progress = <double>[];
+        UploadResult? result;
+        MediaUploader(client: _PacedClient(const Duration(seconds: 5)))
+            .uploadBytes(
+              bytes,
+              filename: 'big.png',
+              mimeType: 'image/png',
+              onProgress: progress.add,
+            )
+            .then((r) => result = r);
+        async.elapse(const Duration(minutes: 1));
+        expect(
+          result?.imageLink,
+          'https://kappa.lol/ok',
+          reason: 'about 25s of steady chunks outlasts the old 10s cap',
+        );
+        expect(progress.length, greaterThan(4));
+        for (var i = 1; i < progress.length; i++) {
+          expect(progress[i], greaterThan(progress[i - 1]));
+        }
+        expect(progress.last, 1.0);
+
+        Object? error;
+        MediaUploader(client: _PacedClient(const Duration(seconds: 31)))
+            .uploadBytes(bytes, filename: 'big.png', mimeType: 'image/png')
+            .catchError((Object e) {
+              error = e;
+              return const UploadResult(imageLink: '');
+            });
+        async.elapse(const Duration(seconds: 40));
+        expect(error, isA<TimeoutException>());
+      });
+    });
+
     test('parses {link} pattern from kappa.lol response', () async {
       final uploader = MediaUploader(
         client: MockClient((request) async {
@@ -243,4 +284,27 @@ void main() {
       expect(await uploader.recentUploads(), isEmpty);
     });
   });
+}
+
+/// Takes one body chunk per [gap] of fake time, as a slow connection would,
+/// and aborts like IOClient when the request asks it to.
+class _PacedClient extends http.BaseClient {
+  _PacedClient(this.gap);
+
+  final Duration gap;
+
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) async {
+    final abort = request is http.Abortable ? request.abortTrigger : null;
+    var aborted = false;
+    abort?.whenComplete(() => aborted = true);
+    await for (final _ in request.finalize()) {
+      await Future<void>.delayed(gap);
+      if (aborted) throw http.RequestAbortedException(request.url);
+    }
+    return http.StreamedResponse(
+      Stream.value('{"link":"https://kappa.lol/ok"}'.codeUnits),
+      200,
+    );
+  }
 }

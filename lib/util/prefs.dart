@@ -87,6 +87,7 @@ class Prefs {
   static const _kMentionPush = 'mention_push';
   static const _kNotificationsPausedUntil = 'notifications_paused_until';
   static const _kWelcomeSeen = 'welcome_seen';
+  static const _kVideoUploadNoted = 'video_upload_noted';
   static const _kLastSeenVersion = 'last_seen_version';
   static const _kLastUpdateCheck = 'last_update_check';
   static const _kNotifiedUpdate = 'notified_update_version';
@@ -193,6 +194,11 @@ class Prefs {
   bool get welcomeSeen => _p.getBool(_kWelcomeSeen) ?? false;
 
   Future<void> setWelcomeSeen(bool value) => _p.setBool(_kWelcomeSeen, value);
+
+  /// Whether the person has been told videos keep their metadata.
+  bool get videoUploadNoted => _p.getBool(_kVideoUploadNoted) ?? false;
+
+  Future<void> setVideoUploadNoted() => _p.setBool(_kVideoUploadNoted, true);
 
   bool get analyticsEnabled => Settings.analyticsEnabled.value;
   Future<void> setAnalyticsEnabled(bool value) =>

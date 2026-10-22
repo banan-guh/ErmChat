@@ -2179,6 +2179,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
             classic: spec.composer == ComposerStyle.classic,
             busyListenable: spec.busyBar ? _chrome.joinBusyListenable : null,
             isBusy: _chrome.joinBusy,
+            uploadProgress: _uploadController.progress,
             notice: ChatNoticeBar(controller: _chatNotice),
             replyHeader: replyHeader,
             liquidGlass: glass,

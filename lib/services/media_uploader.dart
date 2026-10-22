@@ -1,10 +1,10 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
 import 'dart:typed_data';
 import 'package:http/http.dart' as http;
 import 'package:image/image.dart' as img;
-import '../util/constants.dart';
 import '../util/log.dart';
 import '../util/prefs.dart';
 
@@ -140,16 +140,52 @@ class MediaUploader {
 
   Future<void> resetConfig() => saveConfig(UploaderConfig.defaultConfig);
 
+  /// Largest file an upload takes.
+  static const maxBytes = 50 * 1024 * 1024;
+
+  /// How long an upload may go without a byte leaving, or wait for its link
+  /// once sent. A slow connection keeps going; a dead one gives up.
+  static const _stallTimeout = Duration(seconds: 30);
+
+  /// Bytes handed to the connection per step, so progress moves smoothly.
+  static const _chunkBytes = 64 * 1024;
+
+  /// Whether [file] uploads as a video, which keeps its metadata.
+  static bool isVideo(File file) => _mimeTypeFor(file).startsWith('video/');
+
   /// Uploads file via multipart/form-data; raw body when no pattern configured.
-  Future<UploadResult> uploadMedia(File file) async {
-    final config = await loadConfig();
+  /// [onProgress] hears the share of the request sent, from 0 to 1.
+  Future<UploadResult> uploadMedia(
+    File file, {
+    void Function(double sent)? onProgress,
+  }) async {
     final mimeType = _mimeTypeFor(file);
     var bytes = await file.readAsBytes();
     if (mimeType == 'image/jpeg') {
       bytes = await stripExif(bytes);
     }
+    return uploadBytes(
+      bytes,
+      filename: file.uri.pathSegments.isNotEmpty
+          ? file.uri.pathSegments.last
+          : 'upload',
+      mimeType: mimeType,
+      onProgress: onProgress,
+    );
+  }
+
+  /// Uploads [bytes] as [filename]. A connection that takes no bytes for
+  /// [_stallTimeout], or holds back the reply that long once all are sent,
+  /// fails with a [TimeoutException]; a slow one that keeps moving does not.
+  Future<UploadResult> uploadBytes(
+    Uint8List bytes, {
+    required String filename,
+    required String mimeType,
+    void Function(double sent)? onProgress,
+  }) async {
+    final config = await loadConfig();
     final uri = Uri.parse(config.uploadUrl);
-    final request = http.MultipartRequest('POST', uri)
+    final request = _ProgressRequest('POST', uri, _stallTimeout, onProgress)
       ..headers['User-Agent'] = 'ermchat'
       ..headers['Accept'] = '*/*'
       ..headers['Origin'] = uri.origin
@@ -157,19 +193,34 @@ class MediaUploader {
     for (final header in config.parsedHeaders) {
       request.headers[header.name] = header.value;
     }
+    final chunks = Stream.fromIterable([
+      for (var i = 0; i < bytes.length; i += _chunkBytes)
+        Uint8List.sublistView(
+          bytes,
+          i,
+          i + _chunkBytes < bytes.length ? i + _chunkBytes : bytes.length,
+        ),
+    ]);
     request.files.add(
-      http.MultipartFile.fromBytes(
+      http.MultipartFile(
         config.formField,
-        bytes,
-        filename: file.uri.pathSegments.isNotEmpty
-            ? file.uri.pathSegments.last
-            : 'upload',
+        chunks,
+        bytes.length,
+        filename: filename,
         contentType: http.MediaType.parse(mimeType),
       ),
     );
 
-    final response = await _client.send(request).timeout(httpTimeout);
-    final body = await response.stream.bytesToString();
+    final http.StreamedResponse response;
+    final String body;
+    try {
+      response = await _client.send(request);
+      body = await response.stream.bytesToString();
+    } on http.RequestAbortedException {
+      throw TimeoutException('Upload stalled', _stallTimeout);
+    } finally {
+      request.finish();
+    }
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw HttpException(
         'Upload failed with HTTP ${response.statusCode}',
@@ -226,7 +277,7 @@ class MediaUploader {
     return null;
   }
 
-  String _mimeTypeFor(File file) {
+  static String _mimeTypeFor(File file) {
     final name = file.path.toLowerCase();
     if (name.endsWith('.png')) return 'image/png';
     if (name.endsWith('.jpg') || name.endsWith('.jpeg')) {
@@ -236,6 +287,7 @@ class MediaUploader {
     if (name.endsWith('.webp')) return 'image/webp';
     if (name.endsWith('.mp4')) return 'video/mp4';
     if (name.endsWith('.mov')) return 'video/quicktime';
+    if (name.endsWith('.webm')) return 'video/webm';
     return 'application/octet-stream';
   }
 
@@ -285,5 +337,49 @@ class MediaUploader {
   Future<void> clearRecents() async {
     final prefs = await Prefs.load();
     await prefs.removeRecentUploads();
+  }
+}
+
+/// A multipart request that reports how much of itself has been sent. The
+/// client pulls each chunk only once the connection takes it, so the count
+/// follows the network. A watchdog aborts the request when nothing moves for
+/// [stall]: a paused body stream would stop a stream timeout's clock, so the
+/// timer runs on its own.
+class _ProgressRequest extends http.MultipartRequest with http.Abortable {
+  _ProgressRequest(super.method, super.url, this.stall, this.onProgress);
+
+  final Duration stall;
+  final void Function(double sent)? onProgress;
+
+  final _abort = Completer<void>();
+  Timer? _watchdog;
+
+  @override
+  Future<void> get abortTrigger => _abort.future;
+
+  /// Restarts the countdown to aborting.
+  void _kick() {
+    _watchdog?.cancel();
+    _watchdog = Timer(stall, () {
+      if (!_abort.isCompleted) _abort.complete();
+    });
+  }
+
+  /// Stops the watchdog once the reply is in.
+  void finish() => _watchdog?.cancel();
+
+  @override
+  http.ByteStream finalize() {
+    final total = contentLength;
+    var done = 0;
+    _kick();
+    return http.ByteStream(
+      super.finalize().map((chunk) {
+        done += chunk.length;
+        _kick();
+        onProgress?.call(total == 0 ? 1 : done / total);
+        return chunk;
+      }),
+    );
   }
 }
