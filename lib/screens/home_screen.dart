@@ -1680,14 +1680,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     showJoinChannelDialog(context, onJoin: _channelManager.addChannel);
   }
 
-  /// Puts the chrome into edit mode on a draft of the current layout. It
-  /// needs channels: the strip and the island row only exist with them.
+  /// Puts the chrome into edit mode on a draft of the current layout.
   void _startLayoutEdit() {
     if (!mounted || _layoutEdit != null) return;
-    if (_chat.names.isEmpty) {
-      AppSnack.show(context, context.l10n.layoutJoinFirst);
-      return;
-    }
     _composer.unfocus();
     if (_isFullscreen) _toggleFullscreen();
     final edit = LayoutEditController(_chromeTheme);

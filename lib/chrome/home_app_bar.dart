@@ -435,15 +435,17 @@ class HomeAppBar {
   Widget appBar(BuildContext context, {bool transparent = false}) {
     final theme = Theme.of(context);
     final spec = themeSpec();
-    final edit = spec.header == HeaderStyle.appBar ? layoutEdit() : null;
-    final actions = spec.header == HeaderStyle.appBar
-        ? spec.appBarActions
-        : [
-            ChromeAction.join,
-            ChromeAction.mentions,
-            ChromeAction.overflow,
-            if (!spec.settingsInMenu) ChromeAction.settings,
-          ];
+    final edit = layoutEdit();
+    final appBarHeader = spec.header == HeaderStyle.appBar;
+    // With no channels there is no strip, so this bar stands in for it: a
+    // strip theme's join tab as a button, then the strip's own actions.
+    final stripless = chat.length == 0;
+    final stripJoin = stripless && !appBarHeader && stripJoinTab;
+    final actions = [
+      if (appBarHeader) ...spec.appBarActions,
+      if (stripJoin) ChromeAction.join,
+      if (stripless) ...spec.stripActions,
+    ];
     final content = Column(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -468,10 +470,14 @@ class HomeAppBar {
                       ),
                     ),
                   const Spacer(),
-                  if (edit != null)
-                    LayoutSlotView(controller: edit, slot: LayoutSlot.appBar)
-                  else
-                    for (final a in actions) action(context, a),
+                  if (edit == null)
+                    for (final a in actions) action(context, a)
+                  else ...[
+                    if (appBarHeader)
+                      LayoutSlotView(controller: edit, slot: LayoutSlot.appBar),
+                    if (stripJoin) action(context, ChromeAction.join),
+                    if (stripless) stripTrailing(),
+                  ],
                 ],
               ),
             ),
