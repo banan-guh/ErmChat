@@ -41,7 +41,7 @@ class NotificationService {
     );
 
     await _plugin.initialize(
-      settings,
+      settings: settings,
       onDidReceiveNotificationResponse: _onResponse,
     );
 
@@ -165,13 +165,19 @@ class NotificationService {
       _summaryLineById.remove(_summaryOrder.removeAt(0));
     }
 
-    await _plugin.show(id, title, body, details, payload: payload);
+    await _plugin.show(
+      id: id,
+      title: title,
+      body: body,
+      notificationDetails: details,
+      payload: payload,
+    );
     await _updateSummary();
   }
 
   Future<void> _updateSummary() async {
     if (_summaryOrder.isEmpty) {
-      await _plugin.cancel(_summaryId);
+      await _plugin.cancel(id: _summaryId);
       return;
     }
     final lines = [for (final id in _summaryOrder) _summaryLineById[id]!];
@@ -194,10 +200,8 @@ class NotificationService {
       enableVibration: false,
     );
     await _plugin.show(
-      _summaryId,
-      null,
-      null,
-      NotificationDetails(android: androidDetails),
+      id: _summaryId,
+      notificationDetails: NotificationDetails(android: androidDetails),
     );
   }
 
@@ -216,7 +220,7 @@ class NotificationService {
     }
     final removedFromSummary = <int>{};
     for (final id in ids) {
-      await _plugin.cancel(id);
+      await _plugin.cancel(id: id);
       _postedIds.remove(id);
       if (_summaryLineById.remove(id) != null) removedFromSummary.add(id);
     }
@@ -230,7 +234,7 @@ class NotificationService {
       if (_summaryTotal < 0) _summaryTotal = 0;
     }
     if (_summaryOrder.isEmpty) {
-      await _plugin.cancel(_summaryId);
+      await _plugin.cancel(id: _summaryId);
     } else if (ids.isNotEmpty) {
       await _updateSummary();
     }
