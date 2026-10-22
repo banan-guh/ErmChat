@@ -508,7 +508,7 @@ class ComposerController {
   /// uses it in place of the status row under the input. [modesInRow]
   /// leaves out the room modes the button row already shows.
   String? hintText({bool withStatus = false, bool modesInRow = false}) =>
-      cooldownLabel.value ??
+      (_vodBlocks ? strings().vodReplayHint : cooldownLabel.value) ??
       (!twitchAuth.isConfigured
           ? strings().connectToChat
           : switch ((
@@ -519,7 +519,6 @@ class ComposerController {
             )) {
               (ChatPhase.connecting, _, _, _) => strings().connectingHint,
               (ChatPhase.reconnecting, _, _, _) => strings().reconnectingHint,
-              _ when _vodBlocks => strings().vodReplayHint,
               (ChatPhase.online, _, false, false)
                   when getSelectedChannel() != null =>
                 strings().disconnectedHint,
