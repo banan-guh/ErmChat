@@ -188,7 +188,7 @@ class _ChatBodyState extends State<ChatBody>
   bool? _lastFloating;
 
   void _onEasedTick() {
-    if (mounted) setState(() {});
+    setState(() {});
   }
 
   // Stack box height with the keyboard closed, learned during layout.

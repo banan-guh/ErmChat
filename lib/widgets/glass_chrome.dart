@@ -479,7 +479,6 @@ class _IslandRingPainter extends CustomPainter {
     final t = (lap * cyclesPerLap) % 1;
     final drift = lap;
     final metrics = path.computeMetrics().toList();
-    if (metrics.isEmpty) return;
     final metric = metrics.first;
     final len = metric.length;
     void line(double tail, double head) {
@@ -583,7 +582,6 @@ class _IslandProgressPainter extends CustomPainter {
     final alpha = fade.value;
     if (alpha <= 0 || size.isEmpty) return;
     final metrics = _IslandRingPainter.outline(size).computeMetrics().toList();
-    if (metrics.isEmpty) return;
     final metric = metrics.first;
     canvas.drawPath(
       metric.extractPath(0, metric.length * share.clamp(0.0, 1.0)),

@@ -34,7 +34,6 @@ class TabDragFocus {
     final metrics = notification.metrics;
     if (metrics is! PageMetrics || metrics.page == null) return false;
     final count = tab().length;
-    if (count < 1) return false;
     if (notification is ScrollStartNotification &&
         notification.dragDetails != null) {
       _dragging = true;
@@ -92,7 +91,6 @@ class TabDragFocus {
   void syncFromController() {
     if (_dragging) return;
     final count = tab().length;
-    if (count < 1) return;
     final index = tab().index.clamp(0, count - 1);
     if (_inFlight) {
       // Ballistic landing: only the arrival at the flight target counts;
@@ -115,7 +113,6 @@ class TabDragFocus {
   void jumpTo(int index) {
     if (_disposed) return;
     final count = tab().length;
-    if (count < 1) return;
     _warpTarget = null;
     if (tab().index == index.clamp(0, count - 1)) return;
     _inFlight = false;
@@ -134,7 +131,7 @@ class TabDragFocus {
     dragFocus.value = null;
     if (!inGesture) {
       final count = tab().length;
-      _lastReported = count > 0 ? tab().index.clamp(0, count - 1) : 0;
+      _lastReported = tab().index.clamp(0, count - 1);
     }
   }
 

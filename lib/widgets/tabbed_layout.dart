@@ -403,7 +403,7 @@ class TabbedLayoutState extends State<TabbedLayout>
     if (notification is ScrollUpdateNotification &&
         !_isProgrammaticJump &&
         widget.focusOnHalfDrag) {
-      final nearest = page.round().clamp(0, _tabLength - 1);
+      final nearest = page.round();
       if (nearest != _lastReportedIndex) {
         _lastReportedIndex = nearest;
         _setActiveIndex(nearest);
@@ -415,7 +415,7 @@ class TabbedLayoutState extends State<TabbedLayout>
       final wasDragging = _pointerDragging;
       // Scroll end = no finger. Stolen pointer (back/shade/switcher) cancels drag without dragDetails.
       _pointerDragging = false;
-      final nearest = page.round().clamp(0, _tabLength - 1);
+      final nearest = page.round();
       if (!wasDragging) {
         // Final rest: page's actual position wins. HomeScreen selection guard dedupes.
         _programmaticTarget = null;
@@ -739,7 +739,7 @@ class TabbedLayoutState extends State<TabbedLayout>
                           ),
                     ),
                     // Every channel at a glance, for when the pill scrolls.
-                    if (bubbles && tabs.isNotEmpty)
+                    if (bubbles)
                       PopupMenuButton<int>(
                         tooltip: context.l10n.pageChannels,
                         onSelected: _onTabTap,

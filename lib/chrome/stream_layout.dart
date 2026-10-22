@@ -55,10 +55,7 @@ Widget buildStackedPlayer({
 }) {
   return LayoutBuilder(
     builder: (context, constraints) {
-      final maxW = constraints.maxWidth;
-      final w = maxW.isFinite && maxW > 0
-          ? maxW
-          : MediaQuery.sizeOf(context).width;
+      final w = constraints.maxWidth;
       final base = w * 9 / 16;
       final h = base * scale.clamp(0.5, 1.0);
       return Column(
@@ -126,7 +123,6 @@ class StreamPanels {
     required this.channels,
     required this.homeAppBar,
     required this.selectedChannel,
-    required this.isMounted,
     required this.markDirty,
     required this.setStreamState,
     required this.chatFontSize,
@@ -148,7 +144,6 @@ class StreamPanels {
   final ChannelPanels channels;
   final HomeAppBar homeAppBar;
   final String? Function() selectedChannel;
-  final bool Function() isMounted;
   final VoidCallback markDirty;
   final void Function(void Function() fn) setStreamState;
   final double Function() chatFontSize;
@@ -172,7 +167,6 @@ class StreamPanels {
   }
 
   void onStreamPlayerChanged() {
-    if (!isMounted()) return;
     final enteringTheater = streamPlayer.isTheaterMode && !_wasTheaterMode;
     _wasTheaterMode = streamPlayer.isTheaterMode;
     markDirty();
@@ -209,7 +203,6 @@ class StreamPanels {
     required double keyboardH,
     required double inputH,
   }) {
-    if (keyboardH <= 0) return true;
     return shouldShowStreamVideo(
       maxWidth: maxWidth,
       maxHeight: maxHeight,

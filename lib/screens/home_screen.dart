@@ -617,7 +617,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     channels: _channels,
     homeAppBar: _chrome,
     selectedChannel: () => ref.read(selectedChannelProvider),
-    isMounted: () => mounted,
     markDirty: markDirty,
     setStreamState: _setStreamState,
     chatFontSize: () => _chatFontSize,
@@ -880,7 +879,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     _initApnsPush(mentionPush);
     if (!Platform.isAndroid) return;
     if (backgroundService) {
-      initForegroundService(mounted ? context.l10n : null);
+      initForegroundService(context.l10n);
     }
     if (mentionPush || whisperNotify) {
       _initNotificationInfra();
@@ -1098,7 +1097,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     for (final channel in List.of(_chat.names)) {
       _chat.channelFor(channel)?.info.touch();
     }
-    if (mounted) setState(() {});
+    setState(() {});
   }
 
   void _onConnectivityChanged() {
@@ -1127,7 +1126,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   final _mutationAllListeners = <String, VoidCallback>{};
 
   void _showBanner(String message) {
-    if (!mounted) return;
     _chatNotice.show(message);
   }
 
@@ -1140,7 +1138,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       _scopeNoticeShown = false;
       return;
     }
-    if (_scopeNoticeShown || !mounted) return;
+    if (_scopeNoticeShown) return;
     _scopeNoticeShown = true;
     _chatNotice.show(
       context.l10n.newPermissionsNotice,
@@ -1152,7 +1150,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   }
 
   void _showLoginExpired() {
-    if (!mounted) return;
     _chatNotice.show(
       context.l10n.loginExpiredReconnect,
       actionLabel: context.l10n.openAccount,
@@ -1635,7 +1632,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   /// a VOD. Playback ticks every second, so it skips unchanged states.
   void _onVodReplay() {
     final replaying = _streamPlayer.replaysVod(selectedChannel);
-    if (replaying == _replayingVod || !mounted) return;
+    if (replaying == _replayingVod) return;
     setState(() => _replayingVod = replaying);
   }
 
@@ -1660,7 +1657,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 
   void _copyEmail(String email) {
     Clipboard.setData(ClipboardData(text: email));
-    if (!mounted) return;
     _chatNotice.show(context.l10n.copiedValue(email));
   }
 
@@ -1759,7 +1755,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     _search.focusNode.unfocus();
     // Pop notices and overlay snackbars on screen change.
     _chatNotice.clear();
-    if (mounted) AppSnack.clear(context);
+    AppSnack.clear(context);
     await Navigator.push(
       context,
       MaterialPageRoute(

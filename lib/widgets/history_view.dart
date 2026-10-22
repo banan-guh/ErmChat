@@ -647,14 +647,14 @@ class _HistoryViewState extends State<HistoryView> {
 
   void _onJumpRequest() {
     final time = widget.jumpRequest?.value;
-    if (time == null || !mounted) return;
+    if (time == null) return;
     widget.jumpRequest!.value = null;
     _jumpTo(time, fraction: 0.5);
   }
 
   Future<void> _onCalendarRequest() async {
     final r = widget.calendarRequest;
-    if (r == null || !r.value || !mounted) return;
+    if (r == null || !r.value) return;
     r.value = false;
     await _openDays();
   }
@@ -726,7 +726,6 @@ class _HistoryViewState extends State<HistoryView> {
       if (_replayAt != null) _endReplay();
       return;
     }
-    if (!mounted) return;
     if (at.channel != widget.channel) {
       // The VOD moved to another channel.
       if (_replayAt != null) _endReplay();
@@ -1263,7 +1262,7 @@ class _HistoryViewState extends State<HistoryView> {
   }
 
   void _onLive() {
-    if (!mounted || !_liveAttached) return;
+    if (!_liveAttached) return;
     setState(() {
       _syncLive();
       // A reader scrolled up keeps a window, not every arrival: past the cap
@@ -1316,7 +1315,6 @@ class _HistoryViewState extends State<HistoryView> {
   /// Clears the tokens of source rows parsed while catalogs were landing, so
   /// their next build parses against the fuller catalog.
   void _onEmotes() {
-    if (!mounted) return;
     final w = _window;
     final cache = widget.tileCache?[widget.channel];
     final end = _liveAttached && _liveStart < w.end ? _liveStart : w.end;

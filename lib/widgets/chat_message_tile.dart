@@ -260,7 +260,7 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
   }
 
   void _onPaintChanged() {
-    if (mounted) setState(() {});
+    setState(() {});
   }
 
   /// The sender's resolved paint, or null when paints are off or it has no
