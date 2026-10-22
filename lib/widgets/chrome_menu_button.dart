@@ -1,7 +1,6 @@
 import 'dart:math';
 import 'dart:ui' show ImageFilter, lerpDouble;
 
-import 'package:flutter/cupertino.dart' show CupertinoColors;
 import 'package:flutter/material.dart';
 import 'package:flutter/physics.dart';
 import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
@@ -112,48 +111,29 @@ class ChromeMenuButtonState extends State<ChromeMenuButton> {
   }
 }
 
-/// A floating button's shell around a menu trigger, shaped like the chat
-/// pages' floating buttons: a small FAB, or a glass square under glass
-/// chrome.
+/// The view menu's pill while fullscreen floats it over the pages. Its
+/// width matches a small FAB's tap target, so a floating button under it
+/// at the same right edge shares its center.
 class FloatingMenuShell extends StatelessWidget {
   const FloatingMenuShell({super.key, required this.child});
 
   final Widget child;
 
-  /// The shell's side, matching the pages' floating buttons.
-  static double sizeFor({required bool glass}) => glass ? 44 : 40;
+  static const double width = 48;
+  static const double height = 40;
 
   @override
   Widget build(BuildContext context) {
-    final glass = GlassChromeScope.maybeOf(context)?.glass ?? false;
-    final scheme = Theme.of(context).colorScheme;
-    // Icon colors as GlassIconButton and the small FAB draw theirs.
-    final content = IconButtonTheme(
-      data: IconButtonThemeData(
-        style: IconButton.styleFrom(
-          foregroundColor: glass
-              ? CupertinoColors.label.resolveFrom(context)
-              : scheme.onPrimaryContainer,
+    return SizedBox(
+      width: width,
+      height: height,
+      child: DecoratedBox(
+        decoration: ShapeDecoration(
+          color: Theme.of(context).colorScheme.surfaceContainerHigh,
+          shape: const StadiumBorder(),
         ),
+        child: Center(child: child),
       ),
-      child: Center(child: child),
-    );
-    return SizedBox.square(
-      dimension: sizeFor(glass: glass),
-      child: glass
-          ? GlassSurface(
-              shape: const LiquidRoundedRectangle(borderRadius: Radii.medium),
-              settings: kGlassPillSettings,
-              child: content,
-            )
-          : Material(
-              color: scheme.primaryContainer,
-              elevation: 6,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(Radii.medium),
-              ),
-              child: content,
-            ),
     );
   }
 }

@@ -2202,13 +2202,16 @@ class _HistoryViewState extends State<HistoryView> {
             builder: (_, _) => actions.follow.value?.channel != widget.channel
                 ? const SizedBox.shrink()
                 : Positioned(
-                    right: 16,
+                    // Centered under the menu pill: the 44dp glass button
+                    // sits 2dp in from the small FAB's 48dp tap target.
+                    right: widget.underCornerMenu && glass ? 18 : 16,
                     top:
                         widget.topPadding +
                         kChromeMenuMargin +
+                        // An 8dp gap under the menu pill; the small FAB's
+                        // tap target already pads 4dp above it.
                         (widget.underCornerMenu
-                            ? FloatingMenuShell.sizeFor(glass: glass) +
-                                  kChromeMenuMargin
+                            ? FloatingMenuShell.height + (glass ? 8 : 4)
                             : 0),
                     child: VodChatButton(
                       live: actions.vodLive.value,
