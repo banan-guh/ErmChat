@@ -7,6 +7,7 @@ import '../util/connectivity.dart';
 import 'emote_providers/seven_tv_emotes.dart';
 import '../util/constants.dart';
 import '../util/log.dart';
+import '../util/socket_loop.dart';
 import '../util/data_usage.dart';
 
 class SevenTvEmoteUpdateEvent {
@@ -121,23 +122,19 @@ class SevenTvEventClient {
   static const _maxReconnectAttempts = 8;
   static const _reconnectMinDelay = Duration(seconds: 1);
 
-  final ConnectivityService? _connectivityService;
-
   WebSocketChannel? _channel;
   StreamSubscription<dynamic>? _streamSub;
   Timer? _heartbeatTimer;
-  Timer? _connectTimer;
-  Timer? _reconnectTimer;
   int? _heartbeatInterval;
   DateTime _lastHeartbeat = DateTime.now();
   bool _handshakeComplete = false;
-  bool _reconnecting = false;
-  bool _connecting = false;
-  int _reconnectAttempt = 0;
   bool _disposed = false;
   int? _fatalCloseCode;
-  VoidCallback? _connectivityListener;
-  bool _isOnline = true;
+
+  // Completes when the serving socket ends, with how the loop goes on.
+  Completer<SocketEnd>? _socketEnd;
+  SocketRun? _run;
+  late final SocketLoop _loop;
 
   final _pendingEmoteSets = <String>{};
   final _pendingUsers = <String>{};
@@ -169,7 +166,22 @@ class SevenTvEventClient {
   Stream<SevenTvPersonalSetEvent> get onPersonalSet => _personalSetCtrl.stream;
   Stream<SevenTvEventStatus> get onStatus => _statusCtrl.stream;
 
-  SevenTvEventClient({this._connectivityService});
+  SevenTvEventClient({ConnectivityService? connectivityService}) {
+    _loop = SocketLoop(
+      name: '7TV',
+      attempt: _attempt,
+      // The first retry waits a flat second, then 2^(n-2) capped 30s with
+      // jitter.
+      backoff: (failures) => failures == 1
+          ? _reconnectMinDelay
+          : applyReconnectJitter(
+              Duration(seconds: min(pow(2, failures - 2).toInt(), 30)),
+            ),
+      maxAttempts: _maxReconnectAttempts,
+      connectivity: connectivityService,
+      connectTimeout: _connectTimeout,
+    );
+  }
 
   bool get isConnected => _channel != null;
 
@@ -193,9 +205,7 @@ class SevenTvEventClient {
   /// Tears down a (possibly zombie) socket and reconnects. Used on app resume
   /// where [isConnected] alone can't be trusted.
   Future<void> forceReconnect() {
-    if (_disposed || _connecting) return Future.value();
-    _reconnectAttempt = 0;
-    _disconnect();
+    if (_disposed) return Future.value();
     return connect();
   }
 
@@ -208,65 +218,83 @@ class SevenTvEventClient {
     if (value == _enabled || _disposed) return;
     _enabled = value;
     if (value) {
-      _reconnectAttempt = 0;
       unawaited(connect());
     } else {
+      _loop.stop();
       _dropSocket();
     }
   }
 
-  Future<void> connect() async {
-    if (_disposed || _connecting || !_enabled) return;
-    _connecting = true;
-    try {
-      _fatalCloseCode = null;
-      _ensureConnectivityListener();
-      _disconnect();
-      try {
-        _channel = WebSocketChannel.connect(Uri.parse(_wsUrl));
-        await _waitForReady();
+  /// Opens a new socket, replacing any socket or retry in flight.
+  /// Completes once the first handshake opened or failed.
+  Future<void> connect() {
+    if (_disposed || !_enabled) return Future.value();
+    _disconnect();
+    return _loop.start();
+  }
 
-        _streamSub = _channel!.stream.listen(
-          (raw) {
-            DataUsageStats.I.recordEvent(
-              DataUsageStats.utf8Length(raw as String),
-            );
-            _handleMessage(raw);
-          },
-          onError: (e) {
-            logDebug('7TV event stream error: $e');
-            _scheduleReconnect();
-          },
-          onDone: () {
-            final code = _channel?.closeCode;
-            final reason = _channel?.closeReason;
-            logDebug('7TV event stream closed (code=$code reason="$reason")');
-            if (_fatalCloseCode != null) {
-              logDebug(
-                '7TV: fatal end-of-stream code $_fatalCloseCode - not reconnecting',
-              );
-              _dropSocket();
-              return;
-            }
-            if (code != null && _noReconnectCloseCodes.contains(code)) {
-              logDebug(
-                '7TV: close code $code indicates client bug - not reconnecting',
-              );
-              _dropSocket();
-              return;
-            }
-            _scheduleReconnect();
-          },
-        );
-      } catch (e) {
-        logDebug('7TV event connect error: $e');
-        // Prevent stale socket from keeping isConnected true on resume.
-        _disconnect();
-        _scheduleReconnect();
-      }
-    } finally {
-      _connecting = false;
+  /// One socket: dials, serves it until it ends, and says how the loop goes
+  /// on.
+  Future<SocketEnd> _attempt(SocketRun run) async {
+    _run = run;
+    _fatalCloseCode = null;
+    final channel = WebSocketChannel.connect(Uri.parse(_wsUrl));
+    try {
+      await run.ready(channel);
+    } catch (e) {
+      // A timed-out handshake must not leave its socket open.
+      channel.sink.close();
+      if (!run.live) return SocketEnd.dropped;
+      logDebug('7TV event connect error: $e');
+      _statusCtrl.add(SevenTvEventStatus.disconnected);
+      return SocketEnd.dropped;
     }
+    _channel = channel;
+    final end = Completer<SocketEnd>();
+    _socketEnd = end;
+    _streamSub = channel.stream.listen(
+      (raw) {
+        DataUsageStats.I.recordEvent(DataUsageStats.utf8Length(raw as String));
+        _handleMessage(raw);
+      },
+      onError: (e) {
+        logDebug('7TV event stream error: $e');
+        _endSocket(SocketEnd.dropped);
+      },
+      onDone: () {
+        final code = channel.closeCode;
+        logDebug(
+          '7TV event stream closed (code=$code '
+          'reason="${channel.closeReason}")',
+        );
+        if (_fatalCloseCode != null) {
+          logDebug(
+            '7TV: fatal end-of-stream code $_fatalCloseCode - not reconnecting',
+          );
+          _endSocket(SocketEnd.fatal);
+        } else if (code != null && _noReconnectCloseCodes.contains(code)) {
+          logDebug(
+            '7TV: close code $code indicates client bug - not reconnecting',
+          );
+          _endSocket(SocketEnd.fatal);
+        } else {
+          _endSocket(SocketEnd.dropped);
+        }
+      },
+    );
+    final how = await end.future;
+    // A disconnect or restart already tore this socket down.
+    if (!run.live) return SocketEnd.dropped;
+    // A fatal end leaves the socket released and reported down, so
+    // [isConnected] is false and the liveness watchdog recovers it.
+    _dropSocket();
+    return how;
+  }
+
+  void _endSocket(SocketEnd how) {
+    final end = _socketEnd;
+    _socketEnd = null;
+    if (end != null && !end.isCompleted) end.complete(how);
   }
 
   void subscribeEmoteSet(String emoteSetId) => _setSubscribed(
@@ -400,7 +428,7 @@ class SevenTvEventClient {
           _lastHeartbeat = DateTime.now();
         case 4:
           logDebug('7TV server requested reconnect');
-          connect();
+          _endSocket(SocketEnd.reconnectNow);
         case 5:
           break;
         case 7:
@@ -424,7 +452,7 @@ class SevenTvEventClient {
     final interval = d['heartbeat_interval'] as int? ?? 30000;
     _heartbeatInterval = interval;
     _handshakeComplete = true;
-    _reconnectAttempt = 0;
+    _run?.opened();
     _lastHeartbeat = DateTime.now();
     _statusCtrl.add(SevenTvEventStatus.connected);
     _startHeartbeat();
@@ -612,8 +640,7 @@ class SevenTvEventClient {
         final elapsed = DateTime.now().difference(_lastHeartbeat);
         if (elapsed.inMilliseconds > 3 * _heartbeatInterval!) {
           logDebug('7TV heartbeat timeout - reconnecting');
-          _disconnect();
-          _scheduleReconnect();
+          _endSocket(SocketEnd.dropped);
           return;
         }
       },
@@ -625,86 +652,7 @@ class SevenTvEventClient {
     _channel?.sink.add(message);
   }
 
-  /// Waits for the handshake with a timeout; timer is cleaned up on
-  /// disconnect/dispose.
-  Future<void> _waitForReady() {
-    final channel = _channel;
-    if (channel == null) return Future.value();
-    final completer = Completer<void>();
-    _connectTimer?.cancel();
-    _connectTimer = Timer(_connectTimeout, () {
-      if (!completer.isCompleted) {
-        completer.completeError(TimeoutException('7TV connect timed out'));
-      }
-    });
-    channel.ready.then(
-      (_) {
-        if (!completer.isCompleted) completer.complete();
-      },
-      onError: (Object e, StackTrace st) {
-        if (!completer.isCompleted) completer.completeError(e, st);
-      },
-    );
-    return completer.future.whenComplete(() {
-      _connectTimer?.cancel();
-      _connectTimer = null;
-    });
-  }
-
-  void _scheduleReconnect() {
-    if (_reconnecting || _disposed) return;
-    if (!_isOnline) return;
-    _reconnecting = true;
-    _handshakeComplete = false;
-    _statusCtrl.add(SevenTvEventStatus.disconnected);
-    _reconnectAttempt++;
-    if (_reconnectAttempt > _maxReconnectAttempts) {
-      logDebug(
-        '7TV: max reconnect attempts ($_maxReconnectAttempts) reached - giving up',
-      );
-      _reconnecting = false;
-      return;
-    }
-    Duration delay;
-    if (_reconnectAttempt == 1) {
-      delay = _reconnectMinDelay;
-    } else {
-      final base = Duration(
-        seconds: min(pow(2, _reconnectAttempt - 2).toInt(), 30),
-      );
-      delay = applyReconnectJitter(base);
-    }
-    logDebug(
-      '7TV scheduling reconnect in ${delay.inMilliseconds}ms (attempt $_reconnectAttempt)',
-    );
-    _reconnectTimer?.cancel();
-    _reconnectTimer = Timer(delay, () {
-      _reconnectTimer = null;
-      _reconnecting = false;
-      if (!_disposed) {
-        connect();
-      }
-    });
-  }
-
-  void _ensureConnectivityListener() {
-    final service = _connectivityService;
-    if (service == null || _connectivityListener != null) return;
-    _connectivityListener = () {
-      final online = service.isOnline;
-      final wasOffline = !_isOnline;
-      _isOnline = online;
-      if (wasOffline && online && _channel == null && !_reconnecting) {
-        _reconnectAttempt = 0;
-        connect();
-      }
-    };
-    _isOnline = service.isOnline;
-    service.addListener(_connectivityListener!);
-  }
-
-  /// Releases a socket that will not auto-reconnect and reports it down so
-  /// [isConnected] is false and the liveness watchdog recovers it.
+  /// Releases the socket and reports it down, so [isConnected] is false.
   void _dropSocket() {
     _disconnect();
     if (_disposed) return;
@@ -714,17 +662,13 @@ class SevenTvEventClient {
   void _disconnect() {
     _heartbeatTimer?.cancel();
     _heartbeatTimer = null;
-    _connectTimer?.cancel();
-    _connectTimer = null;
-    _reconnectTimer?.cancel();
-    _reconnectTimer = null;
     _heartbeatInterval = null;
     _handshakeComplete = false;
-    _reconnecting = false;
     _streamSub?.cancel();
     _streamSub = null;
     _channel?.sink.close();
     _channel = null;
+    _endSocket(SocketEnd.dropped);
   }
 
   @visibleForTesting
@@ -738,33 +682,11 @@ class SevenTvEventClient {
   }
 
   @visibleForTesting
-  int get reconnectAttempt => _reconnectAttempt;
-
-  @visibleForTesting
-  bool get isReconnecting => _reconnecting;
-
-  @visibleForTesting
-  set isReconnecting(bool value) => _reconnecting = value;
-
-  @visibleForTesting
-  bool get isOnline => _isOnline;
-
-  @visibleForTesting
-  set isOnline(bool value) => _isOnline = value;
-
-  @visibleForTesting
-  void scheduleReconnectForTest() => _scheduleReconnect();
+  int get reconnectAttempt => _loop.failures;
 
   void dispose() {
     _disposed = true;
-    _reconnecting = false;
-    _reconnectTimer?.cancel();
-    _reconnectTimer = null;
-    final listener = _connectivityListener;
-    if (listener != null) _connectivityService?.removeListener(listener);
-    _connectivityListener = null;
-    // Disconnect first: it cancels timers and closes the socket. Nulling
-    // the fields beforehand would make every step a no-op and leak them.
+    _loop.dispose();
     _disconnect();
     _emoteSetUpdateCtrl.close();
     _userUpdateCtrl.close();

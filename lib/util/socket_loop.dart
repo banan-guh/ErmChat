@@ -25,7 +25,7 @@ enum SocketEnd {
 /// [start] replaces any run in flight and [stop] ends it, so exactly one run
 /// can ever open a socket. Being offline never stops a retry: coming back
 /// online wakes the wait and starts the count over. After [maxAttempts]
-/// failures in a row the loop stops retrying until the network returns or
+/// retries in a row the loop stops retrying until the network returns or
 /// the owner restarts it.
 class SocketLoop {
   SocketLoop({
@@ -47,8 +47,8 @@ class SocketLoop {
   /// The wait before retry number `failures`, counted from 1.
   final Duration Function(int failures) backoff;
 
-  /// Failures in a row before the loop waits for the network instead of
-  /// retrying. Null retries forever.
+  /// Retries in a row before the loop waits for the network instead.
+  /// Null retries forever.
   final int? maxAttempts;
 
   final ConnectivityService? connectivity;
@@ -105,7 +105,7 @@ class SocketLoop {
       if (end == SocketEnd.reconnectNow) continue;
       _failures++;
       final cap = maxAttempts;
-      if (cap != null && _failures >= cap) {
+      if (cap != null && _failures > cap) {
         logDebug('$name gave up after $_failures attempts');
         await run._sleep(null);
       } else {

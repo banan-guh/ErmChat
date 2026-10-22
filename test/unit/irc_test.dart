@@ -1834,36 +1834,36 @@ void main() {
       expect(statusEvents, isEmpty);
     });
 
-    test('reconnect counter grows, resets on Hello, and respects gates', () {
-      for (var i = 0; i < 5; i++) {
-        client.scheduleReconnectForTest();
-        client.isReconnecting = false;
-      }
-      expect(client.reconnectAttempt, 5);
-      client.handleRawMessage(_hello());
-      expect(client.reconnectAttempt, 0);
-
-      // A reconnect already in flight is not stacked.
-      client.scheduleReconnectForTest();
-      client.scheduleReconnectForTest();
-      expect(client.reconnectAttempt, 1);
-
-      final offline = SevenTvEventClient()..isOnline = false;
-      offline.scheduleReconnectForTest();
-      expect(offline.reconnectAttempt, 0);
-      offline.dispose();
-    });
-
-    test('7TV reconnect counter survives failed connect attempts', () {
+    test('7TV reconnect counter survives failed attempts, resets on Hello', () {
       fakeAsync((async) {
-        final c = SevenTvEventClient()..isOnline = true;
+        final c = SevenTvEventClient();
         c.connect();
         async.elapse(const Duration(seconds: 11));
         expect(c.reconnectAttempt, 1);
-        // The retry timer calls connect(), which must keep the counter.
         async.elapse(const Duration(seconds: 12));
-        expect(c.reconnectAttempt, greaterThan(1), reason: 'connect() reset');
+        expect(c.reconnectAttempt, greaterThan(1), reason: 'a retry reset');
+        c.handleRawMessage(_hello());
+        expect(c.reconnectAttempt, 0);
         c.dispose();
+      });
+    });
+
+    test('a socket out of retries waits for the network, then dials', () {
+      fakeAsync((async) {
+        final conn = ConnectivityService();
+        conn.debugSetResults(const [ConnectivityResult.wifi]);
+        final c = _TestEventSub([
+          FakeWebSocketChannel(failReady: true),
+        ], connectivityService: conn);
+        c.connect();
+        async.elapse(const Duration(minutes: 10));
+        expect(c.opened, 9, reason: 'one dial plus 8 retries');
+        conn.debugSetResults(const [ConnectivityResult.none]);
+        conn.debugSetResults(const [ConnectivityResult.wifi]);
+        async.flushMicrotasks();
+        expect(c.opened, 10, reason: 'the network returning dials again');
+        c.dispose();
+        conn.dispose();
       });
     });
 
