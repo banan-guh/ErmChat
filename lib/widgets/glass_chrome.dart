@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
 import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 
@@ -441,7 +442,7 @@ class _IslandRingPainter extends CustomPainter {
     curve: Cubic(0.10, 0.0, 0.45, 1.0),
   );
 
-  Path _outline(Size size) {
+  static Path outline(Size size) {
     const inset = _width / 2;
     final r = kComposerIslandRadius - inset;
     final l = inset, t = inset, rt = size.width - inset;
@@ -468,7 +469,7 @@ class _IslandRingPainter extends CustomPainter {
       ..strokeWidth = _width
       ..strokeCap = StrokeCap.butt
       ..color = color.withValues(alpha: still ? alpha * 0.5 : alpha);
-    final path = _outline(size);
+    final path = outline(size);
     if (still) {
       canvas.drawPath(path, paint);
       return;
@@ -495,4 +496,102 @@ class _IslandRingPainter extends CustomPainter {
   @override
   bool shouldRepaint(_IslandRingPainter old) =>
       old.color != color || old.still != still;
+}
+
+/// Traces the island's outline as far as [progress] has come, from 0 to 1,
+/// in the busy ring's stroke. Shows while [progress] holds a value and fades
+/// out full once it clears.
+class IslandProgressRing extends StatefulWidget {
+  const IslandProgressRing({
+    super.key,
+    required this.progress,
+    required this.child,
+  });
+
+  final ValueListenable<double?> progress;
+  final Widget child;
+
+  @override
+  State<IslandProgressRing> createState() => _IslandProgressRingState();
+}
+
+class _IslandProgressRingState extends State<IslandProgressRing>
+    with SingleTickerProviderStateMixin {
+  late final _fade = AnimationController(vsync: this, duration: Motion.normal);
+
+  @override
+  void initState() {
+    super.initState();
+    widget.progress.addListener(_sync);
+    _sync();
+  }
+
+  @override
+  void didUpdateWidget(IslandProgressRing old) {
+    super.didUpdateWidget(old);
+    if (old.progress != widget.progress) {
+      old.progress.removeListener(_sync);
+      widget.progress.addListener(_sync);
+    }
+    _sync();
+  }
+
+  void _sync() {
+    if (widget.progress.value != null) {
+      _fade.forward();
+    } else {
+      _fade.reverse();
+    }
+  }
+
+  @override
+  void dispose() {
+    widget.progress.removeListener(_sync);
+    _fade.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => CustomPaint(
+    foregroundPainter: _IslandProgressPainter(
+      progress: widget.progress,
+      fade: _fade,
+      color: Theme.of(context).colorScheme.primary,
+    ),
+    child: widget.child,
+  );
+}
+
+class _IslandProgressPainter extends CustomPainter {
+  _IslandProgressPainter({
+    required this.progress,
+    required this.fade,
+    required this.color,
+  }) : super(repaint: Listenable.merge([progress, fade]));
+
+  final ValueListenable<double?> progress;
+  final Animation<double> fade;
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final alpha = fade.value;
+    if (alpha <= 0 || size.isEmpty) return;
+    final metrics = _IslandRingPainter.outline(size).computeMetrics().toList();
+    if (metrics.isEmpty) return;
+    final metric = metrics.first;
+    // A cleared upload fades out as a full lap.
+    final share = (progress.value ?? 1).clamp(0.0, 1.0);
+    canvas.drawPath(
+      metric.extractPath(0, metric.length * share),
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = _IslandRingPainter._width
+        ..color = color.withValues(alpha: alpha),
+    );
+  }
+
+  @override
+  bool shouldRepaint(_IslandProgressPainter old) =>
+      old.color != color || old.progress != progress;
 }

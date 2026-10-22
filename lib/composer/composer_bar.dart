@@ -180,6 +180,9 @@ class ComposerBar extends StatelessWidget {
                       ? null
                       : (content) => uploads!.uploadInserted(context, content),
                   borderless: !classic,
+                  // The classic field has no island to trace, so an upload
+                  // shades the field itself.
+                  fillProgress: classic ? uploads?.progress : null,
                   prefixOverride: startSlot,
                   suffixOverride: endSlot,
                   startItems: startItems,

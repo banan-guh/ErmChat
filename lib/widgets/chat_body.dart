@@ -225,6 +225,10 @@ class _ChatBodyState extends State<ChatBody>
       value.isFinite ? value : fallback;
 
   final _islandKey = GlobalKey();
+
+  /// Whether the edge-to-edge line last showed an upload rather than the
+  /// busy motion, so it fades out the way it showed.
+  bool _lineShowedUpload = false;
   final _islandOuterKey = GlobalKey();
 
   // The field's animated slot, and the island below it (row plus footer).
@@ -517,40 +521,6 @@ class _ChatBodyState extends State<ChatBody>
     }
   }
 
-  /// [content] with the upload bar across its top edge, clipped to the
-  /// island's [radius]; it fades out full once the upload ends.
-  Widget _withUploadBar(Widget content, BorderRadius radius) {
-    final progress = widget.uploadProgress;
-    if (progress == null) return content;
-    return Stack(
-      children: [
-        content,
-        Positioned.fill(
-          child: IgnorePointer(
-            child: ClipRRect(
-              borderRadius: radius,
-              child: Align(
-                alignment: Alignment.topCenter,
-                child: ValueListenableBuilder<double?>(
-                  valueListenable: progress,
-                  builder: (_, sent, _) => AnimatedOpacity(
-                    opacity: sent == null ? 0 : 1,
-                    duration: Motion.normal,
-                    child: LinearProgressIndicator(
-                      value: sent ?? 1,
-                      minHeight: 3,
-                      backgroundColor: Colors.transparent,
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     // Settled decisions read _liftH; the hidden clip reads the raw per-frame
@@ -833,29 +803,53 @@ class _ChatBodyState extends State<ChatBody>
     final showsBusy = busyListenable != null && isBusy != null;
     // A floating island runs loading around its outline. Edge to edge, it is
     // a straight line between the field and the button row.
-    Widget ringed(Widget island) => !showsBusy || flush
-        ? island
-        : IslandBusyRing(
-            listenable: busyListenable,
-            busy: isBusy,
-            child: island,
-          );
-    final busyLine = !showsBusy || !flush
+    final uploadProgress = widget.uploadProgress;
+    Widget ringed(Widget island) {
+      if (flush) return island;
+      final busy = !showsBusy
+          ? island
+          : IslandBusyRing(
+              listenable: busyListenable,
+              busy: isBusy,
+              child: island,
+            );
+      // An upload traces the same outline as far as it has come.
+      return uploadProgress == null
+          ? busy
+          : IslandProgressRing(progress: uploadProgress, child: busy);
+    }
+
+    // Edge to edge, one line carries both: an upload's progress while it
+    // runs, the busy motion otherwise. The classic field shades itself.
+    final lineUpload = classic ? null : uploadProgress;
+    final busyLine = !flush || (!showsBusy && lineUpload == null)
         ? null
         : SizedBox(
             height: 0,
             child: OverflowBox(
               maxHeight: 3,
               child: ListenableBuilder(
-                listenable: busyListenable,
+                listenable: Listenable.merge([busyListenable, lineUpload]),
                 builder: (_, _) {
-                  final busy = isBusy();
+                  final sent = lineUpload?.value;
+                  final joining = isBusy?.call() ?? false;
+                  if (sent != null) {
+                    _lineShowedUpload = true;
+                  } else if (joining) {
+                    _lineShowedUpload = false;
+                  }
+                  final busy = sent != null || joining;
                   return AnimatedOpacity(
                     opacity: busy ? 1 : 0,
                     duration: Motion.normal,
                     child: TickerMode(
                       enabled: busy,
-                      child: const LinearProgressIndicator(
+                      child: LinearProgressIndicator(
+                        // A finished upload fades out full, not as the
+                        // busy motion.
+                        value:
+                            sent ??
+                            (!joining && _lineShowedUpload ? 1.0 : null),
                         minHeight: 3,
                         backgroundColor: Colors.transparent,
                       ),
@@ -885,64 +879,61 @@ class _ChatBodyState extends State<ChatBody>
           );
     final island = outer(
       child: islandShell(
-        _withUploadBar(
-          ClipRect(
-            child: Align(
-              alignment: Alignment.topCenter,
-              heightFactor: _islandH > 0
-                  ? (1 - _rowClip / _islandH).clamp(0.0, 1.0)
-                  : 1,
-              child: Column(
-                key: _islandKey,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  if (widget.sideAction == null) ...[
-                    flowComposer,
-                    ?busyLine,
-                    ?widget.bottomBar,
-                    ?footer,
-                  ] else
-                    // The side action runs the island's full height, so its
-                    // ink reaches the rim. The column sets the height and the
-                    // action fills it, with no intrinsic pass (the field's
-                    // LayoutBuilder cannot answer one). The footer spans the
-                    // full width under it, so centered text centers on the
-                    // whole island.
-                    Stack(
-                      children: [
-                        Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Padding(
-                              padding: const EdgeInsets.only(
-                                right: ChatBody.sideActionWidth,
-                              ),
-                              child: Column(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  flowComposer,
-                                  ?busyLine,
-                                  ?widget.bottomBar,
-                                ],
-                              ),
+        ClipRect(
+          child: Align(
+            alignment: Alignment.topCenter,
+            heightFactor: _islandH > 0
+                ? (1 - _rowClip / _islandH).clamp(0.0, 1.0)
+                : 1,
+            child: Column(
+              key: _islandKey,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (widget.sideAction == null) ...[
+                  flowComposer,
+                  ?busyLine,
+                  ?widget.bottomBar,
+                  ?footer,
+                ] else
+                  // The side action runs the island's full height, so its
+                  // ink reaches the rim. The column sets the height and the
+                  // action fills it, with no intrinsic pass (the field's
+                  // LayoutBuilder cannot answer one). The footer spans the
+                  // full width under it, so centered text centers on the
+                  // whole island.
+                  Stack(
+                    children: [
+                      Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Padding(
+                            padding: const EdgeInsets.only(
+                              right: ChatBody.sideActionWidth,
                             ),
-                            ?footer,
-                          ],
-                        ),
-                        Positioned(
-                          top: 0,
-                          bottom: 0,
-                          right: 0,
-                          width: ChatBody.sideActionWidth,
-                          child: widget.sideAction!,
-                        ),
-                      ],
-                    ),
-                ],
-              ),
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                flowComposer,
+                                ?busyLine,
+                                ?widget.bottomBar,
+                              ],
+                            ),
+                          ),
+                          ?footer,
+                        ],
+                      ),
+                      Positioned(
+                        top: 0,
+                        bottom: 0,
+                        right: 0,
+                        width: ChatBody.sideActionWidth,
+                        child: widget.sideAction!,
+                      ),
+                    ],
+                  ),
+              ],
             ),
           ),
-          radius,
         ),
       ),
     );

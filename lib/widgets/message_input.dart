@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../models/twitch_message.dart';
@@ -38,6 +39,10 @@ class MessageInput extends StatelessWidget {
   // its own outline to avoid a double border.
   final bool borderless;
 
+  /// A running upload's share sent, from 0 to 1, shaded across the outlined
+  /// field from its start. Null while none runs.
+  final ValueListenable<double?>? fillProgress;
+
   // slot replacements for search mode (close + filter buttons).
   final Widget? prefixOverride;
   final Widget? suffixOverride;
@@ -73,6 +78,7 @@ class MessageInput extends StatelessWidget {
     this.onContentInserted,
     this.searchMode = false,
     this.borderless = false,
+    this.fillProgress,
     this.prefixOverride,
     this.suffixOverride,
     this.startItems = const [FieldItem.emote],
@@ -196,6 +202,35 @@ class MessageInput extends StatelessWidget {
               : EdgeInsets.fromLTRB(8, labelRoom, 8, gap * 2),
           child: Stack(
             children: [
+              if (fillProgress case final progress?)
+                Positioned.fill(
+                  child: IgnorePointer(
+                    child: ClipRRect(
+                      // The stock OutlineInputBorder's corners.
+                      borderRadius: BorderRadius.circular(4),
+                      child: ValueListenableBuilder<double?>(
+                        valueListenable: progress,
+                        builder: (context, sent, _) => AnimatedOpacity(
+                          opacity: sent == null ? 0 : 1,
+                          duration: Motion.normal,
+                          child: Align(
+                            alignment: AlignmentDirectional.centerStart,
+                            child: AnimatedFractionallySizedBox(
+                              duration: Motion.fast,
+                              widthFactor: sent ?? 1,
+                              heightFactor: 1,
+                              child: ColoredBox(
+                                color: Theme.of(
+                                  context,
+                                ).colorScheme.primary.withValues(alpha: 0.16),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
               TextField(
                 key: const Key('message_input'),
                 controller: controller,
