@@ -126,6 +126,8 @@ class FileAnalyticsStore implements AnalyticsStore {
   }
 }
 
+// TODO: remove analytics in v0.10.3, along with its screen, pref, the
+// ingestion and ModerationHub hooks, and the saved stats file.
 class AnalyticsService extends ChangeNotifier {
   static const _rateWindowMinutes = 60;
 
