@@ -219,12 +219,6 @@ class _ChatBodyState extends State<ChatBody>
   // island can't measure.
   double _islandShellH = 0;
 
-  /// [value], or [fallback] when it is NaN or infinite. One non-finite input
-  /// would stick in the cached heights (NaN never compares as a change), so
-  /// it is dropped.
-  static double _finite(double value, double fallback) =>
-      value.isFinite ? value : fallback;
-
   final _islandKey = GlobalKey();
 
   /// Whether the edge-to-edge line last showed an upload rather than the
@@ -262,8 +256,7 @@ class _ChatBodyState extends State<ChatBody>
 
   void _cacheReplyH() {
     if (!mounted) return;
-    final size = _replyKey.currentContext?.size?.height ?? 0;
-    final h = _finite(size, _replyH);
+    final h = _replyKey.currentContext?.size?.height ?? 0;
     if ((h - _replyH).abs() > 0.5) setState(() => _replyH = h);
   }
 
@@ -305,11 +298,8 @@ class _ChatBodyState extends State<ChatBody>
   // so the composer would draw every other tick (30fps).
   late final _keyboardPump = createTicker((_) {});
 
-  /// The keyboard height in logical pixels. A view without a pixel ratio
-  /// (detaching) reads as no change, since one NaN would stick in every
-  /// cached height below.
-  double _readRawH() =>
-      _finite(_view.viewInsets.bottom / _view.devicePixelRatio, _rawH);
+  /// The keyboard height in logical pixels.
+  double _readRawH() => _view.viewInsets.bottom / _view.devicePixelRatio;
 
   // Last learned open height, persisted so decisions start right even on a
   // cold start. Re-learned every session, so a stale value self-corrects.
@@ -467,7 +457,6 @@ class _ChatBodyState extends State<ChatBody>
     if (!mounted || widget.composer == null) return;
     final h = inputBarKey.currentContext?.size?.height;
     if (h == null) return;
-    if (!h.isFinite) return;
     // inputBarKey sits on the padded wrapper, so subtract its bottom inset to
     // cache the content height alone. The safe area is re-added from live
     // MediaQuery at build, so the list clearance cannot lag the keyboard.
@@ -483,12 +472,7 @@ class _ChatBodyState extends State<ChatBody>
 
   void _cacheIslandH() {
     if (!mounted) return;
-    // A non-finite size reads as unmeasured: the caches only update on a
-    // change, and NaN never compares as one, so it would stick.
-    double? height(GlobalKey key) {
-      final h = key.currentContext?.size?.height;
-      return h == null || h.isFinite ? h : null;
-    }
+    double? height(GlobalKey key) => key.currentContext?.size?.height;
 
     final h = height(_islandKey);
     if (h != null && (h - _islandH).abs() > 0.5) {
@@ -598,7 +582,7 @@ class _ChatBodyState extends State<ChatBody>
     // so the nav bar height comes from the view itself.
     final view = View.of(context);
     final navPad = frameKb > 0.5
-        ? _finite(view.viewPadding.bottom / view.devicePixelRatio, bottomPad)
+        ? view.viewPadding.bottom / view.devicePixelRatio
         : bottomPad;
     _hideSpan = hidden && floating ? navPad + rowH : 0;
     final clipRow = (frameKb - navPad).clamp(0.0, rowH);
