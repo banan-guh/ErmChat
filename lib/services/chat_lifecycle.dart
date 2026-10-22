@@ -86,10 +86,7 @@ class ChatLifecycle {
   final VoidCallback? onLoginExpired;
   final VoidCallback? onReconnected;
 
-  bool _wasConnected = false;
-  bool _wasDisconnected = false;
-  // Set by an account swap: the next write connect edge backfills history.
-  bool _swapBackfill = false;
+  _WriteEdge _writeEdge = _WriteEdge.fresh;
   // Guards the one-shot read-connect waiter below: connect() re-runs on
   // every auth change, and each call must not stack another broadcast
   // listener while the read socket stays down.
@@ -282,26 +279,21 @@ class ChatLifecycle {
       if (status == IrcConnectionStatus.connected && irc.isConnected) {
         readiness.noteWriteSocketConnected();
         // Edge-triggered: subscribeAll once per connect.
-        if (!_wasConnected) {
-          final isReconnect = _wasDisconnected;
-          _wasConnected = true;
-          _wasDisconnected = false;
+        if (_writeEdge != _WriteEdge.up) {
           // Chat arrives on the read socket, so its recovery refills the
           // gap. The write edge only does it for an account swap, which
           // replaces the read socket without reporting an outage.
-          if (isReconnect && _swapBackfill) {
-            _swapBackfill = false;
-            onReconnected?.call();
-          }
+          if (_writeEdge == _WriteEdge.swapped) onReconnected?.call();
+          _writeEdge = _WriteEdge.up;
           // Per-channel "Connected" now waits for that channel's own JOIN
           // confirmation (see the ROOMSTATE listener) - a socket being up
           // says nothing about whether the channel can receive PRIVMSG.
           subscribeAll();
         }
       }
-      if (status == IrcConnectionStatus.disconnected && !_wasDisconnected) {
-        _wasDisconnected = true;
-        _wasConnected = false;
+      if (status == IrcConnectionStatus.disconnected &&
+          (_writeEdge == _WriteEdge.fresh || _writeEdge == _WriteEdge.up)) {
+        _writeEdge = _WriteEdge.down;
         readiness.resetForWriteDisconnect();
         // Failure state is per socket lifetime: the fresh socket runs its
         // own fast sweep, so it may legitimately fail (and re-announce)
@@ -553,11 +545,7 @@ class ChatLifecycle {
         // disconnected status was emitted for this deliberate swap. Only for
         // an established prior session: a virgin cold start must keep its
         // ordinary first-connect semantics (no backfill, no reconnect).
-        if (_lastIrcToken != null) {
-          _wasConnected = false;
-          _wasDisconnected = true;
-          _swapBackfill = true;
-        }
+        if (_lastIrcToken != null) _writeEdge = _WriteEdge.swapped;
       }
 
       if (session.login != null && hasToken) {
@@ -643,3 +631,7 @@ class ChatLifecycle {
     onLoginExpired?.call();
   }
 }
+
+/// Where the write socket's connect edge stands. [swapped] is an account
+/// swap's deliberate drop: the next connect backfills history.
+enum _WriteEdge { fresh, up, down, swapped }
