@@ -9,6 +9,7 @@ import '../models/twitch_message.dart' show EmotePosition;
 import '../util/connectivity.dart';
 import '../util/constants.dart';
 import '../util/log.dart';
+import '../util/socket_loop.dart';
 import '../util/data_usage.dart';
 
 /// One PubSub redemption, already resolved to its channel.
@@ -51,17 +52,25 @@ class PubSubService {
   WebSocketChannel? _channel;
   StreamSubscription<dynamic>? _streamSub;
   Timer? _pingTimer;
-  Timer? _reconnectTimer;
-  Timer? _connectTimer;
   bool _awaitingPong = false;
-  bool _connecting = false;
   bool _disposed = false;
-  bool _isOnline = true;
-  bool _reconnecting = false;
-  int _reconnectAttempt = 0;
   DateTime _lastActivity = DateTime.now();
-  VoidCallback? _connectivityListener;
   final _rng = Random();
+
+  // Completes when the serving socket ends, with how the loop goes on.
+  Completer<SocketEnd>? _socketEnd;
+
+  late final _loop = SocketLoop(
+    name: 'PubSub',
+    attempt: _attempt,
+    // Exponential (2^(n-1)), capped 30s with jitter.
+    backoff: (failures) => applyReconnectJitter(
+      Duration(seconds: min(pow(2, failures - 1).toInt(), 30)),
+    ),
+    maxAttempts: _maxReconnectAttempts,
+    connectivity: connectivityService,
+    connectTimeout: _connectTimeout,
+  );
 
   /// Topics per channel name. Re-listened on every reconnect.
   final _topicsByChannel = <String, List<String>>{};
@@ -117,7 +126,7 @@ class PubSubService {
     }
     if (isConnected) {
       _sendSingle('LISTEN', topics);
-    } else {
+    } else if (!_loop.running) {
       unawaited(connect());
     }
   }
@@ -135,73 +144,84 @@ class PubSubService {
   /// unauth topics never 403.
   void forgetChannel(String channelName) => unlistenChannel(channelName);
 
-  Future<void> connect() async {
-    if (_connecting || _disposed) return;
-    _connecting = true;
+  /// Opens a new socket, replacing any socket or retry in flight.
+  /// Completes once the first handshake opened or failed.
+  Future<void> connect() {
+    if (_disposed) return Future.value();
+    _teardown();
+    return _loop.start();
+  }
+
+  /// One socket: dials, serves it until it ends, and says how the loop goes
+  /// on.
+  Future<SocketEnd> _attempt(SocketRun run) async {
+    final channel = openChannel();
     try {
-      _ensureConnectivityListener();
-      disconnect(emitStatus: false);
-      try {
-        _channel = openChannel();
-        await _waitForReady();
-        _lastActivity = DateTime.now();
-        _awaitingPong = false;
-        _reconnectAttempt = 0;
-        _streamSub = _channel!.stream.listen(
-          (raw) {
-            if (raw is! String) return;
-            DataUsageStats.I.recordEvent(DataUsageStats.utf8Length(raw));
-            _handleFrame(raw);
-          },
-          onError: (_) => _scheduleReconnect(),
-          onDone: () => _scheduleReconnect(),
-        );
-        _resubscribeAll();
-        _armPing();
-      } catch (e) {
-        logDebug('PubSub connect error: $e');
-        // A timed-out handshake must not leave its socket open.
-        _channel?.sink.close();
-        _channel = null;
-        _streamSub = null;
-        _scheduleReconnect();
-      }
-    } finally {
-      _connecting = false;
+      await run.ready(channel);
+    } catch (e) {
+      // A timed-out handshake must not leave its socket open.
+      channel.sink.close();
+      if (run.live) logDebug('PubSub connect error: $e');
+      return SocketEnd.dropped;
     }
+    _channel = channel;
+    run.opened();
+    _lastActivity = DateTime.now();
+    _awaitingPong = false;
+    final end = Completer<SocketEnd>();
+    _socketEnd = end;
+    _streamSub = channel.stream.listen(
+      (raw) {
+        if (raw is! String) return;
+        DataUsageStats.I.recordEvent(DataUsageStats.utf8Length(raw));
+        _handleFrame(raw);
+      },
+      onError: (_) => _endSocket(SocketEnd.dropped),
+      onDone: () => _endSocket(SocketEnd.dropped),
+    );
+    _resubscribeAll();
+    _armPing();
+    final how = await end.future;
+    // A disconnect or restart already tore this socket down.
+    if (run.live) _teardown();
+    return how;
+  }
+
+  void _endSocket(SocketEnd how) {
+    final end = _socketEnd;
+    _socketEnd = null;
+    if (end != null && !end.isCompleted) end.complete(how);
   }
 
   /// Tears down a zombie session and reconnects. Used on app resume.
   Future<void> forceReconnect() {
-    if (_disposed || _connecting) return Future.value();
-    disconnect();
+    if (_disposed) return Future.value();
     return connect();
   }
 
   void reconnectIfNecessary() {
-    if (_disposed || _connecting) return;
+    if (_disposed) return;
     if (!isConnected || isStale || _awaitingPong) {
       unawaited(forceReconnect());
     }
   }
 
-  void disconnect({bool emitStatus = true}) {
-    _reconnecting = false;
-    _reconnectTimer?.cancel();
-    _reconnectTimer = null;
+  /// Closes the socket and stops reconnecting until the next [connect].
+  /// No status stream: liveness polls isConnected/isStale instead.
+  void disconnect() {
+    _loop.stop();
+    _teardown();
+  }
+
+  void _teardown() {
     _pingTimer?.cancel();
     _pingTimer = null;
-    _connectTimer?.cancel();
-    _connectTimer = null;
     _awaitingPong = false;
     _streamSub?.cancel();
     _streamSub = null;
-    // ignore: avoid-ignoring-return-values
     _channel?.sink.close();
     _channel = null;
-    if (emitStatus) {
-      // No status stream: liveness polls isConnected/isStale instead.
-    }
+    _endSocket(SocketEnd.dropped);
   }
 
   /// One LISTEN per channel: Twitch silently drops the socket on a frame over
@@ -238,7 +258,7 @@ class PubSubService {
       if (channel == null) return;
       if (_awaitingPong) {
         logDebug('PubSub pong missed - reconnecting');
-        unawaited(forceReconnect());
+        _endSocket(SocketEnd.reconnectNow);
         return;
       }
       _awaitingPong = true;
@@ -260,7 +280,7 @@ class PubSubService {
       case 'PONG':
         _awaitingPong = false;
       case 'RECONNECT':
-        unawaited(forceReconnect());
+        _endSocket(SocketEnd.reconnectNow);
       case 'RESPONSE':
         final error = frame['error'] as String?;
         if (error != null && error.isNotEmpty) {
@@ -489,66 +509,6 @@ class PubSubService {
     return at == text.length ? out : const [];
   }
 
-  void _scheduleReconnect() {
-    if (_reconnecting || _disposed) return;
-    if (!_isOnline) return;
-    if (_reconnectAttempt >= _maxReconnectAttempts) {
-      logDebug('PubSub max reconnect attempts reached - giving up');
-      return;
-    }
-    _reconnecting = true;
-    _reconnectAttempt++;
-    final base = Duration(
-      seconds: min(pow(2, _reconnectAttempt - 1).toInt(), 30),
-    );
-    final delay = applyReconnectJitter(base);
-    _reconnectTimer?.cancel();
-    _reconnectTimer = Timer(delay, () {
-      _reconnecting = false;
-      unawaited(connect());
-    });
-  }
-
-  Future<void> _waitForReady() {
-    final channel = _channel;
-    if (channel == null) return Future.value();
-    final completer = Completer<void>();
-    _connectTimer?.cancel();
-    _connectTimer = Timer(_connectTimeout, () {
-      if (!completer.isCompleted) {
-        completer.completeError(TimeoutException('PubSub timed out'));
-      }
-    });
-    channel.ready.then(
-      (_) {
-        if (!completer.isCompleted) completer.complete();
-      },
-      onError: (Object e, StackTrace st) {
-        if (!completer.isCompleted) completer.completeError(e, st);
-      },
-    );
-    return completer.future.whenComplete(() {
-      _connectTimer?.cancel();
-      _connectTimer = null;
-    });
-  }
-
-  void _ensureConnectivityListener() {
-    final service = connectivityService;
-    if (service == null || _connectivityListener != null) return;
-    _connectivityListener = () {
-      final online = service.isOnline;
-      final wasOffline = !_isOnline;
-      _isOnline = online;
-      if (wasOffline && online && _channel == null && !_connecting) {
-        _reconnectAttempt = 0;
-        unawaited(connect());
-      }
-    };
-    _isOnline = service.isOnline;
-    service.addListener(_connectivityListener!);
-  }
-
   /// Test hook into the same router the socket uses.
   @visibleForTesting
   void feedText(String raw) => _handleFrame(raw);
@@ -566,9 +526,7 @@ class PubSubService {
   void dispose() {
     _disposed = true;
     disconnect();
-    final listener = _connectivityListener;
-    if (listener != null) connectivityService?.removeListener(listener);
-    _connectivityListener = null;
+    _loop.dispose();
     _redemptionController.close();
     _hypeTrainController.close();
     _pollController.close();
