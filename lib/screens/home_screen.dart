@@ -1641,10 +1641,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       composerStatusHeight(context, _composer, channel, modeRow: _modeRow);
 
   /// Whether room modes may ride the island's button row: the row shows.
-  bool get _modeRow =>
-      (_chat.names.isNotEmpty || _channelManager.session.channelsPending) &&
-      _chromeTheme.hasRow &&
-      _showInput;
+  bool get _modeRow => _chromeTheme.hasRow && _showInput;
 
   void _copyMessageToClipboard(TwitchMessage msg) {
     Clipboard.setData(ClipboardData(text: copyableChatText(msg.text)));
@@ -1911,11 +1908,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
         (layout.rowActions.contains(inputMenu) ||
             (layout.fieldActions.contains(inputMenu) && !_isFullscreen));
     final hasBottomBar =
-        (_chat.names.isNotEmpty || _channelManager.session.channelsPending) &&
-        (_showInput ||
-            (!menuFloats &&
-                (layout.rowActions.contains(inputMenu) ||
-                    !(_isFullscreen || menuOnTop))));
+        _showInput ||
+        (!menuFloats &&
+            (layout.rowActions.contains(inputMenu) ||
+                !(_isFullscreen || menuOnTop)));
     // A compact theme hides the row under the keyboard, leaving the field
     // row. A theme with no row actions drops the row.
     final edit = _layoutEdit;
