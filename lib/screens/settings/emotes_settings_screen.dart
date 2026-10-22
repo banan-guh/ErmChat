@@ -684,33 +684,32 @@ class _EmoteCacheSectionState extends State<EmoteCacheSection> {
           ),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          child: Row(
+          // Stacks the buttons when a label won't fit beside the other,
+          // instead of breaking it over two lines.
+          child: OverflowBar(
+            spacing: 12,
+            overflowSpacing: 8,
             children: [
-              Expanded(
-                child: FilledButton(
-                  key: const Key('emote_cache_apply'),
-                  onPressed: _draftCacheMb != _appliedCacheMb
-                      ? _applyCacheMb
-                      : null,
-                  child: Text(context.l10n.apply),
-                ),
+              FilledButton(
+                key: const Key('emote_cache_apply'),
+                onPressed: _draftCacheMb != _appliedCacheMb
+                    ? _applyCacheMb
+                    : null,
+                child: Text(context.l10n.apply),
               ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: FilledButton(
-                  key: const Key('emote_nuke'),
-                  onPressed: () async {
-                    final confirm = await confirmDialog(
-                      context,
-                      title: context.l10n.clearEmoteCacheTitle,
-                      message: context.l10n.clearEmoteCacheMessage,
-                      confirmLabel: context.l10n.clearEmoteCacheConfirm,
-                      cancelLabel: context.l10n.no,
-                    );
-                    if (confirm) widget.onNuke?.call();
-                  },
-                  child: Text(context.l10n.nukeEmotes),
-                ),
+              FilledButton(
+                key: const Key('emote_nuke'),
+                onPressed: () async {
+                  final confirm = await confirmDialog(
+                    context,
+                    title: context.l10n.clearEmoteCacheTitle,
+                    message: context.l10n.clearEmoteCacheMessage,
+                    confirmLabel: context.l10n.clearEmoteCacheConfirm,
+                    cancelLabel: context.l10n.no,
+                  );
+                  if (confirm) widget.onNuke?.call();
+                },
+                child: Text(context.l10n.nukeEmotes),
               ),
             ],
           ),

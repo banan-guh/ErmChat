@@ -422,24 +422,23 @@ class _ArchiveLimitsTileState extends ConsumerState<ArchiveLimitsTile> {
             _slider(Setting.archiveChannelCap, 1, _mb.length),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              child: Row(
+              // Stacks the buttons when a label won't fit beside the other,
+              // instead of breaking it over two lines.
+              child: OverflowBar(
+                spacing: 12,
+                overflowSpacing: 8,
                 children: [
-                  Expanded(
-                    child: FilledButton(
-                      onPressed:
-                          archive &&
-                              (_index[0] != _saved[0] || _index[1] != _saved[1])
-                          ? _apply
-                          : null,
-                      child: Text(l.archiveApply),
-                    ),
+                  FilledButton(
+                    onPressed:
+                        archive &&
+                            (_index[0] != _saved[0] || _index[1] != _saved[1])
+                        ? _apply
+                        : null,
+                    child: Text(l.archiveApply),
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: FilledButton(
-                      onPressed: archive ? _abandon : null,
-                      child: Text(l.archiveAbandon),
-                    ),
+                  FilledButton(
+                    onPressed: archive ? _abandon : null,
+                    child: Text(l.archiveAbandon),
                   ),
                 ],
               ),
