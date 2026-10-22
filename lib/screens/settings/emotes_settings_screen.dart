@@ -7,8 +7,7 @@ import '../../emotes/emote.dart';
 import '../../services/emote_cache_manager.dart';
 import '../../services/emote_images.dart';
 import '../../services/emote_manager.dart';
-import '../../util/prefs.dart';
-import '../../util/prefs_store.dart';
+import '../../util/settings.dart';
 import '../../widgets/dialogs.dart';
 import '../../widgets/emote_frame_rate.dart';
 import 'settings_page.dart';
@@ -56,9 +55,6 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
   final _providerEnabled = <EmoteType, bool>{};
   bool _allowUnlisted = true;
   bool _allowPersonal = true;
-  bool _ffzEffects = true;
-  bool _bttvModifiers = true;
-  bool _sevenTvCosmetics = false;
 
   /// Enabled-provider snapshot from when the screen opened, so closing it
   /// can diff which providers were newly enabled.
@@ -74,7 +70,6 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
   @override
   void initState() {
     super.initState();
-    _loadPrefs();
     _loadProviders();
   }
 
@@ -120,8 +115,6 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
   Future<void> _onProviderChanged(EmoteType type, bool enabled) async {
     setState(() => _providerEnabled[type] = enabled);
     await widget.emoteManager?.setProviderEnabled(type, enabled);
-    // The 7TV socket follows the provider set through the prefs listener.
-    PrefsStore.instance.notifyChanged();
   }
 
   Future<void> _onAllowUnlistedChanged(bool allowed) async {
@@ -132,17 +125,6 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
   Future<void> _onAllowPersonalChanged(bool allowed) async {
     setState(() => _allowPersonal = allowed);
     await widget.emoteManager?.setAllowPersonal7tv(allowed);
-  }
-
-  Future<void> _loadPrefs() async {
-    final prefs = await Prefs.load();
-    if (mounted) {
-      setState(() {
-        _ffzEffects = prefs.ffzEffects;
-        _bttvModifiers = prefs.bttvModifiers;
-        _sevenTvCosmetics = prefs.sevenTvCosmetics;
-      });
-    }
   }
 
   @override
@@ -255,25 +237,12 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
                       },
                     ),
                   if (type == EmoteType.ffz && (enabled[type] ?? true))
-                    _subCheckbox(context.l10n.ffzEffects, _ffzEffects, (
-                      v,
-                    ) async {
-                      setState(() => _ffzEffects = v);
-                      setSheetState(() {});
-                      final prefs = await Prefs.load();
-                      await prefs.setFfzEffects(v);
-                      PrefsStore.instance.notifyChanged();
-                    }),
+                    _prefCheckbox(context.l10n.ffzEffects, Settings.ffzEffects),
                   if (type == EmoteType.bttv && (enabled[type] ?? true))
-                    _subCheckbox(context.l10n.bttvModifiers, _bttvModifiers, (
-                      v,
-                    ) async {
-                      setState(() => _bttvModifiers = v);
-                      setSheetState(() {});
-                      final prefs = await Prefs.load();
-                      await prefs.setBttvModifiers(v);
-                      PrefsStore.instance.notifyChanged();
-                    }),
+                    _prefCheckbox(
+                      context.l10n.bttvModifiers,
+                      Settings.bttvModifiers,
+                    ),
                 ],
                 const SizedBox(height: 8),
               ],
@@ -297,34 +266,41 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
       _onProviderChanged(type, on);
     }
 
-    Future<void> setCosmetics(bool on) async {
-      setState(() => _sevenTvCosmetics = on);
-      setSheetState(() {});
-      final prefs = await Prefs.load();
-      await prefs.setSevenTvCosmetics(on);
-      PrefsStore.instance.notifyChanged();
-    }
-
     return [
-      SwitchListTile(
-        key: Key('provider_toggle_${type.name}'),
-        title: Text(_providerLabels[type]!),
-        value: emotes || _sevenTvCosmetics,
-        onChanged: (v) {
-          setEmotes(v);
-          setCosmetics(v);
-        },
-      ),
-      if (emotes || _sevenTvCosmetics) ...[
-        _subCheckbox(context.l10n.sevenTvEmotes, emotes, setEmotes),
-        _subCheckbox(
-          context.l10n.sevenTvCosmetics,
-          _sevenTvCosmetics,
-          setCosmetics,
+      ValueListenableBuilder<bool>(
+        valueListenable: Settings.sevenTvCosmetics,
+        builder: (context, cosmetics, _) => Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SwitchListTile(
+              key: Key('provider_toggle_${type.name}'),
+              title: Text(_providerLabels[type]!),
+              value: emotes || cosmetics,
+              onChanged: (v) {
+                setEmotes(v);
+                unawaited(Settings.sevenTvCosmetics.set(v));
+              },
+            ),
+            if (emotes || cosmetics) ...[
+              _subCheckbox(context.l10n.sevenTvEmotes, emotes, setEmotes),
+              _prefCheckbox(
+                context.l10n.sevenTvCosmetics,
+                Settings.sevenTvCosmetics,
+              ),
+            ],
+          ],
         ),
-      ],
+      ),
     ];
   }
+
+  Widget _prefCheckbox(String title, Pref<bool> pref) =>
+      ValueListenableBuilder<bool>(
+        valueListenable: pref,
+        builder: (context, value, _) => _subCheckbox(title, value, (v) {
+          unawaited(pref.set(v));
+        }),
+      );
 
   Widget _subCheckbox(String title, bool value, ValueChanged<bool> onChanged) =>
       CheckboxListTile(
@@ -358,58 +334,72 @@ class EmoteQualitySection extends StatefulWidget {
 }
 
 class _EmoteQualitySectionState extends State<EmoteQualitySection> {
-  int _tier = EmoteFetchTier.high.index;
-  EmoteFetchAutoMode _autoMode = defaultEmoteFetchAutoMode;
+  /// Tier picked while dragging, before the release writes it.
+  int? _draggingTier;
+
+  /// Off until the user changes auto mode or connectivity, so the stored
+  /// value arriving at startup lands without a slide.
+  bool _animateTier = false;
+
+  int get _tier => _draggingTier ?? Settings.emoteFetchTier.value;
+
+  EmoteFetchAutoMode get _autoMode {
+    final index = Settings.emoteFetchAuto.value;
+    return index >= 0 && index < EmoteFetchAutoMode.values.length
+        ? EmoteFetchAutoMode.values[index]
+        : defaultEmoteFetchAutoMode;
+  }
 
   @override
   void initState() {
     super.initState();
-    _load();
+    widget.mobileNotifier?.addListener(_animateOnConnectivityChange);
   }
 
-  Future<void> _load() async {
-    final prefs = await Prefs.load();
-    if (!mounted) return;
-    setState(() {
-      _tier = prefs.emoteFetchTier;
-      final autoIndex = prefs.emoteFetchAuto;
-      _autoMode = autoIndex >= 0 && autoIndex < EmoteFetchAutoMode.values.length
-          ? EmoteFetchAutoMode.values[autoIndex]
-          : defaultEmoteFetchAutoMode;
-    });
+  @override
+  void dispose() {
+    widget.mobileNotifier?.removeListener(_animateOnConnectivityChange);
+    super.dispose();
   }
+
+  void _animateOnConnectivityChange() => _animateTier = true;
 
   /// Drag feedback only: moves the label/thumb without persisting or
   /// refetching (the tier change itself fires on release).
   void _onTierDragging(double value) {
-    if (mounted) setState(() => _tier = value.toInt());
+    if (mounted) setState(() => _draggingTier = value.toInt());
   }
 
   Future<void> _onTierChanged(double value) async {
     final v = value.toInt();
-    final prefs = await Prefs.load();
-    await prefs.setEmoteFetchTier(v);
-    if (mounted) setState(() => _tier = v);
+    await Settings.emoteFetchTier.set(v);
+    if (mounted) setState(() => _draggingTier = null);
     widget.onTierChanged?.call(v);
   }
 
   Future<void> _onAutoModeChanged(EmoteFetchAutoMode mode) async {
-    final prefs = await Prefs.load();
-    await prefs.setEmoteFetchAuto(mode.index);
-    if (mounted) setState(() => _autoMode = mode);
+    _animateTier = true;
+    await Settings.emoteFetchAuto.set(mode.index);
     widget.onAutoModeChanged?.call(mode);
   }
 
   @override
   Widget build(BuildContext context) {
-    final mobile = widget.mobileNotifier;
-    return mobile == null
-        ? _build(context, isMobile: false)
-        : ValueListenableBuilder<bool>(
-            valueListenable: mobile,
-            builder: (context, isMobile, _) =>
-                _build(context, isMobile: isMobile),
-          );
+    return ListenableBuilder(
+      listenable: Listenable.merge([
+        Settings.emoteFetchTier,
+        Settings.emoteFetchAuto,
+      ]),
+      builder: (context, _) {
+        final mobile = widget.mobileNotifier;
+        if (mobile == null) return _build(context, isMobile: false);
+        return ValueListenableBuilder<bool>(
+          valueListenable: mobile,
+          builder: (context, isMobile, _) =>
+              _build(context, isMobile: isMobile),
+        );
+      },
+    );
   }
 
   Widget _build(BuildContext context, {required bool isMobile}) {
@@ -433,7 +423,7 @@ class _EmoteQualitySectionState extends State<EmoteQualitySection> {
           ),
         ),
         TweenAnimationBuilder<double>(
-          duration: Motion.slow,
+          duration: _animateTier ? Motion.slow : Duration.zero,
           curve: Motion.move,
           tween: Tween<double>(end: displayTier.index.toDouble()),
           builder: (context, animatedValue, _) {
@@ -600,24 +590,18 @@ class EmoteCacheSection extends StatefulWidget {
 }
 
 class _EmoteCacheSectionState extends State<EmoteCacheSection> {
-  int _appliedCacheMb = defaultEmoteCacheMb;
-  int _draftCacheMb = defaultEmoteCacheMb;
+  /// Cap picked on the slider, before Apply writes it.
+  int? _draftCacheMb;
   EmoteCacheStats? _stats;
+
+  int get _appliedCacheMb => Settings.emoteCacheMb.value;
+
+  int get _draftCache => _draftCacheMb ?? _appliedCacheMb;
 
   @override
   void initState() {
     super.initState();
-    _load();
     _loadStats();
-  }
-
-  Future<void> _load() async {
-    final prefs = await Prefs.load();
-    if (!mounted) return;
-    setState(() {
-      _appliedCacheMb = prefs.emoteCacheMb;
-      _draftCacheMb = _appliedCacheMb;
-    });
   }
 
   Future<void> _loadStats() async {
@@ -629,9 +613,8 @@ class _EmoteCacheSectionState extends State<EmoteCacheSection> {
 
   Future<void> _applyCacheMb() async {
     // The slider can move while this awaits; apply one value throughout.
-    final target = _draftCacheMb;
-    final prefs = await Prefs.load();
-    await prefs.setEmoteCacheMb(target);
+    final target = _draftCache;
+    await Settings.emoteCacheMb.set(target);
     widget.onCacheMaxChanged?.call(target);
     // Evict now so the footer reflects the new cap immediately, not just on
     // the next emote fetch.
@@ -641,81 +624,89 @@ class _EmoteCacheSectionState extends State<EmoteCacheSection> {
       await images.cache.enforceNow();
     }
     if (!mounted) return;
-    setState(() => _appliedCacheMb = target);
+    setState(() => _draftCacheMb = target);
     _loadStats();
   }
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        SettingAnchor(
-          Setting.emoteCache,
-          child: SettingsSectionHeader(
-            Setting.emoteCache.titleOf(context.l10n),
-            trailing: const SettingInfoButton(Setting.emoteCache),
-          ),
-        ),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          child: Text(
-            '$_draftCacheMb MB (~${estimatedEmoteCount(capBytes: _draftCacheMb * bytesPerMb, fileCount: _stats?.fileCount ?? 0, totalBytes: _stats?.totalBytes ?? 0)} emotes)',
-          ),
-        ),
-        Slider(
-          key: const Key('emote_cache_slider'),
-          value: _draftCacheMb.toDouble(),
-          min: minEmoteCacheMb.toDouble(),
-          max: maxEmoteCacheMb.toDouble(),
-          divisions: 30,
-          label: '$_draftCacheMb MB',
-          onChanged: (value) => setState(() => _draftCacheMb = value.toInt()),
-        ),
-        if (_draftCacheMb == 0)
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-            child: Text(
-              context.l10n.emoteCacheZeroWarning,
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: Theme.of(context).colorScheme.error,
+    return ListenableBuilder(
+      listenable: Settings.emoteCacheMb,
+      builder: (context, _) {
+        final draft = _draftCache;
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            SettingAnchor(
+              Setting.emoteCache,
+              child: SettingsSectionHeader(
+                Setting.emoteCache.titleOf(context.l10n),
+                trailing: const SettingInfoButton(Setting.emoteCache),
               ),
             ),
-          ),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          // Stacks the buttons when a label won't fit beside the other,
-          // instead of breaking it over two lines.
-          child: OverflowBar(
-            spacing: 12,
-            overflowSpacing: 8,
-            children: [
-              FilledButton(
-                key: const Key('emote_cache_apply'),
-                onPressed: _draftCacheMb != _appliedCacheMb
-                    ? _applyCacheMb
-                    : null,
-                child: Text(context.l10n.apply),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              child: Text(
+                '$draft MB (~${estimatedEmoteCount(capBytes: draft * bytesPerMb, fileCount: _stats?.fileCount ?? 0, totalBytes: _stats?.totalBytes ?? 0)} emotes)',
               ),
-              FilledButton(
-                key: const Key('emote_nuke'),
-                onPressed: () async {
-                  final confirm = await confirmDialog(
-                    context,
-                    title: context.l10n.clearEmoteCacheTitle,
-                    message: context.l10n.clearEmoteCacheMessage,
-                    confirmLabel: context.l10n.clearEmoteCacheConfirm,
-                    cancelLabel: context.l10n.no,
-                  );
-                  if (confirm) widget.onNuke?.call();
-                },
-                child: Text(context.l10n.nukeEmotes),
+            ),
+            Slider(
+              key: const Key('emote_cache_slider'),
+              value: draft.toDouble(),
+              min: minEmoteCacheMb.toDouble(),
+              max: maxEmoteCacheMb.toDouble(),
+              divisions: 30,
+              label: '$draft MB',
+              onChanged: (value) =>
+                  setState(() => _draftCacheMb = value.toInt()),
+            ),
+            if (draft == 0)
+              Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 4,
+                ),
+                child: Text(
+                  context.l10n.emoteCacheZeroWarning,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: Theme.of(context).colorScheme.error,
+                  ),
+                ),
               ),
-            ],
-          ),
-        ),
-        _buildCacheFooter(context),
-      ],
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              // Stacks the buttons when a label won't fit beside the other,
+              // instead of breaking it over two lines.
+              child: OverflowBar(
+                spacing: 12,
+                overflowSpacing: 8,
+                children: [
+                  FilledButton(
+                    key: const Key('emote_cache_apply'),
+                    onPressed: draft != _appliedCacheMb ? _applyCacheMb : null,
+                    child: Text(context.l10n.apply),
+                  ),
+                  FilledButton(
+                    key: const Key('emote_nuke'),
+                    onPressed: () async {
+                      final confirm = await confirmDialog(
+                        context,
+                        title: context.l10n.clearEmoteCacheTitle,
+                        message: context.l10n.clearEmoteCacheMessage,
+                        confirmLabel: context.l10n.clearEmoteCacheConfirm,
+                        cancelLabel: context.l10n.no,
+                      );
+                      if (confirm) widget.onNuke?.call();
+                    },
+                    child: Text(context.l10n.nukeEmotes),
+                  ),
+                ],
+              ),
+            ),
+            _buildCacheFooter(context),
+          ],
+        );
+      },
     );
   }
 
@@ -771,113 +762,102 @@ class EmoteAnimationSection extends StatefulWidget {
 }
 
 class _EmoteAnimationSectionState extends State<EmoteAnimationSection> {
-  bool _animateGifs = true;
-  bool _adaptiveFps = true;
-  int _idleFps = kIdleEmoteFps;
+  /// Frame rate picked while dragging, before the release writes it.
+  int? _draggingIdleFps;
 
-  @override
-  void initState() {
-    super.initState();
-    _load();
-  }
+  bool get _animateGifs => Settings.animateGifs.value;
 
-  Future<void> _load() async {
-    final prefs = await Prefs.load();
-    if (!mounted) return;
-    setState(() {
-      _animateGifs = prefs.animateGifs;
-      _adaptiveFps = prefs.adaptiveEmoteFps;
-      _idleFps = prefs.idleEmoteFps;
-    });
-  }
+  bool get _adaptiveFps => Settings.adaptiveEmoteFps.value;
+
+  int get _idleFps => _draggingIdleFps ?? Settings.idleEmoteFps.value;
 
   @override
   Widget build(BuildContext context) {
-    final idleEnabled = _animateGifs && _adaptiveFps;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        SettingsSectionHeader(context.l10n.sectionAnimation),
-        SettingAnchor(
-          Setting.animateEmotes,
-          child: SwitchListTile(
-            secondary: const Icon(Icons.gif_box),
-            title: TitleWithInfo(
-              Setting.animateEmotes.titleOf(context.l10n),
+    return ListenableBuilder(
+      listenable: Listenable.merge([
+        Settings.animateGifs,
+        Settings.adaptiveEmoteFps,
+        Settings.idleEmoteFps,
+      ]),
+      builder: (context, _) {
+        final idleEnabled = _animateGifs && _adaptiveFps;
+        final idleFps = _idleFps;
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            SettingsSectionHeader(context.l10n.sectionAnimation),
+            SettingAnchor(
               Setting.animateEmotes,
+              child: SwitchListTile(
+                secondary: const Icon(Icons.gif_box),
+                title: TitleWithInfo(
+                  Setting.animateEmotes.titleOf(context.l10n),
+                  Setting.animateEmotes,
+                ),
+                value: _animateGifs,
+                onChanged: (value) => Settings.animateGifs.set(value),
+              ),
             ),
-            value: _animateGifs,
-            onChanged: (value) async {
-              final prefs = await Prefs.load();
-              await prefs.setAnimateGifs(value);
-              PrefsStore.instance.notifyChanged();
-              if (mounted) setState(() => _animateGifs = value);
-            },
-          ),
-        ),
-        SettingAnchor(
-          Setting.adaptiveFps,
-          child: SwitchListTile(
-            secondary: const Icon(Icons.battery_saver_outlined),
-            title: TitleWithInfo(
-              Setting.adaptiveFps.titleOf(context.l10n),
+            SettingAnchor(
               Setting.adaptiveFps,
-            ),
-            subtitle: Text(context.l10n.adaptiveFpsHint),
-            value: _adaptiveFps,
-            onChanged: _animateGifs
-                ? (value) async {
-                    final prefs = await Prefs.load();
-                    await prefs.setAdaptiveEmoteFps(value);
-                    PrefsStore.instance.notifyChanged();
-                    if (mounted) setState(() => _adaptiveFps = value);
-                  }
-                : null,
-          ),
-        ),
-        SettingAnchor(
-          Setting.idleFps,
-          // The value rides in the caption, so the slider keeps the full
-          // width, matching the other slider rows.
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 8,
+              child: SwitchListTile(
+                secondary: const Icon(Icons.battery_saver_outlined),
+                title: TitleWithInfo(
+                  Setting.adaptiveFps.titleOf(context.l10n),
+                  Setting.adaptiveFps,
                 ),
-                child: TextWithTrailing(
-                  '${Setting.idleFps.titleOf(context.l10n)}: '
-                  '${_idleFpsLabel(context.l10n, _idleFps)}',
-                  trailing: const SettingInfoButton(Setting.idleFps),
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: idleEnabled
-                        ? null
-                        : Theme.of(context).colorScheme.onSurfaceVariant,
-                  ),
-                ),
-              ),
-              Slider(
-                key: const Key('idle_emote_fps_slider'),
-                value: _idleFps.toDouble(),
-                min: 0,
-                max: kActiveEmoteFps.toDouble(),
-                divisions: kActiveEmoteFps ~/ 5,
-                label: _idleFpsLabel(context.l10n, _idleFps),
-                onChanged: idleEnabled
-                    ? (value) => setState(() => _idleFps = value.round())
+                subtitle: Text(context.l10n.adaptiveFpsHint),
+                value: _adaptiveFps,
+                onChanged: _animateGifs
+                    ? (value) => Settings.adaptiveEmoteFps.set(value)
                     : null,
-                onChangeEnd: (value) async {
-                  final prefs = await Prefs.load();
-                  await prefs.setIdleEmoteFps(value.round());
-                  PrefsStore.instance.notifyChanged();
-                },
               ),
-            ],
-          ),
-        ),
-      ],
+            ),
+            SettingAnchor(
+              Setting.idleFps,
+              // The value rides in the caption, so the slider keeps the full
+              // width, matching the other slider rows.
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 8,
+                    ),
+                    child: TextWithTrailing(
+                      '${Setting.idleFps.titleOf(context.l10n)}: '
+                      '${_idleFpsLabel(context.l10n, idleFps)}',
+                      trailing: const SettingInfoButton(Setting.idleFps),
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: idleEnabled
+                            ? null
+                            : Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ),
+                  Slider(
+                    key: const Key('idle_emote_fps_slider'),
+                    value: idleFps.toDouble(),
+                    min: 0,
+                    max: kActiveEmoteFps.toDouble(),
+                    divisions: kActiveEmoteFps ~/ 5,
+                    label: _idleFpsLabel(context.l10n, idleFps),
+                    onChanged: idleEnabled
+                        ? (value) =>
+                              setState(() => _draggingIdleFps = value.round())
+                        : null,
+                    onChangeEnd: (value) async {
+                      await Settings.idleEmoteFps.set(value.round());
+                      if (mounted) setState(() => _draggingIdleFps = null);
+                    },
+                  ),
+                ],
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 

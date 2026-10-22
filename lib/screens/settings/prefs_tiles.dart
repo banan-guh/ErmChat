@@ -1,14 +1,13 @@
 import 'package:flutter/material.dart';
 
 import '../../util/prefs.dart';
-import '../../util/prefs_store.dart';
 import '../../util/settings.dart';
 import 'settings_page.dart';
 
 /// Settings rows bound directly to one stored value.
 ///
-/// A change writes through, announces it on [PrefsStore] for owners that
-/// re-read everything, then optionally forwards to [onChanged] for callers
+/// A change writes through to its [Settings] entry, which notifies the
+/// widgets that read it, then optionally forwards to [onChanged] for callers
 /// that need an inline action.
 
 /// Switch row for one [Settings] flag. It shows the live value, so a write
@@ -41,7 +40,6 @@ class PrefsSwitchTile extends StatelessWidget {
 
   Future<void> _onChanged(bool value) async {
     await pref.set(value);
-    PrefsStore.instance.notifyChanged();
     onChanged?.call(value);
   }
 
@@ -161,7 +159,6 @@ class _PrefsSliderTileState extends State<PrefsSliderTile> {
   Future<void> _commit(double value) async {
     final prefs = _prefs ?? await Prefs.load();
     await widget.write(prefs, value);
-    PrefsStore.instance.notifyChanged();
   }
 
   @override

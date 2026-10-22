@@ -51,46 +51,43 @@ class ToolsSettingsScreen extends StatelessWidget {
 
   /// Both update toggles in one sheet; each saves as it flips.
   Future<void> _showUpdateOptions(BuildContext context) async {
-    final prefs = await Prefs.load();
     final info = await PackageInfo.fromPlatform();
     final source = updateSourceFor(info.installerStore, ios: Platform.isIOS);
     if (!context.mounted) return;
     await showModalBottomSheet<void>(
       context: context,
       useSafeArea: true,
-      builder: (sheetContext) => StatefulBuilder(
-        builder: (sheetContext, setState) => SafeArea(
-          top: false,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              CheckboxListTile(
-                title: Text(sheetContext.l10n.whatsNewToggle),
-                value: prefs.whatsNewEnabled,
-                onChanged: (v) async {
-                  await prefs.setWhatsNewEnabled(v ?? true);
-                  if (sheetContext.mounted) setState(() {});
+      builder: (sheetContext) => SafeArea(
+        top: false,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ValueListenableBuilder<bool>(
+              valueListenable: Settings.whatsNewEnabled,
+              builder: (context, value, _) => CheckboxListTile(
+                title: Text(context.l10n.whatsNewToggle),
+                value: value,
+                onChanged: (v) => Settings.whatsNewEnabled.set(v ?? true),
+              ),
+            ),
+            ValueListenableBuilder<bool>(
+              valueListenable: Settings.updateCheckEnabled,
+              builder: (context, value, _) => CheckboxListTile(
+                title: Text(context.l10n.settingCheckForUpdates),
+                value: value,
+                onChanged: (v) => Settings.updateCheckEnabled.set(v ?? true),
+              ),
+            ),
+            if (source != null)
+              ListTile(
+                leading: const Icon(Icons.refresh),
+                title: Text(sheetContext.l10n.checkUpdatesNow),
+                onTap: () {
+                  Navigator.pop(sheetContext);
+                  _checkNow(context, info.version, source);
                 },
               ),
-              CheckboxListTile(
-                title: Text(sheetContext.l10n.settingCheckForUpdates),
-                value: prefs.updateCheckEnabled,
-                onChanged: (v) async {
-                  await prefs.setUpdateCheckEnabled(v ?? true);
-                  if (sheetContext.mounted) setState(() {});
-                },
-              ),
-              if (source != null)
-                ListTile(
-                  leading: const Icon(Icons.refresh),
-                  title: Text(sheetContext.l10n.checkUpdatesNow),
-                  onTap: () {
-                    Navigator.pop(sheetContext);
-                    _checkNow(context, info.version, source);
-                  },
-                ),
-            ],
-          ),
+          ],
         ),
       ),
     );

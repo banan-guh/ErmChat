@@ -4,7 +4,6 @@ import '../../theme_colors.dart';
 import '../../util/chrome_theme.dart';
 import '../../util/layout_density.dart';
 import '../../util/prefs.dart';
-import '../../util/prefs_store.dart';
 import '../../util/timestamp_formatter.dart';
 import '../../widgets/dialogs.dart';
 import '../../widgets/glass_chrome.dart';
@@ -27,31 +26,11 @@ class CustomizationScreen extends StatefulWidget {
 }
 
 class _CustomizationScreenState extends State<CustomizationScreen> {
-  Prefs? _prefs;
+  ThemeMode get _themeMode => Settings.themeMode.value;
 
-  @override
-  void initState() {
-    super.initState();
-    _loadPrefs();
-    PrefsStore.instance.addListener(_loadPrefs);
-  }
+  String get _accentKey => Settings.accentColor.value;
 
-  @override
-  void dispose() {
-    PrefsStore.instance.removeListener(_loadPrefs);
-    super.dispose();
-  }
-
-  Future<void> _loadPrefs() async {
-    final prefs = await Prefs.load();
-    if (mounted) setState(() => _prefs = prefs);
-  }
-
-  ThemeMode get _themeMode => _prefs?.themeMode ?? ThemeMode.system;
-
-  String get _accentKey => _prefs?.accentColor ?? kDefaultAccent;
-
-  bool get _customLayoutEnabled => _prefs?.customLayoutEnabled ?? false;
+  bool get _customLayoutEnabled => Settings.customLayoutEnabled.value;
 
   Future<void> _pickTheme(BuildContext context) async {
     final mode = await showModalBottomSheet<ThemeMode>(
@@ -65,15 +44,10 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
       ),
     );
     if (mode == null || !mounted || mode == _themeMode) return;
-    final prefs = _prefs ?? await Prefs.load();
-    await prefs.setThemeMode(mode);
-    PrefsStore.instance.notifyChanged();
-    if (!mounted) return;
-    setState(() {});
+    await Settings.themeMode.set(mode);
   }
 
-  LayoutDensity get _layoutDensity =>
-      _prefs?.layoutDensity ?? LayoutDensity.auto;
+  LayoutDensity get _layoutDensity => Settings.layoutDensity.value;
 
   Future<void> _pickLayoutDensity(BuildContext context) async {
     final picked = await showModalBottomSheet<LayoutDensity>(
@@ -95,24 +69,15 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
       ),
     );
     if (picked == null || !mounted || picked == _layoutDensity) return;
-    final prefs = _prefs ?? await Prefs.load();
-    await prefs.setLayoutDensity(picked);
-    PrefsStore.instance.notifyChanged();
-    if (!mounted) return;
-    setState(() {});
+    await Settings.layoutDensity.set(picked);
   }
 
   Future<void> _setAccentColor(String key) async {
     if (key == _accentKey) return;
-    final prefs = _prefs ?? await Prefs.load();
-    await prefs.setAccentColor(key);
-    PrefsStore.instance.notifyChanged();
-    if (!mounted) return;
-    setState(() {});
+    await Settings.accentColor.set(key);
   }
 
-  String get _timestampFormat =>
-      _prefs?.timestampFormat ?? kDefaultTimestampFormat;
+  String get _timestampFormat => Settings.timestampFormat.value;
 
   Future<void> _pickTimestampFormat() async {
     final now = DateTime.now();
@@ -127,14 +92,10 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
       ],
     );
     if (selected == null || selected == _timestampFormat) return;
-    final prefs = _prefs ?? await Prefs.load();
-    await prefs.setTimestampFormat(selected);
-    PrefsStore.instance.notifyChanged();
-    if (!mounted) return;
-    setState(() {});
+    await Settings.timestampFormat.set(selected);
   }
 
-  int get _fontWeight => _prefs?.chatFontWeight ?? 400;
+  int get _fontWeight => Settings.chatFontWeight.value;
 
   Future<void> _pickFontWeight() async {
     final l = context.l10n;
@@ -150,184 +111,190 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
       ],
     );
     if (selected == null || selected == _fontWeight) return;
-    final prefs = _prefs ?? await Prefs.load();
-    await prefs.setChatFontWeight(selected);
-    PrefsStore.instance.notifyChanged();
-    if (!mounted) return;
-    setState(() {});
+    await Settings.chatFontWeight.set(selected);
   }
 
   @override
   Widget build(BuildContext context) {
     return SettingsPage(
       title: Text(context.l10n.pageAppearance),
-      body: ListView(
-        children: [
-          SettingsSectionHeader(context.l10n.sectionTheme),
-          SettingAnchor(
-            Setting.theme,
-            child: ListTile(
-              title: Text(Setting.theme.titleOf(context.l10n)),
-              subtitle: Text(switch (_themeMode) {
-                ThemeMode.system => context.l10n.themeSystem,
-                ThemeMode.light => context.l10n.themeLight,
-                ThemeMode.dark => context.l10n.themeDark,
-              }),
-              trailing: const Icon(Icons.chevron_right),
-              onTap: () => _pickTheme(context),
-            ),
-          ),
-          SettingAnchor(
-            Setting.accentColor,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-                  child: Text(
-                    Setting.accentColor.titleOf(context.l10n),
-                    style: const TextStyle(fontWeight: FontWeight.w600),
-                  ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  child: Wrap(
-                    spacing: 10,
-                    runSpacing: 10,
-                    children: [
-                      for (final entry in kAccentPresets.entries)
-                        _AccentSwatch(
-                          key: ValueKey('accent_${entry.key}'),
-                          color: entry.value,
-                          selected: entry.key == _accentKey,
-                          onTap: () => _setAccentColor(entry.key),
-                        ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const TrueDarkTile(),
-          SettingsSectionHeader(context.l10n.sectionLayout),
-          SettingAnchor(
-            Setting.layout,
-            child: ListTile(
-              title: Text(Setting.layout.titleOf(context.l10n)),
-              subtitle: Text(
-                _customLayoutEnabled
-                    ? context.l10n.layoutCustom
-                    : switch (_layoutDensity) {
-                        LayoutDensity.auto =>
-                          isCompactLayout(context)
-                              ? context.l10n.layoutAutoCompact
-                              : context.l10n.layoutAutoFull,
-                        LayoutDensity.compact => context.l10n.layoutCompact,
-                        LayoutDensity.full => context.l10n.layoutFull,
-                      },
+      body: ListenableBuilder(
+        listenable: Listenable.merge([
+          Settings.themeMode,
+          Settings.accentColor,
+          Settings.customLayoutEnabled,
+          Settings.layoutDensity,
+          Settings.timestampFormat,
+          Settings.chatFontWeight,
+        ]),
+        builder: (context, _) => ListView(
+          children: [
+            SettingsSectionHeader(context.l10n.sectionTheme),
+            SettingAnchor(
+              Setting.theme,
+              child: ListTile(
+                title: Text(Setting.theme.titleOf(context.l10n)),
+                subtitle: Text(switch (_themeMode) {
+                  ThemeMode.system => context.l10n.themeSystem,
+                  ThemeMode.light => context.l10n.themeLight,
+                  ThemeMode.dark => context.l10n.themeDark,
+                }),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => _pickTheme(context),
               ),
-              trailing: const Icon(Icons.chevron_right),
-              onTap: () => _pickLayoutDensity(context),
             ),
-          ),
-          SettingAnchor(
-            Setting.editLayout,
-            child: ListTile(
-              title: Text(Setting.editLayout.titleOf(context.l10n)),
-              trailing: const Icon(Icons.chevron_right),
-              onTap: () {
-                widget.onEditLayout?.call();
-                Navigator.of(context).popUntil((r) => r.isFirst);
-              },
+            SettingAnchor(
+              Setting.accentColor,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+                    child: Text(
+                      Setting.accentColor.titleOf(context.l10n),
+                      style: const TextStyle(fontWeight: FontWeight.w600),
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: Wrap(
+                      spacing: 10,
+                      runSpacing: 10,
+                      children: [
+                        for (final entry in kAccentPresets.entries)
+                          _AccentSwatch(
+                            key: ValueKey('accent_${entry.key}'),
+                            color: entry.value,
+                            selected: entry.key == _accentKey,
+                            onTap: () => _setAccentColor(entry.key),
+                          ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
             ),
-          ),
-          const LiquidGlassTile(),
-          SettingAnchor(
-            Setting.haptics,
-            child: PrefsSwitchTile(
-              secondary: const Icon(Icons.vibration),
-              title: Setting.haptics.titleOf(context.l10n),
-              pref: Settings.haptics,
+            const TrueDarkTile(),
+            SettingsSectionHeader(context.l10n.sectionLayout),
+            SettingAnchor(
+              Setting.layout,
+              child: ListTile(
+                title: Text(Setting.layout.titleOf(context.l10n)),
+                subtitle: Text(
+                  _customLayoutEnabled
+                      ? context.l10n.layoutCustom
+                      : switch (_layoutDensity) {
+                          LayoutDensity.auto =>
+                            isCompactLayout(context)
+                                ? context.l10n.layoutAutoCompact
+                                : context.l10n.layoutAutoFull,
+                          LayoutDensity.compact => context.l10n.layoutCompact,
+                          LayoutDensity.full => context.l10n.layoutFull,
+                        },
+                ),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => _pickLayoutDensity(context),
+              ),
             ),
-          ),
-          SettingsSectionHeader(context.l10n.sectionChatDisplay),
-          SettingAnchor(
-            Setting.chatFontSize,
-            child: PrefsSliderTile(
-              label: (v) =>
-                  '${Setting.chatFontSize.titleOf(context.l10n)}: ${v.round()}',
-              min: 8,
-              max: 24,
-              divisions: 16,
-              defaultValue: 14,
-              read: (p) => p.chatFontSize,
-              write: (p, v) => p.setChatFontSize(v),
+            SettingAnchor(
+              Setting.editLayout,
+              child: ListTile(
+                title: Text(Setting.editLayout.titleOf(context.l10n)),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () {
+                  widget.onEditLayout?.call();
+                  Navigator.of(context).popUntil((r) => r.isFirst);
+                },
+              ),
             ),
-          ),
-          SettingAnchor(
-            Setting.chatFontWeight,
-            child: SettingsNavTile(
-              icon: Icons.format_bold,
-              title: Setting.chatFontWeight.titleOf(context.l10n),
-              subtitle: switch (_fontWeight) {
-                500 => context.l10n.fontWeightMedium,
-                600 => context.l10n.fontWeightSemibold,
-                700 => context.l10n.fontWeightBold,
-                _ => context.l10n.fontWeightNormal,
-              },
-              onTap: _pickFontWeight,
+            const LiquidGlassTile(),
+            SettingAnchor(
+              Setting.haptics,
+              child: PrefsSwitchTile(
+                secondary: const Icon(Icons.vibration),
+                title: Setting.haptics.titleOf(context.l10n),
+                pref: Settings.haptics,
+              ),
             ),
-          ),
-          SettingAnchor(
-            Setting.showTimestamps,
-            child: PrefsSwitchTile(
-              secondary: const Icon(Icons.schedule),
-              title: Setting.showTimestamps.titleOf(context.l10n),
-              pref: Settings.showTimestamps,
+            SettingsSectionHeader(context.l10n.sectionChatDisplay),
+            SettingAnchor(
+              Setting.chatFontSize,
+              child: PrefsSliderTile(
+                label: (v) =>
+                    '${Setting.chatFontSize.titleOf(context.l10n)}: ${v.round()}',
+                min: 8,
+                max: 24,
+                divisions: 16,
+                defaultValue: 14,
+                read: (p) => p.chatFontSize,
+                write: (p, v) => p.setChatFontSize(v),
+              ),
             ),
-          ),
-          SettingAnchor(
-            Setting.timestampFormat,
-            child: SettingsNavTile(
-              icon: Icons.access_time,
-              title: Setting.timestampFormat.titleOf(context.l10n),
-              subtitle: _timestampFormat,
-              onTap: _pickTimestampFormat,
+            SettingAnchor(
+              Setting.chatFontWeight,
+              child: SettingsNavTile(
+                icon: Icons.format_bold,
+                title: Setting.chatFontWeight.titleOf(context.l10n),
+                subtitle: switch (_fontWeight) {
+                  500 => context.l10n.fontWeightMedium,
+                  600 => context.l10n.fontWeightSemibold,
+                  700 => context.l10n.fontWeightBold,
+                  _ => context.l10n.fontWeightNormal,
+                },
+                onTap: _pickFontWeight,
+              ),
             ),
-          ),
-          SettingAnchor(
-            Setting.checkered,
-            child: PrefsSwitchTile(
-              title: Setting.checkered.titleOf(context.l10n),
-              subtitle: context.l10n.checkeredHint,
-              pref: Settings.checkeredMessages,
+            SettingAnchor(
+              Setting.showTimestamps,
+              child: PrefsSwitchTile(
+                secondary: const Icon(Icons.schedule),
+                title: Setting.showTimestamps.titleOf(context.l10n),
+                pref: Settings.showTimestamps,
+              ),
             ),
-          ),
-          SettingAnchor(
-            Setting.lineSeparator,
-            child: PrefsSwitchTile(
-              title: Setting.lineSeparator.titleOf(context.l10n),
-              pref: Settings.lineSeparator,
+            SettingAnchor(
+              Setting.timestampFormat,
+              child: SettingsNavTile(
+                icon: Icons.access_time,
+                title: Setting.timestampFormat.titleOf(context.l10n),
+                subtitle: _timestampFormat,
+                onTap: _pickTimestampFormat,
+              ),
             ),
-          ),
-          SettingsSectionHeader(context.l10n.sectionDisplay),
-          const KeepScreenOnTile(),
-          SettingsSectionHeader(context.l10n.sectionNavigation),
-          SettingAnchor(
-            Setting.fastChannelSwipe,
-            child: PrefsSwitchTile(
-              title: Setting.fastChannelSwipe.titleOf(context.l10n),
-              pref: Settings.fastChannelSnap,
+            SettingAnchor(
+              Setting.checkered,
+              child: PrefsSwitchTile(
+                title: Setting.checkered.titleOf(context.l10n),
+                subtitle: context.l10n.checkeredHint,
+                pref: Settings.checkeredMessages,
+              ),
             ),
-          ),
-          SettingAnchor(
-            Setting.reopenLastChannel,
-            child: PrefsSwitchTile(
-              title: Setting.reopenLastChannel.titleOf(context.l10n),
-              pref: Settings.reopenLastChannel,
+            SettingAnchor(
+              Setting.lineSeparator,
+              child: PrefsSwitchTile(
+                title: Setting.lineSeparator.titleOf(context.l10n),
+                pref: Settings.lineSeparator,
+              ),
             ),
-          ),
-        ],
+            SettingsSectionHeader(context.l10n.sectionDisplay),
+            const KeepScreenOnTile(),
+            SettingsSectionHeader(context.l10n.sectionNavigation),
+            SettingAnchor(
+              Setting.fastChannelSwipe,
+              child: PrefsSwitchTile(
+                title: Setting.fastChannelSwipe.titleOf(context.l10n),
+                pref: Settings.fastChannelSnap,
+              ),
+            ),
+            SettingAnchor(
+              Setting.reopenLastChannel,
+              child: PrefsSwitchTile(
+                title: Setting.reopenLastChannel.titleOf(context.l10n),
+                pref: Settings.reopenLastChannel,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -532,56 +499,40 @@ class KeepScreenOnTile extends StatelessWidget {
 }
 
 /// Liquid glass with its live swatch. Island chrome only, so it follows
-/// the chrome theme through [PrefsStore]. Shown on Appearance and mirrored
-/// on Battery.
-class LiquidGlassTile extends StatefulWidget {
+/// the selected chrome theme. Shown on Appearance and mirrored on Battery.
+class LiquidGlassTile extends StatelessWidget {
   const LiquidGlassTile({super.key});
 
   @override
-  State<LiquidGlassTile> createState() => _LiquidGlassTileState();
-}
-
-class _LiquidGlassTileState extends State<LiquidGlassTile> {
-  Prefs? _prefs;
-
-  @override
-  void initState() {
-    super.initState();
-    _load();
-    PrefsStore.instance.addListener(_load);
-  }
-
-  @override
-  void dispose() {
-    PrefsStore.instance.removeListener(_load);
-    super.dispose();
-  }
-
-  Future<void> _load() async {
-    final prefs = await Prefs.load();
-    if (mounted) setState(() => _prefs = prefs);
-  }
-
-  @override
   Widget build(BuildContext context) {
-    final island = (_prefs?.chromeTheme ?? ChromeTheme.ermchat.spec).isIsland;
-    return SettingAnchor(
-      Setting.liquidGlass,
-      child: PrefsSwitchTile(
-        title: Setting.liquidGlass.titleOf(context.l10n),
-        subtitle: island
-            ? context.l10n.experimental
-            : context.l10n.liquidGlassIslandOnly,
-        enabled: island,
-        // Draws real glass once it is on, so the GPU builds the glass
-        // shaders here on the tap rather than while this page animates
-        // away, which would crawl.
-        info: const SettingInfoButton(Setting.liquidGlass),
-        titleTrailing: _GlassSwatch(
-          on: island && (_prefs?.liquidGlass ?? false),
-        ),
-        pref: Settings.liquidGlass,
-      ),
+    return ListenableBuilder(
+      listenable: Listenable.merge([
+        Settings.chromeTheme,
+        Settings.customChromeThemes,
+        Settings.liquidGlass,
+      ]),
+      builder: (context, _) {
+        final island =
+            (Prefs.loaded?.chromeTheme ?? ChromeTheme.ermchat.spec).isIsland;
+        return SettingAnchor(
+          Setting.liquidGlass,
+          child: PrefsSwitchTile(
+            title: Setting.liquidGlass.titleOf(context.l10n),
+            subtitle: island
+                ? context.l10n.experimental
+                : context.l10n.liquidGlassIslandOnly,
+            enabled: island,
+            // Draws real glass once it is on, so the GPU builds the glass
+            // shaders here on the tap rather than while this page animates
+            // away, which would crawl.
+            info: const SettingInfoButton(Setting.liquidGlass),
+            titleTrailing: _GlassSwatch(
+              on: island && Settings.liquidGlass.value,
+            ),
+            pref: Settings.liquidGlass,
+          ),
+        );
+      },
     );
   }
 }

@@ -15,8 +15,6 @@ import '../../providers/app_providers.dart';
 import '../../providers/feature_providers.dart';
 import '../../providers/ui_state_providers.dart';
 import '../../services/ping_manager.dart';
-import '../../util/prefs.dart';
-import '../../util/prefs_store.dart';
 import '../../widgets/level_switch.dart';
 import 'ignores_screen.dart';
 import 'prefs_tiles.dart';
@@ -53,9 +51,13 @@ class PingsScreen extends ConsumerStatefulWidget {
 }
 
 class _PingsScreenState extends ConsumerState<PingsScreen> {
-  // Assume keep-alive is on until prefs load so the warning never flashes.
-  bool _keepAlive = true;
-  double _opacity = 0.6;
+  /// Opacity picked while dragging, before the release writes it.
+  double? _draggingOpacity;
+
+  double get _opacity => _draggingOpacity ?? Settings.highlightOpacity.value;
+
+  /// The push server keeps iOS reachable; there is no service to turn on.
+  bool get _keepAlive => _serverPush || Settings.backgroundService.value;
 
   /// Preview lines: each word is an emote (true) or "erm" (false). Rolled
   /// once so slider drags don't reshuffle them.
@@ -69,16 +71,20 @@ class _PingsScreenState extends ConsumerState<PingsScreen> {
   @override
   void initState() {
     super.initState();
-    _loadPrefs();
-    PrefsStore.instance.addListener(_loadPrefs);
+    Settings.highlightOpacity.addListener(_clearDraggingOpacity);
     _scheduleResumeRebuild();
   }
 
   @override
   void dispose() {
     _resumeTimer?.cancel();
-    PrefsStore.instance.removeListener(_loadPrefs);
+    Settings.highlightOpacity.removeListener(_clearDraggingOpacity);
     super.dispose();
+  }
+
+  void _clearDraggingOpacity() {
+    if (_draggingOpacity == null) return;
+    if (mounted) setState(() => _draggingOpacity = null);
   }
 
   void _scheduleResumeRebuild() {
@@ -94,16 +100,6 @@ class _PingsScreenState extends ConsumerState<PingsScreen> {
     });
   }
 
-  Future<void> _loadPrefs() async {
-    final prefs = await Prefs.load();
-    if (!mounted) return;
-    setState(() {
-      // The push server keeps iOS reachable; there is no service to turn on.
-      _keepAlive = _serverPush || prefs.backgroundService;
-      _opacity = prefs.highlightOpacity;
-    });
-  }
-
   void _setPush(bool value) {
     final apply =
         widget.onMentionPushChanged ??
@@ -112,9 +108,7 @@ class _PingsScreenState extends ConsumerState<PingsScreen> {
   }
 
   Future<void> _enableKeepAlive() async {
-    final prefs = await Prefs.load();
-    await prefs.setBackgroundService(true);
-    PrefsStore.instance.notifyChanged();
+    await Settings.backgroundService.set(true);
     widget.onBackgroundServiceChanged?.call(true);
   }
 
@@ -174,7 +168,11 @@ class _PingsScreenState extends ConsumerState<PingsScreen> {
     return SettingsPage(
       title: Text(context.l10n.pageHighlights),
       body: ListenableBuilder(
-        listenable: manager,
+        listenable: Listenable.merge([
+          manager,
+          Settings.backgroundService,
+          Settings.highlightOpacity,
+        ]),
         builder: (context, _) {
           if (!manager.loaded) {
             return const Center(child: CircularProgressIndicator());
@@ -588,7 +586,7 @@ class _PingsScreenState extends ConsumerState<PingsScreen> {
           defaultValue: 0.6,
           read: (p) => p.highlightOpacity,
           write: (p, v) => p.setHighlightOpacity(v),
-          onChanged: (v) => setState(() => _opacity = v),
+          onChanged: (v) => setState(() => _draggingOpacity = v),
         ),
       ),
     ];

@@ -1,49 +1,20 @@
 import 'package:flutter/material.dart';
 
 import '../../l10n/l10n.dart';
-import '../../util/prefs.dart';
-import '../../util/prefs_store.dart';
+import '../../util/settings.dart';
 import 'settings_page.dart';
 
 /// App language: the system default or any shipped translation. Saving
 /// switches the whole app at runtime.
-class LanguageScreen extends StatefulWidget {
+class LanguageScreen extends StatelessWidget {
   const LanguageScreen({super.key});
 
-  @override
-  State<LanguageScreen> createState() => _LanguageScreenState();
-}
-
-class _LanguageScreenState extends State<LanguageScreen> {
-  Prefs? _prefs;
-
-  @override
-  void initState() {
-    super.initState();
-    _loadPrefs();
-    PrefsStore.instance.addListener(_loadPrefs);
-  }
-
-  @override
-  void dispose() {
-    PrefsStore.instance.removeListener(_loadPrefs);
-    super.dispose();
-  }
-
-  Future<void> _loadPrefs() async {
-    final prefs = await Prefs.load();
-    if (mounted) setState(() => _prefs = prefs);
-  }
-
   /// Saved language tag; empty follows the system.
-  String get _locale => _prefs?.locale ?? '';
+  String get _locale => Settings.locale.value ?? '';
 
   Future<void> _select(String tag) async {
     if (tag == _locale) return;
-    final prefs = _prefs ?? await Prefs.load();
-    await prefs.setLocale(tag.isEmpty ? null : tag);
-    PrefsStore.instance.notifyChanged();
-    if (mounted) setState(() {});
+    await Settings.locale.set(tag.isEmpty ? null : tag);
   }
 
   /// Every shipped translation, as `pt_BR` style tags.
@@ -68,19 +39,24 @@ class _LanguageScreenState extends State<LanguageScreen> {
     final primary = Theme.of(context).colorScheme.primary;
     return SettingsPage(
       title: Text(context.l10n.settingLanguage),
-      body: ListView(
-        children: [
-          for (final tag in ['', ..._localeTags])
-            ListTile(
-              title: Text(
-                tag.isEmpty ? context.l10n.languageSystem : _languageName(tag),
+      body: ValueListenableBuilder<String?>(
+        valueListenable: Settings.locale,
+        builder: (context, locale, _) => ListView(
+          children: [
+            for (final tag in ['', ..._localeTags])
+              ListTile(
+                title: Text(
+                  tag.isEmpty
+                      ? context.l10n.languageSystem
+                      : _languageName(tag),
+                ),
+                trailing: tag == (locale ?? '')
+                    ? Icon(Icons.check, color: primary)
+                    : null,
+                onTap: () => _select(tag),
               ),
-              trailing: tag == _locale
-                  ? Icon(Icons.check, color: primary)
-                  : null,
-              onTap: () => _select(tag),
-            ),
-        ],
+          ],
+        ),
       ),
     );
   }

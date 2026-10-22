@@ -5,9 +5,7 @@ import 'package:flutter/material.dart';
 import '../../l10n/l10n.dart';
 import '../../services/chat_sender.dart';
 import '../../services/twitch_auth.dart';
-import '../../util/constants.dart';
 import '../../util/prefs.dart';
-import '../../util/prefs_store.dart';
 import 'link_whitelist_screen.dart';
 import 'macros_screen.dart';
 import 'inline_embeds_screen.dart';
@@ -37,33 +35,11 @@ class ChatSettingsScreen extends StatefulWidget {
 }
 
 class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
-  Prefs? _prefs;
+  String get _sharedChatMode => Settings.sharedChatMode.value;
 
-  @override
-  void initState() {
-    super.initState();
-    _loadPrefs();
-    PrefsStore.instance.addListener(_loadPrefs);
-  }
+  bool get _showGifs => Settings.giphyInlineEnabled.value;
 
-  @override
-  void dispose() {
-    PrefsStore.instance.removeListener(_loadPrefs);
-    super.dispose();
-  }
-
-  Future<void> _loadPrefs() async {
-    final prefs = await Prefs.load();
-    if (mounted) setState(() => _prefs = prefs);
-  }
-
-  String get _sharedChatMode => _prefs?.sharedChatMode ?? 'spotlight';
-
-  bool get _showGifs =>
-      _prefs?.giphyInlineEnabled ?? kGiphyInlineEnabledDefault;
-
-  bool get _showImages =>
-      _prefs?.imageEmbedEnabled ?? kImageEmbedEnabledDefault;
+  bool get _showImages => Settings.imageEmbedEnabled.value;
 
   String get _sharedChatModeLabel => switch (_sharedChatMode) {
     'fade' => context.l10n.sharedChatFade,
@@ -83,12 +59,8 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
         ('hide', l.sharedChatHide, l.sharedChatHideHint),
       ],
     );
-    if (selected == null || selected == _sharedChatMode) return;
-    final prefs = _prefs ?? await Prefs.load();
-    await prefs.setSharedChatMode(selected);
-    PrefsStore.instance.notifyChanged();
-    if (!mounted) return;
-    setState(() {});
+    if (selected == null || !mounted || selected == _sharedChatMode) return;
+    await Settings.sharedChatMode.set(selected);
   }
 
   String get _inlineEmbedsSubtitle {
@@ -104,122 +76,133 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
   Widget build(BuildContext context) {
     return SettingsPage(
       title: Text(context.l10n.pageChat),
-      body: ListView(
-        children: [
-          SettingsSectionHeader(context.l10n.sectionMessages),
-          SettingAnchor(
-            Setting.sharedChat,
-            child: SettingsNavTile(
-              icon: Icons.merge_type,
-              title: Setting.sharedChat.titleOf(context.l10n),
-              subtitle: _sharedChatModeLabel,
-              onTap: _pickSharedChatMode,
-            ),
-          ),
-          SettingAnchor(
-            Setting.inlineEmbeds,
-            child: SettingsNavTile(
-              icon: Icons.gif_box,
-              title: Setting.inlineEmbeds.titleOf(context.l10n),
-              subtitle: _inlineEmbedsSubtitle,
-              onTap: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const InlineEmbedsScreen()),
-                );
-              },
-            ),
-          ),
-          SettingAnchor(
-            Setting.splitLinks,
-            child: SettingsNavTile(
-              icon: Icons.link,
-              title: Setting.splitLinks.titleOf(context.l10n),
-              onTap: () => Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => const LinkWhitelistSettingsScreen(),
-                ),
+      body: ListenableBuilder(
+        listenable: Listenable.merge([
+          Settings.sharedChatMode,
+          Settings.giphyInlineEnabled,
+          Settings.imageEmbedEnabled,
+          Settings.proxyEnabled,
+        ]),
+        builder: (context, _) => ListView(
+          children: [
+            SettingsSectionHeader(context.l10n.sectionMessages),
+            SettingAnchor(
+              Setting.sharedChat,
+              child: SettingsNavTile(
+                icon: Icons.merge_type,
+                title: Setting.sharedChat.titleOf(context.l10n),
+                subtitle: _sharedChatModeLabel,
+                onTap: _pickSharedChatMode,
               ),
             ),
-          ),
-          SettingsSectionHeader(context.l10n.sectionTyping),
-          SettingAnchor(
-            Setting.preferEmotes,
-            child: PrefsSwitchTile(
-              secondary: const Icon(Icons.sentiment_very_satisfied),
-              title: Setting.preferEmotes.titleOf(context.l10n),
-              pref: Settings.preferEmotesFirst,
-            ),
-          ),
-          const _MentionFormatTile(),
-          SettingAnchor(
-            Setting.replyThreadRoot,
-            child: PrefsSwitchTile(
-              secondary: const Icon(Icons.reply),
-              title: Setting.replyThreadRoot.titleOf(context.l10n),
-              pref: Settings.replyToThreadRoot,
-            ),
-          ),
-          SettingAnchor(
-            Setting.sendSwipe,
-            child: PrefsSwitchTile(
-              secondary: const Icon(Icons.repeat),
-              title: Setting.sendSwipe.titleOf(context.l10n),
-              subtitle: context.l10n.sendSwipeHint,
-              pref: Settings.sendSwipeMenu,
-            ),
-          ),
-          ValueListenableBuilder(
-            valueListenable: Settings.sendSwipeMenu,
-            builder: (context, on, _) =>
-                on ? const _SpamSpeedTile() : const SizedBox.shrink(),
-          ),
-          if (widget.twitchAuth != null)
             SettingAnchor(
-              Setting.macros,
+              Setting.inlineEmbeds,
               child: SettingsNavTile(
-                icon: Icons.bolt,
-                title: Setting.macros.titleOf(context.l10n),
+                icon: Icons.gif_box,
+                title: Setting.inlineEmbeds.titleOf(context.l10n),
+                subtitle: _inlineEmbedsSubtitle,
                 onTap: () {
                   Navigator.push(
                     context,
                     MaterialPageRoute(
-                      builder: (_) =>
-                          MacrosScreen(twitchAuth: widget.twitchAuth!),
+                      builder: (_) => const InlineEmbedsScreen(),
                     ),
                   );
                 },
               ),
             ),
-          SettingsSectionHeader(context.l10n.sectionUsers),
-          SettingAnchor(
-            Setting.doubleTapCopy,
-            child: PrefsSwitchTile(
-              secondary: const Icon(Icons.content_copy),
-              title: Setting.doubleTapCopy.titleOf(context.l10n),
-              subtitle: context.l10n.delaysUserCard,
-              pref: Settings.doubleTapNameCopy,
+            SettingAnchor(
+              Setting.splitLinks,
+              child: SettingsNavTile(
+                icon: Icons.link,
+                title: Setting.splitLinks.titleOf(context.l10n),
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => const LinkWhitelistSettingsScreen(),
+                  ),
+                ),
+              ),
             ),
-          ),
-          SettingsSectionHeader(context.l10n.sectionConnection),
-          StayConnectedTile(onChanged: widget.onBackgroundServiceChanged),
-          SettingAnchor(
-            Setting.chatProxy,
-            child: SettingsNavTile(
-              icon: Icons.cloud,
-              title: Setting.chatProxy.titleOf(context.l10n),
-              subtitle: (_prefs?.proxyEnabled ?? false)
-                  ? context.l10n.on
-                  : context.l10n.off,
-              // The proxy screen saves without announcing it; re-read on return.
-              onTap: () => Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const ProxySettingsScreen()),
-              ).then((_) => _loadPrefs()),
+            SettingsSectionHeader(context.l10n.sectionTyping),
+            SettingAnchor(
+              Setting.preferEmotes,
+              child: PrefsSwitchTile(
+                secondary: const Icon(Icons.sentiment_very_satisfied),
+                title: Setting.preferEmotes.titleOf(context.l10n),
+                pref: Settings.preferEmotesFirst,
+              ),
             ),
-          ),
-        ],
+            const _MentionFormatTile(),
+            SettingAnchor(
+              Setting.replyThreadRoot,
+              child: PrefsSwitchTile(
+                secondary: const Icon(Icons.reply),
+                title: Setting.replyThreadRoot.titleOf(context.l10n),
+                pref: Settings.replyToThreadRoot,
+              ),
+            ),
+            SettingAnchor(
+              Setting.sendSwipe,
+              child: PrefsSwitchTile(
+                secondary: const Icon(Icons.repeat),
+                title: Setting.sendSwipe.titleOf(context.l10n),
+                subtitle: context.l10n.sendSwipeHint,
+                pref: Settings.sendSwipeMenu,
+              ),
+            ),
+            ValueListenableBuilder(
+              valueListenable: Settings.sendSwipeMenu,
+              builder: (context, on, _) =>
+                  on ? const _SpamSpeedTile() : const SizedBox.shrink(),
+            ),
+            if (widget.twitchAuth != null)
+              SettingAnchor(
+                Setting.macros,
+                child: SettingsNavTile(
+                  icon: Icons.bolt,
+                  title: Setting.macros.titleOf(context.l10n),
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) =>
+                            MacrosScreen(twitchAuth: widget.twitchAuth!),
+                      ),
+                    );
+                  },
+                ),
+              ),
+            SettingsSectionHeader(context.l10n.sectionUsers),
+            SettingAnchor(
+              Setting.doubleTapCopy,
+              child: PrefsSwitchTile(
+                secondary: const Icon(Icons.content_copy),
+                title: Setting.doubleTapCopy.titleOf(context.l10n),
+                subtitle: context.l10n.delaysUserCard,
+                pref: Settings.doubleTapNameCopy,
+              ),
+            ),
+            SettingsSectionHeader(context.l10n.sectionConnection),
+            StayConnectedTile(onChanged: widget.onBackgroundServiceChanged),
+            SettingAnchor(
+              Setting.chatProxy,
+              child: SettingsNavTile(
+                icon: Icons.cloud,
+                title: Setting.chatProxy.titleOf(context.l10n),
+                subtitle: Settings.proxyEnabled.value
+                    ? context.l10n.on
+                    : context.l10n.off,
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => const ProxySettingsScreen(),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -229,30 +212,10 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
 /// on: one row with both values, and a tap opens their sliders. Auto stays
 /// under Twitch's limits; a gap faster than the role's limit shows red with
 /// "!".
-class _SpamSpeedTile extends StatefulWidget {
+class _SpamSpeedTile extends StatelessWidget {
   const _SpamSpeedTile();
 
-  @override
-  State<_SpamSpeedTile> createState() => _SpamSpeedTileState();
-}
-
-class _SpamSpeedTileState extends State<_SpamSpeedTile> {
-  ({int plain, int mod})? _ms;
-
-  @override
-  void initState() {
-    super.initState();
-    _load();
-  }
-
-  Future<void> _load() async {
-    final p = await Prefs.load();
-    if (mounted) {
-      setState(() => _ms = (plain: p.spamIntervalMs, mod: p.spamIntervalModMs));
-    }
-  }
-
-  Future<void> _open() async {
+  Future<void> _open(BuildContext context) async {
     await showModalBottomSheet<void>(
       context: context,
       useSafeArea: true,
@@ -264,33 +227,38 @@ class _SpamSpeedTileState extends State<_SpamSpeedTile> {
         ),
       ),
     );
-    await _load();
   }
 
   @override
   Widget build(BuildContext context) {
-    final l = context.l10n;
-    final ms = _ms;
-    final over =
-        ms != null &&
-        (_SpamSpeedSliders._over(ms.plain, ChatSender.plainRepeatGap) ||
-            _SpamSpeedSliders._over(ms.mod, ChatSender.privilegedRepeatGap));
-    return ListTile(
-      leading: const Icon(Icons.speed),
-      title: Text(l.spamSpeed),
-      subtitle: ms == null
-          ? null
-          : Text(
-              '${l.spamSpeedPlainShort}: '
-              '${_SpamSpeedSliders._value(l, ms.plain, ChatSender.plainRepeatGap)} · '
-              '${l.spamSpeedModShort}: '
-              '${_SpamSpeedSliders._value(l, ms.mod, ChatSender.privilegedRepeatGap)}',
-              style: over
-                  ? TextStyle(color: Theme.of(context).colorScheme.error)
-                  : null,
-            ),
-      trailing: const Icon(Icons.chevron_right),
-      onTap: _open,
+    return ListenableBuilder(
+      listenable: Listenable.merge([
+        Settings.spamIntervalMs,
+        Settings.spamIntervalModMs,
+      ]),
+      builder: (context, _) {
+        final l = context.l10n;
+        final plain = Settings.spamIntervalMs.value;
+        final mod = Settings.spamIntervalModMs.value;
+        final over =
+            _SpamSpeedSliders._over(plain, ChatSender.plainRepeatGap) ||
+            _SpamSpeedSliders._over(mod, ChatSender.privilegedRepeatGap);
+        return ListTile(
+          leading: const Icon(Icons.speed),
+          title: Text(l.spamSpeed),
+          subtitle: Text(
+            '${l.spamSpeedPlainShort}: '
+            '${_SpamSpeedSliders._value(l, plain, ChatSender.plainRepeatGap)} · '
+            '${l.spamSpeedModShort}: '
+            '${_SpamSpeedSliders._value(l, mod, ChatSender.privilegedRepeatGap)}',
+            style: over
+                ? TextStyle(color: Theme.of(context).colorScheme.error)
+                : null,
+          ),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: () => _open(context),
+        );
+      },
     );
   }
 }
@@ -372,56 +340,42 @@ class _SpamSpeedSliders extends StatelessWidget {
   );
 }
 
-class _MentionFormatTile extends StatefulWidget {
+class _MentionFormatTile extends StatelessWidget {
   const _MentionFormatTile();
 
-  @override
-  State<_MentionFormatTile> createState() => _MentionFormatTileState();
-}
-
-class _MentionFormatTileState extends State<_MentionFormatTile> {
   static const formats = <String, String>{
     '@name': '@name',
     '@name,': '@name,',
     'name': 'name',
     'name,': 'name,',
   };
-  String _format = '@name';
 
-  @override
-  void initState() {
-    super.initState();
-    Prefs.load().then((prefs) {
-      if (mounted) {
-        setState(() => _format = prefs.mentionFormat);
-      }
-    });
-  }
-
-  Future<void> _pick() async {
+  Future<void> _pick(BuildContext context) async {
+    final current = Settings.mentionFormat.value;
     final selected = await showChoiceDialog<String>(
       context,
       title: context.l10n.mentionFormatTitle,
-      value: _format,
+      value: current,
       options: [
         for (final entry in formats.entries) (entry.key, entry.value, ''),
       ],
     );
-    if (selected == null || selected == _format) return;
-    final prefs = await Prefs.load();
-    await prefs.setMentionFormat(selected);
-    if (mounted) setState(() => _format = selected);
+    if (selected == null || selected == current) return;
+    await Settings.mentionFormat.set(selected);
   }
 
   @override
   Widget build(BuildContext context) {
-    return SettingAnchor(
-      Setting.mentionFormat,
-      child: SettingsNavTile(
-        icon: Icons.text_format,
-        title: Setting.mentionFormat.titleOf(context.l10n),
-        subtitle: formats[_format],
-        onTap: _pick,
+    return ValueListenableBuilder<String>(
+      valueListenable: Settings.mentionFormat,
+      builder: (context, format, _) => SettingAnchor(
+        Setting.mentionFormat,
+        child: SettingsNavTile(
+          icon: Icons.text_format,
+          title: Setting.mentionFormat.titleOf(context.l10n),
+          subtitle: formats[format],
+          onTap: () => _pick(context),
+        ),
       ),
     );
   }

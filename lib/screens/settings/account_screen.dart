@@ -8,7 +8,7 @@ import '../../services/twitch_auth.dart';
 import '../../services/twitch_oauth.dart';
 import '../../twitch_config.dart';
 import '../../util/log.dart';
-import '../../util/prefs.dart';
+import '../../util/settings.dart';
 import '../../widgets/app_snack.dart';
 import '../../widgets/dialogs.dart';
 import 'settings_page.dart';
@@ -107,8 +107,7 @@ class _AccountScreenState extends State<AccountScreen> {
       onCookies: (c) => cookies = c,
     );
     final saved = widget.twitchAuth.activeAccount?.webCookies;
-    final prefs = await Prefs.load();
-    final useBrowserOAuth = prefs.useBrowserOAuth;
+    final useBrowserOAuth = Settings.useBrowserOAuth.value;
     if (useBrowserOAuth) {
       _startBrowserOAuth(forceVerify: adding);
     } else {

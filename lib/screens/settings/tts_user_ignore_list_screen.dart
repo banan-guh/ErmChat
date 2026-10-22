@@ -3,7 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import '../../l10n/l10n.dart';
 import '../../services/tts_controller.dart';
-import '../../util/prefs.dart';
+import '../../util/settings.dart';
 import 'settings_page.dart';
 
 class TtsUserIgnoreListScreen extends StatefulWidget {
@@ -27,8 +27,7 @@ class _TtsUserIgnoreListScreenState extends State<TtsUserIgnoreListScreen> {
   }
 
   Future<void> _persist() async {
-    final prefs = await Prefs.load();
-    await prefs.setTtsUserIgnoreList(_users);
+    await Settings.ttsUserIgnoreList.set(_users);
   }
 
   void _addUser(String raw) {

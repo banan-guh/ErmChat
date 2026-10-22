@@ -1,3 +1,4 @@
+import 'package:ermchat/util/prefs.dart';
 import 'package:http/http.dart' as http;
 
 import 'widget_test_harness.dart';
@@ -332,6 +333,7 @@ void main() {
           SharedPreferences.setMockInitialValues({
             'emote_fetch_auto': EmoteFetchAutoMode.off.index,
           });
+          await Prefs.load();
           int? changed;
 
           await tester.pumpWidget(
@@ -361,6 +363,7 @@ void main() {
         }
         {
           SharedPreferences.setMockInitialValues({});
+          await Prefs.load();
           EmoteFetchAutoMode? changed;
 
           await tester.pumpWidget(
@@ -411,6 +414,7 @@ void main() {
           SharedPreferences.setMockInitialValues({
             'emote_fetch_auto': EmoteFetchAutoMode.balanced.index,
           });
+          await Prefs.load();
           final mobile = ValueNotifier<bool>(true);
 
           await tester.pumpWidget(
@@ -495,6 +499,7 @@ void main() {
     ) async {
       {
         SharedPreferences.setMockInitialValues({});
+        await Prefs.load();
         int? applied;
 
         await tester.pumpWidget(

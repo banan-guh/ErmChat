@@ -7,7 +7,7 @@ import '../../widgets/tabbed_layout.dart';
 import '../../emotes/emote.dart';
 import '../../services/analytics_service.dart';
 import '../../services/emote_images.dart';
-import '../../util/prefs.dart';
+import '../../util/settings.dart';
 import 'settings_page.dart';
 
 /// Formats the elapsed tracking time (e.g. `1h 5m`, `3m 2s`, `12s`).
@@ -97,25 +97,6 @@ class AnalyticsScreen extends StatefulWidget {
 
 class _AnalyticsScreenState extends State<AnalyticsScreen> {
   String? _selectedChannel;
-  bool _useStopwords = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _loadPrefs();
-  }
-
-  Future<void> _loadPrefs() async {
-    final prefs = await Prefs.load();
-    if (!mounted) return;
-    setState(() => _useStopwords = prefs.analyticsFilterStopwords);
-  }
-
-  Future<void> _setStopwords(bool value) async {
-    setState(() => _useStopwords = value);
-    final prefs = await Prefs.load();
-    await prefs.setAnalyticsFilterStopwords(value);
-  }
 
   String? get _channel {
     if (widget.channels.isEmpty) return null;
@@ -182,8 +163,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   }
 
   Future<void> _setEnabled(bool value) async {
-    final prefs = await Prefs.load();
-    await prefs.setAnalyticsEnabled(value);
+    await Settings.analyticsEnabled.set(value);
     await widget.analyticsService.setEnabled(value);
     if (mounted) setState(() {});
   }
@@ -214,82 +194,85 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     final theme = Theme.of(context);
     final startedAt = service.trackingStartedAt(channel);
 
-    return ListView(
-      padding: const EdgeInsets.all(16),
-      children: [
-        Card(
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(channel, style: theme.textTheme.titleLarge),
-                const SizedBox(height: 12),
-                _summaryRow(
-                  context.l10n.totalMessages,
-                  '${service.totalMessages(channel)}',
-                ),
-                _summaryRow(
-                  context.l10n.uniqueChatters,
-                  '${service.uniqueChatters(channel)}',
-                ),
-                _summaryRow(
-                  context.l10n.messagesPerMinute,
-                  service.messagesPerMinute(channel).toStringAsFixed(1),
-                ),
-                _summaryRowWidget(
-                  context.l10n.trackingFor,
-                  _ElapsedText(startedAt: startedAt),
-                ),
-              ],
-            ),
-          ),
-        ),
-        const SizedBox(height: 16),
-        if (service.banCount(channel) > 0 ||
-            service.timeoutCount(channel) > 0) ...[
+    return ValueListenableBuilder<bool>(
+      valueListenable: Settings.analyticsFilterStopwords,
+      builder: (context, useStopwords, _) => ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
           Card(
             child: Padding(
               padding: const EdgeInsets.all(16),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    context.l10n.moderation,
-                    style: theme.textTheme.titleMedium,
-                  ),
-                  const SizedBox(height: 8),
+                  Text(channel, style: theme.textTheme.titleLarge),
+                  const SizedBox(height: 12),
                   _summaryRow(
-                    context.l10n.bans,
-                    '${service.banCount(channel)}',
+                    context.l10n.totalMessages,
+                    '${service.totalMessages(channel)}',
                   ),
                   _summaryRow(
-                    context.l10n.timeouts,
-                    '${service.timeoutCount(channel)}',
+                    context.l10n.uniqueChatters,
+                    '${service.uniqueChatters(channel)}',
+                  ),
+                  _summaryRow(
+                    context.l10n.messagesPerMinute,
+                    service.messagesPerMinute(channel).toStringAsFixed(1),
+                  ),
+                  _summaryRowWidget(
+                    context.l10n.trackingFor,
+                    _ElapsedText(startedAt: startedAt),
                   ),
                 ],
               ),
             ),
           ),
           const SizedBox(height: 16),
+          if (service.banCount(channel) > 0 ||
+              service.timeoutCount(channel) > 0) ...[
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      context.l10n.moderation,
+                      style: theme.textTheme.titleMedium,
+                    ),
+                    const SizedBox(height: 8),
+                    _summaryRow(
+                      context.l10n.bans,
+                      '${service.banCount(channel)}',
+                    ),
+                    _summaryRow(
+                      context.l10n.timeouts,
+                      '${service.timeoutCount(channel)}',
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+          ],
+          _sectionHeader(context, context.l10n.topChatters),
+          ..._buildChatterRows(service.topChatters(channel, 10)),
+          const SizedBox(height: 16),
+          _sectionHeader(context, context.l10n.topEmotes),
+          ..._buildEmoteRows(service.topEmotes(channel, 10)),
+          const SizedBox(height: 16),
+          _sectionHeader(context, context.l10n.topWords),
+          SwitchListTile(
+            secondary: const Icon(Icons.filter_alt),
+            title: Text(context.l10n.filterCommonWords),
+            value: useStopwords,
+            onChanged: (value) => Settings.analyticsFilterStopwords.set(value),
+          ),
+          ..._buildWordRows(
+            service.topWords(channel, 15, useStopwords: useStopwords),
+          ),
         ],
-        _sectionHeader(context, context.l10n.topChatters),
-        ..._buildChatterRows(service.topChatters(channel, 10)),
-        const SizedBox(height: 16),
-        _sectionHeader(context, context.l10n.topEmotes),
-        ..._buildEmoteRows(service.topEmotes(channel, 10)),
-        const SizedBox(height: 16),
-        _sectionHeader(context, context.l10n.topWords),
-        SwitchListTile(
-          secondary: const Icon(Icons.filter_alt),
-          title: Text(context.l10n.filterCommonWords),
-          value: _useStopwords,
-          onChanged: _setStopwords,
-        ),
-        ..._buildWordRows(
-          service.topWords(channel, 15, useStopwords: _useStopwords),
-        ),
-      ],
+      ),
     );
   }
 

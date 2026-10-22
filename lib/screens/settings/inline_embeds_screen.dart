@@ -1,48 +1,14 @@
 import 'package:flutter/material.dart';
 import '../../l10n/l10n.dart';
 import '../../util/constants.dart';
-import '../../util/prefs.dart';
-import '../../util/prefs_store.dart';
 import 'prefs_tiles.dart';
 import 'settings_page.dart';
 import 'setting_info.dart';
 import 'settings_search.dart';
 import '../../util/settings.dart';
 
-class InlineEmbedsScreen extends StatefulWidget {
+class InlineEmbedsScreen extends StatelessWidget {
   const InlineEmbedsScreen({super.key});
-
-  @override
-  State<InlineEmbedsScreen> createState() => _InlineEmbedsScreenState();
-}
-
-class _InlineEmbedsScreenState extends State<InlineEmbedsScreen> {
-  Prefs? _prefs;
-
-  @override
-  void initState() {
-    super.initState();
-    _loadPrefs();
-    // Re-reads prefs so the height sliders enable/disable with the toggles.
-    PrefsStore.instance.addListener(_loadPrefs);
-  }
-
-  @override
-  void dispose() {
-    PrefsStore.instance.removeListener(_loadPrefs);
-    super.dispose();
-  }
-
-  Future<void> _loadPrefs() async {
-    final prefs = await Prefs.load();
-    if (mounted) setState(() => _prefs = prefs);
-  }
-
-  bool get _showGifs =>
-      _prefs?.giphyInlineEnabled ?? kGiphyInlineEnabledDefault;
-
-  bool get _showImages =>
-      _prefs?.imageEmbedEnabled ?? kImageEmbedEnabledDefault;
 
   @override
   Widget build(BuildContext context) {
@@ -54,20 +20,23 @@ class _InlineEmbedsScreenState extends State<InlineEmbedsScreen> {
           const ShowGiphyTile(),
           SettingAnchor(
             Setting.giphyHeight,
-            child: PrefsSliderTile(
-              label: (v) =>
-                  '${Setting.giphyHeight.titleOf(context.l10n)}: ${v.round()}dp',
-              sliderLabel: (v) => '${v.round()}dp',
-              enabled: _showGifs,
-              min: kGiphyInlineHeightMin,
-              max: kGiphyInlineHeightMax,
-              divisions: 12,
-              defaultValue: kGiphyInlineHeightDefault,
-              read: (p) => p.giphyInlineHeight.clamp(
-                kGiphyInlineHeightMin,
-                kGiphyInlineHeightMax,
+            child: ValueListenableBuilder<bool>(
+              valueListenable: Settings.giphyInlineEnabled,
+              builder: (context, showGifs, _) => PrefsSliderTile(
+                label: (v) =>
+                    '${Setting.giphyHeight.titleOf(context.l10n)}: ${v.round()}dp',
+                sliderLabel: (v) => '${v.round()}dp',
+                enabled: showGifs,
+                min: kGiphyInlineHeightMin,
+                max: kGiphyInlineHeightMax,
+                divisions: 12,
+                defaultValue: kGiphyInlineHeightDefault,
+                read: (p) => p.giphyInlineHeight.clamp(
+                  kGiphyInlineHeightMin,
+                  kGiphyInlineHeightMax,
+                ),
+                write: (p, v) => p.setGiphyInlineHeight(v),
               ),
-              write: (p, v) => p.setGiphyInlineHeight(v),
             ),
           ),
           Padding(
@@ -83,20 +52,23 @@ class _InlineEmbedsScreenState extends State<InlineEmbedsScreen> {
           const ShowImagesTile(),
           SettingAnchor(
             Setting.imageHeight,
-            child: PrefsSliderTile(
-              label: (v) =>
-                  '${Setting.imageHeight.titleOf(context.l10n)}: ${v.round()}dp',
-              sliderLabel: (v) => '${v.round()}dp',
-              enabled: _showImages,
-              min: kImageEmbedHeightMin,
-              max: kImageEmbedHeightMax,
-              divisions: 12,
-              defaultValue: kImageEmbedHeightDefault,
-              read: (p) => p.imageEmbedHeight.clamp(
-                kImageEmbedHeightMin,
-                kImageEmbedHeightMax,
+            child: ValueListenableBuilder<bool>(
+              valueListenable: Settings.imageEmbedEnabled,
+              builder: (context, showImages, _) => PrefsSliderTile(
+                label: (v) =>
+                    '${Setting.imageHeight.titleOf(context.l10n)}: ${v.round()}dp',
+                sliderLabel: (v) => '${v.round()}dp',
+                enabled: showImages,
+                min: kImageEmbedHeightMin,
+                max: kImageEmbedHeightMax,
+                divisions: 12,
+                defaultValue: kImageEmbedHeightDefault,
+                read: (p) => p.imageEmbedHeight.clamp(
+                  kImageEmbedHeightMin,
+                  kImageEmbedHeightMax,
+                ),
+                write: (p, v) => p.setImageEmbedHeight(v),
               ),
-              write: (p, v) => p.setImageEmbedHeight(v),
             ),
           ),
         ],

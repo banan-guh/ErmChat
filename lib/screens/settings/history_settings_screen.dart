@@ -6,8 +6,6 @@ import '../../providers/feature_providers.dart';
 import '../../services/archive.dart';
 import '../../services/recent_messages.dart';
 import '../../util/constants.dart';
-import '../../util/prefs.dart';
-import '../../util/prefs_store.dart';
 import '../../widgets/dialogs.dart';
 import 'data_usage_screen.dart';
 import 'prefs_tiles.dart';
@@ -66,7 +64,6 @@ class HistoryFetchTiles extends StatefulWidget {
 class _HistoryFetchTilesState extends State<HistoryFetchTiles> {
   Future<void> _turnOff() async {
     await Settings.historyDynamicFetch.set(false);
-    PrefsStore.instance.notifyChanged();
   }
 
   void _blockedSnack() => AppSnack.show(
@@ -155,7 +152,6 @@ class NeedsArchive extends StatelessWidget {
               actionLabel: context.l10n.turnOn,
               onAction: () async {
                 await Settings.archiveEnabled.set(true);
-                PrefsStore.instance.notifyChanged();
               },
             ),
       child: child,
@@ -218,7 +214,6 @@ class MaxMessagesTile extends StatelessWidget {
                     actionLabel: l.turnOff,
                     onAction: () async {
                       await Settings.archiveEnabled.set(false);
-                      PrefsStore.instance.notifyChanged();
                     },
                   ),
             child: slider,
@@ -273,9 +268,13 @@ class _ArchiveLimitsTileState extends ConsumerState<ArchiveLimitsTile> {
   static const _days = ArchiveLimitsTile.days;
   static const _mb = ArchiveLimitsTile.megabytes;
   final _index = [_days.length - 1, _mb.length - 1];
-  final _saved = [_days.length - 1, _mb.length - 1];
   int? _sizeBytes;
   int? _keptBytes;
+
+  List<int> get _saved => [
+    _snap(_days, Settings.archiveRetentionDays.value),
+    _snap(_mb, Settings.archiveChannelCapMb.value),
+  ];
 
   @override
   void initState() {
@@ -295,11 +294,11 @@ class _ArchiveLimitsTileState extends ConsumerState<ArchiveLimitsTile> {
   }
 
   Future<void> _load() async {
-    final prefs = await Prefs.load();
+    await Settings.bind();
     if (!mounted) return;
     setState(() {
-      _index[0] = _saved[0] = _snap(_days, prefs.archiveRetentionDays);
-      _index[1] = _saved[1] = _snap(_mb, prefs.archiveChannelCapMb);
+      _index[0] = _snap(_days, Settings.archiveRetentionDays.value);
+      _index[1] = _snap(_mb, Settings.archiveChannelCapMb.value);
     });
     await _readSizes();
   }
@@ -341,9 +340,10 @@ class _ArchiveLimitsTileState extends ConsumerState<ArchiveLimitsTile> {
   }
 
   Future<void> _commit(int slider, int index) async {
-    if (index == _saved[slider]) return;
+    final saved = _saved[slider];
+    if (index == saved) return;
     final l = context.l10n;
-    if (index < _saved[slider]) {
+    if (index < saved) {
       final value = _label(l, slider, index);
       final ok = await confirmDialog(
         context,
@@ -355,21 +355,20 @@ class _ArchiveLimitsTileState extends ConsumerState<ArchiveLimitsTile> {
         destructive: true,
       );
       if (!ok) {
-        if (mounted) setState(() => _index[slider] = _saved[slider]);
+        if (mounted) setState(() => _index[slider] = saved);
         return;
       }
     }
     final archive = ref.read(archiveProvider);
-    final prefs = await Prefs.load();
     if (slider == 0) {
-      await prefs.setArchiveRetentionDays(_days[index]);
+      await Settings.archiveRetentionDays.set(_days[index]);
       await archive?.setRetention(Duration(days: _days[index]));
     } else {
-      await prefs.setArchiveChannelCapMb(_mb[index]);
+      await Settings.archiveChannelCapMb.set(_mb[index]);
       await archive?.setChannelCap(Archive.capBytes(_mb[index]));
     }
     if (!mounted) return;
-    setState(() => _saved[slider] = index);
+    setState(() {});
     await _readSizes();
   }
 
@@ -411,68 +410,78 @@ class _ArchiveLimitsTileState extends ConsumerState<ArchiveLimitsTile> {
     final note = theme.textTheme.bodySmall?.copyWith(
       color: theme.colorScheme.onSurfaceVariant,
     );
-    return ValueListenableBuilder(
-      valueListenable: Settings.archiveEnabled,
-      builder: (context, archive, _) => NeedsArchive(
-        archive: archive,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            _slider(Setting.archiveRetention, 0, _days.length),
-            _slider(Setting.archiveChannelCap, 1, _mb.length),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              // Stacks the buttons when a label won't fit beside the other,
-              // instead of breaking it over two lines.
-              child: OverflowBar(
-                spacing: 12,
-                overflowSpacing: 8,
-                children: [
-                  FilledButton(
-                    onPressed:
-                        archive &&
-                            (_index[0] != _saved[0] || _index[1] != _saved[1])
-                        ? _apply
-                        : null,
-                    child: Text(l.archiveApply),
-                  ),
-                  FilledButton(
-                    onPressed: archive ? _abandon : null,
-                    child: Text(l.archiveAbandon),
-                  ),
-                ],
-              ),
-            ),
-            if (size != null)
+    return ListenableBuilder(
+      listenable: Listenable.merge([
+        Settings.archiveEnabled,
+        Settings.archiveRetentionDays,
+        Settings.archiveChannelCapMb,
+      ]),
+      builder: (context, _) {
+        final archive = Settings.archiveEnabled.value;
+        return NeedsArchive(
+          archive: archive,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _slider(Setting.archiveRetention, 0, _days.length),
+              _slider(Setting.archiveChannelCap, 1, _mb.length),
               Padding(
                 padding: const EdgeInsets.symmetric(
                   horizontal: 16,
                   vertical: 8,
                 ),
-                child: Row(
+                // Stacks the buttons when a label won't fit beside the other,
+                // instead of breaking it over two lines.
+                child: OverflowBar(
+                  spacing: 12,
+                  overflowSpacing: 8,
                   children: [
-                    Icon(
-                      Icons.storage,
-                      size: 16,
-                      color: theme.colorScheme.onSurfaceVariant,
+                    FilledButton(
+                      onPressed:
+                          archive &&
+                              (_index[0] != _saved[0] || _index[1] != _saved[1])
+                          ? _apply
+                          : null,
+                      child: Text(l.archiveApply),
                     ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        [
-                          l.archiveSize(DataUsageScreen.format(size)),
-                          if (kept > 0)
-                            l.archiveKeptSize(DataUsageScreen.format(kept)),
-                        ].join(' · '),
-                        style: note,
-                      ),
+                    FilledButton(
+                      onPressed: archive ? _abandon : null,
+                      child: Text(l.archiveAbandon),
                     ),
                   ],
                 ),
               ),
-          ],
-        ),
-      ),
+              if (size != null)
+                Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 8,
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.storage,
+                        size: 16,
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          [
+                            l.archiveSize(DataUsageScreen.format(size)),
+                            if (kept > 0)
+                              l.archiveKeptSize(DataUsageScreen.format(kept)),
+                          ].join(' · '),
+                          style: note,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+            ],
+          ),
+        );
+      },
     );
   }
 }
