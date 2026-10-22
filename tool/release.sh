@@ -55,22 +55,27 @@ titles() {
     sed -nE "s/^($1): (.*)/- \2/p"
 }
 section() { [[ -z $2 ]] || printf '%s\n\n%s\n\n' "$1" "$2"; }
-FIXES="$(titles fix)"
-FEATS="$(titles feat)"
-ALSO="$(titles 'perf|refactor|style')"
+# A big release gets written from scratch, so it skips the intro and lists.
+COMMITS="$(git rev-list --count --no-merges "$PREV..develop")"
+FIXES="" FEATS="" ALSO="" INTRO=""
+if ((COMMITS < 20)); then
+  FIXES="$(titles fix)"
+  FEATS="$(titles feat)"
+  ALSO="$(titles 'perf|refactor|style')"
+  [[ $VERSION == *.0 ]] && INTRO="feature drop." || INTRO="small patch:"
+fi
 ISSUES="$(gh issue list -R "$REPO" --label fixed-next --state open \
   --json number,title -q '.[] | "\(.number)\t\(.title)"')"
 ISSUE_LINES="$(cut -f1,2 --output-delimiter=', ' <<< "$ISSUES" |
   sed -E '/^$/d; s/^/- issue #/')"
-[[ $VERSION == *.0 ]] && INTRO="feature drop." || INTRO="small patch:"
 
 NOTES="$(git rev-parse --git-dir)/RELEASE_NOTES.md"
 {
   echo "// Lines starting with // are dropped. Write the intro, trim the lists."
   echo "// CHANGELOG.md:"
   sed 's|^|//   |' <<< "$CHANGELOG"
-  echo "$INTRO"
-  echo
+  ((COMMITS < 20)) || echo "// $COMMITS commits since $PREV: git log $PREV..develop"
+  [[ -z $INTRO ]] || printf '%s\n\n' "$INTRO"
   echo "---"
   echo "### What Happened: ###"
   section "Architecture / Correctness Fixes" "$FIXES"
