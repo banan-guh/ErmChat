@@ -10,6 +10,7 @@ import '../l10n/l10n.dart';
 import 'media_upload_controller.dart';
 import 'send_hold.dart';
 import 'design_tokens.dart';
+import 'eased_progress.dart';
 
 class MessageInput extends StatelessWidget {
   final TextEditingController controller;
@@ -208,16 +209,15 @@ class MessageInput extends StatelessWidget {
                     child: ClipRRect(
                       // The stock OutlineInputBorder's corners.
                       borderRadius: BorderRadius.circular(4),
-                      child: ValueListenableBuilder<double?>(
-                        valueListenable: progress,
-                        builder: (context, sent, _) => AnimatedOpacity(
-                          opacity: sent == null ? 0 : 1,
+                      child: EasedProgress(
+                        progress: progress,
+                        builder: (context, sent, active) => AnimatedOpacity(
+                          opacity: active ? 1 : 0,
                           duration: Motion.normal,
                           child: Align(
                             alignment: AlignmentDirectional.centerStart,
-                            child: AnimatedFractionallySizedBox(
-                              duration: Motion.fast,
-                              widthFactor: sent ?? 1,
+                            child: FractionallySizedBox(
+                              widthFactor: sent,
                               heightFactor: 1,
                               child: ColoredBox(
                                 color: Theme.of(

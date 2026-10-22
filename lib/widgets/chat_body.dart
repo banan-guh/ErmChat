@@ -9,6 +9,7 @@ import '../util/insets.dart';
 import '../util/prefs.dart';
 import 'glass_chrome.dart';
 import 'design_tokens.dart';
+import 'eased_progress.dart';
 import 'message_input.dart' show MessageInput;
 
 /// Builds the chat content above the composer. [maxHeight] and [keyboardH]
@@ -829,31 +830,39 @@ class _ChatBodyState extends State<ChatBody>
             child: OverflowBox(
               maxHeight: 3,
               child: ListenableBuilder(
-                listenable: Listenable.merge([busyListenable, lineUpload]),
+                listenable: Listenable.merge([busyListenable]),
                 builder: (_, _) {
-                  final sent = lineUpload?.value;
                   final joining = isBusy?.call() ?? false;
-                  if (sent != null) {
-                    _lineShowedUpload = true;
-                  } else if (joining) {
-                    _lineShowedUpload = false;
-                  }
-                  final busy = sent != null || joining;
-                  return AnimatedOpacity(
-                    opacity: busy ? 1 : 0,
+                  Widget line(double? value, bool shown) => AnimatedOpacity(
+                    opacity: shown ? 1 : 0,
                     duration: Motion.normal,
                     child: TickerMode(
-                      enabled: busy,
+                      enabled: shown,
                       child: LinearProgressIndicator(
-                        // A finished upload fades out full, not as the
-                        // busy motion.
-                        value:
-                            sent ??
-                            (!joining && _lineShowedUpload ? 1.0 : null),
+                        value: value,
                         minHeight: 3,
                         backgroundColor: Colors.transparent,
                       ),
                     ),
+                  );
+                  if (lineUpload == null) return line(null, joining);
+                  return EasedProgress(
+                    progress: lineUpload,
+                    builder: (_, sent, uploading) {
+                      if (uploading) {
+                        _lineShowedUpload = true;
+                      } else if (joining) {
+                        _lineShowedUpload = false;
+                      }
+                      // A finished upload fades out full, not as the busy
+                      // motion.
+                      final showsUpload =
+                          uploading || (!joining && _lineShowedUpload);
+                      return line(
+                        showsUpload ? sent : null,
+                        uploading || joining,
+                      );
+                    },
                   );
                 },
               ),

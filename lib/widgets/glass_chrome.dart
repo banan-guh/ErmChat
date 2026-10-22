@@ -4,6 +4,7 @@ import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 
 import '../util/insets.dart';
 import 'design_tokens.dart';
+import 'eased_progress.dart';
 
 // Shared metrics and builders for the liquid glass chrome. The header block
 // fuses the app bar and the channel tab strip, so both layers derive its
@@ -552,24 +553,28 @@ class _IslandProgressRingState extends State<IslandProgressRing>
   }
 
   @override
-  Widget build(BuildContext context) => CustomPaint(
-    foregroundPainter: _IslandProgressPainter(
-      progress: widget.progress,
-      fade: _fade,
-      color: Theme.of(context).colorScheme.primary,
+  Widget build(BuildContext context) => EasedProgress(
+    progress: widget.progress,
+    builder: (context, share, _) => CustomPaint(
+      foregroundPainter: _IslandProgressPainter(
+        share: share,
+        fade: _fade,
+        color: Theme.of(context).colorScheme.primary,
+      ),
+      child: widget.child,
     ),
-    child: widget.child,
   );
 }
 
 class _IslandProgressPainter extends CustomPainter {
   _IslandProgressPainter({
-    required this.progress,
+    required this.share,
     required this.fade,
     required this.color,
-  }) : super(repaint: Listenable.merge([progress, fade]));
+  }) : super(repaint: fade);
 
-  final ValueListenable<double?> progress;
+  /// How far round the outline to draw, from 0 to 1.
+  final double share;
   final Animation<double> fade;
   final Color color;
 
@@ -580,10 +585,8 @@ class _IslandProgressPainter extends CustomPainter {
     final metrics = _IslandRingPainter.outline(size).computeMetrics().toList();
     if (metrics.isEmpty) return;
     final metric = metrics.first;
-    // A cleared upload fades out as a full lap.
-    final share = (progress.value ?? 1).clamp(0.0, 1.0);
     canvas.drawPath(
-      metric.extractPath(0, metric.length * share),
+      metric.extractPath(0, metric.length * share.clamp(0.0, 1.0)),
       Paint()
         ..style = PaintingStyle.stroke
         ..strokeWidth = _IslandRingPainter._width
@@ -593,5 +596,5 @@ class _IslandProgressPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_IslandProgressPainter old) =>
-      old.color != color || old.progress != progress;
+      old.color != color || old.share != share;
 }
