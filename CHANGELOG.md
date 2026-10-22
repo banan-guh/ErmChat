@@ -1,3 +1,3 @@
-- Faster search, no more flashing or jumping while typing
-- Cleaner History, Tools and spam speed settings, plus a manual update check
-- Fixed search not opening the keyboard from the menu
+- Video uploads with progress, settings backup to a file or pastebin
+- Fixed reconnecting, improved mod errors
+- Fixed button layouts, wrapping on small screens, disappearing island bug
