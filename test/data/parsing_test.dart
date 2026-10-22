@@ -1220,7 +1220,7 @@ void main() {
       expect(jsonDecode(shield.body), {'is_active': true});
     });
 
-    test('failureReason maps 401, 429, and Helix messages', () async {
+    test('failureReason maps 401, 403, 429, and Helix messages', () async {
       final seen = <http.BaseRequest>[];
       Future<ModResult> banWith(int status, String body) => modActions(
         stubApi(
@@ -1231,6 +1231,27 @@ void main() {
       expect(
         (await banWith(401, 'Unauthorized')).reason,
         contains('Missing required scope'),
+      );
+      // Shipped bug: a mod's /mod read as an expired login.
+      expect(
+        (await banWith(
+          401,
+          '{"message": "The ID in broadcaster_id must match the user ID '
+          'found in the request\'s OAuth token."}',
+        )).reason,
+        'Only the broadcaster can do that.',
+      );
+      expect(
+        (await banWith(401, '{"message": "Invalid OAuth token"}')).reason,
+        contains('login expired'),
+      );
+      expect(
+        (await banWith(
+          403,
+          '{"message": "The user is not a moderator."}',
+        )).reason,
+        'The user is not a moderator.',
+        reason: "Twitch's own 403 reason beats the generic line",
       );
       expect(
         (await banWith(429, 'slow down')).reason,

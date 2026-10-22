@@ -67,16 +67,27 @@ class ModActions {
   /// Human-readable reason for the last failed Helix call, in the style of
   /// DankChat's system messages.
   String failureReason() {
+    final message = twitchApi.lastHelixMessage ?? '';
+    final lower = message.toLowerCase();
     switch (twitchApi.lastErrorStatus) {
+      // Twitch answers 401 for a missing scope, a dead token, and a
+      // broadcaster-only action alike; its message tells them apart.
       case 401:
-        return strings().modErrorMissingScope;
+        if (lower.contains('broadcaster_id must match')) {
+          return strings().modErrorBroadcasterOnly;
+        }
+        if (lower.contains('invalid oauth token')) {
+          return strings().errorLoginExpired;
+        }
+        if (lower.contains('missing scope') || message.isEmpty) {
+          return strings().modErrorMissingScope;
+        }
       case 403:
-        return strings().modErrorNoPermission;
+        if (message.isEmpty) return strings().modErrorNoPermission;
       case 429:
         return strings().modErrorRateLimited;
     }
-    final message = twitchApi.lastHelixMessage;
-    if (message != null && message.isNotEmpty) return message;
+    if (message.isNotEmpty) return message;
     return strings().modErrorUnknown;
   }
 

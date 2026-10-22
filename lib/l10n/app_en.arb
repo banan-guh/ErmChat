@@ -2702,6 +2702,7 @@
   "noChatHistory": "No chat history available",
   "modErrorMissingScope": "Missing required scope. Re-login with your account and try again.",
   "modErrorNoPermission": "You don't have permission to perform that action.",
+  "modErrorBroadcasterOnly": "Only the broadcaster can do that.",
   "modErrorRateLimited": "You are being rate-limited. Try again in a moment.",
   "actionBanUser": "ban user",
   "actionUnbanUser": "unban user",

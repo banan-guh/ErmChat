@@ -221,16 +221,37 @@ class TwitchApi {
   /// HTTP status of the last failed call, or null when no HTTP error.
   int? get lastErrorStatus => _slot.status;
 
-  /// Helix error `message`, or null.
-  String? get lastHelixMessage => _slot.helixMessage;
+  /// Helix error `message`, or null. A message that only names the status
+  /// ("Forbidden") says nothing, so it reads as none.
+  String? get lastHelixMessage {
+    final message = _slot.helixMessage?.trim();
+    if (message == null || message.isEmpty) return null;
+    return _bareStatus.contains(message.toLowerCase()) ? null : message;
+  }
+
+  static const _bareStatus = {
+    'bad request',
+    'unauthorized',
+    'forbidden',
+    'not found',
+    'too many requests',
+  };
 
   /// The last failure in words a person can act on: a known status first,
   /// then Twitch's own message (already plain English), then a generic line.
+  /// A 401 or 403 means many things (a broadcaster-only action, a missing
+  /// scope), so Twitch's reason for those wins unless the token is dead.
   String get friendlyLastError {
     final l = strings?.call() ?? englishStrings();
-    return friendlyHttpStatus(lastErrorStatus, l) ??
-        lastHelixMessage ??
-        l.errorTwitchRequest;
+    final status = lastErrorStatus;
+    final message = lastHelixMessage;
+    if ((status == 401 || status == 403) &&
+        message != null &&
+        message.isNotEmpty &&
+        !message.toLowerCase().contains('invalid oauth token')) {
+      return message;
+    }
+    return friendlyHttpStatus(status, l) ?? message ?? l.errorTwitchRequest;
   }
 
   /// Runs [body] in its own error scope: the `last*` getters inside it see
