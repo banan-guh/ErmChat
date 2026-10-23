@@ -1,8 +1,47 @@
 import 'package:ermchat/models/ping_rule.dart';
 import 'package:ermchat/services/apns_push.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
+  test(
+    'turning push on asks for permission after a quiet token fetch',
+    () async {
+      const channel = MethodChannel('ermchat/apns');
+      final prompts = <bool>[];
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, (call) async {
+            if (call.method != 'token') return null;
+            prompts.add((call.arguments as Map)['prompt'] as bool);
+            return 'a' * 64;
+          });
+      addTearDown(
+        () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockMethodCallHandler(channel, null),
+      );
+
+      final push = ApnsPush(
+        active: true,
+        endpoint: 'https://example.test',
+        registration: () async => null,
+        client: MockClient((_) async => http.Response('', 500)),
+      );
+      addTearDown(push.dispose);
+
+      await push.sync(push: false);
+      await push.sync(push: true);
+
+      expect(prompts, [
+        false,
+        true,
+      ], reason: 'the cached token skipped the ask');
+    },
+  );
+
   test('the push server gets only the rules that notify', () {
     final rules = ApnsPush.rules(
       pingRules: const [
