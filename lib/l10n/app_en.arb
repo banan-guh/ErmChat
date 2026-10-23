@@ -1480,6 +1480,7 @@
   "replyToMessage": "Reply to message",
   "viewThread": "View thread",
   "copyMessage": "Copy message",
+  "goToMessage": "Go to message",
   "moreEllipsis": "More...",
   "copyFullMessage": "Copy full message",
   "searchFilters": "Search filters",

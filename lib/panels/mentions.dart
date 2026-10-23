@@ -50,6 +50,7 @@ class MentionsPanels {
     required this.lineSeparator,
     required this.sharedChatMode,
     required this.copyMessage,
+    required this.goToMessage,
     required this.namePaintService,
     required this.pingManager,
     this.archiveReader,
@@ -79,6 +80,7 @@ class MentionsPanels {
   final bool Function() lineSeparator;
   final String Function() sharedChatMode;
   final void Function(TwitchMessage msg) copyMessage;
+  final void Function(TwitchMessage msg) goToMessage;
   final SevenTvPaintService? Function() namePaintService;
   final PingManager pingManager;
 
@@ -246,6 +248,10 @@ class MentionsPanels {
     unreadWhispers = 0;
   }
 
+  /// The mentions menu's jump, absent for rows with no channel to open.
+  VoidCallback? _goTo(TwitchMessage msg) =>
+      msg.channel == null ? null : () => goToMessage(msg);
+
   /// Mentions across every channel's archive, newest at the bottom, with
   /// the mentions buffer joining live. The archive narrows by the rules'
   /// words and chatters; [PingManager.evaluate] decides each row. Null
@@ -297,7 +303,8 @@ class MentionsPanels {
         paintService: namePaintService(),
         onShowUserProfile: (login, userId, {displayName}) => userSheets
             .showUserProfile(context, login, userId, displayName: displayName),
-        onShowMessageMenu: (msg) => menus.showPanelMessageMenu(context, msg),
+        onShowMessageMenu: (msg) =>
+            menus.showPanelMessageMenu(context, msg, goToMessage: _goTo(msg)),
         onCopyMessage: copyMessage,
         showReplyIndicators: false,
         fadeDeleted: false,
@@ -371,8 +378,11 @@ class MentionsPanels {
                         userId,
                         displayName: displayName,
                       ),
-                  onShowMessageMenu: (msg) =>
-                      menus.showPanelMessageMenu(context, msg),
+                  onShowMessageMenu: (msg) => menus.showPanelMessageMenu(
+                    context,
+                    msg,
+                    goToMessage: _goTo(msg),
+                  ),
                   onCopyMessage: copyMessage,
                   showReplyIndicators: false,
                   fadeDeleted: false,

@@ -101,8 +101,13 @@ class MessageMenus {
   }
 
   // Panels (thread, mentions, whispers): copy + more menu. No reply (the
-  // input bar belongs to the main chat) and no thread navigation.
-  void showPanelMessageMenu(BuildContext context, TwitchMessage msg) {
+  // input bar belongs to the main chat) and no thread navigation. Mentions
+  // pass [goToMessage] to open the row's channel at its time.
+  void showPanelMessageMenu(
+    BuildContext context,
+    TwitchMessage msg, {
+    VoidCallback? goToMessage,
+  }) {
     Haptics.press();
     showModalBottomSheet(
       context: context,
@@ -111,6 +116,15 @@ class MessageMenus {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
+              if (goToMessage != null)
+                ListTile(
+                  leading: const Icon(Icons.my_location),
+                  title: Text(ctx.l10n.goToMessage),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    goToMessage();
+                  },
+                ),
               ListTile(
                 leading: const Icon(Icons.copy),
                 title: Text(ctx.l10n.copyMessage),

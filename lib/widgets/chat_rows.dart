@@ -1,3 +1,6 @@
+import 'dart:math' as math;
+
+import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -16,6 +19,15 @@ import 'glass_chrome.dart' show kGlassPillSettings;
 import 'message_builder.dart';
 import 'seven_tv_paint_service.dart';
 import 'design_tokens.dart';
+
+/// A row to pulse so a jump lands somewhere visible. [token] makes a repeat
+/// jump to the same time a fresh request.
+class FlashRequest {
+  const FlashRequest(this.time, this.token);
+
+  final DateTime time;
+  final int token;
+}
 
 /// How the chat lists build one row: the tile, its taps and its reply line.
 /// [ChatView] and the channel history list share it, so a row behaves the
@@ -42,6 +54,7 @@ class ChatRows {
     this.paintService,
     this.linkWhitelist,
     this.hides,
+    this.flashRequest,
   });
 
   final String channel;
@@ -83,6 +96,9 @@ class ChatRows {
 
   /// Rows the chat filter hides draw as nothing.
   final bool Function(TwitchMessage msg)? hides;
+
+  /// Pulses the row at [FlashRequest.time] after a jump. Null never pulses.
+  final ValueListenable<FlashRequest?>? flashRequest;
 
   /// The row for [msg] at text [scale] over [surface], in a repaint
   /// boundary.
@@ -153,7 +169,14 @@ class ChatRows {
       linkWhitelist:
           linkWhitelist?.entries ?? messageBuilder.linkWhitelist.entries,
     );
-    return RepaintBoundary(child: body);
+    final row = chatRow && flashRequest != null
+        ? _FlashHighlight(
+            request: flashRequest!,
+            time: msg.timestamp,
+            child: body,
+          )
+        : body;
+    return RepaintBoundary(child: row);
   }
 
   /// Copies the sender in the mention format pref, trailing space included
@@ -358,6 +381,95 @@ class ScrollDownButton extends StatelessWidget {
               onPressed: press,
               child: const Icon(Icons.keyboard_arrow_down),
             ),
+    );
+  }
+}
+
+/// Two soft pulses on the row a jump landed on, matching a settings search
+/// jump. Finite: the controller stops at 1.
+class _FlashHighlight extends StatefulWidget {
+  const _FlashHighlight({
+    required this.request,
+    required this.time,
+    required this.child,
+  });
+
+  final ValueListenable<FlashRequest?> request;
+  final DateTime time;
+  final Widget child;
+
+  @override
+  State<_FlashHighlight> createState() => _FlashHighlightState();
+}
+
+class _FlashHighlightState extends State<_FlashHighlight>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _pulse = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1600),
+  );
+  int? _handled;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.request.addListener(_maybeFlash);
+    _maybeFlash();
+  }
+
+  @override
+  void didUpdateWidget(_FlashHighlight oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.request != widget.request) {
+      oldWidget.request.removeListener(_maybeFlash);
+      widget.request.addListener(_maybeFlash);
+      _handled = null;
+      _maybeFlash();
+    } else if (oldWidget.time != widget.time) {
+      // A reused row now draws another message; let it answer the request.
+      _handled = null;
+      _maybeFlash();
+    }
+  }
+
+  void _maybeFlash() {
+    final request = widget.request.value;
+    if (request == null || request.token == _handled) return;
+    if (request.time.millisecondsSinceEpoch !=
+        widget.time.millisecondsSinceEpoch) {
+      return;
+    }
+    _handled = request.token;
+    _pulse.forward(from: 0);
+  }
+
+  @override
+  void dispose() {
+    widget.request.removeListener(_maybeFlash);
+    _pulse.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final color = Theme.of(context).colorScheme.primary;
+    return AnimatedBuilder(
+      animation: _pulse,
+      child: widget.child,
+      builder: (context, child) {
+        // Two soft pulses, then gone. Same as a settings search jump.
+        final t = _pulse.value;
+        final strength = t == 0 || t == 1
+            ? 0.0
+            : math.sin(t * 2 * math.pi).abs();
+        return DecoratedBox(
+          position: DecorationPosition.foreground,
+          decoration: BoxDecoration(
+            color: color.withValues(alpha: 0.16 * strength),
+          ),
+          child: child,
+        );
+      },
     );
   }
 }

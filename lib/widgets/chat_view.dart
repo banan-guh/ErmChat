@@ -1,6 +1,7 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart' show defaultTargetPlatform;
+import 'package:flutter/foundation.dart'
+    show ValueListenable, defaultTargetPlatform;
 import 'package:flutter/gestures.dart'
     show PointerScrollEvent, PointerSignalEvent;
 import 'package:flutter/material.dart';
@@ -92,6 +93,9 @@ class ChatView extends StatefulWidget {
   /// Rows the chat filter hides draw as nothing.
   final bool Function(TwitchMessage)? hides;
 
+  /// Pulses the row at [FlashRequest.time] after a jump.
+  final ValueListenable<FlashRequest?>? flashRequest;
+
   /// Glass overlay clearance above the oldest row, below the floating header.
   final double topOverlayPadding;
 
@@ -131,6 +135,7 @@ class ChatView extends StatefulWidget {
     this.linkWhitelist,
     this.isDimmed,
     this.hides,
+    this.flashRequest,
     this.topOverlayPadding = 0,
   });
 
@@ -865,6 +870,7 @@ class _ChatViewState extends State<ChatView>
       paintService: widget.paintService,
       linkWhitelist: widget.linkWhitelist,
       hides: widget.hides,
+      flashRequest: widget.flashRequest,
     ).tile(context, msg, alternate: parity, scale: s, surface: surface);
 
     // Key by messageId for rematch on index shifts; cached tiles short-circuit.

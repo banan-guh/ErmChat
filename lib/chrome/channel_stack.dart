@@ -154,6 +154,27 @@ class ChannelPanels {
     if (channel != null) _calendarFor(channel).value = true;
   }
 
+  /// Shows [time] when [channel]'s history page is next built or selected,
+  /// then pulses that row so the jump is visible.
+  void jumpTo(String channel, DateTime time) {
+    _jumpFor(channel).value = time;
+    final request = FlashRequest(time, ++_flashToken);
+    final flashes = _flashFor(channel);
+    flashes.value = request;
+    _flashTimers.remove(channel)?.cancel();
+    _flashTimers[channel] = Timer(const Duration(seconds: 2), () {
+      _flashTimers.remove(channel);
+      if (flashes.value == request) flashes.value = null;
+    });
+  }
+
+  /// A pulse request each channel's rows watch, so a jump target shows.
+  final _flashes = <String, ValueNotifier<FlashRequest?>>{};
+  final _flashTimers = <String, Timer>{};
+  int _flashToken = 0;
+  ValueNotifier<FlashRequest?> _flashFor(String channel) =>
+      _flashes.putIfAbsent(channel, () => ValueNotifier(null));
+
   ValueNotifier<bool> _calendarFor(String channel) =>
       _calendars.putIfAbsent(channel, () => ValueNotifier(false));
 
@@ -162,6 +183,8 @@ class ChannelPanels {
     _sources.remove(channel);
     _jumps.remove(channel)?.dispose();
     _calendars.remove(channel)?.dispose();
+    _flashTimers.remove(channel)?.cancel();
+    _flashes.remove(channel)?.dispose();
   }
 
   late final Listenable _tabSharedMerge = Listenable.merge([
@@ -317,6 +340,7 @@ class ChannelPanels {
           },
           onFindThreadRoot: threads.findThreadRoot,
           onShowThreadView: (msg) => threads.showThreadView(msg),
+          flashRequest: _flashFor(channel),
           keepAlive: false,
           keepPosition: !search.open,
           keyboardDismissBehavior: (!kIsWeb && Platform.isIOS)
@@ -459,6 +483,7 @@ class ChannelPanels {
     onShowThreadView: (msg) => threads.showThreadView(msg),
     onTapMessage: onTapMessage,
     hides: chat.filter.hides,
+    flashRequest: _flashFor(channel),
   );
 
   /// [channel]'s search as a history list of matches over the whole archive,

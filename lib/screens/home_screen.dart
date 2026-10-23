@@ -485,6 +485,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     lineSeparator: () => _lineSeparator,
     sharedChatMode: () => Settings.sharedChatMode.value,
     copyMessage: _copyMessageToClipboard,
+    goToMessage: _goToMention,
     namePaintService: () => _showNamePaints ? _sevenTvPaintService : null,
     pingManager: _pingManager,
     archiveReader: ref.read(archiveProvider)?.reader,
@@ -1857,6 +1858,19 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     final index = _chat.names.indexOf(channel);
     if (index >= 0) {
       _channels.onChannelChanged(index);
+    }
+  }
+
+  /// Opens a mention's channel and shows its time in the history list.
+  void _goToMention(TwitchMessage msg) {
+    final channel = msg.channel;
+    if (channel == null) return;
+    unawaited(_closePanel());
+    _channels.jumpTo(channel, msg.timestamp);
+    if (_chat.names.contains(channel)) {
+      _navigateToChannel(channel);
+    } else {
+      unawaited(_channelManager.addChannel(channel));
     }
   }
 
