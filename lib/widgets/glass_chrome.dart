@@ -1,5 +1,7 @@
 import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 
 import '../util/insets.dart';
@@ -35,11 +37,6 @@ const double kFloatingComposerGap = kComposerGap;
 double glassWelcomeHeaderHeight(BuildContext context) =>
     statusBarHeight(context) + kGlassAppBarHeight;
 
-// Island footprint the scrolling lists clear; the caller adds the safe area,
-// so this is the island content plus its bottom margin.
-double glassComposerOverlayHeight(double islandH) =>
-    islandH + kComposerIslandMargin;
-
 // How far the header glass bleeds past the screen on the top and sides.
 // The rim follows the shape boundary, so pushing three boundaries
 // off-screen leaves only the bottom rim visible across the chat.
@@ -49,84 +46,247 @@ const double kGlassEdgeBleed = 32.0;
 bool glassEnabled(BuildContext context, bool flag) =>
     flag && !MediaQuery.highContrastOf(context);
 
-// The floating island's footprint over the chat, in every composer style,
-// and whether its chrome is glass. Provided by ChatBody around the body
-// stack so every list (pages, welcome, panels) clears the island without
-// hand-threaded params. Zero clearance when nothing floats.
-// The aspect is whether the dependent is a channel page: pages clear their
-// own channel's island and ignore the measured footer.
-class IslandScope extends InheritedModel<bool> {
-  const IslandScope({
-    super.key,
-    required this.bottomClearance,
-    this.listExtra = 0,
-    this.glass = false,
-    this.footerFor,
-    this.footerHeight = 0,
-    required super.child,
-  });
+/// The floating island's footprint over the chat body, in every composer
+/// style. ChatBody's layout publishes it after laying out the island and
+/// before the body, and [IslandSpacer]/[IslandInset] read it in their own
+/// layout, so rows clear the island in the frame it changes.
+class IslandMetrics {
+  double _top = 0;
+  double _height = 0;
+  double _footer = 0;
+  double _extra = 0;
+  double _trim = 0;
+  double Function(String channel)? _footerFor;
+  final _readers = <RenderObject>{};
+  bool _settlePending = false;
 
-  /// The island's clearance without its footer (the channel status line).
-  final double bottomClearance;
+  /// Runs after a frame that changed the metrics, for readers that size in
+  /// build (the emote sheet).
+  VoidCallback? onSettled;
 
-  /// The footer height a channel's island shows. A chat page adds its own
-  /// channel's to [bottomClearance], so it is placed for its island before a
-  /// switch lands and only the island moves.
-  final double Function(String channel)? footerFor;
+  /// Whether an island floats over the body.
+  bool get floating => _top > 0.5;
 
-  /// The island's footer as measured on screen.
-  final double footerHeight;
+  /// The island's top above the body's bottom, where overlays anchor.
+  double get top => _top;
 
-  /// How far a list clears the island, without [listExtra]. A channel page
+  /// The island's own height, as laid out.
+  double get height => _height;
+
+  /// Overlays above the island (the reply header) that lists clear too.
+  double get extra => _extra;
+
+  /// How far a list clears the island, without [extra]. A channel page
   /// passes its [page] channel and clears that channel's island, so it is
   /// placed before a switch lands. Every other list clears the island on
   /// screen, whatever channel its rows belong to.
-  double clearance({String? page}) =>
-      bottomClearance +
-      (page == null ? footerHeight : footerFor?.call(page) ?? footerHeight);
+  double clearance({String? page}) {
+    if (!floating) return 0;
+    final onScreen = _top - _trim;
+    final footerFor = _footerFor;
+    if (page == null || footerFor == null) return onScreen;
+    return onScreen - _footer + footerFor(page);
+  }
 
-  /// Whether the chrome is liquid glass. A floating island without glass
-  /// still has a clearance, so styling reads this, not the clearance.
+  /// A chat list's bottom padding: the clearance plus a visual gap, or a
+  /// small fixed gap above a docked composer.
+  double listGap({String? page}) =>
+      (floating
+          ? clearance(page: page) + kFloatingComposerGap
+          : kOpaqueComposerGap) +
+      _extra;
+
+  /// Called by ChatBody's layout only. [footer] is the footer's laid-out
+  /// height, which [footerFor] predicts per channel; [trim] is empty room
+  /// above the island the lists may overlap.
+  void publish({
+    required double top,
+    required double height,
+    required double footer,
+    required double extra,
+    required double trim,
+    required double Function(String channel)? footerFor,
+  }) {
+    if (top == _top &&
+        height == _height &&
+        footer == _footer &&
+        extra == _extra &&
+        trim == _trim &&
+        footerFor == _footerFor) {
+      return;
+    }
+    _top = top;
+    _height = height;
+    _footer = footer;
+    _extra = extra;
+    _trim = trim;
+    _footerFor = footerFor;
+    for (final reader in _readers) {
+      reader.markNeedsLayout();
+    }
+    if (_settlePending) return;
+    _settlePending = true;
+    SchedulerBinding.instance.addPostFrameCallback((_) {
+      _settlePending = false;
+      onSettled?.call();
+    });
+  }
+}
+
+/// Provides ChatBody's [IslandMetrics] and whether its chrome is glass. A
+/// floating island without glass still has a clearance, so styling reads
+/// [glass], not the metrics.
+class IslandScope extends InheritedWidget {
+  const IslandScope({
+    super.key,
+    required this.metrics,
+    this.glass = false,
+    required super.child,
+  });
+
+  final IslandMetrics metrics;
   final bool glass;
 
-  /// Extra bottom padding the scrolling lists add on top of [bottomClearance]
-  /// without moving the scroll-down button. Used for overlays that float above
-  /// the composer, like the reply header.
-  final double listExtra;
-
-  /// Pages pass [page] so the footer animating on screen does not rebuild
-  /// them every frame.
-  static IslandScope? maybeOf(BuildContext context, {bool page = false}) =>
-      InheritedModel.inheritFrom<IslandScope>(context, aspect: page);
-
-  bool _sharedChanged(IslandScope old) =>
-      bottomClearance != old.bottomClearance ||
-      listExtra != old.listExtra ||
-      glass != old.glass ||
-      footerFor != old.footerFor;
-
-  bool _footerChanged(IslandScope old) =>
-      (footerHeight - old.footerHeight).abs() > 0.5;
+  static IslandScope? maybeOf(BuildContext context) =>
+      context.dependOnInheritedWidgetOfExactType<IslandScope>();
 
   @override
   bool updateShouldNotify(IslandScope oldWidget) =>
-      _sharedChanged(oldWidget) || _footerChanged(oldWidget);
-
-  @override
-  bool updateShouldNotifyDependent(IslandScope oldWidget, Set<bool> aspects) =>
-      _sharedChanged(oldWidget) ||
-      (aspects.contains(false) && _footerChanged(oldWidget));
+      metrics != oldWidget.metrics || glass != oldWidget.glass;
 }
 
-/// [base] plus the island clearance, for plain lists in the chat body
-/// (panels, mod view) so their last rows scroll clear of it like ChatView's.
-EdgeInsets islandListPadding(
-  BuildContext context, [
-  EdgeInsets base = EdgeInsets.zero,
-]) {
-  final scope = IslandScope.maybeOf(context);
-  final extra = (scope?.clearance() ?? 0) + (scope?.listExtra ?? 0);
-  return base.copyWith(bottom: base.bottom + extra);
+/// A render object that reads [IslandMetrics] in layout and lays out again
+/// when they change.
+mixin _IslandReader on RenderObject {
+  IslandMetrics? _metrics;
+  String? _page;
+
+  void _bind(IslandMetrics? metrics, String? page) {
+    if (!identical(metrics, _metrics)) {
+      if (attached) {
+        _metrics?._readers.remove(this);
+        metrics?._readers.add(this);
+      }
+      _metrics = metrics;
+      markNeedsLayout();
+    }
+    if (page != _page) {
+      _page = page;
+      markNeedsLayout();
+    }
+  }
+
+  @override
+  void attach(PipelineOwner owner) {
+    super.attach(owner);
+    _metrics?._readers.add(this);
+  }
+
+  @override
+  void detach() {
+    _metrics?._readers.remove(this);
+    super.detach();
+  }
+}
+
+/// Empty space as tall as a list's clearance over the island, sized in
+/// layout. Lists put it at their bottom end so the last rows scroll clear of
+/// the island and on behind it. [page] is set on a channel's page (see
+/// [IslandMetrics.clearance]).
+class IslandSpacer extends LeafRenderObjectWidget {
+  const IslandSpacer({super.key, this.page, this.chat = false});
+
+  final String? page;
+
+  /// A chat list keeps [IslandMetrics.listGap]. Other lists clear the island
+  /// and the overlays above it flush.
+  final bool chat;
+
+  @override
+  RenderObject createRenderObject(BuildContext context) =>
+      _RenderIslandSpacer(chat)
+        .._bind(IslandScope.maybeOf(context)?.metrics, page);
+
+  @override
+  void updateRenderObject(BuildContext context, RenderObject renderObject) {
+    (renderObject as _RenderIslandSpacer)
+      ..chat = chat
+      .._bind(IslandScope.maybeOf(context)?.metrics, page);
+  }
+}
+
+class _RenderIslandSpacer extends RenderBox with _IslandReader {
+  _RenderIslandSpacer(this._chat);
+
+  bool _chat;
+  set chat(bool value) {
+    if (value == _chat) return;
+    _chat = value;
+    markNeedsLayout();
+  }
+
+  double get _extent {
+    final metrics = _metrics;
+    if (metrics == null) return _chat ? kOpaqueComposerGap : 0;
+    return _chat
+        ? metrics.listGap(page: _page)
+        : metrics.clearance(page: _page) + metrics.extra;
+  }
+
+  @override
+  Size computeDryLayout(BoxConstraints constraints) =>
+      constraints.constrain(Size(0, _extent));
+
+  @override
+  double computeMinIntrinsicHeight(double width) => _extent;
+
+  @override
+  double computeMaxIntrinsicHeight(double width) => _extent;
+
+  @override
+  void performLayout() => size = computeDryLayout(constraints);
+}
+
+/// Pads [child] from below by the island clearance, in layout, so a button
+/// over a list rides above the island with its rows.
+class IslandInset extends SingleChildRenderObjectWidget {
+  const IslandInset({super.key, this.page, super.child});
+
+  /// See [IslandSpacer.page].
+  final String? page;
+
+  @override
+  RenderObject createRenderObject(BuildContext context) =>
+      _RenderIslandInset().._bind(IslandScope.maybeOf(context)?.metrics, page);
+
+  @override
+  void updateRenderObject(BuildContext context, RenderObject renderObject) =>
+      (renderObject as _RenderIslandInset)._bind(
+        IslandScope.maybeOf(context)?.metrics,
+        page,
+      );
+}
+
+class _RenderIslandInset extends RenderShiftedBox with _IslandReader {
+  _RenderIslandInset() : super(null);
+
+  @override
+  void performLayout() {
+    final bottom = _metrics?.clearance(page: _page) ?? 0;
+    final child = this.child;
+    if (child == null) {
+      size = constraints.constrain(Size(0, bottom));
+      return;
+    }
+    child.layout(
+      constraints.deflate(EdgeInsets.only(bottom: bottom)),
+      parentUsesSize: true,
+    );
+    (child.parentData! as BoxParentData).offset = Offset.zero;
+    size = constraints.constrain(
+      Size(child.size.width, child.size.height + bottom),
+    );
+  }
 }
 
 /// Glass drawn as a background layer behind [child].

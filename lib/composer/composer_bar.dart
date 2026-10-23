@@ -535,23 +535,21 @@ class ComposerStatusRow extends StatelessWidget {
   Widget build(BuildContext context) => ListenableBuilder(
     listenable: _enabledInputs(controller, mod, dragTick),
     builder: (context, _) {
-      final searchBorrowed = search.open && search.selectedChannel() != null;
-      if (searchBorrowed || mod.termsChromeHidden) {
-        return const SizedBox.shrink();
-      }
-      // Landscape moves the status into the field's hint instead.
-      final landscape =
-          MediaQuery.orientationOf(context) == Orientation.landscape;
+      if (composerStatusHidden(search, mod)) return const SizedBox.shrink();
       return _StatusRow(
         controller: controller,
         selectedTabIndex: selectedTabIndex,
-        showStatus: !landscape,
         modeRow: modeRow,
         classic: classic,
       );
     },
   );
 }
+
+/// Whether the status row steps aside: search or block terms borrow the
+/// field.
+bool composerStatusHidden(SearchPanels search, ModPanels mod) =>
+    (search.open && search.selectedChannel() != null) || mod.termsChromeHidden;
 
 /// The status line's text style. Explicit (not inherited), so its height can
 /// be measured away from the island.
@@ -563,22 +561,42 @@ TextStyle _statusStyle(BuildContext context, {Color? color}) {
   );
 }
 
-/// Height the status row takes for [channel]: its status line (portrait
-/// only) and the retry link when its emotes failed. Each chat page adds
-/// its own channel's, so a page is already placed for the island it is
-/// about to show, and only the island moves on a switch.
+/// Height the status row takes for [channel], or zero when [hidden] (see
+/// [composerStatusHidden]). Each chat page adds its own channel's, so a page
+/// is already placed for the island it is about to show, and only the
+/// island moves on a switch. The row renders at this same height.
 double composerStatusHeight(
   BuildContext context,
   ComposerController controller,
   String channel, {
   bool modeRow = false,
+  bool hidden = false,
+}) {
+  if (hidden) return 0;
+  final lines = _statusLines(context, controller, channel, modeRow: modeRow);
+  return _statusRowHeight(lines, _statusLineHeight(context));
+}
+
+/// What the status row shows for [channel]: its status line (portrait only;
+/// landscape moves it into the field's hint) and whether the retry link for
+/// failed emotes shows.
+({String status, bool failed}) _statusLines(
+  BuildContext context,
+  ComposerController controller,
+  String channel, {
+  required bool modeRow,
 }) {
   final portrait = MediaQuery.orientationOf(context) != Orientation.landscape;
-  final status = portrait
-      ? _footerStatus(context, controller, channel, modeRow: modeRow)
-      : '';
-  final failed = controller.chat.loadFailedChannels.value.contains(channel);
-  if (status.isEmpty && !failed) return 0;
+  return (
+    status: portrait
+        ? _footerStatus(context, controller, channel, modeRow: modeRow)
+        : '',
+    failed: controller.chat.loadFailedChannels.value.contains(channel),
+  );
+}
+
+/// One status line's height: its text and the gap under it.
+double _statusLineHeight(BuildContext context) {
   final line = TextPainter(
     text: TextSpan(text: 'M', style: _statusStyle(context)),
     textScaler: MediaQuery.textScalerOf(context),
@@ -587,7 +605,14 @@ double composerStatusHeight(
   )..layout();
   final h = line.height + 4;
   line.dispose();
-  return (status.isEmpty ? 0 : h) + (failed ? h : 0) + _statusFoot;
+  return h;
+}
+
+double _statusRowHeight(({String status, bool failed}) lines, double lineH) {
+  if (lines.status.isEmpty && !lines.failed) return 0;
+  return (lines.status.isEmpty ? 0 : lineH) +
+      (lines.failed ? lineH : 0) +
+      _statusFoot;
 }
 
 /// The status line's text: the stream part alone when the room modes ride
@@ -609,20 +634,18 @@ String _footerStatus(
 /// rounded edge.
 const double _statusFoot = 4;
 
-/// The channel status (portrait only, see [showStatus]) and a retry link
-/// when a channel's emotes failed to load.
+/// The channel status (see [_statusLines]) and a retry link when a channel's
+/// emotes failed to load.
 class _StatusRow extends StatelessWidget {
   const _StatusRow({
     required this.controller,
     required this.selectedTabIndex,
-    required this.showStatus,
     required this.modeRow,
     required this.classic,
   });
 
   final ComposerController controller;
   final ValueListenable<int> selectedTabIndex;
-  final bool showStatus;
   final bool modeRow;
   final bool classic;
 
@@ -644,49 +667,51 @@ class _StatusRow extends StatelessWidget {
   );
 
   Widget _lines(BuildContext context, String channel) {
-    final status = showStatus
-        ? _footerStatus(context, controller, channel, modeRow: modeRow)
-        : '';
-    final hasLoadFailure = controller.chat.loadFailedChannels.value.contains(
-      channel,
-    );
-    return Padding(
-      padding: EdgeInsets.only(
-        bottom: status.isEmpty && !hasLoadFailure ? 0 : _statusFoot,
-      ),
+    final lines = _statusLines(context, controller, channel, modeRow: modeRow);
+    final lineH = _statusLineHeight(context);
+    // Sized by the same numbers [composerStatusHeight] predicts, so a page
+    // placed for this island matches it exactly.
+    return SizedBox(
+      height: _statusRowHeight(lines, lineH),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: classic
             ? CrossAxisAlignment.start
             : CrossAxisAlignment.center,
         children: [
-          if (status.isNotEmpty)
-            Padding(
-              padding: EdgeInsets.only(
-                left: classic ? 20 : 12,
-                right: 12,
-                bottom: 4,
-              ),
-              child: Text(
-                status,
-                style: _statusStyle(context),
-                textAlign: classic ? TextAlign.start : TextAlign.center,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
+          if (lines.status.isNotEmpty)
+            SizedBox(
+              height: lineH,
+              child: Padding(
+                padding: EdgeInsets.only(
+                  left: classic ? 20 : 12,
+                  right: 12,
+                  bottom: 4,
+                ),
+                child: Text(
+                  lines.status,
+                  style: _statusStyle(context),
+                  textAlign: classic ? TextAlign.start : TextAlign.center,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
               ),
             ),
-          if (hasLoadFailure)
-            Padding(
-              padding: EdgeInsets.only(left: classic ? 20 : 0, bottom: 4),
-              child: InkWell(
-                onTap: () => controller.chatConn.retryChannelData(channel),
-                child: Text(
-                  context.l10n.retryFailedEmotes,
-                  style: _statusStyle(
-                    context,
-                    color: Theme.of(context).colorScheme.primary,
-                  ).copyWith(decoration: TextDecoration.underline),
-                  maxLines: 1,
+          if (lines.failed)
+            SizedBox(
+              height: lineH,
+              child: Padding(
+                padding: EdgeInsets.only(left: classic ? 20 : 0, bottom: 4),
+                child: InkWell(
+                  onTap: () => controller.chatConn.retryChannelData(channel),
+                  child: Text(
+                    context.l10n.retryFailedEmotes,
+                    style: _statusStyle(
+                      context,
+                      color: Theme.of(context).colorScheme.primary,
+                    ).copyWith(decoration: TextDecoration.underline),
+                    maxLines: 1,
+                  ),
                 ),
               ),
             ),

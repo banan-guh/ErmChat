@@ -3,6 +3,7 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 
 import '../composer/composer_bar.dart';
 import '../util/insets.dart';
@@ -179,13 +180,17 @@ class ChatBody extends StatefulWidget {
 
 class _ChatBodyState extends State<ChatBody>
     with WidgetsBindingObserver, TickerProviderStateMixin {
-  // Bottom safe area and the list clearance under the island. Both ease when
-  // the system bars or the island come and go (fullscreen, input toggle)
-  // instead of jumping; keyboard ticks still move them directly.
+  // Bottom safe area, and how much of the island's footprint the lists
+  // clear (0 to 1). Both ease when the system bars or the island come and go
+  // (fullscreen, input toggle) instead of jumping; keyboard ticks still move
+  // them directly.
   late final _bottomPad = _Eased(this, _onEasedTick);
-  late final _clearance = _Eased(this, _onEasedTick);
+  late final _presence = _Eased(this, _onEasedTick);
   double? _lastViewPadBottom;
   bool? _lastFloating;
+
+  // The island's footprint, published by the body stack's layout.
+  final _metrics = IslandMetrics();
 
   void _onEasedTick() {
     setState(() {});
@@ -203,62 +208,25 @@ class _ChatBodyState extends State<ChatBody>
   // post-layout: reading inputBarKey.size during build throws every frame.
   double _composerH = 56.0;
 
-  // Measured island content height (field plus button row) and its outer
-  // height (content plus any focus-ring border). The row feeds the hidden
-  // clip; the outer height feeds the list clearance.
-  double _islandH = 56.0;
-  double _islandOuterH = 56.0;
-
-  // The nav bar pad a flush island paid inside its shell in the last build,
-  // and the pad inside [_islandOuterH] when it was measured. The clearance
-  // swaps the measured pad for the live one, so a keyboard closing over the
-  // nav bar moves the rows on the same frame as the island.
-  double _padInShell = 0;
-  double _padInOuter = 0;
-  // Outer minus content: the shell's border and padding, which a clipped
-  // island can't measure.
-  double _islandShellH = 0;
-
-  final _islandKey = GlobalKey();
-
   /// Whether the edge-to-edge line last showed an upload rather than the
   /// busy motion, so it fades out the way it showed.
   bool _lineShowedUpload = false;
-  final _islandOuterKey = GlobalKey();
 
-  // The field's animated slot, and the island below it (row plus footer).
-  // Both come from one measure, so a field growing inside its animation
-  // never reads as a shorter row and lets the hidden row peek out.
-  final _flowKey = GlobalKey();
-  double? _rowH;
+  // Laid-out heights the island reports to its own layout: the field's
+  // animated slot, the footer, and the row under the field (written by the
+  // row clip, read by the keyboard gate).
+  final _flowH = _Slot();
+  final _footerH = _Slot();
+  final _rowH = _Slot();
 
   // Keyboard height by which the hidden row is gone (nav bar plus row), or
   // zero when the row never hides.
   double _hideSpan = 0;
 
-  // How much of the row the shortened island hides this frame.
-  double _rowClip = 0;
-
-  // Measured height of the island's footer (the channel status), which the
-  // pages' clearance leaves out: each page adds its own channel's instead.
-  double _footerH = 0;
-  final _footerKey = GlobalKey();
-
   // Cached chat body and the inputs it was built from.
   Widget? _body;
   Object? _bodyInputs;
   final _bodyKey = GlobalKey();
-
-  // Measured reply header height. Added to the list clearance so rows clear
-  // the floating card without the composer resizing.
-  double _replyH = 0;
-  final _replyKey = GlobalKey();
-
-  void _cacheReplyH() {
-    if (!mounted) return;
-    final h = _replyKey.currentContext?.size?.height ?? 0;
-    if ((h - _replyH).abs() > 0.5) setState(() => _replyH = h);
-  }
 
   // Keyboard overlap in dp. The Scaffold strips viewInsets from its body,
   // so this reads the view directly on metrics changes; nothing above
@@ -332,6 +300,10 @@ class _ChatBodyState extends State<ChatBody>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _loadLearnedHeight();
+    // The emote sheet sizes from the island in build.
+    _metrics.onSettled = () {
+      if (mounted) setState(() {});
+    };
   }
 
   @override
@@ -357,7 +329,7 @@ class _ChatBodyState extends State<ChatBody>
     _settleTimer?.cancel();
     _keyboardPump.dispose();
     _bottomPad.dispose();
-    _clearance.dispose();
+    _presence.dispose();
     super.dispose();
   }
 
@@ -472,42 +444,6 @@ class _ChatBodyState extends State<ChatBody>
     }
   }
 
-  void _cacheIslandH() {
-    if (!mounted) return;
-    double? height(GlobalKey key) => key.currentContext?.size?.height;
-
-    final h = height(_islandKey);
-    if (h != null && (h - _islandH).abs() > 0.5) {
-      setState(() => _islandH = h);
-    }
-    final flow = height(_flowKey);
-    if (h != null && flow != null) {
-      final row = h - flow;
-      if (_rowH == null || (row - _rowH!).abs() > 0.5) {
-        setState(() => _rowH = row);
-      }
-    }
-    // The clip leaves the island's own layout whole (field and footer), so
-    // it measures true under the keyboard too.
-    final footer = height(_footerKey) ?? 0;
-    final footerDelta = footer - _footerH;
-    // A shortened island would read as a smaller one, so a clipped island
-    // takes its full height from the unclipped content plus the shell
-    // around it, measured while unclipped.
-    final measured = height(_islandOuterKey);
-    if (_rowClip <= 0 && measured != null && h != null) {
-      _islandShellH = measured - h;
-    }
-    final outer = _rowClip > 0 ? (h ?? _islandH) + _islandShellH : measured;
-    if (outer != null) _padInOuter = _padInShell;
-    if (outer != null && (outer - _islandOuterH).abs() > 0.5) {
-      setState(() => _islandOuterH = outer);
-    }
-    if (footerDelta.abs() > 0.5) {
-      setState(() => _footerH = footer);
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     // Settled decisions read _liftH; the hidden clip reads the raw per-frame
@@ -538,9 +474,6 @@ class _ChatBodyState extends State<ChatBody>
         _cachePaneInsets();
       });
     }
-    if (widget.replyHeader != null) {
-      WidgetsBinding.instance.addPostFrameCallback((_) => _cacheReplyH());
-    }
     final decisionH = _decisionHeight(
       _fullBoxHeight ?? size.height,
       composer == null ? 0 : _composerH,
@@ -565,45 +498,34 @@ class _ChatBodyState extends State<ChatBody>
     // The island floats over the chat in every style, so rows scroll on
     // behind it.
     final floating = showIsland;
-    // Cache the island height; it feeds the clearance and the hidden clip.
-    if (showIsland || pane) {
-      WidgetsBinding.instance.addPostFrameCallback((_) => _cacheIslandH());
-    }
-    // The row is whatever sits below the field inside the island, the
-    // status footer included.
-    final rowH = composer == null
-        ? _islandH
-        : (_rowH ?? _islandH - _composerH).clamp(0.0, _islandH);
-    final islandBottom = flush ? 0.0 : kComposerIslandMargin + bottomPad;
-    // Hidden mode pins the island above the nav bar (the padding shrinks
-    // under the keyboard, the nav bar does not) and clips the row from below
-    // as the keyboard rises past it, so the visible bottom edge rides the
-    // keyboard a margin above it. Once the row is gone the field rides too.
-    // Offsets are from the body's bottom, which the keyboard already lifts.
-    // The Scaffold subtracts the keyboard from the body's viewPadding too,
-    // so the nav bar height comes from the view itself.
+    // Hidden mode pins the island a margin above the nav bar (the padding
+    // shrinks under the keyboard, the nav bar does not) and the row clip
+    // hides the row from below as the keyboard rises past it, so the visible
+    // bottom edge rides the keyboard a margin above it. Once the row is gone
+    // the field rides too. Offsets are from the body's bottom, which the
+    // keyboard already lifts. The Scaffold subtracts the keyboard from the
+    // body's viewPadding too, so the nav bar height comes from the view.
     final view = View.of(context);
     final navPad = frameKb > 0.5
         ? view.viewPadding.bottom / view.devicePixelRatio
         : bottomPad;
-    _hideSpan = hidden && floating ? navPad + rowH : 0;
-    final clipRow = (frameKb - navPad).clamp(0.0, rowH);
-    final push = (frameKb - navPad - rowH).clamp(0.0, double.infinity);
-    final hiddenBottom = kComposerIslandMargin + navPad - frameKb + push;
+    final islandBottom = hidden
+        ? kComposerIslandMargin + (navPad - frameKb).clamp(0.0, navPad)
+        : flush
+        ? 0.0
+        : kComposerIslandMargin + bottomPad;
+    _hideSpan = hidden && floating ? navPad + _rowH.value : 0;
     // Rows under the island ease out of or into its space when it comes and
     // goes; composer growth and keyboard ticks move it directly.
     final floatingFlipped = _lastFloating != null && floating != _lastFloating;
     _lastFloating = floating;
-    final clearance = _clearance.resolve(
-      !floating
-          ? 0.0
-          : hidden
-          ? hiddenBottom + _islandOuterH
-          : flush
-          ? _islandOuterH - _padInOuter + bottomPad
-          : glassComposerOverlayHeight(_islandOuterH) + bottomPad,
+    final presence = _presence.resolve(
+      floating ? 1.0 : 0.0,
       animate: floatingFlipped,
     );
+    // The last layout's footprint, for what sizes in build (the emote
+    // sheet); everything that lays out under the island reads it live.
+    final clearance = _metrics.top;
     // Rebuilt only when its inputs change, so keyboard ticks (including the
     // safe-area ticks that rebuild ChatBody) reuse the same instance and
     // the body subtree skips rebuilding. The body reads the content height
@@ -639,35 +561,27 @@ class _ChatBodyState extends State<ChatBody>
       );
     }
     final body = _body!;
-    // Overlays anchored above the island: the floating clearance, or the
+    // Overlays anchored above the island: its top, placed in layout, or the
     // pane's measured composer box.
-    final anchor = pane ? _paneInsets : EdgeInsets.only(bottom: clearance);
+    final anchor = pane ? _paneInsets : EdgeInsets.zero;
+    final anchorBottom = pane ? _paneInsets.bottom : null;
     final sideGap = pane ? 0.0 : kComposerIslandMargin;
-    final reply = Positioned(
+    final reply = _IslandPositioned(
       key: const ValueKey('reply_header'),
+      role: _IslandRole.reply,
       left: anchor.left + sideGap - 4,
       right: anchor.right + sideGap - 4,
-      bottom: anchor.bottom,
-      child: NotificationListener<SizeChangedLayoutNotification>(
-        onNotification: (_) {
-          WidgetsBinding.instance.addPostFrameCallback((_) => _cacheReplyH());
-          return true;
-        },
-        child: SizeChangedLayoutNotifier(
-          child: KeyedSubtree(
-            key: _replyKey,
-            child: widget.replyHeader ?? const SizedBox.shrink(),
-          ),
-        ),
-      ),
+      bottom: anchorBottom,
+      child: widget.replyHeader ?? const SizedBox.shrink(),
     );
     // Autocomplete dropdown - floats above chat, anchored just above the
     // message input, 60% width like DankChat's popup.
     final anchorW = size.width - anchor.left - anchor.right;
-    final autocomplete = Positioned(
+    final autocomplete = _IslandPositioned(
       key: const ValueKey('autocomplete'),
-      bottom: anchor.bottom,
+      role: _IslandRole.above,
       left: anchor.left,
+      bottom: anchorBottom,
       child: SizedBox(
         width: (anchorW * 0.6).clamp(0.0, 340.0),
         child: ConstrainedBox(
@@ -680,11 +594,12 @@ class _ChatBodyState extends State<ChatBody>
     // Overlay, not column content, so showing it never resizes the chat.
     final notice = widget.notice == null
         ? null
-        : Positioned(
+        : _IslandPositioned(
             key: const ValueKey('chat_notice'),
-            bottom: anchor.bottom,
+            role: _IslandRole.above,
             left: anchor.left,
             right: anchor.right,
+            bottom: anchorBottom,
             child: widget.notice!,
           );
     // The composer, keyed so the field moves intact between the docked and
@@ -702,39 +617,32 @@ class _ChatBodyState extends State<ChatBody>
     // The composer field. One shared inputBarKey keeps the FocusNode alive
     // as the island moves between the docked and floating paths. The size
     // notifier re-measures when inner listenables resize it without a
-    // ChatBody rebuild (status text, extra input lines). The outer notifier
-    // follows the grow animation, so the island and the list clearance under
-    // it re-measure on every frame of it, not only where it starts.
-    final flowComposer = NotificationListener<SizeChangedLayoutNotification>(
-      onNotification: (_) {
-        WidgetsBinding.instance.addPostFrameCallback((_) => _cacheIslandH());
-        return true;
-      },
-      child: SizeChangedLayoutNotifier(
-        child: AnimatedSize(
-          key: _flowKey,
-          duration: Motion.normal,
-          curve: Motion.move,
-          alignment: Alignment.bottomCenter,
-          child: composer == null
-              ? const SizedBox.shrink()
-              : Padding(
-                  key: inputBarKey,
-                  padding: EdgeInsets.zero,
-                  child: NotificationListener<SizeChangedLayoutNotification>(
-                    onNotification: (_) {
-                      WidgetsBinding.instance.addPostFrameCallback((_) {
-                        _cacheComposerH();
-                        _cachePaneInsets();
-                      });
-                      return true;
-                    },
-                    child: SizeChangedLayoutNotifier(
-                      child: composerSlot(composer),
-                    ),
+    // ChatBody rebuild (status text, extra input lines). The slot reports the
+    // grow animation to the row clip on every frame of it.
+    final flowComposer = _Report(
+      slot: _flowH,
+      child: AnimatedSize(
+        duration: Motion.normal,
+        curve: Motion.move,
+        alignment: Alignment.bottomCenter,
+        child: composer == null
+            ? const SizedBox.shrink()
+            : Padding(
+                key: inputBarKey,
+                padding: EdgeInsets.zero,
+                child: NotificationListener<SizeChangedLayoutNotification>(
+                  onNotification: (_) {
+                    WidgetsBinding.instance.addPostFrameCallback((_) {
+                      _cacheComposerH();
+                      _cachePaneInsets();
+                    });
+                    return true;
+                  },
+                  child: SizeChangedLayoutNotifier(
+                    child: composerSlot(composer),
                   ),
                 ),
-        ),
+              ),
       ),
     );
     // Round shell for the island: frosted in glass. Otherwise the focus glow
@@ -746,7 +654,6 @@ class _ChatBodyState extends State<ChatBody>
         : flush
         ? const BorderRadius.vertical(top: corner)
         : const BorderRadius.all(corner);
-    _padInShell = flush ? bottomPad : 0;
     Widget islandShell(Widget child) {
       // Flush, the island pays the nav bar inside its own fill.
       final body = flush
@@ -768,23 +675,12 @@ class _ChatBodyState extends State<ChatBody>
     // One island: field and button row in one shell. Hidden mode shortens
     // the shell from below as the keyboard rises, so its rim and corners
     // reshape around what is left instead of being cut off.
-    _rowClip = hidden ? clipRow : 0;
-    // The footer resizes on its own (a channel switch swaps the status), so
-    // it re-measures the island itself rather than waiting on a rebuild.
+    final rowKeyboard = hidden ? frameKb - navPad : 0.0;
+    // The footer resizes on its own (a channel switch swaps the status) and
+    // reports its height to the island's layout.
     final footer = widget.islandFooter == null
         ? null
-        : KeyedSubtree(
-            key: _footerKey,
-            child: NotificationListener<SizeChangedLayoutNotification>(
-              onNotification: (_) {
-                WidgetsBinding.instance.addPostFrameCallback(
-                  (_) => _cacheIslandH(),
-                );
-                return true;
-              },
-              child: SizeChangedLayoutNotifier(child: widget.islandFooter!),
-            ),
-          );
+        : _Report(slot: _footerH, child: widget.islandFooter!);
     final busyListenable = widget.busyListenable;
     final isBusy = widget.isBusy;
     final showsBusy = busyListenable != null && isBusy != null;
@@ -858,12 +754,10 @@ class _ChatBodyState extends State<ChatBody>
     // field's own outline shows focus instead of a tinted shell.
     Widget outer({required Widget child}) => classic
         ? ColoredBox(
-            key: _islandOuterKey,
             color: Theme.of(context).scaffoldBackgroundColor,
             child: child,
           )
         : ComposerFocusGlow(
-            key: _islandOuterKey,
             shape: glass
                 ? RoundedSuperellipseBorder(borderRadius: radius)
                 : RoundedRectangleBorder(borderRadius: radius),
@@ -874,14 +768,14 @@ class _ChatBodyState extends State<ChatBody>
           );
     final island = outer(
       child: islandShell(
-        ClipRect(
+        _RowClip(
+          keyboard: rowKeyboard,
+          flow: _flowH,
+          row: _rowH,
           child: Align(
             alignment: Alignment.topCenter,
-            heightFactor: _islandH > 0
-                ? (1 - _rowClip / _islandH).clamp(0.0, 1.0)
-                : 1,
+            heightFactor: 1,
             child: Column(
-              key: _islandKey,
               mainAxisSize: MainAxisSize.min,
               children: [
                 if (widget.sideAction == null) ...[
@@ -942,15 +836,17 @@ class _ChatBodyState extends State<ChatBody>
     final paneSlot = !pane
         ? null
         : Padding(padding: islandPad, child: ringed(island));
-    // Floating island. Hidden mode keeps its top pinned while the shell
-    // shortens from below; otherwise it rides the keyboard.
+    // Floating island. Hidden mode keeps its bottom a margin over the
+    // keyboard while the row clip shortens it; otherwise it rides the
+    // keyboard.
     final floatingIsland = !floating
         ? null
-        : Positioned(
+        : _IslandPositioned(
             key: const ValueKey('composer_island'),
+            role: _IslandRole.island,
             left: flush ? 0 : kComposerIslandMargin,
             right: flush ? 0 : kComposerIslandMargin,
-            bottom: hidden ? hiddenBottom + clipRow : islandBottom,
+            bottom: islandBottom,
             child: ringed(island),
           );
     final lone = widget.loneAction == null || showIsland || pane
@@ -984,19 +880,7 @@ class _ChatBodyState extends State<ChatBody>
           child: widget.isInPip
               ? body
               : IslandScope(
-                  // Pages add their own channel's footer through
-                  // [IslandScope.footerFor], so a switch moves only
-                  // the island.
-                  // The classic field's label room is already empty space
-                  // above its outline, so it counts toward the list's gap.
-                  bottomClearance: clearance > 0.5
-                      ? clearance -
-                            _footerH -
-                            (classic ? MessageInput.labelRoom : 0)
-                      : clearance,
-                  footerFor: widget.islandFooterHeightFor,
-                  footerHeight: _footerH,
-                  listExtra: widget.replyHeader != null ? _replyH : 0,
+                  metrics: _metrics,
                   glass: glass,
                   child: RepaintBoundary(
                     key: _chromeKey,
@@ -1015,7 +899,7 @@ class _ChatBodyState extends State<ChatBody>
                           // were in flow (docked tall), then anchors the
                           // picker above the island without moving its top.
                           final inFlowH = floating
-                              ? _islandOuterH + bottomPad
+                              ? _metrics.height + bottomPad
                               : pane
                               ? _paneInsets.bottom
                               : 0.0;
@@ -1039,28 +923,44 @@ class _ChatBodyState extends State<ChatBody>
                                     (clearance - inFlowH) /
                                         widget.emoteMaxFraction
                               : fitH;
-                          return Stack(
-                            clipBehavior: Clip.hardEdge,
-                            children: [
-                              ComposerPaneScope(slot: paneSlot, child: body),
-                              reply,
-                              widget.threadPanel,
-                              widget.mentionsPanel,
-                              widget.modViewPanel,
-                              widget.emotePickerBuilder(
-                                context,
-                                sheetBoxHeight: sheetBoxHeight,
-                                inset: pane
-                                    ? _paneInsets
-                                    : EdgeInsets.only(
-                                        bottom: floating ? clearance : 0,
-                                      ),
-                              ),
-                              autocomplete,
-                              ?notice,
-                              ?floatingIsland,
-                              ?lone,
-                            ],
+                          // Tight, so the island lays out at the stack's own
+                          // width before the body does.
+                          return SizedBox.fromSize(
+                            size: constraints.biggest,
+                            child: _IslandStack(
+                              metrics: _metrics,
+                              presence: presence,
+                              // The classic field's label room is already
+                              // empty space above its outline, so it counts
+                              // toward the list's gap.
+                              trim: classic ? MessageInput.labelRoom : 0,
+                              // Pages add their own channel's footer, so a
+                              // switch moves only the island.
+                              footerFor: widget.islandFooterHeightFor,
+                              footer: widget.islandFooter == null
+                                  ? null
+                                  : _footerH,
+                              children: [
+                                ComposerPaneScope(slot: paneSlot, child: body),
+                                reply,
+                                widget.threadPanel,
+                                widget.mentionsPanel,
+                                widget.modViewPanel,
+                                widget.emotePickerBuilder(
+                                  context,
+                                  sheetBoxHeight: sheetBoxHeight,
+                                  inset: pane
+                                      ? _paneInsets
+                                      : EdgeInsets.only(
+                                          bottom: floating ? clearance : 0,
+                                        ),
+                                ),
+                                autocomplete,
+                                ?notice,
+                                ?floatingIsland,
+                                ?lone,
+                              ],
+                            ),
                           );
                         },
                       ),
@@ -1160,4 +1060,299 @@ class ComposerPaneSlot extends StatelessWidget {
   Widget build(BuildContext context) =>
       context.dependOnInheritedWidgetOfExactType<ComposerPaneScope>()?.slot ??
       const SizedBox.shrink();
+}
+
+/// A laid-out height one island part reports for another to read in the
+/// same layout.
+class _Slot {
+  double value = 0;
+}
+
+/// Writes its child's laid-out height to [slot].
+class _Report extends SingleChildRenderObjectWidget {
+  const _Report({required this.slot, super.child});
+
+  final _Slot slot;
+
+  @override
+  RenderObject createRenderObject(BuildContext context) => _RenderReport(slot);
+
+  @override
+  void updateRenderObject(BuildContext context, _RenderReport r) =>
+      r.slot = slot;
+}
+
+class _RenderReport extends RenderProxyBox {
+  _RenderReport(this.slot);
+
+  _Slot slot;
+
+  @override
+  void performLayout() {
+    super.performLayout();
+    slot.value = size.height;
+  }
+}
+
+/// Hides the island's row (everything under the field, [flow] tall) from
+/// below by [keyboard], up to the whole row, and writes the row's height to
+/// [row].
+class _RowClip extends SingleChildRenderObjectWidget {
+  const _RowClip({
+    required this.keyboard,
+    required this.flow,
+    required this.row,
+    super.child,
+  });
+
+  final double keyboard;
+  final _Slot flow;
+  final _Slot row;
+
+  @override
+  RenderObject createRenderObject(BuildContext context) =>
+      _RenderRowClip(keyboard, flow, row);
+
+  @override
+  void updateRenderObject(BuildContext context, _RenderRowClip r) {
+    r
+      ..keyboard = keyboard
+      ..flow = flow
+      ..row = row;
+  }
+}
+
+class _RenderRowClip extends RenderProxyBox {
+  _RenderRowClip(this._keyboard, this.flow, this.row);
+
+  _Slot flow;
+  _Slot row;
+  double _clip = 0;
+
+  double _keyboard;
+  set keyboard(double value) {
+    if (value == _keyboard) return;
+    _keyboard = value;
+    markNeedsLayout();
+  }
+
+  @override
+  void performLayout() {
+    final child = this.child!;
+    child.layout(constraints, parentUsesSize: true);
+    final h = child.size.height;
+    row.value = (h - flow.value).clamp(0.0, h);
+    _clip = _keyboard.clamp(0.0, row.value);
+    size = constraints.constrain(Size(child.size.width, h - _clip));
+  }
+
+  final _clipLayer = LayerHandle<ClipRectLayer>();
+
+  @override
+  void paint(PaintingContext context, Offset offset) {
+    if (_clip <= 0) {
+      _clipLayer.layer = null;
+      super.paint(context, offset);
+      return;
+    }
+    _clipLayer.layer = context.pushClipRect(
+      needsCompositing,
+      offset,
+      Offset.zero & size,
+      super.paint,
+      oldLayer: _clipLayer.layer,
+    );
+  }
+
+  @override
+  void dispose() {
+    _clipLayer.layer = null;
+    super.dispose();
+  }
+}
+
+/// What a child of [_IslandStack] is to the island.
+enum _IslandRole { island, reply, above }
+
+class _IslandStackParentData extends StackParentData {
+  _IslandRole? role;
+
+  /// A fixed bottom for an overlay (the docked pane's), or null to sit on
+  /// the island's top.
+  double? anchor;
+}
+
+/// Places a child of [_IslandStack] by its [role]: the island at [bottom],
+/// the reply header and other overlays on the island's top unless [bottom]
+/// pins them.
+class _IslandPositioned extends ParentDataWidget<_IslandStackParentData> {
+  const _IslandPositioned({
+    super.key,
+    required this.role,
+    this.left,
+    this.right,
+    this.bottom,
+    required super.child,
+  });
+
+  final _IslandRole role;
+  final double? left;
+  final double? right;
+  final double? bottom;
+
+  @override
+  void applyParentData(RenderObject renderObject) {
+    final data = renderObject.parentData! as _IslandStackParentData;
+    if (data.role == role &&
+        data.left == left &&
+        data.right == right &&
+        data.anchor == bottom) {
+      return;
+    }
+    data
+      ..role = role
+      ..left = left
+      ..right = right
+      ..anchor = bottom
+      ..bottom = bottom ?? 0;
+    renderObject.parent?.markNeedsLayout();
+  }
+
+  @override
+  Type get debugTypicalAncestorWidgetClass => _IslandStack;
+}
+
+/// The body stack. Its layout places the island and the reply header first,
+/// publishes the island's footprint to [metrics], and only then lays out the
+/// body, whose lists read it in their own layout.
+class _IslandStack extends Stack {
+  const _IslandStack({
+    required this.metrics,
+    required this.presence,
+    required this.trim,
+    required this.footerFor,
+    required this.footer,
+    super.children,
+  }) : super(clipBehavior: Clip.hardEdge);
+
+  final IslandMetrics metrics;
+
+  /// How much of the island's footprint the lists clear, eased as the
+  /// island comes and goes.
+  final double presence;
+  final double trim;
+  final double Function(String channel)? footerFor;
+
+  /// The island footer's laid-out height, or null without a footer.
+  final _Slot? footer;
+
+  @override
+  RenderStack createRenderObject(BuildContext context) => _RenderIslandStack(
+    presence,
+    trim,
+    footerFor,
+    metrics: metrics,
+    footer: footer,
+    textDirection: Directionality.of(context),
+    clipBehavior: clipBehavior,
+  );
+
+  @override
+  void updateRenderObject(BuildContext context, RenderStack renderObject) {
+    super.updateRenderObject(context, renderObject);
+    (renderObject as _RenderIslandStack)
+      ..metrics = metrics
+      ..presence = presence
+      ..trim = trim
+      ..footerFor = footerFor
+      ..footer = footer;
+  }
+}
+
+class _RenderIslandStack extends RenderStack {
+  _RenderIslandStack(
+    this._presence,
+    this._trim,
+    this._footerFor, {
+    required this.metrics,
+    required this.footer,
+    super.textDirection,
+    super.clipBehavior,
+  });
+
+  IslandMetrics metrics;
+  _Slot? footer;
+
+  // The last island top, which the lists ease away from once it is gone.
+  double _lastTop = 0;
+
+  double _presence;
+  set presence(double value) {
+    if (value == _presence) return;
+    _presence = value;
+    markNeedsLayout();
+  }
+
+  double _trim;
+  set trim(double value) {
+    if (value == _trim) return;
+    _trim = value;
+    markNeedsLayout();
+  }
+
+  double Function(String channel)? _footerFor;
+  set footerFor(double Function(String channel)? value) {
+    if (value == _footerFor) return;
+    _footerFor = value;
+    markNeedsLayout();
+  }
+
+  @override
+  void setupParentData(RenderBox child) {
+    if (child.parentData is! _IslandStackParentData) {
+      child.parentData = _IslandStackParentData();
+    }
+  }
+
+  @override
+  void performLayout() {
+    final box = constraints.biggest;
+    final align = alignment.resolve(textDirection);
+    double? islandH;
+    double? islandTop;
+    var extra = 0.0;
+    for (var child = firstChild; child != null; child = childAfter(child)) {
+      final data = child.parentData! as _IslandStackParentData;
+      switch (data.role) {
+        case _IslandRole.island:
+          RenderStack.layoutPositionedChild(child, data, box, align);
+          islandH = child.size.height;
+          islandTop = (data.anchor ?? 0) + islandH;
+        case _IslandRole.reply:
+          RenderStack.layoutPositionedChild(child, data, box, align);
+          extra = child.size.height;
+        case _IslandRole.above || null:
+          break;
+      }
+    }
+    if (islandTop != null) _lastTop = islandTop;
+    final top = _lastTop * _presence;
+    invokeLayoutCallback<BoxConstraints>(
+      (_) => metrics.publish(
+        top: top,
+        height: islandH ?? 0,
+        footer: islandH == null ? 0 : footer?.value ?? 0,
+        extra: extra,
+        trim: _trim,
+        footerFor: _footerFor,
+      ),
+    );
+    for (var child = firstChild; child != null; child = childAfter(child)) {
+      final data = child.parentData! as _IslandStackParentData;
+      if (data.role == _IslandRole.reply || data.role == _IslandRole.above) {
+        data.bottom = data.anchor ?? top;
+      }
+    }
+    super.performLayout();
+  }
 }

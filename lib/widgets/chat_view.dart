@@ -275,11 +275,9 @@ class _ChatViewState extends State<ChatView>
   // Bumped by a far jump to the newest row to mount a fresh list.
   int _listGen = 0;
 
-  // Effective pill clearance for this frame: the explicit prop wins, zero
-  // falls back to the scope so surfaces without threaded params (welcome,
-  // panels) still clear the floating pill. Set at the top of every build.
-  double _effBottom = 0;
-  double _listExtra = 0;
+  /// The channel whose island this list clears ahead of a switch: its own,
+  /// on a channel page. See [IslandMetrics.clearance].
+  String? get _islandPage => widget.channelPage ? widget.channel : null;
 
   @override
   void initState() {
@@ -311,11 +309,7 @@ class _ChatViewState extends State<ChatView>
     super.build(context);
     final surface = Theme.of(context).scaffoldBackgroundColor;
     final s = widget.chatFontScale * _cachedSystemScale;
-    final island = IslandScope.maybeOf(context, page: widget.channelPage);
-    _effBottom =
-        island?.clearance(page: widget.channelPage ? widget.channel : null) ??
-        0;
-    _listExtra = island?.listExtra ?? 0;
+    final glass = IslandScope.maybeOf(context)?.glass ?? false;
     return Stack(
       clipBehavior: Clip.hardEdge,
       children: [
@@ -375,17 +369,25 @@ class _ChatViewState extends State<ChatView>
         ValueListenableBuilder<bool>(
           valueListenable: widget.atBottomNotifier,
           builder: (_, atBottom, _) {
-            // Glass pill floats over the list bottom, so lift the button
+            // The island floats over the list bottom, so the button rides
             // above it by the same clearance the newest rows use.
-            return Positioned(
-              right: 16,
-              bottom: 16 + _effBottom,
-              child: ScrollDownButton(
-                atBottom: atBottom,
-                glass: island?.glass ?? false,
-                heroTag:
-                    widget.scrollFabHeroTag ?? 'scroll_down_${widget.channel}',
-                onPressed: _jumpToBottom,
+            return Positioned.fill(
+              child: IslandInset(
+                page: _islandPage,
+                child: Align(
+                  alignment: Alignment.bottomRight,
+                  child: Padding(
+                    padding: const EdgeInsets.only(right: 16, bottom: 16),
+                    child: ScrollDownButton(
+                      atBottom: atBottom,
+                      glass: glass,
+                      heroTag:
+                          widget.scrollFabHeroTag ??
+                          'scroll_down_${widget.channel}',
+                      onPressed: _jumpToBottom,
+                    ),
+                  ),
+                ),
               ),
             );
           },
@@ -402,14 +404,13 @@ class _ChatViewState extends State<ChatView>
   ) {
     _beginBuiltRange();
     final empty = msgs.isEmpty;
-    // Opaque in-flow composer sits flush under the list, so keep a small
-    // fixed gap above it. A floating island clears its measured footprint
-    // plus the same visual gap.
-    final listBottom =
-        (_effBottom > 0.5
-            ? _effBottom + kFloatingComposerGap
-            : kOpaqueComposerGap) +
-        _listExtra;
+    // The newest rows rest above the island; the spacer sizes in layout.
+    final bottom = SliverToBoxAdapter(
+      child: IslandSpacer(page: _islandPage, chat: !empty),
+    );
+    final top = SliverToBoxAdapter(
+      child: SizedBox(height: widget.topOverlayPadding),
+    );
     if (!empty) {
       final cache = widget.tileCache?.putIfAbsent(
         widget.channel,
@@ -417,7 +418,7 @@ class _ChatViewState extends State<ChatView>
       );
       _refreshIndexMap(msgs, cache);
       _listMsgs = msgs;
-      final list = ListView.builder(
+      final list = CustomScrollView(
         // PageStorage key restores the offset after the channel page
         // unmounts off screen; kept-alive lists need no key.
         key: widget.keepAlive
@@ -426,34 +427,38 @@ class _ChatViewState extends State<ChatView>
         controller: widget.scrollController,
         reverse: true,
         physics: _scrollPhysics(),
-        padding: EdgeInsets.only(
-          top: widget.topOverlayPadding,
-          bottom: listBottom,
-        ),
         keyboardDismissBehavior: widget.keyboardDismissBehavior,
-        itemCount: msgs.length,
-        findChildIndexCallback: _findChildIndex,
-        addAutomaticKeepAlives: false,
-        addRepaintBoundaries: false,
-        addSemanticIndexes: true,
-        itemBuilder: (ctx, i) {
-          _noteBuiltIndex(i);
-          _scheduleGateSync();
-          return RowGate(
-            key: _messageKey(msgs[i]),
-            gates: _gates,
-            child: _buildTile(
-              msgs,
-              cache,
-              _idToIndex,
-              i,
-              surface,
-              s,
-              ctx,
-              widget.checkeredMessages,
+        semanticChildCount: msgs.length,
+        slivers: [
+          bottom,
+          SliverList(
+            delegate: SliverChildBuilderDelegate(
+              (ctx, i) {
+                _noteBuiltIndex(i);
+                _scheduleGateSync();
+                return RowGate(
+                  key: _messageKey(msgs[i]),
+                  gates: _gates,
+                  child: _buildTile(
+                    msgs,
+                    cache,
+                    _idToIndex,
+                    i,
+                    surface,
+                    s,
+                    ctx,
+                    widget.checkeredMessages,
+                  ),
+                );
+              },
+              childCount: msgs.length,
+              findChildIndexCallback: _findChildIndex,
+              addAutomaticKeepAlives: false,
+              addRepaintBoundaries: false,
             ),
-          );
-        },
+          ),
+          top,
+        ],
       );
       return KeyedSubtree(key: ValueKey<int>(_listGen), child: list);
     }
@@ -466,30 +471,30 @@ class _ChatViewState extends State<ChatView>
       channel: widget.channel,
     );
     _refreshIndexMap(const [], null);
-    return ListView.builder(
+    return CustomScrollView(
       key: ValueKey<String>('${widget.channel}:empty'),
       controller: widget.scrollController,
       reverse: true,
       physics: _scrollPhysics(),
-      padding: EdgeInsets.only(
-        top: widget.topOverlayPadding,
-        bottom: _effBottom,
-      ),
       keyboardDismissBehavior: widget.keyboardDismissBehavior,
-      itemCount: 1,
-      addAutomaticKeepAlives: false,
-      addRepaintBoundaries: false,
-      addSemanticIndexes: false,
-      itemBuilder: (ctx, i) => _buildTile(
-        [emptyMsg],
-        null,
-        const {},
-        0,
-        surface,
-        s,
-        ctx,
-        widget.checkeredMessages,
-      ),
+      slivers: [
+        bottom,
+        SliverToBoxAdapter(
+          child: Builder(
+            builder: (ctx) => _buildTile(
+              [emptyMsg],
+              null,
+              const {},
+              0,
+              surface,
+              s,
+              ctx,
+              widget.checkeredMessages,
+            ),
+          ),
+        ),
+        top,
+      ],
     );
   }
 
@@ -750,9 +755,11 @@ class _ChatViewState extends State<ChatView>
     final root = _position?.context.notificationContext?.findRenderObject();
     if (root == null) return null;
     final viewport = _findDescendant<RenderViewport>(root);
-    final firstSliver = viewport?.firstChild;
-    if (firstSliver == null) return null;
-    return _findDescendant<RenderSliverMultiBoxAdaptor>(firstSliver);
+    // The island spacer comes first; the rows are the one list sliver.
+    for (var s = viewport?.firstChild; s != null; s = viewport!.childAfter(s)) {
+      if (s is RenderSliverMultiBoxAdaptor) return s;
+    }
+    return null;
   }
 
   T? _findDescendant<T extends RenderObject>(RenderObject node) {

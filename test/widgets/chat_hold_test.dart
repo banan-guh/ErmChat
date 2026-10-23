@@ -116,7 +116,11 @@ void main() {
     await h.pump();
 
     // A real device fling leaves the reader deep in the backlog.
-    await tester.fling(find.byType(ListView), const Offset(0, 900), 2000);
+    await tester.fling(
+      find.byType(CustomScrollView),
+      const Offset(0, 900),
+      2000,
+    );
     await tester.pumpAndSettle();
 
     final tracked = h.visibleRows().keys.take(6).toList();
@@ -159,7 +163,11 @@ void main() {
     final h = _Harness(tester: tester, messages: messages, notifier: notifier);
     await h.pump();
 
-    await tester.fling(find.byType(ListView), const Offset(0, 900), 2000);
+    await tester.fling(
+      find.byType(CustomScrollView),
+      const Offset(0, 900),
+      2000,
+    );
     await tester.pumpAndSettle();
 
     final tracked = h.visibleRows().keys.take(6).toList();
@@ -196,7 +204,11 @@ void main() {
     // keepAlive false routes through the PageStorageKey branch channel pages use.
     await h.pump(keepAlive: false);
 
-    await tester.fling(find.byType(ListView), const Offset(0, 900), 2000);
+    await tester.fling(
+      find.byType(CustomScrollView),
+      const Offset(0, 900),
+      2000,
+    );
     await tester.pumpAndSettle();
 
     final tracked = h.visibleRows().keys.take(6).toList();
@@ -231,7 +243,11 @@ void main() {
     final h = _Harness(tester: tester, messages: messages, notifier: notifier);
     await h.pump();
 
-    await tester.fling(find.byType(ListView), const Offset(0, 900), 2000);
+    await tester.fling(
+      find.byType(CustomScrollView),
+      const Offset(0, 900),
+      2000,
+    );
     await tester.pumpAndSettle();
 
     final tracked = h.visibleRows().keys.take(6).toList();
@@ -271,7 +287,11 @@ void main() {
     final h = _Harness(tester: tester, messages: messages, notifier: notifier);
     await h.pump();
 
-    await tester.fling(find.byType(ListView), const Offset(0, 900), 2000);
+    await tester.fling(
+      find.byType(CustomScrollView),
+      const Offset(0, 900),
+      2000,
+    );
     await tester.pumpAndSettle();
 
     final tracked = h.visibleRows().keys.take(6).toList();
@@ -307,7 +327,11 @@ void main() {
     final h = _Harness(tester: tester, messages: messages, notifier: notifier);
     await h.pump();
 
-    await tester.fling(find.byType(ListView), const Offset(0, 3000), 4000);
+    await tester.fling(
+      find.byType(CustomScrollView),
+      const Offset(0, 3000),
+      4000,
+    );
     await tester.pumpAndSettle();
     expect(h.controller.offset, greaterThan(1000));
 
@@ -333,7 +357,11 @@ void main() {
     final h = _Harness(tester: tester, messages: messages, notifier: notifier);
     await h.pump();
 
-    await tester.fling(find.byType(ListView), const Offset(0, 3000), 4000);
+    await tester.fling(
+      find.byType(CustomScrollView),
+      const Offset(0, 3000),
+      4000,
+    );
     await tester.pumpAndSettle();
     expect(h.controller.offset, greaterThan(1000));
 
@@ -359,7 +387,11 @@ void main() {
     final h = _Harness(tester: tester, messages: messages, notifier: notifier);
     await h.pump();
 
-    await tester.fling(find.byType(ListView), const Offset(0, 3000), 4000);
+    await tester.fling(
+      find.byType(CustomScrollView),
+      const Offset(0, 3000),
+      4000,
+    );
     await tester.pumpAndSettle();
     expect(h.controller.offset, greaterThan(1000));
 

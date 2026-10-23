@@ -155,12 +155,10 @@ class _RequestsTabState extends State<RequestsTab>
               subtitle: _status == 'pending' ? mod.l10n.newRequestsHint : null,
             ),
             builder: (context, requests) => ListView.builder(
-              padding: islandListPadding(
-                context,
-                const EdgeInsets.fromLTRB(8, 4, 8, 16),
-              ),
-              itemCount: requests.length,
+              padding: const EdgeInsets.fromLTRB(8, 4, 8, 16),
+              itemCount: requests.length + 1,
               itemBuilder: (_, i) {
+                if (i == requests.length) return const IslandSpacer();
                 final request = requests[i];
                 return Card(
                   margin: const EdgeInsets.symmetric(

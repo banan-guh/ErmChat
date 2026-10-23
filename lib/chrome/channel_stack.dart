@@ -235,8 +235,8 @@ class ChannelPanels {
 
   Widget _cachedPage(BuildContext context, String channel, double topPadding) {
     // Glass header clearance joins the token so toggling glass evicts stale
-    // pages with stale spacers. The pill clearance arrives through
-    // IslandScope instead, so it never evicts a page.
+    // pages with stale spacers. The island clearance sizes in layout
+    // instead, so it never evicts a page.
     final token = '${_pageToken()}|${topPadding.round()}|${_menuFloats()}';
     final cached = _pageCache[channel];
     if (cached != null && cached.token == token) return cached.widget;

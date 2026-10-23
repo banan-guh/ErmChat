@@ -671,22 +671,15 @@ void main() {
                         required composerH,
                       }) => Builder(
                         // bodyBuilder gets ChatBody's own context, above the
-                        // scope, so read the clearance from a nested builder.
-                        builder: (inner) => Stack(
-                          fit: StackFit.expand,
-                          children: [
-                            Positioned(
-                              left: 0,
-                              right: 0,
-                              bottom:
-                                  IslandScope.maybeOf(inner)?.bottomClearance ??
-                                  0,
-                              child: const SizedBox(
-                                key: Key('glass_newest_row'),
-                                height: 20,
-                              ),
+                        // scope, so the inset reads it from a nested builder.
+                        builder: (inner) => const IslandInset(
+                          child: Align(
+                            alignment: Alignment.bottomCenter,
+                            child: SizedBox(
+                              key: Key('glass_newest_row'),
+                              height: 20,
                             ),
-                          ],
+                          ),
                         ),
                       ),
                   threadPanel: const SizedBox.shrink(),

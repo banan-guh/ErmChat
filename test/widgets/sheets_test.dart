@@ -253,7 +253,10 @@ void main() {
           .getBottomLeft(find.byKey(const Key('sheet')))
           .dy;
       final stackBox =
-          tester.element(find.byType(Stack).first).renderObject! as RenderBox;
+          tester
+                  .element(find.byWidgetPredicate((w) => w is Stack).first)
+                  .renderObject!
+              as RenderBox;
       final stackBottom = stackBox.localToGlobal(
         Offset(0, stackBox.size.height),
       );

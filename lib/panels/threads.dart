@@ -638,9 +638,10 @@ class ThreadPanels {
         }
         final theme = Theme.of(context);
         return ListView.builder(
-          padding: islandListPadding(context),
-          itemCount: threads.length,
+          padding: EdgeInsets.zero,
+          itemCount: threads.length + 1,
           itemBuilder: (context, i) {
+            if (i == threads.length) return const IslandSpacer();
             final summary = threads[i];
             final unread = isThreadUnread(channel, summary);
             // Orphan threads have no root yet; show the newest reply by
@@ -702,9 +703,10 @@ class ThreadPanels {
           return Center(child: Text(context.l10n.noSavedThreads));
         }
         return ListView.builder(
-          padding: islandListPadding(context),
-          itemCount: saved.length,
+          padding: EdgeInsets.zero,
+          itemCount: saved.length + 1,
           itemBuilder: (context, i) {
+            if (i == saved.length) return const IslandSpacer();
             final entry = saved[i];
             return ListTile(
               leading: const Icon(Icons.bookmark),

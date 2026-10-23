@@ -1637,8 +1637,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   }
 
   /// The island footer [channel] shows, for its page's pre-placed clearance.
-  double _statusHeightFor(String channel) =>
-      composerStatusHeight(context, _composer, channel, modeRow: _modeRow);
+  double _statusHeightFor(String channel) => composerStatusHeight(
+    context,
+    _composer,
+    channel,
+    modeRow: _modeRow,
+    hidden: composerStatusHidden(_search, _mod),
+  );
 
   /// Whether room modes may ride the island's button row: the row shows.
   bool get _modeRow => _chromeTheme.hasRow && _showInput;

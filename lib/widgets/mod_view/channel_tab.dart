@@ -34,10 +34,7 @@ class ChannelTab extends StatelessWidget {
       );
     }
     return ListView(
-      padding: islandListPadding(
-        context,
-        const EdgeInsets.fromLTRB(8, 4, 8, 24),
-      ),
+      padding: const EdgeInsets.fromLTRB(8, 4, 8, 24),
       children: [
         if (owner) ...[
           BannedSection(mod: mod),
@@ -54,6 +51,7 @@ class ChannelTab extends StatelessWidget {
           ModSectionHeader(mod.l10n.modSectionPoints),
           PointsSection(mod: mod),
         ],
+        const IslandSpacer(),
       ],
     );
   }

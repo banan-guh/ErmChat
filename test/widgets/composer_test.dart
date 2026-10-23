@@ -222,9 +222,12 @@ void main() {
     double islandGap() =>
         800 - tester.getRect(find.byKey(const ValueKey('composer_island'))).top;
 
-    expect(scope!.clearance(), moreOrLessEquals(islandGap(), epsilon: 1));
     expect(
-      scope!.clearance(page: 'chan'),
+      scope!.metrics.clearance(),
+      moreOrLessEquals(islandGap(), epsilon: 1),
+    );
+    expect(
+      scope!.metrics.clearance(page: 'chan'),
       moreOrLessEquals(islandGap(), epsilon: 1),
       reason: 'the selected page clears the same island',
     );
@@ -233,7 +236,10 @@ void main() {
     // coming or going and kept its first frame's height.
     status.value = 40;
     await tester.pumpAndSettle();
-    expect(scope!.clearance(), moreOrLessEquals(islandGap(), epsilon: 1));
+    expect(
+      scope!.metrics.clearance(),
+      moreOrLessEquals(islandGap(), epsilon: 1),
+    );
   });
 
   // Shipped bug: the body's viewPadding loses the nav bar under the keyboard,
@@ -287,14 +293,14 @@ void main() {
     addTearDown(tester.view.reset);
     final focus = FocusNode();
     addTearDown(focus.dispose);
-    var clearance = 0.0;
+    IslandMetrics? metrics;
+    double clearance() => metrics?.clearance() ?? 0;
     await pumpBody(
       tester,
       liquidGlass: false,
       focus: focus,
       islandFlush: true,
-      onBodyBuild: (body) =>
-          clearance = IslandScope.maybeOf(body)?.bottomClearance ?? 0,
+      onBodyBuild: (body) => metrics = IslandScope.maybeOf(body)?.metrics,
     );
     await tester.pumpAndSettle();
     final island = find.byKey(const ValueKey('composer_island'));
@@ -318,7 +324,7 @@ void main() {
       await tester.pump(const Duration(milliseconds: 16));
       final top = tester.getRect(island).top;
       expect(
-        clearance,
+        clearance(),
         moreOrLessEquals(800 - kb - top, epsilon: 0.5),
         reason: 'keyboard at $kb: rows lag the island',
       );
@@ -761,7 +767,8 @@ void main() {
   testWidgets('typing a new line lifts the chat with the growing field', (
     tester,
   ) async {
-    var clearance = 0.0;
+    IslandMetrics? metrics;
+    double clearance() => metrics?.clearance() ?? 0;
     final text = TextEditingController();
     final focus = FocusNode();
     addTearDown(text.dispose);
@@ -774,7 +781,7 @@ void main() {
       maxLines: 6,
       bottomBar: const SizedBox(height: 48),
       onBodyBuild: (inner) {
-        clearance = IslandScope.maybeOf(inner)?.clearance() ?? 0;
+        metrics = IslandScope.maybeOf(inner)?.metrics;
       },
     );
     await tester.pumpAndSettle();
@@ -793,7 +800,7 @@ void main() {
         await tester.pump(const Duration(milliseconds: 16));
       }
       expect(
-        clearance,
+        clearance(),
         moreOrLessEquals(fieldGap(), epsilon: 1),
         reason: 'line $line left the newest message under the field',
       );
@@ -808,7 +815,8 @@ void main() {
     tester.view.physicalSize = const Size(400, 800);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
-    var clearance = 0.0;
+    IslandMetrics? metrics;
+    double clearance() => metrics?.clearance() ?? 0;
     final text = TextEditingController(text: 'a\nb');
     final focus = FocusNode();
     addTearDown(text.dispose);
@@ -822,7 +830,7 @@ void main() {
       keyboardHidesButtons: true,
       bottomBar: const SizedBox(key: Key('test_bar'), height: 48),
       onBodyBuild: (inner) {
-        clearance = IslandScope.maybeOf(inner)?.clearance() ?? 0;
+        metrics = IslandScope.maybeOf(inner)?.metrics;
       },
     );
     await tester.pumpAndSettle();
@@ -836,12 +844,12 @@ void main() {
     await tester.pump();
     await moveKeyboard(tester, [for (var kb = 0.0; kb <= 300; kb += 30) kb]);
     await tester.pumpAndSettle();
-    expect(clearance, moreOrLessEquals(fieldGap(), epsilon: 1));
+    expect(clearance(), moreOrLessEquals(fieldGap(), epsilon: 1));
 
     text.clear();
     await tester.pumpAndSettle();
     expect(
-      clearance,
+      clearance(),
       moreOrLessEquals(fieldGap(), epsilon: 1),
       reason: 'sending left a gap under the newest message',
     );
@@ -859,7 +867,7 @@ void main() {
     }
     await tester.pumpAndSettle();
     expect(
-      clearance,
+      clearance(),
       moreOrLessEquals(fieldGap(), epsilon: 1),
       reason: 'a typed line slid the field over the newest message',
     );

@@ -141,7 +141,7 @@ void main() {
       messages.insert(0, messages[4]);
       notifier.value++;
       await tester.pump();
-      await tester.tap(find.byType(ListView), warnIfMissed: false);
+      await tester.tap(find.byType(CustomScrollView), warnIfMissed: false);
       await tester.pump();
       expect(tester.takeException(), isNull, reason: 'round $round');
     }
@@ -172,7 +172,7 @@ void main() {
       notifier.value++;
       await tester.pump();
 
-      await tester.tap(find.byType(ListView), warnIfMissed: false);
+      await tester.tap(find.byType(CustomScrollView), warnIfMissed: false);
       await tester.pump();
 
       expect(
@@ -229,7 +229,7 @@ void main() {
     // Gates settle the frame after layout; rows start enabled on purpose.
     await tester.pump();
     expectGatesMatchViewport();
-    await tester.drag(find.byType(ListView), const Offset(0, 300));
+    await tester.drag(find.byType(CustomScrollView), const Offset(0, 300));
     await tester.pump();
     await tester.pump();
     expectGatesMatchViewport();

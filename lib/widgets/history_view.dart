@@ -334,7 +334,13 @@ class _HistoryViewState extends State<HistoryView> {
   );
 
   /// The newer end's padding: the newest row rests this far above offset 0.
-  double _bottomGap = 0;
+  double get _bottomGap {
+    final island = _island;
+    if (island == null) return kOpaqueComposerGap;
+    return island.listGap(page: widget.channelPage ? widget.channel : null);
+  }
+
+  IslandMetrics? _island;
   final GlobalKey _olderKey = GlobalKey();
   final GlobalKey _newerKey = GlobalKey();
   final _Moves _olderMoves = _Moves();
@@ -2083,18 +2089,10 @@ class _HistoryViewState extends State<HistoryView> {
 
   @override
   Widget build(BuildContext context) {
-    final scope = IslandScope.maybeOf(context, page: widget.channelPage);
+    final scope = IslandScope.maybeOf(context);
     final glass = scope?.glass ?? false;
-    final floating = (scope?.bottomClearance ?? 0) > 0.5;
-    // The docked island sits flush under the list, so keep a small fixed gap
-    // above it. A floating island clears by its measured footprint plus the
-    // same visual gap, and rows scroll on behind it.
-    final island = floating
-        ? scope!.clearance(page: widget.channelPage ? widget.channel : null)
-        : 0.0;
-    final bottom = _bottomGap =
-        (floating ? island + kFloatingComposerGap : kOpaqueComposerGap) +
-        (scope?.listExtra ?? 0);
+    _island = scope?.metrics;
+    final page = widget.channelPage ? widget.channel : null;
     _status =
         'win ${_window.length}  ${_window.first}-${_window.end}  '
         'anchor $_anchor';
@@ -2123,7 +2121,9 @@ class _HistoryViewState extends State<HistoryView> {
             center: _olderKey,
             keyboardDismissBehavior: widget.keyboardDismissBehavior,
             slivers: [
-              SliverToBoxAdapter(child: SizedBox(height: bottom)),
+              // Sizes in layout, so the newest row clears the island in the
+              // frame it moves.
+              SliverToBoxAdapter(child: IslandSpacer(page: page, chat: true)),
               if (empty) SliverToBoxAdapter(child: _empty(context)),
               _MovingSliverList(
                 key: _newerKey,
@@ -2191,15 +2191,23 @@ class _HistoryViewState extends State<HistoryView> {
         if (widget.atBottomNotifier case final atBottom?)
           ValueListenableBuilder<bool>(
             valueListenable: atBottom,
-            builder: (_, value, _) => Positioned(
-              right: 16,
-              bottom: 16 + island,
-              child: ScrollDownButton(
-                atBottom: value,
-                glass: glass,
-                heroTag:
-                    widget.scrollFabHeroTag ?? 'scroll_down_${widget.channel}',
-                onPressed: _jumpToNewest,
+            builder: (_, value, _) => Positioned.fill(
+              child: IslandInset(
+                page: page,
+                child: Align(
+                  alignment: Alignment.bottomRight,
+                  child: Padding(
+                    padding: const EdgeInsets.only(right: 16, bottom: 16),
+                    child: ScrollDownButton(
+                      atBottom: value,
+                      glass: glass,
+                      heroTag:
+                          widget.scrollFabHeroTag ??
+                          'scroll_down_${widget.channel}',
+                      onPressed: _jumpToNewest,
+                    ),
+                  ),
+                ),
               ),
             ),
           ),

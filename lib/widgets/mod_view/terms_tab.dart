@@ -56,12 +56,10 @@ class _TermsTabState extends State<TermsTab> with ModTabState<TermsTab> {
               subtitle: mod.l10n.wildcardHint,
             ),
             builder: (context, terms) => ListView.builder(
-              padding: islandListPadding(
-                context,
-                const EdgeInsets.fromLTRB(8, 4, 8, 16),
-              ),
-              itemCount: terms.length,
+              padding: const EdgeInsets.fromLTRB(8, 4, 8, 16),
+              itemCount: terms.length + 1,
               itemBuilder: (_, i) {
+                if (i == terms.length) return const IslandSpacer();
                 final term = terms[i];
                 return ListTile(
                   contentPadding: const EdgeInsets.symmetric(

@@ -149,12 +149,10 @@ class _QueueTabState extends State<QueueTab> with ModTabState<QueueTab> {
                       ),
                     )
                   : ListView.builder(
-                      padding: islandListPadding(
-                        context,
-                        const EdgeInsets.fromLTRB(8, 4, 8, 16),
-                      ),
-                      itemCount: queue.length,
+                      padding: const EdgeInsets.fromLTRB(8, 4, 8, 16),
+                      itemCount: queue.length + 1,
                       itemBuilder: (_, i) {
+                        if (i == queue.length) return const IslandSpacer();
                         final held = queue[i];
                         return _HeldCard(
                           held: held,
