@@ -1500,16 +1500,20 @@ class _HistoryViewState extends State<HistoryView> {
 
   /// Physics hook, run in the layout that applies new content.
   double? _resolve(ScrollMetrics m) {
-    if (_follow && _window.atNewest) return m.minScrollExtent;
+    if (_follow && _window.atNewest) {
+      // A drag past the newest row is the iOS bounce, so leave it alone.
+      if (m.pixels < m.minScrollExtent) return null;
+      return m.minScrollExtent;
+    }
     final hold = _hold;
     if (hold == null) return null;
     _hold = null;
     final now = _coordOf(hold.key, hold.height);
     if (now == null) return null;
-    return (m.pixels + now - hold.coord).clamp(
-      m.minScrollExtent,
-      m.maxScrollExtent,
-    );
+    final target = m.pixels + now - hold.coord;
+    // The same at the oldest end: a bounce is not a content shift.
+    if (target < m.minScrollExtent || target > m.maxScrollExtent) return null;
+    return target;
   }
 
   bool _onScrollNotification(ScrollNotification n) {
