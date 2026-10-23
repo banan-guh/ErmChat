@@ -539,7 +539,6 @@ class Setting {
     'Notifications',
     SettingsPageId.highlights,
     keywords: 'push alert mute pause snooze do not disturb dnd',
-    visible: _notIos,
   );
   static const whisperPush = Setting(
     'whisper_push',
