@@ -135,6 +135,10 @@ class TabbedLayout extends StatefulWidget {
   /// Gets the height left below its top, for keyboard-aware sizing.
   final Widget? pagesOverlay;
 
+  /// Key for the page stack, so callers can anchor floating chrome to the
+  /// pages instead of the screen.
+  final GlobalKey? pagesKey;
+
   /// Gap around the [pagesOverlay] cards.
   static const double cardInset = kChromeMenuMargin / 2;
 
@@ -194,6 +198,7 @@ class TabbedLayout extends StatefulWidget {
     this.showTabBar = true,
     this.fullscreen = false,
     this.pagesOverlay,
+    this.pagesKey,
     this.addTab,
     this.onAddTab,
     this.stripTrailing,
@@ -801,7 +806,7 @@ class TabbedLayoutState extends State<TabbedLayout>
             : statusBarHeight(context)) +
         kChromeMenuMargin;
     final pages = Stack(
-      key: _pagesKey,
+      key: widget.pagesKey ?? _pagesKey,
       children: [
         NotificationListener<ScrollNotification>(
           onNotification: _onPageNotification,
