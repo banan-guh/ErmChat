@@ -1,2 +1,3 @@
 - Refactored chat view to fix whispers padding
 - Add iOS notification server (closed-source for now)
+- Add jump to message from mentions
