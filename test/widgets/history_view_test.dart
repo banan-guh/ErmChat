@@ -14,6 +14,8 @@ import 'package:ermchat/widgets/history_view.dart';
 import 'package:ermchat/widgets/message_builder.dart';
 import 'package:ermchat/services/twitch_badge_service.dart';
 import 'package:ermchat/services/third_party_badge_service.dart';
+import 'package:flutter/foundation.dart'
+    show debugDefaultTargetPlatformOverride;
 import 'package:flutter/gestures.dart' show PointerDeviceKind;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -199,6 +201,7 @@ Future<void> _pumpView(
   bool liveFirst = true,
   List<TwitchMessage>? newestRows,
   bool settle = true,
+  IslandMetrics? metrics,
 }) async {
   FakeHistory.loadDelay = Duration.zero;
   tester.view.physicalSize = const Size(400, 800);
@@ -212,31 +215,34 @@ Future<void> _pumpView(
     thirdPartyBadgeService: ThirdPartyBadgeService(),
     onShowEmoteSheet: (_) {},
   );
+  final view = HistoryView(
+    channel: _ch,
+    source: source ?? FakeHistorySource(_ch),
+    rows: ChatRows(
+      channel: _ch,
+      messageBuilder: builder,
+      onShowUserProfile: (_, _, {displayName}) {},
+    ),
+    debugControls: true,
+    tileCache: tileCache,
+    jumpRequest: jumpRequest,
+    calendarRequest: calendarRequest,
+    actions: actions,
+    atBottomNotifier: atBottom,
+    live: live,
+    liveFirst: liveFirst,
+    newestRows: newestRows,
+    liveVersion: liveVersion,
+    topPadding: _inset,
+  );
   await tester.pumpWidget(
     MaterialApp(
       localizationsDelegates: AppLocalizations.localizationsDelegates,
       supportedLocales: AppLocalizations.supportedLocales,
       home: Scaffold(
-        body: HistoryView(
-          channel: _ch,
-          source: source ?? FakeHistorySource(_ch),
-          rows: ChatRows(
-            channel: _ch,
-            messageBuilder: builder,
-            onShowUserProfile: (_, _, {displayName}) {},
-          ),
-          debugControls: true,
-          tileCache: tileCache,
-          jumpRequest: jumpRequest,
-          calendarRequest: calendarRequest,
-          actions: actions,
-          atBottomNotifier: atBottom,
-          live: live,
-          liveFirst: liveFirst,
-          newestRows: newestRows,
-          liveVersion: liveVersion,
-          topPadding: _inset,
-        ),
+        body: metrics == null
+            ? view
+            : IslandScope(metrics: metrics, glass: false, child: view),
       ),
     ),
   );
@@ -522,6 +528,75 @@ void main() {
       moreOrLessEquals(bottom, epsilon: 1),
       reason: 'resting on the newest row resumes following',
     );
+  });
+
+  testWidgets('iOS drag past the newest row overscrolls', (tester) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+    addTearDown(() => debugDefaultTargetPlatformOverride = null);
+    final version = ValueNotifier(0);
+    addTearDown(version.dispose);
+    final metrics = IslandMetrics()
+      ..publish(
+        top: 120,
+        height: 56,
+        footer: 0,
+        extra: 0,
+        trim: 0,
+        footerFor: null,
+      );
+    final buffer = <TwitchMessage>[
+      for (var i = 0; i < 40; i++)
+        TwitchMessage(
+          login: 'live',
+          text: 'live $i',
+          messageId: 'live-$i',
+          channel: _ch,
+          timestamp: FakeHistory.now.add(Duration(seconds: i)),
+        ),
+    ];
+    await _pumpView(
+      tester,
+      live: () => buffer,
+      liveVersion: version,
+      metrics: metrics,
+    );
+    await _settle(tester);
+    final scrollable = tester.state<ScrollableState>(
+      find.descendant(
+        of: find.byType(CustomScrollView),
+        matching: find.byType(Scrollable),
+      ),
+    );
+    final p = scrollable.position;
+    expect(p.pixels, moreOrLessEquals(p.minScrollExtent, epsilon: 0.5));
+    final g = await tester.startGesture(
+      tester.getCenter(find.byType(CustomScrollView)),
+    );
+    await tester.pump();
+    await g.moveBy(const Offset(0, -80));
+    await tester.pump();
+    await g.moveBy(const Offset(0, -120));
+    await tester.pump();
+    expect(p.pixels, lessThan(p.minScrollExtent), reason: 'no overscroll');
+    // The island shrank mid-drag, as a keyboard or footer change does. The
+    // shorter leading extent must not pull the bounce back to the edge.
+    metrics.publish(
+      top: 0,
+      height: 0,
+      footer: 0,
+      extra: 0,
+      trim: 0,
+      footerFor: null,
+    );
+    await tester.pump();
+    expect(
+      p.pixels,
+      lessThan(p.minScrollExtent - 1),
+      reason: 'the bounce was pinned to the newest edge',
+    );
+    await g.up();
+    await _settle(tester);
+    debugDefaultTargetPlatformOverride = null;
   });
 
   testWidgets('a wheel scroll up stops following like a drag', (tester) async {
