@@ -638,7 +638,7 @@ class ThreadPanels {
         }
         final theme = Theme.of(context);
         return ListView.builder(
-          padding: glassListPadding(context),
+          padding: islandListPadding(context),
           itemCount: threads.length,
           itemBuilder: (context, i) {
             final summary = threads[i];
@@ -702,7 +702,7 @@ class ThreadPanels {
           return Center(child: Text(context.l10n.noSavedThreads));
         }
         return ListView.builder(
-          padding: glassListPadding(context),
+          padding: islandListPadding(context),
           itemCount: saved.length,
           itemBuilder: (context, i) {
             final entry = saved[i];

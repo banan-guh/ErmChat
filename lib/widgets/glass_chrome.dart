@@ -49,12 +49,14 @@ const double kGlassEdgeBleed = 32.0;
 bool glassEnabled(BuildContext context, bool flag) =>
     flag && !MediaQuery.highContrastOf(context);
 
-// Bottom clearance the scrolling lists keep above the composer pill.
-// Provided by ChatBody around the body stack so every ChatView (main pages,
-// welcome, panels) clears the pill without hand-threaded params. Zero when
-// the pill is off, so the opaque theme renders exactly as before.
-class GlassChromeScope extends InheritedWidget {
-  const GlassChromeScope({
+// The floating island's footprint over the chat, in every composer style,
+// and whether its chrome is glass. Provided by ChatBody around the body
+// stack so every list (pages, welcome, panels) clears the island without
+// hand-threaded params. Zero clearance when nothing floats.
+// The aspect is whether the dependent is a channel page: pages clear their
+// own channel's island and ignore the measured footer.
+class IslandScope extends InheritedModel<bool> {
+  const IslandScope({
     super.key,
     required this.bottomClearance,
     this.listExtra = 0,
@@ -72,15 +74,16 @@ class GlassChromeScope extends InheritedWidget {
   /// switch lands and only the island moves.
   final double Function(String channel)? footerFor;
 
-  /// The selected channel's footer as measured, for lists tied to no channel
-  /// (panels). Dependents are notified only when a footer comes or goes, not
-  /// on every frame it grows.
+  /// The island's footer as measured on screen.
   final double footerHeight;
 
-  /// [bottomClearance] plus [channel]'s footer.
-  double clearanceFor(String? channel) =>
+  /// How far a list clears the island, without [listExtra]. A channel page
+  /// passes its [page] channel and clears that channel's island, so it is
+  /// placed before a switch lands. Every other list clears the island on
+  /// screen, whatever channel its rows belong to.
+  double clearance({String? page}) =>
       bottomClearance +
-      (channel == null || channel.isEmpty ? 0 : footerFor?.call(channel) ?? 0);
+      (page == null ? footerHeight : footerFor?.call(page) ?? footerHeight);
 
   /// Whether the chrome is liquid glass. A floating island without glass
   /// still has a clearance, so styling reads this, not the clearance.
@@ -91,29 +94,38 @@ class GlassChromeScope extends InheritedWidget {
   /// the composer, like the reply header.
   final double listExtra;
 
-  static GlassChromeScope? maybeOf(BuildContext context) =>
-      context.dependOnInheritedWidgetOfExactType<GlassChromeScope>();
+  /// Pages pass [page] so the footer animating on screen does not rebuild
+  /// them every frame.
+  static IslandScope? maybeOf(BuildContext context, {bool page = false}) =>
+      InheritedModel.inheritFrom<IslandScope>(context, aspect: page);
+
+  bool _sharedChanged(IslandScope old) =>
+      bottomClearance != old.bottomClearance ||
+      listExtra != old.listExtra ||
+      glass != old.glass ||
+      footerFor != old.footerFor;
+
+  bool _footerChanged(IslandScope old) =>
+      (footerHeight - old.footerHeight).abs() > 0.5;
 
   @override
-  bool updateShouldNotify(GlassChromeScope oldWidget) =>
-      bottomClearance != oldWidget.bottomClearance ||
-      listExtra != oldWidget.listExtra ||
-      glass != oldWidget.glass ||
-      footerFor != oldWidget.footerFor ||
-      (footerHeight > 0.5) != (oldWidget.footerHeight > 0.5);
+  bool updateShouldNotify(IslandScope oldWidget) =>
+      _sharedChanged(oldWidget) || _footerChanged(oldWidget);
+
+  @override
+  bool updateShouldNotifyDependent(IslandScope oldWidget, Set<bool> aspects) =>
+      _sharedChanged(oldWidget) ||
+      (aspects.contains(false) && _footerChanged(oldWidget));
 }
 
-/// [base] plus the pill clearance, for plain lists in the chat body (panels,
-/// mod view) so their last rows scroll clear of the composer like ChatView's.
-EdgeInsets glassListPadding(
+/// [base] plus the island clearance, for plain lists in the chat body
+/// (panels, mod view) so their last rows scroll clear of it like ChatView's.
+EdgeInsets islandListPadding(
   BuildContext context, [
   EdgeInsets base = EdgeInsets.zero,
 ]) {
-  final scope = GlassChromeScope.maybeOf(context);
-  final extra =
-      (scope?.bottomClearance ?? 0) +
-      (scope?.footerHeight ?? 0) +
-      (scope?.listExtra ?? 0);
+  final scope = IslandScope.maybeOf(context);
+  final extra = (scope?.clearance() ?? 0) + (scope?.listExtra ?? 0);
   return base.copyWith(bottom: base.bottom + extra);
 }
 

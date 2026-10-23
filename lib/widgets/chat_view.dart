@@ -23,6 +23,10 @@ class ChatView extends StatefulWidget {
   static int _checkerSeq = 0;
 
   final String channel;
+
+  /// Whether this list is [channel]'s page, which clears [channel]'s island
+  /// rather than the one on screen.
+  final bool channelPage;
   final List<TwitchMessage> messages;
 
   /// Per-channel tile cache. Null builds fresh per tick (panels).
@@ -94,6 +98,7 @@ class ChatView extends StatefulWidget {
   const ChatView({
     super.key,
     required this.channel,
+    this.channelPage = false,
     required this.messages,
     this.tileCache,
     required this.atBottomNotifier,
@@ -306,11 +311,11 @@ class _ChatViewState extends State<ChatView>
     super.build(context);
     final surface = Theme.of(context).scaffoldBackgroundColor;
     final s = widget.chatFontScale * _cachedSystemScale;
-    final glassScope = GlassChromeScope.maybeOf(context);
-    // The pill clearance arrives through the scope, so every list (pages,
-    // panels, welcome) clears the floating pill without threaded params.
-    _effBottom = glassScope?.clearanceFor(widget.channel) ?? 0;
-    _listExtra = glassScope?.listExtra ?? 0;
+    final island = IslandScope.maybeOf(context, page: widget.channelPage);
+    _effBottom =
+        island?.clearance(page: widget.channelPage ? widget.channel : null) ??
+        0;
+    _listExtra = island?.listExtra ?? 0;
     return Stack(
       clipBehavior: Clip.hardEdge,
       children: [
@@ -377,7 +382,7 @@ class _ChatViewState extends State<ChatView>
               bottom: 16 + _effBottom,
               child: ScrollDownButton(
                 atBottom: atBottom,
-                glass: glassScope?.glass ?? false,
+                glass: island?.glass ?? false,
                 heroTag:
                     widget.scrollFabHeroTag ?? 'scroll_down_${widget.channel}',
                 onPressed: _jumpToBottom,

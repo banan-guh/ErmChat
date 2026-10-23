@@ -236,7 +236,7 @@ class ChannelPanels {
   Widget _cachedPage(BuildContext context, String channel, double topPadding) {
     // Glass header clearance joins the token so toggling glass evicts stale
     // pages with stale spacers. The pill clearance arrives through
-    // GlassChromeScope instead, so it never evicts a page.
+    // IslandScope instead, so it never evicts a page.
     final token = '${_pageToken()}|${topPadding.round()}|${_menuFloats()}';
     final cached = _pageCache[channel];
     if (cached != null && cached.token == token) return cached.widget;
@@ -281,6 +281,7 @@ class ChannelPanels {
       builder: (_, active) {
         final buffer = ChatView(
           channel: channel,
+          channelPage: true,
           messages: search.visibleMessages(channel),
           tileCache: tileCache,
           isDimmed: search.dimPredicate(channel),
@@ -410,6 +411,7 @@ class ChannelPanels {
         // reorder; the window belongs to one channel.
         key: ValueKey(channel),
         channel: channel,
+        channelPage: true,
         source: source,
         debugControls: fake,
         live: messages == null ? null : () => messages.chatRows,
@@ -494,6 +496,7 @@ class ChannelPanels {
           // A new query or scope starts a new list.
           key: ValueKey('search|$channel|${scope.name}|$q'),
           channel: channel,
+          channelPage: true,
           source: source,
           emptyStretches: false,
           live: messages == null

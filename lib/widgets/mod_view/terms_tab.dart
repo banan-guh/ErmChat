@@ -56,7 +56,7 @@ class _TermsTabState extends State<TermsTab> with ModTabState<TermsTab> {
               subtitle: mod.l10n.wildcardHint,
             ),
             builder: (context, terms) => ListView.builder(
-              padding: glassListPadding(
+              padding: islandListPadding(
                 context,
                 const EdgeInsets.fromLTRB(8, 4, 8, 16),
               ),

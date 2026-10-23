@@ -34,7 +34,7 @@ class ChannelTab extends StatelessWidget {
       );
     }
     return ListView(
-      padding: glassListPadding(
+      padding: islandListPadding(
         context,
         const EdgeInsets.fromLTRB(8, 4, 8, 24),
       ),

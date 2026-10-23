@@ -125,7 +125,7 @@ class _SetupTabState extends State<SetupTab> with ModTabState<SetupTab> {
         final saving = isBusy('save');
         final dirty = _dirty && !saving;
         return ListView(
-          padding: glassListPadding(
+          padding: islandListPadding(
             context,
             const EdgeInsets.fromLTRB(16, 8, 16, 24),
           ),

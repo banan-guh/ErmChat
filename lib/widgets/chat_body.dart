@@ -608,7 +608,7 @@ class _ChatBodyState extends State<ChatBody>
     // safe-area ticks that rebuild ChatBody) reuse the same instance and
     // the body subtree skips rebuilding. The body reads the content height
     // without the live safe area; the island clearance reaches its lists
-    // through GlassChromeScope. A body that ignores the keyboard numbers
+    // through IslandScope. A body that ignores the keyboard numbers
     // gets constants, so a gesture leaves the cache intact.
     final keyed = widget.bodyReadsKeyboard && !widget.isInPip;
     final inputs = (
@@ -983,9 +983,9 @@ class _ChatBodyState extends State<ChatBody>
         Expanded(
           child: widget.isInPip
               ? body
-              : GlassChromeScope(
+              : IslandScope(
                   // Pages add their own channel's footer through
-                  // [GlassChromeScope.footerFor], so a switch moves only
+                  // [IslandScope.footerFor], so a switch moves only
                   // the island.
                   // The classic field's label room is already empty space
                   // above its outline, so it counts toward the list's gap.

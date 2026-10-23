@@ -679,9 +679,7 @@ void main() {
                               left: 0,
                               right: 0,
                               bottom:
-                                  GlassChromeScope.maybeOf(
-                                    inner,
-                                  )?.bottomClearance ??
+                                  IslandScope.maybeOf(inner)?.bottomClearance ??
                                   0,
                               child: const SizedBox(
                                 key: Key('glass_newest_row'),

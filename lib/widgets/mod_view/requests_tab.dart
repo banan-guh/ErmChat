@@ -155,7 +155,7 @@ class _RequestsTabState extends State<RequestsTab>
               subtitle: _status == 'pending' ? mod.l10n.newRequestsHint : null,
             ),
             builder: (context, requests) => ListView.builder(
-              padding: glassListPadding(
+              padding: islandListPadding(
                 context,
                 const EdgeInsets.fromLTRB(8, 4, 8, 16),
               ),

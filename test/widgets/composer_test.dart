@@ -25,6 +25,7 @@ void main() {
     bool islandFlush = false,
     Widget? bottomBar,
     Widget? islandFooter,
+    double Function(String channel)? islandFooterHeightFor,
     TextEditingController? text,
     int maxLines = 1,
     void Function(BuildContext body)? onBodyBuild,
@@ -48,6 +49,7 @@ void main() {
             ),
             bottomBar: bottomBar,
             islandFooter: islandFooter,
+            islandFooterHeightFor: islandFooterHeightFor,
             bodyBuilder:
                 (
                   context, {
@@ -192,6 +194,48 @@ void main() {
     );
   });
 
+  // Shipped bug (#38): panels asked the footer for their own channel
+  // (@whispers, @mentions), got none, and the island's status line covered
+  // their newest row.
+  testWidgets('panel lists clear the footer on screen', (tester) async {
+    final focus = FocusNode();
+    addTearDown(focus.dispose);
+    tester.view.physicalSize = const Size(400, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final status = ValueNotifier(20.0);
+    addTearDown(status.dispose);
+    IslandScope? scope;
+    await pumpBody(
+      tester,
+      liquidGlass: false,
+      focus: focus,
+      bottomBar: const SizedBox(height: 48),
+      islandFooter: ValueListenableBuilder<double>(
+        valueListenable: status,
+        builder: (_, h, _) => SizedBox(height: h),
+      ),
+      islandFooterHeightFor: (channel) => channel == 'chan' ? 20 : 0,
+      onBodyBuild: (inner) => scope = IslandScope.maybeOf(inner),
+    );
+    await tester.pumpAndSettle();
+    double islandGap() =>
+        800 - tester.getRect(find.byKey(const ValueKey('composer_island'))).top;
+
+    expect(scope!.clearance(), moreOrLessEquals(islandGap(), epsilon: 1));
+    expect(
+      scope!.clearance(page: 'chan'),
+      moreOrLessEquals(islandGap(), epsilon: 1),
+      reason: 'the selected page clears the same island',
+    );
+
+    // The footer grows with the panel open: a panel only heard of a footer
+    // coming or going and kept its first frame's height.
+    status.value = 40;
+    await tester.pumpAndSettle();
+    expect(scope!.clearance(), moreOrLessEquals(islandGap(), epsilon: 1));
+  });
+
   // Shipped bug: the body's viewPadding loses the nav bar under the keyboard,
   // so a closing keyboard dragged the field past its rest, and it climbed
   // back as the row reappeared.
@@ -250,7 +294,7 @@ void main() {
       focus: focus,
       islandFlush: true,
       onBodyBuild: (body) =>
-          clearance = GlassChromeScope.maybeOf(body)?.bottomClearance ?? 0,
+          clearance = IslandScope.maybeOf(body)?.bottomClearance ?? 0,
     );
     await tester.pumpAndSettle();
     final island = find.byKey(const ValueKey('composer_island'));
@@ -730,7 +774,7 @@ void main() {
       maxLines: 6,
       bottomBar: const SizedBox(height: 48),
       onBodyBuild: (inner) {
-        clearance = GlassChromeScope.maybeOf(inner)?.clearanceFor(null) ?? 0;
+        clearance = IslandScope.maybeOf(inner)?.clearance() ?? 0;
       },
     );
     await tester.pumpAndSettle();
@@ -778,7 +822,7 @@ void main() {
       keyboardHidesButtons: true,
       bottomBar: const SizedBox(key: Key('test_bar'), height: 48),
       onBodyBuild: (inner) {
-        clearance = GlassChromeScope.maybeOf(inner)?.clearanceFor(null) ?? 0;
+        clearance = IslandScope.maybeOf(inner)?.clearance() ?? 0;
       },
     );
     await tester.pumpAndSettle();

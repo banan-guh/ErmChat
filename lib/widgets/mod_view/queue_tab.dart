@@ -149,7 +149,7 @@ class _QueueTabState extends State<QueueTab> with ModTabState<QueueTab> {
                       ),
                     )
                   : ListView.builder(
-                      padding: glassListPadding(
+                      padding: islandListPadding(
                         context,
                         const EdgeInsets.fromLTRB(8, 4, 8, 16),
                       ),

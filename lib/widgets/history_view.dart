@@ -80,6 +80,7 @@ class HistoryView extends StatefulWidget {
   const HistoryView({
     super.key,
     required this.channel,
+    this.channelPage = false,
     required this.source,
     required this.rows,
     this.textScale = 1.0,
@@ -104,6 +105,10 @@ class HistoryView extends StatefulWidget {
   });
 
   final String channel;
+
+  /// Whether this list is [channel]'s page, which clears [channel]'s island
+  /// rather than the one on screen.
+  final bool channelPage;
   final HistorySource source;
 
   /// Builds message rows the way the chat lists do.
@@ -2078,13 +2083,15 @@ class _HistoryViewState extends State<HistoryView> {
 
   @override
   Widget build(BuildContext context) {
-    final scope = GlassChromeScope.maybeOf(context);
+    final scope = IslandScope.maybeOf(context, page: widget.channelPage);
     final glass = scope?.glass ?? false;
     final floating = (scope?.bottomClearance ?? 0) > 0.5;
     // The docked island sits flush under the list, so keep a small fixed gap
     // above it. A floating island clears by its measured footprint plus the
     // same visual gap, and rows scroll on behind it.
-    final island = floating ? scope!.clearanceFor(widget.channel) : 0.0;
+    final island = floating
+        ? scope!.clearance(page: widget.channelPage ? widget.channel : null)
+        : 0.0;
     final bottom = _bottomGap =
         (floating ? island + kFloatingComposerGap : kOpaqueComposerGap) +
         (scope?.listExtra ?? 0);

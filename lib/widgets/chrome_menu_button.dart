@@ -124,7 +124,7 @@ class FloatingMenuShell extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final glass = GlassChromeScope.maybeOf(context)?.glass ?? false;
+    final glass = IslandScope.maybeOf(context)?.glass ?? false;
     return SizedBox(
       width: width,
       height: height,
