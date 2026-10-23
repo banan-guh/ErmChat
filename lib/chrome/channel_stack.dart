@@ -203,6 +203,10 @@ class ChannelPanels {
   // part plus join can never serve stale pages or tabs.
   final _pageCache = <String, _CachedPage>{};
 
+  /// The page stack's key, so floating chrome anchors under the tabs and
+  /// stream rather than the app bar.
+  final pagesKey = GlobalKey();
+
   /// The channel pager's fractional page while it moves, so broadcast cards
   /// slide with their channel instead of staying over the next one.
   final _swipePage = ValueNotifier<double?>(null);
@@ -635,6 +639,7 @@ class ChannelPanels {
                     return false;
                   },
                   child: TabbedLayout(
+                    pagesKey: pagesKey,
                     tabs: chat.names,
                     selectedIndex: chat.names.indexOf(selectedChannel() ?? ''),
                     onSelectedIndexChanged: onChannelChanged,
