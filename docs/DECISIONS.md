@@ -208,6 +208,21 @@ export map, tile default and a screen mirror. A missed field went stale silently
 Scope: new settings go in `Settings`. Old `Prefs` shorthands and `PrefsStore`
 listeners move when their area is touched.
 
+### D17: One source per fact
+
+Decision: hard rule 9. A fact has one owner, and other code reads or derives it rather
+than holding a copy. This extends "one writer per state" from who writes a value to
+how many places hold it.
+
+Reason: a recurring bug class came from copies drifting, not from two writers. Lists
+cleared the floating island by a predicted footer height while the island showed a
+measured one, so every panel's newest row hid under it (#38). The island's geometry
+lives in many stored measurements combined by subtraction, and fixes there kept
+landing one copy at a time.
+
+Scope: new code follows it. Known duplicates are fixed when their area is reworked,
+island geometry first.
+
 ## Why
 
 - **Why a framework at all**: the app is leaving a churn phase and needs rules. It

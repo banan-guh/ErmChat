@@ -84,6 +84,13 @@ composition root     lib/providers
 8. **No generic bus.** Each owner exposes typed notifiers or change streams, and the UI
    subscribes to the owner it renders.
 
+9. **One source per fact.** Every fact (a size, a channel name, the signed-in login,
+   the selected channel) has one owner. Everyone else reads it from that owner or
+   derives it on the spot. Never keep a copy that something must push or keep in step,
+   never compute the same value two ways (predicted here, measured there), and never
+   store a value derived from other stored values. A cache is allowed only when it is
+   keyed on the owner's version or rebuilt from its notifier.
+
 ## Code-shape rules
 
 1. **One state value, not a flag per case.** When several booleans or nullable fields
