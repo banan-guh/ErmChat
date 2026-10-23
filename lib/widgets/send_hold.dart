@@ -1,9 +1,29 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
 import '../l10n/l10n.dart';
 import '../util/haptics.dart';
+
+/// The chat page stack a spam button anchors under, so it follows the tabs
+/// and stream instead of the app bar.
+class ChatPagesScope extends InheritedWidget {
+  const ChatPagesScope({
+    super.key,
+    required this.pagesKey,
+    required super.child,
+  });
+
+  final GlobalKey? pagesKey;
+
+  static GlobalKey? maybeOf(BuildContext context) =>
+      context.dependOnInheritedWidgetOfExactType<ChatPagesScope>()?.pagesKey;
+
+  @override
+  bool updateShouldNotify(ChatPagesScope oldWidget) =>
+      pagesKey != oldWidget.pagesKey;
+}
 
 /// Hold menu on a send button. Holding runs [onRecall] at once and shows a
 /// spam button in the top-left corner. Holding that with a second finger
@@ -44,6 +64,8 @@ class _SendHoldState extends State<SendHold> {
   static const _inset = 16.0;
 
   final _portal = OverlayPortalController();
+  // The chat page's stack, so the spam button lands under the stream and tabs.
+  GlobalKey? _pagesKey;
   // The finger on the spam button; a second one there is ignored.
   int? _spamPointer;
   bool _charging = false;
@@ -108,26 +130,36 @@ class _SendHoldState extends State<SendHold> {
   }
 
   @override
-  Widget build(BuildContext context) => OverlayPortal(
-    controller: _portal,
-    overlayChildBuilder: _spamButton,
-    child: GestureDetector(
-      onLongPressStart: widget.enabled ? _hold : null,
-      onLongPressEnd: widget.enabled ? (_) => _release() : null,
-      onLongPressCancel: widget.enabled ? _release : null,
-      child: widget.child,
-    ),
-  );
+  Widget build(BuildContext context) {
+    _pagesKey = ChatPagesScope.maybeOf(context);
+    return OverlayPortal(
+      controller: _portal,
+      overlayChildBuilder: _spamButton,
+      child: GestureDetector(
+        onLongPressStart: widget.enabled ? _hold : null,
+        onLongPressEnd: widget.enabled ? (_) => _release() : null,
+        onLongPressCancel: widget.enabled ? _release : null,
+        child: widget.child,
+      ),
+    );
+  }
 
-  // The opposite corner from send, below the top bar, so a second thumb
-  // finds it.
+  // The opposite corner from send, below the chat page's top edge, so a
+  // second thumb finds it under the stream and tabs.
   Widget _spamButton(BuildContext context) {
     final padding = MediaQuery.paddingOf(context);
     final scheme = Theme.of(context).colorScheme;
     final lit = _charging || _spamming;
+    final box = _pagesKey?.currentContext?.findRenderObject();
+    final origin = box is RenderBox && box.attached && box.hasSize
+        ? box.localToGlobal(Offset.zero)
+        : null;
+    final top = origin == null
+        ? padding.top + kToolbarHeight
+        : math.max(origin.dy, padding.top + kToolbarHeight);
     return Positioned(
-      left: padding.left + _inset,
-      top: padding.top + kToolbarHeight + _inset,
+      left: (origin?.dx ?? padding.left) + _inset,
+      top: top + _inset,
       child: Listener(
         behavior: HitTestBehavior.opaque,
         onPointerDown: _spamDown,

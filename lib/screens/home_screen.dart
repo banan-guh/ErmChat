@@ -2023,6 +2023,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
             // System PiP collapses the whole body to video-only; ChatBody
             // drops composer/panels/notice so the window shows the stream.
             isInPip: _streamPlayer.isInPip,
+            pagesKey: _channels.pagesKey,
             // Keyboard room only decides whether a stacked player hides.
             bodyReadsKeyboard: _streamPlayer.currentChannel != null,
             composerInPane: _stream.chatInPane(context),

@@ -12,6 +12,7 @@ import 'glass_chrome.dart';
 import 'design_tokens.dart';
 import 'eased_progress.dart';
 import 'message_input.dart' show MessageInput;
+import 'send_hold.dart' show ChatPagesScope;
 
 /// Builds the chat content above the composer. [maxHeight] and [keyboardH]
 /// feed keyboard decisions only: while the keyboard is up they describe the
@@ -91,6 +92,7 @@ class ChatBody extends StatefulWidget {
     this.isInPip = false,
     this.bodyReadsKeyboard = true,
     this.composerInPane = false,
+    this.pagesKey,
   });
 
   final ChatBodyBuilder bodyBuilder;
@@ -101,6 +103,10 @@ class ChatBody extends StatefulWidget {
   final Widget autocomplete;
   final double emoteMaxFraction;
   final Widget? composer;
+
+  /// The chat page stack's key, so chrome anchored there follows the tabs
+  /// and stream instead of the app bar.
+  final GlobalKey? pagesKey;
 
   /// Chrome below the composer: threads, bell, overflow and settings. Sits
   /// inside the composer island and rides up with the keyboard (or is clipped
@@ -974,11 +980,14 @@ class _ChatBodyState extends State<ChatBody>
       ],
     );
     // Per keyboard tick this reruns and returns the same prebuilt column.
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        if (_rawH <= 0.5) _closedBodyH = constraints.maxHeight;
-        return column;
-      },
+    return ChatPagesScope(
+      pagesKey: widget.pagesKey,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          if (_rawH <= 0.5) _closedBodyH = constraints.maxHeight;
+          return column;
+        },
+      ),
     );
   }
 }
