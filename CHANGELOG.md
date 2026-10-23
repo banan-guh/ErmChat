@@ -1,2 +1,2 @@
-- Fixed grey-screen bug caused by R8
-- Fixed screen layout for empty channels
+- Refactored chat view to fix whispers padding
+- Add iOS notification server (closed-source for now)
