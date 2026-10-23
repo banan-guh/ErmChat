@@ -36,6 +36,7 @@ class ApnsPush {
   static const _settle = Duration(seconds: 2);
   final _taps = StreamController<String>.broadcast();
   String? _token;
+  bool _prompted = false;
   bool _push = false;
   Timer? _refresh;
 
@@ -108,9 +109,15 @@ class ApnsPush {
   }
 
   Future<String?> _deviceToken({required bool prompt}) async {
-    if (_token != null) return _token;
+    // A token fetched without asking leaves the permission prompt owed, so
+    // the first asking call must reach iOS even with the token cached.
+    if (_token != null && (!prompt || _prompted)) return _token;
     try {
-      _token = await _channel.invokeMethod<String>('token', {'prompt': prompt});
+      final token = await _channel.invokeMethod<String>('token', {
+        'prompt': prompt,
+      });
+      if (prompt) _prompted = true;
+      _token = token ?? _token;
     } on PlatformException catch (e) {
       logDebug('APNs token: $e');
     }
