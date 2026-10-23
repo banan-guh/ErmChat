@@ -1,3 +1,3 @@
-- Refactored chat view to fix whispers padding
-- Add iOS notification server (closed-source for now)
-- Add jump to message from mentions
+- Fix push perms popup on iOS
+- Fix scroll on iOS with archive enabled
+- Fix spam button placement
