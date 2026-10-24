@@ -12,6 +12,7 @@ import android.content.pm.PackageManager
 import android.graphics.Rect
 import android.graphics.drawable.Icon
 import android.os.Build
+import android.os.Bundle
 import android.util.Rational
 
 import androidx.core.content.ContextCompat
@@ -120,6 +121,18 @@ class MainActivity : FlutterActivity() {
                 else -> result.notImplemented()
             }
         }
+    }
+
+    // Flutter drops its back callback whenever nothing can pop, which hands
+    // back to the system default that finishes the activity. Keeping it
+    // registered routes root back to popSystemNavigator instead.
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        setFrameworkHandlesBack(true)
+    }
+
+    override fun setFrameworkHandlesBack(frameworkHandlesBack: Boolean) {
+        super.setFrameworkHandlesBack(true)
     }
 
     // Back at the root backgrounds the app like the home gesture instead of
