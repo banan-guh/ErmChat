@@ -599,6 +599,44 @@ void main() {
     debugDefaultTargetPlatformOverride = null;
   });
 
+  testWidgets('idle offset past the newest row snaps instead of drifting', (
+    tester,
+  ) async {
+    final version = ValueNotifier(0);
+    addTearDown(version.dispose);
+    final buffer = <TwitchMessage>[
+      for (var i = 0; i < 40; i++)
+        TwitchMessage(
+          login: 'live',
+          text: 'live $i',
+          messageId: 'live-$i',
+          channel: _ch,
+          timestamp: FakeHistory.now.add(Duration(seconds: i)),
+        ),
+    ];
+    await _pumpView(tester, live: () => buffer, liveVersion: version);
+    await _settle(tester);
+    final p = tester
+        .state<ScrollableState>(
+          find.descendant(
+            of: find.byType(CustomScrollView),
+            matching: find.byType(Scrollable),
+          ),
+        )
+        .position;
+    // Newer rows that laid out shorter than estimated at mount leave the
+    // offset past the newest row with no scroll active. The next layout
+    // that changes dimensions must pin it, not spring it back.
+    p.correctPixels(p.minScrollExtent - 500);
+    tester.view.physicalSize = const Size(400, 700);
+    await tester.pump();
+    expect(
+      p.pixels,
+      moreOrLessEquals(p.minScrollExtent, epsilon: 0.5),
+      reason: 'the offset sprang back from past the newest row',
+    );
+  });
+
   testWidgets('a wheel scroll up stops following like a drag', (tester) async {
     final version = ValueNotifier(0);
     addTearDown(version.dispose);
