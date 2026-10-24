@@ -197,7 +197,7 @@ class _Item {
 /// Lets the view correct the offset in the layout that applies new content:
 /// pinned to the newest row while following, or holding a row in place.
 mixin _HoldPhysicsMixin on ScrollPhysics {
-  double? Function(ScrollMetrics) get resolve;
+  double? Function(ScrollMetrics, bool bouncing) get resolve;
 
   @override
   double adjustPositionForNewDimensions({
@@ -206,7 +206,9 @@ mixin _HoldPhysicsMixin on ScrollPhysics {
     required bool isScrolling,
     required double velocity,
   }) =>
-      resolve(newPosition) ??
+      // Clamping never overscrolls, so only a bouncing scroll can be past
+      // an end on purpose.
+      resolve(newPosition, isScrolling && this is BouncingScrollPhysics) ??
       super.adjustPositionForNewDimensions(
         oldPosition: oldPosition,
         newPosition: newPosition,
@@ -220,7 +222,7 @@ class _HoldClampingPhysics extends ClampingScrollPhysics
   const _HoldClampingPhysics({super.parent, required this.resolve});
 
   @override
-  final double? Function(ScrollMetrics) resolve;
+  final double? Function(ScrollMetrics, bool bouncing) resolve;
 
   @override
   _HoldClampingPhysics applyTo(ScrollPhysics? ancestor) =>
@@ -232,7 +234,7 @@ class _HoldBouncingPhysics extends BouncingScrollPhysics
   const _HoldBouncingPhysics({super.parent, required this.resolve});
 
   @override
-  final double? Function(ScrollMetrics) resolve;
+  final double? Function(ScrollMetrics, bool bouncing) resolve;
 
   @override
   _HoldBouncingPhysics applyTo(ScrollPhysics? ancestor) =>
@@ -1499,10 +1501,11 @@ class _HistoryViewState extends State<HistoryView> {
   }
 
   /// Physics hook, run in the layout that applies new content.
-  double? _resolve(ScrollMetrics m) {
+  double? _resolve(ScrollMetrics m, bool bouncing) {
     if (_follow && _window.atNewest) {
-      // A drag past the newest row is the iOS bounce, so leave it alone.
-      if (m.pixels < m.minScrollExtent) return null;
+      // Past the newest row while bouncing is the iOS overscroll, so leave
+      // it alone. Otherwise content shrank (a mount refining row estimates).
+      if (bouncing && m.pixels < m.minScrollExtent) return null;
       return m.minScrollExtent;
     }
     final hold = _hold;
@@ -1512,8 +1515,9 @@ class _HistoryViewState extends State<HistoryView> {
     if (now == null) return null;
     final target = m.pixels + now - hold.coord;
     // The same at the oldest end: a bounce is not a content shift.
-    if (target < m.minScrollExtent || target > m.maxScrollExtent) return null;
-    return target;
+    final outside = target < m.minScrollExtent || target > m.maxScrollExtent;
+    if (bouncing && outside) return null;
+    return target.clamp(m.minScrollExtent, m.maxScrollExtent);
   }
 
   bool _onScrollNotification(ScrollNotification n) {
