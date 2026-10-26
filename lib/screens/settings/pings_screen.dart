@@ -172,6 +172,7 @@ class _PingsScreenState extends ConsumerState<PingsScreen> {
           manager,
           Settings.backgroundService,
           Settings.highlightOpacity,
+          ref.read(apnsPushProvider).blocked,
         ]),
         builder: (context, _) {
           if (!manager.loaded) {
@@ -275,9 +276,13 @@ class _PingsScreenState extends ConsumerState<PingsScreen> {
     final scheme = Theme.of(context).colorScheme;
     final showMute = pushOn && muted && until != null;
     final canMute = _keepAlive && pushOn;
+    final apns = ref.read(apnsPushProvider);
+    final blocked = pushOn && apns.blocked.value;
     final String status;
     if (!pushOn) {
       status = context.l10n.off;
+    } else if (blocked) {
+      status = context.l10n.notificationsBlockedIos;
     } else if (showMute) {
       final time = MaterialLocalizations.of(
         context,
@@ -326,7 +331,7 @@ class _PingsScreenState extends ConsumerState<PingsScreen> {
               ),
               title: Text(Setting.notifications.titleOf(context.l10n)),
               subtitle: Text(status),
-              onTap: () => _setPush(!pushOn),
+              onTap: blocked ? apns.openSettings : () => _setPush(!pushOn),
               trailing: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [

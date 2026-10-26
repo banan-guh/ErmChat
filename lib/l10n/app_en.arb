@@ -494,6 +494,7 @@
   "turnOn": "Turn on",
   "turnOff": "Turn off",
   "notificationsOff": "Notifications are off",
+  "notificationsBlockedIos": "Blocked in iOS Settings",
   "addKeyword": "Add keyword",
   "addUser": "Add user",
   "none": "None",

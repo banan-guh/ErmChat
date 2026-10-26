@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart' show ValueNotifier;
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 
@@ -46,6 +47,10 @@ class ApnsPush {
   /// Channels whose pushed mention the user tapped.
   Stream<String> get onTap => _taps.stream;
 
+  /// Whether iOS Settings denies alerts while push is on. iOS asks only
+  /// once, so only the Settings app can undo it.
+  final blocked = ValueNotifier(false);
+
   Future<void> _onCall(MethodCall call) async {
     final channel = call.arguments;
     if (call.method == 'tap' && channel is String && channel.isNotEmpty) {
@@ -70,6 +75,7 @@ class ApnsPush {
     _push = push;
     if (!active) return;
     final device = await _deviceToken(prompt: push);
+    blocked.value = push && await _denied();
     if (device == null) return;
     if (!push) {
       _sent = null;
@@ -88,6 +94,33 @@ class ApnsPush {
     if (!active || !_push) return;
     _refresh?.cancel();
     _refresh = Timer(_settle, () => unawaited(sync(push: true)));
+  }
+
+  /// Registers again even if unchanged: iOS resumes the app instead of
+  /// relaunching it, and the server forgets devices on restart and after a
+  /// week of silence. Also rereads [blocked].
+  void resumed() {
+    if (!active || !_push) return;
+    _sent = null;
+    unawaited(sync(push: true));
+  }
+
+  /// Opens this app's page in iOS Settings, where [blocked] is undone.
+  Future<void> openSettings() async {
+    try {
+      await _channel.invokeMethod<void>('openSettings');
+    } on PlatformException catch (e) {
+      logDebug('APNs settings: $e');
+    }
+  }
+
+  Future<bool> _denied() async {
+    try {
+      return await _channel.invokeMethod<bool>('blocked') ?? false;
+    } on PlatformException catch (e) {
+      logDebug('APNs blocked: $e');
+      return false;
+    }
   }
 
   Future<bool> _post(String path, Object body, {String? token}) async {
@@ -174,6 +207,7 @@ class ApnsPush {
 
   void dispose() {
     _refresh?.cancel();
+    blocked.dispose();
     if (active) _channel.setMethodCallHandler(null);
     _taps.close();
     _client.close();

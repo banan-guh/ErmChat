@@ -42,6 +42,41 @@ void main() {
     },
   );
 
+  test('resuming registers again even when nothing changed', () async {
+    const channel = MethodChannel('ermchat/apns');
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+          channel,
+          (call) async => call.method == 'token' ? 'a' * 64 : null,
+        );
+    addTearDown(
+      () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, null),
+    );
+    var registers = 0;
+    final push = ApnsPush(
+      active: true,
+      endpoint: 'https://example.test',
+      registration: () async => (token: 't', rules: <String, Object?>{}),
+      client: MockClient((request) async {
+        if (request.url.path.endsWith('/register')) registers++;
+        return http.Response('', 204);
+      }),
+    );
+    addTearDown(push.dispose);
+
+    await push.sync(push: true);
+    await push.sync(push: true);
+    push.resumed();
+    await pumpEventQueue();
+
+    expect(
+      registers,
+      2,
+      reason: 'a restarted server holds nothing until the app registers again',
+    );
+  });
+
   test('the push server gets only the rules that notify', () {
     final rules = ApnsPush.rules(
       pingRules: const [

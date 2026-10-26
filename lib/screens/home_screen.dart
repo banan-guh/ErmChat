@@ -1053,6 +1053,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     }
     if (state == AppLifecycleState.resumed) {
       _chatConn.reconnectIfNecessary();
+      ref.read(apnsPushProvider).resumed();
       // Android clears immersive on background; re-assert it on return.
       _syncSystemUiMode(force: true);
     }
