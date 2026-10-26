@@ -47,6 +47,16 @@ import UserNotifications
       } else {
         UIApplication.shared.registerForRemoteNotifications()
       }
+    case "blocked":
+      UNUserNotificationCenter.current().getNotificationSettings { settings in
+        let denied = settings.authorizationStatus == .denied
+        DispatchQueue.main.async { result(denied) }
+      }
+    case "openSettings":
+      if let url = URL(string: UIApplication.openSettingsURLString) {
+        UIApplication.shared.open(url)
+      }
+      result(nil)
     case "takeLaunchChannel":
       dartReady = true
       result(launchChannel)
