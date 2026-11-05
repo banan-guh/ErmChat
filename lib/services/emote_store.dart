@@ -89,10 +89,10 @@ class EmoteStore {
     _lastChange = change;
     _emoteIndexDirty = true;
     if (channel != null) {
-      _mergedCache.remove(channel);
+      _dropMergedCaches(channel);
       _foreignLookupCache.remove(channel);
     } else {
-      _mergedCache.clear();
+      _clearMergedCaches();
       _foreignLookupCache.clear();
     }
     for (final listener in List.of(_listeners)) {
@@ -145,8 +145,10 @@ class EmoteStore {
   // live delta can be stashed and re-applied over later rebuilds.
   final _sevenTvFull = <String>{};
   // Merged emotes: channel overrides global, personal 7TV merges everywhere.
-  // Cached until the next emit clears it.
+  // Cached until the next emit clears it. Split from the personal variant so
+  // other senders never inherit the viewer's private emotes from the cache.
   final _mergedCache = <String, EmoteLookup?>{};
+  final _mergedPersonalCache = <String, EmoteLookup?>{};
   // Per-sender overlay lookups keyed by the sender's foreign lookup object.
   // Ingest and render ask for the same sender lookup within one emote
   // version, so sharing the result avoids rebuilding the foreign merge per
@@ -378,7 +380,8 @@ class EmoteStore {
     Iterable<Emote> personal = const [],
     Iterable<Emote> unlocks = const [],
   }) {
-    final cached = _mergedCache[channel];
+    final cache = personal.isEmpty ? _mergedCache : _mergedPersonalCache;
+    final cached = cache[channel];
     if (cached != null) return cached;
     final channelCatalog = _withSharedSubs(channel);
     final hasGlobalData =
@@ -394,8 +397,20 @@ class EmoteStore {
         unlocks: unlocks,
       );
     }
-    _mergedCache[channel] = result;
+    cache[channel] = result;
     return result;
+  }
+
+  // Drops both merged variants for [channel]; they differ only by the
+  // viewer's personal overlay.
+  void _dropMergedCaches(String channel) {
+    _mergedCache.remove(channel);
+    _mergedPersonalCache.remove(channel);
+  }
+
+  void _clearMergedCaches() {
+    _mergedCache.clear();
+    _mergedPersonalCache.clear();
   }
 
   /// [channel]'s catalog with the subs and bits emotes stored under every
@@ -457,7 +472,7 @@ class EmoteStore {
 
   // Catalog merge plus the per-account unlock overlay and visibility
   // filters. Winners are interned so every served lookup shares the pool.
-  // Callers cache the result in _mergedCache.
+  // Callers cache the result in one of the merged caches.
   EmoteLookup _buildLookup({
     required EmoteCatalog global,
     EmoteCatalog? channel,
@@ -832,7 +847,7 @@ class EmoteStore {
       );
       _subsByChannelCache = null;
       // Other channels' lookups include this channel's bits and subs.
-      _mergedCache.clear();
+      _clearMergedCaches();
       _foreignLookupCache.clear();
     }
     _channelCatalogs[channel] = catalog;
@@ -917,7 +932,7 @@ class EmoteStore {
     _subsByChannelCache = null;
     changedChannels.sort();
     // Every channel's lookup includes the others' subs.
-    _mergedCache.clear();
+    _clearMergedCaches();
     _foreignLookupCache.clear();
     for (final channel in changedChannels) {
       emitChange(channel: channel);
@@ -1105,7 +1120,7 @@ class EmoteStore {
     _subsByChannelCache = null;
     _sevenTvEmoteSetIds.remove(channel);
     _sevenTvUserIds.remove(channel);
-    _mergedCache.remove(channel);
+    _dropMergedCaches(channel);
     _foreignLookupCache.remove(channel);
     _sevenTvLive.remove(channel);
     _sevenTvFull.remove(channel);
@@ -1117,7 +1132,7 @@ class EmoteStore {
     _globalEpoch++;
     _globalCatalog = EmoteCatalog();
     _globalAttempted = false;
-    _mergedCache.clear();
+    _clearMergedCaches();
     _foreignLookupCache.clear();
     _emoteIndexDirty = true;
     _prunePool();
@@ -1149,7 +1164,7 @@ class EmoteStore {
       _sevenTvFull.clear();
     }
     _subsByChannelCache = null;
-    _mergedCache.clear();
+    _clearMergedCaches();
     _foreignLookupCache.clear();
     _emoteIndexDirty = true;
     _prunePool();
@@ -1191,7 +1206,7 @@ class EmoteStore {
     _channelFetchTimes.clear();
     _sevenTvLive.clear();
     _sevenTvFull.clear();
-    _mergedCache.clear();
+    _clearMergedCaches();
     _foreignLookupCache.clear();
     _prunePool();
     emitChange(channel: null);

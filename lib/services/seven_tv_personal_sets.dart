@@ -143,17 +143,15 @@ class SevenTvPersonalSets {
       senderTwitchId == null ? null : _foreignPersonalSets[senderTwitchId];
 
   /// Bootstrap: fetch the viewer's owned 7TV sets and their emotes.
-  /// Restores the persisted seed first so known sets skip the network.
-  Future<void> loadViewerPersonalSevenTvSets({bool force = false}) async {
+  /// Restores the persisted seed first, then refetches every set so a seed
+  /// from an earlier session cannot outlive the socket's missed edits. A
+  /// failed fetch keeps the seeded contents.
+  Future<void> loadViewerPersonalSevenTvSets() async {
     await loadPersisted();
     final viewerId = viewerTwitchId;
     if (viewerId == null || viewerId.isEmpty) return;
     if (_tier() == EmoteFetchTier.nothing) return;
     if (!_isProviderOn(EmoteType.sevenTv)) return;
-    // Tier upgrade: known set ids would skip the refetch below and keep
-    // the old resolution, so forget them and re-pull. Map entries stay
-    // until replaced, so a failed fetch keeps the old URLs.
-    if (force) _personalSevenTvSetIds.clear();
     List<String> setIds;
     try {
       setIds = await _fetcher.fetchSevenTvOwnedSetIds(viewerId);
@@ -166,7 +164,6 @@ class SevenTvPersonalSets {
     if (viewerTwitchId != viewerId) return;
     var changed = false;
     for (final setId in setIds) {
-      if (_personalSevenTvSetIds.contains(setId)) continue;
       List<Emote> emotes;
       try {
         emotes = await _fetcher.fetchSevenTvEmoteSet(setId);
@@ -175,9 +172,10 @@ class SevenTvPersonalSets {
         continue;
       }
       if (viewerTwitchId != viewerId) return;
+      final previous = _personalSevenTvSets[setId];
       _personalSevenTvSetIds.add(setId);
       _personalSevenTvSets[setId] = emotes;
-      changed = true;
+      if (!_sameEmotes(previous, emotes)) changed = true;
     }
     if (changed) {
       _notifyChanged();
@@ -357,6 +355,56 @@ class SevenTvPersonalSets {
   }) {
     final contents = _foreignPersonalSetContents[setId];
     if (contents == null) return;
+    if (!_applyEdits(
+      contents,
+      added: added,
+      removedIds: removedIds,
+      renamed: renamed,
+    )) {
+      return;
+    }
+    _foreignPlaceholderSets.remove(setId);
+    _touchForeignSet(setId);
+    _rebuildForeignUsers(setId);
+    _notifyChanged();
+    _sendersChanged(_foreignPersonalSetOwners[setId]);
+    _scheduleSave();
+  }
+
+  /// Whether [setId] is one of the viewer's own personal sets.
+  bool isViewerSet(String setId) => _personalSevenTvSetIds.contains(setId);
+
+  /// Applies a socket emote_set.update to one of the viewer's own personal
+  /// sets. Only loaded sets change: an unknown id has no baseline to edit.
+  void applyViewerSetUpdate({
+    required String setId,
+    required List<Emote> added,
+    required List<String> removedIds,
+    required Map<String, String> renamed,
+  }) {
+    final contents = _personalSevenTvSets[setId];
+    if (contents == null) return;
+    if (!_applyEdits(
+      contents,
+      added: added,
+      removedIds: removedIds,
+      renamed: renamed,
+    )) {
+      return;
+    }
+    _notifyChanged();
+    final viewerId = viewerTwitchId;
+    if (viewerId != null) _sendersChanged([viewerId]);
+    _scheduleSave();
+  }
+
+  // Mutates [contents] in place and reports whether anything changed.
+  bool _applyEdits(
+    List<Emote> contents, {
+    required List<Emote> added,
+    required List<String> removedIds,
+    required Map<String, String> renamed,
+  }) {
     var changed = false;
     if (removedIds.isNotEmpty) {
       final ids = removedIds.toSet();
@@ -375,13 +423,17 @@ class SevenTvPersonalSets {
       contents.add(e);
       changed = true;
     }
-    if (!changed) return;
-    _foreignPlaceholderSets.remove(setId);
-    _touchForeignSet(setId);
-    _rebuildForeignUsers(setId);
-    _notifyChanged();
-    _sendersChanged(_foreignPersonalSetOwners[setId]);
-    _scheduleSave();
+    return changed;
+  }
+
+  // Same ids and codes in the same order: a refetch can be skipped as a
+  // change when only image metadata moved.
+  static bool _sameEmotes(List<Emote>? a, List<Emote> b) {
+    if (a == null || a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (a[i].id != b[i].id || a[i].code != b[i].code) return false;
+    }
+    return true;
   }
 
   /// One-time REST fill for a socket-announced set. Once per set id, shared

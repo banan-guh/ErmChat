@@ -57,6 +57,21 @@ class SevenTvConsumer {
 
   void _onEmoteSetUpdate(SevenTvEmoteUpdateEvent event) {
     if (_disposed) return;
+    if (emoteManager.isViewerPersonalSet(event.emoteSetId)) {
+      emoteManager.applyViewerPersonalSetUpdate(
+        setId: event.emoteSetId,
+        added: event.added
+            .map(
+              (e) =>
+                  SevenTvEmoteProvider.parseSingleEmote(e.raw, personal: true),
+            )
+            .whereType<Emote>()
+            .toList(),
+        removedIds: event.removed.map((e) => e.id).toList(),
+        renamed: {for (final r in event.renamed) r.id: r.newName},
+      );
+      return;
+    }
     final channel = emoteManager.getChannelForSevenTvEmoteSet(event.emoteSetId);
     if (channel == null) {
       // Foreign personal set (or untracked): contents only matter with a

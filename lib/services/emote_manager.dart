@@ -377,8 +377,8 @@ class EmoteManager implements EmoteLookupSource {
   set viewerTwitchId(String? value) => _personalSets.viewerTwitchId = value;
 
   /// Bootstrap: fetch the viewer's owned 7TV sets and their emotes.
-  Future<void> loadViewerPersonalSevenTvSets({bool force = false}) async {
-    await _personalSets.loadViewerPersonalSevenTvSets(force: force);
+  Future<void> loadViewerPersonalSevenTvSets() async {
+    await _personalSets.loadViewerPersonalSevenTvSets();
   }
 
   /// Live personal 7TV grant/revoke from the entitlement stream.
@@ -386,16 +386,20 @@ class EmoteManager implements EmoteLookupSource {
       _personalSets.applyEntitlement(event);
 
   /// Map for one message: channel sets plus the sender's personal 7TV emotes
-  /// underneath. Foreign codes never leak into other senders' messages.
-  EmoteLookup? byCodeForSender(String channel, String? senderTwitchId) =>
-      _store.byCodeForSender(
-        channel,
-        personal: _viewerPersonal,
-        unlocks: _twitchSets.unlockedEmotes,
-        foreign: _visibility.allowPersonal7tv
-            ? _personalSets.foreignFor(senderTwitchId)
-            : null,
-      );
+  /// underneath. The viewer's own personal set applies only to the viewer's
+  /// messages; foreign codes never leak into other senders' messages.
+  EmoteLookup? byCodeForSender(String channel, String? senderTwitchId) {
+    final viewerId = _personalSets.viewerTwitchId;
+    final isViewer = viewerId != null && senderTwitchId == viewerId;
+    return _store.byCodeForSender(
+      channel,
+      personal: isViewer ? _viewerPersonal : const [],
+      unlocks: _twitchSets.unlockedEmotes,
+      foreign: _visibility.allowPersonal7tv
+          ? _personalSets.foreignFor(senderTwitchId)
+          : null,
+    );
+  }
 
   /// [EmoteLookupSource] view: the sender-scoped lookup the render path uses.
   @override
@@ -461,6 +465,22 @@ class EmoteManager implements EmoteLookupSource {
     required List<String> removedIds,
     required Map<String, String> renamed,
   }) => _personalSets.applyForeignSetUpdate(
+    setId: setId,
+    added: added,
+    removedIds: removedIds,
+    renamed: renamed,
+  );
+
+  /// Whether [setId] is one of the viewer's own personal sets.
+  bool isViewerPersonalSet(String setId) => _personalSets.isViewerSet(setId);
+
+  /// Applies a socket emote_set.update to the viewer's own personal set.
+  void applyViewerPersonalSetUpdate({
+    required String setId,
+    required List<Emote> added,
+    required List<String> removedIds,
+    required Map<String, String> renamed,
+  }) => _personalSets.applyViewerSetUpdate(
     setId: setId,
     added: added,
     removedIds: removedIds,

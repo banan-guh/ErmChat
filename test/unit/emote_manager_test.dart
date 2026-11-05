@@ -30,6 +30,7 @@ import 'package:ermchat/services/emote_providers/seven_tv_emotes.dart';
 import '../helpers.dart';
 import 'package:ermchat/models/twitch_message.dart';
 import 'package:ermchat/services/seven_tv_event_client.dart';
+import 'package:ermchat/services/seven_tv_consumer.dart';
 import 'package:ermchat/widgets/emote_text.dart';
 import 'package:ermchat/widgets/emote_effect.dart';
 import 'package:ermchat/models/twitch_command.dart';
@@ -4204,6 +4205,118 @@ void main() {
       },
     );
 
+    test('socket updates reach the viewer personal set', () async {
+      SharedPreferences.setMockInitialValues({});
+      final manager = managerWith(
+        ownedSetIds: ['set-1'],
+        sets: {
+          'set-1': [personal('p1', 'Old')],
+        },
+      );
+      manager.viewerTwitchId = 'viewer-1';
+      await manager.loadViewerPersonalSevenTvSets();
+
+      final client = SevenTvEventClient();
+      final consumer = SevenTvConsumer(
+        emoteManager: manager,
+        sevenTvClient: client,
+        onSystemMessage: (_, _) {},
+      );
+      consumer.attach();
+      addTearDown(() {
+        consumer.dispose();
+        client.dispose();
+      });
+
+      client.handleRawMessage({
+        'op': 0,
+        'd': {
+          'type': 'emote_set.update',
+          'body': {
+            'id': 'set-1',
+            'pushed': [
+              {
+                'key': 'emotes',
+                'value': {
+                  'id': 'p2',
+                  'name': 'New',
+                  'flags': 0,
+                  'data': {
+                    'id': 'p2',
+                    'name': 'New',
+                    'flags': 0,
+                    'listed': true,
+                    'animated': false,
+                    'owner': {'display_name': 'tester'},
+                    'host': {
+                      'url': '//cdn.7tv.app/emote/p2',
+                      'files': [
+                        {
+                          'name': '1x.webp',
+                          'format': 'WEBP',
+                          'width': 32,
+                          'height': 32,
+                        },
+                      ],
+                    },
+                  },
+                },
+              },
+            ],
+          },
+        },
+      });
+
+      expect(manager.byCode('ch')!.byCode.keys, contains('New'));
+    });
+
+    test('viewer personal set applies removals and renames', () async {
+      SharedPreferences.setMockInitialValues({});
+      final manager = managerWith(
+        ownedSetIds: ['set-1'],
+        sets: {
+          'set-1': [personal('p1', 'One'), personal('p2', 'Two')],
+        },
+      );
+      manager.viewerTwitchId = 'viewer-1';
+      await manager.loadViewerPersonalSevenTvSets();
+
+      manager.applyViewerPersonalSetUpdate(
+        setId: 'set-1',
+        added: const [],
+        removedIds: const ['p1'],
+        renamed: const {},
+      );
+      expect(manager.byCode('ch')!.byCode.keys, isNot(contains('One')));
+
+      manager.applyViewerPersonalSetUpdate(
+        setId: 'set-1',
+        added: const [],
+        removedIds: const [],
+        renamed: const {'p2': 'Renamed'},
+      );
+      final byCode = manager.byCode('ch')!.byCode;
+      expect(byCode.keys, contains('Renamed'));
+      expect(byCode.keys, isNot(contains('Two')));
+    });
+
+    test('bootstrap refetches a known personal set', () async {
+      SharedPreferences.setMockInitialValues({});
+      var emotes = [personal('p1', 'Old')];
+      final manager = EmoteManager(
+        fetchStagger: Duration.zero,
+        sevenTvOwnedSetIdsFetcher: (_) async => ['set-1'],
+        sevenTvEmoteSetFetcher: (_) async => emotes,
+      );
+      manager.viewerTwitchId = 'viewer-1';
+      await manager.loadViewerPersonalSevenTvSets();
+      expect(manager.byCode('ch')!.byCode.keys, contains('Old'));
+
+      emotes = [personal('p1', 'Old'), personal('p2', 'New')];
+      await manager.loadViewerPersonalSevenTvSets();
+      expect(manager.byCode('ch')!.byCode.keys, contains('New'));
+    });
+
     test(
       'reset clears personal sets while channel sets win conflicts',
       () async {
@@ -4489,7 +4602,7 @@ void main() {
       }
     });
 
-    test('viewer grants never leak into foreign maps', () async {
+    test('viewer personal emotes stay on the viewer messages', () async {
       SharedPreferences.setMockInitialValues({});
       final manager = socketManager(
         sets: {
@@ -4500,12 +4613,16 @@ void main() {
       await manager.applySevenTvEntitlement(
         grant('set-1', twitchUserIds: ['viewer-1']),
       );
-      // Own emote usable everywhere via the base merge, but the stranger's
-      // sender map carries no foreign extras beyond the base map.
+      // The viewer's own set resolves for the viewer and nobody else: another
+      // sender's map must not inherit it from the base merge or its cache.
       expect(manager.byCode('ch')!.byCode.keys, contains('Mine'));
       expect(
-        manager.byCodeForSender('ch', 'sender-9')!.byCode.keys,
-        unorderedEquals(manager.byCode('ch')!.byCode.keys),
+        manager.byCodeForSender('ch', 'viewer-1')!.byCode.keys,
+        contains('Mine'),
+      );
+      expect(
+        manager.byCodeForSender('ch', 'sender-9')?.byCode.keys ?? [],
+        isNot(contains('Mine')),
       );
     });
   });

@@ -84,10 +84,13 @@ class SevenTvEmoteProvider {
 
   /// Emotes of one personal set by id. Non-personal sets return empty so a
   /// mistargeted id never leaks channel emotes into the global merge.
+  /// Non-200 responses throw so callers keep what they already have.
   static Future<List<Emote>> fetchEmoteSet(String setId) async {
     final uri = Uri.parse('https://7tv.io/v3/emote-sets/$setId');
     final res = await getEmoteList(uri);
-    if (res.statusCode != 200) return [];
+    if (res.statusCode != 200) {
+      throw StateError('7TV emote set $setId: HTTP ${res.statusCode}');
+    }
     return Isolate.run(() {
       final data = jsonDecode(res.body) as Map<String, dynamic>;
       if (!isPersonalSet(data)) return <Emote>[];
