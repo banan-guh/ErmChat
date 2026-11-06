@@ -11,10 +11,11 @@ class ChatCompaction {
   final Map<int, int> hidden;
 }
 
-/// Seconds of chat that share one repeat grouping.
+/// Longest gap between two copies of a text that still joins them into one
+/// run. A longer pause starts a new run, so waves do not merge forever.
 const chatCompactSeconds = 10;
 
-/// Rows in one grouping, so a fast wave cannot grow without bound.
+/// Rows one run may span, so a fast wave cannot grow without bound.
 const chatCompactRows = 100;
 
 /// Rows needed before a text folds. Two keeps the second row from painting
@@ -24,9 +25,11 @@ const chatCompactMin = 2;
 final _spaces = RegExp(r'\s+');
 final _edgePunctuation = RegExp(r'^\p{P}+|\p{P}+$', unicode: true);
 
-/// Groups identical texts inside fixed time buckets. Text matches after
-/// trimming, collapsing spaces, folding case and dropping edge punctuation.
-/// A group's summary is its first row. Excluded rows stay visible, uncounted.
+/// Groups copies of one text into runs. Text matches after trimming,
+/// collapsing spaces, folding case and dropping edge punctuation. Copies
+/// join a run while each lands within [chatCompactSeconds] of the previous
+/// one and the run spans fewer than [chatCompactRows] rows. A run's summary
+/// is its first row. Excluded rows stay visible, uncounted.
 ChatCompaction compactChat(
   List<TwitchMessage> rows, {
   bool Function(TwitchMessage)? skip,
@@ -35,40 +38,41 @@ ChatCompaction compactChat(
   final hidden = <int, int>{};
   if (rows.isEmpty) return const ChatCompaction(counts: {}, hidden: {});
 
-  var bucket = -1;
-  var bucketRows = 0;
-  var groups = <String, List<int>>{};
-
-  void flush() {
-    for (final members in groups.values) {
-      if (members.length < chatCompactMin) continue;
-      final summary = members.first;
-      counts[summary] = members.length;
-      for (var i = 1; i < members.length; i++) {
-        hidden[members[i]] = summary;
-      }
+  void emit(_Run run) {
+    final members = run.members;
+    if (members.length < chatCompactMin) return;
+    final summary = members.first;
+    counts[summary] = members.length;
+    for (var i = 1; i < members.length; i++) {
+      hidden[members[i]] = summary;
     }
-    groups = {};
   }
 
+  final runs = <String, _Run>{};
   for (var i = 0; i < rows.length; i++) {
     final msg = rows[i];
-    final at =
-        msg.timestamp.millisecondsSinceEpoch ~/
-        (chatCompactSeconds * Duration.millisecondsPerSecond);
-    if (at != bucket || bucketRows >= chatCompactRows) {
-      flush();
-      bucket = at;
-      bucketRows = 0;
-    }
-    bucketRows++;
     if (!_groupable(msg, skip)) continue;
     final text = msg.text.trim().replaceAll(_spaces, ' ');
     if (text.isEmpty) continue;
     final folded = text.toLowerCase().replaceAll(_edgePunctuation, '');
-    (groups['${msg.channel ?? ''}\u0000$folded'] ??= []).add(i);
+    final key = '${msg.channel ?? ''}\u0000$folded';
+    final run = runs[key];
+    if (run != null) {
+      final gap = msg.timestamp.difference(run.last).inMilliseconds;
+      if (gap >= 0 &&
+          gap < chatCompactSeconds * Duration.millisecondsPerSecond &&
+          i - run.start < chatCompactRows) {
+        run.members.add(i);
+        run.last = msg.timestamp;
+        continue;
+      }
+      emit(run);
+    }
+    runs[key] = _Run(i, msg.timestamp);
   }
-  flush();
+  for (final run in runs.values) {
+    emit(run);
+  }
   return ChatCompaction(counts: counts, hidden: hidden);
 }
 
@@ -80,4 +84,15 @@ bool _groupable(TwitchMessage msg, bool Function(TwitchMessage)? skip) {
   if (msg.pinnedPaidAmount != null) return false;
   if (msg.msgId == 'highlighted-message') return false;
   return !(skip?.call(msg) ?? false);
+}
+
+class _Run {
+  _Run(this.start, this.last) : members = [start];
+
+  /// Row index of the first copy, which becomes the summary.
+  final int start;
+  final List<int> members;
+
+  /// Time of the newest copy, for the gap test.
+  DateTime last;
 }

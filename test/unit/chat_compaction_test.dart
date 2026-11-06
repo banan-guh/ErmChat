@@ -107,7 +107,7 @@ void main() {
     expect(result.hidden, {2: 0, 3: 1, 4: 0, 5: 1});
   });
 
-  test('starts a new chunk after ten seconds', () {
+  test('a gap of ten seconds starts a new run', () {
     final at = DateTime(2026, 1, 1, 12);
     final result = compactChat([
       message('KEKW', at: at),
@@ -119,7 +119,32 @@ void main() {
     expect(result.hidden, {1: 0, 3: 2});
   });
 
-  test('starts a new chunk after one hundred rows', () {
+  test('messages between copies do not split the run', () {
+    final at = DateTime(2026, 1, 1, 12);
+    final result = compactChat([
+      message('KEKW', at: at),
+      message('something else', at: at.add(const Duration(seconds: 2))),
+      message('KEKW', at: at.add(const Duration(seconds: 3))),
+    ]);
+    expect(result.counts, {0: 2});
+    expect(result.hidden, {2: 0});
+  });
+
+  test('a lone copy joins a run that follows it', () {
+    final at = DateTime(2026, 1, 1, 12);
+    final result = compactChat([
+      message('om', at: at),
+      message('om', at: at.add(const Duration(seconds: 2))),
+      message('om', at: at.add(const Duration(seconds: 3))),
+      message('om', at: at.add(const Duration(seconds: 4))),
+      message('om', at: at.add(const Duration(seconds: 5))),
+      message('om', at: at.add(const Duration(seconds: 6))),
+    ]);
+    expect(result.counts, {0: 6});
+    expect(result.hidden, {1: 0, 2: 0, 3: 0, 4: 0, 5: 0});
+  });
+
+  test('starts a new run after one hundred rows', () {
     final at = DateTime(2026, 1, 1, 12);
     final rows = [
       for (var i = 0; i < 101; i++)
