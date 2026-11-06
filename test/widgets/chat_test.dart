@@ -1356,7 +1356,7 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    await tester.tap(find.byIcon(Icons.close));
+    await tester.tap(find.byIcon(Icons.arrow_back));
     await tester.pumpAndSettle();
 
     // Reopen through the dashboard and go straight to the Thread tab.

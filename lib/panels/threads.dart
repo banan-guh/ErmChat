@@ -559,8 +559,8 @@ class ThreadPanels {
       ratio: panelManager.threadSheetRatio,
       header: panelHeader(
         leading: IconButton(
-          icon: const Icon(Icons.close),
-          tooltip: context.l10n.close,
+          icon: const Icon(Icons.arrow_back),
+          tooltip: context.l10n.back,
           onPressed: closePanel,
         ),
         tabs: TabBar(
