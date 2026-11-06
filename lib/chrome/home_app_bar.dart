@@ -170,6 +170,14 @@ class HomeAppBar {
   bool joinBusy() =>
       !disableJoinSpinner() && (chatLoading() || networkBusy.value);
 
+  /// Whether the join control spins. A busy bar carries an emote reload, so
+  /// the + only covers connects there; without a bar it stays the fallback.
+  bool joinSpinning() {
+    if (disableJoinSpinner()) return false;
+    if (chatLoading()) return true;
+    return networkBusy.value && !themeSpec().busyBar;
+  }
+
   Listenable get joinBusyListenable =>
       Listenable.merge([chatConn.connectionStateNotifier, networkBusy]);
 
@@ -179,11 +187,7 @@ class HomeAppBar {
       builder: (context, _) {
         final busy = joinBusy();
         return IconButton(
-          // A theme with a loading bar keeps the plain + while the row
-          // that carries the bar shows.
-          icon: busy && !(themeSpec().busyBar && chat.length > 0)
-              ? _joinSpinner(context)
-              : const Icon(Icons.add),
+          icon: joinSpinning() ? _joinSpinner(context) : const Icon(Icons.add),
           tooltip: busy
               ? context.l10n.loadingEllipsis
               : context.l10n.joinChannel,
@@ -209,7 +213,7 @@ class HomeAppBar {
     return ListenableBuilder(
       listenable: joinBusyListenable,
       builder: (context, _) {
-        if (joinBusy()) return _joinSpinner(context);
+        if (joinSpinning()) return _joinSpinner(context);
         return Tooltip(
           message: context.l10n.joinChannel,
           child: Icon(
