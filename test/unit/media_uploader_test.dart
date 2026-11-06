@@ -253,7 +253,7 @@ void main() {
   });
 
   group('MediaUploader recent uploads', () {
-    test('addRecent inserts at the front and caps the list', () async {
+    test('addRecent keeps every entry so delete links survive', () async {
       final uploader = MediaUploader(
         client: MockClient((_) async => http.Response('', 200)),
       );
@@ -264,9 +264,9 @@ void main() {
       }
 
       final uploads = await uploader.recentUploads();
-      expect(uploads.length, 50);
+      expect(uploads.length, 60);
       expect(uploads.first.imageLink, 'https://kappa.lol/59');
-      expect(uploads.last.imageLink, 'https://kappa.lol/10');
+      expect(uploads.last.imageLink, 'https://kappa.lol/0');
     });
 
     test('removeRecent and clearRecents edit the list', () async {
@@ -276,12 +276,71 @@ void main() {
       await uploader.addRecent(const UploadResult(imageLink: 'a'));
       await uploader.addRecent(const UploadResult(imageLink: 'b'));
 
-      await uploader.removeRecent(0);
       final uploads = await uploader.recentUploads();
-      expect(uploads.map((u) => u.imageLink), ['a']);
+      await uploader.removeRecent(uploads.first);
+      expect((await uploader.recentUploads()).map((u) => u.imageLink), ['a']);
 
       await uploader.clearRecents();
       expect(await uploader.recentUploads(), isEmpty);
+    });
+
+    test('deleteUpload calls the host delete link', () async {
+      Uri? called;
+      final uploader = MediaUploader(
+        client: MockClient((request) async {
+          called = request.url;
+          return http.Response('', 200);
+        }),
+      );
+      final ok = await uploader.deleteUpload(
+        RecentUpload(
+          imageLink: 'https://kappa.lol/x',
+          deleteLink: 'https://kappa.lol/api/delete?key=k',
+          timestamp: DateTime(2026),
+        ),
+      );
+
+      expect(ok, isTrue);
+      expect(called.toString(), 'https://kappa.lol/api/delete?key=k');
+    });
+
+    test('deleteUpload keeps the entry when the host refuses', () async {
+      final uploader = MediaUploader(
+        client: MockClient((_) async => http.Response('', 500)),
+      );
+      final ok = await uploader.deleteUpload(
+        RecentUpload(
+          imageLink: 'https://kappa.lol/x',
+          deleteLink: 'https://kappa.lol/api/delete?key=k',
+          timestamp: DateTime(2026),
+        ),
+      );
+
+      expect(ok, isFalse);
+    });
+
+    test('deleteUpload treats a missing link or gone image as done', () async {
+      final uploader = MediaUploader(
+        client: MockClient((_) async => http.Response('', 404)),
+      );
+      final at = DateTime(2026);
+
+      expect(
+        await uploader.deleteUpload(
+          RecentUpload(imageLink: 'https://kappa.lol/x', timestamp: at),
+        ),
+        isTrue,
+      );
+      expect(
+        await uploader.deleteUpload(
+          RecentUpload(
+            imageLink: 'https://kappa.lol/x',
+            deleteLink: 'https://kappa.lol/api/delete?key=k',
+            timestamp: at,
+          ),
+        ),
+        isTrue,
+      );
     });
   });
 }

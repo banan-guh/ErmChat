@@ -147,6 +147,9 @@ class MediaUploader {
   /// once sent. A slow connection keeps going; a dead one gives up.
   static const _stallTimeout = Duration(seconds: 30);
 
+  /// How long a remote delete may take before the entry is kept for retry.
+  static const _deleteTimeout = Duration(seconds: 15);
+
   /// Bytes handed to the connection per step, so progress moves smoothly.
   static const _chunkBytes = 64 * 1024;
 
@@ -316,27 +319,58 @@ class MediaUploader {
         timestamp: timestamp ?? DateTime.now(),
       ),
     );
-    // Cap list to keep pref small.
-    final trimmed = uploads.take(50).toList();
-    final prefs = await Prefs.load();
-    await prefs.setRecentUploadsRaw(
-      jsonEncode(trimmed.map((e) => e.toJson()).toList()),
-    );
+    // Keep every entry: the delete link is the only way to remove the image,
+    // so trimming a row would orphan it on the host.
+    await _writeRecents(uploads);
   }
 
-  Future<void> removeRecent(int index) async {
+  /// Asks the host to delete [upload]'s image. True when nothing is left to
+  /// delete (no link, success, or already gone); false means keep the row.
+  Future<bool> deleteUpload(RecentUpload upload) async {
+    final link = upload.deleteLink?.trim();
+    if (link == null || link.isEmpty) return true;
+    final uri = Uri.tryParse(link);
+    if (uri == null || (uri.scheme != 'http' && uri.scheme != 'https')) {
+      return false;
+    }
+    try {
+      final res = await _client
+          .get(uri, headers: {'User-Agent': 'ermchat'})
+          .timeout(_deleteTimeout);
+      // Already gone counts as deleted, so a retry can clear the row.
+      if (res.statusCode == 404 || res.statusCode == 410) return true;
+      return res.statusCode >= 200 && res.statusCode < 300;
+    } catch (e) {
+      logDebug('MediaUploader: delete failed: $e');
+      return false;
+    }
+  }
+
+  Future<void> removeRecent(RecentUpload upload) => removeRecents([upload]);
+
+  /// Drops [removed] by link and timestamp; anything else keeps its key.
+  Future<void> removeRecents(Iterable<RecentUpload> removed) async {
+    final drop = {
+      for (final upload in removed)
+        (link: upload.imageLink, at: upload.timestamp),
+    };
     final uploads = await recentUploads();
-    if (index < 0 || index >= uploads.length) return;
-    uploads.removeAt(index);
-    final prefs = await Prefs.load();
-    await prefs.setRecentUploadsRaw(
-      jsonEncode(uploads.map((e) => e.toJson()).toList()),
+    uploads.removeWhere(
+      (upload) => drop.contains((link: upload.imageLink, at: upload.timestamp)),
     );
+    await _writeRecents(uploads);
   }
 
   Future<void> clearRecents() async {
     final prefs = await Prefs.load();
     await prefs.removeRecentUploads();
+  }
+
+  Future<void> _writeRecents(List<RecentUpload> uploads) async {
+    final prefs = await Prefs.load();
+    await prefs.setRecentUploadsRaw(
+      jsonEncode(uploads.map((e) => e.toJson()).toList()),
+    );
   }
 }
 
