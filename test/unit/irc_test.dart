@@ -3083,6 +3083,16 @@ void main() {
             'Great Kappa!',
           ),
           (
+            'modiversary names the sender and keeps its body',
+            '@msg-id=modiversary;system-msg=has\\sbeen\\sa\\smoderator\\sfor\\s24'
+                '\\smonths!;login=bluelava;display-name=BlueLava;id=mod;'
+                'user-id=456;:tmi.twitch.tv USERNOTICE #test '
+                ":I'm celebrating my 9 year Mod Anniversary!",
+            'BlueLava has been a moderator for 24 months!',
+            const Color(0xFF7C47D1),
+            "I'm celebrating my 9 year Mod Anniversary!",
+          ),
+          (
             'subgift without text stays a single system message',
             '@msg-id=subgift;system-msg=TWW2\\sgifted\\sa\\sTier\\s1\\ssub\\sto'
                 '\\sMr_Woodchuck!;login=tww2;display-name=TWW2;'

@@ -387,12 +387,14 @@ class ChatIngestion {
         accent: accent,
         messageId: userNoticeLabelId(event.messageId),
       );
-      // Sub/resub with a user message render like announcements: the notice
-      // stays the label and the user's text becomes a child chat message so
-      // emotes and badges render. The IRC `emotes` tag positions are
-      // relative to the untrimmed body, so shift them by trimmed leading
+      // Sub/resub/modiversary with a user message render like announcements:
+      // the notice stays the label and the user's text becomes a child chat
+      // message so emotes and badges render. The IRC `emotes` tag positions
+      // are relative to the untrimmed body, so shift them by trimmed leading
       // whitespace and drop any that fall out of range.
-      if ((event.msgId == 'sub' || event.msgId == 'resub') &&
+      if ((event.msgId == 'sub' ||
+              event.msgId == 'resub' ||
+              event.msgId == 'modiversary') &&
           (event.text?.trim().isNotEmpty ?? false)) {
         final raw = event.text!;
         final body = raw.trim();

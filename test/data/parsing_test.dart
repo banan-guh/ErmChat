@@ -231,6 +231,14 @@ void main() {
           'notice-1:label',
         ),
         (
+          'modiversary names the sender',
+          '@msg-id=modiversary;system-msg=has\\sbeen\\sa\\smoderator\\sfor\\s24\\smonths!;login=bluelava;display-name=BlueLava;id=notice-2;$ts :tmi.twitch.tv USERNOTICE #xqc :I am celebrating my 9 year Mod Anniversary!',
+          'BlueLava has been a moderator for 24 months!',
+          '',
+          purple,
+          'notice-2:label',
+        ),
+        (
           'label without an id',
           '@msg-id=resub;system-msg=ronni\\shas\\ssubscribed!;login=ronni;display-name=ronni;$ts :tmi.twitch.tv USERNOTICE #xqc',
           'ronni has subscribed!',
@@ -415,6 +423,19 @@ void main() {
       );
       final sub = RecentMessagesService.parseSubChild(resub)!;
       expect((sub.text, sub.login), ('hello', 'ronni'));
+
+      const modiversary =
+          '@color=#0000FF;id=mod;rm-received-ts=1785668914195;historical=1;'
+          'system-msg=has\\sbeen\\sa\\smoderator\\sfor\\s24\\smonths!;'
+          'msg-id=modiversary;badge-info;login=bluelava;flags;'
+          'badges=moderator/1;emotes;display-name=BlueLava '
+          ':tmi.twitch.tv USERNOTICE #xqc hello';
+      expect(
+        RecentMessagesService.parseIrcLine(modiversary)!.text,
+        'BlueLava has been a moderator for 24 months!',
+      );
+      final mod = RecentMessagesService.parseSubChild(modiversary)!;
+      expect((mod.text, mod.login), ('hello', 'bluelava'));
     });
   });
 

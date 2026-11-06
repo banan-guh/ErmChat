@@ -28,5 +28,10 @@ String buildUserNoticeText({
   if (msgId == 'announcement') return announcementLabel;
   final base = systemMsg;
   if (base == null || base.isEmpty) return '$displayName $msgId.';
+  // Twitch's modiversary notice leaves the name out of system-msg.
+  if (msgId == 'modiversary' &&
+      !base.toLowerCase().startsWith(displayName.toLowerCase())) {
+    return '$displayName $base';
+  }
   return base;
 }

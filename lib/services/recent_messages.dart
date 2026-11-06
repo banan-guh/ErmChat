@@ -568,7 +568,7 @@ class RecentMessagesService {
     // Robotty strips trailing colon.
     final text = msg.trailing ?? (msg.params.length > 1 ? msg.params[1] : null);
     final isSubWithText =
-        (msgId == 'sub' || msgId == 'resub') &&
+        (msgId == 'sub' || msgId == 'resub' || msgId == 'modiversary') &&
         (text?.trim().isNotEmpty ?? false);
 
     return TwitchMessage(
@@ -598,7 +598,7 @@ class RecentMessagesService {
     );
   }
 
-  /// Child message for sub/resub with text, or null.
+  /// Child message for sub/resub/modiversary with text, or null.
   @visibleForTesting
   static TwitchMessage? parseSubChild(String raw, {String? channel}) {
     final msg = parseIrcMessage(raw);
@@ -611,7 +611,9 @@ class RecentMessagesService {
   }) {
     if (msg == null || msg.command != 'USERNOTICE') return null;
     final msgId = msg.tags['msg-id'];
-    if (msgId != 'sub' && msgId != 'resub') return null;
+    if (msgId != 'sub' && msgId != 'resub' && msgId != 'modiversary') {
+      return null;
+    }
     // Robotty strips trailing colon.
     final text =
         (msg.trailing ?? (msg.params.length > 1 ? msg.params[1] : null))
