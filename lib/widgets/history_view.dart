@@ -80,6 +80,7 @@ class HistoryView extends StatefulWidget {
   const HistoryView({
     super.key,
     required this.channel,
+    this.storageId,
     this.channelPage = false,
     required this.source,
     required this.rows,
@@ -105,6 +106,11 @@ class HistoryView extends StatefulWidget {
   });
 
   final String channel;
+
+  /// PageStorage slot for the reading position. Defaults to [channel]'s page;
+  /// other lists over the same channel (search, mentions) need their own so
+  /// they never overwrite it.
+  final String? storageId;
 
   /// Whether this list is [channel]'s page, which clears [channel]'s island
   /// rather than the one on screen.
@@ -520,9 +526,14 @@ class _HistoryViewState extends State<HistoryView> {
 
   bool _started = false;
 
+  /// Captured while the element is active: ancestor lookups fail in
+  /// [deactivate], so the reading position would never be saved.
+  PageStorageBucket? _bucket;
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    _bucket = PageStorage.maybeOf(context);
     final scale = MediaQuery.textScalerOf(context).scale(1.0);
     if (!_started) {
       // Tiles cached at this scale stay valid; a mounted page clears them
@@ -601,7 +612,7 @@ class _HistoryViewState extends State<HistoryView> {
   /// bottom edge and how far its top sat above that edge. Nothing is saved
   /// while following, so the page comes back at the newest row.
   void _saveReading() {
-    final bucket = PageStorage.maybeOf(context);
+    final bucket = _bucket;
     if (bucket == null) return;
     ({DateTime time, double offset})? reading;
     final pos = _pos;
@@ -615,13 +626,11 @@ class _HistoryViewState extends State<HistoryView> {
   }
 
   ({DateTime time, double offset})? _readSaved() {
-    final saved = PageStorage.maybeOf(
-      context,
-    )?.readState(context, identifier: _storageId);
+    final saved = _bucket?.readState(context, identifier: _storageId);
     return saved is ({DateTime time, double offset}) ? saved : null;
   }
 
-  String get _storageId => 'history:${widget.channel}';
+  String get _storageId => widget.storageId ?? 'history:${widget.channel}';
 
   // ---- Bottom --------------------------------------------------------------
 

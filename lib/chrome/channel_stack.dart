@@ -521,9 +521,11 @@ class ChannelPanels {
           ArchiveFindSource.search(channel, reader, query: q, scope: scope),
       build: (source, newest, q, scope) {
         final query = ChatQuery.parse(q, scope);
+        final searchId = 'search|$channel|${scope.name}|$q';
         return HistoryView(
           // A new query or scope starts a new list.
-          key: ValueKey('search|$channel|${scope.name}|$q'),
+          key: ValueKey(searchId),
+          storageId: 'history:$searchId',
           channel: channel,
           channelPage: true,
           source: source,

@@ -268,12 +268,13 @@ class MentionsPanels {
       return true;
     }
 
+    final listId =
+        'mentions|${session.login}|${terms.texts.join('\u0000')}|'
+        '${terms.logins.join(',')}';
     return HistoryView(
       // Changed rules or another account start a new list.
-      key: ValueKey(
-        'mentions|${session.login}|${terms.texts.join('\u0000')}|'
-        '${terms.logins.join(',')}',
-      ),
+      key: ValueKey(listId),
+      storageId: 'history:$listId',
       channel: mentionsChannel,
       source: ArchiveFindSource(
         reader,

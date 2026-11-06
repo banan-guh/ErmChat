@@ -1335,4 +1335,86 @@ void main() {
       reason: 'the second jump left the list where it was',
     );
   });
+
+  testWidgets('a scrolled page returns to its reading position', (
+    tester,
+  ) async {
+    FakeHistory.loadDelay = Duration.zero;
+    tester.view.physicalSize = const Size(400, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final em = EmoteManager();
+    addTearDown(em.dispose);
+    final builder = MessageBuilder(
+      emoteSource: em,
+      badgeService: TwitchBadgeService(),
+      thirdPartyBadgeService: ThirdPartyBadgeService(),
+      onShowEmoteSheet: (_) {},
+    );
+    final show = ValueNotifier(true);
+    addTearDown(show.dispose);
+    Widget view() => HistoryView(
+      channel: _ch,
+      storageId: 'test:page',
+      source: FakeHistorySource(_ch),
+      rows: ChatRows(
+        channel: _ch,
+        messageBuilder: builder,
+        onShowUserProfile: (_, _, {displayName}) {},
+      ),
+      topPadding: _inset,
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: Scaffold(
+          body: ValueListenableBuilder(
+            valueListenable: show,
+            builder: (_, visible, _) =>
+                visible ? view() : const SizedBox.shrink(),
+          ),
+        ),
+      ),
+    );
+    await tester.runAsync(() => Future<void>.delayed(Duration.zero));
+    await tester.pump();
+    await tester.pump();
+
+    final list = find.byType(CustomScrollView);
+    final p = tester
+        .state<ScrollableState>(
+          find.descendant(of: list, matching: find.byType(Scrollable)),
+        )
+        .position;
+    await tester.drag(list, const Offset(0, 600));
+    await _settle(tester);
+    expect(p.pixels, greaterThan(p.minScrollExtent));
+    final before = _items(tester).keys;
+
+    show.value = false;
+    await tester.pump();
+    show.value = true;
+    await tester.pump();
+    await tester.runAsync(() => Future<void>.delayed(Duration.zero));
+    await tester.pump();
+    await tester.pump();
+
+    final p2 = tester
+        .state<ScrollableState>(
+          find.descendant(
+            of: find.byType(CustomScrollView),
+            matching: find.byType(Scrollable),
+          ),
+        )
+        .position;
+    final after = _items(tester).keys;
+    expect(
+      after.intersection(before).length,
+      greaterThanOrEqualTo(before.length ~/ 2),
+      reason:
+          'restore landed on different rows '
+          '(before=$before, after=$after, pixels=${p2.pixels})',
+    );
+  });
 }
