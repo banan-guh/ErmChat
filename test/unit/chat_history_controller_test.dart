@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:ermchat/chat/chat.dart';
@@ -452,6 +453,36 @@ void main() {
     );
   });
 
+  test('a refetch during an in-flight one runs again', () async {
+    final chat = Chat();
+    addTearDown(chat.dispose);
+    chat.ensure('ch').setHistoryLoaded(true);
+    final emotes = EmoteManager();
+    addTearDown(emotes.dispose);
+    final recent = _BlockingRecentMessages();
+    final controller = _controller(chat, emotes, recent: recent);
+    addTearDown(controller.dispose);
+
+    final first = controller.refetchHistory('ch');
+    await Future<void>.delayed(Duration.zero);
+    expect(recent.calls, hasLength(1));
+
+    await controller.refetchHistory('ch');
+    expect(recent.calls, hasLength(1), reason: 'the second call only queues');
+
+    recent.releaseNext();
+    await first;
+    await Future<void>.delayed(Duration.zero);
+    expect(
+      recent.calls,
+      hasLength(2),
+      reason: 'the queued run starts after the first',
+    );
+
+    recent.releaseNext();
+    await Future<void>.delayed(Duration.zero);
+  });
+
   test('a cold start keeps the emotes rows were archived with', () async {
     sqfliteFfiInit();
     final dir = await Directory.systemTemp.createTemp('tokens');
@@ -542,4 +573,25 @@ class _RecordingRecentMessages extends RecentMessagesService {
     ];
     return kept.length <= limit ? kept : kept.sublist(kept.length - limit);
   }
+}
+
+/// Holds each fetch until the test releases it, so overlapping calls queue.
+class _BlockingRecentMessages extends RecentMessagesService {
+  final calls = <DateTime?>[];
+  final _gates = <Completer<void>>[];
+
+  @override
+  Future<List<TwitchMessage>> fetchRecent(
+    String channel, {
+    int limit = 100,
+    DateTime? after,
+  }) async {
+    calls.add(after);
+    final gate = Completer<void>();
+    _gates.add(gate);
+    await gate.future;
+    return [historyRow('h${calls.length}', 'm${calls.length}')];
+  }
+
+  void releaseNext() => _gates.removeAt(0).complete();
 }

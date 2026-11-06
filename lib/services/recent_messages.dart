@@ -177,6 +177,17 @@ class RecentMessagesService {
     String channel, {
     int limit = 100,
     DateTime? after,
+  }) => _fetchRecent(channel, limit: limit, after: after, retryUnjoined: true);
+
+  /// A provider that is not joined to a channel joins on demand, so an
+  /// unjoined answer is transient. Give it a moment before settling.
+  static const _unjoinedRetryDelay = Duration(seconds: 2);
+
+  Future<List<TwitchMessage>> _fetchRecent(
+    String channel, {
+    required int limit,
+    required DateTime? after,
+    required bool retryUnjoined,
   }) async {
     if (FakeHistory.isFake(channel)) return const [];
     final path = _path(channel, limit, after: after);
@@ -221,7 +232,21 @@ class RecentMessagesService {
       }
     }
     // No joined provider: serve the freshest stale batch if there is one.
-    if (staleFallback != null) return staleFallback;
+    if (staleFallback != null) {
+      if (!retryUnjoined || staleFallback.isNotEmpty) return staleFallback;
+      await Future<void>.delayed(_unjoinedRetryDelay);
+      try {
+        return await _fetchRecent(
+          channel,
+          limit: limit,
+          after: after,
+          retryUnjoined: false,
+        );
+      } catch (e) {
+        logDebug('[RecentMessages] $channel: unjoined retry failed ($e)');
+        return staleFallback;
+      }
+    }
     // All providers exhausted: surface last error or wrap.
     if (lastError is RecentMessagesException) throw lastError;
     throw RecentMessagesException(strings().historyLoadFailed);

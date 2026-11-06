@@ -77,6 +77,9 @@ class ChatHistoryController {
 
   final ChatMessagePolicy _policy;
   final _refetchingChannels = <String>{};
+  // A reconnect during an in-flight fetch must run again with the
+  // post-outage window, not be dropped as a duplicate.
+  final _refetchQueued = <String>{};
 
   /// Catalog version already restamped. Version bumps mark full data
   /// changes; live 7TV deltas and config-only updates skip the bump, so
@@ -382,8 +385,9 @@ class ChatHistoryController {
   }
 
   Future<void> refetchHistory(String channel) async {
-    if (!(chat.channelFor(channel)?.info.historyLoaded ?? false) ||
-        _refetchingChannels.contains(channel)) {
+    if (!(chat.channelFor(channel)?.info.historyLoaded ?? false)) return;
+    if (_refetchingChannels.contains(channel)) {
+      _refetchQueued.add(channel);
       return;
     }
     _refetchingChannels.add(channel);
@@ -409,6 +413,7 @@ class ChatHistoryController {
       noteFetchFailed(channel, at);
     } finally {
       _refetchingChannels.remove(channel);
+      if (_refetchQueued.remove(channel)) unawaited(refetchHistory(channel));
     }
   }
 }
