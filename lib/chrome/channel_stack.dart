@@ -471,7 +471,7 @@ class ChannelPanels {
   ChatRows _rows(
     BuildContext context,
     String channel, {
-    void Function(TwitchMessage msg)? onTapMessage,
+    void Function(TwitchMessage msg)? goToMessage,
   }) => ChatRows(
     channel: channel,
     messageBuilder: messageBuilder,
@@ -485,11 +485,16 @@ class ChannelPanels {
     paintService: showNamePaints() ? paintService : null,
     onShowUserProfile: (login, userId, {displayName}) => userSheets
         .showUserProfile(context, login, userId, displayName: displayName),
-    onShowMessageMenu: (msg) => menus.showMessageMenu(context, msg),
+    onShowMessageMenu: goToMessage == null
+        ? (msg) => menus.showMessageMenu(context, msg)
+        : (msg) => menus.showPanelMessageMenu(
+            context,
+            msg,
+            goToMessage: () => goToMessage(msg),
+          ),
     onCopyMessage: copyMessage,
     onFindThreadRoot: threads.findThreadRoot,
     onShowThreadView: (msg) => threads.showThreadView(msg),
-    onTapMessage: onTapMessage,
     hides: chat.filter.hides,
     flashRequest: _flashFor(channel),
   );
@@ -549,14 +554,16 @@ class ChannelPanels {
           rows: _rows(
             context,
             channel,
-            onTapMessage: (msg) {
+            goToMessage: (msg) {
               search.closeSearch();
-              _jumpFor(channel).value = msg.timestamp;
+              jumpTo(channel, msg.timestamp);
             },
           ),
           textScale: chatFontSize() / 14.0,
           topPadding: topPadding,
-          tileCache: tileCache,
+          // Result rows carry their own menu, so they never share a tile
+          // with the channel page's cached ones.
+          tileCache: null,
           atBottomNotifier: atBottomNotifier(channel),
           emptyText: context.l10n.noMatches,
           keyboardDismissBehavior: (!kIsWeb && Platform.isIOS)
