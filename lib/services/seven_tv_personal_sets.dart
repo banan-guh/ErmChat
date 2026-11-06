@@ -138,6 +138,9 @@ class SevenTvPersonalSets {
     }
   }
 
+  /// The viewer's owned set ids, so their live updates can be subscribed.
+  Iterable<String> get viewerSetIds => _personalSevenTvSetIds;
+
   /// Sender-scoped personal lookup, null when [senderTwitchId] has none.
   EmoteLookup? foreignFor(String? senderTwitchId) =>
       senderTwitchId == null ? null : _foreignPersonalSets[senderTwitchId];

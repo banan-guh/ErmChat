@@ -983,10 +983,12 @@ class EmoteStore {
       :final creator,
       :final baseName,
       :final unlisted,
+      :final personalUse,
       :final relativeScale,
       :final aspectRatio,
     ) =>
-      'sevenTv:$creator:$baseName:$unlisted:$relativeScale:$aspectRatio',
+      'sevenTv:$creator:$baseName:$unlisted:$personalUse:'
+          '$relativeScale:$aspectRatio',
   };
 
   /// Applies a 7TV WS delta in place. Returns the image URLs of removed

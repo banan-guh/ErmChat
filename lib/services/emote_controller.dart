@@ -72,9 +72,25 @@ class EmoteController {
     unawaited(loadPrefs());
     primeForAccount();
     unawaited(emoteManager.startCacheGc());
-    _entitlementSub ??= sevenTvClient.onEntitlement.listen(
-      emoteManager.applySevenTvEntitlement,
-    );
+    _entitlementSub ??= sevenTvClient.onEntitlement.listen(_onEntitlement);
+  }
+
+  void _onEntitlement(SevenTvEntitlementEvent event) {
+    unawaited(emoteManager.applySevenTvEntitlement(event));
+    // A granted personal set's contents (renames, adds) reach the socket
+    // only while subscribed.
+    if (event.cosmeticKind == 'EMOTE_SET' &&
+        event.kind != 'entitlement.delete') {
+      sevenTvClient.subscribeEmoteSet(event.cosmeticId);
+    }
+  }
+
+  /// Loads the viewer's personal sets, then subscribes to their live edits.
+  Future<void> _loadViewerPersonalSets() async {
+    await emoteManager.loadViewerPersonalSevenTvSets();
+    for (final setId in emoteManager.viewerPersonalSetIds) {
+      sevenTvClient.subscribeEmoteSet(setId);
+    }
   }
 
   /// Sets the account token + viewer id and kicks off the initial fetches.
@@ -82,7 +98,7 @@ class EmoteController {
     emoteManager.accessToken = twitchAuth.accessToken;
     emoteManager.viewerTwitchId = twitchAuth.userId;
     unawaited(emoteManager.preloadGlobalEmotes());
-    unawaited(emoteManager.loadViewerPersonalSevenTvSets());
+    unawaited(_loadViewerPersonalSets());
   }
 
   /// Auth changed without an account switch: re-prime and refetch.
@@ -198,7 +214,7 @@ class EmoteController {
       // rebuild; unawaited left a window where global emotes rendered as text.
       await emoteManager.preloadGlobalEmotes(force: force);
       emoteManager.viewerTwitchId = twitchAuth.userId;
-      await emoteManager.loadViewerPersonalSevenTvSets();
+      await _loadViewerPersonalSets();
       badgeService.resetCaches();
       await badgeService.fetchGlobalBadges(twitchAuth);
       for (final channel in chat.names) {

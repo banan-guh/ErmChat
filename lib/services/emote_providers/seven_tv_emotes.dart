@@ -194,6 +194,10 @@ class SevenTvEmoteProvider {
 
       // Unlisted flag parsed; EmoteManager owns visibility (no refetch needed).
       final listed = data['listed'];
+      // Personal sets only allow emotes whose version state is approved.
+      // Missing state (older payloads) stays usable.
+      final state = data['state'];
+      final personalUse = state is List ? state.contains('PERSONAL') : true;
 
       emotes.add(
         Emote(
@@ -203,6 +207,7 @@ class SevenTvEmoteProvider {
             creator: ownerName,
             baseName: baseName != null && baseName != name ? baseName : null,
             unlisted: listed is bool && !listed,
+            personalUse: personalUse,
             relativeScale: relativeScale,
             aspectRatio: aspectRatio,
           ),

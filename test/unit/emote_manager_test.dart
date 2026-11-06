@@ -3617,6 +3617,26 @@ void main() {
       expect((missingListed!.meta as SevenTvMeta).unlisted, isFalse);
     });
 
+    test('personal use follows the version state', () {
+      SevenTvMeta? meta(List<String>? state) {
+        final emote = SevenTvEmoteProvider.parseSingleEmote({
+          'id': 'emote-p',
+          'name': 'Mine',
+          'data': {'name': 'Mine', 'state': ?state, 'host': _host('2x.webp')},
+        }, personal: true);
+        return emote?.meta as SevenTvMeta?;
+      }
+
+      expect(meta(['LISTED', 'PERSONAL'])!.personalUse, isTrue);
+      expect(meta(['NO_PERSONAL'])!.personalUse, isFalse);
+      expect(meta(const [])!.personalUse, isFalse);
+      expect(
+        meta(null)!.personalUse,
+        isTrue,
+        reason: 'older payloads have no state',
+      );
+    });
+
     test('isAnimated follows the payload flag, not the file format', () {
       Map<String, dynamic> item({required bool animated}) => {
         'id': 'anim-1',
@@ -4270,6 +4290,39 @@ void main() {
       expect(manager.byCode('ch')!.byCode.keys, contains('New'));
     });
 
+    test('a personal set announcement subscribes to its updates', () async {
+      SharedPreferences.setMockInitialValues({});
+      final manager = EmoteManager();
+      addTearDown(manager.dispose);
+      final client = SevenTvEventClient();
+      final consumer = SevenTvConsumer(
+        emoteManager: manager,
+        sevenTvClient: client,
+        onSystemMessage: (_, _) {},
+      );
+      consumer.attach();
+      addTearDown(() {
+        consumer.dispose();
+        client.dispose();
+      });
+
+      client.handleRawMessage({
+        'op': 1,
+        'd': {'heartbeat_interval': 30000},
+      });
+      client.handleRawMessage({
+        'op': 0,
+        'd': {
+          'type': 'emote_set.create',
+          'body': {
+            'object': {'id': 'set-personal', 'flags': 4},
+          },
+        },
+      });
+
+      expect(client.subscriptionSends, 1);
+    });
+
     test('viewer personal set applies removals and renames', () async {
       SharedPreferences.setMockInitialValues({});
       final manager = managerWith(
@@ -4311,57 +4364,52 @@ void main() {
       manager.viewerTwitchId = 'viewer-1';
       await manager.loadViewerPersonalSevenTvSets();
       expect(manager.byCode('ch')!.byCode.keys, contains('Old'));
+      expect(manager.viewerPersonalSetIds, contains('set-1'));
 
       emotes = [personal('p1', 'Old'), personal('p2', 'New')];
       await manager.loadViewerPersonalSevenTvSets();
       expect(manager.byCode('ch')!.byCode.keys, contains('New'));
     });
 
-    test(
-      'reset clears personal sets while channel sets win conflicts',
-      () async {
-        SharedPreferences.setMockInitialValues({});
-        var manager = managerWith(
-          ownedSetIds: ['set-1'],
-          sets: {
-            'set-1': [personal('p1', 'MyPersonal')],
-          },
-        );
-        manager.viewerTwitchId = 'viewer-1';
-        await manager.loadViewerPersonalSevenTvSets();
-        expect(
-          manager.byCode('anychannel')!.byCode.keys,
-          contains('MyPersonal'),
-        );
+    test('reset clears personal sets while Twitch keeps its code', () async {
+      SharedPreferences.setMockInitialValues({});
+      var manager = managerWith(
+        ownedSetIds: ['set-1'],
+        sets: {
+          'set-1': [personal('p1', 'MyPersonal')],
+        },
+      );
+      manager.viewerTwitchId = 'viewer-1';
+      await manager.loadViewerPersonalSevenTvSets();
+      expect(manager.byCode('anychannel')!.byCode.keys, contains('MyPersonal'));
 
-        manager.resetUserEmoteState();
-        expect(
-          manager.byCode('anychannel')?.byCode.keys ?? [],
-          isNot(contains('MyPersonal')),
-        );
+      manager.resetUserEmoteState();
+      expect(
+        manager.byCode('anychannel')?.byCode.keys ?? [],
+        isNot(contains('MyPersonal')),
+      );
 
-        manager = managerWith(
-          ownedSetIds: ['set-1'],
-          sets: {
-            'set-1': [personal('p1', 'Clash')],
-          },
-        );
-        manager.viewerTwitchId = 'viewer-1';
-        await manager.loadViewerPersonalSevenTvSets();
-        await manager.storeUserTwitchEmotes({
-          'ch': [
-            makeTestEmote(
-              id: 'tw-1',
-              code: 'Clash',
-              type: EmoteType.twitch,
-              scope: EmoteScope.channel,
-            ),
-          ],
-        });
+      manager = managerWith(
+        ownedSetIds: ['set-1'],
+        sets: {
+          'set-1': [personal('p1', 'Clash')],
+        },
+      );
+      manager.viewerTwitchId = 'viewer-1';
+      await manager.loadViewerPersonalSevenTvSets();
+      await manager.storeUserTwitchEmotes({
+        'ch': [
+          makeTestEmote(
+            id: 'tw-1',
+            code: 'Clash',
+            type: EmoteType.twitch,
+            scope: EmoteScope.channel,
+          ),
+        ],
+      });
 
-        expect(manager.byCode('ch')!.byCode['Clash']!.id, 'tw-1');
-      },
-    );
+      expect(manager.byCode('ch')!.byCode['Clash']!.id, 'tw-1');
+    });
   });
 
   group('foreign personal 7TV emotes', () {

@@ -8,6 +8,7 @@ Emote _emote(
   EmoteType type, {
   EmoteScope scope = EmoteScope.global,
   bool unlisted = false,
+  bool personalUse = true,
 }) => Emote(
   id: id,
   code: code,
@@ -15,7 +16,10 @@ Emote _emote(
     EmoteType.twitch => const TwitchMeta(kind: TwitchEmoteKind.standard),
     EmoteType.bttv => const BttvMeta(),
     EmoteType.ffz => const FfzMeta(),
-    EmoteType.sevenTv => SevenTvMeta(unlisted: unlisted),
+    EmoteType.sevenTv => SevenTvMeta(
+      unlisted: unlisted,
+      personalUse: personalUse,
+    ),
   },
   scales: {EmoteScale.medium: 'https://example.com/$id.png'},
   scope: scope,
@@ -105,19 +109,63 @@ void main() {
       expect(mergeEmoteLookup(global: twitchOnly).byCode['Clash']!.id, 'tw');
     });
 
-    test('personal 7TV emotes fill gaps but base codes win conflicts', () {
-      final global = EmoteCatalog(
-        twitchGlobal: [_emote('g', 'Shared', EmoteType.twitch)],
-      );
+    test(
+      'personal 7TV emotes beat third-party codes, Twitch keeps its own',
+      () {
+        final global = EmoteCatalog(
+          twitchGlobal: [_emote('g', 'TwitchCode', EmoteType.twitch)],
+          bttvGlobal: [_emote('b', 'ThirdCode', EmoteType.bttv)],
+        );
+        final personal = [
+          _emote('p1', 'Mine', EmoteType.sevenTv, scope: EmoteScope.personal),
+          _emote(
+            'p2',
+            'TwitchCode',
+            EmoteType.sevenTv,
+            scope: EmoteScope.personal,
+          ),
+          _emote(
+            'p3',
+            'ThirdCode',
+            EmoteType.sevenTv,
+            scope: EmoteScope.personal,
+          ),
+        ];
+
+        final lookup = mergeEmoteLookup(global: global, personal: personal);
+
+        expect(lookup.byCode['Mine']!.id, 'p1');
+        expect(lookup.byCode['TwitchCode']!.id, 'g');
+        expect(lookup.byCode['ThirdCode']!.id, 'p3');
+      },
+    );
+
+    test('personal set state hides unapproved emotes', () {
       final personal = [
-        _emote('p1', 'Mine', EmoteType.sevenTv, scope: EmoteScope.personal),
-        _emote('p2', 'Shared', EmoteType.sevenTv, scope: EmoteScope.personal),
+        _emote('ok', 'Approved', EmoteType.sevenTv, scope: EmoteScope.personal),
+        _emote(
+          'pending',
+          'Pending',
+          EmoteType.sevenTv,
+          scope: EmoteScope.personal,
+          personalUse: false,
+        ),
       ];
 
-      final lookup = mergeEmoteLookup(global: global, personal: personal);
+      final lookup = mergeEmoteLookup(
+        global: EmoteCatalog(),
+        personal: personal,
+      );
+      expect(lookup.byCode.keys, ['Approved']);
 
-      expect(lookup.byCode['Mine']!.id, 'p1');
-      expect(lookup.byCode['Shared']!.id, 'g');
+      final global = EmoteCatalog(
+        sevenTvGlobal: [
+          _emote('g', 'Global', EmoteType.sevenTv, personalUse: false),
+        ],
+      );
+      expect(mergeEmoteLookup(global: global).byCode.keys, [
+        'Global',
+      ], reason: 'state only gates personal sets');
     });
 
     test('account unlocks replace the matching Twitch global', () {
@@ -172,7 +220,11 @@ void main() {
         ),
         personal: [_emote('p', 'Shared', EmoteType.sevenTv)],
       );
-      expect(lookup.byCode['Shared']?.id, 'b', reason: 'BTTV survives');
+      expect(
+        lookup.byCode['Shared']?.id,
+        'p',
+        reason: 'the personal emote wins over the hidden unlisted 7TV one',
+      );
 
       final personalOnly = mergeEmoteLookup(
         global: EmoteCatalog(

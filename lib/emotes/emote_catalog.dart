@@ -266,10 +266,10 @@ List<Emote> applyAccountUnlocks(List<Emote> base, Iterable<Emote> unlocks) {
 /// emotes, and the account unlock overlay into one read-only lookup.
 ///
 /// Channel scope beats global; within a scope the provider priority in
-/// [kEmoteProviderPriority] wins; personal 7TV emotes merge underneath the
-/// base so channel/global codes always win conflicts. Disabled providers and
-/// hidden unlisted 7TV emotes are dropped before the merge, so the next
-/// candidate for the code survives.
+/// [kEmoteProviderPriority] wins. Personal 7TV emotes beat third-party channel
+/// and global codes; Twitch's own emotes keep theirs. Disabled providers,
+/// hidden unlisted 7TV emotes, and personal sets' unapproved emotes are
+/// dropped before the merge, so the next candidate for the code survives.
 EmoteLookup mergeEmoteLookup({
   required EmoteCatalog global,
   EmoteCatalog? channel,
@@ -284,7 +284,12 @@ EmoteLookup mergeEmoteLookup({
   bool hidden(Emote e) {
     if (disabledProviders.contains(e.type)) return true;
     final meta = e.meta;
-    return !allowUnlisted7tv && meta is SevenTvMeta && meta.unlisted;
+    if (meta is SevenTvMeta) {
+      if (!allowUnlisted7tv && meta.unlisted) return true;
+      // A personal set can hold pending or rejected emotes.
+      if (e.scope == EmoteScope.personal && !meta.personalUse) return true;
+    }
+    return false;
   }
 
   void add(Emote e) {
@@ -340,7 +345,12 @@ EmoteLookup mergeEmoteLookup({
   }
   for (final e in personal) {
     if (hidden(e)) continue;
-    best.putIfAbsent(e.code, () => e);
+    final existing = best[e.code];
+    // Personal 7TV emotes beat channel/global third-party codes. Twitch's
+    // own emotes keep theirs, matching the 7TV clients.
+    if (existing != null && existing.type == EmoteType.twitch) continue;
+    best[e.code] = e;
+    scopeOf[e.code] = e.scope.index;
   }
 
   final visible = best.values.toList();

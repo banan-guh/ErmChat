@@ -42,6 +42,8 @@ class SevenTvConsumer {
         client.onPersonalSet.listen((event) {
           if (_disposed) return;
           emoteManager.trackForeignPersonalSet(event.setId);
+          // Tracked sets still need the subscription to hear their edits.
+          client.subscribeEmoteSet(event.setId);
         }),
       );
     return List.unmodifiable(_subscriptions);

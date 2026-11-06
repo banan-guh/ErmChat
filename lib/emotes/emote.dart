@@ -184,6 +184,7 @@ sealed class EmoteMeta {
         creator: json['creator'] as String?,
         baseName: json['baseName'] as String?,
         unlisted: json['unlisted'] as bool? ?? false,
+        personalUse: json['personalUse'] as bool? ?? true,
         relativeScale: (json['relativeScale'] as num?)?.toDouble() ?? 1.0,
         aspectRatio: (json['aspectRatio'] as num?)?.toDouble() ?? 1.0,
       ),
@@ -337,6 +338,7 @@ final class SevenTvMeta extends EmoteMeta {
     this.creator,
     this.baseName,
     this.unlisted = false,
+    this.personalUse = true,
     this.relativeScale = 1.0,
     this.aspectRatio = 1.0,
   });
@@ -348,6 +350,10 @@ final class SevenTvMeta extends EmoteMeta {
 
   /// Unlisted emotes stay cached; visibility is filtered at read time.
   final bool unlisted;
+
+  /// Whether the emote may be used in a personal set. 7TV's state list marks
+  /// approved emotes with PERSONAL; pending and rejected ones do not.
+  final bool personalUse;
   final double relativeScale;
   final double aspectRatio;
 
@@ -363,6 +369,7 @@ final class SevenTvMeta extends EmoteMeta {
     'creator': creator,
     'baseName': baseName,
     'unlisted': unlisted,
+    'personalUse': personalUse,
     'relativeScale': relativeScale,
     'aspectRatio': aspectRatio,
   };

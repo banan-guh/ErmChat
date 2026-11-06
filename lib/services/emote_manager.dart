@@ -565,6 +565,9 @@ class EmoteManager implements EmoteLookupSource {
   Iterable<Emote> get _viewerPersonal =>
       _visibility.allowPersonal7tv ? _personalSets.viewerEmotes : const [];
 
+  /// The viewer's owned 7TV set ids, so their live updates can be subscribed.
+  Iterable<String> get viewerPersonalSetIds => _personalSets.viewerSetIds;
+
   bool _hasGlobalList(EmoteType type) =>
       _store.globalCatalog.listFor(EmoteScope.global, type).isNotEmpty;
 
