@@ -456,8 +456,8 @@ class _HistoryViewState extends State<HistoryView> {
   /// Lines a shortened row shows before the tap reveals the rest.
   static const int _shortLines = 6;
 
-  /// Revealed pile members sit back a touch from the row they belong to.
-  static const double _pileMemberOpacity = 0.85;
+  /// Revealed pile members sit back so spam reads apart from real messages.
+  static const double _pileMemberOpacity = 0.6;
 
   Map<int, int> _repeatCounts = const {};
   Map<int, int> _repeatHidden = const {};
@@ -2161,7 +2161,9 @@ class _HistoryViewState extends State<HistoryView> {
             scale: widget.textScale * _systemScale,
             surface: Theme.of(context).scaffoldBackgroundColor,
             repeatCount: count,
-            summary: count > 1,
+            // Collapsed, the pile carries no sender identity. Expanded, the
+            // summary shows who wrote the first copy.
+            summary: count > 1 && !expanded,
             skipHides: count > 1 || !identical(display, msg),
             maxLines: shorten ? _shortLines : null,
             onTapRow: shortenable || count > 1

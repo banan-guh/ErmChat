@@ -528,7 +528,7 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
       );
       _trackBodySpans(bodySpans, widget.bodyIsCached(msg, bodySpans));
       children = [?channelSpan, ...badges, ?usernameSpan, ...bodySpans];
-      if (summary && widget.repeatCount > 1) {
+      if (widget.repeatCount > 1) {
         children.add(_repeatChip(context, s));
       }
       nameEnd = summary

@@ -796,10 +796,12 @@ void main() {
     await tester.pump();
     expect(_tile('spam-2'), findsOneWidget);
     expect(tester.getSize(_tile('spam-2')).height, greaterThan(0));
+    // Expanded, the summary shows who wrote the first copy.
+    expect(tester.widget<ChatMessageTile>(_tile('spam-1')).isSummary, isFalse);
     final faded = tester.widget<Opacity>(
       find.ancestor(of: _tile('spam-2'), matching: find.byType(Opacity)).first,
     );
-    expect(faded.opacity, 0.85);
+    expect(faded.opacity, 0.6);
   });
 
   testWidgets('a copypasta summary collapses its repeated phrase', (
