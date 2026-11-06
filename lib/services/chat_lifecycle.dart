@@ -280,15 +280,26 @@ class ChatLifecycle {
         readiness.noteWriteSocketConnected();
         // Edge-triggered: subscribeAll once per connect.
         if (_writeEdge != _WriteEdge.up) {
+          final wasDown = _writeEdge == _WriteEdge.down;
           // Chat arrives on the read socket, so its recovery refills the
           // gap. The write edge only does it for an account swap, which
           // replaces the read socket without reporting an outage.
           if (_writeEdge == _WriteEdge.swapped) onReconnected?.call();
           _writeEdge = _WriteEdge.up;
-          // Per-channel "Connected" now waits for that channel's own JOIN
+          // Per-channel "Connected" waits for that channel's own JOIN
           // confirmation (see the ROOMSTATE listener) - a socket being up
           // says nothing about whether the channel can receive PRIVMSG.
           subscribeAll();
+          // A write-only drop gets no read ROOMSTATE, so clear its stale
+          // "Disconnected" here for channels the read side still holds.
+          if (wasDown) {
+            for (final channel in chat.names) {
+              if (readiness.isChannelReady(channel) &&
+                  readiness.acknowledgeConnected(channel)) {
+                onConnStatus(channel, SystemLine.reconnected);
+              }
+            }
+          }
         }
       }
       if (status == IrcConnectionStatus.disconnected &&
@@ -317,14 +328,9 @@ class ChatLifecycle {
       if (status == IrcConnectionStatus.connected &&
           readiness.noteReadSocketRecovered()) {
         // Chat arrives on this socket, so its outage is the gap to refill.
+        // The per-channel row waits for its JOIN confirmation, which
+        // _announceConnected resolves into a recovery row.
         onReconnected?.call();
-        for (final channel in chat.names) {
-          // Same ack as the JOIN-confirm path below: a flapping write
-          // socket reports the same recovery, keep one line.
-          if (readiness.acknowledgeConnected(channel)) {
-            onConnStatus(channel, SystemLine.reconnected);
-          }
-        }
         connectionStateNotifier.value++;
       } else if (status == IrcConnectionStatus.disconnected &&
           readiness.noteReadSocketDisconnected()) {

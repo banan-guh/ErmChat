@@ -3600,59 +3600,95 @@ void main() {
       conn.dispose();
     });
 
-    test(
-      'read outage surfaces as Chat reconnecting then Reconnected and stays silent before any join',
-      () {
-        fakeAsync((async) {
-          final messages = <(String, SystemLine)>[];
-          final ircRead = _TestIrcRead();
-          final irc = _TestIrc();
-          final conn = _makeReconnectConn(
-            eventSub: _NoopEventSub(),
-            irc: irc,
-            ircRead: ircRead,
-            onReconnected: () {},
-            channels: const ['test'],
-            currentUserLogin: 'testuser',
-            onConnStatus: (c, s) => messages.add((c, s)),
-          );
-          conn.connect();
-          async.flushMicrotasks();
-          ircRead.emitDisconnected();
-          async.flushMicrotasks();
-          expect(messages, contains(('test', SystemLine.reconnecting)));
-          ircRead.emitConnected();
-          async.flushMicrotasks();
-          expect(messages, contains(('test', SystemLine.reconnected)));
-          ircRead.emitConnected();
-          async.flushMicrotasks();
-          expect(
-            messages.where((m) => m.$2 == SystemLine.reconnected).length,
-            1,
-            reason: 'repeated connected must not re-announce recovery',
-          );
-          conn.dispose();
+    test('read outage names the recovery only after its JOIN confirms', () {
+      fakeAsync((async) {
+        final messages = <(String, SystemLine)>[];
+        final ircRead = _TestIrcRead();
+        final irc = _TestIrc();
+        final conn = _makeReconnectConn(
+          eventSub: _NoopEventSub(),
+          irc: irc,
+          ircRead: ircRead,
+          onReconnected: () {},
+          channels: const ['test'],
+          currentUserLogin: 'testuser',
+          onConnStatus: (c, s) => messages.add((c, s)),
+        );
+        conn.connect();
+        async.flushMicrotasks();
+        ircRead.emitDisconnected();
+        async.flushMicrotasks();
+        expect(messages, contains(('test', SystemLine.reconnecting)));
+        ircRead.emitConnected();
+        async.flushMicrotasks();
+        expect(
+          messages.where((m) => m.$2 == SystemLine.reconnected),
+          isEmpty,
+          reason: 'a read socket being up says nothing about the JOIN',
+        );
+        ircRead.confirmJoin('test');
+        async.flushMicrotasks();
+        expect(messages, contains(('test', SystemLine.connected)));
+        ircRead.emitConnected();
+        async.flushMicrotasks();
+        expect(
+          messages.where((m) => m.$2 == SystemLine.connected).length,
+          1,
+          reason: 'repeated connected must not re-announce recovery',
+        );
+        conn.dispose();
 
-          final empty = <(String, Object)>[];
-          final conn2 = _makeReconnectConn(
-            eventSub: _NoopEventSub(),
-            irc: _TestIrc(),
-            ircRead: _TestIrcRead(),
-            onReconnected: () {},
-            channels: const [],
-            currentUserLogin: 'testuser',
-            onSystemMessage:
-                (c, t, {Color? accent, String? messageId, bool keep = false}) =>
-                    empty.add((c, t)),
-            onConnStatus: (c, s) => empty.add((c, s)),
-          );
-          conn2.connect();
-          async.flushMicrotasks();
-          expect(empty, isEmpty);
-          conn2.dispose();
-        });
-      },
-    );
+        final empty = <(String, Object)>[];
+        final conn2 = _makeReconnectConn(
+          eventSub: _NoopEventSub(),
+          irc: _TestIrc(),
+          ircRead: _TestIrcRead(),
+          onReconnected: () {},
+          channels: const [],
+          currentUserLogin: 'testuser',
+          onSystemMessage:
+              (c, t, {Color? accent, String? messageId, bool keep = false}) =>
+                  empty.add((c, t)),
+          onConnStatus: (c, s) => empty.add((c, s)),
+        );
+        conn2.connect();
+        async.flushMicrotasks();
+        expect(empty, isEmpty);
+        conn2.dispose();
+      });
+    });
+
+    test('a write-only reconnect clears its disconnected row', () {
+      fakeAsync((async) {
+        final messages = <(String, SystemLine)>[];
+        final irc = _TestIrc();
+        final read = _TestIrcRead();
+        final conn = _makeReconnectConn(
+          eventSub: _NoopEventSub(),
+          irc: irc,
+          ircRead: read,
+          onReconnected: () {},
+          channels: const ['test'],
+          currentUserLogin: 'testuser',
+          onConnStatus: (c, s) => messages.add((c, s)),
+        );
+        conn.connect();
+        async.flushMicrotasks();
+        read.emitConnected();
+        irc.emitConnected();
+        read.confirmJoin('test');
+        async.flushMicrotasks();
+
+        irc.emitDisconnected();
+        async.flushMicrotasks();
+        expect(messages, contains(('test', SystemLine.disconnected)));
+
+        irc.emitConnected();
+        async.flushMicrotasks();
+        expect(messages, contains(('test', SystemLine.reconnected)));
+        conn.dispose();
+      });
+    });
   });
 
   group('message emote usage', () {
