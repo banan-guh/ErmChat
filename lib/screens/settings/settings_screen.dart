@@ -54,6 +54,10 @@ class SettingsScreen extends StatelessWidget {
   final EmoteManager? emoteManager;
   final ValueChanged<bool>? onPipEnabledChanged;
 
+  /// Runs after the shared WebView session changed, so a live player can
+  /// pick it up.
+  final VoidCallback? onWebSessionChanged;
+
   /// Live hook for the dev-only test-widgets toggle (About > 7 taps).
   final ValueChanged<bool>? onTestWidgetsChanged;
 
@@ -84,6 +88,7 @@ class SettingsScreen extends StatelessWidget {
     this.ttsController,
     this.emoteManager,
     this.onPipEnabledChanged,
+    this.onWebSessionChanged,
     this.onTestWidgetsChanged,
     this.fakeChat,
   });
@@ -145,8 +150,11 @@ class SettingsScreen extends StatelessWidget {
     showFeedback: twitchAuth.isConfigured,
   );
 
-  Widget _account() =>
-      AccountScreen(twitchAuth: twitchAuth, oAuthStarter: oAuthStarter);
+  Widget _account() => AccountScreen(
+    twitchAuth: twitchAuth,
+    oAuthStarter: oAuthStarter,
+    onWebSessionChanged: onWebSessionChanged,
+  );
 
   Widget _about() => AboutScreen(
     onTestWidgetsChanged: onTestWidgetsChanged,

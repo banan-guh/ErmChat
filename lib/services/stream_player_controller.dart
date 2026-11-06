@@ -180,6 +180,12 @@ class StreamPlayerController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Rebuilds the player page, so it picks up a changed WebView session.
+  void reload() {
+    _generation++;
+    notifyListeners();
+  }
+
   void setPipEnabled(bool value) {
     _pipEnabled = value;
     notifyListeners();

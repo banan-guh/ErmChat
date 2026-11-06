@@ -1,11 +1,13 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
 import '../../l10n/l10n.dart';
 import '../../services/twitch_oauth.dart';
+import '../../util/log.dart';
 
 /// Twitch's authorize page in an in-app WebView. Pops with the redirect URL
 /// once Twitch hands the token back, or null when closed. The WebView keeps
@@ -44,10 +46,22 @@ class TwitchLoginPage extends StatefulWidget {
       await manager.setCookie(
         WebViewCookie(
           name: pair.substring(0, at).trim(),
-          value: pair.substring(at + 1).trim(),
+          value: _restoreValue(pair.substring(at + 1).trim()),
           domain: '.twitch.tv',
         ),
       );
+    }
+  }
+
+  /// Android percent-encodes a cookie value before storing it, so a value
+  /// that is already encoded would come back double-encoded. Decode first to
+  /// cancel that pass.
+  static String _restoreValue(String value) {
+    if (!Platform.isAndroid) return value;
+    try {
+      return Uri.decodeComponent(value);
+    } catch (_) {
+      return value;
     }
   }
 
@@ -97,9 +111,49 @@ class _TwitchLoginPageState extends State<TwitchLoginPage> {
     return NavigationDecision.navigate;
   }
 
-  // The page is still on id.twitch.tv, so it reads the .twitch.tv session
-  // cookies before handing the token back.
+  // Reads the whole Twitch session from the shared cookie jar. The page's
+  // own document.cookie misses HttpOnly cookies such as auth-token.
   Future<void> _finish(String url) async {
+    // A wedged cookie call must not hold the login page open.
+    final cookies = await _readSessionCookies().timeout(
+      const Duration(seconds: 3),
+      onTimeout: () => null,
+    );
+    if (cookies != null && cookies.isNotEmpty) widget.onCookies?.call(cookies);
+    if (mounted) Navigator.of(context).pop(url);
+  }
+
+  Future<String?> _readSessionCookies() async {
+    final manager = WebViewCookieManager();
+    final pairs = <String, String>{};
+    for (final host in const [
+      'www.twitch.tv',
+      'id.twitch.tv',
+      'passport.twitch.tv',
+      'player.twitch.tv',
+    ]) {
+      try {
+        final cookies = await manager.getCookies(
+          domain: Uri.parse('https://$host'),
+        );
+        for (final cookie in cookies) {
+          if (cookie.name.isEmpty) continue;
+          pairs.putIfAbsent(cookie.name, () => cookie.value);
+        }
+      } catch (e) {
+        logDebug('[Login] cookie read failed for $host: $e');
+      }
+    }
+    if (pairs.isEmpty) return _readPageCookies();
+    AppLog.I.record('Login', 'session cookies: ${pairs.keys.join(', ')}');
+    if (!pairs.containsKey('auth-token')) {
+      AppLog.I.record('Login', 'session saved without auth-token');
+    }
+    return pairs.entries.map((e) => '${e.key}=${e.value}').join('; ');
+  }
+
+  // Fallback for a platform that cannot list its own cookie jar.
+  Future<String?> _readPageCookies() async {
     try {
       final raw = await _controller.runJavaScriptReturningResult(
         'document.cookie',
@@ -107,11 +161,10 @@ class _TwitchLoginPageState extends State<TwitchLoginPage> {
       // Android returns the string JSON-quoted, iOS bare.
       var cookies = raw is String ? raw : raw.toString();
       if (cookies.startsWith('"')) cookies = jsonDecode(cookies) as String;
-      if (cookies.isNotEmpty) widget.onCookies?.call(cookies);
+      return cookies.isEmpty ? null : cookies;
     } catch (_) {
-      // No cookies only costs the per-account session, not the login.
+      return null;
     }
-    if (mounted) Navigator.of(context).pop(url);
   }
 
   @override

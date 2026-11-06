@@ -1789,6 +1789,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
           ttsController: _ttsController,
           emoteManager: _emoteManager,
           onPipEnabledChanged: _streamPlayer.setPipEnabled,
+          onWebSessionChanged: _streamPlayer.reload,
           onTestWidgetsChanged: _broadcastWidgets.setTestWidgets,
           fakeChat: _fakeChat,
         ),

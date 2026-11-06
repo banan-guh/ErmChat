@@ -21,11 +21,16 @@ class AccountScreen extends StatefulWidget {
   final OAuthStarter? oAuthStarter;
   final TwitchApi? twitchApi;
 
+  /// Runs after the shared WebView session changed, so a live player can
+  /// pick it up.
+  final VoidCallback? onWebSessionChanged;
+
   const AccountScreen({
     super.key,
     required this.twitchAuth,
     this.oAuthStarter,
     this.twitchApi,
+    this.onWebSessionChanged,
   });
 
   @override
@@ -132,6 +137,7 @@ class _AccountScreenState extends State<AccountScreen> {
           accessToken: token,
           webCookies: cookies,
         );
+        widget.onWebSessionChanged?.call();
         setState(() => _authState = _AuthState.success);
         _loadConnectedLogin();
       } else if (starter == null && TwitchOAuth.lastCancelled) {
@@ -207,12 +213,16 @@ class _AccountScreenState extends State<AccountScreen> {
     if (active?.login == left) return;
     final next = active?.webCookies;
     try {
-      if (next != null) return await TwitchLoginPage.useSession(next);
-      await TwitchLoginPage.clearSession();
+      if (next != null) {
+        await TwitchLoginPage.useSession(next);
+      } else {
+        await TwitchLoginPage.clearSession();
+      }
     } catch (e) {
       // A jar that fails to change must not stop the switch itself.
       logDebug('[Account] web session swap failed: $e');
     }
+    widget.onWebSessionChanged?.call();
   }
 
   Future<void> _clearCredentials() async {

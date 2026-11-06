@@ -1329,6 +1329,17 @@ void main() {
       expect(restored.webCookies, 'auth-token=a', reason: 'lost on restart');
     });
 
+    test('a re-login replaces the saved web session', () async {
+      final auth = TwitchAuth();
+      await auth.load();
+      auth.setCredentials(accessToken: 'tok', webCookies: 'auth-token=a');
+      auth.setUser('testuser', '123');
+      // A fresh login's complete jar replaces the earlier partial one.
+      auth.setCredentials(accessToken: 'tok2', webCookies: 'auth-token=b');
+      auth.setUser('testuser', '123');
+      expect(auth.activeAccount?.webCookies, 'auth-token=b');
+    });
+
     test('markActiveExpired flags the account until new credentials', () async {
       final named = TwitchAuth();
       await named.load();
