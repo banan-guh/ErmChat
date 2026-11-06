@@ -640,7 +640,7 @@ class _HistoryViewState extends State<HistoryView> {
     } else if (saved == null) {
       _jumpTo(null);
     } else {
-      _jumpTo(saved.time, offset: saved.offset);
+      _jumpTo(saved.time, offset: saved.offset, followIfUnplaced: true);
     }
     _loadStreams();
   }
@@ -660,14 +660,20 @@ class _HistoryViewState extends State<HistoryView> {
   // ---- Reading position ----------------------------------------------------
 
   /// Where the reader was when the page unmounted: the row at the viewport's
-  /// bottom edge and how far its top sat above that edge. Nothing is saved
-  /// while following, so the page comes back at the newest row.
+  /// bottom edge and how far its top sat above that edge. A page resting on
+  /// the newest row, following or not, saves nothing, so a loose follow flag
+  /// can never reopen it above live.
   void _saveReading() {
     final bucket = _bucket;
     if (bucket == null) return;
     ({DateTime time, double offset})? reading;
     final pos = _pos;
-    if (!_follow && pos != null && pos.hasPixels) {
+    final atNewest =
+        pos != null &&
+        pos.hasPixels &&
+        _window.atNewest &&
+        pos.pixels <= pos.minScrollExtent + _followEps;
+    if (!_follow && !atNewest && pos != null && pos.hasPixels) {
       final row = _rowAtEdge();
       if (row != null) {
         reading = (time: row.row.timestamp, offset: row.top - pos.pixels);
@@ -1161,6 +1167,7 @@ class _HistoryViewState extends State<HistoryView> {
     double offset = 0,
     Future<List<TwitchMessage>>? rows,
     bool replay = false,
+    bool followIfUnplaced = false,
   }) async {
     final epoch = ++_epoch;
     _loadingOlder = false;
@@ -1241,6 +1248,17 @@ class _HistoryViewState extends State<HistoryView> {
       final target = time == null || replay
           ? _window.end
           : _window.positionAt(time);
+      // A restored row newer than everything the read returned sits past
+      // the archive's newest, which trails live. Open at the bottom rather
+      // than a stale archive end.
+      if (!replay &&
+          followIfUnplaced &&
+          time != null &&
+          target == _window.end &&
+          widget.live != null) {
+        _attachLive();
+        _follow = true;
+      }
       // At the oldest end the anchor moves newer so the older sliver stays
       // long enough; the list then rests on the oldest row.
       _anchor = _window.atOldest && target - _window.first < _minOlderItems

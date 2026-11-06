@@ -1653,4 +1653,92 @@ void main() {
           '(before=$before, after=$after, pixels=${p2.pixels})',
     );
   });
+
+  testWidgets('a restored row past the archive opens at live', (tester) async {
+    FakeHistory.loadDelay = Duration.zero;
+    tester.view.physicalSize = const Size(400, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final em = EmoteManager();
+    addTearDown(em.dispose);
+    final builder = MessageBuilder(
+      emoteSource: em,
+      badgeService: TwitchBadgeService(),
+      thirdPartyBadgeService: ThirdPartyBadgeService(),
+      onShowEmoteSheet: (_) {},
+    );
+    final at = _ListSource.t0;
+    final archive = [
+      for (var i = 0; i < 40; i++)
+        TwitchMessage(
+          login: 'archived',
+          text: 'h$i',
+          messageId: 'h$i',
+          channel: _ch,
+          timestamp: at.add(Duration(seconds: i)),
+        ),
+    ];
+    final liveRows = [
+      for (var i = 0; i < 10; i++)
+        TwitchMessage(
+          login: 'live',
+          text: 'l$i',
+          messageId: 'live-$i',
+          channel: _ch,
+          timestamp: at.add(Duration(seconds: 100 + i)),
+        ),
+    ];
+    final version = ValueNotifier(0);
+    addTearDown(version.dispose);
+    final atBottom = ValueNotifier(true);
+    addTearDown(atBottom.dispose);
+    final show = ValueNotifier(true);
+    addTearDown(show.dispose);
+    final source = _ListSource(archive);
+    Widget view() => HistoryView(
+      channel: _ch,
+      storageId: 'test:live-restore',
+      source: source,
+      live: () => liveRows,
+      liveVersion: version,
+      atBottomNotifier: atBottom,
+      rows: ChatRows(
+        channel: _ch,
+        messageBuilder: builder,
+        onShowUserProfile: (_, _, {displayName}) {},
+      ),
+      topPadding: _inset,
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: Scaffold(
+          body: ValueListenableBuilder(
+            valueListenable: show,
+            builder: (_, visible, _) =>
+                visible ? view() : const SizedBox.shrink(),
+          ),
+        ),
+      ),
+    );
+    await tester.runAsync(() => Future<void>.delayed(Duration.zero));
+    await tester.pump();
+    await tester.pump();
+
+    // Scroll into the live rows, whose times the source does not hold.
+    await tester.drag(find.byType(CustomScrollView), const Offset(0, 120));
+    await _settle(tester);
+
+    show.value = false;
+    await tester.pump();
+    show.value = true;
+    await tester.pump();
+    await tester.runAsync(() => Future<void>.delayed(Duration.zero));
+    await tester.pump();
+    await tester.pump();
+
+    expect(_tile('live-9'), findsOneWidget);
+    expect(atBottom.value, isTrue);
+  });
 }
