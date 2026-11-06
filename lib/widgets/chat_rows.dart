@@ -109,8 +109,14 @@ class ChatRows {
     required double scale,
     required Color surface,
     bool? fadeDeleted,
+    int repeatCount = 1,
+    bool summary = false,
+    bool skipHides = false,
+    VoidCallback? onTapSummary,
   }) {
-    if (hides?.call(msg) ?? false) return const SizedBox.shrink();
+    if (!skipHides && (hides?.call(msg) ?? false)) {
+      return const SizedBox.shrink();
+    }
     // Lists cache the returned tile, so no closure here may capture
     // [context]: it would pin the page that built it after disposal.
     // Use the row's own channel for badge/emote resolution.
@@ -118,6 +124,7 @@ class ChatRows {
     // System rows take no taps, reply line, paint, or embeds; the tile reads
     // their body from systemBodyBuilder.
     final chatRow = !msg.isSystem;
+    final summaryRow = summary && chatRow;
     final body = ChatMessageTile(
       message: msg,
       channel: tileChannel,
@@ -134,22 +141,28 @@ class ChatRows {
         linkWhitelist: linkWhitelist?.entries,
         onEmailTap: messageBuilder.onEmailTap,
       ),
-      onTapUser: chatRow
+      onTapUser: chatRow && !summaryRow
           ? (login, userId) =>
                 onShowUserProfile(login, userId, displayName: msg.displayName)
           : null,
-      onDoubleTapUser: chatRow && messageBuilder.doubleTapNameCopy
+      onDoubleTapUser:
+          chatRow && !summaryRow && messageBuilder.doubleTapNameCopy
           ? (tileContext) => _copyUsername(tileContext, msg)
           : null,
-      onLongPress: chatRow && onShowMessageMenu != null
+      onLongPress: chatRow && !summaryRow && onShowMessageMenu != null
           ? () => onShowMessageMenu!(msg)
           : null,
-      onTap: chatRow && onTapMessage != null ? () => onTapMessage!(msg) : null,
-      onDoubleTap: chatRow && onCopyMessage != null
+      onTap: summaryRow
+          ? onTapSummary
+          : chatRow && onTapMessage != null
+          ? () => onTapMessage!(msg)
+          : null,
+      onDoubleTap: chatRow && !summaryRow && onCopyMessage != null
           ? () => onCopyMessage!(msg)
           : null,
       replyIndicator:
           chatRow &&
+              !summaryRow &&
               showReplyIndicators &&
               onFindThreadRoot != null &&
               onShowThreadView != null &&
@@ -163,11 +176,13 @@ class ChatRows {
       fadeDeleted: fadeDeleted ?? this.fadeDeleted,
       sharedChatMode: sharedChatMode,
       showChannel: showChannel,
-      paintService: chatRow ? paintService : null,
+      paintService: chatRow && !summaryRow ? paintService : null,
       showImages: chatRow && messageBuilder.showImages,
       imageHeight: messageBuilder.imageHeight,
       linkWhitelist:
           linkWhitelist?.entries ?? messageBuilder.linkWhitelist.entries,
+      repeatCount: repeatCount,
+      isSummary: summaryRow,
     );
     final row = chatRow && flashRequest != null
         ? _FlashHighlight(

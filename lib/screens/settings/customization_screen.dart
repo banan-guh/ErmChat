@@ -276,6 +276,14 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
                 pref: Settings.lineSeparator,
               ),
             ),
+            SettingAnchor(
+              Setting.compactRepeats,
+              child: PrefsSwitchTile(
+                title: Setting.compactRepeats.titleOf(context.l10n),
+                subtitle: context.l10n.compactRepeatsHint,
+                pref: Settings.compactRepeats,
+              ),
+            ),
             SettingsSectionHeader(context.l10n.sectionDisplay),
             const KeepScreenOnTile(),
             SettingsSectionHeader(context.l10n.sectionNavigation),

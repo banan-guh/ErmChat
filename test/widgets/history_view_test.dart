@@ -201,6 +201,8 @@ Future<void> _pumpView(
   bool liveFirst = true,
   List<TwitchMessage>? newestRows,
   bool settle = true,
+  bool compact = false,
+  String? Function()? ownLogin,
   IslandMetrics? metrics,
 }) async {
   FakeHistory.loadDelay = Duration.zero;
@@ -233,6 +235,8 @@ Future<void> _pumpView(
     liveFirst: liveFirst,
     newestRows: newestRows,
     liveVersion: liveVersion,
+    compact: compact,
+    ownLogin: ownLogin,
     topPadding: _inset,
   );
   await tester.pumpWidget(
@@ -727,6 +731,144 @@ void main() {
         epsilon: 1,
       ),
       reason: 'a trim into the live rows broke the live sync',
+    );
+  });
+
+  testWidgets('repeated live messages fold and expand inline', (tester) async {
+    final at = _ListSource.t0;
+    TwitchMessage spam(String id) => TwitchMessage(
+      login: 'spam',
+      text: 'KEKW',
+      messageId: id,
+      channel: _ch,
+      timestamp: at,
+    );
+
+    final version = ValueNotifier(0);
+    addTearDown(version.dispose);
+    final live = <TwitchMessage>[spam('spam-1')];
+    await _pumpView(
+      tester,
+      source: _ListSource([
+        TwitchMessage(
+          login: 'old',
+          text: 'old',
+          messageId: 'old',
+          channel: _ch,
+          timestamp: at.subtract(const Duration(minutes: 1)),
+        ),
+      ]),
+      live: () => live,
+      liveVersion: version,
+      compact: true,
+    );
+    await _settle(tester);
+    live.insert(0, spam('spam-2'));
+    version.value++;
+    await tester.pump();
+    live.insert(0, spam('spam-3'));
+    version.value++;
+    await _settle(tester);
+
+    final summary = tester.widget<ChatMessageTile>(_tile('spam-1'));
+    expect(summary.repeatCount, 3);
+    expect(summary.isSummary, isTrue);
+    expect(_tile('spam-2'), findsNothing);
+    await tester.tap(_tile('spam-1'));
+    await tester.pump();
+    expect(_tile('spam-2'), findsOneWidget);
+    expect(tester.getSize(_tile('spam-2')).height, greaterThan(0));
+  });
+
+  testWidgets('a copypasta summary collapses its repeated phrase', (
+    tester,
+  ) async {
+    final at = _ListSource.t0;
+    TwitchMessage copypasta(String id) => TwitchMessage(
+      login: 'spam',
+      text: [
+        for (var i = 0; i < 4; i++) 'THIS IS A COPYPASTA LULE',
+        'THIS',
+      ].join(' '),
+      messageId: id,
+      channel: _ch,
+      timestamp: at,
+    );
+
+    final version = ValueNotifier(0);
+    addTearDown(version.dispose);
+    final live = <TwitchMessage>[copypasta('copy-1')];
+    await _pumpView(
+      tester,
+      source: _ListSource([
+        TwitchMessage(
+          login: 'old',
+          text: 'old',
+          messageId: 'old',
+          channel: _ch,
+          timestamp: at.subtract(const Duration(minutes: 1)),
+        ),
+      ]),
+      live: () => live,
+      liveVersion: version,
+      compact: true,
+    );
+    await _settle(tester);
+    live.insert(0, copypasta('copy-2'));
+    version.value++;
+    await tester.pump();
+    live.insert(0, copypasta('copy-3'));
+    version.value++;
+    await _settle(tester);
+
+    final summary = tester.widget<ChatMessageTile>(
+      find.byWidgetPredicate((w) => w is ChatMessageTile && w.isSummary),
+    );
+    expect(summary.repeatCount, 3);
+    expect(summary.message.text, 'THIS IS A COPYPASTA LULE (x4)');
+  });
+
+  testWidgets('own messages never join a pile', (tester) async {
+    final at = _ListSource.t0;
+    TwitchMessage own(String id) => TwitchMessage(
+      login: 'me',
+      text: 'KEKW',
+      messageId: id,
+      channel: _ch,
+      timestamp: at,
+    );
+
+    final version = ValueNotifier(0);
+    addTearDown(version.dispose);
+    final live = <TwitchMessage>[own('own-1')];
+    await _pumpView(
+      tester,
+      source: _ListSource([
+        TwitchMessage(
+          login: 'old',
+          text: 'old',
+          messageId: 'old',
+          channel: _ch,
+          timestamp: at.subtract(const Duration(minutes: 1)),
+        ),
+      ]),
+      live: () => live,
+      liveVersion: version,
+      compact: true,
+      ownLogin: () => 'me',
+    );
+    await _settle(tester);
+    live.insert(0, own('own-2'));
+    version.value++;
+    await tester.pump();
+    live.insert(0, own('own-3'));
+    version.value++;
+    await _settle(tester);
+
+    expect(_tile('own-1'), findsOneWidget);
+    expect(
+      find.byWidgetPredicate((w) => w is ChatMessageTile && w.isSummary),
+      findsNothing,
     );
   });
 

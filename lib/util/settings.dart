@@ -275,6 +275,7 @@ abstract final class Settings {
   static final highlightOpacity = DoublePref('highlight_opacity', 0.6);
   static final checkeredMessages = Pref('checkered_messages', false);
   static final lineSeparator = Pref('line_separator', false);
+  static final compactRepeats = Pref('compact_repeats', true);
   static final fastChannelSnap = Pref('fast_channel_snap', true);
   static final reopenLastChannel = Pref('reopen_last_channel', false);
 
@@ -474,6 +475,7 @@ abstract final class Settings {
     highlightOpacity,
     checkeredMessages,
     lineSeparator,
+    compactRepeats,
     fastChannelSnap,
     reopenLastChannel,
     lastChannel,

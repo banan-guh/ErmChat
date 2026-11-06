@@ -10,6 +10,7 @@ import 'seven_tv_paint_service.dart';
 import '../util/constants.dart';
 import '../util/log.dart';
 import '../util/timestamp_formatter.dart';
+import 'design_tokens.dart';
 import 'emote_text.dart';
 import 'image_embed_preview.dart';
 import 'painted_username_text.dart';
@@ -81,6 +82,12 @@ class ChatMessageTile extends StatefulWidget {
   /// uses, so icons and the preview column agree on fractured links.
   final List<String>? linkWhitelist;
 
+  /// Rows folded under this one; 1 is a normal row.
+  final int repeatCount;
+
+  /// A summary of several rows, so it carries no sender identity.
+  final bool isSummary;
+
   const ChatMessageTile({
     super.key,
     required this.message,
@@ -111,6 +118,8 @@ class ChatMessageTile extends StatefulWidget {
     this.showImages = kImageEmbedEnabledDefault,
     this.imageHeight = kImageEmbedHeightDefault,
     this.linkWhitelist,
+    this.repeatCount = 1,
+    this.isSummary = false,
   });
 
   @override
@@ -156,6 +165,34 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
     if (identical(spans, _ownedBodySpans)) return;
     _disposeSpans(_ownedBodySpans);
     _ownedBodySpans = shared ? null : spans;
+  }
+
+  /// The folded-row count. The summary row owns the tap, so this stays plain.
+  WidgetSpan _repeatChip(BuildContext context, double s) {
+    final scheme = Theme.of(context).colorScheme;
+    return WidgetSpan(
+      alignment: PlaceholderAlignment.middle,
+      child: Padding(
+        padding: EdgeInsets.only(left: 6 * s),
+        child: Container(
+          constraints: BoxConstraints(minWidth: 30 * s),
+          padding: EdgeInsets.symmetric(horizontal: 5 * s, vertical: 1 * s),
+          decoration: BoxDecoration(
+            color: scheme.secondaryContainer,
+            borderRadius: BorderRadius.circular(Radii.small),
+          ),
+          child: Text(
+            'x${widget.repeatCount}',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 11 * s,
+              fontWeight: FontWeight.w600,
+              color: scheme.onSecondaryContainer,
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   /// Expanded image previews by message and URL, newest last. Outside the
@@ -399,8 +436,11 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
           : '${msg.text} ${context.l10n.pointsValue(points)}';
       deleted = false;
     } else {
-      final badges = widget.buildBadgeSpans(widget.channel, msg, badgeScale: s);
-      final InlineSpan? channelSpan = widget.showChannel
+      final summary = widget.isSummary;
+      final badges = summary
+          ? const <WidgetSpan>[]
+          : widget.buildBadgeSpans(widget.channel, msg, badgeScale: s);
+      final InlineSpan? channelSpan = !summary && widget.showChannel
           ? TextSpan(
               text: '#${widget.channel} ',
               style: TextStyle(
@@ -411,55 +451,59 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
               ),
             )
           : null;
-      final usernameText = msg.isAction
-          ? '${msg.formattedUsername} '
-          : '${msg.formattedUsername}: ';
-      final nameStyle = TextStyle(
-        fontSize: 14 * s,
-        fontWeight: widget.fontWeight.value > 500
-            ? widget.fontWeight
-            : FontWeight.w500,
-        decoration: TextDecoration.none,
-      );
-      final usernameColor = parseColor(msg.color, background: widget.surface);
-      final paint = _currentPaint();
-      final solid = paint?.solidColor;
-      final shadows = paint == null
-          ? null
-          // Each shadow redraws the name through a blur every frame the row
-          // paints, and the kernel grows with the radius: two shadows at
-          // their CSS size keep the glow without the raster cost.
-          : [
-              for (final shadow in paint.shadows.take(2))
-                Shadow(
-                  color: shadow.color,
-                  offset: Offset(shadow.offsetX, shadow.offsetY),
-                  blurRadius: shadow.blur,
-                ),
-            ];
-      final InlineSpan usernameSpan;
-      if (paint == null || solid != null) {
-        // Unpainted and solid names stay in the row's own paragraph.
-        usernameSpan = TextSpan(
-          text: usernameText,
-          style: nameStyle.copyWith(
-            color: solid ?? usernameColor,
-            shadows: shadows == null || shadows.isEmpty ? null : shadows,
-          ),
+      InlineSpan? usernameSpan;
+      if (!summary) {
+        final usernameText = msg.isAction
+            ? '${msg.formattedUsername} '
+            : '${msg.formattedUsername}: ';
+        final nameStyle = TextStyle(
+          fontSize: 14 * s,
+          fontWeight: widget.fontWeight.value > 500
+              ? widget.fontWeight
+              : FontWeight.w500,
+          decoration: TextDecoration.none,
         );
-      } else {
-        usernameSpan = WidgetSpan(
-          alignment: PlaceholderAlignment.middle,
-          child: PaintedUsernameText(
-            service: widget.paintService!,
-            paint: paint,
+        final usernameColor = parseColor(msg.color, background: widget.surface);
+        final paint = _currentPaint();
+        final solid = paint?.solidColor;
+        final shadows = paint == null
+            ? null
+            // Each shadow redraws the name through a blur every frame the row
+            // paints, and the kernel grows with the radius: two shadows at
+            // their CSS size keep the glow without the raster cost.
+            : [
+                for (final shadow in paint.shadows.take(2))
+                  Shadow(
+                    color: shadow.color,
+                    offset: Offset(shadow.offsetX, shadow.offsetY),
+                    blurRadius: shadow.blur,
+                  ),
+              ];
+        if (paint == null || solid != null) {
+          // Unpainted and solid names stay in the row's own paragraph.
+          usernameSpan = TextSpan(
             text: usernameText,
-            baseStyle: nameStyle,
-            fallbackColor:
-                paint.fallbackColor ?? usernameColor ?? const Color(0xFF808080),
-            shadows: shadows!.isEmpty ? null : shadows,
-          ),
-        );
+            style: nameStyle.copyWith(
+              color: solid ?? usernameColor,
+              shadows: shadows == null || shadows.isEmpty ? null : shadows,
+            ),
+          );
+        } else {
+          usernameSpan = WidgetSpan(
+            alignment: PlaceholderAlignment.middle,
+            child: PaintedUsernameText(
+              service: widget.paintService!,
+              paint: paint,
+              text: usernameText,
+              baseStyle: nameStyle,
+              fallbackColor:
+                  paint.fallbackColor ??
+                  usernameColor ??
+                  const Color(0xFF808080),
+              shadows: shadows!.isEmpty ? null : shadows,
+            ),
+          );
+        }
       }
 
       if (widget.showImages) {
@@ -474,19 +518,28 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
         msg,
         widget.channel,
         widget.surface,
-        colored: msg.isAction,
+        colored: !summary && msg.isAction,
         textScale: s,
         onImageTap: embedUrls.isEmpty ? null : _toggleEmbed,
       );
       _trackBodySpans(bodySpans, widget.bodyIsCached(msg, bodySpans));
-      children = [?channelSpan, ...badges, usernameSpan, ...bodySpans];
-      nameEnd = [
-        ?channelSpan,
-        ...badges,
-        usernameSpan,
-      ].fold<int>(0, (n, span) => n + span.toPlainText().length);
-      final channelLabel = widget.showChannel ? '#${widget.channel} ' : '';
-      semanticsLabel = msg.isHighlighted
+      children = [?channelSpan, ...badges, ?usernameSpan, ...bodySpans];
+      if (summary && widget.repeatCount > 1) {
+        children.add(_repeatChip(context, s));
+      }
+      nameEnd = summary
+          ? null
+          : [
+              ?channelSpan,
+              ...badges,
+              ?usernameSpan,
+            ].fold<int>(0, (n, span) => n + span.toPlainText().length);
+      final channelLabel = !summary && widget.showChannel
+          ? '#${widget.channel} '
+          : '';
+      semanticsLabel = summary
+          ? '$ts ${msg.text} ${context.l10n.repeatedMessages(widget.repeatCount)}'
+          : msg.isHighlighted
           ? 'Mention: $ts $channelLabel${msg.formattedUsername}: ${msg.text}'
           : '$ts $channelLabel${msg.formattedUsername}: ${msg.text}';
       deleted = msg.deleted;

@@ -112,6 +112,7 @@ class Setting {
     'timestamp_format' => l.settingTimestampFormat,
     'checkered' => l.settingCheckered,
     'line_separator' => l.settingLineSeparator,
+    'compact_repeats' => l.settingCompactRepeats,
     'keep_screen_on' => l.settingKeepScreenOn,
     'fast_channel_swipe' => l.settingFastChannelSwipe,
     'reopen_last_channel' => l.settingReopenLastChannel,
@@ -335,6 +336,13 @@ class Setting {
     SettingsPageId.appearance,
     section: 'Chat display',
     keywords: 'divider',
+  );
+  static const compactRepeats = Setting(
+    'compact_repeats',
+    'Compact repeated messages',
+    SettingsPageId.appearance,
+    section: 'Chat display',
+    keywords: 'spam copypasta repeat duplicate collapse',
   );
   static const keepScreenOn = Setting(
     'keep_screen_on',
@@ -810,6 +818,7 @@ class Setting {
     timestampFormat,
     checkered,
     lineSeparator,
+    compactRepeats,
     keepScreenOn,
     fastChannelSwipe,
     reopenLastChannel,

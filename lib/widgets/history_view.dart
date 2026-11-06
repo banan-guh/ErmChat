@@ -14,10 +14,13 @@ import '../color_utils.dart' show streamAccent;
 import '../l10n/l10n.dart';
 import '../models/twitch_message.dart';
 import '../sheets/history_marker_sheet.dart';
+import '../util/chat_compaction.dart';
 import '../util/history_timeline.dart';
 import '../util/history_window.dart';
 import '../util/log.dart';
 import '../util/perf_probe.dart';
+import '../util/phrase_compaction.dart';
+import '../util/settings.dart';
 import 'chat_message_tile.dart';
 import 'chat_rows.dart';
 import 'chrome_menu_button.dart';
@@ -93,6 +96,8 @@ class HistoryView extends StatefulWidget {
     this.liveVersion,
     this.emotesVersion,
     this.tileCache,
+    this.compact = false,
+    this.ownLogin,
     this.atBottomNotifier,
     this.onScrollActivity,
     this.scrollFabHeroTag,
@@ -152,6 +157,12 @@ class HistoryView extends StatefulWidget {
   /// Tile caches by channel, then message id; the owner evicts edited rows
   /// and may drop a channel's map. Null builds rows fresh.
   final Map<String, Map<String?, Widget>>? tileCache;
+
+  /// Whether this is the channel page and may fold repeated messages.
+  final bool compact;
+
+  /// The signed-in login, whose own messages never join a pile.
+  final String? Function()? ownLogin;
 
   /// True while the newest row is in view. Set true from outside (a tab tap)
   /// to jump to the newest row.
@@ -436,6 +447,14 @@ class _HistoryViewState extends State<HistoryView> {
   final Set<RowGateState> _gates = {};
   bool _gateSyncScheduled = false;
 
+  /// Repeat groups over the window, by window position. [compact] must be on.
+  bool _compact = false;
+  Map<int, int> _repeatCounts = const {};
+  Map<int, int> _repeatHidden = const {};
+  final Set<String> _expanded = {};
+  final Map<String, ({String source, TwitchMessage display})> _phraseMessages =
+      {};
+
   /// Mirror of what this view last wrote to [HistoryView.atBottomNotifier],
   /// so an outside write reads as a request to jump.
   bool _atBottom = true;
@@ -464,6 +483,8 @@ class _HistoryViewState extends State<HistoryView> {
     super.initState();
     _controller.addListener(_onScroll);
     _active = this;
+    _compact = widget.compact && Settings.compactRepeats.value;
+    if (widget.compact) Settings.compactRepeats.addListener(_onCompactionPref);
     PerfProbe.counters(_counters);
     PerfProbe.gauge('hwin', () => _active?._window.length ?? 0);
     if (PerfProbe.enabled) {
@@ -551,6 +572,17 @@ class _HistoryViewState extends State<HistoryView> {
   @override
   void didUpdateWidget(HistoryView old) {
     super.didUpdateWidget(old);
+    if (old.compact != widget.compact) {
+      if (old.compact) {
+        Settings.compactRepeats.removeListener(_onCompactionPref);
+      }
+      if (widget.compact) {
+        Settings.compactRepeats.addListener(_onCompactionPref);
+      }
+      _compact = widget.compact && Settings.compactRepeats.value;
+      _expanded.clear();
+      _rebuildItems();
+    }
     if (old.liveVersion != widget.liveVersion) {
       old.liveVersion?.removeListener(_onLive);
       widget.liveVersion?.addListener(_onLive);
@@ -1047,6 +1079,9 @@ class _HistoryViewState extends State<HistoryView> {
     widget.jumpRequest?.removeListener(_onJumpRequest);
     widget.calendarRequest?.removeListener(_onCalendarRequest);
     widget.actions?.follow.removeListener(_onFollow);
+    if (widget.compact) {
+      Settings.compactRepeats.removeListener(_onCompactionPref);
+    }
     _unwatchClears?.call();
     _unwatchStreams?.call();
     if (identical(_active, this)) _active = null;
@@ -1222,9 +1257,40 @@ class _HistoryViewState extends State<HistoryView> {
     });
   }
 
+  /// Recomputes repeat groups over the window. Positions stay stable, so
+  /// only the count maps change and the sliver rebuilds the rows it shows.
+  void _regroup() {
+    if (!_compact) {
+      _repeatCounts = const {};
+      _repeatHidden = const {};
+      _expanded.clear();
+      _phraseMessages.clear();
+      return;
+    }
+    final w = _window;
+    final own = widget.ownLogin?.call()?.toLowerCase();
+    final result = compactChat(
+      [for (var p = w.first; p < w.end; p++) w[p]],
+      skip: (msg) {
+        if (own != null && msg.login.toLowerCase() == own) return true;
+        return widget.rows.hides?.call(msg) ?? false;
+      },
+    );
+    final counts = <int, int>{};
+    result.counts.forEach((i, n) => counts[w.first + i] = n);
+    final hidden = <int, int>{};
+    result.hidden.forEach((i, s) => hidden[w.first + i] = w.first + s);
+    _repeatCounts = counts;
+    _repeatHidden = hidden;
+    final live = {for (final p in counts.keys) HistoryWindow.keyOf(w[p])};
+    _expanded.removeWhere((key) => !live.contains(key));
+    _phraseMessages.removeWhere((key, _) => !live.contains(key));
+  }
+
   /// Adds items for positions [from] on to the newer sliver, after rows
   /// appended below an anchor at or before [from].
   void _appendItems(int from) {
+    _regroup();
     final w = _window;
     final newer = _newerItems;
     for (var p = from; p < w.end; p++) {
@@ -1238,6 +1304,7 @@ class _HistoryViewState extends State<HistoryView> {
 
   /// Rebuilds both item lists from the window and the anchor.
   void _rebuildItems() {
+    _regroup();
     final w = _window;
     final newer = <_Item>[];
     for (var p = _anchor; p < w.end; p++) {
@@ -1274,6 +1341,16 @@ class _HistoryViewState extends State<HistoryView> {
     _liveAttached = true;
     _liveStart = _window.end;
     _syncLive(attaching: true);
+  }
+
+  void _onCompactionPref() {
+    final on = widget.compact && Settings.compactRepeats.value;
+    if (on == _compact) return;
+    setState(() {
+      _compact = on;
+      _expanded.clear();
+      _rebuildItems();
+    });
   }
 
   void _onLive() {
@@ -1323,7 +1400,11 @@ class _HistoryViewState extends State<HistoryView> {
         cache?.remove(m.messageId);
         hit = true;
       }
-      if (hit) setState(() {});
+      if (hit) {
+        setState(() {
+          _regroup();
+        });
+      }
     });
   }
 
@@ -1990,24 +2071,91 @@ class _HistoryViewState extends State<HistoryView> {
     final msg = _window.at(pos);
     if (msg == null) return const SizedBox.shrink();
     final key = HistoryWindow.keyOf(msg);
+    final summary = _repeatHidden[pos];
+    if (summary != null) {
+      final head = _window.at(summary);
+      final headKey = head == null ? null : HistoryWindow.keyOf(head);
+      if (headKey == null || !_expanded.contains(headKey)) {
+        return SizedBox.shrink(key: ValueKey<String>(key));
+      }
+    }
     _scheduleGateSync();
     final stream = _streamOfRow(msg);
-    return RowGate(
-      key: ValueKey<String>(key),
-      gates: _gates,
-      child: stream == null
-          ? _cachedTile(context, msg, key, pos.isEven)
-          : _tile(
-              context,
-              msg,
-              () => _showSheet(
-                msg.text,
-                dayNumber(msg.timestamp.toLocal()),
-                stream: stream.stream,
-                jumpToStart: stream.end,
-              ),
+    final count = _repeatCounts[pos] ?? 1;
+    final child = stream == null
+        ? (count > 1
+              ? _repeatTile(context, msg, pos, count)
+              : _cachedTile(context, msg, key, pos.isEven))
+        : _tile(
+            context,
+            msg,
+            () => _showSheet(
+              msg.text,
+              dayNumber(msg.timestamp.toLocal()),
+              stream: stream.stream,
+              jumpToStart: stream.end,
             ),
+          );
+    return RowGate(key: ValueKey<String>(key), gates: _gates, child: child);
+  }
+
+  /// The summary row for a repeat group, built fresh so its count can change.
+  Widget _repeatTile(
+    BuildContext context,
+    TwitchMessage msg,
+    int pos,
+    int count,
+  ) {
+    final key = HistoryWindow.keyOf(msg);
+    final cached = _phraseMessages[key];
+    final TwitchMessage display;
+    if (cached != null && cached.source == msg.text) {
+      display = cached.display;
+    } else {
+      final compacted = compactRepeatedPhrase(msg.text);
+      display = compacted == null ? msg : _phraseMessage(msg, compacted);
+      _phraseMessages[key] = (source: msg.text, display: display);
+    }
+    return widget.rows.tile(
+      context,
+      display,
+      alternate: pos.isEven,
+      scale: widget.textScale * _systemScale,
+      surface: Theme.of(context).scaffoldBackgroundColor,
+      repeatCount: count,
+      summary: true,
+      skipHides: true,
+      onTapSummary: () => _toggleRepeat(key),
     );
+  }
+
+  /// A summary copy of [msg] with its repeated phrase collapsed. Emotes are
+  /// parsed again from the shortened text.
+  TwitchMessage _phraseMessage(TwitchMessage msg, String text) => TwitchMessage(
+    login: msg.login,
+    displayName: msg.displayName,
+    text: text,
+    timestamp: msg.timestamp,
+    color: msg.color,
+    channel: msg.channel,
+    isAction: msg.isAction,
+    isHistory: msg.isHistory,
+    isBackfill: msg.isBackfill,
+    sourceBroadcasterId: msg.sourceBroadcasterId,
+  );
+
+  /// Opens or closes the rows folded under [key]. Opening stops following so
+  /// live chat cannot pull the expanded group away.
+  void _toggleRepeat(String key) {
+    final open = _expanded.contains(key);
+    setState(() {
+      if (open) {
+        _expanded.remove(key);
+      } else {
+        _expanded.add(key);
+        _follow = false;
+      }
+    });
   }
 
   /// The stream behind the chat's own stream start or end row, which taps
