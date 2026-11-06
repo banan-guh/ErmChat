@@ -120,6 +120,10 @@ class EventSubTopics {
       session.userId != null &&
       session.userId == chat.channelFor(channel)?.info.broadcasterId;
 
+  /// Whether the channel's USERSTATE reports the user as a moderator there.
+  /// Independent of EventSub, so it survives a moderation subscription blip.
+  bool isSelfModerator(String channel) => _selfModerator[channel] == true;
+
   /// Session-scoped subscription state dies with the EventSub session; IRC
   /// fallback resumes until [resubscribeEventSubChannels] runs again.
   void clearSessionState() {

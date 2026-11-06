@@ -386,6 +386,21 @@ void main() {
     expect(topics.isBroadcaster('testchannel'), isFalse);
   });
 
+  test('isSelfModerator follows the USERSTATE role and the session', () {
+    buildTopics();
+    expect(topics.isSelfModerator('testchannel'), isTrue);
+    expect(topics.isSelfModerator('other'), isFalse);
+    topics.noteSelfModerator('testchannel', false);
+    expect(topics.isSelfModerator('testchannel'), isFalse);
+    topics.noteSelfModerator('testchannel', true);
+    expect(topics.isSelfModerator('testchannel'), isTrue);
+    // The role belongs to the account, not the EventSub session.
+    topics.clearSessionState();
+    expect(topics.isSelfModerator('testchannel'), isTrue);
+    topics.resetAccountScope();
+    expect(topics.isSelfModerator('testchannel'), isFalse);
+  });
+
   group('clear vs reset vs forget', () {
     test('clearSessionState drops actives but keeps skips', () async {
       script['automod.message.hold'] = 403;

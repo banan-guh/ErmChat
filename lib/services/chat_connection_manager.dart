@@ -567,6 +567,12 @@ class ChatConnectionManager {
   /// Whether the session user owns [channel] (Channel tab gate).
   bool isBroadcaster(String channel) => eventSubTopics.isBroadcaster(channel);
 
+  /// Whether the account owns or moderates [channel], from the channel info
+  /// and IRC USERSTATE role, independent of EventSub moderation.
+  bool hasModRole(String channel) =>
+      eventSubTopics.isBroadcaster(channel) ||
+      eventSubTopics.isSelfModerator(channel);
+
   /// Merged ROOMSTATE tags for the mode toggles.
   Map<String, String> roomStateTags(String channel) =>
       _channelSetup.roomStateTags(channel);

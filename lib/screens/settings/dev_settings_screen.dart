@@ -128,6 +128,20 @@ class _DevSettingsScreenState extends State<DevSettingsScreen> {
                 'User cards show timeout, ban and warn in any channel. Twitch still refuses them without mod',
             pref: Settings.forceModActions,
           ),
+          PrefsSwitchTile(
+            secondary: const Icon(Icons.live_tv_outlined),
+            title: 'Show stream on offline channels',
+            subtitle:
+                'Adds Show stream to the view menu when the channel is not live',
+            pref: Settings.devShowOfflineStream,
+          ),
+          PrefsSwitchTile(
+            secondary: const Icon(Icons.shield_outlined),
+            title: 'Always show mod tools',
+            subtitle:
+                'Mod view and message actions stay available on channels you own or moderate, without waiting for EventSub',
+            pref: Settings.devForceModTools,
+          ),
           const Divider(),
           ListTile(
             leading: const Icon(Icons.receipt_long),

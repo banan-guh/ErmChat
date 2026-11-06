@@ -418,6 +418,21 @@ abstract final class Settings {
     exported: false,
   );
 
+  /// The view menu offers the stream on a channel that is not live.
+  static final devShowOfflineStream = Pref(
+    'dev_show_offline_stream',
+    false,
+    exported: false,
+  );
+
+  /// Mod menu entries stay available on channels the account owns or
+  /// moderates, without waiting for EventSub moderation.
+  static final devForceModTools = Pref(
+    'dev_force_mod_tools',
+    false,
+    exported: false,
+  );
+
   static final List<Pref<Object?>> all = [
     themeMode,
     locale,
@@ -503,5 +518,7 @@ abstract final class Settings {
     armWhatsNew,
     armUpdate,
     forceModActions,
+    devShowOfflineStream,
+    devForceModTools,
   ];
 }

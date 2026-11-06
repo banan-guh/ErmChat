@@ -15,6 +15,7 @@ import '../services/stream_player_controller.dart';
 import '../services/twitch_auth.dart';
 import '../util/chrome_theme.dart';
 import '../util/constants.dart';
+import '../util/settings.dart';
 import 'layout_editor.dart';
 import '../widgets/chrome_menu_button.dart';
 import '../widgets/media_upload_controller.dart';
@@ -89,11 +90,14 @@ class HomeAppBar {
       chat.channelFor(channel)?.info.isLive ?? false;
 
   /// Whether the view menu offers the stream toggle: a running stream, no
-  /// login to fetch one, or a live channel.
+  /// login to fetch one, or a live channel. The dev setting offers it on any
+  /// selected channel, so an offline channel's player can be opened too.
   bool _showStreamToggle() =>
       streamPlayer.isActive ||
       !twitchAuth.isConfigured ||
-      (selectedChannel() != null && _isChannelLive(selectedChannel()!));
+      (selectedChannel() != null &&
+          (_isChannelLive(selectedChannel()!) ||
+              Settings.devShowOfflineStream.value));
 
   void _onBellPressed() {
     chat.clearAllUnread();
@@ -122,7 +126,8 @@ class HomeAppBar {
         final channel = selectedChannel();
         if (channel == null) return false;
         return chatConn.isModerationActive(channel) ||
-            chatConn.isAutomodActive(channel);
+            chatConn.isAutomodActive(channel) ||
+            mod.devModViewFor(channel);
       },
       onToggleSearch: toggleSearch,
     );

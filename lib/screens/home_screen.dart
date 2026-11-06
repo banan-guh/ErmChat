@@ -226,6 +226,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 
   BroadcastWidgets get _broadcastWidgets => ref.read(broadcastWidgetsProvider);
 
+  /// Whether mod-only menu entries stay on [channel] for the dev setting.
+  bool _devModTools(String channel) =>
+      Settings.devForceModTools.value && _chatConn.hasModRole(channel);
+
   // Settings the shell reads. Composer-owned input state (text, reply,
   // suggestions, cooldown) lives in _composer.
   bool get _replyToRoot => Settings.replyToThreadRoot.value;
@@ -394,8 +398,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     showThreadView: (root) =>
         _threads.showThreadView(root, switchChannel: true),
     startReply: _composer.startReply,
-    canModerate: (msg) =>
-        msg.channel != null && _chatConn.isModerationActive(msg.channel!),
+    canModerate: (msg) {
+      final channel = msg.channel;
+      if (channel == null) return false;
+      return _chatConn.isModerationActive(channel) || _devModTools(channel);
+    },
     pinMessage: (context, msg) async {
       final result = await _modActions.pinMessage(
         _twitchAuth,
@@ -581,7 +588,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     search: _search,
     composer: _composer,
     broadcastWidgets: _broadcastWidgets,
-    unpinFor: (channel) => _chatConn.isModerationActive(channel)
+    unpinFor: (channel) =>
+        _chatConn.isModerationActive(channel) || _devModTools(channel)
         ? (pin) =>
               _modActions.unpinMessage(_twitchAuth, pin.channel, pin.messageId)
         : null,

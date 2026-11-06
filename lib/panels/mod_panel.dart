@@ -9,6 +9,7 @@ import '../l10n/l10n.dart';
 import '../services/chat_connection_manager.dart';
 import '../services/mod_actions.dart';
 import '../services/twitch_auth.dart';
+import '../util/settings.dart';
 import '../widgets/mod_view.dart';
 import '../widgets/panel_manager.dart';
 import '../widgets/tab_drag_focus.dart';
@@ -100,6 +101,11 @@ class ModPanels {
     termsVersion.dispose();
   }
 
+  /// The dev override shows mod tools without EventSub, but only where the
+  /// account owns or moderates the channel.
+  bool devModViewFor(String channel) =>
+      Settings.devForceModTools.value && chatConn.hasModRole(channel);
+
   // Mod branch of panel data fan-out.
   void refreshOnData(String? changedChannel) {
     if (panelManager.activePanel != OverlayPanel.modView) return;
@@ -111,6 +117,7 @@ class ModPanels {
     // Unmodded: close rather than leave an empty sheet. A dropped EventSub
     // session never marks a channel denied, so blips keep the panel.
     if (channel != null &&
+        !devModViewFor(channel) &&
         chatConn.isModerationDenied(channel) &&
         !chatConn.isBroadcaster(channel)) {
       showNotice(strings().noLongerModerator(channel));
@@ -397,7 +404,8 @@ class ModPanels {
         onShowUser: onShowUser,
         isBroadcaster: channel.isNotEmpty && chatConn.isBroadcaster(channel),
         isModerationActive: (c) =>
-            c.isNotEmpty && chatConn.isModerationActive(c),
+            c.isNotEmpty &&
+            (chatConn.isModerationActive(c) || devModViewFor(c)),
         isAutomodActive: (c) => c.isNotEmpty && chatConn.isAutomodActive(c),
         getRoomModes: (c) => c.isEmpty ? const {} : chatConn.roomStateTags(c),
       ),
