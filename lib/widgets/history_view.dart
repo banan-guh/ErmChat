@@ -449,8 +449,20 @@ class _HistoryViewState extends State<HistoryView> {
 
   /// Repeat groups over the window, by window position. [compact] must be on.
   bool _compact = false;
+
+  /// Whether long rows collapse their phrase and truncate. Channel pages only.
+  bool _shorten = false;
+
+  /// Lines a shortened row shows before the tap reveals the rest.
+  static const int _shortLines = 6;
+
+  /// Revealed pile members sit back a touch from the row they belong to.
+  static const double _pileMemberOpacity = 0.85;
+
   Map<int, int> _repeatCounts = const {};
   Map<int, int> _repeatHidden = const {};
+
+  /// Rows the reader opened, by row key: a pile or a shortened row.
   final Set<String> _expanded = {};
   final Map<String, ({String source, TwitchMessage display})> _phraseMessages =
       {};
@@ -484,7 +496,11 @@ class _HistoryViewState extends State<HistoryView> {
     _controller.addListener(_onScroll);
     _active = this;
     _compact = widget.compact && Settings.compactRepeats.value;
-    if (widget.compact) Settings.compactRepeats.addListener(_onCompactionPref);
+    _shorten = widget.compact && Settings.shortenMessages.value;
+    if (widget.compact) {
+      Settings.compactRepeats.addListener(_onCompactionPref);
+      Settings.shortenMessages.addListener(_onShortenPref);
+    }
     PerfProbe.counters(_counters);
     PerfProbe.gauge('hwin', () => _active?._window.length ?? 0);
     if (PerfProbe.enabled) {
@@ -575,11 +591,14 @@ class _HistoryViewState extends State<HistoryView> {
     if (old.compact != widget.compact) {
       if (old.compact) {
         Settings.compactRepeats.removeListener(_onCompactionPref);
+        Settings.shortenMessages.removeListener(_onShortenPref);
       }
       if (widget.compact) {
         Settings.compactRepeats.addListener(_onCompactionPref);
+        Settings.shortenMessages.addListener(_onShortenPref);
       }
       _compact = widget.compact && Settings.compactRepeats.value;
+      _shorten = widget.compact && Settings.shortenMessages.value;
       _expanded.clear();
       _rebuildItems();
     }
@@ -1081,6 +1100,7 @@ class _HistoryViewState extends State<HistoryView> {
     widget.actions?.follow.removeListener(_onFollow);
     if (widget.compact) {
       Settings.compactRepeats.removeListener(_onCompactionPref);
+      Settings.shortenMessages.removeListener(_onShortenPref);
     }
     _unwatchClears?.call();
     _unwatchStreams?.call();
@@ -1260,14 +1280,17 @@ class _HistoryViewState extends State<HistoryView> {
   /// Recomputes repeat groups over the window. Positions stay stable, so
   /// only the count maps change and the sliver rebuilds the rows it shows.
   void _regroup() {
+    final w = _window;
+    final live = <String>{
+      for (var p = w.first; p < w.end; p++) HistoryWindow.keyOf(w[p]),
+    };
+    _expanded.removeWhere((key) => !live.contains(key));
+    _phraseMessages.removeWhere((key, _) => !live.contains(key));
     if (!_compact) {
       _repeatCounts = const {};
       _repeatHidden = const {};
-      _expanded.clear();
-      _phraseMessages.clear();
       return;
     }
-    final w = _window;
     final own = widget.ownLogin?.call()?.toLowerCase();
     final result = compactChat(
       [for (var p = w.first; p < w.end; p++) w[p]],
@@ -1282,9 +1305,6 @@ class _HistoryViewState extends State<HistoryView> {
     result.hidden.forEach((i, s) => hidden[w.first + i] = w.first + s);
     _repeatCounts = counts;
     _repeatHidden = hidden;
-    final live = {for (final p in counts.keys) HistoryWindow.keyOf(w[p])};
-    _expanded.removeWhere((key) => !live.contains(key));
-    _phraseMessages.removeWhere((key, _) => !live.contains(key));
   }
 
   /// Adds items for positions [from] on to the newer sliver, after rows
@@ -1349,6 +1369,17 @@ class _HistoryViewState extends State<HistoryView> {
     setState(() {
       _compact = on;
       _expanded.clear();
+      _rebuildItems();
+    });
+  }
+
+  void _onShortenPref() {
+    final on = widget.compact && Settings.shortenMessages.value;
+    if (on == _shorten) return;
+    setState(() {
+      _shorten = on;
+      _expanded.clear();
+      _phraseMessages.clear();
       _rebuildItems();
     });
   }
@@ -2081,56 +2112,67 @@ class _HistoryViewState extends State<HistoryView> {
     }
     _scheduleGateSync();
     final stream = _streamOfRow(msg);
+    if (stream != null) {
+      return RowGate(
+        key: ValueKey<String>(key),
+        gates: _gates,
+        child: _tile(
+          context,
+          msg,
+          () => _showSheet(
+            msg.text,
+            dayNumber(msg.timestamp.toLocal()),
+            stream: stream.stream,
+            jumpToStart: stream.end,
+          ),
+        ),
+      );
+    }
     final count = _repeatCounts[pos] ?? 1;
-    final child = stream == null
-        ? (count > 1
-              ? _repeatTile(context, msg, pos, count)
-              : _cachedTile(context, msg, key, pos.isEven))
-        : _tile(
+    final shortenable = _shorten && !msg.isSystem;
+    final expanded = _expanded.contains(key);
+    final shorten = shortenable && !expanded;
+    final display = shorten ? _shortened(msg) : msg;
+    // Shortened rows build fresh: their text and line cap follow the toggle,
+    // which a cached tile cannot.
+    Widget child = count > 1 || shortenable
+        ? widget.rows.tile(
             context,
-            msg,
-            () => _showSheet(
-              msg.text,
-              dayNumber(msg.timestamp.toLocal()),
-              stream: stream.stream,
-              jumpToStart: stream.end,
-            ),
-          );
+            display,
+            alternate: pos.isEven,
+            scale: widget.textScale * _systemScale,
+            surface: Theme.of(context).scaffoldBackgroundColor,
+            repeatCount: count,
+            summary: count > 1,
+            skipHides: count > 1 || !identical(display, msg),
+            maxLines: shorten ? _shortLines : null,
+            onTapRow: shortenable || count > 1
+                ? () => _toggleExpanded(key)
+                : null,
+          )
+        : _cachedTile(context, msg, key, pos.isEven);
+    // A pile member shown by the reader reads as a footnote to the summary.
+    if (summary != null) {
+      child = Opacity(opacity: _pileMemberOpacity, child: child);
+    }
     return RowGate(key: ValueKey<String>(key), gates: _gates, child: child);
   }
 
-  /// The summary row for a repeat group, built fresh so its count can change.
-  Widget _repeatTile(
-    BuildContext context,
-    TwitchMessage msg,
-    int pos,
-    int count,
-  ) {
+  /// [msg] with a repeated phrase collapsed, or [msg] itself. Cached per row,
+  /// since a regroup runs on every arrival.
+  TwitchMessage _shortened(TwitchMessage msg) {
     final key = HistoryWindow.keyOf(msg);
     final cached = _phraseMessages[key];
-    final TwitchMessage display;
-    if (cached != null && cached.source == msg.text) {
-      display = cached.display;
-    } else {
-      final compacted = compactRepeatedPhrase(msg.text);
-      display = compacted == null ? msg : _phraseMessage(msg, compacted);
-      _phraseMessages[key] = (source: msg.text, display: display);
-    }
-    return widget.rows.tile(
-      context,
-      display,
-      alternate: pos.isEven,
-      scale: widget.textScale * _systemScale,
-      surface: Theme.of(context).scaffoldBackgroundColor,
-      repeatCount: count,
-      summary: true,
-      skipHides: true,
-      onTapSummary: () => _toggleRepeat(key),
-    );
+    if (cached != null && cached.source == msg.text) return cached.display;
+    final compacted = compactRepeatedPhrase(msg.text);
+    final display = compacted == null ? msg : _phraseMessage(msg, compacted);
+    _phraseMessages[key] = (source: msg.text, display: display);
+    return display;
   }
 
-  /// A summary copy of [msg] with its repeated phrase collapsed. Emotes are
-  /// parsed again from the shortened text.
+  /// [msg] with its text replaced. Identity, badges and reply links carry
+  /// over so the row still copies and moderates as itself; emote state is
+  /// left off, since its offsets describe the old text.
   TwitchMessage _phraseMessage(TwitchMessage msg, String text) => TwitchMessage(
     login: msg.login,
     displayName: msg.displayName,
@@ -2138,15 +2180,27 @@ class _HistoryViewState extends State<HistoryView> {
     timestamp: msg.timestamp,
     color: msg.color,
     channel: msg.channel,
+    userId: msg.userId,
+    messageId: msg.messageId,
+    msgId: msg.msgId,
+    badges: msg.badges,
+    deleted: msg.deleted,
+    highlight: msg.highlight,
+    replyToParentId: msg.replyToParentId,
+    replyToUser: msg.replyToUser,
+    replyToText: msg.replyToText,
+    replyThreadRootId: msg.replyThreadRootId,
+    isFirstMessage: msg.isFirstMessage,
     isAction: msg.isAction,
     isHistory: msg.isHistory,
     isBackfill: msg.isBackfill,
     sourceBroadcasterId: msg.sourceBroadcasterId,
+    sourceMessageId: msg.sourceMessageId,
   );
 
   /// Opens or closes the rows folded under [key]. Opening stops following so
   /// live chat cannot pull the expanded group away.
-  void _toggleRepeat(String key) {
+  void _toggleExpanded(String key) {
     final open = _expanded.contains(key);
     setState(() {
       if (open) {

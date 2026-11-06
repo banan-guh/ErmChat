@@ -88,6 +88,9 @@ class ChatMessageTile extends StatefulWidget {
   /// A summary of several rows, so it carries no sender identity.
   final bool isSummary;
 
+  /// Body lines before the text is cut with an ellipsis. Null shows all.
+  final int? maxLines;
+
   const ChatMessageTile({
     super.key,
     required this.message,
@@ -120,6 +123,7 @@ class ChatMessageTile extends StatefulWidget {
     this.linkWhitelist,
     this.repeatCount = 1,
     this.isSummary = false,
+    this.maxLines,
   });
 
   @override
@@ -582,6 +586,8 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
           _paragraphContext = context;
           return Text.rich(
             TextSpan(children: [?tsSpan, ...children], style: bodyTextStyle),
+            maxLines: widget.maxLines,
+            overflow: widget.maxLines == null ? null : TextOverflow.ellipsis,
           );
         },
       ),

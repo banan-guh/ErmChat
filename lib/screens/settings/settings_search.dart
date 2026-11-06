@@ -113,6 +113,7 @@ class Setting {
     'checkered' => l.settingCheckered,
     'line_separator' => l.settingLineSeparator,
     'compact_repeats' => l.settingCompactRepeats,
+    'shorten_messages' => l.settingShortenMessages,
     'keep_screen_on' => l.settingKeepScreenOn,
     'fast_channel_swipe' => l.settingFastChannelSwipe,
     'reopen_last_channel' => l.settingReopenLastChannel,
@@ -339,10 +340,17 @@ class Setting {
   );
   static const compactRepeats = Setting(
     'compact_repeats',
-    'Compact repeated messages',
-    SettingsPageId.appearance,
-    section: 'Chat display',
-    keywords: 'spam copypasta repeat duplicate collapse',
+    'Fold repeated messages',
+    SettingsPageId.chat,
+    section: 'Messages',
+    keywords: 'spam copypasta repeat duplicate collapse pile',
+  );
+  static const shortenMessages = Setting(
+    'shorten_messages',
+    'Shorten long messages',
+    SettingsPageId.chat,
+    section: 'Messages',
+    keywords: 'copypasta spam long truncate collapse phrase repeat',
   );
   static const keepScreenOn = Setting(
     'keep_screen_on',
@@ -819,6 +827,7 @@ class Setting {
     checkered,
     lineSeparator,
     compactRepeats,
+    shortenMessages,
     keepScreenOn,
     fastChannelSwipe,
     reopenLastChannel,

@@ -112,7 +112,8 @@ class ChatRows {
     int repeatCount = 1,
     bool summary = false,
     bool skipHides = false,
-    VoidCallback? onTapSummary,
+    int? maxLines,
+    VoidCallback? onTapRow,
   }) {
     if (!skipHides && (hides?.call(msg) ?? false)) {
       return const SizedBox.shrink();
@@ -152,11 +153,9 @@ class ChatRows {
       onLongPress: chatRow && !summaryRow && onShowMessageMenu != null
           ? () => onShowMessageMenu!(msg)
           : null,
-      onTap: summaryRow
-          ? onTapSummary
-          : chatRow && onTapMessage != null
-          ? () => onTapMessage!(msg)
-          : null,
+      onTap:
+          onTapRow ??
+          (chatRow && onTapMessage != null ? () => onTapMessage!(msg) : null),
       onDoubleTap: chatRow && !summaryRow && onCopyMessage != null
           ? () => onCopyMessage!(msg)
           : null,
@@ -183,6 +182,7 @@ class ChatRows {
           linkWhitelist?.entries ?? messageBuilder.linkWhitelist.entries,
       repeatCount: repeatCount,
       isSummary: summaryRow,
+      maxLines: maxLines,
     );
     final row = chatRow && flashRequest != null
         ? _FlashHighlight(

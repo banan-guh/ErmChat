@@ -14,11 +14,13 @@ import 'package:ermchat/widgets/history_view.dart';
 import 'package:ermchat/widgets/message_builder.dart';
 import 'package:ermchat/services/twitch_badge_service.dart';
 import 'package:ermchat/services/third_party_badge_service.dart';
+import 'package:ermchat/util/settings.dart';
 import 'package:flutter/foundation.dart'
     show debugDefaultTargetPlatformOverride;
 import 'package:flutter/gestures.dart' show PointerDeviceKind;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 const double _inset = 50;
 const String _ch = FakeHistory.testChannel;
@@ -186,6 +188,15 @@ class _EmptyFirstRail extends FakeHistorySource {
     _first = false;
     return null;
   }
+}
+
+/// Turns the spam features on for a test, since both default off.
+Future<void> _spamPrefs({bool fold = true, bool shorten = false}) async {
+  SharedPreferences.setMockInitialValues({
+    'compact_repeats': fold,
+    'shorten_messages': shorten,
+  });
+  await Settings.bind();
 }
 
 Future<void> _pumpView(
@@ -735,6 +746,7 @@ void main() {
   });
 
   testWidgets('repeated live messages fold and expand inline', (tester) async {
+    await _spamPrefs();
     final at = _ListSource.t0;
     TwitchMessage spam(String id) => TwitchMessage(
       login: 'spam',
@@ -766,23 +778,34 @@ void main() {
     live.insert(0, spam('spam-2'));
     version.value++;
     await tester.pump();
+
+    // The pair folds on arrival, so the second row never paints at full size.
+    final pair = tester.widget<ChatMessageTile>(_tile('spam-1'));
+    expect(pair.repeatCount, 2);
+    expect(pair.isSummary, isTrue);
+    expect(_tile('spam-2'), findsNothing);
+
     live.insert(0, spam('spam-3'));
     version.value++;
     await _settle(tester);
 
     final summary = tester.widget<ChatMessageTile>(_tile('spam-1'));
     expect(summary.repeatCount, 3);
-    expect(summary.isSummary, isTrue);
     expect(_tile('spam-2'), findsNothing);
     await tester.tap(_tile('spam-1'));
     await tester.pump();
     expect(_tile('spam-2'), findsOneWidget);
     expect(tester.getSize(_tile('spam-2')).height, greaterThan(0));
+    final faded = tester.widget<Opacity>(
+      find.ancestor(of: _tile('spam-2'), matching: find.byType(Opacity)).first,
+    );
+    expect(faded.opacity, 0.85);
   });
 
   testWidgets('a copypasta summary collapses its repeated phrase', (
     tester,
   ) async {
+    await _spamPrefs(shorten: true);
     final at = _ListSource.t0;
     TwitchMessage copypasta(String id) => TwitchMessage(
       login: 'spam',
@@ -828,7 +851,78 @@ void main() {
     expect(summary.message.text, 'THIS IS A COPYPASTA LULE (x4)');
   });
 
+  testWidgets('a long copypasta collapses without a pile', (tester) async {
+    await _spamPrefs(fold: false, shorten: true);
+    final at = _ListSource.t0;
+    final text = [
+      for (var i = 0; i < 4; i++) 'THIS IS A COPYPASTA LULE',
+    ].join(' ');
+
+    final version = ValueNotifier(0);
+    addTearDown(version.dispose);
+    final live = <TwitchMessage>[
+      TwitchMessage(
+        login: 'spam',
+        text: text,
+        messageId: 'copy-1',
+        channel: _ch,
+        timestamp: at,
+      ),
+    ];
+    await _pumpView(
+      tester,
+      source: _ListSource([live.first]),
+      live: () => live,
+      liveVersion: version,
+      compact: true,
+    );
+    await _settle(tester);
+
+    final row = tester.widget<ChatMessageTile>(
+      find.byWidgetPredicate(
+        (w) => w is ChatMessageTile && w.message.login == 'spam',
+      ),
+    );
+    expect(row.message.text, 'THIS IS A COPYPASTA LULE (x4)');
+    expect(row.isSummary, isFalse);
+    expect(row.repeatCount, 1);
+  });
+
+  testWidgets('a long message truncates until the reader taps it', (
+    tester,
+  ) async {
+    await _spamPrefs(fold: false, shorten: true);
+    final at = _ListSource.t0;
+    final text = [for (var i = 0; i < 60; i++) 'word$i'].join(' ');
+
+    final version = ValueNotifier(0);
+    addTearDown(version.dispose);
+    final live = <TwitchMessage>[
+      TwitchMessage(
+        login: 'spam',
+        text: text,
+        messageId: 'long-1',
+        channel: _ch,
+        timestamp: at,
+      ),
+    ];
+    await _pumpView(
+      tester,
+      source: _ListSource([live.first]),
+      live: () => live,
+      liveVersion: version,
+      compact: true,
+    );
+    await _settle(tester);
+
+    expect(tester.widget<ChatMessageTile>(_tile('long-1')).maxLines, 6);
+    await tester.tap(_tile('long-1'));
+    await tester.pump();
+    expect(tester.widget<ChatMessageTile>(_tile('long-1')).maxLines, isNull);
+  });
+
   testWidgets('own messages never join a pile', (tester) async {
+    await _spamPrefs();
     final at = _ListSource.t0;
     TwitchMessage own(String id) => TwitchMessage(
       login: 'me',

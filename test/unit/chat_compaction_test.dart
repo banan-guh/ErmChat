@@ -28,7 +28,7 @@ TwitchMessage message(
 );
 
 void main() {
-  test('folds three exact rows into the first', () {
+  test('folds exact rows into the first', () {
     final result = compactChat([
       message('KEKW'),
       message('KEKW'),
@@ -38,105 +38,60 @@ void main() {
     expect(result.hidden, {1: 0, 2: 0});
   });
 
-  test('keeps a pair visible', () {
+  test('folds a pair, so the second row never paints', () {
     final result = compactChat([message('KEKW'), message('KEKW')]);
-    expect(result.counts, isEmpty);
-    expect(result.hidden, isEmpty);
+    expect(result.counts, {0: 2});
+    expect(result.hidden, {1: 0});
   });
 
-  test('normalizes whitespace but keeps case', () {
+  test('collapses whitespace and folds case', () {
     final result = compactChat([
       message('  KEKW   KEKW '),
-      message('KEKW KEKW'),
-      message('KEKW KEKW'),
-      message('kekw kekw'),
-      message('kekw kekw'),
       message('kekw kekw'),
     ]);
-    expect(result.counts, {0: 3, 3: 3});
-    expect(result.hidden, {1: 0, 2: 0, 4: 3, 5: 3});
+    expect(result.counts, {0: 2});
+    expect(result.hidden, {1: 0});
   });
 
-  test('folds one-word variants into the first', () {
-    final result = compactChat([
-      message('hello there friend'),
-      message('hello there buddy'),
-      message('hello there pal'),
-    ]);
-    expect(result.counts, {0: 3});
-    expect(result.hidden, {1: 0, 2: 0});
-  });
-
-  test('folds a word added or removed', () {
-    final result = compactChat([
-      message('hello there chat'),
-      message('hello there my chat'),
-      message('hello there chat'),
-    ]);
-    expect(result.counts, {0: 3});
-    expect(result.hidden, {1: 0, 2: 0});
-  });
-
-  test('folds case and punctuation variants', () {
+  test('folds edge punctuation', () {
     final result = compactChat([
       message('Hello there chat!'),
       message('hello there chat'),
-      message('HELLO THERE CHAT'),
+      message('"hello there chat"'),
     ]);
     expect(result.counts, {0: 3});
     expect(result.hidden, {1: 0, 2: 0});
   });
 
-  test('two strong copypastas one word apart stay separate', () {
+  test('one word apart stays separate', () {
     final result = compactChat([
       message('hello there friend'),
       message('hello there friend'),
-      message('hello there friend'),
-      message('hello there buddy'),
       message('hello there buddy'),
       message('hello there buddy'),
     ]);
-    expect(result.counts, {0: 3, 3: 3});
-    expect(result.hidden, {1: 0, 2: 0, 4: 3, 5: 3});
+    expect(result.counts, {0: 2, 2: 2});
+    expect(result.hidden, {1: 0, 3: 2});
   });
 
-  test('two-word rows never fuzzy match', () {
+  test('a typo stays separate', () {
     final result = compactChat([
-      message('ok thanks'),
-      message('no thanks'),
-      message('ok thanks'),
+      message('hello there friend'),
+      message('hello there freind'),
     ]);
     expect(result.counts, isEmpty);
     expect(result.hidden, isEmpty);
   });
 
-  test('urls, mentions and hashtags never fuzzy match', () {
+  test('matching stays inside one channel', () {
     final result = compactChat([
-      message('look at this http://a.example'),
-      message('look at this http://b.example'),
-      message('look at this http://a.example'),
-      message('thanks @alice for this'),
-      message('thanks @bobby for this'),
-      message('thanks @alice for this'),
-      message('join the #one crowd now'),
-      message('join the #two crowd now'),
-      message('join the #one crowd now'),
-      message('go to a.example now'),
-      message('go to b.example now'),
-      message('go to a.example now'),
+      message('KEKW', channel: 'a'),
+      message('KEKW', channel: 'b'),
+      message('KEKW', channel: 'a'),
+      message('KEKW', channel: 'b'),
     ]);
-    expect(result.counts, isEmpty);
-    expect(result.hidden, isEmpty);
-  });
-
-  test('fuzzy matching stays inside one channel', () {
-    final result = compactChat([
-      message('hello there friend', channel: 'a'),
-      message('hello there buddy', channel: 'b'),
-      message('hello there friend', channel: 'a'),
-    ]);
-    expect(result.counts, isEmpty);
-    expect(result.hidden, isEmpty);
+    expect(result.counts, {0: 2, 1: 2});
+    expect(result.hidden, {2: 0, 3: 1});
   });
 
   test('groups two copypastas independently', () {
@@ -152,70 +107,16 @@ void main() {
     expect(result.hidden, {2: 0, 3: 1, 4: 0, 5: 1});
   });
 
-  test('a seeded group folds at two in the next chunk', () {
-    final at = DateTime(2026, 1, 1, 12);
-    final result = compactChat([
-      message('KEKW', at: at),
-      message('KEKW', at: at.add(const Duration(seconds: 1))),
-      message('KEKW', at: at.add(const Duration(seconds: 2))),
-      message('KEKW', at: at.add(const Duration(seconds: 11))),
-      message('KEKW', at: at.add(const Duration(seconds: 12))),
-    ]);
-    expect(result.counts, {0: 3, 3: 2});
-    expect(result.hidden, {1: 0, 2: 0, 4: 3});
-  });
-
-  test('a fuzzy variant resumes the seed', () {
-    final at = DateTime(2026, 1, 1, 12);
-    final result = compactChat([
-      message('hello there friend', at: at),
-      message('hello there friend', at: at.add(const Duration(seconds: 1))),
-      message('hello there friend', at: at.add(const Duration(seconds: 2))),
-      message('hello there buddy', at: at.add(const Duration(seconds: 11))),
-      message('hello there buddy', at: at.add(const Duration(seconds: 12))),
-    ]);
-    expect(result.counts, {0: 3, 3: 2});
-    expect(result.hidden, {1: 0, 2: 0, 4: 3});
-  });
-
-  test('a resumed seed still needs two messages', () {
-    final at = DateTime(2026, 1, 1, 12);
-    final result = compactChat([
-      message('KEKW', at: at),
-      message('KEKW', at: at.add(const Duration(seconds: 1))),
-      message('KEKW', at: at.add(const Duration(seconds: 2))),
-      message('KEKW', at: at.add(const Duration(seconds: 11))),
-    ]);
-    expect(result.counts, {0: 3});
-    expect(result.hidden, {1: 0, 2: 0});
-  });
-
-  test('a chunk without the seed drops it', () {
-    final at = DateTime(2026, 1, 1, 12);
-    final result = compactChat([
-      message('KEKW', at: at),
-      message('KEKW', at: at.add(const Duration(seconds: 1))),
-      message('KEKW', at: at.add(const Duration(seconds: 2))),
-      message('other', at: at.add(const Duration(seconds: 11))),
-      message('KEKW', at: at.add(const Duration(seconds: 21))),
-      message('KEKW', at: at.add(const Duration(seconds: 22))),
-    ]);
-    expect(result.counts, {0: 3});
-    expect(result.hidden, {1: 0, 2: 0});
-  });
-
   test('starts a new chunk after ten seconds', () {
     final at = DateTime(2026, 1, 1, 12);
     final result = compactChat([
       message('KEKW', at: at),
       message('KEKW', at: at.add(const Duration(seconds: 1))),
-      message('KEKW', at: at.add(const Duration(seconds: 2))),
       message('KEKW', at: at.add(const Duration(seconds: 11))),
       message('KEKW', at: at.add(const Duration(seconds: 12))),
-      message('KEKW', at: at.add(const Duration(seconds: 13))),
     ]);
-    expect(result.counts, {0: 3, 3: 3});
-    expect(result.hidden, {1: 0, 2: 0, 4: 3, 5: 3});
+    expect(result.counts, {0: 2, 2: 2});
+    expect(result.hidden, {1: 0, 3: 2});
   });
 
   test('starts a new chunk after one hundred rows', () {
