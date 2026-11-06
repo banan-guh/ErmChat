@@ -373,6 +373,7 @@ class ChatConnectionManager {
     connectionStateNotifier: connectionStateNotifier,
     setupSubscriptions: _setupSubscriptions,
     subscribeAll: _subscribeAll,
+    onModeratorKnown: (channel) => unawaited(syncPin(channel)),
     clearSelfBadges: readDecoder.clearSelfBadges,
     onSystemMessage: config.bridge.onSystemMessage,
     onConnStatus: config.bridge.onConnStatus,
@@ -445,10 +446,9 @@ class ChatConnectionManager {
   /// newer one.
   final _pinRequests = <String, int>{};
 
-  /// Reads [channel]'s current pin from Helix and shows it, or clears the
-  /// card when there is none. PubSub never replays a pin made before it
-  /// listened, so this runs on every join and resubscribe, and again on
-  /// each pin event. Needs a login; a failed read changes nothing.
+  /// Reads [channel]'s current pin from Helix, or clears the card. Runs on
+  /// join, resubscribe and each pin event, since PubSub never replays. Mod
+  /// role only: Twitch refuses pin reads in channels the account watches.
   Future<void> syncPin(String channel) async {
     final auth = config.services.twitchAuth;
     final broadcasterId = config.chat.channelFor(channel)?.info.broadcasterId;
@@ -458,22 +458,34 @@ class ChatConnectionManager {
         broadcasterId == null ||
         broadcasterId.isEmpty ||
         userId == null ||
-        onPinned == null) {
+        onPinned == null ||
+        !hasModRole(channel)) {
       return;
     }
     final request = (_pinRequests[channel] ?? 0) + 1;
     _pinRequests[channel] = request;
-    final Map<String, dynamic>? pin;
-    try {
-      pin = await config.services.twitchApi.getPinnedChatMessage(
-        auth,
-        broadcasterId: broadcasterId,
-        moderatorId: userId,
-      );
-    } catch (e) {
-      logDebug('[ChatConn] pin fetch failed for $channel: $e');
-      return;
-    }
+    final api = config.services.twitchApi;
+    final (pin, ok) = await api.isolateErrors(() async {
+      try {
+        return (
+          await api.getPinnedChatMessage(
+            auth,
+            broadcasterId: broadcasterId,
+            moderatorId: userId,
+          ),
+          true,
+        );
+      } catch (e) {
+        final status = api.lastErrorStatus;
+        final detail = api.lastHelixMessage;
+        logDebug(
+          '[ChatConn] pin fetch failed for $channel: '
+          '${status ?? e}${detail == null ? '' : ' $detail'}',
+        );
+        return (null, false);
+      }
+    });
+    if (!ok) return;
     if (_pinRequests[channel] != request) return;
     if (pin == null) {
       onPinned(PinnedMessageEvent(channel: channel, id: '', removed: true));

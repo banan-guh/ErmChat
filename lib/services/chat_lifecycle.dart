@@ -47,6 +47,7 @@ class ChatLifecycle {
     required this.connectionStateNotifier,
     required this.setupSubscriptions,
     required this.subscribeAll,
+    required this.onModeratorKnown,
     required this.clearSelfBadges,
     required this.onSystemMessage,
     required this.onConnStatus,
@@ -74,6 +75,9 @@ class ChatLifecycle {
   final ValueNotifier<int> connectionStateNotifier;
   final void Function() setupSubscriptions;
   final void Function() subscribeAll;
+
+  /// The account's mod role in a channel was just learned from USERSTATE.
+  final void Function(String channel) onModeratorKnown;
   final void Function() clearSelfBadges;
   final void Function(
     String channel,
@@ -239,7 +243,11 @@ class ChatLifecycle {
     // and EventSub revokes moderator subscriptions on unmod.
     void onSelfModerator((String, bool) event) {
       if (_disposed) return;
+      final known = eventSubTopics.isSelfModerator(event.$1);
       eventSubTopics.noteSelfModerator(event.$1, event.$2);
+      // The join-time pin snapshot waits for this role, which USERSTATE may
+      // report after the subscribe callback already ran.
+      if (event.$2 && !known) onModeratorKnown(event.$1);
     }
 
     _readSelfModSub?.cancel();
