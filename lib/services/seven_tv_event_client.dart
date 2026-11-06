@@ -120,6 +120,9 @@ class SevenTvEventClient {
   static const _connectTimeout = Duration(seconds: 10);
   static const _noReconnectCloseCodes = {4001, 4002, 4003, 4004, 4009, 4010};
   static const _reconnectMinDelay = Duration(seconds: 1);
+  static const _rateLimitCloseCode = 4005;
+  static const _rateLimitMinSeconds = 30;
+  static const _rateLimitMaxSeconds = 600;
 
   WebSocketChannel? _channel;
   StreamSubscription<dynamic>? _streamSub;
@@ -129,6 +132,10 @@ class SevenTvEventClient {
   bool _handshakeComplete = false;
   bool _disposed = false;
   int? _fatalCloseCode;
+  bool _rateLimitHit = false;
+  bool _rateLimited = false;
+  int _rateLimitFailures = 0;
+  Timer? _rateLimitRetry;
 
   // Completes when the serving socket ends, with how the loop goes on.
   Completer<SocketEnd>? _socketEnd;
@@ -184,7 +191,10 @@ class SevenTvEventClient {
   bool get isConnected => _channel != null;
 
   /// Down, but the loop is already dialing or waiting to retry.
-  bool get isReconnecting => !isConnected && _loop.running;
+  bool get isReconnecting => !isConnected && (_loop.running || _rateLimited);
+
+  /// Waiting out a server rate limit before the next dial.
+  bool get isRateLimited => _rateLimited;
 
   int _subscriptionSends = 0;
 
@@ -221,6 +231,7 @@ class SevenTvEventClient {
     if (value) {
       unawaited(connect());
     } else {
+      _cancelRateLimitRetry();
       _loop.stop();
       _dropSocket();
     }
@@ -230,6 +241,7 @@ class SevenTvEventClient {
   /// Completes once the first handshake opened or failed.
   Future<void> connect() {
     if (_disposed || !_enabled) return Future.value();
+    _cancelRateLimitRetry();
     _disconnect();
     return _loop.start();
   }
@@ -239,6 +251,7 @@ class SevenTvEventClient {
   Future<SocketEnd> _attempt(SocketRun run) async {
     _run = run;
     _fatalCloseCode = null;
+    _rateLimitHit = false;
     final channel = WebSocketChannel.connect(Uri.parse(_wsUrl));
     try {
       await run.ready(channel);
@@ -260,15 +273,26 @@ class SevenTvEventClient {
       },
       onError: (e) {
         logDebug('7TV event stream error: $e');
-        _endSocket(SocketEnd.dropped);
+        if (_rateLimitHit) {
+          _rateLimitHit = false;
+          _endSocket(SocketEnd.fatal);
+          if (!_rateLimited) _scheduleRateLimitRetry();
+        } else {
+          _endSocket(SocketEnd.dropped);
+        }
       },
       onDone: () {
         final code = channel.closeCode;
+        final reason = channel.closeReason ?? '';
         logDebug(
           '7TV event stream closed (code=$code '
           'reason="${channel.closeReason}")',
         );
-        if (_fatalCloseCode != null) {
+        if (_isRateLimited(code, reason)) {
+          _rateLimitHit = false;
+          _endSocket(SocketEnd.fatal);
+          if (!_rateLimited) _scheduleRateLimitRetry();
+        } else if (_fatalCloseCode != null) {
           logDebug(
             '7TV: fatal end-of-stream code $_fatalCloseCode - not reconnecting',
           );
@@ -296,6 +320,50 @@ class SevenTvEventClient {
     final end = _socketEnd;
     _socketEnd = null;
     if (end != null && !end.isCompleted) end.complete(how);
+  }
+
+  bool _isRateLimited(int? code, String reason) =>
+      _rateLimitHit ||
+      code == _rateLimitCloseCode ||
+      reason.toLowerCase().contains('rate limit');
+
+  /// Stops the socket loop and retries after a growing wait, so a rate limit
+  /// cannot turn into a connect loop that keeps the limit alive.
+  void _scheduleRateLimitRetry() {
+    if (_disposed || !_enabled) return;
+    _rateLimitFailures++;
+    final delay = _nextRateLimitDelay();
+    _rateLimited = true;
+    _rateLimitRetry?.cancel();
+    logDebug('7TV: rate limited - retrying in ${delay.inSeconds}s');
+    _rateLimitRetry = Timer(delay, () {
+      _rateLimitRetry = null;
+      if (_disposed || !_enabled) return;
+      unawaited(connect());
+    });
+  }
+
+  Duration _nextRateLimitDelay() {
+    final step = min(_rateLimitFailures - 1, 5);
+    final seconds = min(
+      _rateLimitMinSeconds * pow(2, step).toInt(),
+      _rateLimitMaxSeconds,
+    );
+    return applyReconnectJitter(Duration(seconds: seconds));
+  }
+
+  void _cancelRateLimitRetry() {
+    _rateLimitRetry?.cancel();
+    _rateLimitRetry = null;
+    _rateLimited = false;
+  }
+
+  /// A heartbeat or dispatch means the socket survived its hello, so the
+  /// next rate limit starts from the shortest wait again.
+  void _healthy() {
+    if (_rateLimitFailures == 0 && !_rateLimited) return;
+    _cancelRateLimitRetry();
+    _rateLimitFailures = 0;
   }
 
   void subscribeEmoteSet(String emoteSetId) => _setSubscribed(
@@ -424,8 +492,10 @@ class SevenTvEventClient {
         case 1:
           _onHello(d ?? {});
         case 0:
+          _healthy();
           _handleDispatch(d ?? {});
         case 2:
+          _healthy();
           _lastHeartbeat = DateTime.now();
         case 4:
           logDebug('7TV server requested reconnect');
@@ -436,7 +506,9 @@ class SevenTvEventClient {
           final code = d?['code'] as int?;
           final message = d?['message'] as String?;
           logDebug('7TV end-of-stream: code=$code message="$message"');
-          if (code != null && _noReconnectCloseCodes.contains(code)) {
+          if (code == _rateLimitCloseCode) {
+            _rateLimitHit = true;
+          } else if (code != null && _noReconnectCloseCodes.contains(code)) {
             _fatalCloseCode = code;
             logDebug(
               '7TV: end-of-stream code $code is fatal - will not reconnect',
@@ -683,10 +755,14 @@ class SevenTvEventClient {
   }
 
   @visibleForTesting
+  void enterRateLimitForTest() => _scheduleRateLimitRetry();
+
+  @visibleForTesting
   int get reconnectAttempt => _loop.failures;
 
   void dispose() {
     _disposed = true;
+    _cancelRateLimitRetry();
     _loop.dispose();
     _disconnect();
     _emoteSetUpdateCtrl.close();

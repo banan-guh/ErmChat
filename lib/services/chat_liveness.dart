@@ -126,6 +126,7 @@ class ChatLiveness {
     }
     final sevenTv = sevenTvClient;
     if (sevenTv != null &&
+        !sevenTv.isRateLimited &&
         (needsDial(sevenTv.isConnected, sevenTv.isReconnecting) ||
             sevenTv.isStale)) {
       unawaited(sevenTv.forceReconnect());
