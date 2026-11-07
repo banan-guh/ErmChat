@@ -4046,6 +4046,39 @@ void main() {
         },
       );
 
+      test('a 200 error with a partial batch still tries the mirror', () async {
+        final calls = <Uri>[];
+        final service = RecentMessagesService(
+          client: MockClient((request) async {
+            calls.add(request.url);
+            if (request.url.host.contains('robotty')) {
+              return http.Response(
+                jsonEncode({
+                  'messages': [staleLine],
+                  'error': 'Something went wrong',
+                  'error_code': 'some_new_code',
+                }),
+                200,
+              );
+            }
+            return http.Response(
+              jsonEncode({
+                'messages': [freshLine],
+                'error': null,
+                'error_code': null,
+              }),
+              200,
+            );
+          }),
+        );
+
+        final messages = await service.fetchRecent('test');
+
+        expect(calls, hasLength(2), reason: 'a coded 200 is not a clean batch');
+        expect(calls[1].host, contains('zneix'));
+        expect(messages.single.text, 'fresh message');
+      });
+
       test(
         'falls back on server errors and fails clean when all fail',
         () async {

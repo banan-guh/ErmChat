@@ -360,8 +360,10 @@ class RecentMessagesService {
     String? ownLogin,
   ) {
     final body = jsonDecode(utf8.decode(bytes)) as Map<String, dynamic>;
-    // Informational error_code on 200; not-joined means stale history.
-    final joined = body['error_code'] != 'channel_not_joined';
+    // Any informational error code means this provider is not fully serving
+    // the channel, so a partial batch is stale and the mirror is worth
+    // asking. A clean 200 has no code at all.
+    final joined = body['error_code'] == null;
     final note = body['error_code'] is String
         ? '${body['error']} (${body['error_code']})'
         : null;
