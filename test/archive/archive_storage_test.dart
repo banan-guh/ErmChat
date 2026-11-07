@@ -1809,7 +1809,7 @@ void main() {
       await store.close();
     });
 
-    test('a merge carries the thread index to the new block', () async {
+    test('a merge drops stale refs until the backfill indexes it', () async {
       final store = await _open(
         _newPath(),
         now: () => _t0.add(const Duration(hours: 2)),
@@ -1822,8 +1822,23 @@ void main() {
       expect(await store.threadBlocks(_channel, _id(0)), hasLength(2));
 
       expect(await store.compact(_t0.add(const Duration(hours: 2))), 1);
+      expect(
+        await store.threadBlocks(_channel, _id(0)),
+        isEmpty,
+        reason: 'refs to blocks the merge removed are not live',
+      );
+      expect(
+        await store.recentThreads(
+          _channel,
+          _t0.subtract(const Duration(seconds: 1)),
+        ),
+        isEmpty,
+        reason: 'a stale ref still counted replies',
+      );
+
+      expect(await store.indexThreadsBatch(), 1);
       final blocks = await store.threadBlocks(_channel, _id(0));
-      expect(blocks, hasLength(1), reason: 'stale block ids left behind');
+      expect(blocks, hasLength(1), reason: 'the merged block was reindexed');
       expect(await store.blockAt(_channel, blocks.single), isNotNull);
       final recent = await store.recentThreads(
         _channel,

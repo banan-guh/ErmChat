@@ -1124,25 +1124,29 @@ class ArchiveStore {
     return rows.length;
   }
 
-  /// Block ids holding replies to [rootId] in [channel].
+  /// Block ids holding replies to [rootId] in [channel]. A ref left by a
+  /// merged away block names no block and is skipped.
   Future<List<int>> threadBlocks(String channel, String rootId) async => [
     for (final r in await _db.rawQuery(
-      'SELECT block_id FROM thread_refs WHERE channel = ? AND root_id = ?',
+      'SELECT t.block_id FROM thread_refs t JOIN blocks b ON b.id = t.block_id '
+      'WHERE t.channel = ? AND t.root_id = ?',
       [channel, rootId],
     ))
       r['block_id']! as int,
   ];
 
   /// Roots with a reply at or after [since], most replies first and newest
-  /// activity breaking ties.
+  /// activity breaking ties. A ref left by a merged away block names no
+  /// block and is skipped.
   Future<List<({String rootId, int lastTs, int replies})>> recentThreads(
     String channel,
     DateTime since, {
     int limit = 50,
   }) async => [
     for (final r in await _db.rawQuery(
-      'SELECT root_id, MAX(ts) AS last, SUM(count) AS replies FROM thread_refs '
-      'WHERE channel = ? AND ts >= ? GROUP BY root_id '
+      'SELECT t.root_id, MAX(t.ts) AS last, SUM(t.count) AS replies '
+      'FROM thread_refs t JOIN blocks b ON b.id = t.block_id '
+      'WHERE t.channel = ? AND t.ts >= ? GROUP BY t.root_id '
       'ORDER BY replies DESC, last DESC LIMIT ?',
       [channel, since.millisecondsSinceEpoch, limit],
     ))
@@ -1858,9 +1862,6 @@ class ArchiveStore {
             // A block left with no rows goes, so paging never lands on it.
             if (removed >= (blocks[i]['count']! as int)) {
               b.rawDelete('DELETE FROM blocks WHERE id = ?', [blocks[i]['id']]);
-              b.rawDelete('DELETE FROM thread_refs WHERE block_id = ?', [
-                blocks[i]['id'],
-              ]);
               continue;
             }
             // The removed rows' words and users go with them on the next
@@ -2002,24 +2003,14 @@ class ArchiveStore {
         final span = await txn.rawQuery(
           'SELECT channel, MIN(start_ts) AS s, MAX(end_ts) AS e, '
           'SUM(count) AS n, COUNT(*) AS k, MIN(refs) AS r, '
-          'MIN(stripped) AS x, MIN(thread_indexed) AS t FROM blocks '
-          'WHERE id IN ($marks)',
+          'MIN(stripped) AS x FROM blocks WHERE id IN ($marks)',
           g,
         );
         final row = span.first;
         // A block gone since the scan (a prune) leaves the run alone.
         if (row['k'] != g.length) return false;
-        final indexed = row['t'] == 1;
-        // Indexed sources hand their thread rows to the merged block, so
-        // lookups keep working without a reindex.
-        final refs = indexed
-            ? await txn.rawQuery(
-                'SELECT root_id, SUM(count) AS n, MAX(ts) AS ts '
-                'FROM thread_refs WHERE block_id IN ($marks) GROUP BY root_id',
-                g,
-              )
-            : const <Map<String, Object?>>[];
-        final id = await txn.insert('blocks', {
+        await txn.rawDelete('DELETE FROM blocks WHERE id IN ($marks)', g);
+        await txn.insert('blocks', {
           'channel': row['channel'],
           'start_ts': row['s'],
           'end_ts': row['e'],
@@ -2028,22 +2019,7 @@ class ArchiveStore {
           // A merge keeps the least done of its sources' upkeep.
           'refs': row['r'],
           'stripped': row['x'],
-          'thread_indexed': indexed ? 1 : 0,
         });
-        for (final r in refs) {
-          await txn.insert('thread_refs', {
-            'channel': row['channel'],
-            'root_id': r['root_id'],
-            'block_id': id,
-            'ts': r['ts'],
-            'count': r['n'],
-          });
-        }
-        await txn.rawDelete('DELETE FROM blocks WHERE id IN ($marks)', g);
-        await txn.rawDelete(
-          'DELETE FROM thread_refs WHERE block_id IN ($marks)',
-          g,
-        );
         _maxSpan.remove(row['channel']);
         return true;
       });
@@ -2142,12 +2118,9 @@ class ArchiveStore {
           if (kept > cap) drop.add(b['id'] as int);
         }
         for (var i = 0; i < drop.length; i += 500) {
-          final ids = drop.skip(i).take(500).toList();
+          final ids = drop.skip(i).take(500);
           deleted += await txn.rawDelete(
             'DELETE FROM blocks WHERE id IN (${ids.join(',')})',
-          );
-          await txn.rawDelete(
-            'DELETE FROM thread_refs WHERE block_id IN (${ids.join(',')})',
           );
         }
         // The rail shows no activity older than the rows that remain, kept
