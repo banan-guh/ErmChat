@@ -6,6 +6,7 @@ import 'dart:typed_data';
 import '../archive/archive_block.dart';
 import '../archive/archive_io.dart';
 import '../archive/archive_row.dart';
+import '../archive/archive_users.dart';
 import '../archive/archive_words.dart';
 import '../emotes/emote.dart';
 import '../models/twitch_message.dart';
@@ -101,6 +102,7 @@ class ArchiveTerms {
   const ArchiveTerms({
     this.texts = const [],
     this.sender,
+    this.userId,
     this.both = false,
     this.system,
   });
@@ -122,6 +124,10 @@ class ArchiveTerms {
 
   final List<String> texts;
   final bool Function(String login, String? displayName)? sender;
+
+  /// A stable user id to match as well as [sender], so a renamed login keeps
+  /// its rows.
+  final String? userId;
   final bool both;
   final String? system;
 }
@@ -189,6 +195,45 @@ class ArchiveReader {
     final rows = [for (final b in decoded) ...b.rows];
     _sortStable(rows);
     return rows.length > limit ? rows.sublist(rows.length - limit) : rows;
+  }
+
+  /// Roots with a reply at or after [since] in [channel], most replies first.
+  Future<List<({String rootId, DateTime lastActivity, int replyCount})>>
+  recentThreads(String channel, DateTime since, {int limit = 50}) async {
+    final store = await _store;
+    if (store == null) return const [];
+    return [
+      for (final r in await store.recentThreads(channel, since, limit: limit))
+        (
+          rootId: r.rootId,
+          lastActivity: DateTime.fromMillisecondsSinceEpoch(
+            r.lastTs,
+            isUtc: true,
+          ),
+          replyCount: r.replies,
+        ),
+    ];
+  }
+
+  /// Replies to [rootId] in [channel] from the blocks the thread index
+  /// lists, oldest first. Damaged blocks are skipped.
+  Future<List<TwitchMessage>> threadRows(String channel, String rootId) async {
+    final store = await _store;
+    if (store == null) return const [];
+    final keys = await store.threadBlocks(channel, rootId);
+    if (keys.isEmpty) return const [];
+    final edits = await store.edits(channel);
+    final blocks = await store.blocksByKey(keys);
+    final out = <TwitchMessage>[];
+    for (final b in await _decodeAll(channel, blocks, edits: edits)) {
+      out.addAll(
+        b.rows.where(
+          (m) => (m.replyThreadRootId ?? m.replyToParentId) == rootId,
+        ),
+      );
+    }
+    _sortStable(out);
+    return out;
   }
 
   /// Blocks around [time]: [before] older, the anchor, [after] newer.
@@ -468,6 +513,29 @@ class ArchiveReader {
     );
   }
 
+  /// Rows by [login] (exact, case-insensitive) in [channel], newest first;
+  /// older than [before] when given. A [userId] match joins the login match,
+  /// so a renamed chatter keeps their history.
+  Future<List<TwitchMessage>> userRows(
+    String channel,
+    String login, {
+    String? userId,
+    int limit = 50,
+    DateTime? before,
+  }) {
+    final want = login.toLowerCase();
+    return find(
+      ArchiveTerms(sender: (l, _) => l.toLowerCase() == want, userId: userId),
+      (m) =>
+          !m.isSystem &&
+          (m.login.toLowerCase() == want ||
+              (userId != null && m.userId == userId)),
+      channels: [channel],
+      limit: limit,
+      before: before,
+    );
+  }
+
   /// Frees what searches keep between keystrokes, once search closes.
   Future<void> endSearch() async => (await _store)?.dropSearchIndex();
 
@@ -579,8 +647,7 @@ class ArchiveReader {
   ) async {
     final texts = [for (final t in terms.texts) t.toLowerCase()];
     final system = terms.system?.toLowerCase();
-    final sender = terms.sender;
-    if (sender == null) {
+    if (terms.sender == null && terms.userId == null) {
       return (
         texts: texts,
         states: const <int>{},
@@ -599,10 +666,17 @@ class ArchiveReader {
       system: system,
       states: {
         for (final (id, s) in t.states.entries)
-          if (t.whos[s.who] case final w? when sender(w.login, w.displayName))
-            id,
+          if (t.whos[s.who] case final w? when _acceptsSender(terms, w)) id,
       },
     );
+  }
+
+  /// Whether [w] is a chatter [terms] looks for: the same user id, or a
+  /// login/display name its [ArchiveTerms.sender] accepts.
+  static bool _acceptsSender(ArchiveTerms terms, Who w) {
+    if (terms.userId != null && w.userId == terms.userId) return true;
+    final sender = terms.sender;
+    return sender != null && sender(w.login, w.displayName);
   }
 
   /// Blocks of [channels] that may hold rows [terms] looks for.
@@ -620,14 +694,13 @@ class ArchiveReader {
     ];
     final words = await wordSets(terms.texts);
     final system = await wordSets([?terms.system]);
-    final sender = terms.sender;
     final senders = <String, Set<int>>{};
-    if (sender != null) {
+    if (terms.sender != null || terms.userId != null) {
       for (final channel in channels) {
         final t = await store.tables(channel);
         final who = {
           for (final (id, w) in t.whos.entries)
-            if (sender(w.login, w.displayName)) id,
+            if (_acceptsSender(terms, w)) id,
         };
         if (who.isNotEmpty) senders[channel] = who;
       }

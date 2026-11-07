@@ -7,8 +7,10 @@ import '../chat/chat.dart';
 import '../composer/composer_controller.dart';
 import '../l10n/l10n.dart';
 import '../models/twitch_message.dart';
+import '../services/archive_reader.dart';
 import '../services/archive_store.dart';
 import '../services/saved_threads_store.dart';
+import '../util/log.dart';
 import '../widgets/seven_tv_paint_service.dart';
 import '../sheets/message_menu.dart';
 import '../sheets/user_sheet.dart';
@@ -46,6 +48,7 @@ class ThreadPanels {
     required this.namePaintService,
     required this.copyMessage,
     required this.strings,
+    this.archiveReader,
     Future<ArchiveStore?>? archiveStore,
   }) : savedThreads = SavedThreadsStore(store: archiveStore) {
     panelManager.onOpenThreadChanged = syncPinnedThread;
@@ -77,6 +80,27 @@ class ThreadPanels {
   final AppLocalizations Function() strings;
 
   final SavedThreadsStore savedThreads;
+
+  /// The archive's thread index, when the archive opened.
+  final ArchiveReader? archiveReader;
+
+  /// Active threads read from the archive, with the channel they cover.
+  List<({String rootId, DateTime lastActivity, int replyCount})>
+  _archiveActive = const [];
+  String? _archiveActiveChannel;
+  bool _archiveActiveLoading = false;
+  bool _archiveActiveReady = false;
+  bool _archiveActiveDirty = false;
+
+  /// Replies of the open thread read from the archive, oldest first, keyed
+  /// by channel and root id.
+  String? _archivedThreadKey;
+  List<TwitchMessage> _archivedThreadRows = const [];
+  int _archivedThreadLoad = 0;
+
+  static const activeThreadWindow = Duration(hours: 24);
+  static const activeThreadLimit = 50;
+
   final threadLastSeen = <String, DateTime>{};
   final threadsListVersion = ValueNotifier(0);
   final threadMsgCount = ValueNotifier(0);
@@ -189,6 +213,7 @@ class ThreadPanels {
     panelManager.threadChannel = channel;
     panelManager.threadMessages = computeThreadMessages();
     threadMsgCount.value++;
+    unawaited(_loadArchivedThread(force: true));
     final rootId = rootMsg.replyThreadRootId ?? rootMsg.messageId;
     if (rootId != null) {
       threadLastSeen['$channel:$rootId'] = DateTime.now();
@@ -241,6 +266,10 @@ class ThreadPanels {
     }
     panelManager.threadChannel =
         prevRoot?.channel ?? prevChannel ?? selectedChannel();
+    if (prevRoot != null && prevRoot.channel != null) {
+      unawaited(_loadArchivedThread());
+    }
+    if (tab.clamp(0, 2) == 1) _loadActiveThreads();
     // Same no-flash jump as showThreadView: the sheet opens already on the
     // requested tab. jumpTo (not a bare index set) so the warp swallows
     // travel updates.
@@ -312,6 +341,110 @@ class ThreadPanels {
     }
   }
 
+  /// Reads the Active tab's roots from the archive, then merges them with the
+  /// live buffer. A read in flight keeps the request pending, so a burst of
+  /// messages costs one more query, not one each.
+  void _loadActiveThreads() {
+    final channel = selectedChannel() ?? panelManager.threadChannel;
+    if (channel == null) return;
+    final reader = archiveReader;
+    if (reader == null) {
+      _archiveActive = const [];
+      _archiveActiveChannel = channel;
+      _archiveActiveReady = true;
+      threadsListVersion.value++;
+      return;
+    }
+    if (_archiveActiveLoading) {
+      _archiveActiveDirty = true;
+      return;
+    }
+    _archiveActiveLoading = true;
+    _archiveActiveReady = false;
+    _archiveActiveChannel = channel;
+    threadsListVersion.value++;
+    unawaited(_fetchActiveThreads(channel, reader));
+  }
+
+  Future<void> _fetchActiveThreads(String channel, ArchiveReader reader) async {
+    var threads = <({String rootId, DateTime lastActivity, int replyCount})>[];
+    try {
+      threads = await reader.recentThreads(
+        channel,
+        DateTime.now().subtract(activeThreadWindow),
+        limit: activeThreadLimit,
+      );
+    } catch (e) {
+      logDebug('[Threads] archive active list failed: $e');
+    }
+    if (!isMounted()) return;
+    _archiveActiveLoading = false;
+    _archiveActiveReady = true;
+    _archiveActive = threads;
+    _archiveActiveChannel = channel;
+    threadsListVersion.value++;
+    if (_archiveActiveDirty) {
+      _archiveActiveDirty = false;
+      _loadActiveThreads();
+    }
+  }
+
+  /// Loads the open thread's archived replies, then rebuilds the Thread tab
+  /// from live, saved and archive rows. Cached per root.
+  Future<void> _loadArchivedThread({bool force = false}) async {
+    final root = panelManager.openThreadRoot ?? _lastThreadRoot;
+    final channel = root?.channel;
+    final rootId = root?.replyThreadRootId ?? root?.messageId;
+    final reader = archiveReader;
+    if (reader == null || channel == null || rootId == null) return;
+    final key = '$channel:$rootId';
+    if (!force && _archivedThreadKey == key) {
+      _showThreadRows(key);
+      return;
+    }
+    final token = ++_archivedThreadLoad;
+    var rows = const <TwitchMessage>[];
+    try {
+      rows = await reader.threadRows(channel, rootId);
+    } catch (e) {
+      logDebug('[Threads] archive thread failed: $e');
+    }
+    if (token != _archivedThreadLoad || !isMounted()) return;
+    _archivedThreadKey = key;
+    _archivedThreadRows = rows;
+    _showThreadRows(key);
+  }
+
+  void _showThreadRows(String key) {
+    final root = panelManager.openThreadRoot;
+    if (root == null) return;
+    final openKey =
+        '${root.channel}:${root.replyThreadRootId ?? root.messageId}';
+    if (openKey != key) return;
+    panelManager.threadMessages = computeThreadMessages();
+    threadMsgCount.value++;
+    threadsListVersion.value++;
+  }
+
+  /// A root header derived from a thread's first archived reply, for a thread
+  /// whose root row left the buffer and the store.
+  TwitchMessage? _archivedRoot(
+    String channel,
+    String rootId,
+    List<TwitchMessage> rows,
+  ) {
+    if (rows.isEmpty) return null;
+    final first = rows.first;
+    return TwitchMessage(
+      login: first.replyToUser ?? '',
+      displayName: first.replyToUser ?? '',
+      text: first.replyToText ?? '',
+      messageId: rootId,
+      channel: channel,
+      timestamp: first.timestamp.subtract(const Duration(milliseconds: 1)),
+    );
+  }
+
   // Thread branch of panel data fan-out: refresh the open thread or, with
   // no thread selected, tick the Active list.
   void refreshOnData(String? changedChannel) {
@@ -343,7 +476,11 @@ class ThreadPanels {
           changedChannel != panelManager.threadChannel) {
         return;
       }
-      threadsListVersion.value++;
+      if (effectiveThreadsTab == 1) {
+        _loadActiveThreads();
+      } else {
+        threadsListVersion.value++;
+      }
     }
   }
 
@@ -447,20 +584,41 @@ class ThreadPanels {
         add(m);
       }
     }
+    if (_archivedThreadKey == '$channel:$rootId') {
+      for (final m in _archivedThreadRows) {
+        add(m);
+      }
+    }
     out.sort((a, b) => b.timestamp.compareTo(a.timestamp));
     return out;
   }
 
-  void openActiveThread(ThreadSummary summary, String channel) {
+  Future<void> openActiveThread(ThreadSummary summary, String channel) async {
     final msgs = chat.channelFor(channel)?.threads.threadFor(summary.rootId);
-    TwitchMessage? target = summary.root;
+    var target = summary.root;
     target ??= msgs?.firstOrNull;
     target ??= resolveThreadRootMessage(channel, summary.rootId);
     if (target == null) {
-      showNotice(strings().threadUnavailable);
-      return;
+      // A root no buffer holds anymore: its replies still carry its author
+      // and text.
+      final reader = archiveReader;
+      if (reader == null) {
+        showNotice(strings().threadUnavailable);
+        return;
+      }
+      try {
+        final rows = await reader.threadRows(channel, summary.rootId);
+        if (!isMounted()) return;
+        target = _archivedRoot(channel, summary.rootId, rows);
+      } catch (e) {
+        logDebug('[Threads] archive open failed: $e');
+      }
+      if (target == null) {
+        showNotice(strings().threadUnavailable);
+        return;
+      }
     }
-    unawaited(showThreadView(target));
+    await showThreadView(target);
   }
 
   void openSavedThread(SavedThread entry) {
@@ -480,38 +638,37 @@ class ThreadPanels {
   }
 
   List<TwitchMessage> computeThreadMessages() {
-    final live = panelManager.computeThreadMessages(
-      openThreadRoot: panelManager.openThreadRoot,
-      messagesFor: (c) => chat.channelFor(c)?.messages.items,
-      threadFor: (ch, rootId) => chat.channelFor(ch)?.threads.threadFor(rootId),
-    );
-    // Saved threads merge the persisted full log so the view survives buffer
-    // eviction and restarts. Live rows win on id conflicts.
     final root = panelManager.openThreadRoot;
     final channel = root?.channel;
     final rootId = root == null
         ? null
         : (root.replyThreadRootId ?? root.messageId);
-    if (channel == null || rootId == null) return live;
-    if (!savedThreads.isSaved(channel, rootId)) return live;
-    final seen = <String>{};
-    final out = <TwitchMessage>[];
-    for (final m in live) {
-      final id = m.messageId;
-      if (id != null) {
-        if (!seen.add(id)) continue;
-      }
-      out.add(m);
-    }
-    for (final m in savedThreads.messagesFor(channel, rootId)) {
-      final id = m.messageId;
-      if (id != null) {
-        if (!seen.add(id)) continue;
-      }
-      out.add(m);
-    }
-    out.sort((a, b) => b.timestamp.compareTo(a.timestamp));
-    return out;
+    final live = panelManager.computeThreadMessages(
+      openThreadRoot: root,
+      messagesFor: (c) => chat.channelFor(c)?.messages.items,
+      threadFor: (ch, rootId) => chat.channelFor(ch)?.threads.threadFor(rootId),
+    );
+    // Saved threads merge the persisted full log so the view survives buffer
+    // eviction and restarts. Archived replies join both, and live rows win on
+    // id conflicts.
+    final saved =
+        channel != null &&
+            rootId != null &&
+            savedThreads.isSaved(channel, rootId)
+        ? savedThreads.messagesFor(channel, rootId)
+        : const <TwitchMessage>[];
+    final archived =
+        channel != null &&
+            rootId != null &&
+            _archivedThreadKey == '$channel:$rootId'
+        ? _archivedThreadRows
+        : const <TwitchMessage>[];
+    return mergeThreadMessages(
+      live: live,
+      saved: saved,
+      archived: archived,
+      root: root,
+    );
   }
 
   void onThreadsTabChanged() {
@@ -520,6 +677,8 @@ class ThreadPanels {
   }
 
   void _onThreadsFocus(int index) {
+    if (index == 1) _loadActiveThreads();
+    if (index == 0) unawaited(_loadArchivedThread());
     // Returning to the Thread tab marks the open thread seen so its Active
     // row clears its unread highlight.
     if (index == 0 && panelManager.openThreadRoot != null) {
@@ -631,8 +790,20 @@ class ThreadPanels {
         if (channel == null) {
           return Center(child: Text(context.l10n.joinChannelForThreads));
         }
-        final threads =
-            chat.channelFor(channel)?.threads.activeThreads() ?? const [];
+        final liveThreads =
+            chat.channelFor(channel)?.threads.activeThreads() ??
+            const <ThreadSummary>[];
+        final archived = _archiveActiveReady && _archiveActiveChannel == channel
+            ? _archiveActive
+            : null;
+        if (archived == null && _archiveActiveLoading) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        final threads = mergeActiveThreads(
+          liveThreads,
+          archived ?? const [],
+          DateTime.now(),
+        );
         if (threads.isEmpty) {
           return Center(child: Text(context.l10n.noActiveThreads));
         }
@@ -741,4 +912,82 @@ class ThreadPanels {
       showNotice(strings().threadUnsaved);
     }
   }
+}
+
+/// Active threads: archive roots plus live roots the archive has not sealed,
+/// with activity in the last 24 hours. Longest first, then newest activity.
+List<ThreadSummary> mergeActiveThreads(
+  List<ThreadSummary> live,
+  List<({String rootId, DateTime lastActivity, int replyCount})> archived,
+  DateTime now, {
+  Duration window = ThreadPanels.activeThreadWindow,
+  int limit = ThreadPanels.activeThreadLimit,
+}) {
+  final since = now.subtract(window);
+  final liveById = {for (final l in live) l.rootId: l};
+  final archivedIds = {for (final a in archived) a.rootId};
+  final out = <ThreadSummary>[];
+  for (final a in archived) {
+    final held = liveById[a.rootId];
+    final last = held == null || held.lastActivity.isBefore(a.lastActivity)
+        ? a.lastActivity
+        : held.lastActivity;
+    if (last.isBefore(since)) continue;
+    out.add(
+      ThreadSummary(
+        rootId: a.rootId,
+        root: held?.root,
+        lastActivity: last,
+        // The archive is exact for sealed replies; a live count can hold
+        // rows it has not sealed yet.
+        replyCount: held == null || a.replyCount >= held.replyCount
+            ? a.replyCount
+            : held.replyCount,
+      ),
+    );
+  }
+  for (final l in live) {
+    if (archivedIds.contains(l.rootId) || l.lastActivity.isBefore(since)) {
+      continue;
+    }
+    out.add(l);
+  }
+  out.sort((a, b) {
+    final byReplies = b.replyCount.compareTo(a.replyCount);
+    if (byReplies != 0) return byReplies;
+    final byTime = b.lastActivity.compareTo(a.lastActivity);
+    return byTime != 0 ? byTime : a.rootId.compareTo(b.rootId);
+  });
+  return out.length > limit ? out.sublist(0, limit) : out;
+}
+
+/// One thread's rows: [live] and [saved] newest first, plus [archived]
+/// replies, deduped by id. The [root] row joins when the archive holds
+/// replies but no row carries the root id.
+List<TwitchMessage> mergeThreadMessages({
+  required List<TwitchMessage> live,
+  required List<TwitchMessage> saved,
+  required List<TwitchMessage> archived,
+  required TwitchMessage? root,
+}) {
+  final seen = <String>{};
+  final out = <TwitchMessage>[];
+  void add(TwitchMessage m) {
+    final id = m.messageId;
+    if (id != null && !seen.add(id)) return;
+    out.add(m);
+  }
+
+  for (final m in live) {
+    add(m);
+  }
+  for (final m in saved) {
+    add(m);
+  }
+  for (final m in archived) {
+    add(m);
+  }
+  if (root != null && archived.isNotEmpty) add(root);
+  out.sort((a, b) => b.timestamp.compareTo(a.timestamp));
+  return out;
 }
