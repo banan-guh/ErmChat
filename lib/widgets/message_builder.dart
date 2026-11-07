@@ -193,6 +193,23 @@ class MessageBuilder {
     ];
   }
 
+  /// Bakes [msg]'s emote tokens if they are not set, so a caller can read the
+  /// spans before the body builds. Partial while the catalogs are landing, as
+  /// in the body path.
+  List<EmoteToken>? ensureEmoteTokens(TwitchMessage msg, String channel) {
+    if (msg.emoteTokens != null || msg.isSystem) return msg.emoteTokens;
+    // Shared-chat: resolve emotes against source channel's set.
+    final lookupChannel = msg.sourceBroadcasterId != null
+        ? badgeService.resolveChannelLogin(msg.sourceBroadcasterId!) ?? channel
+        : channel;
+    msg.emoteTokens = emoteSource.parseMessageEmotes(
+      msg,
+      lookupChannel: lookupChannel,
+    );
+    msg.emotesPartial = !emoteSource.catalogComplete(lookupChannel);
+    return msg.emoteTokens;
+  }
+
   List<InlineSpan> _computeMessageSpans(
     TwitchMessage msg,
     String channel, {
@@ -208,14 +225,7 @@ class MessageBuilder {
     // the live mixer here and sticks, partial while catalogs are still
     // landing so a later commit can heal it. System rows parse to null and
     // fall back to the live lookup below.
-    var resolved = msg.emoteTokens;
-    if (resolved == null && !msg.isSystem) {
-      resolved = msg.emoteTokens = emoteSource.parseMessageEmotes(
-        msg,
-        lookupChannel: lookupChannel,
-      );
-      msg.emotesPartial = !emoteSource.catalogComplete(lookupChannel);
-    }
+    final resolved = ensureEmoteTokens(msg, channel);
     final channelEmotes = resolved == null
         ? emoteSource.lookup(lookupChannel, msg.userId)
         : null;

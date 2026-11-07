@@ -33,63 +33,11 @@ class PhraseCompaction {
 /// Collapses a phrase repeated at least three times inside [text]. Returns
 /// null when there is no run worth hiding. The result is display only.
 PhraseCompaction? compactRepeatedPhrase(String text) {
-  if (text.length < 60) return null;
-  final tokens = [
-    for (final match in _word.allMatches(text))
-      _Token(match.start, match.end, match[0]!),
-  ];
-  final n = tokens.length;
-  if (n < 9) return null;
-
-  final joined = StringBuffer();
-  final origAt = <int>[];
-  final starts = List<int>.filled(n + 1, 0);
-  for (var i = 0; i < n; i++) {
-    for (var j = tokens[i].start; j < tokens[i].end; j++) {
-      final normalized = text[j].toLowerCase().replaceAll(_nonAlnum, '');
-      if (normalized.isEmpty) continue;
-      joined.write(normalized);
-      for (var k = 0; k < normalized.length; k++) {
-        origAt.add(j);
-      }
-    }
-    starts[i + 1] = joined.length;
-  }
-  final norm = joined.toString();
-  if (norm.length < 36) return null;
-
-  _Run? best;
-  final maxStart = min(n - 3, 12);
-  for (var s = 0; s <= maxStart; s++) {
-    final blockStart = starts[s];
-    for (var p = 3; s + p < n; p++) {
-      final length = starts[s + p] - blockStart;
-      if (length < 12) continue;
-      if (blockStart + length * 3 > norm.length) break;
-      if (_protected(tokens, s, s + p)) continue;
-      final base = norm.substring(blockStart, blockStart + length);
-      final budget = _budget(length);
-      var repeats = 1;
-      var next = blockStart + length;
-      while (next + length <= norm.length &&
-          _close(base, norm.substring(next, next + length), budget)) {
-        repeats++;
-        next += length;
-      }
-      if (repeats < 3) continue;
-      final score = (repeats - 1) * length;
-      if (best == null || score > best.score) {
-        best = _Run(
-          blockStart: blockStart,
-          length: length,
-          repeats: repeats,
-          end: next,
-          score: score,
-        );
-      }
-    }
-  }
-  if (best == null) return null;
+  final found = _find(text, const <int>{});
+  if (found == null) return null;
+  final best = found.best;
+  final origAt = found.origAt;
+  final norm = found.norm;
 
   // Keep the most common spelling of the repeated block, and remember which
   // copy it came from so its emote positions can travel with it.
@@ -151,6 +99,87 @@ PhraseCompaction? compactRepeatedPhrase(String text) {
   return display.length < text.length
       ? PhraseCompaction(display, pieces)
       : null;
+}
+
+/// Where the first full copy of a phrase repeated in [text] ends, ignoring
+/// the characters in [emotes] while matching. Null when nothing repeats.
+int? repeatedPhraseCut(String text, {required Set<int> emotes}) {
+  final found = _find(text, emotes);
+  if (found == null) return null;
+  final second = found.best.blockStart + found.best.length;
+  if (second >= found.origAt.length) return null;
+  var end = found.origAt[second];
+  while (end > 0 && text[end - 1].trim().isEmpty) {
+    end--;
+  }
+  return end > 0 ? end : null;
+}
+
+/// The best run in [text], with the maps that turn its normalized offsets
+/// back into the original. [skipped] characters take no part in matching.
+({_Run best, List<int> origAt, String norm})? _find(
+  String text,
+  Set<int> skipped,
+) {
+  if (text.length < 60) return null;
+  final tokens = [
+    for (final match in _word.allMatches(text))
+      _Token(match.start, match.end, match[0]!),
+  ];
+  final n = tokens.length;
+  if (n < 9) return null;
+
+  final joined = StringBuffer();
+  final origAt = <int>[];
+  final starts = List<int>.filled(n + 1, 0);
+  for (var i = 0; i < n; i++) {
+    for (var j = tokens[i].start; j < tokens[i].end; j++) {
+      if (skipped.contains(j)) continue;
+      final normalized = text[j].toLowerCase().replaceAll(_nonAlnum, '');
+      if (normalized.isEmpty) continue;
+      joined.write(normalized);
+      for (var k = 0; k < normalized.length; k++) {
+        origAt.add(j);
+      }
+    }
+    starts[i + 1] = joined.length;
+  }
+  final norm = joined.toString();
+  if (norm.length < 36) return null;
+
+  _Run? best;
+  final maxStart = min(n - 3, 12);
+  for (var s = 0; s <= maxStart; s++) {
+    final blockStart = starts[s];
+    for (var p = 3; s + p < n; p++) {
+      final length = starts[s + p] - blockStart;
+      if (length < 12) continue;
+      if (blockStart + length * 3 > norm.length) break;
+      if (_protected(tokens, s, s + p)) continue;
+      final base = norm.substring(blockStart, blockStart + length);
+      final budget = _budget(length);
+      var repeats = 1;
+      var next = blockStart + length;
+      while (next + length <= norm.length &&
+          _close(base, norm.substring(next, next + length), budget)) {
+        repeats++;
+        next += length;
+      }
+      if (repeats < 3) continue;
+      final score = (repeats - 1) * length;
+      if (best == null || score > best.score) {
+        best = _Run(
+          blockStart: blockStart,
+          length: length,
+          repeats: repeats,
+          end: next,
+          score: score,
+        );
+      }
+    }
+  }
+  if (best == null) return null;
+  return (best: best, origAt: origAt, norm: norm);
 }
 
 class _Token {

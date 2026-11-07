@@ -108,4 +108,20 @@ void main() {
     ]);
     expect(moved, isEmpty);
   });
+
+  test('cuts after the first copy when only the emotes differ', () {
+    const phrase = 'RAIDERS DO THIS';
+    final text = StringBuffer();
+    final emotes = <int>{};
+    for (var i = 0; i < 3; i++) {
+      text.write('$phrase ');
+      final code = 'EMOTE$i';
+      emotes.addAll([for (var j = 0; j < code.length; j++) text.length + j]);
+      text.write('$code ');
+    }
+
+    final cut = repeatedPhraseCut(text.toString(), emotes: emotes);
+    expect(cut, isNotNull);
+    expect(text.toString().substring(0, cut!).trimRight(), '$phrase EMOTE0');
+  });
 }

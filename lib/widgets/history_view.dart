@@ -1472,7 +1472,12 @@ class _HistoryViewState extends State<HistoryView> {
       cache?.remove(m.messageId);
       healed = true;
     }
-    if (healed) setState(() {});
+    if (healed) {
+      setState(() {
+        // Condensed rows re-read the tokens to spot emote runs.
+        _phraseMessages.clear();
+      });
+    }
   }
 
   /// Mirrors the live buffer into the window's tail. Arrivals append; any
@@ -2178,22 +2183,44 @@ class _HistoryViewState extends State<HistoryView> {
     return RowGate(key: ValueKey<String>(key), gates: _gates, child: child);
   }
 
-  /// [msg] with a repeated phrase collapsed, or [msg] itself. Cached per row,
+  /// [msg] with a repeated phrase condensed, or [msg] itself. Cached per row,
   /// since a regroup runs on every arrival.
   TwitchMessage _shortened(TwitchMessage msg) {
     final key = HistoryWindow.keyOf(msg);
     final cached = _phraseMessages[key];
     if (cached != null && cached.source == msg.text) return cached.display;
-    final compacted = compactRepeatedPhrase(msg.text);
-    final display = compacted == null
-        ? msg
-        : _phraseMessage(
-            msg,
-            compacted.text,
-            compacted.moveEmotes(msg.emotePositions ?? const []),
-          );
+    final display = _condense(msg);
     _phraseMessages[key] = (source: msg.text, display: display);
     return display;
+  }
+
+  /// The condensed copy of [msg]: a repeated phrase collapsed, or, when the
+  /// copies match only once their emotes are ignored, cut after the first.
+  TwitchMessage _condense(TwitchMessage msg) {
+    final compacted = compactRepeatedPhrase(msg.text);
+    if (compacted != null) {
+      return _phraseMessage(
+        msg,
+        compacted.text,
+        compacted.moveEmotes(msg.emotePositions ?? const []),
+      );
+    }
+    final tokens = widget.rows.messageBuilder.ensureEmoteTokens(
+      msg,
+      msg.channel ?? widget.channel,
+    );
+    if (tokens == null || tokens.isEmpty) return msg;
+    final emotes = <int>{
+      for (final token in tokens)
+        if (token.isEmote)
+          for (var i = token.start; i < token.end; i++) i,
+    };
+    final cut = repeatedPhraseCut(msg.text, emotes: emotes);
+    if (cut == null) return msg;
+    return _phraseMessage(msg, '${msg.text.substring(0, cut).trimRight()}...', [
+      for (final position in msg.emotePositions ?? const [])
+        if (position.endIndex <= cut) position,
+    ]);
   }
 
   /// [msg] with its text replaced. Identity, badges and reply links carry
