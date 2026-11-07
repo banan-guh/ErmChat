@@ -412,7 +412,24 @@ class ThreadPanels {
     if (token != _archivedThreadLoad || !isMounted()) return;
     _archivedThreadKey = key;
     _archivedThreadRows = rows;
+    _adoptArchivedRoot(rows);
     _showThreadRows(key);
+  }
+
+  /// Opens on a header from the archive when the open row is a reply and no
+  /// buffer or saved row holds the real root.
+  void _adoptArchivedRoot(List<TwitchMessage> rows) {
+    final open = panelManager.openThreadRoot;
+    final channel = open?.channel;
+    final rootId = open?.replyThreadRootId ?? open?.messageId;
+    if (open == null || channel == null || rootId == null) return;
+    if (open.messageId == rootId) return;
+    if (rows.any((m) => m.messageId == rootId)) return;
+    if (resolveThreadRootMessage(channel, rootId) != null) return;
+    final header = _archivedRoot(channel, rootId, rows);
+    if (header == null) return;
+    panelManager.openThreadRoot = header;
+    _lastThreadRoot = header;
   }
 
   void _showThreadRows(String key) {
