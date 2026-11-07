@@ -71,6 +71,10 @@ String _newPath() => '${_dir.path}/archive_${_dbCount++}.db';
 Future<ArchiveStore> _open(String path, {DateTime Function()? now}) =>
     ArchiveStore.open(path, factory: databaseFactoryFfi, now: now);
 
+/// A clock just after the fixtures, so reopening a store does not prune them
+/// once the wall clock passes the 30-day retention.
+DateTime _keptNow() => _t0.add(const Duration(days: 1));
+
 ArchiveWriter _writer(
   ArchiveStore store, {
   int sealCount = 256,
@@ -292,7 +296,7 @@ void main() {
     'a kill loses only the unsealed tail and sealed blocks survive',
     () async {
       final path = _newPath();
-      var store = await _open(path);
+      var store = await _open(path, now: _keptNow);
       expect(await store.journalMode(), 'wal');
       var writer = _writer(store);
       for (var i = 0; i < 300; i++) {
@@ -302,7 +306,7 @@ void main() {
       // Kill: no flush, no dispose, the 44-row tail is gone.
       await store.close();
 
-      store = await _open(path);
+      store = await _open(path, now: _keptNow);
       final rows = await _reader(store).newestRows(_channel, 1000);
       expect(rows.length, 256, reason: 'only the sealed block remains');
       expect(
@@ -332,7 +336,7 @@ void main() {
 
   test('user tables load back across id pages after a restart', () async {
     final path = _newPath();
-    var store = await _open(path);
+    var store = await _open(path, now: _keptNow);
     final writer = _writer(store);
     // More chatters than one 5000-id page, with and without display names,
     // colors and extras.
@@ -360,7 +364,7 @@ void main() {
     await writer.flush();
     await store.close();
 
-    store = await _open(path);
+    store = await _open(path, now: _keptNow);
     final rows = await _reader(store).newestRows(_channel, n);
     expect(rows.length, n);
     for (final i in [0, 1, 3, 4999, 5000, 5001, 9999, 11999]) {
@@ -447,7 +451,7 @@ void main() {
     await store.close();
 
     // A restart, with no emote catalog anywhere on the read side.
-    store = await _open(path);
+    store = await _open(path, now: _keptNow);
     final read = ArchiveReader(
       Future.value(store),
       decode: (blocks, keep) async => decodeBlocks(blocks, keep),
@@ -652,8 +656,11 @@ void main() {
       'just filler', 'filler', 'filler', 'filler',
     ];
 
-    Future<(ArchiveStore, ArchiveWriter)> fill(String path) async {
-      final store = await _open(path);
+    Future<(ArchiveStore, ArchiveWriter)> fill(
+      String path, {
+      DateTime Function()? now,
+    }) async {
+      final store = await _open(path, now: now);
       final writer = _writer(store, sealCount: 4);
       for (var i = 0; i < texts.length; i++) {
         writer.add(_channel, _msg(i)..text = texts[i]);
@@ -896,9 +903,9 @@ void main() {
 
     test('the vocabulary keeps its ids across a restart', () async {
       final path = _newPath();
-      final (store, _) = await fill(path);
+      final (store, _) = await fill(path, now: _keptNow);
       await store.close();
-      final again = await _open(path);
+      final again = await _open(path, now: _keptNow);
       final writer = _writer(again, sealCount: 4);
       // New words after the restart must not take ids the old ones hold.
       for (var i = 0; i < 4; i++) {
