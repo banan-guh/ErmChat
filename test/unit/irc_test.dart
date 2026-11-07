@@ -4017,6 +4017,36 @@ void main() {
       );
 
       test(
+        'fails over when the primary is blocked without an api code',
+        () async {
+          final calls = <Uri>[];
+          final service = RecentMessagesService(
+            client: MockClient((request) async {
+              calls.add(request.url);
+              if (request.url.host.contains('robotty')) {
+                // A proxy or region block: HTML, no API error code.
+                return http.Response('<html>Forbidden</html>', 403);
+              }
+              return http.Response(
+                jsonEncode({
+                  'messages': [freshLine],
+                  'error': null,
+                  'error_code': null,
+                }),
+                200,
+              );
+            }),
+          );
+
+          final messages = await service.fetchRecent('test');
+
+          expect(calls, hasLength(2));
+          expect(calls[1].host, contains('zneix'));
+          expect(messages.single.text, 'fresh message');
+        },
+      );
+
+      test(
         'falls back on server errors and fails clean when all fail',
         () async {
           final fallback = RecentMessagesService(

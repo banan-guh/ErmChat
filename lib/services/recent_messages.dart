@@ -304,7 +304,11 @@ class RecentMessagesService {
         };
         throw RecentMessagesException(
           message,
-          definitive: res.statusCode == 400 || res.statusCode == 403,
+          // Only the service's per-channel codes rule out the mirror. A bare
+          // 400 or 403 can be a proxy or a region block, where the mirror
+          // still answers.
+          definitive:
+              code == 'invalid_channel_login' || code == 'channel_ignored',
         );
       }
 
