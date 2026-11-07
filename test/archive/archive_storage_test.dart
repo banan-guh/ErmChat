@@ -1696,6 +1696,57 @@ void main() {
     await store.close();
   });
 
+  test('user history pages by exact login and user id', () async {
+    final store = await _open(_newPath());
+    final writer = _writer(store, sealCount: 4);
+    for (var i = 0; i < 6; i++) {
+      writer.add(_channel, _msg(i * 2, login: 'alice'));
+      writer.add(_channel, _msg(i * 2 + 1, login: 'bob'));
+    }
+    writer.add(_channel, _msg(40, login: 'renamed')..userId = '999');
+    await writer.flush();
+    final reader = _reader(store);
+
+    final first = await reader.userRows(_channel, 'ALICE', limit: 2);
+    expect(
+      [for (final m in first) m.text],
+      [_msg(10, login: 'alice').text, _msg(8, login: 'alice').text],
+      reason: 'exact login, case-insensitive, newest first',
+    );
+    final older = await reader.userRows(
+      _channel,
+      'alice',
+      limit: 2,
+      before: first.last.timestamp.add(const Duration(milliseconds: 1)),
+    );
+    expect(
+      [for (final m in older) m.text],
+      [_msg(8, login: 'alice').text, _msg(6, login: 'alice').text],
+      reason:
+          'the page repeats its edge row so a reply at the same time is not '
+          'lost; the card dedupes it',
+    );
+    expect(
+      await reader.userRows(_channel, 'alice', limit: 50),
+      hasLength(6),
+      reason: 'other chatters and the renamed login stay out',
+    );
+    expect(
+      [
+        for (final m in await reader.userRows(
+          _channel,
+          'alice',
+          userId: '999',
+          limit: 50,
+        ))
+          m.login,
+      ],
+      contains('renamed'),
+      reason: 'the stable user id reaches a renamed login',
+    );
+    await store.close();
+  });
+
   group('thread index', () {
     TwitchMessage reply(int i) => _msg(i)
       ..replyToParentId = _id(0)
@@ -1818,6 +1869,30 @@ void main() {
         reason: 'the backfill flag was never added',
       );
       await again.close();
+    });
+
+    test('a thread reads back its replies, oldest first', () async {
+      final store = await _open(_newPath());
+      final writer = _writer(store, sealCount: 4);
+      for (var i = 1; i <= 8; i++) {
+        writer.add(_channel, reply(i));
+      }
+      writer.add(_channel, _msg(30, login: 'carol'));
+      writer.add(
+        _channel,
+        _msg(31, login: 'dave')
+          ..replyToParentId = _id(9)
+          ..replyThreadRootId = _id(9),
+      );
+      await writer.flush();
+
+      final rows = await _reader(store).threadRows(_channel, _id(0));
+      expect(
+        [for (final m in rows) m.messageId],
+        [for (var i = 1; i <= 8; i++) _id(i)],
+        reason: 'only this root, across both blocks, oldest first',
+      );
+      await store.close();
     });
 
     test('a backfill indexes missed blocks and stops when done', () async {

@@ -440,6 +440,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     showWhispersForUser: (login) => _mentions.showWhispersForUser(login),
     copyMessage: _copyMessageToClipboard,
     prefs: ref.read(prefsProvider),
+    archiveReader: ref.read(archiveProvider)?.reader,
   );
 
   late final ThreadPanels _threads = ThreadPanels(

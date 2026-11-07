@@ -9,7 +9,9 @@ import '../emotes/emote.dart';
 import '../models/twitch_badge.dart';
 import '../models/twitch_message.dart';
 import '../composer/composer_controller.dart';
+import '../util/log.dart';
 import '../util/prefs.dart';
+import '../services/archive_reader.dart';
 import '../services/chat_connection_manager.dart';
 import '../services/emote_manager.dart';
 import '../services/emote_usage_registry.dart';
@@ -86,6 +88,24 @@ double userSheetTargetDetent(
   );
 }
 
+/// [current] history plus [page] (newest first), oldest first and deduped by
+/// id. An id already in [seen] wins, so live rows beat archived copies.
+List<TwitchMessage> mergeUserHistory(
+  List<TwitchMessage> current,
+  List<TwitchMessage> page,
+  Set<String> seen,
+) {
+  final fresh = <TwitchMessage>[];
+  for (final m in page.reversed) {
+    final id = m.messageId;
+    if (id != null && !seen.add(id)) continue;
+    fresh.add(m);
+  }
+  if (fresh.isEmpty) return current;
+  return [...current, ...fresh]
+    ..sort((a, b) => a.timestamp.compareTo(b.timestamp));
+}
+
 // User card modal with history, plus the per-message emote list sheet.
 class UserSheets {
   UserSheets({
@@ -106,6 +126,7 @@ class UserSheets {
     required this.showWhispersForUser,
     required this.copyMessage,
     required this.prefs,
+    this.archiveReader,
   });
 
   final Chat chat;
@@ -126,6 +147,12 @@ class UserSheets {
   final void Function(TwitchMessage msg) copyMessage;
   final Prefs prefs;
 
+  /// The archive's sender index, when the archive opened. Null keeps the
+  /// buffer-only history.
+  final ArchiveReader? archiveReader;
+
+  static const userHistoryPage = 50;
+
   // Card detent in sheet fractions, derived from the measured card height.
   double _cardExtent = 0.0;
 
@@ -139,15 +166,52 @@ class UserSheets {
     final channel = selectedChannel();
     // Buffer snapshot oldest-first like chat; short-lived, no subscription.
     // The sheet opens pinned to the latest message.
-    final history = channel == null
+    final buffered = channel == null
         ? const <TwitchMessage>[]
         : _recentMessagesFromUser(channel, username).reversed.toList();
+    final history = ValueNotifier<List<TwitchMessage>>(buffered);
+    final historyIds = <String>{for (final m in buffered) ?m.messageId};
+    // Pages of older archived rows, each loaded when the list nears its
+    // oldest end.
+    final reader = archiveReader;
+    var archiveEnd = reader == null || channel == null;
+    var archiveLoading = false;
+    var closed = false;
+    DateTime? archiveOldest;
+    Future<void> loadOlder() async {
+      if (closed || reader == null || channel == null || archiveLoading) return;
+      if (archiveOldest == null && archiveEnd) return;
+      archiveLoading = true;
+      List<TwitchMessage> page;
+      try {
+        page = await reader.userRows(
+          channel,
+          username,
+          userId: userId,
+          limit: userHistoryPage,
+          before: archiveOldest?.add(const Duration(milliseconds: 1)),
+        );
+      } catch (e) {
+        logDebug('[UserSheet] archive history failed: $e');
+        archiveEnd = true;
+        archiveLoading = false;
+        return;
+      }
+      archiveLoading = false;
+      if (closed) return;
+      if (page.length < userHistoryPage) archiveEnd = true;
+      if (page.isEmpty) return;
+      archiveOldest = page.last.timestamp;
+      history.value = mergeUserHistory(history.value, page, historyIds);
+    }
+
+    if (!archiveEnd) unawaited(loadOlder());
     // Badges active in this channel, newest message first. Empty when the
     // user has no buffered messages or nothing resolves.
     var cardBadges = const <CardBadge>[];
     if (channel != null) {
-      for (var i = history.length - 1; i >= 0; i--) {
-        final resolved = messageBuilder.resolveCardBadges(channel, history[i]);
+      for (var i = buffered.length - 1; i >= 0; i--) {
+        final resolved = messageBuilder.resolveCardBadges(channel, buffered[i]);
         if (resolved.isNotEmpty) {
           cardBadges = resolved;
           break;
@@ -392,46 +456,52 @@ class UserSheets {
                   shouldCloseOnMinExtent: false,
                   builder: (_, scrollController) {
                     listController = historyController;
-                    return UserProfileSheet(
-                      glass: glassEnabled(context, prefs.islandGlass),
-                      username: username,
-                      displayName: displayName ?? username,
-                      userId: userId,
-                      twitchApi: twitchApi,
-                      twitchAuth: twitchAuth,
-                      modActions: modActions,
-                      channel: channel,
-                      canModerate: canModerate,
-                      broadcasterUserId: channel == null
-                          ? null
-                          : chat.channelFor(channel)?.info.broadcasterId,
-                      moderation: channel == null
-                          ? null
-                          : chat.channelFor(channel)?.moderation,
-                      isSelf: isSelf,
-                      messageController: composer.messageController,
-                      focusNode: composer.focusNode,
-                      onClose: () => Navigator.pop(ctx),
-                      onUserBlocked: onUserBlocked,
-                      onWhisperUser: () => showWhispersForUser(username),
-                      scrollController: historyController,
-                      anchor: scrollController,
-                      sheetController: sheetController,
-                      autoSeek: autoSeek,
-                      sheetMinExtent: minExtent,
-                      onCardMeasured: onCardMeasured,
-                      cardBadges: cardBadges,
-                      userMessages: history,
-                      messageRowBuilder: (ctx, msg) =>
-                          userHistoryRow(ctx, msg, prefs),
-                      // Disposing on the route future would run before the
-                      // sheet's exit animation and crash its controllers.
-                      onDispose: () {
-                        restTimer?.cancel();
-                        sheetController.dispose();
-                        historyController.dispose();
-                        autoSeek.dispose();
-                      },
+                    return ValueListenableBuilder<List<TwitchMessage>>(
+                      valueListenable: history,
+                      builder: (_, messages, _) => UserProfileSheet(
+                        glass: glassEnabled(context, prefs.islandGlass),
+                        username: username,
+                        displayName: displayName ?? username,
+                        userId: userId,
+                        twitchApi: twitchApi,
+                        twitchAuth: twitchAuth,
+                        modActions: modActions,
+                        channel: channel,
+                        canModerate: canModerate,
+                        broadcasterUserId: channel == null
+                            ? null
+                            : chat.channelFor(channel)?.info.broadcasterId,
+                        moderation: channel == null
+                            ? null
+                            : chat.channelFor(channel)?.moderation,
+                        isSelf: isSelf,
+                        messageController: composer.messageController,
+                        focusNode: composer.focusNode,
+                        onClose: () => Navigator.pop(ctx),
+                        onUserBlocked: onUserBlocked,
+                        onWhisperUser: () => showWhispersForUser(username),
+                        scrollController: historyController,
+                        anchor: scrollController,
+                        sheetController: sheetController,
+                        autoSeek: autoSeek,
+                        sheetMinExtent: minExtent,
+                        onCardMeasured: onCardMeasured,
+                        cardBadges: cardBadges,
+                        userMessages: messages,
+                        onLoadOlder: () => unawaited(loadOlder()),
+                        messageRowBuilder: (ctx, msg) =>
+                            userHistoryRow(ctx, msg, prefs),
+                        // Disposing on the route future would run before the
+                        // sheet's exit animation and crash its controllers.
+                        onDispose: () {
+                          restTimer?.cancel();
+                          closed = true;
+                          history.dispose();
+                          sheetController.dispose();
+                          historyController.dispose();
+                          autoSeek.dispose();
+                        },
+                      ),
                     );
                   },
                 );

@@ -94,6 +94,9 @@ class UserProfileSheet extends StatefulWidget {
   final Widget Function(BuildContext context, TwitchMessage message)?
   messageRowBuilder;
 
+  /// Called when the history nears its oldest row, so older rows can page in.
+  final VoidCallback? onLoadOlder;
+
   /// Releases the sheet-owning controllers when the widget unmounts. The
   /// route's future completes before its exit animation, so disposing there
   /// would hit a disposed controller while the sheet still lays out.
@@ -130,6 +133,7 @@ class UserProfileSheet extends StatefulWidget {
     this.glass = false,
     this.userMessages = const [],
     this.messageRowBuilder,
+    this.onLoadOlder,
     this.onDispose,
   });
 
@@ -211,6 +215,9 @@ class UserProfileSheetState extends State<UserProfileSheet> {
 
   /// History height the scroll-down arrow needs to show.
   static const double _arrowRoom = 96;
+
+  /// Distance from the oldest row at which the next history page loads.
+  static const double _pageAhead = 600;
 
   // Reversed history with the latest at offset 0: the arrow shows
   // only while scrolled up toward older messages.
@@ -410,6 +417,10 @@ class UserProfileSheetState extends State<UserProfileSheet> {
             onNotification: (notification) {
               _onScrollPixels(notification.metrics.pixels);
               _scheduleGateSync();
+              if (widget.onLoadOlder != null &&
+                  notification.metrics.extentAfter < _pageAhead) {
+                widget.onLoadOlder!();
+              }
               return false;
             },
             child: NotificationListener<ScrollMetricsNotification>(
