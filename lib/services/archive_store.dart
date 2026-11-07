@@ -129,7 +129,7 @@ class ArchiveStore {
         // Version 9 records when moderation happened, for VOD replay.
         // Version 10 indexes system rows' words, so blocks reindex. Version
         // 11 records set history (emotes, badges). Version 12 indexes reply
-        // roots per block for thread lookups.
+        // roots per block, with each root's reply count.
         onUpgrade: (db, from, to) async {
           if (from < 9) {
             await db.execute('ALTER TABLE moderation ADD COLUMN at_ts INTEGER');
@@ -297,12 +297,14 @@ class ArchiveStore {
   /// Deletes that land after their rows sealed. Blocks never change, so a
   /// read applies these on decode; the table stays empty for channels
   /// without late moderation. A null login clears every chatter.
-  /// Reply roots by block, for thread lookups. Blocks sealed before this
-  /// table existed keep `thread_indexed = 0` and are filled by the backfill.
+  /// Reply roots by block, for thread lookups: each root's newest reply time
+  /// (`ts`) and how many times the block replies to it (`count`). Blocks
+  /// sealed before this table existed keep `thread_indexed = 0` and are
+  /// filled by the backfill.
   static Future<void> _createThreadIndex(Database db) async {
     await db.execute('''CREATE TABLE thread_refs(
          channel TEXT NOT NULL, root_id TEXT NOT NULL, block_id INTEGER NOT NULL,
-         ts INTEGER NOT NULL,
+         ts INTEGER NOT NULL, count INTEGER NOT NULL,
          PRIMARY KEY(channel, root_id, block_id)) WITHOUT ROWID''');
     await db.execute(
       'CREATE INDEX thread_refs_by_ts ON thread_refs(channel, ts)',
@@ -484,7 +486,8 @@ class ArchiveStore {
   /// Stores one sealed block, any user rows not yet saved for [channel], and
   /// the per-minute counts, in one transaction. [minutes] maps epoch minute to
   /// the number of rows the block adds, [refs] each reply root to its newest
-  /// reply's time, and [states] the user states the rows name.
+  /// reply's time and the number of replies, and [states] the user states the
+  /// rows name.
   Future<void> appendBlock({
     required String channel,
     required int startTs,
@@ -493,7 +496,7 @@ class ArchiveStore {
     required Uint8List data,
     required Map<int, int> minutes,
     Map<String, String> emoteDefs = const {},
-    Map<String, int> refs = const {},
+    Map<String, ({int ts, int count})> refs = const {},
     Set<String>? words,
     Set<int>? senders,
     Set<int>? states,
@@ -553,11 +556,11 @@ class ArchiveStore {
           'states': states == null ? null : encodeWordList(states),
           'thread_indexed': 1,
         });
-        for (final MapEntry(key: root, value: ts) in refs.entries) {
+        for (final MapEntry(key: root, value: r) in refs.entries) {
           b.rawInsert(
-            'INSERT OR IGNORE INTO thread_refs(channel, root_id, block_id, ts) '
-            'VALUES(?, ?, ?, ?)',
-            [channel, root, blockId, ts],
+            'INSERT OR IGNORE INTO thread_refs(channel, root_id, block_id, ts, '
+            'count) VALUES(?, ?, ?, ?, ?)',
+            [channel, root, blockId, r.ts, r.count],
           );
         }
         _putRefs(b, channel, refs);
@@ -594,16 +597,20 @@ class ArchiveStore {
   });
 
   /// Records reply roots with the time of their newest reply.
-  static void _putRefs(Batch b, String channel, Map<String, int> refs) {
-    for (final MapEntry(key: id, value: ts) in refs.entries) {
+  static void _putRefs(
+    Batch b,
+    String channel,
+    Map<String, ({int ts, int count})> refs,
+  ) {
+    for (final MapEntry(key: id, value: r) in refs.entries) {
       b.rawInsert(
         'INSERT OR IGNORE INTO ref_ids(channel, message_id, ts) VALUES(?, ?, ?)',
-        [channel, id, ts],
+        [channel, id, r.ts],
       );
       b.rawUpdate(
         'UPDATE ref_ids SET ts = ? WHERE channel = ? AND message_id = ? '
         'AND ts < ?',
-        [ts, channel, id, ts],
+        [r.ts, channel, id, r.ts],
       );
     }
   }
@@ -1097,11 +1104,11 @@ class ArchiveStore {
         final channel = rows[i]['channel']! as String;
         if (refs[i].isNotEmpty) {
           final b = txn.batch();
-          for (final MapEntry(key: root, value: ts) in refs[i].entries) {
+          for (final MapEntry(key: root, value: r) in refs[i].entries) {
             b.rawInsert(
-              'INSERT OR IGNORE INTO thread_refs(channel, root_id, block_id, ts) '
-              'VALUES(?, ?, ?, ?)',
-              [channel, root, id, ts],
+              'INSERT OR IGNORE INTO thread_refs(channel, root_id, block_id, ts, '
+              'count) VALUES(?, ?, ?, ?, ?)',
+              [channel, root, id, r.ts, r.count],
             );
           }
           await b.commit(noResult: true);
@@ -1126,23 +1133,23 @@ class ArchiveStore {
       r['block_id']! as int,
   ];
 
-  /// Roots with a reply at or after [since], newest activity first. [blocks]
-  /// counts the blocks holding their replies, not individual replies.
-  Future<List<({String rootId, int lastTs, int blocks})>> recentThreads(
+  /// Roots with a reply at or after [since], most replies first and newest
+  /// activity breaking ties.
+  Future<List<({String rootId, int lastTs, int replies})>> recentThreads(
     String channel,
     DateTime since, {
     int limit = 50,
   }) async => [
     for (final r in await _db.rawQuery(
-      'SELECT root_id, MAX(ts) AS last, COUNT(*) AS blocks FROM thread_refs '
+      'SELECT root_id, MAX(ts) AS last, SUM(count) AS replies FROM thread_refs '
       'WHERE channel = ? AND ts >= ? GROUP BY root_id '
-      'ORDER BY last DESC LIMIT ?',
+      'ORDER BY replies DESC, last DESC LIMIT ?',
       [channel, since.millisecondsSinceEpoch, limit],
     ))
       (
         rootId: r['root_id']! as String,
         lastTs: r['last']! as int,
-        blocks: r['blocks']! as int,
+        replies: r['replies']! as int,
       ),
   ];
 
@@ -1851,6 +1858,9 @@ class ArchiveStore {
             // A block left with no rows goes, so paging never lands on it.
             if (removed >= (blocks[i]['count']! as int)) {
               b.rawDelete('DELETE FROM blocks WHERE id = ?', [blocks[i]['id']]);
+              b.rawDelete('DELETE FROM thread_refs WHERE block_id = ?', [
+                blocks[i]['id'],
+              ]);
               continue;
             }
             // The removed rows' words and users go with them on the next
@@ -1992,14 +2002,24 @@ class ArchiveStore {
         final span = await txn.rawQuery(
           'SELECT channel, MIN(start_ts) AS s, MAX(end_ts) AS e, '
           'SUM(count) AS n, COUNT(*) AS k, MIN(refs) AS r, '
-          'MIN(stripped) AS x FROM blocks WHERE id IN ($marks)',
+          'MIN(stripped) AS x, MIN(thread_indexed) AS t FROM blocks '
+          'WHERE id IN ($marks)',
           g,
         );
         final row = span.first;
         // A block gone since the scan (a prune) leaves the run alone.
         if (row['k'] != g.length) return false;
-        await txn.rawDelete('DELETE FROM blocks WHERE id IN ($marks)', g);
-        await txn.insert('blocks', {
+        final indexed = row['t'] == 1;
+        // Indexed sources hand their thread rows to the merged block, so
+        // lookups keep working without a reindex.
+        final refs = indexed
+            ? await txn.rawQuery(
+                'SELECT root_id, SUM(count) AS n, MAX(ts) AS ts '
+                'FROM thread_refs WHERE block_id IN ($marks) GROUP BY root_id',
+                g,
+              )
+            : const <Map<String, Object?>>[];
+        final id = await txn.insert('blocks', {
           'channel': row['channel'],
           'start_ts': row['s'],
           'end_ts': row['e'],
@@ -2008,7 +2028,22 @@ class ArchiveStore {
           // A merge keeps the least done of its sources' upkeep.
           'refs': row['r'],
           'stripped': row['x'],
+          'thread_indexed': indexed ? 1 : 0,
         });
+        for (final r in refs) {
+          await txn.insert('thread_refs', {
+            'channel': row['channel'],
+            'root_id': r['root_id'],
+            'block_id': id,
+            'ts': r['ts'],
+            'count': r['n'],
+          });
+        }
+        await txn.rawDelete('DELETE FROM blocks WHERE id IN ($marks)', g);
+        await txn.rawDelete(
+          'DELETE FROM thread_refs WHERE block_id IN ($marks)',
+          g,
+        );
         _maxSpan.remove(row['channel']);
         return true;
       });
@@ -2107,9 +2142,12 @@ class ArchiveStore {
           if (kept > cap) drop.add(b['id'] as int);
         }
         for (var i = 0; i < drop.length; i += 500) {
-          final ids = drop.skip(i).take(500);
+          final ids = drop.skip(i).take(500).toList();
           deleted += await txn.rawDelete(
             'DELETE FROM blocks WHERE id IN (${ids.join(',')})',
+          );
+          await txn.rawDelete(
+            'DELETE FROM thread_refs WHERE block_id IN (${ids.join(',')})',
           );
         }
         // The rail shows no activity older than the rows that remain, kept
@@ -2186,16 +2224,20 @@ List<Uint8List?> mergeBlocks(List<List<Uint8List>> groups) => [
 ];
 
 /// The thread root each reply in [rows] answers (its parent when the root is
-/// missing), with the time of the newest reply to it. Roots keep their ids
-/// so archived threads still group; a reply carries its parent's name and
-/// text itself.
-Map<String, int> replyRoots(Iterable<ArchiveRow> rows) {
-  final out = <String, int>{};
+/// missing), with the time of the newest reply to it and the reply count.
+/// Roots keep their ids so archived threads still group; a reply carries its
+/// parent's name and text itself.
+Map<String, ({int ts, int count})> replyRoots(Iterable<ArchiveRow> rows) {
+  final out = <String, ({int ts, int count})>{};
   for (final r in rows) {
     final root = r.threadRootId ?? r.replyParentId;
     if (root == null) continue;
     final ts = r.timestampMs;
-    if ((out[root] ?? -1) < ts) out[root] = ts;
+    final held = out[root];
+    out[root] = (
+      ts: held == null || ts > held.ts ? ts : held.ts,
+      count: (held?.count ?? 0) + 1,
+    );
   }
   return out;
 }

@@ -1715,8 +1715,109 @@ void main() {
         _t0.subtract(const Duration(seconds: 1)),
       );
       expect(recent.single.rootId, _id(0));
-      expect(recent.single.blocks, 2);
+      expect(recent.single.replies, 8, reason: 'two blocks of four replies');
       await store.close();
+    });
+
+    test('reply counts are exact and order the recent roots', () async {
+      final store = await _open(_newPath());
+      final writer = _writer(store, sealCount: 4);
+      TwitchMessage to(String root, int i, int ts) =>
+          _msg(i, tsMs: _t0.add(Duration(seconds: ts)).millisecondsSinceEpoch)
+            ..replyToParentId = root
+            ..replyThreadRootId = root;
+      // The shorter thread is also the newer one, so counts must win.
+      for (var i = 1; i <= 8; i++) {
+        writer.add(
+          _channel,
+          _msg(i)
+            ..replyToParentId = _id(0)
+            ..replyThreadRootId = _id(0),
+        );
+      }
+      for (var i = 20; i < 23; i++) {
+        writer.add(_channel, to(_id(9), i, 100 + i));
+      }
+      await writer.flush();
+
+      final recent = await store.recentThreads(
+        _channel,
+        _t0.subtract(const Duration(seconds: 1)),
+      );
+      expect(
+        [for (final r in recent) (r.rootId, r.replies)],
+        [(_id(0), 8), (_id(9), 3)],
+        reason: 'reply counts, longest first',
+      );
+      final limited = await store.recentThreads(
+        _channel,
+        _t0.subtract(const Duration(seconds: 1)),
+        limit: 1,
+      );
+      expect([for (final r in limited) r.rootId], [_id(0)]);
+      await store.close();
+    });
+
+    test('a merge carries the thread index to the new block', () async {
+      final store = await _open(
+        _newPath(),
+        now: () => _t0.add(const Duration(hours: 2)),
+      );
+      final writer = _writer(store, sealCount: 4);
+      for (var i = 1; i <= 8; i++) {
+        writer.add(_channel, reply(i));
+      }
+      await writer.flush();
+      expect(await store.threadBlocks(_channel, _id(0)), hasLength(2));
+
+      expect(await store.compact(_t0.add(const Duration(hours: 2))), 1);
+      final blocks = await store.threadBlocks(_channel, _id(0));
+      expect(blocks, hasLength(1), reason: 'stale block ids left behind');
+      expect(await store.blockAt(_channel, blocks.single), isNotNull);
+      final recent = await store.recentThreads(
+        _channel,
+        _t0.subtract(const Duration(seconds: 1)),
+      );
+      expect(recent.single.replies, 8, reason: 'a merge doubled the count');
+      await store.close();
+    });
+
+    test('a pre-index database gains the thread index on open', () async {
+      final path = _newPath();
+      final store = await _open(path);
+      await store.close();
+      // Roll the schema back to 11 as an older build left it.
+      final db = await databaseFactoryFfi.openDatabase(path);
+      await db.execute('DROP INDEX thread_refs_by_ts');
+      await db.execute('DROP TABLE thread_refs');
+      await db.execute('ALTER TABLE blocks DROP COLUMN thread_indexed');
+      await db.execute('PRAGMA user_version = 11');
+      await db.close();
+
+      final again = await _open(path);
+      final check = await databaseFactoryFfi.openDatabase(
+        path,
+        options: OpenDatabaseOptions(singleInstance: false),
+      );
+      final refs = [
+        for (final c in await check.rawQuery('PRAGMA table_info(thread_refs)'))
+          c['name'],
+      ];
+      final blocks = [
+        for (final c in await check.rawQuery('PRAGMA table_info(blocks)'))
+          c['name'],
+      ];
+      await check.close();
+      expect(
+        refs,
+        containsAll(['channel', 'root_id', 'block_id', 'ts', 'count']),
+      );
+      expect(
+        blocks,
+        contains('thread_indexed'),
+        reason: 'the backfill flag was never added',
+      );
+      await again.close();
     });
 
     test('a backfill indexes missed blocks and stops when done', () async {
@@ -1733,6 +1834,11 @@ void main() {
       expect(await store.indexThreadsBatch(blocks: 1), 1);
       expect(await store.indexThreadsBatch(blocks: 1), 0);
       expect(await store.threadBlocks(_channel, _id(0)), hasLength(2));
+      final recent = await store.recentThreads(
+        _channel,
+        _t0.subtract(const Duration(seconds: 1)),
+      );
+      expect(recent.single.replies, 8, reason: 'a backfill counts replies');
       await store.close();
     });
   });
