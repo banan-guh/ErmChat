@@ -447,6 +447,7 @@ class ChannelPanels {
         live: messages == null ? null : () => messages.chatRows,
         liveVersion: active ? messages?.version : null,
         emotesVersion: emotesVersion,
+        active: active,
         jumpRequest: _jumpFor(channel),
         calendarRequest: _calendarFor(channel),
         actions: _actionsFor(channel),

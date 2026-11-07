@@ -1470,6 +1470,69 @@ void main() {
     expect(jump.value, isNull);
   });
 
+  testWidgets('a jump to an inactive page lands once it is active', (
+    tester,
+  ) async {
+    FakeHistory.loadDelay = Duration.zero;
+    tester.view.physicalSize = const Size(400, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final em = EmoteManager();
+    addTearDown(em.dispose);
+    final builder = MessageBuilder(
+      emoteSource: em,
+      badgeService: TwitchBadgeService(),
+      thirdPartyBadgeService: ThirdPartyBadgeService(),
+      onShowEmoteSheet: (_) {},
+    );
+    final jump = ValueNotifier<DateTime?>(FakeHistory.timeOf(_ch, 200));
+    final active = ValueNotifier(false);
+    addTearDown(jump.dispose);
+    addTearDown(active.dispose);
+    await tester.pumpWidget(
+      MaterialApp(
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: Scaffold(
+          body: ValueListenableBuilder(
+            valueListenable: active,
+            builder: (_, on, _) => HistoryView(
+              channel: _ch,
+              source: FakeHistorySource(_ch),
+              active: on,
+              jumpRequest: jump,
+              rows: ChatRows(
+                channel: _ch,
+                messageBuilder: builder,
+                onShowUserProfile: (_, _, {displayName}) {},
+              ),
+              topPadding: _inset,
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.runAsync(() => Future<void>.delayed(Duration.zero));
+    await tester.pump();
+    await tester.pump();
+
+    expect(
+      _items(tester).keys,
+      isNot(contains('$_ch-200')),
+      reason: 'an offstage page cannot place the target',
+    );
+    expect(jump.value, isNotNull, reason: 'the request waits');
+
+    active.value = true;
+    await tester.pump();
+    await tester.runAsync(() => Future<void>.delayed(Duration.zero));
+    await tester.pump();
+    await tester.pump();
+
+    expect(_items(tester).keys, contains('$_ch-200'));
+    expect(jump.value, isNull);
+  });
+
   testWidgets('a jump just past a block start keeps the rows above it', (
     tester,
   ) async {

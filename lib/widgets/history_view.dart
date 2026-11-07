@@ -98,6 +98,7 @@ class HistoryView extends StatefulWidget {
     this.tileCache,
     this.compact = false,
     this.ownLogin,
+    this.active = true,
     this.atBottomNotifier,
     this.onScrollActivity,
     this.scrollFabHeroTag,
@@ -163,6 +164,10 @@ class HistoryView extends StatefulWidget {
 
   /// The signed-in login, whose own messages never join a pile.
   final String? Function()? ownLogin;
+
+  /// Whether this page is the focused one. A jump waits until it is, since
+  /// an offstage list has no layout to place the target in.
+  final bool active;
 
   /// True while the newest row is in view. Set true from outside (a tab tap)
   /// to jump to the newest row.
@@ -588,6 +593,8 @@ class _HistoryViewState extends State<HistoryView> {
   @override
   void didUpdateWidget(HistoryView old) {
     super.didUpdateWidget(old);
+    // A jump that arrived while this page was offstage lands now.
+    if (!old.active && widget.active) _onJumpRequest();
     if (old.compact != widget.compact) {
       if (old.compact) {
         Settings.compactRepeats.removeListener(_onCompactionPref);
@@ -633,7 +640,7 @@ class _HistoryViewState extends State<HistoryView> {
   /// alongside and mark the rows once in, so they never hold up the rows.
   void _start() {
     final saved = _readSaved();
-    final request = widget.jumpRequest?.value;
+    final request = widget.active ? widget.jumpRequest?.value : null;
     if (request != null) {
       widget.jumpRequest!.value = null;
       _jumpTo(request, fraction: 0.5);
@@ -721,7 +728,7 @@ class _HistoryViewState extends State<HistoryView> {
 
   void _onJumpRequest() {
     final time = widget.jumpRequest?.value;
-    if (time == null) return;
+    if (time == null || !widget.active) return;
     widget.jumpRequest!.value = null;
     _jumpTo(time, fraction: 0.5);
   }
