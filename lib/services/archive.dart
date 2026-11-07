@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:path_provider/path_provider.dart';
@@ -26,13 +27,34 @@ class Archive {
   final Future<ArchiveStore?> store;
 
   /// Opens `archive.db` in the app support directory.
-  factory Archive.inAppSupport() => Archive(_openDefault());
+  factory Archive.inAppSupport() {
+    final archive = Archive(_openDefault());
+    unawaited(archive._fillThreadIndex());
+    return archive;
+  }
 
   final ArchiveWriter writer;
   late final ArchiveReader reader;
 
   /// The emote and badge sets over time, which reads draw rows with.
   final SetHistory sets;
+
+  /// Fills the thread index for blocks sealed before it existed, newest
+  /// first and a batch at a time. Resumable: the per-block flag is the
+  /// progress, so a kill at any point continues on the next launch.
+  Future<void> _fillThreadIndex() async {
+    try {
+      final s = await store;
+      if (s == null) return;
+      // Let launch settle before competing for the disk.
+      await Future<void>.delayed(const Duration(seconds: 2));
+      while (await s.indexThreadsBatch() > 0) {
+        await Future<void>.delayed(const Duration(milliseconds: 300));
+      }
+    } catch (e) {
+      logDebug('[Archive] thread index stopped: $e');
+    }
+  }
 
   /// Where [Archive.inAppSupport] keeps its database.
   static Future<String> defaultPath() async {

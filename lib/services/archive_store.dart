@@ -3,6 +3,7 @@ import 'dart:isolate';
 import 'dart:math';
 import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:sqflite/sqflite.dart';
 
 import '../archive/archive_block.dart';
@@ -91,7 +92,7 @@ class _ChannelTables {
 class ArchiveStore {
   ArchiveStore._(this._db, this._now);
 
-  static const int schemaVersion = 11;
+  static const int schemaVersion = 12;
   static const Duration defaultRetention = Duration(days: 30);
 
   /// How long chat stays before pruning. The History settings set it, and
@@ -127,13 +128,15 @@ class ArchiveStore {
         onCreate: (db, version) => _create(db),
         // Version 9 records when moderation happened, for VOD replay.
         // Version 10 indexes system rows' words, so blocks reindex. Version
-        // 11 records set history (emotes, badges).
+        // 11 records set history (emotes, badges). Version 12 indexes reply
+        // roots per block for thread lookups.
         onUpgrade: (db, from, to) async {
           if (from < 9) {
             await db.execute('ALTER TABLE moderation ADD COLUMN at_ts INTEGER');
           }
           if (from < 10) await db.execute('UPDATE blocks SET words = NULL');
           if (from < 11) await _createObservations(db);
+          if (from < 12) await _createThreadIndex(db);
         },
       ),
     );
@@ -193,6 +196,7 @@ class ArchiveStore {
     await _createEmoteDefs(db);
     await _addBlockFlags(db);
     await _createSearchIndex(db);
+    await _createThreadIndex(db);
     await _createEdits(db);
     await _addUpkeepColumns(db);
     await _createObservations(db);
@@ -293,6 +297,21 @@ class ArchiveStore {
   /// Deletes that land after their rows sealed. Blocks never change, so a
   /// read applies these on decode; the table stays empty for channels
   /// without late moderation. A null login clears every chatter.
+  /// Reply roots by block, for thread lookups. Blocks sealed before this
+  /// table existed keep `thread_indexed = 0` and are filled by the backfill.
+  static Future<void> _createThreadIndex(Database db) async {
+    await db.execute('''CREATE TABLE thread_refs(
+         channel TEXT NOT NULL, root_id TEXT NOT NULL, block_id INTEGER NOT NULL,
+         ts INTEGER NOT NULL,
+         PRIMARY KEY(channel, root_id, block_id)) WITHOUT ROWID''');
+    await db.execute(
+      'CREATE INDEX thread_refs_by_ts ON thread_refs(channel, ts)',
+    );
+    await db.execute(
+      'ALTER TABLE blocks ADD COLUMN thread_indexed INTEGER NOT NULL DEFAULT 0',
+    );
+  }
+
   static Future<void> _createModeration(Database db) async {
     await db.execute('''CREATE TABLE moderation(
            channel TEXT NOT NULL, login TEXT,
@@ -522,7 +541,7 @@ class ArchiveStore {
             'look': s.look,
           });
         }
-        b.insert('blocks', {
+        final blockId = await txn.insert('blocks', {
           'channel': channel,
           'start_ts': startTs,
           'end_ts': endTs,
@@ -532,7 +551,15 @@ class ArchiveStore {
           'words': ids == null ? null : encodeWordList(ids),
           'senders': senders == null ? null : encodeWordList(senders),
           'states': states == null ? null : encodeWordList(states),
+          'thread_indexed': 1,
         });
+        for (final MapEntry(key: root, value: ts) in refs.entries) {
+          b.rawInsert(
+            'INSERT OR IGNORE INTO thread_refs(channel, root_id, block_id, ts) '
+            'VALUES(?, ?, ?, ?)',
+            [channel, root, blockId, ts],
+          );
+        }
         _putRefs(b, channel, refs);
         for (final e in emoteDefs.entries) {
           b.insert('emote_defs', {
@@ -1045,6 +1072,85 @@ class ArchiveStore {
       for (final id in ids)
         if (byId[id] != null) byId[id]!,
     ];
+  }
+
+  // ---- Thread index --------------------------------------------------------
+
+  /// Indexes up to [blocks] sealed blocks for thread lookups, newest first.
+  /// Each batch decodes off the isolate and marks its blocks in one
+  /// transaction, so a kill at any point resumes without repeating work.
+  /// Returns how many blocks it took; 0 means the archive is indexed.
+  Future<int> indexThreadsBatch({int blocks = 64}) async {
+    final rows = await _db.rawQuery(
+      'SELECT id, channel, data FROM blocks WHERE thread_indexed = 0 '
+      'ORDER BY end_ts DESC LIMIT ?',
+      [blocks],
+    );
+    if (rows.isEmpty) return 0;
+    final data = [for (final r in rows) r['data']! as Uint8List];
+    final refs = await Isolate.run(
+      () => [for (final d in data) replyRoots(ArchiveBlock.decode(d))],
+    );
+    await _db.transaction((txn) async {
+      for (var i = 0; i < rows.length; i++) {
+        final id = rows[i]['id']! as int;
+        final channel = rows[i]['channel']! as String;
+        if (refs[i].isNotEmpty) {
+          final b = txn.batch();
+          for (final MapEntry(key: root, value: ts) in refs[i].entries) {
+            b.rawInsert(
+              'INSERT OR IGNORE INTO thread_refs(channel, root_id, block_id, ts) '
+              'VALUES(?, ?, ?, ?)',
+              [channel, root, id, ts],
+            );
+          }
+          await b.commit(noResult: true);
+        }
+        await txn.update(
+          'blocks',
+          {'thread_indexed': 1},
+          where: 'id = ?',
+          whereArgs: [id],
+        );
+      }
+    });
+    return rows.length;
+  }
+
+  /// Block ids holding replies to [rootId] in [channel].
+  Future<List<int>> threadBlocks(String channel, String rootId) async => [
+    for (final r in await _db.rawQuery(
+      'SELECT block_id FROM thread_refs WHERE channel = ? AND root_id = ?',
+      [channel, rootId],
+    ))
+      r['block_id']! as int,
+  ];
+
+  /// Roots with a reply at or after [since], newest activity first. [blocks]
+  /// counts the blocks holding their replies, not individual replies.
+  Future<List<({String rootId, int lastTs, int blocks})>> recentThreads(
+    String channel,
+    DateTime since, {
+    int limit = 50,
+  }) async => [
+    for (final r in await _db.rawQuery(
+      'SELECT root_id, MAX(ts) AS last, COUNT(*) AS blocks FROM thread_refs '
+      'WHERE channel = ? AND ts >= ? GROUP BY root_id '
+      'ORDER BY last DESC LIMIT ?',
+      [channel, since.millisecondsSinceEpoch, limit],
+    ))
+      (
+        rootId: r['root_id']! as String,
+        lastTs: r['last']! as int,
+        blocks: r['blocks']! as int,
+      ),
+  ];
+
+  /// Clears the thread index, so a test can exercise the backfill.
+  @visibleForTesting
+  Future<void> forgetThreadIndex() async {
+    await _db.delete('thread_refs');
+    await _db.update('blocks', {'thread_indexed': 0});
   }
 
   /// Up to [before] blocks older than the anchor, the anchor, and up to
@@ -1945,6 +2051,7 @@ class ArchiveStore {
         'DELETE FROM blocks WHERE end_ts < ? AND NOT EXISTS ($_pinnedBlock)',
         [cutoff],
       );
+      await txn.rawDelete('DELETE FROM thread_refs WHERE ts < ?', [cutoff]);
       await txn.rawDelete(
         'DELETE FROM minute_counts WHERE minute < ? AND NOT EXISTS ('
         'SELECT 1 FROM pins p WHERE p.channel = minute_counts.channel '

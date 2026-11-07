@@ -1695,4 +1695,45 @@ void main() {
     );
     await store.close();
   });
+
+  group('thread index', () {
+    TwitchMessage reply(int i) => _msg(i)
+      ..replyToParentId = _id(0)
+      ..replyThreadRootId = _id(0);
+
+    test('a seal indexes replies by root and block', () async {
+      final store = await _open(_newPath());
+      final writer = _writer(store, sealCount: 4);
+      for (var i = 1; i <= 8; i++) {
+        writer.add(_channel, reply(i));
+      }
+      await writer.flush();
+
+      expect(await store.threadBlocks(_channel, _id(0)), hasLength(2));
+      final recent = await store.recentThreads(
+        _channel,
+        _t0.subtract(const Duration(seconds: 1)),
+      );
+      expect(recent.single.rootId, _id(0));
+      expect(recent.single.blocks, 2);
+      await store.close();
+    });
+
+    test('a backfill indexes missed blocks and stops when done', () async {
+      final store = await _open(_newPath());
+      final writer = _writer(store, sealCount: 4);
+      for (var i = 1; i <= 8; i++) {
+        writer.add(_channel, reply(i));
+      }
+      await writer.flush();
+      await store.forgetThreadIndex();
+      expect(await store.threadBlocks(_channel, _id(0)), isEmpty);
+
+      expect(await store.indexThreadsBatch(blocks: 1), 1);
+      expect(await store.indexThreadsBatch(blocks: 1), 1);
+      expect(await store.indexThreadsBatch(blocks: 1), 0);
+      expect(await store.threadBlocks(_channel, _id(0)), hasLength(2));
+      await store.close();
+    });
+  });
 }
