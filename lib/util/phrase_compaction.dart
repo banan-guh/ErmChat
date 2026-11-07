@@ -1,11 +1,38 @@
 import 'dart:math' show min;
 
+import '../models/twitch_message.dart' show EmotePosition;
+
 final _word = RegExp(r'\S+');
 final _nonAlnum = RegExp(r'[^\p{L}\p{N}]', unicode: true);
 
+/// A condensed message: the text to show plus where each kept stretch of the
+/// original landed, so emote positions can move onto it.
+class PhraseCompaction {
+  const PhraseCompaction(this.text, this.pieces);
+
+  final String text;
+
+  /// Kept stretches: offset in [text], offset in the input, and length.
+  final List<({int at, int from, int length})> pieces;
+
+  /// Moves [positions] onto [text], dropping the ones in removed stretches.
+  List<EmotePosition> moveEmotes(Iterable<EmotePosition> positions) => [
+    for (final position in positions)
+      for (final piece in pieces)
+        if (position.startIndex >= piece.from &&
+            position.endIndex <= piece.from + piece.length)
+          EmotePosition(
+            emoteId: position.emoteId,
+            startIndex: position.startIndex - piece.from + piece.at,
+            endIndex: position.endIndex - piece.from + piece.at,
+            emoteCode: position.emoteCode,
+          ),
+  ];
+}
+
 /// Collapses a phrase repeated at least three times inside [text]. Returns
 /// null when there is no run worth hiding. The result is display only.
-String? compactRepeatedPhrase(String text) {
+PhraseCompaction? compactRepeatedPhrase(String text) {
   if (text.length < 60) return null;
   final tokens = [
     for (final match in _word.allMatches(text))
@@ -64,45 +91,66 @@ String? compactRepeatedPhrase(String text) {
   }
   if (best == null) return null;
 
-  final blockOrig = <String, int>{};
+  // Keep the most common spelling of the repeated block, and remember which
+  // copy it came from so its emote positions can travel with it.
+  final variants = <String, ({int count, int start})>{};
   for (var i = 0; i < best.repeats; i++) {
     final start = best.blockStart + i * best.length;
-    final original = text.substring(
-      origAt[start],
-      origAt[start + best.length - 1] + 1,
+    final from = origAt[start];
+    final original = text.substring(from, origAt[start + best.length - 1] + 1);
+    final prior = variants[original];
+    variants[original] = (
+      count: (prior?.count ?? 0) + 1,
+      start: prior?.start ?? from,
     );
-    blockOrig[original] = (blockOrig[original] ?? 0) + 1;
   }
-  var block = blockOrig.keys.first;
-  for (final entry in blockOrig.entries) {
-    if (entry.value > blockOrig[block]!) block = entry.key;
+  var block = variants.keys.first;
+  for (final entry in variants.entries) {
+    if (entry.value.count > variants[block]!.count) block = entry.key;
   }
+  final chosen = variants[block]!;
 
   final base = norm.substring(best.blockStart, best.blockStart + best.length);
-  var prefix = text.substring(0, origAt[best.blockStart]).trimRight();
-  var suffix = best.end < norm.length
-      ? text.substring(origAt[best.end]).trimLeft()
-      : '';
+  var prefixEnd = origAt[best.blockStart];
+  while (prefixEnd > 0 && text[prefixEnd - 1].trim().isEmpty) {
+    prefixEnd--;
+  }
+  var suffixStart = best.end < norm.length ? origAt[best.end] : text.length;
+  while (suffixStart < text.length && text[suffixStart].trim().isEmpty) {
+    suffixStart++;
+  }
   final prefixNorm = norm.substring(0, best.blockStart);
   final suffixNorm = norm.substring(best.end);
   if (prefixNorm.isNotEmpty &&
       prefixNorm.length < base.length &&
       base.endsWith(prefixNorm)) {
-    prefix = '';
+    prefixEnd = 0;
   }
   if (suffixNorm.isNotEmpty &&
       suffixNorm.length < base.length &&
       base.startsWith(suffixNorm)) {
-    suffix = '';
+    suffixStart = text.length;
   }
 
-  final out = [
-    if (prefix.isNotEmpty) prefix,
-    block.trim(),
-    '(x${best.repeats})',
-    if (suffix.isNotEmpty) suffix,
-  ].join(' ');
-  return out.length < text.length ? out : null;
+  final out = StringBuffer();
+  final pieces = <({int at, int from, int length})>[];
+  void add(int from, int to) {
+    if (to <= from) return;
+    if (out.isNotEmpty) out.write(' ');
+    pieces.add((at: out.length, from: from, length: to - from));
+    out.write(text.substring(from, to));
+  }
+
+  add(0, prefixEnd);
+  add(chosen.start, chosen.start + block.length);
+  if (out.isNotEmpty) out.write(' ');
+  out.write('(x${best.repeats})');
+  add(suffixStart, text.length);
+
+  final display = out.toString();
+  return display.length < text.length
+      ? PhraseCompaction(display, pieces)
+      : null;
 }
 
 class _Token {

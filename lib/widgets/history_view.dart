@@ -2185,15 +2185,25 @@ class _HistoryViewState extends State<HistoryView> {
     final cached = _phraseMessages[key];
     if (cached != null && cached.source == msg.text) return cached.display;
     final compacted = compactRepeatedPhrase(msg.text);
-    final display = compacted == null ? msg : _phraseMessage(msg, compacted);
+    final display = compacted == null
+        ? msg
+        : _phraseMessage(
+            msg,
+            compacted.text,
+            compacted.moveEmotes(msg.emotePositions ?? const []),
+          );
     _phraseMessages[key] = (source: msg.text, display: display);
     return display;
   }
 
   /// [msg] with its text replaced. Identity, badges and reply links carry
-  /// over so the row still copies and moderates as itself; emote state is
-  /// left off, since its offsets describe the old text.
-  TwitchMessage _phraseMessage(TwitchMessage msg, String text) => TwitchMessage(
+  /// over so the row still copies and moderates as itself. Emote positions
+  /// move with the text; parsed tokens describe the old one, so they stay off.
+  TwitchMessage _phraseMessage(
+    TwitchMessage msg,
+    String text,
+    List<EmotePosition> positions,
+  ) => TwitchMessage(
     login: msg.login,
     displayName: msg.displayName,
     text: text,
@@ -2214,6 +2224,7 @@ class _HistoryViewState extends State<HistoryView> {
     isAction: msg.isAction,
     isHistory: msg.isHistory,
     isBackfill: msg.isBackfill,
+    emotePositions: positions.isEmpty ? null : positions,
     sourceBroadcasterId: msg.sourceBroadcasterId,
     sourceMessageId: msg.sourceMessageId,
   );
