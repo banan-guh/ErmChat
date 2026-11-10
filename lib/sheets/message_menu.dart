@@ -73,18 +73,6 @@ class MessageMenus {
                   Navigator.pop(ctx);
                 },
               ),
-              if (msg.messageId != null &&
-                  !msg.isSystem &&
-                  !msg.deleted &&
-                  canModerate(msg))
-                ListTile(
-                  leading: const Icon(Icons.delete_outline),
-                  title: Text(ctx.l10n.deleteMessage),
-                  onTap: () {
-                    Navigator.pop(ctx);
-                    deleteMessage(context, msg);
-                  },
-                ),
               ListTile(
                 leading: const Icon(Icons.more_horiz),
                 title: Text(ctx.l10n.moreEllipsis),
@@ -164,6 +152,18 @@ class MessageMenus {
                 onTap: () {
                   Navigator.pop(ctx);
                   pinMessage(context, msg);
+                },
+              ),
+            if (msg.messageId != null &&
+                !msg.isSystem &&
+                !msg.deleted &&
+                canModerate(msg))
+              ListTile(
+                leading: const Icon(Icons.delete_outline),
+                title: Text(ctx.l10n.deleteMessage),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  deleteMessage(context, msg);
                 },
               ),
             ListTile(

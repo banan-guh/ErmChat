@@ -152,7 +152,6 @@ class UserProfileSheetState extends State<UserProfileSheet> {
   bool _gateSyncScheduled = false;
 
   /// Whether the mod actions overlay the user actions.
-  bool _modOpen = false;
   ScrollController? _fallbackController;
   // Natural card height from the offstage measure copy. Null until the
   // first post-frame read; _measureDirty forces a re-read after content or
@@ -1107,64 +1106,45 @@ class UserProfileSheetState extends State<UserProfileSheet> {
             children: _actionTiles(actions),
           );
     if (!showMod) return [block(userActions)];
-    // The mod actions overlay the user ones in the same footprint, opened
-    // from a small shield in its own side slot, so they cost no height and
-    // a stray tap on a user action never lands on one.
-    final sheet = Theme.of(context).bottomSheetTheme;
-    final surface =
-        sheet.modalBackgroundColor ??
-        sheet.backgroundColor ??
-        Theme.of(context).colorScheme.surfaceContainerLow;
+    // Mod actions live behind More, like a message menu's more sheet, so the
+    // card keeps one action block and no floating mode switch.
     return [
       ..._recordTiles(),
-      Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Expanded(
-            child: Stack(
-              children: [
-                block(userActions),
-                Positioned.fill(
-                  child: IgnorePointer(
-                    ignoring: !_modOpen,
-                    child: AnimatedOpacity(
-                      opacity: _modOpen ? 1 : 0,
-                      duration: Motion.fast,
-                      // A Material, so the overlaid tiles keep their ink.
-                      child: Material(
-                        color: surface,
-                        child: compact
-                            ? SheetActionRow(actions: modActions)
-                            // Rows share the user block's height, so a
-                            // fifth action never grows the card.
-                            : Column(
-                                children: [
-                                  for (final tile in _actionTiles(modActions))
-                                    Expanded(child: tile),
-                                ],
-                              ),
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          IconButton(
-            isSelected: _modOpen,
-            icon: const Icon(Icons.shield_outlined, size: 20),
-            selectedIcon: const Icon(Icons.close, size: 20),
-            tooltip: _modOpen ? context.l10n.back : context.l10n.moderation,
-            style: IconButton.styleFrom(
-              minimumSize: const Size.square(36),
-              padding: EdgeInsets.zero,
-              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-            ),
-            onPressed: () => setState(() => _modOpen = !_modOpen),
-          ),
-        ],
-      ),
+      block([
+        ...userActions,
+        SheetAction(
+          icon: Icons.more_horiz,
+          label: context.l10n.moreEllipsis,
+          onTap: () => _showModActions(modActions),
+        ),
+      ]),
     ];
+  }
+
+  /// Opens this user's mod actions, the same way a message menu's More does.
+  void _showModActions(List<SheetAction> actions) {
+    showModalBottomSheet<void>(
+      context: context,
+      useSafeArea: true,
+      builder: (ctx) => SafeArea(
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              for (final action in actions)
+                ListTile(
+                  leading: Icon(action.icon),
+                  title: Text(action.label),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    action.onTap?.call();
+                  },
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   // Full layout keeps the vertical stack of dense list tiles.
