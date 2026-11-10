@@ -44,6 +44,7 @@ Skipped from the survey: emoji picker (the keyboard has one), follow/unfollow, p
 - [ ] **Restore order** - one isolate for all channels, selected channel first.
 - [ ] **Message memory diet** - flags int, int timestamps, shared UserState.
 - [ ] **Per-account WebView profiles** - one profile per account, sign-out fallback on old WebViews.
+- [ ] **Archive open stall is silent** - a stuck open looks like an empty archive and blocks backfill; surface it and recover.
 
 ## Medium Priority
 
@@ -107,6 +108,7 @@ Skipped from the survey: emoji picker (the keyboard has one), follow/unfollow, p
 
 - troubleshoot lag on copy - first pass couldn't find
 - empty input bar after update?? could not repro, weird bug. after this, nothing
+- closing the keyboard nudges the chat up a few px, rare, no repro yet
 - collapse ci test successes
 
 - more friendly err messages - partly done, doublecheck

@@ -1409,8 +1409,22 @@ class _HistoryViewState extends State<HistoryView> {
     });
   }
 
+  /// A live sync already waits for the next frame.
+  bool _liveQueued = false;
+
+  /// Queues one live sync for the next frame, so several messages landing in
+  /// one frame cost one pass over the window instead of one per message.
   void _onLive() {
-    if (!_liveAttached) return;
+    if (!_liveAttached || _liveQueued) return;
+    _liveQueued = true;
+    // Runs before the frame builds, so the new rows land in that frame.
+    SchedulerBinding.instance.scheduleFrameCallback((_) => _liveFrame());
+    SchedulerBinding.instance.ensureVisualUpdate();
+  }
+
+  void _liveFrame() {
+    _liveQueued = false;
+    if (!mounted || !_liveAttached) return;
     setState(() {
       _syncLive();
       // A reader scrolled up keeps a window, not every arrival: past the cap

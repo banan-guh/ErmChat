@@ -18,10 +18,26 @@ import 'set_history.dart';
 Future<Uint8List> encodeOffIsolate(List<ArchiveRow> rows) =>
     Isolate.run(() => ArchiveBlock.encode(rows));
 
+/// Message ids of each packed block, oldest block first; a damaged block
+/// yields none.
+List<List<String>> blockMessageIds(List<Uint8List> blocks) => [
+  for (final b in blocks)
+    () {
+      try {
+        return [for (final r in ArchiveBlock.decode(b)) ?r.messageId];
+      } on ArchiveFormatException {
+        return const <String>[];
+      }
+    }(),
+];
+
 class _Chan {
   UserTables? tables;
   Future<void>? loading;
   final waiting = <TwitchMessage>[];
+
+  /// Rows refused while the tables loaded, so the log names the gap.
+  int dropped = 0;
   final tail = <ArchiveRow>[];
 
   /// Rows of seals still writing.
@@ -59,14 +75,16 @@ class ArchiveWriter {
     _store.then((s) {
       s?.heldEdits = heldIds;
       s?.heldStates = heldStates;
-      s?.writing = _chans.containsKey;
+      s?.writing = _writing;
     }, onError: (_) {});
   }
 
   /// Message ids remembered per channel for dedup.
   static const int idWindow = 4096;
 
-  /// Messages parked per channel while the user tables load.
+  /// Messages parked per channel while the user tables load. Past it new rows
+  /// are dropped and logged, so a stalled open leaves a trace instead of
+  /// growing the queue without limit.
   static const int maxWaiting = 1024;
 
   final Future<ArchiveStore?> _store;
@@ -79,6 +97,9 @@ class ArchiveWriter {
   /// Packs one tail; off the UI isolate by default.
   final Future<Uint8List> Function(List<ArchiveRow> rows) encode;
   final Map<String, _Chan> _chans = {};
+
+  /// Channels forgotten while their last seal still writes.
+  final _leaving = <String, Future<void>>{};
 
   /// Store edits not yet written, in order.
   Future<void> _pending = Future.value();
@@ -94,12 +115,33 @@ class ArchiveWriter {
     if (c.tables == null) {
       if (c.waiting.length < maxWaiting) {
         c.waiting.add(msg);
+      } else if (c.dropped++ == 0) {
+        logDebug('[ArchiveWriter] $channel parked $maxWaiting rows, dropping');
       }
       c.loading ??= _load(channel, c);
       return;
     }
     _append(channel, c, msg);
   }
+
+  /// Forgets [channel]: seals what it holds, then drops its user tables,
+  /// dedup window and emote definitions. A rejoin loads them again, and
+  /// upkeep keeps them until the seal lands.
+  void forget(String channel) {
+    final c = _chans.remove(channel);
+    if (c == null) return;
+    _seal(channel, c);
+    final chain = c.chain;
+    _leaving[channel] = chain;
+    chain.whenComplete(() {
+      if (identical(_leaving[channel], chain)) _leaving.remove(channel);
+    });
+  }
+
+  /// Whether [channel]'s tables belong to the writer: it holds rows for the
+  /// channel, or is sealing the last ones after a [forget].
+  bool _writing(String channel) =>
+      _chans.containsKey(channel) || _leaving.containsKey(channel);
 
   Future<void> _load(String channel, _Chan c) async {
     try {
@@ -109,19 +151,13 @@ class ArchiveWriter {
         return;
       }
       final tables = await store.tables(channel);
-      // Oldest first, so the dedup window keeps the newest ids.
+      // Oldest first, so the dedup window keeps the newest ids. Decoding up
+      // to [idWindow] rows is too much for the UI isolate.
       final blocks = await store.newestBlocks(channel, idWindow);
-      for (final b in blocks.reversed) {
-        try {
-          for (final r in ArchiveBlock.decode(b.data)) {
-            final id = r.messageId;
-            if (id != null) {
-              c.ids.add(id);
-            }
-          }
-        } on ArchiveFormatException {
-          continue;
-        }
+      final data = [for (final b in blocks.reversed) b.data];
+      final ids = await Isolate.run(() => blockMessageIds(data));
+      for (final part in ids) {
+        c.ids.addAll(part);
       }
       while (c.ids.length > idWindow) {
         c.ids.remove(c.ids.first);
@@ -131,6 +167,9 @@ class ArchiveWriter {
       c.waiting.clear();
       for (final m in queued) {
         _append(channel, c, m);
+      }
+      if (c.dropped > 0) {
+        logDebug('[ArchiveWriter] $channel dropped ${c.dropped} parked rows');
       }
     } catch (e) {
       logDebug('[ArchiveWriter] load failed for $channel: $e');
@@ -339,6 +378,9 @@ class ArchiveWriter {
     for (final c in List.of(_chans.values)) {
       await c.loading;
       await c.chain;
+    }
+    for (final chain in List.of(_leaving.values)) {
+      await chain;
     }
     await _pending;
   }

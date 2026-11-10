@@ -135,6 +135,10 @@ class ChatHistoryController {
     if (note != null) archive?.writer.add(channel, note);
   }
 
+  /// Forgets [channel]'s archive state once it leaves: the writer seals its
+  /// tail and drops its tables, which load again if the channel returns.
+  void forgetChannel(String channel) => archive?.writer.forget(channel);
+
   /// Gap from this far before the last seen message, so the fetch overlaps
   /// it: robotty filters by receive time, a little after the send time.
   static const _gapOverlap = Duration(seconds: 5);

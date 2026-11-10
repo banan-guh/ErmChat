@@ -91,7 +91,7 @@ class _ChannelTables {
 class ArchiveStore {
   ArchiveStore._(this._db, this._now);
 
-  static const int schemaVersion = 13;
+  static const int schemaVersion = 14;
   static const Duration defaultRetention = Duration(days: 30);
 
   /// How long chat stays before pruning. The History settings set it, and
@@ -129,7 +129,9 @@ class ArchiveStore {
         // Version 10 indexes system rows' words, so blocks reindex. Version
         // 11 records set history (emotes, badges). Version 12 indexes reply
         // roots per block, with each root's reply count. Version 13 stores
-        // each thread's first direct reply, for the list preview.
+        // each thread's first direct reply, for the list preview. Version 14
+        // indexes end times across channels, so the retention delete never
+        // reads block data.
         onUpgrade: (db, from, to) async {
           if (from < 9) {
             await db.execute('ALTER TABLE moderation ADD COLUMN at_ts INTEGER');
@@ -138,6 +140,7 @@ class ArchiveStore {
           if (from < 11) await _createObservations(db);
           if (from < 12) await _createThreadIndex(db);
           if (from < 13) await _createThreadRoots(db);
+          if (from < 14) await _createBlockTimeIndex(db);
         },
       ),
     );
@@ -202,7 +205,15 @@ class ArchiveStore {
     await _createEdits(db);
     await _addUpkeepColumns(db);
     await _createObservations(db);
+    await _createBlockTimeIndex(db);
   }
+
+  /// Blocks by end time across channels, so retention finds the old ones
+  /// without reading every block's data. One entry per block keeps the write
+  /// cost of a seal flat. Already there after an upgrade that stopped short.
+  static Future<void> _createBlockTimeIndex(Database db) => db.execute(
+    'CREATE INDEX IF NOT EXISTS blocks_by_time ON blocks(end_ts)',
+  );
 
   /// Set history (see [SetLog]): what each fetch of a set returned, by
   /// kind (`emote`, `badge`), scope (a channel, or '' for global sets) and
@@ -1796,11 +1807,16 @@ class ArchiveStore {
     return stripped;
   }
 
-  /// Applies pending edits to the blocks that still hold message ids
-  /// (`stripped = 0`), then clears them. Ids no block holds were stripped or
-  /// never sealed, so they are cleared too, unless a reply keeps the id alive
-  /// in a stripped block or the writer still holds it in [held] ([heldEdits]
-  /// by default). Returns edits baked.
+  /// Blocks one bake reads per channel. Edits name rows the archive just
+  /// sealed, so the newest blocks hold them; anything older stays pending,
+  /// which reads already apply.
+  static const int bakeWindow = 128;
+
+  /// Applies pending edits to the newest [bakeWindow] blocks that still hold
+  /// message ids (`stripped = 0`), then clears them. Ids no block read holds
+  /// were stripped or never sealed, so they are cleared too, unless a reply
+  /// keeps the id alive in a stripped block or the writer still holds it in
+  /// [held] ([heldEdits] by default). Returns edits baked.
   Future<int> bakeEdits({Set<String> Function(String channel)? held}) async {
     var baked = 0;
     final channels = await _db.rawQuery('SELECT DISTINCT channel FROM edits');
@@ -1808,10 +1824,14 @@ class ArchiveStore {
       final channel = c['channel']! as String;
       final pending = await edits(channel);
       if (pending.isEmpty) continue;
-      final blocks = await _db.rawQuery(
-        'SELECT id, data, count FROM blocks WHERE channel = ? AND stripped = 0',
-        [channel],
+      final rows = await _db.rawQuery(
+        'SELECT id, data, count FROM blocks WHERE channel = ? AND stripped = 0 '
+        'ORDER BY start_ts DESC, id DESC LIMIT ?',
+        [channel, bakeWindow + 1],
       );
+      // Blocks past the window went unread, so no pending id is known gone.
+      final whole = rows.length <= bakeWindow;
+      final blocks = whole ? rows : rows.sublist(0, bakeWindow);
       final applied = <String>{};
       final removedMinutes = <int, int>{};
       if (blocks.isNotEmpty) {
@@ -1867,6 +1887,7 @@ class ArchiveStore {
         });
         baked += applied.length;
       }
+      if (!whole) continue;
       // Reply parents keep their id in a stripped block, and a seal still
       // writing may yet store the row, so an edit for one stays pending
       // rather than being dropped as gone.

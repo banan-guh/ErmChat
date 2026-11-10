@@ -956,6 +956,62 @@ void main() {
     await store.close();
   });
 
+  test('a left channel is forgotten once its tail seals', () async {
+    final store = await _open(_newPath());
+    final writer = _writer(store);
+    for (var i = 0; i < 3; i++) {
+      writer.add(_channel, _msg(i));
+    }
+    await writer.settled();
+    expect(writer.unsealed(_channel), hasLength(3));
+
+    writer.forget(_channel);
+    expect(
+      store.writing!(_channel),
+      isTrue,
+      reason: 'the seal still needs the user tables',
+    );
+    await writer.settled();
+    expect(
+      store.writing!(_channel),
+      isFalse,
+      reason: 'a left channel keeps its tables cached for good',
+    );
+    expect(
+      writer.unsealed(_channel),
+      isEmpty,
+      reason: 'the forgotten tail still shows as unsealed',
+    );
+    expect(
+      [
+        for (final m in await _reader(store).newestRows(_channel, 10))
+          m.messageId,
+      ],
+      [for (var i = 0; i < 3; i++) _id(i)],
+      reason: 'forgetting dropped the tail',
+    );
+    await store.close();
+  });
+
+  test('rows past the park limit are dropped, not queued', () async {
+    final store = await _open(_newPath());
+    final gate = Completer<ArchiveStore>();
+    final writer = ArchiveWriter(gate.future);
+    for (var i = 0; i < ArchiveWriter.maxWaiting + 3; i++) {
+      writer.add(_channel, _msg(i));
+    }
+    gate.complete(store);
+    await writer.flush();
+    expect(
+      (await _reader(
+        store,
+      ).newestRows(_channel, ArchiveWriter.maxWaiting + 3)).length,
+      ArchiveWriter.maxWaiting,
+      reason: 'the park queue grew past its bound, or lost rows under it',
+    );
+    await store.close();
+  });
+
   test('retention keeps pinned ranges and recent blocks', () async {
     var now = DateTime.utc(2026, 10, 1);
     final store = await _open(_newPath(), now: () => now);
@@ -1101,6 +1157,34 @@ void main() {
       reason: 'a kept day stays and never counts toward the cap',
     );
     await store.close();
+  });
+
+  test('an older database gains the end time index on open', () async {
+    final path = _newPath();
+    final store = await _open(path);
+    await store.close();
+    // Roll the schema back to 13 as an older build left it.
+    final db = await databaseFactoryFfi.openDatabase(path);
+    await db.execute('DROP INDEX blocks_by_time');
+    await db.execute('PRAGMA user_version = 13');
+    await db.close();
+
+    final again = await _open(path);
+    final check = await databaseFactoryFfi.openDatabase(
+      path,
+      options: OpenDatabaseOptions(singleInstance: false),
+    );
+    final plan = await check.rawQuery(
+      'EXPLAIN QUERY PLAN DELETE FROM blocks WHERE end_ts < ?',
+      [0],
+    );
+    await check.close();
+    await again.close();
+    expect(
+      [for (final r in plan) r['detail']],
+      contains(contains('blocks_by_time')),
+      reason: 'retention reads every block page without it',
+    );
   });
 
   test('a launch drops users, roots and words no kept row needs', () async {
@@ -1595,13 +1679,42 @@ void main() {
       await store.close();
     });
 
+    test('a bake past its window keeps older edits pending', () async {
+      final store = await _open(_newPath());
+      final writer = _writer(store, sealCount: 1);
+      for (var i = 0; i < ArchiveStore.bakeWindow + 2; i++) {
+        writer.add(_channel, _msg(i));
+      }
+      await writer.flush();
+      await store.addEdits(_channel, [_id(0)], ArchiveEdit.remove);
+
+      expect(
+        await store.bakeEdits(),
+        0,
+        reason: 'the edit sits in a block past the window',
+      );
+      expect(
+        await store.edits(_channel),
+        hasLength(1),
+        reason: 'a bake dropped an edit it never read',
+      );
+      expect(
+        [
+          for (final m in await _reader(store).newestRows(_channel, 1000))
+            ?m.messageId,
+        ],
+        isNot(contains(_id(0))),
+        reason: 'a pending edit past the window still applies on read',
+      );
+      await store.close();
+    });
+
     test('baking keeps an edit for an id the writer still holds', () async {
       final store = await _open(_newPath());
       final writer = _writer(store);
       writer.add(_channel, _msg(0));
       await writer.flush();
       await store.addEdits(_channel, [_id(99)], ArchiveEdit.deleted);
-
       expect(
         await store.bakeEdits(held: (_) => {_id(99)}),
         0,

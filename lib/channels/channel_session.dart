@@ -270,6 +270,7 @@ class ChannelSession extends ChangeNotifier {
     final generation = (_generations[channel] ?? 0) + 1;
     _generations[channel] = generation;
     userStore.removeChannel(channel);
+    history.forgetChannel(channel);
     if (selectedChannel() == channel) {
       final remaining = chat.names.where((c) => c != channel).toList();
       setSelectedChannel(remaining.isNotEmpty ? remaining.last : null);
