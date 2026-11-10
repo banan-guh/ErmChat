@@ -8,11 +8,17 @@ class FakeWebSocketSink implements WebSocketSink {
 
   final void Function(String line)? onLine;
   final List<String> sent = [];
+  final _done = Completer<void>();
+  bool throwOnNextAdd = false;
 
   StreamSink<dynamic> get sink => this;
 
   @override
   void add(dynamic data) {
+    if (throwOnNextAdd) {
+      throwOnNextAdd = false;
+      throw StateError('write failed');
+    }
     final line = data as String;
     sent.add(line);
     onLine?.call(line);
@@ -28,7 +34,11 @@ class FakeWebSocketSink implements WebSocketSink {
   Future<void> close([int? closeCode, String? closeReason]) async {}
 
   @override
-  Future<void> get done => Future<void>.value();
+  Future<void> get done => _done.future;
+
+  void finish() {
+    if (!_done.isCompleted) _done.complete();
+  }
 }
 
 /// A controllable [WebSocketChannel] for connection tests: `failReady`
@@ -52,6 +62,7 @@ class FakeWebSocketChannel extends StreamChannelMixin<dynamic>
   final StreamController<dynamic> _controller =
       StreamController<dynamic>.broadcast();
   late final FakeWebSocketSink _sink = FakeWebSocketSink(_onOutgoingLine);
+  int? _closeCode;
 
   void _onOutgoingLine(String line) {
     if (!autoPong || !line.startsWith('PING')) return;
@@ -76,12 +87,24 @@ class FakeWebSocketChannel extends StreamChannelMixin<dynamic>
   String? get protocol => null;
 
   @override
-  int? get closeCode => null;
+  int? get closeCode => _closeCode;
 
   @override
   String? get closeReason => null;
 
   List<String> get sent => _sink.sent;
+
+  /// The peer stopped reading writes while the inbound stream stays open.
+  void closeWriteSide() => _sink.finish();
+
+  /// The peer closed the whole socket with an optional close code.
+  void peerClose({int? code}) {
+    _closeCode = code;
+    _controller.close();
+  }
+
+  /// The next outbound write fails synchronously, as a closed sink can.
+  void failNextWrite() => _sink.throwOnNextAdd = true;
 
   void push(String line) => _controller.add(line);
 

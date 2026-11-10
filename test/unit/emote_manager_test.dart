@@ -31,6 +31,8 @@ import '../helpers.dart';
 import 'package:ermchat/models/twitch_message.dart';
 import 'package:ermchat/services/seven_tv_event_client.dart';
 import 'package:ermchat/services/seven_tv_consumer.dart';
+import 'package:web_socket_channel/web_socket_channel.dart';
+import '../helpers/fake_web_socket.dart';
 import 'package:ermchat/widgets/emote_text.dart';
 import 'package:ermchat/widgets/emote_effect.dart';
 import 'package:ermchat/models/twitch_command.dart';
@@ -171,6 +173,17 @@ class _FixedPolicy implements EmoteImagePolicy {
 
   @override
   DateTime? lastUsedAt(String url) => null;
+}
+
+class _TestSevenTv extends SevenTvEventClient {
+  final channels = <FakeWebSocketChannel>[];
+
+  @override
+  Future<WebSocketChannel> openChannel() async {
+    final channel = FakeWebSocketChannel();
+    channels.add(channel);
+    return channel;
+  }
 }
 
 void main() {
@@ -4294,7 +4307,7 @@ void main() {
       SharedPreferences.setMockInitialValues({});
       final manager = EmoteManager();
       addTearDown(manager.dispose);
-      final client = SevenTvEventClient();
+      final client = _TestSevenTv();
       final consumer = SevenTvConsumer(
         emoteManager: manager,
         sevenTvClient: client,
@@ -4305,6 +4318,7 @@ void main() {
         consumer.dispose();
         client.dispose();
       });
+      await client.connect();
 
       client.handleRawMessage({
         'op': 1,

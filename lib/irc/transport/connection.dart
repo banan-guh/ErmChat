@@ -102,6 +102,7 @@ abstract class IrcConnection {
       return applyReconnectJitter(Duration(seconds: 1 << (capped - 1)));
     },
     connectivity: connectivityService,
+    onNetworkRegained: _handleNetworkRegained,
     connectTimeout: _connectTimeout,
   );
 
@@ -155,6 +156,12 @@ abstract class IrcConnection {
 
   /// Down, but the loop is already dialing or waiting to retry.
   bool get isReconnecting => !isConnected && _loop.running;
+
+  /// The current attempt is still waiting for its handshake.
+  bool get isDialing => _loop.dialing;
+
+  /// The login was rejected and no retry can help until credentials change.
+  bool get hasFatalAuth => _fatalAuth;
 
   final _joinFailedController = StreamController<IrcJoinFailureEvent>.broadcast(
     sync: true,
@@ -222,13 +229,21 @@ abstract class IrcConnection {
     bool useProxy = true,
   }) {
     if (_disposed) return Future.value();
+    final nextUsername = username.toLowerCase();
+    final credentialsChanged =
+        this.username != null &&
+        (this.username != nextUsername || token != accessToken);
     if (isConnected) {
-      // Credentials only apply to a socket we are about to authenticate;
-      // adopting new ones on a live socket (authenticated as the previous
-      // account) would make the stored state lie about the connection.
-      return Future.value();
+      if (!credentialsChanged) return Future.value();
+      // The live socket is authenticated as the previous account. Drop it
+      // first, otherwise the early return would let the bookkeeping claim the
+      // new credentials while the old socket stays up.
+      _loop.stop();
+      _disconnect();
+      _signalDeath(_DeathReason.closed);
+      _emitStatus(IrcConnectionStatus.disconnected);
     }
-    this.username = username.toLowerCase();
+    this.username = nextUsername;
     token = accessToken;
     _proxyWanted = useProxy && wsUrlOverride != null;
     _proxyFailures = 0;
@@ -269,6 +284,21 @@ abstract class IrcConnection {
           );
           _signalDeath(_DeathReason.closed);
         },
+      );
+      // A dead write half can stay invisible on the inbound stream: NAT
+      // rebinds and idle evictions black-hole sends without a FIN. Watch
+      // sink.done so the socket is not reported healthy while writes vanish.
+      unawaited(
+        channel!.sink.done.then(
+          (_) {
+            logDebug('$debugPrefix sink closed');
+            if (!death.isCompleted) _signalDeath(_DeathReason.closed);
+          },
+          onError: (Object e) {
+            logDebug('$debugPrefix sink error: $e');
+            if (!death.isCompleted) _signalDeath(_DeathReason.error);
+          },
+        ),
       );
 
       sendLine('CAP REQ :twitch.tv/tags twitch.tv/commands');
@@ -313,11 +343,12 @@ abstract class IrcConnection {
       // timed-out handshake also gets its socket closed so it can't leak.
       newChannel?.sink.close();
       if (!run.live) return SocketEnd.dropped;
+      final wasServing = channel != null;
       channel = null;
       _streamSub?.cancel();
       _streamSub = null;
       _socketDeath = null;
-      _emitStatus(IrcConnectionStatus.disconnected);
+      if (wasServing) _emitStatus(IrcConnectionStatus.disconnected);
       if (_viaProxy && ++_proxyFailures >= _proxyFailuresBeforeFallback) {
         logDebug('$debugPrefix proxy unreachable, dialing Twitch');
         _route(viaProxy: false);
@@ -412,6 +443,13 @@ abstract class IrcConnection {
     _disconnect();
     _signalDeath(_DeathReason.closed);
     if (emitStatus) _emitStatus(IrcConnectionStatus.disconnected);
+  }
+
+  void _handleNetworkRegained() {
+    if (channel == null) return;
+    logDebug('$debugPrefix network changed - reconnecting');
+    _disconnect();
+    _signalDeath(_DeathReason.error);
   }
 
   void forceReconnect() {
@@ -591,6 +629,8 @@ abstract class IrcConnection {
       _joinPending.contains(channel) || _joinConfirmed.contains(channel);
 
   void part(String channel) {
+    final joined =
+        _joinConfirmed.contains(channel) || _joinPending.contains(channel);
     _channels.remove(channel);
     _joinConfirmed.remove(channel);
     _joinPending.remove(channel);
@@ -599,7 +639,8 @@ abstract class IrcConnection {
     _joinFailed.remove(channel);
     _joinTimeoutTimers.remove(channel)?.cancel();
     _joinTimedOut.remove(channel);
-    if (this.channel != null) {
+    // The write socket never JOINs, so a PART there is an error NOTICE.
+    if (this.channel != null && joined) {
       sendLine('PART #$channel');
     }
   }

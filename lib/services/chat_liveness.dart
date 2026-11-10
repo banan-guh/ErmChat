@@ -81,7 +81,9 @@ class ChatLiveness {
     // backgrounding). When it looks connected, verify with a PING/PONG
     // round-trip instead of trusting isConnected; force a reconnect if the
     // PONG never comes back.
-    if (needsDial(irc.isConnected, irc.isReconnecting)) {
+    if (!irc.hasFatalAuth &&
+        !irc.isDialing &&
+        needsDial(irc.isConnected, irc.isReconnecting)) {
       unawaited(irc.connect(username: username, accessToken: accessToken));
     } else if (irc.isConnected && probe) {
       unawaited(
@@ -93,7 +95,9 @@ class ChatLiveness {
         }),
       );
     }
-    if (needsDial(ircRead.isConnected, ircRead.isReconnecting)) {
+    if (!ircRead.hasFatalAuth &&
+        !ircRead.isDialing &&
+        needsDial(ircRead.isConnected, ircRead.isReconnecting)) {
       unawaited(
         ircRead.connect(
           username: anonymous ? anonymousNick(2) : username,

@@ -123,6 +123,9 @@ class SevenTvEventClient {
   static const _rateLimitCloseCode = 4005;
   static const _rateLimitMinSeconds = 30;
   static const _rateLimitMaxSeconds = 600;
+  static const _maxPendingEmoteSets = 50;
+  static const _healthyWindow = Duration(seconds: 30);
+  static const _fatalRetryDelay = Duration(seconds: 2);
 
   WebSocketChannel? _channel;
   StreamSubscription<dynamic>? _streamSub;
@@ -136,6 +139,9 @@ class SevenTvEventClient {
   bool _rateLimited = false;
   int _rateLimitFailures = 0;
   Timer? _rateLimitRetry;
+  Timer? _helloTimer;
+  Timer? _healthyTimer;
+  Timer? _fatalRetry;
 
   // Completes when the serving socket ends, with how the loop goes on.
   Completer<SocketEnd>? _socketEnd;
@@ -206,7 +212,7 @@ class SevenTvEventClient {
   /// True when socket exists but no heartbeat arrived for >3x the interval
   /// (zombie, e.g. OS-frozen while backgrounded).
   bool get isStale {
-    if (_channel == null) return false;
+    if (_channel == null || !_handshakeComplete) return false;
     final interval = _heartbeatInterval;
     if (interval == null) return true;
     return DateTime.now().difference(_lastHeartbeat).inMilliseconds >
@@ -241,10 +247,17 @@ class SevenTvEventClient {
   /// Completes once the first handshake opened or failed.
   Future<void> connect() {
     if (_disposed || !_enabled) return Future.value();
+    _fatalRetry?.cancel();
+    _fatalRetry = null;
     _cancelRateLimitRetry();
     _disconnect();
     return _loop.start();
   }
+
+  /// Opens a new socket; overridable in tests.
+  @visibleForTesting
+  Future<WebSocketChannel> openChannel() async =>
+      WebSocketChannel.connect(Uri.parse(_wsUrl));
 
   /// One socket: dials, serves it until it ends, and says how the loop goes
   /// on.
@@ -252,18 +265,27 @@ class SevenTvEventClient {
     _run = run;
     _fatalCloseCode = null;
     _rateLimitHit = false;
-    final channel = WebSocketChannel.connect(Uri.parse(_wsUrl));
+    _handshakeComplete = false;
+    WebSocketChannel? opened;
     try {
-      await run.ready(channel);
+      opened = await openChannel();
+      await run.ready(opened);
     } catch (e) {
       // A timed-out handshake must not leave its socket open.
-      channel.sink.close();
+      opened?.sink.close();
       if (!run.live) return SocketEnd.dropped;
       logDebug('7TV event connect error: $e');
       _statusCtrl.add(SevenTvEventStatus.disconnected);
       return SocketEnd.dropped;
     }
+    final channel = opened;
     _channel = channel;
+    _helloTimer?.cancel();
+    _helloTimer = Timer(_connectTimeout, () {
+      if (!identical(_channel, channel) || _handshakeComplete) return;
+      logDebug('7TV event hello timeout - reconnecting');
+      _endSocket(SocketEnd.dropped);
+    });
     final end = Completer<SocketEnd>();
     _socketEnd = end;
     _streamSub = channel.stream.listen(
@@ -313,6 +335,10 @@ class SevenTvEventClient {
     // A fatal end leaves the socket released and reported down, so
     // [isConnected] is false and the liveness watchdog recovers it.
     _dropSocket();
+    if (how == SocketEnd.fatal) {
+      _pruneFatalSubscription();
+      _scheduleFatalRetry();
+    }
     return how;
   }
 
@@ -366,12 +392,17 @@ class SevenTvEventClient {
     _rateLimitFailures = 0;
   }
 
-  void subscribeEmoteSet(String emoteSetId) => _setSubscribed(
-    _pendingEmoteSets,
-    'emote_set.update',
-    emoteSetId,
-    subscribe: true,
-  );
+  void subscribeEmoteSet(String emoteSetId) {
+    _setSubscribed(
+      _pendingEmoteSets,
+      'emote_set.update',
+      emoteSetId,
+      subscribe: true,
+    );
+    while (_pendingEmoteSets.length > _maxPendingEmoteSets) {
+      _pendingEmoteSets.remove(_pendingEmoteSets.first);
+    }
+  }
 
   void unsubscribeEmoteSet(String emoteSetId) => _setSubscribed(
     _pendingEmoteSets,
@@ -421,7 +452,7 @@ class SevenTvEventClient {
     }
   }
 
-  void _sendSubscription(
+  bool _sendSubscription(
     String type,
     String objectId, {
     required bool subscribe,
@@ -431,9 +462,9 @@ class SevenTvEventClient {
         '7TV: refusing to send $type '
         '${subscribe ? 'subscribe' : 'unsubscribe'} with empty objectId',
       );
-      return;
+      return false;
     }
-    _send(
+    return _send(
       jsonEncode({
         'op': subscribe ? 35 : 36,
         'd': {
@@ -471,10 +502,22 @@ class SevenTvEventClient {
   }
 
   void _flushPendingSubscriptions() {
+    final failedSets = <String>[];
     for (final id in _pendingEmoteSets) {
+      if (!_sendSubscription('emote_set.update', id, subscribe: true)) {
+        failedSets.add(id);
+      }
+    }
+    for (final id in failedSets) {
       _sendSubscription('emote_set.update', id, subscribe: true);
     }
+    final failedUsers = <String>[];
     for (final id in _pendingUsers) {
+      if (!_sendSubscription('user.update', id, subscribe: true)) {
+        failedUsers.add(id);
+      }
+    }
+    for (final id in failedUsers) {
       _sendSubscription('user.update', id, subscribe: true);
     }
     for (final id in _pendingChannels) {
@@ -523,9 +566,20 @@ class SevenTvEventClient {
 
   void _onHello(Map<String, dynamic> d) {
     final interval = d['heartbeat_interval'] as int? ?? 30000;
+    _helloTimer?.cancel();
+    _helloTimer = null;
     _heartbeatInterval = interval;
     _handshakeComplete = true;
-    _run?.opened();
+    final run = _run;
+    final socket = _channel;
+    _healthyTimer?.cancel();
+    _healthyTimer = Timer(_healthyWindow, () {
+      if (identical(_run, run) &&
+          identical(_channel, socket) &&
+          _handshakeComplete) {
+        run?.opened();
+      }
+    });
     _lastHeartbeat = DateTime.now();
     _statusCtrl.add(SevenTvEventStatus.connected);
     _startHeartbeat();
@@ -720,9 +774,17 @@ class SevenTvEventClient {
     );
   }
 
-  void _send(String message) {
-    _subscriptionSends++;
-    _channel?.sink.add(message);
+  bool _send(String message) {
+    final channel = _channel;
+    if (channel == null) return false;
+    try {
+      channel.sink.add(message);
+      _subscriptionSends++;
+      return true;
+    } catch (e) {
+      logDebug('7TV event send failed: $e');
+      return false;
+    }
   }
 
   /// Releases the socket and reports it down, so [isConnected] is false.
@@ -736,12 +798,43 @@ class SevenTvEventClient {
     _heartbeatTimer?.cancel();
     _heartbeatTimer = null;
     _heartbeatInterval = null;
+    _helloTimer?.cancel();
+    _helloTimer = null;
+    _healthyTimer?.cancel();
+    _healthyTimer = null;
+    _fatalRetry?.cancel();
+    _fatalRetry = null;
     _handshakeComplete = false;
     _streamSub?.cancel();
     _streamSub = null;
     _channel?.sink.close();
     _channel = null;
     _endSocket(SocketEnd.dropped);
+  }
+
+  void _pruneFatalSubscription() {
+    if (_pendingEmoteSets.isNotEmpty) {
+      _pendingEmoteSets.remove(_pendingEmoteSets.last);
+      return;
+    }
+    if (_pendingUsers.isNotEmpty) {
+      _pendingUsers.remove(_pendingUsers.last);
+      return;
+    }
+    if (_pendingChannels.isNotEmpty) {
+      _pendingChannels.remove(_pendingChannels.last);
+    }
+  }
+
+  void _scheduleFatalRetry() {
+    if (_disposed || !_enabled) return;
+    _fatalRetry?.cancel();
+    _fatalRetry = Timer(_fatalRetryDelay, () {
+      _fatalRetry = null;
+      if (_disposed || !_enabled) return;
+      logDebug('7TV: retrying after a fatal close');
+      unawaited(connect());
+    });
   }
 
   @visibleForTesting

@@ -267,6 +267,49 @@ class _StaleEventSub extends _NoopEventSub {
   }
 }
 
+class _StaleSevenTv extends SevenTvEventClient {
+  _StaleSevenTv({
+    this.stale = false,
+    this.connected = true,
+    this.reconnecting = false,
+    this.rateLimited = false,
+  });
+
+  final bool stale;
+  final bool connected;
+  final bool reconnecting;
+  final bool rateLimited;
+  int forceCalls = 0;
+
+  @override
+  bool get isConnected => connected;
+
+  @override
+  bool get isReconnecting => reconnecting;
+
+  @override
+  bool get isRateLimited => rateLimited;
+
+  @override
+  bool get isStale => stale;
+
+  @override
+  Future<void> forceReconnect() async {
+    forceCalls++;
+  }
+}
+
+class _TestSevenTv extends SevenTvEventClient {
+  final channels = <FakeWebSocketChannel>[];
+
+  @override
+  Future<WebSocketChannel> openChannel() async {
+    final channel = FakeWebSocketChannel();
+    channels.add(channel);
+    return channel;
+  }
+}
+
 class _TestIrc extends IrcService {
   final _statusCtrl = StreamController<IrcConnectionStatus>.broadcast(
     sync: true,
@@ -973,7 +1016,11 @@ void main() {
         // The handshake never completes; the 10s connect timeout fails the
         // attempt cleanly instead of hanging `_connecting` forever.
         async.elapse(const Duration(seconds: 11));
-        expect(statuses, contains(IrcConnectionStatus.disconnected));
+        expect(
+          statuses,
+          isNot(contains(IrcConnectionStatus.disconnected)),
+          reason: 'a connect attempt that never served is not an outage',
+        );
 
         async.elapse(const Duration(milliseconds: 1250));
         expect(service.openAttempts, 2);
@@ -1702,13 +1749,13 @@ void main() {
     );
   });
 
-  late SevenTvEventClient client;
+  late _TestSevenTv client;
   late List<SevenTvEmoteUpdateEvent> emoteEvents;
   late List<SevenTvUserUpdate> userEvents;
   late List<SevenTvEventStatus> statusEvents;
 
   setUp(() {
-    client = SevenTvEventClient();
+    client = _TestSevenTv();
     emoteEvents = [];
     userEvents = [];
     statusEvents = [];
@@ -1722,12 +1769,14 @@ void main() {
   });
 
   group('7TV event client', () {
-    test('subscribes send once, before or after Hello', () {
+    test('subscribes send once, before or after Hello', () async {
       client.subscribeEmoteSet('set1');
       client.subscribeEmoteSet('set1');
       client.subscribeTwitchChannel('123');
       client.subscribeTwitchChannel('123');
       expect(emoteEvents, isEmpty);
+      await client.connect();
+      expect(client.channels, hasLength(1));
       client.handleRawMessage(_hello());
       expect(statusEvents, [SevenTvEventStatus.connected]);
       // One emote-set frame plus four channel frames.
@@ -1844,7 +1893,7 @@ void main() {
       expect(statusEvents, isEmpty);
     });
 
-    test('7TV reconnect counter survives failed attempts, resets on Hello', () {
+    test('7TV reconnect counter survives failed attempts and a bare Hello', () {
       fakeAsync((async) {
         final c = SevenTvEventClient();
         c.connect();
@@ -1853,7 +1902,11 @@ void main() {
         async.elapse(const Duration(seconds: 12));
         expect(c.reconnectAttempt, greaterThan(1), reason: 'a retry reset');
         c.handleRawMessage(_hello());
-        expect(c.reconnectAttempt, 0);
+        expect(
+          c.reconnectAttempt,
+          greaterThan(0),
+          reason: 'a Hello alone is not sustained health',
+        );
         c.dispose();
       });
     });
@@ -3533,6 +3586,304 @@ void main() {
         });
       });
     }
+
+    // 7TV has no PING/PONG check, so isStale is its only zombie signal. A
+    // rate-limited client must be left to its own retry timer.
+    for (final (name, stale, connected, reconnecting, rateLimited, probe, calls)
+        in [
+          (
+            'reconnects a stale 7TV socket on resume',
+            true,
+            true,
+            false,
+            false,
+            true,
+            1,
+          ),
+          (
+            'does not reconnect a healthy 7TV socket',
+            false,
+            true,
+            false,
+            false,
+            true,
+            0,
+          ),
+          (
+            'the watchdog leaves a retrying 7TV socket alone',
+            false,
+            false,
+            true,
+            false,
+            false,
+            0,
+          ),
+          (
+            'the watchdog dials a 7TV socket nothing retries',
+            false,
+            false,
+            false,
+            false,
+            false,
+            1,
+          ),
+          (
+            'a resume dials a retrying 7TV socket at once',
+            false,
+            false,
+            true,
+            false,
+            true,
+            1,
+          ),
+          (
+            'a rate-limited 7TV socket is left alone',
+            true,
+            false,
+            false,
+            true,
+            true,
+            0,
+          ),
+        ]) {
+      test(name, () {
+        fakeAsync((async) {
+          final irc = _TestIrc();
+          irc.alive = true;
+          final sevenTv = _StaleSevenTv(
+            stale: stale,
+            connected: connected,
+            reconnecting: reconnecting,
+            rateLimited: rateLimited,
+          );
+          final liveness = ChatLiveness(
+            irc: irc,
+            ircRead: _TestIrcRead()..fakeConnected = true,
+            eventSub: _NoopEventSub(),
+            sevenTvClient: sevenTv,
+            session: Session(),
+            twitchAuth: TwitchAuth(),
+          );
+          irc.connect(username: 'testuser', accessToken: 'token');
+          irc.emitConnected();
+          liveness.reconnectIfNecessary(probe: probe);
+          async.flushMicrotasks();
+          expect(sevenTv.forceCalls, calls, reason: name);
+          liveness.dispose();
+        });
+      });
+    }
+  });
+
+  group('write socket health', () {
+    test('a half-closed write side tears down and reconnects', () {
+      fakeAsync((async) {
+        final first = FakeWebSocketChannel();
+        final second = FakeWebSocketChannel();
+        final irc = _TestService([first, second]);
+        final statuses = <IrcConnectionStatus>[];
+        final statusSub = irc.onStatus.listen(statuses.add);
+        irc.connect(username: 'user', accessToken: 'token');
+        async.flushMicrotasks();
+        expect(irc.isConnected, isTrue);
+
+        // The read side stays open, as a network black hole would leave it.
+        first.closeWriteSide();
+        async.flushMicrotasks();
+        expect(irc.isConnected, isFalse);
+        expect(statuses, contains(IrcConnectionStatus.disconnected));
+
+        async.elapse(const Duration(seconds: 2));
+        expect(irc.openAttempts, 2);
+        expect(irc.isConnected, isTrue);
+        statusSub.cancel();
+        irc.dispose();
+      });
+    });
+  });
+
+  group('connection scenarios', () {
+    test('a network switch reconnects a live socket', () {
+      fakeAsync((async) {
+        final conn = ConnectivityService();
+        conn.debugSetResults(const [ConnectivityResult.wifi]);
+        final first = FakeWebSocketChannel();
+        final second = FakeWebSocketChannel();
+        final service = _TestService([
+          first,
+          second,
+        ], connectivityService: conn);
+        try {
+          service.connect(username: 'user', accessToken: 'token');
+          async.flushMicrotasks();
+          expect(service.openAttempts, 1);
+
+          conn.debugSetResults(const [ConnectivityResult.none]);
+          async.flushMicrotasks();
+          conn.debugSetResults(const [ConnectivityResult.mobile]);
+          async.flushMicrotasks();
+          async.elapse(const Duration(seconds: 2));
+          expect(
+            service.openAttempts,
+            2,
+            reason:
+                'the old network path is dead, even if the socket thinks it is up',
+          );
+        } finally {
+          service.dispose();
+          conn.dispose();
+          first.dispose();
+          second.dispose();
+          async.flushTimers();
+        }
+      });
+    });
+
+    test('a fatal login is not resurrected by the watchdog', () {
+      fakeAsync((async) {
+        final channel = FakeWebSocketChannel();
+        final service = _TestService([channel]);
+        final liveness = ChatLiveness(
+          irc: service,
+          ircRead: _TestIrcRead()..fakeConnected = true,
+          eventSub: _NoopEventSub(),
+          sevenTvClient: null,
+          session: Session(),
+          twitchAuth: TwitchAuth(),
+        );
+        try {
+          service.connect(username: 'user', accessToken: 'bad');
+          async.flushMicrotasks();
+          channel.push(':tmi.twitch.tv NOTICE * :Login authentication failed');
+          async.flushMicrotasks();
+          expect(service.isConnected, isFalse);
+
+          liveness.reconnectIfNecessary(probe: false);
+          async.flushMicrotasks();
+          expect(
+            service.openAttempts,
+            1,
+            reason:
+                'a dead login must wait for new credentials, not the watchdog',
+          );
+        } finally {
+          liveness.dispose();
+          service.dispose();
+          channel.dispose();
+          async.flushTimers();
+        }
+      });
+    });
+
+    test(
+      'leaving a channel does not PART a write socket that never joined',
+      () {
+        fakeAsync((async) {
+          final channel = FakeWebSocketChannel();
+          final service = _TestService([channel]);
+          try {
+            service.connect(username: 'user', accessToken: 'token');
+            async.flushMicrotasks();
+            service.part('chan');
+            async.flushMicrotasks();
+            expect(
+              channel.sent.where((line) => line.startsWith('PART ')),
+              isEmpty,
+              reason:
+                  'the write socket never JOINs, so PART is an error NOTICE',
+            );
+          } finally {
+            service.dispose();
+            channel.dispose();
+            async.flushTimers();
+          }
+        });
+      },
+    );
+
+    test('switching accounts reconnects a live socket', () {
+      fakeAsync((async) {
+        final first = FakeWebSocketChannel();
+        final second = FakeWebSocketChannel();
+        final service = _TestService([first, second]);
+        try {
+          service.connect(username: 'alice', accessToken: 'a');
+          async.flushMicrotasks();
+          expect(service.openAttempts, 1);
+
+          service.connect(username: 'bob', accessToken: 'b');
+          async.flushMicrotasks();
+          expect(service.openAttempts, 2);
+          expect(second.sent, contains('PASS oauth:b'));
+        } finally {
+          service.dispose();
+          first.dispose();
+          second.dispose();
+          async.flushTimers();
+        }
+      });
+    });
+
+    test('a cold start before the network is up has no outage row', () {
+      fakeAsync((async) {
+        final service = _TestService([
+          FakeWebSocketChannel(failReady: true),
+          FakeWebSocketChannel(),
+        ]);
+        final statuses = <IrcConnectionStatus>[];
+        final sub = service.onStatus.listen(statuses.add);
+        try {
+          service.connect(username: 'user', accessToken: 'token');
+          async.flushMicrotasks();
+          expect(
+            statuses,
+            isNot(contains(IrcConnectionStatus.disconnected)),
+            reason: 'nothing was connected yet, so nothing disconnected',
+          );
+        } finally {
+          sub.cancel();
+          service.dispose();
+          async.flushTimers();
+        }
+      });
+    });
+
+    test('a resume during the handshake does not restart it', () {
+      fakeAsync((async) {
+        final ready = Completer<void>();
+        final first = FakeWebSocketChannel(readyCompleter: ready);
+        final second = FakeWebSocketChannel();
+        final service = _TestService([first, second]);
+        final liveness = ChatLiveness(
+          irc: service,
+          ircRead: _TestIrcRead()..fakeConnected = true,
+          eventSub: _NoopEventSub(),
+          sevenTvClient: null,
+          session: Session(),
+          twitchAuth: TwitchAuth(),
+        );
+        try {
+          service.connect(username: 'user', accessToken: 'token');
+          async.flushMicrotasks();
+          expect(service.openAttempts, 1);
+
+          liveness.reconnectIfNecessary(probe: true);
+          async.flushMicrotasks();
+          expect(
+            service.openAttempts,
+            1,
+            reason: 'a resume must not abort a handshake already in flight',
+          );
+        } finally {
+          if (!ready.isCompleted) ready.complete();
+          liveness.dispose();
+          service.dispose();
+          first.dispose();
+          second.dispose();
+          async.flushTimers();
+        }
+      });
+    });
   });
 
   group('read socket status', () {

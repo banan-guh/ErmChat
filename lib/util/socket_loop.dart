@@ -32,6 +32,7 @@ class SocketLoop {
     required this.attempt,
     required this.backoff,
     this.connectivity,
+    this.onNetworkRegained,
     this.connectTimeout = const Duration(seconds: 10),
   });
 
@@ -46,10 +47,12 @@ class SocketLoop {
   final Duration Function(int failures) backoff;
 
   final ConnectivityService? connectivity;
+  final VoidCallback? onNetworkRegained;
   final Duration connectTimeout;
 
   SocketRun? _run;
   int _failures = 0;
+  bool _dialing = false;
   VoidCallback? _connectivityListener;
   bool _wasOnline = true;
 
@@ -58,6 +61,9 @@ class SocketLoop {
 
   /// A run is connecting, serving or waiting to retry.
   bool get running => _run != null;
+
+  /// The current attempt is still waiting for its handshake.
+  bool get dialing => _dialing;
 
   /// Starts a run, replacing any in flight. Completes once its first
   /// attempt has opened or ended.
@@ -88,15 +94,22 @@ class SocketLoop {
     _failures = 0;
     while (run.live) {
       SocketEnd end;
+      _dialing = true;
       try {
         end = await attempt(run);
       } catch (e) {
         logDebug('$name attempt failed: $e');
         end = SocketEnd.dropped;
+      } finally {
+        _dialing = false;
       }
       run._settle();
       if (!run.live || end == SocketEnd.fatal) break;
-      if (end == SocketEnd.reconnectNow) continue;
+      if (end == SocketEnd.reconnectNow) {
+        _failures++;
+        await run._sleep(const Duration(milliseconds: 500));
+        continue;
+      }
       _failures++;
       await run._sleep(backoff(_failures));
     }
@@ -112,6 +125,7 @@ class SocketLoop {
       if (service.isOnline && !_wasOnline) {
         _failures = 0;
         _run?._wake();
+        onNetworkRegained?.call();
       }
       _wasOnline = service.isOnline;
     };
