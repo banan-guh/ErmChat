@@ -18,6 +18,7 @@ import '../util/history_timeline.dart';
 import '../util/history_window.dart';
 import '../util/log.dart';
 import '../util/perf_probe.dart';
+import 'chat_list.dart';
 import 'chat_message_tile.dart';
 import 'chat_rows.dart';
 import 'chrome_menu_button.dart';
@@ -205,56 +206,6 @@ class _Item {
   final bool start;
 }
 
-/// Lets the view correct the offset in the layout that applies new content:
-/// pinned to the newest row while following, or holding a row in place.
-mixin _HoldPhysicsMixin on ScrollPhysics {
-  double? Function(ScrollMetrics, bool bouncing) get resolve;
-
-  @override
-  double adjustPositionForNewDimensions({
-    required ScrollMetrics oldPosition,
-    required ScrollMetrics newPosition,
-    required bool isScrolling,
-    required double velocity,
-  }) =>
-      // Clamping never overscrolls, so only a bouncing scroll can be past
-      // an end on purpose.
-      resolve(newPosition, isScrolling && this is BouncingScrollPhysics) ??
-      super.adjustPositionForNewDimensions(
-        oldPosition: oldPosition,
-        newPosition: newPosition,
-        isScrolling: isScrolling,
-        velocity: velocity,
-      );
-}
-
-class _HoldClampingPhysics extends ClampingScrollPhysics
-    with _HoldPhysicsMixin {
-  const _HoldClampingPhysics({super.parent, required this.resolve});
-
-  @override
-  final double? Function(ScrollMetrics, bool bouncing) resolve;
-
-  @override
-  _HoldClampingPhysics applyTo(ScrollPhysics? ancestor) =>
-      _HoldClampingPhysics(parent: buildParent(ancestor), resolve: resolve);
-}
-
-class _HoldBouncingPhysics extends BouncingScrollPhysics
-    with _HoldPhysicsMixin {
-  const _HoldBouncingPhysics({super.parent, required this.resolve});
-
-  @override
-  final double? Function(ScrollMetrics, bool bouncing) resolve;
-
-  @override
-  _HoldBouncingPhysics applyTo(ScrollPhysics? ancestor) =>
-      _HoldBouncingPhysics(parent: buildParent(ancestor), resolve: resolve);
-}
-
-/// Rows a re-anchor shifted within one sliver: each row's new index by its
-/// key, and the layout offset at each new index. Live for the one rebuild
-/// and layout that apply the re-anchor.
 /// Starts a new scroll position where [start] says, read when the list first
 /// lays out, so a list opening at its newest row needs no jump a frame later.
 class _StartController extends ScrollController {
@@ -264,59 +215,6 @@ class _StartController extends ScrollController {
 
   @override
   double get initialScrollOffset => start();
-}
-
-class _Moves {
-  final Map<String, int> indexOf = {};
-  final Map<int, double> offsets = {};
-
-  int? find(Key key) => key is ValueKey<String> ? indexOf[key.value] : null;
-
-  void clear() {
-    indexOf.clear();
-    offsets.clear();
-  }
-}
-
-/// A [SliverList] that restores the offsets of rows [_Moves] shifted. A
-/// moved child otherwise keeps no offset unless its new slot held a child
-/// last layout, and the sliver drops it or fails hit testing on it
-/// (flutter#153922).
-class _MovingSliverList extends SliverList {
-  const _MovingSliverList({
-    super.key,
-    required super.delegate,
-    required this.moves,
-  });
-
-  final _Moves moves;
-
-  @override
-  RenderSliverList createRenderObject(BuildContext context) =>
-      _RenderMovingSliverList(
-        childManager: context as SliverMultiBoxAdaptorElement,
-        moves: moves,
-      );
-}
-
-class _RenderMovingSliverList extends RenderSliverList {
-  _RenderMovingSliverList({required super.childManager, required this.moves});
-
-  final _Moves moves;
-
-  @override
-  void performLayout() {
-    final offsets = moves.offsets;
-    if (offsets.isNotEmpty) {
-      for (RenderBox? c = firstChild; c != null; c = childAfter(c)) {
-        final d = c.parentData! as SliverMultiBoxAdaptorParentData;
-        final o = offsets[d.index];
-        if (o != null) d.layoutOffset = o;
-      }
-      offsets.clear();
-    }
-    super.performLayout();
-  }
 }
 
 class _HistoryViewState extends State<HistoryView> {
@@ -356,8 +254,8 @@ class _HistoryViewState extends State<HistoryView> {
   IslandMetrics? _island;
   final GlobalKey _olderKey = GlobalKey();
   final GlobalKey _newerKey = GlobalKey();
-  final _Moves _olderMoves = _Moves();
-  final _Moves _newerMoves = _Moves();
+  final ChatMoves _olderMoves = ChatMoves();
+  final ChatMoves _newerMoves = ChatMoves();
   late final HistoryWindow _window = HistoryWindow(
     now: widget.source.now,
     emptyStretches: widget.emptyStretches,
@@ -2164,55 +2062,49 @@ class _HistoryViewState extends State<HistoryView> {
         _scheduleGateSync();
         return false;
       },
-      child: Listener(
+      child: ChatListShell(
+        controller: _controller,
+        resolve: _resolve,
+        onScrollNotification: _onScrollNotification,
         onPointerSignal: _onPointerSignal,
-        child: NotificationListener<ScrollNotification>(
-          onNotification: _onScrollNotification,
-          child: CustomScrollView(
-            controller: _controller,
-            physics: defaultTargetPlatform == TargetPlatform.iOS
-                ? _HoldBouncingPhysics(
-                    parent: const AlwaysScrollableScrollPhysics(),
-                    resolve: _resolve,
-                  )
-                : _HoldClampingPhysics(resolve: _resolve),
-            reverse: true,
-            scrollCacheExtent: _endCache,
-            center: _olderKey,
-            keyboardDismissBehavior: widget.keyboardDismissBehavior,
-            slivers: [
-              // Sizes in layout, so the newest row clears the island in the
-              // frame it moves.
-              SliverToBoxAdapter(child: IslandSpacer(page: page, chat: true)),
-              if (empty) SliverToBoxAdapter(child: _empty(context)),
-              _MovingSliverList(
-                key: _newerKey,
-                moves: _newerMoves,
-                delegate: SliverChildBuilderDelegate(
-                  (ctx, j) => _item(ctx, _newerItems, j),
-                  childCount: _newerItems.length,
-                  findChildIndexCallback: _newerMoves.find,
-                  addAutomaticKeepAlives: false,
-                  addRepaintBoundaries: false,
-                  addSemanticIndexes: false,
-                ),
-              ),
-              _MovingSliverList(
-                key: _olderKey,
-                moves: _olderMoves,
-                delegate: SliverChildBuilderDelegate(
-                  (ctx, j) => _item(ctx, _olderItems, j),
-                  childCount: _olderItems.length,
-                  findChildIndexCallback: _olderMoves.find,
-                  addAutomaticKeepAlives: false,
-                  addRepaintBoundaries: false,
-                  addSemanticIndexes: false,
-                ),
-              ),
-              SliverToBoxAdapter(child: SizedBox(height: widget.topPadding)),
-            ],
+        center: _olderKey,
+        cacheExtent: _endCache,
+        atBottom: widget.atBottomNotifier,
+        onJumpToBottom: _jumpToNewest,
+        heroTag: widget.scrollFabHeroTag ?? 'scroll_down_${widget.channel}',
+        islandPage: page,
+        keyboardDismissBehavior: widget.keyboardDismissBehavior,
+        slivers: [
+          // Sizes in layout, so the newest row clears the island in the
+          // frame it moves.
+          SliverToBoxAdapter(child: IslandSpacer(page: page, chat: true)),
+          if (empty) SliverToBoxAdapter(child: _empty(context)),
+          MovingChatSliverList(
+            key: _newerKey,
+            moves: _newerMoves,
+            delegate: SliverChildBuilderDelegate(
+              (ctx, j) => _item(ctx, _newerItems, j),
+              childCount: _newerItems.length,
+              findChildIndexCallback: _newerMoves.find,
+              addAutomaticKeepAlives: false,
+              addRepaintBoundaries: false,
+              addSemanticIndexes: false,
+            ),
           ),
-        ),
+          MovingChatSliverList(
+            key: _olderKey,
+            moves: _olderMoves,
+            delegate: SliverChildBuilderDelegate(
+              (ctx, j) => _item(ctx, _olderItems, j),
+              childCount: _olderItems.length,
+              findChildIndexCallback: _olderMoves.find,
+              addAutomaticKeepAlives: false,
+              addRepaintBoundaries: false,
+              addSemanticIndexes: false,
+            ),
+          ),
+          SliverToBoxAdapter(child: SizedBox(height: widget.topPadding)),
+        ],
       ),
     );
     // iOS: a tap on empty chat space dismisses the keyboard. Rows are
@@ -2247,28 +2139,6 @@ class _HistoryViewState extends State<HistoryView> {
                   onStreams: _openStreams,
                 ),
         ),
-        if (widget.atBottomNotifier case final atBottom?)
-          ValueListenableBuilder<bool>(
-            valueListenable: atBottom,
-            builder: (_, value, _) => Positioned.fill(
-              child: IslandInset(
-                page: page,
-                child: Align(
-                  alignment: Alignment.bottomRight,
-                  child: Padding(
-                    padding: const EdgeInsets.only(right: 16, bottom: 16),
-                    child: ScrollDownButton(
-                      atBottom: value,
-                      heroTag:
-                          widget.scrollFabHeroTag ??
-                          'scroll_down_${widget.channel}',
-                      onPressed: _jumpToNewest,
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ),
         if (widget.actions case final actions?)
           ListenableBuilder(
             listenable: Listenable.merge([actions.follow, actions.vodLive]),

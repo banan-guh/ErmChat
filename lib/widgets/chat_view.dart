@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import '../l10n/l10n.dart';
 import 'package:flutter/rendering.dart';
 import '../models/twitch_message.dart';
+import 'chat_list.dart';
 import 'chat_rows.dart';
 import 'island_chrome.dart';
 import 'seven_tv_paint_service.dart';
@@ -163,53 +164,6 @@ class _ChatHold {
   double? Function(ScrollMetrics) resolve = (_) => null;
 }
 
-/// Applies [_ChatHold.resolve] on top of the platform physics. Everything else
-/// delegates to the parent, so fling, overscroll and gesture routing are stock.
-mixin _ChatHoldPhysicsMixin on ScrollPhysics {
-  _ChatHold get hold;
-
-  @override
-  double adjustPositionForNewDimensions({
-    required ScrollMetrics oldPosition,
-    required ScrollMetrics newPosition,
-    required bool isScrolling,
-    required double velocity,
-  }) {
-    final target = hold.resolve(newPosition);
-    if (target != null) return target;
-    return super.adjustPositionForNewDimensions(
-      oldPosition: oldPosition,
-      newPosition: newPosition,
-      isScrolling: isScrolling,
-      velocity: velocity,
-    );
-  }
-}
-
-class _ChatHoldClampingPhysics extends ClampingScrollPhysics
-    with _ChatHoldPhysicsMixin {
-  _ChatHoldClampingPhysics({super.parent, required this.hold});
-
-  @override
-  final _ChatHold hold;
-
-  @override
-  _ChatHoldClampingPhysics applyTo(ScrollPhysics? ancestor) =>
-      _ChatHoldClampingPhysics(parent: buildParent(ancestor), hold: hold);
-}
-
-class _ChatHoldBouncingPhysics extends BouncingScrollPhysics
-    with _ChatHoldPhysicsMixin {
-  _ChatHoldBouncingPhysics({super.parent, required this.hold});
-
-  @override
-  final _ChatHold hold;
-
-  @override
-  _ChatHoldBouncingPhysics applyTo(ScrollPhysics? ancestor) =>
-      _ChatHoldBouncingPhysics(parent: buildParent(ancestor), hold: hold);
-}
-
 class _ChatViewState extends State<ChatView>
     with AutomaticKeepAliveClientMixin {
   /// Pixels from the newest row above which the reader counts as scrolled up.
@@ -310,89 +264,53 @@ class _ChatViewState extends State<ChatView>
     super.build(context);
     final surface = Theme.of(context).scaffoldBackgroundColor;
     final s = widget.chatFontScale * _cachedSystemScale;
-    return Stack(
-      clipBehavior: Clip.hardEdge,
-      children: [
-        // A viewport resize (keyboard) moves rows in or out of view without
-        // a scroll or a build. This arrives post-frame, after layout, so it
-        // syncs now: a deferred sync could wait for a frame that never comes.
-        NotificationListener<ScrollMetricsNotification>(
-          onNotification: (notification) {
-            // A scheduled post-frame sync already covers this layout; a repeat
-            // notification for the same metrics is a no-op.
-            final m = notification.metrics;
-            if (m.extentBefore != _lastGateExtentBefore ||
-                m.extentInside != _lastGateExtentInside ||
-                m.extentAfter != _lastGateExtentAfter ||
-                m.axisDirection != _lastGateAxis) {
-              _syncRowGates();
-            }
-            return false;
-          },
-          child: Listener(
-            onPointerSignal: _onPointerSignal,
-            child: NotificationListener<ScrollNotification>(
-              onNotification: (notification) {
-                _scheduleGateSync();
-                if (notification is ScrollStartNotification) {
-                  if (notification.dragDetails != null || _pointerScroll) {
-                    _follow = false;
-                  }
-                  _applyScrollState(notification.metrics);
-                } else if (notification is ScrollUpdateNotification) {
-                  if (notification.dragDetails != null || _pointerScroll) {
-                    _follow = false;
-                  }
-                  _applyScrollState(notification.metrics);
-                } else if (notification is ScrollEndNotification) {
-                  if (notification.metrics.pixels <= _followEps) _follow = true;
-                  _applyScrollState(notification.metrics);
-                }
-                return false;
-              },
-              child: ScrollbarTheme(
-                data: const ScrollbarThemeData(
-                  thickness: WidgetStatePropertyAll(0),
-                ),
-                child: ValueListenableBuilder<int>(
-                  valueListenable: widget.messageNotifier,
-                  builder: (_, _, _) {
-                    final msgs = widget.messages;
-                    _syncHold(msgs);
-                    return _tapToDismiss(_buildList(context, msgs, surface, s));
-                  },
-                ),
-              ),
-            ),
-          ),
-        ),
-        ValueListenableBuilder<bool>(
-          valueListenable: widget.atBottomNotifier,
-          builder: (_, atBottom, _) {
-            // The island floats over the list bottom, so the button rides
-            // above it by the same clearance the newest rows use.
-            return Positioned.fill(
-              child: IslandInset(
-                page: _islandPage,
-                child: Align(
-                  alignment: Alignment.bottomRight,
-                  child: Padding(
-                    padding: const EdgeInsets.only(right: 16, bottom: 16),
-                    child: ScrollDownButton(
-                      atBottom: atBottom,
-                      heroTag:
-                          widget.scrollFabHeroTag ??
-                          'scroll_down_${widget.channel}',
-                      onPressed: _jumpToBottom,
-                    ),
-                  ),
-                ),
-              ),
-            );
+    return NotificationListener<ScrollMetricsNotification>(
+      // A viewport resize (keyboard) moves rows in or out of view without a
+      // scroll or a build. This arrives post-frame, after layout, so it syncs
+      // now: a deferred sync could wait for a frame that never comes.
+      onNotification: (notification) {
+        // A scheduled post-frame sync already covers this layout; a repeat
+        // notification for the same metrics is a no-op.
+        final m = notification.metrics;
+        if (m.extentBefore != _lastGateExtentBefore ||
+            m.extentInside != _lastGateExtentInside ||
+            m.extentAfter != _lastGateExtentAfter ||
+            m.axisDirection != _lastGateAxis) {
+          _syncRowGates();
+        }
+        return false;
+      },
+      child: ScrollbarTheme(
+        data: const ScrollbarThemeData(thickness: WidgetStatePropertyAll(0)),
+        child: ValueListenableBuilder<int>(
+          valueListenable: widget.messageNotifier,
+          builder: (_, _, _) {
+            final msgs = widget.messages;
+            _syncHold(msgs);
+            return _tapToDismiss(_buildList(context, msgs, surface, s));
           },
         ),
-      ],
+      ),
     );
+  }
+
+  bool _onScrollNotification(ScrollNotification notification) {
+    _scheduleGateSync();
+    if (notification is ScrollStartNotification) {
+      if (notification.dragDetails != null || _pointerScroll) {
+        _follow = false;
+      }
+      _applyScrollState(notification.metrics);
+    } else if (notification is ScrollUpdateNotification) {
+      if (notification.dragDetails != null || _pointerScroll) {
+        _follow = false;
+      }
+      _applyScrollState(notification.metrics);
+    } else if (notification is ScrollEndNotification) {
+      if (notification.metrics.pixels <= _followEps) _follow = true;
+      _applyScrollState(notification.metrics);
+    }
+    return false;
   }
 
   Widget _buildList(
@@ -414,17 +332,23 @@ class _ChatViewState extends State<ChatView>
       );
       _refreshIndexMap(msgs, cache);
       _listMsgs = msgs;
-      final list = CustomScrollView(
+      final list = ChatListShell(
         // PageStorage key restores the offset after the channel page
         // unmounts off screen; kept-alive lists need no key.
-        key: widget.keepAlive
+        scrollViewKey: widget.keepAlive
             ? ValueKey<String>(widget.channel)
             : PageStorageKey<String>('${widget.channel}:chat'),
         controller: widget.scrollController,
-        reverse: true,
-        physics: _scrollPhysics(),
-        keyboardDismissBehavior: widget.keyboardDismissBehavior,
+        physics: widget.physics,
+        resolve: (m, _) => _hold.resolve(m),
+        onScrollNotification: _onScrollNotification,
+        onPointerSignal: _onPointerSignal,
+        atBottom: widget.atBottomNotifier,
+        onJumpToBottom: _jumpToBottom,
+        heroTag: widget.scrollFabHeroTag ?? 'scroll_down_${widget.channel}',
+        islandPage: _islandPage,
         semanticChildCount: msgs.length,
+        keyboardDismissBehavior: widget.keyboardDismissBehavior,
         slivers: [
           bottom,
           SliverList(
@@ -466,11 +390,17 @@ class _ChatViewState extends State<ChatView>
       channel: widget.channel,
     );
     _refreshIndexMap(const [], null);
-    return CustomScrollView(
-      key: ValueKey<String>('${widget.channel}:empty'),
+    return ChatListShell(
+      scrollViewKey: ValueKey<String>('${widget.channel}:empty'),
       controller: widget.scrollController,
-      reverse: true,
-      physics: _scrollPhysics(),
+      physics: widget.physics,
+      resolve: (m, _) => _hold.resolve(m),
+      onScrollNotification: _onScrollNotification,
+      onPointerSignal: _onPointerSignal,
+      atBottom: widget.atBottomNotifier,
+      onJumpToBottom: _jumpToBottom,
+      heroTag: widget.scrollFabHeroTag ?? 'scroll_down_${widget.channel}',
+      islandPage: _islandPage,
       keyboardDismissBehavior: widget.keyboardDismissBehavior,
       slivers: [
         bottom,
@@ -500,17 +430,6 @@ class _ChatViewState extends State<ChatView>
       onTap: () => FocusManager.instance.primaryFocus?.unfocus(),
       child: list,
     );
-  }
-
-  // iOS is always scrollable, so a drag on a short list still dismisses the
-  // keyboard.
-  ScrollPhysics _scrollPhysics() {
-    return defaultTargetPlatform == TargetPlatform.iOS
-        ? _ChatHoldBouncingPhysics(
-            parent: AlwaysScrollableScrollPhysics(parent: widget.physics),
-            hold: _hold,
-          )
-        : _ChatHoldClampingPhysics(parent: widget.physics, hold: _hold);
   }
 
   /// Jumps to the newest row. Follow is claimed before the jump so a transient
