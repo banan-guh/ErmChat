@@ -100,7 +100,6 @@ Any feedback, no matter what, is VERY much appreciated. You have multiple ways t
 
 - Create an issue on GitHub (here), bugreport or feature request
 - Create an issue on [Discord](https://discord.gg/ETUHUwTq25), or even just send something in general
-- Come to my twitch channel (not live, only chat) at #ermugo2 and tell me directly - join the channel in ermchat!
 - Send an email to kuhwalri.contact@gmail.com
 
 An in-app bug reporter is on the way, but it's not finished yet.
