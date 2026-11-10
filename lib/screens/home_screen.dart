@@ -401,7 +401,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     canModerate: (msg) {
       final channel = msg.channel;
       if (channel == null) return false;
-      return _chatConn.isModerationActive(channel) || _devModTools(channel);
+      // The role, not the stream: deletion and pinning work while offline.
+      return _chatConn.hasModRole(channel);
     },
     pinMessage: (context, msg) async {
       final result = await _modActions.pinMessage(
