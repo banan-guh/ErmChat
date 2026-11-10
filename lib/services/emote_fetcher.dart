@@ -167,6 +167,7 @@ class EmoteFetcher {
   /// show it before the slowest provider answers.
   Future<GlobalEmoteFetch> fetchAllGlobal({
     void Function(GlobalEmoteFetch landed)? onProvider,
+    void Function()? onSettled,
   }) async {
     final results = <EmoteType, List<Emote>>{};
     var unlockIds = const <String>{};
@@ -198,7 +199,7 @@ class EmoteFetcher {
       (EmoteType.sevenTv, _sevenTvGlobalFetcher),
     ];
     final failed = await _fetchConcurrent(
-      _providerCalls(fetches, landed),
+      _providerCalls(fetches, landed, onSettled: onSettled),
       maxConcurrent: 2,
     );
     return GlobalEmoteFetch(
@@ -215,6 +216,7 @@ class EmoteFetcher {
     String? broadcasterId, {
     String? channelName,
     void Function(ChannelEmoteFetch landed)? onProvider,
+    void Function()? onSettled,
   }) async {
     if (broadcasterId == null) {
       // No broadcaster id: nothing to fetch; the commit keeps retained lists.
@@ -263,7 +265,7 @@ class EmoteFetcher {
       ),
     ];
     final failed = await _fetchConcurrent(
-      _providerCalls(fetches, landed),
+      _providerCalls(fetches, landed, onSettled: onSettled),
       maxConcurrent: 3,
     );
     return ChannelEmoteFetch(
@@ -510,15 +512,20 @@ class EmoteFetcher {
   /// follows [fetches], and [_fetchConcurrent] starts calls in that order.
   Map<EmoteType, Future<List<Emote>> Function()> _providerCalls(
     List<(EmoteType, Future<List<Emote>> Function())> fetches,
-    void Function(EmoteType type, List<Emote> emotes) landed,
-  ) {
+    void Function(EmoteType type, List<Emote> emotes) landed, {
+    void Function()? onSettled,
+  }) {
     final providers = <EmoteType, Future<List<Emote>> Function()>{};
     for (final (type, fetch) in fetches) {
       providers[type] = () async {
-        if (!_isProviderEnabled(type)) return <Emote>[];
-        final emotes = await fetch();
-        if (emotes.isNotEmpty) landed(type, emotes);
-        return emotes;
+        try {
+          if (!_isProviderEnabled(type)) return <Emote>[];
+          final emotes = await fetch();
+          if (emotes.isNotEmpty) landed(type, emotes);
+          return emotes;
+        } finally {
+          onSettled?.call();
+        }
       };
     }
     return providers;

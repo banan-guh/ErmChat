@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
+
 import '../l10n/l10n.dart';
 import '../models/emote_fetch_tier.dart';
 import '../chat/chat.dart';
@@ -21,9 +23,13 @@ class EmoteSignals {
   final ChatSignal<String> snack = ChatSignal<String>();
   final ChatSignal<bool> busy = ChatSignal<bool>();
 
+  /// Full reload progress, from 0 to 1. Null when no full reload runs.
+  final ValueNotifier<double?> progress = ValueNotifier<double?>(null);
+
   void dispose() {
     snack.clear();
     busy.clear();
+    progress.dispose();
   }
 }
 
@@ -66,6 +72,7 @@ class EmoteController {
   final Map<String, String> Function() getChannelUserIds;
 
   StreamSubscription<SevenTvEntitlementEvent>? _entitlementSub;
+  bool _disposed = false;
 
   /// Boot entry point: persisted prefs, cache GC, the 7TV entitlement stream,
   /// and the first account prime. The shell calls this once.
@@ -118,6 +125,7 @@ class EmoteController {
 
   /// Cancels the entitlement listener. The provider owns teardown.
   void dispose() {
+    _disposed = true;
     _entitlementSub?.cancel();
     _entitlementSub = null;
   }
@@ -195,7 +203,11 @@ class EmoteController {
     emoteManager.cacheCapMb = capMb;
   }
 
-  Future<bool> refreshAfterAuth({bool force = false}) async {
+  Future<bool> refreshAfterAuth({
+    bool force = false,
+    void Function()? onFetchSettled,
+    void Function()? onStep,
+  }) async {
     try {
       for (final channel in chat.names) {
         // Known ids skip the lookup; it runs one channel at a time.
@@ -213,26 +225,49 @@ class EmoteController {
       // then propagated over every later rebuild.
       // Await so global emote metadata is present before the post-refresh
       // rebuild; unawaited left a window where global emotes rendered as text.
-      await emoteManager.preloadGlobalEmotes(force: force);
+      await emoteManager.preloadGlobalEmotes(
+        force: force,
+        onFetchSettled: onFetchSettled,
+      );
       emoteManager.viewerTwitchId = twitchAuth.userId;
       await _loadViewerPersonalSets();
+      onStep?.call();
       badgeService.resetCaches();
       await badgeService.fetchGlobalBadges(twitchAuth);
+      onStep?.call();
+      // Badges and emote lists run side by side, like before the progress
+      // hooks; the badge futures just settle their own progress slots.
+      final badges = <Future<void>>[
+        for (final channel in chat.names)
+          if (chat.channelFor(channel)?.info.broadcasterId case final userId?)
+            badgeService
+                .fetchChannelBadges(twitchAuth, userId, channel)
+                .whenComplete(() => onStep?.call())
+          else
+            Future<void>.sync(() {
+              onStep?.call();
+            }),
+      ];
+      final emotes = <Future<void>>[];
       for (final channel in chat.names) {
         final userId = chat.channelFor(channel)?.info.broadcasterId;
-        if (userId != null) {
-          badgeService.fetchChannelBadges(twitchAuth, userId, channel);
+        if (userId == null) {
+          // A channel without an id fetches nothing; settle its four slots.
+          for (var i = 0; i < 4; i++) {
+            onFetchSettled?.call();
+          }
+          continue;
         }
-      }
-      await Future.wait(
-        chat.names.map(
-          (c) => emoteManager.resolveEmotes(
-            c,
-            chat.channelFor(c)?.info.broadcasterId,
+        emotes.add(
+          emoteManager.resolveEmotes(
+            channel,
+            userId,
             force: force,
+            onFetchSettled: onFetchSettled,
           ),
-        ),
-      );
+        );
+      }
+      await Future.wait([...badges, ...emotes]);
       emoteManager.notifyConfigChanged();
       return true;
     } catch (e) {
@@ -242,34 +277,56 @@ class EmoteController {
     }
   }
 
-  // Manual "Reload emotes": diff refresh. Re-fetches emote metadata
-  // (catalogues + subs) for all channels without touching in-memory state,
-  // so live 7TV WS deltas and cached images stay valid. Force bypasses the
-  // fresh-cache short-circuits so third-party catalogues (7TV/BTTV/FFZ) are
-  // pulled again, not just Twitch.
+  /// Manual "Reload emotes": diff refresh for the selected channel only.
+  /// Force bypasses the fresh-cache short-circuits so third-party catalogues
+  /// (7TV/BTTV/FFZ) are pulled again, not just Twitch.
+  Future<void> reloadChannel(String channel) =>
+      runRefresh(nuke: false, channel: channel);
+
+  /// Manual "Reload all emotes": diff refresh for every open channel.
   Future<void> reload() => runRefresh(nuke: false);
 
   // Nuke (emotes settings): destroy everything, then refetch from the
   // network. Besides the in-memory state this also drops the persisted
   // metadata and the image caches, so emotes visibly re-buffer instead of
   // being instantly restored from disk.
-  Future<void> runRefresh({required bool nuke}) {
+  Future<void> runRefresh({required bool nuke, String? channel}) {
     // An overlapping request joins the run in flight, whose busy flag and
     // failure report it would otherwise corrupt.
     return _refreshing ??= _runRefresh(
       nuke: nuke,
+      channel: channel,
     ).whenComplete(() => _refreshing = null);
   }
 
   Future<void>? _refreshing;
 
-  Future<void> _runRefresh({required bool nuke}) async {
+  Future<void> _runRefresh({required bool nuke, String? channel}) async {
     signals.busy.emit(true);
     // Discard failures from before this refresh so the report below only
     // reflects fetches this refresh triggered.
     emoteManager.takeFetchFailures();
+    final channels = channel == null ? chat.names : [channel];
     // A nuke empties everything first, so only a reload reports a delta.
-    final before = nuke ? null : emoteManager.loadedEmoteKeys(chat.names);
+    final before = nuke ? null : emoteManager.loadedEmoteKeys(channels);
+    final progress = signals.progress;
+    // Global providers, personal sets, global badges, channel badges, channel
+    // providers and the account's own emotes.
+    final total = channel == null ? 7 + 5 * chat.names.length : 0;
+    var settled = 0;
+    void setProgress(double? value) {
+      if (!_disposed) progress.value = value;
+    }
+
+    void step() {
+      if (total == 0) return;
+      settled++;
+      setProgress((settled / total).clamp(0.0, 1.0));
+    }
+
+    // The channel reload uses the normal busy spinner; the full reload uses
+    // the determinate bar.
+    setProgress(channel == null ? 0 : null);
     try {
       if (nuke) {
         await emoteManager.wipePersisted();
@@ -283,7 +340,23 @@ class EmoteController {
         // instead of being instantly papered over by the refetch.
         emoteManager.notifyCatalogChanged();
       }
-      final ok = await refreshAfterAuth(force: true);
+      if (channel != null) {
+        final ok = await _reloadChannelOnly(channel);
+        final failed = emoteManager.takeFetchFailures();
+        signals.snack.emit(
+          !ok
+              ? _strings().emoteReloadFailed
+              : failed.isEmpty
+              ? _reloadedMessage(before, channels)
+              : _strings().emotesFailedFor(failed.join(', ')),
+        );
+        return;
+      }
+      final ok = await refreshAfterAuth(
+        force: true,
+        onFetchSettled: step,
+        onStep: step,
+      );
       // The account's own emotes aren't covered by the global/channel
       // refresh; re-fetch them.
       var subFailed = false;
@@ -295,6 +368,7 @@ class EmoteController {
           logDebug('runRefresh: sub emote reload failed: $e');
         }
       }
+      step();
       String message;
       if (!ok) {
         message = _strings().emoteReloadFailed;
@@ -302,18 +376,38 @@ class EmoteController {
         final failed = emoteManager.takeFetchFailures();
         if (subFailed) failed.add(_strings().emoteSubEmotes);
         message = failed.isEmpty
-            ? _reloadedMessage(before)
+            ? _reloadedMessage(before, channels)
             : _strings().emotesFailedFor(failed.join(', '));
       }
       signals.snack.emit(message);
     } finally {
+      if (channel == null) setProgress(1);
+      // Drop the busy state before clearing progress, so the full bar fades
+      // out instead of flipping back to the indeterminate spinner.
       signals.busy.emit(false);
+      if (channel == null) setProgress(null);
     }
   }
 
-  String _reloadedMessage(Set<String>? before) {
+  /// Reloads one channel's provider lists without touching global or account
+  /// emotes. Leaves progress null so the shell shows its normal spinner.
+  Future<bool> _reloadChannelOnly(String channel) async {
+    var broadcasterId = chat.channelFor(channel)?.info.broadcasterId;
+    if (broadcasterId == null) {
+      broadcasterId = await twitchApi.getUserId(twitchAuth, channel);
+      if (broadcasterId != null) {
+        chat.channelFor(channel)?.info.setBroadcasterId(broadcasterId);
+      }
+    }
+    if (broadcasterId == null) return false;
+    await emoteManager.resolveEmotes(channel, broadcasterId, force: true);
+    emoteManager.notifyConfigChanged();
+    return true;
+  }
+
+  String _reloadedMessage(Set<String>? before, Iterable<String> channels) {
     if (before == null) return _strings().emotesReloaded;
-    final after = emoteManager.loadedEmoteKeys(chat.names);
+    final after = emoteManager.loadedEmoteKeys(channels);
     final added = after.difference(before).length;
     final removed = before.difference(after).length;
     return added == 0 && removed == 0

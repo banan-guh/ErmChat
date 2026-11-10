@@ -1473,6 +1473,7 @@
   "loadingEllipsis": "Loading...",
   "uploadMedia": "Upload media",
   "reloadEmotes": "Reload emotes",
+  "reloadAllEmotes": "Reload all emotes",
   "reconnect": "Reconnect",
   "whispers": "Whispers",
   "noMentionsOrWhispers": "No mentions or whispers",

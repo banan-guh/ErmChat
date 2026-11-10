@@ -80,6 +80,7 @@ class ChatBody extends StatefulWidget {
     this.busyListenable,
     this.isBusy,
     this.uploadProgress,
+    this.emoteProgress,
     this.onKeyboardDismissed,
     this.composer,
     this.bottomBar,
@@ -149,6 +150,10 @@ class ChatBody extends StatefulWidget {
   /// The running upload's share sent, from 0 to 1, drawn as a bar along the
   /// island's top edge. Null while no upload runs.
   final ValueListenable<double?>? uploadProgress;
+
+  /// The full emote reload's share fetched, from 0 to 1, drawn in the same
+  /// place as an upload. Null while no reload runs.
+  final ValueListenable<double?>? emoteProgress;
 
   /// Fired once the keyboard settles closed, so the host can drop input
   /// focus instead of leaving the field focused silently.
@@ -962,11 +967,11 @@ class _ChatBodyState extends State<ChatBody>
             busy: isBusy,
             child: island,
           );
-    // An upload traces the same outline as far as it has come.
-    final uploadProgress = widget.uploadProgress;
-    return uploadProgress == null
+    // An upload or a full emote reload traces the same outline.
+    final progress = widget.uploadProgress ?? widget.emoteProgress;
+    return progress == null
         ? busy
-        : IslandProgressRing(progress: uploadProgress, child: busy);
+        : IslandProgressRing(progress: progress, child: busy);
   }
 
   /// Classic is just the outlined field on the chat's background, so the
@@ -993,7 +998,9 @@ class _ChatBodyState extends State<ChatBody>
     final busyListenable = widget.busyListenable;
     final isBusy = widget.isBusy;
     final showsBusy = busyListenable != null && isBusy != null;
-    final lineUpload = layout.classic ? null : widget.uploadProgress;
+    final lineUpload = layout.classic
+        ? null
+        : widget.uploadProgress ?? widget.emoteProgress;
     if (!showsBusy && lineUpload == null) return null;
     return SizedBox(
       height: 0,

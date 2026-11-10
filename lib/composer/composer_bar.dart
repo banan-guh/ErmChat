@@ -46,6 +46,7 @@ class ComposerBar extends StatelessWidget {
     this.classic = false,
     this.modeRow = false,
     this.uploads,
+    this.emoteProgress,
   });
 
   final ComposerController controller;
@@ -55,6 +56,9 @@ class ComposerBar extends StatelessWidget {
 
   /// Uploads images the keyboard inserts into the chat field.
   final MediaUploadController? uploads;
+
+  /// The full emote reload's share fetched, for the classic field's shade.
+  final ValueListenable<double?>? emoteProgress;
 
   /// The island's button row shows, so room modes may ride it
   /// ([ComposerModeRow]) instead of the status.
@@ -181,8 +185,10 @@ class ComposerBar extends StatelessWidget {
                       : (content) => uploads!.uploadInserted(context, content),
                   borderless: !classic,
                   // The classic field has no island to trace, so an upload
-                  // shades the field itself.
-                  fillProgress: classic ? uploads?.progress : null,
+                  // or a full emote reload shades the field itself.
+                  fillProgress: classic
+                      ? uploads?.progress ?? emoteProgress
+                      : null,
                   prefixOverride: startSlot,
                   suffixOverride: endSlot,
                   startItems: startItems,

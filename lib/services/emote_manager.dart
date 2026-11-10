@@ -689,7 +689,11 @@ class EmoteManager implements EmoteLookupSource {
   ) => _usage.resolveRecentsForChannel(recents, suggestions);
 
   /// Loads global emotes. [force] skips cache, fetches from network.
-  Future<void> preloadGlobalEmotes({bool force = false}) async {
+  /// [onFetchSettled] runs once per provider, success or failure.
+  Future<void> preloadGlobalEmotes({
+    bool force = false,
+    void Function()? onFetchSettled,
+  }) async {
     final epoch = force ? _store.bumpGlobalEpoch() : _store.globalEpoch;
     await _visibility.ensureLoaded();
     if (_store.hasGlobalCache && !force) return;
@@ -733,6 +737,7 @@ class EmoteManager implements EmoteLookupSource {
     final fetch = await _fetcher.enqueue(
       () => _fetcher.fetchAllGlobal(
         onProvider: (landed) => _commitGlobal(epoch, landed, partial: true),
+        onSettled: onFetchSettled,
       ),
     );
     if (_commitGlobal(epoch, fetch)) {
@@ -764,10 +769,12 @@ class EmoteManager implements EmoteLookupSource {
   ) => _twitchSets.reloadUserEmotes(auth, openChannelUserIds);
 
   /// Loads channel emotes. [force] skips cache, fetches from network.
+  /// [onFetchSettled] runs once per provider, success or failure.
   Future<void> resolveEmotes(
     String channel,
     String? broadcasterId, {
     bool force = false,
+    void Function()? onFetchSettled,
   }) async {
     final epoch = force
         ? _store.bumpChannelEpoch(channel)
@@ -799,6 +806,7 @@ class EmoteManager implements EmoteLookupSource {
           broadcasterId,
           channelName: channel,
           onProvider: (landed) => commit(landed, partial: true),
+          onSettled: onFetchSettled,
         ),
       );
       if (commit(fetch)) {
@@ -849,6 +857,7 @@ class EmoteManager implements EmoteLookupSource {
         channelName: channel,
         onProvider: (landed) =>
             _commitChannel(channel, epoch, landed, partial: true),
+        onSettled: onFetchSettled,
       ),
     );
     if (_commitChannel(channel, epoch, fetch)) {

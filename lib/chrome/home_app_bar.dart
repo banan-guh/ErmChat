@@ -46,6 +46,7 @@ class HomeAppBar {
     required this.toggleStream,
     required this.toggleSearch,
     required this.reloadEmotes,
+    required this.reloadAllEmotes,
     required this.reconnect,
     required this.openSettings,
     required this.themeSpec,
@@ -75,6 +76,7 @@ class HomeAppBar {
   final VoidCallback toggleStream;
   final VoidCallback toggleSearch;
   final VoidCallback reloadEmotes;
+  final VoidCallback reloadAllEmotes;
   final VoidCallback reconnect;
   final VoidCallback openSettings;
 
@@ -325,6 +327,11 @@ class HomeAppBar {
           l10n.reloadEmotes,
           reloadEmotes,
           icon: Icons.emoji_emotions_outlined,
+        ),
+        ChromeMenuEntry(
+          l10n.reloadAllEmotes,
+          reloadAllEmotes,
+          icon: Icons.autorenew,
         ),
         ChromeMenuEntry(l10n.reconnect, reconnect, icon: Icons.sync),
         ChromeMenuEntry(

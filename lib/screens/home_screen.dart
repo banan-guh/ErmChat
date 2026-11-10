@@ -563,7 +563,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     toggleInput: _toggleInputVisibility,
     toggleStream: () => _stream.toggleStreamForSelected(),
     toggleSearch: _toggleSearch,
-    reloadEmotes: _emotes.reload,
+    reloadEmotes: () {
+      final channel = ref.read(selectedChannelProvider);
+      if (channel != null) unawaited(_emotes.reloadChannel(channel));
+    },
+    reloadAllEmotes: _emotes.reload,
     reconnect: _reconnect,
     openSettings: _openSettings,
     themeSpec: () => _layoutEdit?.draft ?? _chromeTheme,
@@ -2108,6 +2112,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                     classic: spec.composer == ComposerStyle.classic,
                     modeRow: modeRow,
                     uploads: _uploadController,
+                    emoteProgress: _emotes.signals.progress,
                   )
                 : null,
             bottomBar: hasBottomBar && !rowless
@@ -2182,6 +2187,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
             busyListenable: spec.busyBar ? _chrome.joinBusyListenable : null,
             isBusy: _chrome.joinBusy,
             uploadProgress: _uploadController.progress,
+            emoteProgress: _emotes.signals.progress,
             notice: ChatNoticeBar(controller: _chatNotice),
             replyHeader: replyHeader,
             keyboardHidesButtons: spec.compact,
