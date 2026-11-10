@@ -39,11 +39,17 @@ class ThreadSummary {
   final DateTime lastActivity;
   final int replyCount;
 
+  /// The root's author and text from the archive, when no row holds it.
+  final String previewAuthor;
+  final String previewText;
+
   const ThreadSummary({
     required this.rootId,
     required this.root,
     required this.lastActivity,
     required this.replyCount,
+    this.previewAuthor = '',
+    this.previewText = '',
   });
 }
 

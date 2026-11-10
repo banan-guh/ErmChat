@@ -85,7 +85,15 @@ class ThreadPanels {
   final ArchiveReader? archiveReader;
 
   /// Active threads read from the archive, with the channel they cover.
-  List<({String rootId, DateTime lastActivity, int replyCount})>
+  List<
+    ({
+      String rootId,
+      DateTime lastActivity,
+      int replyCount,
+      String author,
+      String preview,
+    })
+  >
   _archiveActive = const [];
   String? _archiveActiveChannel;
   bool _archiveActiveLoading = false;
@@ -367,7 +375,16 @@ class ThreadPanels {
   }
 
   Future<void> _fetchActiveThreads(String channel, ArchiveReader reader) async {
-    var threads = <({String rootId, DateTime lastActivity, int replyCount})>[];
+    var threads =
+        <
+          ({
+            String rootId,
+            DateTime lastActivity,
+            int replyCount,
+            String author,
+            String preview,
+          })
+        >[];
     try {
       threads = await reader.recentThreads(
         channel,
@@ -845,8 +862,12 @@ class ThreadPanels {
                 ? (display.displayName.isNotEmpty
                       ? display.displayName
                       : display.login)
+                : summary.previewAuthor.isNotEmpty
+                ? summary.previewAuthor
                 : context.l10n.thread;
-            final preview = display != null ? display.text : '';
+            final preview = display != null
+                ? display.text
+                : summary.previewText;
             final saved = savedThreads.isSaved(channel, summary.rootId);
             return ListTile(
               leading: const Icon(Icons.forum),
@@ -935,7 +956,16 @@ class ThreadPanels {
 /// with activity in the last 24 hours. Longest first, then newest activity.
 List<ThreadSummary> mergeActiveThreads(
   List<ThreadSummary> live,
-  List<({String rootId, DateTime lastActivity, int replyCount})> archived,
+  List<
+    ({
+      String rootId,
+      DateTime lastActivity,
+      int replyCount,
+      String author,
+      String preview,
+    })
+  >
+  archived,
   DateTime now, {
   Duration window = ThreadPanels.activeThreadWindow,
   int limit = ThreadPanels.activeThreadLimit,
@@ -960,6 +990,12 @@ List<ThreadSummary> mergeActiveThreads(
         replyCount: held == null || a.replyCount >= held.replyCount
             ? a.replyCount
             : held.replyCount,
+        previewAuthor: held?.previewAuthor.isNotEmpty ?? false
+            ? held!.previewAuthor
+            : a.author,
+        previewText: held?.previewText.isNotEmpty ?? false
+            ? held!.previewText
+            : a.preview,
       ),
     );
   }

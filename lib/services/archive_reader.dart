@@ -198,7 +198,18 @@ class ArchiveReader {
   }
 
   /// Roots with a reply at or after [since] in [channel], most replies first.
-  Future<List<({String rootId, DateTime lastActivity, int replyCount})>>
+  /// [author] and [preview] are the root's own, from its first direct reply.
+  Future<
+    List<
+      ({
+        String rootId,
+        DateTime lastActivity,
+        int replyCount,
+        String author,
+        String preview,
+      })
+    >
+  >
   recentThreads(String channel, DateTime since, {int limit = 50}) async {
     final store = await _store;
     if (store == null) return const [];
@@ -211,6 +222,8 @@ class ArchiveReader {
             isUtc: true,
           ),
           replyCount: r.replies,
+          author: r.author,
+          preview: r.preview,
         ),
     ];
   }

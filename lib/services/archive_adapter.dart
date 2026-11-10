@@ -25,7 +25,7 @@ class ArchiveAdapter {
 
   final UserTables users;
 
-  static const _replyBody = 'x-reply-body';
+  static const _replyBody = ArchiveRow.replyBodyTag;
   static const _accent = 'x-accent';
   static const _redeemImage = 'x-redeem-image';
   static const _redeemPoints = 'x-redeem-points';

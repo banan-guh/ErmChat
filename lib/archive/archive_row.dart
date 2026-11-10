@@ -108,6 +108,17 @@ class ArchiveRow {
   /// Tags no field above covers, kept so unknown data is never lost.
   final List<(String, String)> extraTags;
 
+  /// Extra-tag key for the reply parent's text.
+  static const replyBodyTag = 'x-reply-body';
+
+  /// The reply parent's text, when the message carried it.
+  String? get replyToText {
+    for (final (key, value) in extraTags) {
+      if (key == replyBodyTag) return value;
+    }
+    return null;
+  }
+
   /// This row with its deleted flag set. Used when the archive bakes a
   /// pending edit into a sealed block.
   ArchiveRow asDeleted() => ArchiveRow(

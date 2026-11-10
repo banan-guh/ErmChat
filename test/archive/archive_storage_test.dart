@@ -51,13 +51,21 @@ class _ManualTimer implements Timer {
 String _id(int i) =>
     '${i.toRadixString(16).padLeft(8, '0')}-0b7d-4c55-9a10-6d2e8f4b7a01';
 
-TwitchMessage _msg(int i, {String login = 'alice', int? tsMs}) => TwitchMessage(
+TwitchMessage _msg(
+  int i, {
+  String login = 'alice',
+  int? tsMs,
+  String? replyToUser,
+  String? replyToText,
+}) => TwitchMessage(
   login: login,
   text: 'message number $i',
   messageId: _id(i),
   channel: _channel,
   userId: '${1000 + login.length}',
   color: '#FF4500',
+  replyToUser: replyToUser,
+  replyToText: replyToText,
   timestamp: tsMs == null
       ? _t0.add(Duration(seconds: i))
       : DateTime.fromMillisecondsSinceEpoch(tsMs, isUtc: true),
@@ -1770,6 +1778,33 @@ void main() {
       await store.close();
     });
 
+    test('a thread preview comes from its first direct reply', () async {
+      final store = await _open(_newPath());
+      final writer = _writer(store, sealCount: 4);
+      writer.add(
+        _channel,
+        _msg(1, replyToUser: 'rootuser', replyToText: 'root text')
+          ..replyToParentId = _id(0)
+          ..replyThreadRootId = _id(0),
+      );
+      // A reply to a reply does not carry the root's own words.
+      writer.add(
+        _channel,
+        _msg(2, replyToUser: 'someone', replyToText: 'not the root')
+          ..replyToParentId = _id(1)
+          ..replyThreadRootId = _id(0),
+      );
+      await writer.flush();
+
+      final recent = await store.recentThreads(
+        _channel,
+        _t0.subtract(const Duration(seconds: 1)),
+      );
+      expect(recent.single.author, 'rootuser');
+      expect(recent.single.preview, 'root text');
+      await store.close();
+    });
+
     test('reply counts are exact and order the recent roots', () async {
       final store = await _open(_newPath());
       final writer = _writer(store, sealCount: 4);
@@ -1809,7 +1844,7 @@ void main() {
       await store.close();
     });
 
-    test('a merge drops stale refs until the backfill indexes it', () async {
+    test('a merge carries the thread refs to the new block', () async {
       final store = await _open(
         _newPath(),
         now: () => _t0.add(const Duration(hours: 2)),
@@ -1822,23 +1857,8 @@ void main() {
       expect(await store.threadBlocks(_channel, _id(0)), hasLength(2));
 
       expect(await store.compact(_t0.add(const Duration(hours: 2))), 1);
-      expect(
-        await store.threadBlocks(_channel, _id(0)),
-        isEmpty,
-        reason: 'refs to blocks the merge removed are not live',
-      );
-      expect(
-        await store.recentThreads(
-          _channel,
-          _t0.subtract(const Duration(seconds: 1)),
-        ),
-        isEmpty,
-        reason: 'a stale ref still counted replies',
-      );
-
-      expect(await store.indexThreadsBatch(), 1);
       final blocks = await store.threadBlocks(_channel, _id(0));
-      expect(blocks, hasLength(1), reason: 'the merged block was reindexed');
+      expect(blocks, hasLength(1), reason: 'the merge dropped its refs');
       expect(await store.blockAt(_channel, blocks.single), isNotNull);
       final recent = await store.recentThreads(
         _channel,
@@ -1848,7 +1868,7 @@ void main() {
       await store.close();
     });
 
-    test('a pre-index database gains the thread index on open', () async {
+    test('a pre-index database gains the thread tables on open', () async {
       final path = _newPath();
       final store = await _open(path);
       await store.close();
@@ -1856,7 +1876,7 @@ void main() {
       final db = await databaseFactoryFfi.openDatabase(path);
       await db.execute('DROP INDEX thread_refs_by_ts');
       await db.execute('DROP TABLE thread_refs');
-      await db.execute('ALTER TABLE blocks DROP COLUMN thread_indexed');
+      await db.execute('DROP TABLE thread_roots');
       await db.execute('PRAGMA user_version = 11');
       await db.close();
 
@@ -1869,8 +1889,8 @@ void main() {
         for (final c in await check.rawQuery('PRAGMA table_info(thread_refs)'))
           c['name'],
       ];
-      final blocks = [
-        for (final c in await check.rawQuery('PRAGMA table_info(blocks)'))
+      final roots = [
+        for (final c in await check.rawQuery('PRAGMA table_info(thread_roots)'))
           c['name'],
       ];
       await check.close();
@@ -1878,11 +1898,7 @@ void main() {
         refs,
         containsAll(['channel', 'root_id', 'block_id', 'ts', 'count']),
       );
-      expect(
-        blocks,
-        contains('thread_indexed'),
-        reason: 'the backfill flag was never added',
-      );
+      expect(roots, containsAll(['channel', 'root_id', 'author', 'preview']));
       await again.close();
     });
 
@@ -1907,28 +1923,6 @@ void main() {
         [for (var i = 1; i <= 8; i++) _id(i)],
         reason: 'only this root, across both blocks, oldest first',
       );
-      await store.close();
-    });
-
-    test('a backfill indexes missed blocks and stops when done', () async {
-      final store = await _open(_newPath());
-      final writer = _writer(store, sealCount: 4);
-      for (var i = 1; i <= 8; i++) {
-        writer.add(_channel, reply(i));
-      }
-      await writer.flush();
-      await store.forgetThreadIndex();
-      expect(await store.threadBlocks(_channel, _id(0)), isEmpty);
-
-      expect(await store.indexThreadsBatch(blocks: 1), 1);
-      expect(await store.indexThreadsBatch(blocks: 1), 1);
-      expect(await store.indexThreadsBatch(blocks: 1), 0);
-      expect(await store.threadBlocks(_channel, _id(0)), hasLength(2));
-      final recent = await store.recentThreads(
-        _channel,
-        _t0.subtract(const Duration(seconds: 1)),
-      );
-      expect(recent.single.replies, 8, reason: 'a backfill counts replies');
       await store.close();
     });
   });

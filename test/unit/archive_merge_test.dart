@@ -34,21 +34,29 @@ void main() {
           rootId: 'a',
           lastActivity: _now.subtract(const Duration(hours: 2)),
           replyCount: 8,
+          author: 'alice',
+          preview: 'eight',
         ),
         (
           rootId: 'b',
           lastActivity: _now.subtract(const Duration(hours: 1)),
           replyCount: 3,
+          author: '',
+          preview: '',
         ),
         (
           rootId: 'c',
           lastActivity: _now.subtract(const Duration(minutes: 30)),
           replyCount: 3,
+          author: '',
+          preview: '',
         ),
         (
           rootId: 'old',
           lastActivity: _now.subtract(const Duration(hours: 25)),
           replyCount: 40,
+          author: '',
+          preview: '',
         ),
       ];
       final live = [
@@ -68,6 +76,11 @@ void main() {
         reason: 'archive count beats a short live buffer',
       );
       expect(
+        (merged.first.previewAuthor, merged.first.previewText),
+        ('alice', 'eight'),
+        reason: 'the archive preview reaches the list',
+      );
+      expect(
         merged.first.lastActivity,
         _now.subtract(const Duration(minutes: 10)),
         reason: 'live activity is newer than the sealed reply',
@@ -82,7 +95,13 @@ void main() {
     test('caps the list at fifty rows', () {
       final archived = [
         for (var i = 0; i < 60; i++)
-          (rootId: 'r$i', lastActivity: _now, replyCount: i),
+          (
+            rootId: 'r$i',
+            lastActivity: _now,
+            replyCount: i,
+            author: '',
+            preview: '',
+          ),
       ];
       expect(mergeActiveThreads(const [], archived, _now), hasLength(50));
     });
