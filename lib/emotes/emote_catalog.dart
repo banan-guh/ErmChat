@@ -21,17 +21,50 @@ class EmoteLookup {
 /// Immutable per-scope provider emote lists. The global catalog holds every
 /// global provider list; a channel catalog holds every channel list plus the
 /// stored Twitch channel/subs list.
+///
+/// The lists live in one keyed collection ([_lists]) that the historical
+/// `twitchGlobal` … `sevenTvPersonal` accessors read, so no method needs a
+/// per-scope/per-provider branch. Loops walk [_slots], [_providerSlots] or
+/// [_scopeSlots] instead of the map: those constants are the only source of
+/// catalog order, so precedence never rides on map insertion order.
 class EmoteCatalog {
-  final List<Emote> twitchGlobal;
-  final List<Emote> bttvGlobal;
-  final List<Emote> ffzGlobal;
-  final List<Emote> sevenTvGlobal;
-  final List<Emote> twitchChannel;
-  final List<Emote> bttvChannel;
-  final List<Emote> ffzChannel;
-  final List<Emote> sevenTvChannel;
+  /// Provider lists keyed by (scope, provider). Every slot is present.
+  final Map<(EmoteScope, EmoteType), List<Emote>> _lists;
+
+  /// The stored Twitch channel/subs snapshot. It is persisted and merged like
+  /// a list, but it is not a (scope, provider) pair — channel/Twitch is already
+  /// the provider list — so it sits beside [_lists].
   final List<Emote> twitchSubs;
-  final List<Emote> sevenTvPersonal;
+
+  /// Global and channel slots in catalog order, which is also the order the
+  /// merge walks them in (Twitch first, so a later provider wins the code).
+  static const _providerSlots = <(EmoteScope, EmoteType)>[
+    (EmoteScope.global, EmoteType.twitch),
+    (EmoteScope.global, EmoteType.bttv),
+    (EmoteScope.global, EmoteType.ffz),
+    (EmoteScope.global, EmoteType.sevenTv),
+    (EmoteScope.channel, EmoteType.twitch),
+    (EmoteScope.channel, EmoteType.bttv),
+    (EmoteScope.channel, EmoteType.ffz),
+    (EmoteScope.channel, EmoteType.sevenTv),
+  ];
+
+  /// Every slot in catalog order: the global lists, the channel lists, then
+  /// 7TV personal (the only personal list there is).
+  static const _slots = <(EmoteScope, EmoteType)>[
+    ..._providerSlots,
+    (EmoteScope.personal, EmoteType.sevenTv),
+  ];
+
+  /// Provider slots of one scope, in catalog order.
+  static Iterable<(EmoteScope, EmoteType)> _scopeSlots(EmoteScope scope) =>
+      _providerSlots.where((slot) => slot.$1 == scope);
+
+  /// Freezes a freshly built slot map. Values are already unmodifiable lists;
+  /// the explicit map type gives the literal the element context it needs.
+  static Map<(EmoteScope, EmoteType), List<Emote>> _frozen(
+    Map<(EmoteScope, EmoteType), List<Emote>> lists,
+  ) => Map.unmodifiable(lists);
 
   EmoteCatalog({
     List<Emote> twitchGlobal = const [],
@@ -44,77 +77,79 @@ class EmoteCatalog {
     List<Emote> sevenTvChannel = const [],
     List<Emote> twitchSubs = const [],
     List<Emote> sevenTvPersonal = const [],
-  }) : twitchGlobal = List.unmodifiable(twitchGlobal),
-       bttvGlobal = List.unmodifiable(bttvGlobal),
-       ffzGlobal = List.unmodifiable(ffzGlobal),
-       sevenTvGlobal = List.unmodifiable(sevenTvGlobal),
-       twitchChannel = List.unmodifiable(twitchChannel),
-       bttvChannel = List.unmodifiable(bttvChannel),
-       ffzChannel = List.unmodifiable(ffzChannel),
-       sevenTvChannel = List.unmodifiable(sevenTvChannel),
-       twitchSubs = List.unmodifiable(twitchSubs),
-       sevenTvPersonal = List.unmodifiable(sevenTvPersonal);
+  }) : _lists = _frozen({
+         (EmoteScope.global, EmoteType.twitch): List.unmodifiable(twitchGlobal),
+         (EmoteScope.global, EmoteType.bttv): List.unmodifiable(bttvGlobal),
+         (EmoteScope.global, EmoteType.ffz): List.unmodifiable(ffzGlobal),
+         (EmoteScope.global, EmoteType.sevenTv): List.unmodifiable(
+           sevenTvGlobal,
+         ),
+         (EmoteScope.channel, EmoteType.twitch): List.unmodifiable(
+           twitchChannel,
+         ),
+         (EmoteScope.channel, EmoteType.bttv): List.unmodifiable(bttvChannel),
+         (EmoteScope.channel, EmoteType.ffz): List.unmodifiable(ffzChannel),
+         (EmoteScope.channel, EmoteType.sevenTv): List.unmodifiable(
+           sevenTvChannel,
+         ),
+         (EmoteScope.personal, EmoteType.sevenTv): List.unmodifiable(
+           sevenTvPersonal,
+         ),
+       }),
+       twitchSubs = List.unmodifiable(twitchSubs);
+
+  /// Wraps lists that are already unmodifiable, so internal copies do not
+  /// re-wrap the lists they keep.
+  const EmoteCatalog._(this._lists, this.twitchSubs);
+
+  List<Emote> get twitchGlobal => _listOf(EmoteScope.global, EmoteType.twitch);
+
+  List<Emote> get bttvGlobal => _listOf(EmoteScope.global, EmoteType.bttv);
+
+  List<Emote> get ffzGlobal => _listOf(EmoteScope.global, EmoteType.ffz);
+
+  List<Emote> get sevenTvGlobal =>
+      _listOf(EmoteScope.global, EmoteType.sevenTv);
+
+  List<Emote> get twitchChannel =>
+      _listOf(EmoteScope.channel, EmoteType.twitch);
+
+  List<Emote> get bttvChannel => _listOf(EmoteScope.channel, EmoteType.bttv);
+
+  List<Emote> get ffzChannel => _listOf(EmoteScope.channel, EmoteType.ffz);
+
+  List<Emote> get sevenTvChannel =>
+      _listOf(EmoteScope.channel, EmoteType.sevenTv);
+
+  List<Emote> get sevenTvPersonal =>
+      _listOf(EmoteScope.personal, EmoteType.sevenTv);
 
   bool get isEmpty =>
-      twitchGlobal.isEmpty &&
-      bttvGlobal.isEmpty &&
-      ffzGlobal.isEmpty &&
-      sevenTvGlobal.isEmpty &&
-      twitchChannel.isEmpty &&
-      bttvChannel.isEmpty &&
-      ffzChannel.isEmpty &&
-      sevenTvChannel.isEmpty &&
-      twitchSubs.isEmpty &&
-      sevenTvPersonal.isEmpty;
+      _slots.every((slot) => _listOf(slot.$1, slot.$2).isEmpty) &&
+      twitchSubs.isEmpty;
 
   bool get isNotEmpty => !isEmpty;
 
+  /// The list stored for [scope]/[type], const-empty for the pairs no provider
+  /// exposes.
+  List<Emote> _listOf(EmoteScope scope, EmoteType type) =>
+      _lists[(scope, type)] ?? const [];
+
   /// Global and channel lists of [type] in [scope]; personal only exists for
   /// 7TV and is read through [sevenTvPersonal] directly.
-  List<Emote> listFor(EmoteScope scope, EmoteType type) =>
-      switch ((scope, type)) {
-        (EmoteScope.global, EmoteType.twitch) => twitchGlobal,
-        (EmoteScope.global, EmoteType.bttv) => bttvGlobal,
-        (EmoteScope.global, EmoteType.ffz) => ffzGlobal,
-        (EmoteScope.global, EmoteType.sevenTv) => sevenTvGlobal,
-        (EmoteScope.channel, EmoteType.twitch) => twitchChannel,
-        (EmoteScope.channel, EmoteType.bttv) => bttvChannel,
-        (EmoteScope.channel, EmoteType.ffz) => ffzChannel,
-        (EmoteScope.channel, EmoteType.sevenTv) => sevenTvChannel,
-        (EmoteScope.personal, EmoteType.sevenTv) => sevenTvPersonal,
-        (EmoteScope.personal, _) => const [],
-      };
+  List<Emote> listFor(EmoteScope scope, EmoteType type) => _listOf(scope, type);
 
+  /// A copy with the [scope]/[type] list replaced. Pairs no provider exposes
+  /// (personal outside 7TV) leave every list unchanged.
   EmoteCatalog withList(EmoteScope scope, EmoteType type, List<Emote> emotes) =>
-      copyWith(
-        twitchGlobal: scope == EmoteScope.global && type == EmoteType.twitch
-            ? emotes
-            : null,
-        bttvGlobal: scope == EmoteScope.global && type == EmoteType.bttv
-            ? emotes
-            : null,
-        ffzGlobal: scope == EmoteScope.global && type == EmoteType.ffz
-            ? emotes
-            : null,
-        sevenTvGlobal: scope == EmoteScope.global && type == EmoteType.sevenTv
-            ? emotes
-            : null,
-        twitchChannel: scope == EmoteScope.channel && type == EmoteType.twitch
-            ? emotes
-            : null,
-        bttvChannel: scope == EmoteScope.channel && type == EmoteType.bttv
-            ? emotes
-            : null,
-        ffzChannel: scope == EmoteScope.channel && type == EmoteType.ffz
-            ? emotes
-            : null,
-        sevenTvChannel: scope == EmoteScope.channel && type == EmoteType.sevenTv
-            ? emotes
-            : null,
-        sevenTvPersonal:
-            scope == EmoteScope.personal && type == EmoteType.sevenTv
-            ? emotes
-            : null,
+      EmoteCatalog._(
+        _frozen({
+          for (final (slotScope, slotType) in _slots)
+            (slotScope, slotType): slotScope == scope && slotType == type
+                ? List.unmodifiable(emotes)
+                : _listOf(slotScope, slotType),
+        }),
+        twitchSubs,
       );
 
   EmoteCatalog copyWith({
@@ -144,39 +179,45 @@ class EmoteCatalog {
   /// Returns a catalog whose every list is this catalog's list when non-empty,
   /// otherwise the matching list from [other]. Used to seed the in-memory
   /// catalog from disk.
-  EmoteCatalog fillMissing(EmoteCatalog other) => EmoteCatalog(
-    twitchGlobal: twitchGlobal.isEmpty ? other.twitchGlobal : twitchGlobal,
-    bttvGlobal: bttvGlobal.isEmpty ? other.bttvGlobal : bttvGlobal,
-    ffzGlobal: ffzGlobal.isEmpty ? other.ffzGlobal : ffzGlobal,
-    sevenTvGlobal: sevenTvGlobal.isEmpty ? other.sevenTvGlobal : sevenTvGlobal,
-    twitchChannel: twitchChannel.isEmpty ? other.twitchChannel : twitchChannel,
-    bttvChannel: bttvChannel.isEmpty ? other.bttvChannel : bttvChannel,
-    ffzChannel: ffzChannel.isEmpty ? other.ffzChannel : ffzChannel,
-    sevenTvChannel: sevenTvChannel.isEmpty
-        ? other.sevenTvChannel
-        : sevenTvChannel,
-    twitchSubs: twitchSubs.isEmpty ? other.twitchSubs : twitchSubs,
-    sevenTvPersonal: sevenTvPersonal.isEmpty
-        ? other.sevenTvPersonal
-        : sevenTvPersonal,
-  );
+  EmoteCatalog fillMissing(EmoteCatalog other) {
+    List<Emote> pick(EmoteScope scope, EmoteType type) {
+      final own = _listOf(scope, type);
+      return own.isEmpty ? other._listOf(scope, type) : own;
+    }
+
+    return EmoteCatalog._(
+      _frozen({
+        for (final (scope, type) in _slots) (scope, type): pick(scope, type),
+      }),
+      twitchSubs.isEmpty ? other.twitchSubs : twitchSubs,
+    );
+  }
 
   /// Flat channel provider emotes (excludes the stored Twitch subs list), in
   /// provider order.
-  Iterable<Emote> channelProviderEmotes() sync* {
-    yield* twitchChannel;
-    yield* bttvChannel;
-    yield* ffzChannel;
-    yield* sevenTvChannel;
-  }
+  Iterable<Emote> channelProviderEmotes() => _emotesIn(EmoteScope.channel);
 
   /// Every global list, in provider order.
-  Iterable<Emote> globalProviderEmotes() sync* {
-    yield* twitchGlobal;
-    yield* bttvGlobal;
-    yield* ffzGlobal;
-    yield* sevenTvGlobal;
+  Iterable<Emote> globalProviderEmotes() => _emotesIn(EmoteScope.global);
+
+  /// Every provider list of [scope] concatenated, in provider order.
+  Iterable<Emote> _emotesIn(EmoteScope scope) sync* {
+    for (final (_, type) in _scopeSlots(scope)) {
+      yield* _listOf(scope, type);
+    }
   }
+
+  /// Persisted key of one provider list, e.g. `twitchGlobal` or
+  /// `sevenTvPersonal`: the provider name plus its scope, exactly the names the
+  /// per-list fields used to have.
+  static String _jsonKey(EmoteScope scope, EmoteType type) => switch (scope) {
+    EmoteScope.global => '${type.name}Global',
+    EmoteScope.channel => '${type.name}Channel',
+    EmoteScope.personal => '${type.name}Personal',
+  };
+
+  /// Persisted key of the stored Twitch channel/subs snapshot.
+  static const _subsKey = 'twitchSubs';
 
   Map<String, dynamic> toJsonMap() {
     final map = <String, dynamic>{};
@@ -185,16 +226,13 @@ class EmoteCatalog {
       map[key] = [for (final e in emotes) e.toJson()];
     }
 
-    put('twitchGlobal', twitchGlobal);
-    put('bttvGlobal', bttvGlobal);
-    put('ffzGlobal', ffzGlobal);
-    put('sevenTvGlobal', sevenTvGlobal);
-    put('twitchChannel', twitchChannel);
-    put('bttvChannel', bttvChannel);
-    put('ffzChannel', ffzChannel);
-    put('sevenTvChannel', sevenTvChannel);
-    put('twitchSubs', twitchSubs);
-    put('sevenTvPersonal', sevenTvPersonal);
+    for (final (scope, type) in _providerSlots) {
+      put(_jsonKey(scope, type), _listOf(scope, type));
+    }
+    // The subs snapshot keeps the place it has always had, between the channel
+    // and the personal lists.
+    put(_subsKey, twitchSubs);
+    put(_jsonKey(EmoteScope.personal, EmoteType.sevenTv), sevenTvPersonal);
     return map;
   }
 
@@ -215,17 +253,12 @@ class EmoteCatalog {
   /// keys are ignored and missing keys stay empty.
   static EmoteCatalog fromJsonMap(Object? raw) {
     if (raw is! Map<String, dynamic>) return EmoteCatalog();
-    return EmoteCatalog(
-      twitchGlobal: _decode(raw['twitchGlobal']),
-      bttvGlobal: _decode(raw['bttvGlobal']),
-      ffzGlobal: _decode(raw['ffzGlobal']),
-      sevenTvGlobal: _decode(raw['sevenTvGlobal']),
-      twitchChannel: _decode(raw['twitchChannel']),
-      bttvChannel: _decode(raw['bttvChannel']),
-      ffzChannel: _decode(raw['ffzChannel']),
-      sevenTvChannel: _decode(raw['sevenTvChannel']),
-      twitchSubs: _decode(raw['twitchSubs']),
-      sevenTvPersonal: _decode(raw['sevenTvPersonal']),
+    return EmoteCatalog._(
+      _frozen({
+        for (final (scope, type) in _slots)
+          (scope, type): List.unmodifiable(_decode(raw[_jsonKey(scope, type)])),
+      }),
+      List.unmodifiable(_decode(raw[_subsKey])),
     );
   }
 }
@@ -312,17 +345,16 @@ EmoteLookup mergeEmoteLookup({
     }
   }
 
-  for (final e in applyAccountUnlocks(global.twitchGlobal, accountUnlocks)) {
-    add(e);
-  }
-  for (final e in global.bttvGlobal) {
-    add(e);
-  }
-  for (final e in global.ffzGlobal) {
-    add(e);
-  }
-  for (final e in global.sevenTvGlobal) {
-    add(e);
+  // Global lists in provider order; the Twitch list takes the account unlock
+  // overlay before it enters the merge.
+  for (final (_, type) in EmoteCatalog._scopeSlots(EmoteScope.global)) {
+    final emotes = global._listOf(EmoteScope.global, type);
+    final source = type == EmoteType.twitch
+        ? applyAccountUnlocks(emotes, accountUnlocks)
+        : emotes;
+    for (final e in source) {
+      add(e);
+    }
   }
   if (channel != null) {
     // Stored Twitch channel/subs precede the provider lists so a stored entry
@@ -330,17 +362,10 @@ EmoteLookup mergeEmoteLookup({
     for (final e in channel.twitchSubs) {
       add(e);
     }
-    for (final e in channel.twitchChannel) {
-      add(e);
-    }
-    for (final e in channel.bttvChannel) {
-      add(e);
-    }
-    for (final e in channel.ffzChannel) {
-      add(e);
-    }
-    for (final e in channel.sevenTvChannel) {
-      add(e);
+    for (final (_, type) in EmoteCatalog._scopeSlots(EmoteScope.channel)) {
+      for (final e in channel._listOf(EmoteScope.channel, type)) {
+        add(e);
+      }
     }
   }
   for (final e in personal) {
