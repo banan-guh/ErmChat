@@ -331,7 +331,7 @@ class HomeAppBar {
         ChromeMenuEntry(
           l10n.reloadAllEmotes,
           reloadAllEmotes,
-          icon: Icons.autorenew,
+          icon: Icons.emoji_emotions_outlined,
         ),
         ChromeMenuEntry(l10n.reconnect, reconnect, icon: Icons.sync),
         ChromeMenuEntry(

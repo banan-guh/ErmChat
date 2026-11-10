@@ -77,6 +77,7 @@ import '../panels/search.dart';
 import '../widgets/nuke_overlay.dart';
 import '../widgets/emote_url_provider.dart';
 import '../widgets/media_upload_controller.dart';
+import '../widgets/eased_progress.dart';
 import '../widgets/emote_menu_panel.dart';
 import '../widgets/message_builder.dart';
 import '../widgets/predictive_back_handler.dart';
@@ -290,6 +291,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   // [_chatLoading] (driven by ChatConnectionManager.connectionStateNotifier),
   // so this only covers emote work that doesn't move the connection phase.
   final ValueNotifier<bool> _networkBusy = ValueNotifier(false);
+  // The composer pip shows one run at a time, an upload before an emote
+  // reload.
+  late final ActiveProgress _composerProgress = ActiveProgress([
+    _uploadController.progress,
+    _emotes.signals.progress,
+  ]);
   // Kept so dispose unbinds only the handlers this state installed.
   late final PipService _pip;
   ValueChanged<bool>? _pipChangedHandler;
@@ -1511,6 +1518,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     WidgetsBinding.instance.removeObserver(_predictiveBackHandler);
     _panelManager.dispose();
     _composer.dispose();
+    _composerProgress.dispose();
     _uploadController.dispose();
     _networkBusy.dispose();
     _linkWhitelist.removeListener(_retile);
@@ -2112,7 +2120,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                     classic: spec.composer == ComposerStyle.classic,
                     modeRow: modeRow,
                     uploads: _uploadController,
-                    emoteProgress: _emotes.signals.progress,
+                    progress: _composerProgress,
                   )
                 : null,
             bottomBar: hasBottomBar && !rowless
@@ -2186,8 +2194,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
             classic: spec.composer == ComposerStyle.classic,
             busyListenable: spec.busyBar ? _chrome.joinBusyListenable : null,
             isBusy: _chrome.joinBusy,
-            uploadProgress: _uploadController.progress,
-            emoteProgress: _emotes.signals.progress,
+            progress: _composerProgress,
             notice: ChatNoticeBar(controller: _chatNotice),
             replyHeader: replyHeader,
             keyboardHidesButtons: spec.compact,

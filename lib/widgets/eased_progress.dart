@@ -1,7 +1,37 @@
-import 'package:flutter/foundation.dart' show ValueListenable;
+import 'package:flutter/foundation.dart' show ChangeNotifier, ValueListenable;
 import 'package:flutter/material.dart';
 
 import 'design_tokens.dart';
+
+/// One share for indicators that several runs take turns using. [sources] are
+/// ordered by precedence, and the first with a value wins.
+class ActiveProgress extends ChangeNotifier
+    implements ValueListenable<double?> {
+  ActiveProgress(this._sources) {
+    for (final source in _sources) {
+      source.addListener(notifyListeners);
+    }
+  }
+
+  final List<ValueListenable<double?>> _sources;
+
+  @override
+  double? get value {
+    for (final source in _sources) {
+      final share = source.value;
+      if (share != null) return share;
+    }
+    return null;
+  }
+
+  @override
+  void dispose() {
+    for (final source in _sources) {
+      source.removeListener(notifyListeners);
+    }
+    super.dispose();
+  }
+}
 
 /// Builds with [progress] eased between its updates, so a value that moves in
 /// chunks reads as one smooth sweep. A drop (a new run starting over) jumps

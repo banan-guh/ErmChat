@@ -96,7 +96,7 @@ class _ChannelTables {
 class ArchiveStore {
   ArchiveStore._(this._db, this._now);
 
-  static const int schemaVersion = 14;
+  static const int schemaVersion = 15;
   static const Duration defaultRetention = Duration(days: 30);
 
   /// How long chat stays before pruning. The History settings set it, and
@@ -136,7 +136,8 @@ class ArchiveStore {
         // roots per block, with each root's reply count. Version 13 stores
         // each thread's first direct reply, for the list preview. Version 14
         // indexes end times across channels, so the retention delete never
-        // reads block data.
+        // reads block data. Version 15 marks blocks whose reply roots are in
+        // the thread index, so blocks sealed before it can be indexed.
         onUpgrade: (db, from, to) async {
           if (from < 9) {
             await db.execute('ALTER TABLE moderation ADD COLUMN at_ts INTEGER');
@@ -146,6 +147,7 @@ class ArchiveStore {
           if (from < 12) await _createThreadIndex(db);
           if (from < 13) await _createThreadRoots(db);
           if (from < 14) await _createBlockTimeIndex(db);
+          if (from < 15) await _addThreadFlag(db);
         },
       ),
     );
@@ -204,6 +206,7 @@ class ArchiveStore {
     await _createModeration(db);
     await _createEmoteDefs(db);
     await _addBlockFlags(db);
+    await _addThreadFlag(db);
     await _createSearchIndex(db);
     await _createThreadIndex(db);
     await _createThreadRoots(db);
@@ -362,6 +365,17 @@ class ArchiveStore {
     );
     await db.execute(
       'ALTER TABLE blocks ADD COLUMN stripped INTEGER NOT NULL DEFAULT 0',
+    );
+  }
+
+  /// Per block: `threads` once its reply roots are in `thread_refs`, so
+  /// [backfillThreads] can index blocks sealed before the index existed.
+  /// Skips a database that already carries the column.
+  static Future<void> _addThreadFlag(Database db) async {
+    final columns = await db.rawQuery('PRAGMA table_info(blocks)');
+    if (columns.any((c) => c['name'] == 'threads')) return;
+    await db.execute(
+      'ALTER TABLE blocks ADD COLUMN threads INTEGER NOT NULL DEFAULT 0',
     );
   }
 
@@ -574,6 +588,7 @@ class ArchiveStore {
           'count': count,
           'data': data,
           'refs': 1,
+          'threads': 1,
           'words': ids == null ? null : encodeWordList(ids),
           'senders': senders == null ? null : encodeWordList(senders),
           'states': states == null ? null : encodeWordList(states),
@@ -721,6 +736,52 @@ class ArchiveStore {
       done += blocks.length;
     }
   }
+
+  /// Indexes reply roots for blocks sealed before the thread index existed,
+  /// or merged before it, and marks them done. Returns blocks indexed.
+  Future<int> backfillThreads() async {
+    var done = 0;
+    while (true) {
+      final blocks = await _db.rawQuery(
+        'SELECT id, channel, data FROM blocks WHERE threads = 0 LIMIT 64',
+      );
+      if (blocks.isEmpty) return done;
+      final found = await _threadRefsOffIsolate([
+        for (final b in blocks) b['data']! as Uint8List,
+      ]);
+      await _db.transaction((txn) async {
+        final batch = txn.batch();
+        for (var i = 0; i < blocks.length; i++) {
+          final id = blocks[i]['id']! as int;
+          final channel = blocks[i]['channel']! as String;
+          // A reindex replaces the block's old roots, so a baked edit that
+          // removed replies also drops their counts.
+          batch.rawDelete('DELETE FROM thread_refs WHERE block_id = ?', [id]);
+          for (final MapEntry(key: root, value: r) in found[i].entries) {
+            batch.rawInsert(
+              'INSERT OR IGNORE INTO thread_refs(channel, root_id, block_id, '
+              'ts, count) VALUES(?, ?, ?, ?, ?)',
+              [channel, root, id, r.ts, r.count],
+            );
+            if (r.author.isNotEmpty || r.preview.isNotEmpty) {
+              batch.rawInsert(
+                'INSERT OR IGNORE INTO thread_roots(channel, root_id, author, '
+                'preview) VALUES(?, ?, ?, ?)',
+                [channel, root, r.author, r.preview],
+              );
+            }
+          }
+          batch.rawUpdate('UPDATE blocks SET threads = 1 WHERE id = ?', [id]);
+        }
+        await batch.commit(noResult: true);
+      });
+      done += blocks.length;
+    }
+  }
+
+  static Future<List<Map<String, ThreadRootRef>>> _threadRefsOffIsolate(
+    List<Uint8List> blocks,
+  ) => Isolate.run(() => [for (final b in blocks) blockThreadRefs(b)]);
 
   /// Each block's senders: rows name user states, and the index keeps who
   /// wrote.
@@ -1495,6 +1556,7 @@ class ArchiveStore {
     await bakeEdits();
     await strip(now);
     await backfillWords();
+    await backfillThreads();
     await pruneUsers();
     await pruneVocab();
     await reclaimSpace();
@@ -1861,11 +1923,11 @@ class ArchiveStore {
               b.rawDelete('DELETE FROM blocks WHERE id = ?', [blocks[i]['id']]);
               continue;
             }
-            // The removed rows' words and users go with them on the next
-            // index pass.
+            // The removed rows' words, users and thread roots go with them on
+            // the next index pass.
             b.rawUpdate(
               'UPDATE blocks SET data = ?, count = count - ?, words = NULL, '
-              'senders = NULL, states = NULL WHERE id = ?',
+              'senders = NULL, states = NULL, threads = 0 WHERE id = ?',
               [r.data, removed, blocks[i]['id']],
             );
           }
@@ -2018,6 +2080,7 @@ class ArchiveStore {
           'data': mergedData,
           // A merge keeps the least done of its sources' upkeep.
           'refs': row['r'],
+          'threads': 1,
           'stripped': row['x'],
         });
         // The merged rows are the same replies, under a new block id.
@@ -2218,6 +2281,15 @@ List<MergedBlock> mergeBlocks(List<List<Uint8List>> groups) => [
       }
     }(),
 ];
+
+/// A block's reply roots, or none when it fails to decode.
+Map<String, ThreadRootRef> blockThreadRefs(Uint8List data) {
+  try {
+    return replyRoots(ArchiveBlock.decode(data));
+  } on ArchiveFormatException {
+    return const {};
+  }
+}
 
 /// The thread root each reply in [rows] answers (its parent when the root is
 /// missing), with the time of the newest reply to it and the reply count.

@@ -2006,14 +2006,57 @@ void main() {
         for (final c in await check.rawQuery('PRAGMA table_info(thread_roots)'))
           c['name'],
       ];
+      final blocks = [
+        for (final c in await check.rawQuery('PRAGMA table_info(blocks)'))
+          c['name'],
+      ];
       await check.close();
       expect(
         refs,
         containsAll(['channel', 'root_id', 'block_id', 'ts', 'count']),
       );
       expect(roots, containsAll(['channel', 'root_id', 'author', 'preview']));
+      expect(blocks, contains('threads'));
       await again.close();
     });
+
+    test(
+      'blocks sealed before the thread index are backfilled on open',
+      () async {
+        final path = _newPath();
+        final store = await _open(path, now: () => _t0);
+        final writer = _writer(store, sealCount: 4);
+        for (var i = 1; i <= 8; i++) {
+          writer.add(_channel, reply(i));
+        }
+        await writer.flush();
+        await store.close();
+
+        // Clear the index as a block sealed before it existed would be.
+        final db = await databaseFactoryFfi.openDatabase(path);
+        await db.rawUpdate('UPDATE blocks SET threads = 0');
+        await db.rawDelete('DELETE FROM thread_refs');
+        await db.rawDelete('DELETE FROM thread_roots');
+        await db.close();
+
+        // Opening runs the upkeep that indexes them.
+        final again = await _open(path, now: () => _t0);
+        await again.close();
+
+        final check = await databaseFactoryFfi.openDatabase(path);
+        final refs = await check.rawQuery(
+          'SELECT root_id, count FROM thread_refs ORDER BY block_id',
+        );
+        final flags = await check.rawQuery('SELECT threads FROM blocks');
+        await check.close();
+        expect(
+          [for (final r in refs) (r['root_id'], r['count'])],
+          [(_id(0), 4), (_id(0), 4)],
+          reason: 'each block contributes its four replies',
+        );
+        expect(flags.every((f) => f['threads'] == 1), isTrue);
+      },
+    );
 
     test('a thread reads back its replies, oldest first', () async {
       final store = await _open(_newPath());

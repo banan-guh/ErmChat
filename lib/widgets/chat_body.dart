@@ -79,8 +79,7 @@ class ChatBody extends StatefulWidget {
     this.classic = false,
     this.busyListenable,
     this.isBusy,
-    this.uploadProgress,
-    this.emoteProgress,
+    this.progress,
     this.onKeyboardDismissed,
     this.composer,
     this.bottomBar,
@@ -147,13 +146,9 @@ class ChatBody extends StatefulWidget {
   final Listenable? busyListenable;
   final bool Function()? isBusy;
 
-  /// The running upload's share sent, from 0 to 1, drawn as a bar along the
-  /// island's top edge. Null while no upload runs.
-  final ValueListenable<double?>? uploadProgress;
-
-  /// The full emote reload's share fetched, from 0 to 1, drawn in the same
-  /// place as an upload. Null while no reload runs.
-  final ValueListenable<double?>? emoteProgress;
+  /// The share of the upload or emote reload running, from 0 to 1, drawn on
+  /// the island or its busy line. Null while neither runs.
+  final ValueListenable<double?>? progress;
 
   /// Fired once the keyboard settles closed, so the host can drop input
   /// focus instead of leaving the field focused silently.
@@ -960,6 +955,7 @@ class _ChatBodyState extends State<ChatBody>
     if (layout.flush) return island;
     final busyListenable = widget.busyListenable;
     final isBusy = widget.isBusy;
+    final progress = widget.progress;
     final busy = busyListenable == null || isBusy == null
         ? island
         : IslandBusyRing(
@@ -967,11 +963,16 @@ class _ChatBodyState extends State<ChatBody>
             busy: isBusy,
             child: island,
           );
-    // An upload or a full emote reload traces the same outline.
-    final progress = widget.uploadProgress ?? widget.emoteProgress;
-    return progress == null
-        ? busy
-        : IslandProgressRing(progress: progress, child: busy);
+    if (progress == null) return busy;
+    // A run with a share traces the outline itself, so the busy motion steps
+    // aside while it holds a value and comes back once it settles.
+    return ValueListenableBuilder<double?>(
+      valueListenable: progress,
+      builder: (context, value, _) => IslandProgressRing(
+        progress: progress,
+        child: value == null ? busy : island,
+      ),
+    );
   }
 
   /// Classic is just the outlined field on the chat's background, so the
@@ -998,9 +999,7 @@ class _ChatBodyState extends State<ChatBody>
     final busyListenable = widget.busyListenable;
     final isBusy = widget.isBusy;
     final showsBusy = busyListenable != null && isBusy != null;
-    final lineUpload = layout.classic
-        ? null
-        : widget.uploadProgress ?? widget.emoteProgress;
+    final lineUpload = layout.classic ? null : widget.progress;
     if (!showsBusy && lineUpload == null) return null;
     return SizedBox(
       height: 0,

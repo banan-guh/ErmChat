@@ -13,10 +13,13 @@ bool debugLogEnabled =
     !kReleaseMode || const bool.fromEnvironment('ERMCHAT_RELEASE_LOG');
 
 /// App logging hook. Use instead of [debugPrint] so tests can silence noise.
+/// Lines also join [AppLog], so a bug report keeps the events that led to it.
 void logDebug(String? message, {int? wrapWidth}) {
+  if (message == null) return;
   if (debugLogEnabled) {
     debugPrint(message, wrapWidth: wrapWidth);
   }
+  AppLog.I.note(message);
 }
 
 /// Recent app events, printed alongside any frame that stalls so a hitch
@@ -132,9 +135,17 @@ class AppLog {
   /// Appends one entry. Continuation lines of a multi-line [message] are
   /// indented, which is how [read] tells entries apart.
   void record(String tag, String message) {
+    _append(tag, message);
+    if (debugLogEnabled) debugPrint('[$tag] $message');
+  }
+
+  /// Appends a [logDebug] line under the `LOG` tag, without printing it
+  /// again.
+  void note(String message) => _append('LOG', message);
+
+  void _append(String tag, String message) {
     final body = message.replaceAll('\n', '\n    ');
     _pending.add('${DateTime.now().toIso8601String()} [$tag] $body');
-    logDebug('[$tag] $message');
     if (_file == null) {
       // Memory only until init, or for good without a documents directory.
       if (_pending.length > 2000) _pending.removeAt(0);
