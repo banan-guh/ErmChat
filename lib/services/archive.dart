@@ -5,6 +5,7 @@ import 'package:path_provider/path_provider.dart';
 import '../archive/archive_row.dart';
 import '../util/log.dart';
 import '../util/prefs.dart';
+import '../util/settings.dart';
 import 'archive_reader.dart';
 import 'archive_store.dart';
 import 'archive_writer.dart';
@@ -43,9 +44,13 @@ class Archive {
   static Future<ArchiveStore?> _openDefault() async {
     try {
       // The open prunes once, so the chosen limits apply before it.
-      final prefs = await Prefs.load();
-      ArchiveStore.retention = Duration(days: prefs.archiveRetentionDays);
-      ArchiveStore.channelCapBytes = capBytes(prefs.archiveChannelCapMb);
+      await Prefs.load();
+      ArchiveStore.retention = Duration(
+        days: Settings.archiveRetentionDays.value,
+      );
+      ArchiveStore.channelCapBytes = capBytes(
+        Settings.archiveChannelCapMb.value,
+      );
       return await ArchiveStore.open(await defaultPath());
     } catch (e) {
       logDebug('[Archive] open failed: $e');

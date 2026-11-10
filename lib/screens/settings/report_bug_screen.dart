@@ -20,6 +20,7 @@ import '../../util/diagnostics_scrub.dart';
 import '../../util/friendly_error.dart';
 import '../../util/log.dart';
 import '../../util/prefs.dart';
+import '../../util/settings.dart';
 import 'settings_page.dart';
 import '../../widgets/app_snack.dart';
 
@@ -469,17 +470,17 @@ Future<String> collectDiagnostics(BuildContext context) async {
   final prefs = Prefs.loaded;
   if (prefs != null) {
     final tiers = EmoteFetchTier.values;
-    final tier = prefs.emoteFetchTier;
+    final tier = Settings.emoteFetchTier.value;
     String onOff(bool v) => v ? 'on' : 'off';
     lines
       ..add('Channels: ${prefs.channels.length}')
       ..add(
         'Settings: '
         'emote tier ${tier >= 0 && tier < tiers.length ? tiers[tier].label : '?'}, '
-        'animate emotes ${onOff(prefs.animateGifs)}, '
-        '7TV cosmetics ${onOff(prefs.sevenTvCosmetics)}, '
-        'font ${prefs.chatFontSize}, '
-        'max messages ${prefs.maxMessagesPerChannel}',
+        'animate emotes ${onOff(Settings.animateGifs.value)}, '
+        '7TV cosmetics ${onOff(Settings.sevenTvCosmetics.value)}, '
+        'font ${Settings.chatFontSize.value}, '
+        'max messages ${Settings.maxMessagesPerChannel.value}',
       );
   }
   return scrubDiagnostics(lines.join('\n'));

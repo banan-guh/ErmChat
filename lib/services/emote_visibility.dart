@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import '../emotes/emote.dart';
 import '../util/log.dart';
 import '../util/prefs.dart';
+import '../util/settings.dart';
 
 /// Provider visibility config: which third-party emote providers are fetched
 /// and rendered, plus whether unlisted 7TV emotes render.
@@ -61,16 +62,16 @@ class EmoteVisibility extends ChangeNotifier {
 
   Future<void> _loadPrefs() async {
     try {
-      final prefs = await _getPrefs();
-      final raw = prefs.emoteProvidersDisabled;
+      await _getPrefs();
+      final raw = Settings.emoteProvidersDisabled.value;
       _disabled.clear();
       if (raw != null) {
         for (final t in EmoteType.values) {
           if (raw.contains(t.name)) _disabled.add(t);
         }
       }
-      _allowUnlisted = prefs.emoteAllowUnlisted7tv;
-      _allowPersonal = prefs.emoteAllowPersonal7tv;
+      _allowUnlisted = Settings.emoteAllowUnlisted7tv.value;
+      _allowPersonal = Settings.emoteAllowPersonal7tv.value;
       _loaded = true;
       _notify();
     } catch (e) {
@@ -86,8 +87,8 @@ class EmoteVisibility extends ChangeNotifier {
     await ensureLoaded();
     final changed = enabled ? _disabled.remove(type) : _disabled.add(type);
     if (!changed) return false;
-    final prefs = await _getPrefs();
-    await prefs.setEmoteProvidersDisabled(
+    await _getPrefs();
+    await Settings.emoteProvidersDisabled.set(
       _disabled.map((t) => t.name).toList(),
     );
     _notify();
@@ -99,8 +100,8 @@ class EmoteVisibility extends ChangeNotifier {
     await ensureLoaded();
     if (allowed == _allowUnlisted) return false;
     _allowUnlisted = allowed;
-    final prefs = await _getPrefs();
-    await prefs.setEmoteAllowUnlisted7tv(allowed);
+    await _getPrefs();
+    await Settings.emoteAllowUnlisted7tv.set(allowed);
     _notify();
     return true;
   }
@@ -110,8 +111,8 @@ class EmoteVisibility extends ChangeNotifier {
     await ensureLoaded();
     if (allowed == _allowPersonal) return false;
     _allowPersonal = allowed;
-    final prefs = await _getPrefs();
-    await prefs.setEmoteAllowPersonal7tv(allowed);
+    await _getPrefs();
+    await Settings.emoteAllowPersonal7tv.set(allowed);
     _notify();
     return true;
   }

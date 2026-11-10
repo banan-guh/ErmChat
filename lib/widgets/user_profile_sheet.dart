@@ -18,6 +18,7 @@ import '../util/layout_density.dart';
 import '../util/log.dart';
 import '../util/mention.dart';
 import '../util/prefs.dart';
+import '../util/settings.dart';
 import 'app_snack.dart';
 import 'badge_chip.dart';
 import 'chat_rows.dart';
@@ -984,10 +985,10 @@ class UserProfileSheetState extends State<UserProfileSheet> {
 
   Future<void> _mentionUser() async {
     widget.onClose();
-    final prefs = await Prefs.load();
+    await Prefs.load();
     final username = widget.username;
     // Mention format preference: how name is inserted into compose box.
-    final prefix = formatMention(prefs.mentionFormat, username);
+    final prefix = formatMention(Settings.mentionFormat.value, username);
     final text = widget.messageController.text;
     widget.messageController.text = '$prefix$text';
     widget.messageController.selection = TextSelection.fromPosition(

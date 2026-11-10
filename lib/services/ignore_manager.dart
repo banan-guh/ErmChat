@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import '../models/twitch_message.dart';
 import '../util/log.dart';
 import '../util/prefs.dart';
+import '../util/settings.dart';
 
 /// Local ignore: null replacement deletes; with replacement rewrites; block drops whole message.
 class IgnoreEntry {
@@ -106,9 +107,9 @@ class IgnoreManager extends ChangeNotifier {
   List<IgnoreEntry> get keywords => List.unmodifiable(_keywords);
 
   Future<void> load() async {
-    final prefs = await Prefs.load();
-    _users = decodeEntries(prefs.localIgnores);
-    _keywords = decodeEntries(prefs.keywordReplacements);
+    await Prefs.load();
+    _users = decodeEntries(Settings.localIgnores.value);
+    _keywords = decodeEntries(Settings.keywordReplacements.value);
     _regexCache.clear();
     _rebuildLiteralSets();
     _loaded = true;
@@ -116,11 +117,11 @@ class IgnoreManager extends ChangeNotifier {
   }
 
   Future<void> save() async {
-    final prefs = await Prefs.load();
-    await prefs.setLocalIgnores(
+    await Prefs.load();
+    await Settings.localIgnores.set(
       jsonEncode([for (final u in _users) u.toJson()]),
     );
-    await prefs.setKeywordReplacements(
+    await Settings.keywordReplacements.set(
       jsonEncode([for (final k in _keywords) k.toJson()]),
     );
     _regexCache.clear();

@@ -8,6 +8,7 @@ import '../l10n/l10n.dart';
 import '../services/emote_manager.dart';
 import '../services/mod_actions.dart' show ModResult;
 import '../util/prefs.dart';
+import '../util/settings.dart';
 import 'chat_widget_cutout.dart';
 import 'seven_tv_paint_service.dart';
 
@@ -75,7 +76,7 @@ class BroadcastWidgets {
   // Live polls, predictions and hype trains are a dev opt-in until their
   // cards are verified against real streams; pins always show. End events
   // apply regardless, so flipping the pref off lets a shown card finish.
-  static bool get _liveWidgets => Prefs.loaded?.liveChatWidgets ?? true;
+  static bool get _liveWidgets => Settings.liveChatWidgets.value;
 
   void onHypeTrain(HypeTrainEvent event) {
     if (!mounted) return;
@@ -166,9 +167,9 @@ class BroadcastWidgets {
   }
 
   Future<void> loadTestWidgets() async {
-    final prefs = await Prefs.load();
+    await Prefs.load();
     if (!mounted) return;
-    applyTestWidgets(prefs.testChatWidgets);
+    applyTestWidgets(Settings.testChatWidgets.value);
   }
 
   void setTestWidgets(bool value) {

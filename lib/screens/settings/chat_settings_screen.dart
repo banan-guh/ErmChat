@@ -5,7 +5,7 @@ import 'package:flutter/material.dart';
 import '../../l10n/l10n.dart';
 import '../../services/chat_sender.dart';
 import '../../services/twitch_auth.dart';
-import '../../util/prefs.dart';
+import '../../util/settings.dart';
 import 'link_whitelist_screen.dart';
 import 'macros_screen.dart';
 import 'inline_embeds_screen.dart';
@@ -15,7 +15,6 @@ import 'settings_page.dart';
 import 'setting_info.dart';
 import 'settings_search.dart';
 import '../../widgets/dialogs.dart';
-import '../../util/settings.dart';
 
 class ChatSettingsScreen extends StatefulWidget {
   final TwitchAuth? twitchAuth;
@@ -284,8 +283,8 @@ class _SpamSpeedSliders extends StatelessWidget {
     BuildContext context, {
     required String role,
     required Duration limit,
-    required int Function(Prefs p) read,
-    required Future<void> Function(Prefs p, int ms) write,
+    required int Function() read,
+    required Future<void> Function(int ms) write,
   }) {
     final l = context.l10n;
     final error = Theme.of(context).colorScheme.error;
@@ -296,8 +295,8 @@ class _SpamSpeedSliders extends StatelessWidget {
       max: (_steps.length - 1).toDouble(),
       divisions: _steps.length - 1,
       defaultValue: 0,
-      read: (p) => _stepOf(read(p)).toDouble(),
-      write: (p, v) => write(p, _steps[v.round()]),
+      read: () => _stepOf(read()).toDouble(),
+      write: (v) => write(_steps[v.round()]),
       tint: (v) => _over(_steps[v.round()], limit) ? error : null,
     );
   }
@@ -310,15 +309,15 @@ class _SpamSpeedSliders extends StatelessWidget {
         context,
         role: context.l10n.spamSpeedPlain,
         limit: ChatSender.plainRepeatGap,
-        read: (p) => p.spamIntervalMs,
-        write: (p, ms) => p.setSpamIntervalMs(ms),
+        read: () => Settings.spamIntervalMs.value,
+        write: (ms) => Settings.spamIntervalMs.set(ms),
       ),
       _slider(
         context,
         role: context.l10n.spamSpeedMod,
         limit: ChatSender.privilegedRepeatGap,
-        read: (p) => p.spamIntervalModMs,
-        write: (p, ms) => p.setSpamIntervalModMs(ms),
+        read: () => Settings.spamIntervalModMs.value,
+        write: (ms) => Settings.spamIntervalModMs.set(ms),
       ),
     ],
   );

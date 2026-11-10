@@ -10,6 +10,7 @@ import '../providers/feature_providers.dart' show chatNoticeProvider;
 import '../services/link_whitelist.dart';
 import '../util/mention.dart';
 import '../util/prefs.dart';
+import '../util/settings.dart';
 import '../util/thread_utils.dart';
 import '../util/timestamp_formatter.dart';
 import 'chat_message_tile.dart';
@@ -183,8 +184,8 @@ class ChatRows {
   /// Copies the sender in the mention format pref, trailing space included
   /// like an inserted emote, and confirms in the chat notice bar with Paste.
   Future<void> _copyUsername(BuildContext context, TwitchMessage msg) async {
-    final prefs = await Prefs.load();
-    final text = formatMention(prefs.mentionFormat, mentionName(msg));
+    await Prefs.load();
+    final text = formatMention(Settings.mentionFormat.value, mentionName(msg));
     await Clipboard.setData(ClipboardData(text: text));
     if (!context.mounted) return;
     final notice = ProviderScope.containerOf(

@@ -218,8 +218,8 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
                 max: 24,
                 divisions: 16,
                 defaultValue: 14,
-                read: (p) => p.chatFontSize,
-                write: (p, v) => p.setChatFontSize(v),
+                read: () => Settings.chatFontSize.value,
+                write: (v) => Settings.chatFontSize.set(v),
               ),
             ),
             SettingAnchor(

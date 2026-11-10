@@ -40,7 +40,11 @@ final analyticsServiceProvider = Provider<AnalyticsService>((ref) {
     store: FileAnalyticsStore(),
     enabled: false,
   );
-  unawaited(Prefs.load().then((p) => service.setEnabled(p.analyticsEnabled)));
+  unawaited(
+    Prefs.load().then(
+      (_) => service.setEnabled(Settings.analyticsEnabled.value),
+    ),
+  );
   ref.onDispose(() {
     unawaited(service.flush());
     service.dispose();

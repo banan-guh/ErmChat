@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 
 import '../util/prefs.dart';
+import '../util/settings.dart';
 import 'pip_service.dart';
 
 /// Per-channel Twitch stream player state. Ports DankChat's StreamViewModel:
@@ -88,8 +89,8 @@ class StreamPlayerController extends ChangeNotifier {
   }
 
   Future<void> loadPrefs() async {
-    final prefs = await Prefs.load();
-    _pipEnabled = prefs.streamPipEnabled;
+    await Prefs.load();
+    _pipEnabled = Settings.streamPipEnabled.value;
     notifyListeners();
   }
 

@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 import '../util/constants.dart' show httpTimeout;
 import '../util/log.dart';
 import '../util/prefs.dart';
+import '../util/settings.dart';
 
 /// Where an install gets its updates, read from its installer.
 enum UpdateSource { github, fdroid, play, testflight }
@@ -98,7 +99,7 @@ class AppUpdates {
     final last = prefs.lastSeenVersion;
     await prefs.setLastSeenVersion(current);
     if (last == null || compareVersions(current, last) <= 0) return null;
-    return prefs.whatsNewEnabled ? last : null;
+    return Settings.whatsNewEnabled.value ? last : null;
   }
 
   static const _releasesPerPage = 100;
@@ -173,8 +174,8 @@ class AppUpdates {
     UpdateSource? source,
   ) async {
     final prefs = await Prefs.load();
-    if (prefs.armUpdate) {
-      await prefs.setArmUpdate(false);
+    if (Settings.armUpdate.value) {
+      await Settings.armUpdate.set(false);
       final fake = _nextPatch(current);
       await prefs.setAvailableUpdate(fake);
       await prefs.setDismissedUpdate(null);
@@ -184,7 +185,7 @@ class AppUpdates {
     if (available != null && compareVersions(available, current) <= 0) {
       await prefs.setAvailableUpdate(null);
     }
-    if (source == null || !prefs.updateCheckEnabled) return null;
+    if (source == null || !Settings.updateCheckEnabled.value) return null;
     final now = _now();
     final last = prefs.lastUpdateCheck;
     if (last != null &&

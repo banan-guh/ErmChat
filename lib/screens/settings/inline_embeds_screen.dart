@@ -31,11 +31,11 @@ class InlineEmbedsScreen extends StatelessWidget {
                 max: kGiphyInlineHeightMax,
                 divisions: 12,
                 defaultValue: kGiphyInlineHeightDefault,
-                read: (p) => p.giphyInlineHeight.clamp(
+                read: () => Settings.giphyInlineHeight.value.clamp(
                   kGiphyInlineHeightMin,
                   kGiphyInlineHeightMax,
                 ),
-                write: (p, v) => p.setGiphyInlineHeight(v),
+                write: (v) => Settings.giphyInlineHeight.set(v),
               ),
             ),
           ),
@@ -63,11 +63,11 @@ class InlineEmbedsScreen extends StatelessWidget {
                 max: kImageEmbedHeightMax,
                 divisions: 12,
                 defaultValue: kImageEmbedHeightDefault,
-                read: (p) => p.imageEmbedHeight.clamp(
+                read: () => Settings.imageEmbedHeight.value.clamp(
                   kImageEmbedHeightMin,
                   kImageEmbedHeightMax,
                 ),
-                write: (p, v) => p.setImageEmbedHeight(v),
+                write: (v) => Settings.imageEmbedHeight.set(v),
               ),
             ),
           ),

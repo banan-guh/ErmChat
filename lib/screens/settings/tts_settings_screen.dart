@@ -54,9 +54,9 @@ class _TtsSettingsScreenState extends State<TtsSettingsScreen> {
     }
   }
 
-  Future<void> _persist(Future<void> Function(Prefs) write) async {
-    final prefs = await Prefs.load();
-    await write(prefs);
+  Future<void> _persist(Future<void> Function() write) async {
+    await Prefs.load();
+    await write();
   }
 
   Future<void> _setEnabled(bool value) async {
@@ -75,25 +75,25 @@ class _TtsSettingsScreenState extends State<TtsSettingsScreen> {
     }
     if (mounted) setState(() => _enabled = value);
     widget.ttsController?.setEnabled(value);
-    unawaited(_persist((p) => p.setTtsEnabled(value)));
+    unawaited(_persist(() => Settings.ttsEnabled.set(value)));
   }
 
   void _setIgnoreUrls(bool value) {
     setState(() => _ignoreUrls = value);
     widget.ttsController?.setIgnoreUrls(value);
-    unawaited(_persist((p) => p.setTtsIgnoreUrls(value)));
+    unawaited(_persist(() => Settings.ttsIgnoreUrls.set(value)));
   }
 
   void _setIgnoreEmotes(bool value) {
     setState(() => _ignoreEmotes = value);
     widget.ttsController?.setIgnoreEmotes(value);
-    unawaited(_persist((p) => p.setTtsIgnoreEmotes(value)));
+    unawaited(_persist(() => Settings.ttsIgnoreEmotes.set(value)));
   }
 
   void _setForceEnglish(bool value) {
     setState(() => _forceEnglish = value);
     widget.ttsController?.setForceEnglish(value);
-    unawaited(_persist((p) => p.setTtsForceEnglish(value)));
+    unawaited(_persist(() => Settings.ttsForceEnglish.set(value)));
   }
 
   Future<void> _pickQueueMode() async {
@@ -113,7 +113,7 @@ class _TtsSettingsScreenState extends State<TtsSettingsScreen> {
     if (chosen == null || chosen == _queueMode) return;
     setState(() => _queueMode = chosen);
     widget.ttsController?.setQueueMode(chosen);
-    unawaited(_persist((p) => p.setTtsQueueMode(chosen.name)));
+    unawaited(_persist(() => Settings.ttsQueueMode.set(chosen.name)));
   }
 
   Future<void> _pickFormatMode() async {
@@ -137,7 +137,7 @@ class _TtsSettingsScreenState extends State<TtsSettingsScreen> {
     if (chosen == null || chosen == _formatMode) return;
     setState(() => _formatMode = chosen);
     widget.ttsController?.setFormatMode(chosen);
-    unawaited(_persist((p) => p.setTtsFormatMode(chosen.name)));
+    unawaited(_persist(() => Settings.ttsFormatMode.set(chosen.name)));
   }
 
   Future<void> _pickVoice() async {

@@ -867,9 +867,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 
   Future<void> _loadNotificationSettings() async {
     final prefs = await Prefs.load();
-    final backgroundService = prefs.backgroundService;
+    final backgroundService = Settings.backgroundService.value;
     final mentionPush = prefs.mentionPush;
-    final whisperNotify = prefs.whisperNotifications;
+    final whisperNotify = Settings.whisperNotifications.value;
     if (!mounted) return;
     ref.read(mentionPushProvider.notifier).set(mentionPush);
     ref

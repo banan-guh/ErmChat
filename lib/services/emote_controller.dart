@@ -7,6 +7,7 @@ import '../util/connectivity.dart';
 import '../util/data_usage.dart';
 import '../util/prefs.dart';
 import '../util/log.dart';
+import '../util/settings.dart';
 import '../util/signal.dart';
 import 'emote_manager.dart';
 import 'seven_tv_event_client.dart';
@@ -131,9 +132,9 @@ class EmoteController {
   // fetched at the default.
   Future<void> loadPrefs() async {
     try {
-      final prefs = await Prefs.load();
-      final tierIndex = prefs.emoteFetchTier;
-      final autoIndex = prefs.emoteFetchAuto;
+      await Prefs.load();
+      final tierIndex = Settings.emoteFetchTier.value;
+      final autoIndex = Settings.emoteFetchAuto.value;
       // A corrupt/out-of-range persisted index would throw RangeError at
       // startup; fall back to the default instead.
       if (tierIndex >= 0 && tierIndex < EmoteFetchTier.values.length) {
@@ -142,8 +143,8 @@ class EmoteController {
       autoMode = autoIndex >= 0 && autoIndex < EmoteFetchAutoMode.values.length
           ? EmoteFetchAutoMode.values[autoIndex]
           : defaultEmoteFetchAutoMode;
-      applyCacheCap(prefs.emoteCacheMb);
-      applyAnimationsEnabled(prefs.animateGifs);
+      applyCacheCap(Settings.emoteCacheMb.value);
+      applyAnimationsEnabled(Settings.animateGifs.value);
       await _applyConnectivityContext();
       reconcileTier();
     } catch (e) {

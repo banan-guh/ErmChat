@@ -1,4 +1,5 @@
 import '../util/prefs.dart';
+import '../util/settings.dart';
 
 /// Chat proxy (ermchat-server) opt-in config. Disabled by default; the read
 /// socket keeps dialing Twitch directly until the toggle is on and a URL
@@ -48,12 +49,15 @@ class ProxyConfig {
   }
 
   static ProxyConfig fromPrefs(Prefs prefs) {
-    return ProxyConfig(enabled: prefs.proxyEnabled, url: prefs.proxyUrl);
+    return ProxyConfig(
+      enabled: Settings.proxyEnabled.value,
+      url: Settings.proxyUrl.value,
+    );
   }
 
   Future<void> toPrefs(Prefs prefs) async {
-    await prefs.setProxyEnabled(enabled);
-    await prefs.setProxyUrl(url);
+    await Settings.proxyEnabled.set(enabled);
+    await Settings.proxyUrl.set(url);
   }
 
   @override

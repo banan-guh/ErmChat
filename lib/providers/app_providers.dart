@@ -21,6 +21,7 @@ import '../services/pubsub_service.dart';
 import '../services/recent_messages.dart';
 import '../services/seven_tv_event_client.dart';
 import '../services/stream_player_controller.dart';
+import '../util/settings.dart';
 import '../widgets/seven_tv_paint_service.dart';
 import '../services/third_party_badge_service.dart';
 import '../services/twitch_api.dart';
@@ -52,7 +53,7 @@ final prefsProvider = Provider<Prefs>((ref) {
 /// language pref per call so a runtime switch applies; null follows the system.
 final stringsProvider = Provider<AppLocalizations Function()>((ref) {
   return () {
-    final chosen = parseLocalePref(Prefs.loaded?.locale);
+    final chosen = parseLocalePref(Settings.locale.value);
     return lookupAppLocalizations(
       basicLocaleListResolution(
         chosen == null ? PlatformDispatcher.instance.locales : [chosen],

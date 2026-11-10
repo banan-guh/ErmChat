@@ -1,5 +1,6 @@
 import 'package:ermchat/util/layout_density.dart';
 import 'package:ermchat/util/prefs.dart';
+import 'package:ermchat/util/settings.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -47,15 +48,16 @@ void main() {
   group('layoutDensity pref', () {
     test('defaults to auto and round-trips', () async {
       SharedPreferences.setMockInitialValues({});
-      final prefs = await Prefs.load();
-      expect(prefs.layoutDensity, LayoutDensity.auto);
-      await prefs.setLayoutDensity(LayoutDensity.compact);
-      expect(prefs.layoutDensity, LayoutDensity.compact);
+      await Prefs.load();
+      expect(Settings.layoutDensity.value, LayoutDensity.auto);
+      await Settings.layoutDensity.set(LayoutDensity.compact);
+      expect(Settings.layoutDensity.value, LayoutDensity.compact);
     });
 
     test('unknown stored value falls back to auto', () async {
       SharedPreferences.setMockInitialValues({'layout_density': 'huge'});
-      expect((await Prefs.load()).layoutDensity, LayoutDensity.auto);
+      await Prefs.load();
+      expect(Settings.layoutDensity.value, LayoutDensity.auto);
     });
   });
 

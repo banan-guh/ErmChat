@@ -4,14 +4,12 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'chrome_theme.dart';
-import 'layout_density.dart';
 import 'settings.dart';
 
 /// Typed facade over [SharedPreferences]. User settings live in [Settings],
-/// one line each with key and default; the accessors here for them are
-/// shorthands. Device state, caches, timestamps and per-account data keep
-/// their keys here. Callers load one instance with [Prefs.load] and then read
-/// synchronously or write asynchronously.
+/// one line each with key and default. Device state, caches, timestamps and
+/// per-account data keep their keys here. Callers load one instance with
+/// [Prefs.load] and then read synchronously or write asynchronously.
 ///
 /// The backing store is the plugin's cached instance; the wrapper is rebuilt
 /// per call on purpose so tests that swap `SharedPreferences.setMockInitialValues`
@@ -63,21 +61,6 @@ class Prefs {
   // ── App / theme ─────────────────────────────────────────────────────
   static const _kChannels = 'channels';
 
-  ThemeMode get themeMode => Settings.themeMode.value;
-  Future<void> setThemeMode(ThemeMode value) => Settings.themeMode.set(value);
-
-  String? get locale => Settings.locale.value;
-  Future<void> setLocale(String? value) => Settings.locale.set(value);
-
-  bool get keepScreenOn => Settings.keepScreenOn.value;
-  Future<void> setKeepScreenOn(bool value) => Settings.keepScreenOn.set(value);
-
-  bool get trueDark => Settings.trueDark.value;
-  Future<void> setTrueDark(bool value) => Settings.trueDark.set(value);
-
-  String get accentColor => Settings.accentColor.value;
-  Future<void> setAccentColor(String value) => Settings.accentColor.set(value);
-
   List<String> get channels => _p.getStringList(_kChannels) ?? const [];
 
   Future<void> setChannels(List<String> value) =>
@@ -94,37 +77,7 @@ class Prefs {
   static const _kAvailableUpdate = 'available_update_version';
   static const _kDismissedUpdate = 'dismissed_update_version';
 
-  int get maxMessagesPerChannel => Settings.maxMessagesPerChannel.value;
-  Future<void> setMaxMessagesPerChannel(int value) =>
-      Settings.maxMessagesPerChannel.set(value);
-
-  int get recentMessagesLimit => Settings.recentMessagesLimit.value;
-  Future<void> setRecentMessagesLimit(int value) =>
-      Settings.recentMessagesLimit.set(value);
-
-  int get archiveRetentionDays => Settings.archiveRetentionDays.value;
-  Future<void> setArchiveRetentionDays(int value) =>
-      Settings.archiveRetentionDays.set(value);
-
-  int get archiveChannelCapMb => Settings.archiveChannelCapMb.value;
-  Future<void> setArchiveChannelCapMb(int value) =>
-      Settings.archiveChannelCapMb.set(value);
-
-  /// Whether history sizes its fetch to the gap since the last message seen,
-  /// instead of loading [recentMessagesLimit].
-  bool get historyDynamicFetch => Settings.historyDynamicFetch.value;
-  Future<void> setHistoryDynamicFetch(bool on) =>
-      Settings.historyDynamicFetch.set(on);
-
   int get historyFetchLimit => Settings.historyFetchLimit;
-
-  bool get replyToThreadRoot => Settings.replyToThreadRoot.value;
-  Future<void> setReplyToThreadRoot(bool value) =>
-      Settings.replyToThreadRoot.set(value);
-
-  bool get backgroundService => Settings.backgroundService.value;
-  Future<void> setBackgroundService(bool value) =>
-      Settings.backgroundService.set(value);
 
   bool get mentionPush => _p.getBool(_kMentionPush) ?? false;
 
@@ -137,60 +90,6 @@ class Prefs {
       ? _p.remove(_kNotificationsPausedUntil)
       : _p.setInt(_kNotificationsPausedUntil, value);
 
-  bool get mentionNotifyForeground => Settings.mentionNotifyForeground.value;
-  Future<void> setMentionNotifyForeground(bool value) =>
-      Settings.mentionNotifyForeground.set(value);
-
-  bool get whisperNotifications => Settings.whisperNotifications.value;
-  Future<void> setWhisperNotifications(bool value) =>
-      Settings.whisperNotifications.set(value);
-
-  bool get preferEmotesFirst => Settings.preferEmotesFirst.value;
-  Future<void> setPreferEmotesFirst(bool value) =>
-      Settings.preferEmotesFirst.set(value);
-
-  bool get haptics => Settings.haptics.value;
-  Future<void> setHaptics(bool value) => Settings.haptics.set(value);
-
-  bool get sendSwipeMenu => Settings.sendSwipeMenu.value;
-  Future<void> setSendSwipeMenu(bool value) =>
-      Settings.sendSwipeMenu.set(value);
-
-  int get spamIntervalMs => Settings.spamIntervalMs.value;
-  Future<void> setSpamIntervalMs(int value) =>
-      Settings.spamIntervalMs.set(value);
-
-  int get spamIntervalModMs => Settings.spamIntervalModMs.value;
-  Future<void> setSpamIntervalModMs(int value) =>
-      Settings.spamIntervalModMs.set(value);
-
-  bool get doubleTapNameCopy => Settings.doubleTapNameCopy.value;
-  Future<void> setDoubleTapNameCopy(bool value) =>
-      Settings.doubleTapNameCopy.set(value);
-
-  bool get showTimestamps => Settings.showTimestamps.value;
-  Future<void> setShowTimestamps(bool value) =>
-      Settings.showTimestamps.set(value);
-
-  String get timestampFormat => Settings.timestampFormat.value;
-  Future<void> setTimestampFormat(String value) =>
-      Settings.timestampFormat.set(value);
-
-  String get sharedChatMode => Settings.sharedChatMode.value;
-  Future<void> setSharedChatMode(String value) =>
-      Settings.sharedChatMode.set(value);
-
-  bool get sevenTvCosmetics => Settings.sevenTvCosmetics.value;
-  Future<void> setSevenTvCosmetics(bool value) =>
-      Settings.sevenTvCosmetics.set(value);
-
-  bool get showInput => Settings.showInput.value;
-  Future<void> setShowInput(bool value) => Settings.showInput.set(value);
-
-  String get mentionFormat => Settings.mentionFormat.value;
-  Future<void> setMentionFormat(String value) =>
-      Settings.mentionFormat.set(value);
-
   bool get welcomeSeen => _p.getBool(_kWelcomeSeen) ?? false;
 
   Future<void> setWelcomeSeen(bool value) => _p.setBool(_kWelcomeSeen, value);
@@ -199,18 +98,6 @@ class Prefs {
   bool get videoUploadNoted => _p.getBool(_kVideoUploadNoted) ?? false;
 
   Future<void> setVideoUploadNoted() => _p.setBool(_kVideoUploadNoted, true);
-
-  bool get analyticsEnabled => Settings.analyticsEnabled.value;
-  Future<void> setAnalyticsEnabled(bool value) =>
-      Settings.analyticsEnabled.set(value);
-
-  bool get whatsNewEnabled => Settings.whatsNewEnabled.value;
-  Future<void> setWhatsNewEnabled(bool value) =>
-      Settings.whatsNewEnabled.set(value);
-
-  bool get updateCheckEnabled => Settings.updateCheckEnabled.value;
-  Future<void> setUpdateCheckEnabled(bool value) =>
-      Settings.updateCheckEnabled.set(value);
 
   /// App version at the last launch; null before the first one.
   String? get lastSeenVersion => _p.getString(_kLastSeenVersion);
@@ -243,76 +130,6 @@ class Prefs {
   Future<void> setDismissedUpdate(String? value) => value == null
       ? _p.remove(_kDismissedUpdate)
       : _p.setString(_kDismissedUpdate, value);
-
-  bool get armUpdate => Settings.armUpdate.value;
-  Future<void> setArmUpdate(bool value) => Settings.armUpdate.set(value);
-
-  bool get forceModActions => Settings.forceModActions.value;
-  Future<void> setForceModActions(bool value) =>
-      Settings.forceModActions.set(value);
-
-  bool get animateGifs => Settings.animateGifs.value;
-  Future<void> setAnimateGifs(bool value) => Settings.animateGifs.set(value);
-
-  bool get ffzEffects => Settings.ffzEffects.value;
-  Future<void> setFfzEffects(bool value) => Settings.ffzEffects.set(value);
-
-  bool get bttvModifiers => Settings.bttvModifiers.value;
-  Future<void> setBttvModifiers(bool value) =>
-      Settings.bttvModifiers.set(value);
-
-  bool get adaptiveEmoteFps => Settings.adaptiveEmoteFps.value;
-  Future<void> setAdaptiveEmoteFps(bool value) =>
-      Settings.adaptiveEmoteFps.set(value);
-
-  int get idleEmoteFps => Settings.idleEmoteFps.value;
-  Future<void> setIdleEmoteFps(int value) => Settings.idleEmoteFps.set(value);
-
-  // ── Customization ───────────────────────────────────────────────────
-  double get chatFontSize => Settings.chatFontSize.value;
-  Future<void> setChatFontSize(double value) =>
-      Settings.chatFontSize.set(value);
-
-  int get chatFontWeight => Settings.chatFontWeight.value;
-  Future<void> setChatFontWeight(int value) =>
-      Settings.chatFontWeight.set(value);
-
-  double get highlightOpacity => Settings.highlightOpacity.value;
-  Future<void> setHighlightOpacity(double value) =>
-      Settings.highlightOpacity.set(value);
-
-  bool get checkeredMessages => Settings.checkeredMessages.value;
-  Future<void> setCheckeredMessages(bool value) =>
-      Settings.checkeredMessages.set(value);
-
-  bool get lineSeparator => Settings.lineSeparator.value;
-  Future<void> setLineSeparator(bool value) =>
-      Settings.lineSeparator.set(value);
-
-  bool get fastChannelSnap => Settings.fastChannelSnap.value;
-  Future<void> setFastChannelSnap(bool value) =>
-      Settings.fastChannelSnap.set(value);
-
-  LayoutDensity get layoutDensity => Settings.layoutDensity.value;
-  Future<void> setLayoutDensity(LayoutDensity value) =>
-      Settings.layoutDensity.set(value);
-
-  // ── Custom layout overrides ─────────────────────────────────────────
-  bool get customLayoutEnabled => Settings.customLayoutEnabled.value;
-  Future<void> setCustomLayoutEnabled(bool value) =>
-      Settings.customLayoutEnabled.set(value);
-
-  bool get overrideTightComposer => Settings.overrideTightComposer.value;
-  Future<void> setOverrideTightComposer(bool value) =>
-      Settings.overrideTightComposer.set(value);
-
-  bool get overrideSheetActionRow => Settings.overrideSheetActionRow.value;
-  Future<void> setOverrideSheetActionRow(bool value) =>
-      Settings.overrideSheetActionRow.set(value);
-
-  bool get overrideCompactDensity => Settings.overrideCompactDensity.value;
-  Future<void> setOverrideCompactDensity(bool value) =>
-      Settings.overrideCompactDensity.set(value);
 
   /// The selected theme: a preset's name, or `custom:<index>` into
   /// [customChromeThemes]. A stale key reads as the default preset.
@@ -372,49 +189,8 @@ class Prefs {
   Future<void> setCustomChromeThemes(List<ChromeThemeSpec> themes) =>
       Settings.customChromeThemes.set([for (final t in themes) t.encode()]);
 
-  // ── Inline embeds ───────────────────────────────────────────────────
-  bool get giphyInlineEnabled => Settings.giphyInlineEnabled.value;
-  Future<void> setGiphyInlineEnabled(bool value) =>
-      Settings.giphyInlineEnabled.set(value);
-
-  double get giphyInlineHeight => Settings.giphyInlineHeight.value;
-  Future<void> setGiphyInlineHeight(double value) =>
-      Settings.giphyInlineHeight.set(value);
-
-  bool get imageEmbedEnabled => Settings.imageEmbedEnabled.value;
-  Future<void> setImageEmbedEnabled(bool value) =>
-      Settings.imageEmbedEnabled.set(value);
-
-  double get imageEmbedHeight => Settings.imageEmbedHeight.value;
-  Future<void> setImageEmbedHeight(double value) =>
-      Settings.imageEmbedHeight.set(value);
-
   // ── Emotes ──────────────────────────────────────────────────────────
   static const _kRecentEmotes = 'recent_emotes';
-
-  int get emoteFetchTier => Settings.emoteFetchTier.value;
-  Future<void> setEmoteFetchTier(int value) =>
-      Settings.emoteFetchTier.set(value);
-
-  int get emoteFetchAuto => Settings.emoteFetchAuto.value;
-  Future<void> setEmoteFetchAuto(int value) =>
-      Settings.emoteFetchAuto.set(value);
-
-  int get emoteCacheMb => Settings.emoteCacheMb.value;
-  Future<void> setEmoteCacheMb(int value) => Settings.emoteCacheMb.set(value);
-
-  List<String>? get emoteProvidersDisabled =>
-      Settings.emoteProvidersDisabled.value;
-  Future<void> setEmoteProvidersDisabled(List<String> value) =>
-      Settings.emoteProvidersDisabled.set(value);
-
-  bool get emoteAllowUnlisted7tv => Settings.emoteAllowUnlisted7tv.value;
-  Future<void> setEmoteAllowUnlisted7tv(bool value) =>
-      Settings.emoteAllowUnlisted7tv.set(value);
-
-  bool get emoteAllowPersonal7tv => Settings.emoteAllowPersonal7tv.value;
-  Future<void> setEmoteAllowPersonal7tv(bool value) =>
-      Settings.emoteAllowPersonal7tv.set(value);
 
   String? get recentEmotes => _p.getString(_kRecentEmotes);
 
@@ -425,33 +201,6 @@ class Prefs {
   static const _kTtsVoiceId = 'tts_voice_id';
   static const _kTtsVoiceRaw = 'tts_voice_raw';
 
-  bool get ttsEnabled => Settings.ttsEnabled.value;
-  Future<void> setTtsEnabled(bool value) => Settings.ttsEnabled.set(value);
-
-  String get ttsQueueMode => Settings.ttsQueueMode.value;
-  Future<void> setTtsQueueMode(String value) =>
-      Settings.ttsQueueMode.set(value);
-
-  String get ttsFormatMode => Settings.ttsFormatMode.value;
-  Future<void> setTtsFormatMode(String value) =>
-      Settings.ttsFormatMode.set(value);
-
-  bool get ttsIgnoreUrls => Settings.ttsIgnoreUrls.value;
-  Future<void> setTtsIgnoreUrls(bool value) =>
-      Settings.ttsIgnoreUrls.set(value);
-
-  bool get ttsIgnoreEmotes => Settings.ttsIgnoreEmotes.value;
-  Future<void> setTtsIgnoreEmotes(bool value) =>
-      Settings.ttsIgnoreEmotes.set(value);
-
-  bool get ttsForceEnglish => Settings.ttsForceEnglish.value;
-  Future<void> setTtsForceEnglish(bool value) =>
-      Settings.ttsForceEnglish.set(value);
-
-  List<String> get ttsUserIgnoreList => Settings.ttsUserIgnoreList.value;
-  Future<void> setTtsUserIgnoreList(List<String> value) =>
-      Settings.ttsUserIgnoreList.set(value);
-
   String? get ttsVoiceId => _p.getString(_kTtsVoiceId);
 
   Future<void> setTtsVoiceId(String value) => _p.setString(_kTtsVoiceId, value);
@@ -460,11 +209,6 @@ class Prefs {
 
   Future<void> setTtsVoiceRaw(String value) =>
       _p.setString(_kTtsVoiceRaw, value);
-
-  // ── Stream player ───────────────────────────────────────────────────
-  bool get streamPipEnabled => Settings.streamPipEnabled.value;
-  Future<void> setStreamPipEnabled(bool value) =>
-      Settings.streamPipEnabled.set(value);
 
   // ── Recent messages backend ─────────────────────────────────────────
   static const _kRecentMessagesCustomUrl = 'recent_messages_custom_url';
@@ -482,28 +226,10 @@ class Prefs {
   Future<void> removeRecentMessagesCustomUrl() =>
       _p.remove(_kRecentMessagesCustomUrl);
 
-  // ── Chat proxy (ermchat-server) ─────────────────────────────────────
-  bool get proxyEnabled => Settings.proxyEnabled.value;
-  Future<void> setProxyEnabled(bool value) => Settings.proxyEnabled.set(value);
-
-  String get proxyUrl => Settings.proxyUrl.value;
-  Future<void> setProxyUrl(String value) => Settings.proxyUrl.set(value);
-
   // ── Local stores ────────────────────────────────────────────────────
   static const _kUploaderConfig = 'uploader_config';
   static const _kRecentUploads = 'recent_uploads';
   static const _kKeyboardSettledHeight = 'keyboard_settled_h';
-
-  String get localIgnores => Settings.localIgnores.value;
-  Future<void> setLocalIgnores(String value) =>
-      Settings.localIgnores.set(value);
-
-  String get keywordReplacements => Settings.keywordReplacements.value;
-  Future<void> setKeywordReplacements(String value) =>
-      Settings.keywordReplacements.set(value);
-
-  String? get pingRules => Settings.pingRules.value;
-  Future<void> setPingRules(String value) => Settings.pingRules.set(value);
 
   String? get uploaderConfig => _p.getString(_kUploaderConfig);
 
@@ -517,36 +243,11 @@ class Prefs {
 
   Future<void> removeRecentUploads() => _p.remove(_kRecentUploads);
 
-  bool get analyticsFilterStopwords => Settings.analyticsFilterStopwords.value;
-  Future<void> setAnalyticsFilterStopwords(bool value) =>
-      Settings.analyticsFilterStopwords.set(value);
-
-  bool get testChatWidgets => Settings.testChatWidgets.value;
-  Future<void> setTestChatWidgets(bool value) =>
-      Settings.testChatWidgets.set(value);
-
-  bool get liveChatWidgets => Settings.liveChatWidgets.value;
-  Future<void> setLiveChatWidgets(bool value) =>
-      Settings.liveChatWidgets.set(value);
-
-  bool get useBrowserOAuth => Settings.useBrowserOAuth.value;
-  Future<void> setUseBrowserOAuth(bool value) =>
-      Settings.useBrowserOAuth.set(value);
-
   double get keyboardSettledHeight =>
       _p.getDouble(_kKeyboardSettledHeight) ?? 0;
 
   Future<void> setKeyboardSettledHeight(double value) =>
       _p.setDouble(_kKeyboardSettledHeight, value);
-
-  // ── Link whitelist ──────────────────────────────────────────────────
-  List<String>? get linkWhitelist => Settings.linkWhitelist.value;
-  Future<void> setLinkWhitelist(List<String> value) =>
-      Settings.linkWhitelist.set(value);
-
-  bool get linkWhitelistEnabled => Settings.linkWhitelistEnabled.value;
-  Future<void> setLinkWhitelistEnabled(bool value) =>
-      Settings.linkWhitelistEnabled.set(value);
 
   // ── Per-account macros ──────────────────────────────────────────────
   List<String> macroEntries(String login) =>

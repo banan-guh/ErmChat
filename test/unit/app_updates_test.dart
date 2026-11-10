@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:ermchat/services/app_updates.dart';
 import 'package:ermchat/util/prefs.dart';
+import 'package:ermchat/util/settings.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -69,10 +70,10 @@ void main() {
       expect(await updates.takeWhatsNew('0.9.8'), isNull, reason: 'downgrade');
       expect(await updates.takeWhatsNew('0.9.9'), '0.9.8');
 
-      final prefs = await Prefs.load();
-      await prefs.setWhatsNewEnabled(false);
+      await Prefs.load();
+      await Settings.whatsNewEnabled.set(false);
       expect(await updates.takeWhatsNew('1.0.0'), isNull, reason: 'toggle off');
-      await prefs.setWhatsNewEnabled(true);
+      await Settings.whatsNewEnabled.set(true);
       expect(
         await updates.takeWhatsNew('1.0.0'),
         isNull,
@@ -159,7 +160,7 @@ void main() {
 
       nextDay();
       latest = '0.9.9';
-      await prefs.setUpdateCheckEnabled(false);
+      await Settings.updateCheckEnabled.set(false);
       expect(await check(), isNull, reason: 'toggle off');
       expect(
         await updates.checkForUpdate('0.9.7', null),
@@ -170,13 +171,13 @@ void main() {
 
     test('the dev arm fakes the next patch, offline, once', () async {
       final prefs = await Prefs.load();
-      await prefs.setArmUpdate(true);
+      await Settings.armUpdate.set(true);
       await prefs.setDismissedUpdate('0.9.8');
       fail = true;
       final fake = await updates.checkForUpdate('0.9.7', null);
       expect(fake?.version, '0.9.8');
       expect(fake?.armed, isTrue);
-      expect(prefs.armUpdate, isFalse);
+      expect(Settings.armUpdate.value, isFalse);
       expect(prefs.availableUpdate, '0.9.8', reason: 'banner shows it too');
       expect(prefs.dismissedUpdate, isNull, reason: 'even after an X');
     });

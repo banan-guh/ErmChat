@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 
 import '../util/prefs.dart';
+import '../util/settings.dart';
 
 /// Bare TLD (any `*.lol`) or full domain (`kappa.lol` + subs).
 enum LinkType { tld, domain }
@@ -39,8 +40,8 @@ class LinkWhitelist extends ChangeNotifier {
       entry.contains('.') ? LinkType.domain : LinkType.tld;
 
   Future<void> load() async {
-    final prefs = await Prefs.load();
-    final stored = prefs.linkWhitelist;
+    await Prefs.load();
+    final stored = Settings.linkWhitelist.value;
     if (stored == null) {
       // First run: seed defaults.
       _entries = List.unmodifiable(_defaults);
@@ -48,21 +49,21 @@ class LinkWhitelist extends ChangeNotifier {
     } else {
       _entries = List.unmodifiable(stored);
     }
-    enabled = prefs.linkWhitelistEnabled;
+    enabled = Settings.linkWhitelistEnabled.value;
     _loaded = true;
     _changed();
   }
 
   Future<void> _persist() async {
-    final prefs = await Prefs.load();
-    await prefs.setLinkWhitelist(_entries);
+    await Prefs.load();
+    await Settings.linkWhitelist.set(_entries);
   }
 
   Future<void> setEnabled(bool value) async {
     if (enabled == value) return;
     enabled = value;
-    final prefs = await Prefs.load();
-    await prefs.setLinkWhitelistEnabled(value);
+    await Prefs.load();
+    await Settings.linkWhitelistEnabled.set(value);
     _changed();
   }
 

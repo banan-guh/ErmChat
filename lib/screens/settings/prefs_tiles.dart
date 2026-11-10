@@ -162,8 +162,8 @@ class PrefsSliderTile extends StatefulWidget {
   final double max;
   final int? divisions;
   final double defaultValue;
-  final double Function(Prefs prefs) read;
-  final Future<void> Function(Prefs prefs, double value) write;
+  final double Function() read;
+  final Future<void> Function(double value) write;
   final ValueChanged<double>? onChanged;
 
   /// When false, the slider is inert and the caption is dimmed.
@@ -177,7 +177,6 @@ class PrefsSliderTile extends StatefulWidget {
 }
 
 class _PrefsSliderTileState extends State<PrefsSliderTile> {
-  Prefs? _prefs;
   double? _value;
 
   @override
@@ -187,18 +186,12 @@ class _PrefsSliderTileState extends State<PrefsSliderTile> {
   }
 
   Future<void> _load() async {
-    final prefs = await Prefs.load();
+    await Prefs.load();
     if (!mounted) return;
-    setState(() {
-      _prefs = prefs;
-      _value = widget.read(prefs);
-    });
+    setState(() => _value = widget.read());
   }
 
-  Future<void> _commit(double value) async {
-    final prefs = _prefs ?? await Prefs.load();
-    await widget.write(prefs, value);
-  }
+  Future<void> _commit(double value) => widget.write(value);
 
   @override
   Widget build(BuildContext context) {

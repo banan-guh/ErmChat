@@ -105,8 +105,9 @@ class _HistoryFetchTilesState extends State<HistoryFetchTiles> {
                 divisions: 8,
                 enabled: !dynamicFetch,
                 defaultValue: kRecentMessagesLimitDefault.toDouble(),
-                read: (p) => p.recentMessagesLimit.clamp(0, 800).toDouble(),
-                write: (p, v) => p.setRecentMessagesLimit(v.round()),
+                read: () =>
+                    Settings.recentMessagesLimit.value.clamp(0, 800).toDouble(),
+                write: (v) => Settings.recentMessagesLimit.set(v.round()),
               );
               // One tree either way, so the slider keeps its state.
               return GestureDetector(
@@ -188,8 +189,9 @@ class MaxMessagesTile extends StatelessWidget {
             defaultValue: _stepIndexFor(
               kMaxMessagesPerChannelDefault,
             ).toDouble(),
-            read: (p) => _stepIndexFor(p.maxMessagesPerChannel).toDouble(),
-            write: (p, v) => p.setMaxMessagesPerChannel(
+            read: () =>
+                _stepIndexFor(Settings.maxMessagesPerChannel.value).toDouble(),
+            write: (v) => Settings.maxMessagesPerChannel.set(
               kMaxMessagesPerChannelValues[v.round()],
             ),
           );

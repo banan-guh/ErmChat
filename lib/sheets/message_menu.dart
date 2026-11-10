@@ -8,6 +8,7 @@ import '../models/twitch_message.dart';
 import '../util/chat_text.dart';
 import '../util/haptics.dart';
 import '../util/prefs.dart';
+import '../util/settings.dart';
 import '../util/timestamp_formatter.dart';
 
 // Long-press menus for chat messages.
@@ -170,8 +171,11 @@ class MessageMenus {
               leading: const Icon(Icons.copy_all),
               title: Text(ctx.l10n.copyFullMessage),
               onTap: () {
-                final ts = prefs.showTimestamps
-                    ? formatTimestamp(msg.timestamp, prefs.timestampFormat)
+                final ts = Settings.showTimestamps.value
+                    ? formatTimestamp(
+                        msg.timestamp,
+                        Settings.timestampFormat.value,
+                      )
                     : '';
                 Clipboard.setData(
                   ClipboardData(

@@ -16,6 +16,7 @@ import '../services/chat_connection_manager.dart';
 import '../services/emote_manager.dart';
 import '../services/emote_usage_registry.dart';
 import '../services/mod_actions.dart';
+import '../util/settings.dart';
 import '../widgets/seven_tv_paint_service.dart';
 import '../services/twitch_api.dart';
 import '../services/twitch_auth.dart';
@@ -234,7 +235,7 @@ class UserSheets {
     // always under the dev override.
     final canModerate =
         channel != null &&
-        (prefs.forceModActions || chatConn.hasModRole(channel));
+        (Settings.forceModActions.value || chatConn.hasModRole(channel));
     final login = session.login;
     final isSelf =
         login != null && username.toLowerCase() == login.toLowerCase();
@@ -548,7 +549,7 @@ class UserSheets {
         surface: surface,
         textScale:
             MediaQuery.textScalerOf(context).scale(1.0) *
-            prefs.chatFontSize /
+            Settings.chatFontSize.value /
             14.0,
         fontWeight: messageBuilder.fontWeight,
         buildBadgeSpans: messageBuilder.buildBadgeSpans,
@@ -556,17 +557,17 @@ class UserSheets {
         bodyIsCached: messageBuilder.bodyIsCached,
         onDoubleTap: () => copyMessage(msg),
         onLongPress: () => menus.showPanelMessageMenu(context, msg),
-        showTimestamp: prefs.showTimestamps,
+        showTimestamp: Settings.showTimestamps.value,
         showImages: messageBuilder.showImages,
         imageHeight: messageBuilder.imageHeight,
         linkWhitelist: messageBuilder.linkWhitelist.entries,
-        timestampFormat: prefs.timestampFormat,
-        checkeredMessages: prefs.checkeredMessages,
-        highlightOpacity: prefs.highlightOpacity,
-        lineSeparator: prefs.lineSeparator,
-        sharedChatMode: prefs.sharedChatMode,
+        timestampFormat: Settings.timestampFormat.value,
+        checkeredMessages: Settings.checkeredMessages.value,
+        highlightOpacity: Settings.highlightOpacity.value,
+        lineSeparator: Settings.lineSeparator.value,
+        sharedChatMode: Settings.sharedChatMode.value,
         fadeDeleted: false,
-        paintService: prefs.sevenTvCosmetics ? paintService : null,
+        paintService: Settings.sevenTvCosmetics.value ? paintService : null,
       ),
     );
   }

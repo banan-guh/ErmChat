@@ -8,6 +8,7 @@ import '../l10n/l10n.dart';
 import '../models/twitch_message.dart';
 import '../util/log.dart';
 import '../util/prefs.dart';
+import '../util/settings.dart';
 
 enum TtsQueueMode { queue, newest }
 
@@ -233,19 +234,19 @@ class TtsController {
   /// Seeds the in-memory settings from persisted preferences.
   Future<void> loadFromPrefs() async {
     final prefs = await Prefs.load();
-    _enabled = prefs.ttsEnabled;
+    _enabled = Settings.ttsEnabled.value;
     // Imported settings can carry names this build doesn't know.
     _queueMode =
-        TtsQueueMode.values.asNameMap()[prefs.ttsQueueMode] ??
+        TtsQueueMode.values.asNameMap()[Settings.ttsQueueMode.value] ??
         TtsQueueMode.queue;
     _formatMode =
-        TtsFormatMode.values.asNameMap()[prefs.ttsFormatMode] ??
+        TtsFormatMode.values.asNameMap()[Settings.ttsFormatMode.value] ??
         TtsFormatMode.userAndMessage;
-    _ignoreUrls = prefs.ttsIgnoreUrls;
-    _ignoreEmotes = prefs.ttsIgnoreEmotes;
-    _forceEnglish = prefs.ttsForceEnglish;
+    _ignoreUrls = Settings.ttsIgnoreUrls.value;
+    _ignoreEmotes = Settings.ttsIgnoreEmotes.value;
+    _forceEnglish = Settings.ttsForceEnglish.value;
     _userIgnoreList.clear();
-    _userIgnoreList.addAll(prefs.ttsUserIgnoreList);
+    _userIgnoreList.addAll(Settings.ttsUserIgnoreList.value);
     final voiceId = prefs.ttsVoiceId;
     final voiceRaw = prefs.ttsVoiceRaw;
     if (voiceId != null && voiceRaw != null) {

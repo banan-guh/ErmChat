@@ -6,6 +6,7 @@ import '../models/ping_rule.dart';
 import '../models/twitch_message.dart';
 import '../util/mention.dart';
 import '../util/prefs.dart';
+import '../util/settings.dart';
 
 /// Evaluates highlight rules (DankChat-style): skip self/system, blacklist, then rules.
 class PingManager extends ChangeNotifier {
@@ -95,11 +96,11 @@ class PingManager extends ChangeNotifier {
   }
 
   Future<void> load() async {
-    final prefs = await Prefs.load();
-    final raw = prefs.pingRules;
+    await Prefs.load();
+    final raw = Settings.pingRules.value;
     if (raw == null) {
       _rules = _seedDefaults();
-      await prefs.setPingRules(encodeRules(_rules));
+      await Settings.pingRules.set(encodeRules(_rules));
     } else {
       _rules = decodeRules(raw);
       _splitThreadRule();
@@ -111,8 +112,8 @@ class PingManager extends ChangeNotifier {
   }
 
   Future<void> save() async {
-    final prefs = await Prefs.load();
-    await prefs.setPingRules(encodeRules(_rules));
+    await Prefs.load();
+    await Settings.pingRules.set(encodeRules(_rules));
     _regexCache.clear();
     _lowerPatternCache.clear();
     notifyListeners();

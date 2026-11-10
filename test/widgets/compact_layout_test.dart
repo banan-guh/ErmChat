@@ -2,6 +2,7 @@ import 'package:ermchat/util/chrome_theme.dart';
 import 'package:ermchat/util/layout_density.dart';
 import 'package:ermchat/util/prefs.dart';
 import 'package:ermchat/util/prefs_store.dart';
+import 'package:ermchat/util/settings.dart';
 import 'widget_test_harness.dart';
 
 // Compact layout end to end: the app bar folds away, the bell and menu dock
@@ -70,7 +71,8 @@ void main() {
   );
 
   Future<void> setDensity(WidgetTester tester, LayoutDensity density) async {
-    await (await Prefs.load()).setLayoutDensity(density);
+    await Prefs.load();
+    await Settings.layoutDensity.set(density);
     PrefsStore.instance.notifyChanged();
     await tester.pump();
     await tester.pump();
@@ -193,11 +195,11 @@ void main() {
       ),
     };
     for (final MapEntry(key: place, value: spec) in placements.entries) {
-      await prefs.setShowInput(true);
+      await Settings.showInput.set(true);
       await prefs.setCustomChromeThemes([spec]);
       await prefs.setChromeThemeKey('${Prefs.customChromeThemePrefix}0');
       await settlePrefs(tester);
-      await prefs.setShowInput(false);
+      await Settings.showInput.set(false);
       await settlePrefs(tester);
       expect(
         find.byIcon(Icons.expand_more),

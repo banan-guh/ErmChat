@@ -20,7 +20,7 @@ void main() {
     });
 
     await Settings.haptics.set(false);
-    await prefs.setHaptics(false);
+    await Settings.haptics.set(false);
     expect((haptics, fontSize), (1, 0), reason: 'a same-value write is quiet');
 
     // An import writes the raw store; the bulk signal finds what changed.

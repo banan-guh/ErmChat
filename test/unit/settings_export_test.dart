@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:ermchat/util/prefs.dart';
+import 'package:ermchat/util/settings.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -37,10 +38,10 @@ void main() {
     final changes = fresh.settingsToImport(json)!;
     expect(changes.length, 4);
     await fresh.applySettings(changes);
-    expect(fresh.themeMode.name, 'dark');
-    expect(fresh.chatFontSize, 18.0);
-    expect(fresh.maxMessagesPerChannel, 500);
-    expect(fresh.ttsUserIgnoreList, ['a', 'b']);
+    expect(Settings.themeMode.value.name, 'dark');
+    expect(Settings.chatFontSize.value, 18.0);
+    expect(Settings.maxMessagesPerChannel.value, 500);
+    expect(Settings.ttsUserIgnoreList.value, ['a', 'b']);
     expect(fresh.settingsToImport(json), isEmpty);
 
     final bad = jsonEncode({
