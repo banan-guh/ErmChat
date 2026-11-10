@@ -134,6 +134,7 @@ class ChatListShell extends StatelessWidget {
     this.scrollViewKey,
     this.semanticChildCount,
     this.keyboardDismissBehavior = ScrollViewKeyboardDismissBehavior.manual,
+    this.dismissKeyboardOnTap = true,
   });
 
   final ScrollController controller;
@@ -152,6 +153,10 @@ class ChatListShell extends StatelessWidget {
   final int? semanticChildCount;
   final ScrollViewKeyboardDismissBehavior keyboardDismissBehavior;
 
+  /// iOS only: a tap on empty chat space dismisses the keyboard. Rows are
+  /// InkWells, so their own taps win the arena and never dismiss.
+  final bool dismissKeyboardOnTap;
+
   ScrollPhysics _physics() {
     final resolve = this.resolve;
     if (resolve == null) {
@@ -169,7 +174,7 @@ class ChatListShell extends StatelessWidget {
   Widget build(BuildContext context) {
     final atBottom = this.atBottom;
     final onJumpToBottom = this.onJumpToBottom;
-    return Stack(
+    Widget content = Stack(
       clipBehavior: Clip.hardEdge,
       children: [
         Listener(
@@ -211,5 +216,12 @@ class ChatListShell extends StatelessWidget {
           ),
       ],
     );
+    if (dismissKeyboardOnTap && defaultTargetPlatform == TargetPlatform.iOS) {
+      content = GestureDetector(
+        onTap: () => FocusManager.instance.primaryFocus?.unfocus(),
+        child: content,
+      );
+    }
+    return content;
   }
 }

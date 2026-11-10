@@ -1,7 +1,6 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart'
-    show ValueListenable, defaultTargetPlatform;
+import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/gestures.dart'
     show PointerScrollEvent, PointerSignalEvent;
 import 'package:flutter/material.dart';
@@ -287,7 +286,7 @@ class _ChatViewState extends State<ChatView>
           builder: (_, _, _) {
             final msgs = widget.messages;
             _syncHold(msgs);
-            return _tapToDismiss(_buildList(context, msgs, surface, s));
+            return _buildList(context, msgs, surface, s);
           },
         ),
       ),
@@ -424,16 +423,6 @@ class _ChatViewState extends State<ChatView>
       semanticChildCount: semanticChildCount,
       keyboardDismissBehavior: widget.keyboardDismissBehavior,
       slivers: slivers,
-    );
-  }
-
-  /// iOS: a tap on empty chat space dismisses the keyboard. Rows are
-  /// InkWells, so their own taps win the arena and never dismiss.
-  Widget _tapToDismiss(Widget list) {
-    if (defaultTargetPlatform != TargetPlatform.iOS) return list;
-    return GestureDetector(
-      onTap: () => FocusManager.instance.primaryFocus?.unfocus(),
-      child: list,
     );
   }
 

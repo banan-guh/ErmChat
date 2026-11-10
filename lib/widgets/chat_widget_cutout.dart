@@ -4,28 +4,12 @@ import '../eventsub/decode/events.dart';
 import '../l10n/l10n.dart';
 import '../services/emote_manager.dart';
 import 'chat_widget_cards.dart';
-import 'chrome_menu_button.dart';
-import 'seven_tv_paint_service.dart';
-import 'tabbed_layout.dart';
+import 'chat_widget_metrics.dart';
 import 'design_tokens.dart';
-
-// The cutout the cards sit in: each card's controls land in its top-right
-// corner, inset [TabbedLayout.cardInset]; see chat_widget_cards.dart.
-const double _inset = TabbedLayout.cardInset;
-const double _controlSize = kChromeMenuSize;
-
-/// Card edge to the collapse control.
-const double _controlRight = _inset;
+import 'seven_tv_paint_service.dart';
 
 /// Gap under the cards.
 const double _bottomGap = 6;
-
-final _controlStyle = IconButton.styleFrom(
-  fixedSize: const Size.square(_controlSize),
-  minimumSize: Size.zero,
-  padding: EdgeInsets.zero,
-  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-);
 
 /// Cutout for chat widget cards (pin, poll, prediction, hype train). Each
 /// card sizes to its content up to [maxHeight], then scrolls. Several cards
@@ -115,12 +99,12 @@ class _ChatWidgetCutoutState extends State<ChatWidgetCutout> {
       child: InkWell(onTap: widget.onMinimize, child: child),
     );
     final minimize = Positioned(
-      top: _inset,
-      right: _controlRight,
+      top: chatWidgetInset,
+      right: chatWidgetControlRight,
       child: IconButton(
         icon: const Icon(Icons.keyboard_arrow_down, size: 20),
         tooltip: context.l10n.minimize,
-        style: _controlStyle,
+        style: chatWidgetControlStyle,
         onPressed: widget.onMinimize,
       ),
     );
@@ -348,7 +332,8 @@ class ChatWidgetMinimizedBar extends StatelessWidget {
   final SevenTvPaintService? paints;
 
   /// The trigger plus its inset above and below, so it sits centered.
-  static const double height = _inset + _controlSize + _inset;
+  static const double height =
+      chatWidgetInset + chatWidgetControlSize + chatWidgetInset;
 
   final String Function(AppLocalizations) label;
   final IconData icon;
@@ -401,10 +386,10 @@ class ChatWidgetMinimizedBar extends StatelessWidget {
                   IconButton(
                     icon: const Icon(Icons.keyboard_arrow_up, size: 20),
                     tooltip: context.l10n.restore,
-                    style: _controlStyle,
+                    style: chatWidgetControlStyle,
                     onPressed: onRestore,
                   ),
-                  const SizedBox(width: _controlRight),
+                  const SizedBox(width: chatWidgetControlRight),
                 ],
               ),
             ),

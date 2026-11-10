@@ -8,34 +8,15 @@ import '../eventsub/decode/events.dart';
 import '../l10n/l10n.dart';
 import '../services/emote_manager.dart';
 import '../services/mod_actions.dart' show ModResult;
-import 'chrome_menu_button.dart';
+import 'chat_widget_metrics.dart';
 import 'design_tokens.dart';
 import 'emote_text.dart';
 import 'mod_view/dialogs.dart' show showModError;
 import 'painted_username_text.dart';
 import 'seven_tv_paint_service.dart';
-import 'tabbed_layout.dart';
 
 // Chat widget cards (hype train, pin, poll, prediction), drawn inside the
 // cutout in chat_widget_cutout.dart.
-
-// The cards' controls sit in their top-right corner, inset
-// [TabbedLayout.cardInset], in one row of small buttons: the header row.
-const double _inset = TabbedLayout.cardInset;
-const double _controlSize = kChromeMenuSize;
-
-/// Card edge to the collapse control.
-const double _controlRight = _inset;
-
-/// Card edge to the left end of the controls, which header text stops at.
-const double _controlsWidth = _controlRight + _controlSize;
-
-final _controlStyle = IconButton.styleFrom(
-  fixedSize: const Size.square(_controlSize),
-  minimumSize: Size.zero,
-  padding: EdgeInsets.zero,
-  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-);
 
 /// A card's top row, level with the trigger. [actions] sit just left of the
 /// collapse control, which the cutout draws; [right] is the card's own
@@ -45,12 +26,12 @@ Widget _cardHeader({
   List<Widget> actions = const [],
   required double right,
 }) => SizedBox(
-  height: _controlSize,
+  height: chatWidgetControlSize,
   child: Row(
     children: [
       Expanded(child: child),
       ...actions,
-      SizedBox(width: _controlsWidth - right),
+      SizedBox(width: chatWidgetControlsWidth - right),
     ],
   ),
 );
@@ -139,7 +120,7 @@ class _HypeTrainCardState extends State<HypeTrainCard> {
         )
         .join(', ');
     return Padding(
-      padding: const EdgeInsets.fromLTRB(14, _inset, 12, 12),
+      padding: const EdgeInsets.fromLTRB(14, chatWidgetInset, 12, 12),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -215,7 +196,7 @@ class _PinMenu extends StatelessWidget {
   Widget build(BuildContext context) => PopupMenuButton<void>(
     icon: const Icon(Icons.more_vert, size: 18),
     padding: EdgeInsets.zero,
-    style: _controlStyle,
+    style: chatWidgetControlStyle,
     popUpAnimationStyle: const AnimationStyle(duration: Motion.fast),
     itemBuilder: (menuContext) => [
       if (onUnpin case final unpin?)
@@ -345,7 +326,7 @@ class PinnedMessageCard extends StatelessWidget {
     final theme = Theme.of(context);
     final muted = theme.colorScheme.onSurfaceVariant;
     return Padding(
-      padding: const EdgeInsets.fromLTRB(12, _inset, 12, 8),
+      padding: const EdgeInsets.fromLTRB(12, chatWidgetInset, 12, 8),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -496,7 +477,7 @@ class PollCard extends StatelessWidget {
     );
     final votes = NumberFormat.compact();
     return Padding(
-      padding: const EdgeInsets.fromLTRB(14, _inset, 12, 12),
+      padding: const EdgeInsets.fromLTRB(14, chatWidgetInset, 12, 12),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -548,7 +529,7 @@ class PredictionCard extends StatelessWidget {
       color: theme.colorScheme.onSurfaceVariant,
     );
     return Padding(
-      padding: const EdgeInsets.fromLTRB(14, _inset, 12, 12),
+      padding: const EdgeInsets.fromLTRB(14, chatWidgetInset, 12, 12),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,

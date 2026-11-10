@@ -1,8 +1,7 @@
 import 'dart:async';
 import 'dart:math' show max;
 
-import 'package:flutter/foundation.dart'
-    show ValueListenable, defaultTargetPlatform;
+import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/gestures.dart'
     show PointerScrollEvent, PointerSignalEvent;
 import 'package:flutter/material.dart';
@@ -2167,14 +2166,6 @@ class _HistoryViewState extends State<HistoryView> {
         ],
       ),
     );
-    // iOS: a tap on empty chat space dismisses the keyboard. Rows are
-    // InkWells, so their own taps win the arena and never dismiss.
-    if (defaultTargetPlatform == TargetPlatform.iOS) {
-      list = GestureDetector(
-        onTap: () => FocusManager.instance.primaryFocus?.unfocus(),
-        child: list,
-      );
-    }
     return Stack(
       clipBehavior: Clip.hardEdge,
       children: [
