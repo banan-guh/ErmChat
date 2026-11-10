@@ -77,8 +77,6 @@ class Prefs {
   static const _kAvailableUpdate = 'available_update_version';
   static const _kDismissedUpdate = 'dismissed_update_version';
 
-  int get historyFetchLimit => Settings.historyFetchLimit;
-
   bool get mentionPush => _p.getBool(_kMentionPush) ?? false;
 
   Future<void> setMentionPush(bool value) => _p.setBool(_kMentionPush, value);
@@ -212,10 +210,6 @@ class Prefs {
 
   // ── Recent messages backend ─────────────────────────────────────────
   static const _kRecentMessagesCustomUrl = 'recent_messages_custom_url';
-
-  String get recentMessagesModeName => Settings.recentMessagesMode.value;
-  Future<void> setRecentMessagesModeName(String value) =>
-      Settings.recentMessagesMode.set(value);
 
   String? get recentMessagesCustomUrl =>
       _p.getString(_kRecentMessagesCustomUrl);

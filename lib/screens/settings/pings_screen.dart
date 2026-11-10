@@ -496,8 +496,8 @@ class _PingsScreenState extends ConsumerState<PingsScreen> {
         keywords ? SettingsRow.highlightKeywords : SettingsRow.highlightUsers,
         child: SettingsSectionHeader(
           keywords
-              ? SettingsRow.highlightKeywords.enTitle
-              : SettingsRow.highlightUsers.enTitle,
+              ? SettingsRow.highlightKeywords.titleOf(context.l10n)
+              : SettingsRow.highlightUsers.titleOf(context.l10n),
         ),
       ),
       ..._reorderable(

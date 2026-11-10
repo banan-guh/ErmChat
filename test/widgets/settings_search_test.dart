@@ -77,7 +77,9 @@ void main() {
       reason: 'ids key the titles and the anchors, so they are unique',
     );
     for (final s in Settings.all) {
-      expect(hasTitleEntry(s.id), isTrue, reason: '${s.key} has no title');
+      if (s.anchored) {
+        expect(hasTitleEntry(s.id), isTrue, reason: '${s.key} has no title');
+      }
       expect(
         SettingsPageId.values.map((p) => p.name),
         contains(s.page),

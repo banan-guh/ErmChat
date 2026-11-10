@@ -7,14 +7,12 @@ import '../l10n/l10n.dart';
 import '../models/twitch_message.dart';
 import '../util/chat_text.dart';
 import '../util/haptics.dart';
-import '../util/prefs.dart';
 import '../util/settings.dart';
 import '../util/timestamp_formatter.dart';
 
 // Long-press menus for chat messages.
 class MessageMenus {
   const MessageMenus({
-    required this.prefs,
     required this.findThreadRoot,
     required this.showThreadView,
     required this.startReply,
@@ -23,7 +21,6 @@ class MessageMenus {
     required this.deleteMessage,
   });
 
-  final Prefs prefs;
   final TwitchMessage? Function(TwitchMessage msg) findThreadRoot;
   final Future<void> Function(TwitchMessage root) showThreadView;
   final void Function(TwitchMessage msg) startReply;

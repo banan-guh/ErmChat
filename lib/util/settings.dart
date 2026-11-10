@@ -352,6 +352,7 @@ abstract final class Settings {
     defaultTargetPlatform != TargetPlatform.iOS,
     id: 'archive_enabled',
     page: 'history',
+    section: 'Archive',
     keywords: 'archive history storage disk save offline',
   );
 
@@ -363,6 +364,7 @@ abstract final class Settings {
     max: 30,
     id: 'archive_retention',
     page: 'history',
+    section: 'Archive',
     keywords: 'archive retention storage days delete',
   );
 
@@ -372,6 +374,7 @@ abstract final class Settings {
     0,
     id: 'archive_channel_cap',
     page: 'history',
+    section: 'Archive',
     keywords: 'archive storage size megabytes mb limit delete',
   );
 

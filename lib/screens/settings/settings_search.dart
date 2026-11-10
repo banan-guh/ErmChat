@@ -73,7 +73,6 @@ final Map<String, _Title> _titles = {
   'account': ('Account', (l) => l.settingAccount),
   'about': ('About', (l) => l.settingAbout),
   'language': ('Language', (l) => l.settingLanguage),
-  'locale': ('Language', (l) => l.settingLanguage),
 
   // ── Appearance ──────────────────────────────────────────────────────
   'theme': ('Theme', (l) => l.settingTheme),
@@ -100,10 +99,6 @@ final Map<String, _Title> _titles = {
     'Start on last channel',
     (l) => l.settingReopenLastChannel,
   ),
-  'chrome_theme': ('Chrome theme', null),
-  'chrome_themes': ('Custom chrome themes', null),
-  'show_input': ('Show input box', null),
-  'last_channel': ('Last channel', null),
 
   // ── Appearance › Layout › Custom ────────────────────────────────────
   'custom_layout': ('Enable custom layout', (l) => l.settingCustomLayout),
@@ -153,9 +148,6 @@ final Map<String, _Title> _titles = {
     (l) => l.settingStayConnected,
   ),
   'chat_proxy': ('Chat proxy', (l) => l.settingChatProxy),
-  'keyword_replacements': ('Keyword replacements', null),
-  'link_whitelist': ('Link whitelist', null),
-  'proxy_url': ('Proxy URL', (l) => l.proxyUrl),
 
   // ── Chat › Inline embeds ────────────────────────────────────────────
   'show_giphy': ('Show Giphy inline', (l) => l.settingShowGiphy),
@@ -185,7 +177,6 @@ final Map<String, _Title> _titles = {
     'Highlight strength',
     (l) => l.settingHighlightStrength,
   ),
-  'ping_rules': ('Ping rules', null),
 
   // ── Emotes ──────────────────────────────────────────────────────────
   'emote_fetching': ('Emote fetching', (l) => l.settingEmoteFetching),
@@ -210,10 +201,6 @@ final Map<String, _Title> _titles = {
   'settings_backup': ('Import/export settings', (l) => l.settingSettingsBackup),
   'pip': ('Picture-in-picture', (l) => l.settingPip),
   'whats_new': ("Show what's new after updating", (l) => l.whatsNewToggle),
-  'analytics_filter_stopwords': ('Filter stopwords', null),
-  'force_mod_actions': ('Always show mod actions', null),
-  'dev_show_offline_stream': ('Show stream on offline channels', null),
-  'dev_force_mod_tools': ('Always show mod tools', null),
 
   // ── Tools › Text-to-speech ──────────────────────────────────────────
   'enable_tts': ('Enable TTS', (l) => l.settingEnableTts),
@@ -230,24 +217,18 @@ final Map<String, _Title> _titles = {
 
   // ── Tools › Image uploader ──────────────────────────────────────────
   'recent_uploads': ('Recent uploads', (l) => l.settingRecentUploads),
-
-  // ── Developer ───────────────────────────────────────────────────────
-  'test_chat_widgets': ('Test chat widgets', null),
-  'live_chat_widgets': ('Live chat widgets', null),
-  'use_browser_oauth': ('Use browser for OAuth', null),
-  'arm_update': ('Arm update available', null),
 };
 
 /// Section headers by their English name.
 final Map<String, String Function(AppLocalizations)> _sections = {
   'Animation': (l) => l.sectionAnimation,
   'Appearance': (l) => l.sectionAppearance,
+  'Archive': (l) => l.sectionArchive,
   'Chat display': (l) => l.sectionChatDisplay,
   'Connection': (l) => l.sectionConnection,
   'Display': (l) => l.sectionDisplay,
   'Events': (l) => l.sectionEvents,
   'Giphy': (l) => l.sectionGiphy,
-  'History': (l) => l.sectionHistory,
   'Images': (l) => l.sectionImages,
   'Layout': (l) => l.sectionLayout,
   'Livestreams': (l) => l.sectionLivestreams,

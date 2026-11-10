@@ -389,7 +389,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   }
 
   late final MessageMenus _menus = MessageMenus(
-    prefs: ref.read(prefsProvider),
     findThreadRoot: (msg) => _threads.findThreadRoot(msg),
     showThreadView: (root) =>
         _threads.showThreadView(root, switchChannel: true),

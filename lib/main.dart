@@ -115,7 +115,7 @@ Future<void> _warmHistory() async {
     if (channels.isNotEmpty) {
       RecentMessagesService.warm(
         channels,
-        limit: prefs.historyFetchLimit,
+        limit: Settings.historyFetchLimit,
         config: RecentMessagesConfig.fromPrefs(prefs),
       );
     }

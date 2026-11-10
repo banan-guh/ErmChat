@@ -7,6 +7,7 @@ import '../l10n/l10n.dart';
 import '../util/mod_activity_format.dart' show banNoticeText;
 import '../util/constants.dart';
 import '../util/prefs.dart';
+import '../util/settings.dart';
 import '../models/twitch_message.dart';
 import '../color_utils.dart';
 import '../util/fake_history.dart';
@@ -70,7 +71,7 @@ class RecentMessagesConfig {
   }
 
   static RecentMessagesConfig fromPrefs(Prefs prefs) {
-    final modeStr = prefs.recentMessagesModeName;
+    final modeStr = Settings.recentMessagesMode.value;
     final mode = RecentMessagesMode.values.firstWhere(
       (e) => e.name == modeStr,
       orElse: () => RecentMessagesMode.auto,
@@ -85,7 +86,7 @@ class RecentMessagesConfig {
   }
 
   Future<void> toPrefs(Prefs prefs) async {
-    await prefs.setRecentMessagesModeName(mode.name);
+    await Settings.recentMessagesMode.set(mode.name);
     if (customUrl != null && customUrl!.isNotEmpty) {
       await prefs.setRecentMessagesCustomUrl(customUrl!);
     } else {
