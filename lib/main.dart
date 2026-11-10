@@ -318,6 +318,14 @@ class _TwitchChatAppState extends State<TwitchChatApp> {
       await Prefs.load();
     } catch (e) {
       logDebug('Failed to load preferences: $e');
+      // Never build the shell without a store. A failed plugin bind can be
+      // transient after a hot restart, so retry behind the splash.
+      if (Prefs.loaded == null) {
+        if (!mounted) return;
+        await Future<void>.delayed(const Duration(seconds: 1));
+        if (mounted) unawaited(_loadPreferences());
+        return;
+      }
     }
     _applyKeepScreenOn();
     _applyEmoteFps();
