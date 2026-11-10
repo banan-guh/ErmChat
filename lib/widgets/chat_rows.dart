@@ -310,17 +310,13 @@ class VodChatButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l = context.l10n;
-    void press() {
-      onPressed();
-    }
-
     final icon = Icon(live ? Icons.ondemand_video : Icons.sensors);
     final tooltip = live ? l.vodChat : l.liveChat;
     return Tooltip(
       message: tooltip,
       child: FloatingActionButton.small(
         heroTag: heroTag,
-        onPressed: press,
+        onPressed: onPressed,
         child: icon,
       ),
     );
@@ -341,10 +337,6 @@ class ScrollDownButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    void press() {
-      onPressed();
-    }
-
     return AnimatedSwitcher(
       duration: Motion.fast,
       transitionBuilder: (child, animation) =>
@@ -354,7 +346,7 @@ class ScrollDownButton extends StatelessWidget {
           : FloatingActionButton(
               key: const ValueKey('scroll_down'),
               heroTag: heroTag,
-              onPressed: press,
+              onPressed: onPressed,
               child: const Icon(Icons.keyboard_arrow_down),
             ),
     );

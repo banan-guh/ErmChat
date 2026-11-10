@@ -51,7 +51,8 @@ EmoteFormat sniffEmoteFormat(Uint8List bytes) {
   return EmoteFormat.other;
 }
 
-Future<EmoteFrameData> _decodeBytes(Uint8List bytes) {
+/// Production decode pipeline: sniff, decode, premultiply, emit ui.Image.
+Future<EmoteFrameData> decodeEmoteBytes(Uint8List bytes) {
   switch (sniffEmoteFormat(bytes)) {
     case EmoteFormat.gif:
       // GIFs: engine codec handles them correctly. Route native to avoid isolate cost.
@@ -95,9 +96,6 @@ bool webpIsAnimated(Uint8List bytes) {
   }
   return false;
 }
-
-/// Production decode pipeline: sniff, decode, premultiply, emit ui.Image.
-Future<EmoteFrameData> decodeEmoteBytes(Uint8List bytes) => _decodeBytes(bytes);
 
 /// Engine-first: tries fast decode, falls back to per-frame on transparent-frame throws.
 Future<EmoteFrameData> _decodeAnimatedWebpEngineFirst(Uint8List bytes) async {
