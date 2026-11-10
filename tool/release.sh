@@ -103,11 +103,11 @@ if ! git merge -q --no-edit origin/main; then
   die "main does not merge cleanly into develop"
 fi
 sed -i -E "s/^version:.*/version: $VERSION+$((BUILD + 1))/" pubspec.yaml
-git commit -q -am "Version $TAG beta" # REMOVE THIS when v1.0!! 
+git commit -q -am "Version $TAG"
 git tag "$TAG"
 git push -q origin develop develop:main "$TAG"
 git fetch -q . develop:main
-gh release create "$TAG" -R "$REPO" --title "$TAG" --notes-file "$NOTES" \
+gh release create "$TAG" -R "$REPO" --title "$TAG beta" --notes-file "$NOTES" \
   --verify-tag
 
 while IFS=$'\t' read -r number _; do
