@@ -269,9 +269,7 @@ class EventSubTopics {
     // Guard like resubscribeEventSubChannels; a run already in flight for the
     // same family drops out inside _subscribeFamily.
     for (final family in _families) {
-      if (family.skipIfActive && family.activeSet.contains(channelName)) {
-        continue;
-      }
+      if (family.activeSet.contains(channelName)) continue;
       unawaited(_subscribeFamily(channelName, channelUserId, family));
     }
   }
@@ -283,7 +281,7 @@ class EventSubTopics {
     _TopicFamily(
       name: 'subscribeModeration',
       types: const [('channel.moderate', '2')],
-      success: _TopicSuccess.single,
+      success: _TopicSuccess.any,
       skipSet: _moderationSkippedChannels,
       activeSet: _moderationChannels,
     ),
@@ -367,7 +365,6 @@ class EventSubTopics {
       broadcasterOnly: true,
       notify: false,
       failFast: true,
-      skipIfActive: true,
     ),
   ];
 
@@ -548,9 +545,6 @@ class EventSubTopics {
 
 /// When a topic family counts as subscribed.
 enum _TopicSuccess {
-  /// One subscription; success activates the family.
-  single,
-
   /// Every type must succeed.
   all,
 
@@ -570,7 +564,6 @@ class _TopicFamily {
     this.broadcasterOnly = false,
     this.notify = true,
     this.failFast = false,
-    this.skipIfActive = true,
   });
 
   /// Log label for the catch line (subscribeModeration, ...).
@@ -596,8 +589,4 @@ class _TopicFamily {
 
   /// Whether any failure aborts the family. True for widgets.
   final bool failFast;
-
-  /// Whether the join path skips already-covered channels. True for every
-  /// family; a fresh join has an empty active set.
-  final bool skipIfActive;
 }

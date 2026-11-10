@@ -46,12 +46,15 @@ class EventSubService {
   bool get isReconnecting => !isConnected && _loop.running;
   String? get sessionId => _sessionId;
 
+  Duration get _keepaliveGrace =>
+      Duration(seconds: (_keepaliveTimeout * 1.5).round());
+
   /// True when socket exists but no frame arrived for >1.5x keepalive
   /// (zombie).
   bool get isStale {
     if (_channel == null) return false;
-    final timeoutSeconds = (_keepaliveTimeout * 1.5).round();
-    return DateTime.now().difference(_lastActivity).inSeconds > timeoutSeconds;
+    return DateTime.now().difference(_lastActivity).inSeconds >
+        _keepaliveGrace.inSeconds;
   }
 
   /// Tears down zombie session and reconnects. Used on app resume.
@@ -218,8 +221,7 @@ class EventSubService {
   void _resetKeepalive() {
     _lastActivity = DateTime.now();
     _keepaliveTimer?.cancel();
-    final timeoutSeconds = (_keepaliveTimeout * 1.5).round();
-    _keepaliveTimer = Timer(Duration(seconds: timeoutSeconds), () {
+    _keepaliveTimer = Timer(_keepaliveGrace, () {
       logDebug('EventSub keepalive timeout - reconnecting');
       _endSocket(SocketEnd.dropped);
     });
