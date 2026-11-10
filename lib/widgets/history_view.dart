@@ -1047,25 +1047,19 @@ class _HistoryViewState extends State<HistoryView> {
     if (!mounted || epoch != _epoch) return;
     // A target near the oldest row needs the rows above it before the anchor
     // can sit there; otherwise the older sliver could not span the viewport.
-    var olderRows = const <TwitchMessage>[];
-    var askedOlder = false;
-    if (loaded.isNotEmpty && time != null) {
+    // Only await a read that is actually needed: awaiting a no-op still
+    // pushes the first paint a frame later.
+    const none = (rows: <TwitchMessage>[], asked: false);
+    final ({List<TwitchMessage> rows, bool asked})? backfill;
+    if (loaded.isEmpty || time == null) {
+      backfill = none;
+    } else {
       final before = loaded.where((m) => m.timestamp.isBefore(time)).length;
-      if (before < _minOlderItems) {
-        // The read can return only rows already loaded when several share
-        // the first one's timestamp; step past them before trusting it.
-        final held = {for (final m in loaded) HistoryWindow.keyOf(m)};
-        askedOlder = true;
-        olderRows = await source.older(loaded.first.timestamp);
-        if (!mounted || epoch != _epoch) return;
-        if (olderRows.every((m) => held.contains(HistoryWindow.keyOf(m)))) {
-          olderRows = await source.older(
-            loaded.first.timestamp.subtract(const Duration(milliseconds: 1)),
-          );
-          if (!mounted || epoch != _epoch) return;
-        }
-      }
+      backfill = before < _minOlderItems
+          ? await _backfillOlder(loaded, time, epoch)
+          : none;
     }
+    if (backfill == null) return;
     final pos = _pos;
     if (pos != null && pos.hasPixels) {
       // Stops any fling, then sets the offset silently so the next layout
@@ -1079,15 +1073,68 @@ class _HistoryViewState extends State<HistoryView> {
       // child, so a jump to the current anchor would never lay out.
       _sliver(_olderKey)?.markNeedsLayout();
     }
+    final pinOldest = _placeAnchor(
+      loaded: loaded,
+      backfill: backfill,
+      time: time,
+      replay: replay,
+      followIfUnplaced: followIfUnplaced,
+    );
+    _count('hjump');
+    _log(
+      'jump ${time ?? 'newest'} rows=${_window.length} '
+      'load=${sw.elapsedMilliseconds}ms',
+    );
+    _settleAfterJump(time: time, replay: replay, pinOldest: pinOldest);
+  }
+
+  /// Rows to attach above [loaded] for a jump to [time], and whether that read
+  /// ran: only a read that came back empty makes the target the oldest end.
+  /// Null when the jump was superseded while reading.
+  Future<({List<TwitchMessage> rows, bool asked})?> _backfillOlder(
+    List<TwitchMessage> loaded,
+    DateTime? time,
+    int epoch,
+  ) async {
+    const none = (rows: <TwitchMessage>[], asked: false);
+    if (loaded.isEmpty || time == null) return none;
+    final before = loaded.where((m) => m.timestamp.isBefore(time)).length;
+    if (before >= _minOlderItems) return none;
+    final source = widget.source;
+    // The read can return only rows already loaded when several share the
+    // first one's timestamp; step past them before trusting it.
+    final held = {for (final m in loaded) HistoryWindow.keyOf(m)};
+    var olderRows = await source.older(loaded.first.timestamp);
+    if (!mounted || epoch != _epoch) return null;
+    if (olderRows.every((m) => held.contains(HistoryWindow.keyOf(m)))) {
+      olderRows = await source.older(
+        loaded.first.timestamp.subtract(const Duration(milliseconds: 1)),
+      );
+      if (!mounted || epoch != _epoch) return null;
+    }
+    return (rows: olderRows, asked: true);
+  }
+
+  /// Fills the window with [loaded] and [backfill] and puts the boundary at
+  /// [time]'s row, in one setState so a single frame shows the new content.
+  /// Returns whether the anchor had to move past the target to keep the older
+  /// sliver long, in which case the list rests on the oldest row.
+  bool _placeAnchor({
+    required List<TwitchMessage> loaded,
+    required ({List<TwitchMessage> rows, bool asked}) backfill,
+    required DateTime? time,
+    required bool replay,
+    required bool followIfUnplaced,
+  }) {
     var pinOldest = false;
     setState(() {
       _loaded = true;
       _window.reset(loaded);
-      if (olderRows.isNotEmpty || time != null) {
+      if (backfill.rows.isNotEmpty || time != null) {
         // Only a read that found nothing older makes this the oldest end.
-        if (_window.prepend(olderRows) == 0 &&
-            askedOlder &&
-            olderRows.isEmpty) {
+        if (_window.prepend(backfill.rows) == 0 &&
+            backfill.asked &&
+            backfill.rows.isEmpty) {
           _window.markOldest();
         }
       }
@@ -1118,11 +1165,17 @@ class _HistoryViewState extends State<HistoryView> {
       if (pinOldest) _endCache = _endCacheExtent;
       _rebuildItems();
     });
-    _count('hjump');
-    _log(
-      'jump ${time ?? 'newest'} rows=${_window.length} '
-      'load=${sw.elapsedMilliseconds}ms',
-    );
+    return pinOldest;
+  }
+
+  /// Settles the jump after its first layout: reports the first painted rows,
+  /// clamps or pins the offset to the end, snaps a following list to the
+  /// newest row, and keeps waiting on the ends still estimated.
+  void _settleAfterJump({
+    required DateTime? time,
+    required bool replay,
+    required bool pinOldest,
+  }) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       if (!_firstPainted) {
@@ -1388,62 +1441,73 @@ class _HistoryViewState extends State<HistoryView> {
     );
   }
 
+  /// Walks the built children of the older or newer sliver, handing each one
+  /// and its parent data to [visit]. [visit] returns true to stop the walk,
+  /// which is also what this returns.
+  bool _walkChildren(
+    bool older,
+    bool Function(RenderBox child, SliverMultiBoxAdaptorParentData pd) visit,
+  ) {
+    final sliver = _sliver(older ? _olderKey : _newerKey);
+    for (
+      RenderBox? c = sliver?.firstChild;
+      c != null;
+      c = sliver!.childAfter(c)
+    ) {
+      final pd = c.parentData! as SliverMultiBoxAdaptorParentData;
+      if (visit(c, pd)) return true;
+    }
+    return false;
+  }
+
   /// The row crossing the viewport's bottom edge, with the scroll
   /// coordinates of its edges, from the last layout.
   ({TwitchMessage row, double bottom, double top})? _rowAtEdge() {
     final pos = _pos;
     if (pos == null || !pos.hasPixels) return null;
     final edge = pos.pixels;
+    ({TwitchMessage row, double bottom, double top})? found;
     for (final older in const [true, false]) {
-      final sliver = _sliver(older ? _olderKey : _newerKey);
       final items = older ? _olderItems : _newerItems;
-      for (
-        RenderBox? c = sliver?.firstChild;
-        c != null;
-        c = sliver!.childAfter(c)
-      ) {
-        final pd = c.parentData! as SliverMultiBoxAdaptorParentData;
+      final stopped = _walkChildren(older, (c, pd) {
         final i = pd.index;
         final offset = pd.layoutOffset;
-        if (i == null || offset == null || i >= items.length) continue;
+        if (i == null || offset == null || i >= items.length) return false;
         final item = items[i];
-        if (item.marker != null) continue;
+        if (item.marker != null) return false;
         final bottom = older ? offset : -(offset + c.size.height);
         final top = older ? offset + c.size.height : -offset;
-        if (bottom <= edge && top > edge) {
-          final row = _window.at(item.pos);
-          return row == null ? null : (row: row, bottom: bottom, top: top);
-        }
-      }
+        if (bottom > edge || top <= edge) return false;
+        final row = _window.at(item.pos);
+        if (row != null) found = (row: row, bottom: bottom, top: top);
+        return true;
+      });
+      if (stopped) break;
     }
-    return null;
+    return found;
   }
 
   /// Scroll coordinate of the bottom edge of the row keyed [key] and
   /// [height], from the current layout. Reads layout offsets only, so it is
   /// safe during the viewport's layout.
   double? _coordOf(String key, double height) {
+    double? coord;
     for (final older in const [true, false]) {
-      final sliver = _sliver(older ? _olderKey : _newerKey);
       final items = older ? _olderItems : _newerItems;
-      for (
-        RenderBox? c = sliver?.firstChild;
-        c != null;
-        c = sliver!.childAfter(c)
-      ) {
-        final pd = c.parentData! as SliverMultiBoxAdaptorParentData;
+      final stopped = _walkChildren(older, (_, pd) {
         final i = pd.index;
         final offset = pd.layoutOffset;
-        if (i == null || offset == null || i >= items.length) continue;
+        if (i == null || offset == null || i >= items.length) return false;
         final item = items[i];
-        if (item.marker != null) continue;
+        if (item.marker != null) return false;
         final row = _window.at(item.pos);
-        if (row != null && HistoryWindow.keyOf(row) == key) {
-          return older ? offset : -(offset + height);
-        }
-      }
+        if (row == null || HistoryWindow.keyOf(row) != key) return false;
+        coord = older ? offset : -(offset + height);
+        return true;
+      });
+      if (stopped) break;
     }
-    return null;
+    return coord;
   }
 
   /// Physics hook, run in the layout that applies new content.
@@ -1669,24 +1733,20 @@ class _HistoryViewState extends State<HistoryView> {
     if (pos == null || !pos.hasPixels) return _anchor;
     final p = pos.pixels + up;
     final older = p > 0;
-    final sliver = _sliver(older ? _olderKey : _newerKey);
     final edge = older ? p : -p;
     final items = older ? _olderItems : _newerItems;
     // At the list's very end the edge sits exactly on the last built row's
     // far side, so no row crosses it; that last row is the viewport row.
     int? last;
-    for (
-      RenderBox? c = sliver?.firstChild;
-      c != null;
-      c = sliver!.childAfter(c)
-    ) {
-      final pd = c.parentData! as SliverMultiBoxAdaptorParentData;
+    _walkChildren(older, (c, pd) {
       final offset = pd.layoutOffset;
       final index = pd.index;
-      if (offset == null || index == null || index >= items.length) continue;
-      if (offset + c.size.height > edge) return items[index].pos;
+      if (offset == null || index == null || index >= items.length) {
+        return false;
+      }
       last = items[index].pos;
-    }
+      return offset + c.size.height > edge;
+    });
     return last ?? _anchor;
   }
 
