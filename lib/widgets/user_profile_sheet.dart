@@ -192,6 +192,16 @@ class UserProfileSheetState extends State<UserProfileSheet> {
     _fetchProfile();
   }
 
+  @override
+  void didUpdateWidget(UserProfileSheet oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.moderation != widget.moderation) {
+      oldWidget.moderation?.modActivityVersion.removeListener(_onRecordChanged);
+      widget.moderation?.modActivityVersion.addListener(_onRecordChanged);
+      _onRecordChanged();
+    }
+  }
+
   void _onRecordChanged() {
     if (!mounted) return;
     _measureDirty = true;
@@ -516,8 +526,8 @@ class UserProfileSheetState extends State<UserProfileSheet> {
       children: [
         SizedBox(
           height: cardH,
+          // ClipRect clips hit testing too, so clipped card buttons cannot fire.
           child: ClipRect(
-            clipper: const _BoxClipper(),
             child: GestureDetector(
               behavior: HitTestBehavior.opaque,
               onVerticalDragUpdate: _onCardDrag,
@@ -1173,16 +1183,4 @@ class UserProfileSheetState extends State<UserProfileSheet> {
         onTap: action.onTap,
       ),
   ];
-}
-
-// Clips paint and hit testing to the box, so clipped-away card buttons can
-// neither show nor fire.
-class _BoxClipper extends CustomClipper<Rect> {
-  const _BoxClipper();
-
-  @override
-  Rect getClip(Size size) => Offset.zero & size;
-
-  @override
-  bool shouldReclip(_BoxClipper oldClipper) => false;
 }

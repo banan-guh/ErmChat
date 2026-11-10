@@ -157,6 +157,11 @@ class _HistoryDaysState extends State<HistoryDays>
       widget.open.addListener(_sync);
       _sync();
     }
+    if (old.kept != widget.kept) {
+      old.kept.removeListener(_onKept);
+      widget.kept.addListener(_onKept);
+      _onKept();
+    }
     if (old.rail != widget.rail) {
       // A rail rebuilt while a day is open keeps that day open.
       final picked = _picked;
