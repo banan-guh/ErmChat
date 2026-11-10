@@ -151,7 +151,7 @@ class UserSheets {
   /// buffer-only history.
   final ArchiveReader? archiveReader;
 
-  static const userHistoryPage = 50;
+  static const userHistoryPage = 200;
 
   // Card detent in sheet fractions, derived from the measured card height.
   double _cardExtent = 0.0;
@@ -517,7 +517,7 @@ class UserSheets {
   List<TwitchMessage> _recentMessagesFromUser(
     String channel,
     String login, {
-    int limit = 50,
+    int limit = 200,
   }) {
     final want = login.toLowerCase();
     if (want.isEmpty || limit <= 0) return [];
