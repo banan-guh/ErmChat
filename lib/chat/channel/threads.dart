@@ -122,7 +122,7 @@ class Threads {
   ) {
     final id = msg.messageId;
     if (id == null || msg.isSystem) return false;
-    final rootId = msg.replyThreadRootId;
+    final rootId = _resolveRootId(msg, lookupRoot);
 
     if (rootId == null || rootId == id) {
       final entry = _threads[id];
@@ -154,6 +154,36 @@ class Threads {
     entry.root ??= lookupRoot?.call(rootId);
     entry.addReply(msg);
     return true;
+  }
+
+  /// The root a reply belongs to. An explicit root wins. A row that only
+  /// carries its parent walks the parent chain through the channel buffer,
+  /// matching [threadKeyFor], so live indexing and the thread panel agree.
+  String? _resolveRootId(
+    TwitchMessage msg,
+    TwitchMessage? Function(String rootId)? lookupRoot,
+  ) {
+    final explicit = msg.replyThreadRootId;
+    final parentId = msg.replyToParentId;
+    // The codec falls back to the parent when Twitch omits the thread tag.
+    // Only an explicit root different from the parent is authoritative.
+    if (explicit != null && explicit != parentId) return explicit;
+
+    var current = parentId;
+    final seen = <String>{};
+    while (current != null && seen.add(current)) {
+      // A pinned or saved root is authoritative even if it has a parent.
+      if (_pinnedMessageIds.contains(current) ||
+          _savedRootIds.contains(current)) {
+        return current;
+      }
+      final parent = lookupRoot?.call(current);
+      if (parent == null) return current;
+      final next = parent.replyToParentId;
+      if (next == null) return parent.messageId ?? current;
+      current = next;
+    }
+    return current ?? explicit;
   }
 
   /// Drops the oldest unheld threads over the cap. Returns true when any

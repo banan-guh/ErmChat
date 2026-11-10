@@ -33,3 +33,25 @@ String? threadKeyFor(TwitchMessage m, Map<String, String> parentOf) {
   }
   return m.messageId;
 }
+
+/// The row a send from an open thread should reply to. Rows without an id
+/// cannot carry a reply tag, so they are skipped. The thread root is the
+/// fallback, and null means there is nothing addressable to reply to.
+TwitchMessage? threadReplyTarget({
+  required List<TwitchMessage> threadMsgs,
+  required String? rootId,
+  required bool replyToRoot,
+  required String channel,
+}) {
+  TwitchMessage stub(String id) =>
+      TwitchMessage(login: '', text: '', messageId: id, channel: channel);
+
+  if (!replyToRoot) {
+    final latest = threadMsgs.where((m) => m.messageId != null).firstOrNull;
+    if (latest != null) return latest;
+  } else {
+    final root = threadMsgs.where((m) => m.messageId == rootId).firstOrNull;
+    if (root != null) return root;
+  }
+  return rootId == null ? null : stub(rootId);
+}

@@ -1266,6 +1266,65 @@ void main() {
     expect(resolveThreadRootId('a', {'a': 'a'}), 'a');
   });
 
+  test('threadReplyTarget never picks a row without an id', () {
+    TwitchMessage msg(String? id) => TwitchMessage(
+      login: 'a',
+      text: 'x',
+      messageId: id,
+      replyThreadRootId: 'r1',
+      channel: 'ch',
+    );
+    final stripped = msg(null);
+    final addressable = msg('c1');
+    final root = msg('r1');
+
+    expect(
+      threadReplyTarget(
+        threadMsgs: [stripped, addressable, root],
+        rootId: 'r1',
+        replyToRoot: false,
+        channel: 'ch',
+      )?.messageId,
+      'c1',
+    );
+    expect(
+      threadReplyTarget(
+        threadMsgs: [stripped],
+        rootId: 'r1',
+        replyToRoot: false,
+        channel: 'ch',
+      )?.messageId,
+      'r1',
+    );
+    expect(
+      threadReplyTarget(
+        threadMsgs: const [],
+        rootId: 'r1',
+        replyToRoot: false,
+        channel: 'ch',
+      )?.messageId,
+      'r1',
+    );
+    expect(
+      threadReplyTarget(
+        threadMsgs: [stripped, root],
+        rootId: 'r1',
+        replyToRoot: true,
+        channel: 'ch',
+      )?.messageId,
+      'r1',
+    );
+    expect(
+      threadReplyTarget(
+        threadMsgs: [stripped],
+        rootId: null,
+        replyToRoot: false,
+        channel: 'ch',
+      ),
+      isNull,
+    );
+  });
+
   test('data usage counts UTF-8 bytes, not string length', () {
     for (final s in ['PRIVMSG #a :hi', 'привет', '你好世界', 'pog 😂👍', 'é']) {
       expect(DataUsageStats.utf8Length(s), utf8.encode(s).length, reason: s);

@@ -15,6 +15,7 @@ import '../services/twitch_auth.dart';
 import '../services/user_store.dart';
 import '../util/duration_format.dart';
 import '../util/haptics.dart';
+import '../util/thread_utils.dart';
 import '../widgets/panel_manager.dart';
 import 'autocomplete_revert.dart';
 import '../l10n/l10n.dart';
@@ -344,23 +345,12 @@ class ComposerController {
       // The reply lands in the thread's channel, which can differ from the
       // selected channel when a saved thread from another channel is open.
       final targetChannel = threadRoot.channel ?? channel;
-      final threadMsgs = computeThreadMessages();
-      final TwitchMessage? replyTo;
-      if (replyToRoot()) {
-        final rootId = threadRoot.replyThreadRootId ?? threadRoot.messageId;
-        replyTo = threadMsgs.firstWhere(
-          (m) => m.messageId == rootId,
-          orElse: () => TwitchMessage(
-            login: '',
-            text: '',
-            messageId: rootId,
-            channel: targetChannel,
-          ),
-        );
-      } else {
-        // Newest-first thread order: the latest reply sits at index 0.
-        replyTo = threadMsgs.isNotEmpty ? threadMsgs.first : null;
-      }
+      final replyTo = threadReplyTarget(
+        threadMsgs: computeThreadMessages(),
+        rootId: threadRoot.replyThreadRootId ?? threadRoot.messageId,
+        replyToRoot: replyToRoot(),
+        channel: targetChannel,
+      );
       chatConn.doSendMessage(text, targetChannel, replyTo: replyTo);
     } else {
       chatConn.doSendMessage(text, channel);

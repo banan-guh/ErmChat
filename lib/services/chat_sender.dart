@@ -201,7 +201,7 @@ class ChatSender {
   }) async {
     if (FakeHistory.isFake(channel)) return;
     final auth = twitchAuth;
-    final reply = replyTo ?? getReplyToMsg();
+    final reply = replyTo?.messageId != null ? replyTo : getReplyToMsg();
 
     // Local macro triggers expand before anything else: a macro may resolve
     // to a slash command or plain chat text alike.

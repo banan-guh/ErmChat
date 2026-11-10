@@ -26,6 +26,23 @@ TwitchMessage _filler(String id) => TwitchMessage(
   channel: 'test',
 );
 
+TwitchMessage _parentedReply(String id, String parentId) => TwitchMessage(
+  login: 'bob',
+  text: 'reply $id',
+  messageId: id,
+  channel: 'test',
+  replyToParentId: parentId,
+);
+
+TwitchMessage _fallbackReply(String id, String parentId) => TwitchMessage(
+  login: 'bob',
+  text: 'reply $id',
+  messageId: id,
+  channel: 'test',
+  replyToParentId: parentId,
+  replyThreadRootId: parentId,
+);
+
 // Threads has no clock of its own in tests: the Chat now tick stamps
 // lastActivity, so activity order follows ingest order.
 Chat _tickingChat(DateTime start) {
@@ -94,6 +111,73 @@ void main() {
       expect(threads.single.rootId, 'ghost');
       expect(threads.single.root, isNull);
       expect(threads.single.replyCount, 2);
+    });
+
+    test('a reply with only a parent id joins the walked root', () {
+      final chat = _tickingChat(DateTime(2026, 1, 1));
+      addTearDown(chat.dispose);
+      final channel = chat.channelFor('test')!;
+      final root = _root('r1');
+      final parent = _reply('c1', 'r1');
+      final child = _parentedReply('c2', 'c1');
+      final byId = {
+        for (final m in [root, parent, child]) m.messageId!: m,
+      };
+      TwitchMessage? lookup(String id) => byId[id];
+
+      channel.threads.index([root, parent], lookupRoot: lookup);
+      final before = channel.threads.version.value;
+      channel.threads.index([child], lookupRoot: lookup);
+
+      expect(
+        channel.threads.threadFor('r1')!.map((m) => m.messageId),
+        containsAll(['r1', 'c1', 'c2']),
+        reason: 'the parent chain must resolve to the thread root',
+      );
+      expect(
+        channel.threads.threadFor('c1'),
+        isNull,
+        reason: 'the child is not a new thread under its parent',
+      );
+      expect(
+        channel.threads.version.value,
+        greaterThan(before),
+        reason: 'the open thread must be told to refresh',
+      );
+    });
+
+    test('a parent-id thread-root fallback still walks to the real root', () {
+      final chat = _tickingChat(DateTime(2026, 1, 1));
+      addTearDown(chat.dispose);
+      final channel = chat.channelFor('test')!;
+      final root = _root('r1');
+      final parent = _reply('c1', 'r1');
+      // The codec falls back to the parent when Twitch omits the thread tag.
+      final child = _fallbackReply('c2', 'c1');
+      final byId = {
+        for (final m in [root, parent, child]) m.messageId!: m,
+      };
+      TwitchMessage? lookup(String id) => byId[id];
+
+      channel.threads.index([root, parent], lookupRoot: lookup);
+      final before = channel.threads.version.value;
+      channel.threads.index([child], lookupRoot: lookup);
+
+      expect(
+        channel.threads.threadFor('r1')!.map((m) => m.messageId),
+        containsAll(['r1', 'c1', 'c2']),
+        reason: 'a fallback parent id is not the thread root',
+      );
+      expect(
+        channel.threads.threadFor('c1'),
+        isNull,
+        reason: 'the fallback must not create a new thread under the parent',
+      );
+      expect(
+        channel.threads.version.value,
+        greaterThan(before),
+        reason: 'the open thread must be told to refresh',
+      );
     });
 
     test('decayed threads with no replies left drop out', () {
