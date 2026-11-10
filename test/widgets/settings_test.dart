@@ -633,6 +633,46 @@ void main() {
     return auth;
   }
 
+  Future<void> expectReLogin(
+    WidgetTester tester,
+    void Function(TwitchAuth auth) mark,
+  ) async {
+    final auth = TwitchAuth();
+    auth.setCredentials(accessToken: 'old-token');
+    auth.setUser('alice', '111');
+    mark(auth);
+    var calls = 0;
+    final api = TwitchApi(
+      client: MockClient((request) async {
+        return http.Response(
+          '{"data":[{"id":"111","login":"alice","display_name":"Alice"}]}',
+          200,
+        );
+      }),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        key: UniqueKey(),
+        home: AccountScreen(
+          twitchAuth: auth,
+          twitchApi: api,
+          oAuthStarter: () async {
+            calls++;
+            return 'new-token';
+          },
+        ),
+      ),
+    );
+    await tester.pump();
+    expect(find.text('Log in again', skipOffstage: false), findsOneWidget);
+    await tester.tap(find.text('Log in again', skipOffstage: false));
+    await tester.pumpAndSettle();
+    expect(calls, 1);
+    expect(auth.accessToken, 'new-token');
+    expect(auth.isActiveExpired, isFalse);
+    expect(auth.scopeStale, isFalse);
+  }
+
   testWidgets('Tapping a saved account switches to it', (
     WidgetTester tester,
   ) async {
@@ -645,6 +685,18 @@ void main() {
     await tester.pumpAndSettle();
     expect(auth.login, 'alice');
     expect(auth.accessToken, 'token_a');
+  });
+
+  testWidgets('stale scopes offer a one-tap re-login', (
+    WidgetTester tester,
+  ) async {
+    await expectReLogin(tester, (auth) => auth.markScopeStale());
+  });
+
+  testWidgets('expired token offers a one-tap re-login', (
+    WidgetTester tester,
+  ) async {
+    await expectReLogin(tester, (auth) => auth.markActiveExpired());
   });
 
   testWidgets('Anonymous row switches to and from saved accounts', (

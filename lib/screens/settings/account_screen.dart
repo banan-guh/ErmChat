@@ -571,13 +571,15 @@ class _AccountScreenState extends State<AccountScreen> {
               ListenableBuilder(
                 listenable: widget.twitchAuth,
                 builder: (context, _) {
+                  final auth = widget.twitchAuth;
+                  final needsLogin = auth.scopeStale || auth.isActiveExpired;
                   return OutlinedButton.icon(
-                    // Stale scopes re-login the active account.
-                    onPressed: () =>
-                        _startOAuth(adding: !widget.twitchAuth.scopeStale),
-                    icon: const Icon(Icons.person_add),
+                    // Stale scopes and expired tokens re-login the active
+                    // account.
+                    onPressed: () => _startOAuth(adding: !needsLogin),
+                    icon: Icon(needsLogin ? Icons.login : Icons.person_add),
                     label: Text(
-                      widget.twitchAuth.scopeStale
+                      needsLogin
                           ? context.l10n.logInAgain
                           : context.l10n.addAccount,
                     ),
