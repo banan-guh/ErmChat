@@ -493,35 +493,39 @@ class RecentMessagesService {
     }
   }
 
+  /// The history server's `rm-received-ts` (milliseconds, unset on live lines)
+  /// as a [DateTime], or null when the tag is absent. A junk value reads as
+  /// the epoch, as it always has.
+  static DateTime? _receivedAt(IrcMessage msg) {
+    final tsMs = msg.tags['rm-received-ts'];
+    if (tsMs == null) return null;
+    return DateTime.fromMillisecondsSinceEpoch(int.tryParse(tsMs) ?? 0);
+  }
+
+  /// A CLEARCHAT/USERNOTICE line's text: the trailing param, else the second
+  /// param because Robotty strips the trailing colon.
+  static String? _trailingOrParam(IrcMessage msg) =>
+      msg.trailing ?? (msg.params.length > 1 ? msg.params[1] : null);
+
   static TwitchMessage? _parseNotice(IrcMessage msg, String? channel) {
     final text = msg.trailing;
     if (text == null || text.isEmpty) return null;
-
-    final tsMs = msg.tags['rm-received-ts'];
-    final ts = tsMs != null
-        ? DateTime.fromMillisecondsSinceEpoch(int.tryParse(tsMs) ?? 0)
-        : DateTime.now();
 
     return TwitchMessage(
       login: '',
       text: text,
       isSystem: true,
       channel: channel,
-      timestamp: ts,
+      timestamp: _receivedAt(msg) ?? DateTime.now(),
       isHistory: true,
     );
   }
 
   static TwitchMessage? _parsePrivmsg(IrcMessage msg, String? channel) {
-    final tsMs = msg.tags['rm-received-ts'];
-    final timestamp = tsMs != null
-        ? DateTime.fromMillisecondsSinceEpoch(int.tryParse(tsMs) ?? 0)
-        : null;
-
     final parsed = parseIrcChatMessage(
       msg,
       channel: channel,
-      timestamp: timestamp,
+      timestamp: _receivedAt(msg),
       isHistory: true,
     );
 
@@ -538,18 +542,14 @@ class RecentMessagesService {
     String? ownLogin,
   ) {
     // Robotty strips trailing colon.
-    final targetUser =
-        msg.trailing ?? (msg.params.length > 1 ? msg.params[1] : null);
+    final targetUser = _trailingOrParam(msg);
     if (targetUser == null || targetUser.isEmpty) return null;
 
     final banDuration = msg.tags['ban-duration'];
     final isTimeout = banDuration != null;
     final durationSec = isTimeout ? int.tryParse(banDuration) : null;
 
-    final tsMs = msg.tags['rm-received-ts'];
-    final ts = tsMs != null
-        ? DateTime.fromMillisecondsSinceEpoch(int.tryParse(tsMs) ?? 0)
-        : DateTime.now();
+    final ts = _receivedAt(msg) ?? DateTime.now();
 
     return TwitchMessage(
       login: targetUser,
@@ -592,12 +592,9 @@ class RecentMessagesService {
         ? msg.tags['system-msg']
         : null;
 
-    final tsMs = msg.tags['rm-received-ts'];
-    final ts = tsMs != null
-        ? DateTime.fromMillisecondsSinceEpoch(int.tryParse(tsMs) ?? 0)
-        : DateTime.now();
+    final ts = _receivedAt(msg) ?? DateTime.now();
     // Robotty strips trailing colon.
-    final text = msg.trailing ?? (msg.params.length > 1 ? msg.params[1] : null);
+    final text = _trailingOrParam(msg);
     final isSubWithText =
         (msgId == 'sub' || msgId == 'resub' || msgId == 'modiversary') &&
         (text?.trim().isNotEmpty ?? false);
@@ -646,18 +643,13 @@ class RecentMessagesService {
       return null;
     }
     // Robotty strips trailing colon.
-    final text =
-        (msg.trailing ?? (msg.params.length > 1 ? msg.params[1] : null))
-            ?.trim();
+    final text = _trailingOrParam(msg)?.trim();
     if (text == null || text.isEmpty) return null;
 
     final login = (msg.tags['login'] ?? '').toLowerCase();
     final displayName = msg.tags['display-name'] ?? login;
 
-    final tsMs = msg.tags['rm-received-ts'];
-    final ts = tsMs != null
-        ? DateTime.fromMillisecondsSinceEpoch(int.tryParse(tsMs) ?? 0)
-        : DateTime.now();
+    final ts = _receivedAt(msg) ?? DateTime.now();
 
     return TwitchMessage(
       login: login,
@@ -699,18 +691,13 @@ class RecentMessagesService {
       return null;
     }
     // Robotty strips trailing colon.
-    final text =
-        (msg.trailing ?? (msg.params.length > 1 ? msg.params[1] : null))
-            ?.trim();
+    final text = _trailingOrParam(msg)?.trim();
     if (text == null || text.isEmpty) return null;
 
     final login = (msg.tags['login'] ?? '').toLowerCase();
     final displayName = msg.tags['display-name'] ?? login;
 
-    final tsMs = msg.tags['rm-received-ts'];
-    final ts = tsMs != null
-        ? DateTime.fromMillisecondsSinceEpoch(int.tryParse(tsMs) ?? 0)
-        : DateTime.now();
+    final ts = _receivedAt(msg) ?? DateTime.now();
 
     return TwitchMessage(
       login: login,

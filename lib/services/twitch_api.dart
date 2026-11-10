@@ -380,6 +380,62 @@ class TwitchApi {
     Set<int> ok = const {200},
   }) async => (await _delete(label, auth, uri, ok: ok)) != null;
 
+  /// Decodes a Helix response body's `data` array into a typed list, skipping
+  /// items [fromJson] maps to null. A malformed body throws, so callers keep
+  /// their own catch and error recording.
+  static List<T> _decodeList<T>(
+    http.Response res,
+    T? Function(Map<String, dynamic> json) fromJson,
+  ) {
+    final data = jsonDecode(res.body) as Map;
+    final out = <T>[];
+    for (final item in data['data'] as List) {
+      final value = fromJson(item as Map<String, dynamic>);
+      if (value != null) out.add(value);
+    }
+    return out;
+  }
+
+  /// Runs a cursor-paginated Helix GET at [_base] + [path], decoding each
+  /// page's `data` items with [fromJson] (a null result skips the item) and
+  /// following `pagination.cursor` until it is missing or empty. [query] is
+  /// sent with `first=100` on every page. A page or decode failure is recorded
+  /// under [label] and returns what has been collected so far.
+  Future<List<T>> _pagedGet<T>(
+    String label,
+    TwitchAuth auth, {
+    required String path,
+    required Map<String, String> query,
+    required T? Function(Map<String, dynamic> json) fromJson,
+  }) async {
+    _clearError();
+    final out = <T>[];
+    String? cursor;
+    while (true) {
+      final params = <String, String>{...query, 'first': '100'};
+      if (cursor != null) params['after'] = cursor;
+      final uri = Uri.parse('$_base$path').replace(queryParameters: params);
+      final res = await _client.get(uri, headers: _headers(auth));
+      if (res.statusCode != 200) {
+        _setError(label, res);
+        return out;
+      }
+      try {
+        final data = jsonDecode(res.body) as Map;
+        for (final item in data['data'] as List) {
+          final value = fromJson(item as Map<String, dynamic>);
+          if (value != null) out.add(value);
+        }
+        cursor = ((data['pagination'] as Map?)?['cursor']) as String?;
+      } catch (e) {
+        logDebug('[TwitchApi] $label failed: $e');
+        _setError('$label: bad response');
+        return out;
+      }
+      if (cursor == null || cursor.isEmpty) return out;
+    }
+  }
+
   Future<String?> getUserId(TwitchAuth auth, String login) async {
     final uri = Uri.parse('$_base/users?login=$login');
     final res = await _get('getUserId', auth, uri);
@@ -769,38 +825,13 @@ class TwitchApi {
   Future<List<BannedUser>> getBannedUsers(
     TwitchAuth auth,
     String broadcasterId,
-  ) async {
-    _clearError();
-    final out = <BannedUser>[];
-    String? cursor;
-    while (true) {
-      final query = <String, String>{
-        'broadcaster_id': broadcasterId,
-        'first': '100',
-      };
-      if (cursor != null) query['after'] = cursor;
-      final uri = Uri.parse(
-        '$_base/moderation/banned',
-      ).replace(queryParameters: query);
-      final res = await _client.get(uri, headers: _headers(auth));
-      if (res.statusCode != 200) {
-        _setError('getBannedUsers', res);
-        return out;
-      }
-      try {
-        final data = jsonDecode(res.body) as Map;
-        for (final item in data['data'] as List) {
-          out.add(BannedUser.fromJson(item as Map<String, dynamic>));
-        }
-        cursor = ((data['pagination'] as Map?)?['cursor']) as String?;
-      } catch (e) {
-        logDebug('[TwitchApi] getBannedUsers failed: $e');
-        _setError('getBannedUsers: bad response');
-        return out;
-      }
-      if (cursor == null || cursor.isEmpty) return out;
-    }
-  }
+  ) => _pagedGet<BannedUser>(
+    'getBannedUsers',
+    auth,
+    path: '/moderation/banned',
+    query: {'broadcaster_id': broadcasterId},
+    fromJson: BannedUser.fromJson,
+  );
 
   /// Unban requests for a channel, newest first. Empty on failure. [status]
   /// is pending/approved/denied/etc; null leaves the server default.
@@ -822,11 +853,7 @@ class TwitchApi {
     final res = await _get('getUnbanRequests', auth, uri);
     if (res == null) return const [];
     try {
-      final data = jsonDecode(res.body) as Map;
-      return [
-        for (final item in data['data'] as List)
-          UnbanRequest.fromJson(item as Map<String, dynamic>),
-      ];
+      return _decodeList(res, UnbanRequest.fromJson);
     } catch (e) {
       logDebug('[TwitchApi] getUnbanRequests failed: $e');
       _setError('getUnbanRequests: bad response');
@@ -872,11 +899,7 @@ class TwitchApi {
     final res = await _get('getBlockedTerms', auth, uri);
     if (res == null) return const [];
     try {
-      final data = jsonDecode(res.body) as Map;
-      return [
-        for (final item in data['data'] as List)
-          BlockedTerm.fromJson(item as Map<String, dynamic>),
-      ];
+      return _decodeList(res, BlockedTerm.fromJson);
     } catch (e) {
       logDebug('[TwitchApi] getBlockedTerms failed: $e');
       _setError('getBlockedTerms: bad response');
@@ -1028,11 +1051,7 @@ class TwitchApi {
     final res = await _get('getCustomRewards', auth, uri);
     if (res == null) return const [];
     try {
-      final data = jsonDecode(res.body) as Map;
-      return [
-        for (final item in data['data'] as List)
-          PointReward.fromJson(item as Map<String, dynamic>),
-      ];
+      return _decodeList(res, PointReward.fromJson);
     } catch (e) {
       logDebug('[TwitchApi] getCustomRewards failed: $e');
       _setError('getCustomRewards: bad response');
@@ -1073,11 +1092,7 @@ class TwitchApi {
     final res = await _get('getRedemptions', auth, uri);
     if (res == null) return const [];
     try {
-      final data = jsonDecode(res.body) as Map;
-      return [
-        for (final item in data['data'] as List)
-          PointRedemption.fromJson(item as Map<String, dynamic>),
-      ];
+      return _decodeList(res, PointRedemption.fromJson);
     } catch (e) {
       logDebug('[TwitchApi] getRedemptions failed: $e');
       _setError('getRedemptions: bad response');
@@ -1248,42 +1263,14 @@ class TwitchApi {
   }
 
   /// Paginated moderator logins; empty on failure.
-  Future<List<String>> getModerators(
-    TwitchAuth auth,
-    String broadcasterId,
-  ) async {
-    _clearError();
-    final logins = <String>[];
-    String? cursor;
-    while (true) {
-      final query = <String, String>{
-        'broadcaster_id': broadcasterId,
-        'first': '100',
-      };
-      if (cursor != null) query['after'] = cursor;
-      final uri = Uri.parse(
-        '$_base/moderation/moderators',
-      ).replace(queryParameters: query);
-      final res = await _client.get(uri, headers: _headers(auth));
-      if (res.statusCode != 200) {
-        _setError('getModerators', res);
-        return logins;
-      }
-      try {
-        final data = jsonDecode(res.body) as Map;
-        for (final item in data['data'] as List) {
-          final login = (item as Map)['user_login'] as String?;
-          if (login != null) logins.add(login);
-        }
-        cursor = ((data['pagination'] as Map?)?['cursor']) as String?;
-      } catch (e) {
-        logDebug('[TwitchApi] getModerators failed: $e');
-        _setError('getModerators: bad response');
-        return logins;
-      }
-      if (cursor == null || cursor.isEmpty) return logins;
-    }
-  }
+  Future<List<String>> getModerators(TwitchAuth auth, String broadcasterId) =>
+      _pagedGet<String>(
+        'getModerators',
+        auth,
+        path: '/moderation/moderators',
+        query: {'broadcaster_id': broadcasterId},
+        fromJson: (json) => json['user_login'] as String?,
+      );
 
   Future<bool> addModerator(
     TwitchAuth auth, {
@@ -1308,39 +1295,14 @@ class TwitchApi {
   }
 
   /// Paginated VIP logins; empty on failure.
-  Future<List<String>> getVips(TwitchAuth auth, String broadcasterId) async {
-    _clearError();
-    final logins = <String>[];
-    String? cursor;
-    while (true) {
-      final query = <String, String>{
-        'broadcaster_id': broadcasterId,
-        'first': '100',
-      };
-      if (cursor != null) query['after'] = cursor;
-      final uri = Uri.parse(
-        '$_base/channels/vips',
-      ).replace(queryParameters: query);
-      final res = await _client.get(uri, headers: _headers(auth));
-      if (res.statusCode != 200) {
-        _setError('getVips', res);
-        return logins;
-      }
-      try {
-        final data = jsonDecode(res.body) as Map;
-        for (final item in data['data'] as List) {
-          final login = (item as Map)['user_login'] as String?;
-          if (login != null) logins.add(login);
-        }
-        cursor = ((data['pagination'] as Map?)?['cursor']) as String?;
-      } catch (e) {
-        logDebug('[TwitchApi] getVips failed: $e');
-        _setError('getVips: bad response');
-        return logins;
-      }
-      if (cursor == null || cursor.isEmpty) return logins;
-    }
-  }
+  Future<List<String>> getVips(TwitchAuth auth, String broadcasterId) =>
+      _pagedGet<String>(
+        'getVips',
+        auth,
+        path: '/channels/vips',
+        query: {'broadcaster_id': broadcasterId},
+        fromJson: (json) => json['user_login'] as String?,
+      );
 
   Future<bool> addVip(
     TwitchAuth auth, {
@@ -1506,10 +1468,7 @@ class TwitchApi {
     final res = await _get('getPolls', auth, uri);
     if (res == null) return const [];
     try {
-      final data = jsonDecode(res.body)['data'] as List<dynamic>;
-      return [
-        for (final p in data.cast<Map<String, dynamic>>()) Poll.fromJson(p),
-      ];
+      return _decodeList(res, Poll.fromJson);
     } catch (e) {
       logDebug('[TwitchApi] getPolls failed: $e');
       _setError('getPolls: bad response');
@@ -1565,11 +1524,7 @@ class TwitchApi {
     final res = await _get('getPredictions', auth, uri);
     if (res == null) return const [];
     try {
-      final data = jsonDecode(res.body)['data'] as List<dynamic>;
-      return [
-        for (final p in data.cast<Map<String, dynamic>>())
-          Prediction.fromJson(p),
-      ];
+      return _decodeList(res, Prediction.fromJson);
     } catch (e) {
       logDebug('[TwitchApi] getPredictions failed: $e');
       _setError('getPredictions: bad response');

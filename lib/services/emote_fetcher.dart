@@ -182,35 +182,25 @@ class EmoteFetcher {
       );
     }
 
-    final providers = <EmoteType, Future<List<Emote>> Function()>{
-      EmoteType.twitch: () async {
-        if (!_isProviderEnabled(EmoteType.twitch)) return [];
-        final twitch = await _fetchTwitchGlobal();
-        unlockIds = twitch.unlockIds;
-        // Empty fetch: keep the retained catalog list.
-        if (twitch.emotes.isNotEmpty) landed(EmoteType.twitch, twitch.emotes);
-        return twitch.emotes;
-      },
-      EmoteType.bttv: () async {
-        if (!_isProviderEnabled(EmoteType.bttv)) return [];
-        final emotes = await BttvEmoteProvider.fetchGlobal();
-        if (emotes.isNotEmpty) landed(EmoteType.bttv, emotes);
-        return emotes;
-      },
-      EmoteType.ffz: () async {
-        if (!_isProviderEnabled(EmoteType.ffz)) return [];
-        final emotes = await FfzEmoteProvider.fetchGlobal();
-        if (emotes.isNotEmpty) landed(EmoteType.ffz, emotes);
-        return emotes;
-      },
-      EmoteType.sevenTv: () async {
-        if (!_isProviderEnabled(EmoteType.sevenTv)) return [];
-        final emotes = await _sevenTvGlobalFetcher();
-        if (emotes.isNotEmpty) landed(EmoteType.sevenTv, emotes);
-        return emotes;
-      },
-    };
-    final failed = await _fetchConcurrent(providers, maxConcurrent: 2);
+    // Each entry only fetches its provider; [_providerCalls] adds the shared
+    // enable check and `landed` bookkeeping around it.
+    final fetches = <(EmoteType, Future<List<Emote>> Function())>[
+      (
+        EmoteType.twitch,
+        () async {
+          final twitch = await _fetchTwitchGlobal();
+          unlockIds = twitch.unlockIds;
+          return twitch.emotes;
+        },
+      ),
+      (EmoteType.bttv, BttvEmoteProvider.fetchGlobal),
+      (EmoteType.ffz, FfzEmoteProvider.fetchGlobal),
+      (EmoteType.sevenTv, _sevenTvGlobalFetcher),
+    ];
+    final failed = await _fetchConcurrent(
+      _providerCalls(fetches, landed),
+      maxConcurrent: 2,
+    );
     return GlobalEmoteFetch(
       byProvider: results,
       failed: failed,
@@ -244,42 +234,38 @@ class EmoteFetcher {
       );
     }
 
-    final providers = <EmoteType, Future<List<Emote>> Function()>{
-      EmoteType.twitch: () async {
-        if (!_isProviderEnabled(EmoteType.twitch)) return [];
-        final fetched = await TwitchEmoteProvider.fetchChannel(
-          broadcasterId,
-          accessToken: _accessToken(),
-          channelName: channelName,
-        );
-        final nonSub = fetched.where((e) => !isTwitchSub(e)).toList();
-        // Empty fetch: keep the retained catalog entry so a silent non-200
-        // cannot clobber it.
-        if (nonSub.isNotEmpty) landed(EmoteType.twitch, nonSub);
-        return nonSub;
-      },
-      EmoteType.bttv: () async {
-        if (!_isProviderEnabled(EmoteType.bttv)) return [];
-        final emotes = await BttvEmoteProvider.fetchChannel(broadcasterId);
-        if (emotes.isNotEmpty) landed(EmoteType.bttv, emotes);
-        return emotes;
-      },
-      EmoteType.ffz: () async {
-        if (!_isProviderEnabled(EmoteType.ffz)) return [];
-        final emotes = await FfzEmoteProvider.fetchChannel(broadcasterId);
-        if (emotes.isNotEmpty) landed(EmoteType.ffz, emotes);
-        return emotes;
-      },
-      EmoteType.sevenTv: () async {
-        if (!_isProviderEnabled(EmoteType.sevenTv)) return [];
-        final resp = await _sevenTvChannelFetcher(broadcasterId);
-        sevenTvSetId = resp.emoteSetId;
-        sevenTvUserId = resp.userId;
-        if (resp.emotes.isNotEmpty) landed(EmoteType.sevenTv, resp.emotes);
-        return resp.emotes;
-      },
-    };
-    final failed = await _fetchConcurrent(providers, maxConcurrent: 3);
+    // Each entry only fetches its provider; [_providerCalls] adds the shared
+    // enable check and `landed` bookkeeping around it.
+    final fetches = <(EmoteType, Future<List<Emote>> Function())>[
+      (
+        EmoteType.twitch,
+        () async {
+          final fetched = await TwitchEmoteProvider.fetchChannel(
+            broadcasterId,
+            accessToken: _accessToken(),
+            channelName: channelName,
+          );
+          // Subs live in the channel's twitchSubs list, not the provider
+          // lists.
+          return fetched.where((e) => !isTwitchSub(e)).toList();
+        },
+      ),
+      (EmoteType.bttv, () => BttvEmoteProvider.fetchChannel(broadcasterId)),
+      (EmoteType.ffz, () => FfzEmoteProvider.fetchChannel(broadcasterId)),
+      (
+        EmoteType.sevenTv,
+        () async {
+          final resp = await _sevenTvChannelFetcher(broadcasterId);
+          sevenTvSetId = resp.emoteSetId;
+          sevenTvUserId = resp.userId;
+          return resp.emotes;
+        },
+      ),
+    ];
+    final failed = await _fetchConcurrent(
+      _providerCalls(fetches, landed),
+      maxConcurrent: 3,
+    );
     return ChannelEmoteFetch(
       byProvider: results,
       failed: failed,
@@ -514,6 +500,28 @@ class EmoteFetcher {
       ],
       unlockIds: keys.ids,
     );
+  }
+
+  /// Builds the concurrent provider table for one fetch path: each entry of
+  /// [fetches] pairs a provider with its bare fetch, and every entry is
+  /// wrapped here with the shared enable check and [landed] bookkeeping. A
+  /// disabled provider and a provider that returns nothing both yield an empty
+  /// list without reporting, so a commit keeps the retained list. Map order
+  /// follows [fetches], and [_fetchConcurrent] starts calls in that order.
+  Map<EmoteType, Future<List<Emote>> Function()> _providerCalls(
+    List<(EmoteType, Future<List<Emote>> Function())> fetches,
+    void Function(EmoteType type, List<Emote> emotes) landed,
+  ) {
+    final providers = <EmoteType, Future<List<Emote>> Function()>{};
+    for (final (type, fetch) in fetches) {
+      providers[type] = () async {
+        if (!_isProviderEnabled(type)) return <Emote>[];
+        final emotes = await fetch();
+        if (emotes.isNotEmpty) landed(type, emotes);
+        return emotes;
+      };
+    }
+    return providers;
   }
 
   /// Runs each provider, returning the types that threw. Per-provider errors
