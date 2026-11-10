@@ -13,13 +13,14 @@ bool debugLogEnabled =
     !kReleaseMode || const bool.fromEnvironment('ERMCHAT_RELEASE_LOG');
 
 /// App logging hook. Use instead of [debugPrint] so tests can silence noise.
-/// Lines also join [AppLog], so a bug report keeps the events that led to it.
-void logDebug(String? message, {int? wrapWidth}) {
+/// Lines also join [AppLog] unless [persist] is false, for console-only
+/// chatter like frame timings.
+void logDebug(String? message, {int? wrapWidth, bool persist = true}) {
   if (message == null) return;
   if (debugLogEnabled) {
     debugPrint(message, wrapWidth: wrapWidth);
   }
-  AppLog.I.note(message);
+  if (persist) AppLog.I.note(message);
 }
 
 /// Recent app events, printed alongside any frame that stalls so a hitch
@@ -67,6 +68,7 @@ class JankLog {
       '[jank] ${((endUs - startUs) / 1000).round()}ms wait=${waitMs}ms '
       'build=${buildMs}ms raster=${rasterMs}ms$extra | '
       '${recent.isEmpty ? 'no recent events' : recent.join(', ')}',
+      persist: false,
     );
   }
 }

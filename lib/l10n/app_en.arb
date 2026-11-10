@@ -498,7 +498,7 @@
   "addUser": "Add user",
   "none": "None",
   "dontHighlightCaption": "Shown, but never highlighted or notified.",
-  "rulesOverlapCaption": "Drag to set priority. When several rules match, the top one wins.",
+  "rulesOverlapCaption": "Drag to set priority, highest = highest priority",
   "badgesTitle": "Badges",
   "redemptionNote": "Includes highlighted messages.",
   "elevatedNote": "Paid messages pinned to chat.",
