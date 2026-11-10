@@ -28,6 +28,19 @@ import 'uploader_settings_screen.dart';
 import '../../services/recent_messages.dart';
 import '../../widgets/whats_new_sheet.dart';
 
+/// One settings page: how to build it, and how the root list shows it.
+typedef _PageEntry = ({
+  Widget Function() build,
+  // Tile icon, drawn only when the page is [listed].
+  IconData icon,
+  // The tile's title in the app language.
+  String Function(AppLocalizations) title,
+  // Whether the root list has a tile; the rest open from search only.
+  bool listed,
+  // Whether a divider closes this tile's group in the root list.
+  bool endsGroup,
+});
+
 class SettingsScreen extends StatelessWidget {
   final TwitchAuth twitchAuth;
   final ValueChanged<bool>? onBackgroundServiceChanged;
@@ -93,97 +106,178 @@ class SettingsScreen extends StatelessWidget {
     this.fakeChat,
   });
 
-  // One builder per destination, shared by the tiles and the search index.
-  Widget _channels() => ChannelSettingsScreen(
-    channelNotifier: channelNotifier!,
-    onAddChannel: onAddChannel,
-    onLeaveChannel: onLeaveChannel,
-    onReorderChannels: onReorderChannels,
-    onRenameChannel: onRenameChannel,
-  );
-
-  Widget _appearance() => CustomizationScreen(onEditLayout: onEditLayout);
-
-  Widget _chat() => ChatSettingsScreen(
-    twitchAuth: twitchAuth,
-    onBackgroundServiceChanged: onBackgroundServiceChanged,
-  );
-
-  Widget _highlights() => PingsScreen(
-    onMentionPushChanged: onMentionPushChanged,
-    onWhisperNotifyChanged: onWhisperNotifyChanged,
-    onBackgroundServiceChanged: onBackgroundServiceChanged,
-  );
-
-  Widget _emotes() => EmotesSettingsScreen(
-    onEmoteTierChanged: onEmoteTierChanged,
-    onEmoteCacheMaxChanged: onEmoteCacheMaxChanged,
-    onEmoteAutoModeChanged: onEmoteAutoModeChanged,
-    onNukeEmotes: onNukeEmotes,
-    mobileNotifier: mobileNotifier,
-    emoteManager: emoteManager,
-  );
-
-  Widget _data() => DataSettingsScreen(
-    mobileNotifier: mobileNotifier,
-    onEmoteTierChanged: onEmoteTierChanged,
-    onEmoteAutoModeChanged: onEmoteAutoModeChanged,
-    onEmoteCacheMaxChanged: onEmoteCacheMaxChanged,
-    onNukeEmotes: onNukeEmotes,
-    images: emoteManager?.images,
-  );
-
-  Widget _history() => HistorySettingsScreen(
-    onRecentMessagesModeChanged: onRecentMessagesModeChanged,
-  );
-
-  Widget _battery() => BatterySettingsScreen(
-    onBackgroundServiceChanged: onBackgroundServiceChanged,
-  );
-
-  Widget _tools() => ToolsSettingsScreen(
-    analyticsService: analyticsService,
-    channels: channels,
-    ttsController: ttsController,
-    images: emoteManager?.images,
-    onPipEnabledChanged: onPipEnabledChanged,
-    showFeedback: twitchAuth.isConfigured,
-  );
-
-  Widget _account() => AccountScreen(
-    twitchAuth: twitchAuth,
-    oAuthStarter: oAuthStarter,
-    onWebSessionChanged: onWebSessionChanged,
-  );
-
-  Widget _about() => AboutScreen(
-    onTestWidgetsChanged: onTestWidgetsChanged,
-    fakeChat: fakeChat,
-  );
-
-  Widget _tts() => TtsSettingsScreen(ttsController: ttsController);
-
-  static void _go(BuildContext context, Widget Function() screen) =>
-      Navigator.push(context, MaterialPageRoute(builder: (_) => screen()));
-
-  Widget _page(SettingsPageId page) => switch (page) {
-    SettingsPageId.channels => _channels(),
-    SettingsPageId.appearance => _appearance(),
-    SettingsPageId.customLayout => const CustomLayoutScreen(),
-    SettingsPageId.chat => _chat(),
-    SettingsPageId.inlineEmbeds => const InlineEmbedsScreen(),
-    SettingsPageId.highlights => _highlights(),
-    SettingsPageId.emotes => _emotes(),
-    SettingsPageId.data => _data(),
-    SettingsPageId.history => _history(),
-    SettingsPageId.battery => _battery(),
-    SettingsPageId.tools => _tools(),
-    SettingsPageId.tts => _tts(),
-    SettingsPageId.uploader => const UploaderSettingsScreen(),
-    SettingsPageId.account => _account(),
-    SettingsPageId.about => _about(),
-    SettingsPageId.language => const LanguageScreen(),
+  // Every page in one table: adding a page is one entry here, not a builder,
+  // a switch case and a tile.
+  //
+  // Insertion order is enum order, so the root list, which draws the [listed]
+  // entries in this order, keeps its sections (divider after the last tile of
+  // each group). Pages searched to instead of listed keep an icon and title so
+  // every entry is shaped the same.
+  Map<SettingsPageId, _PageEntry> get _pages => {
+    SettingsPageId.channels: (
+      build: () => ChannelSettingsScreen(
+        channelNotifier: channelNotifier!,
+        onAddChannel: onAddChannel,
+        onLeaveChannel: onLeaveChannel,
+        onReorderChannels: onReorderChannels,
+        onRenameChannel: onRenameChannel,
+      ),
+      icon: Icons.tag,
+      title: (l) => l.pageChannels,
+      listed: true,
+      endsGroup: false,
+    ),
+    SettingsPageId.appearance: (
+      build: () => CustomizationScreen(onEditLayout: onEditLayout),
+      icon: Icons.palette,
+      title: (l) => l.pageAppearance,
+      listed: true,
+      endsGroup: false,
+    ),
+    SettingsPageId.customLayout: (
+      build: () => const CustomLayoutScreen(),
+      icon: Icons.dashboard_customize,
+      title: (l) => l.pageCustomLayout,
+      listed: false,
+      endsGroup: false,
+    ),
+    SettingsPageId.chat: (
+      build: () => ChatSettingsScreen(
+        twitchAuth: twitchAuth,
+        onBackgroundServiceChanged: onBackgroundServiceChanged,
+      ),
+      icon: Icons.chat_bubble,
+      title: (l) => l.pageChat,
+      listed: true,
+      endsGroup: false,
+    ),
+    SettingsPageId.inlineEmbeds: (
+      build: () => const InlineEmbedsScreen(),
+      icon: Icons.image,
+      title: (l) => l.pageInlineEmbeds,
+      listed: false,
+      endsGroup: false,
+    ),
+    SettingsPageId.highlights: (
+      build: () => PingsScreen(
+        onMentionPushChanged: onMentionPushChanged,
+        onWhisperNotifyChanged: onWhisperNotifyChanged,
+        onBackgroundServiceChanged: onBackgroundServiceChanged,
+      ),
+      icon: Icons.notifications,
+      title: (l) => l.pageHighlights,
+      listed: true,
+      endsGroup: false,
+    ),
+    SettingsPageId.emotes: (
+      build: () => EmotesSettingsScreen(
+        onEmoteTierChanged: onEmoteTierChanged,
+        onEmoteCacheMaxChanged: onEmoteCacheMaxChanged,
+        onEmoteAutoModeChanged: onEmoteAutoModeChanged,
+        onNukeEmotes: onNukeEmotes,
+        mobileNotifier: mobileNotifier,
+        emoteManager: emoteManager,
+      ),
+      icon: Icons.emoji_emotions,
+      title: (l) => l.pageEmotes,
+      listed: true,
+      endsGroup: true,
+    ),
+    SettingsPageId.data: (
+      build: () => DataSettingsScreen(
+        mobileNotifier: mobileNotifier,
+        onEmoteTierChanged: onEmoteTierChanged,
+        onEmoteAutoModeChanged: onEmoteAutoModeChanged,
+        onEmoteCacheMaxChanged: onEmoteCacheMaxChanged,
+        onNukeEmotes: onNukeEmotes,
+        images: emoteManager?.images,
+      ),
+      icon: Icons.data_usage,
+      title: (l) => l.pageData,
+      listed: true,
+      endsGroup: false,
+    ),
+    SettingsPageId.history: (
+      build: () => HistorySettingsScreen(
+        onRecentMessagesModeChanged: onRecentMessagesModeChanged,
+      ),
+      icon: Icons.history,
+      title: (l) => l.pageHistory,
+      listed: true,
+      endsGroup: false,
+    ),
+    SettingsPageId.battery: (
+      build: () => BatterySettingsScreen(
+        onBackgroundServiceChanged: onBackgroundServiceChanged,
+      ),
+      icon: Icons.battery_saver,
+      title: (l) => l.pageBattery,
+      listed: true,
+      endsGroup: true,
+    ),
+    SettingsPageId.tools: (
+      build: () => ToolsSettingsScreen(
+        analyticsService: analyticsService,
+        channels: channels,
+        ttsController: ttsController,
+        images: emoteManager?.images,
+        onPipEnabledChanged: onPipEnabledChanged,
+        showFeedback: twitchAuth.isConfigured,
+      ),
+      icon: Icons.handyman,
+      title: (l) => l.pageTools,
+      listed: true,
+      endsGroup: false,
+    ),
+    SettingsPageId.tts: (
+      build: () => TtsSettingsScreen(ttsController: ttsController),
+      icon: Icons.record_voice_over,
+      title: (l) => l.pageTts,
+      listed: false,
+      endsGroup: false,
+    ),
+    SettingsPageId.uploader: (
+      build: () => const UploaderSettingsScreen(),
+      icon: Icons.upload,
+      title: (l) => l.pageUploader,
+      listed: false,
+      endsGroup: false,
+    ),
+    SettingsPageId.account: (
+      build: () => AccountScreen(
+        twitchAuth: twitchAuth,
+        oAuthStarter: oAuthStarter,
+        onWebSessionChanged: onWebSessionChanged,
+      ),
+      icon: Icons.person,
+      title: (l) => l.pageAccount,
+      listed: true,
+      endsGroup: false,
+    ),
+    SettingsPageId.about: (
+      build: () => AboutScreen(
+        onTestWidgetsChanged: onTestWidgetsChanged,
+        fakeChat: fakeChat,
+      ),
+      icon: Icons.info,
+      title: (l) => l.pageAbout,
+      listed: true,
+      endsGroup: false,
+    ),
+    SettingsPageId.language: (
+      build: () => const LanguageScreen(),
+      icon: Icons.translate,
+      title: (l) => l.settingLanguage,
+      listed: false,
+      endsGroup: false,
+    ),
   };
+
+  /// Builds [page], for the root list and for search.
+  Widget _page(SettingsPageId page) => _pages[page]!.build();
+
+  void _go(BuildContext context, SettingsPageId page) =>
+      Navigator.push(context, MaterialPageRoute(builder: (_) => _page(page)));
 
   @override
   Widget build(BuildContext context) {
@@ -193,7 +287,7 @@ class SettingsScreen extends StatelessWidget {
       floatingActionButton: IconButton(
         icon: const Icon(Icons.translate),
         tooltip: context.l10n.settingLanguage,
-        onPressed: () => _go(context, () => const LanguageScreen()),
+        onPressed: () => _go(context, SettingsPageId.language),
       ),
       actions: [
         IconButton(
@@ -209,63 +303,15 @@ class SettingsScreen extends StatelessWidget {
       ],
       body: ListView(
         children: [
-          SettingsNavTile(
-            icon: Icons.tag,
-            title: context.l10n.pageChannels,
-            onTap: () => _go(context, _channels),
-          ),
-          SettingsNavTile(
-            icon: Icons.palette,
-            title: context.l10n.pageAppearance,
-            onTap: () => _go(context, _appearance),
-          ),
-          SettingsNavTile(
-            icon: Icons.chat_bubble,
-            title: context.l10n.pageChat,
-            onTap: () => _go(context, _chat),
-          ),
-          SettingsNavTile(
-            icon: Icons.notifications,
-            title: context.l10n.pageHighlights,
-            onTap: () => _go(context, _highlights),
-          ),
-          SettingsNavTile(
-            icon: Icons.emoji_emotions,
-            title: context.l10n.pageEmotes,
-            onTap: () => _go(context, _emotes),
-          ),
-          const Divider(),
-          SettingsNavTile(
-            icon: Icons.data_usage,
-            title: context.l10n.pageData,
-            onTap: () => _go(context, _data),
-          ),
-          SettingsNavTile(
-            icon: Icons.history,
-            title: context.l10n.pageHistory,
-            onTap: () => _go(context, _history),
-          ),
-          SettingsNavTile(
-            icon: Icons.battery_saver,
-            title: context.l10n.pageBattery,
-            onTap: () => _go(context, _battery),
-          ),
-          const Divider(),
-          SettingsNavTile(
-            icon: Icons.handyman,
-            title: context.l10n.pageTools,
-            onTap: () => _go(context, _tools),
-          ),
-          SettingsNavTile(
-            icon: Icons.person,
-            title: context.l10n.pageAccount,
-            onTap: () => _go(context, _account),
-          ),
-          SettingsNavTile(
-            icon: Icons.info,
-            title: context.l10n.pageAbout,
-            onTap: () => _go(context, _about),
-          ),
+          for (final MapEntry(key: page, value: entry) in _pages.entries)
+            if (entry.listed) ...[
+              SettingsNavTile(
+                icon: entry.icon,
+                title: entry.title(context.l10n),
+                onTap: () => _go(context, page),
+              ),
+              if (entry.endsGroup) const Divider(),
+            ],
           const UpdateBanner(),
         ],
       ),
