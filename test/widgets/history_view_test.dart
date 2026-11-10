@@ -804,6 +804,92 @@ void main() {
     expect(faded.opacity, 0.6);
   });
 
+  testWidgets('tapping a short row keeps following', (tester) async {
+    await _spamPrefs(fold: false, shorten: true);
+    final at = _ListSource.t0;
+    final version = ValueNotifier(0);
+    addTearDown(version.dispose);
+    var n = 0;
+    TwitchMessage row() => TwitchMessage(
+      login: 'live',
+      text: 'short $n',
+      messageId: 'live-${n++}',
+      channel: _ch,
+      timestamp: at.add(Duration(seconds: n)),
+    );
+    final live = <TwitchMessage>[for (var i = 0; i < 20; i++) row()];
+    await _pumpView(tester, live: () => live, liveVersion: version);
+    await _settle(tester);
+    final bottom =
+        tester.getRect(find.byType(CustomScrollView)).bottom -
+        kOpaqueComposerGap;
+
+    // Shorten is on, so any row takes the tap, but this one does not truncate.
+    await tester.tap(_tile(live.first.messageId!));
+    await tester.pump();
+    live.insert(0, row());
+    version.value++;
+    await tester.pump();
+
+    expect(
+      tester.getBottomLeft(_tile(live.first.messageId!)).dy,
+      moreOrLessEquals(bottom, epsilon: 1),
+      reason: 'a tap that expanded nothing stopped following',
+    );
+  });
+
+  testWidgets('collapsing a pile at the newest follows again', (tester) async {
+    await _spamPrefs();
+    final at = _ListSource.t0;
+    TwitchMessage spam(String id) => TwitchMessage(
+      login: 'spam',
+      text: 'KEKW',
+      messageId: id,
+      channel: _ch,
+      timestamp: at,
+    );
+    final version = ValueNotifier(0);
+    addTearDown(version.dispose);
+    final live = <TwitchMessage>[
+      spam('spam-3'),
+      spam('spam-2'),
+      spam('spam-1'),
+    ];
+    await _pumpView(
+      tester,
+      source: _ListSource([
+        TwitchMessage(
+          login: 'old',
+          text: 'old',
+          messageId: 'old',
+          channel: _ch,
+          timestamp: at.subtract(const Duration(minutes: 1)),
+        ),
+      ]),
+      live: () => live,
+      liveVersion: version,
+      compact: true,
+    );
+    await _settle(tester);
+    final bottom =
+        tester.getRect(find.byType(CustomScrollView)).bottom -
+        kOpaqueComposerGap;
+
+    await tester.tap(_tile('spam-1'));
+    await tester.pump();
+    await tester.tap(_tile('spam-1'));
+    await tester.pump();
+    live.insert(0, spam('spam-4'));
+    version.value++;
+    await tester.pump();
+
+    expect(
+      tester.getBottomLeft(_tile('spam-1')).dy,
+      moreOrLessEquals(bottom, epsilon: 1),
+      reason: 'collapsing the pile left following off',
+    );
+  });
+
   testWidgets('a copypasta summary collapses its repeated phrase', (
     tester,
   ) async {

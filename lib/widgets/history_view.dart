@@ -2264,9 +2264,15 @@ class _HistoryViewState extends State<HistoryView> {
   );
 
   /// Opens or closes the rows folded under [key]. Opening stops following so
-  /// live chat cannot pull the expanded group away.
+  /// live chat cannot pull the expanded group away, unless the tap changed no
+  /// row height. Closing at the newest edge follows again, like a scroll there.
   void _toggleExpanded(String key) {
     final open = _expanded.contains(key);
+    final wasFollowing = _follow;
+    final pos = _pos;
+    final dims = pos != null && pos.hasContentDimensions;
+    final min = dims ? pos.minScrollExtent : null;
+    final max = dims ? pos.maxScrollExtent : null;
     setState(() {
       if (open) {
         _expanded.remove(key);
@@ -2274,6 +2280,27 @@ class _HistoryViewState extends State<HistoryView> {
         _expanded.add(key);
         _follow = false;
       }
+    });
+    // Runs after the row lays out, so it can tell a real expansion from a tap
+    // that only flipped a flag.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final p = _pos;
+      if (p == null || !p.hasContentDimensions) return;
+      if (!open) {
+        if (wasFollowing &&
+            min != null &&
+            max != null &&
+            (p.minScrollExtent - min).abs() <= _followEps &&
+            (p.maxScrollExtent - max).abs() <= _followEps) {
+          _follow = true;
+        }
+      } else if (_window.atNewest &&
+          p.pixels <= p.minScrollExtent + _followEps) {
+        _follow = true;
+      }
+      if (_follow) _snapToNewest(p);
+      _syncAtBottom(p);
     });
   }
 
