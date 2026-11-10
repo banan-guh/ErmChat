@@ -4,7 +4,6 @@ import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 import '../l10n/l10n.dart';
 import '../models/twitch_message.dart';
 import '../providers/feature_providers.dart' show chatNoticeProvider;
@@ -15,7 +14,6 @@ import '../util/thread_utils.dart';
 import '../util/timestamp_formatter.dart';
 import 'chat_message_tile.dart';
 import 'emote_text.dart';
-import 'glass_chrome.dart' show kGlassPillSettings;
 import 'message_builder.dart';
 import 'seven_tv_paint_service.dart';
 import 'design_tokens.dart';
@@ -307,21 +305,17 @@ void syncRowGates(Set<RowGateState> gates, ScrollPosition pos) {
   }
 }
 
-/// Jump-to-newest button, shown while [atBottom] is false. Glass chrome
-/// ([glass]) gets the glass button, otherwise a FAB tagged [heroTag].
 /// Switches a channel page between replaying chat with its playing VOD and
 /// live chat. [live] means the page shows live chat right now.
 class VodChatButton extends StatelessWidget {
   const VodChatButton({
     super.key,
     required this.live,
-    required this.glass,
     required this.heroTag,
     required this.onPressed,
   });
 
   final bool live;
-  final bool glass;
   final Object heroTag;
   final VoidCallback onPressed;
 
@@ -336,20 +330,11 @@ class VodChatButton extends StatelessWidget {
     final tooltip = live ? l.vodChat : l.liveChat;
     return Tooltip(
       message: tooltip,
-      child: glass
-          ? GlassIconButton(
-              icon: icon,
-              shape: GlassIconButtonShape.roundedSquare,
-              onPressed: press,
-              useOwnLayer: true,
-              settings: kGlassPillSettings,
-              quality: GlassQuality.premium,
-            )
-          : FloatingActionButton.small(
-              heroTag: heroTag,
-              onPressed: press,
-              child: icon,
-            ),
+      child: FloatingActionButton.small(
+        heroTag: heroTag,
+        onPressed: press,
+        child: icon,
+      ),
     );
   }
 }
@@ -358,13 +343,11 @@ class ScrollDownButton extends StatelessWidget {
   const ScrollDownButton({
     super.key,
     required this.atBottom,
-    required this.glass,
     required this.heroTag,
     required this.onPressed,
   });
 
   final bool atBottom;
-  final bool glass;
   final Object heroTag;
   final VoidCallback onPressed;
 
@@ -380,16 +363,6 @@ class ScrollDownButton extends StatelessWidget {
           FadeTransition(opacity: animation, child: child),
       child: atBottom
           ? const SizedBox.shrink()
-          : glass
-          ? GlassIconButton(
-              key: const ValueKey('scroll_down'),
-              icon: const Icon(Icons.keyboard_arrow_down),
-              shape: GlassIconButtonShape.roundedSquare,
-              onPressed: press,
-              useOwnLayer: true,
-              settings: kGlassPillSettings,
-              quality: GlassQuality.premium,
-            )
           : FloatingActionButton(
               key: const ValueKey('scroll_down'),
               heroTag: heroTag,

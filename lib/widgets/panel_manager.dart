@@ -225,7 +225,7 @@ class PanelManager {
   }) {
     final screen = MediaQuery.sizeOf(context);
     // Full bleed: the handle strip fills in behind the status bar, so the
-    // header underneath (glass or opaque) never peeks out above the panel.
+    // header underneath never peeks out above the panel.
     final statusBarH = statusBarHeight(context);
     return Positioned(
       top: 0,

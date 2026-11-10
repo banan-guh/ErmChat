@@ -9,7 +9,6 @@ import '../services/emote_manager.dart';
 import '../services/mod_actions.dart' show ModResult;
 import 'chrome_menu_button.dart';
 import 'emote_text.dart';
-import 'glass_chrome.dart';
 import 'mod_view/dialogs.dart' show showModError;
 import 'painted_username_text.dart';
 import 'seven_tv_paint_service.dart';
@@ -67,7 +66,6 @@ class ChatWidgetCutout extends StatefulWidget {
     required this.controller,
     required this.onMinimize,
     this.room = double.infinity,
-    this.glass = false,
     this.carryInk = false,
   });
 
@@ -86,9 +84,6 @@ class ChatWidgetCutout extends StatefulWidget {
   final Map<Object, double> heights;
   final PageController controller;
   final VoidCallback onMinimize;
-
-  /// Glass layout: the cards float as glass instead of opaque surfaces.
-  final bool glass;
 
   /// A tap on the bar opened these cards; they carry its ink.
   final bool carryInk;
@@ -143,7 +138,6 @@ class _ChatWidgetCutoutState extends State<ChatWidgetCutout> {
     // A tap anywhere collapses the cards to the minimized bar.
     Widget surface(Widget child) => _cardSurface(
       context,
-      glass: widget.glass,
       carryInk: widget.carryInk,
       child: InkWell(onTap: widget.onMinimize, child: child),
     );
@@ -293,11 +287,10 @@ class _RenderMeasureSize extends RenderProxyBox {
   }
 }
 
-/// The cards' backing: glass in the glass layout, else an opaque rounded
-/// surface in the chrome's tone, without an outline like the island.
+/// The cards' opaque rounded backing in the chrome's tone, without an
+/// outline like the island.
 Widget _cardSurface(
   BuildContext context, {
-  required bool glass,
   required bool carryInk,
   required Widget child,
 }) {
@@ -310,16 +303,6 @@ Widget _cardSurface(
       ),
     ],
   );
-  if (glass) {
-    return glassCard(
-      child: Material(
-        type: MaterialType.transparency,
-        borderRadius: BorderRadius.circular(Radii.medium),
-        clipBehavior: Clip.antiAlias,
-        child: child,
-      ),
-    );
-  }
   return Material(
     // The top bar's color, so the cards read as part of the chrome.
     color: theme.colorScheme.surfaceContainer,
@@ -382,11 +365,8 @@ class ChatWidgetMinimizedBar extends StatelessWidget {
     this.pin,
     this.emotes,
     this.paints,
-    this.glass = false,
     this.carryInk = false,
   });
-
-  final bool glass;
 
   /// A tap on the cards folded them into this bar; it carries their ink.
   final bool carryInk;
@@ -412,12 +392,9 @@ class ChatWidgetMinimizedBar extends StatelessWidget {
         height: height,
         child: _cardSurface(
           context,
-          glass: glass,
           carryInk: carryInk,
           child: InkWell(
             onTap: onRestore,
-            // The glass surface lays its child out loose, at the top; the
-            // fixed height keeps the row centered on the trigger.
             child: SizedBox(
               height: height,
               child: Row(

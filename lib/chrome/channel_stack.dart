@@ -30,7 +30,6 @@ import '../util/fake_history.dart';
 import '../util/history_timeline.dart';
 import '../widgets/chat_rows.dart';
 import '../widgets/chat_view.dart';
-import '../widgets/glass_chrome.dart';
 import '../widgets/history_view.dart';
 import '../widgets/message_builder.dart';
 import '../widgets/tabbed_layout.dart';
@@ -262,14 +261,12 @@ class ChannelPanels {
     _cachedChannels = List.of(chat.names);
   }
 
-  Widget _cachedPage(BuildContext context, String channel, double topPadding) {
-    // Glass header clearance joins the token so toggling glass evicts stale
-    // pages with stale spacers. The island clearance sizes in layout
-    // instead, so it never evicts a page.
-    final token = '${_pageToken()}|${topPadding.round()}|${_menuFloats()}';
+  Widget _cachedPage(BuildContext context, String channel) {
+    // The island clearance sizes in layout, so it never evicts a page.
+    final token = '${_pageToken()}|${_menuFloats()}';
     final cached = _pageCache[channel];
     if (cached != null && cached.token == token) return cached.widget;
-    final page = _buildPage(context, channel, topPadding);
+    final page = _buildPage(context, channel);
     _pageCache[channel] = _CachedPage(page, token);
     return page;
   }
@@ -286,14 +283,10 @@ class ChannelPanels {
   /// Everything live inside is listenable-driven, so a cached instance
   /// still shows fresh rows, edits and search filtering. The captured
   /// [context] is channelStack's own long-lived build context.
-  Widget _buildPage(
-    BuildContext context,
-    String channel, [
-    double topPadding = 0,
-  ]) {
+  Widget _buildPage(BuildContext context, String channel) {
     final history = _historySource(channel);
     if (history != null && !search.open) {
-      return _historyPage(context, channel, history, topPadding);
+      return _historyPage(context, channel, history);
     }
     final infoVersion =
         chat.channelFor(channel)?.info.version ?? _emptyNotifier;
@@ -331,7 +324,6 @@ class ChannelPanels {
           lineSeparator: lineSeparator(),
           sharedChatMode: sharedChatMode(),
           paintService: showNamePaints() ? paintService : null,
-          topOverlayPadding: topPadding,
           onShowUserProfile: (login, userId, {displayName}) =>
               userSheets.showUserProfile(
                 context,
@@ -353,8 +345,7 @@ class ChannelPanels {
               ? ScrollViewKeyboardDismissBehavior.onDrag
               : ScrollViewKeyboardDismissBehavior.manual,
         );
-        return _searchResults(context, channel, topPadding, active, buffer) ??
-            buffer;
+        return _searchResults(context, channel, active, buffer) ?? buffer;
       },
     );
   }
@@ -429,7 +420,6 @@ class ChannelPanels {
     BuildContext context,
     String channel,
     HistorySource source,
-    double topPadding,
   ) {
     final fake = FakeHistory.isFake(channel);
     final state = chat.channelFor(channel);
@@ -454,7 +444,6 @@ class ChannelPanels {
         underCornerMenu: _menuFloats(),
         rows: _rows(context, channel),
         textScale: chatFontSize() / 14.0,
-        topPadding: topPadding,
         tileCache: tileCache,
         compact: true,
         ownLogin: ownLogin,
@@ -508,7 +497,6 @@ class ChannelPanels {
   Widget? _searchResults(
     BuildContext context,
     String channel,
-    double topPadding,
     bool active,
     Widget buffer,
   ) {
@@ -561,7 +549,6 @@ class ChannelPanels {
             },
           ),
           textScale: chatFontSize() / 14.0,
-          topPadding: topPadding,
           // Result rows carry their own menu, so they never share a tile
           // with the channel page's cached ones.
           tileCache: null,
@@ -594,11 +581,6 @@ class ChannelPanels {
     required bool hideChrome,
     bool merged = false,
     Widget? belowTabBar,
-    bool glassOverlay = false,
-    bool glassChrome = false,
-    Widget? glassHeader,
-    double glassHeaderHeight = 0,
-    double glassTopPadding = 0,
     bool underStream = false,
   }) {
     return Expanded(
@@ -608,11 +590,6 @@ class ChannelPanels {
         merged: merged,
         underStream: underStream,
         belowTabBar: belowTabBar,
-        glassOverlay: glassOverlay,
-        glassChrome: glassChrome,
-        glassHeader: glassHeader,
-        glassHeaderHeight: glassHeaderHeight,
-        glassTopPadding: glassTopPadding,
       ),
     );
   }
@@ -622,11 +599,6 @@ class ChannelPanels {
     required bool hideChrome,
     bool merged = false,
     Widget? belowTabBar,
-    bool glassOverlay = false,
-    bool glassChrome = false,
-    Widget? glassHeader,
-    double glassHeaderHeight = 0,
-    double glassTopPadding = 0,
     bool underStream = false,
   }) {
     _dropStaleCaches();
@@ -676,12 +648,7 @@ class ChannelPanels {
                               selectedTabIndex,
                               _swipePage,
                             ]),
-                            builder: (_, _) => _broadcastOverlay(
-                              glassEnabled(
-                                context,
-                                glassOverlay || glassChrome,
-                              ),
-                            ),
+                            builder: (_, _) => _broadcastOverlay(),
                           ),
                     // Join stays the last tab unless the theme places a join
                     // button; the theme's strip actions pin to the strip's
@@ -694,16 +661,12 @@ class ChannelPanels {
                     stripBubbles:
                         homeAppBar.themeSpec().header == HeaderStyle.bubbles,
                     stripTrailing: merged || appBarHeader
-                        ? homeAppBar.stripTrailing(
-                            glass: glassOverlay || glassChrome,
-                            onCalendar: openCalendar,
-                          )
+                        ? homeAppBar.stripTrailing(onCalendar: openCalendar)
                         : null,
                     fullscreenMenu: _menuFloats()
                         ? homeAppBar.action(
                             context,
                             ChromeAction.viewMenu,
-                            glass: glassOverlay || glassChrome,
                             onCalendar: openCalendar,
                           )
                         : null,
@@ -712,12 +675,9 @@ class ChannelPanels {
                         ? statusBarHeight(context)
                         : 0,
                     belowTabBar: belowTabBar,
-                    glassOverlay: glassOverlay,
-                    headerOverlay: glassHeader,
-                    overlayHeaderHeight: glassHeaderHeight,
                     pageBuilder: (_, i) {
                       final channel = chat.names[i];
-                      return _cachedPage(context, channel, glassTopPadding);
+                      return _cachedPage(context, channel);
                     },
                     focusOnHalfDrag: true,
                     fastSnap: fastSnap(),
@@ -732,27 +692,6 @@ class ChannelPanels {
                     },
                   ),
                 )
-              : glassOverlay && glassHeader != null
-              ? Stack(
-                  children: [
-                    Positioned.fill(
-                      child: welcomeChatView(
-                        context,
-                        topPadding: glassTopPadding,
-                      ),
-                    ),
-                    Positioned(
-                      top: -kGlassEdgeBleed,
-                      left: -kGlassEdgeBleed,
-                      right: -kGlassEdgeBleed,
-                      child: glassHeaderBar(
-                        hidden: isFullscreen(),
-                        dark: Theme.of(context).brightness == Brightness.dark,
-                        child: glassHeader,
-                      ),
-                    ),
-                  ],
-                )
               : welcomeChatView(context),
         ),
       ],
@@ -761,7 +700,7 @@ class ChannelPanels {
 
   /// The selected channel's broadcast cards; mid-swipe, both channels' cards,
   /// each offset with its page.
-  Widget _broadcastOverlay(bool glass) {
+  Widget _broadcastOverlay() {
     // Minimizing, restoring and cards coming or going expand and retract
     // from the top edge, with no fade.
     Widget cards(String channel, double room) {
@@ -769,7 +708,6 @@ class ChannelPanels {
         channel,
         room: room,
         onMinimizeChanged: broadcastWidgets.setMinimized,
-        glass: glass,
         unpin: unpinFor(channel),
       );
       return Padding(
@@ -822,7 +760,7 @@ class ChannelPanels {
     );
   }
 
-  Widget welcomeChatView(BuildContext context, {double topPadding = 0}) {
+  Widget welcomeChatView(BuildContext context) {
     final configured = twitchAuth.isConfigured;
     final login = twitchAuth.login;
     final l10n = context.l10n;
@@ -874,7 +812,6 @@ class ChannelPanels {
       lineSeparator: lineSeparator(),
       sharedChatMode: sharedChatMode(),
       paintService: showNamePaints() ? paintService : null,
-      topOverlayPadding: topPadding,
       onShowUserProfile: (login, userId, {displayName}) => userSheets
           .showUserProfile(context, login, userId, displayName: displayName),
       keyboardDismissBehavior: (!kIsWeb && Platform.isIOS)

@@ -2,17 +2,9 @@ import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/scheduler.dart';
-import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 
-import '../util/insets.dart';
 import 'design_tokens.dart';
 import 'eased_progress.dart';
-
-// Shared metrics and builders for the liquid glass chrome. The header block
-// fuses the app bar and the channel tab strip, so both layers derive its
-// height from the same formula and the chat list pads by the same amount.
-const double kGlassAppBarHeight = 48.0;
-const double kGlassTabStripHeight = 40.0;
 
 /// Floating composer island: the field and the bottom buttons in one shell,
 /// inset from the screen edges. The radius matches the opaque island's.
@@ -30,21 +22,6 @@ const double kOpaqueComposerGap = kComposerGap / 2;
 // The floating island's margin is already in the measured clearance, so the
 // list pays the whole gap.
 const double kFloatingComposerGap = kComposerGap;
-
-// Welcome overlay header height: status bar plus app bar row only. With no
-// channels there is no tab strip, so the glass card holds the app bar alone
-// and the welcome list pads by this shorter amount.
-double glassWelcomeHeaderHeight(BuildContext context) =>
-    statusBarHeight(context) + kGlassAppBarHeight;
-
-// How far the header glass bleeds past the screen on the top and sides.
-// The rim follows the shape boundary, so pushing three boundaries
-// off-screen leaves only the bottom rim visible across the chat.
-const double kGlassEdgeBleed = 32.0;
-
-// Glass stays off under high contrast; callers fall back to opaque chrome.
-bool glassEnabled(BuildContext context, bool flag) =>
-    flag && !MediaQuery.highContrastOf(context);
 
 /// The floating island's footprint over the chat body, in every composer
 /// style. ChatBody's layout publishes it after laying out the island and
@@ -133,26 +110,19 @@ class IslandMetrics {
   }
 }
 
-/// Provides ChatBody's [IslandMetrics] and whether its chrome is glass. A
-/// floating island without glass still has a clearance, so styling reads
-/// [glass], not the metrics.
+/// Provides ChatBody's [IslandMetrics] to the lists and overlays that clear
+/// the floating island.
 class IslandScope extends InheritedWidget {
-  const IslandScope({
-    super.key,
-    required this.metrics,
-    this.glass = false,
-    required super.child,
-  });
+  const IslandScope({super.key, required this.metrics, required super.child});
 
   final IslandMetrics metrics;
-  final bool glass;
 
   static IslandScope? maybeOf(BuildContext context) =>
       context.dependOnInheritedWidgetOfExactType<IslandScope>();
 
   @override
   bool updateShouldNotify(IslandScope oldWidget) =>
-      metrics != oldWidget.metrics || glass != oldWidget.glass;
+      metrics != oldWidget.metrics;
 }
 
 /// A render object that reads [IslandMetrics] in layout and lays out again
@@ -289,152 +259,11 @@ class _RenderIslandInset extends RenderShiftedBox with _IslandReader {
   }
 }
 
-/// Glass drawn as a background layer behind [child].
-class GlassSurface extends StatelessWidget {
-  const GlassSurface({
-    super.key,
-    required this.shape,
-    this.settings,
-    this.quality = GlassQuality.premium,
-    required this.child,
-  });
-
-  final LiquidShape shape;
-  final LiquidGlassSettings? settings;
-
-  /// Minimal is a plain frosted blur; it needs no own layer.
-  final GlassQuality quality;
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) => Stack(
-    children: [
-      Positioned.fill(
-        child: GlassContainer(
-          quality: quality,
-          settings: settings,
-          useOwnLayer: quality != GlassQuality.minimal,
-          shape: shape,
-          child: const SizedBox.expand(),
-        ),
-      ),
-      child,
-    ],
-  );
-}
-
-// Shared glass tint alpha (0x38 is about 22%): dark enough to hold contrast
-// for light text, light enough to sit near the app's grey surfaces.
-const int _kGlassTintAlpha = 0x38;
-
-// Shared backdrop blur under the frost.
-const double _kGlassBlur = 1.5;
-
-// Styled glass: thickness refracts rows scrolling underneath so light
-// warps at the edges, fresnel plus specular draws the bright rim.
-// Premium is the fidelity tier; both surfaces are fixed overlays (never
-// list children), which is its sanctioned use.
-/// Header glass, brightness-aware: a neutral tint whose alpha is the
-/// opacity lever on the premium path. (standardOpacityMultiplier is
-/// standard-path only and does nothing here, so it stays unset.)
-LiquidGlassSettings _barSettings(bool dark, double visibility) =>
-    LiquidGlassSettings(
-      thickness: 34,
-      // A frost cloud with a faint copy of the rows showing through keeps
-      // the tabs readable over busy chat, while the rim still bends the
-      // rows; the tint darkens what the frost lets through.
-      blur: _kGlassBlur,
-      frost: 7,
-      frostOpacity: 0.65,
-      refractiveIndex: 1.5,
-      chromaticAberration: 0.02,
-      lightIntensity: 0.6,
-      fresnelStrength: 1.5,
-      glassColor: dark
-          ? const Color(_kGlassTintAlpha << 24)
-          : const Color((_kGlassTintAlpha << 24) | 0xFFFFFF),
-      visibility: visibility,
-    );
-
-/// The pill's material, shared by the small chrome tiles.
-const kGlassPillSettings = LiquidGlassSettings(
-  thickness: 26,
-  // Frosted like the header so card and menu text reads over chat; the
-  // dark tint holds contrast for light text in both themes' chat.
-  blur: _kGlassBlur,
-  frost: 7,
-  frostOpacity: 0.65,
-  glassColor: Color(_kGlassTintAlpha << 24),
-  refractiveIndex: 1.5,
-  chromaticAberration: 0.02,
-  lightIntensity: 0.6,
-  fresnelStrength: 1.5,
-  // Neutral background passthrough: the 1.5 default boosts whatever shines
-  // through the middle. The rim stays untouched (fresnel + specular as is).
-  saturation: 1.0,
-);
-
-/// Full-bleed header fusing the app bar and the tab strip. The glass
-/// extends past the screen on the top and sides (content is counter-padded
-/// by the same amount) so only the bottom rim draws across the chat.
-///
-/// While [hidden] (fullscreen) it slides up and fades out, then goes
-/// offstage so it captures no backdrop. The fade runs through the glass's
-/// visibility and the content's own opacity, never an opacity above the
-/// glass, which would keep it out of a [GlassBackdropGroup].
-Widget glassHeaderBar({
-  required bool hidden,
-  required bool dark,
-  required Widget child,
-}) => IgnorePointer(
-  ignoring: hidden,
-  child: TweenAnimationBuilder<double>(
-    tween: Tween(end: hidden ? 0 : 1),
-    duration: Motion.normal,
-    curve: Motion.move,
-    child: Padding(
-      padding: const EdgeInsets.fromLTRB(
-        kGlassEdgeBleed,
-        kGlassEdgeBleed,
-        kGlassEdgeBleed,
-        0,
-      ),
-      child: child,
-    ),
-    builder: (context, shown, child) => Offstage(
-      offstage: shown == 0,
-      child: FractionalTranslation(
-        translation: Offset(0, shown - 1),
-        child: GlassSurface(
-          settings: _barSettings(dark, shown),
-          shape: const LiquidRoundedSuperellipse(borderRadius: 0),
-          child: Opacity(opacity: shown, child: child),
-        ),
-      ),
-    ),
-  ),
-);
-
-// Floating composer island: field and buttons in one frosted rounded shell
-// matching the opaque island's radius.
-Widget glassIsland({required Widget child}) => GlassSurface(
-  settings: kGlassPillSettings,
-  shape: const LiquidRoundedSuperellipse(borderRadius: kComposerIslandRadius),
-  child: child,
-);
-
-// Floating broadcast cards (pins, polls, predictions) over the chat.
-Widget glassCard({required Widget child}) => GlassSurface(
-  settings: kGlassPillSettings,
-  shape: const LiquidRoundedSuperellipse(borderRadius: 12),
-  child: child,
-);
-
 // Focus state for the composer island while any inner field holds focus.
 // With a [surface], it paints the island's fill: a hair see-through at rest,
 // opaque and faintly tinted toward primary when focused, so the state shows
-// without a line. Without one (glass), it tints the whole glass toward
-// primary, in the shell's own [shape]. Neither shifts layout.
+// without a line. Without one, it tints the shell toward primary in its own
+// [shape]. Neither shifts layout.
 class ComposerFocusGlow extends StatelessWidget {
   const ComposerFocusGlow({
     super.key,

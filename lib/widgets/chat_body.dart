@@ -8,7 +8,7 @@ import 'package:flutter/rendering.dart';
 import '../composer/composer_bar.dart';
 import '../util/insets.dart';
 import '../util/prefs.dart';
-import 'glass_chrome.dart';
+import 'island_chrome.dart';
 import 'design_tokens.dart';
 import 'eased_progress.dart';
 import 'message_input.dart' show MessageInput;
@@ -73,7 +73,6 @@ class ChatBody extends StatefulWidget {
     required this.emotePickerBuilder,
     required this.autocomplete,
     required this.emoteMaxFraction,
-    this.liquidGlass = false,
     this.keyboardHidesButtons = false,
     this.islandFlush = false,
     this.classic = false,
@@ -128,10 +127,6 @@ class ChatBody extends StatefulWidget {
   /// The [islandFooter] height a given channel shows, so each chat page is
   /// laid out for its own island before the switch lands.
   final double Function(String channel)? islandFooterHeightFor;
-
-  /// Floats the composer as an island over the chat instead of docking it
-  /// in flow. Rows slide underneath the frosted shell.
-  final bool liquidGlass;
 
   /// Hides the button row while the keyboard is up instead of pushing it,
   /// by clipping the island from below as the keyboard rises.
@@ -494,7 +489,6 @@ class _ChatBodyState extends State<ChatBody>
     // The bottom bar owns the safe area when present, and the island pays it
     // outside its shell, so the composer never pays it twice.
     final hasBar = widget.bottomBar != null && !widget.isInPip;
-    final glass = widget.liquidGlass && !MediaQuery.highContrastOf(context);
     // Hidden-by-keyboard applies to the full-width island and the edge to
     // edge bar.
     final classic = widget.classic && !pane && !widget.isInPip;
@@ -651,9 +645,8 @@ class _ChatBodyState extends State<ChatBody>
               ),
       ),
     );
-    // Round shell for the island: frosted in glass. Otherwise the focus glow
-    // paints the fill, one surface tone above the chat plane, and this clear
-    // Material only clips and carries the ink.
+    // The focus glow paints the fill, one surface tone above the chat plane,
+    // and this clear Material only clips and carries the ink.
     const corner = Radius.circular(kComposerIslandRadius);
     final radius = classic
         ? BorderRadius.zero
@@ -668,14 +661,12 @@ class _ChatBodyState extends State<ChatBody>
               child: child,
             )
           : child;
-      return glass
-          ? glassIsland(child: body)
-          : Material(
-              type: MaterialType.transparency,
-              borderRadius: radius,
-              clipBehavior: Clip.antiAlias,
-              child: body,
-            );
+      return Material(
+        type: MaterialType.transparency,
+        borderRadius: radius,
+        clipBehavior: Clip.antiAlias,
+        child: body,
+      );
     }
 
     // One island: field and button row in one shell. Hidden mode shortens
@@ -764,12 +755,8 @@ class _ChatBodyState extends State<ChatBody>
             child: child,
           )
         : ComposerFocusGlow(
-            shape: glass
-                ? RoundedSuperellipseBorder(borderRadius: radius)
-                : RoundedRectangleBorder(borderRadius: radius),
-            surface: glass
-                ? null
-                : Theme.of(context).colorScheme.surfaceContainer,
+            shape: RoundedRectangleBorder(borderRadius: radius),
+            surface: Theme.of(context).colorScheme.surfaceContainer,
             child: child,
           );
     final island = outer(
@@ -887,7 +874,6 @@ class _ChatBodyState extends State<ChatBody>
               ? body
               : IslandScope(
                   metrics: _metrics,
-                  glass: glass,
                   child: RepaintBoundary(
                     key: _chromeKey,
                     child: ColoredBox(

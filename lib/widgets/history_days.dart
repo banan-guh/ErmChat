@@ -5,11 +5,9 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 
 import '../l10n/l10n.dart';
 import '../util/history_timeline.dart';
-import 'glass_chrome.dart';
 import 'design_tokens.dart';
 import '../util/haptics.dart';
 
@@ -29,7 +27,6 @@ class HistoryDays extends StatefulWidget {
     required this.onLongPress,
     this.takeOpenTime,
     this.onStreams,
-    this.glass = false,
   });
 
   /// Read on open: a time whose day opens straight away with the time
@@ -56,9 +53,6 @@ class HistoryDays extends StatefulWidget {
 
   /// A long press on the row of a day number.
   final ValueChanged<int> onLongPress;
-
-  /// Liquid glass surface instead of an opaque one.
-  final bool glass;
 
   /// Whether [rail] has days to pick from.
   static bool hasDays(ActivityRail rail) => rail.days.isNotEmpty;
@@ -617,25 +611,6 @@ class _HistoryDaysState extends State<HistoryDays>
   );
 
   Widget _surface(ColorScheme scheme) {
-    if (widget.glass) {
-      // Glass rounds both corners of a side alike, so the surface runs past
-      // the screen edge by its radius and only the left corners show.
-      return OverflowBox(
-        alignment: Alignment.centerLeft,
-        minWidth: _drawerW + _radius,
-        maxWidth: _drawerW + _radius,
-        // Out of the header's backdrop group: mid-swipe the next page's rows
-        // paint after this panel, and a shared read would miss them.
-        child: GlassBackdropGroup(
-          enabled: false,
-          child: GlassSurface(
-            shape: const LiquidRoundedSuperellipse(borderRadius: _radius),
-            settings: kGlassPillSettings,
-            child: const SizedBox.expand(),
-          ),
-        ),
-      );
-    }
     return DecoratedBox(
       decoration: BoxDecoration(
         color: scheme.surfaceContainer,

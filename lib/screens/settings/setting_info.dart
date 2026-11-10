@@ -55,11 +55,6 @@ SettingHelp? settingHelp(Setting setting, AppLocalizations l) =>
         gain: l.helpTrueDarkGain,
         lose: l.helpTrueDarkLose,
       ),
-      'liquid_glass' => SettingHelp(
-        why: l.helpLiquidGlassWhy,
-        gain: l.helpLiquidGlassGain,
-        lose: l.helpLiquidGlassLose,
-      ),
       'keep_screen_on' => SettingHelp(
         why: l.helpKeepScreenOnWhy,
         gain: l.helpKeepScreenOnGain,

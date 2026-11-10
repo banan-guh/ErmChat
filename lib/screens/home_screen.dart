@@ -48,7 +48,6 @@ import '../screens/intro_screen.dart';
 import '../screens/whats_new_pages.dart';
 import '../screens/settings/settings_screen.dart';
 import '../widgets/panel_manager.dart';
-import '../widgets/glass_chrome.dart';
 import '../widgets/whats_new_sheet.dart';
 import '../services/user_store.dart';
 import '../chat/chat.dart';
@@ -244,7 +243,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   bool get _checkeredMessages => Settings.checkeredMessages.value;
   bool get _lineSeparator => Settings.lineSeparator.value;
   bool get _fastSnap => Settings.fastChannelSnap.value;
-  bool get _liquidGlass => Settings.liquidGlass.value;
   bool get _showNamePaints => Settings.sevenTvCosmetics.value;
 
   /// Whether the chat input box + status row is shown.
@@ -279,7 +277,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     Settings.spamIntervalMs,
     Settings.spamIntervalModMs,
     Settings.fastChannelSnap,
-    Settings.liquidGlass,
     Settings.showInput,
     Settings.chromeTheme,
     Settings.customChromeThemes,
@@ -1915,10 +1912,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     }
     // Reply card floats above the composer. Hidden while search or the terms
     // box borrows the input, and while the composer is disabled.
-    final glass = glassEnabled(
-      context,
-      _liquidGlass && (_layoutEdit?.draft ?? _chromeTheme).isIsland,
-    );
     // With channels the app bar folds away, so the bell, overflow and
     // settings live in the island's button row. The welcome view keeps them
     // in the app bar.
@@ -2058,7 +2051,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                     maxHeight: maxHeight,
                     keyboardH: keyboardH,
                     composerH: composerH,
-                    liquidGlass: glass,
                   );
                 },
             threadPanel: _threads.threadPanel(
@@ -2107,7 +2099,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                     actionBuilder: (a) => _chrome.action(
                       context,
                       a,
-                      glass: glass,
                       onCalendar: _channels.openCalendar,
                     ),
                     startSlot: edit == null
@@ -2131,7 +2122,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
             bottomBar: hasBottomBar && !rowless
                 ? _chrome.bottomBar(
                     context,
-                    glass: glass,
                     trailing: [
                       if (edit != null)
                         ?partSlot(ComposerPart.send, PartPlace.row)
@@ -2193,7 +2183,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                 ? _chrome.action(
                     context,
                     inputMenu,
-                    glass: glass,
                     onCalendar: _channels.openCalendar,
                   )
                 : null,
@@ -2204,7 +2193,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
             uploadProgress: _uploadController.progress,
             notice: ChatNoticeBar(controller: _chatNotice),
             replyHeader: replyHeader,
-            liquidGlass: glass,
             keyboardHidesButtons: spec.compact,
           ),
         ),

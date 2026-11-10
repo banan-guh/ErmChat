@@ -1,12 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/scheduler.dart';
-import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 
 import '../l10n/l10n.dart';
 import '../util/insets.dart';
 import 'chrome_menu_button.dart';
-import 'glass_chrome.dart';
 import 'design_tokens.dart';
 
 // M3 Expressive fastSpatial spring (stiffness 800), critically damped.
@@ -128,7 +126,6 @@ class TabbedLayout extends StatefulWidget {
   final bool showTabBar;
 
   /// Fullscreen: the system bars are hidden, so the cards take the top edge.
-  /// The floating glass header slides away with the tab strip.
   final bool fullscreen;
 
   /// Cards over the top of the pages (pin, poll, prediction, hype train).
@@ -170,15 +167,6 @@ class TabbedLayout extends StatefulWidget {
   /// Slot between the tab strip and the pages (stream player dock).
   final Widget? belowTabBar;
 
-  /// Transparent app bar content fused above the tab strip.
-  final Widget? headerOverlay;
-
-  /// Floats the header block above full-height pages.
-  final bool glassOverlay;
-
-  /// Full header height, offsets the chrome menu below it.
-  final double overlayHeaderHeight;
-
   static const double minEdgeExclusion = 20.0;
 
   const TabbedLayout({
@@ -206,9 +194,6 @@ class TabbedLayout extends StatefulWidget {
     this.stripBubbles = false,
     this.stripTopInset = 0,
     this.belowTabBar,
-    this.headerOverlay,
-    this.glassOverlay = false,
-    this.overlayHeaderHeight = 0,
   });
 
   @override
@@ -243,11 +228,7 @@ class TabbedLayoutState extends State<TabbedLayout>
   // True only inside the pre-jump of a long _goTo; swallows the transient
   // scroll-end so the landing still owns the commit.
   bool _preJumping = false;
-  // Branch last built with; null before the first build.
-  bool? _overlayBuilt;
-  // The overlay and docked branches return different roots. The key moves
-  // the pages between them, so a flip keeps the page and every chat's
-  // scroll position instead of remounting them.
+  // The pages stack's key, so floating chrome anchors to the pages.
   final _pagesKey = GlobalKey();
 
   // Width of the fade where tabs meet the pinned strip actions.
@@ -539,30 +520,6 @@ class TabbedLayoutState extends State<TabbedLayout>
     _goTo(pending);
   }
 
-  // Mirrors the branch choice in build.
-  bool _overlayBranch(BuildContext context) =>
-      widget.glassOverlay &&
-      widget.belowTabBar == null &&
-      !MediaQuery.highContrastOf(context);
-
-  // A branch flip remounts the tab strip, which comes back without
-  // revealing the selected tab.
-  void _syncBranchFlip() {
-    if (_overlayBuilt == null || _overlayBranch(context) == _overlayBuilt) {
-      return;
-    }
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted || _tabLength == 0) return;
-      final ctrl = _tabController;
-      if (ctrl != null && !ctrl.indexIsChanging && ctrl.offset == 0) {
-        // Same-index animateTo is a no-op; a null offset nudge fires
-        // TabBar's reveal tick so the remounted strip shows the tab.
-        ctrl.offset = 0.0001;
-        ctrl.offset = 0;
-      }
-    });
-  }
-
   @override
   void initState() {
     super.initState();
@@ -586,14 +543,6 @@ class TabbedLayoutState extends State<TabbedLayout>
         }
       }
     }
-    _syncBranchFlip();
-  }
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    // High contrast can flip the branch without touching any prop.
-    _syncBranchFlip();
   }
 
   @override
@@ -626,9 +575,8 @@ class TabbedLayoutState extends State<TabbedLayout>
         ? edgeInset.right
         : TabbedLayout.minEdgeExclusion;
 
-    // Tab strip content shared by the docked and glass branches. The Row
-    // stays put with or without trailing actions, so a layout flip never
-    // remounts the TabBar.
+    // The Row stays put with or without trailing actions, so a layout flip
+    // never remounts the TabBar.
     final bubbles = widget.stripBubbles;
     Widget pill(Widget child) => bubbles
         ? DecoratedBox(
@@ -792,15 +740,9 @@ class TabbedLayoutState extends State<TabbedLayout>
       ),
     );
 
-    // Pages stack shared by both branches. In glass mode it runs
-    // full-height behind the floating header block.
-    final overlay = _overlayBranch(context);
-    _overlayBuilt = overlay;
     final cardsTop =
         (widget.fullscreen
             ? 0.0
-            : overlay
-            ? widget.overlayHeaderHeight
             : widget.showTabBar
             ? 0.0
             : statusBarHeight(context)) +
@@ -875,36 +817,6 @@ class TabbedLayoutState extends State<TabbedLayout>
           ),
       ],
     );
-
-    // App bar plus tab strip fuse into one floating card
-    // above the full-height pages; rows slide underneath the blur.
-    // The header, the cards and the menu trigger read the backdrop once
-    // between them; each paints after every page, so all see the rows.
-    if (overlay) {
-      return GlassBackdropGroup(
-        child: Stack(
-          children: [
-            Positioned.fill(child: pages),
-            Positioned(
-              top: -kGlassEdgeBleed,
-              left: -kGlassEdgeBleed,
-              right: -kGlassEdgeBleed,
-              child: glassHeaderBar(
-                hidden: !widget.showTabBar,
-                dark: Theme.of(context).brightness == Brightness.dark,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    if (widget.headerOverlay != null) widget.headerOverlay!,
-                    tabStrip,
-                  ],
-                ),
-              ),
-            ),
-          ],
-        ),
-      );
-    }
 
     return Column(
       children: [

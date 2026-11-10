@@ -24,7 +24,7 @@ import '../util/settings.dart';
 import 'chat_message_tile.dart';
 import 'chat_rows.dart';
 import 'chrome_menu_button.dart';
-import 'glass_chrome.dart';
+import 'island_chrome.dart';
 import 'history_days.dart';
 import 'history_streams.dart';
 
@@ -2415,7 +2415,6 @@ class _HistoryViewState extends State<HistoryView> {
   @override
   Widget build(BuildContext context) {
     final scope = IslandScope.maybeOf(context);
-    final glass = scope?.glass ?? false;
     _island = scope?.metrics;
     final page = widget.channelPage ? widget.channel : null;
     _status =
@@ -2510,7 +2509,6 @@ class _HistoryViewState extends State<HistoryView> {
                     return time;
                   },
                   onStreams: _openStreams,
-                  glass: glass,
                 ),
         ),
         if (widget.atBottomNotifier case final atBottom?)
@@ -2525,7 +2523,6 @@ class _HistoryViewState extends State<HistoryView> {
                     padding: const EdgeInsets.only(right: 16, bottom: 16),
                     child: ScrollDownButton(
                       atBottom: value,
-                      glass: glass,
                       heroTag:
                           widget.scrollFabHeroTag ??
                           'scroll_down_${widget.channel}',
@@ -2542,20 +2539,16 @@ class _HistoryViewState extends State<HistoryView> {
             builder: (_, _) => actions.follow.value?.channel != widget.channel
                 ? const SizedBox.shrink()
                 : Positioned(
-                    // Centered under the menu pill: the 44dp glass button
-                    // sits 2dp in from the small FAB's 48dp tap target.
-                    right: widget.underCornerMenu && glass ? 18 : 16,
+                    // The small FAB's tap target pads 4dp above the menu pill.
+                    right: 16,
                     top:
                         widget.topPadding +
                         kChromeMenuMargin +
-                        // An 8dp gap under the menu pill; the small FAB's
-                        // tap target already pads 4dp above it.
                         (widget.underCornerMenu
-                            ? FloatingMenuShell.height + (glass ? 8 : 4)
+                            ? FloatingMenuShell.height + 4
                             : 0),
                     child: VodChatButton(
                       live: actions.vodLive.value,
-                      glass: glass,
                       heroTag: 'vod_chat_${widget.channel}',
                       onPressed: _toggleVodChat,
                     ),

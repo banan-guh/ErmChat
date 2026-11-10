@@ -8,7 +8,7 @@ import 'package:ermchat/util/fake_history.dart';
 import 'package:ermchat/util/history_timeline.dart';
 import 'package:ermchat/widgets/chat_message_tile.dart';
 import 'package:ermchat/widgets/chat_rows.dart';
-import 'package:ermchat/widgets/glass_chrome.dart';
+import 'package:ermchat/widgets/island_chrome.dart';
 import 'package:ermchat/widgets/history_days.dart';
 import 'package:ermchat/widgets/history_view.dart';
 import 'package:ermchat/widgets/message_builder.dart';
@@ -257,7 +257,7 @@ Future<void> _pumpView(
       home: Scaffold(
         body: metrics == null
             ? view
-            : IslandScope(metrics: metrics, glass: false, child: view),
+            : IslandScope(metrics: metrics, child: view),
       ),
     ),
   );

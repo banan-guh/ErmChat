@@ -207,7 +207,6 @@ void main() {
           home: Scaffold(
             resizeToAvoidBottomInset: true,
             body: ChatBody(
-              liquidGlass: true,
               bodyBuilder:
                   (
                     context, {
@@ -274,7 +273,6 @@ void main() {
         MaterialApp(
           home: Scaffold(
             body: ChatBody(
-              liquidGlass: true,
               onKeyboardDismissed: () {
                 dismissed++;
                 field.unfocus();
@@ -632,100 +630,6 @@ void main() {
       expect(dismissed, 0);
       await tester.pump(const Duration(milliseconds: 300));
       expect(dismissed, 1);
-    });
-
-    // Glass mode pads the list by the measured pill footprint. That footprint
-    // must be composed from live insets, not a cached measurement, or the
-    // newest row dips under the pill for a frame as the keyboard retracts.
-    testWidgets('glass clearance tracks the keyboard on retract', (
-      WidgetTester tester,
-    ) async {
-      const dpr = 3.0;
-      const navH = 45.0;
-      tester.view.physicalSize = const Size(1080, 2340);
-      tester.view.devicePixelRatio = dpr;
-      tester.view.viewInsets = FakeViewPadding(bottom: 0);
-      tester.view.padding = FakeViewPadding(bottom: navH * dpr);
-      addTearDown(tester.view.reset);
-
-      await tester.pumpWidget(
-        MaterialApp(
-          home: Builder(
-            builder: (_) {
-              return Scaffold(
-                resizeToAvoidBottomInset: true,
-                body: ChatBody(
-                  liquidGlass: true,
-                  emoteMaxFraction: 0.5,
-                  composer: const SizedBox(
-                    key: Key('glass_composer'),
-                    height: 56,
-                  ),
-                  bodyBuilder:
-                      (
-                        context, {
-                        required hideChromeForKeyboard,
-                        required maxWidth,
-                        required maxHeight,
-                        required keyboardH,
-                        required composerH,
-                      }) => Builder(
-                        // bodyBuilder gets ChatBody's own context, above the
-                        // scope, so the inset reads it from a nested builder.
-                        builder: (inner) => const IslandInset(
-                          child: Align(
-                            alignment: Alignment.bottomCenter,
-                            child: SizedBox(
-                              key: Key('glass_newest_row'),
-                              height: 20,
-                            ),
-                          ),
-                        ),
-                      ),
-                  threadPanel: const SizedBox.shrink(),
-                  mentionsPanel: const SizedBox.shrink(),
-                  modViewPanel: const SizedBox.shrink(),
-                  emotePickerBuilder:
-                      (_, {required sheetBoxHeight, required inset}) =>
-                          const SizedBox.shrink(),
-                  autocomplete: const SizedBox.shrink(),
-                ),
-              );
-            },
-          ),
-        ),
-      );
-      await tester.pumpAndSettle();
-
-      // Open and settle so the pill learns its height.
-      for (final h in [100.0, 200.0, 300.0]) {
-        tester.view.viewInsets = FakeViewPadding(bottom: h * dpr);
-        tester.view.padding = FakeViewPadding(bottom: 0);
-        await tester.pump(const Duration(milliseconds: 16));
-      }
-      await tester.pump(const Duration(milliseconds: 300));
-
-      // Retract with the gesture bar revealing as the inset clears it. The
-      // newest row must stay clear of the pill on every frame.
-      for (final h in [200.0, 100.0, 40.0, 10.0, 2.0, 0.0]) {
-        tester.view.viewInsets = FakeViewPadding(bottom: h * dpr);
-        tester.view.padding = FakeViewPadding(
-          bottom: (navH - h).clamp(0.0, navH) * dpr,
-        );
-        await tester.pump(const Duration(milliseconds: 16));
-        final rowBottom = tester
-            .getRect(find.byKey(const Key('glass_newest_row')))
-            .bottom;
-        final pillTop = tester
-            .getRect(find.byKey(const Key('glass_composer')))
-            .top;
-        expect(
-          rowBottom,
-          lessThanOrEqualTo(pillTop + 0.5),
-          reason: 'newest row rode over the pill at inset $h',
-        );
-      }
-      expect(tester.takeException(), isNull);
     });
   });
 
@@ -2782,61 +2686,6 @@ void main() {
     await tester.pump();
   }
 
-  // Glass swaps the floating header for the docked layout when the keyboard
-  // leaves too little room. The swap remounted the pages: one frame of the
-  // first channel, and the chat lost its scroll position (iOS, 0.9.5).
-  testWidgets('glass keyboard collapse keeps the page and chat position', (
-    tester,
-  ) async {
-    SharedPreferences.setMockInitialValues({'liquid_glass': true});
-    final msgs = List.generate(
-      50,
-      (i) => TwitchMessage(
-        login: 'user$i',
-        text: 'message number $i',
-        channel: 'b',
-        messageId: 'msg-$i',
-        timestamp: DateTime.now().subtract(Duration(minutes: 50 - i)),
-      ),
-    );
-    await tester.pumpWidget(
-      TwitchChatApp(
-        key: UniqueKey(),
-        eventSubService: FakeEventSubService(),
-        ircService: FakeIrcService(),
-        ircReadService: FakeIrcReadService(),
-        recentMessagesService: ConfigurableRecentMessagesService(msgs),
-      ),
-    );
-    await tester.pump();
-    await joinChannel(tester, 'a');
-    await joinChannel(tester, 'b');
-    await tester.drag(_chatList().first, const Offset(0, 300));
-    await tester.pumpAndSettle();
-
-    ScrollableState chat() => tester.state<ScrollableState>(
-      find
-          .descendant(of: _chatList().first, matching: find.byType(Scrollable))
-          .first,
-    );
-    double? page() =>
-        tester.widget<PageView>(find.byType(PageView).first).controller!.page;
-    final list = chat();
-    final pixels = list.position.pixels;
-    final selected = page();
-    expect(pixels, greaterThan(0));
-
-    for (final kb in [1200.0, 0.0]) {
-      tester.view.viewInsets = FakeViewPadding(bottom: kb);
-      await tester.pump(const Duration(milliseconds: 16));
-      expect(page(), selected, reason: 'flip frame, kb=$kb');
-      await tester.pumpAndSettle();
-      expect(identical(chat(), list), isTrue, reason: 'remounted, kb=$kb');
-      expect(chat().position.pixels, pixels, reason: 'kb=$kb');
-    }
-    tester.view.reset();
-  });
-
   group('Channel bar', () {
     testWidgets('Removing the last channel hides the channel bar', (
       WidgetTester tester,
@@ -3198,7 +3047,7 @@ void main() {
       expect(toggled, isTrue);
     });
 
-    testWidgets('glass menu closes the keyboard so it never opens under it', (
+    testWidgets('menu closes the keyboard so it never opens under it', (
       tester,
     ) async {
       final focus = FocusNode();
@@ -3211,7 +3060,6 @@ void main() {
               children: [
                 TextField(focusNode: focus),
                 ChromeMenuButton(
-                  glass: true,
                   onToggleFullscreen: () {},
                   onToggleInput: () {},
                   onToggleSearch: () => searched = true,

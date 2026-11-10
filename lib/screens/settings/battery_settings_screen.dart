@@ -28,7 +28,6 @@ class BatterySettingsScreen extends StatelessWidget {
             SettingsSectionHeader(l.sectionDisplay),
             const KeepScreenOnTile(),
             const TrueDarkTile(),
-            const LiquidGlassTile(),
             const EmoteAnimationSection(),
             if (!kIsWeb && Platform.isAndroid) ...[
               SettingsSectionHeader(l.sectionConnection),

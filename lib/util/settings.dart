@@ -307,7 +307,6 @@ abstract final class Settings {
     'chrome_themes_custom',
     const [],
   );
-  static final liquidGlass = Pref('liquid_glass', false);
 
   // ── Inline embeds ───────────────────────────────────────────────────
   static final giphyInlineEnabled = Pref(
@@ -488,7 +487,6 @@ abstract final class Settings {
     overrideCompactDensity,
     chromeTheme,
     customChromeThemes,
-    liquidGlass,
     giphyInlineEnabled,
     giphyInlineHeight,
     imageEmbedEnabled,

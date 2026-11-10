@@ -215,7 +215,7 @@ class ChromeThemeSpec {
 
   final ComposerStyle composer;
 
-  /// A floating island: the style that takes glass.
+  /// A floating island composer.
   bool get isIsland => composer == ComposerStyle.island;
 
   /// The island runs edge to edge under the nav bar, rounded only on top.

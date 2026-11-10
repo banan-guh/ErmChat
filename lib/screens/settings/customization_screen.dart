@@ -1,12 +1,9 @@
 import 'package:flutter/material.dart';
 import '../../l10n/l10n.dart';
 import '../../theme_colors.dart';
-import '../../util/chrome_theme.dart';
 import '../../util/layout_density.dart';
-import '../../util/prefs.dart';
 import '../../util/timestamp_formatter.dart';
 import '../../widgets/dialogs.dart';
-import '../../widgets/glass_chrome.dart';
 import 'custom_layout_screen.dart';
 import 'prefs_tiles.dart';
 import 'settings_page.dart';
@@ -207,7 +204,6 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
                 },
               ),
             ),
-            const LiquidGlassTile(),
             SettingAnchor(
               Setting.haptics,
               child: PrefsSwitchTile(
@@ -466,7 +462,6 @@ class _LayoutPickerSheet extends StatelessWidget {
   }
 }
 
-/// A small island swatch: glass when [on], else a plain outline.
 /// Pure black dark mode. Shown on Appearance and mirrored on Battery.
 class TrueDarkTile extends StatelessWidget {
   const TrueDarkTile({super.key});
@@ -495,66 +490,5 @@ class KeepScreenOnTile extends StatelessWidget {
       info: const SettingInfoButton(Setting.keepScreenOn),
       pref: Settings.keepScreenOn,
     ),
-  );
-}
-
-/// Liquid glass with its live swatch. Island chrome only, so it follows
-/// the selected chrome theme. Shown on Appearance and mirrored on Battery.
-class LiquidGlassTile extends StatelessWidget {
-  const LiquidGlassTile({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return ListenableBuilder(
-      listenable: Listenable.merge([
-        Settings.chromeTheme,
-        Settings.customChromeThemes,
-        Settings.liquidGlass,
-      ]),
-      builder: (context, _) {
-        final island =
-            (Prefs.loaded?.chromeTheme ?? ChromeTheme.ermchat.spec).isIsland;
-        return SettingAnchor(
-          Setting.liquidGlass,
-          child: PrefsSwitchTile(
-            title: Setting.liquidGlass.titleOf(context.l10n),
-            subtitle: island
-                ? context.l10n.experimental
-                : context.l10n.liquidGlassIslandOnly,
-            enabled: island,
-            // Draws real glass once it is on, so the GPU builds the glass
-            // shaders here on the tap rather than while this page animates
-            // away, which would crawl.
-            info: const SettingInfoButton(Setting.liquidGlass),
-            titleTrailing: _GlassSwatch(
-              on: island && Settings.liquidGlass.value,
-            ),
-            pref: Settings.liquidGlass,
-          ),
-        );
-      },
-    );
-  }
-}
-
-class _GlassSwatch extends StatelessWidget {
-  const _GlassSwatch({required this.on});
-
-  final bool on;
-
-  @override
-  Widget build(BuildContext context) => SizedBox(
-    width: 40,
-    height: 28,
-    child: on
-        ? glassIsland(child: const SizedBox.expand())
-        : DecoratedBox(
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(Radii.medium),
-              border: Border.all(
-                color: Theme.of(context).colorScheme.outlineVariant,
-              ),
-            ),
-          ),
   );
 }

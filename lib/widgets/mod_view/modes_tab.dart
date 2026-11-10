@@ -5,7 +5,7 @@ import 'package:flutter/material.dart';
 import '../../services/mod_actions.dart';
 import 'scope.dart';
 import 'widgets.dart';
-import '../glass_chrome.dart';
+import '../island_chrome.dart';
 import '../dialogs.dart';
 
 /// Chat mode toggles from ROOMSTATE, plus Shield mode from Helix.

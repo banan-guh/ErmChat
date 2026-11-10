@@ -7,11 +7,8 @@ import '../l10n/l10n.dart';
 import '../services/pip_service.dart';
 import '../services/stream_player_controller.dart';
 import '../util/chrome_theme.dart';
-import '../util/insets.dart';
 import '../widgets/chat_body.dart' show ComposerPaneSlot;
-import '../widgets/glass_chrome.dart';
 import '../widgets/stream_player_view.dart';
-import '../widgets/tabbed_layout.dart';
 import 'channel_stack.dart';
 import 'home_app_bar.dart';
 import '../widgets/design_tokens.dart';
@@ -407,7 +404,6 @@ class StreamPanels {
     required double maxHeight,
     required double keyboardH,
     required double composerH,
-    bool liquidGlass = false,
   }) {
     final channel = streamPlayer.currentChannel;
     final landscape =
@@ -454,21 +450,6 @@ class StreamPanels {
           keyboardH: keyboardH,
           inputH: composerH,
         );
-    // Portrait floats one glass block above full-height pages. Under a
-    // stream that block is the strip alone, so it needs the strip to hold
-    // the app bar's actions. Both layouts share this Column shape so the
-    // strip and player slot survive the flip and opening a stream slides
-    // the tabs down.
-    final glass = liquidGlass && !MediaQuery.highContrastOf(context);
-    final glassChatOnly = glass && !hideChrome && (channel == null || merged);
-    final stripH = header == HeaderStyle.bubbles
-        ? TabbedLayout.bubbleStripHeight
-        : kGlassTabStripHeight;
-    final headerH = !hasChannels
-        ? glassWelcomeHeaderHeight(context)
-        : channel != null
-        ? stripH
-        : statusBarHeight(context) + (merged ? 0 : kGlassAppBarHeight) + stripH;
     // The welcome view keeps the top app bar; with channels the strip owns
     // the row and the player rides above it, attached to the chat's top edge.
     return Column(
@@ -476,7 +457,7 @@ class StreamPanels {
         AnimatedSize(
           duration: Motion.normal,
           curve: Motion.move,
-          child: !isFullscreen() && !hideChrome && !merged && !glassChatOnly
+          child: !isFullscreen() && !hideChrome && !merged
               ? homeAppBar.appBar(context)
               : const SizedBox.shrink(),
         ),
@@ -490,16 +471,8 @@ class StreamPanels {
         ),
         channels.channelTabs(
           context,
-          hideChrome: glassChatOnly ? false : hideChrome,
+          hideChrome: hideChrome,
           merged: merged,
-          glassOverlay: glassChatOnly,
-          glassChrome: glassChatOnly ? false : glass,
-          glassHeader: glassChatOnly && !merged
-              ? homeAppBar.appBar(context, transparent: true)
-              : null,
-          glassHeaderHeight: glassChatOnly ? headerH : 0,
-          // Fullscreen slides the header away, so the pages start at the top.
-          glassTopPadding: glassChatOnly && !isFullscreen() ? headerH : 0,
           underStream: channel != null,
         ),
       ],

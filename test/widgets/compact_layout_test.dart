@@ -14,7 +14,6 @@ void main() {
 
   Future<void> pumpJoined(
     WidgetTester tester, {
-    required bool glass,
     required LayoutDensity density,
   }) async {
     tester.view.physicalSize = const Size(1080, 2340);
@@ -25,7 +24,6 @@ void main() {
 
     SharedPreferences.setMockInitialValues({
       'access_token': 'test_token',
-      'liquid_glass': glass,
       'layout_density': density.name,
     });
     FlutterSecureStorage.setMockInitialValues({
@@ -89,7 +87,7 @@ void main() {
   testWidgets('a compact layout keeps emote in the field, not the row', (
     tester,
   ) async {
-    await pumpJoined(tester, glass: false, density: LayoutDensity.compact);
+    await pumpJoined(tester, density: LayoutDensity.compact);
 
     final rowEmote = inBottomBar(find.byIcon(Icons.emoji_emotions_outlined));
     expect(rowEmote, findsNothing);
@@ -108,88 +106,83 @@ void main() {
     expect(rowEmote, findsOneWidget);
   });
 
-  for (final glass in [false, true]) {
-    testWidgets('the bottom row holds the actions and panel titles fold '
-        '(glass=$glass)', (tester) async {
-      await pumpJoined(tester, glass: glass, density: LayoutDensity.compact);
+  testWidgets('the bottom row holds the actions and panel titles fold', (
+    tester,
+  ) async {
+    await pumpJoined(tester, density: LayoutDensity.compact);
 
-      expect(inStrip(find.byIcon(Icons.add)), findsOneWidget);
+    expect(inStrip(find.byIcon(Icons.add)), findsOneWidget);
+    expect(
+      inBottomBar(find.byIcon(Icons.notifications_active)),
+      findsOneWidget,
+    );
+    expect(inBottomBar(find.byIcon(Icons.more_vert)), findsOneWidget);
+
+    // The strip clears the status bar now that nothing sits above it.
+    expect(tester.getRect(find.byType(TabBar)).top, greaterThanOrEqualTo(24));
+
+    // The join tab opens the join dialog without leaving the channel.
+    await tester.tap(inStrip(find.byIcon(Icons.add)));
+    await tester.pumpAndSettle();
+    expect(find.text('Join', skipOffstage: false), findsWidgets);
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+
+    // The panel title folds into its tabs, one row with the back button.
+    await tester.tap(inBottomBar(find.byIcon(Icons.notifications_active)));
+    await tester.pumpAndSettle();
+    expect(find.text('Mentions / Whispers'), findsNothing);
+    final whispers = find.widgetWithText(Tab, 'Whispers');
+    final back = find.byTooltip('Back');
+    expect(whispers, findsOneWidget);
+    expect(back, findsOneWidget);
+    expect(
+      tester.getCenter(back).dy,
+      closeTo(tester.getCenter(whispers).dy, 4),
+    );
+  });
+
+  testWidgets('full keeps the join tab in the strip', (tester) async {
+    await pumpJoined(tester, density: LayoutDensity.full);
+
+    expect(inStrip(find.byIcon(Icons.add)), findsOneWidget);
+    expect(
+      inBottomBar(find.byIcon(Icons.notifications_active)),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('flipping density keeps the channel and focus', (tester) async {
+    await pumpJoined(tester, density: LayoutDensity.full);
+
+    final input = find.byKey(const Key('message_input'));
+    await tester.tap(input);
+    await tester.pump();
+    final node = tester.widget<TextField>(input).focusNode!;
+    expect(node.hasFocus, isTrue);
+
+    for (final density in [
+      LayoutDensity.compact,
+      LayoutDensity.full,
+      LayoutDensity.compact,
+    ]) {
+      await setDensity(tester, density);
       expect(
-        inBottomBar(find.byIcon(Icons.notifications_active)),
+        find.descendant(
+          of: find.byType(TabBar),
+          matching: find.text('testchannel'),
+        ),
         findsOneWidget,
       );
-      expect(inBottomBar(find.byIcon(Icons.more_vert)), findsOneWidget);
-
-      // The strip clears the status bar now that nothing sits above it.
-      expect(tester.getRect(find.byType(TabBar)).top, greaterThanOrEqualTo(24));
-
-      // The join tab opens the join dialog without leaving the channel.
-      await tester.tap(inStrip(find.byIcon(Icons.add)));
-      await tester.pumpAndSettle();
-      expect(find.text('Join', skipOffstage: false), findsWidgets);
-      await tester.tap(find.text('Cancel'));
-      await tester.pumpAndSettle();
-
-      // The panel title folds into its tabs, one row with the back button.
-      await tester.tap(inBottomBar(find.byIcon(Icons.notifications_active)));
-      await tester.pumpAndSettle();
-      expect(find.text('Mentions / Whispers'), findsNothing);
-      final whispers = find.widgetWithText(Tab, 'Whispers');
-      final back = find.byTooltip('Back');
-      expect(whispers, findsOneWidget);
-      expect(back, findsOneWidget);
-      expect(
-        tester.getCenter(back).dy,
-        closeTo(tester.getCenter(whispers).dy, 4),
-      );
-    });
-
-    testWidgets('full keeps the join tab in the strip (glass=$glass)', (
-      tester,
-    ) async {
-      await pumpJoined(tester, glass: glass, density: LayoutDensity.full);
-
-      expect(inStrip(find.byIcon(Icons.add)), findsOneWidget);
-      expect(
-        inBottomBar(find.byIcon(Icons.notifications_active)),
-        findsOneWidget,
-      );
-    });
-
-    testWidgets('flipping density keeps the channel and focus (glass=$glass)', (
-      tester,
-    ) async {
-      await pumpJoined(tester, glass: glass, density: LayoutDensity.full);
-
-      final input = find.byKey(const Key('message_input'));
-      await tester.tap(input);
-      await tester.pump();
-      final node = tester.widget<TextField>(input).focusNode!;
-      expect(node.hasFocus, isTrue);
-
-      for (final density in [
-        LayoutDensity.compact,
-        LayoutDensity.full,
-        LayoutDensity.compact,
-      ]) {
-        await setDensity(tester, density);
-        expect(
-          find.descendant(
-            of: find.byType(TabBar),
-            matching: find.text('testchannel'),
-          ),
-          findsOneWidget,
-        );
-        expect(node.hasFocus, isTrue, reason: 'flip to $density');
-        expect(tester.testTextInput.isVisible, isTrue);
-      }
-    });
-  }
+      expect(node.hasFocus, isTrue, reason: 'flip to $density');
+      expect(tester.testTextInput.isVisible, isTrue);
+    }
+  });
 
   // A softlock: with the view menu in the row or the field, hiding the input
   // took the menu with it, and the menu is the only way back.
   testWidgets('hiding the input never hides the view menu', (tester) async {
-    await pumpJoined(tester, glass: false, density: LayoutDensity.compact);
+    await pumpJoined(tester, density: LayoutDensity.compact);
     final prefs = await Prefs.load();
     final dankchat4 = ChromeTheme.dankchat4.spec;
     final placements = {

@@ -9,7 +9,7 @@ import '../l10n/l10n.dart';
 import 'package:flutter/rendering.dart';
 import '../models/twitch_message.dart';
 import 'chat_rows.dart';
-import 'glass_chrome.dart';
+import 'island_chrome.dart';
 import 'seven_tv_paint_service.dart';
 import '../util/timestamp_formatter.dart';
 import '../widgets/chat_message_tile.dart';
@@ -96,9 +96,6 @@ class ChatView extends StatefulWidget {
   /// Pulses the row at [FlashRequest.time] after a jump.
   final ValueListenable<FlashRequest?>? flashRequest;
 
-  /// Glass overlay clearance above the oldest row, below the floating header.
-  final double topOverlayPadding;
-
   const ChatView({
     super.key,
     required this.channel,
@@ -136,7 +133,6 @@ class ChatView extends StatefulWidget {
     this.isDimmed,
     this.hides,
     this.flashRequest,
-    this.topOverlayPadding = 0,
   });
 
   @override
@@ -314,7 +310,6 @@ class _ChatViewState extends State<ChatView>
     super.build(context);
     final surface = Theme.of(context).scaffoldBackgroundColor;
     final s = widget.chatFontScale * _cachedSystemScale;
-    final glass = IslandScope.maybeOf(context)?.glass ?? false;
     return Stack(
       clipBehavior: Clip.hardEdge,
       children: [
@@ -385,7 +380,6 @@ class _ChatViewState extends State<ChatView>
                     padding: const EdgeInsets.only(right: 16, bottom: 16),
                     child: ScrollDownButton(
                       atBottom: atBottom,
-                      glass: glass,
                       heroTag:
                           widget.scrollFabHeroTag ??
                           'scroll_down_${widget.channel}',
@@ -412,9 +406,6 @@ class _ChatViewState extends State<ChatView>
     // The newest rows rest above the island; the spacer sizes in layout.
     final bottom = SliverToBoxAdapter(
       child: IslandSpacer(page: _islandPage, chat: !empty),
-    );
-    final top = SliverToBoxAdapter(
-      child: SizedBox(height: widget.topOverlayPadding),
     );
     if (!empty) {
       final cache = widget.tileCache?.putIfAbsent(
@@ -462,7 +453,6 @@ class _ChatViewState extends State<ChatView>
               addRepaintBoundaries: false,
             ),
           ),
-          top,
         ],
       );
       return KeyedSubtree(key: ValueKey<int>(_listGen), child: list);
@@ -498,7 +488,6 @@ class _ChatViewState extends State<ChatView>
             ),
           ),
         ),
-        top,
       ],
     );
   }

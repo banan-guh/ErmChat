@@ -375,13 +375,6 @@ class Prefs {
   Future<void> setCustomChromeThemes(List<ChromeThemeSpec> themes) =>
       Settings.customChromeThemes.set([for (final t in themes) t.encode()]);
 
-  bool get liquidGlass => Settings.liquidGlass.value;
-
-  /// Glass only applies to floating-island chrome themes.
-  bool get islandGlass => liquidGlass && chromeTheme.isIsland;
-
-  Future<void> setLiquidGlass(bool value) => Settings.liquidGlass.set(value);
-
   // ── Inline embeds ───────────────────────────────────────────────────
   bool get giphyInlineEnabled => Settings.giphyInlineEnabled.value;
   Future<void> setGiphyInlineEnabled(bool value) =>

@@ -331,7 +331,6 @@ class BroadcastWidgets {
     String channel, {
     required double room,
     required void Function(String, bool) onMinimizeChanged,
-    bool glass = false,
     Future<ModResult> Function(PinnedMessageEvent pin)? unpin,
   }) {
     final pages = pagesFor(channel, unpin: unpin);
@@ -368,7 +367,6 @@ class BroadcastWidgets {
         pin: focus == _Card.pin ? pins[channel] : null,
         emotes: emotes,
         paints: paints,
-        glass: glass,
         carryInk: carryInk,
       );
     }
@@ -387,7 +385,6 @@ class BroadcastWidgets {
         _inkCarried.add(channel);
         onMinimizeChanged(channel, true);
       },
-      glass: glass,
       carryInk: carryInk,
     );
   }

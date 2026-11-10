@@ -474,7 +474,7 @@ Future<String> collectDiagnostics(BuildContext context) async {
     lines
       ..add('Channels: ${prefs.channels.length}')
       ..add(
-        'Settings: glass ${onOff(prefs.liquidGlass)}, '
+        'Settings: '
         'emote tier ${tier >= 0 && tier < tiers.length ? tiers[tier].label : '?'}, '
         'animate emotes ${onOff(prefs.animateGifs)}, '
         '7TV cosmetics ${onOff(prefs.sevenTvCosmetics)}, '

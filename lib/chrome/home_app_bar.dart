@@ -112,9 +112,8 @@ class HomeAppBar {
 
   /// The view menu in the button row. The row outlives fullscreen and a
   /// hidden input, so the menu can always bring them back.
-  Widget chromeMenu({bool glass = false, VoidCallback? onCalendar}) {
+  Widget chromeMenu({VoidCallback? onCalendar}) {
     return ChromeMenuButton(
-      glass: glass,
       onCalendar: onCalendar,
       onToggleFullscreen: toggleFullscreen,
       onToggleInput: toggleInput,
@@ -137,19 +136,18 @@ class HomeAppBar {
   Widget action(
     BuildContext context,
     ChromeAction action, {
-    bool glass = false,
     VoidCallback? onCalendar,
   }) => switch (action) {
     ChromeAction.join => _joinButton(),
     ChromeAction.mentions => mentionsButton(context),
     ChromeAction.threads => threadsButton(context),
     ChromeAction.settings => settingsButton(context),
-    ChromeAction.overflow => overflowMenu(context, glass: glass),
-    ChromeAction.viewMenu => chromeMenu(glass: glass, onCalendar: onCalendar),
+    ChromeAction.overflow => overflowMenu(context),
+    ChromeAction.viewMenu => chromeMenu(onCalendar: onCalendar),
   };
 
   /// The strip's end: the theme's strip actions.
-  Widget stripTrailing({bool glass = false, VoidCallback? onCalendar}) {
+  Widget stripTrailing({VoidCallback? onCalendar}) {
     if (layoutEdit() case final edit?) {
       // The end target needs room, or the screen edge clips it.
       return Padding(
@@ -162,8 +160,7 @@ class HomeAppBar {
       builder: (context) => Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          for (final a in actions)
-            action(context, a, glass: glass, onCalendar: onCalendar),
+          for (final a in actions) action(context, a, onCalendar: onCalendar),
         ],
       ),
     );
@@ -275,11 +272,10 @@ class HomeAppBar {
   /// The ⋮ menu. Settings heads it when the theme folds it in; threads,
   /// mentions and the view menu's entries join it when the theme places no
   /// button for them, so none of them can go missing.
-  Widget overflowMenu(BuildContext context, {bool glass = false}) {
+  Widget overflowMenu(BuildContext context) {
     final l10n = context.l10n;
     final spec = themeSpec();
     return ChromeMenu(
-      glass: glass,
       entries: () => [
         if (spec.settingsInMenu) ...[
           ChromeMenuEntry(
@@ -348,15 +344,13 @@ class HomeAppBar {
   /// between the buttons.
   Widget bottomBar(
     BuildContext context, {
-    bool glass = false,
     Widget? leading,
     Widget? middle,
     List<Widget> trailing = const [],
     VoidCallback? onCalendar,
   }) {
     final spec = themeSpec();
-    Widget build(ChromeAction a) =>
-        action(context, a, glass: glass, onCalendar: onCalendar);
+    Widget build(ChromeAction a) => action(context, a, onCalendar: onCalendar);
     if (layoutEdit() case final edit?) {
       return KeyedSubtree(
         key: const Key('bottom_chrome_bar'),

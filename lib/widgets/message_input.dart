@@ -36,7 +36,7 @@ class MessageInput extends StatelessWidget {
   // Search mode: single-line field; prefix/suffix slots take over.
   final bool searchMode;
 
-  // Inside a glass pill the container draws the rim, so the field drops
+  // Inside the island shell the container draws the rim, so the field drops
   // its own outline to avoid a double border.
   final bool borderless;
 
@@ -196,8 +196,8 @@ class MessageInput extends StatelessWidget {
         final end = [for (final item in endItems) ?button(item)];
         return Padding(
           // The outlined field leaves room above for its floated label, which
-          // the island would clip. In a glass pill it must breathe evenly or
-          // the text reads high in the pill.
+          // the island would clip. Borderless, it must breathe evenly or the
+          // text reads high in the shell.
           padding: borderless
               ? EdgeInsets.fromLTRB(8, gap, 8, gap)
               : EdgeInsets.fromLTRB(8, labelRoom, 8, gap * 2),
@@ -276,8 +276,8 @@ class MessageInput extends StatelessWidget {
                       ? InputBorder.none
                       : const OutlineInputBorder(),
                   // Null keeps the stock Material3 outline colors. An explicit
-                  // OutlineInputBorder here overrides them, so toggling glass
-                  // off would not restore the normal border.
+                  // OutlineInputBorder here overrides them, so the borderless
+                  // field would not restore the normal border.
                   enabledBorder: borderless ? InputBorder.none : null,
                   focusedBorder: borderless ? InputBorder.none : null,
                   // A floated label needs room above the text, so that field

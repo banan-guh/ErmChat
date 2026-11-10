@@ -8,7 +8,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/misc.dart';
-import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 import 'l10n/l10n.dart';
 import 'providers/app_providers.dart';
@@ -80,26 +79,13 @@ Future<void> _boot() async {
   // the emote cache filled (and permanently at cap 0). Emote images fetch via
   // EmoteCacheManager directly, so they are unaffected by this decoupling.
 
-  // Liquid glass shaders warm up with disk I/O only, so the first frame
-  // still presents immediately. Premium shaders preload for the bars.
-  await LiquidGlassWidgets.initialize();
   LicenseRegistry.addLicense(_thirdPartyLicenses);
   unawaited(_warmHistory());
   PerfProbe.start();
   PerfProbe.gauge('live', () => EmoteUrlProvider.liveCount);
   PerfProbe.gauge('stream', () => EmoteUrlProvider.streamingCount);
   PerfProbe.gauge('array', () => EmoteUrlProvider.arrayCount);
-  runApp(
-    LiquidGlassWidgets.wrap(
-      child: const TwitchChatApp(),
-      brightnessResolver: Theme.maybeBrightnessOf,
-      theme: GlassThemeData.simple(
-        blur: 10,
-        thickness: 30,
-        quality: GlassQuality.premium,
-      ),
-    ),
-  );
+  runApp(const TwitchChatApp());
 }
 
 /// Halves the decoded-image budgets on phones under 4GB of RAM, where 100MB
@@ -198,7 +184,7 @@ Widget _edgeExclusionWrapper(BuildContext context, Widget? child) {
       value: overlay,
       child: Stack(
         children: [
-          // Transparency ancestor so glass widgets render text correctly.
+          // Transparency ancestor for the overlay child.
           Material(type: MaterialType.transparency, child: child!),
           if (left > 0)
             Positioned(

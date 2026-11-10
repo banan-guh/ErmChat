@@ -20,7 +20,7 @@ import '../widgets/chat_view.dart';
 import '../widgets/message_builder.dart';
 import '../widgets/panel_manager.dart';
 import '../widgets/tab_drag_focus.dart';
-import '../widgets/glass_chrome.dart';
+import '../widgets/island_chrome.dart';
 
 // Thread view, dashboard, and saved threads: data, open/show verbs,
 // and the thread panel builders.

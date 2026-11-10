@@ -15,7 +15,7 @@ import '../widgets/design_tokens.dart';
 
 // Single key for measuring the composer (snackbar margin, video sizing).
 // Shared by the pill and the in-flow wrapper: keeping it on both lets the
-// composer subtree reparent (preserving its FocusNode) when the glass pill
+// composer subtree reparent (preserving its FocusNode) when the composer
 // hands off to the opaque in-flow path. The two are mutually exclusive in
 // ChatBody, so the key is never mounted twice.
 final inputBarKey = GlobalKey();
@@ -25,7 +25,7 @@ final _emptyVersion = ValueNotifier<int>(0);
 
 // Message input plus connection status row. Bottom padding comes from
 // ChatBody, which owns the layout's single inset subscription. The chrome
-// shell (island or glass pill) draws the surface, so the bar stays
+// shell draws the surface, so the bar stays
 // transparent and the field drops its own outline.
 class ComposerBar extends StatelessWidget {
   const ComposerBar({

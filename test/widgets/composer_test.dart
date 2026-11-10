@@ -1,7 +1,7 @@
 import 'package:ermchat/composer/composer_bar.dart' show inputBarKey;
 import 'widget_test_harness.dart';
 
-// Composer regressions, both chrome modes (glass island and opaque island):
+// Composer regressions:
 //  - the field must focus on a plain tap;
 //  - the shared inputBarKey must never mount twice and must keep the
 //    composer's FocusNode alive as the island moves between paths;
@@ -16,7 +16,6 @@ void main() {
   // Bare ChatBody harness: geometry and hit-testing without the whole app.
   Future<void> pumpBody(
     WidgetTester tester, {
-    required bool liquidGlass,
     required FocusNode focus,
     bool dismissUnfocuses = false,
     List<double>? keyboardHs,
@@ -34,7 +33,6 @@ void main() {
       MaterialApp(
         home: Scaffold(
           body: ChatBody(
-            liquidGlass: liquidGlass,
             keyboardHidesButtons: keyboardHidesButtons,
             islandFlush: islandFlush,
             emoteMaxFraction: 0.5,
@@ -91,27 +89,10 @@ void main() {
     return focus.hasFocus;
   }
 
-  for (final glass in [false, true]) {
-    testWidgets('composer is tappable (glass=$glass)', (tester) async {
-      final focus = FocusNode();
-      addTearDown(focus.dispose);
-      await pumpBody(tester, liquidGlass: glass, focus: focus);
-      await tester.pumpAndSettle();
-      expect(find.byKey(inputBarKey), findsOneWidget);
-      expect(await tapBodyComposer(tester, focus), isTrue);
-      expect(tester.takeException(), isNull);
-    });
-  }
-
-  testWidgets('toggling glass off keeps one composer mount and tappable', (
-    tester,
-  ) async {
+  testWidgets('composer is tappable', (tester) async {
     final focus = FocusNode();
     addTearDown(focus.dispose);
-    await pumpBody(tester, liquidGlass: true, focus: focus);
-    await tester.pumpAndSettle();
-    expect(find.byKey(inputBarKey), findsOneWidget);
-    await pumpBody(tester, liquidGlass: false, focus: focus);
+    await pumpBody(tester, focus: focus);
     await tester.pumpAndSettle();
     expect(find.byKey(inputBarKey), findsOneWidget);
     expect(await tapBodyComposer(tester, focus), isTrue);
@@ -137,7 +118,6 @@ void main() {
     addTearDown(status.dispose);
     await pumpBody(
       tester,
-      liquidGlass: false,
       focus: focus,
       keyboardHidesButtons: true,
       bottomBar: const SizedBox(key: Key('test_bar'), height: 48),
@@ -208,7 +188,6 @@ void main() {
     IslandScope? scope;
     await pumpBody(
       tester,
-      liquidGlass: false,
       focus: focus,
       bottomBar: const SizedBox(height: 48),
       islandFooter: ValueListenableBuilder<double>(
@@ -257,7 +236,6 @@ void main() {
     addTearDown(focus.dispose);
     await pumpBody(
       tester,
-      liquidGlass: false,
       focus: focus,
       keyboardHidesButtons: true,
       bottomBar: const SizedBox(height: 48),
@@ -297,7 +275,6 @@ void main() {
     double clearance() => metrics?.clearance() ?? 0;
     await pumpBody(
       tester,
-      liquidGlass: false,
       focus: focus,
       islandFlush: true,
       onBodyBuild: (body) => metrics = IslandScope.maybeOf(body)?.metrics,
@@ -341,7 +318,6 @@ void main() {
     addTearDown(focus.dispose);
     await pumpBody(
       tester,
-      liquidGlass: false,
       focus: focus,
       islandFlush: true,
       keyboardHidesButtons: true,
@@ -388,7 +364,7 @@ void main() {
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
 
-    await pumpBody(tester, liquidGlass: true, focus: focus);
+    await pumpBody(tester, focus: focus);
     await tester.pumpAndSettle();
     final island = find.byKey(const ValueKey('composer_island'));
     final width = tester.getSize(island).width;
@@ -405,82 +381,75 @@ void main() {
     expect(tester.getSize(island).width, width);
     expect(focus.hasFocus, isTrue);
     expect(tester.testTextInput.isVisible, isTrue);
-    final glow = tester.widget<AnimatedContainer>(
+    expect(
       find.descendant(
         of: find.byType(ComposerFocusGlow),
         matching: find.byType(AnimatedContainer),
       ),
+      findsOneWidget,
     );
-    final ring = glow.foregroundDecoration! as ShapeDecoration;
-    expect((ring.shape as OutlinedBorder).side.color.a, greaterThan(0));
   });
 
   // Fullscreen hides the nav bar: the composer eases down into the freed
-  // inset instead of jumping, in both chrome modes.
-  for (final glass in [false, true]) {
-    testWidgets('nav bar inset eases away (glass: $glass)', (tester) async {
-      final focus = FocusNode();
-      addTearDown(focus.dispose);
-      tester.view.devicePixelRatio = 1;
-      tester.view.padding = const FakeViewPadding(bottom: 48);
-      tester.view.viewPadding = const FakeViewPadding(bottom: 48);
-      addTearDown(tester.view.reset);
-      await pumpBody(tester, liquidGlass: glass, focus: focus);
-      await tester.pumpAndSettle();
-      final field = find.byKey(const Key('message_input'));
-      final before = tester.getBottomLeft(field).dy;
+  // inset instead of jumping.
+  testWidgets('nav bar inset eases away', (tester) async {
+    final focus = FocusNode();
+    addTearDown(focus.dispose);
+    tester.view.devicePixelRatio = 1;
+    tester.view.padding = const FakeViewPadding(bottom: 48);
+    tester.view.viewPadding = const FakeViewPadding(bottom: 48);
+    addTearDown(tester.view.reset);
+    await pumpBody(tester, focus: focus);
+    await tester.pumpAndSettle();
+    final field = find.byKey(const Key('message_input'));
+    final before = tester.getBottomLeft(field).dy;
 
-      tester.view.padding = FakeViewPadding.zero;
-      tester.view.viewPadding = FakeViewPadding.zero;
-      await tester.pump();
-      // The ease starts after the frame that saw the change.
-      await tester.pump(const Duration(milliseconds: 16));
-      await tester.pump(const Duration(milliseconds: 110));
-      final mid = tester.getBottomLeft(field).dy;
-      await tester.pumpAndSettle();
-      final after = tester.getBottomLeft(field).dy;
+    tester.view.padding = FakeViewPadding.zero;
+    tester.view.viewPadding = FakeViewPadding.zero;
+    await tester.pump();
+    // The ease starts after the frame that saw the change.
+    await tester.pump(const Duration(milliseconds: 16));
+    await tester.pump(const Duration(milliseconds: 110));
+    final mid = tester.getBottomLeft(field).dy;
+    await tester.pumpAndSettle();
+    final after = tester.getBottomLeft(field).dy;
 
-      expect(after, closeTo(before + 48, 1));
-      expect(mid, greaterThan(before + 5));
-      expect(mid, lessThan(after - 5));
-    });
-  }
+    expect(after, closeTo(before + 48, 1));
+    expect(mid, greaterThan(before + 5));
+    expect(mid, lessThan(after - 5));
+  });
 
   // Keyboard close with the nav bar coming back must snap the nav pad. The
   // Scaffold already moves the body with the keyboard, so easing the pad on
   // top would read as a bounce up to the limit.
-  for (final glass in [false, true]) {
-    testWidgets('keyboard close snaps the nav pad (glass: $glass)', (
-      tester,
-    ) async {
-      final focus = FocusNode();
-      addTearDown(focus.dispose);
-      tester.view.physicalSize = const Size(400, 800);
-      tester.view.devicePixelRatio = 1;
-      // Keyboard up with the nav bar hidden.
-      tester.view.viewInsets = const FakeViewPadding(bottom: 300);
-      tester.view.viewPadding = FakeViewPadding.zero;
-      tester.view.padding = FakeViewPadding.zero;
-      addTearDown(tester.view.reset);
-      await pumpBody(tester, liquidGlass: glass, focus: focus);
-      await tester.pumpAndSettle();
-      final field = find.byKey(const Key('message_input'));
+  testWidgets('keyboard close snaps the nav pad', (tester) async {
+    final focus = FocusNode();
+    addTearDown(focus.dispose);
+    tester.view.physicalSize = const Size(400, 800);
+    tester.view.devicePixelRatio = 1;
+    // Keyboard up with the nav bar hidden.
+    tester.view.viewInsets = const FakeViewPadding(bottom: 300);
+    tester.view.viewPadding = FakeViewPadding.zero;
+    tester.view.padding = FakeViewPadding.zero;
+    addTearDown(tester.view.reset);
+    await pumpBody(tester, focus: focus);
+    await tester.pumpAndSettle();
+    final field = find.byKey(const Key('message_input'));
 
-      // Keyboard closes and the nav bar reappears in the same tick.
-      tester.view.viewInsets = FakeViewPadding.zero;
-      tester.view.viewPadding = const FakeViewPadding(bottom: 48);
-      tester.view.padding = const FakeViewPadding(bottom: 48);
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 16));
-      final early = tester.getBottomLeft(field).dy;
-      await tester.pumpAndSettle();
-      final settled = tester.getBottomLeft(field).dy;
+    // Keyboard closes and the nav bar reappears in the same tick.
+    tester.view.viewInsets = FakeViewPadding.zero;
+    tester.view.viewPadding = const FakeViewPadding(bottom: 48);
+    tester.view.padding = const FakeViewPadding(bottom: 48);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 16));
+    final early = tester.getBottomLeft(field).dy;
+    await tester.pumpAndSettle();
+    final settled = tester.getBottomLeft(field).dy;
 
-      // Snapped: already at the limit right after the close, not easing up.
-      expect(settled, lessThan(800 - 40));
-      expect(early, closeTo(settled, 1));
-    });
-  }
+    // Snapped: already at the limit right after the close, not easing up.
+    expect(settled, lessThan(800 - 40));
+    expect(early, closeTo(settled, 1));
+  });
 
   Future<void> moveKeyboard(WidgetTester tester, List<double> insets) async {
     for (final kb in insets) {
@@ -500,12 +469,7 @@ void main() {
       tester.view.physicalSize = const Size(400, 800);
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.reset);
-      await pumpBody(
-        tester,
-        liquidGlass: false,
-        focus: focus,
-        dismissUnfocuses: true,
-      );
+      await pumpBody(tester, focus: focus, dismissUnfocuses: true);
       await tester.pumpAndSettle();
       final field = find.byKey(const Key('message_input'));
       await tester.tap(field);
@@ -538,7 +502,6 @@ void main() {
     final builds = <double>[];
     await pumpBody(
       tester,
-      liquidGlass: false,
       focus: focus,
       keyboardHs: builds,
       bodyReadsKeyboard: false,
@@ -562,12 +525,7 @@ void main() {
     tester.view.devicePixelRatio = 1;
     tester.view.viewPadding = const FakeViewPadding(bottom: 15);
     addTearDown(tester.view.reset);
-    await pumpBody(
-      tester,
-      liquidGlass: false,
-      focus: focus,
-      dismissUnfocuses: true,
-    );
+    await pumpBody(tester, focus: focus, dismissUnfocuses: true);
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('message_input')));
     await tester.pump();
@@ -613,12 +571,7 @@ void main() {
     tester.view.physicalSize = const Size(400, 800);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
-    await pumpBody(
-      tester,
-      liquidGlass: false,
-      focus: focus,
-      dismissUnfocuses: true,
-    );
+    await pumpBody(tester, focus: focus, dismissUnfocuses: true);
     await tester.pumpAndSettle();
     for (final kb in <double>[100, 200, 300]) {
       tester.view.viewInsets = FakeViewPadding(bottom: kb);
@@ -640,12 +593,7 @@ void main() {
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
     final keyboardHs = <double>[];
-    await pumpBody(
-      tester,
-      liquidGlass: false,
-      focus: focus,
-      keyboardHs: keyboardHs,
-    );
+    await pumpBody(tester, focus: focus, keyboardHs: keyboardHs);
     await tester.pumpAndSettle();
     await moveKeyboard(tester, [100, 200, 300]);
     await tester.pump(const Duration(milliseconds: 400));
@@ -660,18 +608,15 @@ void main() {
   });
 
   // Full-app harness: the real HomeScreen wiring, joined and connected, so the
-  // field is enabled and a plain tap can be checked in both chrome modes.
-  Future<void> pumpJoined(WidgetTester tester, {required bool glass}) async {
+  // field is enabled and a plain tap can be checked.
+  Future<void> pumpJoined(WidgetTester tester) async {
     tester.view.physicalSize = const Size(1080, 2340);
     tester.view.devicePixelRatio = 3.0;
     tester.view.viewInsets = FakeViewPadding.zero;
     tester.view.viewPadding = const FakeViewPadding(bottom: 45.0);
     addTearDown(tester.view.reset);
 
-    SharedPreferences.setMockInitialValues({
-      'access_token': 'test_token',
-      'liquid_glass': glass,
-    });
+    SharedPreferences.setMockInitialValues({'access_token': 'test_token'});
     FlutterSecureStorage.setMockInitialValues({
       'accounts': '[{"login":"me","user_id":"42","access_token":"test_token"}]',
       'active_login': 'me',
@@ -706,64 +651,34 @@ void main() {
     await tester.pump();
   }
 
-  // Saved prefs apply before HomeScreen's first frame. Read async, the
-  // first frames ran on defaults and the chrome animated over on start.
-  testWidgets('full app: the first home frame uses the saved glass pref', (
-    tester,
+  testWidgets('full app: composer focuses on a plain tap', (
+    WidgetTester tester,
   ) async {
-    SharedPreferences.setMockInitialValues({'liquid_glass': true});
-    await tester.pumpWidget(
-      TwitchChatApp(
-        key: UniqueKey(),
-        eventSubService: FakeEventSubService(),
-        recentMessagesService: FakeRecentMessagesService(),
-        ircService: FakeIrcService(),
-        ircReadService: FakeIrcReadService(),
-      ),
+    await pumpJoined(tester);
+
+    final input = find.byKey(const Key('message_input'));
+    expect(input, findsOneWidget);
+    expect(
+      tester.widget<TextField>(input).enabled,
+      isTrue,
+      reason: 'composer must be enabled for a tap to focus it',
     );
-    for (var i = 0; i < 20 && find.byType(HomeScreen).evaluate().isEmpty; i++) {
-      await tester.pump();
-    }
-    expect(find.byType(HomeScreen), findsOneWidget);
-    expect(find.byKey(const ValueKey('composer_island')), findsOneWidget);
-    // Let startup's socket lookups time out under fake time.
-    await tester.pump(const Duration(milliseconds: 600));
+
+    final node = tester.widget<TextField>(input).focusNode!;
+    node.unfocus();
+    await tester.pump();
+
+    await tester.tap(input);
+    await tester.pump();
+
+    expect(node.hasFocus, isTrue, reason: 'tapping the composer must focus it');
+    expect(tester.takeException(), isNull);
   });
-
-  for (final glass in <bool>[false, true]) {
-    testWidgets('full app: composer focuses on a plain tap (glass=$glass)', (
-      WidgetTester tester,
-    ) async {
-      await pumpJoined(tester, glass: glass);
-
-      final input = find.byKey(const Key('message_input'));
-      expect(input, findsOneWidget);
-      expect(
-        tester.widget<TextField>(input).enabled,
-        isTrue,
-        reason: 'composer must be enabled for a tap to focus it',
-      );
-
-      final node = tester.widget<TextField>(input).focusNode!;
-      node.unfocus();
-      await tester.pump();
-
-      await tester.tap(input);
-      await tester.pump();
-
-      expect(
-        node.hasFocus,
-        isTrue,
-        reason: 'tapping the composer must focus it (glass=$glass)',
-      );
-      expect(tester.takeException(), isNull);
-    });
-  }
 
   // Back with the keyboard up skipped the IME's predictive dip: any rebuild
   // while focused claimed back for the app, outranking the IME's callback.
   testWidgets('full app: composer focus never claims back', (tester) async {
-    await pumpJoined(tester, glass: false);
+    await pumpJoined(tester);
     final input = find.byKey(const Key('message_input'));
     await tester.tap(input);
     await tester.pump();
@@ -790,7 +705,7 @@ void main() {
   testWidgets('full app: a closed sheet restores composer focus and keyboard', (
     tester,
   ) async {
-    await pumpJoined(tester, glass: false);
+    await pumpJoined(tester);
     final input = find.byKey(const Key('message_input'));
     await tester.tap(input);
     await tester.pump();
@@ -823,7 +738,6 @@ void main() {
     addTearDown(focus.dispose);
     await pumpBody(
       tester,
-      liquidGlass: false,
       focus: focus,
       text: text,
       maxLines: 6,
@@ -871,7 +785,6 @@ void main() {
     addTearDown(focus.dispose);
     await pumpBody(
       tester,
-      liquidGlass: false,
       focus: focus,
       text: text,
       maxLines: 6,

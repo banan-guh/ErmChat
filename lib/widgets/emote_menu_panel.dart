@@ -9,7 +9,7 @@ import '../services/emote_images.dart';
 import '../services/emote_manager.dart';
 import '../util/sheet_drag.dart';
 import '../widgets/tabbed_layout.dart';
-import 'glass_chrome.dart' show kComposerIslandMargin;
+import 'island_chrome.dart' show kComposerIslandMargin;
 import 'emote_scale_resolver.dart';
 import 'design_tokens.dart';
 

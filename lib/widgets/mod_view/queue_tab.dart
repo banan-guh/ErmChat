@@ -6,7 +6,7 @@ import '../../l10n/l10n.dart';
 import 'dialogs.dart';
 import 'scope.dart';
 import 'widgets.dart';
-import '../glass_chrome.dart';
+import '../island_chrome.dart';
 import '../design_tokens.dart';
 import '../dialogs.dart';
 

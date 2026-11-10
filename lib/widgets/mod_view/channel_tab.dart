@@ -9,7 +9,7 @@ import 'points_section.dart';
 import 'polls_predictions.dart';
 import 'scope.dart';
 import 'widgets.dart';
-import '../glass_chrome.dart';
+import '../island_chrome.dart';
 
 /// Channel-wide tools: stream actions for mods; bans, rosters, polls,
 /// predictions, and points for the broadcaster.

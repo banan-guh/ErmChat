@@ -4,7 +4,7 @@ import '../../services/twitch_api.dart';
 import '../../util/date_format.dart';
 import 'scope.dart';
 import 'widgets.dart';
-import '../glass_chrome.dart';
+import '../island_chrome.dart';
 
 /// Public blocked terms. New terms are typed into the borrowed composer.
 class TermsTab extends ModTabWidget {

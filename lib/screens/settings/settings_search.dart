@@ -103,7 +103,6 @@ class Setting {
     'accent_color' => l.settingAccentColor,
     'true_dark' => l.settingTrueDark,
     'layout' => l.settingLayout,
-    'liquid_glass' => l.settingLiquidGlass,
     'haptics' => l.settingHaptics,
     'edit_layout' => l.settingEditLayout,
     'chat_font_size' => l.settingChatFontSize,
@@ -280,14 +279,6 @@ class Setting {
     'Edit layout',
     SettingsPageId.appearance,
     keywords: 'buttons drag move rearrange chrome header row',
-  );
-  static const liquidGlass = Setting(
-    'liquid_glass',
-    'Liquid glass',
-    SettingsPageId.appearance,
-    section: 'Layout',
-    keywords: 'blur',
-    mirrors: {SettingsPageId.battery},
   );
   static const haptics = Setting(
     'haptics',
@@ -819,7 +810,6 @@ class Setting {
     trueDark,
     layout,
     editLayout,
-    liquidGlass,
     chatFontSize,
     chatFontWeight,
     showTimestamps,

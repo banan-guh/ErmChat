@@ -21,7 +21,6 @@ import '../services/twitch_api.dart';
 import '../services/twitch_auth.dart';
 import '../widgets/chat_message_tile.dart';
 import '../widgets/emote_sheet.dart';
-import '../widgets/glass_chrome.dart';
 import '../widgets/message_builder.dart';
 import '../widgets/panel_manager.dart';
 import '../widgets/user_profile_sheet.dart';
@@ -459,7 +458,6 @@ class UserSheets {
                     return ValueListenableBuilder<List<TwitchMessage>>(
                       valueListenable: history,
                       builder: (_, messages, _) => UserProfileSheet(
-                        glass: glassEnabled(context, prefs.islandGlass),
                         username: username,
                         displayName: displayName ?? username,
                         userId: userId,
