@@ -27,6 +27,17 @@ class SetObservation {
   String get addedJson => jsonEncode(added);
   String get removedJson => jsonEncode(removed);
 
+  /// This observation with only [seenMs] replaced; every other field, and
+  /// the maps and lists it shares, are carried over unchanged.
+  SetObservation _withSeen(int ms) => SetObservation(
+    atMs: atMs,
+    seenMs: ms,
+    full: full,
+    added: added,
+    removed: removed,
+    hash: hash,
+  );
+
   static SetObservation fromJson({
     required int atMs,
     required int seenMs,
@@ -146,16 +157,7 @@ class SetLog {
   /// Moves the newest row's [SetObservation.seenMs] to [ms].
   void touch(int ms) {
     final last = _rows.removeLast();
-    _rows.add(
-      SetObservation(
-        atMs: last.atMs,
-        seenMs: ms,
-        full: last.full,
-        added: last.added,
-        removed: last.removed,
-        hash: last.hash,
-      ),
-    );
+    _rows.add(last._withSeen(ms));
   }
 
   /// FNV-1a over the sorted keys, as 16 hex digits.

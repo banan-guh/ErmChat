@@ -121,48 +121,34 @@ class ArchiveRow {
 
   /// This row with its deleted flag set. Used when the archive bakes a
   /// pending edit into a sealed block.
-  ArchiveRow asDeleted() => ArchiveRow(
-    timestampMs: timestampMs,
-    text: text,
-    user: user,
-    isSystem: isSystem,
-    isAction: isAction,
-    isBanNotice: isBanNotice,
-    deleted: true,
-    isFirstMessage: isFirstMessage,
-    isBackfill: isBackfill,
-    isHistory: isHistory,
-    messageId: messageId,
-    replyParentId: replyParentId,
-    threadRootId: threadRootId,
-    replyToUser: replyToUser,
-    msgId: msgId,
-    customRewardId: customRewardId,
-    bitsAmount: bitsAmount,
-    pinnedPaidAmount: pinnedPaidAmount,
-    sourceBroadcasterId: sourceBroadcasterId,
-    sourceMessageId: sourceMessageId,
-    emotes: emotes,
-    tokens: tokens,
-    tokensStored: tokensStored,
-    extraTags: extraTags,
-  );
+  ArchiveRow asDeleted() => _copy(deleted: true);
 
   /// This row with its message id dropped unless [keep], and its shared-chat
   /// source id dropped. Reply references stay so replies still find kept
   /// parents.
-  ArchiveRow withoutIds({required bool keep}) => ArchiveRow(
+  ArchiveRow withoutIds({required bool keep}) =>
+      _copy(keepMessageId: keep, keepSourceMessageId: false);
+
+  /// A copy of this row: [deleted] replaces the flag when given (null keeps
+  /// it, so `false` stays distinct from "unchanged"), and the message id and
+  /// shared-chat source id are kept only when their keep flag is true. Every
+  /// other field, reply references and collections included, is copied as is.
+  ArchiveRow _copy({
+    bool? deleted,
+    bool keepMessageId = true,
+    bool keepSourceMessageId = true,
+  }) => ArchiveRow(
     timestampMs: timestampMs,
     text: text,
     user: user,
     isSystem: isSystem,
     isAction: isAction,
     isBanNotice: isBanNotice,
-    deleted: deleted,
+    deleted: deleted ?? this.deleted,
     isFirstMessage: isFirstMessage,
     isBackfill: isBackfill,
     isHistory: isHistory,
-    messageId: keep ? messageId : null,
+    messageId: keepMessageId ? messageId : null,
     replyParentId: replyParentId,
     threadRootId: threadRootId,
     replyToUser: replyToUser,
@@ -171,6 +157,7 @@ class ArchiveRow {
     bitsAmount: bitsAmount,
     pinnedPaidAmount: pinnedPaidAmount,
     sourceBroadcasterId: sourceBroadcasterId,
+    sourceMessageId: keepSourceMessageId ? sourceMessageId : null,
     emotes: emotes,
     tokens: tokens,
     tokensStored: tokensStored,
