@@ -447,24 +447,7 @@ class _ChatBodyState extends State<ChatBody>
 
   @override
   Widget build(BuildContext context) {
-    // Settled decisions read _liftH; the hidden clip reads the raw per-frame
-    // height so the row slides out under the rising keyboard.
-    final keyboardH = _liftH;
-    final frameKb = _rawH;
-    // The keyboard shrinks padding but never viewPadding, so a viewPadding
-    // change means the system bars moved: ease that, follow the keyboard.
-    // While a keyboard transition is in flight, snap instead: the Scaffold
-    // is already moving the body, and easing the pad on top bounces.
-    final viewPadBottom = MediaQuery.viewPaddingOf(context).bottom;
-    final barsMoved =
-        !_keyboardEngaged &&
-        _lastViewPadBottom != null &&
-        viewPadBottom != _lastViewPadBottom;
-    _lastViewPadBottom = viewPadBottom;
-    final bottomPad = _bottomPad.resolve(
-      MediaQuery.paddingOf(context).bottom,
-      animate: barsMoved,
-    );
+    final layout = _layoutFor(context);
     final size = MediaQuery.sizeOf(context);
     final composer = widget.composer;
     // Cache the settled composer height after layout for keyboard-room
@@ -475,57 +458,6 @@ class _ChatBodyState extends State<ChatBody>
         _cachePaneInsets();
       });
     }
-    final decisionH = _decisionHeight(
-      _fullBoxHeight ?? size.height,
-      composer == null ? 0 : _composerH,
-    );
-    final hideChromeForKeyboard = collapseChromeForKeyboard(
-      keyboardH: keyboardH,
-      maxHeight: decisionH,
-    );
-    // The pane docks the composer inside the chat pane; the island covers the
-    // full-width paths.
-    final pane = widget.composerInPane && composer != null && !widget.isInPip;
-    // The bottom bar owns the safe area when present, and the island pays it
-    // outside its shell, so the composer never pays it twice.
-    final hasBar = widget.bottomBar != null && !widget.isInPip;
-    // Hidden-by-keyboard applies to the full-width island and the edge to
-    // edge bar.
-    final classic = widget.classic && !pane && !widget.isInPip;
-    final flush = (widget.islandFlush || classic) && !pane && !widget.isInPip;
-    final hidden = widget.keyboardHidesButtons && !pane && !widget.isInPip;
-    final showIsland = !widget.isInPip && !pane && (composer != null || hasBar);
-    // The island floats over the chat in every style, so rows scroll on
-    // behind it.
-    final floating = showIsland;
-    // Hidden mode pins the island a margin above the nav bar (the padding
-    // shrinks under the keyboard, the nav bar does not) and the row clip
-    // hides the row from below as the keyboard rises past it, so the visible
-    // bottom edge rides the keyboard a margin above it. Once the row is gone
-    // the field rides too. Offsets are from the body's bottom, which the
-    // keyboard already lifts. The Scaffold subtracts the keyboard from the
-    // body's viewPadding too, so the nav bar height comes from the view.
-    final view = View.of(context);
-    final navPad = frameKb > 0.5
-        ? view.viewPadding.bottom / view.devicePixelRatio
-        : bottomPad;
-    final islandBottom = flush
-        ? 0.0
-        : hidden
-        ? kComposerIslandMargin + (navPad - frameKb).clamp(0.0, navPad)
-        : kComposerIslandMargin + bottomPad;
-    _hideSpan = hidden && floating ? navPad + _rowH.value : 0;
-    // Rows under the island ease out of or into its space when it comes and
-    // goes; composer growth and keyboard ticks move it directly.
-    final floatingFlipped = _lastFloating != null && floating != _lastFloating;
-    _lastFloating = floating;
-    final presence = _presence.resolve(
-      floating ? 1.0 : 0.0,
-      animate: floatingFlipped,
-    );
-    // The last layout's footprint, for what sizes in build (the emote
-    // sheet); everything that lays out under the island reads it live.
-    final clearance = _metrics.top;
     // Rebuilt only when its inputs change, so keyboard ticks (including the
     // safe-area ticks that rebuild ChatBody) reuse the same instance and
     // the body subtree skips rebuilding. The body reads the content height
@@ -535,10 +467,10 @@ class _ChatBodyState extends State<ChatBody>
     final keyed = widget.bodyReadsKeyboard && !widget.isInPip;
     final inputs = (
       widget.bodyBuilder,
-      widget.isInPip ? false : hideChromeForKeyboard,
+      widget.isInPip ? false : layout.collapseChrome,
       size.width,
-      keyed ? decisionH : 0.0,
-      keyed ? keyboardH : 0.0,
+      keyed ? layout.decisionH : 0.0,
+      keyed ? layout.keyboardH : 0.0,
       !keyed || composer == null ? 0.0 : _composerH,
     );
     if (inputs != _bodyInputs) {
@@ -563,9 +495,9 @@ class _ChatBodyState extends State<ChatBody>
     final body = _body!;
     // Overlays anchored above the island: its top, placed in layout, or the
     // pane's measured composer box.
-    final anchor = pane ? _paneInsets : EdgeInsets.zero;
-    final anchorBottom = pane ? _paneInsets.bottom : null;
-    final sideGap = pane ? 0.0 : kComposerIslandMargin;
+    final anchor = layout.pane ? _paneInsets : EdgeInsets.zero;
+    final anchorBottom = layout.pane ? _paneInsets.bottom : null;
+    final sideGap = layout.pane ? 0.0 : kComposerIslandMargin;
     final reply = _IslandPositioned(
       key: const ValueKey('reply_header'),
       role: _IslandRole.reply,
@@ -602,18 +534,6 @@ class _ChatBodyState extends State<ChatBody>
             bottom: anchorBottom,
             child: widget.notice!,
           );
-    // The composer, keyed so the field moves intact between the docked and
-    // floating island paths: a rebuilt EditableText closes the input
-    // connection and iOS drops the keyboard.
-    Widget composerSlot(Widget? field) => field == null
-        ? const SizedBox.shrink()
-        : KeyedSubtree(
-            key: _composerKey,
-            child: Listener(
-              onPointerDown: (_) => _retapped = true,
-              child: field,
-            ),
-          );
     // The composer field. One shared inputBarKey keeps the FocusNode alive
     // as the island moves between the docked and floating paths. The size
     // notifier re-measures when inner listenables resize it without a
@@ -639,130 +559,28 @@ class _ChatBodyState extends State<ChatBody>
                     return true;
                   },
                   child: SizeChangedLayoutNotifier(
-                    child: composerSlot(composer),
+                    child: _composerSlot(composer),
                   ),
                 ),
               ),
       ),
     );
-    // The focus glow paints the fill, one surface tone above the chat plane,
-    // and this clear Material only clips and carries the ink.
-    const corner = Radius.circular(kComposerIslandRadius);
-    final radius = classic
-        ? BorderRadius.zero
-        : flush
-        ? const BorderRadius.vertical(top: corner)
-        : const BorderRadius.all(corner);
-    Widget islandShell(Widget child) {
-      // Flush, the island pays the nav bar inside its own fill.
-      final body = flush
-          ? Padding(
-              padding: EdgeInsets.only(bottom: bottomPad),
-              child: child,
-            )
-          : child;
-      return Material(
-        type: MaterialType.transparency,
-        borderRadius: radius,
-        clipBehavior: Clip.antiAlias,
-        child: body,
-      );
-    }
-
     // One island: field and button row in one shell. Hidden mode shortens
     // the shell from below as the keyboard rises, so its rim and corners
     // reshape around what is left instead of being cut off.
-    final rowKeyboard = hidden ? frameKb - navPad : 0.0;
     // The footer resizes on its own (a channel switch swaps the status) and
     // reports its height to the island's layout.
     final footer = widget.islandFooter == null
         ? null
         : _Report(slot: _footerH, child: widget.islandFooter!);
-    final busyListenable = widget.busyListenable;
-    final isBusy = widget.isBusy;
-    final showsBusy = busyListenable != null && isBusy != null;
-    // A floating island runs loading around its outline. Edge to edge, it is
-    // a straight line between the field and the button row.
-    final uploadProgress = widget.uploadProgress;
-    Widget ringed(Widget island) {
-      if (flush) return island;
-      final busy = !showsBusy
-          ? island
-          : IslandBusyRing(
-              listenable: busyListenable,
-              busy: isBusy,
-              child: island,
-            );
-      // An upload traces the same outline as far as it has come.
-      return uploadProgress == null
-          ? busy
-          : IslandProgressRing(progress: uploadProgress, child: busy);
-    }
-
-    // Edge to edge, one line carries both: an upload's progress while it
-    // runs, the busy motion otherwise. The classic field shades itself.
-    final lineUpload = classic ? null : uploadProgress;
-    final busyLine = !flush || (!showsBusy && lineUpload == null)
-        ? null
-        : SizedBox(
-            height: 0,
-            child: OverflowBox(
-              maxHeight: 3,
-              child: ListenableBuilder(
-                listenable: Listenable.merge([busyListenable]),
-                builder: (_, _) {
-                  final joining = isBusy?.call() ?? false;
-                  Widget line(double? value, bool shown) => AnimatedOpacity(
-                    opacity: shown ? 1 : 0,
-                    duration: Motion.normal,
-                    child: TickerMode(
-                      enabled: shown,
-                      child: LinearProgressIndicator(
-                        value: value,
-                        minHeight: 3,
-                        backgroundColor: Colors.transparent,
-                      ),
-                    ),
-                  );
-                  if (lineUpload == null) return line(null, joining);
-                  return EasedProgress(
-                    progress: lineUpload,
-                    builder: (_, sent, uploading) {
-                      if (uploading) {
-                        _lineShowedUpload = true;
-                      } else if (joining) {
-                        _lineShowedUpload = false;
-                      }
-                      // A finished upload fades out full, not as the busy
-                      // motion.
-                      final showsUpload =
-                          uploading || (!joining && _lineShowedUpload);
-                      return line(
-                        showsUpload ? sent : null,
-                        uploading || joining,
-                      );
-                    },
-                  );
-                },
-              ),
-            ),
-          );
-    // Classic is just the outlined field on the chat's background, so the
-    // field's own outline shows focus instead of a tinted shell.
-    Widget outer({required Widget child}) => classic
-        ? ColoredBox(
-            color: Theme.of(context).scaffoldBackgroundColor,
-            child: child,
-          )
-        : ComposerFocusGlow(
-            shape: RoundedRectangleBorder(borderRadius: radius),
-            surface: Theme.of(context).colorScheme.surfaceContainer,
-            child: child,
-          );
-    final island = outer(
-      child: islandShell(
-        _RowClip(
-          keyboard: rowKeyboard,
+    // Edge to edge, one line carries the busy motion or an upload's progress.
+    final busyLine = _busyLine(layout);
+    final island = _outer(
+      layout: layout,
+      child: _islandShell(
+        layout: layout,
+        child: _RowClip(
+          keyboard: layout.rowKeyboard,
           flow: _flowH,
           row: _rowH,
           child: Align(
@@ -823,26 +641,29 @@ class _ChatBodyState extends State<ChatBody>
       kComposerIslandMargin,
       kComposerGap - kOpaqueComposerGap,
       kComposerIslandMargin,
-      kComposerIslandMargin + bottomPad,
+      kComposerIslandMargin + layout.bottomPad,
     );
     // The composer docked under the chat pane.
-    final paneSlot = !pane
+    final paneSlot = !layout.pane
         ? null
-        : Padding(padding: islandPad, child: ringed(island));
+        : Padding(
+            padding: islandPad,
+            child: _ringed(layout: layout, island: island),
+          );
     // Floating island. Hidden mode keeps its bottom a margin over the
     // keyboard while the row clip shortens it; otherwise it rides the
     // keyboard.
-    final floatingIsland = !floating
+    final floatingIsland = !layout.floating
         ? null
         : _IslandPositioned(
             key: const ValueKey('composer_island'),
             role: _IslandRole.island,
-            left: flush ? 0 : kComposerIslandMargin,
-            right: flush ? 0 : kComposerIslandMargin,
-            bottom: islandBottom,
-            child: ringed(island),
+            left: layout.flush ? 0 : kComposerIslandMargin,
+            right: layout.flush ? 0 : kComposerIslandMargin,
+            bottom: layout.islandBottom,
+            child: _ringed(layout: layout, island: island),
           );
-    final lone = widget.loneAction == null || showIsland || pane
+    final lone = widget.loneAction == null || layout.showIsland || layout.pane
         ? null
         : Positioned(
             right: 8,
@@ -858,10 +679,10 @@ class _ChatBodyState extends State<ChatBody>
           );
     // Nothing to show: keep the safe area so the chat never runs under the
     // nav bar.
-    final emptyPad = (widget.isInPip || pane || showIsland)
+    final emptyPad = (widget.isInPip || layout.pane || layout.showIsland)
         ? null
         : Padding(
-            padding: EdgeInsets.only(bottom: bottomPad),
+            padding: EdgeInsets.only(bottom: layout.bottomPad),
             child: const SizedBox.shrink(),
           );
     // No manual lift: the Scaffold shrank the body, so the composer sits
@@ -890,9 +711,9 @@ class _ChatBodyState extends State<ChatBody>
                           // sizing below measures the box as if the composer
                           // were in flow (docked tall), then anchors the
                           // picker above the island without moving its top.
-                          final inFlowH = floating
-                              ? _metrics.height + bottomPad
-                              : pane
+                          final inFlowH = layout.floating
+                              ? _metrics.height + layout.bottomPad
+                              : layout.pane
                               ? _paneInsets.bottom
                               : 0.0;
                           final fullBoxH =
@@ -910,9 +731,9 @@ class _ChatBodyState extends State<ChatBody>
                           final fitH = fullBoxH < maxFitBoxH
                               ? fullBoxH
                               : maxFitBoxH;
-                          final sheetBoxHeight = floating
+                          final sheetBoxHeight = layout.floating
                               ? fitH -
-                                    (clearance - inFlowH) /
+                                    (layout.clearance - inFlowH) /
                                         widget.emoteMaxFraction
                               : fitH;
                           // Tight, so the island lays out at the stack's own
@@ -921,11 +742,11 @@ class _ChatBodyState extends State<ChatBody>
                             size: constraints.biggest,
                             child: _IslandStack(
                               metrics: _metrics,
-                              presence: presence,
+                              presence: layout.presence,
                               // The classic field's label room is already
                               // empty space above its outline, so it counts
                               // toward the list's gap.
-                              trim: classic ? MessageInput.labelRoom : 0,
+                              trim: layout.classic ? MessageInput.labelRoom : 0,
                               // Pages add their own channel's footer, so a
                               // switch moves only the island.
                               footerFor: widget.islandFooterHeightFor,
@@ -941,10 +762,12 @@ class _ChatBodyState extends State<ChatBody>
                                 widget.emotePickerBuilder(
                                   context,
                                   sheetBoxHeight: sheetBoxHeight,
-                                  inset: pane
+                                  inset: layout.pane
                                       ? _paneInsets
                                       : EdgeInsets.only(
-                                          bottom: floating ? clearance : 0,
+                                          bottom: layout.floating
+                                              ? layout.clearance
+                                              : 0,
                                         ),
                                 ),
                                 autocomplete,
@@ -976,6 +799,311 @@ class _ChatBodyState extends State<ChatBody>
       ),
     );
   }
+
+  /// Derives this frame's layout decisions once, and publishes the state the
+  /// metrics callbacks read back ([_hideSpan], [_lastFloating],
+  /// [_lastViewPadBottom]), so [build] only assembles.
+  _Layout _layoutFor(BuildContext context) {
+    // Settled decisions read _liftH; the hidden clip reads the raw per-frame
+    // height so the row slides out under the rising keyboard.
+    final keyboardH = _liftH;
+    final frameKb = _rawH;
+    // The keyboard shrinks padding but never viewPadding, so a viewPadding
+    // change means the system bars moved: ease that, follow the keyboard.
+    // While a keyboard transition is in flight, snap instead: the Scaffold
+    // is already moving the body, and easing the pad on top bounces.
+    final viewPadBottom = MediaQuery.viewPaddingOf(context).bottom;
+    final barsMoved =
+        !_keyboardEngaged &&
+        _lastViewPadBottom != null &&
+        viewPadBottom != _lastViewPadBottom;
+    _lastViewPadBottom = viewPadBottom;
+    final bottomPad = _bottomPad.resolve(
+      MediaQuery.paddingOf(context).bottom,
+      animate: barsMoved,
+    );
+    final composer = widget.composer;
+    final decisionH = _decisionHeight(
+      _fullBoxHeight ?? MediaQuery.sizeOf(context).height,
+      composer == null ? 0 : _composerH,
+    );
+    final collapseChrome = collapseChromeForKeyboard(
+      keyboardH: keyboardH,
+      maxHeight: decisionH,
+    );
+    // The pane docks the composer inside the chat pane; the island covers the
+    // full-width paths.
+    final pane = widget.composerInPane && composer != null && !widget.isInPip;
+    // The bottom bar owns the safe area when present, and the island pays it
+    // outside its shell, so the composer never pays it twice.
+    final hasBar = widget.bottomBar != null && !widget.isInPip;
+    // Hidden-by-keyboard applies to the full-width island and the edge to
+    // edge bar.
+    final classic = widget.classic && !pane && !widget.isInPip;
+    final flush = (widget.islandFlush || classic) && !pane && !widget.isInPip;
+    final hidden = widget.keyboardHidesButtons && !pane && !widget.isInPip;
+    final showIsland = !widget.isInPip && !pane && (composer != null || hasBar);
+    // The island floats over the chat in every style, so rows scroll on
+    // behind it.
+    final floating = showIsland;
+    // Hidden mode pins the island a margin above the nav bar (the padding
+    // shrinks under the keyboard, the nav bar does not) and the row clip
+    // hides the row from below as the keyboard rises past it, so the visible
+    // bottom edge rides the keyboard a margin above it. Once the row is gone
+    // the field rides too. Offsets are from the body's bottom, which the
+    // keyboard already lifts. The Scaffold subtracts the keyboard from the
+    // body's viewPadding too, so the nav bar height comes from the view.
+    final view = View.of(context);
+    final navPad = frameKb > 0.5
+        ? view.viewPadding.bottom / view.devicePixelRatio
+        : bottomPad;
+    final islandBottom = _resolveIslandBottom(
+      flush: flush,
+      hidden: hidden,
+      navPad: navPad,
+      frameKb: frameKb,
+      bottomPad: bottomPad,
+    );
+    _hideSpan = hidden && floating ? navPad + _rowH.value : 0;
+    // Rows under the island ease out of or into its space when it comes and
+    // goes; composer growth and keyboard ticks move it directly.
+    final floatingFlipped = _lastFloating != null && floating != _lastFloating;
+    _lastFloating = floating;
+    final presence = _presence.resolve(
+      floating ? 1.0 : 0.0,
+      animate: floatingFlipped,
+    );
+    return _Layout(
+      keyboardH: keyboardH,
+      bottomPad: bottomPad,
+      decisionH: decisionH,
+      collapseChrome: collapseChrome,
+      pane: pane,
+      classic: classic,
+      flush: flush,
+      showIsland: showIsland,
+      floating: floating,
+      islandBottom: islandBottom,
+      presence: presence,
+      // The last layout's footprint, for what sizes in build (the emote
+      // sheet); everything that lays out under the island reads it live.
+      clearance: _metrics.top,
+      rowKeyboard: hidden ? frameKb - navPad : 0.0,
+      radius: _islandRadius(classic: classic, flush: flush),
+    );
+  }
+
+  /// The island's bottom offset from the body's bottom.
+  double _resolveIslandBottom({
+    required bool flush,
+    required bool hidden,
+    required double navPad,
+    required double frameKb,
+    required double bottomPad,
+  }) {
+    if (flush) return 0.0;
+    if (hidden) {
+      // A margin over the nav bar: the padding shrinks under the keyboard,
+      // the nav bar does not.
+      return kComposerIslandMargin + (navPad - frameKb).clamp(0.0, navPad);
+    }
+    return kComposerIslandMargin + bottomPad;
+  }
+
+  /// Edge to edge, only the top corners round; classic is square; a floating
+  /// island rounds all four.
+  BorderRadius _islandRadius({required bool classic, required bool flush}) {
+    const corner = Radius.circular(kComposerIslandRadius);
+    if (classic) return BorderRadius.zero;
+    if (flush) return const BorderRadius.vertical(top: corner);
+    return const BorderRadius.all(corner);
+  }
+
+  /// The composer, keyed so the field moves intact between the docked and
+  /// floating island paths: a rebuilt EditableText closes the input
+  /// connection and iOS drops the keyboard.
+  Widget _composerSlot(Widget? field) {
+    if (field == null) return const SizedBox.shrink();
+    return KeyedSubtree(
+      key: _composerKey,
+      child: Listener(onPointerDown: (_) => _retapped = true, child: field),
+    );
+  }
+
+  /// The focus glow paints the fill, one surface tone above the chat plane,
+  /// and this clear Material only clips and carries the ink.
+  Widget _islandShell({required _Layout layout, required Widget child}) {
+    // Flush, the island pays the nav bar inside its own fill.
+    final body = layout.flush
+        ? Padding(
+            padding: EdgeInsets.only(bottom: layout.bottomPad),
+            child: child,
+          )
+        : child;
+    return Material(
+      type: MaterialType.transparency,
+      borderRadius: layout.radius,
+      clipBehavior: Clip.antiAlias,
+      child: body,
+    );
+  }
+
+  /// A floating island runs loading around its outline. Edge to edge, a
+  /// straight line between the field and the button row carries it instead.
+  Widget _ringed({required _Layout layout, required Widget island}) {
+    if (layout.flush) return island;
+    final busyListenable = widget.busyListenable;
+    final isBusy = widget.isBusy;
+    final busy = busyListenable == null || isBusy == null
+        ? island
+        : IslandBusyRing(
+            listenable: busyListenable,
+            busy: isBusy,
+            child: island,
+          );
+    // An upload traces the same outline as far as it has come.
+    final uploadProgress = widget.uploadProgress;
+    return uploadProgress == null
+        ? busy
+        : IslandProgressRing(progress: uploadProgress, child: busy);
+  }
+
+  /// Classic is just the outlined field on the chat's background, so the
+  /// field's own outline shows focus instead of a tinted shell.
+  Widget _outer({required _Layout layout, required Widget child}) {
+    if (layout.classic) {
+      return ColoredBox(
+        color: Theme.of(context).scaffoldBackgroundColor,
+        child: child,
+      );
+    }
+    return ComposerFocusGlow(
+      shape: RoundedRectangleBorder(borderRadius: layout.radius),
+      surface: Theme.of(context).colorScheme.surfaceContainer,
+      child: child,
+    );
+  }
+
+  /// Edge to edge, one line carries both: an upload's progress while it runs,
+  /// the busy motion otherwise. The classic field shades itself, so it has no
+  /// line, and a floating island rings its outline instead.
+  Widget? _busyLine(_Layout layout) {
+    if (!layout.flush) return null;
+    final busyListenable = widget.busyListenable;
+    final isBusy = widget.isBusy;
+    final showsBusy = busyListenable != null && isBusy != null;
+    final lineUpload = layout.classic ? null : widget.uploadProgress;
+    if (!showsBusy && lineUpload == null) return null;
+    return SizedBox(
+      height: 0,
+      child: OverflowBox(
+        maxHeight: 3,
+        child: ListenableBuilder(
+          listenable: Listenable.merge([busyListenable]),
+          builder: (_, _) => _busyLineBody(lineUpload, isBusy),
+        ),
+      ),
+    );
+  }
+
+  /// What the busy line draws, re-read on every busy listenable tick so the
+  /// line and the ring agree.
+  Widget _busyLineBody(
+    ValueListenable<double?>? lineUpload,
+    bool Function()? isBusy,
+  ) {
+    final joining = isBusy?.call() ?? false;
+    Widget line(double? value, bool shown) => AnimatedOpacity(
+      opacity: shown ? 1 : 0,
+      duration: Motion.normal,
+      child: TickerMode(
+        enabled: shown,
+        child: LinearProgressIndicator(
+          value: value,
+          minHeight: 3,
+          backgroundColor: Colors.transparent,
+        ),
+      ),
+    );
+    if (lineUpload == null) return line(null, joining);
+    return EasedProgress(
+      progress: lineUpload,
+      builder: (_, sent, uploading) {
+        if (uploading) {
+          _lineShowedUpload = true;
+        } else if (joining) {
+          _lineShowedUpload = false;
+        }
+        // A finished upload fades out full, not as the busy motion.
+        final showsUpload = uploading || (!joining && _lineShowedUpload);
+        return line(showsUpload ? sent : null, uploading || joining);
+      },
+    );
+  }
+}
+
+/// One frame's layout decisions, derived once in [_ChatBodyState._layoutFor]
+/// from the widget, the keyboard height and the last laid-out metrics, so the
+/// assembly reads names instead of re-deriving geometry per widget.
+class _Layout {
+  const _Layout({
+    required this.keyboardH,
+    required this.bottomPad,
+    required this.decisionH,
+    required this.collapseChrome,
+    required this.pane,
+    required this.classic,
+    required this.flush,
+    required this.showIsland,
+    required this.floating,
+    required this.islandBottom,
+    required this.presence,
+    required this.clearance,
+    required this.rowKeyboard,
+    required this.radius,
+  });
+
+  /// Settled keyboard height: the learned open height while it is up.
+  final double keyboardH;
+
+  /// The bottom safe area, eased when the system bars move.
+  final double bottomPad;
+
+  /// Room above the composer the keyboard decisions read.
+  final double decisionH;
+
+  /// Whether the app bar and channel tabs collapse for the keyboard.
+  final bool collapseChrome;
+
+  /// Whether the composer docks inside the chat pane.
+  final bool pane;
+
+  /// Whether the field sits on the chat's own background, with no shell.
+  final bool classic;
+
+  /// Whether the island runs edge to edge and under the nav bar.
+  final bool flush;
+
+  /// Whether anything (island, bar or lone action) shows at the bottom.
+  final bool showIsland;
+
+  /// Whether the island floats over the chat.
+  final bool floating;
+
+  /// The island's bottom offset from the body's bottom.
+  final double islandBottom;
+
+  /// How much of the island's footprint the lists clear.
+  final double presence;
+
+  /// The island footprint the last layout published.
+  final double clearance;
+
+  /// How far the keyboard has risen past the hidden row.
+  final double rowKeyboard;
+
+  /// The island's corner radius.
+  final BorderRadius radius;
 }
 
 /// A number that eases to a new target over 220ms instead of jumping, or

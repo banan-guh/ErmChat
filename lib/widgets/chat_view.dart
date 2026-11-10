@@ -332,23 +332,13 @@ class _ChatViewState extends State<ChatView>
       );
       _refreshIndexMap(msgs, cache);
       _listMsgs = msgs;
-      final list = ChatListShell(
+      final list = _shell(
         // PageStorage key restores the offset after the channel page
         // unmounts off screen; kept-alive lists need no key.
-        scrollViewKey: widget.keepAlive
+        key: widget.keepAlive
             ? ValueKey<String>(widget.channel)
             : PageStorageKey<String>('${widget.channel}:chat'),
-        controller: widget.scrollController,
-        physics: widget.physics,
-        resolve: (m, _) => _hold.resolve(m),
-        onScrollNotification: _onScrollNotification,
-        onPointerSignal: _onPointerSignal,
-        atBottom: widget.atBottomNotifier,
-        onJumpToBottom: _jumpToBottom,
-        heroTag: widget.scrollFabHeroTag ?? 'scroll_down_${widget.channel}',
-        islandPage: _islandPage,
         semanticChildCount: msgs.length,
-        keyboardDismissBehavior: widget.keyboardDismissBehavior,
         slivers: [
           bottom,
           SliverList(
@@ -390,18 +380,8 @@ class _ChatViewState extends State<ChatView>
       channel: widget.channel,
     );
     _refreshIndexMap(const [], null);
-    return ChatListShell(
-      scrollViewKey: ValueKey<String>('${widget.channel}:empty'),
-      controller: widget.scrollController,
-      physics: widget.physics,
-      resolve: (m, _) => _hold.resolve(m),
-      onScrollNotification: _onScrollNotification,
-      onPointerSignal: _onPointerSignal,
-      atBottom: widget.atBottomNotifier,
-      onJumpToBottom: _jumpToBottom,
-      heroTag: widget.scrollFabHeroTag ?? 'scroll_down_${widget.channel}',
-      islandPage: _islandPage,
-      keyboardDismissBehavior: widget.keyboardDismissBehavior,
+    return _shell(
+      key: ValueKey<String>('${widget.channel}:empty'),
       slivers: [
         bottom,
         SliverToBoxAdapter(
@@ -419,6 +399,31 @@ class _ChatViewState extends State<ChatView>
           ),
         ),
       ],
+    );
+  }
+
+  /// The shared scroll surface for both the row list and the empty state: the
+  /// same controller, physics, scroll reporting and FAB chrome, differing only
+  /// in the scroll view's key, its slivers and its semantics count.
+  ChatListShell _shell({
+    required List<Widget> slivers,
+    required Key key,
+    int? semanticChildCount,
+  }) {
+    return ChatListShell(
+      scrollViewKey: key,
+      controller: widget.scrollController,
+      physics: widget.physics,
+      resolve: (m, _) => _hold.resolve(m),
+      onScrollNotification: _onScrollNotification,
+      onPointerSignal: _onPointerSignal,
+      atBottom: widget.atBottomNotifier,
+      onJumpToBottom: _jumpToBottom,
+      heroTag: widget.scrollFabHeroTag ?? 'scroll_down_${widget.channel}',
+      islandPage: _islandPage,
+      semanticChildCount: semanticChildCount,
+      keyboardDismissBehavior: widget.keyboardDismissBehavior,
+      slivers: slivers,
     );
   }
 

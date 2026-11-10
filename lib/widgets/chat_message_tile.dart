@@ -329,167 +329,19 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
 
     final List<InlineSpan> children;
     final String semanticsLabel;
+    final int? nameEnd;
     final bool deleted;
-    int? nameEnd;
     // Image preview URLs for the embed column below the text.
     List<String> embedUrls = const [];
 
     if (msg.isSystem) {
-      final base = widget.systemBodyBuilder != null
-          ? widget.systemBodyBuilder!(msg, s)
-          // Fallback: plain text at the same size/weight as the real path.
-          : <InlineSpan>[
-              TextSpan(
-                text: msg.text,
-                style: TextStyle(
-                  fontSize: 14 * s,
-                  fontStyle: FontStyle.normal,
-                  decoration: TextDecoration.none,
-                ),
-              ),
-            ];
-      _trackBodySpans(base, false);
-      // PubSub redemption headers: the reward image, then the cost, like
-      // DankChat. A missing or broken image falls back to a points glyph.
-      final redemptionImage = msg.redemptionImageUrl;
-      final points = msg.redemptionPoints;
-      final size = 18.0 * s;
-      final glyph = Icon(Icons.toll_outlined, size: 14 * s);
-      final image = redemptionImage != null && redemptionImage.isNotEmpty
-          ? CachedNetworkImage(
-              imageUrl: redemptionImage,
-              width: size,
-              height: size,
-              fit: BoxFit.contain,
-              fadeInDuration: Duration.zero,
-              placeholder: (_, _) => SizedBox(width: size, height: size),
-              errorWidget: (_, failedUrl, error) {
-                logDebug('Redemption image load failed: $failedUrl - $error');
-                return points != null ? glyph : SizedBox(width: size);
-              },
-            )
-          : null;
-      final body = <InlineSpan>[
-        ...base,
-        if (image != null || points != null)
-          WidgetSpan(
-            alignment: PlaceholderAlignment.middle,
-            child: Padding(
-              padding: const EdgeInsets.only(left: 4, right: 2),
-              child: image ?? glyph,
-            ),
-          ),
-        if (points != null)
-          TextSpan(
-            text: '$points',
-            style: TextStyle(fontSize: 14 * s),
-          ),
-      ];
-      // Redemption headers read a touch bolder than other system rows.
-      children = (msg.messageId?.startsWith('redemp:') ?? false)
-          ? [
-              TextSpan(
-                style: const TextStyle(fontWeight: FontWeight.w500),
-                children: body,
-              ),
-            ]
-          : body;
-      semanticsLabel = points == null
-          ? msg.text
-          : '${msg.text} ${context.l10n.pointsValue(points)}';
-      deleted = false;
+      (children, semanticsLabel, nameEnd, deleted) = _systemBody(context, s);
     } else {
-      final badges = widget.buildBadgeSpans(widget.channel, msg, badgeScale: s);
-      final InlineSpan? channelSpan = widget.showChannel
-          ? TextSpan(
-              text: '#${widget.channel} ',
-              style: TextStyle(
-                fontSize: 14 * s,
-                fontWeight: FontWeight.w500,
-                color: theme.colorScheme.onSurfaceVariant,
-                decoration: TextDecoration.none,
-              ),
-            )
-          : null;
-      InlineSpan? usernameSpan;
-      final usernameText = msg.isAction
-          ? '${msg.formattedUsername} '
-          : '${msg.formattedUsername}: ';
-      final nameStyle = TextStyle(
-        fontSize: 14 * s,
-        fontWeight: widget.fontWeight.value > 500
-            ? widget.fontWeight
-            : FontWeight.w500,
-        decoration: TextDecoration.none,
+      (children, semanticsLabel, nameEnd, deleted, embedUrls) = _chatBody(
+        theme,
+        s,
+        ts,
       );
-      final usernameColor = parseColor(msg.color, background: widget.surface);
-      final paint = _currentPaint();
-      final solid = paint?.solidColor;
-      final shadows = paint == null
-          ? null
-          // Each shadow redraws the name through a blur every frame the row
-          // paints, and the kernel grows with the radius: two shadows at
-          // their CSS size keep the glow without the raster cost.
-          : [
-              for (final shadow in paint.shadows.take(2))
-                Shadow(
-                  color: shadow.color,
-                  offset: Offset(shadow.offsetX, shadow.offsetY),
-                  blurRadius: shadow.blur,
-                ),
-            ];
-      if (paint == null || solid != null) {
-        // Unpainted and solid names stay in the row's own paragraph.
-        usernameSpan = TextSpan(
-          text: usernameText,
-          style: nameStyle.copyWith(
-            color: solid ?? usernameColor,
-            shadows: shadows == null || shadows.isEmpty ? null : shadows,
-          ),
-        );
-      } else {
-        usernameSpan = WidgetSpan(
-          alignment: PlaceholderAlignment.middle,
-          child: PaintedUsernameText(
-            service: widget.paintService!,
-            paint: paint,
-            text: usernameText,
-            baseStyle: nameStyle,
-            fallbackColor:
-                paint.fallbackColor ?? usernameColor ?? const Color(0xFF808080),
-            shadows: shadows!.isEmpty ? null : shadows,
-          ),
-        );
-      }
-
-      if (widget.showImages) {
-        embedUrls = collectImageEmbedUrls(
-          msg.text,
-          linkWhitelist: widget.linkWhitelist,
-        );
-      }
-      // Only rows with an image link take the tile-bound tap, which skips
-      // the shared span cache; every other row stays cached.
-      final bodySpans = widget.buildMessageSpans(
-        msg,
-        widget.channel,
-        widget.surface,
-        colored: msg.isAction,
-        textScale: s,
-        onImageTap: embedUrls.isEmpty ? null : _toggleEmbed,
-      );
-      _trackBodySpans(bodySpans, widget.bodyIsCached(msg, bodySpans));
-      children = [?channelSpan, ...badges, usernameSpan, ...bodySpans];
-      nameEnd = [
-        ?channelSpan,
-        ...badges,
-        usernameSpan,
-      ].fold<int>(0, (n, span) => n + span.toPlainText().length);
-      final channelLabel = widget.showChannel ? '#${widget.channel} ' : '';
-      semanticsLabel = msg.isHighlighted
-          ? 'Mention: $ts $channelLabel${msg.formattedUsername}: ${msg.text}'
-          : '$ts $channelLabel${msg.formattedUsername}: ${msg.text}';
-      deleted = msg.deleted;
     }
 
     final tsStyle = TextStyle(
@@ -518,9 +370,10 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
             style: tsStyle,
           );
 
-    _nameEnd = nameEnd == null
-        ? null
-        : nameEnd + (tsSpan?.toPlainText().length ?? 0);
+    // Hit-testing side effect: publishes where the name ends in the row's
+    // plain text, for [_hitsName]. Called before the row is built, so a tap
+    // that lands during the same frame reads this frame's zone.
+    _publishNameEnd(nameEnd, tsSpan);
 
     Widget child = Padding(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
@@ -546,55 +399,8 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
       );
     }
 
-    // One tint per row, never a blend of several: a highlight rule's color,
-    // else an announcement's accent, else the first-message green. Ripples
-    // draw above it.
-    var rowColor = widget.surface;
-    final highlight = msg.highlight;
-    if (highlight != null && highlight.tinted) {
-      rowColor = highlightRowColor(
-        highlight,
-        rowColor,
-        opacity: widget.highlightOpacity,
-      );
-    } else if (msg.systemAccent != null) {
-      rowColor = accentRowColor(
-        msg.systemAccent!,
-        rowColor,
-        widget.highlightOpacity,
-      );
-    } else if (msg.isFirstMessage) {
-      final tint = matchTintContrast(
-        Colors.green,
-        rowColor,
-        highlightAnchor(widget.surface),
-      );
-      rowColor = Color.alphaBlend(
-        tint.withValues(alpha: widget.highlightOpacity),
-        rowColor,
-      );
-    }
-    if (widget.checkeredMessages && widget.isAlternateBackground) {
-      // Alternating row: inverseSurface at ~12% alpha (dankchat style).
-      rowColor = Color.alphaBlend(
-        theme.colorScheme.inverseSurface.withValues(alpha: 0.12),
-        rowColor,
-      );
-    }
-
-    var fade = 1.0;
-    if (deleted) {
-      if (widget.fadeDeleted) fade = 0.35;
-    } else if (msg.isBackfill) {
-      // Backfill: less faded than deletion so catch-up messages stay distinct.
-      fade = 0.5;
-    }
-    // Shared-chat fade mode: dim foreign messages.
-    if (widget.sharedChatMode == 'fade' &&
-        msg.sourceBroadcasterId != null &&
-        !msg.isSystem) {
-      fade *= 0.55;
-    }
+    final rowColor = _rowColor(theme);
+    final fade = _rowFade(deleted);
     if (widget.replyIndicator != null) {
       child = Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -658,6 +464,260 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
     }
 
     return child;
+  }
+
+  /// A system row's body: the host's system builder (or plain text at the same
+  /// size and weight), plus a PubSub redemption header's reward image, cost and
+  /// bolder text. System rows have no name zone, so the offset is null, and
+  /// they never carry the deleted flag.
+  (List<InlineSpan>, String, int?, bool) _systemBody(
+    BuildContext context,
+    double s,
+  ) {
+    final msg = widget.message;
+    final base = widget.systemBodyBuilder != null
+        ? widget.systemBodyBuilder!(msg, s)
+        // Fallback: plain text at the same size/weight as the real path.
+        : <InlineSpan>[
+            TextSpan(
+              text: msg.text,
+              style: TextStyle(
+                fontSize: 14 * s,
+                fontStyle: FontStyle.normal,
+                decoration: TextDecoration.none,
+              ),
+            ),
+          ];
+    _trackBodySpans(base, false);
+    // PubSub redemption headers: the reward image, then the cost, like
+    // DankChat. A missing or broken image falls back to a points glyph.
+    final redemptionImage = msg.redemptionImageUrl;
+    final points = msg.redemptionPoints;
+    final size = 18.0 * s;
+    final glyph = Icon(Icons.toll_outlined, size: 14 * s);
+    final image = redemptionImage != null && redemptionImage.isNotEmpty
+        ? CachedNetworkImage(
+            imageUrl: redemptionImage,
+            width: size,
+            height: size,
+            fit: BoxFit.contain,
+            fadeInDuration: Duration.zero,
+            placeholder: (_, _) => SizedBox(width: size, height: size),
+            errorWidget: (_, failedUrl, error) {
+              logDebug('Redemption image load failed: $failedUrl - $error');
+              return points != null ? glyph : SizedBox(width: size);
+            },
+          )
+        : null;
+    final body = <InlineSpan>[
+      ...base,
+      if (image != null || points != null)
+        WidgetSpan(
+          alignment: PlaceholderAlignment.middle,
+          child: Padding(
+            padding: const EdgeInsets.only(left: 4, right: 2),
+            child: image ?? glyph,
+          ),
+        ),
+      if (points != null)
+        TextSpan(
+          text: '$points',
+          style: TextStyle(fontSize: 14 * s),
+        ),
+    ];
+    // Redemption headers read a touch bolder than other system rows.
+    final children = (msg.messageId?.startsWith('redemp:') ?? false)
+        ? <InlineSpan>[
+            TextSpan(
+              style: const TextStyle(fontWeight: FontWeight.w500),
+              children: body,
+            ),
+          ]
+        : body;
+    final label = points == null
+        ? msg.text
+        : '${msg.text} ${context.l10n.pointsValue(points)}';
+    return (children, label, null, false);
+  }
+
+  /// A chat row's body: the source-channel prefix (mentions), badges, the
+  /// username span (painted, solid or plain) and the message spans, plus the
+  /// image links the embed column may open. Also returns the plain-text offset
+  /// where the name ends, for [_hitsName].
+  (List<InlineSpan>, String, int?, bool, List<String>) _chatBody(
+    ThemeData theme,
+    double s,
+    String ts,
+  ) {
+    final msg = widget.message;
+    final badges = widget.buildBadgeSpans(widget.channel, msg, badgeScale: s);
+    final InlineSpan? channelSpan = widget.showChannel
+        ? TextSpan(
+            text: '#${widget.channel} ',
+            style: TextStyle(
+              fontSize: 14 * s,
+              fontWeight: FontWeight.w500,
+              color: theme.colorScheme.onSurfaceVariant,
+              decoration: TextDecoration.none,
+            ),
+          )
+        : null;
+    InlineSpan? usernameSpan;
+    final usernameText = msg.isAction
+        ? '${msg.formattedUsername} '
+        : '${msg.formattedUsername}: ';
+    final nameStyle = TextStyle(
+      fontSize: 14 * s,
+      fontWeight: widget.fontWeight.value > 500
+          ? widget.fontWeight
+          : FontWeight.w500,
+      decoration: TextDecoration.none,
+    );
+    final usernameColor = parseColor(msg.color, background: widget.surface);
+    final paint = _currentPaint();
+    final solid = paint?.solidColor;
+    final shadows = paint == null
+        ? null
+        // Each shadow redraws the name through a blur every frame the row
+        // paints, and the kernel grows with the radius: two shadows at
+        // their CSS size keep the glow without the raster cost.
+        : [
+            for (final shadow in paint.shadows.take(2))
+              Shadow(
+                color: shadow.color,
+                offset: Offset(shadow.offsetX, shadow.offsetY),
+                blurRadius: shadow.blur,
+              ),
+          ];
+    if (paint == null || solid != null) {
+      // Unpainted and solid names stay in the row's own paragraph.
+      usernameSpan = TextSpan(
+        text: usernameText,
+        style: nameStyle.copyWith(
+          color: solid ?? usernameColor,
+          shadows: shadows == null || shadows.isEmpty ? null : shadows,
+        ),
+      );
+    } else {
+      usernameSpan = WidgetSpan(
+        alignment: PlaceholderAlignment.middle,
+        child: PaintedUsernameText(
+          service: widget.paintService!,
+          paint: paint,
+          text: usernameText,
+          baseStyle: nameStyle,
+          fallbackColor:
+              paint.fallbackColor ?? usernameColor ?? const Color(0xFF808080),
+          shadows: shadows!.isEmpty ? null : shadows,
+        ),
+      );
+    }
+
+    var embedUrls = const <String>[];
+    if (widget.showImages) {
+      embedUrls = collectImageEmbedUrls(
+        msg.text,
+        linkWhitelist: widget.linkWhitelist,
+      );
+    }
+    // Only rows with an image link take the tile-bound tap, which skips
+    // the shared span cache; every other row stays cached.
+    final bodySpans = widget.buildMessageSpans(
+      msg,
+      widget.channel,
+      widget.surface,
+      colored: msg.isAction,
+      textScale: s,
+      onImageTap: embedUrls.isEmpty ? null : _toggleEmbed,
+    );
+    _trackBodySpans(bodySpans, widget.bodyIsCached(msg, bodySpans));
+    final children = <InlineSpan>[
+      ?channelSpan,
+      ...badges,
+      usernameSpan,
+      ...bodySpans,
+    ];
+    final nameEnd = [
+      ?channelSpan,
+      ...badges,
+      usernameSpan,
+    ].fold<int>(0, (n, span) => n + span.toPlainText().length);
+    final channelLabel = widget.showChannel ? '#${widget.channel} ' : '';
+    final label = msg.isHighlighted
+        ? 'Mention: $ts $channelLabel${msg.formattedUsername}: ${msg.text}'
+        : '$ts $channelLabel${msg.formattedUsername}: ${msg.text}';
+    return (children, label, nameEnd, msg.deleted, embedUrls);
+  }
+
+  /// Publishes the plain-text offset where the name (and its separator) ends,
+  /// which [_hitsName] uses to map a tap to the name zone. The timestamp span
+  /// comes first in the row's paragraph, so its padded length shifts the
+  /// offset. Null for system rows, which have no name.
+  void _publishNameEnd(int? nameEnd, InlineSpan? tsSpan) {
+    _nameEnd = nameEnd == null
+        ? null
+        : nameEnd + (tsSpan?.toPlainText().length ?? 0);
+  }
+
+  /// One tint per row, never a blend of several: a highlight rule's color,
+  /// else an announcement's accent, else the first-message green. A checkered
+  /// alternate row then gets its stripe. Ripples draw above it.
+  Color _rowColor(ThemeData theme) {
+    final msg = widget.message;
+    var rowColor = widget.surface;
+    final highlight = msg.highlight;
+    if (highlight != null && highlight.tinted) {
+      rowColor = highlightRowColor(
+        highlight,
+        rowColor,
+        opacity: widget.highlightOpacity,
+      );
+    } else if (msg.systemAccent != null) {
+      rowColor = accentRowColor(
+        msg.systemAccent!,
+        rowColor,
+        widget.highlightOpacity,
+      );
+    } else if (msg.isFirstMessage) {
+      final tint = matchTintContrast(
+        Colors.green,
+        rowColor,
+        highlightAnchor(widget.surface),
+      );
+      rowColor = Color.alphaBlend(
+        tint.withValues(alpha: widget.highlightOpacity),
+        rowColor,
+      );
+    }
+    if (widget.checkeredMessages && widget.isAlternateBackground) {
+      // Alternating row: inverseSurface at ~12% alpha (dankchat style).
+      rowColor = Color.alphaBlend(
+        theme.colorScheme.inverseSurface.withValues(alpha: 0.12),
+        rowColor,
+      );
+    }
+    return rowColor;
+  }
+
+  /// The row's opacity: deleted rows fade, backfill stays lighter so catch-up
+  /// messages stay distinct, and shared-chat fade mode dims foreign messages on
+  /// top of either.
+  double _rowFade(bool deleted) {
+    final msg = widget.message;
+    var fade = 1.0;
+    if (deleted) {
+      if (widget.fadeDeleted) fade = 0.35;
+    } else if (msg.isBackfill) {
+      // Backfill: less faded than deletion so catch-up messages stay distinct.
+      fade = 0.5;
+    }
+    // Shared-chat fade mode: dim foreign messages.
+    if (widget.sharedChatMode == 'fade' &&
+        msg.sourceBroadcasterId != null &&
+        !msg.isSystem) {
+      fade *= 0.55;
+    }
+    return fade;
   }
 }
 
