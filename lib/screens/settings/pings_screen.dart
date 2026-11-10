@@ -267,6 +267,27 @@ class _PingsScreenState extends ConsumerState<PingsScreen> {
     );
   }
 
+  /// Opens the mute panel on the default step, or closes it when it is open.
+  void _toggleMutePanel() =>
+      setState(() => _muteChoice = _muteChoice == null ? _defaultMute : null);
+
+  /// The line under the notifications row: off, blocked, muted until
+  /// [mutedUntil], or on.
+  String _statusText({
+    required bool pushOn,
+    required bool blocked,
+    required DateTime? mutedUntil,
+  }) {
+    final l = context.l10n;
+    if (!pushOn) return l.off;
+    if (blocked) return l.notificationsBlockedIos;
+    if (mutedUntil == null) return l.on;
+    final time = MaterialLocalizations.of(
+      context,
+    ).formatTimeOfDay(TimeOfDay.fromDateTime(mutedUntil.toLocal()));
+    return l.mutedUntil(time);
+  }
+
   /// Master switch for rule and whisper notifications, plus a moon that
   /// opens a panel to mute them for a while, or unmutes. Neither changes
   /// the rules.
@@ -278,40 +299,41 @@ class _PingsScreenState extends ConsumerState<PingsScreen> {
     final canMute = _keepAlive && pushOn;
     final apns = ref.read(apnsPushProvider);
     final blocked = pushOn && apns.blocked.value;
-    final String status;
-    if (!pushOn) {
-      status = context.l10n.off;
-    } else if (blocked) {
-      status = context.l10n.notificationsBlockedIos;
-    } else if (showMute) {
-      final time = MaterialLocalizations.of(
-        context,
-      ).formatTimeOfDay(TimeOfDay.fromDateTime(until.toLocal()));
-      status = context.l10n.mutedUntil(time);
-    } else {
-      status = context.l10n.on;
-    }
+    final status = _statusText(
+      pushOn: pushOn,
+      blocked: blocked,
+      mutedUntil: showMute ? until : null,
+    );
     final choosing = _muteChoice != null;
+    // A muted or mid-choice moon reads as active; a blocked one reads greyed.
+    final moonActive = showMute || choosing;
+    final Color moonColor;
+    if (!canMute) {
+      moonColor = scheme.onSurface.withValues(alpha: 0.38);
+    } else if (moonActive) {
+      moonColor = scheme.primary;
+    } else {
+      moonColor = scheme.onSurfaceVariant;
+    }
+    final VoidCallback? onMoonTap;
+    if (!canMute) {
+      onMoonTap = null;
+    } else if (showMute) {
+      onMoonTap = pause.resume;
+    } else {
+      onMoonTap = _toggleMutePanel;
+    }
     final moon = Semantics(
       button: true,
       label: showMute ? context.l10n.unmute : context.l10n.muteNotifications,
       child: InkWell(
         customBorder: const CircleBorder(),
-        onTap: !canMute
-            ? null
-            : showMute
-            ? pause.resume
-            : () =>
-                  setState(() => _muteChoice = choosing ? null : _defaultMute),
+        onTap: onMoonTap,
         child: SizedBox.square(
           dimension: 48,
           child: Icon(
-            showMute || choosing ? Icons.bedtime : Icons.bedtime_outlined,
-            color: !canMute
-                ? scheme.onSurface.withValues(alpha: 0.38)
-                : showMute || choosing
-                ? scheme.primary
-                : scheme.onSurfaceVariant,
+            moonActive ? Icons.bedtime : Icons.bedtime_outlined,
+            color: moonColor,
           ),
         ),
       ),
@@ -366,6 +388,24 @@ class _PingsScreenState extends ConsumerState<PingsScreen> {
     onTap: () => _edit(r),
   );
 
+  /// Rules of [kind] — and of [type], when one is given — in priority order.
+  static List<PingRule> _rulesOf(
+    List<PingRule> rules,
+    PingRuleKind kind, {
+    String? type,
+  }) => [
+    for (final r in rules)
+      if (r.kind == kind && (type == null || r.type == type)) r,
+  ];
+
+  /// Tiles for the rules [_rulesOf] picks.
+  List<Widget> _tilesOf(
+    List<PingRule> rules,
+    PingRuleKind kind, {
+    String? type,
+    bool paused = false,
+  }) => [for (final r in _rulesOf(rules, kind, type: type)) _tile(r, paused)];
+
   void _setLevel(PingRule rule, int level) {
     _manager.upsertRule(_withLevel(rule, level));
     _manager.save();
@@ -406,9 +446,7 @@ class _PingsScreenState extends ConsumerState<PingsScreen> {
   ) => [
     SettingsSectionHeader(context.l10n.sectionMentions),
     for (final type in const ['username', 'reply', 'thread'])
-      ...rules
-          .where((r) => r.kind == PingRuleKind.message && r.type == type)
-          .map((r) => _tile(r, paused)),
+      ..._tilesOf(rules, PingRuleKind.message, type: type, paused: paused),
     if (_pushSupported)
       _blockedTap(
         pushOn ? null : _masterOffSnack,
@@ -463,9 +501,7 @@ class _PingsScreenState extends ConsumerState<PingsScreen> {
         ),
       ),
       ..._reorderable(
-        rules
-            .where((r) => r.kind == kind && (!keywords || r.type == 'custom'))
-            .toList(),
+        _rulesOf(rules, kind, type: keywords ? 'custom' : null),
         paused,
       ),
       _AddTile(
@@ -486,9 +522,7 @@ class _PingsScreenState extends ConsumerState<PingsScreen> {
     return [
       SettingsSectionHeader(context.l10n.sectionEvents),
       for (final type in const ['firstMsg', 'redemption', 'elevated'])
-        ...rules
-            .where((r) => r.kind == PingRuleKind.message && r.type == type)
-            .map((r) => _tile(r, false)),
+        ..._tilesOf(rules, PingRuleKind.message, type: type),
       SettingAnchor.row(
         SettingsRow.badges,
         child: ListTile(
@@ -521,8 +555,7 @@ class _PingsScreenState extends ConsumerState<PingsScreen> {
       ),
     ),
     _Caption(context.l10n.dontHighlightCaption),
-    for (final r in rules.where((r) => r.kind == PingRuleKind.blacklist))
-      _tile(r, false),
+    ..._tilesOf(rules, PingRuleKind.blacklist),
     _AddTile(
       context.l10n.addUser,
       onTap: () => _edit(
@@ -920,13 +953,11 @@ String _ruleTitle(AppLocalizations l, PingRule rule) => switch (rule.kind) {
 /// Only what differs from the defaults (whole word). The level shows on the
 /// tile's own slider, so it is not repeated here.
 String? _ruleSubtitle(AppLocalizations l, PingRule rule) {
-  final parts = [
-    if (_isListRule(rule) &&
-        rule.kind == PingRuleKind.message &&
-        !rule.wordBoundary)
-      l.matchAnywhere,
-  ];
-  return parts.isEmpty ? null : parts.join(' · ');
+  final matchesAnywhere =
+      _isListRule(rule) &&
+      rule.kind == PingRuleKind.message &&
+      !rule.wordBoundary;
+  return matchesAnywhere ? l.matchAnywhere : null;
 }
 
 HighlightType _typeOf(PingRule rule) => switch (rule.kind) {
@@ -993,6 +1024,33 @@ PingRule _withLevel(PingRule rule, int level) => rule.copyWith(
 
 typedef _Saved = ({PingRule rule, bool deleted});
 
+/// [rule] with the editor's [result] written over it. A result without a color
+/// clears the rule's own.
+PingRule _applyEdit(PingRule rule, _EditResult result) => rule.copyWith(
+  pattern: result.pattern,
+  wordBoundary: result.wholeWord,
+  mention: result.mention,
+  notify: result.notify,
+  tint: result.tint,
+  colorArgb: result.colorArgb,
+  clearColor: result.colorArgb == null,
+  enabled: result.enabled,
+);
+
+/// [rule] under a fresh id, for the draft a new rule starts from.
+PingRule _asNewRule(PingRule rule) => PingRule(
+  id: DateTime.now().microsecondsSinceEpoch.toString(),
+  kind: rule.kind,
+  type: rule.type,
+  pattern: rule.pattern,
+  wordBoundary: rule.wordBoundary,
+  enabled: rule.enabled,
+  mention: rule.mention,
+  notify: rule.notify,
+  tint: rule.tint,
+  colorArgb: rule.colorArgb,
+);
+
 /// Opens the rule editor and applies the result. Returns what was saved, or
 /// null when the editor was closed.
 Future<_Saved?> _editRule(
@@ -1003,75 +1061,79 @@ Future<_Saved?> _editRule(
   required List<TwitchMessage> recent,
   required double opacity,
 }) async {
+  // Existing rules save on every change; this is the last one written.
+  PingRule? live;
+  void persist(_EditResult edited) {
+    final next = _applyEdit(rule, edited);
+    live = next;
+    manager.upsertRule(next);
+    manager.save();
+  }
+
+  final result = await _showEditor(
+    context,
+    rule,
+    isNew: isNew,
+    recent: recent,
+    opacity: opacity,
+    onLiveChange: isNew ? null : persist,
+  );
+  if (result != null && result.delete) {
+    manager.removeRule(rule.id);
+    manager.save();
+    return (rule: rule, deleted: true);
+  }
+  if (isNew) {
+    return result == null ? null : _saveNewRule(manager, rule, result);
+  }
+  final saved = live;
+  return saved == null ? null : (rule: saved, deleted: false);
+}
+
+/// Creates the rule the editor drafted and persists it under a new id.
+_Saved _saveNewRule(PingManager manager, PingRule rule, _EditResult result) {
+  final saved = _asNewRule(_applyEdit(rule, result));
+  manager.upsertRule(saved);
+  manager.save();
+  return (rule: saved, deleted: false);
+}
+
+/// Shows [_RuleEditor] for [rule]: a full page when the rule takes typing, a
+/// sheet otherwise. Returns what the editor closed with, or null.
+Future<_EditResult?> _showEditor(
+  BuildContext context,
+  PingRule rule, {
+  required bool isNew,
+  required List<TwitchMessage> recent,
+  required double opacity,
+  required ValueChanged<_EditResult>? onLiveChange,
+}) {
   // Typing gets a full page so the keyboard never covers the form; the rest
   // fit a sheet.
   final typed = _isListRule(rule) || rule.kind == PingRuleKind.blacklist;
-  PingRule apply(_EditResult r) => rule.copyWith(
-    pattern: r.pattern,
-    wordBoundary: r.wholeWord,
-    mention: r.mention,
-    notify: r.notify,
-    tint: r.tint,
-    colorArgb: r.colorArgb,
-    clearColor: r.colorArgb == null,
-    enabled: r.enabled,
-  );
-  // Existing rules save on every change; this tracks the last one written.
-  PingRule? live;
   Widget editor(_) => _RuleEditor(
     rule: rule,
     isNew: isNew,
     recent: recent,
     opacity: opacity,
     sheet: !typed,
-    onLiveChange: isNew
-        ? null
-        : (r) {
-            live = apply(r);
-            manager.upsertRule(live!);
-            manager.save();
-          },
+    onLiveChange: onLiveChange,
   );
-  final result = typed
-      ? await Navigator.push<_EditResult>(
-          context,
-          // A new rule is a draft (close discards it); an edit is already
-          // saved, so it gets a plain back arrow.
-          MaterialPageRoute(fullscreenDialog: isNew, builder: editor),
-        )
-      : await showModalBottomSheet<_EditResult>(
-          context: context,
-          isScrollControlled: true,
-          useSafeArea: true,
-          showDragHandle: true,
-          builder: editor,
-        );
-  if (result != null && result.delete) {
-    manager.removeRule(rule.id);
-    manager.save();
-    return (rule: rule, deleted: true);
+  if (!typed) {
+    return showModalBottomSheet<_EditResult>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      showDragHandle: true,
+      builder: editor,
+    );
   }
-  if (!isNew) {
-    final saved = live;
-    return saved == null ? null : (rule: saved, deleted: false);
-  }
-  if (result == null) return null;
-  final edited = apply(result);
-  final saved = PingRule(
-    id: DateTime.now().microsecondsSinceEpoch.toString(),
-    kind: edited.kind,
-    type: edited.type,
-    pattern: edited.pattern,
-    wordBoundary: edited.wordBoundary,
-    mention: edited.mention,
-    notify: edited.notify,
-    tint: edited.tint,
-    enabled: edited.enabled,
-    colorArgb: edited.colorArgb,
+  return Navigator.push<_EditResult>(
+    context,
+    // A new rule is a draft (close discards it); an edit is already saved, so
+    // it gets a plain back arrow.
+    MaterialPageRoute(fullscreenDialog: isNew, builder: editor),
   );
-  manager.upsertRule(saved);
-  manager.save();
-  return (rule: saved, deleted: false);
 }
 
 class _EditResult {
@@ -1177,6 +1239,11 @@ class _RuleEditorState extends State<_RuleEditor> {
     super.dispose();
   }
 
+  bool get _canSave => !_hasPattern || _pattern.isNotEmpty;
+
+  Text get _saveLabel =>
+      Text(widget.isNew ? context.l10n.add : context.l10n.save);
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -1184,106 +1251,50 @@ class _RuleEditorState extends State<_RuleEditor> {
       color: theme.colorScheme.onSurfaceVariant,
     );
     final description = _builtinNote(context.l10n, _rule.type);
-    final canSave = !_hasPattern || _pattern.isNotEmpty;
-    final saveLabel = Text(widget.isNew ? context.l10n.add : context.l10n.save);
     final sheet = widget.sheet;
-    final body = SafeArea(
-      top: false,
-      child: ListView(
-        shrinkWrap: sheet,
-        padding: EdgeInsets.fromLTRB(24, sheet ? 0 : 16, 24, sheet ? 24 : 32),
-        children: [
-          if (sheet) ...[
-            Text(_title, style: theme.textTheme.titleLarge),
-            const SizedBox(height: 4),
-          ],
-          if (description != null) Text(description, style: muted),
-          const SizedBox(height: 8),
-          if (_hasPattern)
-            TextField(
-              controller: _patternCtrl,
-              autofocus: widget.isNew,
-              autocorrect: !_isUserList,
-              textInputAction: TextInputAction.done,
-              onChanged: (_) => _set(() {}),
-              onSubmitted: (_) =>
-                  widget.isNew && canSave ? _save() : Navigator.pop(context),
-              decoration: InputDecoration(
-                labelText: _isKeyword
-                    ? context.l10n.wordOrPhrase
-                    : context.l10n.username,
-                prefixText: _isUserList ? '@' : null,
-                border: const OutlineInputBorder(),
-              ),
-            ),
-          if (_isKeyword) ...[
-            const SizedBox(height: 16),
-            SegmentedButton<bool>(
-              showSelectedIcon: false,
-              segments: [
-                ButtonSegment(value: true, label: Text(context.l10n.wholeWord)),
-                ButtonSegment(
-                  value: false,
-                  label: Text(context.l10n.matchAnywhere),
-                ),
-              ],
-              selected: {_wholeWord},
-              onSelectionChanged: (s) => _set(() => _wholeWord = s.first),
-            ),
-            const SizedBox(height: 12),
-            _matchExample(theme),
-          ],
-          if (_hasColor) ...[
-            const SizedBox(height: 28),
-            Row(
-              children: [
-                Text(context.l10n.color, style: theme.textTheme.titleSmall),
-                const Spacer(),
-                if (_color != null)
-                  TextButton(
-                    onPressed: () => _set(() => _color = null),
-                    child: Text(context.l10n.useDefault),
-                  ),
-              ],
-            ),
+    return _pageOrSheet(
+      SafeArea(
+        top: false,
+        child: ListView(
+          shrinkWrap: sheet,
+          padding: EdgeInsets.fromLTRB(24, sheet ? 0 : 16, 24, sheet ? 24 : 32),
+          children: [
+            if (sheet) ...[
+              Text(_title, style: theme.textTheme.titleLarge),
+              const SizedBox(height: 4),
+            ],
+            if (description != null) Text(description, style: muted),
             const SizedBox(height: 8),
-            Wrap(
-              spacing: 12,
-              runSpacing: 12,
-              children: [for (final c in _colorChoices) _swatch(c)],
-            ),
+            if (_hasPattern) _patternField(),
+            if (_isKeyword) ...[
+              const SizedBox(height: 16),
+              _wordBoundaryToggle(),
+              const SizedBox(height: 12),
+              _matchExample(theme),
+            ],
+            if (_hasColor) ..._colorSection(theme),
+            if (_hasPreview) ...[
+              const SizedBox(height: 32),
+              _preview(theme, muted),
+            ],
+            if (_canDelete) ...[
+              const SizedBox(height: 40),
+              _deleteButton(theme),
+            ],
+            if (sheet && widget.isNew) ...[
+              const SizedBox(height: 28),
+              _addButton(),
+            ],
           ],
-          if (_hasPreview) ...[
-            const SizedBox(height: 32),
-            _preview(theme, muted),
-          ],
-          if (_canDelete) ...[
-            const SizedBox(height: 40),
-            Align(
-              alignment: Alignment.centerLeft,
-              child: OutlinedButton.icon(
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: theme.colorScheme.error,
-                  side: BorderSide(color: theme.colorScheme.error),
-                ),
-                icon: const Icon(Icons.delete_outline),
-                label: Text(context.l10n.delete),
-                onPressed: () =>
-                    Navigator.pop(context, const _EditResult(delete: true)),
-              ),
-            ),
-          ],
-          if (widget.sheet && widget.isNew) ...[
-            const SizedBox(height: 28),
-            Align(
-              alignment: Alignment.centerRight,
-              child: FilledButton(onPressed: _save, child: saveLabel),
-            ),
-          ],
-        ],
+        ),
       ),
     );
-    if (sheet) return body;
+  }
+
+  /// A sheet brings its own chrome; a page wraps the same body in a Scaffold
+  /// with the title and, for a new rule, the Add action.
+  Widget _pageOrSheet(Widget body) {
+    if (widget.sheet) return body;
     return Scaffold(
       appBar: AppBar(
         title: Text(_title),
@@ -1292,8 +1303,8 @@ class _RuleEditorState extends State<_RuleEditor> {
             Padding(
               padding: const EdgeInsets.only(right: 8),
               child: TextButton(
-                onPressed: canSave ? _save : null,
-                child: saveLabel,
+                onPressed: _canSave ? _save : null,
+                child: _saveLabel,
               ),
             ),
         ],
@@ -1301,6 +1312,72 @@ class _RuleEditorState extends State<_RuleEditor> {
       body: body,
     );
   }
+
+  Widget _patternField() => TextField(
+    controller: _patternCtrl,
+    autofocus: widget.isNew,
+    autocorrect: !_isUserList,
+    textInputAction: TextInputAction.done,
+    onChanged: (_) => _set(() {}),
+    onSubmitted: (_) =>
+        widget.isNew && _canSave ? _save() : Navigator.pop(context),
+    decoration: InputDecoration(
+      labelText: _isKeyword ? context.l10n.wordOrPhrase : context.l10n.username,
+      prefixText: _isUserList ? '@' : null,
+      border: const OutlineInputBorder(),
+    ),
+  );
+
+  /// Whole word or anywhere, above the sample line that shows the difference.
+  Widget _wordBoundaryToggle() => SegmentedButton<bool>(
+    showSelectedIcon: false,
+    segments: [
+      ButtonSegment(value: true, label: Text(context.l10n.wholeWord)),
+      ButtonSegment(value: false, label: Text(context.l10n.matchAnywhere)),
+    ],
+    selected: {_wholeWord},
+    onSelectionChanged: (s) => _set(() => _wholeWord = s.first),
+  );
+
+  /// Color heading with "use default", then the swatches.
+  List<Widget> _colorSection(ThemeData theme) => [
+    const SizedBox(height: 28),
+    Row(
+      children: [
+        Text(context.l10n.color, style: theme.textTheme.titleSmall),
+        const Spacer(),
+        if (_color != null)
+          TextButton(
+            onPressed: () => _set(() => _color = null),
+            child: Text(context.l10n.useDefault),
+          ),
+      ],
+    ),
+    const SizedBox(height: 8),
+    Wrap(
+      spacing: 12,
+      runSpacing: 12,
+      children: [for (final c in _colorChoices) _swatch(c)],
+    ),
+  ];
+
+  Widget _deleteButton(ThemeData theme) => Align(
+    alignment: Alignment.centerLeft,
+    child: OutlinedButton.icon(
+      style: OutlinedButton.styleFrom(
+        foregroundColor: theme.colorScheme.error,
+        side: BorderSide(color: theme.colorScheme.error),
+      ),
+      icon: const Icon(Icons.delete_outline),
+      label: Text(context.l10n.delete),
+      onPressed: () => Navigator.pop(context, const _EditResult(delete: true)),
+    ),
+  );
+
+  Widget _addButton() => Align(
+    alignment: Alignment.centerRight,
+    child: FilledButton(onPressed: _save, child: _saveLabel),
+  );
 
   Widget _swatch(int c) {
     final selected = _color == c;

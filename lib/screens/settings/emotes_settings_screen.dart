@@ -15,6 +15,21 @@ import 'setting_info.dart';
 import 'settings_search.dart';
 import '../../widgets/design_tokens.dart';
 
+/// Every provider the visibility toggles cover, in display order.
+const _providers = [
+  EmoteType.twitch,
+  EmoteType.bttv,
+  EmoteType.ffz,
+  EmoteType.sevenTv,
+];
+
+const _providerLabels = {
+  EmoteType.twitch: 'Twitch',
+  EmoteType.bttv: 'BetterTTV',
+  EmoteType.ffz: 'FrankerFaceZ',
+  EmoteType.sevenTv: '7TV',
+};
+
 class EmotesSettingsScreen extends StatefulWidget {
   final ValueChanged<int>? onEmoteTierChanged;
   final ValueChanged<int>? onEmoteCacheMaxChanged;
@@ -60,13 +75,6 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
   /// can diff which providers were newly enabled.
   Set<EmoteType>? _enabledAtOpen;
 
-  static const _providerLabels = {
-    EmoteType.twitch: 'Twitch',
-    EmoteType.bttv: 'BetterTTV',
-    EmoteType.ffz: 'FrankerFaceZ',
-    EmoteType.sevenTv: '7TV',
-  };
-
   @override
   void initState() {
     super.initState();
@@ -90,26 +98,29 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
 
   @override
   void dispose() {
-    // Leaving settings settles the provider changes: newly disabled ones drop
-    // their emotes, newly enabled ones refetch. Off-on fiddling or no-change
-    // visits do nothing.
+    _settleProviderChanges();
+    super.dispose();
+  }
+
+  /// Leaving settings settles the provider changes: newly disabled ones drop
+  /// their emotes, newly enabled ones refetch. Off-on fiddling or no-change
+  /// visits do nothing.
+  void _settleProviderChanges() {
     final manager = widget.emoteManager;
     final atOpen = _enabledAtOpen;
-    if (manager != null && atOpen != null) {
-      final newlyEnabled = {
-        for (final entry in _providerEnabled.entries)
-          if (entry.value && !atOpen.contains(entry.key)) entry.key,
-      };
-      final newlyDisabled = {
-        for (final entry in _providerEnabled.entries)
-          if (!entry.value && atOpen.contains(entry.key)) entry.key,
-      };
-      if (newlyDisabled.isNotEmpty) manager.dropProviders(newlyDisabled);
-      if (newlyEnabled.isNotEmpty) {
-        unawaited(manager.ensureStashed(newlyEnabled));
-      }
+    if (manager == null || atOpen == null) return;
+    final newlyEnabled = {
+      for (final entry in _providerEnabled.entries)
+        if (entry.value && !atOpen.contains(entry.key)) entry.key,
+    };
+    final newlyDisabled = {
+      for (final entry in _providerEnabled.entries)
+        if (!entry.value && atOpen.contains(entry.key)) entry.key,
+    };
+    if (newlyDisabled.isNotEmpty) manager.dropProviders(newlyDisabled);
+    if (newlyEnabled.isNotEmpty) {
+      unawaited(manager.ensureStashed(newlyEnabled));
     }
-    super.dispose();
   }
 
   Future<void> _onProviderChanged(EmoteType type, bool enabled) async {
@@ -185,13 +196,6 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
     );
   }
 
-  static const _providers = [
-    EmoteType.twitch,
-    EmoteType.bttv,
-    EmoteType.ffz,
-    EmoteType.sevenTv,
-  ];
-
   String _providersSummary() {
     final enabled = [
       for (final type in _providers)
@@ -208,66 +212,85 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
     return showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
-      builder: (sheetContext) {
-        var enabled = Map.of(_providerEnabled);
-        return SafeArea(
-          child: StatefulBuilder(
-            builder: (context, setSheetState) => ListView(
-              shrinkWrap: true,
-              children: [
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
-                  child: Align(
-                    alignment: Alignment.centerLeft,
-                    child: Text(
-                      context.l10n.providersTitle,
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                ),
-                for (final type in _providers) ...[
-                  if (type == EmoteType.sevenTv)
-                    ..._sevenTvGroup(enabled, setSheetState)
-                  else
-                    SwitchListTile(
-                      key: Key('provider_toggle_${type.name}'),
-                      title: Text(_providerLabels[type] ?? type.name),
-                      value: enabled[type] ?? true,
-                      onChanged: (v) {
-                        setSheetState(() => enabled[type] = v);
-                        _onProviderChanged(type, v);
-                      },
-                    ),
-                  if (type == EmoteType.ffz && (enabled[type] ?? true))
-                    _prefCheckbox(context.l10n.ffzEffects, Settings.ffzEffects),
-                  if (type == EmoteType.bttv && (enabled[type] ?? true))
-                    _prefCheckbox(
-                      context.l10n.bttvModifiers,
-                      Settings.bttvModifiers,
-                    ),
-                ],
-                const SizedBox(height: 8),
-              ],
+      builder: (sheetContext) => SafeArea(
+        child: _ProviderSheetBody(
+          enabled: Map.of(_providerEnabled),
+          onProviderChanged: _onProviderChanged,
+        ),
+      ),
+    );
+  }
+}
+
+/// The provider sheet's contents. It edits its own copy of the enabled flags
+/// (so the sheet never races the screen's state) and reports each change out
+/// through [onProviderChanged].
+class _ProviderSheetBody extends StatefulWidget {
+  const _ProviderSheetBody({
+    required this.enabled,
+    required this.onProviderChanged,
+  });
+
+  /// Snapshot of the screen's provider flags when the sheet opened.
+  final Map<EmoteType, bool> enabled;
+  final void Function(EmoteType type, bool enabled) onProviderChanged;
+
+  @override
+  State<_ProviderSheetBody> createState() => _ProviderSheetBodyState();
+}
+
+class _ProviderSheetBodyState extends State<_ProviderSheetBody> {
+  /// The sheet's own copy: toggles show here first, then land on the manager.
+  late final Map<EmoteType, bool> _enabled = Map.of(widget.enabled);
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView(
+      shrinkWrap: true,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
+          child: Align(
+            alignment: Alignment.centerLeft,
+            child: Text(
+              context.l10n.providersTitle,
+              style: Theme.of(
+                context,
+              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
             ),
           ),
-        );
-      },
+        ),
+        for (final type in _providers) ...[
+          if (type == EmoteType.sevenTv)
+            ..._sevenTvGroup()
+          else
+            SwitchListTile(
+              key: Key('provider_toggle_${type.name}'),
+              title: Text(_providerLabels[type] ?? type.name),
+              value: _enabled[type] ?? true,
+              onChanged: (v) {
+                setState(() => _enabled[type] = v);
+                widget.onProviderChanged(type, v);
+              },
+            ),
+          if (type == EmoteType.ffz && (_enabled[type] ?? true))
+            _prefCheckbox(context.l10n.ffzEffects, Settings.ffzEffects),
+          if (type == EmoteType.bttv && (_enabled[type] ?? true))
+            _prefCheckbox(context.l10n.bttvModifiers, Settings.bttvModifiers),
+        ],
+        const SizedBox(height: 8),
+      ],
     );
   }
 
   /// 7TV as one switch over its emotes and its cosmetics (paints and
   /// badges). The parent is on while either is.
-  List<Widget> _sevenTvGroup(
-    Map<EmoteType, bool> enabled,
-    StateSetter setSheetState,
-  ) {
+  List<Widget> _sevenTvGroup() {
     const type = EmoteType.sevenTv;
-    final emotes = enabled[type] ?? true;
+    final emotes = _enabled[type] ?? true;
     void setEmotes(bool on) {
-      setSheetState(() => enabled[type] = on);
-      _onProviderChanged(type, on);
+      setState(() => _enabled[type] = on);
+      widget.onProviderChanged(type, on);
     }
 
     return [
@@ -419,6 +442,57 @@ class _EmoteQualitySectionState extends State<EmoteQualitySection> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        _TierSliderRow(
+          tier: tier,
+          displayTier: displayTier,
+          autoOn: autoOn,
+          isMobile: isMobile,
+          animate: _animateTier,
+          onDragging: _onTierDragging,
+          onChangeEnd: _onTierChanged,
+        ),
+        _AutoModePicker(mode: _autoMode, onChanged: _onAutoModeChanged),
+      ],
+    );
+  }
+}
+
+/// The tier slider block: its header, the picked tier above the thumb, the
+/// slider itself and the note under it (auto mode's effective tier, or the
+/// hint for the manual one).
+class _TierSliderRow extends StatelessWidget {
+  const _TierSliderRow({
+    required this.tier,
+    required this.displayTier,
+    required this.autoOn,
+    required this.isMobile,
+    required this.animate,
+    required this.onDragging,
+    required this.onChangeEnd,
+  });
+
+  /// Tier picked by hand, which the hint under the slider describes.
+  final EmoteFetchTier tier;
+
+  /// Tier the slider shows: auto mode's effective pick while it is on.
+  final EmoteFetchTier displayTier;
+
+  /// True while auto mode picks the tier, which locks the slider.
+  final bool autoOn;
+  final bool isMobile;
+
+  /// Whether the thumb slides to a new tier instead of jumping to it.
+  final bool animate;
+
+  /// Drag feedback only; the change itself is written on release.
+  final ValueChanged<double> onDragging;
+  final ValueChanged<double> onChangeEnd;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
         SettingAnchor(
           Settings.emoteFetchTier,
           child: SettingsSectionHeader(
@@ -427,7 +501,7 @@ class _EmoteQualitySectionState extends State<EmoteQualitySection> {
           ),
         ),
         TweenAnimationBuilder<double>(
-          duration: _animateTier ? Motion.slow : Duration.zero,
+          duration: animate ? Motion.slow : Duration.zero,
           curve: Motion.move,
           tween: Tween<double>(end: displayTier.index.toDouble()),
           builder: (context, animatedValue, _) {
@@ -455,8 +529,8 @@ class _EmoteQualitySectionState extends State<EmoteQualitySection> {
                   max: (EmoteFetchTier.values.length - 1).toDouble(),
                   divisions: EmoteFetchTier.values.length - 1,
                   label: _tierLabel(context.l10n, displayTier),
-                  onChanged: autoOn ? null : _onTierDragging,
-                  onChangeEnd: autoOn ? null : _onTierChanged,
+                  onChanged: autoOn ? null : onDragging,
+                  onChangeEnd: autoOn ? null : onChangeEnd,
                 ),
               ],
             );
@@ -500,6 +574,24 @@ class _EmoteQualitySectionState extends State<EmoteQualitySection> {
             ),
           ),
         ),
+      ],
+    );
+  }
+}
+
+/// The auto data saver block: its header, the mode picker and the hint
+/// describing the selected mode.
+class _AutoModePicker extends StatelessWidget {
+  const _AutoModePicker({required this.mode, required this.onChanged});
+
+  final EmoteFetchAutoMode mode;
+  final ValueChanged<EmoteFetchAutoMode> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
         SettingAnchor(
           Settings.emoteFetchAuto,
           child: SettingsSectionHeader(
@@ -512,65 +604,62 @@ class _EmoteQualitySectionState extends State<EmoteQualitySection> {
           child: SegmentedButton<EmoteFetchAutoMode>(
             key: const Key('emote_auto_mode'),
             segments: [
-              for (final mode in EmoteFetchAutoMode.values)
+              for (final option in EmoteFetchAutoMode.values)
                 ButtonSegment(
-                  value: mode,
+                  value: option,
                   // Narrow phones shrink the word instead of breaking it.
                   label: FittedBox(
                     fit: BoxFit.scaleDown,
                     child: Text(
-                      _autoModeLabel(context.l10n, mode),
+                      _autoModeLabel(context.l10n, option),
                       maxLines: 1,
                       softWrap: false,
                     ),
                   ),
                 ),
             ],
-            selected: {_autoMode},
+            selected: {mode},
             showSelectedIcon: false,
-            onSelectionChanged: (selection) =>
-                _onAutoModeChanged(selection.first),
+            onSelectionChanged: (selection) => onChanged(selection.first),
           ),
         ),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
           child: Text(
-            _autoModeHint(context.l10n, _autoMode),
+            _autoModeHint(context.l10n, mode),
             style: Theme.of(context).textTheme.bodyMedium,
           ),
         ),
       ],
     );
   }
-
-  static String _tierLabel(AppLocalizations l, EmoteFetchTier t) => switch (t) {
-    EmoteFetchTier.nothing => l.tierNothing,
-    EmoteFetchTier.low => l.tierLow,
-    EmoteFetchTier.medium => l.tierMedium,
-    EmoteFetchTier.high => l.tierHigh,
-  };
-
-  static String _tierHint(AppLocalizations l, EmoteFetchTier t) => switch (t) {
-    EmoteFetchTier.nothing => l.tierNothingHint,
-    EmoteFetchTier.low => l.tierLowHint,
-    EmoteFetchTier.medium => l.tierMediumHint,
-    EmoteFetchTier.high => l.tierHighHint,
-  };
-
-  static String _autoModeLabel(AppLocalizations l, EmoteFetchAutoMode m) =>
-      switch (m) {
-        EmoteFetchAutoMode.off => l.autoModeOff,
-        EmoteFetchAutoMode.balanced => l.autoModeBalanced,
-        EmoteFetchAutoMode.aggressive => l.autoModeAggressive,
-      };
-
-  static String _autoModeHint(AppLocalizations l, EmoteFetchAutoMode m) =>
-      switch (m) {
-        EmoteFetchAutoMode.off => l.autoModeOffHint,
-        EmoteFetchAutoMode.balanced => l.autoModeBalancedHint,
-        EmoteFetchAutoMode.aggressive => l.autoModeAggressiveHint,
-      };
 }
+
+String _tierLabel(AppLocalizations l, EmoteFetchTier t) => switch (t) {
+  EmoteFetchTier.nothing => l.tierNothing,
+  EmoteFetchTier.low => l.tierLow,
+  EmoteFetchTier.medium => l.tierMedium,
+  EmoteFetchTier.high => l.tierHigh,
+};
+
+String _tierHint(AppLocalizations l, EmoteFetchTier t) => switch (t) {
+  EmoteFetchTier.nothing => l.tierNothingHint,
+  EmoteFetchTier.low => l.tierLowHint,
+  EmoteFetchTier.medium => l.tierMediumHint,
+  EmoteFetchTier.high => l.tierHighHint,
+};
+
+String _autoModeLabel(AppLocalizations l, EmoteFetchAutoMode m) => switch (m) {
+  EmoteFetchAutoMode.off => l.autoModeOff,
+  EmoteFetchAutoMode.balanced => l.autoModeBalanced,
+  EmoteFetchAutoMode.aggressive => l.autoModeAggressive,
+};
+
+String _autoModeHint(AppLocalizations l, EmoteFetchAutoMode m) => switch (m) {
+  EmoteFetchAutoMode.off => l.autoModeOffHint,
+  EmoteFetchAutoMode.balanced => l.autoModeBalancedHint,
+  EmoteFetchAutoMode.aggressive => l.autoModeAggressiveHint,
+};
 
 /// The emote disk cache cap, apply and clear buttons, and usage footer.
 /// Shown on Emotes and mirrored on Data.

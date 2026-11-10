@@ -112,48 +112,64 @@ class _AccountScreenState extends State<AccountScreen> {
       onCookies: (c) => cookies = c,
     );
     final saved = widget.twitchAuth.activeAccount?.webCookies;
-    final useBrowserOAuth = Settings.useBrowserOAuth.value;
-    if (useBrowserOAuth) {
+    if (Settings.useBrowserOAuth.value) {
       _startBrowserOAuth(forceVerify: adding);
-    } else {
-      final starter = widget.oAuthStarter;
-      final fresh = adding && saved != null && starter == null;
-      if (fresh) await TwitchLoginPage.clearSession();
-      final token = starter != null
-          ? await starter()
-          : await TwitchOAuth.startFlow(
-              present: present,
-              forceVerify: adding && !fresh,
-              l: l,
-            );
-      final signedIn = token != null && token.isNotEmpty;
-      // A login that went nowhere hands the jar back to the active account.
-      if (fresh && !signedIn) await TwitchLoginPage.useSession(saved);
-
-      if (!mounted) return;
-
-      if (signedIn) {
-        widget.twitchAuth.setCredentials(
-          accessToken: token,
-          webCookies: cookies,
-        );
-        widget.onWebSessionChanged?.call();
-        setState(() => _authState = _AuthState.success);
-        _loadConnectedLogin();
-      } else if (starter == null && TwitchOAuth.lastCancelled) {
-        // Closing the login is not an error: back to where the user was.
-        setState(() {
-          _authState = widget.twitchAuth.isConfigured
-              ? _AuthState.success
-              : _AuthState.idle;
-        });
-      } else {
-        setState(() {
-          _authState = _AuthState.error;
-          _authError = TwitchOAuth.lastError ?? context.l10n.loginFailed;
-        });
-      }
+      return;
     }
+    final starter = widget.oAuthStarter;
+    final fresh = adding && saved != null && starter == null;
+    if (fresh) await TwitchLoginPage.clearSession();
+    final token = starter != null
+        ? await starter()
+        : await TwitchOAuth.startFlow(
+            present: present,
+            forceVerify: adding && !fresh,
+            l: l,
+          );
+    final signedIn = token != null && token.isNotEmpty;
+    // A login that went nowhere hands the jar back to the active account.
+    if (fresh && !signedIn) await TwitchLoginPage.useSession(saved);
+
+    await _finishNativeOAuth(
+      token,
+      cookies: cookies,
+      // TwitchOAuth's own flow treats a closed login as a cancel, not an error.
+      cancelledIsCancel: starter == null,
+    );
+  }
+
+  /// Settles what the native flow came back with: a token signs the account
+  /// in, a closed login returns to where the user was, anything else shows
+  /// why it failed.
+  Future<void> _finishNativeOAuth(
+    String? token, {
+    required String? cookies,
+    required bool cancelledIsCancel,
+  }) async {
+    if (!mounted) return;
+
+    if (token != null && token.isNotEmpty) {
+      widget.twitchAuth.setCredentials(accessToken: token, webCookies: cookies);
+      widget.onWebSessionChanged?.call();
+      setState(() => _authState = _AuthState.success);
+      _loadConnectedLogin();
+      return;
+    }
+
+    if (cancelledIsCancel && TwitchOAuth.lastCancelled) {
+      // Closing the login is not an error: back to where the user was.
+      setState(() {
+        _authState = widget.twitchAuth.isConfigured
+            ? _AuthState.success
+            : _AuthState.idle;
+      });
+      return;
+    }
+
+    setState(() {
+      _authState = _AuthState.error;
+      _authError = TwitchOAuth.lastError ?? context.l10n.loginFailed;
+    });
   }
 
   void _startBrowserOAuth({bool forceVerify = false}) {
@@ -225,23 +241,27 @@ class _AccountScreenState extends State<AccountScreen> {
     widget.onWebSessionChanged?.call();
   }
 
+  /// Points the screen back at whatever auth now holds: the state, the error
+  /// and the resolved login all follow it. With multiple saved accounts,
+  /// dropping the active one falls back to the next instead of logging out.
+  void _syncToAuth() {
+    final configured = widget.twitchAuth.isConfigured;
+    setState(() {
+      _authState = configured ? _AuthState.success : _AuthState.idle;
+      _authError = null;
+      _connectedLogin = null;
+    });
+    if (configured) {
+      _loadConnectedLogin();
+    }
+  }
+
   Future<void> _clearCredentials() async {
     final left = widget.twitchAuth.activeAccount?.login;
     await widget.twitchAuth.clear();
     await _followSession(left);
     if (!mounted) return;
-    setState(() {
-      // With multiple saved accounts, clearing the active one falls back to
-      // the next account instead of logging out entirely.
-      _authState = widget.twitchAuth.isConfigured
-          ? _AuthState.success
-          : _AuthState.idle;
-      _authError = null;
-      _connectedLogin = null;
-    });
-    if (widget.twitchAuth.isConfigured) {
-      _loadConnectedLogin();
-    }
+    _syncToAuth();
   }
 
   @override
@@ -273,57 +293,55 @@ class _AccountScreenState extends State<AccountScreen> {
                 ),
               ),
             ),
-            for (final account in accounts) ...[
-              Builder(
-                builder: (context) {
-                  final isActive =
-                      account.login.toLowerCase() == auth.login?.toLowerCase();
-                  final isExpired = account.expired;
-                  final needsReauth = isActive && !isExpired && auth.scopeStale;
-                  final tile = ListTile(
-                    leading: _AccountAvatar(account: account),
-                    title: Text(account.login),
-                    subtitle: isExpired
-                        ? Text(context.l10n.accountExpired)
-                        : needsReauth
-                        ? Text(context.l10n.accountNewPermissions)
-                        : isActive
-                        ? Text(context.l10n.accountActive)
-                        : null,
-                    trailing: isActive && !isExpired
-                        ? Icon(Icons.check, color: theme.colorScheme.primary)
-                        : null,
-                    onTap: () =>
-                        _switchAccount(() => auth.switchTo(account.login)),
-                  );
-                  return isExpired ? Opacity(opacity: 0.5, child: tile) : tile;
-                },
-              ),
-            ],
-            Builder(
-              builder: (context) {
-                final isActive = auth.isAnonymous;
-                return ListTile(
-                  leading: CircleAvatar(
-                    radius: 18,
-                    backgroundColor: theme.colorScheme.surfaceContainerHighest,
-                    child: Icon(
-                      Icons.person_outline,
-                      color: theme.colorScheme.onSurfaceVariant,
-                    ),
-                  ),
-                  title: Text(context.l10n.anonymous),
-                  subtitle: isActive ? Text(context.l10n.accountActive) : null,
-                  trailing: isActive
-                      ? Icon(Icons.check, color: theme.colorScheme.primary)
-                      : null,
-                  onTap: () => _switchAccount(auth.switchToAnonymous),
-                );
-              },
-            ),
+            for (final account in accounts) _accountTile(auth, account, theme),
+            _anonymousTile(auth, theme),
           ],
         );
       },
+    );
+  }
+
+  /// One saved account row; an expired account is dimmed.
+  Widget _accountTile(TwitchAuth auth, TwitchAccount account, ThemeData theme) {
+    final isActive = account.login.toLowerCase() == auth.login?.toLowerCase();
+    final isExpired = account.expired;
+    final needsReauth = isActive && !isExpired && auth.scopeStale;
+    final tile = ListTile(
+      leading: _AccountAvatar(account: account),
+      title: Text(account.login),
+      subtitle: isExpired
+          ? Text(context.l10n.accountExpired)
+          : needsReauth
+          ? Text(context.l10n.accountNewPermissions)
+          : isActive
+          ? Text(context.l10n.accountActive)
+          : null,
+      trailing: isActive && !isExpired
+          ? Icon(Icons.check, color: theme.colorScheme.primary)
+          : null,
+      onTap: () => _switchAccount(() => auth.switchTo(account.login)),
+    );
+    return isExpired ? Opacity(opacity: 0.5, child: tile) : tile;
+  }
+
+  /// The signed-out row at the bottom of the switcher.
+  Widget _anonymousTile(TwitchAuth auth, ThemeData theme) {
+    final isActive = auth.isAnonymous;
+    return ListTile(
+      leading: CircleAvatar(
+        radius: 18,
+        backgroundColor: theme.colorScheme.surfaceContainerHighest,
+        child: Icon(
+          Icons.person_outline,
+          color: theme.colorScheme.onSurfaceVariant,
+        ),
+      ),
+      title: Text(context.l10n.anonymous),
+      subtitle: isActive ? Text(context.l10n.accountActive) : null,
+      trailing: isActive
+          ? Icon(Icons.check, color: theme.colorScheme.primary)
+          : null,
+      onTap: () => _switchAccount(auth.switchToAnonymous),
     );
   }
 
@@ -335,21 +353,19 @@ class _AccountScreenState extends State<AccountScreen> {
     await switchOp();
     await _followSession(left);
     if (!mounted) return;
-    if (_authState == _AuthState.idle ||
-        _authState == _AuthState.success ||
-        _authState == _AuthState.error) {
-      setState(() {
-        _authState = widget.twitchAuth.isConfigured
-            ? _AuthState.success
-            : _AuthState.idle;
-        _authError = null;
-        _connectedLogin = null;
-      });
-    }
-    if (widget.twitchAuth.isConfigured) {
+    if (_settled) {
+      _syncToAuth();
+    } else if (widget.twitchAuth.isConfigured) {
+      // An open login flow owns the screen; the login still resolves.
       _loadConnectedLogin();
     }
   }
+
+  /// States that describe the settled account, not an open login flow.
+  bool get _settled =>
+      _authState == _AuthState.idle ||
+      _authState == _AuthState.success ||
+      _authState == _AuthState.error;
 
   /// Disconnect forgets the active account, so it confirms first.
   Future<void> _disconnect() async {
@@ -371,252 +387,240 @@ class _AccountScreenState extends State<AccountScreen> {
     await widget.twitchAuth.removeAccount(account.login);
     await _followSession(left);
     if (!mounted) return;
-    setState(() {
-      _authState = widget.twitchAuth.isConfigured
-          ? _AuthState.success
-          : _AuthState.idle;
-      _authError = null;
-      _connectedLogin = null;
-    });
-    if (widget.twitchAuth.isConfigured) {
-      _loadConnectedLogin();
-    }
+    _syncToAuth();
   }
 
-  Widget _buildBody() {
-    switch (_authState) {
-      case _AuthState.idle:
-        return Center(
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: FilledButton.icon(
-              onPressed: _startOAuth,
-              icon: const Icon(Icons.login),
-              label: Text(context.l10n.logIn),
+  Widget _buildBody() => switch (_authState) {
+    _AuthState.idle => _idleBody(),
+    _AuthState.needsSetup => _needsSetupBody(),
+    _AuthState.waiting => _waitingBody(),
+    _AuthState.pasteToken => _pasteTokenBody(),
+    _AuthState.success => _successBody(),
+    _AuthState.error => _errorBody(),
+  };
+
+  /// A single Log in button; the switcher above already shows the accounts.
+  Widget _idleBody() => Center(
+    child: Padding(
+      padding: const EdgeInsets.all(24),
+      child: FilledButton.icon(
+        onPressed: _startOAuth,
+        icon: const Icon(Icons.login),
+        label: Text(context.l10n.logIn),
+      ),
+    ),
+  );
+
+  /// TwitchConfig still has its placeholder client id, so login cannot run.
+  Widget _needsSetupBody() => Center(
+    child: Padding(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.info_outline, size: 48),
+          const SizedBox(height: 16),
+          const Text(
+            'Open lib/twitch_config.dart and replace YOUR_CLIENT_ID_HERE '
+            'with your Twitch Client ID.',
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Get one at dev.twitch.tv/console/apps',
+            style: Theme.of(context).textTheme.bodySmall,
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 24),
+          FilledButton.icon(
+            onPressed: _startOAuth,
+            icon: const Icon(Icons.refresh),
+            label: Text(context.l10n.tryAgain),
+          ),
+        ],
+      ),
+    ),
+  );
+
+  Widget _waitingBody() => Center(
+    child: Padding(
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(context.l10n.openingTwitchLogin),
+          const SizedBox(height: 16),
+          const CircularProgressIndicator(),
+        ],
+      ),
+    ),
+  );
+
+  /// Browser OAuth: the URL to finish in a browser, then the redirect to paste.
+  Widget _pasteTokenBody() => Padding(
+    padding: const EdgeInsets.symmetric(horizontal: 16),
+    child: Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (_authError != null)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: Text(
+              _authError!,
+              style: TextStyle(color: Theme.of(context).colorScheme.error),
+              textAlign: TextAlign.center,
             ),
           ),
-        );
-
-      case _AuthState.needsSetup:
-        return Center(
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Icon(Icons.info_outline, size: 48),
-                const SizedBox(height: 16),
-                const Text(
-                  'Open lib/twitch_config.dart and replace YOUR_CLIENT_ID_HERE '
-                  'with your Twitch Client ID.',
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  'Get one at dev.twitch.tv/console/apps',
-                  style: Theme.of(context).textTheme.bodySmall,
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 24),
-                FilledButton.icon(
-                  onPressed: _startOAuth,
-                  icon: const Icon(Icons.refresh),
-                  label: Text(context.l10n.tryAgain),
-                ),
-              ],
-            ),
+        Text(context.l10n.browserAuthHint, textAlign: TextAlign.center),
+        const SizedBox(height: 12),
+        SelectionArea(
+          child: Text(
+            _browserAuthUrl ?? '',
+            style: const TextStyle(fontSize: 11, fontFamily: 'monospace'),
           ),
-        );
-
-      case _AuthState.waiting:
-        return Center(
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(context.l10n.openingTwitchLogin),
-                const SizedBox(height: 16),
-                const CircularProgressIndicator(),
-              ],
-            ),
+        ),
+        const SizedBox(height: 8),
+        TextButton.icon(
+          onPressed: () {
+            if (_browserAuthUrl != null) {
+              Clipboard.setData(ClipboardData(text: _browserAuthUrl!));
+              AppSnack.show(context, context.l10n.urlCopied);
+            }
+          },
+          icon: const Icon(Icons.copy, size: 18),
+          label: Text(context.l10n.copyUrl),
+        ),
+        const SizedBox(height: 12),
+        TextField(
+          controller: _pasteController,
+          decoration: InputDecoration(
+            hintText: context.l10n.pasteRedirectUrl,
+            border: const OutlineInputBorder(),
           ),
-        );
-
-      case _AuthState.pasteToken:
-        return Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              if (_authError != null)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 12),
-                  child: Text(
-                    _authError!,
-                    style: TextStyle(
-                      color: Theme.of(context).colorScheme.error,
-                    ),
-                    textAlign: TextAlign.center,
-                  ),
-                ),
-              Text(context.l10n.browserAuthHint, textAlign: TextAlign.center),
-              const SizedBox(height: 12),
-              SelectionArea(
-                child: Text(
-                  _browserAuthUrl ?? '',
-                  style: const TextStyle(fontSize: 11, fontFamily: 'monospace'),
-                ),
-              ),
-              const SizedBox(height: 8),
-              TextButton.icon(
+          maxLines: 2,
+        ),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            Expanded(
+              child: OutlinedButton(
                 onPressed: () {
-                  if (_browserAuthUrl != null) {
-                    Clipboard.setData(ClipboardData(text: _browserAuthUrl!));
-                    AppSnack.show(context, context.l10n.urlCopied);
-                  }
+                  setState(() => _authState = _AuthState.idle);
                 },
-                icon: const Icon(Icons.copy, size: 18),
-                label: Text(context.l10n.copyUrl),
+                child: Text(context.l10n.cancel),
               ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: _pasteController,
-                decoration: InputDecoration(
-                  hintText: context.l10n.pasteRedirectUrl,
-                  border: const OutlineInputBorder(),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: FilledButton(
+                onPressed: _submitPastedUrl,
+                child: Text(context.l10n.submit),
+              ),
+            ),
+          ],
+        ),
+      ],
+    ),
+  );
+
+  Widget _successBody() => Center(
+    child: Padding(
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.check_circle, size: 40, color: Colors.green),
+          const SizedBox(height: 8),
+          // Follows auth changes so switching accounts updates the header
+          // immediately; _connectedLogin is only a fallback until the active
+          // account's identity is resolved.
+          ListenableBuilder(
+            listenable: widget.twitchAuth,
+            builder: (context, _) {
+              final login = widget.twitchAuth.login ?? _connectedLogin;
+              return Text(
+                login != null
+                    ? context.l10n.connectedAs(login)
+                    : context.l10n.connected,
+              );
+            },
+          ),
+          ListenableBuilder(
+            listenable: widget.twitchAuth,
+            builder: (context, _) {
+              if (!widget.twitchAuth.scopeStale) {
+                return const SizedBox.shrink();
+              }
+              return Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Text(
+                  context.l10n.modScopesStale,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: Theme.of(context).colorScheme.error),
                 ),
-                maxLines: 2,
+              );
+            },
+          ),
+          const SizedBox(height: 16),
+          OverflowBar(
+            spacing: 12,
+            overflowSpacing: 8,
+            alignment: MainAxisAlignment.center,
+            children: [
+              ListenableBuilder(
+                listenable: widget.twitchAuth,
+                builder: (context, _) {
+                  return OutlinedButton.icon(
+                    // Stale scopes re-login the active account.
+                    onPressed: () =>
+                        _startOAuth(adding: !widget.twitchAuth.scopeStale),
+                    icon: const Icon(Icons.person_add),
+                    label: Text(
+                      widget.twitchAuth.scopeStale
+                          ? context.l10n.logInAgain
+                          : context.l10n.addAccount,
+                    ),
+                  );
+                },
               ),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton(
-                      onPressed: () {
-                        setState(() => _authState = _AuthState.idle);
-                      },
-                      child: Text(context.l10n.cancel),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: FilledButton(
-                      onPressed: _submitPastedUrl,
-                      child: Text(context.l10n.submit),
-                    ),
-                  ),
-                ],
+              TextButton.icon(
+                onPressed: _disconnect,
+                icon: const Icon(Icons.logout),
+                label: Text(context.l10n.disconnect),
               ),
             ],
           ),
-        );
+        ],
+      ),
+    ),
+  );
 
-      case _AuthState.success:
-        return Center(
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(Icons.check_circle, size: 40, color: Colors.green),
-                const SizedBox(height: 8),
-                // Follows auth changes so switching accounts updates the
-                // header immediately; _connectedLogin is only a fallback
-                // until the active account's identity is resolved.
-                ListenableBuilder(
-                  listenable: widget.twitchAuth,
-                  builder: (context, _) {
-                    final login = widget.twitchAuth.login ?? _connectedLogin;
-                    return Text(
-                      login != null
-                          ? context.l10n.connectedAs(login)
-                          : context.l10n.connected,
-                    );
-                  },
-                ),
-                ListenableBuilder(
-                  listenable: widget.twitchAuth,
-                  builder: (context, _) {
-                    if (!widget.twitchAuth.scopeStale) {
-                      return const SizedBox.shrink();
-                    }
-                    return Padding(
-                      padding: const EdgeInsets.only(top: 8),
-                      child: Text(
-                        context.l10n.modScopesStale,
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          color: Theme.of(context).colorScheme.error,
-                        ),
-                      ),
-                    );
-                  },
-                ),
-                const SizedBox(height: 16),
-                OverflowBar(
-                  spacing: 12,
-                  overflowSpacing: 8,
-                  alignment: MainAxisAlignment.center,
-                  children: [
-                    ListenableBuilder(
-                      listenable: widget.twitchAuth,
-                      builder: (context, _) {
-                        return OutlinedButton.icon(
-                          // Stale scopes re-login the active account.
-                          onPressed: () => _startOAuth(
-                            adding: !widget.twitchAuth.scopeStale,
-                          ),
-                          icon: const Icon(Icons.person_add),
-                          label: Text(
-                            widget.twitchAuth.scopeStale
-                                ? context.l10n.logInAgain
-                                : context.l10n.addAccount,
-                          ),
-                        );
-                      },
-                    ),
-                    TextButton.icon(
-                      onPressed: _disconnect,
-                      icon: const Icon(Icons.logout),
-                      label: Text(context.l10n.disconnect),
-                    ),
-                  ],
-                ),
-              ],
+  Widget _errorBody() => Center(
+    child: Padding(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.error, size: 48, color: Colors.red),
+          const SizedBox(height: 16),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Text(
+              _authError ?? context.l10n.unknownError,
+              textAlign: TextAlign.center,
             ),
           ),
-        );
-
-      case _AuthState.error:
-        return Center(
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Icon(Icons.error, size: 48, color: Colors.red),
-                const SizedBox(height: 16),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  child: Text(
-                    _authError ?? context.l10n.unknownError,
-                    textAlign: TextAlign.center,
-                  ),
-                ),
-                const SizedBox(height: 24),
-                FilledButton.icon(
-                  onPressed: _startOAuth,
-                  icon: const Icon(Icons.refresh),
-                  label: Text(context.l10n.tryAgain),
-                ),
-              ],
-            ),
+          const SizedBox(height: 24),
+          FilledButton.icon(
+            onPressed: _startOAuth,
+            icon: const Icon(Icons.refresh),
+            label: Text(context.l10n.tryAgain),
           ),
-        );
-    }
-  }
+        ],
+      ),
+    ),
+  );
 }
 
 // Account avatar: the saved profile picture when available, otherwise the

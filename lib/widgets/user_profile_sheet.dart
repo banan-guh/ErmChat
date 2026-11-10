@@ -158,7 +158,7 @@ class UserProfileSheetState extends State<UserProfileSheet> {
   // text-scale changes.
   double? _naturalCardH;
   bool _measureDirty = true;
-  // Set once the sheet first rises past the card detent; see sheetBody.
+  // Set once the sheet first rises past the card detent; see _sheetBody.
   bool _historyBuilt = false;
   final _cardMeasureKey = GlobalKey();
   ScrollController get _scrollController =>
@@ -405,114 +405,7 @@ class UserProfileSheetState extends State<UserProfileSheet> {
         child: _buildCard(theme, actions),
       ),
     );
-    final Widget? history = widget.messageRowBuilder == null
-        ? null
-        // Hidden while loading so no row flashes before the card.
-        : _loading
-        ? const SizedBox.shrink()
-        : widget.userMessages.isEmpty
-        ? _buildHistoryEmpty(theme)
-        : NotificationListener<ScrollUpdateNotification>(
-            onNotification: (notification) {
-              _onScrollPixels(notification.metrics.pixels);
-              _scheduleGateSync();
-              if (widget.onLoadOlder != null &&
-                  notification.metrics.extentAfter < _pageAhead) {
-                widget.onLoadOlder!();
-              }
-              return false;
-            },
-            child: NotificationListener<ScrollMetricsNotification>(
-              // A sheet resize moves rows in or out of view without a scroll.
-              onNotification: (_) {
-                _scheduleGateSync();
-                return false;
-              },
-              child: ListView.builder(
-                controller: _scrollController,
-                reverse: true,
-                itemCount: widget.userMessages.length,
-                itemBuilder: (context, i) {
-                  _scheduleGateSync();
-                  return RowGate(
-                    gates: _gates,
-                    child: widget.messageRowBuilder!(
-                      context,
-                      widget.userMessages[widget.userMessages.length - 1 - i],
-                    ),
-                  );
-                },
-              ),
-            ),
-          );
-    // Card takes its natural height first; the history gets whatever is
-    // left (possibly nothing at the card detent) and is revealed by
-    // expanding the sheet. The list is reversed (latest at offset 0), so
-    // resizes keep the latest glued without any re-pinning. While the sheet
-    // auto-seeks, the card fills it so the history cannot flash mid-resize.
-    Widget sheetBody(double sheetH, {required bool seeking}) {
-      final avail = sheetH.isFinite ? sheetH : media.height;
-      if (avail <= 0) return const SizedBox.shrink();
-      final natural = _naturalCardH;
-      final cardH = (seeking || natural == null) ? avail : min(natural, avail);
-      // The list builds the first time the sheet rises past the card
-      // detent, then stays built; opening at the card never builds rows.
-      // Without an anchor the list's controller is what attaches the sheet,
-      // so it must build at once.
-      if (!_historyBuilt &&
-          (widget.anchor == null || (!seeking && avail - cardH > 1))) {
-        _historyBuilt = true;
-      }
-      final shown = _arrowVisible && avail - cardH > _arrowRoom;
-      return Column(
-        children: [
-          SizedBox(
-            height: cardH,
-            child: ClipRect(
-              clipper: const _BoxClipper(),
-              child: GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                onVerticalDragUpdate: _onCardDrag,
-                child: OverflowBox(
-                  minHeight: 0,
-                  maxHeight: double.infinity,
-                  alignment: Alignment.topCenter,
-                  child: card,
-                ),
-              ),
-            ),
-          ),
-          if (history != null)
-            Expanded(
-              child: Stack(
-                children: [
-                  Positioned.fill(
-                    child: _historyBuilt ? history : const SizedBox.shrink(),
-                  ),
-                  // With the history, so a sheet down at the card hides it.
-                  if (_hasHistory)
-                    Positioned(
-                      right: 16,
-                      bottom: 16 + MediaQuery.paddingOf(context).bottom,
-                      child: AnimatedOpacity(
-                        opacity: shown ? 1 : 0,
-                        duration: Motion.normal,
-                        child: IgnorePointer(
-                          ignoring: !shown,
-                          child: ExcludeSemantics(
-                            excluding: !shown,
-                            child: _buildHistoryArrow(theme),
-                          ),
-                        ),
-                      ),
-                    ),
-                ],
-              ),
-            ),
-        ],
-      );
-    }
-
+    final history = _buildHistory(theme);
     WidgetsBinding.instance.addPostFrameCallback((_) => _syncMeasure());
     // Ticks with the sheet (or the list standalone) so resizes relayout.
     final sheet = AnimatedBuilder(
@@ -520,11 +413,13 @@ class UserProfileSheetState extends State<UserProfileSheet> {
       builder: (_, _) {
         final seeking = _autoSeeking;
         return LayoutBuilder(
-          builder: (_, constraints) => sheetBody(
+          builder: (_, constraints) => _sheetBody(
             constraints.maxHeight.isFinite
                 ? constraints.maxHeight
                 : media.height,
             seeking: seeking,
+            card: card,
+            history: history,
           ),
         );
       },
@@ -543,6 +438,123 @@ class UserProfileSheetState extends State<UserProfileSheet> {
               controller: widget.anchor,
               physics: const NeverScrollableScrollPhysics(),
               child: const SizedBox.shrink(),
+            ),
+          ),
+      ],
+    );
+  }
+
+  /// The paged history list under the card, the empty placeholder, or null
+  /// when the sheet has no history at all. Built once per state build and
+  /// handed to [_sheetBody], so sheet ticks relayout it without rebuilding
+  /// its rows.
+  Widget? _buildHistory(ThemeData theme) {
+    if (widget.messageRowBuilder == null) return null;
+    // Hidden while loading so no row flashes before the card.
+    if (_loading) return const SizedBox.shrink();
+    if (widget.userMessages.isEmpty) return _buildHistoryEmpty(theme);
+    return NotificationListener<ScrollUpdateNotification>(
+      onNotification: (notification) {
+        _onScrollPixels(notification.metrics.pixels);
+        _scheduleGateSync();
+        if (widget.onLoadOlder != null &&
+            notification.metrics.extentAfter < _pageAhead) {
+          widget.onLoadOlder!();
+        }
+        return false;
+      },
+      child: NotificationListener<ScrollMetricsNotification>(
+        // A sheet resize moves rows in or out of view without a scroll.
+        onNotification: (_) {
+          _scheduleGateSync();
+          return false;
+        },
+        child: ListView.builder(
+          controller: _scrollController,
+          reverse: true,
+          itemCount: widget.userMessages.length,
+          itemBuilder: (context, i) {
+            _scheduleGateSync();
+            return RowGate(
+              gates: _gates,
+              child: widget.messageRowBuilder!(
+                context,
+                widget.userMessages[widget.userMessages.length - 1 - i],
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  // Card takes its natural height first; the history gets whatever is
+  // left (possibly nothing at the card detent) and is revealed by
+  // expanding the sheet. The list is reversed (latest at offset 0), so
+  // resizes keep the latest glued without any re-pinning. While the sheet
+  // auto-seeks, the card fills it so the history cannot flash mid-resize.
+  Widget _sheetBody(
+    double sheetH, {
+    required bool seeking,
+    required Widget card,
+    required Widget? history,
+  }) {
+    final avail = sheetH.isFinite ? sheetH : MediaQuery.sizeOf(context).height;
+    if (avail <= 0) return const SizedBox.shrink();
+    final natural = _naturalCardH;
+    final cardH = (seeking || natural == null) ? avail : min(natural, avail);
+    // The list builds the first time the sheet rises past the card
+    // detent, then stays built; opening at the card never builds rows.
+    // Without an anchor the list's controller is what attaches the sheet,
+    // so it must build at once.
+    if (!_historyBuilt &&
+        (widget.anchor == null || (!seeking && avail - cardH > 1))) {
+      _historyBuilt = true;
+    }
+    final shown = _arrowVisible && avail - cardH > _arrowRoom;
+    return Column(
+      children: [
+        SizedBox(
+          height: cardH,
+          child: ClipRect(
+            clipper: const _BoxClipper(),
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onVerticalDragUpdate: _onCardDrag,
+              child: OverflowBox(
+                minHeight: 0,
+                maxHeight: double.infinity,
+                alignment: Alignment.topCenter,
+                child: card,
+              ),
+            ),
+          ),
+        ),
+        if (history != null)
+          Expanded(
+            child: Stack(
+              children: [
+                Positioned.fill(
+                  child: _historyBuilt ? history : const SizedBox.shrink(),
+                ),
+                // With the history, so a sheet down at the card hides it.
+                if (_hasHistory)
+                  Positioned(
+                    right: 16,
+                    bottom: 16 + MediaQuery.paddingOf(context).bottom,
+                    child: AnimatedOpacity(
+                      opacity: shown ? 1 : 0,
+                      duration: Motion.normal,
+                      child: IgnorePointer(
+                        ignoring: !shown,
+                        child: ExcludeSemantics(
+                          excluding: !shown,
+                          child: _buildHistoryArrow(Theme.of(context)),
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
             ),
           ),
       ],
@@ -640,25 +652,14 @@ class UserProfileSheetState extends State<UserProfileSheet> {
               color: theme.colorScheme.surfaceContainerHighest,
               borderRadius: BorderRadius.circular(Radii.medium),
             ),
-            child: Icon(
-              Icons.person,
-              size: 32,
-              color: theme.colorScheme.onSurfaceVariant,
-            ),
+            child: _personIcon(theme),
           ),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  _formattedDisplayName,
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w600,
-                    color: theme.colorScheme.onSurface,
-                  ),
-                ),
+                _cardTitle(theme),
                 const SizedBox(height: 2),
                 Text(
                   context.l10n.connectToSeeProfile,
@@ -677,11 +678,7 @@ class UserProfileSheetState extends State<UserProfileSheet> {
       fontSize: 13,
       color: theme.colorScheme.onSurfaceVariant,
     );
-    final avatarSlot = Container(
-      width: 96,
-      height: 96,
-      color: theme.colorScheme.surfaceContainerHighest,
-    );
+    final badges = _latestCardBadges();
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -690,7 +687,7 @@ class UserProfileSheetState extends State<UserProfileSheet> {
             ClipRRect(
               borderRadius: BorderRadius.circular(Radii.medium),
               child: _profile == null
-                  ? avatarSlot
+                  ? _avatarSlot(theme)
                   : CachedNetworkImage(
                       imageUrl: _profile!['profile_image_url'] as String? ?? '',
                       width: 96,
@@ -700,17 +697,8 @@ class UserProfileSheetState extends State<UserProfileSheet> {
                           (96 * MediaQuery.devicePixelRatioOf(context)).round(),
                       fadeInDuration: Duration.zero,
                       fadeOutDuration: Duration.zero,
-                      placeholder: (_, _) => avatarSlot,
-                      errorWidget: (_, _, _) => Container(
-                        width: 96,
-                        height: 96,
-                        color: theme.colorScheme.surfaceContainerHighest,
-                        child: Icon(
-                          Icons.person,
-                          size: 32,
-                          color: theme.colorScheme.onSurfaceVariant,
-                        ),
-                      ),
+                      placeholder: (_, _) => _avatarSlot(theme),
+                      errorWidget: (_, _, _) => _avatarFallback(theme),
                     ),
             ),
             const SizedBox(width: 12),
@@ -718,14 +706,7 @@ class UserProfileSheetState extends State<UserProfileSheet> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    _formattedDisplayName,
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.w600,
-                      color: theme.colorScheme.onSurface,
-                    ),
-                  ),
+                  _cardTitle(theme),
                   const SizedBox(height: 2),
                   // Empty lines while loading still hold their height.
                   Text(
@@ -747,30 +728,64 @@ class UserProfileSheetState extends State<UserProfileSheet> {
                             ),
                       style: detailStyle,
                     ),
-                  if (widget.cardBadges.isNotEmpty) ...[
-                    const SizedBox(height: 8),
-                    Wrap(
-                      spacing: 4,
-                      runSpacing: 4,
-                      children: [
-                        for (final badge in widget.cardBadges)
-                          BadgeChip(
-                            label: badge.label.isNotEmpty
-                                ? badge.label
-                                : badge.circular
-                                ? context.l10n.badgeSharedChat
-                                : context.l10n.badgeThirdParty,
-                            child: _cardBadgeImage(badge),
-                          ),
-                      ],
-                    ),
-                  ],
+                  if (badges != null) ...[const SizedBox(height: 8), badges],
                 ],
               ),
             ),
           ],
         ),
         const SizedBox(height: 8),
+      ],
+    );
+  }
+
+  static const _avatarSize = 96.0;
+
+  /// The display name line, shared by both header layouts.
+  Widget _cardTitle(ThemeData theme) => Text(
+    _formattedDisplayName,
+    style: TextStyle(
+      fontSize: 18,
+      fontWeight: FontWeight.w600,
+      color: theme.colorScheme.onSurface,
+    ),
+  );
+
+  /// Grey box standing in for the avatar while it loads, and behind the
+  /// fallback glyph when it fails.
+  Widget _avatarSlot(ThemeData theme, {Widget? child}) => Container(
+    width: _avatarSize,
+    height: _avatarSize,
+    color: theme.colorScheme.surfaceContainerHighest,
+    child: child,
+  );
+
+  /// The grey box with the person glyph, for an avatar that cannot load.
+  Widget _avatarFallback(ThemeData theme) =>
+      _avatarSlot(theme, child: _personIcon(theme));
+
+  Widget _personIcon(ThemeData theme) =>
+      Icon(Icons.person, size: 32, color: theme.colorScheme.onSurfaceVariant);
+
+  /// The badges active for this user in this channel, resolved by the opener
+  /// from buffered messages. Null when there are none, so the name block
+  /// holds its height either way.
+  Widget? _latestCardBadges() {
+    final badges = widget.cardBadges;
+    if (badges.isEmpty) return null;
+    return Wrap(
+      spacing: 4,
+      runSpacing: 4,
+      children: [
+        for (final badge in badges)
+          BadgeChip(
+            label: badge.label.isNotEmpty
+                ? badge.label
+                : badge.circular
+                ? context.l10n.badgeSharedChat
+                : context.l10n.badgeThirdParty,
+            child: _cardBadgeImage(badge),
+          ),
       ],
     );
   }
