@@ -14,6 +14,11 @@ import '../archive/intern_table.dart';
 import '../archive/set_log.dart';
 import '../util/log.dart';
 
+/// A reply root as the thread index keeps it: the time of the newest reply to
+/// it (`ts`), its reply count, and the root row's own author and preview,
+/// which its first direct reply carries.
+typedef ThreadRootRef = ({int ts, int count, String author, String preview});
+
 /// One sealed block as stored: metadata plus the packed `ArchiveBlock` bytes.
 class StoredBlock {
   const StoredBlock({
@@ -211,9 +216,8 @@ class ArchiveStore {
   /// Blocks by end time across channels, so retention finds the old ones
   /// without reading every block's data. One entry per block keeps the write
   /// cost of a seal flat. Already there after an upgrade that stopped short.
-  static Future<void> _createBlockTimeIndex(Database db) => db.execute(
-    'CREATE INDEX IF NOT EXISTS blocks_by_time ON blocks(end_ts)',
-  );
+  static Future<void> _createBlockTimeIndex(Database db) =>
+      db.execute('CREATE INDEX IF NOT EXISTS blocks_by_time ON blocks(end_ts)');
 
   /// Set history (see [SetLog]): what each fetch of a set returned, by
   /// kind (`emote`, `badge`), scope (a channel, or '' for global sets) and
@@ -515,8 +519,7 @@ class ArchiveStore {
     required Uint8List data,
     required Map<int, int> minutes,
     Map<String, String> emoteDefs = const {},
-    Map<String, ({int ts, int count, String author, String preview})> refs =
-        const {},
+    Map<String, ThreadRootRef> refs = const {},
     Set<String>? words,
     Set<int>? senders,
     Set<int>? states,
@@ -626,7 +629,7 @@ class ArchiveStore {
   static void _putRefs(
     Batch b,
     String channel,
-    Map<String, ({int ts, int count, String author, String preview})> refs,
+    Map<String, ThreadRootRef> refs,
   ) {
     for (final MapEntry(key: id, value: r) in refs.entries) {
       b.rawInsert(
@@ -2200,10 +2203,7 @@ UserTables parseJoinedTables(
 }
 
 /// One compacted block: its bytes plus the reply roots its rows name.
-typedef MergedBlock = ({
-  Uint8List? data,
-  Map<String, ({int ts, int count, String author, String preview})> refs,
-});
+typedef MergedBlock = ({Uint8List? data, Map<String, ThreadRootRef> refs});
 
 /// Each group of packed blocks merged into one block in the given order, or
 /// null for a group with a block that fails to decode.
@@ -2214,14 +2214,7 @@ List<MergedBlock> mergeBlocks(List<List<Uint8List>> groups) => [
         final rows = [for (final b in g) ...ArchiveBlock.decode(b)];
         return (data: ArchiveBlock.encode(rows), refs: replyRoots(rows));
       } on ArchiveFormatException {
-        return (
-          data: null,
-          refs:
-              const <
-                String,
-                ({int ts, int count, String author, String preview})
-              >{},
-        );
+        return (data: null, refs: const <String, ThreadRootRef>{});
       }
     }(),
 ];
@@ -2230,10 +2223,8 @@ List<MergedBlock> mergeBlocks(List<List<Uint8List>> groups) => [
 /// missing), with the time of the newest reply to it and the reply count.
 /// Roots keep their ids so archived threads still group; a reply carries its
 /// parent's name and text itself.
-Map<String, ({int ts, int count, String author, String preview})> replyRoots(
-  Iterable<ArchiveRow> rows,
-) {
-  final out = <String, ({int ts, int count, String author, String preview})>{};
+Map<String, ThreadRootRef> replyRoots(Iterable<ArchiveRow> rows) {
+  final out = <String, ThreadRootRef>{};
   for (final r in rows) {
     final root = r.threadRootId ?? r.replyParentId;
     if (root == null) continue;

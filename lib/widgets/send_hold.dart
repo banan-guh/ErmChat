@@ -5,25 +5,7 @@ import 'package:flutter/material.dart';
 
 import '../l10n/l10n.dart';
 import '../util/haptics.dart';
-
-/// The chat page stack a spam button anchors under, so it follows the tabs
-/// and stream instead of the app bar.
-class ChatPagesScope extends InheritedWidget {
-  const ChatPagesScope({
-    super.key,
-    required this.pagesKey,
-    required super.child,
-  });
-
-  final GlobalKey? pagesKey;
-
-  static GlobalKey? maybeOf(BuildContext context) =>
-      context.dependOnInheritedWidgetOfExactType<ChatPagesScope>()?.pagesKey;
-
-  @override
-  bool updateShouldNotify(ChatPagesScope oldWidget) =>
-      pagesKey != oldWidget.pagesKey;
-}
+import 'chat_pages_scope.dart';
 
 /// Hold menu on a send button. Holding runs [onRecall] at once and shows a
 /// spam button in the top-left corner. Holding that with a second finger

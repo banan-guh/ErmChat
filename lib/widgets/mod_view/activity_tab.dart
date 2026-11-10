@@ -5,7 +5,7 @@ import '../../util/date_format.dart';
 import '../../util/mod_activity_format.dart';
 import 'scope.dart';
 import 'widgets.dart';
-import '../island_chrome.dart';
+import '../island_metrics.dart';
 
 IconData _activityIcon(String action) => switch (action) {
   'ban' || 'timeout' => Icons.gavel,

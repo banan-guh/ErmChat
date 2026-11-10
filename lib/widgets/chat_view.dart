@@ -10,7 +10,7 @@ import 'package:flutter/rendering.dart';
 import '../models/twitch_message.dart';
 import 'chat_list.dart';
 import 'chat_rows.dart';
-import 'island_chrome.dart';
+import 'island_metrics.dart';
 import 'seven_tv_paint_service.dart';
 import '../util/timestamp_formatter.dart';
 import '../widgets/chat_message_tile.dart';

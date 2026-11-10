@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import '../../services/twitch_api.dart';
 import 'scope.dart';
 import 'widgets.dart';
-import '../island_chrome.dart';
+import '../island_metrics.dart';
 
 /// AutoMod levels: a Twitch preset or per-category levels.
 class SetupTab extends ModTabWidget {

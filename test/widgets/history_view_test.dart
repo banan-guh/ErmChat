@@ -8,7 +8,7 @@ import 'package:ermchat/util/fake_history.dart';
 import 'package:ermchat/util/history_timeline.dart';
 import 'package:ermchat/widgets/chat_message_tile.dart';
 import 'package:ermchat/widgets/chat_rows.dart';
-import 'package:ermchat/widgets/island_chrome.dart';
+import 'package:ermchat/widgets/island_metrics.dart';
 import 'package:ermchat/widgets/history_days.dart';
 import 'package:ermchat/widgets/history_view.dart';
 import 'package:ermchat/widgets/message_builder.dart';

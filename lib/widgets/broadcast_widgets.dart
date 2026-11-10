@@ -9,6 +9,7 @@ import '../services/emote_manager.dart';
 import '../services/mod_actions.dart' show ModResult;
 import '../util/prefs.dart';
 import '../util/settings.dart';
+import 'chat_widget_cards.dart';
 import 'chat_widget_cutout.dart';
 import 'seven_tv_paint_service.dart';
 

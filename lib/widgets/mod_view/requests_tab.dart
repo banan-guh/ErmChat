@@ -5,7 +5,7 @@ import '../../l10n/l10n.dart';
 import '../../util/date_format.dart';
 import 'scope.dart';
 import 'widgets.dart';
-import '../island_chrome.dart';
+import '../island_metrics.dart';
 
 /// Unban requests, filtered by status.
 class RequestsTab extends ModTabWidget {

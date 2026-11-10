@@ -5,7 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 
 import 'chat_rows.dart';
-import 'island_chrome.dart';
+import 'island_metrics.dart';
 
 /// Rows a re-anchor shifted within one sliver: each row's new index by its
 /// key, and the layout offset at each new index. Live for the one rebuild

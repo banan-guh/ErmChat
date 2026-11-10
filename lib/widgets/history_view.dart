@@ -22,7 +22,7 @@ import 'chat_list.dart';
 import 'chat_message_tile.dart';
 import 'chat_rows.dart';
 import 'chrome_menu_button.dart';
-import 'island_chrome.dart';
+import 'island_metrics.dart';
 import 'history_days.dart';
 import 'history_streams.dart';
 

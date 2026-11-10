@@ -44,6 +44,16 @@ class MinuteCount {
   final int count;
 }
 
+/// One row of the archive's thread index: a reply root, its newest activity
+/// and reply count, and the root's own author and preview.
+typedef ArchivedThreadRow = ({
+  String rootId,
+  DateTime lastActivity,
+  int replyCount,
+  String author,
+  String preview,
+});
+
 /// Lowercased texts and sender states a row may match by (both when
 /// [both]), text a system row must hold, and the times (epoch ms, inclusive)
 /// it must fall in (see [decodeBlocks]).
@@ -178,41 +188,43 @@ class ArchiveReader {
   )
   decode;
 
-  /// The newest [limit] rows of [channel], oldest first, for cold start.
-  Future<List<TwitchMessage>> newestRows(String channel, int limit) async {
+  /// Runs [body] with the open store, or returns [fallback] when the archive
+  /// never opened.
+  Future<T> _with<T>(
+    T fallback,
+    Future<T> Function(ArchiveStore store) body,
+  ) async {
     final store = await _store;
-    if (store == null || limit <= 0) {
-      return const [];
-    }
-    final edits = await store.edits(channel);
-    final blocks = await store.newestBlocks(channel, limit);
-    final decoded = await _decodeAll(
-      channel,
-      blocks,
-      asHistory: true,
-      edits: edits,
-    );
-    final rows = [for (final b in decoded) ...b.rows];
-    _sortStable(rows);
-    return rows.length > limit ? rows.sublist(rows.length - limit) : rows;
+    if (store == null) return fallback;
+    return body(store);
   }
+
+  /// The newest [limit] rows of [channel], oldest first, for cold start.
+  Future<List<TwitchMessage>> newestRows(String channel, int limit) =>
+      _with(const <TwitchMessage>[], (store) async {
+        if (limit <= 0) {
+          return const [];
+        }
+        final edits = await store.edits(channel);
+        final blocks = await store.newestBlocks(channel, limit);
+        final decoded = await _decodeAll(
+          channel,
+          blocks,
+          asHistory: true,
+          edits: edits,
+        );
+        final rows = [for (final b in decoded) ...b.rows];
+        _sortStable(rows);
+        return rows.length > limit ? rows.sublist(rows.length - limit) : rows;
+      });
 
   /// Roots with a reply at or after [since] in [channel], most replies first.
   /// [author] and [preview] are the root's own, from its first direct reply.
-  Future<
-    List<
-      ({
-        String rootId,
-        DateTime lastActivity,
-        int replyCount,
-        String author,
-        String preview,
-      })
-    >
-  >
-  recentThreads(String channel, DateTime since, {int limit = 50}) async {
-    final store = await _store;
-    if (store == null) return const [];
+  Future<List<ArchivedThreadRow>> recentThreads(
+    String channel,
+    DateTime since, {
+    int limit = 50,
+  }) => _with(const <ArchivedThreadRow>[], (store) async {
     return [
       for (final r in await store.recentThreads(channel, since, limit: limit))
         (
@@ -226,28 +238,27 @@ class ArchiveReader {
           preview: r.preview,
         ),
     ];
-  }
+  });
 
   /// Replies to [rootId] in [channel] from the blocks the thread index
   /// lists, oldest first. Damaged blocks are skipped.
-  Future<List<TwitchMessage>> threadRows(String channel, String rootId) async {
-    final store = await _store;
-    if (store == null) return const [];
-    final keys = await store.threadBlocks(channel, rootId);
-    if (keys.isEmpty) return const [];
-    final edits = await store.edits(channel);
-    final blocks = await store.blocksByKey(keys);
-    final out = <TwitchMessage>[];
-    for (final b in await _decodeAll(channel, blocks, edits: edits)) {
-      out.addAll(
-        b.rows.where(
-          (m) => (m.replyThreadRootId ?? m.replyToParentId) == rootId,
-        ),
-      );
-    }
-    _sortStable(out);
-    return out;
-  }
+  Future<List<TwitchMessage>> threadRows(String channel, String rootId) =>
+      _with(const <TwitchMessage>[], (store) async {
+        final keys = await store.threadBlocks(channel, rootId);
+        if (keys.isEmpty) return const [];
+        final edits = await store.edits(channel);
+        final blocks = await store.blocksByKey(keys);
+        final out = <TwitchMessage>[];
+        for (final b in await _decodeAll(channel, blocks, edits: edits)) {
+          out.addAll(
+            b.rows.where(
+              (m) => (m.replyThreadRootId ?? m.replyToParentId) == rootId,
+            ),
+          );
+        }
+        _sortStable(out);
+        return out;
+      });
 
   /// Blocks around [time]: [before] older, the anchor, [after] newer.
   Future<List<ArchiveWindowBlock>> blocksAround(
@@ -255,11 +266,7 @@ class ArchiveReader {
     DateTime time, {
     required int before,
     required int after,
-  }) async {
-    final store = await _store;
-    if (store == null) {
-      return const [];
-    }
+  }) => _with(const <ArchiveWindowBlock>[], (store) async {
     final edits = await store.edits(channel);
     final blocks = await store.blocksAround(
       channel,
@@ -268,7 +275,7 @@ class ArchiveReader {
       after,
     );
     return _decodeAll(channel, blocks, edits: edits);
-  }
+  });
 
   /// Rows of every block at [time] plus [before] blocks older and [after]
   /// newer, oldest first, cut to the range those blocks cover completely
@@ -278,11 +285,7 @@ class ArchiveReader {
     DateTime time, {
     required int before,
     required int after,
-  }) async {
-    final store = await _store;
-    if (store == null) {
-      return const [];
-    }
+  }) => _with(const <TwitchMessage>[], (store) async {
     final edits = await store.edits(channel);
     final near = await store.blocksNear(
       channel,
@@ -308,19 +311,18 @@ class ArchiveReader {
     ];
     _sortStable(rows);
     return rows;
-  }
+  });
 
-  Future<ArchiveWindowBlock?> blockAt(String channel, int blockKey) async {
-    final store = await _store;
-    if (store == null) return null;
-    final edits = await store.edits(channel);
-    final block = await store.blockAt(channel, blockKey);
-    if (block == null) {
-      return null;
-    }
-    final decoded = await _decodeAll(channel, [block], edits: edits);
-    return decoded.isEmpty ? null : decoded.first;
-  }
+  Future<ArchiveWindowBlock?> blockAt(String channel, int blockKey) =>
+      _with(null, (store) async {
+        final edits = await store.edits(channel);
+        final block = await store.blockAt(channel, blockKey);
+        if (block == null) {
+          return null;
+        }
+        final decoded = await _decodeAll(channel, [block], edits: edits);
+        return decoded.isEmpty ? null : decoded.first;
+      });
 
   /// Buckets of [per] with rows between [from] and [to], oldest first.
   Future<List<MinuteCount>> minuteCounts(
@@ -328,11 +330,7 @@ class ArchiveReader {
     DateTime from,
     DateTime to, {
     Duration per = const Duration(minutes: 1),
-  }) async {
-    final store = await _store;
-    if (store == null) {
-      return const [];
-    }
+  }) => _with(const <MinuteCount>[], (store) async {
     final counts = await store.minuteCounts(
       channel,
       from.millisecondsSinceEpoch ~/ 60000,
@@ -346,7 +344,7 @@ class ArchiveReader {
           c.count,
         ),
     ];
-  }
+  });
 
   /// Broadcasts still live or ended at or after [from], oldest first. A live
   /// one ends at [now].
@@ -354,11 +352,7 @@ class ArchiveReader {
     String channel,
     DateTime from,
     DateTime now,
-  ) async {
-    final store = await _store;
-    if (store == null) {
-      return const [];
-    }
+  ) => _with(const <HistoryStream>[], (store) async {
     final rows = await store.streams(channel, from.millisecondsSinceEpoch);
     DateTime at(int ms) => DateTime.fromMillisecondsSinceEpoch(ms, isUtc: true);
     return [
@@ -373,18 +367,17 @@ class ArchiveReader {
           vodId: r.vodId,
         ),
     ];
-  }
+  });
 
   /// Starts of [channel]'s kept days (see `Archive.setDayKept`).
-  Future<Set<DateTime>> keptDays(String channel) async {
-    final store = await _store;
-    if (store == null) return const {};
-    return {
-      for (final p in await store.pins(channel))
-        if (p.kind == dayPin)
-          DateTime.fromMillisecondsSinceEpoch(p.startTs, isUtc: true),
-    };
-  }
+  Future<Set<DateTime>> keptDays(String channel) =>
+      _with(const <DateTime>{}, (store) async {
+        return {
+          for (final p in await store.pins(channel))
+            if (p.kind == dayPin)
+              DateTime.fromMillisecondsSinceEpoch(p.startTs, isUtc: true),
+        };
+      });
 
   Future<List<ArchiveWindowBlock>> _decodeAll(
     String channel,
@@ -563,9 +556,8 @@ class ArchiveReader {
     int limit = 100,
     DateTime? before,
     DateTime? after,
-  }) async {
-    final store = await _store;
-    if (store == null || limit <= 0) return const [];
+  }) => _with(const <TwitchMessage>[], (store) async {
+    if (limit <= 0) return const [];
     final beforeMs = before?.millisecondsSinceEpoch;
     final afterMs = after?.millisecondsSinceEpoch;
     bool hit(TwitchMessage m) {
@@ -646,7 +638,7 @@ class ArchiveReader {
     return forward
         ? unique.sublist(unique.length - limit)
         : unique.sublist(0, limit);
-  }
+  });
 
   static int? _bound(int? a, int? b, int Function(int, int) pick) =>
       a == null ? b : (b == null ? a : pick(a, b));

@@ -362,7 +362,7 @@ class MessageBuilder {
     double badgeScale = 1.0,
   }) {
     // Badge cache depends on third-party data, shared-chat lookup, and scale.
-    final key = (
+    final _BadgeKey key = (
       thirdPartyBadgeService.version,
       badgeService.version,
       badgeScale,
@@ -527,9 +527,13 @@ class _BodySpans {
   Color? coloredSurface;
 }
 
+/// Inputs the cached badge spans depend on: the third-party and Twitch badge
+/// versions, and the scale the badges draw at.
+typedef _BadgeKey = (int, int, double);
+
 class _BadgeSpans {
   _BadgeSpans(this.spans, this.key);
 
   final List<WidgetSpan> spans;
-  final (int, int, double) key;
+  final _BadgeKey key;
 }

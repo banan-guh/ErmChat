@@ -26,7 +26,7 @@ import 'tools_settings_screen.dart';
 import 'tts_settings_screen.dart';
 import 'uploader_settings_screen.dart';
 import '../../services/recent_messages.dart';
-import '../../widgets/whats_new_sheet.dart';
+import '../../widgets/update_banner.dart';
 
 /// One settings page: how to build it, and how the root list shows it.
 typedef _PageEntry = ({

@@ -8,11 +8,12 @@ import 'package:flutter/rendering.dart';
 import '../composer/composer_bar.dart';
 import '../util/insets.dart';
 import '../util/prefs.dart';
-import 'island_chrome.dart';
+import 'island_metrics.dart';
+import 'island_rings.dart';
 import 'design_tokens.dart';
 import 'eased_progress.dart';
 import 'message_input.dart' show MessageInput;
-import 'send_hold.dart' show ChatPagesScope;
+import 'chat_pages_scope.dart' show ChatPagesScope;
 
 /// Builds the chat content above the composer. [maxHeight] and [keyboardH]
 /// feed keyboard decisions only: while the keyboard is up they describe the

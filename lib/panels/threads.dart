@@ -20,7 +20,8 @@ import '../widgets/chat_view.dart';
 import '../widgets/message_builder.dart';
 import '../widgets/panel_manager.dart';
 import '../widgets/tab_drag_focus.dart';
-import '../widgets/island_chrome.dart';
+import '../widgets/thread_graph.dart' as thread_graph;
+import '../widgets/island_metrics.dart';
 
 // Thread view, dashboard, and saved threads: data, open/show verbs,
 // and the thread panel builders.
@@ -85,16 +86,7 @@ class ThreadPanels {
   final ArchiveReader? archiveReader;
 
   /// Active threads read from the archive, with the channel they cover.
-  List<
-    ({
-      String rootId,
-      DateTime lastActivity,
-      int replyCount,
-      String author,
-      String preview,
-    })
-  >
-  _archiveActive = const [];
+  List<ArchivedThreadRow> _archiveActive = const [];
   String? _archiveActiveChannel;
   bool _archiveActiveLoading = false;
   bool _archiveActiveReady = false;
@@ -150,7 +142,7 @@ class ThreadPanels {
   // Walk the reply-parent chain to the root with cycle detection.
   // A message that has children counts as root even with a parent.
   TwitchMessage? findThreadRoot(TwitchMessage msg) {
-    return panelManager.findThreadRoot(
+    return thread_graph.findThreadRoot(
       msg,
       messagesFor: (c) => chat.channelFor(c)?.messages.items,
     );
@@ -375,16 +367,7 @@ class ThreadPanels {
   }
 
   Future<void> _fetchActiveThreads(String channel, ArchiveReader reader) async {
-    var threads =
-        <
-          ({
-            String rootId,
-            DateTime lastActivity,
-            int replyCount,
-            String author,
-            String preview,
-          })
-        >[];
+    var threads = <ArchivedThreadRow>[];
     try {
       threads = await reader.recentThreads(
         channel,
@@ -677,7 +660,7 @@ class ThreadPanels {
     final rootId = root == null
         ? null
         : (root.replyThreadRootId ?? root.messageId);
-    final live = panelManager.computeThreadMessages(
+    final live = thread_graph.computeThreadMessages(
       openThreadRoot: root,
       messagesFor: (c) => chat.channelFor(c)?.messages.items,
       threadFor: (ch, rootId) => chat.channelFor(ch)?.threads.threadFor(rootId),
@@ -956,16 +939,7 @@ class ThreadPanels {
 /// with activity in the last 24 hours. Longest first, then newest activity.
 List<ThreadSummary> mergeActiveThreads(
   List<ThreadSummary> live,
-  List<
-    ({
-      String rootId,
-      DateTime lastActivity,
-      int replyCount,
-      String author,
-      String preview,
-    })
-  >
-  archived,
+  List<ArchivedThreadRow> archived,
   DateTime now, {
   Duration window = ThreadPanels.activeThreadWindow,
   int limit = ThreadPanels.activeThreadLimit,
