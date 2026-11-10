@@ -1535,6 +1535,40 @@ void main() {
     expect(prefs.getStringList('channels'), ['a', 'z', 'c']);
   });
 
+  testWidgets('holding a channel tab removes it after a confirm', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({
+      'access_token': 'test_token',
+      'channels': ['a', 'b', 'c'],
+    });
+    FlutterSecureStorage.setMockInitialValues({'access_token': 'test_token'});
+
+    await tester.pumpWidget(
+      TwitchChatApp(
+        key: UniqueKey(),
+        eventSubService: FakeEventSubService(),
+        ircService: FakeIrcService(),
+        recentMessagesService: ScriptedRecentMessagesService([]),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.longPress(find.text('b'));
+    await tester.pumpAndSettle();
+    expect(find.text('Edit channel'), findsOneWidget);
+    expect(find.text('Remove channel'), findsOneWidget);
+
+    await tester.tap(find.text('Remove channel'));
+    await tester.pumpAndSettle();
+    expect(find.text('Remove #b?'), findsOneWidget);
+    await tester.tap(find.text('Remove channel'));
+    await tester.pumpAndSettle();
+
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getStringList('channels'), ['a', 'c']);
+  });
+
   testWidgets('Reconnect refetch shows gaps and merges in order', (
     WidgetTester tester,
   ) async {

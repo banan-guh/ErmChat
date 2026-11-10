@@ -617,6 +617,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     fastSnap: () => _fastSnap,
     commitChannelSelection: _commitChannelSelection,
     copyMessage: _copyMessageToClipboard,
+    removeChannel: (channel) => _channelManager.removeChannel(channel),
+    renameChannel: (from, to) =>
+        unawaited(_channelManager.renameChannel(from, to)),
     messageNotifier: _messageNotifier,
     atBottomNotifier: _atBottomNotifier,
     scrollCtrl: _scrollCtrl,

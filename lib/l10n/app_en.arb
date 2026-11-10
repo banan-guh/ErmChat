@@ -794,6 +794,15 @@
   "joinChannel": "Join channel",
   "openChannel": "Open channel",
   "editChannel": "Edit channel",
+  "removeChannel": "Remove channel",
+  "removeChannelConfirm": "Remove #{channel}?",
+  "@removeChannelConfirm": {
+    "placeholders": {
+      "channel": {
+        "type": "String"
+      }
+    }
+  },
   "inlineEmbedsTitle": "Inline embeds",
   "giphyAnimationNote": "Animation follows Emotes > Animate emotes.",
   "imagePreviewHint": "Tap a link's icon to preview",

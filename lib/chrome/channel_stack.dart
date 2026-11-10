@@ -27,10 +27,13 @@ import '../widgets/broadcast_widgets.dart';
 import '../util/chat_search.dart';
 import '../util/chrome_theme.dart';
 import '../util/fake_history.dart';
+import '../util/haptics.dart';
 import '../util/history_timeline.dart';
 import '../widgets/chat_rows.dart';
 import '../widgets/chat_view.dart';
+import '../widgets/dialogs.dart';
 import '../widgets/history_view.dart';
+import '../widgets/join_channel_dialog.dart';
 import '../widgets/message_builder.dart';
 import '../widgets/tabbed_layout.dart';
 import 'home_app_bar.dart';
@@ -72,6 +75,8 @@ class ChannelPanels {
     required this.fastSnap,
     required this.commitChannelSelection,
     required this.copyMessage,
+    required this.removeChannel,
+    required this.renameChannel,
     required this.messageNotifier,
     required this.atBottomNotifier,
     required this.scrollCtrl,
@@ -121,6 +126,12 @@ class ChannelPanels {
   final void Function(int index, {required bool rebuild})
   commitChannelSelection;
   final void Function(TwitchMessage msg) copyMessage;
+
+  /// Leaves [channel] from its tab's long-press menu.
+  final void Function(String channel) removeChannel;
+
+  /// Swaps [from] for [to] at the same tab position.
+  final void Function(String from, String to) renameChannel;
   final ValueNotifier<int> Function(String channel) messageNotifier;
   final ValueNotifier<bool> Function(String channel) atBottomNotifier;
   final ScrollController Function(String channel) scrollCtrl;
@@ -583,13 +594,56 @@ class ChannelPanels {
   /// Selection and unread state stay live inside the merged listenable.
   /// The focused index resolves live from the channel list, so reorder
   /// with the same length can never leave a stale highlight behind.
-  Widget _buildTab(String channel) {
+  Widget _buildTab(BuildContext context, String channel) {
     return _ChannelTab(
       chat: chat,
       channel: channel,
       selectedTabIndex: selectedTabIndex,
       selectedChannel: selectedChannel,
       listenable: _tabSharedMerge,
+      onLongPress: () => _showChannelMenu(context, channel),
+    );
+  }
+
+  /// Edit and remove actions for [channel], held from its tab.
+  void _showChannelMenu(BuildContext context, String channel) {
+    Haptics.press();
+    showModalBottomSheet(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.edit_outlined),
+              title: Text(ctx.l10n.editChannel),
+              onTap: () {
+                Navigator.pop(ctx);
+                showJoinChannelDialog(
+                  context,
+                  initial: channel,
+                  onJoin: (to) => renameChannel(channel, to),
+                );
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.remove_circle_outline),
+              title: Text(ctx.l10n.removeChannel),
+              onTap: () async {
+                final l = ctx.l10n;
+                Navigator.pop(ctx);
+                final ok = await confirmDialog(
+                  context,
+                  title: l.removeChannelConfirm(channel),
+                  confirmLabel: l.removeChannel,
+                  destructive: true,
+                );
+                if (ok) removeChannel(channel);
+              },
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -705,7 +759,7 @@ class ChannelPanels {
                       final channel = chat.names[i];
                       final cached = _tabCache[channel];
                       if (cached != null) return cached;
-                      final tab = _buildTab(channel);
+                      final tab = _buildTab(context, channel);
                       _tabCache[channel] = tab;
                       return tab;
                     },
@@ -876,6 +930,7 @@ class _ChannelTab extends StatefulWidget {
     required this.selectedTabIndex,
     required this.selectedChannel,
     required this.listenable,
+    required this.onLongPress,
   });
 
   final Chat chat;
@@ -885,6 +940,9 @@ class _ChannelTab extends StatefulWidget {
 
   /// Merged selection and unread notifier the label reads through.
   final Listenable listenable;
+
+  /// Opens the channel's edit and remove actions.
+  final VoidCallback onLongPress;
 
   @override
   State<_ChannelTab> createState() => _ChannelTabState();
@@ -965,44 +1023,47 @@ class _ChannelTabState extends State<_ChannelTab>
             ? theme.colorScheme.onSurface
             : null;
         final pulse = selected ? 0.0 : _pulse.value;
-        return Stack(
-          clipBehavior: Clip.none,
-          children: [
-            SizedBox(
-              width: boldWidth,
-              child: Text(
-                widget.channel,
-                textAlign: TextAlign.center,
-                maxLines: 1,
-                softWrap: false,
-                style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: selected || hasUnread
-                      ? FontWeight.w600
-                      : FontWeight.normal,
-                  // Flash toward the unread-dot color so it reads as a new
-                  // mention, not a selection.
-                  color: pulse <= 0
-                      ? base
-                      : Color.lerp(base, theme.colorScheme.error, pulse),
-                ),
-              ),
-            ),
-            if (hasUnreadMention && !selected)
-              Positioned(
-                top: -2,
-                right: -4,
-                child: Container(
-                  key: const Key('unread_mention_dot'),
-                  width: 6,
-                  height: 6,
-                  decoration: BoxDecoration(
-                    color: theme.colorScheme.error,
-                    shape: BoxShape.circle,
+        return InkWell(
+          onLongPress: widget.onLongPress,
+          child: Stack(
+            clipBehavior: Clip.none,
+            children: [
+              SizedBox(
+                width: boldWidth,
+                child: Text(
+                  widget.channel,
+                  textAlign: TextAlign.center,
+                  maxLines: 1,
+                  softWrap: false,
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: selected || hasUnread
+                        ? FontWeight.w600
+                        : FontWeight.normal,
+                    // Flash toward the unread-dot color so it reads as a new
+                    // mention, not a selection.
+                    color: pulse <= 0
+                        ? base
+                        : Color.lerp(base, theme.colorScheme.error, pulse),
                   ),
                 ),
               ),
-          ],
+              if (hasUnreadMention && !selected)
+                Positioned(
+                  top: -2,
+                  right: -4,
+                  child: Container(
+                    key: const Key('unread_mention_dot'),
+                    width: 6,
+                    height: 6,
+                    decoration: BoxDecoration(
+                      color: theme.colorScheme.error,
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                ),
+            ],
+          ),
         );
       },
     );
