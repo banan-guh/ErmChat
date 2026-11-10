@@ -5,6 +5,16 @@ class BadgeVersion {
   final String? title;
 
   const BadgeVersion({required this.imageUrl, this.title});
+
+  Map<String, dynamic> toJson() => {
+    'imageUrl': imageUrl,
+    if (title != null) 'title': title,
+  };
+
+  factory BadgeVersion.fromJson(Map<String, dynamic> json) => BadgeVersion(
+    imageUrl: json['imageUrl'] as String? ?? '',
+    title: json['title'] as String?,
+  );
 }
 
 class BadgeSet {

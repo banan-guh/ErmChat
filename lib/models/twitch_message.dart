@@ -165,6 +165,7 @@ class TwitchMessage {
     this.messageId,
     this.channel,
     this.deleted = false,
+    this.deletedAt,
     this.isHistory = false,
     this.isBackfill = false,
     this.replyToParentId,
@@ -204,6 +205,7 @@ class TwitchMessage {
     'messageId': messageId,
     'channel': channel,
     'deleted': deleted,
+    if (deletedAt != null) 'deletedAt': deletedAt!.toUtc().toIso8601String(),
     'isHistory': isHistory,
     'isBackfill': isBackfill,
     'replyToParentId': replyToParentId,
@@ -221,7 +223,13 @@ class TwitchMessage {
     'emotePositions': emotePositions?.map((e) => e.toJson()).toList(),
     'gifAttachments': gifAttachments?.map((g) => g.toJson()).toList(),
     'badges': badges
-        ?.map((b) => {'setId': b.setId, 'versionId': b.versionId})
+        ?.map(
+          (b) => {
+            'setId': b.setId,
+            'versionId': b.versionId,
+            if (b.drawn != null) 'drawn': b.drawn!.toJson(),
+          },
+        )
         .toList(),
     'sourceBroadcasterId': sourceBroadcasterId,
     'sourceMessageId': sourceMessageId,
@@ -242,6 +250,7 @@ class TwitchMessage {
     messageId: json['messageId'] as String?,
     channel: json['channel'] as String?,
     deleted: json['deleted'] as bool? ?? false,
+    deletedAt: DateTime.tryParse(json['deletedAt'] as String? ?? '')?.toLocal(),
     isHistory: json['isHistory'] as bool? ?? false,
     isBackfill: json['isBackfill'] as bool? ?? false,
     replyToParentId: json['replyToParentId'] as String?,
@@ -270,6 +279,11 @@ class TwitchMessage {
           (e) => MessageBadge(
             setId: e['setId'] as String? ?? '',
             versionId: e['versionId'] as String? ?? '',
+            drawn: e['drawn'] is Map
+                ? BadgeVersion.fromJson(
+                    Map<String, dynamic>.from(e['drawn'] as Map),
+                  )
+                : null,
           ),
         )
         .toList(),

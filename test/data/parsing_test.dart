@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:ermchat/models/twitch_badge.dart';
 import 'package:ermchat/models/twitch_message.dart';
 import 'package:ermchat/services/recent_messages.dart';
 import 'dart:convert';
@@ -2592,6 +2593,33 @@ void main() {
       final restored = TwitchMessage.fromJson(msg.toJson());
       expect(restored.gifAttachments, hasLength(1));
       expect(restored.gifAttachments!.first.url, msg.gifAttachments!.first.url);
+    });
+
+    test('persistence keeps delete time and archived badge art', () {
+      final at = DateTime.utc(2026, 11, 10, 12, 34, 56);
+      final msg = TwitchMessage(
+        login: 'alice',
+        text: 'hi',
+        deleted: true,
+        deletedAt: at,
+        badges: const [
+          MessageBadge(
+            setId: 'subscriber',
+            versionId: '12',
+            drawn: BadgeVersion(
+              imageUrl: 'https://example.test/badge.png',
+              title: '12-Month Subscriber',
+            ),
+          ),
+        ],
+      );
+      final restored = TwitchMessage.fromJson(msg.toJson());
+      expect(restored.deletedAt!.isAtSameMomentAs(at), isTrue);
+      expect(
+        restored.badges!.single.drawn?.imageUrl,
+        msg.badges!.single.drawn!.imageUrl,
+      );
+      expect(restored.badges!.single.drawn?.title, '12-Month Subscriber');
     });
   });
 }
