@@ -356,8 +356,6 @@ void main() {
         m.setOwnDisplayName('ForsenFan');
         m.registerOwnMessage('forsen', 'own-1', threadRootId: 'root-1');
 
-        // Account switch passes through null before the new login lands.
-        m.setAccount(null);
         m.setAccount('xseb');
 
         // The old display name no longer pings...

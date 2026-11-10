@@ -158,14 +158,16 @@ class PingManager extends ChangeNotifier {
     );
   }
 
-  /// Sets account for matching; null clears departed account's state.
+  /// Sets account for matching; an identity change clears the departed
+  /// account's state.
   void setAccount(String? login) {
-    _login = login?.toLowerCase();
-    if (login == null) {
+    final next = login?.toLowerCase();
+    if (next != _login) {
       _displayName = null;
       _ownMessageIds.clear();
       _ownThreadRoots.clear();
     }
+    _login = next;
   }
 
   /// Learns display name from own IRC echoes for ping matching.
