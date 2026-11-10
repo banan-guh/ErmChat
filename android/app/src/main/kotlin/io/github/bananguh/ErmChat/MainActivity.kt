@@ -14,6 +14,9 @@ import android.graphics.drawable.Icon
 import android.os.Build
 import android.os.Bundle
 import android.util.Rational
+import android.view.View
+import android.view.WindowInsets
+import android.view.WindowInsetsAnimation
 
 import androidx.core.content.ContextCompat
 import io.flutter.embedding.android.FlutterActivity
@@ -123,12 +126,50 @@ class MainActivity : FlutterActivity() {
         }
     }
 
-    // Flutter drops its back callback whenever nothing can pop, which hands
-    // back to the system default that finishes the activity. Keeping it
-    // registered routes root back to popSystemNavigator instead.
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Flutter drops its back callback whenever nothing can pop, which hands
+        // back to the system default that finishes the activity. Keeping it
+        // registered routes root back to popSystemNavigator instead.
         setFrameworkHandlesBack(true)
+        installImeInsetFix()
+    }
+
+    // Flutter can miss the end of an IME animation when the app is backgrounded
+    // mid-animation, then keeps the keyboard's space reserved after resume. The
+    // engine eventually re-sends the real insets; until then, re-apply them when
+    // an IME animation ends and when the window regains focus.
+    // TODO: delete once https://github.com/flutter/flutter/pull/191453 ships.
+    private fun installImeInsetFix() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return
+        window.decorView.setWindowInsetsAnimationCallback(
+            object : WindowInsetsAnimation.Callback(
+                WindowInsetsAnimation.Callback.DISPATCH_MODE_CONTINUE_ON_SUBTREE,
+            ) {
+                override fun onProgress(
+                    insets: WindowInsets,
+                    runningAnimations: List<WindowInsetsAnimation>,
+                ) = insets
+
+                override fun onEnd(animation: WindowInsetsAnimation) {
+                    if ((animation.typeMask and WindowInsets.Type.ime()) != 0) {
+                        reapplyInsets()
+                    }
+                }
+            },
+        )
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) reapplyInsets()
+    }
+
+    // Posted so it lands after Flutter applies the insets it deferred.
+    private fun reapplyInsets() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return
+        val view = findViewById<View>(FlutterActivity.FLUTTER_VIEW_ID) ?: return
+        view.post { view.rootWindowInsets?.let(view::onApplyWindowInsets) }
     }
 
     override fun setFrameworkHandlesBack(frameworkHandlesBack: Boolean) {
