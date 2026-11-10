@@ -280,6 +280,15 @@ void main() {
       expect(scopes, containsAll(TwitchOAuth.requiredScopes));
       expect(scopes.length, TwitchOAuth.requiredScopes.length);
     });
+
+    test('forceVerify keeps the account choice on re-login', () {
+      final forced = TwitchOAuth.generateAuthUrl(forceVerify: true);
+      expect(Uri.parse(forced!.url).queryParameters['force_verify'], 'true');
+      expect(
+        TwitchOAuth.generateAuthUrl()!.url,
+        isNot(contains('force_verify')),
+      );
+    });
   });
 
   group('TwitchOAuth.missingScopes', () {

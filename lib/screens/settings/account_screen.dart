@@ -92,9 +92,13 @@ class _AccountScreenState extends State<AccountScreen> {
   /// [adding] signs in another account. With the active account's session
   /// saved, the jar empties so the user signs in fresh and Twitch skips its
   /// authorize page for an approved app; without one to put back, Twitch's
-  /// forced authorize page offers "Not you?" instead. Any other login keeps
-  /// the jar, so a re-login of the signed-in account is one tap.
-  Future<void> _startOAuth({bool adding = false}) async {
+  /// forced authorize page offers "Not you?" instead. A re-login keeps the
+  /// jar, so the signed-in account is one tap, and [forceVerify] keeps the
+  /// "Not you?" choice available.
+  Future<void> _startOAuth({
+    bool adding = false,
+    bool forceVerify = false,
+  }) async {
     setState(() {
       _authState = _AuthState.waiting;
       _authError = null;
@@ -113,7 +117,7 @@ class _AccountScreenState extends State<AccountScreen> {
     );
     final saved = widget.twitchAuth.activeAccount?.webCookies;
     if (Settings.useBrowserOAuth.value) {
-      _startBrowserOAuth(forceVerify: adding);
+      _startBrowserOAuth(forceVerify: adding || forceVerify);
       return;
     }
     final starter = widget.oAuthStarter;
@@ -123,7 +127,7 @@ class _AccountScreenState extends State<AccountScreen> {
         ? await starter()
         : await TwitchOAuth.startFlow(
             present: present,
-            forceVerify: adding && !fresh,
+            forceVerify: (adding && !fresh) || forceVerify,
             l: l,
           );
     final signedIn = token != null && token.isNotEmpty;
@@ -576,7 +580,10 @@ class _AccountScreenState extends State<AccountScreen> {
                   return OutlinedButton.icon(
                     // Stale scopes and expired tokens re-login the active
                     // account.
-                    onPressed: () => _startOAuth(adding: !needsLogin),
+                    onPressed: () => _startOAuth(
+                      adding: !needsLogin,
+                      forceVerify: needsLogin,
+                    ),
                     icon: Icon(needsLogin ? Icons.login : Icons.person_add),
                     label: Text(
                       needsLogin
