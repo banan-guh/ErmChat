@@ -521,15 +521,15 @@ class _HistoryViewState extends State<HistoryView> {
     if (bucket == null) return;
     ({DateTime time, double offset})? reading;
     final pos = _pos;
-    final atNewest =
-        pos != null &&
-        pos.hasPixels &&
-        _window.atNewest &&
-        pos.pixels <= pos.minScrollExtent + _followEps;
-    if (!_follow && !atNewest && pos != null && pos.hasPixels) {
-      final row = _rowAtEdge();
-      if (row != null) {
-        reading = (time: row.row.timestamp, offset: row.top - pos.pixels);
+    // A view deactivated before its first layout has pixels but no extents.
+    if (pos != null && pos.hasPixels && pos.hasContentDimensions) {
+      final atNewest =
+          _window.atNewest && pos.pixels <= pos.minScrollExtent + _followEps;
+      if (!_follow && !atNewest) {
+        final row = _rowAtEdge();
+        if (row != null) {
+          reading = (time: row.row.timestamp, offset: row.top - pos.pixels);
+        }
       }
     }
     bucket.writeState(context, reading, identifier: _storageId);
