@@ -316,8 +316,8 @@ class _PingsScreenState extends ConsumerState<PingsScreen> {
         ),
       ),
     );
-    return SettingAnchor(
-      Setting.notifications,
+    return SettingAnchor.row(
+      SettingsRow.notifications,
       child: _blockedTap(
         _keepAlive ? null : _keepAliveSnack,
         Column(
@@ -329,7 +329,7 @@ class _PingsScreenState extends ConsumerState<PingsScreen> {
                 width: 28,
                 child: Icon(Icons.notifications_outlined),
               ),
-              title: Text(Setting.notifications.titleOf(context.l10n)),
+              title: Text(SettingsRow.notifications.titleOf(context.l10n)),
               subtitle: Text(status),
               onTap: blocked ? apns.openSettings : () => _setPush(!pushOn),
               trailing: Row(
@@ -410,34 +410,26 @@ class _PingsScreenState extends ConsumerState<PingsScreen> {
           .where((r) => r.kind == PingRuleKind.message && r.type == type)
           .map((r) => _tile(r, paused)),
     if (_pushSupported)
-      SettingAnchor(
-        Setting.mentionForeground,
-        child: _blockedTap(
-          pushOn ? null : _masterOffSnack,
-          PrefsSwitchTile(
-            secondary: const Icon(Icons.notifications_active_outlined),
-            title: Setting.mentionForeground.titleOf(context.l10n),
-            enabled: pushOn,
-            pref: Settings.mentionNotifyForeground,
-          ),
+      _blockedTap(
+        pushOn ? null : _masterOffSnack,
+        SettingSwitch(
+          Settings.mentionNotifyForeground,
+          secondary: const Icon(Icons.notifications_active_outlined),
+          enabled: pushOn,
         ),
       ),
     if (_pushSupported)
-      SettingAnchor(
-        Setting.whisperPush,
-        child: _blockedTap(
-          !_keepAlive
-              ? _keepAliveSnack
-              : pushOn
-              ? null
-              : _masterOffSnack,
-          PrefsSwitchTile(
-            secondary: const Icon(Icons.mail_outline),
-            title: Setting.whisperPush.titleOf(context.l10n),
-            enabled: _keepAlive && pushOn,
-            pref: Settings.whisperNotifications,
-            onChanged: widget.onWhisperNotifyChanged,
-          ),
+      _blockedTap(
+        !_keepAlive
+            ? _keepAliveSnack
+            : pushOn
+            ? null
+            : _masterOffSnack,
+        SettingSwitch(
+          Settings.whisperNotifications,
+          secondary: const Icon(Icons.mail_outline),
+          enabled: _keepAlive && pushOn,
+          onChanged: widget.onWhisperNotifyChanged,
         ),
       ),
   ];
@@ -462,10 +454,12 @@ class _PingsScreenState extends ConsumerState<PingsScreen> {
   ) {
     final keywords = kind == PingRuleKind.message;
     return [
-      SettingAnchor(
-        keywords ? Setting.highlightKeywords : Setting.highlightUsers,
+      SettingAnchor.row(
+        keywords ? SettingsRow.highlightKeywords : SettingsRow.highlightUsers,
         child: SettingsSectionHeader(
-          (keywords ? Setting.highlightKeywords : Setting.highlightUsers).title,
+          keywords
+              ? SettingsRow.highlightKeywords.enTitle
+              : SettingsRow.highlightUsers.enTitle,
         ),
       ),
       ..._reorderable(
@@ -495,14 +489,14 @@ class _PingsScreenState extends ConsumerState<PingsScreen> {
         ...rules
             .where((r) => r.kind == PingRuleKind.message && r.type == type)
             .map((r) => _tile(r, false)),
-      SettingAnchor(
-        Setting.badges,
+      SettingAnchor.row(
+        SettingsRow.badges,
         child: ListTile(
           leading: const SizedBox(
             width: 28,
             child: Icon(Icons.shield_outlined),
           ),
-          title: Text(Setting.badges.titleOf(context.l10n)),
+          title: Text(SettingsRow.badges.titleOf(context.l10n)),
           subtitle: Text(
             badgesOn.isEmpty ? context.l10n.none : badgesOn.join(', '),
           ),
@@ -520,9 +514,11 @@ class _PingsScreenState extends ConsumerState<PingsScreen> {
   }
 
   List<Widget> _muteSection(List<PingRule> rules) => [
-    SettingAnchor(
-      Setting.dontHighlight,
-      child: SettingsSectionHeader(Setting.dontHighlight.titleOf(context.l10n)),
+    SettingAnchor.row(
+      SettingsRow.dontHighlight,
+      child: SettingsSectionHeader(
+        SettingsRow.dontHighlight.titleOf(context.l10n),
+      ),
     ),
     _Caption(context.l10n.dontHighlightCaption),
     for (final r in rules.where((r) => r.kind == PingRuleKind.blacklist))
@@ -535,10 +531,10 @@ class _PingsScreenState extends ConsumerState<PingsScreen> {
       ),
     ),
     SettingAnchor(
-      Setting.ignores,
+      Settings.localIgnores,
       child: SettingsNavTile(
         icon: Icons.visibility_off_outlined,
-        title: Setting.ignores.titleOf(context.l10n),
+        title: Settings.localIgnores.titleOf(context.l10n),
         onTap: () => Navigator.push(
           context,
           MaterialPageRoute(builder: (_) => const IgnoresScreen()),
@@ -581,10 +577,10 @@ class _PingsScreenState extends ConsumerState<PingsScreen> {
         ),
       ),
       SettingAnchor(
-        Setting.highlightStrength,
+        Settings.highlightOpacity,
         child: PrefsSliderTile(
           label: (v) =>
-              '${Setting.highlightStrength.titleOf(context.l10n)}: ${(v * 100).round()}%',
+              '${Settings.highlightOpacity.titleOf(context.l10n)}: ${(v * 100).round()}%',
           min: 0,
           max: 1,
           divisions: 5,
@@ -836,7 +832,7 @@ class _RuleTile extends ConsumerWidget {
     final setting = rule.kind == PingRuleKind.message
         ? _builtinSettings[rule.type]
         : null;
-    return setting == null ? tile : SettingAnchor(setting, child: tile);
+    return setting == null ? tile : SettingAnchor.row(setting, child: tile);
   }
 }
 
@@ -892,12 +888,12 @@ List<InlineSpan> _markedSpans(
 
 /// Builtin message rules as searchable settings; their names come from here.
 const _builtinSettings = {
-  'username': Setting.myUsername,
-  'reply': Setting.repliesToMe,
-  'thread': Setting.threadsImIn,
-  'firstMsg': Setting.firstMessages,
-  'redemption': Setting.redemptions,
-  'elevated': Setting.hypeChat,
+  'username': SettingsRow.myUsername,
+  'reply': SettingsRow.repliesToMe,
+  'thread': SettingsRow.threadsImIn,
+  'firstMsg': SettingsRow.firstMessages,
+  'redemption': SettingsRow.redemptions,
+  'elevated': SettingsRow.hypeChat,
 };
 
 /// Editor notes for the builtins whose names undersell what they catch.

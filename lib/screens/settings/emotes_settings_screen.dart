@@ -146,30 +146,34 @@ class _EmotesSettingsScreenState extends State<EmotesSettingsScreen> {
           const EmoteAnimationSection(),
           if (widget.emoteManager != null) ...[
             SettingAnchor(
-              Setting.providers,
+              Settings.emoteProvidersDisabled,
               child: SettingsNavTile(
                 key: const Key('providers_tile'),
                 icon: Icons.extension,
-                title: Setting.providers.titleOf(context.l10n),
+                title: Settings.emoteProvidersDisabled.titleOf(context.l10n),
                 subtitle: _providersSummary(),
                 onTap: _showProviderSheet,
               ),
             ),
             SettingAnchor(
-              Setting.unlistedEmotes,
+              Settings.emoteAllowUnlisted7tv,
               child: SwitchListTile(
                 key: const Key('allow_unlisted_tile'),
                 secondary: const Icon(Icons.visibility_off_outlined),
-                title: Text(Setting.unlistedEmotes.titleOf(context.l10n)),
+                title: Text(
+                  Settings.emoteAllowUnlisted7tv.titleOf(context.l10n),
+                ),
                 value: _allowUnlisted,
                 onChanged: _onAllowUnlistedChanged,
               ),
             ),
             SettingAnchor(
-              Setting.personalEmotes,
+              Settings.emoteAllowPersonal7tv,
               child: SwitchListTile(
                 secondary: const Icon(Icons.person_outline),
-                title: Text(Setting.personalEmotes.titleOf(context.l10n)),
+                title: Text(
+                  Settings.emoteAllowPersonal7tv.titleOf(context.l10n),
+                ),
                 value: _allowPersonal,
                 onChanged: _onAllowPersonalChanged,
               ),
@@ -416,10 +420,10 @@ class _EmoteQualitySectionState extends State<EmoteQualitySection> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         SettingAnchor(
-          Setting.emoteFetching,
+          Settings.emoteFetchTier,
           child: SettingsSectionHeader(
-            Setting.emoteFetching.titleOf(context.l10n),
-            trailing: const SettingInfoButton(Setting.emoteFetching),
+            Settings.emoteFetchTier.titleOf(context.l10n),
+            trailing: SettingInfoButton(Settings.emoteFetchTier),
           ),
         ),
         TweenAnimationBuilder<double>(
@@ -497,10 +501,10 @@ class _EmoteQualitySectionState extends State<EmoteQualitySection> {
           ),
         ),
         SettingAnchor(
-          Setting.autoDataSaver,
+          Settings.emoteFetchAuto,
           child: SettingsSectionHeader(
-            Setting.autoDataSaver.titleOf(context.l10n),
-            trailing: const SettingInfoButton(Setting.autoDataSaver),
+            Settings.emoteFetchAuto.titleOf(context.l10n),
+            trailing: SettingInfoButton(Settings.emoteFetchAuto),
           ),
         ),
         Padding(
@@ -638,10 +642,10 @@ class _EmoteCacheSectionState extends State<EmoteCacheSection> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             SettingAnchor(
-              Setting.emoteCache,
+              Settings.emoteCacheMb,
               child: SettingsSectionHeader(
-                Setting.emoteCache.titleOf(context.l10n),
-                trailing: const SettingInfoButton(Setting.emoteCache),
+                Settings.emoteCacheMb.titleOf(context.l10n),
+                trailing: SettingInfoButton(Settings.emoteCacheMb),
               ),
             ),
             Padding(
@@ -787,24 +791,24 @@ class _EmoteAnimationSectionState extends State<EmoteAnimationSection> {
           children: [
             SettingsSectionHeader(context.l10n.sectionAnimation),
             SettingAnchor(
-              Setting.animateEmotes,
+              Settings.animateGifs,
               child: SwitchListTile(
                 secondary: const Icon(Icons.gif_box),
                 title: TitleWithInfo(
-                  Setting.animateEmotes.titleOf(context.l10n),
-                  Setting.animateEmotes,
+                  Settings.animateGifs.titleOf(context.l10n),
+                  Settings.animateGifs,
                 ),
                 value: _animateGifs,
                 onChanged: (value) => Settings.animateGifs.set(value),
               ),
             ),
             SettingAnchor(
-              Setting.adaptiveFps,
+              Settings.adaptiveEmoteFps,
               child: SwitchListTile(
                 secondary: const Icon(Icons.battery_saver_outlined),
                 title: TitleWithInfo(
-                  Setting.adaptiveFps.titleOf(context.l10n),
-                  Setting.adaptiveFps,
+                  Settings.adaptiveEmoteFps.titleOf(context.l10n),
+                  Settings.adaptiveEmoteFps,
                 ),
                 subtitle: Text(context.l10n.adaptiveFpsHint),
                 value: _adaptiveFps,
@@ -814,7 +818,7 @@ class _EmoteAnimationSectionState extends State<EmoteAnimationSection> {
               ),
             ),
             SettingAnchor(
-              Setting.idleFps,
+              Settings.idleEmoteFps,
               // The value rides in the caption, so the slider keeps the full
               // width, matching the other slider rows.
               child: Column(
@@ -826,9 +830,9 @@ class _EmoteAnimationSectionState extends State<EmoteAnimationSection> {
                       vertical: 8,
                     ),
                     child: TextWithTrailing(
-                      '${Setting.idleFps.titleOf(context.l10n)}: '
+                      '${Settings.idleEmoteFps.titleOf(context.l10n)}: '
                       '${_idleFpsLabel(context.l10n, idleFps)}',
-                      trailing: const SettingInfoButton(Setting.idleFps),
+                      trailing: SettingInfoButton(Settings.idleEmoteFps),
                       style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                         color: idleEnabled
                             ? null

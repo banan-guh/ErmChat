@@ -170,11 +170,11 @@ class _UploaderSettingsScreenState extends State<UploaderSettingsScreen> {
             label: Text(context.l10n.save),
           ),
           const SizedBox(height: 8),
-          SettingAnchor(
-            Setting.recentUploads,
+          SettingAnchor.row(
+            SettingsRow.recentUploads,
             child: SettingsNavTile(
               icon: Icons.image,
-              title: Setting.recentUploads.titleOf(context.l10n),
+              title: SettingsRow.recentUploads.titleOf(context.l10n),
               onTap: () => Navigator.push(
                 context,
                 MaterialPageRoute(builder: (_) => const RecentUploadsScreen()),

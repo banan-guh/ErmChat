@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../l10n/l10n.dart';
+import '../../util/settings.dart';
 import 'settings_page.dart';
 import 'settings_search.dart';
 
@@ -18,7 +19,7 @@ class SettingHelp {
 }
 
 /// The help for [setting], or null when it has none.
-SettingHelp? settingHelp(Setting setting, AppLocalizations l) =>
+SettingHelp? settingHelp(Setting<Object?> setting, AppLocalizations l) =>
     switch (setting.id) {
       'emote_fetching' => SettingHelp(
         why: l.helpEmoteFetchingWhy,
@@ -108,7 +109,7 @@ class TitleWithInfo extends StatelessWidget {
   const TitleWithInfo(this.title, this.setting, {super.key});
 
   final String title;
-  final Setting setting;
+  final Setting<Object?> setting;
 
   @override
   Widget build(BuildContext context) =>
@@ -120,7 +121,7 @@ class TitleWithInfo extends StatelessWidget {
 class SettingInfoButton extends StatelessWidget {
   const SettingInfoButton(this.setting, {super.key});
 
-  final Setting setting;
+  final Setting<Object?> setting;
 
   @override
   Widget build(BuildContext context) {

@@ -41,11 +41,11 @@ class DataSettingsScreen extends StatelessWidget {
         child: ListView(
           children: [
             SettingsPageIntro(l.dataPageIntro),
-            SettingAnchor(
-              Setting.dataUsage,
+            SettingAnchor.row(
+              SettingsRow.dataUsage,
               child: SettingsNavTile(
                 icon: Icons.bar_chart,
-                title: Setting.dataUsage.titleOf(l),
+                title: SettingsRow.dataUsage.titleOf(l),
                 subtitle: l.dataUsageSummary(
                   DataUsageScreen.format(usage.totalFor()),
                   DataUsageScreen.format(usage.totalFor(mobileOnly: true)),

@@ -87,19 +87,19 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
           children: [
             SettingsSectionHeader(context.l10n.sectionMessages),
             SettingAnchor(
-              Setting.sharedChat,
+              Settings.sharedChatMode,
               child: SettingsNavTile(
                 icon: Icons.merge_type,
-                title: Setting.sharedChat.titleOf(context.l10n),
+                title: Settings.sharedChatMode.titleOf(context.l10n),
                 subtitle: _sharedChatModeLabel,
                 onTap: _pickSharedChatMode,
               ),
             ),
-            SettingAnchor(
-              Setting.inlineEmbeds,
+            SettingAnchor.row(
+              SettingsRow.inlineEmbeds,
               child: SettingsNavTile(
                 icon: Icons.gif_box,
-                title: Setting.inlineEmbeds.titleOf(context.l10n),
+                title: SettingsRow.inlineEmbeds.titleOf(context.l10n),
                 subtitle: _inlineEmbedsSubtitle,
                 onTap: () {
                   Navigator.push(
@@ -112,10 +112,10 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
               ),
             ),
             SettingAnchor(
-              Setting.splitLinks,
+              Settings.linkWhitelistEnabled,
               child: SettingsNavTile(
                 icon: Icons.link,
-                title: Setting.splitLinks.titleOf(context.l10n),
+                title: Settings.linkWhitelistEnabled.titleOf(context.l10n),
                 onTap: () => Navigator.push(
                   context,
                   MaterialPageRoute(
@@ -125,31 +125,19 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
               ),
             ),
             SettingsSectionHeader(context.l10n.sectionTyping),
-            SettingAnchor(
-              Setting.preferEmotes,
-              child: PrefsSwitchTile(
-                secondary: const Icon(Icons.sentiment_very_satisfied),
-                title: Setting.preferEmotes.titleOf(context.l10n),
-                pref: Settings.preferEmotesFirst,
-              ),
+            SettingSwitch(
+              Settings.preferEmotesFirst,
+              secondary: const Icon(Icons.sentiment_very_satisfied),
             ),
             const _MentionFormatTile(),
-            SettingAnchor(
-              Setting.replyThreadRoot,
-              child: PrefsSwitchTile(
-                secondary: const Icon(Icons.reply),
-                title: Setting.replyThreadRoot.titleOf(context.l10n),
-                pref: Settings.replyToThreadRoot,
-              ),
+            SettingSwitch(
+              Settings.replyToThreadRoot,
+              secondary: const Icon(Icons.reply),
             ),
-            SettingAnchor(
-              Setting.sendSwipe,
-              child: PrefsSwitchTile(
-                secondary: const Icon(Icons.repeat),
-                title: Setting.sendSwipe.titleOf(context.l10n),
-                subtitle: context.l10n.sendSwipeHint,
-                pref: Settings.sendSwipeMenu,
-              ),
+            SettingSwitch(
+              Settings.sendSwipeMenu,
+              secondary: const Icon(Icons.repeat),
+              subtitle: context.l10n.sendSwipeHint,
             ),
             ValueListenableBuilder(
               valueListenable: Settings.sendSwipeMenu,
@@ -157,11 +145,11 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
                   on ? const _SpamSpeedTile() : const SizedBox.shrink(),
             ),
             if (widget.twitchAuth != null)
-              SettingAnchor(
-                Setting.macros,
+              SettingAnchor.row(
+                SettingsRow.macros,
                 child: SettingsNavTile(
                   icon: Icons.bolt,
-                  title: Setting.macros.titleOf(context.l10n),
+                  title: SettingsRow.macros.titleOf(context.l10n),
                   onTap: () {
                     Navigator.push(
                       context,
@@ -174,22 +162,18 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
                 ),
               ),
             SettingsSectionHeader(context.l10n.sectionUsers),
-            SettingAnchor(
-              Setting.doubleTapCopy,
-              child: PrefsSwitchTile(
-                secondary: const Icon(Icons.content_copy),
-                title: Setting.doubleTapCopy.titleOf(context.l10n),
-                subtitle: context.l10n.delaysUserCard,
-                pref: Settings.doubleTapNameCopy,
-              ),
+            SettingSwitch(
+              Settings.doubleTapNameCopy,
+              secondary: const Icon(Icons.content_copy),
+              subtitle: context.l10n.delaysUserCard,
             ),
             SettingsSectionHeader(context.l10n.sectionConnection),
             StayConnectedTile(onChanged: widget.onBackgroundServiceChanged),
             SettingAnchor(
-              Setting.chatProxy,
+              Settings.proxyEnabled,
               child: SettingsNavTile(
                 icon: Icons.cloud,
-                title: Setting.chatProxy.titleOf(context.l10n),
+                title: Settings.proxyEnabled.titleOf(context.l10n),
                 subtitle: Settings.proxyEnabled.value
                     ? context.l10n.on
                     : context.l10n.off,
@@ -369,10 +353,10 @@ class _MentionFormatTile extends StatelessWidget {
     return ValueListenableBuilder<String>(
       valueListenable: Settings.mentionFormat,
       builder: (context, format, _) => SettingAnchor(
-        Setting.mentionFormat,
+        Settings.mentionFormat,
         child: SettingsNavTile(
           icon: Icons.text_format,
-          title: Setting.mentionFormat.titleOf(context.l10n),
+          title: Settings.mentionFormat.titleOf(context.l10n),
           subtitle: formats[format],
           onTap: () => _pick(context),
         ),
@@ -391,16 +375,12 @@ class StayConnectedTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (kIsWeb || !Platform.isAndroid) return const SizedBox.shrink();
-    return SettingAnchor(
-      Setting.stayConnected,
-      child: PrefsSwitchTile(
-        secondary: const Icon(Icons.wifi_tethering),
-        title: Setting.stayConnected.titleOf(context.l10n),
-        subtitle: context.l10n.persistentNotification,
-        info: const SettingInfoButton(Setting.stayConnected),
-        pref: Settings.backgroundService,
-        onChanged: onChanged,
-      ),
+    return SettingSwitch(
+      Settings.backgroundService,
+      secondary: const Icon(Icons.wifi_tethering),
+      subtitle: context.l10n.persistentNotification,
+      info: SettingInfoButton(Settings.backgroundService),
+      onChanged: onChanged,
     );
   }
 }

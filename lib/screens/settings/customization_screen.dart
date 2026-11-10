@@ -98,7 +98,7 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
     final l = context.l10n;
     final selected = await showChoiceDialog<int>(
       context,
-      title: Setting.chatFontWeight.titleOf(l),
+      title: Settings.chatFontWeight.titleOf(l),
       value: _fontWeight,
       options: [
         (400, l.fontWeightNormal, ''),
@@ -128,9 +128,9 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
           children: [
             SettingsSectionHeader(context.l10n.sectionTheme),
             SettingAnchor(
-              Setting.theme,
+              Settings.themeMode,
               child: ListTile(
-                title: Text(Setting.theme.titleOf(context.l10n)),
+                title: Text(Settings.themeMode.titleOf(context.l10n)),
                 subtitle: Text(switch (_themeMode) {
                   ThemeMode.system => context.l10n.themeSystem,
                   ThemeMode.light => context.l10n.themeLight,
@@ -141,14 +141,14 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
               ),
             ),
             SettingAnchor(
-              Setting.accentColor,
+              Settings.accentColor,
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Padding(
                     padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
                     child: Text(
-                      Setting.accentColor.titleOf(context.l10n),
+                      Settings.accentColor.titleOf(context.l10n),
                       style: const TextStyle(fontWeight: FontWeight.w600),
                     ),
                   ),
@@ -174,9 +174,9 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
             const TrueDarkTile(),
             SettingsSectionHeader(context.l10n.sectionLayout),
             SettingAnchor(
-              Setting.layout,
+              Settings.layoutDensity,
               child: ListTile(
-                title: Text(Setting.layout.titleOf(context.l10n)),
+                title: Text(Settings.layoutDensity.titleOf(context.l10n)),
                 subtitle: Text(
                   _customLayoutEnabled
                       ? context.l10n.layoutCustom
@@ -193,10 +193,10 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
                 onTap: () => _pickLayoutDensity(context),
               ),
             ),
-            SettingAnchor(
-              Setting.editLayout,
+            SettingAnchor.row(
+              SettingsRow.editLayout,
               child: ListTile(
-                title: Text(Setting.editLayout.titleOf(context.l10n)),
+                title: Text(SettingsRow.editLayout.titleOf(context.l10n)),
                 trailing: const Icon(Icons.chevron_right),
                 onTap: () {
                   widget.onEditLayout?.call();
@@ -204,20 +204,16 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
                 },
               ),
             ),
-            SettingAnchor(
-              Setting.haptics,
-              child: PrefsSwitchTile(
-                secondary: const Icon(Icons.vibration),
-                title: Setting.haptics.titleOf(context.l10n),
-                pref: Settings.haptics,
-              ),
+            SettingSwitch(
+              Settings.haptics,
+              secondary: const Icon(Icons.vibration),
             ),
             SettingsSectionHeader(context.l10n.sectionChatDisplay),
             SettingAnchor(
-              Setting.chatFontSize,
+              Settings.chatFontSize,
               child: PrefsSliderTile(
                 label: (v) =>
-                    '${Setting.chatFontSize.titleOf(context.l10n)}: ${v.round()}',
+                    '${Settings.chatFontSize.titleOf(context.l10n)}: ${v.round()}',
                 min: 8,
                 max: 24,
                 divisions: 16,
@@ -227,10 +223,10 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
               ),
             ),
             SettingAnchor(
-              Setting.chatFontWeight,
+              Settings.chatFontWeight,
               child: SettingsNavTile(
                 icon: Icons.format_bold,
-                title: Setting.chatFontWeight.titleOf(context.l10n),
+                title: Settings.chatFontWeight.titleOf(context.l10n),
                 subtitle: switch (_fontWeight) {
                   500 => context.l10n.fontWeightMedium,
                   600 => context.l10n.fontWeightSemibold,
@@ -240,55 +236,29 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
                 onTap: _pickFontWeight,
               ),
             ),
-            SettingAnchor(
-              Setting.showTimestamps,
-              child: PrefsSwitchTile(
-                secondary: const Icon(Icons.schedule),
-                title: Setting.showTimestamps.titleOf(context.l10n),
-                pref: Settings.showTimestamps,
-              ),
+            SettingSwitch(
+              Settings.showTimestamps,
+              secondary: const Icon(Icons.schedule),
             ),
             SettingAnchor(
-              Setting.timestampFormat,
+              Settings.timestampFormat,
               child: SettingsNavTile(
                 icon: Icons.access_time,
-                title: Setting.timestampFormat.titleOf(context.l10n),
+                title: Settings.timestampFormat.titleOf(context.l10n),
                 subtitle: _timestampFormat,
                 onTap: _pickTimestampFormat,
               ),
             ),
-            SettingAnchor(
-              Setting.checkered,
-              child: PrefsSwitchTile(
-                title: Setting.checkered.titleOf(context.l10n),
-                subtitle: context.l10n.checkeredHint,
-                pref: Settings.checkeredMessages,
-              ),
+            SettingSwitch(
+              Settings.checkeredMessages,
+              subtitle: context.l10n.checkeredHint,
             ),
-            SettingAnchor(
-              Setting.lineSeparator,
-              child: PrefsSwitchTile(
-                title: Setting.lineSeparator.titleOf(context.l10n),
-                pref: Settings.lineSeparator,
-              ),
-            ),
+            SettingSwitch(Settings.lineSeparator),
             SettingsSectionHeader(context.l10n.sectionDisplay),
             const KeepScreenOnTile(),
             SettingsSectionHeader(context.l10n.sectionNavigation),
-            SettingAnchor(
-              Setting.fastChannelSwipe,
-              child: PrefsSwitchTile(
-                title: Setting.fastChannelSwipe.titleOf(context.l10n),
-                pref: Settings.fastChannelSnap,
-              ),
-            ),
-            SettingAnchor(
-              Setting.reopenLastChannel,
-              child: PrefsSwitchTile(
-                title: Setting.reopenLastChannel.titleOf(context.l10n),
-                pref: Settings.reopenLastChannel,
-              ),
-            ),
+            SettingSwitch(Settings.fastChannelSnap),
+            SettingSwitch(Settings.reopenLastChannel),
           ],
         ),
       ),
@@ -467,14 +437,10 @@ class TrueDarkTile extends StatelessWidget {
   const TrueDarkTile({super.key});
 
   @override
-  Widget build(BuildContext context) => SettingAnchor(
-    Setting.trueDark,
-    child: PrefsSwitchTile(
-      title: Setting.trueDark.titleOf(context.l10n),
-      info: const SettingInfoButton(Setting.trueDark),
-      enabled: Theme.of(context).brightness == Brightness.dark,
-      pref: Settings.trueDark,
-    ),
+  Widget build(BuildContext context) => SettingSwitch(
+    Settings.trueDark,
+    info: SettingInfoButton(Settings.trueDark),
+    enabled: Theme.of(context).brightness == Brightness.dark,
   );
 }
 
@@ -483,12 +449,8 @@ class KeepScreenOnTile extends StatelessWidget {
   const KeepScreenOnTile({super.key});
 
   @override
-  Widget build(BuildContext context) => SettingAnchor(
-    Setting.keepScreenOn,
-    child: PrefsSwitchTile(
-      title: Setting.keepScreenOn.titleOf(context.l10n),
-      info: const SettingInfoButton(Setting.keepScreenOn),
-      pref: Settings.keepScreenOn,
-    ),
+  Widget build(BuildContext context) => SettingSwitch(
+    Settings.keepScreenOn,
+    info: SettingInfoButton(Settings.keepScreenOn),
   );
 }

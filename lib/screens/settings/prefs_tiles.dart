@@ -1,14 +1,53 @@
 import 'package:flutter/material.dart';
 
+import '../../l10n/l10n.dart';
 import '../../util/prefs.dart';
 import '../../util/settings.dart';
 import 'settings_page.dart';
+import 'settings_search.dart';
 
 /// Settings rows bound directly to one stored value.
 ///
 /// A change writes through to its [Settings] entry, which notifies the
 /// widgets that read it, then optionally forwards to [onChanged] for callers
 /// that need an inline action.
+
+/// One flag's switch row, anchored so search can jump to it. The setting is
+/// both the value and the label, so the row adds nothing of its own.
+class SettingSwitch extends StatelessWidget {
+  const SettingSwitch(
+    this.setting, {
+    super.key,
+    this.subtitle,
+    this.secondary,
+    this.info,
+    this.enabled = true,
+    this.onChanged,
+  });
+
+  final Setting<bool> setting;
+  final String? subtitle;
+  final Widget? secondary;
+
+  /// Sits right after the title text, such as an info button.
+  final Widget? info;
+  final bool enabled;
+  final ValueChanged<bool>? onChanged;
+
+  @override
+  Widget build(BuildContext context) => SettingAnchor(
+    setting,
+    child: PrefsSwitchTile(
+      title: setting.titleOf(context.l10n),
+      subtitle: subtitle,
+      secondary: secondary,
+      info: info,
+      pref: setting,
+      enabled: enabled,
+      onChanged: onChanged,
+    ),
+  );
+}
 
 /// Switch row for one [Settings] flag. It shows the live value, so a write
 /// from anywhere else moves it too.

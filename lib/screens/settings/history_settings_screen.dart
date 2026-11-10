@@ -34,13 +34,9 @@ class HistorySettingsScreen extends StatelessWidget {
             RecentMessagesSourceTile(onChanged: onRecentMessagesModeChanged),
             const HistoryFetchTiles(),
             SettingsSectionHeader(context.l10n.sectionArchive),
-            SettingAnchor(
-              Setting.archiveEnabled,
-              child: PrefsSwitchTile(
-                title: Setting.archiveEnabled.titleOf(context.l10n),
-                subtitle: context.l10n.archiveRestartNote,
-                pref: Settings.archiveEnabled,
-              ),
+            SettingSwitch(
+              Settings.archiveEnabled,
+              subtitle: context.l10n.archiveRestartNote,
             ),
             const ArchiveLimitsTile(),
           ],
@@ -78,24 +74,20 @@ class _HistoryFetchTilesState extends State<HistoryFetchTiles> {
     final l = context.l10n;
     return Column(
       children: [
-        SettingAnchor(
-          Setting.gapFill,
-          child: ValueListenableBuilder(
-            valueListenable: Settings.archiveEnabled,
-            builder: (context, archive, _) => NeedsArchive(
-              archive: archive,
-              child: PrefsSwitchTile(
-                title: Setting.gapFill.titleOf(l),
-                subtitle: l.gapFillSubtitle,
-                info: const SettingInfoButton(Setting.gapFill),
-                pref: Settings.historyDynamicFetch,
-                enabled: archive,
-              ),
+        ValueListenableBuilder(
+          valueListenable: Settings.archiveEnabled,
+          builder: (context, archive, _) => NeedsArchive(
+            archive: archive,
+            child: SettingSwitch(
+              Settings.historyDynamicFetch,
+              subtitle: l.gapFillSubtitle,
+              info: SettingInfoButton(Settings.historyDynamicFetch),
+              enabled: archive,
             ),
           ),
         ),
         SettingAnchor(
-          Setting.recentMessagesLimit,
+          Settings.recentMessagesLimit,
           child: ListenableBuilder(
             listenable: Listenable.merge([
               Settings.historyDynamicFetch,
@@ -105,10 +97,8 @@ class _HistoryFetchTilesState extends State<HistoryFetchTiles> {
               final dynamicFetch = Settings.dynamicFetchOn;
               final limit = PrefsSliderTile(
                 label: (v) =>
-                    '${Setting.recentMessagesLimit.titleOf(l)}: ${v.round()}',
-                labelTrailing: const SettingInfoButton(
-                  Setting.recentMessagesLimit,
-                ),
+                    '${Settings.recentMessagesLimit.titleOf(l)}: ${v.round()}',
+                labelTrailing: SettingInfoButton(Settings.recentMessagesLimit),
                 sliderLabel: (v) => '${v.round()}',
                 min: 0,
                 max: 800,
@@ -182,14 +172,14 @@ class MaxMessagesTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final l = context.l10n;
     return SettingAnchor(
-      Setting.maxMessages,
+      Settings.maxMessagesPerChannel,
       child: ValueListenableBuilder(
         valueListenable: Settings.archiveEnabled,
         builder: (context, archive, _) {
           final slider = PrefsSliderTile(
             enabled: !archive,
             label: (v) =>
-                '${Setting.maxMessages.titleOf(l)}: '
+                '${Settings.maxMessagesPerChannel.titleOf(l)}: '
                 '${kMaxMessagesPerChannelValues[v.round()]}',
             sliderLabel: (v) => '${kMaxMessagesPerChannelValues[v.round()]}',
             min: 0,
@@ -232,11 +222,11 @@ class RecentMessagesSourceTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => SettingAnchor(
-    Setting.recentMessagesSource,
+    Settings.recentMessagesMode,
     child: SettingsNavTile(
       icon: Icons.history,
-      title: Setting.recentMessagesSource.titleOf(context.l10n),
-      titleTrailing: const SettingInfoButton(Setting.recentMessagesSource),
+      title: Settings.recentMessagesMode.titleOf(context.l10n),
+      titleTrailing: SettingInfoButton(Settings.recentMessagesMode),
       subtitle: context.l10n.chooseProvider,
       onTap: () => Navigator.push(
         context,
@@ -372,7 +362,7 @@ class _ArchiveLimitsTileState extends ConsumerState<ArchiveLimitsTile> {
     await _readSizes();
   }
 
-  Widget _slider(Setting setting, int slider, int choices) {
+  Widget _slider(Setting<Object?> setting, int slider, int choices) {
     final l = context.l10n;
     final label = _label(l, slider, _index[slider]);
     return SettingAnchor(
@@ -423,8 +413,8 @@ class _ArchiveLimitsTileState extends ConsumerState<ArchiveLimitsTile> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              _slider(Setting.archiveRetention, 0, _days.length),
-              _slider(Setting.archiveChannelCap, 1, _mb.length),
+              _slider(Settings.archiveRetentionDays, 0, _days.length),
+              _slider(Settings.archiveChannelCapMb, 1, _mb.length),
               Padding(
                 padding: const EdgeInsets.symmetric(
                   horizontal: 16,

@@ -211,7 +211,7 @@ class SettingsScreen extends StatelessWidget {
         children: [
           SettingsNavTile(
             icon: Icons.tag,
-            title: Setting.channels.titleOf(context.l10n),
+            title: context.l10n.pageChannels,
             onTap: () => _go(context, _channels),
           ),
           SettingsNavTile(
@@ -258,12 +258,12 @@ class SettingsScreen extends StatelessWidget {
           ),
           SettingsNavTile(
             icon: Icons.person,
-            title: Setting.account.titleOf(context.l10n),
+            title: context.l10n.pageAccount,
             onTap: () => _go(context, _account),
           ),
           SettingsNavTile(
             icon: Icons.info,
-            title: Setting.about.titleOf(context.l10n),
+            title: context.l10n.pageAbout,
             onTap: () => _go(context, _about),
           ),
           const UpdateBanner(),

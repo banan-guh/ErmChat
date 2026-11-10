@@ -19,12 +19,12 @@ class InlineEmbedsScreen extends StatelessWidget {
           SettingsSectionHeader(context.l10n.sectionGiphy),
           const ShowGiphyTile(),
           SettingAnchor(
-            Setting.giphyHeight,
+            Settings.giphyInlineHeight,
             child: ValueListenableBuilder<bool>(
               valueListenable: Settings.giphyInlineEnabled,
               builder: (context, showGifs, _) => PrefsSliderTile(
                 label: (v) =>
-                    '${Setting.giphyHeight.titleOf(context.l10n)}: ${v.round()}dp',
+                    '${Settings.giphyInlineHeight.titleOf(context.l10n)}: ${v.round()}dp',
                 sliderLabel: (v) => '${v.round()}dp',
                 enabled: showGifs,
                 min: kGiphyInlineHeightMin,
@@ -51,12 +51,12 @@ class InlineEmbedsScreen extends StatelessWidget {
           SettingsSectionHeader(context.l10n.sectionImages),
           const ShowImagesTile(),
           SettingAnchor(
-            Setting.imageHeight,
+            Settings.imageEmbedHeight,
             child: ValueListenableBuilder<bool>(
               valueListenable: Settings.imageEmbedEnabled,
               builder: (context, showImages, _) => PrefsSliderTile(
                 label: (v) =>
-                    '${Setting.imageHeight.titleOf(context.l10n)}: ${v.round()}dp',
+                    '${Settings.imageEmbedHeight.titleOf(context.l10n)}: ${v.round()}dp',
                 sliderLabel: (v) => '${v.round()}dp',
                 enabled: showImages,
                 min: kImageEmbedHeightMin,
@@ -82,14 +82,10 @@ class ShowGiphyTile extends StatelessWidget {
   const ShowGiphyTile({super.key});
 
   @override
-  Widget build(BuildContext context) => SettingAnchor(
-    Setting.showGiphy,
-    child: PrefsSwitchTile(
-      secondary: const Icon(Icons.gif_box),
-      title: Setting.showGiphy.titleOf(context.l10n),
-      info: const SettingInfoButton(Setting.showGiphy),
-      pref: Settings.giphyInlineEnabled,
-    ),
+  Widget build(BuildContext context) => SettingSwitch(
+    Settings.giphyInlineEnabled,
+    secondary: const Icon(Icons.gif_box),
+    info: SettingInfoButton(Settings.giphyInlineEnabled),
   );
 }
 
@@ -98,14 +94,10 @@ class ShowImagesTile extends StatelessWidget {
   const ShowImagesTile({super.key});
 
   @override
-  Widget build(BuildContext context) => SettingAnchor(
-    Setting.showImages,
-    child: PrefsSwitchTile(
-      secondary: const Icon(Icons.image_outlined),
-      title: Setting.showImages.titleOf(context.l10n),
-      subtitle: context.l10n.imagePreviewHint,
-      info: const SettingInfoButton(Setting.showImages),
-      pref: Settings.imageEmbedEnabled,
-    ),
+  Widget build(BuildContext context) => SettingSwitch(
+    Settings.imageEmbedEnabled,
+    secondary: const Icon(Icons.image_outlined),
+    subtitle: context.l10n.imagePreviewHint,
+    info: SettingInfoButton(Settings.imageEmbedEnabled),
   );
 }

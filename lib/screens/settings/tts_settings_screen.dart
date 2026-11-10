@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../../l10n/l10n.dart';
 import '../../services/tts_controller.dart';
 import '../../util/prefs.dart';
+import '../../util/settings.dart';
 import '../../widgets/app_snack.dart';
 import '../../widgets/dialogs.dart';
 import 'settings_page.dart';
@@ -178,19 +179,19 @@ class _TtsSettingsScreenState extends State<TtsSettingsScreen> {
       body: ListView(
         children: [
           SettingAnchor(
-            Setting.enableTts,
+            Settings.ttsEnabled,
             child: SwitchListTile(
               secondary: const Icon(Icons.record_voice_over),
-              title: Text(Setting.enableTts.titleOf(context.l10n)),
+              title: Text(Settings.ttsEnabled.titleOf(context.l10n)),
               value: _enabled,
               onChanged: (value) => unawaited(_setEnabled(value)),
             ),
           ),
-          SettingAnchor(
-            Setting.ttsEngine,
+          SettingAnchor.row(
+            SettingsRow.ttsEngine,
             child: SettingsNavTile(
               icon: Icons.audio_file,
-              title: Setting.ttsEngine.titleOf(context.l10n),
+              title: SettingsRow.ttsEngine.titleOf(context.l10n),
               subtitle:
                   (_selectedOption?.label.isEmpty ?? true
                       ? null
@@ -203,10 +204,10 @@ class _TtsSettingsScreenState extends State<TtsSettingsScreen> {
             ),
           ),
           SettingAnchor(
-            Setting.ttsQueueMode,
+            Settings.ttsQueueMode,
             child: SettingsNavTile(
               icon: Icons.queue,
-              title: Setting.ttsQueueMode.titleOf(context.l10n),
+              title: Settings.ttsQueueMode.titleOf(context.l10n),
               subtitle: _queueMode == TtsQueueMode.queue
                   ? context.l10n.ttsQueue
                   : context.l10n.ttsNewest,
@@ -214,10 +215,10 @@ class _TtsSettingsScreenState extends State<TtsSettingsScreen> {
             ),
           ),
           SettingAnchor(
-            Setting.ttsFormat,
+            Settings.ttsFormatMode,
             child: SettingsNavTile(
               icon: Icons.format_quote,
-              title: Setting.ttsFormat.titleOf(context.l10n),
+              title: Settings.ttsFormatMode.titleOf(context.l10n),
               subtitle: _formatMode == TtsFormatMode.messageOnly
                   ? context.l10n.ttsMessageOnly
                   : context.l10n.ttsUserAndMessage,
@@ -225,37 +226,37 @@ class _TtsSettingsScreenState extends State<TtsSettingsScreen> {
             ),
           ),
           SettingAnchor(
-            Setting.ttsForceEnglish,
+            Settings.ttsForceEnglish,
             child: SwitchListTile(
               secondary: const Icon(Icons.language),
-              title: Text(Setting.ttsForceEnglish.titleOf(context.l10n)),
+              title: Text(Settings.ttsForceEnglish.titleOf(context.l10n)),
               value: _forceEnglish,
               onChanged: _setForceEnglish,
             ),
           ),
           SettingAnchor(
-            Setting.ttsIgnoreUrls,
+            Settings.ttsIgnoreUrls,
             child: SwitchListTile(
               secondary: const Icon(Icons.link_off),
-              title: Text(Setting.ttsIgnoreUrls.titleOf(context.l10n)),
+              title: Text(Settings.ttsIgnoreUrls.titleOf(context.l10n)),
               value: _ignoreUrls,
               onChanged: _setIgnoreUrls,
             ),
           ),
           SettingAnchor(
-            Setting.ttsIgnoreEmotes,
+            Settings.ttsIgnoreEmotes,
             child: SwitchListTile(
               secondary: const Icon(Icons.emoji_emotions),
-              title: Text(Setting.ttsIgnoreEmotes.titleOf(context.l10n)),
+              title: Text(Settings.ttsIgnoreEmotes.titleOf(context.l10n)),
               value: _ignoreEmotes,
               onChanged: _setIgnoreEmotes,
             ),
           ),
           SettingAnchor(
-            Setting.ttsIgnoredUsers,
+            Settings.ttsUserIgnoreList,
             child: SettingsNavTile(
               icon: Icons.person_off,
-              title: Setting.ttsIgnoredUsers.titleOf(context.l10n),
+              title: Settings.ttsUserIgnoreList.titleOf(context.l10n),
               subtitle: context.l10n.userCount(
                 widget.ttsController?.userIgnoreList.length ?? 0,
               ),

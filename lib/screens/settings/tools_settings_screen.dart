@@ -269,11 +269,11 @@ class ToolsSettingsScreen extends StatelessWidget {
       title: Text(context.l10n.pageTools),
       body: ListView(
         children: [
-          SettingAnchor(
-            Setting.tts,
+          SettingAnchor.row(
+            SettingsRow.tts,
             child: SettingsNavTile(
               icon: Icons.record_voice_over,
-              title: Setting.tts.titleOf(context.l10n),
+              title: SettingsRow.tts.titleOf(context.l10n),
               onTap: () => Navigator.push(
                 context,
                 MaterialPageRoute(
@@ -283,11 +283,11 @@ class ToolsSettingsScreen extends StatelessWidget {
               ),
             ),
           ),
-          SettingAnchor(
-            Setting.uploader,
+          SettingAnchor.row(
+            SettingsRow.uploader,
             child: SettingsNavTile(
               icon: Icons.upload,
-              title: Setting.uploader.titleOf(context.l10n),
+              title: SettingsRow.uploader.titleOf(context.l10n),
               onTap: () => Navigator.push(
                 context,
                 MaterialPageRoute(
@@ -298,10 +298,10 @@ class ToolsSettingsScreen extends StatelessWidget {
           ),
           if (analyticsService != null && channels != null && images != null)
             SettingAnchor(
-              Setting.analytics,
+              Settings.analyticsEnabled,
               child: SettingsNavTile(
                 icon: Icons.insights,
-                title: Setting.analytics.titleOf(context.l10n),
+                title: Settings.analyticsEnabled.titleOf(context.l10n),
                 onTap: () => Navigator.push(
                   context,
                   MaterialPageRoute(
@@ -326,31 +326,27 @@ class ToolsSettingsScreen extends StatelessWidget {
               ),
             ),
           SettingAnchor(
-            Setting.updates,
+            Settings.updateCheckEnabled,
             child: SettingsNavTile(
               icon: Icons.system_update,
-              title: Setting.updates.titleOf(context.l10n),
+              title: Settings.updateCheckEnabled.titleOf(context.l10n),
               onTap: () => _showUpdateOptions(context),
             ),
           ),
-          SettingAnchor(
-            Setting.settingsBackup,
+          SettingAnchor.row(
+            SettingsRow.settingsBackup,
             child: SettingsNavTile(
               icon: Icons.import_export,
-              title: Setting.settingsBackup.titleOf(context.l10n),
+              title: SettingsRow.settingsBackup.titleOf(context.l10n),
               onTap: () => _showBackupOptions(context),
             ),
           ),
           if (Platform.isAndroid) ...[
             SettingsSectionHeader(context.l10n.sectionLivestreams),
-            SettingAnchor(
-              Setting.pip,
-              child: PrefsSwitchTile(
-                secondary: const Icon(Icons.picture_in_picture),
-                title: Setting.pip.titleOf(context.l10n),
-                pref: Settings.streamPipEnabled,
-                onChanged: onPipEnabledChanged,
-              ),
+            SettingSwitch(
+              Settings.streamPipEnabled,
+              secondary: const Icon(Icons.picture_in_picture),
+              onChanged: onPipEnabledChanged,
             ),
           ],
         ],
