@@ -111,6 +111,58 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
     await Settings.chatFontWeight.set(selected);
   }
 
+  /// A row that opens [onTap], titled and anchored by [setting].
+  Widget _navTile(
+    Setting<Object?> setting, {
+    String? subtitle,
+    required VoidCallback onTap,
+  }) {
+    return SettingAnchor(
+      setting,
+      child: ListTile(
+        title: Text(setting.titleOf(context.l10n)),
+        subtitle: subtitle == null ? null : Text(subtitle),
+        trailing: const Icon(Icons.chevron_right),
+        onTap: onTap,
+      ),
+    );
+  }
+
+  /// The accent color presets under their own label.
+  Widget _accentSection() {
+    return SettingAnchor(
+      Settings.accentColor,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+            child: Text(
+              Settings.accentColor.titleOf(context.l10n),
+              style: const TextStyle(fontWeight: FontWeight.w600),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              children: [
+                for (final entry in kAccentPresets.entries)
+                  _AccentSwatch(
+                    key: ValueKey('accent_${entry.key}'),
+                    color: entry.value,
+                    selected: entry.key == _accentKey,
+                    onTap: () => _setAccentColor(entry.key),
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return SettingsPage(
@@ -127,71 +179,31 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
         builder: (context, _) => ListView(
           children: [
             SettingsSectionHeader(context.l10n.sectionTheme),
-            SettingAnchor(
+            _navTile(
               Settings.themeMode,
-              child: ListTile(
-                title: Text(Settings.themeMode.titleOf(context.l10n)),
-                subtitle: Text(switch (_themeMode) {
-                  ThemeMode.system => context.l10n.themeSystem,
-                  ThemeMode.light => context.l10n.themeLight,
-                  ThemeMode.dark => context.l10n.themeDark,
-                }),
-                trailing: const Icon(Icons.chevron_right),
-                onTap: () => _pickTheme(context),
-              ),
+              subtitle: switch (_themeMode) {
+                ThemeMode.system => context.l10n.themeSystem,
+                ThemeMode.light => context.l10n.themeLight,
+                ThemeMode.dark => context.l10n.themeDark,
+              },
+              onTap: () => _pickTheme(context),
             ),
-            SettingAnchor(
-              Settings.accentColor,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-                    child: Text(
-                      Settings.accentColor.titleOf(context.l10n),
-                      style: const TextStyle(fontWeight: FontWeight.w600),
-                    ),
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    child: Wrap(
-                      spacing: 10,
-                      runSpacing: 10,
-                      children: [
-                        for (final entry in kAccentPresets.entries)
-                          _AccentSwatch(
-                            key: ValueKey('accent_${entry.key}'),
-                            color: entry.value,
-                            selected: entry.key == _accentKey,
-                            onTap: () => _setAccentColor(entry.key),
-                          ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
+            _accentSection(),
             const TrueDarkTile(),
             SettingsSectionHeader(context.l10n.sectionLayout),
-            SettingAnchor(
+            _navTile(
               Settings.layoutDensity,
-              child: ListTile(
-                title: Text(Settings.layoutDensity.titleOf(context.l10n)),
-                subtitle: Text(
-                  _customLayoutEnabled
-                      ? context.l10n.layoutCustom
-                      : switch (_layoutDensity) {
-                          LayoutDensity.auto =>
-                            isCompactLayout(context)
-                                ? context.l10n.layoutAutoCompact
-                                : context.l10n.layoutAutoFull,
-                          LayoutDensity.compact => context.l10n.layoutCompact,
-                          LayoutDensity.full => context.l10n.layoutFull,
-                        },
-                ),
-                trailing: const Icon(Icons.chevron_right),
-                onTap: () => _pickLayoutDensity(context),
-              ),
+              subtitle: _customLayoutEnabled
+                  ? context.l10n.layoutCustom
+                  : switch (_layoutDensity) {
+                      LayoutDensity.auto =>
+                        isCompactLayout(context)
+                            ? context.l10n.layoutAutoCompact
+                            : context.l10n.layoutAutoFull,
+                      LayoutDensity.compact => context.l10n.layoutCompact,
+                      LayoutDensity.full => context.l10n.layoutFull,
+                    },
+              onTap: () => _pickLayoutDensity(context),
             ),
             SettingAnchor.row(
               SettingsRow.editLayout,
@@ -304,6 +316,21 @@ class _AccentSwatch extends StatelessWidget {
   }
 }
 
+/// The grabber both picker sheets draw. [showDragHandle] draws its own with
+/// different spacing, so the sheets keep this one.
+Widget _sheetDragHandle() {
+  return Center(
+    child: Container(
+      width: 32,
+      height: 4,
+      decoration: BoxDecoration(
+        color: Colors.grey[400],
+        borderRadius: BorderRadius.circular(Radii.small),
+      ),
+    ),
+  );
+}
+
 class _ThemePickerSheet extends StatelessWidget {
   final ThemeMode current;
 
@@ -323,16 +350,7 @@ class _ThemePickerSheet extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Center(
-            child: Container(
-              width: 32,
-              height: 4,
-              decoration: BoxDecoration(
-                color: Colors.grey[400],
-                borderRadius: BorderRadius.circular(Radii.small),
-              ),
-            ),
-          ),
+          _sheetDragHandle(),
           const SizedBox(height: 8),
           for (final entry in _options(context.l10n).entries)
             ListTile(
@@ -386,16 +404,7 @@ class _LayoutPickerSheet extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Center(
-            child: Container(
-              width: 32,
-              height: 4,
-              decoration: BoxDecoration(
-                color: Colors.grey[400],
-                borderRadius: BorderRadius.circular(Radii.small),
-              ),
-            ),
-          ),
+          _sheetDragHandle(),
           const SizedBox(height: 8),
           for (final entry in _options(context.l10n).entries)
             ListTile(

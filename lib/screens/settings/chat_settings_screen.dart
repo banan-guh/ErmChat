@@ -71,6 +71,58 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
     };
   }
 
+  /// A nav row for [setting] that opens the page [page] builds.
+  Widget _nav(
+    Setting<Object?> setting,
+    IconData icon,
+    Widget Function() page, {
+    String? subtitle,
+  }) {
+    return SettingAnchor(
+      setting,
+      child: _navTile(
+        setting.titleOf(context.l10n),
+        icon,
+        page,
+        subtitle: subtitle,
+      ),
+    );
+  }
+
+  /// The same row for a [row] that stores nothing.
+  Widget _navRow(
+    SettingsRow row,
+    IconData icon,
+    Widget Function() page, {
+    String? subtitle,
+  }) {
+    return SettingAnchor.row(
+      row,
+      child: _navTile(
+        row.titleOf(context.l10n),
+        icon,
+        page,
+        subtitle: subtitle,
+      ),
+    );
+  }
+
+  /// The tile both nav rows share: leading icon, title and the push.
+  SettingsNavTile _navTile(
+    String title,
+    IconData icon,
+    Widget Function() page, {
+    String? subtitle,
+  }) {
+    return SettingsNavTile(
+      icon: icon,
+      title: title,
+      subtitle: subtitle,
+      onTap: () =>
+          Navigator.push(context, MaterialPageRoute(builder: (_) => page())),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return SettingsPage(
@@ -94,34 +146,16 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
                 onTap: _pickSharedChatMode,
               ),
             ),
-            SettingAnchor.row(
+            _navRow(
               SettingsRow.inlineEmbeds,
-              child: SettingsNavTile(
-                icon: Icons.gif_box,
-                title: SettingsRow.inlineEmbeds.titleOf(context.l10n),
-                subtitle: _inlineEmbedsSubtitle,
-                onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => const InlineEmbedsScreen(),
-                    ),
-                  );
-                },
-              ),
+              Icons.gif_box,
+              () => const InlineEmbedsScreen(),
+              subtitle: _inlineEmbedsSubtitle,
             ),
-            SettingAnchor(
+            _nav(
               Settings.linkWhitelistEnabled,
-              child: SettingsNavTile(
-                icon: Icons.link,
-                title: Settings.linkWhitelistEnabled.titleOf(context.l10n),
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => const LinkWhitelistSettingsScreen(),
-                  ),
-                ),
-              ),
+              Icons.link,
+              () => const LinkWhitelistSettingsScreen(),
             ),
             SettingsSectionHeader(context.l10n.sectionTyping),
             SettingSwitch(
@@ -144,21 +178,10 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
                   on ? const _SpamSpeedTile() : const SizedBox.shrink(),
             ),
             if (widget.twitchAuth != null)
-              SettingAnchor.row(
+              _navRow(
                 SettingsRow.macros,
-                child: SettingsNavTile(
-                  icon: Icons.bolt,
-                  title: SettingsRow.macros.titleOf(context.l10n),
-                  onTap: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) =>
-                            MacrosScreen(twitchAuth: widget.twitchAuth!),
-                      ),
-                    );
-                  },
-                ),
+                Icons.bolt,
+                () => MacrosScreen(twitchAuth: widget.twitchAuth!),
               ),
             SettingsSectionHeader(context.l10n.sectionUsers),
             SettingSwitch(
@@ -168,21 +191,13 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
             ),
             SettingsSectionHeader(context.l10n.sectionConnection),
             StayConnectedTile(onChanged: widget.onBackgroundServiceChanged),
-            SettingAnchor(
+            _nav(
               Settings.proxyEnabled,
-              child: SettingsNavTile(
-                icon: Icons.cloud,
-                title: Settings.proxyEnabled.titleOf(context.l10n),
-                subtitle: Settings.proxyEnabled.value
-                    ? context.l10n.on
-                    : context.l10n.off,
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => const ProxySettingsScreen(),
-                  ),
-                ),
-              ),
+              Icons.cloud,
+              () => const ProxySettingsScreen(),
+              subtitle: Settings.proxyEnabled.value
+                  ? context.l10n.on
+                  : context.l10n.off,
             ),
           ],
         ),

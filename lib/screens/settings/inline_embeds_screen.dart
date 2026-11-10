@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
 import '../../l10n/l10n.dart';
 import '../../util/constants.dart';
@@ -18,26 +19,14 @@ class InlineEmbedsScreen extends StatelessWidget {
         children: [
           SettingsSectionHeader(context.l10n.sectionGiphy),
           const ShowGiphyTile(),
-          SettingAnchor(
-            Settings.giphyInlineHeight,
-            child: ValueListenableBuilder<bool>(
-              valueListenable: Settings.giphyInlineEnabled,
-              builder: (context, showGifs, _) => PrefsSliderTile(
-                label: (v) =>
-                    '${Settings.giphyInlineHeight.titleOf(context.l10n)}: ${v.round()}dp',
-                sliderLabel: (v) => '${v.round()}dp',
-                enabled: showGifs,
-                min: kGiphyInlineHeightMin,
-                max: kGiphyInlineHeightMax,
-                divisions: 12,
-                defaultValue: kGiphyInlineHeightDefault,
-                read: () => Settings.giphyInlineHeight.value.clamp(
-                  kGiphyInlineHeightMin,
-                  kGiphyInlineHeightMax,
-                ),
-                write: (v) => Settings.giphyInlineHeight.set(v),
-              ),
-            ),
+          _HeightSliderTile(
+            setting: Settings.giphyInlineHeight,
+            enabledPref: Settings.giphyInlineEnabled,
+            min: kGiphyInlineHeightMin,
+            max: kGiphyInlineHeightMax,
+            defaultValue: kGiphyInlineHeightDefault,
+            read: () => Settings.giphyInlineHeight.value,
+            write: (v) => Settings.giphyInlineHeight.set(v),
           ),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
@@ -50,28 +39,61 @@ class InlineEmbedsScreen extends StatelessWidget {
           ),
           SettingsSectionHeader(context.l10n.sectionImages),
           const ShowImagesTile(),
-          SettingAnchor(
-            Settings.imageEmbedHeight,
-            child: ValueListenableBuilder<bool>(
-              valueListenable: Settings.imageEmbedEnabled,
-              builder: (context, showImages, _) => PrefsSliderTile(
-                label: (v) =>
-                    '${Settings.imageEmbedHeight.titleOf(context.l10n)}: ${v.round()}dp',
-                sliderLabel: (v) => '${v.round()}dp',
-                enabled: showImages,
-                min: kImageEmbedHeightMin,
-                max: kImageEmbedHeightMax,
-                divisions: 12,
-                defaultValue: kImageEmbedHeightDefault,
-                read: () => Settings.imageEmbedHeight.value.clamp(
-                  kImageEmbedHeightMin,
-                  kImageEmbedHeightMax,
-                ),
-                write: (v) => Settings.imageEmbedHeight.set(v),
-              ),
-            ),
+          _HeightSliderTile(
+            setting: Settings.imageEmbedHeight,
+            enabledPref: Settings.imageEmbedEnabled,
+            min: kImageEmbedHeightMin,
+            max: kImageEmbedHeightMax,
+            defaultValue: kImageEmbedHeightDefault,
+            read: () => Settings.imageEmbedHeight.value,
+            write: (v) => Settings.imageEmbedHeight.set(v),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// One embed type's height slider, inert while that type is off.
+class _HeightSliderTile extends StatelessWidget {
+  const _HeightSliderTile({
+    required this.setting,
+    required this.enabledPref,
+    required this.min,
+    required this.max,
+    required this.defaultValue,
+    required this.read,
+    required this.write,
+  });
+
+  /// The height setting: its title and its search anchor.
+  final Setting<double> setting;
+
+  /// Whether the embed type shows at all.
+  final ValueListenable<bool> enabledPref;
+  final double min;
+  final double max;
+  final double defaultValue;
+  final double Function() read;
+  final Future<void> Function(double value) write;
+
+  @override
+  Widget build(BuildContext context) {
+    return SettingAnchor(
+      setting,
+      child: ValueListenableBuilder<bool>(
+        valueListenable: enabledPref,
+        builder: (context, enabled, _) => PrefsSliderTile(
+          label: (v) => '${setting.titleOf(context.l10n)}: ${v.round()}dp',
+          sliderLabel: (v) => '${v.round()}dp',
+          enabled: enabled,
+          min: min,
+          max: max,
+          divisions: 12,
+          defaultValue: defaultValue,
+          read: () => read().clamp(min, max),
+          write: write,
+        ),
       ),
     );
   }

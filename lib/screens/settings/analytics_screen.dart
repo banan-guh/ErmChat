@@ -4,7 +4,6 @@ import '../../l10n/l10n.dart';
 import '../../widgets/emote_scale_resolver.dart';
 import '../../emotes/emote_picker.dart';
 import '../../widgets/tabbed_layout.dart';
-import '../../emotes/emote.dart';
 import '../../services/analytics_service.dart';
 import '../../services/emote_images.dart';
 import '../../util/settings.dart';
@@ -191,75 +190,43 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
 
   Widget _buildStats(BuildContext context, String channel) {
     final service = widget.analyticsService;
-    final theme = Theme.of(context);
-    final startedAt = service.trackingStartedAt(channel);
 
     return ValueListenableBuilder<bool>(
       valueListenable: Settings.analyticsFilterStopwords,
       builder: (context, useStopwords, _) => ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(channel, style: theme.textTheme.titleLarge),
-                  const SizedBox(height: 12),
-                  _summaryRow(
-                    context.l10n.totalMessages,
-                    '${service.totalMessages(channel)}',
-                  ),
-                  _summaryRow(
-                    context.l10n.uniqueChatters,
-                    '${service.uniqueChatters(channel)}',
-                  ),
-                  _summaryRow(
-                    context.l10n.messagesPerMinute,
-                    service.messagesPerMinute(channel).toStringAsFixed(1),
-                  ),
-                  _summaryRowWidget(
-                    context.l10n.trackingFor,
-                    _ElapsedText(startedAt: startedAt),
-                  ),
-                ],
-              ),
-            ),
-          ),
+          _summaryCard(context, channel),
           const SizedBox(height: 16),
           if (service.banCount(channel) > 0 ||
               service.timeoutCount(channel) > 0) ...[
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      context.l10n.moderation,
-                      style: theme.textTheme.titleMedium,
-                    ),
-                    const SizedBox(height: 8),
-                    _summaryRow(
-                      context.l10n.bans,
-                      '${service.banCount(channel)}',
-                    ),
-                    _summaryRow(
-                      context.l10n.timeouts,
-                      '${service.timeoutCount(channel)}',
-                    ),
-                  ],
-                ),
-              ),
-            ),
+            _moderationCard(context, channel),
             const SizedBox(height: 16),
           ],
           _sectionHeader(context, context.l10n.topChatters),
-          ..._buildChatterRows(service.topChatters(channel, 10)),
+          ..._rankedRows(
+            service.topChatters(channel, 10),
+            label: (entry) => entry.name,
+            count: (entry) => entry.count,
+            emptyText: context.l10n.noMessagesYet,
+          ),
           const SizedBox(height: 16),
           _sectionHeader(context, context.l10n.topEmotes),
-          ..._buildEmoteRows(service.topEmotes(channel, 10)),
+          ..._rankedRows(
+            service.topEmotes(channel, 10),
+            label: (entry) => entry.emote.code,
+            count: (entry) => entry.count,
+            emptyText: context.l10n.noEmotesYet,
+            leading: (entry) => EmoteScaleResolver(
+              emote: entry.emote,
+              surface: EmoteSurface.grid,
+              images: widget.images,
+              width: 28,
+              height: 28,
+              fit: BoxFit.contain,
+              errorWidget: const SizedBox(width: 28, height: 28),
+            ),
+          ),
           const SizedBox(height: 16),
           _sectionHeader(context, context.l10n.topWords),
           SwitchListTile(
@@ -268,12 +235,102 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
             value: useStopwords,
             onChanged: (value) => Settings.analyticsFilterStopwords.set(value),
           ),
-          ..._buildWordRows(
+          ..._rankedRows(
             service.topWords(channel, 15, useStopwords: useStopwords),
+            label: (entry) => entry.word,
+            count: (entry) => entry.count,
+            emptyText: context.l10n.noWordsYet,
           ),
         ],
       ),
     );
+  }
+
+  /// The channel's totals, pace and tracking time.
+  Widget _summaryCard(BuildContext context, String channel) {
+    final service = widget.analyticsService;
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(channel, style: Theme.of(context).textTheme.titleLarge),
+            const SizedBox(height: 12),
+            _summaryRow(
+              context.l10n.totalMessages,
+              '${service.totalMessages(channel)}',
+            ),
+            _summaryRow(
+              context.l10n.uniqueChatters,
+              '${service.uniqueChatters(channel)}',
+            ),
+            _summaryRow(
+              context.l10n.messagesPerMinute,
+              service.messagesPerMinute(channel).toStringAsFixed(1),
+            ),
+            _summaryRowWidget(
+              context.l10n.trackingFor,
+              _ElapsedText(startedAt: service.trackingStartedAt(channel)),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// The channel's bans and timeouts.
+  Widget _moderationCard(BuildContext context, String channel) {
+    final service = widget.analyticsService;
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              context.l10n.moderation,
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            const SizedBox(height: 8),
+            _summaryRow(context.l10n.bans, '${service.banCount(channel)}'),
+            _summaryRow(
+              context.l10n.timeouts,
+              '${service.timeoutCount(channel)}',
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// One ranking's rows: [label] beside [count], behind an optional
+  /// [leading], or [emptyText] when nothing is ranked yet.
+  List<Widget> _rankedRows<T>(
+    List<T> items, {
+    required String Function(T item) label,
+    required int Function(T item) count,
+    required String emptyText,
+    Widget Function(T item)? leading,
+  }) {
+    if (items.isEmpty) {
+      return [
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          child: Text(emptyText),
+        ),
+      ];
+    }
+    return [
+      for (final item in items)
+        ListTile(
+          dense: true,
+          contentPadding: EdgeInsets.zero,
+          leading: leading?.call(item),
+          title: Text(label(item)),
+          trailing: Text('${count(item)}'),
+        ),
+    ];
   }
 
   Widget _sectionHeader(BuildContext context, String title) {
@@ -298,74 +355,5 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         children: [Text(label), value],
       ),
     );
-  }
-
-  List<Widget> _buildChatterRows(List<({String name, int count})> chatters) {
-    if (chatters.isEmpty) {
-      return [
-        Padding(
-          padding: const EdgeInsets.symmetric(vertical: 8),
-          child: Text(context.l10n.noMessagesYet),
-        ),
-      ];
-    }
-    return [
-      for (final entry in chatters)
-        ListTile(
-          dense: true,
-          contentPadding: EdgeInsets.zero,
-          title: Text(entry.name),
-          trailing: Text('${entry.count}'),
-        ),
-    ];
-  }
-
-  List<Widget> _buildEmoteRows(List<({Emote emote, int count})> emotes) {
-    if (emotes.isEmpty) {
-      return [
-        Padding(
-          padding: const EdgeInsets.symmetric(vertical: 8),
-          child: Text(context.l10n.noEmotesYet),
-        ),
-      ];
-    }
-    return [
-      for (final entry in emotes)
-        ListTile(
-          dense: true,
-          contentPadding: EdgeInsets.zero,
-          leading: EmoteScaleResolver(
-            emote: entry.emote,
-            surface: EmoteSurface.grid,
-            images: widget.images,
-            width: 28,
-            height: 28,
-            fit: BoxFit.contain,
-            errorWidget: const SizedBox(width: 28, height: 28),
-          ),
-          title: Text(entry.emote.code),
-          trailing: Text('${entry.count}'),
-        ),
-    ];
-  }
-
-  List<Widget> _buildWordRows(List<({String word, int count})> words) {
-    if (words.isEmpty) {
-      return [
-        Padding(
-          padding: const EdgeInsets.symmetric(vertical: 8),
-          child: Text(context.l10n.noWordsYet),
-        ),
-      ];
-    }
-    return [
-      for (final entry in words)
-        ListTile(
-          dense: true,
-          contentPadding: EdgeInsets.zero,
-          title: Text(entry.word),
-          trailing: Text('${entry.count}'),
-        ),
-    ];
   }
 }

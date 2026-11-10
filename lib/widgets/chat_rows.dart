@@ -120,6 +120,17 @@ class ChatRows {
     // System rows take no taps, reply line, paint, or embeds; the tile reads
     // their body from systemBodyBuilder.
     final chatRow = !msg.isSystem;
+    final showsNameCopy = chatRow && messageBuilder.doubleTapNameCopy;
+    final showsMenu = chatRow && onShowMessageMenu != null;
+    final takesTap = chatRow && onTapMessage != null;
+    final takesDoubleTap = chatRow && onCopyMessage != null;
+    final showsImages = chatRow && messageBuilder.showImages;
+    final showsReply =
+        chatRow &&
+        showReplyIndicators &&
+        onFindThreadRoot != null &&
+        onShowThreadView != null &&
+        msg.replyToUser != null;
     final body = ChatMessageTile(
       message: msg,
       channel: tileChannel,
@@ -140,24 +151,13 @@ class ChatRows {
           ? (login, userId) =>
                 onShowUserProfile(login, userId, displayName: msg.displayName)
           : null,
-      onDoubleTapUser: chatRow && messageBuilder.doubleTapNameCopy
+      onDoubleTapUser: showsNameCopy
           ? (tileContext) => _copyUsername(tileContext, msg)
           : null,
-      onLongPress: chatRow && onShowMessageMenu != null
-          ? () => onShowMessageMenu!(msg)
-          : null,
-      onTap: chatRow && onTapMessage != null ? () => onTapMessage!(msg) : null,
-      onDoubleTap: chatRow && onCopyMessage != null
-          ? () => onCopyMessage!(msg)
-          : null,
-      replyIndicator:
-          chatRow &&
-              showReplyIndicators &&
-              onFindThreadRoot != null &&
-              onShowThreadView != null &&
-              msg.replyToUser != null
-          ? _replyIndicator(context, msg, scale)
-          : null,
+      onLongPress: showsMenu ? () => onShowMessageMenu!(msg) : null,
+      onTap: takesTap ? () => onTapMessage!(msg) : null,
+      onDoubleTap: takesDoubleTap ? () => onCopyMessage!(msg) : null,
+      replyIndicator: showsReply ? _replyIndicator(context, msg, scale) : null,
       checkeredMessages: checkeredMessages,
       highlightOpacity: highlightOpacity,
       lineSeparator: lineSeparator,
@@ -166,7 +166,7 @@ class ChatRows {
       sharedChatMode: sharedChatMode,
       showChannel: showChannel,
       paintService: chatRow ? paintService : null,
-      showImages: chatRow && messageBuilder.showImages,
+      showImages: showsImages,
       imageHeight: messageBuilder.imageHeight,
       linkWhitelist:
           linkWhitelist?.entries ?? messageBuilder.linkWhitelist.entries,

@@ -11,6 +11,13 @@ import '../../util/settings.dart';
 class CustomLayoutScreen extends StatelessWidget {
   const CustomLayoutScreen({super.key});
 
+  /// The override switches under the master, each with its hint.
+  static List<(Setting<bool>, String)> _overrides(AppLocalizations l) => [
+    (Settings.overrideTightComposer, l.tighterComposerHint),
+    (Settings.overrideSheetActionRow, l.horizontalSheetActionsHint),
+    (Settings.overrideCompactDensity, l.compactDensityHint),
+  ];
+
   @override
   Widget build(BuildContext context) {
     return SettingsPage(
@@ -21,21 +28,8 @@ class CustomLayoutScreen extends StatelessWidget {
           children: [
             SettingSwitch(Settings.customLayoutEnabled),
             const Divider(),
-            SettingSwitch(
-              Settings.overrideTightComposer,
-              enabled: enabled,
-              subtitle: context.l10n.tighterComposerHint,
-            ),
-            SettingSwitch(
-              Settings.overrideSheetActionRow,
-              enabled: enabled,
-              subtitle: context.l10n.horizontalSheetActionsHint,
-            ),
-            SettingSwitch(
-              Settings.overrideCompactDensity,
-              enabled: enabled,
-              subtitle: context.l10n.compactDensityHint,
-            ),
+            for (final (setting, hint) in _overrides(context.l10n))
+              SettingSwitch(setting, enabled: enabled, subtitle: hint),
           ],
         ),
       ),
