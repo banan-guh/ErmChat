@@ -866,4 +866,77 @@ void main() {
     await g.up();
     await tester.pumpAndSettle();
   });
+
+  group('TabbedLayout bubbles', () {
+    Widget harness() => MaterialApp(
+      home: Scaffold(
+        body: TabbedLayout(
+          tabs: const ['a', 'b'],
+          selectedIndex: 0,
+          stripBubbles: true,
+          stripTrailing: const SizedBox(
+            key: Key('bubble_trailing'),
+            width: 40,
+            height: 40,
+          ),
+          onSelectedIndexChanged: (_) {},
+          pageBuilder: (_, i) => ListView(
+            key: ValueKey('bubble_page_$i'),
+            children: [
+              for (var n = 0; n < 100; n++)
+                SizedBox(height: 40, child: Text('$n')),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    testWidgets('bubble fills are solid and no bar sits behind them', (
+      tester,
+    ) async {
+      await tester.pumpWidget(harness());
+      final theme = Theme.of(tester.element(find.byType(TabbedLayout)));
+      expect(
+        find.byKey(const ValueKey('strip_bar_background')),
+        findsNothing,
+        reason: 'the bubble strip draws no full-width bar',
+      );
+      for (final key in ['strip_bubble_tabs', 'strip_bubble_actions']) {
+        final box = tester.widget<DecoratedBox>(find.byKey(ValueKey(key)));
+        final decoration = box.decoration as ShapeDecoration;
+        expect(decoration.shape, isA<StadiumBorder>());
+        expect(decoration.color, theme.colorScheme.surfaceContainerHigh);
+        expect(
+          decoration.color!.a,
+          1.0,
+          reason: 'the bubble is a solid block, not a wash',
+        );
+      }
+    });
+
+    testWidgets('bubbles retract after a long scroll up and return at rest', (
+      tester,
+    ) async {
+      await tester.pumpWidget(harness());
+      final page = find.byKey(const ValueKey('bubble_page_0'));
+      expect(find.byType(TabBar), findsOneWidget);
+
+      await tester.drag(page, const Offset(0, -400));
+      await tester.pumpAndSettle();
+      expect(find.byType(TabBar), findsNothing);
+      expect(
+        find.byKey(const ValueKey('strip_bubble_tabs')),
+        findsNothing,
+        reason: 'the bubbles retract once the reader is far up history',
+      );
+
+      await tester.drag(page, const Offset(0, 800));
+      await tester.pumpAndSettle();
+      expect(
+        find.byType(TabBar),
+        findsOneWidget,
+        reason: 'returning to the newest rows brings the bubbles back',
+      );
+    });
+  });
 }

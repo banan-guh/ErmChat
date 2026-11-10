@@ -231,6 +231,10 @@ class TabbedLayoutState extends State<TabbedLayout>
   // The pages stack's key, so floating chrome anchors to the pages.
   final _pagesKey = GlobalKey();
 
+  // The bubble strip retracts once the reader is far enough up history.
+  static const double _bubbleRetractOffset = TabbedLayout.bubbleStripHeight * 3;
+  final _stripRetracted = ValueNotifier<bool>(false);
+
   // Width of the fade where tabs meet the pinned strip actions.
   static const double _stripFade = 12;
   static const _jumpDuration = Motion.slow;
@@ -370,6 +374,10 @@ class TabbedLayoutState extends State<TabbedLayout>
 
   bool _onPageNotification(ScrollNotification notification) {
     final metrics = notification.metrics;
+    if (metrics.axis == Axis.vertical) {
+      _updateStripRetraction(metrics);
+      return false;
+    }
     if (metrics is! PageMetrics || metrics.page == null) return false;
     final page = metrics.page!.clamp(0.0, (_tabLength - 1).toDouble());
 
@@ -432,6 +440,16 @@ class TabbedLayoutState extends State<TabbedLayout>
   }
 
   bool get _isProgrammaticJump => _programmaticTarget != null;
+
+  // A reversed chat list grows [pixels] as the reader moves up into history.
+  // One threshold keeps the strip from flickering around the edge.
+  void _updateStripRetraction(ScrollMetrics metrics) {
+    if (!widget.stripBubbles || !widget.showTabBar) return;
+    final retracted = metrics.pixels > _bubbleRetractOffset;
+    if (_stripRetracted.value != retracted) {
+      _stripRetracted.value = retracted;
+    }
+  }
 
   int? _pendingActiveIndex;
 
@@ -529,6 +547,11 @@ class TabbedLayoutState extends State<TabbedLayout>
   @override
   void didUpdateWidget(TabbedLayout oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.selectedIndex != widget.selectedIndex ||
+        oldWidget.stripBubbles != widget.stripBubbles ||
+        oldWidget.showTabBar != widget.showTabBar) {
+      _stripRetracted.value = false;
+    }
     final len = widget.tabs.length;
     if (len != _tabLength || (widget.addTab != null) != _hasAddTab) {
       _initControllers();
@@ -547,6 +570,7 @@ class TabbedLayoutState extends State<TabbedLayout>
 
   @override
   void dispose() {
+    _stripRetracted.dispose();
     _stripCatchUp.dispose();
     _pageController?.dispose();
     _tabController?.dispose();
@@ -578,8 +602,9 @@ class TabbedLayoutState extends State<TabbedLayout>
     // The Row stays put with or without trailing actions, so a layout flip
     // never remounts the TabBar.
     final bubbles = widget.stripBubbles;
-    Widget pill(Widget child) => bubbles
+    Widget pill(Widget child, {Key? key}) => bubbles
         ? DecoratedBox(
+            key: key,
             decoration: ShapeDecoration(
               color: theme.colorScheme.surfaceContainerHigh,
               shape: const StadiumBorder(),
@@ -605,6 +630,7 @@ class TabbedLayoutState extends State<TabbedLayout>
           children: [
             Expanded(
               child: pill(
+                key: const ValueKey('strip_bubble_tabs'),
                 Row(
                   children: [
                     Expanded(
@@ -732,7 +758,7 @@ class TabbedLayoutState extends State<TabbedLayout>
             if (widget.stripTrailing case final trailing?)
               if (bubbles) ...[
                 const SizedBox(width: 8),
-                pill(trailing),
+                pill(trailing, key: const ValueKey('strip_bubble_actions')),
               ] else
                 trailing,
           ],
@@ -823,15 +849,24 @@ class TabbedLayoutState extends State<TabbedLayout>
         AnimatedSize(
           duration: Motion.normal,
           curve: Motion.move,
-          child: widget.showTabBar
-              ? ColoredBox(
-                  color: bubbles
-                      ? theme.scaffoldBackgroundColor
-                      : widget.tabBarColor ??
-                            theme.colorScheme.surfaceContainer,
-                  child: tabStrip,
-                )
-              : const SizedBox.shrink(),
+          child: ValueListenableBuilder<bool>(
+            valueListenable: _stripRetracted,
+            builder: (context, retracted, _) {
+              if (!widget.showTabBar) return const SizedBox.shrink();
+              if (bubbles && retracted) {
+                return SizedBox(height: widget.stripTopInset);
+              }
+              return bubbles
+                  ? tabStrip
+                  : ColoredBox(
+                      key: const ValueKey('strip_bar_background'),
+                      color:
+                          widget.tabBarColor ??
+                          theme.colorScheme.surfaceContainer,
+                      child: tabStrip,
+                    );
+            },
+          ),
         ),
         if (widget.belowTabBar != null) widget.belowTabBar!,
         Expanded(child: pages),
