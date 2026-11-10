@@ -167,6 +167,7 @@ void main() {
         pinnedPaidAmount: '5.00',
         customRewardId: _id(9),
         sourceBroadcasterId: '555',
+        sharedChatChannelId: '555',
         sourceMessageId: _id(8),
         messageId: _id(3),
         channel: _channel,
@@ -199,6 +200,14 @@ void main() {
         isBanNotice: false,
         channel: _channel,
         timestamp: _t0.add(const Duration(seconds: 4)),
+      ),
+      TwitchMessage(
+        login: 'frank',
+        text: 'native shared chat',
+        messageId: _id(4),
+        channel: _channel,
+        timestamp: _t0.add(const Duration(seconds: 5)),
+        sharedChatChannelId: '777',
       ),
     ];
     final adapter = ArchiveAdapter(UserTables());

@@ -301,8 +301,9 @@ class ChatIngestion {
     if (hidden) return;
     onAnalyticsMessage?.call(channel, msg);
 
-    if (msg.sourceBroadcasterId != null && !msg.isHistory) {
-      unawaited(_ensureSourceChannelData(msg.sourceBroadcasterId!));
+    final sharedChannelId = msg.sharedChatChannelId;
+    if (sharedChannelId != null && !msg.isHistory) {
+      unawaited(_ensureSourceChannelData(sharedChannelId));
     }
 
     if (result.mentioned) {

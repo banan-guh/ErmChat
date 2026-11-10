@@ -82,6 +82,7 @@ class BttvEmoteProvider {
             EmoteScale.large: 'https://cdn.betterttv.net/emote/$id/3x',
           },
           isAnimated: isAnimated,
+          createdAtMs: objectIdMs(id),
           scope: channel ? EmoteScope.channel : EmoteScope.global,
           isZeroWidth: isZeroWidth,
         ),
@@ -89,4 +90,12 @@ class BttvEmoteProvider {
     }
     return emotes;
   }
+}
+
+/// BTTV ids are Mongo ObjectIds: the first four bytes are the creation time
+/// in seconds. Null for anything else.
+int? objectIdMs(String id) {
+  if (id.length != 24) return null;
+  final seconds = int.tryParse(id.substring(0, 8), radix: 16);
+  return seconds == null ? null : seconds * 1000;
 }

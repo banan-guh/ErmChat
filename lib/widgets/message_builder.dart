@@ -379,19 +379,15 @@ class MessageBuilder {
   /// then one third-party badge.
   List<CardBadge> resolveCardBadges(String channel, TwitchMessage msg) {
     final out = <CardBadge>[];
-    if (msg.sourceBroadcasterId != null) {
-      final avatarUrl = badgeService.resolveChannelAvatar(
-        msg.sourceBroadcasterId!,
-      );
+    final sharedChannelId = msg.sharedChatChannelId ?? msg.sourceBroadcasterId;
+    if (sharedChannelId != null) {
+      final avatarUrl = badgeService.resolveChannelAvatar(sharedChannelId);
       if (avatarUrl != null) {
         out.add(
           CardBadge(
             url: avatarUrl,
             label:
-                badgeService.resolveChannelDisplayName(
-                  msg.sourceBroadcasterId!,
-                ) ??
-                '',
+                badgeService.resolveChannelDisplayName(sharedChannelId) ?? '',
             circular: true,
           ),
         );

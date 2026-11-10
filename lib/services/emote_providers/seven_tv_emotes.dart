@@ -199,6 +199,8 @@ class SevenTvEmoteProvider {
       final state = data['state'];
       final personalUse = state is List ? state.contains('PERSONAL') : true;
 
+      final timestamp = item['timestamp'];
+
       emotes.add(
         Emote(
           id: id,
@@ -213,6 +215,7 @@ class SevenTvEmoteProvider {
           ),
           scales: scales,
           isAnimated: isAnimated,
+          createdAtMs: timestamp is num ? timestamp.toInt() : null,
           scope: personal
               ? EmoteScope.personal
               : global

@@ -2,6 +2,9 @@ enum EmoteType { twitch, bttv, ffz, sevenTv }
 
 enum EmoteScope { global, channel, personal }
 
+/// How the emote picker orders its grids.
+enum EmoteSortOrder { name, newest, oldest }
+
 /// Quality role an emote image is fetched at. Providers map their native
 /// scales onto these roles; [large] is the provider's maximum (7TV's 4x).
 enum EmoteScale { small, medium, large }
@@ -48,6 +51,10 @@ class Emote {
   final bool isZeroWidth;
   final EmoteMeta meta;
 
+  /// When the provider says the emote was created or added to its set, in
+  /// epoch milliseconds. Twitch sends none.
+  final int? createdAtMs;
+
   const Emote({
     required this.id,
     required this.code,
@@ -56,6 +63,7 @@ class Emote {
     this.scope = EmoteScope.global,
     this.isAnimated = false,
     this.isZeroWidth = false,
+    this.createdAtMs,
   });
 
   /// URL for [scale], or null when the provider lacks it.
@@ -71,6 +79,7 @@ class Emote {
     scope: scope ?? this.scope,
     isAnimated: isAnimated,
     isZeroWidth: isZeroWidth,
+    createdAtMs: createdAtMs,
   );
 
   /// 7TV alias name, or null for every other provider.
@@ -98,6 +107,7 @@ class Emote {
     'scales': {for (final entry in scales.entries) entry.key.name: entry.value},
     'isAnimated': isAnimated,
     'isZeroWidth': isZeroWidth,
+    if (createdAtMs != null) 'createdAtMs': createdAtMs,
     'meta': meta.toJson(),
   };
 
@@ -115,6 +125,7 @@ class Emote {
       scope: enumByName(EmoteScope.values, json['scope'], EmoteScope.global),
       isAnimated: json['isAnimated'] as bool? ?? false,
       isZeroWidth: json['isZeroWidth'] as bool? ?? false,
+      createdAtMs: (json['createdAtMs'] as num?)?.toInt(),
       meta: meta is Map<String, dynamic>
           ? EmoteMeta.fromJson(meta)
           : const BttvMeta(),
@@ -136,6 +147,29 @@ class Emote {
     }
     return out;
   }
+}
+
+/// [emotes] in [order], copied so cached lists stay untouched. Undated emotes
+/// sort after dated ones, and ties fall back to the code.
+List<Emote> sortedEmotes(List<Emote> emotes, EmoteSortOrder order) {
+  final out = List.of(emotes);
+  if (order == EmoteSortOrder.name) {
+    return out..sort((a, b) => a.code.compareTo(b.code));
+  }
+  out.sort((a, b) {
+    final at = a.createdAtMs;
+    final bt = b.createdAtMs;
+    if (at != null && bt != null) {
+      final byDate = order == EmoteSortOrder.newest
+          ? bt.compareTo(at)
+          : at.compareTo(bt);
+      if (byDate != 0) return byDate;
+    } else if (at != bt) {
+      return at == null ? 1 : -1;
+    }
+    return a.code.compareTo(b.code);
+  });
+  return out;
 }
 
 /// Twitch's status gate for an emote. Only [standard] emotes are word-matchable;

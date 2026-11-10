@@ -185,6 +185,7 @@ class _PingsScreenState extends ConsumerState<PingsScreen> {
               if (_pushSupported ||
                   _serverPush && ref.read(apnsPushProvider).active)
                 _notificationsTile(pushOn, muted),
+              if (rules.length >= 2) _Caption(context.l10n.rulesOverlapCaption),
               ..._mentionSection(rules, paused, pushOn),
               ..._listSection(rules, paused, PingRuleKind.message),
               ..._listSection(rules, paused, PingRuleKind.user),
@@ -472,11 +473,10 @@ class _PingsScreenState extends ConsumerState<PingsScreen> {
       ),
   ];
 
-  /// Tiles in priority order; two or more get drag handles and a caption.
+  /// Tiles in priority order; two or more get drag handles.
   List<Widget> _reorderable(List<PingRule> list, bool paused) {
     if (list.length < 2) return [for (final r in list) _tile(r, paused)];
     return [
-      _Caption(context.l10n.rulesOverlapCaption),
       _ReorderableRules(
         manager: _manager,
         rules: list,

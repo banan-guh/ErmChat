@@ -62,6 +62,30 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
     await Settings.sharedChatMode.set(selected);
   }
 
+  String get _emoteSort => Settings.emoteSortOrder.value;
+
+  String get _emoteSortLabel => switch (_emoteSort) {
+    'newest' => context.l10n.emoteOrderNewest,
+    'oldest' => context.l10n.emoteOrderOldest,
+    _ => context.l10n.emoteOrderAlphabetical,
+  };
+
+  Future<void> _pickEmoteSort() async {
+    final l = context.l10n;
+    final selected = await showChoiceDialog<String>(
+      context,
+      title: Settings.emoteSortOrder.titleOf(l),
+      value: _emoteSort,
+      options: [
+        ('name', l.emoteOrderAlphabetical, ''),
+        ('newest', l.emoteOrderNewest, l.emoteOrderHint),
+        ('oldest', l.emoteOrderOldest, l.emoteOrderHint),
+      ],
+    );
+    if (selected == null || !mounted || selected == _emoteSort) return;
+    await Settings.emoteSortOrder.set(selected);
+  }
+
   String get _inlineEmbedsSubtitle {
     return switch ((_showGifs, _showImages)) {
       (true, true) => context.l10n.embedsGiphyImages,
@@ -130,6 +154,7 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
       body: ListenableBuilder(
         listenable: Listenable.merge([
           Settings.sharedChatMode,
+          Settings.emoteSortOrder,
           Settings.giphyInlineEnabled,
           Settings.imageEmbedEnabled,
           Settings.proxyEnabled,
@@ -156,6 +181,16 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
               Settings.linkWhitelistEnabled,
               Icons.link,
               () => const LinkWhitelistSettingsScreen(),
+            ),
+            SettingsSectionHeader(context.l10n.sectionEmotes),
+            SettingAnchor(
+              Settings.emoteSortOrder,
+              child: SettingsNavTile(
+                icon: Icons.sort,
+                title: Settings.emoteSortOrder.titleOf(context.l10n),
+                subtitle: _emoteSortLabel,
+                onTap: _pickEmoteSort,
+              ),
             ),
             SettingsSectionHeader(context.l10n.sectionTyping),
             SettingSwitch(

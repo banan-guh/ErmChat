@@ -95,6 +95,9 @@ class FfzEmoteProvider {
       scales: scales,
       isAnimated: isAnimated,
       isZeroWidth: isZeroWidth,
+      createdAtMs: DateTime.tryParse(
+        item['created_at'] as String? ?? '',
+      )?.millisecondsSinceEpoch,
     );
   }
 }

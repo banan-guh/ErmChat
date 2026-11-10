@@ -222,13 +222,17 @@ TwitchMessage parseIrcChatMessage(
       ? ircMsg.tags['color']!
       : pickColor(user.login);
 
-  // source-room-id != room-id means mirrored (foreign) message.
+  // source-room-id names the origin channel in a shared chat session, even
+  // when it is the room being read. Only a different id is a mirrored
+  // (foreign) message.
   final sourceRoomId = ircMsg.tags['source-room-id'];
-  final sourceBroadcasterId =
-      (sourceRoomId != null &&
-          sourceRoomId.isNotEmpty &&
-          sourceRoomId != ircMsg.tags['room-id'])
+  final sharedChatChannelId = (sourceRoomId != null && sourceRoomId.isNotEmpty)
       ? sourceRoomId
+      : null;
+  final sourceBroadcasterId =
+      sharedChatChannelId != null &&
+          sharedChatChannelId != ircMsg.tags['room-id']
+      ? sharedChatChannelId
       : null;
   // source-id: stable across mirrored copies; `id` is room-local.
   final sourceMessageId = ircMsg.tags['source-id'];
@@ -280,6 +284,7 @@ TwitchMessage parseIrcChatMessage(
     ),
     badges: parseIrcBadges(ircMsg.tags['badges']),
     sourceBroadcasterId: sourceBroadcasterId,
+    sharedChatChannelId: sharedChatChannelId,
     sourceMessageId:
         (sourceBroadcasterId != null &&
             sourceMessageId != null &&

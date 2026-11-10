@@ -128,7 +128,13 @@ String _ffzBody(Map<String, String> urls) {
     'sets': {
       '1': {
         'emoticons': [
-          {'id': 123, 'name': 'FFZ', 'animated': false, 'urls': urls},
+          {
+            'id': 123,
+            'name': 'FFZ',
+            'animated': false,
+            'urls': urls,
+            'created_at': '2020-01-02T03:04:05.000Z',
+          },
         ],
       },
     },
@@ -183,6 +189,14 @@ void main() {
           for (final n in sizes) roles[n]!: '$base/$n',
         }, reason: '$sizes');
       }
+    });
+
+    test('parses the creation date', () async {
+      final result = await fetchGlobal({'1': '$base/1'});
+      expect(
+        result.single.createdAtMs,
+        DateTime.utc(2020, 1, 2, 3, 4, 5).millisecondsSinceEpoch,
+      );
     });
 
     test('global loads supporter-gated sets for everyone', () async {
@@ -309,6 +323,14 @@ void main() {
         'https://cdn.betterttv.net/emote/b1/2x',
       );
       expect(scales[EmoteScale.large], 'https://cdn.betterttv.net/emote/b1/3x');
+      expect(result.single.createdAtMs, isNull, reason: 'not an ObjectId');
+    });
+
+    test('derives creation time from the ObjectId', () {
+      final emote = BttvEmoteProvider.parseEmotes([
+        {'id': '54fa8f1401e468494b85b537', 'code': 'Pog', 'imageType': 'png'},
+      ]).single;
+      expect(emote.createdAtMs, 1425706772000);
     });
 
     test(
@@ -453,6 +475,7 @@ void main() {
     Map<String, dynamic> emote(List<String> names) => {
       'id': 'stv-1',
       'name': 'Sized',
+      'timestamp': 1700000000000,
       'data': {
         'name': 'Sized',
         'host': {
@@ -484,6 +507,11 @@ void main() {
         EmoteScale.small: '$base/1x.webp',
         EmoteScale.large: '$base/4x.webp',
       });
+    });
+
+    test('parses the set addition time', () {
+      final parsed = SevenTvEmoteProvider.parseSingleEmote(emote(['1x.webp']));
+      expect(parsed!.createdAtMs, 1700000000000);
     });
   });
 }

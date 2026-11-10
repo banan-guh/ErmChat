@@ -442,6 +442,16 @@ abstract final class Settings {
     keywords: 'tab complete',
   );
 
+  /// Emote picker grid order: code, or provider creation time.
+  static final emoteSortOrder = Setting(
+    'emote_sort_order',
+    'name',
+    id: 'emote_sort_order',
+    page: 'chat',
+    section: 'Emotes',
+    keywords: 'emote picker order sort alphabetical newest oldest 7tv bttv ffz',
+  );
+
   /// Haptic feedback on holds, drags and crossed thresholds.
   static final haptics = Setting(
     'haptics',
@@ -1026,6 +1036,7 @@ abstract final class Settings {
     whisperNotifications,
     mentionNotifyForeground,
     preferEmotesFirst,
+    emoteSortOrder,
     haptics,
     sendSwipeMenu,
     spamIntervalMs,

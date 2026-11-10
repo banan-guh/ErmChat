@@ -7,6 +7,7 @@ import '../providers/app_providers.dart';
 import '../providers/emote_providers.dart';
 import '../services/emote_images.dart';
 import '../services/emote_manager.dart';
+import '../util/settings.dart';
 import '../util/sheet_drag.dart';
 import '../widgets/tabbed_layout.dart';
 import 'island_metrics.dart' show kComposerIslandMargin;
@@ -274,7 +275,7 @@ class EmoteMenuPanelWidgetState extends ConsumerState<EmoteMenuPanelWidget> {
         Center(child: Text(context.l10n.noChannelEmotes)),
       );
     }
-    return _buildGroupedEmoteGrid(byProvider, scrollController);
+    return _buildGroupedEmoteGrid(_orderedGroups(byProvider), scrollController);
   }
 
   Widget _buildEmoteGlobalGrid(ScrollController? scrollController) {
@@ -285,7 +286,22 @@ class EmoteMenuPanelWidgetState extends ConsumerState<EmoteMenuPanelWidget> {
         Center(child: Text(context.l10n.noGlobalEmotes)),
       );
     }
-    return _buildGroupedEmoteGrid(byProvider, scrollController);
+    return _buildGroupedEmoteGrid(_orderedGroups(byProvider), scrollController);
+  }
+
+  /// Channel and global grids follow the picker order setting. Lists without
+  /// provider dates, like Twitch's, keep their alphabetical order.
+  Map<String, List<Emote>> _orderedGroups(Map<String, List<Emote>> groups) {
+    final order = enumByName(
+      EmoteSortOrder.values,
+      Settings.emoteSortOrder.value,
+      EmoteSortOrder.name,
+    );
+    if (order == EmoteSortOrder.name) return groups;
+    return {
+      for (final entry in groups.entries)
+        entry.key: sortedEmotes(entry.value, order),
+    };
   }
 
   // Sectioned grid with group headers (Subs by channel, Channel and Global

@@ -2488,30 +2488,34 @@ void main() {
   });
 
   group('shared chat', () {
-    (String?, String?) source(String raw) {
+    (String?, String?, String?) source(String raw) {
       final msg = RecentMessagesService.parseIrcLine(raw)!;
-      return (msg.sourceBroadcasterId, msg.sourceMessageId);
+      return (
+        msg.sourceBroadcasterId,
+        msg.sourceMessageId,
+        msg.sharedChatChannelId,
+      );
     }
 
-    test('only mirrored PRIVMSGs carry the source chip fields', () {
+    test('the origin channel follows the shared-chat tags', () {
       expect(
         source(
           '@display-name=Forsen;id=copy-1;room-id=9999;source-id=orig-1;source-room-id=1234;user-id=42 :forsen!forsen@forsen.tmi.twitch.tv PRIVMSG #xqc :Hello',
         ),
-        ('1234', 'orig-1'),
+        ('1234', 'orig-1', '1234'),
       );
       expect(
         source(
           '@display-name=XQC;id=native-1;room-id=9999;source-room-id=9999;user-id=99 :xqc!xqc@xqc.tmi.twitch.tv PRIVMSG #xqc :My own',
         ),
-        (null, null),
-        reason: 'native message during a session',
+        (null, null, '9999'),
+        reason: 'native message during a shared session',
       );
       expect(
         source(
           '@display-name=Forsen;id=abc-123;user-id=42 :forsen!forsen@forsen.tmi.twitch.tv PRIVMSG #xqc :Plain',
         ),
-        (null, null),
+        (null, null, null),
       );
     });
 

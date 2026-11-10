@@ -112,6 +112,7 @@ final Map<String, _Title> _titles = {
   // ── Chat ────────────────────────────────────────────────────────────
   'max_messages': ('Max messages per channel', (l) => l.settingMaxMessages),
   'shared_chat': ('Shared chat messages', (l) => l.settingSharedChat),
+  'emote_sort_order': ('Emote order', (l) => l.settingEmoteSortOrder),
   'inline_embeds': ('Inline embeds', (l) => l.settingInlineEmbeds),
   'split_links': ('Split links', (l) => l.settingSplitLinks),
   'recent_messages_limit': (
@@ -227,6 +228,7 @@ final Map<String, String Function(AppLocalizations)> _sections = {
   'Chat display': (l) => l.sectionChatDisplay,
   'Connection': (l) => l.sectionConnection,
   'Display': (l) => l.sectionDisplay,
+  'Emotes': (l) => l.sectionEmotes,
   'Events': (l) => l.sectionEvents,
   'Giphy': (l) => l.sectionGiphy,
   'Images': (l) => l.sectionImages,

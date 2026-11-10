@@ -134,6 +134,10 @@ class TwitchMessage {
   final List<MessageBadge>? badges;
   final String? sourceBroadcasterId;
 
+  /// Origin channel id of a shared-chat message, including one from the room
+  /// being read. Null outside a shared-chat session.
+  final String? sharedChatChannelId;
+
   /// Source-channel message id (source-id tag). Stable across mirrored copies, unlike [messageId].
   final String? sourceMessageId;
   late final String formattedUsername =
@@ -185,6 +189,7 @@ class TwitchMessage {
     this.gifAttachments,
     this.badges,
     this.sourceBroadcasterId,
+    this.sharedChatChannelId,
     this.sourceMessageId,
   }) : timestamp = timestamp ?? DateTime.now(),
        displayName = displayName ?? login;
@@ -232,6 +237,7 @@ class TwitchMessage {
         )
         .toList(),
     'sourceBroadcasterId': sourceBroadcasterId,
+    'sharedChatChannelId': sharedChatChannelId,
     'sourceMessageId': sourceMessageId,
   };
 
@@ -288,6 +294,7 @@ class TwitchMessage {
         )
         .toList(),
     sourceBroadcasterId: json['sourceBroadcasterId'] as String?,
+    sharedChatChannelId: json['sharedChatChannelId'] as String?,
     sourceMessageId: json['sourceMessageId'] as String?,
   );
 }

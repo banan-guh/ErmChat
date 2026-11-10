@@ -30,6 +30,7 @@ class ArchiveAdapter {
   static const _redeemImage = 'x-redeem-image';
   static const _redeemPoints = 'x-redeem-points';
   static const _gifs = 'x-gifs';
+  static const _sharedChannel = 'x-shared-channel';
 
   // Stands in for a user a damaged row points past.
   static final _unknown = Who(userId: '', login: '');
@@ -113,6 +114,10 @@ class ArchiveAdapter {
           (_redeemPoints, '${m.redemptionPoints}'),
         if (gifs != null && gifs.isNotEmpty)
           (_gifs, jsonEncode([for (final g in gifs) g.toJson()])),
+        // A foreign message already stores its origin; this keeps the origin
+        // of a shared-chat message from the room being read.
+        if (m.sharedChatChannelId != null && m.sourceBroadcasterId == null)
+          (_sharedChannel, m.sharedChatChannelId!),
       ],
     );
   }
@@ -178,6 +183,7 @@ class ArchiveAdapter {
           ? null
           : _badges(look.badges, sets?.badgesAt(r.timestampMs)),
       sourceBroadcasterId: r.sourceBroadcasterId,
+      sharedChatChannelId: extra[_sharedChannel] ?? r.sourceBroadcasterId,
       sourceMessageId: r.sourceMessageId,
     );
     rewrite?.call(m);
