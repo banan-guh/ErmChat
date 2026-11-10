@@ -28,7 +28,6 @@ import 'twitch_badge_service.dart';
 import '../eventsub/decode/decoder.dart';
 import '../eventsub/topics.dart';
 import 'pubsub_service.dart';
-import 'user_store.dart';
 
 /// The channel-domain of the pipeline: joining channels and resolving their
 /// per-channel data (Helix user IDs, badges, emotes, 7TV sockets) plus the
@@ -46,7 +45,6 @@ class ChatChannelSetup {
     required this.badgeService,
     required this.emoteManager,
     required this.twitchAuth,
-    required this.userStore,
     required this.session,
     required this.chat,
     required this.onSystemMessage,
@@ -74,7 +72,6 @@ class ChatChannelSetup {
   final TwitchBadgeService badgeService;
   final EmoteManager emoteManager;
   final TwitchAuth twitchAuth;
-  final UserStore userStore;
   final Session session;
   final Chat chat;
 
@@ -277,50 +274,39 @@ class ChatChannelSetup {
         }
       }
       if (channelUserId == null) return;
-      chat.channelFor(channelName)?.info.setBroadcasterId(channelUserId);
+      final channelId = channelUserId;
+      chat.channelFor(channelName)?.info.setBroadcasterId(channelId);
       // Unauthenticated redemptions and chat widgets for every viewer.
       // Never awaits: a dead edge degrades to the IRC highlight path.
       try {
-        pubSub?.listen(channelName, channelUserId);
+        pubSub?.listen(channelName, channelId);
       } catch (_) {
         logDebug('[ChatConn] pubsub listen failed for $channelName');
       }
       onSubscribed?.call(channelName);
       // The first join fetches the account's own emotes; later joins
       // attach the fetched ones to this channel.
-      unawaited(
-        emoteManager.loadUserEmotes(auth, {channelName: channelUserId}),
-      );
+      unawaited(emoteManager.loadUserEmotes(auth, {channelName: channelId}));
       // Map before any await below: a resubscribe completing in the gap
       // would otherwise deliver events with no channel and drop them.
-      eventSubDecoder.setChannelMapping(channelUserId, channelName);
-      unawaited(
-        badgeService
-            .fetchChannelBadges(auth, channelUserId, channelName)
-            .then((_) => chat.clearLoadFailure(channelName, 'badges'))
-            .catchError((_) {
-              chat.recordLoadFailure(channelName, 'badges');
-              logDebug('[ChatConn] fetchChannelBadges failed for $channelName');
-            }),
+      eventSubDecoder.setChannelMapping(channelId, channelName);
+      _trackedLoad(
+        channelName,
+        'badges',
+        () => badgeService.fetchChannelBadges(auth, channelId, channelName),
       );
 
       emoteManager.accessToken = auth.accessToken;
       if (!emoteManager.emotesResolved(channelName)) {
         emoteManager.markEmotesResolved(channelName);
-        unawaited(
-          emoteManager
-              .resolveEmotes(channelName, channelUserId)
-              .then((_) => chat.clearLoadFailure(channelName, 'emotes'))
-              .catchError((e) {
-                chat.recordLoadFailure(channelName, 'emotes');
-                logDebug(
-                  '[ChatConn] resolveEmotes failed for $channelName: $e',
-                );
-              }),
+        _trackedLoad(
+          channelName,
+          'emotes',
+          () => emoteManager.resolveEmotes(channelName, channelId),
         );
       }
 
-      unawaited(_resolveSevenTvAndSubscribe(channelName, channelUserId, epoch));
+      unawaited(_resolveSevenTvAndSubscribe(channelName, channelId, epoch));
 
       if (session.login == null && auth.accessToken != null) {
         final currentUser = await ensureCurrentUser(auth);
@@ -330,7 +316,7 @@ class ChatChannelSetup {
         if (_isStale(channelName, epoch)) return;
       }
 
-      eventSubTopics.subscribeChannel(channelName, channelUserId);
+      eventSubTopics.subscribeChannel(channelName, channelId);
     } catch (_) {
       logDebug('[ChatConn] subscribeChannel failed for $channelName');
     }
@@ -344,24 +330,33 @@ class ChatChannelSetup {
     }
   }
 
+  void _trackedLoad(String channel, String key, Future<void> Function() load) {
+    unawaited(
+      load().then((_) => chat.clearLoadFailure(channel, key)).catchError((
+        Object e,
+      ) {
+        chat.recordLoadFailure(channel, key);
+        logDebug('[ChatConn] $key load failed for $channel: $e');
+      }),
+    );
+  }
+
   /// Re-runs the per-channel data loads (badges, emotes) that failed earlier,
   /// updating the retryable failure state. Driven by the UI retry affordance.
   void retryChannelData(String channel) {
     final userId = chat.channelFor(channel)?.info.broadcasterId;
     if (userId == null) return;
     final auth = twitchAuth;
-    unawaited(
-      badgeService
-          .fetchChannelBadges(auth, userId, channel)
-          .then((_) => chat.clearLoadFailure(channel, 'badges'))
-          .catchError((_) => chat.recordLoadFailure(channel, 'badges')),
+    _trackedLoad(
+      channel,
+      'badges',
+      () => badgeService.fetchChannelBadges(auth, userId, channel),
     );
     emoteManager.accessToken = auth.accessToken;
-    unawaited(
-      emoteManager
-          .resolveEmotes(channel, userId)
-          .then((_) => chat.clearLoadFailure(channel, 'emotes'))
-          .catchError((_) => chat.recordLoadFailure(channel, 'emotes')),
+    _trackedLoad(
+      channel,
+      'emotes',
+      () => emoteManager.resolveEmotes(channel, userId),
     );
   }
 

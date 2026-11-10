@@ -2539,7 +2539,6 @@ void main() {
         badgeService: TwitchBadgeService(),
         emoteManager: EmoteManager(),
         twitchAuth: TwitchAuth(),
-        userStore: UserStore(),
         chat: Chat(),
         session: Session(),
         onSystemMessage:
@@ -2589,7 +2588,6 @@ void main() {
         badgeService: TwitchBadgeService(),
         emoteManager: EmoteManager(),
         twitchAuth: TwitchAuth(),
-        userStore: UserStore(),
         chat: chat,
         session: Session(),
         onSystemMessage:
@@ -2761,7 +2759,6 @@ void main() {
         badgeService: badges,
         emoteManager: emoteManager,
         twitchAuth: auth,
-        userStore: UserStore(),
         chat: chat,
         session: session,
         onSystemMessage: (c, t, {accent, messageId, keep = false}) {},
@@ -2882,7 +2879,6 @@ void main() {
       badgeService: badges,
       emoteManager: emoteManager,
       twitchAuth: auth,
-      userStore: UserStore(),
       chat: chat,
       session: session,
       onSystemMessage: (c, t, {accent, messageId, keep = false}) {},

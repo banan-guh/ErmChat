@@ -396,6 +396,21 @@ class TwitchApi {
     return out;
   }
 
+  /// Decodes a Helix `data` list, recording a decode failure under [label].
+  List<T> _decodeListOr<T>(
+    String label,
+    http.Response res,
+    T? Function(Map<String, dynamic> json) fromJson,
+  ) {
+    try {
+      return _decodeList(res, fromJson);
+    } catch (e) {
+      logDebug('[TwitchApi] $label failed: $e');
+      _setError('$label: bad response');
+      return const [];
+    }
+  }
+
   /// Runs a cursor-paginated Helix GET at [_base] + [path], decoding each
   /// page's `data` items with [fromJson] (a null result skips the item) and
   /// following `pagination.cursor` until it is missing or empty. [query] is
@@ -684,38 +699,19 @@ class TwitchApi {
 
   /// Full paginated block list. Lowercased logins; empty on failure.
   Future<Set<String>> getBlockedUsers(TwitchAuth auth) async {
-    _clearError();
-    final logins = <String>{};
-    if (auth.userId == null) return logins;
-    String? cursor;
-    while (true) {
-      final query = <String, String>{
-        'broadcaster_id': auth.userId!,
-        'first': '100',
-      };
-      if (cursor != null) query['after'] = cursor;
-      final uri = Uri.parse(
-        '$_base/users/blocks',
-      ).replace(queryParameters: query);
-      final res = await _client.get(uri, headers: _headers(auth));
-      if (res.statusCode != 200) {
-        _setError('getBlockedUsers', res);
-        return logins;
-      }
-      try {
-        final data = jsonDecode(res.body) as Map;
-        for (final item in data['data'] as List) {
-          final login = (item as Map)['user_login'] as String?;
-          if (login != null) logins.add(login.toLowerCase());
-        }
-        cursor = ((data['pagination'] as Map?)?['cursor']) as String?;
-      } catch (e) {
-        logDebug('[TwitchApi] getBlockedUsers failed: $e');
-        _setError('getBlockedUsers: bad response');
-        return logins;
-      }
-      if (cursor == null || cursor.isEmpty) return logins;
+    final userId = auth.userId;
+    if (userId == null) {
+      _clearError();
+      return {};
     }
+    final logins = await _pagedGet<String>(
+      'getBlockedUsers',
+      auth,
+      path: '/users/blocks',
+      query: {'broadcaster_id': userId},
+      fromJson: (json) => json['user_login'] as String?,
+    );
+    return {for (final login in logins) login.toLowerCase()};
   }
 
   Future<String?> sendChatMessage(
@@ -852,13 +848,7 @@ class TwitchApi {
     ).replace(queryParameters: query);
     final res = await _get('getUnbanRequests', auth, uri);
     if (res == null) return const [];
-    try {
-      return _decodeList(res, UnbanRequest.fromJson);
-    } catch (e) {
-      logDebug('[TwitchApi] getUnbanRequests failed: $e');
-      _setError('getUnbanRequests: bad response');
-      return const [];
-    }
+    return _decodeListOr('getUnbanRequests', res, UnbanRequest.fromJson);
   }
 
   /// Approves or denies one unban request. Resolution text is optional
@@ -898,13 +888,7 @@ class TwitchApi {
     );
     final res = await _get('getBlockedTerms', auth, uri);
     if (res == null) return const [];
-    try {
-      return _decodeList(res, BlockedTerm.fromJson);
-    } catch (e) {
-      logDebug('[TwitchApi] getBlockedTerms failed: $e');
-      _setError('getBlockedTerms: bad response');
-      return const [];
-    }
+    return _decodeListOr('getBlockedTerms', res, BlockedTerm.fromJson);
   }
 
   /// Adds a public blocked term (2-500 chars, `*` wildcard at an edge).
@@ -1050,13 +1034,7 @@ class TwitchApi {
     );
     final res = await _get('getCustomRewards', auth, uri);
     if (res == null) return const [];
-    try {
-      return _decodeList(res, PointReward.fromJson);
-    } catch (e) {
-      logDebug('[TwitchApi] getCustomRewards failed: $e');
-      _setError('getCustomRewards: bad response');
-      return const [];
-    }
+    return _decodeListOr('getCustomRewards', res, PointReward.fromJson);
   }
 
   /// Pauses or resumes a custom reward. Only works for rewards this app's
@@ -1091,13 +1069,7 @@ class TwitchApi {
     );
     final res = await _get('getRedemptions', auth, uri);
     if (res == null) return const [];
-    try {
-      return _decodeList(res, PointRedemption.fromJson);
-    } catch (e) {
-      logDebug('[TwitchApi] getRedemptions failed: $e');
-      _setError('getRedemptions: bad response');
-      return const [];
-    }
+    return _decodeListOr('getRedemptions', res, PointRedemption.fromJson);
   }
 
   /// Fulfills or refunds (cancels) one redemption. Only works for rewards
@@ -1467,13 +1439,7 @@ class TwitchApi {
     final uri = Uri.parse('$_base/polls?broadcaster_id=$broadcasterId');
     final res = await _get('getPolls', auth, uri);
     if (res == null) return const [];
-    try {
-      return _decodeList(res, Poll.fromJson);
-    } catch (e) {
-      logDebug('[TwitchApi] getPolls failed: $e');
-      _setError('getPolls: bad response');
-      return const [];
-    }
+    return _decodeListOr('getPolls', res, Poll.fromJson);
   }
 
   /// Creates a prediction (2-10 outcomes; window 30-1800 seconds).
@@ -1523,13 +1489,7 @@ class TwitchApi {
     final uri = Uri.parse('$_base/predictions?broadcaster_id=$broadcasterId');
     final res = await _get('getPredictions', auth, uri);
     if (res == null) return const [];
-    try {
-      return _decodeList(res, Prediction.fromJson);
-    } catch (e) {
-      logDebug('[TwitchApi] getPredictions failed: $e');
-      _setError('getPredictions: bad response');
-      return const [];
-    }
+    return _decodeListOr('getPredictions', res, Prediction.fromJson);
   }
 
   Future<bool> sendWhisper(

@@ -428,7 +428,6 @@ class ChatConnectionManager {
     badgeService: config.services.badgeService,
     emoteManager: config.services.emoteManager,
     twitchAuth: config.services.twitchAuth,
-    userStore: config.services.userStore,
     chat: config.chat,
     session: config.session,
     onSystemMessage: config.bridge.onSystemMessage,
