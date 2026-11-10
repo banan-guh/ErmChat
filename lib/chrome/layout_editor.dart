@@ -390,6 +390,74 @@ PopupMenuItem<Object> _removeItem(BuildContext context, String? reason) {
   );
 }
 
+/// Draws a draggable cell's button. [lifted] builds the copy that follows
+/// the finger.
+typedef _CellContent = Widget Function({required bool lifted});
+
+/// The drag half both chips share: holds for [_grabDelay], then drags
+/// [data], reporting the drag to [controller]. A hold that never moved, and
+/// a plain tap, open the cell's menu instead of dragging.
+class _DraggableCell<T extends Object> extends StatefulWidget {
+  const _DraggableCell({
+    required this.data,
+    required this.controller,
+    required this.onTap,
+    required this.content,
+  });
+
+  /// The action or part being dragged.
+  final T data;
+  final LayoutEditController controller;
+
+  /// Opens this cell's menu: a tap, or a hold that does not move.
+  final VoidCallback onTap;
+
+  final _CellContent content;
+
+  @override
+  State<_DraggableCell<T>> createState() => _DraggableCellState<T>();
+}
+
+class _DraggableCellState<T extends Object> extends State<_DraggableCell<T>> {
+  /// How far the finger moved during the current hold.
+  double _travel = 0;
+
+  @override
+  Widget build(BuildContext context) {
+    return LongPressDraggable<T>(
+      data: widget.data,
+      delay: _grabDelay,
+      hapticFeedbackOnStart: false,
+      dragAnchorStrategy: (draggable, context, position) =>
+          const Offset(_cell / 2, _cell + 24),
+      onDragStarted: () {
+        _travel = 0;
+        Haptics.press();
+        widget.controller.drag(widget.data);
+      },
+      onDragUpdate: (d) => _travel += d.delta.distance,
+      onDragEnd: (d) {
+        widget.controller.drag(null);
+        if (d.wasAccepted) return;
+        // A hold that never moved asks for options instead of dragging.
+        if (_travel < 8 && mounted) widget.onTap();
+      },
+      feedback: Transform.scale(
+        scale: 1.15,
+        child: Material(
+          type: MaterialType.transparency,
+          child: widget.content(lifted: true),
+        ),
+      ),
+      childWhenDragging: Opacity(
+        opacity: 0.3,
+        child: widget.content(lifted: false),
+      ),
+      child: widget.content(lifted: false),
+    );
+  }
+}
+
 /// An action as an editable button: placed in a slot or unplaced in the
 /// tray. It drags after a short hold, and a tap, or a hold that does not
 /// move, opens the move menu.
@@ -416,8 +484,6 @@ class EditChip extends StatefulWidget {
 }
 
 class _EditChipState extends State<EditChip> {
-  double _travel = 0;
-
   bool get _placed => widget.slot != null;
 
   Future<void> _openMenu() async {
@@ -444,7 +510,7 @@ class _EditChipState extends State<EditChip> {
     widget.controller.move(widget.action, choice is LayoutSlot ? choice : null);
   }
 
-  Widget _body(BuildContext context, {bool lifted = false}) {
+  Widget _body({required bool lifted}) {
     final face = _EditFace(
       icon: widget.action.icon,
       lifted: lifted,
@@ -461,33 +527,11 @@ class _EditChipState extends State<EditChip> {
 
   @override
   Widget build(BuildContext context) {
-    final chip = LongPressDraggable<ChromeAction>(
+    final chip = _DraggableCell<ChromeAction>(
       data: widget.action,
-      delay: _grabDelay,
-      hapticFeedbackOnStart: false,
-      dragAnchorStrategy: (draggable, context, position) =>
-          const Offset(_cell / 2, _cell + 24),
-      onDragStarted: () {
-        _travel = 0;
-        Haptics.press();
-        widget.controller.drag(widget.action);
-      },
-      onDragUpdate: (d) => _travel += d.delta.distance,
-      onDragEnd: (d) {
-        widget.controller.drag(null);
-        if (d.wasAccepted) return;
-        // A hold that never moved asks for options instead of dragging.
-        if (_travel < 8 && mounted) _openMenu();
-      },
-      feedback: Transform.scale(
-        scale: 1.15,
-        child: Material(
-          type: MaterialType.transparency,
-          child: _body(context, lifted: true),
-        ),
-      ),
-      childWhenDragging: Opacity(opacity: 0.3, child: _body(context)),
-      child: _body(context),
+      controller: widget.controller,
+      onTap: _openMenu,
+      content: _body,
     );
     if (!_placed) return chip;
     return DragTarget<ChromeAction>(
@@ -624,8 +668,6 @@ class PartChip extends StatefulWidget {
 }
 
 class _PartChipState extends State<PartChip> {
-  double _travel = 0;
-
   Future<void> _openMenu() async {
     final l = context.l10n;
     final c = widget.controller;
@@ -644,7 +686,7 @@ class _PartChipState extends State<PartChip> {
     c.placePart(widget.part, choice);
   }
 
-  Widget _body({bool lifted = false}) => _EditFace(
+  Widget _body({required bool lifted}) => _EditFace(
     icon: widget.part.icon,
     lifted: lifted,
     tall: widget.tall && !lifted,
@@ -653,33 +695,12 @@ class _PartChipState extends State<PartChip> {
 
   @override
   Widget build(BuildContext context) {
-    return LongPressDraggable<ComposerPart>(
+    // Parts move between places but never leave, so they need no drop target.
+    return _DraggableCell<ComposerPart>(
       data: widget.part,
-      delay: _grabDelay,
-      hapticFeedbackOnStart: false,
-      dragAnchorStrategy: (draggable, context, position) =>
-          const Offset(_cell / 2, _cell + 24),
-      onDragStarted: () {
-        _travel = 0;
-        Haptics.press();
-        widget.controller.drag(widget.part);
-      },
-      onDragUpdate: (d) => _travel += d.delta.distance,
-      onDragEnd: (d) {
-        widget.controller.drag(null);
-        if (d.wasAccepted) return;
-        // A hold that never moved asks for options instead of dragging.
-        if (_travel < 8 && mounted) _openMenu();
-      },
-      feedback: Transform.scale(
-        scale: 1.15,
-        child: Material(
-          type: MaterialType.transparency,
-          child: _body(lifted: true),
-        ),
-      ),
-      childWhenDragging: Opacity(opacity: 0.3, child: _body()),
-      child: _body(),
+      controller: widget.controller,
+      onTap: _openMenu,
+      content: _body,
     );
   }
 }

@@ -139,31 +139,7 @@ class ChannelSession extends ChangeNotifier {
     notifyListeners();
     for (final name in saved) {
       subscribeChannel(name);
-      final at = history.now();
-      _fetchHistory(name)
-          .then((rows) {
-            if (_disposed || !chat.contains(name)) return;
-            chat.channelFor(name)?.setHistoryLoaded(true);
-            if (rows.isEmpty) {
-              _noteEmptyHistory(name);
-            } else {
-              history.mergeHistory(name, rows);
-            }
-            notifyListeners();
-            maybeAddConnected(name);
-          })
-          .catchError((e) {
-            if (_disposed || !chat.contains(name)) return;
-            chat.channelFor(name)?.setHistoryLoaded(true);
-            history.noteFetchFailed(name, at);
-            _addSystemMessage(
-              name,
-              e is RecentMessagesException
-                  ? e.message
-                  : strings().historyLoadFailed,
-            );
-            maybeAddConnected(name);
-          });
+      _startHistoryBackfill(name, hasLoadingRow: false);
     }
   }
 
@@ -182,6 +158,42 @@ class ChannelSession extends ChangeNotifier {
       history.restoreFromArchive(name),
       network,
     ]).then((_) async => history.fillGap(name, await network));
+  }
+
+  /// Backfills [name]'s history: merges the rows once they resolve, or notes
+  /// the failure. [hasLoadingRow] says [name] shows a loading row that the
+  /// result clears; only that caller repaints on failure.
+  void _startHistoryBackfill(String name, {required bool hasLoadingRow}) {
+    final at = history.now();
+    _fetchHistory(name)
+        .then((rows) {
+          if (_disposed || !chat.contains(name)) return;
+          chat.channelFor(name)?.setHistoryLoaded(true);
+          if (hasLoadingRow) removeLoadingHistoryMessage(name);
+          if (rows.isEmpty) {
+            _noteEmptyHistory(name);
+          } else {
+            history.mergeHistory(name, rows);
+          }
+          notifyListeners();
+          maybeAddConnected(name);
+        })
+        .catchError((e) {
+          if (_disposed || !chat.contains(name)) return;
+          chat.channelFor(name)?.setHistoryLoaded(true);
+          if (hasLoadingRow) removeLoadingHistoryMessage(name);
+          history.noteFetchFailed(name, at);
+          _addSystemMessage(
+            name,
+            e is RecentMessagesException
+                ? e.message
+                : strings().historyLoadFailed,
+          );
+          // The load path's failure needs no repaint of its own; the add path
+          // does, having just replaced its loading row.
+          if (hasLoadingRow) notifyListeners();
+          maybeAddConnected(name);
+        });
   }
 
   void maybeAddConnected(String channel) {
@@ -214,34 +226,7 @@ class ChannelSession extends ChangeNotifier {
 
     chat.channelFor(name)?.addLoadingHistory();
 
-    final at = history.now();
-    _fetchHistory(name)
-        .then((rows) {
-          if (_disposed || !chat.contains(name)) return;
-          chat.channelFor(name)?.setHistoryLoaded(true);
-          removeLoadingHistoryMessage(name);
-          if (rows.isEmpty) {
-            _noteEmptyHistory(name);
-          } else {
-            history.mergeHistory(name, rows);
-          }
-          notifyListeners();
-          maybeAddConnected(name);
-        })
-        .catchError((e) {
-          if (_disposed || !chat.contains(name)) return;
-          chat.channelFor(name)?.setHistoryLoaded(true);
-          removeLoadingHistoryMessage(name);
-          history.noteFetchFailed(name, at);
-          _addSystemMessage(
-            name,
-            e is RecentMessagesException
-                ? e.message
-                : strings().historyLoadFailed,
-          );
-          notifyListeners();
-          maybeAddConnected(name);
-        });
+    _startHistoryBackfill(name, hasLoadingRow: true);
 
     await subscribeChannel(name);
     chatConn.focusChannel(name);
