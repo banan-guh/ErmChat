@@ -205,8 +205,8 @@ class ChromeThemeSpec {
   /// the row's end.
   final SendPlace sendAside;
 
-  /// The island's button row hides while typing, leaving the field row.
-  /// Only an [isIsland] layout can have it.
+  /// The button row hides while typing, leaving the field row. Only an
+  /// [isIsland] or [islandFlush] layout can have it.
   final bool compact;
 
   /// Send sits in the field only because [compact] put it there, so turning
@@ -215,7 +215,7 @@ class ChromeThemeSpec {
 
   final ComposerStyle composer;
 
-  /// A floating island: the style that takes glass and [compact].
+  /// A floating island: the style that takes glass.
   bool get isIsland => composer == ComposerStyle.island;
 
   /// The island runs edge to edge under the nav bar, rounded only on top.
@@ -303,11 +303,11 @@ class ChromeThemeSpec {
 
   /// A copy that obeys the field row's rules. It holds at most [fieldCap]
   /// buttons, and an action cut from it lands at the row's end. Leaving the
-  /// island clears [compact]. Under [compact] send sits in the field, since
-  /// the row and the side column are gone while typing; without it, send
-  /// that compact pulled in goes back aside.
+  /// island or edge to edge clears [compact]. Under [compact] send sits in
+  /// the field, since the row and the side column are gone while typing;
+  /// without it, send that compact pulled in goes back aside.
   ChromeThemeSpec fitted() {
-    final keepsCompact = compact && isIsland;
+    final keepsCompact = compact && (isIsland || islandFlush);
     final start = [...fieldStart];
     final end = [...fieldEnd];
     var pulled = sendPulled && keepsCompact;

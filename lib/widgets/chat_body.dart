@@ -495,11 +495,11 @@ class _ChatBodyState extends State<ChatBody>
     // outside its shell, so the composer never pays it twice.
     final hasBar = widget.bottomBar != null && !widget.isInPip;
     final glass = widget.liquidGlass && !MediaQuery.highContrastOf(context);
-    // Hidden-by-keyboard applies to the full-width island only.
+    // Hidden-by-keyboard applies to the full-width island and the edge to
+    // edge bar.
     final classic = widget.classic && !pane && !widget.isInPip;
     final flush = (widget.islandFlush || classic) && !pane && !widget.isInPip;
-    final hidden =
-        widget.keyboardHidesButtons && !flush && !pane && !widget.isInPip;
+    final hidden = widget.keyboardHidesButtons && !pane && !widget.isInPip;
     final showIsland = !widget.isInPip && !pane && (composer != null || hasBar);
     // The island floats over the chat in every style, so rows scroll on
     // behind it.
@@ -515,10 +515,10 @@ class _ChatBodyState extends State<ChatBody>
     final navPad = frameKb > 0.5
         ? view.viewPadding.bottom / view.devicePixelRatio
         : bottomPad;
-    final islandBottom = hidden
-        ? kComposerIslandMargin + (navPad - frameKb).clamp(0.0, navPad)
-        : flush
+    final islandBottom = flush
         ? 0.0
+        : hidden
+        ? kComposerIslandMargin + (navPad - frameKb).clamp(0.0, navPad)
         : kComposerIslandMargin + bottomPad;
     _hideSpan = hidden && floating ? navPad + _rowH.value : 0;
     // Rows under the island ease out of or into its space when it comes and

@@ -331,6 +331,54 @@ void main() {
     }
   });
 
+  // #56: the edge-to-edge bar can collapse its row while typing, not just
+  // the floating island.
+  testWidgets('a flush row hides while typing', (tester) async {
+    tester.view.physicalSize = const Size(400, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final focus = FocusNode();
+    addTearDown(focus.dispose);
+    await pumpBody(
+      tester,
+      liquidGlass: false,
+      focus: focus,
+      islandFlush: true,
+      keyboardHidesButtons: true,
+      bottomBar: const SizedBox(key: Key('test_bar'), height: 48),
+    );
+    await tester.pumpAndSettle();
+    final field = find.byKey(const Key('message_input'));
+    final island = find.byKey(const ValueKey('composer_island'));
+    final bar = find.byKey(const Key('test_bar'));
+    final openHeight = tester.getSize(island).height;
+    expect(
+      tester.getRect(bar).top,
+      greaterThanOrEqualTo(tester.getRect(field).bottom - 0.5),
+      reason: 'the row sits under the field while closed',
+    );
+
+    tester.view.viewInsets = const FakeViewPadding(bottom: 300);
+    await tester.pump(const Duration(milliseconds: 16));
+    await tester.pump(const Duration(milliseconds: 300));
+
+    expect(
+      tester.getRect(island).bottom,
+      closeTo(800 - 300, 0.5),
+      reason: 'edge to edge stays on the body bottom',
+    );
+    expect(
+      tester.getSize(island).height,
+      closeTo(tester.getSize(field).height, 1.0),
+      reason: 'the row is clipped away, leaving the field',
+    );
+    expect(
+      tester.getSize(island).height,
+      lessThan(openHeight),
+      reason: 'the bar collapses while typing',
+    );
+  });
+
   // A short screen collapses chrome once the keyboard opens (the iPhone
   // case). The island must stay put: only the focus glow changes.
   testWidgets('keyboard chrome collapse keeps the island', (tester) async {

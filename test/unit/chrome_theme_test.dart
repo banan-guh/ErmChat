@@ -212,19 +212,22 @@ void main() {
     expect(tight.canPlacePart(ComposerPart.send, PartPlace.row), isFalse);
     expect(tight.canPlacePart(ComposerPart.send, PartPlace.column), isFalse);
     expect(tight.canPlacePart(ComposerPart.emote, PartPlace.row), isTrue);
-    for (final style in [ComposerStyle.flush, ComposerStyle.classic]) {
-      expect(
-        tight.copyWith(composer: style).normalized().compact,
-        isFalse,
-        reason: '$style clears compact',
-      );
-    }
     expect(
-      ChromeThemeSpec.decode(
-        tight.copyWith(composer: ComposerStyle.flush).encode(),
-      )!.compact,
+      tight.copyWith(composer: ComposerStyle.classic).normalized().compact,
       isFalse,
-      reason: 'a pasted compact edge-to-edge line is not compact',
+      reason: 'classic has no row to hide',
+    );
+    final edge = tight.copyWith(composer: ComposerStyle.flush).normalized();
+    expect(edge.compact, isTrue, reason: 'edge to edge can hide its row');
+    expect(
+      edge.send,
+      SendPlace.field,
+      reason: 'compact pulls send into the field',
+    );
+    expect(
+      ChromeThemeSpec.decode(edge.encode())!.compact,
+      isTrue,
+      reason: 'a pasted compact edge-to-edge line stays compact',
     );
     // Shipped bug: send stayed in the field when compact was turned off in
     // a later edit, after a save forgot that compact had pulled it there.
