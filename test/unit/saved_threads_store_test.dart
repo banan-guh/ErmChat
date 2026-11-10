@@ -59,6 +59,7 @@ void main() {
       expect(store.toggle(entry), isTrue);
       expect(store.isSaved('forsen', 'r1'), isTrue);
       expect(store.threads.single.channel, 'forsen');
+      expect(store.hasChannel('FORSEN'), isTrue);
       expect(store.toggle(entry), isFalse);
       expect(store.isSaved('forsen', 'r1'), isFalse);
       expect(
@@ -277,7 +278,6 @@ void main() {
       expect(store.isSaved('forsen', 'r1'), isTrue);
       expect(store.messagesFor('forsen', 'r1'), hasLength(1));
     });
-
   });
 
   group('TwitchMessage JSON', () {

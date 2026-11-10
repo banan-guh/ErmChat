@@ -107,7 +107,8 @@ class SavedThreadsStore {
   );
 
   /// Whether any saved thread belongs to [channel] (stored lowercase).
-  bool hasChannel(String channel) => _threads.any((t) => t.channel == channel);
+  bool hasChannel(String channel) =>
+      _threads.any((t) => t.channel == channel.toLowerCase());
 
   Set<String> get keys => {for (final t in _threads) t.key};
 
