@@ -83,10 +83,6 @@ class Threads {
     _pinnedMessageIds.add(messageId);
   }
 
-  void unpin(String messageId) {
-    _pinnedMessageIds.remove(messageId);
-  }
-
   void clearPinned() {
     _pinnedMessageIds.clear();
   }

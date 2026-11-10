@@ -97,7 +97,6 @@ class Channel {
       isHistory: msg.isHistory,
       isSystem: msg.isSystem,
       isSelected: isSelected,
-      isOwn: false,
     );
     return ReceiveResult(
       inserted: true,

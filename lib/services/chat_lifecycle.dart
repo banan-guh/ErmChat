@@ -411,20 +411,6 @@ class ChatLifecycle {
         session.apply(auth.login, userId: auth.userId);
       }
 
-      // Account-switch fast path (runs before any await): a different account
-      // was requested while the previous session's socket may still be up, so
-      // the new credentials take over instead of riding the old account's
-      // socket while this connect() is still validating.
-      final pendingUsername = (session.login ?? auth.login)?.toLowerCase();
-      final hadPreviousSession =
-          _lastIrcUsername != null || _lastIrcToken != null;
-      if (hadPreviousSession &&
-          pendingUsername != null &&
-          pendingUsername != _lastIrcUsername) {
-        // The write socket never JOINs, so there are no per-channel JOIN
-        // confirmations to drop; sends simply use whatever write socket is up.
-      }
-
       // EventSub needs no credentials - connect it in parallel with the
       // current-user lookup. Only IRC needs the login, so the sockets wait
       // for the lookup but not for each other.

@@ -13,7 +13,6 @@ class Mentions {
 
   ValueNotifier<int> get version => messages.version;
 
-  int get length => messages.length;
   bool get isEmpty => messages.isEmpty;
 
   List<TwitchMessage> get items => messages.items;

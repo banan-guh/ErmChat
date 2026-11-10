@@ -16,9 +16,8 @@ class Unread {
     required bool isHistory,
     required bool isSystem,
     required bool isSelected,
-    required bool isOwn,
   }) {
-    if (isMention && !isOwn && !isHistory && !isSelected) {
+    if (isMention && !isHistory && !isSelected) {
       _hasMention = true;
       _mentionCount++;
     }

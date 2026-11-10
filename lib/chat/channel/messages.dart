@@ -1085,8 +1085,6 @@ class MessageMutations {
   void removeAllListener(void Function() listener) =>
       _allListeners.remove(listener);
 
-  bool get hasListeners => _listeners.isNotEmpty || _allListeners.isNotEmpty;
-
   void emit(String? id) {
     for (final listener in List.of(_listeners)) {
       listener(id);
