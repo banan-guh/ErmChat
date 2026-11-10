@@ -39,6 +39,9 @@ class UserProfileSheet extends StatefulWidget {
   final void Function(String login)? onUserBlocked;
   final VoidCallback? onWhisperUser;
 
+  /// Joins the channel and shows it, from the More menu. Null hides the row.
+  final VoidCallback? onOpenChannel;
+
   /// Mod action executor plus the channel they apply to. Null (or
   /// [canModerate] false) hides the Timeout/Ban/Unban/Warn rows. The opener
   /// gates [canModerate] on live plus moderator status.
@@ -117,6 +120,7 @@ class UserProfileSheet extends StatefulWidget {
     required this.onClose,
     this.onUserBlocked,
     this.onWhisperUser,
+    this.onOpenChannel,
     this.modActions,
     this.channel,
     this.canModerate = false,
@@ -1105,24 +1109,34 @@ class UserProfileSheetState extends State<UserProfileSheet> {
             mainAxisSize: MainAxisSize.min,
             children: _actionTiles(actions),
           );
-    if (!showMod) return [block(userActions)];
-    // Mod actions live behind More, like a message menu's more sheet, so the
-    // card keeps one action block and no floating mode switch.
-    return [
-      ..._recordTiles(),
-      block([
-        ...userActions,
+    // Everything beyond the common actions lives behind More, like a message
+    // menu's more sheet, so the card keeps one action block.
+    final moreActions = <SheetAction>[
+      if (widget.onOpenChannel != null)
+        SheetAction(
+          icon: Icons.live_tv_outlined,
+          label: context.l10n.openChannel,
+          onTap: () {
+            widget.onClose();
+            widget.onOpenChannel!();
+          },
+        ),
+      if (showMod) ...modActions,
+    ];
+    final actions = [
+      ...userActions,
+      if (moreActions.isNotEmpty)
         SheetAction(
           icon: Icons.more_horiz,
           label: context.l10n.moreEllipsis,
-          onTap: () => _showModActions(modActions),
+          onTap: () => _showMoreActions(moreActions),
         ),
-      ]),
     ];
+    return [if (showMod) ..._recordTiles(), block(actions)];
   }
 
-  /// Opens this user's mod actions, the same way a message menu's More does.
-  void _showModActions(List<SheetAction> actions) {
+  /// Opens this card's extra actions, the way a message menu's More does.
+  void _showMoreActions(List<SheetAction> actions) {
     showModalBottomSheet<void>(
       context: context,
       useSafeArea: true,

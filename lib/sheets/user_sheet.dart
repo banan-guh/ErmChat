@@ -124,6 +124,7 @@ class UserSheets {
     required this.paintService,
     required this.onUserBlocked,
     required this.showWhispersForUser,
+    required this.onOpenChannel,
     required this.copyMessage,
     required this.prefs,
     this.archiveReader,
@@ -144,6 +145,7 @@ class UserSheets {
   final SevenTvPaintService paintService;
   final void Function(String login) onUserBlocked;
   final void Function(String login) showWhispersForUser;
+  final void Function(String login) onOpenChannel;
   final void Function(TwitchMessage msg) copyMessage;
   final Prefs prefs;
 
@@ -480,6 +482,7 @@ class UserSheets {
                         onClose: () => Navigator.pop(ctx),
                         onUserBlocked: onUserBlocked,
                         onWhisperUser: () => showWhispersForUser(username),
+                        onOpenChannel: () => onOpenChannel(username),
                         scrollController: historyController,
                         anchor: scrollController,
                         sheetController: sheetController,

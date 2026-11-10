@@ -438,6 +438,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     onUserBlocked: (login) =>
         _commandHandler.notifyUserBlockChanged(login, blocked: true),
     showWhispersForUser: (login) => _mentions.showWhispersForUser(login),
+    onOpenChannel: (login) => _channelManager.addChannel(login),
     copyMessage: _copyMessageToClipboard,
     prefs: ref.read(prefsProvider),
     archiveReader: ref.read(archiveProvider)?.reader,

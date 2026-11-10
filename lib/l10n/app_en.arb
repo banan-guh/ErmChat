@@ -798,6 +798,7 @@
   "proxyInsecure": "Use wss:// outside your home network",
   "noChannelsJoined": "No channels joined",
   "joinChannel": "Join channel",
+  "openChannel": "Open channel",
   "editChannel": "Edit channel",
   "inlineEmbedsTitle": "Inline embeds",
   "giphyAnimationNote": "Animation follows Emotes > Animate emotes.",
