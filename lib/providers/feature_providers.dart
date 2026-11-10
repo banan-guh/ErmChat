@@ -19,6 +19,7 @@ import '../services/notification_service.dart';
 import '../services/tts_controller.dart';
 import '../services/twitch_auth.dart';
 import '../util/prefs.dart';
+import '../util/prefs_store.dart';
 import '../widgets/broadcast_widgets.dart';
 import '../widgets/chat_notice_bar.dart';
 import 'app_providers.dart';
@@ -40,12 +41,14 @@ final analyticsServiceProvider = Provider<AnalyticsService>((ref) {
     store: FileAnalyticsStore(),
     enabled: false,
   );
-  unawaited(
-    Prefs.load().then(
-      (_) => service.setEnabled(Settings.analyticsEnabled.value),
-    ),
-  );
+  void syncEnabled() {
+    unawaited(service.setEnabled(Settings.analyticsEnabled.value));
+  }
+
+  PrefsStore.instance.addListener(syncEnabled);
+  unawaited(Prefs.load().then((_) => syncEnabled()));
   ref.onDispose(() {
+    PrefsStore.instance.removeListener(syncEnabled);
     unawaited(service.flush());
     service.dispose();
   });
@@ -115,7 +118,12 @@ final notificationServiceProvider = Provider<NotificationService>((ref) {
 
 final ttsControllerProvider = Provider<TtsController>((ref) {
   final controller = TtsController(strings: ref.read(stringsProvider));
-  ref.onDispose(controller.shutdown);
+  void sync() => unawaited(controller.loadFromPrefs());
+  PrefsStore.instance.addListener(sync);
+  ref.onDispose(() {
+    PrefsStore.instance.removeListener(sync);
+    unawaited(controller.shutdown());
+  });
   return controller;
 });
 
