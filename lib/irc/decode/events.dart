@@ -32,8 +32,6 @@ class IrcChannelClearEvent {
   IrcChannelClearEvent({required this.channel});
 }
 
-/// Room-mode state (slow, followers-only, emote-only, subs-only, r9k). Sent
-/// on join and on change.
 class IrcMessageDeletedEvent {
   final String channel;
   final String messageId;
@@ -80,6 +78,8 @@ class UserNoticeEvent {
   });
 }
 
+/// Room-mode state (slow, followers-only, emote-only, subs-only, r9k). Sent
+/// on join and on change.
 class IrcRoomStateEvent {
   final String channel;
 

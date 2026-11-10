@@ -106,10 +106,6 @@ Color normalizeColor(Color color, Color background) {
   return HSLColor.fromAHSL(1, hue, saturation, lightness).toColor();
 }
 
-/// Shift [color]'s HSL lightness so its blended luminance distance from
-/// [surface] matches [anchor]'s. Equalizes perceived contrast across hues
-/// (the highlight-tint analogue of [normalizeColor] for text). Hue and
-/// saturation are preserved; only lightness moves.
 /// Perceptual brightness of [c] in 0..1. Unlike linear [luminance] (which
 /// over-weights green and makes reds/purples look brighter than they measure),
 /// this sqrt-weighted metric tracks how bright a hue actually reads, so a
@@ -126,6 +122,10 @@ double brightness(Color c) {
 /// blowing out at high opacity.
 const highlightStrength = 0.8;
 
+/// Shift [color]'s HSL lightness so its blended luminance distance from
+/// [surface] matches [anchor]'s. Equalizes perceived contrast across hues
+/// (the highlight-tint analogue of [normalizeColor] for text). Hue and
+/// saturation are preserved; only lightness moves.
 Color matchTintContrast(
   Color color,
   Color surface,
