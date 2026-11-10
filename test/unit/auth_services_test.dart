@@ -156,10 +156,14 @@ void main() {
       final solo = TwitchAuth();
       solo.setCredentials(accessToken: 'token_a');
       solo.setUser('alice', '111');
+      solo.markActiveExpired();
+      solo.markScopeStale();
       await solo.removeAccount('alice');
       expect(solo.accounts, isEmpty);
       expect(solo.accessToken, isNull);
       expect(solo.login, isNull);
+      expect(solo.isActiveExpired, isFalse);
+      expect(solo.scopeStale, isFalse);
       expect(solo.isConfigured, isFalse);
     });
 

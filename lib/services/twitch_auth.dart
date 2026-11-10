@@ -29,6 +29,24 @@ class TwitchAccount {
     this.webCookies,
   });
 
+  TwitchAccount copyWith({
+    String? login,
+    String? userId,
+    String? accessToken,
+    String? refreshToken,
+    String? profileImageUrl,
+    bool? expired,
+    String? webCookies,
+  }) => TwitchAccount(
+    login: login ?? this.login,
+    userId: userId ?? this.userId,
+    accessToken: accessToken ?? this.accessToken,
+    refreshToken: refreshToken ?? this.refreshToken,
+    profileImageUrl: profileImageUrl ?? this.profileImageUrl,
+    expired: expired ?? this.expired,
+    webCookies: webCookies ?? this.webCookies,
+  );
+
   Map<String, dynamic> toJson() => {
     'login': login,
     if (userId != null) 'user_id': userId,
@@ -154,6 +172,16 @@ class TwitchAuth extends ChangeNotifier {
     _activeExpired = account.expired;
   }
 
+  void _clearActive() {
+    accessToken = null;
+    refreshToken = null;
+    login = null;
+    userId = null;
+    profileImageUrl = null;
+    _activeExpired = false;
+    _scopeStale = false;
+  }
+
   Future<void> load() async {
     accounts = _decodeAccounts(await _readKey(_kAccounts));
 
@@ -161,12 +189,7 @@ class TwitchAuth extends ChangeNotifier {
       final activeLogin = await _readKey(_kActiveLogin);
       if (activeLogin == _kAnonymousLogin) {
         // Explicit anonymous choice: stay logged out, keep the registry.
-        accessToken = null;
-        refreshToken = null;
-        login = null;
-        userId = null;
-        profileImageUrl = null;
-        _activeExpired = false;
+        _clearActive();
         return;
       }
       var active = (activeLogin != null && activeLogin.isNotEmpty)
@@ -287,16 +310,7 @@ class TwitchAuth extends ChangeNotifier {
         (a) => a.login.toLowerCase() == current.toLowerCase(),
       );
       if (idx >= 0) {
-        final old = accounts[idx];
-        accounts[idx] = TwitchAccount(
-          login: old.login,
-          userId: old.userId,
-          accessToken: old.accessToken,
-          refreshToken: old.refreshToken,
-          profileImageUrl: old.profileImageUrl,
-          expired: true,
-          webCookies: old.webCookies,
-        );
+        accounts[idx] = accounts[idx].copyWith(expired: true);
         _saveAccounts();
       }
     }
@@ -315,13 +329,7 @@ class TwitchAuth extends ChangeNotifier {
   /// Deselects the active account without deleting saved credentials.
   Future<void> switchToAnonymous() async {
     if (accessToken == null) return;
-    accessToken = null;
-    refreshToken = null;
-    login = null;
-    userId = null;
-    profileImageUrl = null;
-    _activeExpired = false;
-    _scopeStale = false;
+    _clearActive();
     await _deleteKey(_kPendingToken);
     await _deleteKey(_kPendingRefresh);
     await _writeKey(_kActiveLogin, _kAnonymousLogin);
@@ -334,13 +342,7 @@ class TwitchAuth extends ChangeNotifier {
       (account) => account.login.toLowerCase() == login.toLowerCase(),
     );
     if (accounts.isEmpty) {
-      if (wasActive) {
-        accessToken = null;
-        refreshToken = null;
-        this.login = null;
-        userId = null;
-        profileImageUrl = null;
-      }
+      _clearActive();
       await _writeKey(_kAccounts, '[]');
       await _deleteKey(_kActiveLogin);
       await _deleteKey(_kPendingToken);
@@ -363,11 +365,7 @@ class TwitchAuth extends ChangeNotifier {
       await removeAccount(current);
       return;
     }
-    accessToken = null;
-    refreshToken = null;
-    login = null;
-    userId = null;
-    profileImageUrl = null;
+    _clearActive();
     accounts = [];
     await _writeKey(_kAccounts, '[]');
     await _deleteKey(_kActiveLogin);
