@@ -912,6 +912,19 @@ void main() {
           reason: 'the bubble is a solid block, not a wash',
         );
       }
+      final canvas = tester.getSize(find.byType(TabbedLayout));
+      expect(
+        tester.getSize(find.byKey(const ValueKey('strip_bubble_tabs'))).width,
+        lessThan(250),
+        reason: 'the tab bubble hugs its tabs instead of drawing a grey bar',
+      );
+      expect(
+        tester
+            .getRect(find.byKey(const ValueKey('strip_bubble_actions')))
+            .right,
+        greaterThan(canvas.width - 24),
+        reason: 'the action bubble stays pinned to the strip end',
+      );
     });
 
     testWidgets('bubbles retract after a long scroll up and return at rest', (
@@ -921,20 +934,27 @@ void main() {
       final page = find.byKey(const ValueKey('bubble_page_0'));
       expect(find.byType(TabBar), findsOneWidget);
 
+      await tester.drag(page, const Offset(0, -40));
+      await tester.pumpAndSettle();
+      expect(
+        find.byType(TabBar),
+        findsOneWidget,
+        reason: 'a short drag is not enough to retract',
+      );
+
       await tester.drag(page, const Offset(0, -400));
       await tester.pumpAndSettle();
-      expect(find.byType(TabBar), findsNothing);
       expect(
-        find.byKey(const ValueKey('strip_bubble_tabs')),
-        findsNothing,
+        tester.getTopLeft(find.byType(TabBar)).dy,
+        lessThan(0),
         reason: 'the bubbles retract once the reader is far up history',
       );
 
       await tester.drag(page, const Offset(0, 800));
       await tester.pumpAndSettle();
       expect(
-        find.byType(TabBar),
-        findsOneWidget,
+        tester.getTopLeft(find.byType(TabBar)).dy,
+        greaterThanOrEqualTo(0),
         reason: 'returning to the newest rows brings the bubbles back',
       );
     });

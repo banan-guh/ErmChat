@@ -231,8 +231,11 @@ class TabbedLayoutState extends State<TabbedLayout>
   // The pages stack's key, so floating chrome anchors to the pages.
   final _pagesKey = GlobalKey();
 
-  // The bubble strip retracts once the reader is far enough up history.
-  static const double _bubbleRetractOffset = TabbedLayout.bubbleStripHeight * 3;
+  // DankChat's toolbar tracker: hide after 100dp of upward drag, show after
+  // 36dp down, and reset the accumulator when the drag reverses.
+  static const double _bubbleHideThreshold = 100;
+  static const double _bubbleShowThreshold = 36;
+  double _retractAccum = 0;
   final _stripRetracted = ValueNotifier<bool>(false);
 
   // Width of the fade where tabs meet the pinned strip actions.
@@ -375,7 +378,7 @@ class TabbedLayoutState extends State<TabbedLayout>
   bool _onPageNotification(ScrollNotification notification) {
     final metrics = notification.metrics;
     if (metrics.axis == Axis.vertical) {
-      _updateStripRetraction(metrics);
+      _updateStripRetraction(notification);
       return false;
     }
     if (metrics is! PageMetrics || metrics.page == null) return false;
@@ -441,14 +444,54 @@ class TabbedLayoutState extends State<TabbedLayout>
 
   bool get _isProgrammaticJump => _programmaticTarget != null;
 
-  // A reversed chat list grows [pixels] as the reader moves up into history.
-  // One threshold keeps the strip from flickering around the edge.
-  void _updateStripRetraction(ScrollMetrics metrics) {
+  // A reversed chat list grows [pixels] as the reader moves up into history,
+  // so a positive drag delta means reading older rows. Ballistic and
+  // layout-driven updates carry no drag details and never move the strip.
+  void _updateStripRetraction(ScrollNotification notification) {
     if (!widget.stripBubbles || !widget.showTabBar) return;
-    final retracted = metrics.pixels > _bubbleRetractOffset;
-    if (_stripRetracted.value != retracted) {
-      _stripRetracted.value = retracted;
+    if (notification is! ScrollUpdateNotification ||
+        notification.dragDetails == null) {
+      return;
     }
+    final delta = notification.scrollDelta ?? 0;
+    if (delta == 0) return;
+    if ((_retractAccum > 0 && delta < 0) || (_retractAccum < 0 && delta > 0)) {
+      _retractAccum = 0;
+    }
+    _retractAccum += delta;
+    if (_retractAccum > _bubbleHideThreshold) {
+      _stripRetracted.value = true;
+      _retractAccum = 0;
+    } else if (_retractAccum < -_bubbleShowThreshold) {
+      _stripRetracted.value = false;
+      _retractAccum = 0;
+    }
+  }
+
+  // Content width of the bubble tab pill, so it stays a bubble instead of a
+  // full-width grey bar. The matching tabBuilder uses the same 14pt semibold
+  // label; each Tab adds 12pt of label padding on both sides.
+  double _bubbleTabWidth(BuildContext context) {
+    final style = DefaultTextStyle.of(
+      context,
+    ).style.merge(const TextStyle(fontSize: 14, fontWeight: FontWeight.w600));
+    final scaler = MediaQuery.textScalerOf(context);
+    final direction = Directionality.of(context);
+    var width = 0.0;
+    for (final tab in widget.tabs) {
+      final painter = TextPainter(
+        text: TextSpan(text: tab, style: style),
+        textDirection: direction,
+        textScaler: scaler,
+        maxLines: 1,
+      )..layout();
+      width += painter.width.ceilToDouble() + 24;
+      painter.dispose();
+    }
+    if (_hasAddTab) width += 48;
+    width += 24; // channel dropdown
+    width += 12; // pill horizontal padding
+    return width + 8; // room for the scrollable TabBar's rounding
   }
 
   int? _pendingActiveIndex;
@@ -551,6 +594,7 @@ class TabbedLayoutState extends State<TabbedLayout>
         oldWidget.stripBubbles != widget.stripBubbles ||
         oldWidget.showTabBar != widget.showTabBar) {
       _stripRetracted.value = false;
+      _retractAccum = 0;
     }
     final len = widget.tabs.length;
     if (len != _tabLength || (widget.addTab != null) != _hasAddTab) {
@@ -629,129 +673,138 @@ class TabbedLayoutState extends State<TabbedLayout>
         child: Row(
           children: [
             Expanded(
-              child: pill(
-                key: const ValueKey('strip_bubble_tabs'),
-                Row(
-                  children: [
-                    Expanded(
-                      child:
-                          // Fades tabs out where they scroll under the pinned actions
-                          // instead of hard-cutting them. Always mounted (fully opaque
-                          // without actions) so a layout flip never remounts the TabBar.
-                          ShaderMask(
-                            blendMode: BlendMode.dstIn,
-                            shaderCallback: (rect) {
-                              final fadeStart =
-                                  widget.stripTrailing == null || bubbles
-                                  ? 1.0
-                                  : 1 - _stripFade / rect.width;
-                              return LinearGradient(
-                                begin: AlignmentDirectional.centerStart,
-                                end: AlignmentDirectional.centerEnd,
-                                colors: const [
-                                  Colors.white,
-                                  Colors.white,
-                                  Colors.transparent,
-                                ],
-                                stops: [0, fadeStart, 1],
-                              ).createShader(
-                                rect,
-                                textDirection: Directionality.of(context),
-                              );
-                            },
-                            // TabBar disables the behavior-built overscroll indicator
-                            // for scrollable tabs, so install the stretch directly.
-                            child: StretchingOverscrollIndicator(
-                              axisDirection:
-                                  Directionality.of(context) ==
-                                      TextDirection.rtl
-                                  ? AxisDirection.left
-                                  : AxisDirection.right,
-                              child: ScrollConfiguration(
-                                behavior: const _SwipeScrollBehavior(),
-                                child: NotificationListener<ScrollNotification>(
-                                  onNotification: _onStripNotification,
-                                  child: TabBar(
-                                    controller: _tabController,
-                                    onTap: _onTabTap,
-                                    isScrollable: true,
-                                    tabAlignment: _resolveTabAlignment(),
-                                    // Lets the last tab scroll clear of the fade.
-                                    padding: EdgeInsetsDirectional.only(
-                                      end:
-                                          widget.stripTrailing == null ||
-                                              bubbles
-                                          ? 0
-                                          : _stripFade,
-                                    ),
-                                    labelPadding: const EdgeInsets.symmetric(
-                                      horizontal: 12,
-                                      vertical: 0,
-                                    ),
-                                    indicator: BoxDecoration(
-                                      border: Border(
-                                        bottom: BorderSide(
-                                          color: theme.colorScheme.primary,
-                                          width: 2,
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: SizedBox(
+                  width: bubbles ? _bubbleTabWidth(context) : null,
+                  child: pill(
+                    key: const ValueKey('strip_bubble_tabs'),
+                    Row(
+                      children: [
+                        Expanded(
+                          child:
+                              // Fades tabs out where they scroll under the pinned actions
+                              // instead of hard-cutting them. Always mounted (fully opaque
+                              // without actions) so a layout flip never remounts the TabBar.
+                              ShaderMask(
+                                blendMode: BlendMode.dstIn,
+                                shaderCallback: (rect) {
+                                  final fadeStart =
+                                      widget.stripTrailing == null || bubbles
+                                      ? 1.0
+                                      : 1 - _stripFade / rect.width;
+                                  return LinearGradient(
+                                    begin: AlignmentDirectional.centerStart,
+                                    end: AlignmentDirectional.centerEnd,
+                                    colors: const [
+                                      Colors.white,
+                                      Colors.white,
+                                      Colors.transparent,
+                                    ],
+                                    stops: [0, fadeStart, 1],
+                                  ).createShader(
+                                    rect,
+                                    textDirection: Directionality.of(context),
+                                  );
+                                },
+                                // TabBar disables the behavior-built overscroll indicator
+                                // for scrollable tabs, so install the stretch directly.
+                                child: StretchingOverscrollIndicator(
+                                  axisDirection:
+                                      Directionality.of(context) ==
+                                          TextDirection.rtl
+                                      ? AxisDirection.left
+                                      : AxisDirection.right,
+                                  child: ScrollConfiguration(
+                                    behavior: const _SwipeScrollBehavior(),
+                                    child: NotificationListener<ScrollNotification>(
+                                      onNotification: _onStripNotification,
+                                      child: TabBar(
+                                        controller: _tabController,
+                                        onTap: _onTabTap,
+                                        isScrollable: true,
+                                        tabAlignment: _resolveTabAlignment(),
+                                        // Lets the last tab scroll clear of the fade.
+                                        padding: EdgeInsetsDirectional.only(
+                                          end:
+                                              widget.stripTrailing == null ||
+                                                  bubbles
+                                              ? 0
+                                              : _stripFade,
                                         ),
+                                        labelPadding:
+                                            const EdgeInsets.symmetric(
+                                              horizontal: 12,
+                                              vertical: 0,
+                                            ),
+                                        indicator: BoxDecoration(
+                                          border: Border(
+                                            bottom: BorderSide(
+                                              color: theme.colorScheme.primary,
+                                              width: 2,
+                                            ),
+                                          ),
+                                        ),
+                                        indicatorSize:
+                                            TabBarIndicatorSize.label,
+                                        // No full-width divider; the strip's tone separates it.
+                                        dividerHeight: 0,
+                                        tabs: [
+                                          for (var i = 0; i < tabs.length; i++)
+                                            Tab(
+                                              child:
+                                                  widget.tabBuilder?.call(
+                                                    context,
+                                                    i,
+                                                  ) ??
+                                                  Text(tabs[i]),
+                                            ),
+                                          if (_hasAddTab)
+                                            Tab(child: widget.addTab),
+                                        ],
                                       ),
                                     ),
-                                    indicatorSize: TabBarIndicatorSize.label,
-                                    // No full-width divider; the strip's tone separates it.
-                                    dividerHeight: 0,
-                                    tabs: [
-                                      for (var i = 0; i < tabs.length; i++)
-                                        Tab(
-                                          child:
-                                              widget.tabBuilder?.call(
-                                                context,
-                                                i,
-                                              ) ??
-                                              Text(tabs[i]),
-                                        ),
-                                      if (_hasAddTab) Tab(child: widget.addTab),
-                                    ],
                                   ),
                                 ),
                               ),
+                        ),
+                        // Every channel at a glance, for when the pill scrolls.
+                        if (bubbles)
+                          PopupMenuButton<int>(
+                            tooltip: context.l10n.pageChannels,
+                            onSelected: _onTabTap,
+                            // Opens on the current channel, scrolled to it.
+                            initialValue: _lastReportedIndex,
+                            // Six rows plus the menu's padding, then it scrolls.
+                            constraints: const BoxConstraints(
+                              maxHeight: 6 * _channelRowH + 16,
+                            ),
+                            itemBuilder: (_) => [
+                              for (var i = 0; i < tabs.length; i++)
+                                PopupMenuItem(
+                                  value: i,
+                                  height: _channelRowH,
+                                  child: Row(
+                                    children: [
+                                      SizedBox(
+                                        width: 32,
+                                        child: i == _lastReportedIndex
+                                            ? const Icon(Icons.done, size: 20)
+                                            : null,
+                                      ),
+                                      Flexible(child: Text(tabs[i])),
+                                    ],
+                                  ),
+                                ),
+                            ],
+                            child: const Padding(
+                              padding: EdgeInsets.symmetric(horizontal: 2),
+                              child: Icon(Icons.arrow_drop_down, size: 20),
                             ),
                           ),
+                      ],
                     ),
-                    // Every channel at a glance, for when the pill scrolls.
-                    if (bubbles)
-                      PopupMenuButton<int>(
-                        tooltip: context.l10n.pageChannels,
-                        onSelected: _onTabTap,
-                        // Opens on the current channel, scrolled to it.
-                        initialValue: _lastReportedIndex,
-                        // Six rows plus the menu's padding, then it scrolls.
-                        constraints: const BoxConstraints(
-                          maxHeight: 6 * _channelRowH + 16,
-                        ),
-                        itemBuilder: (_) => [
-                          for (var i = 0; i < tabs.length; i++)
-                            PopupMenuItem(
-                              value: i,
-                              height: _channelRowH,
-                              child: Row(
-                                children: [
-                                  SizedBox(
-                                    width: 32,
-                                    child: i == _lastReportedIndex
-                                        ? const Icon(Icons.done, size: 20)
-                                        : null,
-                                  ),
-                                  Flexible(child: Text(tabs[i])),
-                                ],
-                              ),
-                            ),
-                        ],
-                        child: const Padding(
-                          padding: EdgeInsets.symmetric(horizontal: 2),
-                          child: Icon(Icons.arrow_drop_down, size: 20),
-                        ),
-                      ),
-                  ],
+                  ),
                 ),
               ),
             ),
@@ -766,13 +819,20 @@ class TabbedLayoutState extends State<TabbedLayout>
       ),
     );
 
+    // Bubbles float over the pages like the composer island. The pages keep
+    // their full height and their own top clearance, so rows scroll beneath
+    // the pills instead of sitting under a separate pane.
+    final overlayBubbles = bubbles && widget.belowTabBar == null;
     final cardsTop =
         (widget.fullscreen
             ? 0.0
             : widget.showTabBar
             ? 0.0
             : statusBarHeight(context)) +
-        kChromeMenuMargin;
+        kChromeMenuMargin +
+        (overlayBubbles && widget.showTabBar
+            ? widget.stripTopInset + TabbedLayout.bubbleStripHeight
+            : 0);
     final pages = Stack(
       key: widget.pagesKey ?? _pagesKey,
       children: [
@@ -843,6 +903,38 @@ class TabbedLayoutState extends State<TabbedLayout>
           ),
       ],
     );
+
+    if (overlayBubbles) {
+      return Stack(
+        children: [
+          Positioned.fill(child: pages),
+          Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            child: ValueListenableBuilder<bool>(
+              valueListenable: _stripRetracted,
+              builder: (context, retracted, _) {
+                if (!widget.showTabBar) return const SizedBox.shrink();
+                return IgnorePointer(
+                  ignoring: retracted,
+                  child: AnimatedSlide(
+                    offset: retracted ? const Offset(0, -1) : Offset.zero,
+                    duration: Motion.normal,
+                    curve: Motion.move,
+                    child: AnimatedOpacity(
+                      opacity: retracted ? 0 : 1,
+                      duration: Motion.normal,
+                      child: tabStrip,
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
+      );
+    }
 
     return Column(
       children: [

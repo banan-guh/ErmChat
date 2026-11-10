@@ -57,6 +57,9 @@ class ChatView extends StatefulWidget {
   final String? emptyText;
   final ScrollPhysics? physics;
 
+  /// Clearance above the oldest row, below a floating header.
+  final double topPadding;
+
   /// Off in the mentions tab so deleted rows stay readable.
   final bool fadeDeleted;
 
@@ -115,6 +118,7 @@ class ChatView extends StatefulWidget {
     this.showReplyIndicators = true,
     this.emptyText,
     this.physics,
+    this.topPadding = 0,
     this.fadeDeleted = true,
     this.showChannel = false,
     this.keepAlive = true,
@@ -324,6 +328,9 @@ class _ChatViewState extends State<ChatView>
     final bottom = SliverToBoxAdapter(
       child: IslandSpacer(page: _islandPage, chat: !empty),
     );
+    // Reversed: the last sliver is the top of the list, under the floating
+    // bubbles. Only the oldest row needs to clear them.
+    final top = SliverToBoxAdapter(child: SizedBox(height: widget.topPadding));
     if (!empty) {
       final cache = widget.tileCache?.putIfAbsent(
         widget.channel,
@@ -366,6 +373,7 @@ class _ChatViewState extends State<ChatView>
               addRepaintBoundaries: false,
             ),
           ),
+          if (widget.topPadding > 0) top,
         ],
       );
       return KeyedSubtree(key: ValueKey<int>(_listGen), child: list);
@@ -397,6 +405,7 @@ class _ChatViewState extends State<ChatView>
             ),
           ),
         ),
+        if (widget.topPadding > 0) top,
       ],
     );
   }

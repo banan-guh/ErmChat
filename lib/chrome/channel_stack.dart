@@ -138,6 +138,13 @@ class ChannelPanels {
   /// History sources by channel, so a rebuilt page keeps its source.
   final _sources = <String, HistorySource>{};
 
+  /// Whether the keyboard hid the chrome; the page token and top clearance
+  /// follow it.
+  bool _hideChrome = false;
+
+  /// Whether a stream sits above the strip, so its top inset is zero.
+  bool _underStream = false;
+
   /// A time each channel's history page should show next: a tapped search
   /// result. The page consumes it.
   final _jumps = <String, ValueNotifier<DateTime?>>{};
@@ -246,9 +253,20 @@ class ChannelPanels {
       !homeAppBar.themeSpec().rowActions.contains(ChromeAction.viewMenu);
 
   String _pageToken() =>
-      '${search.open}|${showTimestamps()}|${timestampFormat()}|'
-      '${chatFontSize()}|${checkeredMessages()}|${highlightOpacity()}|'
-      '${lineSeparator()}|${sharedChatMode()}|${showNamePaints()}';
+      '${homeAppBar.themeSpec().header.name}|${isFullscreen()}|'
+      '$_hideChrome|$_underStream|${search.open}|${showTimestamps()}|'
+      '${timestampFormat()}|${chatFontSize()}|${checkeredMessages()}|'
+      '${highlightOpacity()}|${lineSeparator()}|${sharedChatMode()}|'
+      '${showNamePaints()}';
+
+  /// Clearance above the oldest row when the bubble strip floats over the
+  /// page. Zero for every other header, fullscreen, or hidden chrome.
+  double _bubbleTopPadding(BuildContext context) {
+    if (_hideChrome || isFullscreen()) return 0;
+    if (homeAppBar.themeSpec().header != HeaderStyle.bubbles) return 0;
+    return (_underStream ? 0 : statusBarHeight(context)) +
+        TabbedLayout.bubbleStripHeight;
+  }
 
   /// Drop cached pages and tabs, forcing rebuild on next channelStack.
   /// Use for future settings that change tile content without a channel
@@ -303,6 +321,7 @@ class ChannelPanels {
           channel: channel,
           channelPage: true,
           messages: search.visibleMessages(channel),
+          topPadding: _bubbleTopPadding(context),
           tileCache: tileCache,
           isDimmed: search.dimPredicate(channel),
           hides: chat.filter.hides,
@@ -431,6 +450,7 @@ class ChannelPanels {
         channel: channel,
         channelPage: true,
         source: source,
+        topPadding: _bubbleTopPadding(context),
         debugControls: fake,
         live: messages == null ? null : () => messages.chatRows,
         liveVersion: active ? messages?.version : null,
@@ -523,6 +543,7 @@ class ChannelPanels {
           channel: channel,
           channelPage: true,
           source: source,
+          topPadding: _bubbleTopPadding(context),
           emptyStretches: false,
           live: messages == null
               ? null
@@ -597,6 +618,8 @@ class ChannelPanels {
     Widget? belowTabBar,
     bool underStream = false,
   }) {
+    _hideChrome = hideChrome;
+    _underStream = underStream;
     _dropStaleCaches();
     // The view menu, bell, overflow and settings live in the island's row.
     final showStrip = !isFullscreen() && !hideChrome;
