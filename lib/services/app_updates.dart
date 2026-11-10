@@ -91,16 +91,12 @@ class AppUpdates {
   static const checkInterval = Duration(hours: 24);
 
   /// Records [current] as seen and returns the previous version when What's
-  /// new should show, '' when the dev arm fired, or null to stay quiet. The
-  /// first launch with no saved version shows nothing.
+  /// new should show, or null to stay quiet. The first launch with no saved
+  /// version shows nothing.
   Future<String?> takeWhatsNew(String current) async {
     final prefs = await Prefs.load();
     final last = prefs.lastSeenVersion;
     await prefs.setLastSeenVersion(current);
-    if (prefs.armWhatsNew) {
-      await prefs.setArmWhatsNew(false);
-      return last ?? '';
-    }
     if (last == null || compareVersions(current, last) <= 0) return null;
     return prefs.whatsNewEnabled ? last : null;
   }

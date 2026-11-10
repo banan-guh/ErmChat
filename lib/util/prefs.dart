@@ -244,9 +244,6 @@ class Prefs {
       ? _p.remove(_kDismissedUpdate)
       : _p.setString(_kDismissedUpdate, value);
 
-  bool get armWhatsNew => Settings.armWhatsNew.value;
-  Future<void> setArmWhatsNew(bool value) => Settings.armWhatsNew.set(value);
-
   bool get armUpdate => Settings.armUpdate.value;
   Future<void> setArmUpdate(bool value) => Settings.armUpdate.set(value);
 

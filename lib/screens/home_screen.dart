@@ -45,7 +45,6 @@ import '../util/prefs.dart';
 import '../util/prefs_store.dart';
 import '../util/settings.dart';
 import '../screens/intro_screen.dart';
-import '../screens/whats_new_pages.dart';
 import '../screens/settings/settings_screen.dart';
 import '../widgets/panel_manager.dart';
 import '../widgets/whats_new_sheet.dart';
@@ -604,7 +603,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     lineSeparator: () => _lineSeparator,
     sharedChatMode: () => Settings.sharedChatMode.value,
     showNamePaints: () => _showNamePaints,
-    ownLogin: () => _session.login,
     isFullscreen: () => _isFullscreen,
     fastSnap: () => _fastSnap,
     commitChannelSelection: _commitChannelSelection,
@@ -814,19 +812,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     if (from != null) {
       final notes = await bundledNotes(info.version);
       if (!mounted) return;
-      // A new minor version opens with its showcase; the changelog follows
-      // when asked for. Patch releases get the changelog alone.
-      final pages = showcaseFor(info.version, from);
-      final changelog = pages == null
-          ? true
-          : await WhatsNewScreen.show(context, pages);
-      if (changelog && notes.isNotEmpty && mounted) {
+      if (notes.isNotEmpty) {
         unawaited(
           showWhatsNewSheet(
             context,
             title: context.l10n.whatsNewTitle,
             notes: notes,
-            more: from.isEmpty ? null : updates.missedNotes(from, info.version),
+            more: updates.missedNotes(from, info.version),
           ),
         );
       }

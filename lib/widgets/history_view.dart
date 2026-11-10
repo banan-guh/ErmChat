@@ -14,13 +14,10 @@ import '../color_utils.dart' show streamAccent;
 import '../l10n/l10n.dart';
 import '../models/twitch_message.dart';
 import '../sheets/history_marker_sheet.dart';
-import '../util/chat_compaction.dart';
 import '../util/history_timeline.dart';
 import '../util/history_window.dart';
 import '../util/log.dart';
 import '../util/perf_probe.dart';
-import '../util/phrase_compaction.dart';
-import '../util/settings.dart';
 import 'chat_message_tile.dart';
 import 'chat_rows.dart';
 import 'chrome_menu_button.dart';
@@ -96,8 +93,6 @@ class HistoryView extends StatefulWidget {
     this.liveVersion,
     this.emotesVersion,
     this.tileCache,
-    this.compact = false,
-    this.ownLogin,
     this.active = true,
     this.atBottomNotifier,
     this.onScrollActivity,
@@ -158,12 +153,6 @@ class HistoryView extends StatefulWidget {
   /// Tile caches by channel, then message id; the owner evicts edited rows
   /// and may drop a channel's map. Null builds rows fresh.
   final Map<String, Map<String?, Widget>>? tileCache;
-
-  /// Whether this is the channel page and may fold repeated messages.
-  final bool compact;
-
-  /// The signed-in login, whose own messages never join a pile.
-  final String? Function()? ownLogin;
 
   /// Whether this page is the focused one. A jump waits until it is, since
   /// an offstage list has no layout to place the target in.
@@ -452,26 +441,6 @@ class _HistoryViewState extends State<HistoryView> {
   final Set<RowGateState> _gates = {};
   bool _gateSyncScheduled = false;
 
-  /// Repeat groups over the window, by window position. [compact] must be on.
-  bool _compact = false;
-
-  /// Whether long rows collapse their phrase and truncate. Channel pages only.
-  bool _shorten = false;
-
-  /// Lines a shortened row shows before the tap reveals the rest.
-  static const int _shortLines = 6;
-
-  /// Revealed pile members sit back so spam reads apart from real messages.
-  static const double _pileMemberOpacity = 0.6;
-
-  Map<int, int> _repeatCounts = const {};
-  Map<int, int> _repeatHidden = const {};
-
-  /// Rows the reader opened, by row key: a pile or a shortened row.
-  final Set<String> _expanded = {};
-  final Map<String, ({String source, TwitchMessage display})> _phraseMessages =
-      {};
-
   /// Mirror of what this view last wrote to [HistoryView.atBottomNotifier],
   /// so an outside write reads as a request to jump.
   bool _atBottom = true;
@@ -500,12 +469,6 @@ class _HistoryViewState extends State<HistoryView> {
     super.initState();
     _controller.addListener(_onScroll);
     _active = this;
-    _compact = widget.compact && Settings.compactRepeats.value;
-    _shorten = widget.compact && Settings.shortenMessages.value;
-    if (widget.compact) {
-      Settings.compactRepeats.addListener(_onCompactionPref);
-      Settings.shortenMessages.addListener(_onShortenPref);
-    }
     PerfProbe.counters(_counters);
     PerfProbe.gauge('hwin', () => _active?._window.length ?? 0);
     if (PerfProbe.enabled) {
@@ -595,20 +558,6 @@ class _HistoryViewState extends State<HistoryView> {
     super.didUpdateWidget(old);
     // A jump that arrived while this page was offstage lands now.
     if (!old.active && widget.active) _onJumpRequest();
-    if (old.compact != widget.compact) {
-      if (old.compact) {
-        Settings.compactRepeats.removeListener(_onCompactionPref);
-        Settings.shortenMessages.removeListener(_onShortenPref);
-      }
-      if (widget.compact) {
-        Settings.compactRepeats.addListener(_onCompactionPref);
-        Settings.shortenMessages.addListener(_onShortenPref);
-      }
-      _compact = widget.compact && Settings.compactRepeats.value;
-      _shorten = widget.compact && Settings.shortenMessages.value;
-      _expanded.clear();
-      _rebuildItems();
-    }
     if (old.liveVersion != widget.liveVersion) {
       old.liveVersion?.removeListener(_onLive);
       widget.liveVersion?.addListener(_onLive);
@@ -1111,10 +1060,6 @@ class _HistoryViewState extends State<HistoryView> {
     widget.jumpRequest?.removeListener(_onJumpRequest);
     widget.calendarRequest?.removeListener(_onCalendarRequest);
     widget.actions?.follow.removeListener(_onFollow);
-    if (widget.compact) {
-      Settings.compactRepeats.removeListener(_onCompactionPref);
-      Settings.shortenMessages.removeListener(_onShortenPref);
-    }
     _unwatchClears?.call();
     _unwatchStreams?.call();
     if (identical(_active, this)) _active = null;
@@ -1302,40 +1247,9 @@ class _HistoryViewState extends State<HistoryView> {
     });
   }
 
-  /// Recomputes repeat groups over the window. Positions stay stable, so
-  /// only the count maps change and the sliver rebuilds the rows it shows.
-  void _regroup() {
-    final w = _window;
-    final live = <String>{
-      for (var p = w.first; p < w.end; p++) HistoryWindow.keyOf(w[p]),
-    };
-    _expanded.removeWhere((key) => !live.contains(key));
-    _phraseMessages.removeWhere((key, _) => !live.contains(key));
-    if (!_compact) {
-      _repeatCounts = const {};
-      _repeatHidden = const {};
-      return;
-    }
-    final own = widget.ownLogin?.call()?.toLowerCase();
-    final result = compactChat(
-      [for (var p = w.first; p < w.end; p++) w[p]],
-      skip: (msg) {
-        if (own != null && msg.login.toLowerCase() == own) return true;
-        return widget.rows.hides?.call(msg) ?? false;
-      },
-    );
-    final counts = <int, int>{};
-    result.counts.forEach((i, n) => counts[w.first + i] = n);
-    final hidden = <int, int>{};
-    result.hidden.forEach((i, s) => hidden[w.first + i] = w.first + s);
-    _repeatCounts = counts;
-    _repeatHidden = hidden;
-  }
-
   /// Adds items for positions [from] on to the newer sliver, after rows
   /// appended below an anchor at or before [from].
   void _appendItems(int from) {
-    _regroup();
     final w = _window;
     final newer = _newerItems;
     for (var p = from; p < w.end; p++) {
@@ -1349,7 +1263,6 @@ class _HistoryViewState extends State<HistoryView> {
 
   /// Rebuilds both item lists from the window and the anchor.
   void _rebuildItems() {
-    _regroup();
     final w = _window;
     final newer = <_Item>[];
     for (var p = _anchor; p < w.end; p++) {
@@ -1386,27 +1299,6 @@ class _HistoryViewState extends State<HistoryView> {
     _liveAttached = true;
     _liveStart = _window.end;
     _syncLive(attaching: true);
-  }
-
-  void _onCompactionPref() {
-    final on = widget.compact && Settings.compactRepeats.value;
-    if (on == _compact) return;
-    setState(() {
-      _compact = on;
-      _expanded.clear();
-      _rebuildItems();
-    });
-  }
-
-  void _onShortenPref() {
-    final on = widget.compact && Settings.shortenMessages.value;
-    if (on == _shorten) return;
-    setState(() {
-      _shorten = on;
-      _expanded.clear();
-      _phraseMessages.clear();
-      _rebuildItems();
-    });
   }
 
   /// A live sync already waits for the next frame.
@@ -1470,11 +1362,7 @@ class _HistoryViewState extends State<HistoryView> {
         cache?.remove(m.messageId);
         hit = true;
       }
-      if (hit) {
-        setState(() {
-          _regroup();
-        });
-      }
+      if (hit) setState(() {});
     });
   }
 
@@ -1493,12 +1381,7 @@ class _HistoryViewState extends State<HistoryView> {
       cache?.remove(m.messageId);
       healed = true;
     }
-    if (healed) {
-      setState(() {
-        // Condensed rows re-read the tokens to spot emote runs.
-        _phraseMessages.clear();
-      });
-    }
+    if (healed) setState(() {});
   }
 
   /// Mirrors the live buffer into the window's tail. Arrivals append; any
@@ -2146,14 +2029,6 @@ class _HistoryViewState extends State<HistoryView> {
     final msg = _window.at(pos);
     if (msg == null) return const SizedBox.shrink();
     final key = HistoryWindow.keyOf(msg);
-    final summary = _repeatHidden[pos];
-    if (summary != null) {
-      final head = _window.at(summary);
-      final headKey = head == null ? null : HistoryWindow.keyOf(head);
-      if (headKey == null || !_expanded.contains(headKey)) {
-        return SizedBox.shrink(key: ValueKey<String>(key));
-      }
-    }
     _scheduleGateSync();
     final stream = _streamOfRow(msg);
     if (stream != null) {
@@ -2172,150 +2047,11 @@ class _HistoryViewState extends State<HistoryView> {
         ),
       );
     }
-    final count = _repeatCounts[pos] ?? 1;
-    final shortenable = _shorten && !msg.isSystem;
-    final expanded = _expanded.contains(key);
-    final shorten = shortenable && !expanded;
-    final display = shorten ? _shortened(msg) : msg;
-    // Shortened rows build fresh: their text and line cap follow the toggle,
-    // which a cached tile cannot.
-    Widget child = count > 1 || shortenable
-        ? widget.rows.tile(
-            context,
-            display,
-            alternate: pos.isEven,
-            scale: widget.textScale * _systemScale,
-            surface: Theme.of(context).scaffoldBackgroundColor,
-            repeatCount: count,
-            // Collapsed, the pile carries no sender identity. Expanded, the
-            // summary shows who wrote the first copy.
-            summary: count > 1 && !expanded,
-            skipHides: count > 1 || !identical(display, msg),
-            maxLines: shorten ? _shortLines : null,
-            onTapRow: shortenable || count > 1
-                ? () => _toggleExpanded(key)
-                : null,
-          )
-        : _cachedTile(context, msg, key, pos.isEven);
-    // A pile member shown by the reader reads as a footnote to the summary.
-    if (summary != null) {
-      child = Opacity(opacity: _pileMemberOpacity, child: child);
-    }
-    return RowGate(key: ValueKey<String>(key), gates: _gates, child: child);
-  }
-
-  /// [msg] with a repeated phrase condensed, or [msg] itself. Cached per row,
-  /// since a regroup runs on every arrival.
-  TwitchMessage _shortened(TwitchMessage msg) {
-    final key = HistoryWindow.keyOf(msg);
-    final cached = _phraseMessages[key];
-    if (cached != null && cached.source == msg.text) return cached.display;
-    final display = _condense(msg);
-    _phraseMessages[key] = (source: msg.text, display: display);
-    return display;
-  }
-
-  /// The condensed copy of [msg]: a repeated phrase collapsed, or, when the
-  /// copies match only once their emotes are ignored, cut after the first.
-  TwitchMessage _condense(TwitchMessage msg) {
-    final compacted = compactRepeatedPhrase(msg.text);
-    if (compacted != null) {
-      return _phraseMessage(
-        msg,
-        compacted.text,
-        compacted.moveEmotes(msg.emotePositions ?? const []),
-      );
-    }
-    final tokens = widget.rows.messageBuilder.ensureEmoteTokens(
-      msg,
-      msg.channel ?? widget.channel,
+    return RowGate(
+      key: ValueKey<String>(key),
+      gates: _gates,
+      child: _cachedTile(context, msg, key, pos.isEven),
     );
-    if (tokens == null || tokens.isEmpty) return msg;
-    final emotes = <int>{
-      for (final token in tokens)
-        if (token.isEmote)
-          for (var i = token.start; i < token.end; i++) i,
-    };
-    final cut = repeatedPhraseCut(msg.text, emotes: emotes);
-    if (cut == null) return msg;
-    return _phraseMessage(msg, '${msg.text.substring(0, cut).trimRight()}...', [
-      for (final position in msg.emotePositions ?? const [])
-        if (position.endIndex <= cut) position,
-    ]);
-  }
-
-  /// [msg] with its text replaced. Identity, badges and reply links carry
-  /// over so the row still copies and moderates as itself. Emote positions
-  /// move with the text; parsed tokens describe the old one, so they stay off.
-  TwitchMessage _phraseMessage(
-    TwitchMessage msg,
-    String text,
-    List<EmotePosition> positions,
-  ) => TwitchMessage(
-    login: msg.login,
-    displayName: msg.displayName,
-    text: text,
-    timestamp: msg.timestamp,
-    color: msg.color,
-    channel: msg.channel,
-    userId: msg.userId,
-    messageId: msg.messageId,
-    msgId: msg.msgId,
-    badges: msg.badges,
-    deleted: msg.deleted,
-    highlight: msg.highlight,
-    replyToParentId: msg.replyToParentId,
-    replyToUser: msg.replyToUser,
-    replyToText: msg.replyToText,
-    replyThreadRootId: msg.replyThreadRootId,
-    isFirstMessage: msg.isFirstMessage,
-    isAction: msg.isAction,
-    isHistory: msg.isHistory,
-    isBackfill: msg.isBackfill,
-    emotePositions: positions.isEmpty ? null : positions,
-    sourceBroadcasterId: msg.sourceBroadcasterId,
-    sourceMessageId: msg.sourceMessageId,
-  );
-
-  /// Opens or closes the rows folded under [key]. Opening stops following so
-  /// live chat cannot pull the expanded group away, unless the tap changed no
-  /// row height. Closing at the newest edge follows again, like a scroll there.
-  void _toggleExpanded(String key) {
-    final open = _expanded.contains(key);
-    final wasFollowing = _follow;
-    final pos = _pos;
-    final dims = pos != null && pos.hasContentDimensions;
-    final min = dims ? pos.minScrollExtent : null;
-    final max = dims ? pos.maxScrollExtent : null;
-    setState(() {
-      if (open) {
-        _expanded.remove(key);
-      } else {
-        _expanded.add(key);
-        _follow = false;
-      }
-    });
-    // Runs after the row lays out, so it can tell a real expansion from a tap
-    // that only flipped a flag.
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      final p = _pos;
-      if (p == null || !p.hasContentDimensions) return;
-      if (!open) {
-        if (wasFollowing &&
-            min != null &&
-            max != null &&
-            (p.minScrollExtent - min).abs() <= _followEps &&
-            (p.maxScrollExtent - max).abs() <= _followEps) {
-          _follow = true;
-        }
-      } else if (_window.atNewest &&
-          p.pixels <= p.minScrollExtent + _followEps) {
-        _follow = true;
-      }
-      if (_follow) _snapToNewest(p);
-      _syncAtBottom(p);
-    });
   }
 
   /// The stream behind the chat's own stream start or end row, which taps

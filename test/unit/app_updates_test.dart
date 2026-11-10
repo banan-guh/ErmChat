@@ -78,10 +78,6 @@ void main() {
         isNull,
         reason: 'turning it back on does not replay a skipped version',
       );
-
-      await prefs.setArmWhatsNew(true);
-      expect(await updates.takeWhatsNew('1.0.0'), '1.0.0', reason: 'armed');
-      expect(prefs.armWhatsNew, isFalse, reason: 'the arm fires once');
     },
   );
 

@@ -124,24 +124,6 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
                 ),
               ),
             ),
-            SettingAnchor(
-              Setting.compactRepeats,
-              child: PrefsSwitchTile(
-                secondary: const Icon(Icons.layers),
-                title: Setting.compactRepeats.titleOf(context.l10n),
-                subtitle: context.l10n.compactRepeatsHint,
-                pref: Settings.compactRepeats,
-              ),
-            ),
-            SettingAnchor(
-              Setting.shortenMessages,
-              child: PrefsSwitchTile(
-                secondary: const Icon(Icons.short_text),
-                title: Setting.shortenMessages.titleOf(context.l10n),
-                subtitle: context.l10n.shortenMessagesHint,
-                pref: Settings.shortenMessages,
-              ),
-            ),
             SettingsSectionHeader(context.l10n.sectionTyping),
             SettingAnchor(
               Setting.preferEmotes,

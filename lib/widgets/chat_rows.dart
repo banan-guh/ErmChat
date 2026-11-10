@@ -107,11 +107,7 @@ class ChatRows {
     required double scale,
     required Color surface,
     bool? fadeDeleted,
-    int repeatCount = 1,
-    bool summary = false,
     bool skipHides = false,
-    int? maxLines,
-    VoidCallback? onTapRow,
   }) {
     if (!skipHides && (hides?.call(msg) ?? false)) {
       return const SizedBox.shrink();
@@ -123,7 +119,6 @@ class ChatRows {
     // System rows take no taps, reply line, paint, or embeds; the tile reads
     // their body from systemBodyBuilder.
     final chatRow = !msg.isSystem;
-    final summaryRow = summary && chatRow;
     final body = ChatMessageTile(
       message: msg,
       channel: tileChannel,
@@ -140,26 +135,22 @@ class ChatRows {
         linkWhitelist: linkWhitelist?.entries,
         onEmailTap: messageBuilder.onEmailTap,
       ),
-      onTapUser: chatRow && !summaryRow
+      onTapUser: chatRow
           ? (login, userId) =>
                 onShowUserProfile(login, userId, displayName: msg.displayName)
           : null,
-      onDoubleTapUser:
-          chatRow && !summaryRow && messageBuilder.doubleTapNameCopy
+      onDoubleTapUser: chatRow && messageBuilder.doubleTapNameCopy
           ? (tileContext) => _copyUsername(tileContext, msg)
           : null,
-      onLongPress: chatRow && !summaryRow && onShowMessageMenu != null
+      onLongPress: chatRow && onShowMessageMenu != null
           ? () => onShowMessageMenu!(msg)
           : null,
-      onTap:
-          onTapRow ??
-          (chatRow && onTapMessage != null ? () => onTapMessage!(msg) : null),
-      onDoubleTap: chatRow && !summaryRow && onCopyMessage != null
+      onTap: chatRow && onTapMessage != null ? () => onTapMessage!(msg) : null,
+      onDoubleTap: chatRow && onCopyMessage != null
           ? () => onCopyMessage!(msg)
           : null,
       replyIndicator:
           chatRow &&
-              !summaryRow &&
               showReplyIndicators &&
               onFindThreadRoot != null &&
               onShowThreadView != null &&
@@ -173,14 +164,11 @@ class ChatRows {
       fadeDeleted: fadeDeleted ?? this.fadeDeleted,
       sharedChatMode: sharedChatMode,
       showChannel: showChannel,
-      paintService: chatRow && !summaryRow ? paintService : null,
+      paintService: chatRow ? paintService : null,
       showImages: chatRow && messageBuilder.showImages,
       imageHeight: messageBuilder.imageHeight,
       linkWhitelist:
           linkWhitelist?.entries ?? messageBuilder.linkWhitelist.entries,
-      repeatCount: repeatCount,
-      isSummary: summaryRow,
-      maxLines: maxLines,
     );
     final row = chatRow && flashRequest != null
         ? _FlashHighlight(

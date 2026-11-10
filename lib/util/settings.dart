@@ -275,8 +275,6 @@ abstract final class Settings {
   static final highlightOpacity = DoublePref('highlight_opacity', 0.6);
   static final checkeredMessages = Pref('checkered_messages', false);
   static final lineSeparator = Pref('line_separator', false);
-  static final compactRepeats = Pref('compact_repeats', false);
-  static final shortenMessages = Pref('shorten_messages', false);
   static final fastChannelSnap = Pref('fast_channel_snap', true);
   static final reopenLastChannel = Pref('reopen_last_channel', false);
 
@@ -406,9 +404,6 @@ abstract final class Settings {
     exported: false,
   );
 
-  /// The next launch shows What's new regardless of version.
-  static final armWhatsNew = Pref('dev_arm_whats_new', false, exported: false);
-
   /// The next update check reports a fake newer version.
   static final armUpdate = Pref('dev_arm_update', false, exported: false);
 
@@ -475,8 +470,6 @@ abstract final class Settings {
     highlightOpacity,
     checkeredMessages,
     lineSeparator,
-    compactRepeats,
-    shortenMessages,
     fastChannelSnap,
     reopenLastChannel,
     lastChannel,
@@ -517,7 +510,6 @@ abstract final class Settings {
     testChatWidgets,
     liveChatWidgets,
     useBrowserOAuth,
-    armWhatsNew,
     armUpdate,
     forceModActions,
     devShowOfflineStream,

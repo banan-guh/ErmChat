@@ -14,13 +14,11 @@ import 'package:ermchat/widgets/history_view.dart';
 import 'package:ermchat/widgets/message_builder.dart';
 import 'package:ermchat/services/twitch_badge_service.dart';
 import 'package:ermchat/services/third_party_badge_service.dart';
-import 'package:ermchat/util/settings.dart';
 import 'package:flutter/foundation.dart'
     show debugDefaultTargetPlatformOverride;
 import 'package:flutter/gestures.dart' show PointerDeviceKind;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 const double _inset = 50;
 const String _ch = FakeHistory.testChannel;
@@ -190,15 +188,6 @@ class _EmptyFirstRail extends FakeHistorySource {
   }
 }
 
-/// Turns the spam features on for a test, since both default off.
-Future<void> _spamPrefs({bool fold = true, bool shorten = false}) async {
-  SharedPreferences.setMockInitialValues({
-    'compact_repeats': fold,
-    'shorten_messages': shorten,
-  });
-  await Settings.bind();
-}
-
 Future<void> _pumpView(
   WidgetTester tester, {
   List<TwitchMessage> Function()? live,
@@ -212,8 +201,6 @@ Future<void> _pumpView(
   bool liveFirst = true,
   List<TwitchMessage>? newestRows,
   bool settle = true,
-  bool compact = false,
-  String? Function()? ownLogin,
   IslandMetrics? metrics,
 }) async {
   FakeHistory.loadDelay = Duration.zero;
@@ -246,8 +233,6 @@ Future<void> _pumpView(
     liveFirst: liveFirst,
     newestRows: newestRows,
     liveVersion: liveVersion,
-    compact: compact,
-    ownLogin: ownLogin,
     topPadding: _inset,
   );
   await tester.pumpWidget(
@@ -742,315 +727,6 @@ void main() {
         epsilon: 1,
       ),
       reason: 'a trim into the live rows broke the live sync',
-    );
-  });
-
-  testWidgets('repeated live messages fold and expand inline', (tester) async {
-    await _spamPrefs();
-    final at = _ListSource.t0;
-    TwitchMessage spam(String id) => TwitchMessage(
-      login: 'spam',
-      text: 'KEKW',
-      messageId: id,
-      channel: _ch,
-      timestamp: at,
-    );
-
-    final version = ValueNotifier(0);
-    addTearDown(version.dispose);
-    final live = <TwitchMessage>[spam('spam-1')];
-    await _pumpView(
-      tester,
-      source: _ListSource([
-        TwitchMessage(
-          login: 'old',
-          text: 'old',
-          messageId: 'old',
-          channel: _ch,
-          timestamp: at.subtract(const Duration(minutes: 1)),
-        ),
-      ]),
-      live: () => live,
-      liveVersion: version,
-      compact: true,
-    );
-    await _settle(tester);
-    live.insert(0, spam('spam-2'));
-    version.value++;
-    await tester.pump();
-
-    // The pair folds on arrival, so the second row never paints at full size.
-    final pair = tester.widget<ChatMessageTile>(_tile('spam-1'));
-    expect(pair.repeatCount, 2);
-    expect(pair.isSummary, isTrue);
-    expect(_tile('spam-2'), findsNothing);
-
-    live.insert(0, spam('spam-3'));
-    version.value++;
-    await _settle(tester);
-
-    final summary = tester.widget<ChatMessageTile>(_tile('spam-1'));
-    expect(summary.repeatCount, 3);
-    expect(_tile('spam-2'), findsNothing);
-    await tester.tap(_tile('spam-1'));
-    await tester.pump();
-    expect(_tile('spam-2'), findsOneWidget);
-    expect(tester.getSize(_tile('spam-2')).height, greaterThan(0));
-    // Expanded, the summary shows who wrote the first copy.
-    expect(tester.widget<ChatMessageTile>(_tile('spam-1')).isSummary, isFalse);
-    final faded = tester.widget<Opacity>(
-      find.ancestor(of: _tile('spam-2'), matching: find.byType(Opacity)).first,
-    );
-    expect(faded.opacity, 0.6);
-  });
-
-  testWidgets('tapping a short row keeps following', (tester) async {
-    await _spamPrefs(fold: false, shorten: true);
-    final at = _ListSource.t0;
-    final version = ValueNotifier(0);
-    addTearDown(version.dispose);
-    var n = 0;
-    TwitchMessage row() => TwitchMessage(
-      login: 'live',
-      text: 'short $n',
-      messageId: 'live-${n++}',
-      channel: _ch,
-      timestamp: at.add(Duration(seconds: n)),
-    );
-    final live = <TwitchMessage>[for (var i = 0; i < 20; i++) row()];
-    await _pumpView(tester, live: () => live, liveVersion: version);
-    await _settle(tester);
-    final bottom =
-        tester.getRect(find.byType(CustomScrollView)).bottom -
-        kOpaqueComposerGap;
-
-    // Shorten is on, so any row takes the tap, but this one does not truncate.
-    await tester.tap(_tile(live.first.messageId!));
-    await tester.pump();
-    live.insert(0, row());
-    version.value++;
-    await tester.pump();
-
-    expect(
-      tester.getBottomLeft(_tile(live.first.messageId!)).dy,
-      moreOrLessEquals(bottom, epsilon: 1),
-      reason: 'a tap that expanded nothing stopped following',
-    );
-  });
-
-  testWidgets('collapsing a pile at the newest follows again', (tester) async {
-    await _spamPrefs();
-    final at = _ListSource.t0;
-    TwitchMessage spam(String id) => TwitchMessage(
-      login: 'spam',
-      text: 'KEKW',
-      messageId: id,
-      channel: _ch,
-      timestamp: at,
-    );
-    final version = ValueNotifier(0);
-    addTearDown(version.dispose);
-    final live = <TwitchMessage>[
-      spam('spam-3'),
-      spam('spam-2'),
-      spam('spam-1'),
-    ];
-    await _pumpView(
-      tester,
-      source: _ListSource([
-        TwitchMessage(
-          login: 'old',
-          text: 'old',
-          messageId: 'old',
-          channel: _ch,
-          timestamp: at.subtract(const Duration(minutes: 1)),
-        ),
-      ]),
-      live: () => live,
-      liveVersion: version,
-      compact: true,
-    );
-    await _settle(tester);
-    final bottom =
-        tester.getRect(find.byType(CustomScrollView)).bottom -
-        kOpaqueComposerGap;
-
-    await tester.tap(_tile('spam-1'));
-    await tester.pump();
-    await tester.tap(_tile('spam-1'));
-    await tester.pump();
-    live.insert(0, spam('spam-4'));
-    version.value++;
-    await tester.pump();
-
-    expect(
-      tester.getBottomLeft(_tile('spam-1')).dy,
-      moreOrLessEquals(bottom, epsilon: 1),
-      reason: 'collapsing the pile left following off',
-    );
-  });
-
-  testWidgets('a copypasta summary collapses its repeated phrase', (
-    tester,
-  ) async {
-    await _spamPrefs(shorten: true);
-    final at = _ListSource.t0;
-    TwitchMessage copypasta(String id) => TwitchMessage(
-      login: 'spam',
-      text: [
-        for (var i = 0; i < 4; i++) 'THIS IS A COPYPASTA LULE',
-        'THIS',
-      ].join(' '),
-      messageId: id,
-      channel: _ch,
-      timestamp: at,
-    );
-
-    final version = ValueNotifier(0);
-    addTearDown(version.dispose);
-    final live = <TwitchMessage>[copypasta('copy-1')];
-    await _pumpView(
-      tester,
-      source: _ListSource([
-        TwitchMessage(
-          login: 'old',
-          text: 'old',
-          messageId: 'old',
-          channel: _ch,
-          timestamp: at.subtract(const Duration(minutes: 1)),
-        ),
-      ]),
-      live: () => live,
-      liveVersion: version,
-      compact: true,
-    );
-    await _settle(tester);
-    live.insert(0, copypasta('copy-2'));
-    version.value++;
-    await tester.pump();
-    live.insert(0, copypasta('copy-3'));
-    version.value++;
-    await _settle(tester);
-
-    final summary = tester.widget<ChatMessageTile>(
-      find.byWidgetPredicate((w) => w is ChatMessageTile && w.isSummary),
-    );
-    expect(summary.repeatCount, 3);
-    expect(summary.message.text, 'THIS IS A COPYPASTA LULE (x4)');
-  });
-
-  testWidgets('a long copypasta collapses without a pile', (tester) async {
-    await _spamPrefs(fold: false, shorten: true);
-    final at = _ListSource.t0;
-    final text = [
-      for (var i = 0; i < 4; i++) 'THIS IS A COPYPASTA LULE',
-    ].join(' ');
-
-    final version = ValueNotifier(0);
-    addTearDown(version.dispose);
-    final live = <TwitchMessage>[
-      TwitchMessage(
-        login: 'spam',
-        text: text,
-        messageId: 'copy-1',
-        channel: _ch,
-        timestamp: at,
-      ),
-    ];
-    await _pumpView(
-      tester,
-      source: _ListSource([live.first]),
-      live: () => live,
-      liveVersion: version,
-      compact: true,
-    );
-    await _settle(tester);
-
-    final row = tester.widget<ChatMessageTile>(
-      find.byWidgetPredicate(
-        (w) => w is ChatMessageTile && w.message.login == 'spam',
-      ),
-    );
-    expect(row.message.text, 'THIS IS A COPYPASTA LULE (x4)');
-    expect(row.isSummary, isFalse);
-    expect(row.repeatCount, 1);
-  });
-
-  testWidgets('a long message truncates until the reader taps it', (
-    tester,
-  ) async {
-    await _spamPrefs(fold: false, shorten: true);
-    final at = _ListSource.t0;
-    final text = [for (var i = 0; i < 60; i++) 'word$i'].join(' ');
-
-    final version = ValueNotifier(0);
-    addTearDown(version.dispose);
-    final live = <TwitchMessage>[
-      TwitchMessage(
-        login: 'spam',
-        text: text,
-        messageId: 'long-1',
-        channel: _ch,
-        timestamp: at,
-      ),
-    ];
-    await _pumpView(
-      tester,
-      source: _ListSource([live.first]),
-      live: () => live,
-      liveVersion: version,
-      compact: true,
-    );
-    await _settle(tester);
-
-    expect(tester.widget<ChatMessageTile>(_tile('long-1')).maxLines, 6);
-    await tester.tap(_tile('long-1'));
-    await tester.pump();
-    expect(tester.widget<ChatMessageTile>(_tile('long-1')).maxLines, isNull);
-  });
-
-  testWidgets('own messages never join a pile', (tester) async {
-    await _spamPrefs();
-    final at = _ListSource.t0;
-    TwitchMessage own(String id) => TwitchMessage(
-      login: 'me',
-      text: 'KEKW',
-      messageId: id,
-      channel: _ch,
-      timestamp: at,
-    );
-
-    final version = ValueNotifier(0);
-    addTearDown(version.dispose);
-    final live = <TwitchMessage>[own('own-1')];
-    await _pumpView(
-      tester,
-      source: _ListSource([
-        TwitchMessage(
-          login: 'old',
-          text: 'old',
-          messageId: 'old',
-          channel: _ch,
-          timestamp: at.subtract(const Duration(minutes: 1)),
-        ),
-      ]),
-      live: () => live,
-      liveVersion: version,
-      compact: true,
-      ownLogin: () => 'me',
-    );
-    await _settle(tester);
-    live.insert(0, own('own-2'));
-    version.value++;
-    await tester.pump();
-    live.insert(0, own('own-3'));
-    version.value++;
-    await _settle(tester);
-
-    expect(_tile('own-1'), findsOneWidget);
-    expect(
-      find.byWidgetPredicate((w) => w is ChatMessageTile && w.isSummary),
-      findsNothing,
     );
   });
 
