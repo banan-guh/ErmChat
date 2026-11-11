@@ -797,31 +797,44 @@ class ChannelPanels {
   ) {
     const paneHeader = 29.0;
     const dividerH = 1.0;
-    final half = (height - dividerH) / 2;
-    final perPane = (height - dividerH - 2 * paneHeader) / 2;
+    final room = (height - dividerH).clamp(0.0, height);
+    final half = room / 2;
+    final big = (room - paneHeader).clamp(0.0, room);
+    final perPane = (room - 2 * paneHeader) / 2;
     final collapsed = perPane < chatFontSize() * 4;
-    final activeSlot = split.active;
-    final activePane = activeSlot == 0 ? first : second;
-    final inactivePane = activeSlot == 0 ? second : first;
     return TweenAnimationBuilder<double>(
-      tween: Tween(begin: 0, end: collapsed ? 1 : 0),
+      tween: Tween(
+        begin: split.active.toDouble(),
+        end: split.active.toDouble(),
+      ),
       duration: Motion.normal,
       curve: Motion.move,
-      builder: (context, t, _) {
-        final room = (height - dividerH).clamp(0.0, height);
-        final inactiveH = (half + (paneHeader - half) * t).clamp(0.0, room);
-        final activeH = (height - dividerH - inactiveH).clamp(0.0, room);
-        final active = SizedBox(height: activeH, child: activePane);
-        final inactive = SizedBox(
-          height: inactiveH,
-          child: ClipRect(child: inactivePane),
-        );
-        return Column(
-          children: activeSlot == 0
-              ? [active, divider, inactive]
-              : [inactive, divider, active],
-        );
-      },
+      builder: (context, focus, _) => TweenAnimationBuilder<double>(
+        tween: Tween(begin: 0, end: collapsed ? 1 : 0),
+        duration: Motion.normal,
+        curve: Motion.move,
+        builder: (context, t, _) {
+          final activeH = half + (big - half) * t;
+          final inactiveH = half + (paneHeader - half) * t;
+          // Heights follow the focused slot, so a focus swap slides the big
+          // pane over instead of jumping.
+          final firstH = activeH + (inactiveH - activeH) * focus;
+          final secondH = inactiveH + (activeH - inactiveH) * focus;
+          return Column(
+            children: [
+              SizedBox(
+                height: firstH.clamp(0.0, room),
+                child: ClipRect(child: first),
+              ),
+              divider,
+              SizedBox(
+                height: secondH.clamp(0.0, room),
+                child: ClipRect(child: second),
+              ),
+            ],
+          );
+        },
+      ),
     );
   }
 
