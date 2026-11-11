@@ -1866,6 +1866,56 @@ void main() {
     },
   );
 
+  testWidgets('split drags stop before a pane overflows', (tester) async {
+    // A short landscape window leaves little room, so an unclamped drag used
+    // to shrink a pane under its label and overflow.
+    tester.view.physicalSize = const Size(1600, 720);
+    tester.view.devicePixelRatio = 2.0;
+    addTearDown(tester.view.reset);
+    SharedPreferences.setMockInitialValues({
+      'access_token': 'test_token',
+      'channels': ['a', 'b'],
+      'active_login': 'me',
+    });
+    FlutterSecureStorage.setMockInitialValues({'access_token': 'test_token'});
+    final irc = FakeIrcService();
+    final read = FakeIrcReadService();
+    await tester.pumpWidget(
+      TwitchChatApp(
+        key: UniqueKey(),
+        eventSubService: FakeEventSubService(),
+        ircService: irc,
+        ircReadService: read,
+        recentMessagesService: ScriptedRecentMessagesService([]),
+      ),
+    );
+    await tester.pumpAndSettle();
+    irc.triggerConnect();
+    read.triggerConnect();
+    for (final channel in ['a', 'b']) {
+      irc.triggerJoin(channel);
+      read.triggerJoin(channel);
+    }
+    await tester.pump(const Duration(milliseconds: 600));
+
+    await tester.longPress(find.text('a'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Open in split'));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+
+    final handle = find.byKey(const ValueKey('split_handle'));
+    await tester.drag(handle, const Offset(0, -1000));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    expect(find.text('#a'), findsNWidgets(2));
+
+    await tester.drag(handle, const Offset(0, 2000));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    expect(find.text('#a'), findsNWidgets(2));
+  });
+
   testWidgets('Reconnect refetch shows gaps and merges in order', (
     WidgetTester tester,
   ) async {
@@ -2517,6 +2567,22 @@ void main() {
         await tester.pump();
         await tester.pump(const Duration(milliseconds: 600));
         await tester.pump();
+        // The emote sheet stays up when the keyboard closes; tapping back
+        // into the field dismisses it.
+        final field = tester.widget<TextField>(
+          find.byKey(const Key('message_input')),
+        );
+        field.focusNode!.requestFocus();
+        await tester.pumpAndSettle();
+        await tester.tap(find.byTooltip('Emotes'));
+        await tester.pumpAndSettle();
+        field.focusNode!.unfocus();
+        await tester.pumpAndSettle();
+        expect(find.text('Recent', skipOffstage: false), findsOneWidget);
+        field.focusNode!.requestFocus();
+        await tester.pumpAndSettle();
+        expect(find.text('Recent', skipOffstage: false), findsNothing);
+
         await tester.tap(find.byTooltip('Emotes'));
         await tester.pumpAndSettle();
         final tabSize = tester.getSize(

@@ -78,8 +78,8 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
       value: _emoteSort,
       options: [
         ('name', l.emoteOrderAlphabetical, ''),
-        ('newest', l.emoteOrderNewest, l.emoteOrderHint),
-        ('oldest', l.emoteOrderOldest, l.emoteOrderHint),
+        ('newest', l.emoteOrderNewest, ''),
+        ('oldest', l.emoteOrderOldest, ''),
       ],
     );
     if (selected == null || !mounted || selected == _emoteSort) return;
@@ -252,10 +252,11 @@ class _SpamSpeedTile extends StatelessWidget {
     await showModalBottomSheet<void>(
       context: context,
       useSafeArea: true,
+      showDragHandle: true,
       builder: (_) => const SafeArea(
         top: false,
         child: Padding(
-          padding: EdgeInsets.symmetric(vertical: 8),
+          padding: EdgeInsets.only(bottom: 8),
           child: _SpamSpeedSliders(),
         ),
       ),
@@ -264,34 +265,11 @@ class _SpamSpeedTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ListenableBuilder(
-      listenable: Listenable.merge([
-        Settings.spamIntervalMs,
-        Settings.spamIntervalModMs,
-      ]),
-      builder: (context, _) {
-        final l = context.l10n;
-        final plain = Settings.spamIntervalMs.value;
-        final mod = Settings.spamIntervalModMs.value;
-        final over =
-            _SpamSpeedSliders._over(plain, ChatSender.plainRepeatGap) ||
-            _SpamSpeedSliders._over(mod, ChatSender.privilegedRepeatGap);
-        return ListTile(
-          leading: const Icon(Icons.speed),
-          title: Text(l.spamSpeed),
-          subtitle: Text(
-            '${l.spamSpeedPlainShort}: '
-            '${_SpamSpeedSliders._value(l, plain, ChatSender.plainRepeatGap)} · '
-            '${l.spamSpeedModShort}: '
-            '${_SpamSpeedSliders._value(l, mod, ChatSender.privilegedRepeatGap)}',
-            style: over
-                ? TextStyle(color: Theme.of(context).colorScheme.error)
-                : null,
-          ),
-          trailing: const Icon(Icons.chevron_right),
-          onTap: () => _open(context),
-        );
-      },
+    return ListTile(
+      leading: const Icon(Icons.speed),
+      title: Text(context.l10n.spamSpeed),
+      trailing: const Icon(Icons.chevron_right),
+      onTap: () => _open(context),
     );
   }
 }
@@ -352,25 +330,36 @@ class _SpamSpeedSliders extends StatelessWidget {
   }
 
   @override
-  Widget build(BuildContext context) => Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-      _slider(
-        context,
-        role: context.l10n.spamSpeedPlain,
-        limit: ChatSender.plainRepeatGap,
-        read: () => Settings.spamIntervalMs.value,
-        write: (ms) => Settings.spamIntervalMs.set(ms),
-      ),
-      _slider(
-        context,
-        role: context.l10n.spamSpeedMod,
-        limit: ChatSender.privilegedRepeatGap,
-        read: () => Settings.spamIntervalModMs.value,
-        write: (ms) => Settings.spamIntervalModMs.set(ms),
-      ),
-    ],
-  );
+  Widget build(BuildContext context) {
+    final plain = _slider(
+      context,
+      role: context.l10n.spamSpeedPlain,
+      limit: ChatSender.plainRepeatGap,
+      read: () => Settings.spamIntervalMs.value,
+      write: (ms) => Settings.spamIntervalMs.set(ms),
+    );
+    final mod = _slider(
+      context,
+      role: context.l10n.spamSpeedMod,
+      limit: ChatSender.privilegedRepeatGap,
+      read: () => Settings.spamIntervalModMs.value,
+      write: (ms) => Settings.spamIntervalModMs.set(ms),
+    );
+    // Landscape has little height to spare, so the two share a row instead
+    // of stacking into half the screen.
+    if (MediaQuery.orientationOf(context) == Orientation.landscape) {
+      return Row(
+        children: [
+          Expanded(child: plain),
+          Expanded(child: mod),
+        ],
+      );
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [plain, mod],
+    );
+  }
 }
 
 class _MentionFormatTile extends StatelessWidget {

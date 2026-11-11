@@ -190,7 +190,9 @@ class ComposerController {
   }
 
   void _onInputFocusChanged() {
-    if (emoteSheetOpen()) unawaited(closeEmoteSheet());
+    // Tapping back into the field puts the keyboard over the sheet, so that
+    // dismisses it. Losing focus (keyboard closed) leaves the sheet up.
+    if (focusNode.hasFocus && emoteSheetOpen()) unawaited(closeEmoteSheet());
   }
 
   void _onInputChanged() {

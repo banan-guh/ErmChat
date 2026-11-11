@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -687,19 +688,13 @@ class ChannelPanels {
               ListTile(
                 leading: const Icon(Icons.splitscreen),
                 title: Text(ctx.l10n.splitChannel),
-                onTap: () {
-                  Navigator.pop(ctx);
-                  openSplit(channel);
-                },
+                onTap: () => _afterPop(ctx, () => openSplit(channel)),
               )
             else
               ListTile(
                 leading: const Icon(Icons.close),
                 title: Text(ctx.l10n.closeSplit),
-                onTap: () {
-                  Navigator.pop(ctx);
-                  closeSplit();
-                },
+                onTap: () => _afterPop(ctx, closeSplit),
               ),
             ListTile(
               leading: const Icon(Icons.edit_outlined),
@@ -734,8 +729,27 @@ class ChannelPanels {
     );
   }
 
-  /// Two chat panes: stacked in portrait, side by side in landscape. The
-  /// first slot carries the strip's clearance once for both.
+  /// Pops the sheet at [sheetContext], then runs [action] after its exit
+  /// animation. Rebuilding the split in the pop's own frame eats the slide on
+  /// a busy chat, so the sheet looks like it vanishes.
+  void _afterPop(BuildContext sheetContext, VoidCallback action) {
+    final animation = ModalRoute.of(sheetContext)?.animation;
+    Navigator.pop(sheetContext);
+    if (animation == null) {
+      action();
+      return;
+    }
+    void done(AnimationStatus status) {
+      if (status != AnimationStatus.dismissed) return;
+      animation.removeStatusListener(done);
+      action();
+    }
+
+    animation.addStatusListener(done);
+  }
+
+  /// Two chat panes, top and bottom. The first slot carries the strip's
+  /// clearance once for both.
   Widget _splitBody(BuildContext context, SplitPair split) {
     final first = _splitPane(
       context,
@@ -821,35 +835,48 @@ class ChannelPanels {
         child: AnimatedOpacity(
           opacity: active ? 1 : 0.7,
           duration: Motion.fast,
-          child: Column(
-            children: [
-              _splitHeader(context, channel, slot: slot, active: active),
-              Divider(height: 1, thickness: 1, color: scheme.outlineVariant),
-              Expanded(
-                child: chat.names.isEmpty
-                    ? const SizedBox.shrink()
-                    : TabbedLayout(
-                        tabs: chat.names,
-                        selectedIndex: chat.names
-                            .indexOf(channel)
-                            .clamp(0, chat.names.length - 1),
-                        showTabBar: false,
-                        fullscreen: true,
-                        fastSnap: fastSnap(),
-                        focusOnHalfDrag: true,
-                        preloadAdjacentPages: true,
-                        onFocusChanged: (i) => setSplitPaneChannel(slot, i),
-                        onSelectedIndexChanged: (i) =>
-                            setSplitPaneChannel(slot, i),
-                        pageBuilder: (ctx, i) => _cachedPage(
-                          ctx,
-                          chat.names[i],
-                          clearsIsland: false,
-                          slot: slot,
-                        ),
-                      ),
-              ),
-            ],
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              // A pane squeezed below the label plus one chat line keeps the
+              // chat and drops the label, so it never overflows.
+              final labelled = constraints.maxHeight >= 48;
+              return Column(
+                children: [
+                  if (labelled) ...[
+                    _splitHeader(context, channel, slot: slot, active: active),
+                    Divider(
+                      height: 1,
+                      thickness: 1,
+                      color: scheme.outlineVariant,
+                    ),
+                  ],
+                  Expanded(
+                    child: chat.names.isEmpty
+                        ? const SizedBox.shrink()
+                        : TabbedLayout(
+                            tabs: chat.names,
+                            selectedIndex: chat.names
+                                .indexOf(channel)
+                                .clamp(0, chat.names.length - 1),
+                            showTabBar: false,
+                            fullscreen: true,
+                            fastSnap: fastSnap(),
+                            focusOnHalfDrag: true,
+                            preloadAdjacentPages: true,
+                            onFocusChanged: (i) => setSplitPaneChannel(slot, i),
+                            onSelectedIndexChanged: (i) =>
+                                setSplitPaneChannel(slot, i),
+                            pageBuilder: (ctx, i) => _cachedPage(
+                              ctx,
+                              chat.names[i],
+                              clearsIsland: false,
+                              slot: slot,
+                            ),
+                          ),
+                  ),
+                ],
+              );
+            },
           ),
         ),
       ),
@@ -1156,6 +1183,9 @@ class _SplitLayout extends StatefulWidget {
 
 class _SplitLayoutState extends State<_SplitLayout> {
   static const double _handle = 16;
+
+  /// Smallest pane a drag may leave: the label plus a couple of chat lines.
+  static const double _minPane = 64;
   double _fraction = 0.5;
 
   @override
@@ -1167,7 +1197,8 @@ class _SplitLayoutState extends State<_SplitLayout> {
             ((portrait ? constraints.maxHeight : constraints.maxWidth) -
                     _handle)
                 .clamp(0.0, double.infinity);
-        final first = (total * _fraction).clamp(0.0, total);
+        final minPane = math.min(_minPane, total / 2);
+        final first = (total * _fraction).clamp(minPane, total - minPane);
         final second = total - first;
         if (portrait) {
           return Column(
@@ -1208,8 +1239,11 @@ class _SplitLayoutState extends State<_SplitLayout> {
 
   void _drag(double delta, double total) {
     if (total <= 0) return;
+    final minFraction = math.min(_minPane / total, 0.5);
     setState(() {
-      _fraction = (_fraction + delta / total).clamp(0.05, 0.95);
+      // Re-clamp first: the room may have shrunk since the last drag.
+      final current = _fraction.clamp(minFraction, 1 - minFraction);
+      _fraction = (current + delta / total).clamp(minFraction, 1 - minFraction);
     });
   }
 
