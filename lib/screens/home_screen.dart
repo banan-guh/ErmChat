@@ -658,7 +658,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     theaterChatVisible: () => _theaterChatVisible,
     toggleTheaterChat: _toggleTheaterChat,
     onChannelChanged: _channels.onChannelChanged,
-    splitOpen: () => _splitPair() != null,
   );
 
   late final _channelManager = ChannelManager(
@@ -2173,8 +2172,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
             // drops composer/panels/notice so the window shows the stream.
             isInPip: _streamPlayer.isInPip,
             pagesKey: _channels.pagesKey,
-            // Keyboard room only decides whether a stacked player hides.
-            bodyReadsKeyboard: _streamPlayer.currentChannel != null,
+            // Keyboard room only decides whether a stacked player hides. Split
+            // chat also reads it to fold the inactive pane.
+            bodyReadsKeyboard:
+                _streamPlayer.currentChannel != null || _splitPair() != null,
             composerInPane: _stream.chatInPane(context),
             bodyBuilder:
                 (

@@ -63,32 +63,6 @@ void main() {
       );
     });
 
-    test('split hides the video whenever the keyboard is up', () {
-      expect(
-        shouldShowStreamVideo(
-          maxWidth: 400,
-          maxHeight: 800,
-          keyboardH: 300,
-          inputH: 56,
-          chatFontSize: 14,
-          split: true,
-        ),
-        isFalse,
-      );
-      expect(
-        shouldShowStreamVideo(
-          maxWidth: 400,
-          maxHeight: 800,
-          keyboardH: 0,
-          inputH: 56,
-          chatFontSize: 14,
-          split: true,
-        ),
-        isTrue,
-        reason: 'the video returns once the keyboard closes',
-      );
-    });
-
     test('taller input hides sooner', () {
       expect(
         shouldShowStreamVideo(

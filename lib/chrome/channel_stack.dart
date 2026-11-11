@@ -768,28 +768,110 @@ class ChannelPanels {
         : const VerticalDivider(width: 1, thickness: 1);
     // The composer floats below the split, not over it, so both panes split
     // the room above the island and neither keeps a gap for it.
+    final body = keyboardOpen && portrait
+        ? _collapsedSplit(context, split, first, second, divider)
+        : portrait
+        ? Column(
+            children: [
+              Expanded(child: first),
+              divider,
+              Expanded(child: second),
+            ],
+          )
+        : Row(
+            children: [
+              Expanded(child: first),
+              divider,
+              Expanded(child: second),
+            ],
+          );
     return Padding(
       padding: EdgeInsets.only(top: _bubbleClearance(context)),
       child: IslandInset(
         child: Padding(
           padding: const EdgeInsets.only(bottom: kComposerGap),
-          child: keyboardOpen
-              ? (split.active == 0 ? first : second)
-              : portrait
-              ? Column(
-                  children: [
-                    Expanded(child: first),
-                    divider,
-                    Expanded(child: second),
-                  ],
-                )
-              : Row(
-                  children: [
-                    Expanded(child: first),
-                    divider,
-                    Expanded(child: second),
-                  ],
+          child: body,
+        ),
+      ),
+    );
+  }
+
+  /// While the keyboard is up the inactive chat folds to its header, so the
+  /// focused chat keeps the room and the other pane is still one tap away.
+  Widget _collapsedSplit(
+    BuildContext context,
+    SplitPair split,
+    Widget first,
+    Widget second,
+    Widget divider,
+  ) {
+    final activeSlot = split.active;
+    final inactiveSlot = 1 - activeSlot;
+    final activePane = activeSlot == 0 ? first : second;
+    final inactiveChannel = inactiveSlot == 0 ? split.first : split.second;
+    final inactiveHeader = AnimatedOpacity(
+      opacity: 0.7,
+      duration: Motion.fast,
+      child: _splitHeader(
+        context,
+        inactiveChannel,
+        slot: inactiveSlot,
+        active: false,
+        closable: inactiveSlot == 1,
+      ),
+    );
+    return Column(
+      children: activeSlot == 0
+          ? [Expanded(child: activePane), divider, inactiveHeader]
+          : [inactiveHeader, divider, Expanded(child: activePane)],
+    );
+  }
+
+  /// A split pane's channel bar. Tapping it focuses that slot; the second
+  /// header carries the close button.
+  Widget _splitHeader(
+    BuildContext context,
+    String channel, {
+    required int slot,
+    required bool active,
+    required bool closable,
+  }) {
+    final scheme = Theme.of(context).colorScheme;
+    return Material(
+      color: active ? scheme.surfaceContainerHigh : scheme.surface,
+      child: InkWell(
+        onTap: () => focusSplitPane(slot),
+        child: SizedBox(
+          height: 28,
+          child: Row(
+            children: [
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  '#$channel',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: active ? scheme.primary : scheme.onSurfaceVariant,
+                  ),
                 ),
+              ),
+              if (closable)
+                IconButton(
+                  onPressed: closeSplit,
+                  icon: const Icon(Icons.close, size: 16),
+                  tooltip: context.l10n.closeSplit,
+                  visualDensity: VisualDensity.compact,
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(
+                    minWidth: 32,
+                    minHeight: 28,
+                  ),
+                ),
+            ],
+          ),
         ),
       ),
     );
@@ -821,45 +903,12 @@ class ChannelPanels {
             duration: Motion.fast,
             child: Column(
               children: [
-                Material(
-                  color: active ? scheme.surfaceContainerHigh : scheme.surface,
-                  child: InkWell(
-                    onTap: () => focusSplitPane(slot),
-                    child: SizedBox(
-                      height: 28,
-                      child: Row(
-                        children: [
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Text(
-                              '#$channel',
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.w600,
-                                color: active
-                                    ? scheme.primary
-                                    : scheme.onSurfaceVariant,
-                              ),
-                            ),
-                          ),
-                          if (closable)
-                            IconButton(
-                              onPressed: closeSplit,
-                              icon: const Icon(Icons.close, size: 16),
-                              tooltip: context.l10n.closeSplit,
-                              visualDensity: VisualDensity.compact,
-                              padding: EdgeInsets.zero,
-                              constraints: const BoxConstraints(
-                                minWidth: 32,
-                                minHeight: 28,
-                              ),
-                            ),
-                        ],
-                      ),
-                    ),
-                  ),
+                _splitHeader(
+                  context,
+                  channel,
+                  slot: slot,
+                  active: active,
+                  closable: closable,
                 ),
                 Divider(height: 1, thickness: 1, color: scheme.outlineVariant),
                 Expanded(
@@ -1205,21 +1254,23 @@ class _SplitPageSlideState extends State<_SplitPageSlide> {
   @override
   Widget build(BuildContext context) {
     final key = ValueKey('${widget.channel}:${widget.slot}');
-    return AnimatedSwitcher(
-      duration: Motion.normal,
-      switchInCurve: Motion.enter,
-      switchOutCurve: Motion.exit,
-      layoutBuilder: (current, previous) =>
-          Stack(fit: StackFit.expand, children: [...previous, ?current]),
-      transitionBuilder: (child, animation) {
-        final incoming = child.key == key;
-        final begin = Offset(incoming ? _direction : -_direction, 0);
-        return SlideTransition(
-          position: Tween(begin: begin, end: Offset.zero).animate(animation),
-          child: FadeTransition(opacity: animation, child: child),
-        );
-      },
-      child: KeyedSubtree(key: key, child: widget.child),
+    return ClipRect(
+      child: AnimatedSwitcher(
+        duration: Motion.slow,
+        switchInCurve: Motion.move,
+        switchOutCurve: Motion.move,
+        layoutBuilder: (current, previous) =>
+            Stack(fit: StackFit.expand, children: [...previous, ?current]),
+        transitionBuilder: (child, animation) {
+          final incoming = child.key == key;
+          final begin = Offset(incoming ? _direction : -_direction, 0);
+          return SlideTransition(
+            position: Tween(begin: begin, end: Offset.zero).animate(animation),
+            child: child,
+          );
+        },
+        child: KeyedSubtree(key: key, child: widget.child),
+      ),
     );
   }
 }

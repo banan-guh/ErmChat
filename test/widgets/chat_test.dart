@@ -1836,6 +1836,24 @@ void main() {
       expect(opacityOf(lower), 1.0);
       expect(absorbingOf(upper), isTrue);
       expect(absorbingOf(lower), isFalse);
+
+      int paneLists() =>
+          tester.widgetList<ChatView>(find.byType(ChatView)).length +
+          tester.widgetList<HistoryView>(find.byType(HistoryView)).length;
+
+      // With the keyboard up the inactive chat folds to its header, which
+      // stays tappable so the other pane is still one press away.
+      expect(paneLists(), 2);
+      tester.view.viewInsets = const FakeViewPadding(bottom: 600);
+      await tester.pumpAndSettle();
+      expect(paneLists(), 1);
+      expect(find.text('#a'), findsNWidgets(2));
+      await tester.tap(find.text('#a').first);
+      await tester.pumpAndSettle();
+      expect(paneLists(), 1);
+      expect(find.text('#a'), findsNWidgets(2));
+      expect(opacityOf(find.text('#a').first), 1.0);
+      expect(opacityOf(find.text('#a').last), 0.7);
     },
   );
 
