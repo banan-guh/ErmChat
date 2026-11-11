@@ -411,7 +411,10 @@ class TabbedLayoutState extends State<TabbedLayout>
     _mirrorPageToStrip(page);
 
     // Half-drag focus: follow nearest page, skip flyover of targeted jumps.
+    // Only a finger drag changes focus; programmatic jumps and ballistic
+    // updates commit on landing instead.
     if (notification is ScrollUpdateNotification &&
+        notification.dragDetails != null &&
         !_isProgrammaticJump &&
         widget.focusOnHalfDrag) {
       final nearest = page.round();

@@ -3,6 +3,7 @@ import 'dart:io' show Platform;
 import 'dart:ui' show FramePhase, FrameTiming;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:package_info_plus/package_info_plus.dart';
@@ -702,7 +703,23 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     _mod.syncTermsToSelected();
   }
 
+  bool get _building =>
+      SchedulerBinding.instance.schedulerPhase ==
+      SchedulerPhase.persistentCallbacks;
+
+  void _afterBuild(VoidCallback fn) {
+    SchedulerBinding.instance.addPostFrameCallback((_) {
+      if (mounted) fn();
+    });
+  }
+
   void _commitChannelSelection(int index, {required bool rebuild}) {
+    // Scroll notifications and pager updates can land during layout; a
+    // provider write there is illegal and a setState would re-enter the build.
+    if (_building) {
+      _afterBuild(() => _commitChannelSelection(index, rebuild: rebuild));
+      return;
+    }
     final next = index >= 0 && index < _chat.names.length
         ? _chat.names[index]
         : null;
@@ -784,6 +801,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   /// Moves [slot]'s channel to the tab at [index]. The inner pager reports
   /// this at the half-drag focus and again on settle.
   void _setSplitPaneChannel(int slot, int index) {
+    if (_building) {
+      _afterBuild(() => _setSplitPaneChannel(slot, index));
+      return;
+    }
     if (index < 0 || index >= _chat.names.length) return;
     final next = _chat.names[index];
     final current = slot == 0 ? _splitFirst : _splitSecond;

@@ -785,7 +785,7 @@ class ChannelPanels {
     );
   }
 
-  /// Portrait split with a room check: once a pane would show fewer than four
+  /// Portrait split with a room check: once a pane would show fewer than nine
   /// chat lines, the inactive one folds to its header over one motion step.
   Widget _portraitSplit(
     BuildContext context,
@@ -801,7 +801,7 @@ class ChannelPanels {
     final half = room / 2;
     final big = (room - paneHeader).clamp(0.0, room);
     final perPane = (room - 2 * paneHeader) / 2;
-    final collapsed = perPane < chatFontSize() * 4;
+    final collapsed = perPane < chatFontSize() * 9;
     return TweenAnimationBuilder<double>(
       tween: Tween(
         begin: split.active.toDouble(),

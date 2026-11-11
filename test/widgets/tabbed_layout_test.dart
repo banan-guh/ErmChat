@@ -997,4 +997,41 @@ void main() {
       expect(find.text('split'), findsOneWidget);
     });
   });
+
+  testWidgets('a programmatic jump does not report half-drag focus', (
+    tester,
+  ) async {
+    final selected = ValueNotifier<int>(0);
+    addTearDown(selected.dispose);
+    final focused = <int>[];
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: ListenableBuilder(
+            listenable: selected,
+            builder: (_, _) => TabbedLayout(
+              tabs: const ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'],
+              selectedIndex: selected.value,
+              focusOnHalfDrag: true,
+              onFocusChanged: focused.add,
+              onSelectedIndexChanged: (i) => selected.value = i,
+              pageBuilder: (_, i) => Center(child: Text('page$i')),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // A far jump takes the pre-jump path, which used to report the flyover
+    // page as focused while the pager was updating.
+    selected.value = 6;
+    await tester.pumpAndSettle();
+
+    expect(
+      focused,
+      isEmpty,
+      reason: 'programmatic jumps commit on landing, not on flyover focus',
+    );
+  });
 }
