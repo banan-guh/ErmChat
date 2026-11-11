@@ -177,7 +177,7 @@ class ThreadPanels {
     }
     if (_lastThreadRoot?.channel == channel) _lastThreadRoot = null;
     if (_lastThreadRoot == null) {
-      panelManager.threadMessages = [];
+      _setThreadRows(const []);
     }
     if (panelManager.threadChannel == channel) {
       panelManager.threadChannel = null;
@@ -211,7 +211,7 @@ class ThreadPanels {
     _lastThreadRoot = rootMsg;
     markDirty();
     panelManager.threadChannel = channel;
-    panelManager.threadMessages = computeThreadMessages();
+    _setThreadRows(computeThreadMessages());
     threadMsgCount.value++;
     unawaited(_loadArchivedThread(force: true));
     final rootId = rootMsg.replyThreadRootId ?? rootMsg.messageId;
@@ -257,12 +257,12 @@ class ThreadPanels {
     // Thread tab survives dashboard browsing. Active stays per selected
     // channel; the Thread tab may show another channel's thread.
     panelManager.openThreadRoot = prevRoot;
-    panelManager.threadMessages = prevMsgs;
+    _setThreadRows(prevMsgs);
     if (!wasOpen && prevRoot != null) {
       // Rows froze while the panel was closed; catch up on missed replies,
       // keeping the old rows if the buffer already forgot the thread.
       final fresh = computeThreadMessages();
-      if (fresh.isNotEmpty) panelManager.threadMessages = fresh;
+      if (fresh.isNotEmpty) _setThreadRows(fresh);
     }
     panelManager.threadChannel =
         prevRoot?.channel ?? prevChannel ?? selectedChannel();
@@ -432,13 +432,21 @@ class ThreadPanels {
     _lastThreadRoot = header;
   }
 
+  /// The panel's ChatView keeps the list it was built with, so new rows go
+  /// into that list instead of a replacement, which the view would never see.
+  void _setThreadRows(List<TwitchMessage> rows) {
+    panelManager.threadMessages
+      ..clear()
+      ..addAll(rows);
+  }
+
   void _showThreadRows(String key) {
     final root = panelManager.openThreadRoot;
     if (root == null) return;
     final openKey =
         '${root.channel}:${root.replyThreadRootId ?? root.messageId}';
     if (openKey != key) return;
-    panelManager.threadMessages = computeThreadMessages();
+    _setThreadRows(computeThreadMessages());
     threadMsgCount.value++;
     threadsListVersion.value++;
   }
@@ -472,9 +480,7 @@ class ThreadPanels {
       // thread's channel; the thread only mutates when that channel moves.
       if (changedChannel != null && changedChannel != openRoot.channel) return;
       panelManager.threadChannel = openRoot.channel;
-      panelManager.threadMessages
-        ..clear()
-        ..addAll(computeThreadMessages());
+      _setThreadRows(computeThreadMessages());
       threadMsgCount.value++;
       // Watching the Thread tab marks it seen so the Active row does not
       // flip back to unread while you stare at it.
