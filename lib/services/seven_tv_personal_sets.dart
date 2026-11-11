@@ -28,7 +28,7 @@ class SevenTvPersonalSets {
     required this._notifyChanged,
     DateTime Function()? now,
     String? Function()? viewerTwitchIdSource,
-    this._onSendersChanged,
+    this.onSendersChanged,
   }) : _isProviderOn = isProviderEnabled,
        _viewerIdSource = viewerTwitchIdSource,
        _now = now ?? DateTime.now;
@@ -41,12 +41,13 @@ class SevenTvPersonalSets {
 
   /// Senders whose personal emotes just changed, reported after
   /// [_notifyChanged] so lookups already see the new sets. Their recent
-  /// messages can then pick up emotes that arrived after they did.
-  final void Function(Set<String> twitchIds)? _onSendersChanged;
+  /// messages can then pick up emotes that arrived after they did. Mutable so
+  /// the manager wires it after construction without a provider cycle.
+  void Function(Set<String> twitchIds)? onSendersChanged;
 
   void _sendersChanged(Iterable<String>? twitchIds) {
     final ids = {...?twitchIds}..remove('');
-    if (ids.isNotEmpty) _onSendersChanged?.call(ids);
+    if (ids.isNotEmpty) onSendersChanged?.call(ids);
   }
 
   final DateTime Function() _now;

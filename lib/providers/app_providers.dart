@@ -150,6 +150,11 @@ final emoteManagerProvider = Provider<EmoteManager>((ref) {
         ref.read(emoteCacheCapProvider.notifier).set(value),
     getChannelUserIds: ref.read(channelUserIdsProvider),
   );
+  // The set's sender callback cannot read emoteManagerProvider from inside
+  // sevenTvPersonalSetsProvider; that provider feeds this manager. Wire it
+  // after construction so an entitlement arriving mid-build cannot cycle.
+  ref.watch(sevenTvPersonalSetsProvider).onSendersChanged =
+      manager.notifyPersonalSenders;
   ref.onDispose(manager.dispose);
   return manager;
 });

@@ -133,8 +133,6 @@ final Provider<SevenTvPersonalSets> sevenTvPersonalSetsProvider = Provider((
         ref.read(emoteVisibilityProvider).isProviderEnabled(type),
     notifyChanged: () => store.notifyCatalogChanged(),
     viewerTwitchIdSource: () => ref.read(sessionProvider).userId,
-    onSendersChanged: (ids) =>
-        ref.read(emoteManagerProvider).notifyPersonalSenders(ids),
   );
   ref.onDispose(sets.dispose);
   return sets;

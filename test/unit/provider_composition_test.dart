@@ -139,6 +139,22 @@ void main() {
     expect(store.version, 1);
   });
 
+  test('personal-set sender changes reach the manager without a cycle', () {
+    final container = _boot();
+    addTearDown(container.dispose);
+
+    final manager = container.read(emoteManagerProvider);
+    final seen = <Set<String>>[];
+    manager.addPersonalSendersListener(seen.add);
+
+    final sets = container.read(sevenTvPersonalSetsProvider);
+    sets.onSendersChanged?.call({'42'});
+
+    expect(seen, [
+      {'42'},
+    ]);
+  });
+
   test('container disposal runs owners and blocks further reads', () {
     final store = _TrackedUserStore();
     final container = _boot(userStore: store);
