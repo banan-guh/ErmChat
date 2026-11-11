@@ -86,7 +86,7 @@ class ChannelPanels {
     required this.openSplit,
     required this.closeSplit,
     required this.focusSplitPane,
-    required this.swipeSplitPane,
+    required this.setSplitPaneChannel,
     required this.messageNotifier,
     required this.atBottomNotifier,
     required this.scrollCtrl,
@@ -155,8 +155,8 @@ class ChannelPanels {
   /// Makes the [slot] pane the one the composer sends to.
   final void Function(int slot) focusSplitPane;
 
-  /// Moves [slot]'s channel by [delta] in the tab order.
-  final void Function(int slot, int delta) swipeSplitPane;
+  /// Moves [slot]'s pager to the tab at [index].
+  final void Function(int slot, int index) setSplitPaneChannel;
   final ValueNotifier<int> Function(String channel) messageNotifier;
   final ValueNotifier<bool> Function(String channel) atBottomNotifier;
   final ScrollController Function(String channel) scrollCtrl;
@@ -390,19 +390,18 @@ class ChannelPanels {
         messageVersion,
         search.channelVersion(channel),
       ]),
-      builder: (_, active) {
+      builder: (ctx, active) {
         final buffer = ChatView(
           channel: channel,
           channelPage: true,
           messages: search.visibleMessages(channel),
-          topPadding: _bubbleTopPadding(context),
+          topPadding: _bubbleTopPadding(ctx),
           clearsIsland: clearsIsland,
           tileCache: tileCache,
           isDimmed: search.dimPredicate(channel),
           hides: chat.filter.hides,
           emptyText:
-              search.emptyText(channel, context.l10n) ??
-              context.l10n.noMessagesYet,
+              search.emptyText(channel, ctx.l10n) ?? ctx.l10n.noMessagesYet,
           atBottomNotifier: atBottomNotifier(_paneKey(channel, slot)),
           messageNotifier: active ? messageVersion : _emptyNotifier,
           scrollController: scrollCtrl(_paneKey(channel, slot)),
@@ -419,14 +418,9 @@ class ChannelPanels {
           lineSeparator: lineSeparator(),
           sharedChatMode: sharedChatMode(),
           paintService: showNamePaints() ? paintService : null,
-          onShowUserProfile: (login, userId, {displayName}) =>
-              userSheets.showUserProfile(
-                context,
-                login,
-                userId,
-                displayName: displayName,
-              ),
-          onShowMessageMenu: (msg) => menus.showMessageMenu(context, msg),
+          onShowUserProfile: (login, userId, {displayName}) => userSheets
+              .showUserProfile(ctx, login, userId, displayName: displayName),
+          onShowMessageMenu: (msg) => menus.showMessageMenu(ctx, msg),
           onCopyMessage: copyMessage,
           onScrollActivity: (c) {
             chat.clearUnread(c);
@@ -440,7 +434,7 @@ class ChannelPanels {
               ? ScrollViewKeyboardDismissBehavior.onDrag
               : ScrollViewKeyboardDismissBehavior.manual,
         );
-        return _searchResults(context, channel, active, buffer) ?? buffer;
+        return _searchResults(ctx, channel, active, buffer) ?? buffer;
       },
     );
   }
@@ -523,7 +517,7 @@ class ChannelPanels {
     final messages = state?.messages;
     return _FocusGatedBuilder(
       listenable: state?.info.version ?? _emptyNotifier,
-      builder: (_, active) => HistoryView(
+      builder: (ctx, active) => HistoryView(
         // The pager reuses page slots across channels when tabs close or
         // reorder; the window belongs to one channel. Split slots get their
         // own key and reading position so the same channel can live twice.
@@ -532,7 +526,7 @@ class ChannelPanels {
         channel: channel,
         channelPage: true,
         source: source,
-        topPadding: _bubbleTopPadding(context),
+        topPadding: _bubbleTopPadding(ctx),
         clearsIsland: clearsIsland,
         debugControls: fake,
         live: messages == null ? null : () => messages.chatRows,
@@ -543,7 +537,7 @@ class ChannelPanels {
         calendarRequest: _calendarFor(channel),
         actions: _actionsFor(channel),
         underCornerMenu: _menuFloats(),
-        rows: _rows(context, channel),
+        rows: _rows(ctx, channel),
         textScale: chatFontSize() / 14.0,
         tileCache: tileCache,
         atBottomNotifier: atBottomNotifier(_paneKey(channel, slot)),
@@ -551,7 +545,7 @@ class ChannelPanels {
             ? null
             : 'scroll_down_${channel}_split$slot',
         onScrollActivity: chat.clearUnread,
-        emptyText: fake ? null : context.l10n.noMessagesYet,
+        emptyText: fake ? null : ctx.l10n.noMessagesYet,
         keyboardDismissBehavior: (!kIsWeb && Platform.isIOS)
             ? ScrollViewKeyboardDismissBehavior.onDrag
             : ScrollViewKeyboardDismissBehavior.manual,
@@ -740,14 +734,8 @@ class ChannelPanels {
   }
 
   /// Two chat panes: stacked in portrait, side by side in landscape. The
-  /// first slot carries the strip's clearance once for both. While the
-  /// keyboard is up only the focused pane stays, so typing is not squeezed
-  /// between two chats.
-  Widget _splitBody(
-    BuildContext context,
-    SplitPair split, {
-    required bool keyboardOpen,
-  }) {
+  /// first slot carries the strip's clearance once for both.
+  Widget _splitBody(BuildContext context, SplitPair split) {
     final portrait = MediaQuery.orientationOf(context) == Orientation.portrait;
     final first = _splitPane(
       context,
@@ -768,15 +756,16 @@ class ChannelPanels {
         : const VerticalDivider(width: 1, thickness: 1);
     // The composer floats below the split, not over it, so both panes split
     // the room above the island and neither keeps a gap for it.
-    final body = keyboardOpen && portrait
-        ? _collapsedSplit(context, split, first, second, divider)
-        : portrait
-        ? Column(
-            children: [
-              Expanded(child: first),
+    final Widget body = portrait
+        ? LayoutBuilder(
+            builder: (context, constraints) => _portraitSplit(
+              context,
+              split,
+              first,
+              second,
               divider,
-              Expanded(child: second),
-            ],
+              constraints.maxHeight,
+            ),
           )
         : Row(
             children: [
@@ -796,34 +785,43 @@ class ChannelPanels {
     );
   }
 
-  /// While the keyboard is up the inactive chat folds to its header, so the
-  /// focused chat keeps the room and the other pane is still one tap away.
-  Widget _collapsedSplit(
+  /// Portrait split with a room check: once a pane would show fewer than four
+  /// chat lines, the inactive one folds to its header over one motion step.
+  Widget _portraitSplit(
     BuildContext context,
     SplitPair split,
     Widget first,
     Widget second,
     Widget divider,
+    double height,
   ) {
+    const paneHeader = 29.0;
+    const dividerH = 1.0;
+    final half = (height - dividerH) / 2;
+    final perPane = (height - dividerH - 2 * paneHeader) / 2;
+    final collapsed = perPane < chatFontSize() * 4;
     final activeSlot = split.active;
-    final inactiveSlot = 1 - activeSlot;
     final activePane = activeSlot == 0 ? first : second;
-    final inactiveChannel = inactiveSlot == 0 ? split.first : split.second;
-    final inactiveHeader = AnimatedOpacity(
-      opacity: 0.7,
-      duration: Motion.fast,
-      child: _splitHeader(
-        context,
-        inactiveChannel,
-        slot: inactiveSlot,
-        active: false,
-        closable: inactiveSlot == 1,
-      ),
-    );
-    return Column(
-      children: activeSlot == 0
-          ? [Expanded(child: activePane), divider, inactiveHeader]
-          : [inactiveHeader, divider, Expanded(child: activePane)],
+    final inactivePane = activeSlot == 0 ? second : first;
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: 0, end: collapsed ? 1 : 0),
+      duration: Motion.normal,
+      curve: Motion.move,
+      builder: (context, t, _) {
+        final room = (height - dividerH).clamp(0.0, height);
+        final inactiveH = (half + (paneHeader - half) * t).clamp(0.0, room);
+        final activeH = (height - dividerH - inactiveH).clamp(0.0, room);
+        final active = SizedBox(height: activeH, child: activePane);
+        final inactive = SizedBox(
+          height: inactiveH,
+          child: ClipRect(child: inactivePane),
+        );
+        return Column(
+          children: activeSlot == 0
+              ? [active, divider, inactive]
+              : [inactive, divider, active],
+        );
+      },
     );
   }
 
@@ -893,39 +891,46 @@ class ChannelPanels {
       onPointerDown: (_) {
         if (!active) focusSplitPane(slot);
       },
-      child: _SplitSwipe(
-        active: active,
-        onSwipe: (delta) => swipeSplitPane(slot, delta),
-        child: AbsorbPointer(
-          absorbing: !active,
-          child: AnimatedOpacity(
-            opacity: active ? 1 : 0.7,
-            duration: Motion.fast,
-            child: Column(
-              children: [
-                _splitHeader(
-                  context,
-                  channel,
-                  slot: slot,
-                  active: active,
-                  closable: closable,
-                ),
-                Divider(height: 1, thickness: 1, color: scheme.outlineVariant),
-                Expanded(
-                  child: _SplitPageSlide(
-                    channel: channel,
-                    slot: slot,
-                    order: chat.names,
-                    child: _cachedPage(
-                      context,
-                      channel,
-                      clearsIsland: false,
-                      slot: slot,
-                    ),
-                  ),
-                ),
-              ],
-            ),
+      child: AbsorbPointer(
+        absorbing: !active,
+        child: AnimatedOpacity(
+          opacity: active ? 1 : 0.7,
+          duration: Motion.fast,
+          child: Column(
+            children: [
+              _splitHeader(
+                context,
+                channel,
+                slot: slot,
+                active: active,
+                closable: closable,
+              ),
+              Divider(height: 1, thickness: 1, color: scheme.outlineVariant),
+              Expanded(
+                child: chat.names.isEmpty
+                    ? const SizedBox.shrink()
+                    : TabbedLayout(
+                        tabs: chat.names,
+                        selectedIndex: chat.names
+                            .indexOf(channel)
+                            .clamp(0, chat.names.length - 1),
+                        showTabBar: false,
+                        fullscreen: true,
+                        fastSnap: fastSnap(),
+                        focusOnHalfDrag: true,
+                        preloadAdjacentPages: true,
+                        onFocusChanged: (i) => setSplitPaneChannel(slot, i),
+                        onSelectedIndexChanged: (i) =>
+                            setSplitPaneChannel(slot, i),
+                        pageBuilder: (ctx, i) => _cachedPage(
+                          ctx,
+                          chat.names[i],
+                          clearsIsland: false,
+                          slot: slot,
+                        ),
+                      ),
+              ),
+            ],
           ),
         ),
       ),
@@ -938,7 +943,6 @@ class ChannelPanels {
     bool merged = false,
     Widget? belowTabBar,
     bool underStream = false,
-    bool keyboardOpen = false,
   }) {
     return Expanded(
       child: channelStack(
@@ -947,7 +951,6 @@ class ChannelPanels {
         merged: merged,
         underStream: underStream,
         belowTabBar: belowTabBar,
-        keyboardOpen: keyboardOpen,
       ),
     );
   }
@@ -958,7 +961,6 @@ class ChannelPanels {
     bool merged = false,
     Widget? belowTabBar,
     bool underStream = false,
-    bool keyboardOpen = false,
   }) {
     _hideChrome = hideChrome;
     _underStream = underStream;
@@ -1005,11 +1007,7 @@ class ChannelPanels {
                         _showChannelMenu(context, chat.names[index]),
                     singlePage: split == null
                         ? null
-                        : _splitBody(
-                            context,
-                            split,
-                            keyboardOpen: keyboardOpen,
-                          ),
+                        : _splitBody(context, split),
                     showTabBar: showStrip,
                     fullscreen: isFullscreen(),
                     pagesOverlay: split != null || selectedChannel() == null
@@ -1218,116 +1216,6 @@ class _FocusGatedBuilder extends StatelessWidget {
       builder: (context, _) => builder(context, active),
     );
   }
-}
-
-/// Slides a split pane's chat sideways when its channel changes, matching the
-/// normal pager's page animation.
-class _SplitPageSlide extends StatefulWidget {
-  const _SplitPageSlide({
-    required this.channel,
-    required this.slot,
-    required this.order,
-    required this.child,
-  });
-
-  final String channel;
-  final int slot;
-  final List<String> order;
-  final Widget child;
-
-  @override
-  State<_SplitPageSlide> createState() => _SplitPageSlideState();
-}
-
-class _SplitPageSlideState extends State<_SplitPageSlide> {
-  double _direction = 1;
-
-  @override
-  void didUpdateWidget(_SplitPageSlide oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (widget.channel == oldWidget.channel) return;
-    final from = widget.order.indexOf(oldWidget.channel);
-    final to = widget.order.indexOf(widget.channel);
-    _direction = from >= 0 && to >= 0 && to < from ? -1 : 1;
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final key = ValueKey('${widget.channel}:${widget.slot}');
-    return ClipRect(
-      child: AnimatedSwitcher(
-        duration: Motion.slow,
-        switchInCurve: Motion.move,
-        switchOutCurve: Motion.move,
-        layoutBuilder: (current, previous) =>
-            Stack(fit: StackFit.expand, children: [...previous, ?current]),
-        transitionBuilder: (child, animation) {
-          final incoming = child.key == key;
-          final begin = Offset(incoming ? _direction : -_direction, 0);
-          return SlideTransition(
-            position: Tween(begin: begin, end: Offset.zero).animate(animation),
-            child: child,
-          );
-        },
-        child: KeyedSubtree(key: key, child: widget.child),
-      ),
-    );
-  }
-}
-
-/// Horizontal swipe over a split pane: the pane's channel moves one tab in
-/// that direction, like a normal channel swipe, and the other pane stays.
-class _SplitSwipe extends StatefulWidget {
-  const _SplitSwipe({
-    required this.active,
-    required this.onSwipe,
-    required this.child,
-  });
-
-  /// Inactive panes only take the tap that focuses them.
-  final bool active;
-
-  /// -1 for the previous tab, 1 for the next.
-  final ValueChanged<int> onSwipe;
-  final Widget child;
-
-  @override
-  State<_SplitSwipe> createState() => _SplitSwipeState();
-}
-
-class _SplitSwipeState extends State<_SplitSwipe> {
-  static const _distance = 40.0;
-  static const _velocity = 250.0;
-  double _dx = 0;
-  bool _wasActive = false;
-
-  void _start(DragStartDetails details) {
-    _dx = 0;
-    _wasActive = widget.active;
-  }
-
-  void _end(DragEndDetails details) {
-    final dx = _dx;
-    _dx = 0;
-    if (!_wasActive) return;
-    final velocity = details.primaryVelocity ?? 0;
-    final delta = dx.abs() >= _distance
-        ? dx
-        : velocity.abs() >= _velocity
-        ? velocity
-        : 0.0;
-    if (delta == 0) return;
-    widget.onSwipe(delta > 0 ? -1 : 1);
-  }
-
-  @override
-  Widget build(BuildContext context) => GestureDetector(
-    onHorizontalDragStart: _start,
-    onHorizontalDragUpdate: (details) => _dx += details.delta.dx,
-    onHorizontalDragCancel: () => _dx = 0,
-    onHorizontalDragEnd: _end,
-    child: widget.child,
-  );
 }
 
 /// Channel tab label. A new mention on an unselected channel pulses the label

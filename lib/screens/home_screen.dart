@@ -631,7 +631,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     openSplit: _openSplit,
     closeSplit: _closeSplit,
     focusSplitPane: _focusSplitPane,
-    swipeSplitPane: _swipeSplitPane,
+    setSplitPaneChannel: _setSplitPaneChannel,
     messageNotifier: _messageNotifier,
     atBottomNotifier: _atBottomNotifier,
     scrollCtrl: _scrollCtrl,
@@ -781,17 +781,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     _commitChannelSelection(index, rebuild: true);
   }
 
-  /// Moves [slot]'s channel one tab over, keeping the other pane fixed. Both
-  /// panes may end up on the same channel.
-  void _swipeSplitPane(int slot, int delta) {
-    final pane = slot == 0 ? _splitFirst : _splitSecond;
-    if (pane == null) return;
-    final names = _chat.names;
-    final index = names.indexOf(pane);
-    if (index < 0) return;
-    final target = (index + delta).clamp(0, names.length - 1);
-    if (target == index) return;
-    final next = names[target];
+  /// Moves [slot]'s channel to the tab at [index]. The inner pager reports
+  /// this at the half-drag focus and again on settle.
+  void _setSplitPaneChannel(int slot, int index) {
+    if (index < 0 || index >= _chat.names.length) return;
+    final next = _chat.names[index];
+    final current = slot == 0 ? _splitFirst : _splitSecond;
+    if (current == next && _splitActive == slot) return;
     setState(() {
       if (slot == 0) {
         _splitFirst = next;
@@ -800,9 +796,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       }
       _splitActive = slot;
     });
-    _channelManager.commitChannelSelection(target, rebuild: true);
-    _search.syncFieldTo(selectedChannel);
-    _mod.syncTermsToSelected();
+    if (selectedChannel != next) {
+      _channelManager.commitChannelSelection(index, rebuild: true);
+      _search.syncFieldTo(selectedChannel);
+      _mod.syncTermsToSelected();
+    }
   }
 
   Future<void> _addChannel(String channel, {bool focus = true}) {
@@ -2172,10 +2170,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
             // drops composer/panels/notice so the window shows the stream.
             isInPip: _streamPlayer.isInPip,
             pagesKey: _channels.pagesKey,
-            // Keyboard room only decides whether a stacked player hides. Split
-            // chat also reads it to fold the inactive pane.
-            bodyReadsKeyboard:
-                _streamPlayer.currentChannel != null || _splitPair() != null,
+            // Keyboard room only decides whether a stacked player hides.
+            bodyReadsKeyboard: _streamPlayer.currentChannel != null,
             composerInPane: _stream.chatInPane(context),
             bodyBuilder:
                 (

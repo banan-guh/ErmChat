@@ -8,6 +8,10 @@ import 'package:ermchat/widgets/history_view.dart';
 Finder _chatList() =>
     find.byWidgetPredicate((w) => w is ScrollView && w.reverse);
 
+/// A channel page list, live ([ChatView]) or archive-backed ([HistoryView]).
+Finder _channelPages() =>
+    find.byWidgetPredicate((w) => w is ChatView || w is HistoryView);
+
 void main() {
   setUp(() {
     SharedPreferences.setMockInitialValues({});
@@ -1743,7 +1747,9 @@ void main() {
     await tester.pumpAndSettle();
 
     // A horizontal swipe moves that pane one tab over, keeping the pair.
-    await tester.drag(find.text('#b'), const Offset(-120, 0));
+    final pane = _channelPages().last;
+    final paneWidth = tester.getSize(pane).width;
+    await tester.drag(pane, Offset(-paneWidth * 0.6, 0));
     await tester.pumpAndSettle();
     expect(find.text('#b'), findsNothing);
     expect(find.text('#c'), findsOneWidget);
@@ -1837,21 +1843,31 @@ void main() {
       expect(absorbingOf(upper), isTrue);
       expect(absorbingOf(lower), isFalse);
 
-      int paneLists() =>
-          tester.widgetList<ChatView>(find.byType(ChatView)).length +
-          tester.widgetList<HistoryView>(find.byType(HistoryView)).length;
+      int paneLists() => _channelPages().evaluate().length;
 
-      // With the keyboard up the inactive chat folds to its header, which
-      // stays tappable so the other pane is still one press away.
+      List<Size> paneSizes() => [
+        for (var i = 0; i < _channelPages().evaluate().length; i++)
+          tester.getSize(_channelPages().at(i)),
+      ];
+
+      // With the room really tight the inactive chat folds to its header,
+      // which stays tappable so the other pane is still one press away.
       expect(paneLists(), 2);
-      tester.view.viewInsets = const FakeViewPadding(bottom: 600);
+      tester.view.viewInsets = const FakeViewPadding(bottom: 1600);
       await tester.pumpAndSettle();
-      expect(paneLists(), 1);
+      expect(paneLists(), 2);
       expect(find.text('#a'), findsNWidgets(2));
+      final folded = paneSizes();
+      expect(folded.first.height, lessThan(10));
+      expect(folded.last.height, greaterThan(40));
+
       await tester.tap(find.text('#a').first);
       await tester.pumpAndSettle();
-      expect(paneLists(), 1);
+      expect(paneLists(), 2);
       expect(find.text('#a'), findsNWidgets(2));
+      final swapped = paneSizes();
+      expect(swapped.first.height, greaterThan(40));
+      expect(swapped.last.height, lessThan(10));
       expect(opacityOf(find.text('#a').first), 1.0);
       expect(opacityOf(find.text('#a').last), 0.7);
     },
