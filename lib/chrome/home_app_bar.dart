@@ -194,7 +194,7 @@ class HomeAppBar {
           icon: joinSpinning() ? _joinSpinner(context) : const Icon(Icons.add),
           tooltip: busy
               ? context.l10n.loadingEllipsis
-              : context.l10n.joinChannel,
+              : context.l10n.addChannels,
           onPressed: busy || chat.length >= kMaxChannels
               ? null
               : addChannelDialog,
@@ -219,7 +219,7 @@ class HomeAppBar {
       builder: (context, _) {
         if (joinSpinning()) return _joinSpinner(context);
         return Tooltip(
-          message: context.l10n.joinChannel,
+          message: context.l10n.addChannels,
           child: Icon(
             Icons.add,
             color: chat.length >= kMaxChannels

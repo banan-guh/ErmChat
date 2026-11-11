@@ -636,10 +636,10 @@ void main() {
     );
     await tester.pump();
 
-    await tester.tap(find.byTooltip('Join channel'));
+    await tester.tap(find.byTooltip('Add channels'));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField).last, 'testchannel');
-    await tester.tap(find.text('Join', skipOffstage: false));
+    await tester.tap(find.text('Add', skipOffstage: false));
     await tester.pumpAndSettle();
 
     fakeIrc.triggerConnect();

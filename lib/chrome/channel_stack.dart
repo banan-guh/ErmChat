@@ -33,6 +33,7 @@ import '../widgets/chat_rows.dart';
 import '../widgets/chat_view.dart';
 import '../widgets/dialogs.dart';
 import '../widgets/history_view.dart';
+import '../widgets/island_metrics.dart';
 import '../widgets/join_channel_dialog.dart';
 import '../widgets/message_builder.dart';
 import '../widgets/tabbed_layout.dart';
@@ -84,6 +85,7 @@ class ChannelPanels {
     required this.openSplit,
     required this.closeSplit,
     required this.focusSplitPane,
+    required this.swipeSplitPane,
     required this.messageNotifier,
     required this.atBottomNotifier,
     required this.scrollCtrl,
@@ -151,6 +153,9 @@ class ChannelPanels {
 
   /// Makes [channel]'s pane the one the composer sends to.
   final void Function(String channel) focusSplitPane;
+
+  /// Moves [pane]'s channel by [delta] in the tab order.
+  final void Function(String pane, int delta) swipeSplitPane;
   final ValueNotifier<int> Function(String channel) messageNotifier;
   final ValueNotifier<bool> Function(String channel) atBottomNotifier;
   final ScrollController Function(String channel) scrollCtrl;
@@ -317,12 +322,17 @@ class ChannelPanels {
     _cachedChannels = List.of(chat.names);
   }
 
-  Widget _cachedPage(BuildContext context, String channel) {
-    // The island clearance sizes in layout, so it never evicts a page.
-    final token = '${_pageToken()}|${_menuFloats()}';
+  Widget _cachedPage(
+    BuildContext context,
+    String channel, {
+    bool clearsIsland = true,
+  }) {
+    // The split flag changes which island spacer the page uses, so it joins
+    // the token. The clearance itself sizes in layout.
+    final token = '${_pageToken()}|${_menuFloats()}|$clearsIsland';
     final cached = _pageCache[channel];
     if (cached != null && cached.token == token) return cached.widget;
-    final page = _buildPage(context, channel);
+    final page = _buildPage(context, channel, clearsIsland: clearsIsland);
     _pageCache[channel] = _CachedPage(page, token);
     return page;
   }
@@ -339,10 +349,19 @@ class ChannelPanels {
   /// Everything live inside is listenable-driven, so a cached instance
   /// still shows fresh rows, edits and search filtering. The captured
   /// [context] is channelStack's own long-lived build context.
-  Widget _buildPage(BuildContext context, String channel) {
+  Widget _buildPage(
+    BuildContext context,
+    String channel, {
+    bool clearsIsland = true,
+  }) {
     final history = _historySource(channel);
     if (history != null && !search.open) {
-      return _historyPage(context, channel, history);
+      return _historyPage(
+        context,
+        channel,
+        history,
+        clearsIsland: clearsIsland,
+      );
     }
     final infoVersion =
         chat.channelFor(channel)?.info.version ?? _emptyNotifier;
@@ -362,6 +381,7 @@ class ChannelPanels {
           channelPage: true,
           messages: search.visibleMessages(channel),
           topPadding: _bubbleTopPadding(context),
+          clearsIsland: clearsIsland,
           tileCache: tileCache,
           isDimmed: search.dimPredicate(channel),
           hides: chat.filter.hides,
@@ -476,8 +496,9 @@ class ChannelPanels {
   Widget _historyPage(
     BuildContext context,
     String channel,
-    HistorySource source,
-  ) {
+    HistorySource source, {
+    bool clearsIsland = true,
+  }) {
     final fake = FakeHistory.isFake(channel);
     final state = chat.channelFor(channel);
     final messages = state?.messages;
@@ -491,6 +512,7 @@ class ChannelPanels {
         channelPage: true,
         source: source,
         topPadding: _bubbleTopPadding(context),
+        clearsIsland: clearsIsland,
         debugControls: fake,
         live: messages == null ? null : () => messages.chatRows,
         liveVersion: active ? messages?.version : null,
@@ -669,10 +691,10 @@ class ChannelPanels {
               title: Text(ctx.l10n.editChannel),
               onTap: () {
                 Navigator.pop(ctx);
-                showJoinChannelDialog(
+                showEditChannelDialog(
                   context,
-                  initial: channel,
-                  onJoin: (to) => renameChannel(channel, to),
+                  channel: channel,
+                  onSave: (to) => renameChannel(channel, to),
                 );
               },
             ),
@@ -717,11 +739,18 @@ class ChannelPanels {
     final divider = portrait
         ? const Divider(height: 1, thickness: 1)
         : const VerticalDivider(width: 1, thickness: 1);
+    // The composer floats below the split, not over it, so both panes split
+    // the room above the island and neither keeps a gap for it.
     return Padding(
       padding: EdgeInsets.only(top: _bubbleClearance(context)),
-      child: portrait
-          ? Column(children: [first, divider, second])
-          : Row(children: [first, divider, second]),
+      child: IslandInset(
+        child: Padding(
+          padding: const EdgeInsets.only(bottom: kComposerGap),
+          child: portrait
+              ? Column(children: [first, divider, second])
+              : Row(children: [first, divider, second]),
+        ),
+      ),
     );
   }
 
@@ -736,54 +765,59 @@ class ChannelPanels {
   }) {
     final scheme = Theme.of(context).colorScheme;
     return Expanded(
-      child: Listener(
-        behavior: HitTestBehavior.opaque,
-        onPointerDown: (_) => focusSplitPane(channel),
-        child: Column(
-          children: [
-            Material(
-              color: active ? scheme.surfaceContainerHigh : scheme.surface,
-              child: InkWell(
-                onTap: () => focusSplitPane(channel),
-                child: SizedBox(
-                  height: 28,
-                  child: Row(
-                    children: [
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Text(
-                          '#$channel',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
-                            color: active
-                                ? scheme.primary
-                                : scheme.onSurfaceVariant,
+      child: _SplitSwipe(
+        onSwipe: (delta) => swipeSplitPane(channel, delta),
+        child: Listener(
+          behavior: HitTestBehavior.opaque,
+          onPointerDown: (_) => focusSplitPane(channel),
+          child: Column(
+            children: [
+              Material(
+                color: active ? scheme.surfaceContainerHigh : scheme.surface,
+                child: InkWell(
+                  onTap: () => focusSplitPane(channel),
+                  child: SizedBox(
+                    height: 28,
+                    child: Row(
+                      children: [
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text(
+                            '#$channel',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: active
+                                  ? scheme.primary
+                                  : scheme.onSurfaceVariant,
+                            ),
                           ),
                         ),
-                      ),
-                      if (closable)
-                        IconButton(
-                          onPressed: closeSplit,
-                          icon: const Icon(Icons.close, size: 16),
-                          tooltip: context.l10n.closeSplit,
-                          visualDensity: VisualDensity.compact,
-                          padding: EdgeInsets.zero,
-                          constraints: const BoxConstraints(
-                            minWidth: 32,
-                            minHeight: 28,
+                        if (closable)
+                          IconButton(
+                            onPressed: closeSplit,
+                            icon: const Icon(Icons.close, size: 16),
+                            tooltip: context.l10n.closeSplit,
+                            visualDensity: VisualDensity.compact,
+                            padding: EdgeInsets.zero,
+                            constraints: const BoxConstraints(
+                              minWidth: 32,
+                              minHeight: 28,
+                            ),
                           ),
-                        ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
               ),
-            ),
-            Divider(height: 1, thickness: 1, color: scheme.outlineVariant),
-            Expanded(child: _cachedPage(context, channel)),
-          ],
+              Divider(height: 1, thickness: 1, color: scheme.outlineVariant),
+              Expanded(
+                child: _cachedPage(context, channel, clearsIsland: false),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -1068,6 +1102,47 @@ class _FocusGatedBuilder extends StatelessWidget {
       builder: (context, _) => builder(context, active),
     );
   }
+}
+
+/// Horizontal swipe over a split pane: the pane's channel moves one tab in
+/// that direction, like a normal channel swipe, and the other pane stays.
+class _SplitSwipe extends StatefulWidget {
+  const _SplitSwipe({required this.onSwipe, required this.child});
+
+  /// -1 for the previous tab, 1 for the next.
+  final ValueChanged<int> onSwipe;
+  final Widget child;
+
+  @override
+  State<_SplitSwipe> createState() => _SplitSwipeState();
+}
+
+class _SplitSwipeState extends State<_SplitSwipe> {
+  static const _distance = 40.0;
+  static const _velocity = 250.0;
+  double _dx = 0;
+
+  void _end(DragEndDetails details) {
+    final dx = _dx;
+    _dx = 0;
+    final velocity = details.primaryVelocity ?? 0;
+    final delta = dx.abs() >= _distance
+        ? dx
+        : velocity.abs() >= _velocity
+        ? velocity
+        : 0.0;
+    if (delta == 0) return;
+    widget.onSwipe(delta > 0 ? -1 : 1);
+  }
+
+  @override
+  Widget build(BuildContext context) => GestureDetector(
+    onHorizontalDragStart: (_) => _dx = 0,
+    onHorizontalDragUpdate: (details) => _dx += details.delta.dx,
+    onHorizontalDragCancel: () => _dx = 0,
+    onHorizontalDragEnd: _end,
+    child: widget.child,
+  );
 }
 
 /// Channel tab label. A new mention on an unselected channel pulses the label

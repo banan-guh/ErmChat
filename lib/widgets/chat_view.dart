@@ -60,6 +60,10 @@ class ChatView extends StatefulWidget {
   /// Clearance above the oldest row, below a floating header.
   final double topPadding;
 
+  /// Whether this list clears the floating composer island. A split pane
+  /// that does not sit over the island turns it off.
+  final bool clearsIsland;
+
   /// Off in the mentions tab so deleted rows stay readable.
   final bool fadeDeleted;
 
@@ -119,6 +123,7 @@ class ChatView extends StatefulWidget {
     this.emptyText,
     this.physics,
     this.topPadding = 0,
+    this.clearsIsland = true,
     this.fadeDeleted = true,
     this.showChannel = false,
     this.keepAlive = true,
@@ -326,7 +331,9 @@ class _ChatViewState extends State<ChatView>
     final empty = msgs.isEmpty;
     // The newest rows rest above the island; the spacer sizes in layout.
     final bottom = SliverToBoxAdapter(
-      child: IslandSpacer(page: _islandPage, chat: !empty),
+      child: widget.clearsIsland
+          ? IslandSpacer(page: _islandPage, chat: !empty)
+          : const SizedBox(height: kComposerGap),
     );
     // Reversed: the last sliver is the top of the list, under the floating
     // bubbles. Only the oldest row needs to clear them.
@@ -428,7 +435,8 @@ class _ChatViewState extends State<ChatView>
       atBottom: widget.atBottomNotifier,
       onJumpToBottom: _jumpToBottom,
       heroTag: widget.scrollFabHeroTag ?? 'scroll_down_${widget.channel}',
-      islandPage: _islandPage,
+      islandPage: widget.clearsIsland ? _islandPage : null,
+      clearsIsland: widget.clearsIsland,
       semanticChildCount: semanticChildCount,
       keyboardDismissBehavior: widget.keyboardDismissBehavior,
       slivers: slivers,

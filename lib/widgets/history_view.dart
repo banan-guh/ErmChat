@@ -86,6 +86,7 @@ class HistoryView extends StatefulWidget {
     required this.rows,
     this.textScale = 1.0,
     this.topPadding = 0,
+    this.clearsIsland = true,
     this.debugControls = false,
     this.live,
     this.liveFirst = true,
@@ -126,6 +127,10 @@ class HistoryView extends StatefulWidget {
 
   /// Clearance above the oldest row, below a floating header.
   final double topPadding;
+
+  /// Whether this list clears the floating composer island. A split pane
+  /// that does not sit over the island turns it off.
+  final bool clearsIsland;
 
   /// Jump buttons and window stats over the list, for the prototype channels.
   final bool debugControls;
@@ -2131,12 +2136,17 @@ class _HistoryViewState extends State<HistoryView> {
         atBottom: widget.atBottomNotifier,
         onJumpToBottom: _jumpToNewest,
         heroTag: widget.scrollFabHeroTag ?? 'scroll_down_${widget.channel}',
-        islandPage: page,
+        islandPage: widget.clearsIsland ? page : null,
+        clearsIsland: widget.clearsIsland,
         keyboardDismissBehavior: widget.keyboardDismissBehavior,
         slivers: [
           // Sizes in layout, so the newest row clears the island in the
-          // frame it moves.
-          SliverToBoxAdapter(child: IslandSpacer(page: page, chat: true)),
+          // frame it moves. A split pane without the island keeps a small gap.
+          SliverToBoxAdapter(
+            child: widget.clearsIsland
+                ? IslandSpacer(page: page, chat: true)
+                : const SizedBox(height: kComposerGap),
+          ),
           if (empty) SliverToBoxAdapter(child: _empty(context)),
           MovingChatSliverList(
             key: _newerKey,

@@ -1,5 +1,7 @@
 import 'widget_test_harness.dart';
 import '../helpers.dart';
+import 'package:ermchat/widgets/chat_view.dart';
+import 'package:ermchat/widgets/history_view.dart';
 
 /// The channel chat list, whichever list implements it: the only reversed
 /// scroll view on screen.
@@ -36,11 +38,11 @@ void main() {
       );
       await tester.pump();
 
-      await tester.tap(find.byTooltip('Join channel'));
+      await tester.tap(find.byTooltip('Add channels'));
       await tester.pumpAndSettle();
 
       await tester.enterText(find.byType(TextField).last, 'xqc');
-      await tester.tap(find.text('Join', skipOffstage: false));
+      await tester.tap(find.text('Add', skipOffstage: false));
       await tester.pump();
 
       expect(
@@ -107,10 +109,10 @@ void main() {
     );
     await tester.pump();
 
-    await tester.tap(find.byTooltip('Join channel'));
+    await tester.tap(find.byTooltip('Add channels'));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField).last, 'xqc');
-    await tester.tap(find.text('Join', skipOffstage: false));
+    await tester.tap(find.text('Add', skipOffstage: false));
     await tester.pumpAndSettle();
 
     Future<void> pick(String entry) async {
@@ -440,10 +442,10 @@ void main() {
         ),
       );
       await tester.pump();
-      await tester.tap(find.byTooltip('Join channel'));
+      await tester.tap(find.byTooltip('Add channels'));
       await tester.pumpAndSettle();
       await tester.enterText(find.byType(TextField).last, channel);
-      await tester.tap(find.text('Join', skipOffstage: false).last);
+      await tester.tap(find.text('Add', skipOffstage: false).last);
       await tester.pump();
       await tester.pump();
 
@@ -529,10 +531,10 @@ void main() {
         ),
       );
       await tester.pump();
-      await tester.tap(find.byTooltip('Join channel'));
+      await tester.tap(find.byTooltip('Add channels'));
       await tester.pumpAndSettle();
       await tester.enterText(find.byType(TextField).last, channel);
-      await tester.tap(find.text('Join', skipOffstage: false).last);
+      await tester.tap(find.text('Add', skipOffstage: false).last);
       await tester.pump();
       await tester.pump();
 
@@ -669,10 +671,10 @@ void main() {
         ),
       );
       await tester.pump();
-      await tester.tap(find.byTooltip('Join channel'));
+      await tester.tap(find.byTooltip('Add channels'));
       await tester.pumpAndSettle();
       await tester.enterText(find.byType(TextField).last, channel);
-      await tester.tap(find.text('Join', skipOffstage: false).last);
+      await tester.tap(find.text('Add', skipOffstage: false).last);
       await tester.pump();
       await tester.pump();
 
@@ -831,10 +833,10 @@ void main() {
 
     // Join 'b' first, then 'a' so 'a' is selected and 'b' is unfocused.
     for (final name in ['b', 'a']) {
-      await tester.tap(find.byTooltip('Join channel'));
+      await tester.tap(find.byTooltip('Add channels'));
       await tester.pumpAndSettle();
       await tester.enterText(find.byType(TextField).last, name);
-      await tester.tap(find.text('Join', skipOffstage: false));
+      await tester.tap(find.text('Add', skipOffstage: false));
       await tester.pump();
     }
 
@@ -900,10 +902,10 @@ void main() {
       await tester.pump();
 
       for (final name in ['b', 'a']) {
-        await tester.tap(find.byTooltip('Join channel'));
+        await tester.tap(find.byTooltip('Add channels'));
         await tester.pumpAndSettle();
         await tester.enterText(find.byType(TextField).last, name);
-        await tester.tap(find.text('Join', skipOffstage: false));
+        await tester.tap(find.text('Add', skipOffstage: false));
         await tester.pump();
       }
 
@@ -998,10 +1000,10 @@ void main() {
     );
     await tester.pump();
 
-    await tester.tap(find.byTooltip('Join channel'));
+    await tester.tap(find.byTooltip('Add channels'));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField).last, 'b');
-    await tester.tap(find.text('Join', skipOffstage: false));
+    await tester.tap(find.text('Add', skipOffstage: false));
     await tester.pump();
 
     ircRead.emitMessage(
@@ -1067,10 +1069,10 @@ void main() {
       await tester.pump();
 
       for (final name in ['b', 'a']) {
-        await tester.tap(find.byTooltip('Join channel'));
+        await tester.tap(find.byTooltip('Add channels'));
         await tester.pumpAndSettle();
         await tester.enterText(find.byType(TextField).last, name);
-        await tester.tap(find.text('Join', skipOffstage: false));
+        await tester.tap(find.text('Add', skipOffstage: false));
         await tester.pump();
       }
       irc.triggerConnect();
@@ -1160,10 +1162,10 @@ void main() {
       ),
     );
     await tester.pump();
-    await tester.tap(find.byTooltip('Join channel'));
+    await tester.tap(find.byTooltip('Add channels'));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField).last, 'a');
-    await tester.tap(find.text('Join', skipOffstage: false));
+    await tester.tap(find.text('Add', skipOffstage: false));
     await tester.pump();
     irc.triggerConnect();
     ircRead.triggerConnect();
@@ -1218,10 +1220,10 @@ void main() {
       ),
     );
     await tester.pump();
-    await tester.tap(find.byTooltip('Join channel'));
+    await tester.tap(find.byTooltip('Add channels'));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField).last, 'a');
-    await tester.tap(find.text('Join', skipOffstage: false));
+    await tester.tap(find.text('Add', skipOffstage: false));
     await tester.pump();
     irc.triggerConnect();
     ircRead.triggerConnect();
@@ -1294,10 +1296,10 @@ void main() {
       ),
     );
     await tester.pump();
-    await tester.tap(find.byTooltip('Join channel'));
+    await tester.tap(find.byTooltip('Add channels'));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField).last, 'a');
-    await tester.tap(find.text('Join', skipOffstage: false));
+    await tester.tap(find.text('Add', skipOffstage: false));
     await tester.pump();
     irc.triggerConnect();
     ircRead.triggerConnect();
@@ -1370,10 +1372,10 @@ void main() {
       );
       await tester.pump();
 
-      await tester.tap(find.byTooltip('Join channel'));
+      await tester.tap(find.byTooltip('Add channels'));
       await tester.pumpAndSettle();
       await tester.enterText(find.byType(TextField).last, 'xqc');
-      await tester.tap(find.text('Join', skipOffstage: false));
+      await tester.tap(find.text('Add', skipOffstage: false));
       await tester.pump();
 
       fakeIrcRead.emitMessage(
@@ -1416,10 +1418,10 @@ void main() {
       );
       await tester.pump();
 
-      await tester.tap(find.byTooltip('Join channel'));
+      await tester.tap(find.byTooltip('Add channels'));
       await tester.pumpAndSettle();
       await tester.enterText(find.byType(TextField).last, 'xqc');
-      await tester.tap(find.text('Join', skipOffstage: false));
+      await tester.tap(find.text('Add', skipOffstage: false));
       await tester.pump();
 
       fakeIrcRead.emitMessage(
@@ -1460,10 +1462,10 @@ void main() {
         ),
       );
       await tester.pump();
-      await tester.tap(find.byTooltip('Join channel'));
+      await tester.tap(find.byTooltip('Add channels'));
       await tester.pumpAndSettle();
       await tester.enterText(find.byType(TextField).last, 'testchannel');
-      await tester.tap(find.text('Join', skipOffstage: false));
+      await tester.tap(find.text('Add', skipOffstage: false));
       await tester.pumpAndSettle();
       fakeIrc.triggerConnect(joinChannel: 'testchannel');
       await tester.pump();
@@ -1572,9 +1574,12 @@ void main() {
   testWidgets('split chat focuses the pane the composer sends to', (
     tester,
   ) async {
+    tester.view.physicalSize = const Size(1080, 2340);
+    tester.view.devicePixelRatio = 3.0;
+    addTearDown(tester.view.reset);
     SharedPreferences.setMockInitialValues({
       'access_token': 'test_token',
-      'channels': ['a', 'b'],
+      'channels': ['a', 'b', 'c'],
     });
     FlutterSecureStorage.setMockInitialValues({
       'accounts': '[{"login":"me","user_id":"42","access_token":"test_token"}]',
@@ -1596,7 +1601,7 @@ void main() {
 
     irc.triggerConnect();
     read.triggerConnect();
-    for (final channel in ['a', 'b']) {
+    for (final channel in ['a', 'b', 'c']) {
       irc.triggerJoin(channel);
       read.triggerJoin(channel);
     }
@@ -1611,23 +1616,42 @@ void main() {
     expect(find.text('#a'), findsOneWidget);
     expect(find.text('#b'), findsOneWidget);
 
+    // The split sits above the island, so neither pane keeps its gap.
+    final clearing = [
+      ...tester
+          .widgetList<ChatView>(find.byType(ChatView))
+          .map((v) => v.clearsIsland),
+      ...tester
+          .widgetList<HistoryView>(find.byType(HistoryView))
+          .map((v) => v.clearsIsland),
+    ];
+    expect(clearing, isNotEmpty);
+    expect(clearing.where((clears) => !clears).length, clearing.length);
+
     // Touching the lower pane aims the composer at its channel.
     await tester.tap(find.text('#b'));
     await tester.pumpAndSettle();
-    await tester.enterText(find.byKey(const Key('message_input')), 'hello b');
+
+    // A horizontal swipe moves that pane one tab over, keeping the pair.
+    await tester.drag(find.text('#b'), const Offset(-120, 0));
+    await tester.pumpAndSettle();
+    expect(find.text('#b'), findsNothing);
+    expect(find.text('#c'), findsOneWidget);
+
+    await tester.enterText(find.byKey(const Key('message_input')), 'hello c');
     await tester.tap(find.byIcon(Icons.send), warnIfMissed: false);
     await tester.pump();
 
     expect(irc.sent, isNotEmpty);
     expect(
-      irc.sent.any((e) => e.channel == 'b' && e.text == 'hello b'),
+      irc.sent.any((e) => e.channel == 'c' && e.text == 'hello c'),
       isTrue,
     );
 
     // The second header's close returns to the pager.
     await tester.tap(find.byTooltip('Close split'));
     await tester.pumpAndSettle();
-    expect(find.text('#b'), findsNothing);
+    expect(find.text('#c'), findsNothing);
     expect(find.byType(PageView), findsOneWidget);
   });
 
@@ -1859,10 +1883,10 @@ void main() {
     );
     await tester.pump();
 
-    await tester.tap(find.byTooltip('Join channel'));
+    await tester.tap(find.byTooltip('Add channels'));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField).last, 'testchannel');
-    await tester.tap(find.text('Join', skipOffstage: false));
+    await tester.tap(find.text('Add', skipOffstage: false));
     await tester.pumpAndSettle();
 
     // Sockets up but JOIN not confirmed yet: input locked with a hint.
@@ -1925,10 +1949,10 @@ void main() {
       await tester.pump();
       await tester.pump();
 
-      await tester.tap(find.byTooltip('Join channel').first);
+      await tester.tap(find.byTooltip('Add channels').first);
       await tester.pumpAndSettle();
       await tester.enterText(find.byType(TextField).last, channelName);
-      await tester.tap(find.text('Join', skipOffstage: false).last);
+      await tester.tap(find.text('Add', skipOffstage: false).last);
       await tester.pump();
       await tester.pump();
     }
@@ -2225,10 +2249,10 @@ void main() {
           ),
         );
         await tester.pump();
-        await tester.tap(find.byTooltip('Join channel'));
+        await tester.tap(find.byTooltip('Add channels'));
         await tester.pumpAndSettle();
         await tester.enterText(find.byType(TextField).last, channel);
-        await tester.tap(find.text('Join', skipOffstage: false).last);
+        await tester.tap(find.text('Add', skipOffstage: false).last);
         await tester.pump();
         await tester.pump();
         await tester.tap(
@@ -2271,10 +2295,10 @@ void main() {
           ),
         );
         await tester.pump();
-        await tester.tap(find.byTooltip('Join channel'));
+        await tester.tap(find.byTooltip('Add channels'));
         await tester.pumpAndSettle();
         await tester.enterText(find.byType(TextField).last, 'testchannel');
-        await tester.tap(find.text('Join', skipOffstage: false).last);
+        await tester.tap(find.text('Add', skipOffstage: false).last);
         await tester.pump();
         await tester.pump();
         irc.triggerConnect(joinChannel: 'testchannel');
@@ -2324,10 +2348,10 @@ void main() {
       await tester.pump();
       await tester.pump();
 
-      await tester.tap(find.byTooltip('Join channel').first);
+      await tester.tap(find.byTooltip('Add channels').first);
       await tester.pumpAndSettle();
       await tester.enterText(find.byType(TextField).last, 'testchannel');
-      await tester.tap(find.text('Join', skipOffstage: false).last);
+      await tester.tap(find.text('Add', skipOffstage: false).last);
       await tester.pump();
       await tester.pump();
     }
@@ -2428,10 +2452,10 @@ void main() {
         );
         await tester.pump();
 
-        await tester.tap(find.byTooltip('Join channel'));
+        await tester.tap(find.byTooltip('Add channels'));
         await tester.pumpAndSettle();
         await tester.enterText(find.byType(TextField).last, 'testchannel');
-        await tester.tap(find.text('Join', skipOffstage: false).last);
+        await tester.tap(find.text('Add', skipOffstage: false).last);
         await tester.pump();
         await tester.pump();
 
@@ -2529,10 +2553,10 @@ void main() {
           ),
         );
         await tester.pump();
-        await tester.tap(find.byTooltip('Join channel'));
+        await tester.tap(find.byTooltip('Add channels'));
         await tester.pumpAndSettle();
         await tester.enterText(find.byType(TextField).last, 'testchannel');
-        await tester.tap(find.text('Join', skipOffstage: false).last);
+        await tester.tap(find.text('Add', skipOffstage: false).last);
         await tester.pump();
         await tester.pump();
 
@@ -2678,10 +2702,10 @@ void main() {
     );
     await tester.pump();
 
-    await tester.tap(find.byTooltip('Join channel'));
+    await tester.tap(find.byTooltip('Add channels'));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField).last, 'xqc');
-    await tester.tap(find.text('Join', skipOffstage: false));
+    await tester.tap(find.text('Add', skipOffstage: false));
     await tester.pump();
     ircRead.emitMessage(
       TwitchMessage(
@@ -2761,14 +2785,14 @@ void main() {
   });
 
   Future<void> joinChannel(WidgetTester tester, String name) async {
-    await tester.tap(find.byTooltip('Join channel'));
+    await tester.tap(find.byTooltip('Add channels'));
     await tester.pumpAndSettle();
     final dialogField = find.descendant(
       of: find.byType(AlertDialog),
       matching: find.byType(TextField),
     );
     await tester.enterText(dialogField, name);
-    await tester.tap(find.text('Join', skipOffstage: false).last);
+    await tester.tap(find.text('Add', skipOffstage: false).last);
     await tester.pumpAndSettle();
     await tester.pump();
   }
@@ -3220,10 +3244,10 @@ void main() {
       await tester.pump();
 
       Future<void> join(String name) async {
-        await tester.tap(find.byTooltip('Join channel'));
+        await tester.tap(find.byTooltip('Add channels'));
         await tester.pumpAndSettle();
         await tester.enterText(find.byType(TextField).last, name);
-        await tester.tap(find.text('Join', skipOffstage: false).last);
+        await tester.tap(find.text('Add', skipOffstage: false).last);
         await tester.pump();
         await tester.pump();
       }

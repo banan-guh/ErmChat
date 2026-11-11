@@ -130,6 +130,7 @@ class ChatListShell extends StatelessWidget {
     this.onJumpToBottom,
     this.heroTag,
     this.islandPage,
+    this.clearsIsland = true,
     this.cacheExtent,
     this.scrollViewKey,
     this.semanticChildCount,
@@ -148,6 +149,10 @@ class ChatListShell extends StatelessWidget {
   final VoidCallback? onJumpToBottom;
   final Object? heroTag;
   final String? islandPage;
+
+  /// Whether this list clears the floating island. Split chat turns it off
+  /// for the pane that does not sit over it.
+  final bool clearsIsland;
   final ScrollCacheExtent? cacheExtent;
   final Key? scrollViewKey;
   final int? semanticChildCount;
@@ -197,22 +202,24 @@ class ChatListShell extends StatelessWidget {
         if (atBottom != null && onJumpToBottom != null)
           ValueListenableBuilder<bool>(
             valueListenable: atBottom,
-            builder: (_, value, _) => Positioned.fill(
-              child: IslandInset(
-                page: islandPage,
-                child: Align(
-                  alignment: Alignment.bottomRight,
-                  child: Padding(
-                    padding: const EdgeInsets.only(right: 16, bottom: 16),
-                    child: ScrollDownButton(
-                      atBottom: value,
-                      heroTag: heroTag ?? 'scroll_down',
-                      onPressed: onJumpToBottom,
-                    ),
+            builder: (_, value, _) {
+              final button = Align(
+                alignment: Alignment.bottomRight,
+                child: Padding(
+                  padding: const EdgeInsets.only(right: 16, bottom: 16),
+                  child: ScrollDownButton(
+                    atBottom: value,
+                    heroTag: heroTag ?? 'scroll_down',
+                    onPressed: onJumpToBottom,
                   ),
                 ),
-              ),
-            ),
+              );
+              return Positioned.fill(
+                child: clearsIsland
+                    ? IslandInset(page: islandPage, child: button)
+                    : button,
+              );
+            },
           ),
       ],
     );

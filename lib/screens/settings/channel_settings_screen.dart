@@ -44,7 +44,11 @@ class _ChannelSettingsScreenState extends State<ChannelSettingsScreen> {
   }
 
   void _addChannelDialog() {
-    showJoinChannelDialog(context, onJoin: (c) => widget.onAddChannel?.call(c));
+    showAddChannelsDialog(
+      context,
+      isJoined: widget.channelNotifier.value.contains,
+      onAdd: (c) => widget.onAddChannel?.call(c),
+    );
   }
 
   @override
@@ -80,10 +84,10 @@ class _ChannelSettingsScreenState extends State<ChannelSettingsScreen> {
                 onLeave: (c) => widget.onLeaveChannel?.call(c),
                 onEdit: widget.onRenameChannel == null
                     ? null
-                    : (c) => showJoinChannelDialog(
+                    : (c) => showEditChannelDialog(
                         context,
-                        initial: c,
-                        onJoin: (to) => widget.onRenameChannel!(c, to),
+                        channel: c,
+                        onSave: (to) => widget.onRenameChannel!(c, to),
                       ),
               ),
             ),
@@ -94,7 +98,7 @@ class _ChannelSettingsScreenState extends State<ChannelSettingsScreen> {
                   ? null
                   : _addChannelDialog,
               icon: const Icon(Icons.add),
-              label: Text(context.l10n.joinChannel),
+              label: Text(context.l10n.addChannels),
             ),
           ),
         ],

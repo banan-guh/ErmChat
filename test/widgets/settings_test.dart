@@ -200,31 +200,34 @@ void main() {
       (WidgetTester tester) async {
         {
           SharedPreferences.setMockInitialValues({});
-          String? addedChannel;
+          final added = <String>[];
 
           await tester.pumpWidget(
             MaterialApp(
               key: UniqueKey(),
               home: ChannelSettingsScreen(
                 channelNotifier: ValueNotifier([]),
-                onAddChannel: (ch) => addedChannel = ch,
+                onAddChannel: added.add,
               ),
             ),
           );
           await tester.pump();
 
-          await tester.tap(find.text('Join channel', skipOffstage: false));
+          await tester.tap(find.text('Add channels', skipOffstage: false));
           await tester.pumpAndSettle();
 
-          expect(find.text('Join channel', skipOffstage: false), findsWidgets);
+          expect(find.text('Add channels', skipOffstage: false), findsWidgets);
           expect(find.text('Cancel', skipOffstage: false), findsOneWidget);
-          expect(find.text('Join', skipOffstage: false), findsOneWidget);
+          expect(find.text('Add', skipOffstage: false), findsOneWidget);
 
-          await tester.enterText(find.byType(TextField).last, 'newchannel');
-          await tester.tap(find.text('Join', skipOffstage: false).last);
+          await tester.enterText(
+            find.byType(TextField).last,
+            'newchannel, second channel',
+          );
+          await tester.tap(find.text('Add', skipOffstage: false).last);
           await tester.pumpAndSettle();
 
-          expect(addedChannel, 'newchannel');
+          expect(added, ['newchannel', 'second', 'channel']);
         }
         {
           SharedPreferences.setMockInitialValues({});
@@ -251,16 +254,16 @@ void main() {
           );
           await tester.pumpAndSettle();
 
-          // At the cap the Join channel button is disabled, so tapping it opens no
+          // At the cap the Add channels button is disabled, so tapping it opens no
           // dialog and never fires onAddChannel.
-          final joinFinder = find.text('Join channel', skipOffstage: false);
+          final joinFinder = find.text('Add channels', skipOffstage: false);
           expect(joinFinder, findsOneWidget);
           expect(
             tester
                 .widget<OutlinedButton>(
                   find.widgetWithText(
                     OutlinedButton,
-                    'Join channel',
+                    'Add channels',
                     skipOffstage: false,
                   ),
                 )

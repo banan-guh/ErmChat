@@ -122,7 +122,7 @@ extension on ChromeAction {
   };
 
   String label(AppLocalizations l) => switch (this) {
-    ChromeAction.join => l.joinChannel,
+    ChromeAction.join => l.addChannels,
     ChromeAction.mentions => l.sectionMentions,
     ChromeAction.threads => l.threads,
     ChromeAction.settings => l.settingsTitle,

@@ -96,10 +96,10 @@ void main() {
     );
     await tester.pump();
     for (final channel in ['vedal987', 'camila']) {
-      await tester.tap(find.byTooltip('Join channel').first);
+      await tester.tap(find.byTooltip('Add channels').first);
       await tester.pumpAndSettle();
       await tester.enterText(find.byType(TextField).last, channel);
-      await tester.tap(find.text('Join', skipOffstage: false));
+      await tester.tap(find.text('Add', skipOffstage: false));
       await tester.pumpAndSettle();
       irc.triggerConnect();
       read.triggerConnect();

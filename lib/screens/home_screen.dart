@@ -627,6 +627,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     openSplit: _openSplit,
     closeSplit: _closeSplit,
     focusSplitPane: _focusSplitPane,
+    swipeSplitPane: _swipeSplitPane,
     messageNotifier: _messageNotifier,
     atBottomNotifier: _atBottomNotifier,
     scrollCtrl: _scrollCtrl,
@@ -762,6 +763,29 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     final index = _chat.names.indexOf(channel);
     if (index < 0) return;
     _commitChannelSelection(index, rebuild: true);
+  }
+
+  /// Moves [pane]'s channel one tab over, keeping the other pane fixed. The
+  /// pair never shows the same channel twice.
+  void _swipeSplitPane(String pane, int delta) {
+    final names = _chat.names;
+    final index = names.indexOf(pane);
+    if (index < 0) return;
+    final target = (index + delta).clamp(0, names.length - 1);
+    if (target == index) return;
+    final next = names[target];
+    final other = pane == _splitFirst ? _splitSecond : _splitFirst;
+    if (next == other) return;
+    setState(() {
+      if (_splitFirst == pane) {
+        _splitFirst = next;
+      } else {
+        _splitSecond = next;
+      }
+    });
+    _channelManager.commitChannelSelection(target, rebuild: true);
+    _search.syncFieldTo(selectedChannel);
+    _mod.syncTermsToSelected();
   }
 
   Future<void> _addChannel(String channel, {bool focus = true}) {
@@ -1780,7 +1804,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   }
 
   void _addChannelDialog() {
-    showJoinChannelDialog(context, onJoin: _addChannel);
+    showAddChannelsDialog(
+      context,
+      isJoined: _chat.contains,
+      onAdd: _addChannel,
+    );
   }
 
   /// Puts the chrome into edit mode on a draft of the current layout.
