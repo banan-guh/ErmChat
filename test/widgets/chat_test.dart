@@ -1352,6 +1352,116 @@ void main() {
     expect(find.textContaining('noise', skipOffstage: false), findsOneWidget);
   });
 
+  // The complaint this covers: a reply sent from a thread whose rows have
+  // left the live buffer never showed up in the open panel.
+  testWidgets('An old thread shows a sent reply', (WidgetTester tester) async {
+    SharedPreferences.setMockInitialValues({'access_token': 'test_token'});
+    FlutterSecureStorage.setMockInitialValues({
+      'accounts': '[{"login":"me","user_id":"42","access_token":"test_token"}]',
+      'active_login': 'me',
+    });
+    final irc = _RecordingIrcService();
+    final ircRead = FakeIrcReadService();
+    await tester.pumpWidget(
+      TwitchChatApp(
+        key: UniqueKey(),
+        eventSubService: FakeEventSubService(),
+        ircService: irc,
+        ircReadService: ircRead,
+        recentMessagesService: ConfigurableRecentMessagesService(const []),
+      ),
+    );
+    await tester.pump();
+    await tester.tap(find.byTooltip('Add channels'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).last, 'a');
+    await tester.tap(find.text('Add', skipOffstage: false));
+    await tester.pump();
+    irc.triggerConnect();
+    ircRead.triggerConnect();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 600));
+    irc.triggerJoin('a');
+    ircRead.triggerJoin('a');
+    await tester.pump();
+
+    // The thread index knows the thread, but the live buffer does not hold its
+    // rows, like a thread reopened from the archive.
+    final chat = ProviderScope.containerOf(
+      tester.element(find.byType(HomeScreen)),
+      listen: false,
+    ).read(chatProvider);
+    final now = DateTime.now();
+    final root = TwitchMessage(
+      login: 'alice',
+      text: 'old thread root',
+      messageId: 'p1',
+      timestamp: now.subtract(const Duration(minutes: 3)),
+      channel: 'a',
+    );
+    TwitchMessage reply(String id, int minutes) => TwitchMessage(
+      login: 'bob',
+      text: 'old $id',
+      messageId: id,
+      replyToParentId: 'p1',
+      replyThreadRootId: 'p1',
+      replyToUser: 'alice',
+      replyToText: 'old thread root',
+      timestamp: now.subtract(Duration(minutes: minutes)),
+      channel: 'a',
+    );
+    // Replies first so the entry exists when the root arrives; all three stay
+    // out of the live buffer.
+    chat.channelFor('a')!.threads.index([
+      reply('c1', 2),
+      reply('c2', 1),
+      root,
+    ], lookupRoot: (_) => null);
+    await tester.pump();
+
+    // Open it from the dashboard's Active tab.
+    await tester.tap(find.byTooltip('Threads'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Active', skipOffstage: false));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.textContaining('old thread root', skipOffstage: false),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.enterText(
+      find.byKey(const Key('message_input')),
+      'old thread reply',
+    );
+    await tester.tap(find.byIcon(Icons.send));
+    await tester.pumpAndSettle();
+
+    expect(irc.sent, isNotEmpty);
+    expect(irc.sent.last.text, 'old thread reply');
+    final parentId = irc.sent.last.replyParent;
+    expect(parentId, isNotNull);
+
+    // Twitch's echo of the reply carries only the parent tag, and that parent
+    // never entered the live buffer.
+    ircRead.emitMessage(
+      TwitchMessage(
+        login: 'me',
+        text: 'old thread reply',
+        messageId: 'm1',
+        replyToParentId: parentId,
+        timestamp: now,
+        channel: 'a',
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.textContaining('old thread reply', skipOffstage: false),
+      findsNWidgets(2),
+      reason: 'the open thread must show a reply sent from it',
+    );
+  });
+
   testWidgets('Message timestamps render by default and hide when disabled', (
     WidgetTester tester,
   ) async {

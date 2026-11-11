@@ -103,13 +103,16 @@ class Threads {
       ..addAll(next);
   }
 
+  /// [own] marks the account's own echo, whose missing parent may resolve to
+  /// the open thread's pinned root.
   void index(
     Iterable<TwitchMessage> msgs, {
     TwitchMessage? Function(String rootId)? lookupRoot,
+    bool own = false,
   }) {
     var changed = false;
     for (final msg in msgs) {
-      if (_indexOne(msg, lookupRoot)) changed = true;
+      if (_indexOne(msg, lookupRoot, own)) changed = true;
     }
     if (!changed) return;
     _enforceCap();
@@ -119,10 +122,11 @@ class Threads {
   bool _indexOne(
     TwitchMessage msg,
     TwitchMessage? Function(String rootId)? lookupRoot,
+    bool own,
   ) {
     final id = msg.messageId;
     if (id == null || msg.isSystem) return false;
-    final rootId = _resolveRootId(msg, lookupRoot);
+    final rootId = _resolveRootId(msg, lookupRoot, own);
 
     if (rootId == null || rootId == id) {
       final entry = _threads[id];
@@ -162,6 +166,7 @@ class Threads {
   String? _resolveRootId(
     TwitchMessage msg,
     TwitchMessage? Function(String rootId)? lookupRoot,
+    bool own,
   ) {
     final explicit = msg.replyThreadRootId;
     final parentId = msg.replyToParentId;
@@ -178,12 +183,22 @@ class Threads {
         return current;
       }
       final parent = lookupRoot?.call(current);
-      if (parent == null) return current;
+      if (parent == null) return _rootOutsideBuffer(current, own: own);
       final next = parent.replyToParentId;
       if (next == null) return parent.messageId ?? current;
       current = next;
     }
     return current ?? explicit;
+  }
+
+  /// A parent the buffer no longer holds: a reply the index still tracks names
+  /// its thread; an own echo falls back to the open thread's pinned root.
+  String _rootOutsideBuffer(String messageId, {required bool own}) {
+    for (final entry in _threads.entries) {
+      if (entry.value.hasMessage(messageId)) return entry.key;
+    }
+    if (own && _pinnedMessageIds.length == 1) return _pinnedMessageIds.first;
+    return messageId;
   }
 
   /// Drops the oldest unheld threads over the cap. Returns true when any

@@ -180,6 +180,87 @@ void main() {
       );
     });
 
+    test('a reply whose parent left the buffer joins the tracked thread', () {
+      final chat = _tickingChat(DateTime(2026, 1, 1));
+      addTearDown(chat.dispose);
+      final channel = chat.channelFor('test')!;
+      final root = _root('r1');
+      final parent = _reply('c1', 'r1');
+      final byId = {
+        for (final m in [root, parent]) m.messageId!: m,
+      };
+      channel.threads.index([root, parent], lookupRoot: (id) => byId[id]);
+
+      // The buffer evicted the thread; the echo of a reply to c1 carries only
+      // reply-parent-msg-id, which the codec stores as the thread root too.
+      final before = channel.threads.version.value;
+      channel.threads.index([
+        _fallbackReply('m1', 'c1'),
+      ], lookupRoot: (_) => null);
+
+      expect(
+        channel.threads.threadFor('r1')!.map((m) => m.messageId),
+        contains('m1'),
+        reason: 'a reply to a tracked reply belongs to the tracked thread',
+      );
+      expect(
+        channel.threads.threadFor('c1'),
+        isNull,
+        reason: 'the parent is not a thread root',
+      );
+      expect(
+        channel.threads.version.value,
+        greaterThan(before),
+        reason: 'the open thread must be told to refresh',
+      );
+    });
+
+    test('a reply to an archive-only row joins the pinned thread root', () {
+      final chat = _tickingChat(DateTime(2026, 1, 1));
+      addTearDown(chat.dispose);
+      final channel = chat.channelFor('test')!;
+      channel.threads.pin('r1');
+
+      channel.threads.index(
+        [_fallbackReply('m1', 'c1')],
+        lookupRoot: (_) => null,
+        own: true,
+      );
+
+      expect(
+        channel.threads.threadFor('r1')!.map((m) => m.messageId),
+        contains('m1'),
+        reason:
+            'the open thread root owns a reply whose parent left the buffer',
+      );
+      expect(
+        channel.threads.threadFor('c1'),
+        isNull,
+        reason: 'the dead-end parent is not a thread root',
+      );
+    });
+
+    test('a foreign reply to an unknown parent keeps its own root', () {
+      final chat = _tickingChat(DateTime(2026, 1, 1));
+      addTearDown(chat.dispose);
+      final channel = chat.channelFor('test')!;
+      channel.threads.pin('r1');
+
+      channel.threads.index([
+        _fallbackReply('m1', 'c1'),
+      ], lookupRoot: (_) => null);
+
+      expect(
+        channel.threads.threadFor('r1'),
+        isNull,
+        reason: 'only an own echo falls back to the open thread root',
+      );
+      expect(
+        channel.threads.threadFor('c1')!.map((m) => m.messageId),
+        contains('m1'),
+      );
+    });
+
     test('decayed threads with no replies left drop out', () {
       final chat = _tickingChat(DateTime(2026, 1, 1));
       addTearDown(chat.dispose);
