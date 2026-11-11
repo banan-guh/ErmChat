@@ -330,9 +330,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 
   final _selectedTabIndex = ValueNotifier<int>(0);
 
-  /// Split chat's two fixed pane slots, by channel; null when it is off.
+  /// Split chat's two fixed pane slots, by channel; null when it is off. The
+  /// slots may hold the same channel so each can keep its own scroll.
   String? _splitFirst;
   String? _splitSecond;
+
+  /// Which split slot owns the focus and the composer.
+  int _splitActive = 0;
 
   late final _panelManager = PanelManager(
     vsync: this,
@@ -702,21 +706,24 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     final next = index >= 0 && index < _chat.names.length
         ? _chat.names[index]
         : null;
-    final previous = selectedChannel;
     if (_splitFirst != null) {
       final split = _splitPair();
       if (split == null) {
         // An add, a removal or a rejoin left the pair behind.
         _splitFirst = null;
         _splitSecond = null;
-      } else if (next != null && next != previous) {
-        // A tab outside the pair replaces the pane that had the focus; a pair
-        // member just takes it, leaving both slots where they are.
-        final inPair = next == split.first || next == split.second;
-        if (!inPair) {
-          if (previous == split.first) {
+        _splitActive = 0;
+      } else if (next != null) {
+        // A pair member takes the focus; a tab outside the pair replaces the
+        // pane that had it.
+        if (next == split.first && next != split.second) {
+          _splitActive = 0;
+        } else if (next == split.second && next != split.first) {
+          _splitActive = 1;
+        } else if (next != split.first && next != split.second) {
+          if (_splitActive == 0) {
             _splitFirst = next;
-          } else if (previous == split.second) {
+          } else {
             _splitSecond = next;
           }
         }
@@ -728,25 +735,25 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   }
 
   /// The pair split chat shows, only while both slots are joined and one of
-  /// them holds the selection.
+  /// them holds the selection. Both slots may hold the same channel.
   SplitPair? _splitPair() {
     final first = _splitFirst;
     final second = _splitSecond;
-    if (first == null || second == null || first == second) return null;
+    if (first == null || second == null) return null;
     if (!_chat.contains(first) || !_chat.contains(second)) return null;
     final selected = selectedChannel;
     if (selected != first && selected != second) return null;
-    return (first: first, second: second);
+    final active = _splitActive == 1 ? 1 : 0;
+    return (first: first, second: second, active: active);
   }
 
   void _openSplit(String channel) {
     final selected = selectedChannel;
-    if (selected == null || channel == selected || !_chat.contains(channel)) {
-      return;
-    }
+    if (selected == null || !_chat.contains(channel)) return;
     setState(() {
       _splitFirst = selected;
       _splitSecond = channel;
+      _splitActive = 0;
     });
   }
 
@@ -755,33 +762,43 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     setState(() {
       _splitFirst = null;
       _splitSecond = null;
+      _splitActive = 0;
     });
   }
 
-  void _focusSplitPane(String channel) {
-    if (selectedChannel == channel) return;
+  void _focusSplitPane(int slot) {
+    if (_splitActive == slot) return;
+    final channel = slot == 0 ? _splitFirst : _splitSecond;
+    if (channel == null) return;
     final index = _chat.names.indexOf(channel);
     if (index < 0) return;
+    // Same channel in both slots: the selection does not move, so only the
+    // focus marker changes.
+    if (selectedChannel == channel) {
+      setState(() => _splitActive = slot);
+      return;
+    }
     _commitChannelSelection(index, rebuild: true);
   }
 
-  /// Moves [pane]'s channel one tab over, keeping the other pane fixed. The
-  /// pair never shows the same channel twice.
-  void _swipeSplitPane(String pane, int delta) {
+  /// Moves [slot]'s channel one tab over, keeping the other pane fixed. Both
+  /// panes may end up on the same channel.
+  void _swipeSplitPane(int slot, int delta) {
+    final pane = slot == 0 ? _splitFirst : _splitSecond;
+    if (pane == null) return;
     final names = _chat.names;
     final index = names.indexOf(pane);
     if (index < 0) return;
     final target = (index + delta).clamp(0, names.length - 1);
     if (target == index) return;
     final next = names[target];
-    final other = pane == _splitFirst ? _splitSecond : _splitFirst;
-    if (next == other) return;
     setState(() {
-      if (_splitFirst == pane) {
+      if (slot == 0) {
         _splitFirst = next;
       } else {
         _splitSecond = next;
       }
+      _splitActive = slot;
     });
     _channelManager.commitChannelSelection(target, rebuild: true);
     _search.syncFieldTo(selectedChannel);
@@ -807,11 +824,18 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 
   void _disposeChannelNotifiers(String channel) {
     _scrollControllers.remove(channel)?.dispose();
+    for (final slot in const [0, 1]) {
+      _scrollControllers.remove('$channel#split$slot')?.dispose();
+    }
     _channels.forgetChannel(channel);
   }
 
-  void _forgetAtBottomNotifier(String channel) =>
-      _atBottomNotifiers.remove(channel)?.dispose();
+  void _forgetAtBottomNotifier(String channel) {
+    _atBottomNotifiers.remove(channel)?.dispose();
+    for (final slot in const [0, 1]) {
+      _atBottomNotifiers.remove('$channel#split$slot')?.dispose();
+    }
+  }
 
   @override
   void initState() {

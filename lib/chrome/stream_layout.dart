@@ -266,7 +266,12 @@ class StreamPanels {
                 child: Column(
                   children: [
                     Expanded(
-                      child: channels.channelStack(context, hideChrome: true),
+                      child: channels.channelStack(
+                        context,
+                        hideChrome: true,
+                        keyboardOpen:
+                            MediaQuery.viewInsetsOf(context).bottom > 0,
+                      ),
                     ),
                     const ComposerPaneSlot(),
                   ],
@@ -360,6 +365,8 @@ class StreamPanels {
                         child: channels.channelStack(
                           context,
                           hideChrome: hideChrome,
+                          keyboardOpen:
+                              MediaQuery.viewInsetsOf(context).bottom > 0,
                         ),
                       ),
                       const ComposerPaneSlot(),
@@ -474,6 +481,7 @@ class StreamPanels {
           hideChrome: hideChrome,
           merged: merged,
           underStream: channel != null,
+          keyboardOpen: keyboardH > 0,
         ),
       ],
     );

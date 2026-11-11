@@ -1655,6 +1655,80 @@ void main() {
     expect(find.byType(PageView), findsOneWidget);
   });
 
+  testWidgets(
+    'split can show one channel twice with the inactive pane dimmed',
+    (tester) async {
+      tester.view.physicalSize = const Size(1080, 2340);
+      tester.view.devicePixelRatio = 3.0;
+      addTearDown(tester.view.reset);
+      SharedPreferences.setMockInitialValues({
+        'access_token': 'test_token',
+        'channels': ['a'],
+      });
+      FlutterSecureStorage.setMockInitialValues({
+        'accounts':
+            '[{"login":"me","user_id":"42","access_token":"test_token"}]',
+        'active_login': 'me',
+      });
+      final irc = FakeIrcService();
+      final read = FakeIrcReadService();
+
+      await tester.pumpWidget(
+        TwitchChatApp(
+          key: UniqueKey(),
+          eventSubService: FakeEventSubService(),
+          ircService: irc,
+          ircReadService: read,
+          recentMessagesService: ScriptedRecentMessagesService([]),
+        ),
+      );
+      await tester.pumpAndSettle();
+      irc.triggerConnect();
+      read.triggerConnect();
+      irc.triggerJoin('a');
+      read.triggerJoin('a');
+      await tester.pump(const Duration(milliseconds: 600));
+
+      // Holding the active tab splits it against itself.
+      await tester.longPress(find.text('a'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Open in split'));
+      await tester.pumpAndSettle();
+      expect(find.text('#a'), findsNWidgets(2));
+
+      double opacityOf(Finder header) => tester
+          .widget<AnimatedOpacity>(
+            find
+                .ancestor(of: header, matching: find.byType(AnimatedOpacity))
+                .first,
+          )
+          .opacity;
+
+      bool absorbingOf(Finder header) => tester
+          .widget<AbsorbPointer>(
+            find
+                .ancestor(of: header, matching: find.byType(AbsorbPointer))
+                .first,
+          )
+          .absorbing;
+
+      final upper = find.text('#a').first;
+      final lower = find.text('#a').last;
+      expect(opacityOf(upper), 1.0);
+      expect(opacityOf(lower), 0.7);
+      expect(absorbingOf(upper), isFalse);
+      expect(absorbingOf(lower), isTrue);
+
+      // Touching the dimmed half focuses it; its widgets become reachable.
+      await tester.tap(lower);
+      await tester.pumpAndSettle();
+      expect(opacityOf(upper), 0.7);
+      expect(opacityOf(lower), 1.0);
+      expect(absorbingOf(upper), isTrue);
+      expect(absorbingOf(lower), isFalse);
+    },
+  );
+
   testWidgets('Reconnect refetch shows gaps and merges in order', (
     WidgetTester tester,
   ) async {
