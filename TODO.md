@@ -27,7 +27,7 @@ Picked for a mobile chat client from Chatterino, DankChat, Chatsen, Frosty, Lime
 - [ ] **Accessibility** - TalkBack / VoiceOver labels and actions; reduce-motion.
 - [ ] **Live notifications for followed channels** - needs background polling on Android and a push server on iOS.
 - [ ] **Merged feed** - all channels in one list with channel tags. Niche on a phone.
-- [ ] **Dual-pane view** - read two channels side by side (tablets / foldables).
+- [+] **Dual-pane view** - read two channels side by side.
 - [ ] **Stream title / category edit** - for streamers using ermchat as a mod tool.
 
 Skipped from the survey: emoji picker (the keyboard has one), follow/unfollow, prediction betting, poll voting, auto-claim (private API only), revealing deleted messages, desktop-only tools (file logging, keyboard mod mode, JSON themes, filter languages), video-app features (VOD downloads, casting, multiview, native quality player).

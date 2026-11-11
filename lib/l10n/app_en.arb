@@ -795,6 +795,8 @@
   "openChannel": "Open channel",
   "editChannel": "Edit channel",
   "removeChannel": "Remove channel",
+  "splitChannel": "Open in split",
+  "closeSplit": "Close split",
   "removeChannelConfirm": "Remove #{channel}?",
   "@removeChannelConfirm": {
     "placeholders": {

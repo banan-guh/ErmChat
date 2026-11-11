@@ -167,6 +167,13 @@ class TabbedLayout extends StatefulWidget {
   /// Slot between the tab strip and the pages (stream player dock).
   final Widget? belowTabBar;
 
+  /// Replaces the pager with one fixed view while the strip still selects.
+  /// Split chat keeps both panes mounted and swaps channels through the tabs.
+  final Widget? singlePage;
+
+  /// Holds a channel tab to open its actions.
+  final ValueChanged<int>? onTabLongPress;
+
   static const double minEdgeExclusion = 20.0;
 
   const TabbedLayout({
@@ -194,6 +201,8 @@ class TabbedLayout extends StatefulWidget {
     this.stripBubbles = false,
     this.stripTopInset = 0,
     this.belowTabBar,
+    this.singlePage,
+    this.onTabLongPress,
   });
 
   @override
@@ -263,7 +272,12 @@ class TabbedLayoutState extends State<TabbedLayout>
     _deferredProgrammaticIndex = null;
     _pointerDragging = false;
     // PageController kept across tab-count changes (swap reuses stale ScrollPosition). Only TabController recreated.
-    _pageController ??= PageController(initialPage: idx);
+    if (widget.singlePage != null) {
+      _pageController?.dispose();
+      _pageController = null;
+    } else {
+      _pageController ??= PageController(initialPage: idx);
+    }
     _tabController = TabController(
       length: len + (_hasAddTab ? 1 : 0),
       vsync: this,
@@ -519,6 +533,14 @@ class TabbedLayoutState extends State<TabbedLayout>
   void _goTo(int index) {
     if (index < 0 || index >= _tabLength) return;
     final pc = _pageController;
+    if (widget.singlePage != null) {
+      // A single page answers no swipes, so the strip alone moves.
+      _programmaticTarget = null;
+      _lastReportedIndex = index;
+      _setActiveIndex(index);
+      _tabController?.animateTo(index);
+      return;
+    }
     final page = (pc != null && pc.hasClients) ? pc.page : null;
     if (page != null && page.round() == index) {
       // Zero-distance jump: settle bookkeeping here.
@@ -590,6 +612,10 @@ class TabbedLayoutState extends State<TabbedLayout>
   @override
   void didUpdateWidget(TabbedLayout oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if ((oldWidget.singlePage == null) != (widget.singlePage == null)) {
+      _initControllers();
+      return;
+    }
     if (oldWidget.selectedIndex != widget.selectedIndex ||
         oldWidget.stripBubbles != widget.stripBubbles ||
         oldWidget.showTabBar != widget.showTabBar) {
@@ -752,12 +778,24 @@ class TabbedLayoutState extends State<TabbedLayout>
                                         tabs: [
                                           for (var i = 0; i < tabs.length; i++)
                                             Tab(
-                                              child:
-                                                  widget.tabBuilder?.call(
-                                                    context,
-                                                    i,
-                                                  ) ??
-                                                  Text(tabs[i]),
+                                              // The TabBar's own InkWell sits
+                                              // outside this one, so forwarding
+                                              // the tap keeps selection native.
+                                              child: InkWell(
+                                                onTap: () => _onTabTap(i),
+                                                onLongPress:
+                                                    widget.onTabLongPress ==
+                                                        null
+                                                    ? null
+                                                    : () => widget
+                                                          .onTabLongPress!(i),
+                                                child:
+                                                    widget.tabBuilder?.call(
+                                                      context,
+                                                      i,
+                                                    ) ??
+                                                    Text(tabs[i]),
+                                              ),
                                             ),
                                           if (_hasAddTab)
                                             Tab(child: widget.addTab),
@@ -838,30 +876,32 @@ class TabbedLayoutState extends State<TabbedLayout>
       children: [
         NotificationListener<ScrollNotification>(
           onNotification: _onPageNotification,
-          child: ScrollConfiguration(
-            behavior: _SwipeScrollBehavior().copyWith(
-              dragDevices: {
-                PointerDeviceKind.touch,
-                PointerDeviceKind.mouse,
-                PointerDeviceKind.stylus,
-                PointerDeviceKind.unknown,
-              },
-            ),
-            child: PageView.builder(
-              controller: _pageController,
-              physics: widget.fastSnap
-                  ? const _SnapPhysics()
-                  : const PageScrollPhysics(),
-              // Keep adjacent pages built so manual swipes stay smooth;
-              // background pages pause through the disabled TickerMode.
-              allowImplicitScrolling: widget.preloadAdjacentPages,
-              itemCount: tabs.length,
-              itemBuilder: (context, i) => TickerMode(
-                enabled: i == _activeIndex,
-                child: widget.pageBuilder(context, i),
-              ),
-            ),
-          ),
+          child: widget.singlePage != null
+              ? TickerMode(enabled: true, child: widget.singlePage!)
+              : ScrollConfiguration(
+                  behavior: _SwipeScrollBehavior().copyWith(
+                    dragDevices: {
+                      PointerDeviceKind.touch,
+                      PointerDeviceKind.mouse,
+                      PointerDeviceKind.stylus,
+                      PointerDeviceKind.unknown,
+                    },
+                  ),
+                  child: PageView.builder(
+                    controller: _pageController,
+                    physics: widget.fastSnap
+                        ? const _SnapPhysics()
+                        : const PageScrollPhysics(),
+                    // Keep adjacent pages built so manual swipes stay smooth;
+                    // background pages pause through the disabled TickerMode.
+                    allowImplicitScrolling: widget.preloadAdjacentPages,
+                    itemCount: tabs.length,
+                    itemBuilder: (context, i) => TickerMode(
+                      enabled: i == _activeIndex,
+                      child: widget.pageBuilder(context, i),
+                    ),
+                  ),
+                ),
         ),
         Positioned(
           left: 0,

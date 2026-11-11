@@ -959,4 +959,42 @@ void main() {
       );
     });
   });
+
+  group('TabbedLayout single page', () {
+    testWidgets('the strip selects while one fixed view stays mounted', (
+      tester,
+    ) async {
+      final selected = ValueNotifier<int>(0);
+      final reported = <int>[];
+      addTearDown(selected.dispose);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: ListenableBuilder(
+              listenable: selected,
+              builder: (_, _) => TabbedLayout(
+                tabs: const ['a', 'b', 'c'],
+                selectedIndex: selected.value,
+                onSelectedIndexChanged: (i) {
+                  reported.add(i);
+                  selected.value = i;
+                },
+                pageBuilder: (_, _) => const SizedBox.shrink(),
+                singlePage: const Text('split'),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('split'), findsOneWidget);
+      expect(find.byType(PageView), findsNothing);
+
+      await tester.tap(find.text('b'));
+      await tester.pumpAndSettle();
+      expect(reported, [1]);
+      expect(find.text('split'), findsOneWidget);
+    });
+  });
 }

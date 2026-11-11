@@ -1569,6 +1569,68 @@ void main() {
     expect(prefs.getStringList('channels'), ['a', 'c']);
   });
 
+  testWidgets('split chat focuses the pane the composer sends to', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({
+      'access_token': 'test_token',
+      'channels': ['a', 'b'],
+    });
+    FlutterSecureStorage.setMockInitialValues({
+      'accounts': '[{"login":"me","user_id":"42","access_token":"test_token"}]',
+      'active_login': 'me',
+    });
+    final irc = _RecordingIrcService();
+    final read = FakeIrcReadService();
+
+    await tester.pumpWidget(
+      TwitchChatApp(
+        key: UniqueKey(),
+        eventSubService: FakeEventSubService(),
+        ircService: irc,
+        ircReadService: read,
+        recentMessagesService: ScriptedRecentMessagesService([]),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    irc.triggerConnect();
+    read.triggerConnect();
+    for (final channel in ['a', 'b']) {
+      irc.triggerJoin(channel);
+      read.triggerJoin(channel);
+    }
+    await tester.pump(const Duration(milliseconds: 600));
+
+    // 'a' starts selected, so split with the other tab.
+    await tester.longPress(find.text('b'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Open in split'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('#a'), findsOneWidget);
+    expect(find.text('#b'), findsOneWidget);
+
+    // Touching the lower pane aims the composer at its channel.
+    await tester.tap(find.text('#b'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const Key('message_input')), 'hello b');
+    await tester.tap(find.byIcon(Icons.send), warnIfMissed: false);
+    await tester.pump();
+
+    expect(irc.sent, isNotEmpty);
+    expect(
+      irc.sent.any((e) => e.channel == 'b' && e.text == 'hello b'),
+      isTrue,
+    );
+
+    // The second header's close returns to the pager.
+    await tester.tap(find.byTooltip('Close split'));
+    await tester.pumpAndSettle();
+    expect(find.text('#b'), findsNothing);
+    expect(find.byType(PageView), findsOneWidget);
+  });
+
   testWidgets('Reconnect refetch shows gaps and merges in order', (
     WidgetTester tester,
   ) async {

@@ -330,6 +330,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 
   final _selectedTabIndex = ValueNotifier<int>(0);
 
+  /// Split chat's two fixed pane slots, by channel; null when it is off.
+  String? _splitFirst;
+  String? _splitSecond;
+
   late final _panelManager = PanelManager(
     vsync: this,
     markDirty: () {
@@ -441,7 +445,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     onUserBlocked: (login) =>
         _commandHandler.notifyUserBlockChanged(login, blocked: true),
     showWhispersForUser: (login) => _mentions.showWhispersForUser(login),
-    onOpenChannel: (login) => _channelManager.addChannel(login),
+    onOpenChannel: (login) => _addChannel(login),
     copyMessage: _copyMessageToClipboard,
     prefs: ref.read(prefsProvider),
     archiveReader: ref.read(archiveProvider)?.reader,
@@ -617,9 +621,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     fastSnap: () => _fastSnap,
     commitChannelSelection: _commitChannelSelection,
     copyMessage: _copyMessageToClipboard,
-    removeChannel: (channel) => _channelManager.removeChannel(channel),
-    renameChannel: (from, to) =>
-        unawaited(_channelManager.renameChannel(from, to)),
+    removeChannel: _removeChannel,
+    renameChannel: _renameChannel,
+    splitPair: _splitPair,
+    openSplit: _openSplit,
+    closeSplit: _closeSplit,
+    focusSplitPane: _focusSplitPane,
     messageNotifier: _messageNotifier,
     atBottomNotifier: _atBottomNotifier,
     scrollCtrl: _scrollCtrl,
@@ -691,9 +698,85 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   }
 
   void _commitChannelSelection(int index, {required bool rebuild}) {
+    final next = index >= 0 && index < _chat.names.length
+        ? _chat.names[index]
+        : null;
+    final previous = selectedChannel;
+    if (_splitFirst != null) {
+      final split = _splitPair();
+      if (split == null) {
+        // An add, a removal or a rejoin left the pair behind.
+        _splitFirst = null;
+        _splitSecond = null;
+      } else if (next != null && next != previous) {
+        // A tab outside the pair replaces the pane that had the focus; a pair
+        // member just takes it, leaving both slots where they are.
+        final inPair = next == split.first || next == split.second;
+        if (!inPair) {
+          if (previous == split.first) {
+            _splitFirst = next;
+          } else if (previous == split.second) {
+            _splitSecond = next;
+          }
+        }
+      }
+    }
     _channelManager.commitChannelSelection(index, rebuild: rebuild);
     _search.syncFieldTo(selectedChannel);
     _mod.syncTermsToSelected();
+  }
+
+  /// The pair split chat shows, only while both slots are joined and one of
+  /// them holds the selection.
+  SplitPair? _splitPair() {
+    final first = _splitFirst;
+    final second = _splitSecond;
+    if (first == null || second == null || first == second) return null;
+    if (!_chat.contains(first) || !_chat.contains(second)) return null;
+    final selected = selectedChannel;
+    if (selected != first && selected != second) return null;
+    return (first: first, second: second);
+  }
+
+  void _openSplit(String channel) {
+    final selected = selectedChannel;
+    if (selected == null || channel == selected || !_chat.contains(channel)) {
+      return;
+    }
+    setState(() {
+      _splitFirst = selected;
+      _splitSecond = channel;
+    });
+  }
+
+  void _closeSplit() {
+    if (_splitFirst == null) return;
+    setState(() {
+      _splitFirst = null;
+      _splitSecond = null;
+    });
+  }
+
+  void _focusSplitPane(String channel) {
+    if (selectedChannel == channel) return;
+    final index = _chat.names.indexOf(channel);
+    if (index < 0) return;
+    _commitChannelSelection(index, rebuild: true);
+  }
+
+  Future<void> _addChannel(String channel, {bool focus = true}) {
+    _closeSplit();
+    return _channelManager.addChannel(channel, focus: focus);
+  }
+
+  void _removeChannel(String channel) {
+    if (_splitFirst == channel || _splitSecond == channel) _closeSplit();
+    _channelManager.removeChannel(channel);
+  }
+
+  void _renameChannel(String from, String to) {
+    if (_splitFirst == from || _splitSecond == from) _closeSplit();
+    unawaited(_channelManager.renameChannel(from, to));
   }
 
   void _mutate(void Function() fn) => setState(fn);
@@ -868,7 +951,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
             FadeTransition(opacity: animation, child: child),
         pageBuilder: (_, _, _) => IntroScreen(
           twitchAuth: _twitchAuth,
-          onJoinChannel: (c) => _channelManager.addChannel(c, focus: false),
+          onJoinChannel: (c) => _addChannel(c, focus: false),
           mentionPush: ref.read(mentionPushProvider),
           onMentionPushChanged: _setMentionPush,
         ),
@@ -1697,7 +1780,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   }
 
   void _addChannelDialog() {
-    showJoinChannelDialog(context, onJoin: _channelManager.addChannel);
+    showJoinChannelDialog(context, onJoin: _addChannel);
   }
 
   /// Puts the chrome into edit mode on a draft of the current layout.
@@ -1787,11 +1870,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
           onEditLayout: () => _editLayoutPending = true,
           mobileNotifier: _isMobile,
           channelNotifier: _channelNotifier,
-          onLeaveChannel: _channelManager.removeChannel,
-          onAddChannel: _channelManager.addChannel,
+          onLeaveChannel: _removeChannel,
+          onAddChannel: _addChannel,
           onReorderChannels: _channelManager.reorderChannels,
-          onRenameChannel: (from, to) =>
-              unawaited(_channelManager.renameChannel(from, to)),
+          onRenameChannel: _renameChannel,
           analyticsService: _analytics,
           channels: _chat.names,
           ttsController: _ttsController,
@@ -1888,7 +1970,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     if (_chat.names.contains(channel)) {
       _navigateToChannel(channel);
     } else {
-      unawaited(_channelManager.addChannel(channel));
+      unawaited(_addChannel(channel));
     }
   }
 

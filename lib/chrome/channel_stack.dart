@@ -42,6 +42,9 @@ import '../widgets/design_tokens.dart';
 // Fallback when the channel is gone; never bumps.
 final _emptyNotifier = ValueNotifier<int>(0);
 
+/// The two channels split chat shows, by fixed pane slot.
+typedef SplitPair = ({String first, String second});
+
 // Channel tabs, ChatView stack, welcome view, and selection verbs.
 class ChannelPanels {
   ChannelPanels({
@@ -77,6 +80,10 @@ class ChannelPanels {
     required this.copyMessage,
     required this.removeChannel,
     required this.renameChannel,
+    required this.splitPair,
+    required this.openSplit,
+    required this.closeSplit,
+    required this.focusSplitPane,
     required this.messageNotifier,
     required this.atBottomNotifier,
     required this.scrollCtrl,
@@ -132,6 +139,18 @@ class ChannelPanels {
 
   /// Swaps [from] for [to] at the same tab position.
   final void Function(String from, String to) renameChannel;
+
+  /// The two channels split chat shows, or null when it is off.
+  final SplitPair? Function() splitPair;
+
+  /// Puts [channel] beside the selected one.
+  final void Function(String channel) openSplit;
+
+  /// Leaves split chat.
+  final VoidCallback closeSplit;
+
+  /// Makes [channel]'s pane the one the composer sends to.
+  final void Function(String channel) focusSplitPane;
   final ValueNotifier<int> Function(String channel) messageNotifier;
   final ValueNotifier<bool> Function(String channel) atBottomNotifier;
   final ScrollController Function(String channel) scrollCtrl;
@@ -152,6 +171,10 @@ class ChannelPanels {
   /// Whether the keyboard hid the chrome; the page token and top clearance
   /// follow it.
   bool _hideChrome = false;
+
+  /// Whether the pages area shows split chat, so the panes carry the strip's
+  /// clearance instead of every page.
+  bool _splitMode = false;
 
   /// Whether a stream sits above the strip, so its top inset is zero.
   bool _underStream = false;
@@ -265,19 +288,25 @@ class ChannelPanels {
 
   String _pageToken() =>
       '${homeAppBar.themeSpec().header.name}|${isFullscreen()}|'
-      '$_hideChrome|$_underStream|${search.open}|${showTimestamps()}|'
+      '$_hideChrome|$_underStream|$_splitMode|${search.open}|'
+      '${showTimestamps()}|'
       '${timestampFormat()}|${chatFontSize()}|${checkeredMessages()}|'
       '${highlightOpacity()}|${lineSeparator()}|${sharedChatMode()}|'
       '${showNamePaints()}';
 
   /// Clearance above the oldest row when the bubble strip floats over the
   /// page. Zero for every other header, fullscreen, or hidden chrome.
-  double _bubbleTopPadding(BuildContext context) {
+  double _bubbleClearance(BuildContext context) {
     if (_hideChrome || isFullscreen()) return 0;
     if (homeAppBar.themeSpec().header != HeaderStyle.bubbles) return 0;
     return (_underStream ? 0 : statusBarHeight(context)) +
         TabbedLayout.bubbleStripHeight;
   }
+
+  /// The clearance a page adds itself. Split chat pads its panes once
+  /// instead, so each one does not leave the strip's gap under its header.
+  double _bubbleTopPadding(BuildContext context) =>
+      _splitMode ? 0 : _bubbleClearance(context);
 
   /// Drop cached pages and tabs, forcing rebuild on next channelStack.
   /// Use for future settings that change tile content without a channel
@@ -601,19 +630,40 @@ class ChannelPanels {
       selectedTabIndex: selectedTabIndex,
       selectedChannel: selectedChannel,
       listenable: _tabSharedMerge,
-      onLongPress: () => _showChannelMenu(context, channel),
     );
   }
 
-  /// Edit and remove actions for [channel], held from its tab.
+  /// Edit, split and remove actions for [channel], held from its tab.
   void _showChannelMenu(BuildContext context, String channel) {
     Haptics.press();
+    final split = splitPair();
+    final active = selectedChannel();
+    final inSplit =
+        split != null && (channel == split.first || channel == split.second);
     showModalBottomSheet(
       context: context,
       builder: (ctx) => SafeArea(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            if (channel != active && !inSplit)
+              ListTile(
+                leading: const Icon(Icons.splitscreen),
+                title: Text(ctx.l10n.splitChannel),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  openSplit(channel);
+                },
+              ),
+            if (split != null)
+              ListTile(
+                leading: const Icon(Icons.close),
+                title: Text(ctx.l10n.closeSplit),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  closeSplit();
+                },
+              ),
             ListTile(
               leading: const Icon(Icons.edit_outlined),
               title: Text(ctx.l10n.editChannel),
@@ -647,6 +697,98 @@ class ChannelPanels {
     );
   }
 
+  /// Two chat panes: stacked in portrait, side by side in landscape. The
+  /// first slot carries the strip's clearance once for both.
+  Widget _splitBody(BuildContext context, SplitPair split) {
+    final active = selectedChannel();
+    final portrait = MediaQuery.orientationOf(context) == Orientation.portrait;
+    final first = _splitPane(
+      context,
+      split.first,
+      active: active == split.first,
+      closable: false,
+    );
+    final second = _splitPane(
+      context,
+      split.second,
+      active: active == split.second,
+      closable: true,
+    );
+    final divider = portrait
+        ? const Divider(height: 1, thickness: 1)
+        : const VerticalDivider(width: 1, thickness: 1);
+    return Padding(
+      padding: EdgeInsets.only(top: _bubbleClearance(context)),
+      child: portrait
+          ? Column(children: [first, divider, second])
+          : Row(children: [first, divider, second]),
+    );
+  }
+
+  /// One split pane: its channel header, then its chat. Touching anywhere in
+  /// the pane aims the composer at its channel; the second header closes the
+  /// split.
+  Widget _splitPane(
+    BuildContext context,
+    String channel, {
+    required bool active,
+    required bool closable,
+  }) {
+    final scheme = Theme.of(context).colorScheme;
+    return Expanded(
+      child: Listener(
+        behavior: HitTestBehavior.opaque,
+        onPointerDown: (_) => focusSplitPane(channel),
+        child: Column(
+          children: [
+            Material(
+              color: active ? scheme.surfaceContainerHigh : scheme.surface,
+              child: InkWell(
+                onTap: () => focusSplitPane(channel),
+                child: SizedBox(
+                  height: 28,
+                  child: Row(
+                    children: [
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          '#$channel',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: active
+                                ? scheme.primary
+                                : scheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ),
+                      if (closable)
+                        IconButton(
+                          onPressed: closeSplit,
+                          icon: const Icon(Icons.close, size: 16),
+                          tooltip: context.l10n.closeSplit,
+                          visualDensity: VisualDensity.compact,
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(
+                            minWidth: 32,
+                            minHeight: 28,
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+            Divider(height: 1, thickness: 1, color: scheme.outlineVariant),
+            Expanded(child: _cachedPage(context, channel)),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget channelTabs(
     BuildContext context, {
     required bool hideChrome,
@@ -674,6 +816,8 @@ class ChannelPanels {
   }) {
     _hideChrome = hideChrome;
     _underStream = underStream;
+    final split = splitPair();
+    _splitMode = split != null;
     _dropStaleCaches();
     // The view menu, bell, overflow and settings live in the island's row.
     final showStrip = !isFullscreen() && !hideChrome;
@@ -711,9 +855,14 @@ class ChannelPanels {
                       if (ctrl.hasClients) ctrl.jumpTo(0);
                       atBottomNotifier(channel).value = true;
                     },
+                    onTabLongPress: (index) =>
+                        _showChannelMenu(context, chat.names[index]),
+                    singlePage: split == null
+                        ? null
+                        : _splitBody(context, split),
                     showTabBar: showStrip,
                     fullscreen: isFullscreen(),
-                    pagesOverlay: selectedChannel() == null
+                    pagesOverlay: split != null || selectedChannel() == null
                         ? null
                         : ListenableBuilder(
                             listenable: Listenable.merge([
@@ -930,7 +1079,6 @@ class _ChannelTab extends StatefulWidget {
     required this.selectedTabIndex,
     required this.selectedChannel,
     required this.listenable,
-    required this.onLongPress,
   });
 
   final Chat chat;
@@ -940,9 +1088,6 @@ class _ChannelTab extends StatefulWidget {
 
   /// Merged selection and unread notifier the label reads through.
   final Listenable listenable;
-
-  /// Opens the channel's edit and remove actions.
-  final VoidCallback onLongPress;
 
   @override
   State<_ChannelTab> createState() => _ChannelTabState();
@@ -1023,47 +1168,44 @@ class _ChannelTabState extends State<_ChannelTab>
             ? theme.colorScheme.onSurface
             : null;
         final pulse = selected ? 0.0 : _pulse.value;
-        return InkWell(
-          onLongPress: widget.onLongPress,
-          child: Stack(
-            clipBehavior: Clip.none,
-            children: [
-              SizedBox(
-                width: boldWidth,
-                child: Text(
-                  widget.channel,
-                  textAlign: TextAlign.center,
-                  maxLines: 1,
-                  softWrap: false,
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: selected || hasUnread
-                        ? FontWeight.w600
-                        : FontWeight.normal,
-                    // Flash toward the unread-dot color so it reads as a new
-                    // mention, not a selection.
-                    color: pulse <= 0
-                        ? base
-                        : Color.lerp(base, theme.colorScheme.error, pulse),
+        return Stack(
+          clipBehavior: Clip.none,
+          children: [
+            SizedBox(
+              width: boldWidth,
+              child: Text(
+                widget.channel,
+                textAlign: TextAlign.center,
+                maxLines: 1,
+                softWrap: false,
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: selected || hasUnread
+                      ? FontWeight.w600
+                      : FontWeight.normal,
+                  // Flash toward the unread-dot color so it reads as a new
+                  // mention, not a selection.
+                  color: pulse <= 0
+                      ? base
+                      : Color.lerp(base, theme.colorScheme.error, pulse),
+                ),
+              ),
+            ),
+            if (hasUnreadMention && !selected)
+              Positioned(
+                top: -2,
+                right: -4,
+                child: Container(
+                  key: const Key('unread_mention_dot'),
+                  width: 6,
+                  height: 6,
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.error,
+                    shape: BoxShape.circle,
                   ),
                 ),
               ),
-              if (hasUnreadMention && !selected)
-                Positioned(
-                  top: -2,
-                  right: -4,
-                  child: Container(
-                    key: const Key('unread_mention_dot'),
-                    width: 6,
-                    height: 6,
-                    decoration: BoxDecoration(
-                      color: theme.colorScheme.error,
-                      shape: BoxShape.circle,
-                    ),
-                  ),
-                ),
-            ],
-          ),
+          ],
         );
       },
     );
