@@ -23,8 +23,11 @@ bool shouldShowStreamVideo({
   required double inputH,
   required double chatFontSize,
   double stackedScale = 1.0,
+  bool split = false,
 }) {
   if (keyboardH <= 0) return true;
+  // Two chats plus the video cannot fit above the keyboard; audio keeps going.
+  if (split) return false;
   final streamH = maxWidth * 9 / 16 * stackedScale;
   // Body constraints already exclude the keyboard (Scaffold resizes),
   // so maxHeight is the visible room; never subtract keyboardH again.
@@ -127,6 +130,7 @@ class StreamPanels {
     required this.theaterChatVisible,
     required this.toggleTheaterChat,
     required this.onChannelChanged,
+    required this.splitOpen,
   });
 
   // Clipped-alive video strip when the keyboard hides the picture.
@@ -148,6 +152,9 @@ class StreamPanels {
   final bool Function() theaterChatVisible;
   final VoidCallback toggleTheaterChat;
   final void Function(int index) onChannelChanged;
+
+  /// Whether split chat is showing, so the keyboard drops the video sooner.
+  final bool Function() splitOpen;
 
   bool _wasTheaterMode = false;
   bool? _lastAutoEnter;
@@ -207,6 +214,7 @@ class StreamPanels {
       inputH: inputH,
       chatFontSize: chatFontSize(),
       stackedScale: streamPlayer.stackedScale,
+      split: splitOpen(),
     );
   }
 

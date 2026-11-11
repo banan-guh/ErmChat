@@ -658,6 +658,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     theaterChatVisible: () => _theaterChatVisible,
     toggleTheaterChat: _toggleTheaterChat,
     onChannelChanged: _channels.onChannelChanged,
+    splitOpen: () => _splitPair() != null,
   );
 
   late final _channelManager = ChannelManager(
