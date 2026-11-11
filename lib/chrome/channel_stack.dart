@@ -146,7 +146,7 @@ class ChannelPanels {
   /// The two channels split chat shows, or null when it is off.
   final SplitPair? Function() splitPair;
 
-  /// Puts [channel] beside the selected one.
+  /// Puts [channel] in the split below the current pane.
   final void Function(String channel) openSplit;
 
   /// Leaves split chat.
@@ -683,15 +683,16 @@ class ChannelPanels {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            ListTile(
-              leading: const Icon(Icons.splitscreen),
-              title: Text(ctx.l10n.splitChannel),
-              onTap: () {
-                Navigator.pop(ctx);
-                openSplit(channel);
-              },
-            ),
-            if (split != null)
+            if (split == null)
+              ListTile(
+                leading: const Icon(Icons.splitscreen),
+                title: Text(ctx.l10n.splitChannel),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  openSplit(channel);
+                },
+              )
+            else
               ListTile(
                 leading: const Icon(Icons.close),
                 title: Text(ctx.l10n.closeSplit),
@@ -736,116 +737,41 @@ class ChannelPanels {
   /// Two chat panes: stacked in portrait, side by side in landscape. The
   /// first slot carries the strip's clearance once for both.
   Widget _splitBody(BuildContext context, SplitPair split) {
-    final portrait = MediaQuery.orientationOf(context) == Orientation.portrait;
     final first = _splitPane(
       context,
       split.first,
       slot: 0,
       active: split.active == 0,
-      closable: false,
     );
     final second = _splitPane(
       context,
       split.second,
       slot: 1,
       active: split.active == 1,
-      closable: true,
     );
-    final divider = portrait
-        ? const Divider(height: 1, thickness: 1)
-        : const VerticalDivider(width: 1, thickness: 1);
     // The composer floats below the split, not over it, so both panes split
     // the room above the island and neither keeps a gap for it.
-    final Widget body = portrait
-        ? LayoutBuilder(
-            builder: (context, constraints) => _portraitSplit(
-              context,
-              split,
-              first,
-              second,
-              divider,
-              constraints.maxHeight,
-            ),
-          )
-        : Row(
-            children: [
-              Expanded(child: first),
-              divider,
-              Expanded(child: second),
-            ],
-          );
     return Padding(
       padding: EdgeInsets.only(top: _bubbleClearance(context)),
       child: IslandInset(
         child: Padding(
           padding: const EdgeInsets.only(bottom: kComposerGap),
-          child: body,
+          child: _SplitLayout(
+            first: first,
+            second: second,
+            axis: Axis.vertical,
+          ),
         ),
       ),
     );
   }
 
-  /// Portrait split with a room check: once a pane would show fewer than nine
-  /// chat lines, the inactive one folds to its header over one motion step.
-  Widget _portraitSplit(
-    BuildContext context,
-    SplitPair split,
-    Widget first,
-    Widget second,
-    Widget divider,
-    double height,
-  ) {
-    const paneHeader = 29.0;
-    const dividerH = 1.0;
-    final room = (height - dividerH).clamp(0.0, height);
-    final half = room / 2;
-    final big = (room - paneHeader).clamp(0.0, room);
-    final perPane = (room - 2 * paneHeader) / 2;
-    final collapsed = perPane < chatFontSize() * 9;
-    return TweenAnimationBuilder<double>(
-      tween: Tween(
-        begin: split.active.toDouble(),
-        end: split.active.toDouble(),
-      ),
-      duration: Motion.normal,
-      curve: Motion.move,
-      builder: (context, focus, _) => TweenAnimationBuilder<double>(
-        tween: Tween(begin: 0, end: collapsed ? 1 : 0),
-        duration: Motion.normal,
-        curve: Motion.move,
-        builder: (context, t, _) {
-          final activeH = half + (big - half) * t;
-          final inactiveH = half + (paneHeader - half) * t;
-          // Heights follow the focused slot, so a focus swap slides the big
-          // pane over instead of jumping.
-          final firstH = activeH + (inactiveH - activeH) * focus;
-          final secondH = inactiveH + (activeH - inactiveH) * focus;
-          return Column(
-            children: [
-              SizedBox(
-                height: firstH.clamp(0.0, room),
-                child: ClipRect(child: first),
-              ),
-              divider,
-              SizedBox(
-                height: secondH.clamp(0.0, room),
-                child: ClipRect(child: second),
-              ),
-            ],
-          );
-        },
-      ),
-    );
-  }
-
-  /// A split pane's channel bar. Tapping it focuses that slot; the second
-  /// header carries the close button.
+  /// A split pane's channel bar. Tapping it focuses that slot.
   Widget _splitHeader(
     BuildContext context,
     String channel, {
     required int slot,
     required bool active,
-    required bool closable,
   }) {
     final scheme = Theme.of(context).colorScheme;
     return Material(
@@ -869,18 +795,6 @@ class ChannelPanels {
                   ),
                 ),
               ),
-              if (closable)
-                IconButton(
-                  onPressed: closeSplit,
-                  icon: const Icon(Icons.close, size: 16),
-                  tooltip: context.l10n.closeSplit,
-                  visualDensity: VisualDensity.compact,
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(
-                    minWidth: 32,
-                    minHeight: 28,
-                  ),
-                ),
             ],
           ),
         ),
@@ -889,14 +803,12 @@ class ChannelPanels {
   }
 
   /// One split pane: its channel header, then its chat. The inactive pane
-  /// dims and swallows taps so the first touch only focuses it; the second
-  /// header closes the split.
+  /// dims and swallows taps so the first touch only focuses it.
   Widget _splitPane(
     BuildContext context,
     String channel, {
     required int slot,
     required bool active,
-    required bool closable,
   }) {
     final scheme = Theme.of(context).colorScheme;
     return Listener(
@@ -911,13 +823,7 @@ class ChannelPanels {
           duration: Motion.fast,
           child: Column(
             children: [
-              _splitHeader(
-                context,
-                channel,
-                slot: slot,
-                active: active,
-                closable: closable,
-              ),
+              _splitHeader(context, channel, slot: slot, active: active),
               Divider(height: 1, thickness: 1, color: scheme.outlineVariant),
               Expanded(
                 child: chat.names.isEmpty
@@ -1227,6 +1133,111 @@ class _FocusGatedBuilder extends StatelessWidget {
     return ListenableBuilder(
       listenable: active ? listenable : _emptyNotifier,
       builder: (context, _) => builder(context, active),
+    );
+  }
+}
+
+/// Two panes with a draggable split. The user owns the size; nothing
+/// collapses on its own.
+class _SplitLayout extends StatefulWidget {
+  const _SplitLayout({
+    required this.first,
+    required this.second,
+    required this.axis,
+  });
+
+  final Widget first;
+  final Widget second;
+  final Axis axis;
+
+  @override
+  State<_SplitLayout> createState() => _SplitLayoutState();
+}
+
+class _SplitLayoutState extends State<_SplitLayout> {
+  static const double _handle = 16;
+  double _fraction = 0.5;
+
+  @override
+  Widget build(BuildContext context) {
+    final portrait = widget.axis == Axis.vertical;
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final total =
+            ((portrait ? constraints.maxHeight : constraints.maxWidth) -
+                    _handle)
+                .clamp(0.0, double.infinity);
+        final first = (total * _fraction).clamp(0.0, total);
+        final second = total - first;
+        if (portrait) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              SizedBox(
+                height: first,
+                child: ClipRect(child: widget.first),
+              ),
+              _handleBox(
+                vertical: true,
+                onDrag: (delta) => _drag(delta, total),
+              ),
+              SizedBox(
+                height: second,
+                child: ClipRect(child: widget.second),
+              ),
+            ],
+          );
+        }
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            SizedBox(
+              width: first,
+              child: ClipRect(child: widget.first),
+            ),
+            _handleBox(vertical: false, onDrag: (delta) => _drag(delta, total)),
+            SizedBox(
+              width: second,
+              child: ClipRect(child: widget.second),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _drag(double delta, double total) {
+    if (total <= 0) return;
+    setState(() {
+      _fraction = (_fraction + delta / total).clamp(0.05, 0.95);
+    });
+  }
+
+  Widget _handleBox({
+    required bool vertical,
+    required ValueChanged<double> onDrag,
+  }) {
+    return GestureDetector(
+      key: const ValueKey('split_handle'),
+      behavior: HitTestBehavior.opaque,
+      onVerticalDragUpdate: vertical ? (d) => onDrag(d.delta.dy) : null,
+      onHorizontalDragUpdate: vertical ? null : (d) => onDrag(d.delta.dx),
+      child: SizedBox(
+        width: vertical ? double.infinity : _handle,
+        height: vertical ? _handle : double.infinity,
+        child: Center(
+          child: DecoratedBox(
+            decoration: const BoxDecoration(
+              color: Colors.grey,
+              borderRadius: BorderRadius.all(Radius.circular(Radii.small)),
+            ),
+            child: SizedBox(
+              width: vertical ? 48 : 4,
+              height: vertical ? 4 : 48,
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

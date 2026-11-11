@@ -189,6 +189,7 @@ class _ReorderableChannelTileState extends State<_ReorderableChannelTile>
                     ),
                   IconButton(
                     icon: const Icon(Icons.remove_circle_outline),
+                    tooltip: context.l10n.removeChannel,
                     onPressed: () => widget.onLeave?.call(widget.channel),
                   ),
                 ],

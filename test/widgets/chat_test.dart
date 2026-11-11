@@ -1764,8 +1764,10 @@ void main() {
       isTrue,
     );
 
-    // The second header's close returns to the pager.
-    await tester.tap(find.byTooltip('Close split'));
+    // The tab menu closes the split and returns to the pager.
+    await tester.longPress(find.text('c'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Close split'));
     await tester.pumpAndSettle();
     expect(find.text('#c'), findsNothing);
     expect(find.byType(PageView), findsOneWidget);
@@ -1850,26 +1852,17 @@ void main() {
           tester.getSize(_channelPages().at(i)),
       ];
 
-      // With the room really tight the inactive chat folds to its header,
-      // which stays tappable so the other pane is still one press away.
+      // The split never folds on its own: dragging the handle owns the size.
       expect(paneLists(), 2);
-      tester.view.viewInsets = const FakeViewPadding(bottom: 1600);
+      final before = paneSizes();
+      await tester.drag(
+        find.byKey(const ValueKey('split_handle')),
+        const Offset(0, 80),
+      );
       await tester.pumpAndSettle();
-      expect(paneLists(), 2);
-      expect(find.text('#a'), findsNWidgets(2));
-      final folded = paneSizes();
-      expect(folded.first.height, lessThan(10));
-      expect(folded.last.height, greaterThan(40));
-
-      await tester.tap(find.text('#a').first);
-      await tester.pumpAndSettle();
-      expect(paneLists(), 2);
-      expect(find.text('#a'), findsNWidgets(2));
-      final swapped = paneSizes();
-      expect(swapped.first.height, greaterThan(40));
-      expect(swapped.last.height, lessThan(10));
-      expect(opacityOf(find.text('#a').first), 1.0);
-      expect(opacityOf(find.text('#a').last), 0.7);
+      final after = paneSizes();
+      expect(after.first.height, greaterThan(before.first.height));
+      expect(after.last.height, lessThan(before.last.height));
     },
   );
 

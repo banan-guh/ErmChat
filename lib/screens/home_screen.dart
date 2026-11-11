@@ -630,7 +630,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     renameChannel: _renameChannel,
     splitPair: _splitPair,
     openSplit: _openSplit,
-    closeSplit: _closeSplit,
+    closeSplit: _closeSplitKeepingOther,
     focusSplitPane: _focusSplitPane,
     setSplitPaneChannel: _setSplitPaneChannel,
     messageNotifier: _messageNotifier,
@@ -774,6 +774,23 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     });
   }
 
+  /// Leaves split from the tab menu, keeping the other pane focused.
+  void _closeSplitKeepingOther() {
+    final split = _splitPair();
+    final other = split == null
+        ? null
+        : (_splitActive == 0 ? split.second : split.first);
+    setState(() {
+      _splitFirst = null;
+      _splitSecond = null;
+      _splitActive = 0;
+    });
+    if (other != null && selectedChannel != other) {
+      final index = _chat.names.indexOf(other);
+      if (index >= 0) _commitChannelSelection(index, rebuild: true);
+    }
+  }
+
   void _closeSplit() {
     if (_splitFirst == null) return;
     setState(() {
@@ -830,7 +847,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   }
 
   void _removeChannel(String channel) {
-    if (_splitFirst == channel || _splitSecond == channel) _closeSplit();
+    if (_splitFirst == channel || _splitSecond == channel) {
+      _closeSplitKeepingOther();
+    }
     _channelManager.removeChannel(channel);
   }
 
