@@ -761,11 +761,7 @@ class TabbedLayoutState extends State<TabbedLayout>
                                               ? 0
                                               : _stripFade,
                                         ),
-                                        labelPadding:
-                                            const EdgeInsets.symmetric(
-                                              horizontal: 12,
-                                              vertical: 0,
-                                            ),
+                                        labelPadding: EdgeInsets.zero,
                                         indicator: BoxDecoration(
                                           border: Border(
                                             bottom: BorderSide(
@@ -784,24 +780,49 @@ class TabbedLayoutState extends State<TabbedLayout>
                                               // The TabBar's own InkWell sits
                                               // outside this one, so forwarding
                                               // the tap keeps selection native.
-                                              child: InkWell(
-                                                onTap: () => _onTabTap(i),
-                                                onLongPress:
-                                                    widget.onTabLongPress ==
-                                                        null
-                                                    ? null
-                                                    : () => widget
-                                                          .onTabLongPress!(i),
-                                                child:
-                                                    widget.tabBuilder?.call(
-                                                      context,
-                                                      i,
-                                                    ) ??
-                                                    Text(tabs[i]),
+                                              // The padding lives inside so the
+                                              // whole tab, not just the label,
+                                              // The padding lives inside so the
+                                              // whole tab, not just the label,
+                                              // takes the tap and hold.
+                                              child: SizedBox(
+                                                height: double.infinity,
+                                                child: InkWell(
+                                                  onTap: () => _onTabTap(i),
+                                                  onLongPress:
+                                                      widget.onTabLongPress ==
+                                                          null
+                                                      ? null
+                                                      : () => widget
+                                                            .onTabLongPress!(i),
+                                                  child: Padding(
+                                                    padding:
+                                                        const EdgeInsets.symmetric(
+                                                          horizontal: 12,
+                                                        ),
+                                                    child: Center(
+                                                      child:
+                                                          widget.tabBuilder
+                                                              ?.call(
+                                                                context,
+                                                                i,
+                                                              ) ??
+                                                          Text(tabs[i]),
+                                                    ),
+                                                  ),
+                                                ),
                                               ),
                                             ),
                                           if (_hasAddTab)
-                                            Tab(child: widget.addTab),
+                                            Tab(
+                                              child: Padding(
+                                                padding:
+                                                    const EdgeInsets.symmetric(
+                                                      horizontal: 12,
+                                                    ),
+                                                child: widget.addTab,
+                                              ),
+                                            ),
                                         ],
                                       ),
                                     ),
