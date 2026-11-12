@@ -2020,7 +2020,7 @@ class _HistoryViewState extends State<HistoryView> {
   }
 
   /// Every stream of the channel on its own page, scrolled to [focus]; a
-  /// pick opens it at its start.
+  /// pick plays its VOD, or jumps to its start when there is none.
   void _openStreams([HistoryStream? focus]) {
     final streams = [..._window.streams]
       ..sort((a, b) => b.start.compareTo(a.start));
@@ -2033,12 +2033,31 @@ class _HistoryViewState extends State<HistoryView> {
             focus: focus,
             onOpen: (stream) {
               Navigator.of(page).pop();
-              _jumpTo(stream.start, fraction: _startFraction);
+              unawaited(_openStream(stream));
             },
           ),
         ),
       ),
     );
+  }
+
+  /// Opens [stream]'s VOD, or jumps to its start when it has none (live,
+  /// expired, or signed out).
+  Future<void> _openStream(HistoryStream stream) async {
+    final actions = widget.actions;
+    if (actions != null && !stream.live) {
+      try {
+        final vodId = await actions.findVod(stream);
+        if (vodId != null && mounted) {
+          actions.watchVod(stream, vodId);
+          return;
+        }
+      } catch (_) {
+        // No video: fall back to the chat jump.
+      }
+    }
+    if (!mounted) return;
+    _jumpTo(stream.start, fraction: _startFraction);
   }
 
   /// A time picked in the days, centered.

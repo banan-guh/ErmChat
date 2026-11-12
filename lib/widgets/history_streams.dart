@@ -7,8 +7,9 @@ import '../util/history_timeline.dart';
 import 'design_tokens.dart';
 
 /// Every archived stream of a channel, newest first, with its thumbnail,
-/// title, date and length. A tap opens the stream at its start. [focus]
-/// opens the page scrolled to that stream, highlighted.
+/// title, date and length. A tap opens the stream's VOD, or its chat start
+/// when there is no video left. [focus] opens the page scrolled to that
+/// stream, highlighted.
 class HistoryStreamsPage extends StatefulWidget {
   const HistoryStreamsPage({
     super.key,
