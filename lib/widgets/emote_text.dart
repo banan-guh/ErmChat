@@ -560,6 +560,95 @@ List<LinkifyElement> _linkifyChat(
   );
 }
 
+/// Whether [text] could hold a link. Prose with a period is common, so this
+/// needs a scheme or a domain shape: label, dot, two or more lowercase
+/// letters, then a boundary. Uppercase after the dot reads as prose
+/// ("end.Next"). Split links only pass when their host is whitelisted or
+/// [LinkWhitelist.joinAll] has a path, which is exactly when the linkifier
+/// would join them.
+bool _looksLikeLink(String text, List<String>? whitelist) {
+  for (var i = 0; i < text.length; i++) {
+    final unit = text.codeUnitAt(i);
+    if (unit == 0x3A &&
+        i + 2 < text.length &&
+        text.codeUnitAt(i + 1) == 0x2F &&
+        text.codeUnitAt(i + 2) == 0x2F) {
+      return true;
+    }
+    if (unit != 0x2E) continue;
+    // Spaces hugging the dot are split links, which are opt-in.
+    var label = i - 1;
+    while (label >= 0 && text.codeUnitAt(label) == 0x20) {
+      label--;
+    }
+    final spacedBefore = label != i - 1;
+    final labelEnd = label;
+    while (label >= 0 && _isLabelUnit(text.codeUnitAt(label))) {
+      label--;
+    }
+    if (label == labelEnd) continue;
+    // Two or more lowercase letters for the top-level domain.
+    var start = i + 1;
+    while (start < text.length && text.codeUnitAt(start) == 0x20) {
+      start++;
+    }
+    final spacedAfter = start != i + 1;
+    var end = start;
+    while (end < text.length &&
+        end - start <= 24 &&
+        _isLowerUnit(text.codeUnitAt(end))) {
+      end++;
+    }
+    if (end - start < 2) continue;
+    // A letter, digit or hyphen right after the domain means it continues.
+    if (end < text.length && _isLabelUnit(text.codeUnitAt(end))) continue;
+    if (spacedBefore || spacedAfter) {
+      if (!_fracturedHostLinks(text, labelEnd, start, end, whitelist)) {
+        continue;
+      }
+    }
+    return true;
+  }
+  return false;
+}
+
+/// Whether a spaced host is one the linkifier would actually join.
+bool _fracturedHostLinks(
+  String text,
+  int labelEnd,
+  int tldStart,
+  int tldEnd,
+  List<String>? whitelist,
+) {
+  final state = LinkWhitelist.instance;
+  if (!state.enabled) return false;
+  final tld = text.substring(tldStart, tldEnd).toLowerCase();
+  // The host may have earlier labels; dots stay glued to them.
+  var first = labelEnd;
+  while (first >= 0) {
+    final unit = text.codeUnitAt(first);
+    if (!_isLabelUnit(unit) && unit != 0x2E) break;
+    first--;
+  }
+  final host = '${text.substring(first + 1, labelEnd + 1).toLowerCase()}.$tld';
+  for (final raw in whitelist ?? const <String>[]) {
+    final entry = raw.toLowerCase();
+    if (entry == tld || host == entry || host.endsWith('.$entry')) {
+      return true;
+    }
+  }
+  final hasPath = tldEnd < text.length && text.codeUnitAt(tldEnd) == 0x2F;
+  return state.joinAll && hasPath;
+}
+
+bool _isLowerUnit(int unit) => unit >= 0x61 && unit <= 0x7A;
+
+bool _isLabelUnit(int unit) =>
+    _isLowerUnit(unit) ||
+    (unit >= 0x41 && unit <= 0x5A) ||
+    (unit >= 0x30 && unit <= 0x39) ||
+    unit == 0x2D;
+
 /// Normalized URLs in [text] that look like raw image serves, in order and
 /// deduped, capped like the inline icons. Tile previews use this, so pass the
 /// same whitelist entries the span path uses or fractured links disagree.
@@ -568,10 +657,10 @@ List<String> collectImageEmbedUrls(
   List<String>? linkWhitelist,
   List<String>? imageHosts,
 }) {
-  if (!text.contains('.')) return const [];
+  if (!_looksLikeLink(text, linkWhitelist)) return const [];
   try {
     final collapsed = cleanChatText(text);
-    if (!collapsed.contains('.')) return const [];
+    if (!_looksLikeLink(collapsed, linkWhitelist)) return const [];
     final hosts = imageHosts ?? ImageEmbedHosts.instance.resolvedEntries;
     final urls = <String>[];
     for (final element in _linkifyChat(collapsed, linkWhitelist)) {
@@ -601,8 +690,10 @@ List<InlineSpan> parseTextWithLinks(
   double scale = 1.0,
 }) {
   final collapsed = cleanChatText(text);
-  // Quick guard: ~99% of chat text has no URLs.
-  if (!collapsed.contains('.')) return [TextSpan(text: collapsed)];
+  // Most chat text has no link; prose with a period is not worth a scan.
+  if (!_looksLikeLink(collapsed, linkWhitelist)) {
+    return [TextSpan(text: collapsed)];
+  }
   try {
     final spans = <InlineSpan>[];
     var imageCount = 0;

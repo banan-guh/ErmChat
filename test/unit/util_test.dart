@@ -31,6 +31,7 @@ import 'package:ermchat/services/third_party_badge_service.dart';
 import 'package:ermchat/widgets/message_builder.dart';
 import 'package:ermchat/widgets/emote_text.dart';
 import 'package:ermchat/widgets/link_whitelist.dart';
+import 'package:ermchat/services/link_whitelist.dart';
 import 'package:ermchat/util/constants.dart';
 import 'package:ermchat/util/thread_utils.dart';
 
@@ -1172,6 +1173,110 @@ void main() {
       // Emoji ZWJ sequences keep their joiners.
       const family = '\u{1F468}\u200D\u{1F469}\u200D\u{1F467}';
       expect(plain(parseTextWithLinks('hey $family')), 'hey $family');
+    });
+
+    test('the link guard takes domains, not prose', () {
+      bool links(String text) => parseTextWithLinks(
+        text,
+      ).whereType<TextSpan>().any((s) => s.recognizer != null);
+
+      for (final text in [
+        'example.com',
+        'see example.com.',
+        'sub.example.co.uk/x',
+        'mail foo@example.com',
+      ]) {
+        expect(links(text), isTrue, reason: text);
+      }
+      for (final text in [
+        'Wait. What. Fine.',
+        'end.Next',
+        'e.g. this',
+        'v1.2.3',
+        'a.b',
+        '1.5',
+      ]) {
+        expect(links(text), isFalse, reason: text);
+      }
+    });
+
+    test('fractured links pass the guard', () {
+      final whitelist = LinkWhitelist.instance;
+      final was = whitelist.enabled;
+      whitelist.enabled = true;
+      addTearDown(() => whitelist.enabled = was);
+      final spans = parseTextWithLinks(
+        'watch example .com/ out',
+        linkWhitelist: const ['com'],
+      );
+      expect(
+        spans.whereType<TextSpan>().any((s) => s.recognizer != null),
+        isTrue,
+      );
+    });
+
+    test('spaced dots skip the scan while split links are off', () {
+      final whitelist = LinkWhitelist.instance;
+      final was = whitelist.enabled;
+      whitelist.enabled = false;
+      addTearDown(() => whitelist.enabled = was);
+      final spans = parseTextWithLinks(
+        'watch example .com/ out',
+        linkWhitelist: const ['com'],
+      );
+      expect(
+        spans.whereType<TextSpan>().any((s) => s.recognizer != null),
+        isFalse,
+      );
+    });
+
+    test('split links only reach the linkifier for whitelisted hosts', () {
+      final state = LinkWhitelist.instance;
+      final wasEnabled = state.enabled;
+      final wasJoin = state.joinAll;
+      state.enabled = true;
+      state.joinAll = false;
+      addTearDown(() {
+        state.enabled = wasEnabled;
+        state.joinAll = wasJoin;
+      });
+
+      bool links(String text, List<String> white) => parseTextWithLinks(
+        text,
+        linkWhitelist: white,
+      ).whereType<TextSpan>().any((s) => s.recognizer != null);
+
+      expect(links('watch example .com/ out', const ['com']), isTrue);
+      expect(
+        links('watch example .xyz/ out', const ['com']),
+        isFalse,
+        reason: 'an off-whitelist fracture is prose, not a link',
+      );
+      expect(links('well . that', const ['com']), isFalse);
+      expect(links('watch kappa .lol/ABC', const ['kappa.lol']), isTrue);
+    });
+
+    test('join any domain still needs a path before the scan runs', () {
+      final state = LinkWhitelist.instance;
+      final wasEnabled = state.enabled;
+      final wasJoin = state.joinAll;
+      state.enabled = true;
+      state.joinAll = true;
+      addTearDown(() {
+        state.enabled = wasEnabled;
+        state.joinAll = wasJoin;
+      });
+
+      bool links(String text) => parseTextWithLinks(
+        text,
+      ).whereType<TextSpan>().any((s) => s.recognizer != null);
+
+      expect(links('watch kappa .lol/ABC'), isTrue);
+      expect(
+        links('nothing kappa .lol here'),
+        isFalse,
+        reason: 'join-all fractures need a path',
+      );
     });
 
     test('email spans are tappable and report the address', () {
