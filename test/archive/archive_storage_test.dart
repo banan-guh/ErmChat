@@ -2050,6 +2050,22 @@ void main() {
       await store.close();
     });
 
+    test('a single reply is not an active thread', () async {
+      final store = await _open(_newPath());
+      final writer = _writer(store, sealCount: 4);
+      writer.add(_channel, reply(1));
+      await writer.flush();
+      expect(
+        await store.recentThreads(
+          _channel,
+          _t0.subtract(const Duration(seconds: 1)),
+        ),
+        isEmpty,
+        reason: 'the live Active list already hides one-reply roots',
+      );
+      await store.close();
+    });
+
     test('a thread preview comes from its first direct reply', () async {
       final store = await _open(_newPath());
       final writer = _writer(store, sealCount: 4);

@@ -1310,7 +1310,8 @@ class ArchiveStore {
   /// Roots with a reply at or after [since], most replies first and newest
   /// activity breaking ties. A ref left by a merged away block names no
   /// block and is skipped. [author] and [preview] come from the thread's
-  /// first direct reply.
+  /// first direct reply. Single-reply roots are left out, matching the live
+  /// Active list.
   Future<
     List<
       ({String rootId, int lastTs, int replies, String author, String preview})
@@ -1324,6 +1325,7 @@ class ArchiveStore {
       'LEFT JOIN thread_roots r ON r.channel = t.channel '
       'AND r.root_id = t.root_id '
       'WHERE t.channel = ? AND t.ts >= ? GROUP BY t.root_id '
+      'HAVING SUM(t.count) > 1 '
       'ORDER BY replies DESC, last DESC LIMIT ?',
       [channel, since.millisecondsSinceEpoch, limit],
     ))
