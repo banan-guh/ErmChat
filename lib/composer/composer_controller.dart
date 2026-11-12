@@ -334,6 +334,10 @@ class ComposerController {
         (threadsTabIndex() != 0 || openThreadRoot() == null)) {
       return;
     }
+    if (_threadClosed) {
+      showNotice(strings().threadRepliesClosed);
+      return;
+    }
 
     // Send gates are soft: the countdown shows as a hint but the message is
     // never held back. Twitch enforces the real block, a successful echo
@@ -484,10 +488,21 @@ class ComposerController {
 
   void refreshCooldown() => cooldownLabel.value = cooldownText();
 
+  /// A thread older than Twitch's reply window: the composer closes rather
+  /// than sending a message the server rejects.
+  bool get _threadClosed {
+    if (activePanel() != OverlayPanel.thread || threadsTabIndex() != 0) {
+      return false;
+    }
+    final root = openThreadRoot();
+    return root != null && !threadRepliesOpen(root, DateTime.now());
+  }
+
   bool get enabled =>
       activePanel() != OverlayPanel.modView &&
       (activePanel() != OverlayPanel.mentions || isWhispersTabActive()) &&
       (activePanel() != OverlayPanel.thread || threadsTabIndex() == 0) &&
+      !_threadClosed &&
       twitchAuth.isConfigured &&
       // Token without a session user means the identity is still resolving
       // (account switch, fresh login): the pipeline would drop the send.
@@ -514,6 +529,8 @@ class ComposerController {
               (ChatPhase.online, _, false, false)
                   when getSelectedChannel() != null =>
                 strings().disconnectedHint,
+              (_, OverlayPanel.thread, _, _) when _threadClosed =>
+                strings().threadRepliesClosed,
               (_, OverlayPanel.thread, _, _) when threadsTabIndex() == 0 =>
                 strings().replyToThreadHint,
               (_, OverlayPanel.thread, _, _) => strings().selectThreadHint,

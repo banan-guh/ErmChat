@@ -1549,6 +1549,24 @@ void main() {
     );
   });
 
+  test('thread replies close after 24 hours', () {
+    final now = DateTime.utc(2026, 11, 12, 12);
+    TwitchMessage root(Duration age) => TwitchMessage(
+      login: 'a',
+      text: 'x',
+      messageId: 'r',
+      channel: 'ch',
+      timestamp: now.subtract(age),
+    );
+
+    expect(
+      threadRepliesOpen(root(const Duration(hours: 23, minutes: 59)), now),
+      isTrue,
+    );
+    expect(threadRepliesOpen(root(const Duration(hours: 24)), now), isFalse);
+    expect(threadRepliesOpen(null, now), isFalse);
+  });
+
   test('data usage counts UTF-8 bytes, not string length', () {
     for (final s in ['PRIVMSG #a :hi', 'привет', '你好世界', 'pog 😂👍', 'é']) {
       expect(DataUsageStats.utf8Length(s), utf8.encode(s).length, reason: s);

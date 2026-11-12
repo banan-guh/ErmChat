@@ -34,6 +34,15 @@ String? threadKeyFor(TwitchMessage m, Map<String, String> parentOf) {
   return m.messageId;
 }
 
+/// How long Twitch accepts a threaded reply. The server rejects older roots
+/// with "Message cannot be replied to", so the composer closes at the same
+/// point instead of sending an unthreaded message.
+const threadReplyWindow = Duration(hours: 24);
+
+/// Whether [root] is young enough to take a reply at [now].
+bool threadRepliesOpen(TwitchMessage? root, DateTime now) =>
+    root != null && now.difference(root.timestamp) < threadReplyWindow;
+
 /// The row a send from an open thread should reply to. Rows without an id
 /// cannot carry a reply tag, so they are skipped. The thread root is the
 /// fallback, and null means there is nothing addressable to reply to.

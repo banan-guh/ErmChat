@@ -100,7 +100,7 @@ class ThreadPanels {
   List<TwitchMessage> _archivedThreadRows = const [];
   int _archivedThreadLoad = 0;
 
-  static const activeThreadWindow = Duration(hours: 24);
+  static const activeThreadWindow = threadReplyWindow;
   static const activeThreadLimit = 50;
 
   final threadLastSeen = <String, DateTime>{};
