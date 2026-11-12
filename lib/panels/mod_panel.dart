@@ -364,7 +364,9 @@ class ModPanels {
         // Stream-first order: live work before people, settings last.
         // Matches ModViewPanel children in mod_view.dart; keep Queue at 0.
         tabs: SizedBox(
-          height: 40,
+          // The leading back button is 48 high, so fill that height: a 40
+          // strip centers in the row and leaves a gap under the indicator.
+          height: 48,
           child: TabBar(
             controller: modTab(),
             isScrollable: true,
