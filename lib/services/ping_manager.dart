@@ -207,24 +207,27 @@ class PingManager extends ChangeNotifier {
         msg.login.toLowerCase() == selfLogin;
     if (_isBlacklisted(msg.login)) return null;
 
-    final types = <HighlightType>{};
-    final tinting = <HighlightType>{};
+    // Allocated on the first matching rule: most rows match nothing.
+    Set<HighlightType>? types;
+    Set<HighlightType>? tinting;
     var notify = false;
     // First custom color per type; the row takes the primary type's.
-    final colors = <HighlightType, Color>{};
+    Map<HighlightType, Color>? colors;
     String? lowerText;
 
     // [rank] is the rule's own list type, which decides its color's priority
     // even when [type] files a tint-only rule as plain tint, so the type
     // ladder, never storage order, picks between lists.
     void add(PingRule rule, HighlightType type, [HighlightType? rank]) {
-      types.add(type);
+      (types ??= <HighlightType>{}).add(type);
       if (rule.notify && rule.mention) notify = true;
       if (!rule.tint) return;
       final r = rank ?? type;
-      tinting.add(r);
+      (tinting ??= <HighlightType>{}).add(r);
       final argb = rule.colorArgb;
-      if (argb != null) colors.putIfAbsent(r, () => Color(argb));
+      if (argb != null) {
+        (colors ??= <HighlightType, Color>{}).putIfAbsent(r, () => Color(argb));
+      }
     }
 
     for (final rule in _rules) {
@@ -297,21 +300,25 @@ class PingManager extends ChangeNotifier {
     }
 
     if (msg.isAutomodApproved) {
-      types.add(HighlightType.automod);
-      tinting.add(HighlightType.automod);
+      (types ??= <HighlightType>{}).add(HighlightType.automod);
+      (tinting ??= <HighlightType>{}).add(HighlightType.automod);
     }
 
-    if (types.isEmpty) return null;
-    final primary = tinting.isEmpty
+    final matched = types;
+    if (matched == null || matched.isEmpty) return null;
+    // Null means "every type tints"; an empty set means "none tint", so a
+    // notify-only match keeps that distinction.
+    final tinted = tinting ?? const <HighlightType>{};
+    final primary = tinted.isEmpty
         ? null
-        : HighlightState(types: tinting).primary;
+        : HighlightState(types: tinted).primary;
     return HighlightState(
-      types: types,
-      customColor: colors[primary],
+      types: matched,
+      customColor: colors?[primary],
       notify: notify,
-      tinting: tinting.length == types.length && tinting.containsAll(types)
+      tinting: tinted.length == matched.length && tinted.containsAll(matched)
           ? null
-          : tinting,
+          : tinted,
     );
   }
 

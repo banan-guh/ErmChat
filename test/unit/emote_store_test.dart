@@ -487,6 +487,29 @@ void main() {
       expect(identical(store.emoteById('t1'), found.single), isTrue);
     });
 
+    test('emotesOnly keeps emote spans and drops text tokens', () {
+      final store = EmoteStore();
+      commitChannel(store, 'ch', [sevenTv('a', 'Alpha')]);
+
+      final tokens = EmoteStore.tokenize(
+        text: 'Hello Alpha',
+        positions: const [
+          EmotePosition(
+            emoteId: 't1',
+            startIndex: 0,
+            endIndex: 5,
+            emoteCode: 'Hello',
+          ),
+        ],
+        byCode: store.byCode('ch')!.byCode,
+        intern: store.intern,
+        emotesOnly: true,
+      );
+
+      expect(tokens.map((t) => (t.start, t.end)), [(0, 5), (6, 11)]);
+      expect(tokens.map((t) => t.emote?.code), ['Hello', 'Alpha']);
+    });
+
     test(
       'rename replaces the pooled instance, baked rows keep the old one',
       () {

@@ -418,18 +418,16 @@ class EmoteManager implements EmoteLookupSource {
     if (msg.isSystem) return null;
     final byCode = byCodeForSender(lookupChannel, msg.userId)?.byCode;
     if (byCode == null) return const <EmoteToken>[];
-    return <EmoteToken>[
-      for (final token in tokenize(
-        text: msg.text,
-        // Twitch off: the IRC emotes tag would still draw them otherwise.
-        positions: _store.isProviderEnabled(EmoteType.twitch)
-            ? msg.emotePositions
-            : null,
-        byCode: byCode,
-        intern: _store.intern,
-      ))
-        if (token.isEmote) token,
-    ];
+    return EmoteStore.tokenize(
+      text: msg.text,
+      // Twitch off: the IRC emotes tag would still draw them otherwise.
+      positions: _store.isProviderEnabled(EmoteType.twitch)
+          ? msg.emotePositions
+          : null,
+      byCode: byCode,
+      intern: _store.intern,
+      emotesOnly: true,
+    );
   }
 
   /// Maps foreign users to a personal set from a socket entitlement grant.

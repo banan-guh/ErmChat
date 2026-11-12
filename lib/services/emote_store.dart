@@ -286,12 +286,14 @@ class EmoteStore {
   /// Shared tokenizer: Twitch positional emotes first, then word matches.
   /// Locked Twitch emotes never match by word; everything else does.
   /// [intern] canonicalizes served instances (store pool); omitted outside
-  /// the mixer, where identity does not matter.
+  /// the mixer, where identity does not matter. [emotesOnly] drops the plain
+  /// text tokens, for callers that keep only emote positions (message stamps).
   static List<EmoteToken> tokenize({
     required String text,
     required List<EmotePosition>? positions,
     required Map<String, Emote> byCode,
     Emote Function(Emote)? intern,
+    bool emotesOnly = false,
   }) {
     final tokens = <EmoteToken>[];
     final sortedPos = positions ?? const <EmotePosition>[];
@@ -343,9 +345,11 @@ class EmoteStore {
             (text[i] == ' ' || text[i] == '\t' || text[i] == '\n')) {
           i++;
         }
-        tokens.add(
-          EmoteToken(text: text.substring(start, i), start: start, end: i),
-        );
+        if (!emotesOnly) {
+          tokens.add(
+            EmoteToken(text: text.substring(start, i), start: start, end: i),
+          );
+        }
         continue;
       }
 
@@ -363,7 +367,7 @@ class EmoteStore {
         tokens.add(
           EmoteToken(emote: canonical(emote), text: word, start: start, end: i),
         );
-      } else {
+      } else if (!emotesOnly) {
         tokens.add(EmoteToken(text: word, start: start, end: i));
       }
     }
