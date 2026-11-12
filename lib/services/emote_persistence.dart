@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:isolate';
 
+import 'package:flutter/foundation.dart';
+
 import '../emotes/emote.dart';
 import '../emotes/emote_catalog.dart';
 import '../models/emote_fetch_tier.dart';
@@ -32,6 +34,10 @@ class EmotePersistence {
   Prefs? _prefs;
   // Serializes writes so concurrent saves land in call order, last one wins.
   Future<void> _writes = Future.value();
+
+  /// Completes once the queued writes have landed; tests read the store back.
+  @visibleForTesting
+  Future<void> get flushed => _writes;
 
   /// Bumped when the fetch rules change what the global catalog holds (2: FFZ
   /// supporter sets load for everyone), so an older global cache refetches

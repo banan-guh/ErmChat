@@ -1057,6 +1057,8 @@ void main() {
       expect(codes, contains('LiveEmote'));
       expect(codes, isNot(contains('Old7tv')));
       expect(codes, contains('NonTwitch'));
+      // A pending save would rewrite emotes5_ch with this manager's stamp.
+      manager.dispose();
     });
 
     // Live edits only changed memory, so a restart seeded the stale disk
@@ -1090,6 +1092,8 @@ void main() {
           added: [sevenTv('live', 'LiveEmote')],
         );
         await pumpEventQueue();
+        // The save encodes off-isolate, so its write lands after the timer.
+        await manager.persistence.flushed;
 
         final restarted = boot();
         await restarted.resolveEmotes('ch', 'b1');
