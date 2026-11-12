@@ -16,6 +16,7 @@ TwitchMessage msg(
   bool isFirstMessage = false,
   String? customRewardId,
   String? msgId,
+  String? automodFlags,
   String? pinnedPaidAmount,
   String? replyToUser,
   String? replyToParentId,
@@ -31,6 +32,7 @@ TwitchMessage msg(
     isFirstMessage: isFirstMessage,
     customRewardId: customRewardId,
     msgId: msgId,
+    automodFlags: automodFlags,
     pinnedPaidAmount: pinnedPaidAmount,
     replyToUser: replyToUser,
     replyToParentId: replyToParentId,
@@ -285,6 +287,13 @@ void main() {
         m.evaluate(msg('first!!!', isFirstMessage: true))?.primary,
         HighlightType.firstMsg,
       );
+      final approved = m.evaluate(msg('SCHIZO', automodFlags: '0-5:A.6/I.6'));
+      expect(approved?.primary, HighlightType.automod);
+      expect(
+        approved?.hasMention,
+        isFalse,
+        reason: 'the approval tint never fills @mentions',
+      );
     });
   });
 
@@ -522,6 +531,7 @@ void main() {
           HighlightType.redemption,
           HighlightType.elevated,
           HighlightType.firstMsg,
+          HighlightType.automod,
         ];
         for (final (surface, opacity) in cases) {
           final distances = <double>[

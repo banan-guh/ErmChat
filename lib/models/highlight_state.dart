@@ -10,6 +10,9 @@ enum HighlightType {
 
   /// A keyword or user rule set to tint only.
   tint,
+
+  /// A message AutoMod held and a moderator approved.
+  automod,
   redemption,
   firstMsg,
   elevated,
@@ -51,6 +54,7 @@ class HighlightState {
   /// system highlights (badges, chat events), then mentions of you.
   static const _priority = [
     HighlightType.tint,
+    HighlightType.automod,
     HighlightType.user,
     HighlightType.custom,
     HighlightType.badge,

@@ -296,6 +296,11 @@ class PingManager extends ChangeNotifier {
       }
     }
 
+    if (msg.isAutomodApproved) {
+      types.add(HighlightType.automod);
+      tinting.add(HighlightType.automod);
+    }
+
     if (types.isEmpty) return null;
     final primary = tinting.isEmpty
         ? null

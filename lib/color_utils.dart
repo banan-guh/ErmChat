@@ -188,18 +188,21 @@ Color accentRowColor(Color accent, Color surface, double opacity) {
 }
 
 /// Built-in highlight palette, dark then light themes. Order:
-/// mention/red, redemption/teal, elevated/gold, first-message/green.
+/// mention/red, redemption/teal, elevated/gold, first-message/green,
+/// automod/blue.
 const highlightPaletteDark = <Color>[
   Color(0xFF8C3A3B),
   Color(0xFF00606B),
   Color(0xFF6B5800),
   Color(0xFF3A6600),
+  Color(0xFF1F4E8C),
 ];
 const highlightPaletteLight = <Color>[
   Color(0xFFCF5050),
   Color(0xFF458B93),
   Color(0xFFB08D2A),
   Color(0xFF558B2F),
+  Color(0xFF4A7FBF),
 ];
 
 /// Built-in highlight color with the strongest perceived contrast against
@@ -244,6 +247,7 @@ Color highlightRowColor(
         HighlightType.redemption => palette[1],
         HighlightType.elevated => palette[2],
         HighlightType.firstMsg => palette[3],
+        HighlightType.automod => palette[4],
       };
   final tint = matchTintContrast(base, surface, anchor);
   return Color.alphaBlend(tint.withValues(alpha: opacity), surface);

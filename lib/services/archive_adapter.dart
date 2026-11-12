@@ -31,6 +31,7 @@ class ArchiveAdapter {
   static const _redeemPoints = 'x-redeem-points';
   static const _gifs = 'x-gifs';
   static const _sharedChannel = 'x-shared-channel';
+  static const _automod = 'x-automod';
 
   // Stands in for a user a damaged row points past.
   static final _unknown = Who(userId: '', login: '');
@@ -118,6 +119,7 @@ class ArchiveAdapter {
         // of a shared-chat message from the room being read.
         if (m.sharedChatChannelId != null && m.sourceBroadcasterId == null)
           (_sharedChannel, m.sharedChatChannelId!),
+        if (m.automodFlags != null) (_automod, m.automodFlags!),
       ],
     );
   }
@@ -167,6 +169,7 @@ class ArchiveAdapter {
       replyThreadRootId: r.threadRootId,
       isFirstMessage: r.isFirstMessage,
       msgId: r.msgId,
+      automodFlags: extra[_automod],
       customRewardId: r.customRewardId,
       redemptionImageUrl: extra[_redeemImage],
       redemptionPoints: int.tryParse(extra[_redeemPoints] ?? ''),

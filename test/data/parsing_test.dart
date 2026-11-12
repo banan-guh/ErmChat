@@ -103,6 +103,18 @@ void main() {
       expect(hl.msgId, 'highlighted-message');
       expect(hl.customRewardId, 'reward-9');
       expect(hl.pinnedPaidAmount, '100');
+
+      final approved = RecentMessagesService.parseIrcLine(
+        '@flags=0-5:A.6/I.6;custom-reward-id=;msg-id=;display-name=x;id=a1 $user :SCHIZO',
+      )!;
+      expect(approved.isAutomodApproved, isTrue);
+      expect(approved.automodFlags, '0-5:A.6/I.6');
+
+      final plain = RecentMessagesService.parseIrcLine(
+        '@flags=;display-name=x;id=a2 $user :hello',
+      )!;
+      expect(plain.isAutomodApproved, isFalse);
+      expect(plain.automodFlags, isNull);
     });
 
     test('parses reply tags, unescapes the body and keeps bad escapes', () {

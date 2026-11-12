@@ -67,7 +67,7 @@ class ChatMessagePolicy {
     if (mentionOnly && msg.highlight != null) return;
     final state = pingManager?.evaluate(msg);
     if (state == null) return;
-    if (mentionOnly && !state.hasMention) return;
+    if (mentionOnly && !state.hasMention && !msg.isAutomodApproved) return;
     msg.highlight = state;
   }
 

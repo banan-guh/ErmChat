@@ -14,12 +14,14 @@ TwitchMessage msg(
   String? displayName,
   bool isSystem = false,
   String? msgId,
+  String? automodFlags,
 }) => TwitchMessage(
   login: login,
   displayName: displayName ?? login,
   text: text,
   isSystem: isSystem,
   msgId: msgId,
+  automodFlags: automodFlags,
 );
 
 void main() {
@@ -110,6 +112,10 @@ void main() {
       final plain = msg('reward', msgId: 'highlighted-message');
       policy.applyPingHighlight(plain, mentionOnly: true);
       expect(plain.highlight, isNull);
+
+      final approved = msg('held', automodFlags: '0-5:A.6/I.6');
+      policy.applyPingHighlight(approved, mentionOnly: true);
+      expect(approved.highlight?.primary, HighlightType.automod);
 
       pings.setAccount('forsen');
       const existing = HighlightState(types: {HighlightType.username});
