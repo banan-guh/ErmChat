@@ -84,6 +84,9 @@ class SavedThreadsStore {
   // Message ids per thread, kept in sync with _messages so append dedupe is
   // O(1) instead of a scan of the whole (uncapped) thread log.
   final Map<String, Set<String>> _messageIds = {};
+  // Channels holding at least one saved thread, so the per-message
+  // hasChannel check is O(1) instead of a scan of the list.
+  final Set<String> _channels = {};
 
   Timer? _flushTimer;
   final List<(SavedThread, TwitchMessage)> _pending = [];
@@ -107,8 +110,13 @@ class SavedThreadsStore {
   );
 
   /// Whether any saved thread belongs to [channel] (stored lowercase).
-  bool hasChannel(String channel) =>
-      _threads.any((t) => t.channel == channel.toLowerCase());
+  bool hasChannel(String channel) => _channels.contains(channel.toLowerCase());
+
+  // Rebuilt on mutation rather than counted per channel: mutations are rare
+  // and the list is capped, while hasChannel runs per incoming message.
+  void _refreshChannels() => _channels
+    ..clear()
+    ..addAll(_threads.map((t) => t.channel));
 
   Set<String> get keys => {for (final t in _threads) t.key};
 
@@ -173,6 +181,7 @@ class SavedThreadsStore {
         _forget(_threads.removeLast());
       }
     }
+    _refreshChannels();
     final log = List.of(messages);
     _messages[entry.key] = log;
     _messageIds[entry.key] = _idsOf(log);
@@ -209,6 +218,7 @@ class SavedThreadsStore {
     _pending.removeWhere((p) => p.$1.key == t.key);
     if (_loading != null) _removedWhileLoading.add(t.key);
     _enqueue((db) => db.deleteThread(t.channel, t.rootId));
+    _refreshChannels();
   }
 
   // Appends a live message to its saved thread when the message belongs to
@@ -311,6 +321,7 @@ class SavedThreadsStore {
     _threads
       ..clear()
       ..addAll(merged.take(maxSavedThreads));
+    _refreshChannels();
     for (final t in _threads) {
       final fromDisk = early.contains(t.key) ? null : disk[t.key];
       if (fromDisk == null) continue;

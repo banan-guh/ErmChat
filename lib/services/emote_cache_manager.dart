@@ -335,6 +335,8 @@ class EmoteCacheManager extends CacheManager {
     try {
       // The repo opens lazily; enumerating before that throws.
       await _repo.open();
+      // Scoring every row is only worth it when the cheap total is over.
+      if (_budget.fits(await _repo.totalBytes())) return;
       final victims = _budget.overBudget(
         await _repo.getAllObjects(),
         _repo.now(),

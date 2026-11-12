@@ -63,6 +63,11 @@ void main() {
       expect(store.toggle(entry), isFalse);
       expect(store.isSaved('forsen', 'r1'), isFalse);
       expect(
+        store.hasChannel('FORSEN'),
+        isFalse,
+        reason: 'the channel drops with its last thread',
+      );
+      expect(
         store.toggle(SavedThread.fromMessage(_msg('r1', ''), 'r1')),
         isFalse,
         reason: 'empty channel is rejected',
@@ -152,6 +157,7 @@ void main() {
       final other = storeOn(db);
       await other.load();
       expect(other.isSaved('forsen', 'r1'), isTrue);
+      expect(other.hasChannel('forsen'), isTrue);
       final msgs = other.messagesFor('forsen', 'r1');
       expect(msgs.map((m) => m.messageId), [
         'c1',

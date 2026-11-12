@@ -30,6 +30,8 @@ class EmotePersistence {
   final DateTime Function() _now;
 
   Prefs? _prefs;
+  // Serializes writes so concurrent saves land in call order, last one wins.
+  Future<void> _writes = Future.value();
 
   /// Bumped when the fetch rules change what the global catalog holds (2: FFZ
   /// supporter sets load for everyone), so an older global cache refetches
@@ -135,18 +137,38 @@ class EmotePersistence {
       sevenTvPersonal: const [],
     );
     if (saved.isEmpty) return;
-    try {
-      final data = {
-        'ts': (savedAt ?? _now()).toIso8601String(),
-        'tier': _tier().index,
-        if (key == _globalKey) 'v': _globalVersion,
-        'emotes': saved.toJsonMap(),
-      };
-      await _metaStore.write(key, jsonEncode(data));
-    } catch (_) {
-      logDebug('[EmotePersistence] failed to save emotes to disk');
-    }
+    final ts = (savedAt ?? _now()).toIso8601String();
+    final tier = _tier().index;
+    final versioned = key == _globalKey;
+    // Encoding a multi-MB catalog would block the caller (launch commits
+    // included), so the isolate builds and encodes it. Writes chain so the
+    // last save wins even when calls overlap.
+    final encoded = _encode(saved, ts: ts, tier: tier, versioned: versioned);
+    _writes = _writes.then((_) async {
+      try {
+        await _metaStore.write(key, await encoded);
+      } catch (_) {
+        logDebug('[EmotePersistence] failed to save emotes to disk');
+      }
+    });
+    await _writes;
   }
+
+  // Static so the isolate closure captures only plain values: a closure over
+  // `this` would put the store's prefs in the message and fail to send.
+  static Future<String> _encode(
+    EmoteCatalog catalog, {
+    required String ts,
+    required int tier,
+    required bool versioned,
+  }) => Isolate.run(
+    () => jsonEncode({
+      'ts': ts,
+      'tier': tier,
+      if (versioned) 'v': _globalVersion,
+      'emotes': catalog.toJsonMap(),
+    }),
+  );
 
   /// Prunes persisted registries for left channels.
   Future<void> pruneStaleChannels(Set<String> activeChannels) async {

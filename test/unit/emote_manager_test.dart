@@ -3004,6 +3004,57 @@ void main() {
     });
   });
 
+  group('emote persistence save', () {
+    late Directory dir;
+
+    setUp(() async {
+      dir = await Directory.systemTemp.createTemp('ermchat_save');
+      EmoteMetaStore.I.overrideDirectory(dir);
+      addTearDown(() => EmoteMetaStore.I.reset());
+      addTearDown(() => dir.delete(recursive: true));
+    });
+
+    test('keeps the JSON shape, last concurrent save wins', () async {
+      SharedPreferences.setMockInitialValues({});
+      final now = DateTime.utc(2026, 1, 1, 12);
+      final persistence = EmotePersistence(
+        tier: () => EmoteFetchTier.high,
+        isAccountUnlock: (_) => false,
+        now: () => now,
+      );
+      EmoteCatalog catalog(String code) => EmoteCatalog(
+        sevenTvGlobal: [
+          makeTestEmote(id: code, code: code, type: EmoteType.sevenTv),
+        ],
+      );
+      const ttl = Duration(hours: 12);
+
+      final first = persistence.save(
+        'emotes5_global',
+        catalog('First'),
+        ttl,
+        savedAt: now,
+      );
+      final second = persistence.save(
+        'emotes5_global',
+        catalog('Second'),
+        ttl,
+        savedAt: now,
+      );
+      await Future.wait([first, second]);
+
+      final data =
+          jsonDecode((await EmoteMetaStore.I.read('emotes5_global'))!)
+              as Map<String, dynamic>;
+      expect(data['ts'], now.toIso8601String());
+      expect(data['tier'], EmoteFetchTier.high.index);
+      expect(data['v'], 2);
+      final loaded = await persistence.load('emotes5_global', ttl);
+      expect(loaded.fresh, isTrue);
+      expect(loaded.catalog?.sevenTvGlobal.map((e) => e.code), ['Second']);
+    });
+  });
+
   group('EmoteUsageRecord scoring', () {
     // Unix hour for a fixed date.
     final hour = DateTime(2026, 1, 1, 12).millisecondsSinceEpoch ~/ 3600000;

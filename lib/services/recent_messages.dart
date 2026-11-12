@@ -126,7 +126,30 @@ class RecentMessagesService {
 
   /// Launch-warmed response bodies (consumed once). Decoding waits for the
   /// consumer so ban lines use live strings and the signed-in login.
-  static final Map<String, Future<Uint8List>> _warmed = {};
+  static final Map<String, ({Future<Uint8List> bytes, DateTime at})> _warmed =
+      {};
+
+  /// Warm bodies go stale, so entries expire after [_warmTtl] and only the
+  /// newest [_maxWarmed] channels stay warmed.
+  static const _warmTtl = Duration(minutes: 10);
+  static const _maxWarmed = 20;
+
+  /// Test seam for the warm-expiry clock.
+  @visibleForTesting
+  static DateTime Function() now = DateTime.now;
+
+  // Drops expired entries and the oldest ones past the cap.
+  static void _pruneWarmed() {
+    final cutoff = now().subtract(_warmTtl);
+    _warmed.removeWhere((_, entry) => entry.at.isBefore(cutoff));
+    while (_warmed.length > _maxWarmed) {
+      var oldest = _warmed.entries.first;
+      for (final entry in _warmed.entries) {
+        if (entry.value.at.isBefore(oldest.value.at)) oldest = entry;
+      }
+      _warmed.remove(oldest.key);
+    }
+  }
 
   /// Warms history fetches at launch; duplicates ignored.
   static void warm(
@@ -134,15 +157,20 @@ class RecentMessagesService {
     int limit = 100,
     RecentMessagesConfig? config,
   }) {
+    _pruneWarmed();
     final service = RecentMessagesService(config: config);
     for (final channel in channels) {
       final key = channel.toLowerCase();
       if (_warmed.containsKey(key) || FakeHistory.isFake(channel)) continue;
       // A failure before anyone awaits it must not surface as unhandled.
-      _warmed[key] = service._getBytes(
-        '${service._config.providers.first}${_path(channel, limit)}',
-      )..ignore();
+      _warmed[key] = (
+        bytes: service._getBytes(
+          '${service._config.providers.first}${_path(channel, limit)}',
+        )..ignore(),
+        at: now(),
+      );
     }
+    _pruneWarmed();
   }
 
   /// Returns warmed result or fresh fetch on miss/failure.
@@ -150,11 +178,12 @@ class RecentMessagesService {
     String channel, {
     int limit = 100,
   }) async {
+    _pruneWarmed();
     final warmed = _warmed.remove(channel.toLowerCase());
     if (warmed != null) {
       try {
         final batch = await parseBody(
-          await warmed,
+          await warmed.bytes,
           channel,
           strings(),
           ownLogin(),
