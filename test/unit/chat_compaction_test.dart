@@ -182,6 +182,17 @@ void main() {
     expect(result.hidden, {2: 0, 3: 0});
   });
 
+  test('a rewritten row folds by its new text', () {
+    final a = message('KEKW');
+    final b = message('KEKW');
+    expect(compactChat([a, b]).counts, {0: 2});
+    // Keyword replacements rewrite text in place between passes.
+    b.text = 'OMEGALUL';
+    final result = compactChat([a, b]);
+    expect(result.counts, isEmpty);
+    expect(result.hidden, isEmpty);
+  });
+
   test('local skips never count', () {
     final result = compactChat([
       message('KEKW', login: 'ignored'),

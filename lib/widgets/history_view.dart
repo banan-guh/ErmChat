@@ -1271,15 +1271,15 @@ class _HistoryViewState extends State<HistoryView> {
   /// only the count maps change and the sliver rebuilds the rows it shows.
   void _regroup() {
     final w = _window;
-    final live = <String>{
-      for (var p = w.first; p < w.end; p++) HistoryWindow.keyOf(w[p]),
-    };
-    _expanded.removeWhere((key) => !live.contains(key));
     if (!_compact) {
       _repeatCounts = const {};
       _repeatHidden = const {};
       return;
     }
+    final live = <String>{
+      for (var p = w.first; p < w.end; p++) HistoryWindow.keyOf(w[p]),
+    };
+    _expanded.removeWhere((key) => !live.contains(key));
     final threshold = _compactRate >= 20 ? 0 : _compactThreshold(_compactRate);
     if (threshold > 0 && _recentRate() < threshold) {
       _repeatCounts = const {};

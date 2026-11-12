@@ -25,6 +25,27 @@ const chatCompactMin = 2;
 final _spaces = RegExp(r'\s+');
 final _edgePunctuation = RegExp(r'^\p{P}+|\p{P}+$', unicode: true);
 
+/// Run key per row, with the text it was folded from. A channel page folds
+/// its whole window on every live append, so each row's text is folded once;
+/// a keyword rewrite replaces [TwitchMessage.text] and invalidates it. Entries
+/// die with the row.
+final _runKeys = Expando<(String, String)>();
+
+/// [TwitchMessage.channel] and the folded text, or '' for whitespace-only
+/// rows. Channel names cannot hold a null, so '' is never a real key.
+String _runKey(TwitchMessage msg) {
+  final text = msg.text;
+  final cached = _runKeys[msg];
+  if (cached != null && cached.$1 == text) return cached.$2;
+  final trimmed = text.trim().replaceAll(_spaces, ' ');
+  final key = trimmed.isEmpty
+      ? ''
+      : '${msg.channel ?? ''}\u0000'
+            '${trimmed.toLowerCase().replaceAll(_edgePunctuation, '')}';
+  _runKeys[msg] = (text, key);
+  return key;
+}
+
 /// Groups copies of one text into runs. Text matches after trimming,
 /// collapsing spaces, folding case and dropping edge punctuation. Copies
 /// join a run while each lands within [chatCompactSeconds] of the previous
@@ -52,10 +73,8 @@ ChatCompaction compactChat(
   for (var i = 0; i < rows.length; i++) {
     final msg = rows[i];
     if (!_groupable(msg, skip)) continue;
-    final text = msg.text.trim().replaceAll(_spaces, ' ');
-    if (text.isEmpty) continue;
-    final folded = text.toLowerCase().replaceAll(_edgePunctuation, '');
-    final key = '${msg.channel ?? ''}\u0000$folded';
+    final key = _runKey(msg);
+    if (key.isEmpty) continue;
     final run = runs[key];
     if (run != null) {
       final gap = msg.timestamp.difference(run.last).inMilliseconds;
