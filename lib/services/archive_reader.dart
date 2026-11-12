@@ -252,9 +252,7 @@ class ArchiveReader {
         for (final b in await _decodeAll(channel, blocks, edits: edits)) {
           out.addAll(
             b.rows.where(
-              (m) =>
-                  m.messageId == rootId ||
-                  (m.replyThreadRootId ?? m.replyToParentId) == rootId,
+              (m) => (m.replyThreadRootId ?? m.replyToParentId) == rootId,
             ),
           );
         }

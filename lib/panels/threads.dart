@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 
 import '../chat/channel/threads.dart';
 import '../chat/chat.dart';
-import '../color_utils.dart' show pickColor;
 import '../composer/composer_controller.dart';
 import '../l10n/l10n.dart';
 import '../models/twitch_message.dart';
@@ -463,18 +462,12 @@ class ThreadPanels {
     String rootId,
     List<TwitchMessage> rows,
   ) {
-    // The root's own block often holds a reply, so use the real row when it
-    // is there; only fall back to a header built from the first reply.
-    final real = rows.where((m) => m.messageId == rootId).firstOrNull;
-    if (real != null) return real;
     if (rows.isEmpty) return null;
     final first = rows.first;
-    final login = first.replyToUser ?? '';
     return TwitchMessage(
-      login: login,
-      displayName: login,
+      login: first.replyToUser ?? '',
+      displayName: first.replyToUser ?? '',
       text: first.replyToText ?? '',
-      color: login.isEmpty ? null : pickColor(login),
       messageId: rootId,
       channel: channel,
       timestamp: first.timestamp.subtract(const Duration(milliseconds: 1)),
@@ -664,7 +657,6 @@ class ThreadPanels {
         TwitchMessage(
           login: entry.login.isNotEmpty ? entry.login : 'thread',
           displayName: entry.author.isNotEmpty ? entry.author : entry.login,
-          color: entry.login.isNotEmpty ? pickColor(entry.login) : null,
           text: '',
           messageId: entry.rootId,
           channel: entry.channel,

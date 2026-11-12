@@ -2116,7 +2116,6 @@ void main() {
     test('a thread reads back its replies, oldest first', () async {
       final store = await _open(_newPath());
       final writer = _writer(store, sealCount: 4);
-      writer.add(_channel, _msg(0, login: 'root'));
       for (var i = 1; i <= 8; i++) {
         writer.add(_channel, reply(i));
       }
@@ -2132,8 +2131,8 @@ void main() {
       final rows = await _reader(store).threadRows(_channel, _id(0));
       expect(
         [for (final m in rows) m.messageId],
-        [_id(0), for (var i = 1; i <= 8; i++) _id(i)],
-        reason: 'the root when its block holds a reply, then its replies',
+        [for (var i = 1; i <= 8; i++) _id(i)],
+        reason: 'only this root, across both blocks, oldest first',
       );
       await store.close();
     });
