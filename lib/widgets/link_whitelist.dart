@@ -263,7 +263,11 @@ class LongTldLinkifier extends Linkifier {
   const LongTldLinkifier();
 
   static final _regex = RegExp(
-    r'(?<![A-Za-z0-9@:./])((?:https?://)?(?:www\.)?(?:[A-Za-z0-9-]+\.)+[A-Za-z]{5,}\b(?:/[^\s]*)?)',
+    // The TLD must end the host: a following dot and label means this match
+    // stopped inside a longer host (www.youtube.com), which stock linkify
+    // handles whole.
+    r'(?<![A-Za-z0-9@:./])((?:https?://)?(?:www\.)?(?:[A-Za-z0-9-]+\.)+[A-Za-z]{5,}'
+    r'(?![A-Za-z0-9])(?!\.[A-Za-z0-9])(?:/[^\s]*)?)',
     caseSensitive: false,
   );
   static final _trailingPunct = RegExp(r'[.,;:!?]+$');

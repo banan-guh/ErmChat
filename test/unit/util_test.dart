@@ -933,6 +933,14 @@ void main() {
         longUrls('see foo.beauty/abc now').single.url,
         'https://foo.beauty/abc',
       );
+      // A longer host must not be claimed as scheme + www + a long TLD.
+      expect(longUrls('https://www.youtube.com/watch?v=x'), isEmpty);
+      final whole = parseTextWithLinks('https://www.youtube.com/watch?v=x');
+      expect(whole, hasLength(1));
+      expect(
+        (whole.single as TextSpan).text,
+        'https://www.youtube.com/watch?v=x',
+      );
       expect(
         longUrls('see https://foo.beauty/abc.png now').single.url,
         'https://foo.beauty/abc.png',
