@@ -6,6 +6,7 @@ import 'package:flutter/gestures.dart'
 import 'package:flutter/material.dart';
 import '../l10n/l10n.dart';
 import 'package:flutter/rendering.dart';
+import '../chat/channel/messages.dart';
 import '../models/twitch_message.dart';
 import 'chat_list.dart';
 import 'chat_rows.dart';
@@ -798,8 +799,10 @@ class _ChatViewState extends State<ChatView>
     ).tile(context, msg, alternate: parity, scale: s, surface: surface);
 
     // Key by messageId for rematch on index shifts; cached tiles short-circuit.
-    // System rows (welcome, sign-in) read account and locale, so they rebuild.
-    if (cache != null && msg.messageId != null && !msg.isSystem) {
+    // Account and locale system rows rebuild instead.
+    if (cache != null &&
+        msg.messageId != null &&
+        !Messages.rowNeedsRebuild(msg)) {
       cache[msg.messageId!] = tile;
       // Mark the freshly cached row as live for this frame. The eviction check
       // below reads the buffer snapshot taken before this frame, which does not

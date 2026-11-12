@@ -153,6 +153,17 @@ class Messages {
       m.isSystem &&
       (m.messageId?.startsWith('$_connIdPrefix${state.name}:') ?? false);
 
+  /// Whether [m]'s text comes from the signed-in account or the locale, so a
+  /// cached tile must not outlive a change to either. Other system rows (subs,
+  /// raids, rewards) hold their text and can be cached like chat rows.
+  static bool rowNeedsRebuild(TwitchMessage m) {
+    if (!m.isSystem) return false;
+    final id = m.messageId;
+    return id == loadingHistoryId ||
+        (id?.startsWith(_connIdPrefix) ?? false) ||
+        (id?.startsWith(historyGapIdPrefix) ?? false);
+  }
+
   // ---- Reads ---------------------------------------------------------------
 
   int get length => _items.length;

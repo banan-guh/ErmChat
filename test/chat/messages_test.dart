@@ -21,6 +21,24 @@ TwitchMessage _reply(String id, String rootId) => TwitchMessage(
 );
 
 void main() {
+  test('only account and locale system rows rebuild', () {
+    TwitchMessage row(String? id) => TwitchMessage(
+      login: '',
+      text: '',
+      isSystem: true,
+      messageId: id,
+      channel: 'test',
+    );
+    expect(Messages.rowNeedsRebuild(row('sys_conn:connected:0')), isTrue);
+    expect(Messages.rowNeedsRebuild(row(Messages.loadingHistoryId)), isTrue);
+    expect(
+      Messages.rowNeedsRebuild(row('${Messages.historyGapIdPrefix}123')),
+      isTrue,
+    );
+    expect(Messages.rowNeedsRebuild(row('sub-123')), isFalse);
+    expect(Messages.rowNeedsRebuild(_live('m1')), isFalse);
+  });
+
   group('Messages system rows', () {
     List<String> texts(Messages m) => m.items.map((e) => e.text).toList();
     int count(Messages m, String text) =>
