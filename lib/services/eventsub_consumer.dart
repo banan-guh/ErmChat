@@ -7,7 +7,9 @@ import '../eventsub/decode/events.dart';
 import '../color_utils.dart' show Color;
 import '../eventsub/topics.dart';
 import '../l10n/l10n.dart';
+import '../models/twitch_message.dart';
 import '../util/mod_activity_format.dart' show formatModActivity;
+import '../util/settings.dart';
 import 'moderation_hub.dart';
 
 /// Applies typed EventSub events to the chat kernel: mod feed complements,
@@ -336,6 +338,7 @@ class EventSubConsumer {
     if (_disposed) return;
     if (event.status != 'held') {
       chat.channelFor(event.channel)?.moderation.resolveHeld(event.messageId);
+      chat.removeHeld(event.channel, event.messageId);
       return;
     }
     if (!topics.isAutomodActive(event.channel)) return;
@@ -351,5 +354,17 @@ class EventSubConsumer {
             category: event.category,
           ),
         );
+    if (!Settings.automodInChat.value) return;
+    final row =
+        TwitchMessage(
+            login: event.userLogin,
+            text: event.text,
+            channel: event.channel,
+            messageId: event.messageId,
+            timestamp: event.heldAt ?? DateTime.now().toUtc(),
+          )
+          ..isHeld = true
+          ..heldCategory = event.category;
+    chat.receiveHeld(event.channel, row);
   }
 }

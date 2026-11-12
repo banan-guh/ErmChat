@@ -192,7 +192,7 @@ class _EmptyFirstRail extends FakeHistorySource {
 
 /// Turns repeat folding on for a test, since it defaults off.
 Future<void> _foldPrefs() async {
-  SharedPreferences.setMockInitialValues({'compact_repeats': true});
+  SharedPreferences.setMockInitialValues({'compact_repeats': 20.0});
   await Settings.bind();
 }
 

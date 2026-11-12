@@ -84,7 +84,7 @@ import '../widgets/emote_menu_panel.dart';
 import '../widgets/message_builder.dart';
 import '../widgets/predictive_back_handler.dart';
 import '../widgets/join_channel_dialog.dart';
-import '../widgets/mod_view/dialogs.dart' show showModError;
+import '../widgets/mod_view/dialogs.dart' show showModError, modErrorText;
 import '../services/fake_chat_feed.dart';
 import '../services/foreground_task.dart';
 import '../widgets/design_tokens.dart';
@@ -626,6 +626,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     sharedChatMode: () => Settings.sharedChatMode.value,
     showNamePaints: () => _showNamePaints,
     ownLogin: () => _session.login,
+    onHeldDecide: _decideHeld,
     isFullscreen: () => _isFullscreen,
     fastSnap: () => _fastSnap,
     commitChannelSelection: _commitChannelSelection,
@@ -843,6 +844,28 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       _search.syncFieldTo(selectedChannel);
       _mod.syncTermsToSelected();
     }
+  }
+
+  Future<void> _decideHeld(
+    String channel,
+    TwitchMessage msg,
+    bool allow,
+  ) async {
+    final id = msg.messageId;
+    if (id == null) return;
+    final result = await _modActions.decideHeldMessage(
+      _twitchAuth,
+      channel,
+      messageId: id,
+      allow: allow,
+    );
+    if (!mounted) return;
+    if (!result.ok) {
+      showNotice(modErrorText(result, context.l10n));
+      return;
+    }
+    _chat.removeHeld(channel, id);
+    _chat.channelFor(channel)?.moderation.resolveHeld(id);
   }
 
   Future<void> _addChannel(String channel, {bool focus = true}) {
@@ -1836,7 +1859,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     _composer,
     channel,
     modeRow: _modeRow,
-    hidden: composerStatusHidden(_search, _mod),
+    hidden: composerStatusHidden(_search),
   );
 
   /// Whether room modes may ride the island's button row: the row shows.

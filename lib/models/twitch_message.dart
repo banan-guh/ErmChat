@@ -110,6 +110,13 @@ class TwitchMessage {
 
   bool get isAutomodApproved => automodApproved;
 
+  /// True for an AutoMod-held message shown inline while a mod reviews it.
+  /// Held rows are live-only: they are not archived, counted, or searched.
+  bool isHeld = false;
+
+  /// AutoMod category for [isHeld]; null on every other row.
+  String? heldCategory;
+
   /// Channel point redemption id (`custom-reward-id`), if any.
   final String? customRewardId;
 

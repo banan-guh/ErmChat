@@ -107,6 +107,9 @@ class AutomodHeldEvent {
   final String category;
   final String status;
 
+  /// When Twitch held the message; null on older payloads.
+  final DateTime? heldAt;
+
   AutomodHeldEvent({
     required this.channel,
     required this.messageId,
@@ -114,6 +117,7 @@ class AutomodHeldEvent {
     required this.text,
     required this.category,
     required this.status,
+    this.heldAt,
   });
 }
 

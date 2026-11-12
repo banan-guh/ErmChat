@@ -354,8 +354,16 @@
   "layoutCompactHint": "Merged top row, tighter spacing",
   "layoutFullHint": "Separate top bar and tabs",
   "checkeredHint": "Alternate row shading",
-  "compactRepeatsHint": "Fold spam and copypasta into one row",
-  "settingCompactRepeats": "Fold repeated messages",
+  "compactRepeatsAlways": "Always on",
+  "compactRepeatsRate": "{rate} msgs/min and up",
+  "@compactRepeatsRate": {
+    "placeholders": {
+      "rate": {
+        "type": "int"
+      }
+    }
+  },
+  "settingCompactRepeats": "Compact repeated messages",
   "repeatedMessages": "{count, plural, =1{1 repeated message} other{{count} repeated messages}}",
   "tierNothing": "Nothing",
   "tierLow": "Low",
@@ -1118,6 +1126,8 @@
   "messageIdCopied": "Message ID copied.",
   "automodNeedsScope": "AutoMod queue needs the moderator:manage:automod scope. Your login predates it.",
   "automodUnavailable": "AutoMod queue is unavailable here.",
+  "settingAutomodInChat": "Inline AutoMod queue",
+  "automodHeldInChat": "Held by AutoMod",
   "automodRelogin": "Open Settings > Account > Log in again to grant moderator:manage:automod.",
   "howToRelogin": "How to re-login",
   "queueClear": "Queue is clear.",

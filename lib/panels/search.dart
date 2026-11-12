@@ -113,7 +113,9 @@ class SearchPanels {
   List<TwitchMessage> visibleMessages(String channel) {
     final filter = stateFor(channel);
     final messages = chat.channelFor(channel)?.messages;
-    final items = messages?.chatRows ?? const <TwitchMessage>[];
+    final items = (messages?.chatRows ?? const <TwitchMessage>[])
+        .where((m) => !m.isHeld)
+        .toList();
     if (!open || !filter.isActive) {
       return items;
     }

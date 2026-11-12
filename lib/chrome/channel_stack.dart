@@ -78,6 +78,7 @@ class ChannelPanels {
     required this.sharedChatMode,
     required this.showNamePaints,
     required this.ownLogin,
+    required this.onHeldDecide,
     required this.isFullscreen,
     required this.fastSnap,
     required this.commitChannelSelection,
@@ -134,6 +135,10 @@ class ChannelPanels {
   final String Function() sharedChatMode;
   final bool Function() showNamePaints;
   final String? Function() ownLogin;
+
+  /// Resolves an AutoMod-held row from its inline buttons.
+  final Future<void> Function(String channel, TwitchMessage msg, bool allow)
+  onHeldDecide;
   final bool Function() isFullscreen;
   final bool Function() fastSnap;
   final void Function(int index, {required bool rebuild})
@@ -583,6 +588,7 @@ class ChannelPanels {
             goToMessage: () => goToMessage(msg),
           ),
     onCopyMessage: copyMessage,
+    onHeldDecide: (msg, allow) => onHeldDecide(channel, msg, allow),
     onFindThreadRoot: threads.findThreadRoot,
     onShowThreadView: (msg) => threads.showThreadView(msg),
     hides: chat.filter.hides,

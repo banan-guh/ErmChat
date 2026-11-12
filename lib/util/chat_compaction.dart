@@ -77,7 +77,9 @@ ChatCompaction compactChat(
 }
 
 bool _groupable(TwitchMessage msg, bool Function(TwitchMessage)? skip) {
-  if (msg.isSystem || msg.deleted || msg.isHighlighted) return false;
+  if (msg.isHeld || msg.isSystem || msg.deleted || msg.isHighlighted) {
+    return false;
+  }
   if (msg.isFirstMessage || msg.replyToUser != null) return false;
   if (msg.customRewardId != null || msg.redemptionPoints != null) return false;
   if (msg.redemptionImageUrl != null || msg.bitsAmount != null) return false;

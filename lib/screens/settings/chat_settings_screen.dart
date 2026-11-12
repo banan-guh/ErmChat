@@ -92,6 +92,15 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
     NameCopyGesture.off => context.l10n.off,
   };
 
+  String _compactRepeatsLabel(double value) {
+    final l = context.l10n;
+    final title = Settings.compactRepeats.titleOf(l);
+    if (value <= 0) return '$title: ${l.off}';
+    if (value >= 20) return '$title: ${l.compactRepeatsAlways}';
+    final rate = (100 - (value - 1) * 5).round();
+    return '$title: ${l.compactRepeatsRate(rate)}';
+  }
+
   Future<void> _pickCopyGesture() async {
     final l = context.l10n;
     final current = Settings.copyUsernameGesture.value;
@@ -198,6 +207,22 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
                 subtitle: _sharedChatModeLabel,
                 onTap: _pickSharedChatMode,
               ),
+            ),
+            SettingAnchor(
+              Settings.compactRepeats,
+              child: PrefsSliderTile(
+                label: _compactRepeatsLabel,
+                min: 0,
+                max: 20,
+                divisions: 20,
+                defaultValue: 0,
+                read: () => Settings.compactRepeats.value,
+                write: (v) => Settings.compactRepeats.set(v),
+              ),
+            ),
+            SettingSwitch(
+              Settings.automodInChat,
+              secondary: const Icon(Icons.shield_outlined),
             ),
             _navRow(
               SettingsRow.inlineEmbeds,

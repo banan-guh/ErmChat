@@ -912,4 +912,65 @@ void main() {
       expect(m.containsId('a'), isFalse, reason: 'capped rows leave the map');
     });
   });
+
+  group('held rows', () {
+    test('held row is replaced by the released copy with the same id', () {
+      final chat = Chat();
+      addTearDown(chat.dispose);
+      final channel = chat.ensure('test');
+      final held =
+          TwitchMessage(
+              login: 'alice',
+              text: 'held text',
+              messageId: 'm1',
+              channel: 'test',
+            )
+            ..isHeld = true
+            ..heldCategory = 'bullying';
+      chat.receiveHeld('test', held);
+      expect(channel.messages.items.single.isHeld, isTrue);
+
+      channel.receive(
+        TwitchMessage(
+          login: 'alice',
+          text: 'held text',
+          messageId: 'm1',
+          channel: 'test',
+        ),
+        maxMessages: 10,
+        isSelected: true,
+        ownLogin: null,
+      );
+      final row = channel.messages.items.single;
+      expect(row.isHeld, isFalse, reason: 'the sent copy supersedes it');
+      expect(row.text, 'held text');
+    });
+
+    test('removeHeld leaves normal rows alone', () {
+      final chat = Chat();
+      addTearDown(chat.dispose);
+      final channel = chat.ensure('test');
+      channel.receive(
+        TwitchMessage(
+          login: 'alice',
+          text: 'normal',
+          messageId: 'm1',
+          channel: 'test',
+        ),
+        maxMessages: 10,
+        isSelected: true,
+        ownLogin: null,
+      );
+      final held = TwitchMessage(
+        login: 'bob',
+        text: 'held',
+        messageId: 'm2',
+        channel: 'test',
+      )..isHeld = true;
+      chat.receiveHeld('test', held);
+      chat.removeHeld('test', 'm2');
+      expect(channel.messages.items.single.messageId, 'm1');
+      expect(chat.unreadMentions, 0);
+    });
+  });
 }

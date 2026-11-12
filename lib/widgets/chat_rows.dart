@@ -18,6 +18,7 @@ import 'emote_text.dart';
 import 'message_builder.dart';
 import 'seven_tv_paint_service.dart';
 import 'design_tokens.dart';
+import 'held_message_row.dart';
 
 /// A row to pulse so a jump lands somewhere visible. [token] makes a repeat
 /// jump to the same time a fresh request.
@@ -54,6 +55,7 @@ class ChatRows {
     this.linkWhitelist,
     this.hides,
     this.flashRequest,
+    this.onHeldDecide,
   });
 
   final String channel;
@@ -77,6 +79,10 @@ class ChatRows {
 
   /// Null disables copy-on-double-tap for chat messages.
   final void Function(TwitchMessage)? onCopyMessage;
+
+  /// Resolves an AutoMod-held row from its inline buttons. Null hides held
+  /// rows on surfaces that do not moderate, like search and mentions.
+  final Future<void> Function(TwitchMessage msg, bool allow)? onHeldDecide;
   final TwitchMessage? Function(TwitchMessage)? onFindThreadRoot;
   final void Function(TwitchMessage)? onShowThreadView;
 
@@ -119,6 +125,17 @@ class ChatRows {
     bool skipHides = false,
     VoidCallback? onTapRow,
   }) {
+    if (msg.isHeld) {
+      final decide = onHeldDecide;
+      if (decide == null) return const SizedBox.shrink();
+      return HeldMessageRow(
+        message: msg,
+        onDecide: (allow) => decide(msg, allow),
+        timestamp: showTimestamp
+            ? formatTimestamp(msg.timestamp, timestampFormat)
+            : null,
+      );
+    }
     if (!skipHides && (hides?.call(msg) ?? false)) {
       return const SizedBox.shrink();
     }

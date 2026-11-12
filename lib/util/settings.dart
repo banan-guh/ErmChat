@@ -674,13 +674,27 @@ abstract final class Settings {
   );
 
   /// Folds copies of the same message into one row on channel pages.
-  static final compactRepeats = Setting(
+  /// Fold repeated messages, from off through a per-minute rate threshold to
+  /// always. 0 is off, 20 is always, and 1..19 map to 100..10 msgs/min.
+  static final compactRepeats = DoubleSetting(
     'compact_repeats',
-    false,
+    0,
     id: 'compact_repeats',
-    page: 'appearance',
-    section: 'Chat display',
+    page: 'chat',
+    section: 'Messages',
     keywords: 'spam copypasta repeat duplicate collapse pile',
+    min: 0,
+    max: 20,
+  );
+
+  /// Shows AutoMod-held messages inline in chat for moderators.
+  static final automodInChat = Setting(
+    'automod_in_chat',
+    false,
+    id: 'automod_in_chat',
+    page: 'chat',
+    section: 'Messages',
+    keywords: 'automod held review inline mod moderation',
   );
   static final fastChannelSnap = Setting(
     'fast_channel_snap',
@@ -1107,6 +1121,7 @@ abstract final class Settings {
     checkeredMessages,
     lineSeparator,
     compactRepeats,
+    automodInChat,
     fastChannelSnap,
     reopenLastChannel,
     lastChannel,

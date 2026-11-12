@@ -106,6 +106,13 @@ class Channel {
     );
   }
 
+  /// A held message from AutoMod: inserts the inline review row only. No
+  /// unread, mention, thread, or archive work.
+  void receiveHeld(TwitchMessage msg) => messages.addHeld(msg);
+
+  /// Drops a held row when it is approved, denied, or expires.
+  bool removeHeld(String messageId) => messages.removeHeld(messageId);
+
   /// History/backfill batch. No unread or mention counting. Touches activity
   /// and lifts the connect line in the same step, so callers never write
   /// channel children directly.

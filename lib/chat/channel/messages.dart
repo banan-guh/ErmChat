@@ -215,6 +215,13 @@ class Messages {
     TruncateExemptions Function()? buildExemptions,
   }) {
     final id = msg.messageId;
+    final held = id == null ? null : _byId[id];
+    if (held != null && held.isHeld) {
+      // The released copy supersedes the inline held row, whatever order the
+      // IRC line and the EventSub update arrive in.
+      _items.remove(held);
+      _byId.remove(id);
+    }
     if (id != null && _byId.containsKey(id)) {
       return const BufferChange();
     }
@@ -224,6 +231,21 @@ class Messages {
     _bump();
     return BufferChange(inserted: true, evicted: evicted);
   }
+
+  /// Inserts a held-message row at the newest edge without touching the
+  /// buffer cap, thread index, unread, or mentions. Held rows are a live-only
+  /// overlay on the channel page; resolving one removes it.
+  void addHeld(TwitchMessage msg) {
+    final id = msg.messageId;
+    if (id != null && _byId.containsKey(id)) return;
+    _items.insert(0, msg);
+    if (id != null) _byId[id] = msg;
+    _bump();
+  }
+
+  /// Removes the held row carrying [id], if any.
+  bool removeHeld(String id) =>
+      removeWhere((m) => m.isHeld && m.messageId == id) > 0;
 
   /// Inserts [msg] directly after (older than) the row carrying [targetId],
   /// so a late redemption header lands above its chat line in display order.
@@ -887,6 +909,7 @@ class Messages {
     }
     final threadGroups = <String, List<TwitchMessage>>{};
     for (final m in _items) {
+      if (m.isHeld) continue;
       final isReply = m.replyToParentId != null || m.replyThreadRootId != null;
       final isReferenced =
           m.messageId != null && referencedIds.contains(m.messageId);
@@ -901,6 +924,7 @@ class Messages {
     final activeThreadKeys = <String>{};
     int visibleCount = 0;
     for (final m in _items) {
+      if (m.isHeld) continue;
       if (visibleCount >= maxMessages) break;
       visibleCount++;
       if (m.isSystem) continue;

@@ -284,6 +284,7 @@ class EventSubDecoder {
     // v2 nests the category in the automod object; blocked-term holds have
     // no category, so the reason ('blocked_term') stands in.
     final automod = event['automod'] as Map?;
+    final heldAt = DateTime.tryParse(event['held_at'] as String? ?? '');
     _automodHeldController.add(
       AutomodHeldEvent(
         channel: channel,
@@ -296,6 +297,7 @@ class EventSubDecoder {
             event['reason'] as String? ??
             'automod',
         status: status,
+        heldAt: heldAt?.toUtc(),
       ),
     );
   }

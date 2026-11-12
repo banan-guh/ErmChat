@@ -356,6 +356,9 @@ class _HistoryViewState extends State<HistoryView> {
   /// Repeat groups over the window, by window position. [compact] must be on.
   bool _compact = false;
 
+  /// Slider position: 0 off, 20 always, 1..19 dynamic thresholds.
+  double _compactRate = 0;
+
   /// Revealed pile members sit back so spam reads apart from real messages.
   static const double _pileMemberOpacity = 0.6;
 
@@ -399,7 +402,8 @@ class _HistoryViewState extends State<HistoryView> {
     super.initState();
     _controller.addListener(_onScroll);
     _active = this;
-    _compact = widget.compact && Settings.compactRepeats.value;
+    _compactRate = widget.compact ? Settings.compactRepeats.value : 0;
+    _compact = _compactRate > 0;
     if (widget.compact) Settings.compactRepeats.addListener(_onCompactionPref);
     PerfProbe.counters(_counters);
     PerfProbe.gauge('hwin', () => _active?._window.length ?? 0);
@@ -498,7 +502,8 @@ class _HistoryViewState extends State<HistoryView> {
       if (widget.compact) {
         Settings.compactRepeats.addListener(_onCompactionPref);
       }
-      _compact = widget.compact && Settings.compactRepeats.value;
+      _compactRate = widget.compact ? Settings.compactRepeats.value : 0;
+      _compact = _compactRate > 0;
       _expanded.clear();
       _rebuildItems();
     }
@@ -1275,6 +1280,12 @@ class _HistoryViewState extends State<HistoryView> {
       _repeatHidden = const {};
       return;
     }
+    final threshold = _compactRate >= 20 ? 0 : _compactThreshold(_compactRate);
+    if (threshold > 0 && _recentRate() < threshold) {
+      _repeatCounts = const {};
+      _repeatHidden = const {};
+      return;
+    }
     final own = widget.ownLogin?.call()?.toLowerCase();
     final result = compactChat(
       [for (var p = w.first; p < w.end; p++) w[p]],
@@ -1290,6 +1301,23 @@ class _HistoryViewState extends State<HistoryView> {
     _repeatCounts = counts;
     _repeatHidden = hidden;
   }
+
+  /// Messages in the live buffer over the last minute; 0 when there is no
+  /// live tail (search, mentions).
+  int _recentRate() {
+    final rows = widget.live?.call();
+    if (rows == null || rows.isEmpty) return 0;
+    final cutoff = DateTime.now().toUtc().subtract(const Duration(minutes: 1));
+    var count = 0;
+    for (final m in rows) {
+      if (m.isSystem || m.isHeld) continue;
+      if (m.timestamp.isAfter(cutoff)) count++;
+    }
+    return count;
+  }
+
+  /// Slider 1..19 to msgs/min: 1 is 100, 19 is 10.
+  static int _compactThreshold(double value) => (100 - (value - 1) * 5).round();
 
   /// Adds items for positions [from] on to the newer sliver, after rows
   /// appended below an anchor at or before [from].
@@ -1331,10 +1359,11 @@ class _HistoryViewState extends State<HistoryView> {
   }
 
   void _onCompactionPref() {
-    final on = widget.compact && Settings.compactRepeats.value;
-    if (on == _compact) return;
+    final value = widget.compact ? Settings.compactRepeats.value : 0.0;
+    if (value == _compactRate) return;
     setState(() {
-      _compact = on;
+      _compactRate = value;
+      _compact = value > 0;
       _expanded.clear();
       _rebuildItems();
     });

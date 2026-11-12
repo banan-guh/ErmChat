@@ -137,6 +137,18 @@ class Chat {
     return outcome;
   }
 
+  /// A held AutoMod row: channel-local inline review only. Deliberately not
+  /// [receive], so the root's mention mirror, unread totals, and the ingest
+  /// pipeline's archive, analytics, TTS and notification hooks never see it.
+  void receiveHeld(String channel, TwitchMessage msg) {
+    _channels[channel]?.receiveHeld(msg);
+  }
+
+  /// Drops a held row after approval, denial, or expiry.
+  void removeHeld(String channel, String messageId) {
+    _channels[channel]?.removeHeld(messageId);
+  }
+
   /// Single writer for the @mentions mirror. Live ingest, history backfill, and
   /// the retroactive scan all route through it.
   void mirrorMentions(List<TwitchMessage> rows, {required int maxMessages}) {
