@@ -192,6 +192,12 @@ class ThreadPanels {
   }) async {
     final channel = rootMsg.channel;
     if (channel == null) return;
+    // The picked row may be a reply. The thread header and the reply window
+    // follow the real root whenever the buffer or saved log holds it.
+    final askedId = rootMsg.replyThreadRootId ?? rootMsg.messageId;
+    final root = askedId == null
+        ? rootMsg
+        : (resolveThreadRootMessage(channel, askedId) ?? rootMsg);
     // Picking a thread from the open dashboard swaps it in place; the sheet
     // only closes and reopens when it was closed or the channel changes.
     final inPlace =
@@ -209,14 +215,14 @@ class ThreadPanels {
     }
     if (!isMounted()) return;
     panelManager.activePanel = OverlayPanel.thread;
-    panelManager.openThreadRoot = rootMsg;
-    _lastThreadRoot = rootMsg;
+    panelManager.openThreadRoot = root;
+    _lastThreadRoot = root;
     markDirty();
     panelManager.threadChannel = channel;
     _setThreadRows(computeThreadMessages());
     threadMsgCount.value++;
     unawaited(_loadArchivedThread(force: true));
-    final rootId = rootMsg.replyThreadRootId ?? rootMsg.messageId;
+    final rootId = root.replyThreadRootId ?? root.messageId;
     if (rootId != null) {
       threadLastSeen['$channel:$rootId'] = DateTime.now();
       threadsListVersion.value++;
