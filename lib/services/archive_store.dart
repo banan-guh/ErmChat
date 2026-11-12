@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io' show ZLibCodec;
 import 'dart:isolate';
 import 'dart:math';
 import 'dart:typed_data';
@@ -124,6 +125,7 @@ class ArchiveStore {
 
   DateTime? _lastPrune;
   int? _indexedVersion;
+  bool _observationsPacked = false;
 
   /// Opens (creating if needed) the archive at [path] and prunes once.
   static Future<ArchiveStore> open(
@@ -167,6 +169,14 @@ class ArchiveStore {
     final openMs = sw.elapsedMilliseconds;
     final store = ArchiveStore._(db, now ?? DateTime.now);
     await store._ensureMeta();
+    if (!store._observationsPacked) {
+      final packed = await store._packObservations();
+      await store._saveMeta('observations_packed', '1');
+      store._observationsPacked = true;
+      // Give the file the pages the compression freed. This runs once, and
+      // the open is lazy, so the cost is paid off the first frame.
+      if (packed > 0) await store.reclaimSpace();
+    }
     if (store._indexedVersion != schemaVersion) {
       await store._backfillIndexes();
       await store._saveIndexedVersion();
@@ -198,7 +208,7 @@ class ArchiveStore {
     try {
       final r = await _db.rawQuery(
         "SELECT key, value FROM meta "
-        "WHERE key IN ('last_prune', 'indexed_version')",
+        "WHERE key IN ('last_prune', 'indexed_version', 'observations_packed')",
       );
       for (final row in r) {
         final key = row['key'] as String;
@@ -210,6 +220,8 @@ class ArchiveStore {
               : DateTime.fromMillisecondsSinceEpoch(ms, isUtc: true);
         } else if (key == 'indexed_version') {
           _indexedVersion = int.tryParse(value);
+        } else if (key == 'observations_packed') {
+          _observationsPacked = value == '1';
         }
       }
     } catch (e) {
@@ -217,27 +229,58 @@ class ArchiveStore {
     }
   }
 
-  Future<void> _saveIndexedVersion() async {
+  Future<void> _saveMeta(String key, String value) async {
     try {
       await _db.rawInsert(
         'INSERT OR REPLACE INTO meta(key, value) VALUES (?, ?)',
-        ['indexed_version', '$schemaVersion'],
+        [key, value],
       );
     } catch (e) {
-      logDebug('[Archive] index version write failed: $e');
+      logDebug('[Archive] meta write failed: $e');
     }
   }
 
-  Future<void> _savePruneClock(DateTime now) async {
-    try {
-      await _db.rawInsert(
-        'INSERT OR REPLACE INTO meta(key, value) VALUES (?, ?)',
-        ['last_prune', '${now.millisecondsSinceEpoch}'],
-      );
-    } catch (e) {
-      logDebug('[Archive] prune clock write failed: $e');
-    }
+  /// Compresses the added definitions of observations stored before this
+  /// build. Old rows stay readable as text, so a partial run is safe.
+  Future<int> _packObservations() async {
+    final rows = await _db.rawQuery(
+      "SELECT kind, scope, source, at_ms, added FROM observations "
+      "WHERE typeof(added) = 'text'",
+    );
+    if (rows.isEmpty) return 0;
+    await _db.transaction((txn) async {
+      for (final r in rows) {
+        await txn.rawUpdate(
+          'UPDATE observations SET added = ? '
+          'WHERE kind = ? AND scope = ? AND source = ? AND at_ms = ?',
+          [
+            _packJson(r['added']! as String),
+            r['kind'],
+            r['scope'],
+            r['source'],
+            r['at_ms'],
+          ],
+        );
+      }
+    });
+    return rows.length;
   }
+
+  /// Observation definitions as zlib bytes; a text value is an older row.
+  static final _zlib = ZLibCodec(level: 6);
+
+  static Uint8List _packJson(String json) =>
+      Uint8List.fromList(_zlib.encode(utf8.encode(json)));
+
+  static String _unpackJson(Object stored) => stored is String
+      ? stored
+      : utf8.decode(_zlib.decode(stored as List<int>));
+
+  Future<void> _saveIndexedVersion() =>
+      _saveMeta('indexed_version', '$schemaVersion');
+
+  Future<void> _savePruneClock(DateTime now) =>
+      _saveMeta('last_prune', '${now.millisecondsSinceEpoch}');
 
   static Future<void> _create(Database db) async {
     const statements = [
@@ -331,7 +374,7 @@ class ArchiveStore {
         atMs: r['at_ms']! as int,
         seenMs: r['seen_ms']! as int,
         full: r['full'] == 1,
-        added: r['added']! as String,
+        added: _unpackJson(r['added']!),
         removed: r['removed']! as String,
         hash: r['hash']! as String,
       ),
@@ -350,7 +393,7 @@ class ArchiveStore {
     'at_ms': o.atMs,
     'seen_ms': o.seenMs,
     'full': o.full ? 1 : 0,
-    'added': o.addedJson,
+    'added': _packJson(o.addedJson),
     'removed': o.removedJson,
     'hash': o.hash,
   }, conflictAlgorithm: ConflictAlgorithm.ignore);

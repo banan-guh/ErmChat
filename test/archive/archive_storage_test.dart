@@ -7,6 +7,7 @@ import 'package:ermchat/archive/archive_block.dart';
 import 'package:ermchat/archive/archive_row.dart';
 import 'package:ermchat/archive/archive_users.dart';
 import 'package:ermchat/archive/archive_words.dart';
+import 'package:ermchat/archive/set_log.dart';
 import 'package:ermchat/color_utils.dart';
 import 'package:ermchat/emotes/emote.dart';
 import 'package:ermchat/irc/decode/decoder.dart';
@@ -2183,5 +2184,65 @@ void main() {
       );
       await store.close();
     });
+  });
+
+  test('observations store definitions compressed and read old text', () async {
+    final path = _newPath();
+    final store = await _open(path);
+    await store.addObservation(
+      'emote',
+      's',
+      'src',
+      const SetObservation(
+        atMs: 1,
+        seenMs: 1,
+        full: true,
+        added: {'k': '{"a":1}'},
+        removed: [],
+        hash: 'h',
+      ),
+    );
+    expect((await store.observations('emote', 's', 'src')).single.added, {
+      'k': '{"a":1}',
+    });
+    await store.close();
+
+    // A row written by an older build is text; the next open compresses it.
+    final db = await databaseFactoryFfi.openDatabase(path);
+    expect(
+      (await db.rawQuery(
+        'SELECT typeof(added) AS t FROM observations',
+      )).single['t'],
+      'blob',
+    );
+    await db.rawInsert(
+      'INSERT INTO observations(kind, scope, source, at_ms, seen_ms, full, '
+      'added, removed, hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [
+        'emote',
+        's',
+        'src',
+        2,
+        2,
+        1,
+        jsonEncode({'old': '{"b":2}'}),
+        '[]',
+        'h2',
+      ],
+    );
+    await db.rawDelete("DELETE FROM meta WHERE key = 'observations_packed'");
+    await db.close();
+
+    final again = await _open(path);
+    final rows = await again.observations('emote', 's', 'src');
+    expect(rows, hasLength(2));
+    expect(rows.last.added, {'old': '{"b":2}'});
+    await again.close();
+    final check = await databaseFactoryFfi.openDatabase(path);
+    final types = await check.rawQuery(
+      'SELECT typeof(added) AS t FROM observations',
+    );
+    expect(types.every((r) => r['t'] == 'blob'), isTrue);
+    await check.close();
   });
 }
