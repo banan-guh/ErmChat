@@ -672,6 +672,16 @@ abstract final class Settings {
     section: 'Chat display',
     keywords: 'divider',
   );
+
+  /// Folds copies of the same message into one row on channel pages.
+  static final compactRepeats = Setting(
+    'compact_repeats',
+    false,
+    id: 'compact_repeats',
+    page: 'appearance',
+    section: 'Chat display',
+    keywords: 'spam copypasta repeat duplicate collapse pile',
+  );
   static final fastChannelSnap = Setting(
     'fast_channel_snap',
     true,
@@ -1096,6 +1106,7 @@ abstract final class Settings {
     highlightOpacity,
     checkeredMessages,
     lineSeparator,
+    compactRepeats,
     fastChannelSnap,
     reopenLastChannel,
     lastChannel,

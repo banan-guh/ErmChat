@@ -13,10 +13,12 @@ import '../color_utils.dart' show streamAccent;
 import '../l10n/l10n.dart';
 import '../models/twitch_message.dart';
 import '../sheets/history_marker_sheet.dart';
+import '../util/chat_compaction.dart';
 import '../util/history_timeline.dart';
 import '../util/history_window.dart';
 import '../util/log.dart';
 import '../util/perf_probe.dart';
+import '../util/settings.dart';
 import 'chat_list.dart';
 import 'chat_message_tile.dart';
 import 'chat_rows.dart';
@@ -94,6 +96,8 @@ class HistoryView extends StatefulWidget {
     this.liveVersion,
     this.emotesVersion,
     this.tileCache,
+    this.compact = false,
+    this.ownLogin,
     this.active = true,
     this.atBottomNotifier,
     this.onScrollActivity,
@@ -158,6 +162,12 @@ class HistoryView extends StatefulWidget {
   /// Tile caches by channel, then message id; the owner evicts edited rows
   /// and may drop a channel's map. Null builds rows fresh.
   final Map<String, Map<String?, Widget>>? tileCache;
+
+  /// Whether this is the channel page and may fold repeated messages.
+  final bool compact;
+
+  /// The signed-in login, whose own messages never join a pile.
+  final String? Function()? ownLogin;
 
   /// Whether this page is the focused one. A jump waits until it is, since
   /// an offstage list has no layout to place the target in.
@@ -343,6 +353,18 @@ class _HistoryViewState extends State<HistoryView> {
   final Set<RowGateState> _gates = {};
   bool _gateSyncScheduled = false;
 
+  /// Repeat groups over the window, by window position. [compact] must be on.
+  bool _compact = false;
+
+  /// Revealed pile members sit back so spam reads apart from real messages.
+  static const double _pileMemberOpacity = 0.6;
+
+  Map<int, int> _repeatCounts = const {};
+  Map<int, int> _repeatHidden = const {};
+
+  /// Rows the reader opened by a tap, by row key.
+  final Set<String> _expanded = {};
+
   /// Mirror of what this view last wrote to [HistoryView.atBottomNotifier],
   /// so an outside write reads as a request to jump.
   bool _atBottom = true;
@@ -377,6 +399,8 @@ class _HistoryViewState extends State<HistoryView> {
     super.initState();
     _controller.addListener(_onScroll);
     _active = this;
+    _compact = widget.compact && Settings.compactRepeats.value;
+    if (widget.compact) Settings.compactRepeats.addListener(_onCompactionPref);
     PerfProbe.counters(_counters);
     PerfProbe.gauge('hwin', () => _active?._window.length ?? 0);
     if (PerfProbe.enabled) {
@@ -467,6 +491,17 @@ class _HistoryViewState extends State<HistoryView> {
     super.didUpdateWidget(old);
     // A jump that arrived while this page was offstage lands now.
     if (!old.active && widget.active) _onJumpRequest();
+    if (old.compact != widget.compact) {
+      if (old.compact) {
+        Settings.compactRepeats.removeListener(_onCompactionPref);
+      }
+      if (widget.compact) {
+        Settings.compactRepeats.addListener(_onCompactionPref);
+      }
+      _compact = widget.compact && Settings.compactRepeats.value;
+      _expanded.clear();
+      _rebuildItems();
+    }
     if (old.liveVersion != widget.liveVersion) {
       old.liveVersion?.removeListener(_onLive);
       widget.liveVersion?.addListener(_onLive);
@@ -984,6 +1019,9 @@ class _HistoryViewState extends State<HistoryView> {
     widget.jumpRequest?.removeListener(_onJumpRequest);
     widget.calendarRequest?.removeListener(_onCalendarRequest);
     widget.actions?.follow.removeListener(_onFollow);
+    if (widget.compact) {
+      Settings.compactRepeats.removeListener(_onCompactionPref);
+    }
     _unwatchClears?.call();
     _unwatchStreams?.call();
     if (identical(_active, this)) _active = null;
@@ -1224,9 +1262,39 @@ class _HistoryViewState extends State<HistoryView> {
     });
   }
 
+  /// Recomputes repeat groups over the window. Positions stay stable, so
+  /// only the count maps change and the sliver rebuilds the rows it shows.
+  void _regroup() {
+    final w = _window;
+    final live = <String>{
+      for (var p = w.first; p < w.end; p++) HistoryWindow.keyOf(w[p]),
+    };
+    _expanded.removeWhere((key) => !live.contains(key));
+    if (!_compact) {
+      _repeatCounts = const {};
+      _repeatHidden = const {};
+      return;
+    }
+    final own = widget.ownLogin?.call()?.toLowerCase();
+    final result = compactChat(
+      [for (var p = w.first; p < w.end; p++) w[p]],
+      skip: (msg) {
+        if (own != null && msg.login.toLowerCase() == own) return true;
+        return widget.rows.hides?.call(msg) ?? false;
+      },
+    );
+    final counts = <int, int>{};
+    result.counts.forEach((i, n) => counts[w.first + i] = n);
+    final hidden = <int, int>{};
+    result.hidden.forEach((i, s) => hidden[w.first + i] = w.first + s);
+    _repeatCounts = counts;
+    _repeatHidden = hidden;
+  }
+
   /// Adds items for positions [from] on to the newer sliver, after rows
   /// appended below an anchor at or before [from].
   void _appendItems(int from) {
+    _regroup();
     final w = _window;
     final newer = _newerItems;
     for (var p = from; p < w.end; p++) {
@@ -1240,6 +1308,7 @@ class _HistoryViewState extends State<HistoryView> {
 
   /// Rebuilds both item lists from the window and the anchor.
   void _rebuildItems() {
+    _regroup();
     final w = _window;
     final newer = <_Item>[];
     for (var p = _anchor; p < w.end; p++) {
@@ -1259,6 +1328,16 @@ class _HistoryViewState extends State<HistoryView> {
     }
     _newerItems = newer;
     _olderItems = older;
+  }
+
+  void _onCompactionPref() {
+    final on = widget.compact && Settings.compactRepeats.value;
+    if (on == _compact) return;
+    setState(() {
+      _compact = on;
+      _expanded.clear();
+      _rebuildItems();
+    });
   }
 
   void _jumpDaysAgo(int days) {
@@ -1339,7 +1418,11 @@ class _HistoryViewState extends State<HistoryView> {
         cache?.remove(m.messageId);
         hit = true;
       }
-      if (hit) setState(() {});
+      if (hit) {
+        setState(() {
+          _regroup();
+        });
+      }
     });
   }
 
@@ -2013,6 +2096,14 @@ class _HistoryViewState extends State<HistoryView> {
     final msg = _window.at(pos);
     if (msg == null) return const SizedBox.shrink();
     final key = HistoryWindow.keyOf(msg);
+    final summary = _repeatHidden[pos];
+    if (summary != null) {
+      final head = _window.at(summary);
+      final headKey = head == null ? null : HistoryWindow.keyOf(head);
+      if (headKey == null || !_expanded.contains(headKey)) {
+        return SizedBox.shrink(key: ValueKey<String>(key));
+      }
+    }
     _scheduleGateSync();
     final stream = _streamOfRow(msg);
     if (stream != null) {
@@ -2031,11 +2122,69 @@ class _HistoryViewState extends State<HistoryView> {
         ),
       );
     }
-    return RowGate(
-      key: ValueKey<String>(key),
-      gates: _gates,
-      child: _cachedTile(context, msg, key, pos.isEven),
-    );
+    final count = _repeatCounts[pos] ?? 1;
+    final expanded = _expanded.contains(key);
+    Widget child = count > 1
+        ? widget.rows.tile(
+            context,
+            msg,
+            alternate: pos.isEven,
+            scale: widget.textScale * _systemScale,
+            surface: Theme.of(context).scaffoldBackgroundColor,
+            repeatCount: count,
+            // Collapsed, the pile carries no sender identity. Expanded, the
+            // summary shows who wrote the first copy.
+            summary: count > 1 && !expanded,
+            skipHides: true,
+            onTapRow: () => _toggleExpanded(key),
+          )
+        : _cachedTile(context, msg, key, pos.isEven);
+    // A pile member shown by the reader reads as a footnote to the summary.
+    if (summary != null) {
+      child = Opacity(opacity: _pileMemberOpacity, child: child);
+    }
+    return RowGate(key: ValueKey<String>(key), gates: _gates, child: child);
+  }
+
+  /// Opens or closes the rows folded under [key]. Opening stops following so
+  /// live chat cannot pull the expanded group away, unless the tap changed no
+  /// row height. Closing at the newest edge follows again, like a scroll there.
+  void _toggleExpanded(String key) {
+    final open = _expanded.contains(key);
+    final wasFollowing = _follow;
+    final pos = _pos;
+    final dims = pos != null && pos.hasContentDimensions;
+    final min = dims ? pos.minScrollExtent : null;
+    final max = dims ? pos.maxScrollExtent : null;
+    setState(() {
+      if (open) {
+        _expanded.remove(key);
+      } else {
+        _expanded.add(key);
+        _follow = false;
+      }
+    });
+    // Runs after the row lays out, so it can tell a real expansion from a tap
+    // that only flipped a flag.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final p = _pos;
+      if (p == null || !p.hasContentDimensions) return;
+      if (!open) {
+        if (wasFollowing &&
+            min != null &&
+            max != null &&
+            (p.minScrollExtent - min).abs() <= _followEps &&
+            (p.maxScrollExtent - max).abs() <= _followEps) {
+          _follow = true;
+        }
+      } else if (_window.atNewest &&
+          p.pixels <= p.minScrollExtent + _followEps) {
+        _follow = true;
+      }
+      if (_follow) _snapToNewest(p);
+      _syncAtBottom(p);
+    });
   }
 
   /// The stream behind the chat's own stream start or end row, which taps

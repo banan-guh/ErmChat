@@ -625,6 +625,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     lineSeparator: () => _lineSeparator,
     sharedChatMode: () => Settings.sharedChatMode.value,
     showNamePaints: () => _showNamePaints,
+    ownLogin: () => _session.login,
     isFullscreen: () => _isFullscreen,
     fastSnap: () => _fastSnap,
     commitChannelSelection: _commitChannelSelection,

@@ -77,6 +77,7 @@ class ChannelPanels {
     required this.lineSeparator,
     required this.sharedChatMode,
     required this.showNamePaints,
+    required this.ownLogin,
     required this.isFullscreen,
     required this.fastSnap,
     required this.commitChannelSelection,
@@ -132,6 +133,7 @@ class ChannelPanels {
   final bool Function() lineSeparator;
   final String Function() sharedChatMode;
   final bool Function() showNamePaints;
+  final String? Function() ownLogin;
   final bool Function() isFullscreen;
   final bool Function() fastSnap;
   final void Function(int index, {required bool rebuild})
@@ -541,6 +543,8 @@ class ChannelPanels {
         rows: _rows(channel),
         textScale: chatFontSize() / 14.0,
         tileCache: tileCache,
+        compact: true,
+        ownLogin: ownLogin,
         atBottomNotifier: atBottomNotifier(_paneKey(channel, slot)),
         scrollFabHeroTag: slot == null
             ? null

@@ -90,6 +90,7 @@ final Map<String, _Title> _titles = {
     'Separate messages with lines',
     (l) => l.settingLineSeparator,
   ),
+  'compact_repeats': ('Fold repeated messages', (l) => l.settingCompactRepeats),
   'keep_screen_on': ('Keep screen on', (l) => l.settingKeepScreenOn),
   'fast_channel_swipe': (
     'Fast channel swipe',

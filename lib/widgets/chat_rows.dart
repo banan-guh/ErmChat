@@ -114,7 +114,10 @@ class ChatRows {
     required double scale,
     required Color surface,
     bool? fadeDeleted,
+    int repeatCount = 1,
+    bool summary = false,
     bool skipHides = false,
+    VoidCallback? onTapRow,
   }) {
     if (!skipHides && (hides?.call(msg) ?? false)) {
       return const SizedBox.shrink();
@@ -126,15 +129,17 @@ class ChatRows {
     // System rows take no taps, reply line, paint, or embeds; the tile reads
     // their body from systemBodyBuilder.
     final chatRow = !msg.isSystem;
-    final nameCopy = chatRow
+    final summaryRow = summary && chatRow;
+    final nameCopy = chatRow && !summaryRow
         ? messageBuilder.nameCopyGesture
         : NameCopyGesture.off;
-    final showsMenu = chatRow && onShowMessageMenu != null;
+    final showsMenu = chatRow && !summaryRow && onShowMessageMenu != null;
     final takesTap = chatRow && onTapMessage != null;
-    final takesDoubleTap = chatRow && onCopyMessage != null;
+    final takesDoubleTap = chatRow && !summaryRow && onCopyMessage != null;
     final showsImages = chatRow && messageBuilder.showImages;
     final showsReply =
         chatRow &&
+        !summaryRow &&
         showReplyIndicators &&
         onFindThreadRoot != null &&
         onShowThreadView != null &&
@@ -155,7 +160,7 @@ class ChatRows {
         linkWhitelist: linkWhitelist?.entries,
         onEmailTap: messageBuilder.onEmailTap,
       ),
-      onTapUser: chatRow
+      onTapUser: chatRow && !summaryRow
           ? (tileContext, login, userId) => onShowUserProfile(
               tileContext,
               login,
@@ -172,7 +177,7 @@ class ChatRows {
       onLongPress: showsMenu
           ? (tileContext) => onShowMessageMenu!(tileContext, msg)
           : null,
-      onTap: takesTap ? () => onTapMessage!(msg) : null,
+      onTap: onTapRow ?? (takesTap ? () => onTapMessage!(msg) : null),
       onDoubleTap: takesDoubleTap ? () => onCopyMessage!(msg) : null,
       replyIndicator: showsReply ? _replyIndicator(context, msg, scale) : null,
       checkeredMessages: checkeredMessages,
@@ -182,12 +187,14 @@ class ChatRows {
       fadeDeleted: fadeDeleted ?? this.fadeDeleted,
       sharedChatMode: sharedChatMode,
       showChannel: showChannel,
-      paintService: chatRow ? paintService : null,
+      paintService: chatRow && !summaryRow ? paintService : null,
       showImages: showsImages,
       imageHeight: messageBuilder.imageHeight,
       linkWhitelist:
           linkWhitelist?.entries ?? messageBuilder.linkWhitelist.entries,
       imageHosts: messageBuilder.imageHosts.resolvedEntries,
+      repeatCount: repeatCount,
+      isSummary: summaryRow,
     );
     final row = chatRow && flashRequest != null
         ? _FlashHighlight(

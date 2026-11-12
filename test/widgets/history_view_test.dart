@@ -14,11 +14,13 @@ import 'package:ermchat/widgets/history_view.dart';
 import 'package:ermchat/widgets/message_builder.dart';
 import 'package:ermchat/services/twitch_badge_service.dart';
 import 'package:ermchat/services/third_party_badge_service.dart';
+import 'package:ermchat/util/settings.dart';
 import 'package:flutter/foundation.dart'
     show debugDefaultTargetPlatformOverride;
 import 'package:flutter/gestures.dart' show PointerDeviceKind;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 const double _inset = 50;
 const String _ch = FakeHistory.testChannel;
@@ -188,6 +190,12 @@ class _EmptyFirstRail extends FakeHistorySource {
   }
 }
 
+/// Turns repeat folding on for a test, since it defaults off.
+Future<void> _foldPrefs() async {
+  SharedPreferences.setMockInitialValues({'compact_repeats': true});
+  await Settings.bind();
+}
+
 Future<void> _pumpView(
   WidgetTester tester, {
   List<TwitchMessage> Function()? live,
@@ -201,6 +209,8 @@ Future<void> _pumpView(
   bool liveFirst = true,
   List<TwitchMessage>? newestRows,
   bool settle = true,
+  bool compact = false,
+  String? Function()? ownLogin,
   IslandMetrics? metrics,
 }) async {
   FakeHistory.loadDelay = Duration.zero;
@@ -233,6 +243,8 @@ Future<void> _pumpView(
     liveFirst: liveFirst,
     newestRows: newestRows,
     liveVersion: liveVersion,
+    compact: compact,
+    ownLogin: ownLogin,
     topPadding: _inset,
   );
   await tester.pumpWidget(
@@ -727,6 +739,162 @@ void main() {
         epsilon: 1,
       ),
       reason: 'a trim into the live rows broke the live sync',
+    );
+  });
+
+  testWidgets('repeated live messages fold and expand inline', (tester) async {
+    await _foldPrefs();
+    final at = _ListSource.t0;
+    TwitchMessage spam(String id) => TwitchMessage(
+      login: 'spam',
+      text: 'KEKW',
+      messageId: id,
+      channel: _ch,
+      timestamp: at,
+    );
+
+    final version = ValueNotifier(0);
+    addTearDown(version.dispose);
+    final live = <TwitchMessage>[spam('spam-1')];
+    await _pumpView(
+      tester,
+      source: _ListSource([
+        TwitchMessage(
+          login: 'old',
+          text: 'old',
+          messageId: 'old',
+          channel: _ch,
+          timestamp: at.subtract(const Duration(minutes: 1)),
+        ),
+      ]),
+      live: () => live,
+      liveVersion: version,
+      compact: true,
+    );
+    await _settle(tester);
+    live.insert(0, spam('spam-2'));
+    version.value++;
+    await tester.pump();
+
+    // The pair folds on arrival, so the second row never paints at full size.
+    final pair = tester.widget<ChatMessageTile>(_tile('spam-1'));
+    expect(pair.repeatCount, 2);
+    expect(pair.isSummary, isTrue);
+    expect(_tile('spam-2'), findsNothing);
+
+    live.insert(0, spam('spam-3'));
+    version.value++;
+    await _settle(tester);
+
+    final summary = tester.widget<ChatMessageTile>(_tile('spam-1'));
+    expect(summary.repeatCount, 3);
+    expect(_tile('spam-2'), findsNothing);
+    await tester.tap(_tile('spam-1'));
+    await tester.pump();
+    expect(_tile('spam-2'), findsOneWidget);
+    expect(tester.getSize(_tile('spam-2')).height, greaterThan(0));
+    // Expanded, the summary shows who wrote the first copy.
+    expect(tester.widget<ChatMessageTile>(_tile('spam-1')).isSummary, isFalse);
+    final faded = tester.widget<Opacity>(
+      find.ancestor(of: _tile('spam-2'), matching: find.byType(Opacity)).first,
+    );
+    expect(faded.opacity, 0.6);
+  });
+
+  testWidgets('collapsing a pile at the newest follows again', (tester) async {
+    await _foldPrefs();
+    final at = _ListSource.t0;
+    TwitchMessage spam(String id) => TwitchMessage(
+      login: 'spam',
+      text: 'KEKW',
+      messageId: id,
+      channel: _ch,
+      timestamp: at,
+    );
+    final version = ValueNotifier(0);
+    addTearDown(version.dispose);
+    final live = <TwitchMessage>[
+      spam('spam-3'),
+      spam('spam-2'),
+      spam('spam-1'),
+    ];
+    await _pumpView(
+      tester,
+      source: _ListSource([
+        TwitchMessage(
+          login: 'old',
+          text: 'old',
+          messageId: 'old',
+          channel: _ch,
+          timestamp: at.subtract(const Duration(minutes: 1)),
+        ),
+      ]),
+      live: () => live,
+      liveVersion: version,
+      compact: true,
+    );
+    await _settle(tester);
+    final bottom =
+        tester.getRect(find.byType(CustomScrollView)).bottom -
+        kOpaqueComposerGap;
+
+    await tester.tap(_tile('spam-1'));
+    await tester.pump();
+    await tester.tap(_tile('spam-1'));
+    await tester.pump();
+    live.insert(0, spam('spam-4'));
+    version.value++;
+    await tester.pump();
+
+    expect(
+      tester.getBottomLeft(_tile('spam-1')).dy,
+      moreOrLessEquals(bottom, epsilon: 1),
+      reason: 'collapsing the pile left following off',
+    );
+  });
+
+  testWidgets('own messages never join a pile', (tester) async {
+    await _foldPrefs();
+    final at = _ListSource.t0;
+    TwitchMessage own(String id) => TwitchMessage(
+      login: 'me',
+      text: 'KEKW',
+      messageId: id,
+      channel: _ch,
+      timestamp: at,
+    );
+
+    final version = ValueNotifier(0);
+    addTearDown(version.dispose);
+    final live = <TwitchMessage>[own('own-1')];
+    await _pumpView(
+      tester,
+      source: _ListSource([
+        TwitchMessage(
+          login: 'old',
+          text: 'old',
+          messageId: 'old',
+          channel: _ch,
+          timestamp: at.subtract(const Duration(minutes: 1)),
+        ),
+      ]),
+      live: () => live,
+      liveVersion: version,
+      compact: true,
+      ownLogin: () => 'me',
+    );
+    await _settle(tester);
+    live.insert(0, own('own-2'));
+    version.value++;
+    await tester.pump();
+    live.insert(0, own('own-3'));
+    version.value++;
+    await _settle(tester);
+
+    expect(_tile('own-1'), findsOneWidget);
+    expect(
+      find.byWidgetPredicate((w) => w is ChatMessageTile && w.isSummary),
+      findsNothing,
     );
   });
 
