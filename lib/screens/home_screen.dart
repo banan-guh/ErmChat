@@ -777,6 +777,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       _splitSecond = channel;
       _splitActive = 0;
     });
+    // The second pane shows without taking the selection, so it is the page
+    // that starts the channel's history.
+    _channelManager.ensureBackfill(channel);
   }
 
   /// Leaves split from the tab menu, keeping the other pane focused.

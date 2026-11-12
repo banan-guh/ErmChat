@@ -283,6 +283,17 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
               ),
             ),
             SettingsSectionHeader(context.l10n.sectionConnection),
+            ValueListenableBuilder(
+              valueListenable: Settings.archiveEnabled,
+              builder: (context, archived, _) => SettingSwitch(
+                Settings.lazyChannels,
+                secondary: const Icon(Icons.link_off),
+                subtitle: archived
+                    ? context.l10n.lazyChannelsArchiveHint
+                    : context.l10n.lazyChannelsHint,
+                enabled: !archived,
+              ),
+            ),
             StayConnectedTile(onChanged: widget.onBackgroundServiceChanged),
             _nav(
               Settings.proxyEnabled,

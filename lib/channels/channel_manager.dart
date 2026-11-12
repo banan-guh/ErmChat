@@ -186,6 +186,9 @@ class ChannelManager {
 
   void truncateChannel(String channel) => session.truncateChannel(channel);
 
+  /// Starts [channel]'s history if its page has not been shown yet.
+  void ensureBackfill(String channel) => session.ensureBackfill(channel);
+
   Future<void> loadChannels() => session.loadChannels();
 
   Future<void> loadRecentMessagesConfig() => session.loadRecentMessagesConfig();

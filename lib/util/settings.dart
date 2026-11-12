@@ -427,6 +427,17 @@ abstract final class Settings {
     mirrors: {'battery'},
     gate: SettingGate.android,
   );
+
+  /// Joins and backfills a saved channel only when its page opens. Off by
+  /// default, and inert with the archive on, which needs every channel joined.
+  static final lazyChannels = Setting(
+    'lazy_channels',
+    false,
+    id: 'lazy_channels',
+    page: 'chat',
+    section: 'Connection',
+    keywords: 'channels join connect lazy unread background',
+  );
   static final whisperNotifications = Setting(
     'whisper_notifications',
     false,
@@ -1092,6 +1103,7 @@ abstract final class Settings {
     historyDynamicFetch,
     replyToThreadRoot,
     backgroundService,
+    lazyChannels,
     whisperNotifications,
     mentionNotifyForeground,
     preferEmotesFirst,

@@ -225,6 +225,17 @@ class ChatHistoryController {
   /// overlap robotty's fetch. The list reads anything older from the archive.
   static const int restoreRows = 200;
 
+  /// Restores in flight, by channel (see [restoreOnce]).
+  final _restores = <String, Future<void>>{};
+
+  /// Restores [channel]'s newest archived rows once: a call while the read is
+  /// in flight joins it, so the visible channel can be restored ahead of the
+  /// rest without reading its rows twice.
+  Future<void> restoreOnce(String channel) =>
+      _restores[channel] ??= restoreFromArchive(channel).whenComplete(() {
+        _restores.remove(channel);
+      });
+
   /// Fills the channel buffer with its newest archived rows before the
   /// network history lands, so a cold start shows chat from disk. Rows pass
   /// the same filters as robotty history, and the later robotty merge dedups

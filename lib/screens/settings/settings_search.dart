@@ -130,6 +130,10 @@ final Map<String, _Title> _titles = {
   ),
   'gap_fill': ('Dynamic history fetch', (l) => l.settingGapFill),
   'archive_enabled': ('Chat archive', (l) => l.settingArchiveEnabled),
+  'lazy_channels': (
+    'Connect channels when opened',
+    (l) => l.settingLazyChannels,
+  ),
   'archive_retention': ('Keep chat for', (l) => l.settingArchiveRetention),
   'archive_channel_cap': (
     'Space per channel',
