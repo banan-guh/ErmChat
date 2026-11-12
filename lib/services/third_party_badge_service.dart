@@ -196,11 +196,11 @@ class ThirdPartyBadgeService {
       throwOnTransientHttpError(res.statusCode, uri);
       if (res.statusCode != 200) return;
       // The Homies list runs to megabytes: parse off the UI isolate so the
-      // startup spinner keeps turning.
+      // startup spinner keeps turning. The helper is static so the isolate
+      // message carries only the provider and bytes. Created here it would
+      // also carry the service, whose pending load futures cannot be sent.
       final bytes = res.bodyBytes;
-      _listUsers[provider] = await Isolate.run(
-        () => _parseList(provider, jsonDecode(utf8.decode(bytes))),
-      );
+      _listUsers[provider] = await _parseListOffIsolate(provider, bytes);
       _version++;
     } catch (e) {
       logDebug('${provider.name} badge fetch error: $e');
@@ -208,6 +208,13 @@ class ThirdPartyBadgeService {
       _listInflight.remove(provider);
     }
   }
+
+  /// Parses a provider's list on a fresh isolate. Static so the closure's
+  /// context holds no service instance, which would carry unsendable futures.
+  static Future<Map<String, ThirdPartyBadge>> _parseListOffIsolate(
+    _ListProvider provider,
+    List<int> bytes,
+  ) => Isolate.run(() => _parseList(provider, jsonDecode(utf8.decode(bytes))));
 
   static Map<String, ThirdPartyBadge> _parseList(
     _ListProvider provider,

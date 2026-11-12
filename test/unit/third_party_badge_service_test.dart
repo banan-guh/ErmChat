@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:ermchat/services/third_party_badge_service.dart';
@@ -244,5 +245,36 @@ void main() {
       isNull,
       reason: 'blank user ids in a Homies list',
     );
+  });
+
+  test('badge lists parse while a BTTV load is pending', () async {
+    // An isolate message carrying the service fails on its pending load
+    // future, which silently dropped every list badge.
+    final pending = Completer<http.Response>();
+    final service = ThirdPartyBadgeService(
+      client: MockClient((req) {
+        if (req.url.host == 'api.betterttv.net') return pending.future;
+        return Future.value(
+          http.Response(
+            jsonEncode({
+              'badges': [
+                {
+                  'tooltip': 'Pending Proof',
+                  'image1': 'https://example.com/badge.png',
+                  'users': ['pending-user'],
+                },
+              ],
+            }),
+            200,
+          ),
+        );
+      }),
+    );
+    addTearDown(service.dispose);
+    unawaited(service.fetchBttvBadges());
+    await service.fetchListBadges();
+    expect(service.resolveBadge('pending-user')?.name, 'Pending Proof');
+    pending.complete(http.Response('[]', 200));
+    await Future<void>.delayed(Duration.zero);
   });
 }
