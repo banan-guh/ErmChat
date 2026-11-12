@@ -418,6 +418,9 @@ void main() {
           item('h', 'HypeTrain', emoteType: 'hypetrain'),
           item('d', 'Default'),
           item('t', 'TierOnly', tier: 'notanumber'),
+          item('e', 'EmptyTier', tier: ''),
+          item('bs', 'BlankSub', tier: '', emoteType: 'subscriptions'),
+          item('bb', 'BlankBits', tier: '', emoteType: 'bitstier'),
         ],
       );
 
@@ -435,6 +438,13 @@ void main() {
       expect(metaOf('Default').kind, TwitchEmoteKind.standard);
       expect(metaOf('TierOnly').kind, TwitchEmoteKind.sub);
       expect(metaOf('TierOnly').subTier, isNull);
+      expect(
+        metaOf('EmptyTier').kind,
+        TwitchEmoteKind.standard,
+        reason: 'a blank tier is no tier, not a lock',
+      );
+      expect(metaOf('BlankSub').kind, TwitchEmoteKind.sub);
+      expect(metaOf('BlankBits').kind, TwitchEmoteKind.bits);
     });
   });
 

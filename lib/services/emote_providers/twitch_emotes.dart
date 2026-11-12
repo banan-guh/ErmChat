@@ -189,17 +189,19 @@ class TwitchEmoteProvider {
   }
 
   /// Builds the Twitch meta, mapping the API's tier/emote_type into the render
-  /// status gate. `tier` is parsed defensively: an unparseable value leaves
-  /// [TwitchMeta.subTier] null but still marks the emote as a sub.
+  /// status gate. A blank tier is no tier: some global unlocks send `""`, and
+  /// treating that as a sub would stop them word-matching. An unparseable
+  /// tier keeps the emote locked, as a tier was clearly sent.
   static TwitchMeta _metaFor({
     required Map<String, dynamic> item,
     String? ownerChannel,
     String? ownerId,
   }) {
-    final tier = item['tier'] as String?;
+    final tier = (item['tier'] as String?)?.trim();
+    final hasTier = tier != null && tier.isNotEmpty;
     final emoteType = (item['emote_type'] ?? item['emoteType']) as String?;
     final TwitchEmoteKind kind;
-    if (tier != null || emoteType == 'subscriptions') {
+    if (hasTier || emoteType == 'subscriptions') {
       kind = TwitchEmoteKind.sub;
     } else if (emoteType == 'follower') {
       kind = TwitchEmoteKind.follower;
@@ -210,7 +212,7 @@ class TwitchEmoteProvider {
     }
     return TwitchMeta(
       kind: kind,
-      subTier: tier == null ? null : int.tryParse(tier),
+      subTier: hasTier ? int.tryParse(tier) : null,
       ownerChannel: ownerChannel,
       ownerId: ownerId,
       hypeTrain: emoteType == 'hypetrain',
