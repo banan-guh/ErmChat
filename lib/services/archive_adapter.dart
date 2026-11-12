@@ -119,7 +119,7 @@ class ArchiveAdapter {
         // of a shared-chat message from the room being read.
         if (m.sharedChatChannelId != null && m.sourceBroadcasterId == null)
           (_sharedChannel, m.sharedChatChannelId!),
-        if (m.automodFlags != null) (_automod, m.automodFlags!),
+        if (m.automodApproved) (_automod, '1'),
       ],
     );
   }
@@ -169,7 +169,7 @@ class ArchiveAdapter {
       replyThreadRootId: r.threadRootId,
       isFirstMessage: r.isFirstMessage,
       msgId: r.msgId,
-      automodFlags: extra[_automod],
+      automodApproved: extra[_automod] != null,
       customRewardId: r.customRewardId,
       redemptionImageUrl: extra[_redeemImage],
       redemptionPoints: int.tryParse(extra[_redeemPoints] ?? ''),

@@ -14,14 +14,14 @@ TwitchMessage msg(
   String? displayName,
   bool isSystem = false,
   String? msgId,
-  String? automodFlags,
+  bool automodApproved = false,
 }) => TwitchMessage(
   login: login,
   displayName: displayName ?? login,
   text: text,
   isSystem: isSystem,
   msgId: msgId,
-  automodFlags: automodFlags,
+  automodApproved: automodApproved,
 );
 
 void main() {
@@ -113,7 +113,7 @@ void main() {
       policy.applyPingHighlight(plain, mentionOnly: true);
       expect(plain.highlight, isNull);
 
-      final approved = msg('held', automodFlags: '0-5:A.6/I.6');
+      final approved = msg('held', automodApproved: true);
       policy.applyPingHighlight(approved, mentionOnly: true);
       expect(approved.highlight?.primary, HighlightType.automod);
 

@@ -245,9 +245,10 @@ TwitchMessage parseIrcChatMessage(
   final msgId = ircMsg.tags['msg-id'];
   final customRewardId = ircMsg.tags['custom-reward-id'];
   final pinnedPaidAmount = ircMsg.tags['pinned-chat-paid-amount'];
-  // `flags` carries the AutoMod categories of a released held message; it is
-  // empty on ordinary messages.
-  final automodFlags = ircMsg.tags['flags']?.trim();
+  // Twitch adds an empty `custom-reward-id` when it releases an AutoMod-held
+  // message. Only live lines are trusted; history restores the mark from the
+  // archive instead of guessing from tags.
+  final automodApproved = !isHistory && customRewardId == '';
 
   // Emote and gif positions share one codepoint table for the same base text.
   final emotesTag = ircMsg.tags['emotes'];
@@ -296,9 +297,7 @@ TwitchMessage parseIrcChatMessage(
         : null,
     isFirstMessage: ircMsg.tags['first-msg'] == '1',
     msgId: msgId,
-    automodFlags: (automodFlags != null && automodFlags.isNotEmpty)
-        ? automodFlags
-        : null,
+    automodApproved: automodApproved,
     customRewardId: customRewardId,
     pinnedPaidAmount: pinnedPaidAmount,
     bitsAmount: bitsAmount,

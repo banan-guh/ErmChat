@@ -166,7 +166,7 @@ void main() {
         bitsAmount: 100,
         pinnedPaidAmount: '5.00',
         customRewardId: _id(9),
-        automodFlags: '0-5:A.6/I.6',
+        automodApproved: true,
         sourceBroadcasterId: '555',
         sharedChatChannelId: '555',
         sourceMessageId: _id(8),

@@ -102,12 +102,13 @@ class TwitchMessage {
   /// Twitch's "Gigantify an Emote" channel points reward message.
   bool get isGigantifiedEmote => msgId == 'gigantified-emote-message';
 
-  /// Raw `flags` tag on a message AutoMod flagged and a moderator approved.
-  /// Null on every other message; an empty tag is normalized to null.
-  final String? automodFlags;
+  /// Whether Twitch released this message from the AutoMod queue. Set only
+  /// while parsing a live line, from the empty `custom-reward-id` tag Twitch
+  /// adds on release. Archived rows restore this field instead of re-deriving
+  /// it, so history never guesses.
+  final bool automodApproved;
 
-  /// Whether Twitch released this message from the AutoMod queue.
-  bool get isAutomodApproved => automodFlags?.isNotEmpty ?? false;
+  bool get isAutomodApproved => automodApproved;
 
   /// Channel point redemption id (`custom-reward-id`), if any.
   final String? customRewardId;
@@ -189,7 +190,7 @@ class TwitchMessage {
     this.highlight,
     this.isFirstMessage = false,
     this.msgId,
-    this.automodFlags,
+    this.automodApproved = false,
     this.customRewardId,
     this.redemptionImageUrl,
     this.redemptionPoints,
@@ -231,7 +232,7 @@ class TwitchMessage {
     'userId': userId,
     'isFirstMessage': isFirstMessage,
     'msgId': msgId,
-    'automodFlags': automodFlags,
+    'automodApproved': automodApproved,
     'customRewardId': customRewardId,
     'redemptionImageUrl': redemptionImageUrl,
     'redemptionPoints': redemptionPoints,
@@ -278,7 +279,7 @@ class TwitchMessage {
     userId: json['userId'] as String?,
     isFirstMessage: json['isFirstMessage'] as bool? ?? false,
     msgId: json['msgId'] as String?,
-    automodFlags: json['automodFlags'] as String?,
+    automodApproved: json['automodApproved'] as bool? ?? false,
     customRewardId: json['customRewardId'] as String?,
     redemptionImageUrl: json['redemptionImageUrl'] as String?,
     redemptionPoints: (json['redemptionPoints'] as num?)?.toInt(),

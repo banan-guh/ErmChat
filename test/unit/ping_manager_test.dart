@@ -16,7 +16,7 @@ TwitchMessage msg(
   bool isFirstMessage = false,
   String? customRewardId,
   String? msgId,
-  String? automodFlags,
+  bool automodApproved = false,
   String? pinnedPaidAmount,
   String? replyToUser,
   String? replyToParentId,
@@ -32,7 +32,7 @@ TwitchMessage msg(
     isFirstMessage: isFirstMessage,
     customRewardId: customRewardId,
     msgId: msgId,
-    automodFlags: automodFlags,
+    automodApproved: automodApproved,
     pinnedPaidAmount: pinnedPaidAmount,
     replyToUser: replyToUser,
     replyToParentId: replyToParentId,
@@ -287,7 +287,7 @@ void main() {
         m.evaluate(msg('first!!!', isFirstMessage: true))?.primary,
         HighlightType.firstMsg,
       );
-      final approved = m.evaluate(msg('SCHIZO', automodFlags: '0-5:A.6/I.6'));
+      final approved = m.evaluate(msg('SCHIZO', automodApproved: true));
       expect(approved?.primary, HighlightType.automod);
       expect(
         approved?.hasMention,

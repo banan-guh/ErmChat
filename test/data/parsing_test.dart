@@ -105,16 +105,37 @@ void main() {
       expect(hl.pinnedPaidAmount, '100');
 
       final approved = RecentMessagesService.parseIrcLine(
-        '@flags=0-5:A.6/I.6;custom-reward-id=;msg-id=;display-name=x;id=a1 $user :SCHIZO',
+        '@custom-reward-id=;msg-id=;display-name=x;id=a1 $user :SCHIZO',
       )!;
-      expect(approved.isAutomodApproved, isTrue);
-      expect(approved.automodFlags, '0-5:A.6/I.6');
+      expect(
+        approved.isAutomodApproved,
+        isFalse,
+        reason: 'history never infers approval',
+      );
 
       final plain = RecentMessagesService.parseIrcLine(
-        '@flags=;display-name=x;id=a2 $user :hello',
+        '@display-name=x;id=a2 $user :hello',
       )!;
       expect(plain.isAutomodApproved, isFalse);
-      expect(plain.automodFlags, isNull);
+    });
+
+    test('live automod release is the empty custom-reward-id tag', () {
+      TwitchMessage live(String tags) => parseIrcChatMessage(
+        parseIrcMessage('@$tags;display-name=x;id=a1 $user :SCHIZO')!,
+        channel: 'xqc',
+      );
+
+      expect(live('custom-reward-id=').isAutomodApproved, isTrue);
+      expect(
+        live('flags=0-5:A.6/I.6').isAutomodApproved,
+        isFalse,
+        reason: 'flagged but let through',
+      );
+      expect(
+        live('custom-reward-id=abc-123').isAutomodApproved,
+        isFalse,
+        reason: 'a real reward is not an approval',
+      );
     });
 
     test('parses reply tags, unescapes the body and keeps bad escapes', () {
