@@ -686,12 +686,58 @@ void main() {
       }
     });
 
+    test('custom hosts join the raw-image list', () {
+      expect(
+        isImageEmbedCandidate('https://pics.example/abc'),
+        isFalse,
+        reason: 'unknown host without an extension',
+      );
+      expect(
+        isImageEmbedCandidate(
+          'https://pics.example/abc',
+          hosts: const ['pics.example'],
+        ),
+        isTrue,
+      );
+      expect(
+        isImageEmbedCandidate(
+          'https://sub.pics.example/abc',
+          hosts: const ['pics.example'],
+        ),
+        isTrue,
+        reason: 'subdomains count',
+      );
+    });
+
+    test('olrite viewer links fetch the raw file', () {
+      expect(
+        imageEmbedFetchUrl('https://olrite.lol/abc123'),
+        'https://olrite.lol/api/files/abc123',
+      );
+      expect(
+        imageEmbedFetchUrl('https://olrite.lol/a/album'),
+        'https://olrite.lol/a/album',
+        reason: 'album pages are not single-file links',
+      );
+      expect(
+        imageEmbedFetchUrl('https://kappa.lol/abc'),
+        'https://kappa.lol/abc',
+        reason: 'other hosts already serve the image',
+      );
+    });
+
     test('collects embed urls in order without duplicates', () {
       final urls = collectImageEmbedUrls(
         'see https://kappa.lol/abc and https://example.com/x.jpg '
         'and https://kappa.lol/abc',
       );
       expect(urls, ['https://kappa.lol/abc', 'https://example.com/x.jpg']);
+    });
+
+    test('olrite previews use the raw file url', () {
+      expect(collectImageEmbedUrls('see https://olrite.lol/abc123'), [
+        'https://olrite.lol/api/files/abc123',
+      ]);
     });
 
     TwitchMessage imgMsg(String id, String text) =>
@@ -830,6 +876,53 @@ void main() {
         fractures: false,
       ).parse([TextElement('check example .com/ out')], options);
       expect(fractured.whereType<UrlElement>(), isEmpty);
+    });
+
+    test('join any domain skips the whitelist but needs a path', () {
+      final linked = WhitelistLinkifier(
+        const [],
+        joinAll: true,
+      ).parse([TextElement('watch kappa .lol/ABCDE now')], options);
+      expect(
+        linked.whereType<UrlElement>().single.url,
+        'https://kappa.lol/ABCDE',
+      );
+      expect(
+        WhitelistLinkifier(const []).parse([
+          TextElement('watch kappa .lol/ABCDE now'),
+        ], options).whereType<UrlElement>(),
+        isEmpty,
+        reason: 'off by default',
+      );
+      final prose = WhitelistLinkifier(
+        const [],
+        joinAll: true,
+      ).parse([TextElement('that was cool . lol')], options);
+      expect(
+        prose.whereType<UrlElement>(),
+        isEmpty,
+        reason: 'no path, so the sentence dot stays prose',
+      );
+    });
+
+    test('long TLDs link with a path or scheme', () {
+      List<UrlElement> longUrls(String text) => const LongTldLinkifier()
+          .parse([TextElement(text)], options)
+          .whereType<UrlElement>()
+          .toList();
+      expect(
+        longUrls('see foo.beauty/abc now').single.url,
+        'https://foo.beauty/abc',
+      );
+      expect(
+        longUrls('see https://foo.beauty/abc.png now').single.url,
+        'https://foo.beauty/abc.png',
+      );
+      expect(
+        longUrls('foo.beauty').whereType<UrlElement>(),
+        isEmpty,
+        reason: 'a bare long TLD without a path stays text',
+      );
     });
 
     test('leaves non-links, emails and scheme URLs alone', () {

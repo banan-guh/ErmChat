@@ -615,6 +615,28 @@
   "domainOrTldHint": "e.g. \"lol\" (any *.lol) or \"kappa.lol\" (+subs)",
   "splitLinksHint": "Highlight links broken by a space, like kappa .lol/ABCDE.",
   "enableSplitLinks": "Enable split links",
+  "joinAnyDomain": "Join any domain",
+  "joinAnyDomainHint": "Rejoin split links for any host, not just the list.",
+  "imageHosts": "Image hosts",
+  "imageHostHint": "Host name, like kappa.lol",
+  "addImageHost": "Add host",
+  "imageHostsHint": "Links on these hosts preview even without a file extension.",
+  "restoreImageHostsMessage": "This replaces your host list with the built-in defaults, and removes any hosts you added.",
+  "serviceStatus": "Service status",
+  "serviceConnections": "Connections",
+  "serviceServers": "Servers",
+  "servicePingAll": "Ping all",
+  "serviceOffline": "Off",
+  "serviceStale": "Stale",
+  "servicePingFailed": "Failed",
+  "serviceChannels": "{count, plural, =1{1 channel} other{{count} channels}}",
+  "@serviceChannels": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "noEntriesYet": "No entries yet. Add one or tap an example.",
   "examplesTapToAdd": "Examples (tap to add):",
   "restoreDefaultsTitle": "Restore defaults?",

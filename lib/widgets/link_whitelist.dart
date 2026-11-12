@@ -11,15 +11,21 @@ class WhitelistLinkifier extends Linkifier {
   /// still link. Wired to the split-links toggle.
   final bool fractures;
 
-  WhitelistLinkifier(List<String> whitelist, {this.fractures = true})
-    : _tlds = {
-        for (final e in whitelist)
-          if (!e.contains('.')) e.toLowerCase(),
-      },
-      _domains = {
-        for (final e in whitelist)
-          if (e.contains('.')) e.toLowerCase(),
-      };
+  /// Rejoins fractured links for any host with a path, not just [whitelist].
+  final bool joinAll;
+
+  WhitelistLinkifier(
+    List<String> whitelist, {
+    this.fractures = true,
+    this.joinAll = false,
+  }) : _tlds = {
+         for (final e in whitelist)
+           if (!e.contains('.')) e.toLowerCase(),
+       },
+       _domains = {
+         for (final e in whitelist)
+           if (e.contains('.')) e.toLowerCase(),
+       };
 
   // Matches fractured (spaced) link runs. The lookahead scans across dots
   // and slashes so a space after a separator still counts as fractured.
@@ -54,12 +60,21 @@ class WhitelistLinkifier extends Linkifier {
         text[start - 3] == ':';
   }
 
+  /// Host has a real label and a two-letter-or-longer TLD.
+  static bool _plausibleHost(String url) {
+    final host = Uri.tryParse('https://$url')?.host ?? '';
+    final labels = host.split('.');
+    return labels.length >= 2 &&
+        labels.every((label) => label.isNotEmpty) &&
+        RegExp(r'^[a-z]{2,}$').hasMatch(labels.last);
+  }
+
   @override
   List<LinkifyElement> parse(
     List<LinkifyElement> elements,
     LinkifyOptions options,
   ) {
-    if (_tlds.isEmpty && _domains.isEmpty) return elements;
+    if (_tlds.isEmpty && _domains.isEmpty && !joinAll) return elements;
     final result = <LinkifyElement>[];
     for (final element in elements) {
       if (element is! TextElement) {
@@ -113,8 +128,13 @@ class WhitelistLinkifier extends Linkifier {
           host.contains('.') &&
           (_tlds.contains(tld) ||
               _domains.any((d) => host == d || host.endsWith('.$d')));
+      // Joining any domain still needs a path: without one, prose around a
+      // sentence dot would turn into a link.
+      final joinAny =
+          joinAll && normalized.contains('/') && _plausibleHost(normalized);
 
-      if (!isWhitelisted || (needsPath && !normalized.contains('/'))) {
+      if ((!isWhitelisted && !joinAny) ||
+          (needsPath && !normalized.contains('/'))) {
         // Not opted in: leave the text as-is.
         continue;
       }
@@ -227,6 +247,60 @@ class SingleCharDomainLinkifier extends Linkifier {
         out.add(TextElement(text.substring(lastEnd, m.start)));
       }
       final url = shown.contains('://') ? shown : 'https://$shown';
+      out.add(UrlElement(url, shown));
+      lastEnd = m.start + shown.length;
+    }
+    if (lastEnd < text.length) {
+      out.add(TextElement(text.substring(lastEnd)));
+    }
+  }
+}
+
+/// Links hosts whose TLD is longer than stock linkify's four-letter cap,
+/// like `.beauty` or `.technology`. A path or a scheme is required, so plain
+/// prose that happens to end in a dot word stays text.
+class LongTldLinkifier extends Linkifier {
+  const LongTldLinkifier();
+
+  static final _regex = RegExp(
+    r'(?<![A-Za-z0-9@:.])((?:https?://)?(?:www\.)?(?:[A-Za-z0-9-]+\.)+[A-Za-z]{5,}\b(?:/[^\s]*)?)',
+    caseSensitive: false,
+  );
+  static final _trailingPunct = RegExp(r'[.,;:!?]+$');
+  static final _schemePrefix = RegExp(r'^https?://', caseSensitive: false);
+  static final _pathOrScheme = RegExp(r'^(?:https?://|www\.)|/');
+
+  @override
+  List<LinkifyElement> parse(elements, options) {
+    final result = <LinkifyElement>[];
+    for (final element in elements) {
+      if (element is! TextElement) {
+        result.add(element);
+        continue;
+      }
+      _splitElement(element.text, result);
+    }
+    return result;
+  }
+
+  static String _trimTrailing(String raw) {
+    var s = raw.replaceAll(_trailingPunct, '');
+    while (s.endsWith(')') &&
+        '('.allMatches(s).length < ')'.allMatches(s).length) {
+      s = s.substring(0, s.length - 1).replaceAll(_trailingPunct, '');
+    }
+    return s;
+  }
+
+  void _splitElement(String text, List<LinkifyElement> out) {
+    var lastEnd = 0;
+    for (final m in _regex.allMatches(text)) {
+      final shown = _trimTrailing(m.group(1)!);
+      if (!_pathOrScheme.hasMatch(shown)) continue;
+      if (m.start > lastEnd) {
+        out.add(TextElement(text.substring(lastEnd, m.start)));
+      }
+      final url = shown.contains(_schemePrefix) ? shown : 'https://$shown';
       out.add(UrlElement(url, shown));
       lastEnd = m.start + shown.length;
     }

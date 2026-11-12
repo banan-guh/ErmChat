@@ -170,6 +170,7 @@ class ChatRows {
       imageHeight: messageBuilder.imageHeight,
       linkWhitelist:
           linkWhitelist?.entries ?? messageBuilder.linkWhitelist.entries,
+      imageHosts: messageBuilder.imageHosts.resolvedEntries,
     );
     final row = chatRow && flashRequest != null
         ? _FlashHighlight(

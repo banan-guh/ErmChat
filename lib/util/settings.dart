@@ -771,6 +771,17 @@ abstract final class Settings {
     section: 'Images',
   );
 
+  /// Null until first saved, so the built-in hosts seed once.
+  static final imageEmbedHosts = ListSetting<List<String>?>(
+    kImageEmbedHostsPrefKey,
+    null,
+    id: 'image_hosts',
+    page: 'inlineEmbeds',
+    section: 'Images',
+    keywords: 'preview host domain whitelist',
+    anchored: false,
+  );
+
   // ── Emotes ──────────────────────────────────────────────────────────
   static final emoteFetchTier = IntSetting(
     'emote_fetch_tier',
@@ -929,6 +940,16 @@ abstract final class Settings {
     keywords: 'whitelist domains',
   );
 
+  /// Rejoins fractured links for any host, not just [linkWhitelist].
+  static final linkJoinAll = Setting(
+    'link_join_all',
+    false,
+    id: 'join_any_domain',
+    page: 'chat',
+    anchored: false,
+    keywords: 'split links fractures domains any',
+  );
+
   // ── Chat proxy (ermchat-server) ─────────────────────────────────────
   // Never exported: the proxy receives the OAuth token, so an imported file
   // must never point it somewhere else.
@@ -1075,6 +1096,7 @@ abstract final class Settings {
     giphyInlineHeight,
     imageEmbedEnabled,
     imageEmbedHeight,
+    imageEmbedHosts,
     emoteFetchTier,
     emoteFetchAuto,
     emoteCacheMb,
@@ -1096,6 +1118,7 @@ abstract final class Settings {
     analyticsFilterStopwords,
     linkWhitelist,
     linkWhitelistEnabled,
+    linkJoinAll,
     proxyEnabled,
     proxyUrl,
     testChatWidgets,

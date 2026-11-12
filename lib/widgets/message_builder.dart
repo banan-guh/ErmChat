@@ -10,6 +10,7 @@ import '../models/twitch_badge.dart';
 import '../models/twitch_message.dart';
 import '../util/constants.dart';
 import '../services/emote_manager.dart';
+import '../services/image_embed_hosts.dart';
 import '../services/link_whitelist.dart';
 import '../services/third_party_badge_service.dart';
 import '../services/twitch_badge_service.dart';
@@ -22,6 +23,9 @@ class MessageBuilder {
   final ThirdPartyBadgeService thirdPartyBadgeService;
   final void Function(List<Emote>) onShowEmoteSheet;
   final LinkWhitelist linkWhitelist;
+
+  /// Hosts that serve raw images without an extension.
+  final ImageEmbedHosts imageHosts;
 
   /// Whether Giphy attachments render inline. Off falls back to plain text.
   bool showGifs;
@@ -65,12 +69,14 @@ class MessageBuilder {
     required this.thirdPartyBadgeService,
     required this.onShowEmoteSheet,
     LinkWhitelist? linkWhitelist,
+    ImageEmbedHosts? imageHosts,
     this.showGifs = kGiphyInlineEnabledDefault,
     this.gifHeight = kGiphyInlineHeightDefault,
     this.showImages = kImageEmbedEnabledDefault,
     this.imageHeight = kImageEmbedHeightDefault,
     this.animateGifs = true,
-  }) : linkWhitelist = linkWhitelist ?? LinkWhitelist.instance;
+  }) : linkWhitelist = linkWhitelist ?? LinkWhitelist.instance,
+       imageHosts = imageHosts ?? ImageEmbedHosts.instance;
 
   // Render memos live here, not on the messages: the buffer stays plain data.
   // Each is a bounded LRU, so scrolling a long buffer keeps only recent spans.
@@ -85,6 +91,7 @@ class MessageBuilder {
   _SpanKey _spanKey(double scale) => (
     badges: badgeService.version,
     links: linkWhitelist.revision,
+    imageHosts: imageHosts.revision,
     email: onEmailTap != null,
     gifHeight: showGifs ? gifHeight : null,
     images: showImages,
@@ -240,6 +247,7 @@ class MessageBuilder {
         onEmoteTap: onShowEmoteSheet,
         scale: scale,
         linkWhitelist: linkWhitelist.entries,
+        imageHosts: imageHosts.resolvedEntries,
         onEmailTap: onEmailTap,
         showImages: showImages,
         onImageTap: onImageTap,
@@ -294,6 +302,7 @@ class MessageBuilder {
           onEmoteTap: onShowEmoteSheet,
           scale: scale,
           linkWhitelist: linkWhitelist.entries,
+          imageHosts: imageHosts.resolvedEntries,
           onEmailTap: onEmailTap,
           showImages: showImages,
           onImageTap: onImageTap,
@@ -476,6 +485,7 @@ String _humanizeSetId(String setId) {
 typedef _SpanKey = ({
   int badges,
   int links,
+  int imageHosts,
   bool email,
   double? gifHeight,
   bool images,

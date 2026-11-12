@@ -6,6 +6,7 @@ import 'prefs_tiles.dart';
 import 'settings_page.dart';
 import 'setting_info.dart';
 import 'settings_search.dart';
+import 'image_host_settings_screen.dart';
 import '../../util/settings.dart';
 
 class InlineEmbedsScreen extends StatelessWidget {
@@ -47,6 +48,20 @@ class InlineEmbedsScreen extends StatelessWidget {
             defaultValue: kImageEmbedHeightDefault,
             read: () => Settings.imageEmbedHeight.value,
             write: (v) => Settings.imageEmbedHeight.set(v),
+          ),
+          SettingAnchor.row(
+            SettingsRow.imageHosts,
+            child: SettingsNavTile(
+              icon: Icons.dns_outlined,
+              title: SettingsRow.imageHosts.titleOf(context.l10n),
+              subtitle: context.l10n.imageHostHint,
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => const ImageHostSettingsScreen(),
+                ),
+              ),
+            ),
           ),
         ],
       ),

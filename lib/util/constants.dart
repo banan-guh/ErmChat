@@ -67,6 +67,7 @@ const double kGiphyInlineHeightMax = 240.0;
 /// split-link whitelist: youtu.be links but never serves raw images.
 const String kImageEmbedEnabledPrefKey = 'image_embeds_enabled';
 const String kImageEmbedHeightPrefKey = 'image_embeds_height';
+const String kImageEmbedHostsPrefKey = 'image_embed_hosts_v1';
 const bool kImageEmbedEnabledDefault = false;
 const double kImageEmbedHeightDefault = 120.0;
 const double kImageEmbedHeightMin = 60.0;
@@ -89,12 +90,12 @@ const _kImageExtensions = <String>{'png', 'jpg', 'jpeg', 'gif', 'webp'};
 /// Best-effort sync check for raw image serves: image extension in the path
 /// (query/fragment stripped by Uri), or a known host with a real path.
 /// Bare host roots (upload homepages) never count.
-bool isImageEmbedCandidate(String url) {
+bool isImageEmbedCandidate(String url, {List<String>? hosts}) {
   final uri = Uri.tryParse(url);
   if (uri == null || uri.host.isEmpty) return false;
   if (uri.scheme != 'https' && uri.scheme != 'http') return false;
   final host = uri.host.toLowerCase();
-  final knownHost = kImageEmbedHosts.any(
+  final knownHost = (hosts ?? kImageEmbedHosts).any(
     (d) => host == d || host.endsWith('.$d'),
   );
   final path = uri.path.toLowerCase();
@@ -107,6 +108,19 @@ bool isImageEmbedCandidate(String url) {
   }
   if (ext == null || ext.contains('/')) return false;
   return _kImageExtensions.contains(ext);
+}
+
+/// The URL to fetch for an embed preview. Most hosts serve the raw image at
+/// the shared link; olrite.lol shares a viewer page and keeps the file under
+/// `/api/files/<id>`.
+String imageEmbedFetchUrl(String url) {
+  final uri = Uri.tryParse(url);
+  if (uri == null) return url;
+  final host = uri.host.toLowerCase();
+  if (host != 'olrite.lol' && host != 'www.olrite.lol') return url;
+  final segments = uri.pathSegments;
+  if (segments.length != 1 || segments.single.isEmpty) return url;
+  return 'https://olrite.lol/api/files/${segments.single}';
 }
 
 /// Throws on transient HTTP errors (429/5xx) so callers can retry and keep stale cache.

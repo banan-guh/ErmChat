@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:linkify/linkify.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../services/emote_images.dart';
+import '../services/image_embed_hosts.dart';
 import '../emotes/emote_picker.dart';
 import '../util/constants.dart';
 import '../util/log.dart';
@@ -63,6 +64,7 @@ class EmoteText {
     void Function(List<Emote>)? onEmoteTap,
     double scale = 1.0,
     List<String>? linkWhitelist,
+    List<String>? imageHosts,
     void Function(String email)? onEmailTap,
     bool showImages = false,
     void Function(String url)? onImageTap,
@@ -79,6 +81,7 @@ class EmoteText {
         onEmoteTap: onEmoteTap,
         scale: scale,
         linkWhitelist: linkWhitelist,
+        imageHosts: imageHosts,
         onEmailTap: onEmailTap,
         showImages: showImages,
         onImageTap: onImageTap,
@@ -94,6 +97,7 @@ class EmoteText {
       return parseTextWithLinks(
         text,
         linkWhitelist: linkWhitelist,
+        imageHosts: imageHosts,
         onEmailTap: onEmailTap,
         showImages: showImages,
         onImageTap: onImageTap,
@@ -111,6 +115,7 @@ class EmoteText {
     void Function(List<Emote>)? onEmoteTap,
     double scale = 1.0,
     List<String>? linkWhitelist,
+    List<String>? imageHosts,
     void Function(String email)? onEmailTap,
     bool showImages = false,
     void Function(String url)? onImageTap,
@@ -122,6 +127,7 @@ class EmoteText {
       return parseTextWithLinks(
         text,
         linkWhitelist: linkWhitelist,
+        imageHosts: imageHosts,
         onEmailTap: onEmailTap,
         showImages: showImages,
         onImageTap: onImageTap,
@@ -138,6 +144,7 @@ class EmoteText {
       return parseTextWithLinks(
         text,
         linkWhitelist: linkWhitelist,
+        imageHosts: imageHosts,
         onEmailTap: onEmailTap,
         showImages: showImages,
         onImageTap: onImageTap,
@@ -157,6 +164,7 @@ class EmoteText {
           parseTextWithLinks(
             buffer,
             linkWhitelist: linkWhitelist,
+            imageHosts: imageHosts,
             onEmailTap: onEmailTap,
             showImages: showImages,
             onImageTap: onImageTap,
@@ -534,8 +542,12 @@ List<LinkifyElement> _linkifyChat(
       WhitelistLinkifier(
         linkWhitelist ?? const [],
         fractures: LinkWhitelist.instance.enabled,
+        joinAll: LinkWhitelist.instance.joinAll,
       ),
       const UrlLinkifier(),
+      // Stock linkify stops at four-letter TLDs, so `.beauty` and friends
+      // need this before the guard drops loose matches.
+      const LongTldLinkifier(),
       // Drops loose matches with empty labels.
       const LooseUrlGuardLinkifier(),
     ],
@@ -545,16 +557,23 @@ List<LinkifyElement> _linkifyChat(
 /// Normalized URLs in [text] that look like raw image serves, in order and
 /// deduped, capped like the inline icons. Tile previews use this, so pass the
 /// same whitelist entries the span path uses or fractured links disagree.
-List<String> collectImageEmbedUrls(String text, {List<String>? linkWhitelist}) {
+List<String> collectImageEmbedUrls(
+  String text, {
+  List<String>? linkWhitelist,
+  List<String>? imageHosts,
+}) {
   if (!text.contains('.')) return const [];
   try {
     final collapsed = cleanChatText(text);
     if (!collapsed.contains('.')) return const [];
+    final hosts = imageHosts ?? ImageEmbedHosts.instance.resolvedEntries;
     final urls = <String>[];
     for (final element in _linkifyChat(collapsed, linkWhitelist)) {
       if (urls.length >= kMaxImageEmbedsPerMessage) break;
-      if (element is UrlElement && isImageEmbedCandidate(element.url)) {
-        if (!urls.contains(element.url)) urls.add(element.url);
+      if (element is UrlElement &&
+          isImageEmbedCandidate(element.url, hosts: hosts)) {
+        final url = imageEmbedFetchUrl(element.url);
+        if (!urls.contains(url)) urls.add(url);
       }
     }
     return urls;
@@ -567,6 +586,7 @@ List<String> collectImageEmbedUrls(String text, {List<String>? linkWhitelist}) {
 List<InlineSpan> parseTextWithLinks(
   String text, {
   List<String>? linkWhitelist,
+  List<String>? imageHosts,
   // Tap handler for emails (copy + feedback). Null copies silently.
   void Function(String email)? onEmailTap,
   // Image embeds: candidate links get an expand icon. Null tap = no icon.
@@ -580,6 +600,7 @@ List<InlineSpan> parseTextWithLinks(
   try {
     final spans = <InlineSpan>[];
     var imageCount = 0;
+    final hosts = imageHosts ?? ImageEmbedHosts.instance.resolvedEntries;
     for (final element in _linkifyChat(collapsed, linkWhitelist)) {
       if (element is UrlElement) {
         spans.add(
@@ -593,9 +614,9 @@ List<InlineSpan> parseTextWithLinks(
         if (showImages &&
             onImageTap != null &&
             imageCount < kMaxImageEmbedsPerMessage &&
-            isImageEmbedCandidate(element.url)) {
+            isImageEmbedCandidate(element.url, hosts: hosts)) {
           imageCount++;
-          final url = element.url;
+          final url = imageEmbedFetchUrl(element.url);
           // Emote-sized tap box so the toggle is as easy to hit as an emote.
           final box = 28.0 * scale;
           spans.add(

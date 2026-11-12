@@ -155,6 +155,7 @@ final Map<String, _Title> _titles = {
   'giphy_height': ('Giphy height', (l) => l.settingGiphyHeight),
   'show_images': ('Show images inline', (l) => l.settingShowImages),
   'image_height': ('Image height', (l) => l.settingImageHeight),
+  'image_hosts': ('Image hosts', (l) => l.imageHosts),
 
   // ── Highlights ──────────────────────────────────────────────────────
   'notifications': ('Notifications', (l) => l.settingNotifications),
@@ -352,6 +353,12 @@ class SettingsRow {
     section: 'Messages',
     keywords: 'giphy images gif',
   );
+  static const imageHosts = SettingsRow(
+    'image_hosts',
+    SettingsPageId.inlineEmbeds,
+    section: 'Images',
+    keywords: 'preview host domain whitelist',
+  );
   static const macros = SettingsRow(
     'macros',
     SettingsPageId.chat,
@@ -454,6 +461,7 @@ class SettingsRow {
     channels,
     editLayout,
     inlineEmbeds,
+    imageHosts,
     macros,
     dataUsage,
     notifications,

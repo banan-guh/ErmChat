@@ -82,6 +82,14 @@ class _LinkWhitelistSettingsScreenState
                 value: enabled,
                 onChanged: (v) => LinkWhitelist.instance.setEnabled(v),
               ),
+              SwitchListTile(
+                title: Text(context.l10n.joinAnyDomain),
+                subtitle: Text(context.l10n.joinAnyDomainHint),
+                value: LinkWhitelist.instance.joinAll,
+                onChanged: enabled
+                    ? (v) => LinkWhitelist.instance.setJoinAll(v)
+                    : null,
+              ),
               IgnorePointer(
                 ignoring: !enabled,
                 child: Opacity(

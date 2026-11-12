@@ -17,6 +17,7 @@ class LinkWhitelist extends ChangeNotifier {
     'gachi.gay',
     'i.nuuls.com',
     'youtu.be',
+    'beauty',
   ];
 
   // Always unmodifiable and replaced on change, so [entries] hands it out
@@ -24,6 +25,10 @@ class LinkWhitelist extends ChangeNotifier {
   List<String> _entries = const [];
   bool _loaded = false;
   bool enabled = false;
+
+  /// Rejoins fractures for any host, not just [entries]. A path is still
+  /// required, so prose around a sentence dot stays text.
+  bool joinAll = false;
   int _revision = 0;
 
   bool get loaded => _loaded;
@@ -50,6 +55,7 @@ class LinkWhitelist extends ChangeNotifier {
       _entries = List.unmodifiable(stored);
     }
     enabled = Settings.linkWhitelistEnabled.value;
+    joinAll = Settings.linkJoinAll.value;
     _loaded = true;
     _changed();
   }
@@ -64,6 +70,14 @@ class LinkWhitelist extends ChangeNotifier {
     enabled = value;
     await Prefs.load();
     await Settings.linkWhitelistEnabled.set(value);
+    _changed();
+  }
+
+  Future<void> setJoinAll(bool value) async {
+    if (joinAll == value) return;
+    joinAll = value;
+    await Prefs.load();
+    await Settings.linkJoinAll.set(value);
     _changed();
   }
 

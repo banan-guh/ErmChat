@@ -561,6 +561,7 @@ class UserSheets {
         showImages: messageBuilder.showImages,
         imageHeight: messageBuilder.imageHeight,
         linkWhitelist: messageBuilder.linkWhitelist.entries,
+        imageHosts: messageBuilder.imageHosts.resolvedEntries,
         timestampFormat: Settings.timestampFormat.value,
         checkeredMessages: Settings.checkeredMessages.value,
         highlightOpacity: Settings.highlightOpacity.value,

@@ -81,6 +81,9 @@ class ChatMessageTile extends StatefulWidget {
   /// uses, so icons and the preview column agree on fractured links.
   final List<String>? linkWhitelist;
 
+  /// Hosts that serve raw images without an extension.
+  final List<String>? imageHosts;
+
   const ChatMessageTile({
     super.key,
     required this.message,
@@ -111,6 +114,7 @@ class ChatMessageTile extends StatefulWidget {
     this.showImages = kImageEmbedEnabledDefault,
     this.imageHeight = kImageEmbedHeightDefault,
     this.linkWhitelist,
+    this.imageHosts,
   });
 
   @override
@@ -618,6 +622,7 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
       embedUrls = collectImageEmbedUrls(
         msg.text,
         linkWhitelist: widget.linkWhitelist,
+        imageHosts: widget.imageHosts,
       );
     }
     // Only rows with an image link take the tile-bound tap, which skips

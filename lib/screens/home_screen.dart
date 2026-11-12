@@ -31,6 +31,7 @@ import '../services/chat_connection_manager.dart';
 import '../services/ping_manager.dart';
 import '../services/ignore_manager.dart';
 import '../services/link_whitelist.dart';
+import '../services/image_embed_hosts.dart';
 import '../services/emote_manager.dart';
 import '../services/emote_controller.dart';
 import '../services/emote_usage_registry.dart';
@@ -125,6 +126,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   IgnoreManager get _ignoreManager => ref.read(ignoreManagerProvider);
 
   final _linkWhitelist = LinkWhitelist.instance;
+  final _imageHosts = ImageEmbedHosts.instance;
   VoidCallback? _removeFilterListener;
 
   AnalyticsService get _analytics => ref.read(analyticsServiceProvider);
@@ -921,6 +923,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     unawaited(_pingManager.load());
     unawaited(_ignoreManager.load());
     unawaited(_linkWhitelist.load());
+    unawaited(_imageHosts.load());
     unawaited(_streamPlayer.loadPrefs());
     _streamPlayer.pipService = _pipService;
     _pip = _pipService;
@@ -943,6 +946,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     // Launching in landscape gets no metrics change, so sync once up front.
     WidgetsBinding.instance.addPostFrameCallback((_) => _syncSystemUiMode());
     _linkWhitelist.addListener(_retile);
+    _imageHosts.addListener(_retile);
     _removeFilterListener = _chat.filter.changed.add(_retile);
     _loadNotificationSettings();
     _broadcastWidgets.loadTestWidgets();
@@ -1694,6 +1698,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     _uploadController.dispose();
     _networkBusy.dispose();
     _linkWhitelist.removeListener(_retile);
+    _imageHosts.removeListener(_retile);
     _removeFilterListener?.call();
     _spanSettings.removeListener(_onSpanSettings);
     _shellSettings.removeListener(_onShellSettings);
