@@ -714,7 +714,7 @@ class _EmoteCacheSectionState extends State<EmoteCacheSection> {
     final images = widget.images;
     if (images != null) {
       images.cacheCapMb = target;
-      await images.cache.enforceNow();
+      await images.enforceCache();
     }
     if (!mounted) return;
     setState(() => _draftCacheMb = target);

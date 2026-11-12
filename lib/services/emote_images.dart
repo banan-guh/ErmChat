@@ -136,7 +136,29 @@ class EmoteImages {
   Future<void> startCacheGc() async {
     _started = true;
     _cache.maxBytes = _cacheCapMb * bytesPerMb;
+    await enforceCache();
+  }
+
+  /// Trims to the byte cap now and drops memoized existence answers, since a
+  /// trim deletes files behind them.
+  Future<void> enforceCache() async {
     await _cache.enforceNow();
+    _probe.reset();
+  }
+
+  /// Re-checks a memoized "present" answer after a failed load, so a file
+  /// trimmed behind the cache re-resolves instead of staying broken.
+  Future<void> revalidateExistence(String url) async {
+    if (_probe.cached(url) != true) return;
+    final bool exists;
+    try {
+      exists = await _cache.getFileFromCache(url) != null;
+    } catch (_) {
+      return;
+    }
+    if (exists || _probe.cached(url) != true) return;
+    _probe.forget(url);
+    scaleRevision.value++;
   }
 
   // ── Bytes ───────────────────────────────────────────────────────────
@@ -174,6 +196,8 @@ class EmoteImages {
 
   void _noteDownload(String url) {
     DataUsageStats.I.recordEmoteImage(fromDisk: false);
+    // The file is on disk now; the miss that started the fetch is stale.
+    _probe.forget(url);
     _downloaded.add(url);
     if (_downloaded.length > _maxDownloaded) {
       _downloaded.remove(_downloaded.first);

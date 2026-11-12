@@ -76,6 +76,37 @@ void main() {
       expect(await memo.probe('u', (_) async => true), isTrue);
     });
 
+    test('forget drops the result so the next probe runs', () async {
+      final memo = EmoteProbeMemo();
+      var calls = 0;
+      Future<bool> probe(String url) async {
+        calls++;
+        return true;
+      }
+
+      await memo.probe('u', probe);
+      await memo.probe('u', probe);
+      expect(calls, 1);
+      memo.forget('u');
+      await memo.probe('u', probe);
+      expect(calls, 2);
+    });
+
+    test('the default ttl keeps results for minutes, not a minute', () async {
+      var now = DateTime(2026, 1, 1);
+      final memo = EmoteProbeMemo(now: () => now);
+      var calls = 0;
+      Future<bool> probe(String url) async {
+        calls++;
+        return true;
+      }
+
+      await memo.probe('u', probe);
+      now = now.add(const Duration(minutes: 10));
+      await memo.probe('u', probe);
+      expect(calls, 1, reason: 'downloads and removals forget, not the clock');
+    });
+
     test('over-cap inserts evict the least recently used result', () async {
       final memo = EmoteProbeMemo(maxEntries: 3);
       final calls = <String>[];

@@ -1,9 +1,11 @@
 import 'package:flutter/foundation.dart';
 
-/// Memoizes disk-cache probe results with TTL. Deduplicates concurrent probes per URL.
+/// Memoizes disk-cache probe results. Deduplicates concurrent probes per URL.
+/// Owners forget a URL when it is downloaded or removed; [ttl] is only a long
+/// safety net for trims that bypass them.
 class EmoteProbeMemo {
   EmoteProbeMemo({
-    this.ttl = const Duration(seconds: 60),
+    this.ttl = const Duration(minutes: 30),
     DateTime Function()? now,
     this.maxEntries = 2048,
   }) : _now = now ?? DateTime.now;

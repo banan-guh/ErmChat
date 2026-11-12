@@ -262,8 +262,13 @@ class _EmoteImageState extends State<EmoteImage> {
         }
         return _loadingStack(child, overlay);
       },
-      errorBuilder: (context, error, stack) =>
-          widget.errorWidget ?? const Icon(Icons.broken_image, size: 20),
+      errorBuilder: (context, error, stack) {
+        // A trim can remove the file behind a memoized "present" answer.
+        SchedulerBinding.instance.addPostFrameCallback(
+          (_) => unawaited(widget.emoteImages.revalidateExistence(widget.url)),
+        );
+        return widget.errorWidget ?? const Icon(Icons.broken_image, size: 20);
+      },
     );
     if (_custom) return image;
     // Stock GIFs hold their frame through the idle freeze, like chat's.
