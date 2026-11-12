@@ -1,5 +1,7 @@
+import 'dart:async';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:path_provider/path_provider.dart';
 
 import '../archive/archive_row.dart';
@@ -41,19 +43,65 @@ class Archive {
     return '${dir.path}${Platform.pathSeparator}archive.db';
   }
 
+  /// How long the store may take to open. Opening waits on the platform's
+  /// reply, and a hot restart can lose that reply, leaving the future pending
+  /// forever and every read hanging. Past this the archive stays off for the
+  /// session rather than hanging chat history.
+  static const openTimeout = Duration(seconds: 30);
+
+  /// An open slower than this logs, so a stall leaves a trace before the
+  /// timeout hides it.
+  static const _slowOpen = Duration(seconds: 5);
+
   static Future<ArchiveStore?> _openDefault() async {
+    final sw = Stopwatch()..start();
+    Future<ArchiveStore?> open() async {
+      try {
+        // The open prunes once, so the chosen limits apply before it.
+        await Prefs.load();
+        ArchiveStore.retention = Duration(
+          days: Settings.archiveRetentionDays.value,
+        );
+        ArchiveStore.channelCapBytes = capBytes(
+          Settings.archiveChannelCapMb.value,
+        );
+        final store = await ArchiveStore.open(await defaultPath());
+        final ms = sw.elapsedMilliseconds;
+        logDebug(
+          '[Archive] opened in ${ms}ms',
+          persist: ms >= _slowOpen.inMilliseconds,
+        );
+        return store;
+      } catch (e) {
+        logDebug('[Archive] open failed: $e');
+        return null;
+      }
+    }
+
+    final opening = open();
+    return withOpenTimeout(opening);
+  }
+
+  /// [opening] with [timeout] applied; null means the archive stays off.
+  /// Opening blocks on the platform's reply, and a hot restart can lose that
+  /// reply, so a stuck open must not hang every read and write forever.
+  @visibleForTesting
+  static Future<ArchiveStore?> withOpenTimeout(
+    Future<ArchiveStore?> opening, {
+    Duration timeout = openTimeout,
+  }) async {
     try {
-      // The open prunes once, so the chosen limits apply before it.
-      await Prefs.load();
-      ArchiveStore.retention = Duration(
-        days: Settings.archiveRetentionDays.value,
-      );
-      ArchiveStore.channelCapBytes = capBytes(
-        Settings.archiveChannelCapMb.value,
-      );
-      return await ArchiveStore.open(await defaultPath());
-    } catch (e) {
-      logDebug('[Archive] open failed: $e');
+      return await opening.timeout(timeout);
+    } on TimeoutException {
+      logDebug('[Archive] open stuck ${timeout.inSeconds}s, archive off');
+      // A late open still holds a connection and its pages; hand them back.
+      unawaited(() async {
+        try {
+          await (await opening)?.close();
+        } catch (_) {
+          // Already logged; nothing is waiting on it.
+        }
+      }());
       return null;
     }
   }
