@@ -2193,7 +2193,7 @@ void main() {
       'emote',
       's',
       'src',
-      const SetObservation(
+      SetObservation(
         atMs: 1,
         seenMs: 1,
         full: true,
