@@ -59,16 +59,19 @@ android {
     }
 
     buildTypes {
-        // With devAppId, debug and profile share one dev install beside the
-        // release build, so `flutter run` never uninstalls it (and wipes its
-        // data) over a key or version clash. Profile is set here too: Flutter
-        // copies it from debug before this block runs.
+        // With devAppId, the debug install sits beside the real app so a run
+        // never uninstalls it over a key or version clash. Profile and release
+        // use the normal id, so a profile run touches real data.
         if (devAppId) {
-            for (name in listOf("debug", "profile")) {
-                getByName(name) {
-                    applicationIdSuffix = ".debug"
-                    manifestPlaceholders["appLabel"] = "ErmChat Dev"
-                }
+            getByName("debug") {
+                applicationIdSuffix = ".debug"
+                manifestPlaceholders["appLabel"] = "ErmChat Dev"
+            }
+            // Flutter copies debug into profile before this block runs, so
+            // reset the suffix it inherited.
+            getByName("profile") {
+                applicationIdSuffix = null
+                manifestPlaceholders["appLabel"] = "ErmChat"
             }
         }
         release {
