@@ -8,11 +8,16 @@ class SettingsPage extends StatelessWidget {
   final Widget body;
   final Widget? floatingActionButton;
 
+  /// Overrides the app bar colour, for a screen that tracks the scrolled-under
+  /// tint through a nested scroll view the app bar cannot see.
+  final Color? appBarColor;
+
   const SettingsPage({
     super.key,
     required this.title,
     this.actions,
     this.bottom,
+    this.appBarColor,
     required this.body,
     this.floatingActionButton,
   });
@@ -20,7 +25,14 @@ class SettingsPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: title, actions: actions, bottom: bottom),
+      appBar: AppBar(
+        title: title,
+        actions: actions,
+        bottom: bottom,
+        backgroundColor: appBarColor,
+        surfaceTintColor: appBarColor == null ? null : Colors.transparent,
+        scrolledUnderElevation: appBarColor == null ? null : 0,
+      ),
       body: SafeArea(top: false, bottom: true, child: body),
       floatingActionButton: floatingActionButton,
     );

@@ -61,6 +61,42 @@ void main() {
     expect(stats.bytesFor(DataSource.history, period: UsagePeriod.all), 2200);
   });
 
+  test('saved counters follow the period too', () async {
+    final stats = DataUsageStats.I;
+    var clock = DateTime(2026, 1, 10, 12);
+    stats
+      ..reset()
+      ..now = () => clock;
+
+    stats.recordEmoteList(fromDisk: true);
+    await stats.flush();
+    expect(
+      stats.savedCount(stats.listsFromDisk, period: UsagePeriod.all),
+      1,
+      reason: 'a flush folds the session into the base exactly once',
+    );
+
+    clock = DateTime(2026, 1, 12, 12);
+    stats.recordEmoteList(fromDisk: true);
+    await stats.flush();
+
+    stats.reset();
+    stats.now = () => clock;
+    await stats.load();
+
+    expect(
+      stats.savedCount(stats.listsFromDisk, period: UsagePeriod.session),
+      0,
+      reason: 'a restart starts the session at zero',
+    );
+    expect(stats.savedCount(stats.listsFromDisk, period: UsagePeriod.all), 2);
+    expect(
+      stats.savedCount(stats.listsFromDisk, period: UsagePeriod.day),
+      1,
+      reason: 'only the list saved after the day window starts counts',
+    );
+  });
+
   test('mobile bytes keep their own window', () async {
     final stats = DataUsageStats.I;
     var clock = DateTime(2026, 2, 1, 9);

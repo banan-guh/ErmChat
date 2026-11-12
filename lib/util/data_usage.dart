@@ -214,15 +214,68 @@ class DataUsageStats {
   List<List<int>> _hours = [];
   List<List<int>> _days = [];
 
-  Map<String, SessionCount> get _counters => {
-    'imagesFromDisk': imagesFromDisk,
-    'imageBytesFromDisk': imageBytesFromDisk,
-    'imagesDownloaded': imagesDownloaded,
-    'listsFromDisk': listsFromDisk,
-    'listsFetched': listsFetched,
-    'gapFetches': gapFetches,
-    'gapsFilled': gapsFilled,
-  };
+  // The saved counters follow the same base plus session delta, so their
+  // section can answer the period tabs too. [7..13] are mobile.
+  List<int> _savedBase = List<int>.filled(14, 0);
+  final List<int> _savedFlushed = List<int>.filled(14, 0);
+  List<List<int>> _savedHours = [];
+  List<List<int>> _savedDays = [];
+
+  static const _savedNames = [
+    'imagesFromDisk',
+    'imageBytesFromDisk',
+    'imagesDownloaded',
+    'listsFromDisk',
+    'listsFetched',
+    'gapFetches',
+    'gapsFilled',
+  ];
+
+  List<SessionCount> get _savedCounters => [
+    imagesFromDisk,
+    imageBytesFromDisk,
+    imagesDownloaded,
+    listsFromDisk,
+    listsFetched,
+    gapFetches,
+    gapsFilled,
+  ];
+
+  /// [count] over [period], or only its mobile part.
+  int savedCount(
+    SessionCount count, {
+    bool mobileOnly = false,
+    UsagePeriod period = UsagePeriod.session,
+  }) {
+    final index = _savedCounters.indexOf(count);
+    if (index < 0) return 0;
+    final session = count.of(mobileOnly: mobileOnly);
+    if (period == UsagePeriod.session) return session;
+    final slot = mobileOnly ? 7 + index : index;
+    final current = _savedBase[slot] + session - _savedFlushed[slot];
+    if (period == UsagePeriod.all) return current;
+    final start = now().subtract(switch (period) {
+      UsagePeriod.day => const Duration(days: 1),
+      UsagePeriod.week => const Duration(days: 7),
+      UsagePeriod.month => const Duration(days: 30),
+      UsagePeriod.session || UsagePeriod.all => Duration.zero,
+    });
+    final before = _totalBefore(
+      period == UsagePeriod.day ? _savedHours : _savedDays,
+      start,
+    );
+    final used = current - before[slot];
+    return used > 0 ? used : 0;
+  }
+
+  List<int> _savedSessionValues() {
+    final values = List<int>.filled(14, 0);
+    for (var i = 0; i < _savedCounters.length; i++) {
+      values[i] = _savedCounters[i].all;
+      values[7 + i] = _savedCounters[i].mobile;
+    }
+    return values;
+  }
 
   /// This session's counters, indexed by [DataSource] then mobile.
   List<int> _sessionValues() {
@@ -271,15 +324,21 @@ class DataUsageStats {
       _base = _ints(data['total']);
       _hours = _snapshots(data['hours']);
       _days = _snapshots(data['days']);
-      final saved = data['saved'];
-      if (saved is Map) {
-        _counters.forEach((name, count) {
-          final pair = saved[name];
+      _savedBase = _ints(data['saved']);
+      _savedHours = _snapshots(data['savedHours']);
+      _savedDays = _snapshots(data['savedDays']);
+      // Legacy blobs stored the saved counters as name -> [all, mobile].
+      final legacy = data['saved'];
+      if (legacy is Map) {
+        for (var i = 0; i < _savedNames.length; i++) {
+          final pair = legacy[_savedNames[i]];
           if (pair is List && pair.length >= 2) {
-            count.all = pair[0] is int ? pair[0] as int : 0;
-            count.mobile = pair[1] is int ? pair[1] as int : 0;
+            _savedBase[i] = pair[0] is int ? pair[0] as int : 0;
+            _savedBase[7 + i] = pair[1] is int ? pair[1] as int : 0;
           }
-        });
+        }
+        _savedHours = [];
+        _savedDays = [];
       }
     } catch (_) {
       // A bad blob starts the totals over.
@@ -297,6 +356,14 @@ class DataUsageStats {
       _flushed[i] = session[i];
       added = true;
     }
+    final saved = _savedSessionValues();
+    for (var i = 0; i < _savedBase.length; i++) {
+      final delta = saved[i] - _savedFlushed[i];
+      if (delta == 0) continue;
+      _savedBase[i] += delta;
+      _savedFlushed[i] = saved[i];
+      added = true;
+    }
     if (added) _snapshot();
     final prefs = await Prefs.load();
     await prefs.setRawString(_key, jsonEncode(toJson()));
@@ -306,18 +373,12 @@ class DataUsageStats {
   /// anchor just before each window so it can be subtracted.
   void _snapshot() {
     final at = now();
-    _append(
-      _hours,
-      DateTime(at.year, at.month, at.day, at.hour),
-      const Duration(hours: 26),
-      72,
-    );
-    _append(
-      _days,
-      DateTime(at.year, at.month, at.day),
-      const Duration(days: 31),
-      48,
-    );
+    final hour = DateTime(at.year, at.month, at.day, at.hour);
+    final day = DateTime(at.year, at.month, at.day);
+    _append(_hours, hour, const Duration(hours: 26), 72, _base);
+    _append(_savedHours, hour, const Duration(hours: 26), 72, _savedBase);
+    _append(_days, day, const Duration(days: 31), 48, _base);
+    _append(_savedDays, day, const Duration(days: 31), 48, _savedBase);
   }
 
   void _append(
@@ -325,10 +386,11 @@ class DataUsageStats {
     DateTime bucket,
     Duration keep,
     int max,
+    List<int> values,
   ) {
     final ts = bucket.millisecondsSinceEpoch;
     if (snapshots.isEmpty || snapshots.last[0] != ts) {
-      snapshots.add([ts, ..._base]);
+      snapshots.add([ts, ...values]);
     }
     final cutoff = now().subtract(keep).millisecondsSinceEpoch;
     // Keep the newest entry older than the cutoff: windows subtract it.
@@ -348,10 +410,9 @@ class DataUsageStats {
     'total': _base,
     'hours': _hours,
     'days': _days,
-    'saved': {
-      for (final entry in _counters.entries)
-        entry.key: [entry.value.all, entry.value.mobile],
-    },
+    'saved': _savedBase,
+    'savedHours': _savedHours,
+    'savedDays': _savedDays,
   };
 
   static List<int> _ints(Object? value) {
@@ -396,7 +457,11 @@ class DataUsageStats {
     _flushed.fillRange(0, _flushed.length, 0);
     _hours = [];
     _days = [];
-    for (final count in _counters.values) {
+    _savedBase = List<int>.filled(14, 0);
+    _savedFlushed.fillRange(0, _savedFlushed.length, 0);
+    _savedHours = [];
+    _savedDays = [];
+    for (final count in _savedCounters) {
       count
         ..all = 0
         ..mobile = 0;

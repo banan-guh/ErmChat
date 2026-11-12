@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import '../../l10n/l10n.dart';
 import '../../util/data_usage.dart';
+import '../../util/settings.dart';
+import '../../widgets/tabbed_layout.dart';
 import 'settings_page.dart';
 import '../../widgets/design_tokens.dart';
 
@@ -29,6 +31,7 @@ class _DataUsageScreenState extends State<DataUsageScreen>
   // Kept across visits for the app session.
   static bool _mobileOnly = false;
   static UsagePeriod _period = UsagePeriod.session;
+  bool _scrolled = false;
 
   @override
   void initState() {
@@ -44,6 +47,7 @@ class _DataUsageScreenState extends State<DataUsageScreen>
   void _onTab() {
     if (_tabs.indexIsChanging) return;
     _period = UsagePeriod.values[_tabs.index];
+    if (_scrolled) setState(() => _scrolled = false);
   }
 
   @override
@@ -97,11 +101,21 @@ class _DataUsageScreenState extends State<DataUsageScreen>
           Tab(text: l.dataUsagePeriodAll),
         ],
       ),
-      body: TabBarView(
-        controller: _tabs,
-        children: [
-          for (final period in UsagePeriod.values) _page(context, s, period),
-        ],
+      appBarColor: _scrolled ? scheme.surfaceContainer : null,
+      body: NotificationListener<ScrollNotification>(
+        onNotification: (notification) {
+          if (notification.metrics.axis != Axis.vertical) return false;
+          final scrolled = notification.metrics.pixels > 0;
+          if (scrolled != _scrolled) setState(() => _scrolled = scrolled);
+          return false;
+        },
+        child: TabBarView(
+          controller: _tabs,
+          physics: panelPagePhysics(Settings.fastChannelSnap.value),
+          children: [
+            for (final period in UsagePeriod.values) _page(context, s, period),
+          ],
+        ),
       ),
     );
   }
@@ -146,7 +160,7 @@ class _DataUsageScreenState extends State<DataUsageScreen>
             ),
           ),
         SettingsSectionHeader(l.dataSavedSection),
-        ..._saved(context, s, _mobileOnly),
+        ..._saved(context, s, _mobileOnly, period),
         Padding(
           padding: const EdgeInsets.all(16),
           child: Text(
@@ -162,9 +176,15 @@ class _DataUsageScreenState extends State<DataUsageScreen>
 }
 
 /// What each data saver served without a download, against what it fetched.
-List<Widget> _saved(BuildContext context, DataUsageStats s, bool mobileOnly) {
+List<Widget> _saved(
+  BuildContext context,
+  DataUsageStats s,
+  bool mobileOnly,
+  UsagePeriod period,
+) {
   final l = context.l10n;
-  int n(SessionCount c) => c.of(mobileOnly: mobileOnly);
+  int n(SessionCount c) =>
+      s.savedCount(c, mobileOnly: mobileOnly, period: period);
   final fromDisk = n(s.imagesFromDisk);
   final images = fromDisk + n(s.imagesDownloaded);
   final lists = n(s.listsFromDisk) + n(s.listsFetched);
