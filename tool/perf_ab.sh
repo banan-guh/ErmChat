@@ -9,6 +9,7 @@ LABEL=$1; SECS=${2:-30}; SETTLE=${3:-20}
 export PKG=${PKG:-io.github.bananguh.ErmChat}
 flutter build apk --profile --dart-define=ERMCHAT_PERF=true \
   --dart-define=ERMCHAT_FAKE_CHAT=${FAKE:-0} \
+  --dart-define=ERMCHAT_FAKE_ARCHIVE=${FAKE_ARCHIVE:-false} \
   --target-platform android-arm64 >/dev/null
 adb install -r build/app/outputs/flutter-apk/app-profile.apk >/dev/null
 adb shell am force-stop "$PKG"

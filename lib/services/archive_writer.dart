@@ -108,7 +108,9 @@ class ArchiveWriter {
 
   /// Queues [msg] for [channel]. Never throws and never blocks the caller.
   void add(String channel, TwitchMessage msg) {
-    if (_disposed || _wiping || FakeChatFeed.owns(msg)) {
+    if (_disposed ||
+        _wiping ||
+        (!FakeChatFeed.archived && FakeChatFeed.owns(msg))) {
       return;
     }
     final c = _chans.putIfAbsent(channel, _Chan.new);
@@ -213,7 +215,7 @@ class ArchiveWriter {
     final c = _chans[channel];
     final stored = <String>[];
     for (final id in messageIds) {
-      if (FakeChatFeed.ownsId(id)) continue;
+      if (!FakeChatFeed.archived && FakeChatFeed.ownsId(id)) continue;
       if (c != null && _applyEdit(c, id, edit)) continue;
       stored.add(id);
     }

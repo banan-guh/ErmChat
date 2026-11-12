@@ -21,6 +21,10 @@ class FakeChatFeed {
   /// Starting messages per second; 0 leaves the feed off.
   static const int defaultRate = int.fromEnvironment('ERMCHAT_FAKE_CHAT');
 
+  /// Whether feed rows reach the archive, for archive load testing. On with
+  /// `--dart-define=ERMCHAT_FAKE_ARCHIVE=true`.
+  static bool archived = const bool.fromEnvironment('ERMCHAT_FAKE_ARCHIVE');
+
   final IrcChatDecoder decoder;
   final String? Function() channel;
 
@@ -90,6 +94,12 @@ class FakeChatFeed {
   static const _idPrefix = 'fake-';
   static const _userPrefix = 'fake_user';
 
+  /// Distinguishes this process's ids when the rows reach the archive, so a
+  /// restart adds rows instead of colliding with the previous run.
+  static final int _session = const bool.fromEnvironment('ERMCHAT_FAKE_ARCHIVE')
+      ? DateTime.now().millisecondsSinceEpoch
+      : 0;
+
   void start() {
     if (_rate <= 0 || _timer != null) return;
     _ran = true;
@@ -147,7 +157,10 @@ class FakeChatFeed {
   String _line(String ch) {
     final n = _n++;
     final user = '$_userPrefix${_rng.nextInt(400)}';
-    _recent.add((user, '$_idPrefix$seed-$n'));
+    final id = _session == 0
+        ? '$_idPrefix$seed-$n'
+        : '$_idPrefix$seed-$_session-$n';
+    _recent.add((user, id));
     if (_recent.length > 50) _recent.removeAt(0);
     final pool = emotes(ch);
     final parts = <String>[];
@@ -165,7 +178,7 @@ class FakeChatFeed {
     final ts = DateTime.now().millisecondsSinceEpoch;
     final color = _colors[_rng.nextInt(_colors.length)];
     return '@badge-info=;badges=;color=$color;display-name=$user;emotes=;'
-        'first-msg=0;flags=;id=$_idPrefix$seed-$n;mod=0;room-id=1;subscriber=0;'
+        'first-msg=0;flags=;id=$id;mod=0;room-id=1;subscriber=0;'
         'tmi-sent-ts=$ts;turbo=0;user-id=${900000 + n};user-type= '
         ':$user!$user@$user.tmi.twitch.tv PRIVMSG #$ch :${parts.join(' ')}';
   }

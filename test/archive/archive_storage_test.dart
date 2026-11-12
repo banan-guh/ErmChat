@@ -267,6 +267,43 @@ void main() {
     await store.close();
   });
 
+  test('the archive takes fake rows when the testing flag is on', () async {
+    FakeChatFeed(
+        decoder: IrcChatDecoder(const Stream.empty()),
+        channel: () => null,
+        emotes: (_) => const [],
+      )
+      ..setRate(1)
+      ..dispose();
+    FakeChatFeed.archived = true;
+    addTearDown(() => FakeChatFeed.archived = false);
+    final store = await _open(_newPath());
+    final writer = _writer(store, sealCount: 2);
+    writer.add(
+      _channel,
+      TwitchMessage(
+        login: 'fake_user7',
+        text: 'fake line',
+        messageId: 'fake-1-0',
+        channel: _channel,
+        timestamp: _t0,
+      ),
+    );
+    writer.add(_channel, _msg(1));
+    writer.add(_channel, _msg(2));
+    await writer.settled();
+    final rows = [
+      for (final b in await store.newestBlocks(_channel, 1000))
+        ...ArchiveBlock.decode(b.data),
+    ];
+    expect(
+      [for (final r in rows) r.text],
+      ['fake line', 'message number 1'],
+      reason: 'the fake row seals with the first real one',
+    );
+    await store.close();
+  });
+
   test('writer seals on count', () async {
     final store = await _open(_newPath());
     final writer = _writer(store);

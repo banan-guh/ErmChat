@@ -226,7 +226,9 @@ class Archive {
     DateTime from,
     DateTime to,
   ) {
-    if (FakeChatFeed.ownsLogin(login)) return Future.value();
+    if (!FakeChatFeed.archived && FakeChatFeed.ownsLogin(login)) {
+      return Future.value();
+    }
     reader.clears.emit((channel, (login: login, from: from, to: to)));
     return _quiet(
       (s) => s.addModeration(
