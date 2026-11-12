@@ -297,16 +297,24 @@ class ChatChannelSetup {
       );
 
       emoteManager.accessToken = auth.accessToken;
+      Future<void>? emoteResolve;
       if (!emoteManager.emotesResolved(channelName)) {
         emoteManager.markEmotesResolved(channelName);
-        _trackedLoad(
+        emoteResolve = _trackedLoad(
           channelName,
           'emotes',
           () => emoteManager.resolveEmotes(channelName, channelId),
         );
       }
 
-      unawaited(_resolveSevenTvAndSubscribe(channelName, channelId, epoch));
+      unawaited(
+        _resolveSevenTvAndSubscribe(
+          channelName,
+          channelId,
+          epoch,
+          emoteResolve,
+        ),
+      );
 
       if (session.login == null && auth.accessToken != null) {
         final currentUser = await ensureCurrentUser(auth);
@@ -330,15 +338,19 @@ class ChatChannelSetup {
     }
   }
 
-  void _trackedLoad(String channel, String key, Future<void> Function() load) {
-    unawaited(
-      load().then((_) => chat.clearLoadFailure(channel, key)).catchError((
-        Object e,
-      ) {
-        chat.recordLoadFailure(channel, key);
-        logDebug('[ChatConn] $key load failed for $channel: $e');
-      }),
-    );
+  Future<void> _trackedLoad(
+    String channel,
+    String key,
+    Future<void> Function() load,
+  ) {
+    final done = load()
+        .then((_) => chat.clearLoadFailure(channel, key))
+        .catchError((Object e) {
+          chat.recordLoadFailure(channel, key);
+          logDebug('[ChatConn] $key load failed for $channel: $e');
+        });
+    unawaited(done);
+    return done;
   }
 
   /// Re-runs the per-channel data loads (badges, emotes) that failed earlier,
@@ -363,8 +375,9 @@ class ChatChannelSetup {
   Future<void> _resolveSevenTvAndSubscribe(
     String channelName,
     String twitchChannelId,
-    int epoch,
-  ) {
+    int epoch, [
+    Future<void>? emoteResolve,
+  ]) {
     if (sevenTvClient == null) return Future.value();
     final inflight = _sevenTvSubInflight[twitchChannelId];
     if (inflight != null) return inflight;
@@ -372,6 +385,7 @@ class ChatChannelSetup {
       channelName,
       twitchChannelId,
       epoch,
+      emoteResolve,
     );
     _sevenTvSubInflight[twitchChannelId] = future;
     // The copy must not report unhandled errors; awaiters use the original.
@@ -384,8 +398,9 @@ class ChatChannelSetup {
   Future<void> _doResolveSevenTvAndSubscribe(
     String channelName,
     String twitchChannelId,
-    int epoch,
-  ) async {
+    int epoch, [
+    Future<void>? emoteResolve,
+  ]) async {
     if (!_sevenTvEmotes) {
       // The channel feed alone needs no 7TV ids.
       if (_sevenTvCosmetics) {
@@ -394,8 +409,17 @@ class ChatChannelSetup {
       return;
     }
     // Check if EmoteManager already has the IDs from resolveEmotes.
-    final cachedEmoteSetId = emoteManager.getSevenTvEmoteSetId(channelName);
-    final cachedUserId = emoteManager.getSevenTvUserId(channelName);
+    var cachedEmoteSetId = emoteManager.getSevenTvEmoteSetId(channelName);
+    var cachedUserId = emoteManager.getSevenTvUserId(channelName);
+    if ((cachedEmoteSetId == null || cachedUserId == null) &&
+        emoteResolve != null) {
+      // resolveEmotes fetches the same 7TV user payload. Wait briefly for its
+      // ids instead of fetching the megabyte body a second time.
+      await emoteResolve.timeout(const Duration(seconds: 3), onTimeout: () {});
+      if (_isStale(channelName, epoch)) return;
+      cachedEmoteSetId = emoteManager.getSevenTvEmoteSetId(channelName);
+      cachedUserId = emoteManager.getSevenTvUserId(channelName);
+    }
 
     String finalEmoteSetId;
     String finalUserId;
