@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:io' show ZLibCodec;
 import 'dart:isolate';
 import 'dart:math';
 import 'dart:typed_data';
@@ -254,7 +253,7 @@ class ArchiveStore {
           'UPDATE observations SET added = ? '
           'WHERE kind = ? AND scope = ? AND source = ? AND at_ms = ?',
           [
-            _packJson(r['added']! as String),
+            packSetJson(r['added']! as String),
             r['kind'],
             r['scope'],
             r['source'],
@@ -265,16 +264,6 @@ class ArchiveStore {
     });
     return rows.length;
   }
-
-  /// Observation definitions as zlib bytes; a text value is an older row.
-  static final _zlib = ZLibCodec(level: 6);
-
-  static Uint8List _packJson(String json) =>
-      Uint8List.fromList(_zlib.encode(utf8.encode(json)));
-
-  static String _unpackJson(Object stored) => stored is String
-      ? stored
-      : utf8.decode(_zlib.decode(stored as List<int>));
 
   Future<void> _saveIndexedVersion() =>
       _saveMeta('indexed_version', '$schemaVersion');
@@ -370,11 +359,11 @@ class ArchiveStore {
       'WHERE kind = ? AND scope = ? AND source = ? ORDER BY at_ms',
       [kind, scope, source],
     ))
-      SetObservation.fromJson(
+      SetObservation.fromStored(
         atMs: r['at_ms']! as int,
         seenMs: r['seen_ms']! as int,
         full: r['full'] == 1,
-        added: _unpackJson(r['added']!),
+        added: r['added']!,
         removed: r['removed']! as String,
         hash: r['hash']! as String,
       ),
@@ -393,7 +382,7 @@ class ArchiveStore {
     'at_ms': o.atMs,
     'seen_ms': o.seenMs,
     'full': o.full ? 1 : 0,
-    'added': _packJson(o.addedJson),
+    'added': packSetJson(o.addedJson),
     'removed': o.removedJson,
     'hash': o.hash,
   }, conflictAlgorithm: ConflictAlgorithm.ignore);

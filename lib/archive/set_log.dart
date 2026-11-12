@@ -1,4 +1,18 @@
 import 'dart:convert';
+import 'dart:io' show ZLibCodec;
+import 'dart:typed_data';
+
+/// Observation definitions as zlib bytes. A text value is an older row.
+final _setZlib = ZLibCodec(level: 6);
+
+/// Compresses an observation's definition JSON for storage.
+Uint8List packSetJson(String json) =>
+    Uint8List.fromList(_setZlib.encode(utf8.encode(json)));
+
+/// A stored definition JSON, from a compressed blob or an older text row.
+String unpackSetJson(Object stored) => stored is String
+    ? stored
+    : utf8.decode(_setZlib.decode(stored as List<int>));
 
 /// One observation of a set (a provider's emotes, a channel's badges): what
 /// a fetch returned at [atMs], stored as a diff against the observation
@@ -20,7 +34,7 @@ class SetObservation {
     this.seenMs,
     this.full,
     this._added,
-    this._addedJson,
+    this._stored,
     this.removed,
     this.hash,
   );
@@ -30,7 +44,10 @@ class SetObservation {
   final bool full;
 
   final Map<String, String>? _added;
-  final String? _addedJson;
+
+  /// The stored definition JSON, a String for older text rows or zlib bytes.
+  /// Inflated on first read, so a snapshot nobody replays costs nothing.
+  final Object? _stored;
   Map<String, String>? _decoded;
 
   /// Keys new to the set (all of them when [full]) and their definitions.
@@ -38,37 +55,37 @@ class SetObservation {
   /// costs no parse.
   Map<String, String> get added =>
       _added ??
-      (_decoded ??= (jsonDecode(_addedJson!) as Map<String, dynamic>)
-          .cast<String, String>());
+      (_decoded ??=
+          (jsonDecode(unpackSetJson(_stored!)) as Map<String, dynamic>)
+              .cast<String, String>());
 
   final List<String> removed;
   final String hash;
 
-  String get addedJson => _addedJson ?? jsonEncode(_added!);
+  String get addedJson =>
+      _stored != null ? unpackSetJson(_stored) : jsonEncode(_added!);
   String get removedJson => jsonEncode(removed);
 
   /// This observation with only [seenMs] replaced; every other field, and
   /// the maps and lists it shares, are carried over unchanged.
   SetObservation _withSeen(int ms) {
-    final json = _addedJson;
-    if (json != null) {
-      return SetObservation._(atMs, ms, full, null, json, removed, hash);
-    }
-    return SetObservation(
-      atMs: atMs,
-      seenMs: ms,
-      full: full,
-      added: _added!,
-      removed: removed,
-      hash: hash,
+    final stored = _stored;
+    return SetObservation._(
+      atMs,
+      ms,
+      full,
+      stored != null ? null : _added,
+      stored,
+      removed,
+      hash,
     );
   }
 
-  static SetObservation fromJson({
+  static SetObservation fromStored({
     required int atMs,
     required int seenMs,
     required bool full,
-    required String added,
+    required Object added,
     required String removed,
     required String hash,
   }) => SetObservation._(
@@ -79,6 +96,22 @@ class SetObservation {
     added,
     (jsonDecode(removed) as List<dynamic>).cast<String>(),
     hash,
+  );
+
+  static SetObservation fromJson({
+    required int atMs,
+    required int seenMs,
+    required bool full,
+    required String added,
+    required String removed,
+    required String hash,
+  }) => fromStored(
+    atMs: atMs,
+    seenMs: seenMs,
+    full: full,
+    added: added,
+    removed: removed,
+    hash: hash,
   );
 }
 
