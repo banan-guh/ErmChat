@@ -141,6 +141,7 @@ class ComposerBar extends StatelessWidget {
                 onSubmitted: (_) => mod.submitTerms(),
                 enabled: true,
                 hintText: context.l10n.blockTermHint,
+                floatHint: true,
                 searchMode: true,
                 borderless: !classic,
                 // Add moves out with send, and the field needs no icon

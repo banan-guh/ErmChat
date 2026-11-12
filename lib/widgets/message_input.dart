@@ -35,6 +35,10 @@ class MessageInput extends StatelessWidget {
   // Search mode: single-line field; prefix/suffix slots take over.
   final bool searchMode;
 
+  /// Forces the floated-label treatment. Search keeps a plain hint; block
+  /// terms matches the chat field so the island height cannot change.
+  final bool? floatHint;
+
   // Inside the island shell the container draws the rim, so the field drops
   // its own outline to avoid a double border.
   final bool borderless;
@@ -77,6 +81,7 @@ class MessageInput extends StatelessWidget {
     this.inputFormatters,
     this.onContentInserted,
     this.searchMode = false,
+    this.floatHint,
     this.borderless = false,
     this.fillProgress,
     this.prefixOverride,
@@ -104,7 +109,7 @@ class MessageInput extends StatelessWidget {
     final effectiveHint = hintText ?? context.l10n.typeMessageHint;
     // An outline notches its label; the borderless chat field floats one
     // like a filled field. Search and block terms keep a plain hint.
-    final floatLabel = !borderless || !searchMode;
+    final floatLabel = floatHint ?? (!borderless || !searchMode);
     // Compact trims the field height and padding. The emote and send
     // buttons keep the full 48pt circle: their slot is only as tall as the
     // field, and the circle spills into the padding around it.
