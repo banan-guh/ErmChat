@@ -315,6 +315,18 @@ void main() {
       expect(formatTimestamp(pm, 'h:mm:ss a'), '3:05:09 PM');
       expect(formatTimestamp(pm, 'hh:mm:ss a'), '03:05:09 PM');
     });
+
+    test('tokens outside the presets keep their letters', () {
+      // One pass, longest token first, so this matches the replaceAll chain
+      // it replaced for imported or hand-written formats too.
+      expect(formatTimestamp(pm, 'H:m'), '15:m');
+      expect(formatTimestamp(pm, 'a H'), 'PM 15');
+      expect(formatTimestamp(pm, 'HHH'), '1515');
+      expect(formatTimestamp(pm, 'hhh'), '033');
+      expect(formatTimestamp(pm, 'xHx'), 'x15x');
+      expect(formatTimestamp(pm, 'M:s'), 'M:s');
+      expect(formatTimestamp(pm, ''), '');
+    });
   });
 
   group('formatSeconds', () {

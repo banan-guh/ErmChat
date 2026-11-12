@@ -33,6 +33,19 @@ void main() {
       const text = 'nothing to clean here';
       expect(identical(cleanChatText(text), text), isTrue);
     });
+
+    test('every blank lookalike takes the slow path', () {
+      // Guards the code-unit scan: each one must be seen as dirty and
+      // rewritten by the regex pass.
+      for (var unit = 0x2000; unit <= 0x200A; unit++) {
+        expect(cleanChatText('a${String.fromCharCode(unit)}b'), 'a b');
+      }
+      for (final unit in [0x00A0, 0x202F, 0x205F, 0x3000, 0x3164]) {
+        expect(cleanChatText('a${String.fromCharCode(unit)}b'), 'a b');
+      }
+      expect(cleanChatText('a b'), 'a b');
+      expect(cleanChatText('a\tb'), 'a\tb');
+    });
   });
 
   test('copyableChatText trims what cleaning leaves at the ends', () {
