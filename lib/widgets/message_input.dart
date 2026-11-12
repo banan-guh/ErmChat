@@ -5,6 +5,7 @@ import '../util/chrome_theme.dart';
 import '../util/constants.dart';
 import '../util/layout_density.dart';
 import '../l10n/l10n.dart';
+import 'clear_message_button.dart';
 import 'media_upload_controller.dart';
 import 'send_hold.dart';
 import 'design_tokens.dart';
@@ -110,7 +111,7 @@ class MessageInput extends StatelessWidget {
     final compact = resolveLayoutOverride(context, (o) => o.tightComposer);
     const iconBox = 48.0;
     final slotH = compact ? 40.0 : iconBox;
-    final iconConstraints = BoxConstraints(minWidth: iconBox, minHeight: slotH);
+    final iconConstraints = BoxConstraints(minHeight: slotH);
     final gap = compact ? 2.0 : 4.0;
     // A docked landscape bar beside a wide stream can be too narrow for the
     // emote menu to fit a single row, so the button goes instead.
@@ -120,6 +121,24 @@ class MessageInput extends StatelessWidget {
         Widget? button(FieldItem item) {
           final action = item.action;
           if (action != null) {
+            if (action == ChromeAction.clear) {
+              return ListenableBuilder(
+                listenable: focusNode,
+                builder: (context, _) =>
+                    ValueListenableBuilder<TextEditingValue>(
+                      valueListenable: controller,
+                      builder: (context, value, _) => value.text.isEmpty
+                          ? const SizedBox.shrink()
+                          : _IconSlot(
+                              height: slotH,
+                              child: ClearMessageButton(
+                                controller: controller,
+                                color: _inputAccent(context),
+                              ),
+                            ),
+                    ),
+              );
+            }
             final build = actionBuilder;
             return build == null
                 ? null

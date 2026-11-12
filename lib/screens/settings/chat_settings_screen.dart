@@ -86,6 +86,33 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
     await Settings.emoteSortOrder.set(selected);
   }
 
+  String get _copyGestureLabel => switch (Settings.copyUsernameGesture.value) {
+    NameCopyGesture.doubleTap => context.l10n.copyGestureDoubleTap,
+    NameCopyGesture.longPress => context.l10n.copyGestureLongPress,
+    NameCopyGesture.off => context.l10n.off,
+  };
+
+  Future<void> _pickCopyGesture() async {
+    final l = context.l10n;
+    final current = Settings.copyUsernameGesture.value;
+    final selected = await showChoiceDialog<NameCopyGesture>(
+      context,
+      title: Settings.copyUsernameGesture.titleOf(l),
+      value: current,
+      options: [
+        (NameCopyGesture.off, l.off, ''),
+        (NameCopyGesture.doubleTap, l.copyGestureDoubleTap, l.delaysUserCard),
+        (
+          NameCopyGesture.longPress,
+          l.copyGestureLongPress,
+          l.copyGestureLongPressHint,
+        ),
+      ],
+    );
+    if (selected == null || !mounted || selected == current) return;
+    await Settings.copyUsernameGesture.set(selected);
+  }
+
   String get _inlineEmbedsSubtitle {
     return switch ((_showGifs, _showImages)) {
       (true, true) => context.l10n.embedsGiphyImages,
@@ -155,6 +182,7 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
         listenable: Listenable.merge([
           Settings.sharedChatMode,
           Settings.emoteSortOrder,
+          Settings.copyUsernameGesture,
           Settings.giphyInlineEnabled,
           Settings.imageEmbedEnabled,
           Settings.proxyEnabled,
@@ -219,10 +247,14 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
                 () => MacrosScreen(twitchAuth: widget.twitchAuth!),
               ),
             SettingsSectionHeader(context.l10n.sectionUsers),
-            SettingSwitch(
-              Settings.doubleTapNameCopy,
-              secondary: const Icon(Icons.content_copy),
-              subtitle: context.l10n.delaysUserCard,
+            SettingAnchor(
+              Settings.copyUsernameGesture,
+              child: SettingsNavTile(
+                icon: Icons.content_copy,
+                title: Settings.copyUsernameGesture.titleOf(context.l10n),
+                subtitle: _copyGestureLabel,
+                onTap: _pickCopyGesture,
+              ),
             ),
             SettingsSectionHeader(context.l10n.sectionConnection),
             StayConnectedTile(onChanged: widget.onBackgroundServiceChanged),

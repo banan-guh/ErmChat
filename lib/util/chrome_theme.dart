@@ -23,7 +23,7 @@ enum HeaderStyle {
   final String code;
 }
 
-/// A chrome button that a theme places in the header or the row.
+/// A chrome button that a theme places in the header, the row, or the field.
 enum ChromeAction {
   /// Join a channel.
   join('j'),
@@ -41,7 +41,10 @@ enum ChromeAction {
   overflow('o'),
 
   /// The view menu: fullscreen, input, stream, search.
-  viewMenu('v');
+  viewMenu('v'),
+
+  /// Clears the message field. The field builds it, not the chrome.
+  clear('c');
 
   const ChromeAction(this.code);
 
@@ -102,6 +105,7 @@ class FieldItem {
 
   static const emote = FieldItem.part(ComposerPart.emote);
   static const send = FieldItem.part(ComposerPart.send);
+  static const clear = FieldItem.action(ChromeAction.clear);
 
   final ChromeAction? action;
   final ComposerPart? part;
@@ -740,7 +744,7 @@ enum ChromeTheme {
       ],
       rowEnd: [ChromeAction.viewMenu, ChromeAction.threads],
       fieldStart: [],
-      fieldEnd: [],
+      fieldEnd: [FieldItem.clear],
       sendAside: SendPlace.row,
       composer: ComposerStyle.flush,
       busyBar: true,

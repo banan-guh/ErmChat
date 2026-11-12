@@ -252,6 +252,18 @@ class ListSetting<L extends List<String>?> extends Setting<L> {
       raw is List && raw.every((e) => e is String) ? raw.cast<String>() : null;
 }
 
+/// How a tap on a chat name copies the username.
+enum NameCopyGesture {
+  /// No copy gesture. A tap opens the user card at once.
+  off,
+
+  /// A double tap copies; a single tap waits out the double-tap window.
+  doubleTap,
+
+  /// A long press copies; a tap opens the user card at once.
+  longPress,
+}
+
 /// Every user setting, one line each. Keys and defaults live here and
 /// nowhere else; `Prefs` keeps device state, caches and per-account data.
 ///
@@ -493,12 +505,14 @@ abstract final class Settings {
     section: 'Typing',
     anchored: false,
   );
-  static final doubleTapNameCopy = Setting(
+  static final copyUsernameGesture = EnumSetting(
     'double_tap_name_copy',
-    false,
-    id: 'double_tap_copy',
+    NameCopyGesture.off,
+    NameCopyGesture.values,
+    id: 'copy_username',
     page: 'chat',
     section: 'Users',
+    keywords: 'copy name username gesture double tap long press',
   );
   static final showTimestamps = Setting(
     kShowTimestampsPrefKey,
@@ -1062,7 +1076,7 @@ abstract final class Settings {
     sendSwipeMenu,
     spamIntervalMs,
     spamIntervalModMs,
-    doubleTapNameCopy,
+    copyUsernameGesture,
     showTimestamps,
     timestampFormat,
     sharedChatMode,

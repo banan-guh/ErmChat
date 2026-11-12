@@ -18,6 +18,7 @@ import '../util/constants.dart';
 import '../util/settings.dart';
 import 'layout_editor.dart';
 import '../widgets/chrome_menu_button.dart';
+import '../widgets/clear_message_button.dart';
 import '../widgets/media_upload_controller.dart';
 import '../widgets/panel_manager.dart';
 
@@ -52,6 +53,7 @@ class HomeAppBar {
     required this.themeSpec,
     required this.layoutEdit,
     required this.editLayout,
+    required this.messageController,
   });
 
   final Chat chat;
@@ -87,6 +89,10 @@ class HomeAppBar {
   /// render as editable chips instead of working buttons.
   final LayoutEditController? Function() layoutEdit;
   final VoidCallback editLayout;
+
+  /// The chat field's text, for the clear action when a theme places it
+  /// outside the field.
+  final TextEditingController messageController;
 
   bool _isChannelLive(String channel) =>
       chat.channelFor(channel)?.info.isLive ?? false;
@@ -146,6 +152,7 @@ class HomeAppBar {
     ChromeAction.settings => settingsButton(context),
     ChromeAction.overflow => overflowMenu(context),
     ChromeAction.viewMenu => chromeMenu(onCalendar: onCalendar),
+    ChromeAction.clear => ClearMessageButton(controller: messageController),
   };
 
   /// The strip's end: the theme's strip actions.

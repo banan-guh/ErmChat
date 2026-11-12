@@ -119,6 +119,7 @@ extension on ChromeAction {
     ChromeAction.settings => Icons.settings,
     ChromeAction.overflow => Icons.more_vert,
     ChromeAction.viewMenu => Icons.expand_more,
+    ChromeAction.clear => Icons.close,
   };
 
   String label(AppLocalizations l) => switch (this) {
@@ -128,6 +129,7 @@ extension on ChromeAction {
     ChromeAction.settings => l.settingsTitle,
     ChromeAction.overflow => l.layoutActionOverflow,
     ChromeAction.viewMenu => l.layoutActionView,
+    ChromeAction.clear => l.clearMessage,
   };
 }
 

@@ -51,6 +51,10 @@ class ChatMessageTile extends StatefulWidget {
   /// single taps instant.
   final void Function(BuildContext context)? onDoubleTapUser;
 
+  /// Long press on the name zone, given the tile's own context. Null leaves
+  /// the row's long press to the menu.
+  final void Function(BuildContext context)? onLongPressUser;
+
   /// Given the tile's own context, for the same reason as [onTapUser].
   final void Function(BuildContext context)? onLongPress;
   final VoidCallback? onDoubleTap;
@@ -103,6 +107,7 @@ class ChatMessageTile extends StatefulWidget {
     this.systemBodyBuilder,
     this.onTapUser,
     this.onDoubleTapUser,
+    this.onLongPressUser,
     this.onLongPress,
     this.onDoubleTap,
     this.onTap,
@@ -207,6 +212,10 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
   /// Set when a tap landed on the name, so the row's `onTap` that follows the
   /// same gesture is skipped.
   bool _nameTapped = false;
+
+  /// Where the current pointer went down. A long press has no position of
+  /// its own, so this is what the name zone is checked against.
+  Offset? _lastPointerDown;
 
   void _handleTapUp(TapUpDetails details) {
     final onTapUser = widget.onTapUser;
@@ -436,7 +445,24 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
       );
     }
 
+    VoidCallback? rowLongPress;
+    if (widget.onLongPressUser == null) {
+      rowLongPress = widget.onLongPress == null
+          ? null
+          : () => widget.onLongPress!(context);
+    } else {
+      rowLongPress = () {
+        final down = _lastPointerDown;
+        if (down != null && _hitsName(down)) {
+          widget.onLongPressUser!(context);
+          return;
+        }
+        widget.onLongPress?.call(context);
+      };
+    }
+
     if (widget.onLongPress != null ||
+        widget.onLongPressUser != null ||
         widget.onDoubleTap != null ||
         widget.onTap != null ||
         widget.onTapUser != null) {
@@ -449,13 +475,17 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
           }
           widget.onTap?.call();
         },
-        onLongPress: widget.onLongPress == null
-            ? null
-            : () => widget.onLongPress!(context),
+        onLongPress: rowLongPress,
         // The menu it opens fires Haptics, which owns the buzz.
         enableFeedback: false,
         child: child,
       );
+      if (widget.onLongPressUser != null) {
+        child = Listener(
+          onPointerDown: (event) => _lastPointerDown = event.position,
+          child: child,
+        );
+      }
     }
 
     // Transparency skips the canvas Material's implicit animations; the

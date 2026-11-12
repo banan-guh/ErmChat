@@ -268,7 +268,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     Settings.animateGifs,
     Settings.ffzEffects,
     Settings.bttvModifiers,
-    Settings.doubleTapNameCopy,
+    Settings.copyUsernameGesture,
     Settings.sharedChatMode,
   ]);
 
@@ -591,6 +591,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     themeSpec: () => _layoutEdit?.draft ?? _chromeTheme,
     layoutEdit: () => _layoutEdit,
     editLayout: _startLayoutEdit,
+    messageController: _composer.messageController,
   );
 
   late final ChannelPanels _channels = ChannelPanels(
@@ -1621,7 +1622,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       ..animateGifs = Settings.animateGifs.value
       ..ffzEffects = Settings.ffzEffects.value
       ..bttvModifiers = Settings.bttvModifiers.value
-      ..doubleTapNameCopy = Settings.doubleTapNameCopy.value
+      ..nameCopyGesture = Settings.copyUsernameGesture.value
       ..fontWeight = FontWeight.values.firstWhere(
         (w) => w.value == Settings.chatFontWeight.value,
         orElse: () => FontWeight.w400,

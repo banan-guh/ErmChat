@@ -43,6 +43,7 @@ class Prefs {
       }
     }
     await prefs._repairChromeThemeKey();
+    await prefs._migrateNameCopyGesture();
     return prefs;
   }
 
@@ -162,6 +163,15 @@ class Prefs {
     if (saved != null && !_isChromeThemeKey(saved)) {
       await Settings.chromeTheme.set(ChromeTheme.ermchat.name);
     }
+  }
+
+  /// Older builds stored the name copy choice as a bool under the same key.
+  Future<void> _migrateNameCopyGesture() async {
+    final raw = _p.get('double_tap_name_copy');
+    if (raw is! bool) return;
+    await Settings.copyUsernameGesture.set(
+      raw ? NameCopyGesture.doubleTap : NameCopyGesture.off,
+    );
   }
 
   /// The selected theme's spec; a missing custom theme falls back to the

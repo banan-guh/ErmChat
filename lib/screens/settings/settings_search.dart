@@ -143,7 +143,7 @@ final Map<String, _Title> _titles = {
   'spam_interval': ('Spam speed', (l) => l.spamSpeed),
   'spam_interval_mod': ('Spam speed', (l) => l.spamSpeedMod),
   'macros': ('Command macros', (l) => l.settingMacros),
-  'double_tap_copy': ('Double-tap name to copy', (l) => l.settingDoubleTapCopy),
+  'copy_username': ('Copy username', (l) => l.settingCopyUsername),
   'stay_connected': (
     'Stay connected in background',
     (l) => l.settingStayConnected,

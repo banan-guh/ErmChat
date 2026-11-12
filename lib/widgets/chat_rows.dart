@@ -126,7 +126,9 @@ class ChatRows {
     // System rows take no taps, reply line, paint, or embeds; the tile reads
     // their body from systemBodyBuilder.
     final chatRow = !msg.isSystem;
-    final showsNameCopy = chatRow && messageBuilder.doubleTapNameCopy;
+    final nameCopy = chatRow
+        ? messageBuilder.nameCopyGesture
+        : NameCopyGesture.off;
     final showsMenu = chatRow && onShowMessageMenu != null;
     final takesTap = chatRow && onTapMessage != null;
     final takesDoubleTap = chatRow && onCopyMessage != null;
@@ -161,7 +163,10 @@ class ChatRows {
               displayName: msg.displayName,
             )
           : null,
-      onDoubleTapUser: showsNameCopy
+      onDoubleTapUser: nameCopy == NameCopyGesture.doubleTap
+          ? (tileContext) => _copyUsername(tileContext, msg)
+          : null,
+      onLongPressUser: nameCopy == NameCopyGesture.longPress
           ? (tileContext) => _copyUsername(tileContext, msg)
           : null,
       onLongPress: showsMenu

@@ -15,6 +15,7 @@ import '../services/link_whitelist.dart';
 import '../services/third_party_badge_service.dart';
 import '../services/twitch_badge_service.dart';
 import '../util/log.dart';
+import '../util/settings.dart' show NameCopyGesture;
 import 'emote_text.dart';
 
 class MessageBuilder {
@@ -56,9 +57,9 @@ class MessageBuilder {
   /// stays out of the cache key.
   FontWeight fontWeight = FontWeight.w400;
 
-  /// Whether a double tap on a name copies it. Off opens the user card on
+  /// How a tap on a name copies the username. Off opens the user card on
   /// the first tap instead of waiting out the double-tap window.
-  bool doubleTapNameCopy = false;
+  NameCopyGesture nameCopyGesture = NameCopyGesture.off;
 
   /// Tap handler for email spans (copy + feedback). Null copies silently.
   void Function(String email)? onEmailTap;
