@@ -166,6 +166,9 @@ class _ChromeMenuState extends State<ChromeMenu> {
   Widget build(BuildContext context) {
     return PopupMenuButton<int>(
       position: PopupMenuPosition.under,
+      // Long labels ("Reload all emotes") used to set the width; cap it and
+      // let the text ellipsize instead of widening the whole menu.
+      constraints: const BoxConstraints(minWidth: 180, maxWidth: 220),
       popUpAnimationStyle: const AnimationStyle(duration: Motion.fast),
       onOpened: () => widget.onOpenChanged?.call(true),
       onCanceled: () => widget.onOpenChanged?.call(false),
