@@ -18,6 +18,7 @@ import '../../util/prefs_store.dart';
 import 'analytics_screen.dart';
 import 'prefs_tiles.dart';
 import 'report_bug_screen.dart';
+import 'service_status_screen.dart';
 import 'settings_page.dart';
 import 'settings_search.dart';
 import 'tts_settings_screen.dart';
@@ -339,6 +340,17 @@ class ToolsSettingsScreen extends StatelessWidget {
               icon: Icons.import_export,
               title: SettingsRow.settingsBackup.titleOf(context.l10n),
               onTap: () => _showBackupOptions(context),
+            ),
+          ),
+          SettingAnchor.row(
+            SettingsRow.serviceStatus,
+            child: SettingsNavTile(
+              icon: Icons.sensors,
+              title: SettingsRow.serviceStatus.titleOf(context.l10n),
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const ServiceStatusScreen()),
+              ),
             ),
           ),
           if (Platform.isAndroid) ...[

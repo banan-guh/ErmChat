@@ -201,6 +201,7 @@ final Map<String, _Title> _titles = {
   'data_usage': ('Data usage', (l) => l.settingDataUsage),
   'updates': ('Check for updates', (l) => l.settingCheckForUpdates),
   'settings_backup': ('Import/export settings', (l) => l.settingSettingsBackup),
+  'service_status': ('Service status', (l) => l.serviceStatus),
   'pip': ('Picture-in-picture', (l) => l.settingPip),
   'whats_new': ("Show what's new after updating", (l) => l.whatsNewToggle),
 
@@ -390,6 +391,11 @@ class SettingsRow {
     SettingsPageId.tools,
     keywords: 'backup restore copy paste clipboard file txt',
   );
+  static const serviceStatus = SettingsRow(
+    'service_status',
+    SettingsPageId.tools,
+    keywords: 'status websocket ping uptime servers connection',
+  );
   static const ttsEngine = SettingsRow(
     'tts_engine',
     SettingsPageId.tts,
@@ -468,6 +474,7 @@ class SettingsRow {
     tts,
     uploader,
     settingsBackup,
+    serviceStatus,
     ttsEngine,
     recentUploads,
     highlightKeywords,
