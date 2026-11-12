@@ -107,18 +107,28 @@ Future<void> _shrinkForLowRam(ImageCache imageCache) async {
   }
 }
 
-/// Pre-warms chat history during boot, concurrent with storage and first frame.
+/// Pre-warms the launch channel's history during boot, concurrent with storage
+/// and first frame. Other saved channels warm nothing: their backfill fetches
+/// on its own, so a cold start does not issue a fetch per saved channel before
+/// the first frame.
 Future<void> _warmHistory() async {
   try {
     final prefs = await Prefs.load();
     final channels = prefs.channels;
-    if (channels.isNotEmpty) {
-      RecentMessagesService.warm(
-        channels,
-        limit: Settings.historyFetchLimit,
-        config: RecentMessagesConfig.fromPrefs(prefs),
-      );
-    }
+    if (channels.isEmpty) return;
+    // The same channel ChannelSession.loadChannels selects for its backfill.
+    final last = Settings.lastChannel.value;
+    final launch =
+        Settings.reopenLastChannel.value &&
+            last != null &&
+            channels.contains(last)
+        ? last
+        : channels.first;
+    RecentMessagesService.warm(
+      [launch],
+      limit: Settings.historyFetchLimit,
+      config: RecentMessagesConfig.fromPrefs(prefs),
+    );
   } catch (_) {
     // Prefs unavailable: HomeScreen fetches normally later.
   }

@@ -10,6 +10,7 @@ class FakeTts extends FlutterTts {
   final List<int> setQueueModeCalls = [];
   int stopCalls = 0;
   int setLanguageCalls = 0;
+  int languageChecks = 0;
   String? setEngineId;
   Map<String, String>? setVoiceRaw;
   List<dynamic>? engines;
@@ -17,7 +18,10 @@ class FakeTts extends FlutterTts {
   String? defaultEngine;
 
   @override
-  Future<dynamic> isLanguageAvailable(String language) async => true;
+  Future<dynamic> isLanguageAvailable(String language) async {
+    languageChecks++;
+    return true;
+  }
 
   @override
   Future<dynamic> get getEngines async => engines;
@@ -83,12 +87,30 @@ Future<TtsController> makeController(FakeTts fake) async {
   final c = TtsController(tts: fake);
   await c.init();
   c.setEnabled(true);
+  // Enabling from the settings screen goes through checkAndPrepare; init()
+  // skips the engine while TTS is off.
+  await c.checkAndPrepare();
   return c;
 }
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
   SharedPreferences.setMockInitialValues({});
+
+  test('init skips the engine while TTS is off', () async {
+    await (await SharedPreferences.getInstance()).clear();
+    final off = FakeTts();
+    await TtsController(tts: off).init();
+    expect(off.languageChecks, 0, reason: 'nothing speaks while off');
+    expect(off.setEngineId, isNull);
+    expect(off.setVoiceRaw, isNull);
+
+    await (await SharedPreferences.getInstance()).setBool('tts_enabled', true);
+    final on = FakeTts();
+    await TtsController(tts: on).init();
+    expect(on.languageChecks, 1, reason: 'an enabled launch checks once');
+    await (await SharedPreferences.getInstance()).clear();
+  });
 
   test('speaks active channel, ignores others', () async {
     final fake = FakeTts();

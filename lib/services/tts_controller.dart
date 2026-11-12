@@ -78,9 +78,11 @@ class TtsController {
   }
 
   /// Loads settings and checks availability. Re-applies a previously chosen
-  /// option if any.
+  /// option if any. Touches no engine while TTS is off: enabling it runs
+  /// [checkAndPrepare] first, so the launch path stays off the platform.
   Future<void> init() async {
     await loadFromPrefs();
+    if (!_enabled) return;
     _available = await _checkLanguage();
     if (!_available) return;
     if (_selectedOption != null) await applyOption(_selectedOption!);
