@@ -175,6 +175,9 @@ class ChatChannelSetup {
   Map<String, String> roomStateTags(String channel) =>
       _status.roomStateTags(channel);
 
+  /// Fires when any channel's merged ROOMSTATE tags change.
+  Listenable get roomStateVersion => _status.roomStateVersion;
+
   /// Failure state is per socket lifetime: the fresh socket runs its own fast
   /// sweep, so it may legitimately fail (and re-announce) again.
   void resetJoinFailureState() => _joinFailureNotified.clear();

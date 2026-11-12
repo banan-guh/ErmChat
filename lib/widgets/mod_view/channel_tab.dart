@@ -9,7 +9,6 @@ import 'points_section.dart';
 import 'polls_predictions.dart';
 import 'scope.dart';
 import 'widgets.dart';
-import '../island_metrics.dart';
 
 /// Channel-wide tools: stream actions for mods; bans, rosters, polls,
 /// predictions, and points for the broadcaster.
@@ -34,6 +33,10 @@ class ChannelTab extends StatelessWidget {
       );
     }
     return ListView(
+      // The sheet covers the composer, so this list keeps no dynamic island
+      // clearance; a spacer here resized under the scroll and clamped back.
+      primary: false,
+      physics: const ClampingScrollPhysics(),
       padding: const EdgeInsets.fromLTRB(8, 4, 8, 24),
       children: [
         if (owner) ...[
@@ -51,7 +54,6 @@ class ChannelTab extends StatelessWidget {
           ModSectionHeader(mod.l10n.modSectionPoints),
           PointsSection(mod: mod),
         ],
-        const IslandSpacer(),
       ],
     );
   }

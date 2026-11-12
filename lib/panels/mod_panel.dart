@@ -67,6 +67,13 @@ class ModPanels {
 
   final modPanelVersion = ValueNotifier(0);
 
+  /// Panel-wide refresh: tab focus plus live ROOMSTATE changes, so mode
+  /// toggles settle without a reopen.
+  late final Listenable modRefresh = Listenable.merge([
+    modPanelVersion,
+    chatConn.roomStateVersion,
+  ]);
+
   /// Shared blocked-term input. The Terms tab owns no field; the composer
   /// borrows this controller while the Terms tab is open (search pattern).
   final termsField = TextEditingController();
@@ -397,7 +404,7 @@ class ModPanels {
         modActions: modActions,
         auth: twitchAuth,
         tabController: modTab(),
-        refresh: modPanelVersion,
+        refresh: modRefresh,
         termsVersion: termsVersion,
         dragFocus: tabDragFocus,
         onNotice: showNotice,

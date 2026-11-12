@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:clock/clock.dart';
+import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../chat/channel/channel.dart';
@@ -53,6 +54,10 @@ class ChatStatusComposer {
   // updates); feeds the chat status splash. Stream info from the periodic
   // Helix fetch is kept separately so ROOMSTATE recomposes don't lose it.
   final _roomStateTags = <String, Map<String, String>>{};
+
+  /// Bumped when a channel's merged ROOMSTATE tags change, so mod mode
+  /// toggles re-read them without waiting for a reopen.
+  final roomStateVersion = ValueNotifier<int>(0);
   final _streamStatusParts = <String, List<String>>{};
   Timer? _chatStatusTimer;
   final _chatStatusChannels = <String>{};
@@ -63,11 +68,13 @@ class ChatStatusComposer {
     _chatStatusTimer?.cancel();
     _chatStatusTimer = null;
     _chatStatusChannels.clear();
+    roomStateVersion.dispose();
   }
 
   /// Merges partial ROOMSTATE tags for [channel] and recomposes its status.
   void onRoomState(String channel, Map<String, String> tags) {
     _roomStateTags[channel] = {...?_roomStateTags[channel], ...tags};
+    roomStateVersion.value++;
     _composeChatStatus(channel);
   }
 
@@ -96,7 +103,9 @@ class ChatStatusComposer {
       _chatStatusTimer?.cancel();
       _chatStatusTimer = null;
     }
-    _roomStateTags.remove(channel);
+    if (_roomStateTags.remove(channel) != null) {
+      roomStateVersion.value++;
+    }
     _streamStatusParts.remove(channel);
   }
 

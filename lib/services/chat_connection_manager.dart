@@ -588,6 +588,9 @@ class ChatConnectionManager {
   Map<String, String> roomStateTags(String channel) =>
       _channelSetup.roomStateTags(channel);
 
+  /// Fires when any channel's merged ROOMSTATE tags change.
+  Listenable get roomStateVersion => _channelSetup.roomStateVersion;
+
   /// Seconds left on your timeout in [channel], null when none is active.
   int? remainingSelfTimeout(String channel) =>
       _sender.remainingSelfTimeout(channel);
