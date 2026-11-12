@@ -271,6 +271,9 @@ class MentionsPanels {
     final listId =
         'mentions|${session.login}|${terms.texts.join('\u0000')}|'
         '${terms.logins.join(',')}';
+    // A closed panel keeps no live subscriptions: opening it rebuilds the
+    // list, which catches the view up through didUpdateWidget.
+    final live = panelManager.activePanel == OverlayPanel.mentions;
     return HistoryView(
       // Changed rules or another account start a new list.
       key: ValueKey(listId),
@@ -288,8 +291,8 @@ class MentionsPanels {
       ),
       emptyStretches: false,
       live: () => chat.mentions.messages.chatRows,
-      liveVersion: chat.mentions.version,
-      emotesVersion: emotesVersion,
+      liveVersion: live ? chat.mentions.version : null,
+      emotesVersion: live ? emotesVersion : null,
       rows: ChatRows(
         hides: chat.filter.hides,
         channel: mentionsChannel,

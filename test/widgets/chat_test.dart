@@ -2,6 +2,7 @@ import 'widget_test_harness.dart';
 import '../helpers.dart';
 import 'package:ermchat/widgets/chat_view.dart';
 import 'package:ermchat/widgets/history_view.dart';
+import 'package:ermchat/util/settings.dart';
 
 /// The channel chat list, whichever list implements it: the only reversed
 /// scroll view on screen.
@@ -3278,6 +3279,40 @@ void main() {
       expect(find.byKey(const ValueKey('b')), findsNothing);
     },
   );
+
+  testWidgets('a sorted picker shows live 7TV deltas', (
+    WidgetTester tester,
+  ) async {
+    // A sorted grid caches its groups, and a live delta does not bump the
+    // catalog version, so the cache must still follow it.
+    SharedPreferences.setMockInitialValues({'emote_sort_order': 'newest'});
+    await Settings.bind();
+    addTearDown(() => Settings.emoteSortOrder.set('name'));
+    final manager = EmoteManager(
+      fetchStagger: Duration.zero,
+      usageFlushDelay: Duration.zero,
+      removeCachedFile: (url) async {},
+    );
+    manager.updateSevenTvEmotes(
+      'ch',
+      added: [sevenTv('a', 'Alpha'), sevenTv('c', 'Charlie')],
+    );
+
+    await tester.pumpWidget(wrapEmoteMenu(manager));
+    await tester.tap(find.text('Channel', skipOffstage: false));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(find.byKey(const ValueKey('a')), findsOneWidget);
+
+    manager.updateSevenTvEmotes('ch', added: [sevenTv('b', 'Bravo')]);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(
+      find.byKey(const ValueKey('b')),
+      findsOneWidget,
+      reason: 'a live delta must reach the sorted grid',
+    );
+  });
 
   group('Chat notices and snackbars', () {
     testWidgets('notice floats above the composer, acts, and dismisses', (

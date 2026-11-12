@@ -107,9 +107,29 @@ void main() {
     );
     addTearDown(panels.dispose);
 
+    // A reply landing while the panel is closed waits for the open: a closed
+    // panel takes no live rows.
+    channel.receive(
+      _msg('c0', parent: 'r1', root: 'r1', text: 'closed'),
+      maxMessages: 100,
+      isSelected: true,
+      ownLogin: 'me',
+    );
+    panels.refreshOnData('test');
+    expect(
+      panels.threadMsgCount.value,
+      0,
+      reason: 'a closed panel must not follow live rows',
+    );
+
     await panels.showThreadView(root);
     // The list the panel's ChatView was built with.
     final openList = panelManager.threadMessages;
+    expect(
+      openList.map((m) => m.messageId),
+      contains('c0'),
+      reason: 'opening the panel catches up on the rows it skipped',
+    );
 
     // The archive read lands after the panel frame, as a real DB read does.
     archive.rows.complete([_msg('a1', parent: 'r1', root: 'r1', text: 'old')]);

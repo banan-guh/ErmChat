@@ -58,6 +58,13 @@ class EmoteMenuPanelWidgetState extends ConsumerState<EmoteMenuPanelWidget> {
       {};
   double? _lastPanelWidth;
 
+  /// Ordered grids by tab, valid while [_orderedState] and [_orderedOrder]
+  /// hold. Live 7TV deltas do not bump the catalog version, so the state
+  /// identity is the key: every catalog change emits a new one.
+  final Map<String, Map<String, List<Emote>>> _orderedCache = {};
+  EmoteState? _orderedState;
+  EmoteSortOrder? _orderedOrder;
+
   @override
   void initState() {
     super.initState();
@@ -275,7 +282,10 @@ class EmoteMenuPanelWidgetState extends ConsumerState<EmoteMenuPanelWidget> {
         Center(child: Text(context.l10n.noChannelEmotes)),
       );
     }
-    return _buildGroupedEmoteGrid(_orderedGroups(byProvider), scrollController);
+    return _buildGroupedEmoteGrid(
+      _orderedGroups('channel:$channel', byProvider),
+      scrollController,
+    );
   }
 
   Widget _buildEmoteGlobalGrid(ScrollController? scrollController) {
@@ -286,19 +296,34 @@ class EmoteMenuPanelWidgetState extends ConsumerState<EmoteMenuPanelWidget> {
         Center(child: Text(context.l10n.noGlobalEmotes)),
       );
     }
-    return _buildGroupedEmoteGrid(_orderedGroups(byProvider), scrollController);
+    return _buildGroupedEmoteGrid(
+      _orderedGroups('global', byProvider),
+      scrollController,
+    );
   }
 
   /// Channel and global grids follow the picker order setting. Lists without
   /// provider dates, like Twitch's, keep their alphabetical order.
-  Map<String, List<Emote>> _orderedGroups(Map<String, List<Emote>> groups) {
+  Map<String, List<Emote>> _orderedGroups(
+    String slot,
+    Map<String, List<Emote>> groups,
+  ) {
     final order = enumByName(
       EmoteSortOrder.values,
       Settings.emoteSortOrder.value,
       EmoteSortOrder.name,
     );
     if (order == EmoteSortOrder.name) return groups;
-    return {
+    // Sorting copies and sorts every provider list, tens of thousands of
+    // emotes in the global catalog, so the result holds until the catalog or
+    // the sort order moves.
+    final state = ref.read(emoteStateProvider);
+    if (!identical(state, _orderedState) || order != _orderedOrder) {
+      _orderedCache.clear();
+      _orderedState = state;
+      _orderedOrder = order;
+    }
+    return _orderedCache[slot] ??= {
       for (final entry in groups.entries)
         entry.key: sortedEmotes(entry.value, order),
     };

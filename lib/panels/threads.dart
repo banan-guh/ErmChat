@@ -337,7 +337,11 @@ class ThreadPanels {
     }
     if (appended) {
       unawaited(persistSaved());
-      threadsListVersion.value++;
+      // The dashboard lists are the only readers; a closed panel opens with a
+      // fresh build, so it takes no live bumps.
+      if (panelManager.activePanel == OverlayPanel.thread) {
+        threadsListVersion.value++;
+      }
     }
   }
 

@@ -362,6 +362,12 @@ class _HistoryViewState extends State<HistoryView> {
   static const _endCacheExtent = ScrollCacheExtent.pixels(4000);
   String _status = '';
 
+  /// The VOD button's two sources merged once per pair, so a build does not
+  /// make the button unsubscribe and resubscribe.
+  Listenable? _vodSources;
+  ValueListenable<({String channel, DateTime time})?>? _vodFollow;
+  ValueNotifier<bool>? _vodLive;
+
   /// Frame timings of the first moments after opening, for one log line.
   void Function(List<FrameTiming>)? _openTimings;
   Timer? _openProbe;
@@ -382,6 +388,7 @@ class _HistoryViewState extends State<HistoryView> {
     widget.jumpRequest?.addListener(_onJumpRequest);
     widget.calendarRequest?.addListener(_onCalendarRequest);
     widget.actions?.follow.addListener(_onFollow);
+    _syncVodSources();
     _unwatchClears = widget.source.watchClears(_onClear);
     _unwatchStreams = widget.source.watchStreams(_loadStreams);
     if (debugLogEnabled) _probeOpen();
@@ -481,6 +488,7 @@ class _HistoryViewState extends State<HistoryView> {
       old.actions?.follow.removeListener(_onFollow);
       widget.actions?.follow.addListener(_onFollow);
     }
+    _syncVodSources();
     if (old.atBottomNotifier != widget.atBottomNotifier) {
       old.atBottomNotifier?.removeListener(_onAtBottomRequest);
       widget.atBottomNotifier?.addListener(_onAtBottomRequest);
@@ -645,6 +653,20 @@ class _HistoryViewState extends State<HistoryView> {
     unawaited(
       _showSheet(DateFormat.MMMMEEEEd(locale).format(dayFromNumber(day)), day),
     );
+  }
+
+  /// The VOD button's merged sources, rebuilt only when the underlyings change.
+  void _syncVodSources() {
+    final actions = widget.actions;
+    if (identical(actions?.follow, _vodFollow) &&
+        identical(actions?.vodLive, _vodLive)) {
+      return;
+    }
+    _vodFollow = actions?.follow;
+    _vodLive = actions?.vodLive;
+    _vodSources = actions == null
+        ? null
+        : Listenable.merge([actions.follow, actions.vodLive]);
   }
 
   /// Replays chat with a playing VOD: the list shows chat up to the VOD's
@@ -2115,9 +2137,11 @@ class _HistoryViewState extends State<HistoryView> {
     final scope = IslandScope.maybeOf(context);
     _island = scope?.metrics;
     final page = widget.channelPage ? widget.channel : null;
-    _status =
-        'win ${_window.length}  ${_window.first}-${_window.end}  '
-        'anchor $_anchor';
+    if (widget.debugControls) {
+      _status =
+          'win ${_window.length}  ${_window.first}-${_window.end}  '
+          'anchor $_anchor';
+    }
     final empty = _window.isEmpty && widget.emptyText != null && _loaded;
     Widget list = NotificationListener<ScrollMetricsNotification>(
       // A viewport resize (keyboard) moves rows in or out of view without a
@@ -2202,7 +2226,7 @@ class _HistoryViewState extends State<HistoryView> {
         ),
         if (widget.actions case final actions?)
           ListenableBuilder(
-            listenable: Listenable.merge([actions.follow, actions.vodLive]),
+            listenable: _vodSources!,
             builder: (_, _) => actions.follow.value?.channel != widget.channel
                 ? const SizedBox.shrink()
                 : Positioned(
