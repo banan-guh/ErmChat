@@ -17,6 +17,7 @@ class ModContext {
     required this.actions,
     required this.auth,
     required this.notify,
+    required this.busy,
     this.showUser,
     this.isBroadcaster = false,
     this._l10n,
@@ -29,6 +30,9 @@ class ModContext {
 
   /// Notice sink; the shell routes it to the inline bar.
   final ValueChanged<String> notify;
+
+  /// In-flight mod actions across every tab, so the island can show busy.
+  final ValueNotifier<int> busy;
 
   /// Opens a user card.
   final ValueChanged<String>? showUser;
@@ -205,12 +209,15 @@ mixin ModTabState<W extends ModTabWidget> on State<W> {
   /// Runs [body] unless [key] is already running, rebuilding around it.
   Future<void> busy(String key, Future<void> Function() body) async {
     if (!_busy.add(key)) return;
+    mod.busy.value++;
     // A dialog can resume this after the tab is gone.
     if (mounted) setState(() {});
     try {
       await body();
     } finally {
-      _busy.remove(key);
+      if (_busy.remove(key)) {
+        mod.busy.value = (mod.busy.value - 1).clamp(0, 1 << 20);
+      }
       if (mounted) setState(() {});
     }
   }
@@ -234,7 +241,9 @@ mixin ModTabState<W extends ModTabWidget> on State<W> {
       target.addListener(onChange);
       _bound.add((target, onChange));
     }
+    final clearing = _busy.length;
     _busy.clear();
+    mod.busy.value = (mod.busy.value - clearing).clamp(0, 1 << 20);
     for (final loader in _loaders) {
       loader.reset();
     }
@@ -249,6 +258,8 @@ mixin ModTabState<W extends ModTabWidget> on State<W> {
 
   @override
   void dispose() {
+    mod.busy.value = (mod.busy.value - _busy.length).clamp(0, 1 << 20);
+    _busy.clear();
     _unbind();
     for (final loader in _loaders) {
       loader.dispose();

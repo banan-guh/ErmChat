@@ -217,7 +217,6 @@ class _ModesTabState extends State<ModesTab> with ModTabState<ModesTab> {
                 contentPadding: const EdgeInsets.symmetric(horizontal: 4),
                 title: Text(mod.l10n.chatModesNeedMod),
               ),
-            if (anyBusy) const LinearProgressIndicator(minHeight: 2),
             if (shieldError != null && shield == null)
               ListTile(
                 contentPadding: const EdgeInsets.symmetric(horizontal: 4),

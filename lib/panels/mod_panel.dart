@@ -67,6 +67,10 @@ class ModPanels {
 
   final modPanelVersion = ValueNotifier(0);
 
+  /// In-flight mod actions across every tab, so the island can show the busy
+  /// line instead of each tab drawing its own.
+  final busyCount = ValueNotifier<int>(0);
+
   /// Panel-wide refresh: tab focus plus live ROOMSTATE changes, so mode
   /// toggles settle without a reopen.
   late final Listenable modRefresh = Listenable.merge([
@@ -102,6 +106,7 @@ class ModPanels {
 
   void dispose() {
     modPanelVersion.dispose();
+    busyCount.dispose();
     tabDragFocus.dispose();
     termsField.dispose();
     termsAdding.dispose();
@@ -404,6 +409,7 @@ class ModPanels {
         tabController: modTab(),
         refresh: modRefresh,
         termsVersion: termsVersion,
+        busy: busyCount,
         dragFocus: tabDragFocus,
         onNotice: showNotice,
         onShowUser: onShowUser,

@@ -5,6 +5,7 @@ import 'package:ermchat/services/mod_actions.dart';
 import 'package:ermchat/services/twitch_api.dart';
 import 'package:ermchat/services/twitch_auth.dart';
 import 'package:ermchat/widgets/mod_view/scope.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -33,6 +34,7 @@ void main() {
         getCurrentUserId: () => 'm1',
       ),
       auth: TwitchAuth()..accessToken = 'tok',
+      busy: ValueNotifier(0),
       notify: notices.add,
     );
   });

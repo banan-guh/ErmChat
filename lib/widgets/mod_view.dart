@@ -34,6 +34,7 @@ class ModViewPanel extends StatelessWidget {
     required this.tabController,
     required this.refresh,
     required this.termsVersion,
+    required this.busy,
     required this.dragFocus,
     required this.isModerationActive,
     required this.isAutomodActive,
@@ -52,6 +53,9 @@ class ModViewPanel extends StatelessWidget {
 
   /// Bumped when a blocked term is added via the borrowed composer input.
   final ValueListenable<int> termsVersion;
+
+  /// In-flight mod actions across every tab, shown on the island's busy line.
+  final ValueNotifier<int> busy;
 
   /// Half-drag focus tracker; the composer morph follows 50% crossings.
   final TabDragFocus dragFocus;
@@ -78,6 +82,7 @@ class ModViewPanel extends StatelessWidget {
       notify: onNotice,
       showUser: onShowUser,
       isBroadcaster: isBroadcaster,
+      busy: busy,
       l10n: context.l10n,
     );
     return ListenableBuilder(

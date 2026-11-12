@@ -2401,8 +2401,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                 : null,
             islandFlush: spec.islandFlush,
             classic: spec.composer == ComposerStyle.classic,
-            busyListenable: spec.busyBar ? _chrome.joinBusyListenable : null,
-            isBusy: _chrome.joinBusy,
+            busyListenable: spec.busyBar
+                ? Listenable.merge([_chrome.joinBusyListenable, _mod.busyCount])
+                : null,
+            isBusy: () => _chrome.joinBusy() || _mod.busyCount.value > 0,
             progress: _composerProgress,
             notice: ChatNoticeBar(controller: _chatNotice),
             replyHeader: replyHeader,

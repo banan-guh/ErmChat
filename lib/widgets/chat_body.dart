@@ -1004,7 +1004,7 @@ class _ChatBodyState extends State<ChatBody>
     return SizedBox(
       height: 0,
       child: OverflowBox(
-        maxHeight: 3,
+        maxHeight: 2,
         child: ListenableBuilder(
           listenable: Listenable.merge([busyListenable]),
           builder: (_, _) => _busyLineBody(lineUpload, isBusy),
@@ -1027,7 +1027,7 @@ class _ChatBodyState extends State<ChatBody>
         enabled: shown,
         child: LinearProgressIndicator(
           value: value,
-          minHeight: 3,
+          minHeight: 2,
           backgroundColor: Colors.transparent,
         ),
       ),
