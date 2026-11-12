@@ -1128,16 +1128,17 @@ class UserProfileSheetState extends State<UserProfileSheet> {
         SheetAction(
           icon: Icons.live_tv_outlined,
           label: context.l10n.openChannel,
-          onTap: () {
-            widget.onClose();
-            widget.onOpenChannel!();
-          },
+          onTap: _openChannel,
         ),
       if (showMod) ...modActions,
     ];
     final actions = [
       ...userActions,
-      if (moreActions.isNotEmpty)
+      // One extra action gets its own row; a More step for a single tap is
+      // just a second tap.
+      if (moreActions.length == 1)
+        moreActions.single
+      else if (moreActions.isNotEmpty)
         SheetAction(
           icon: Icons.more_horiz,
           label: context.l10n.moreEllipsis,
@@ -1145,6 +1146,15 @@ class UserProfileSheetState extends State<UserProfileSheet> {
         ),
     ];
     return [if (showMod) ..._recordTiles(), block(actions)];
+  }
+
+  /// Closes the card first, then joins the channel on the next frame. A
+  /// synchronous switch while the sheet route is popping can lose the focus.
+  void _openChannel() {
+    final open = widget.onOpenChannel;
+    widget.onClose();
+    if (open == null) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) => open());
   }
 
   /// Opens this card's extra actions, the way a message menu's More does.
@@ -1163,7 +1173,12 @@ class UserProfileSheetState extends State<UserProfileSheet> {
                   title: Text(action.label),
                   onTap: () {
                     Navigator.pop(ctx);
-                    action.onTap?.call();
+                    // Let the More sheet leave first; the action may close
+                    // the card, and popping both in one turn hits the wrong
+                    // route while the sheet is still on top.
+                    WidgetsBinding.instance.addPostFrameCallback(
+                      (_) => action.onTap?.call(),
+                    );
                   },
                 ),
             ],
