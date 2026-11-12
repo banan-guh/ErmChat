@@ -55,8 +55,8 @@ typedef ArchivedThreadRow = ({
 });
 
 /// Lowercased texts and sender states a row may match by (both when
-/// [both]), text a system row must hold, and the times (epoch ms, inclusive)
-/// it must fall in (see [decodeBlocks]).
+/// [both]), text a system row must hold, the times (epoch ms, inclusive) it
+/// must fall in, or the one thread root it must answer (see [decodeBlocks]).
 typedef ArchiveRowFilter = ({
   List<String> texts,
   Set<int> states,
@@ -64,6 +64,7 @@ typedef ArchiveRowFilter = ({
   String? system,
   int? fromMs,
   int? toMs,
+  String? threadRoot,
 });
 
 /// Decodes packed blocks; a damaged block yields null instead of throwing.
@@ -95,6 +96,9 @@ List<List<ArchiveRow>?> decodeBlocks(
 ];
 
 bool _rowMatches(ArchiveRow r, ArchiveRowFilter f) {
+  if (f.threadRoot != null) {
+    return (r.threadRootId ?? r.replyParentId) == f.threadRoot;
+  }
   if (f.fromMs != null && r.timestampMs < f.fromMs!) return false;
   if (f.toMs != null && r.timestampMs > f.toMs!) return false;
   final text = r.text.toLowerCase();
@@ -253,12 +257,21 @@ class ArchiveReader {
         final edits = await store.edits(channel);
         final blocks = await store.blocksByKey(keys);
         final out = <TwitchMessage>[];
-        for (final b in await _decodeAll(channel, blocks, edits: edits)) {
-          out.addAll(
-            b.rows.where(
-              (m) => (m.replyThreadRootId ?? m.replyToParentId) == rootId,
-            ),
-          );
+        for (final b in await _decodeAll(
+          channel,
+          blocks,
+          edits: edits,
+          keep: (
+            texts: const [],
+            states: const <int>{},
+            both: false,
+            system: null,
+            fromMs: null,
+            toMs: null,
+            threadRoot: rootId,
+          ),
+        )) {
+          out.addAll(b.rows);
         }
         _sortStable(out);
         return out;
@@ -629,6 +642,7 @@ class ArchiveReader {
           system: f.system,
           fromMs: forward ? afterMs : _bound(afterMs, e, max),
           toMs: forward ? _bound(lastMs, e, min) : lastMs,
+          threadRoot: null,
         );
         for (final d in await _decodeAll(c, stored, keep: keep, edits: edits)) {
           out.addAll(d.rows.where(hit));
@@ -667,12 +681,14 @@ class ArchiveReader {
         system: system,
         fromMs: null,
         toMs: null,
+        threadRoot: null,
       );
     }
     final t = await store.tables(channel);
     return (
       fromMs: null,
       toMs: null,
+      threadRoot: null,
       texts: texts,
       both: terms.both,
       system: system,
