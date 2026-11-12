@@ -236,6 +236,7 @@ class MessageBuilder {
     final channelEmotes = resolved == null
         ? emoteSource.lookup(lookupChannel, msg.userId)
         : null;
+    final emoteScale = msg.isGigantifiedEmote ? kGigantifiedEmoteScale : 1.0;
     // Giphy toggle off falls back to plain text (same as no attachments).
     final gifs = showGifs ? msg.gifAttachments : null;
     if (gifs == null || gifs.isEmpty) {
@@ -246,6 +247,7 @@ class MessageBuilder {
         resolvedTokens: resolved,
         onEmoteTap: onShowEmoteSheet,
         scale: scale,
+        emoteScale: emoteScale,
         linkWhitelist: linkWhitelist.entries,
         imageHosts: imageHosts.resolvedEntries,
         onEmailTap: onEmailTap,
@@ -301,6 +303,7 @@ class MessageBuilder {
           resolvedTokens: gapTokens,
           onEmoteTap: onShowEmoteSheet,
           scale: scale,
+          emoteScale: emoteScale,
           linkWhitelist: linkWhitelist.entries,
           imageHosts: imageHosts.resolvedEntries,
           onEmailTap: onEmailTap,

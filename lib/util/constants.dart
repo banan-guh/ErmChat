@@ -18,6 +18,9 @@ const Color kEmotePlaceholderGray = Color(0x33808080);
 /// Corner radius for emote loading boxes.
 const double kEmotePlaceholderRadius = 3.0;
 
+/// Emote size multiple for Twitch's "Gigantify an Emote" reward row.
+const double kGigantifiedEmoteScale = 3.0;
+
 /// Pseudo-channel whisper rows render under. Whispers carry no channel, so
 /// ingest stamps them against the global mix under this key and the whisper
 /// tile renders with the same string.

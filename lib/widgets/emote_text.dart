@@ -63,6 +63,7 @@ class EmoteText {
     List<EmoteToken>? resolvedTokens,
     void Function(List<Emote>)? onEmoteTap,
     double scale = 1.0,
+    double emoteScale = 1.0,
     List<String>? linkWhitelist,
     List<String>? imageHosts,
     void Function(String email)? onEmailTap,
@@ -80,6 +81,7 @@ class EmoteText {
         resolvedTokens: resolvedTokens,
         onEmoteTap: onEmoteTap,
         scale: scale,
+        emoteScale: emoteScale,
         linkWhitelist: linkWhitelist,
         imageHosts: imageHosts,
         onEmailTap: onEmailTap,
@@ -114,6 +116,7 @@ class EmoteText {
     List<EmoteToken>? resolvedTokens,
     void Function(List<Emote>)? onEmoteTap,
     double scale = 1.0,
+    double emoteScale = 1.0,
     List<String>? linkWhitelist,
     List<String>? imageHosts,
     void Function(String email)? onEmailTap,
@@ -183,6 +186,7 @@ class EmoteText {
             currentBase!,
             onEmoteTap: onEmoteTap,
             scale: scale,
+            emoteScale: emoteScale,
             animateGifs: animateGifs,
             emoteImages: emoteImages,
           ),
@@ -378,9 +382,11 @@ class EmoteText {
     required EmoteImages emoteImages,
     void Function(List<Emote>)? onEmoteTap,
     double scale = 1.0,
+    double emoteScale = 1.0,
     bool animateGifs = true,
   }) {
-    final rawSize = _emoteSize(data.base, scale);
+    final s = scale * emoteScale;
+    final rawSize = _emoteSize(data.base, s);
     final fx = data.effects;
     final baseSize = fx == 0
         ? rawSize
@@ -388,7 +394,7 @@ class EmoteText {
     var maxW = baseSize.width;
     var maxH = baseSize.height;
     for (final overlay in data.overlays) {
-      final o = _emoteSize(overlay, scale);
+      final o = _emoteSize(overlay, s);
       if (o.width > maxW) maxW = o.width;
       if (o.height > maxH) maxH = o.height;
     }
@@ -403,7 +409,7 @@ class EmoteText {
         imageSize.height,
         animateGifs: animateGifs,
         emoteImages: emoteImages,
-        scale: scale,
+        scale: s,
       );
       if (!stretch) return image;
       return SizedBox(
@@ -450,7 +456,7 @@ class EmoteText {
       ),
     ];
     for (final overlay in data.overlays) {
-      final o = _emoteSize(overlay, scale);
+      final o = _emoteSize(overlay, s);
       children.add(
         Positioned(
           left: (maxW - o.width) / 2,
@@ -463,7 +469,7 @@ class EmoteText {
             o.height,
             animateGifs: animateGifs,
             emoteImages: emoteImages,
-            scale: scale,
+            scale: s,
           ),
         ),
       );

@@ -99,6 +99,9 @@ class TwitchMessage {
   /// PRIVMSG `msg-id` tag (e.g. `highlighted-message`); null on most messages.
   final String? msgId;
 
+  /// Twitch's "Gigantify an Emote" channel points reward message.
+  bool get isGigantifiedEmote => msgId == 'gigantified-emote-message';
+
   /// Channel point redemption id (`custom-reward-id`), if any.
   final String? customRewardId;
 
