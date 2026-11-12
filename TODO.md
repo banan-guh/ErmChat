@@ -50,6 +50,7 @@ Skipped from the survey: emoji picker (the keyboard has one), follow/unfollow, p
 
 - [ ] **Documentation** - architecture, data flow, key design decisions, non-obvious logic.
 - [+] **Service status screen** - live socket state plus manual pings for Twitch, 7TV, BTTV, FFZ and recent messages.
+- [ ] **7TV delta rebuild cost** - each live event rebuilds the channel's merged set.
 - [*] **Update AGENTS.md periodically** - not a checklist, just a chore, reminder.
 
 ## Bugs
