@@ -148,6 +148,7 @@ class PrefsSliderTile extends StatefulWidget {
     this.enabled = true,
     this.labelTrailing,
     this.tint,
+    this.showSliderLabel = true,
   });
 
   /// Colors the caption and track for a value, such as a warning red.
@@ -158,6 +159,10 @@ class PrefsSliderTile extends StatefulWidget {
 
   /// Renders the drag tooltip; defaults to [label].
   final String Function(double value)? sliderLabel;
+
+  /// Whether the drag tooltip shows. Off for sliders whose caption already
+  /// carries the full value.
+  final bool showSliderLabel;
   final double min;
   final double max;
   final int? divisions;
@@ -219,7 +224,9 @@ class _PrefsSliderTileState extends State<PrefsSliderTile> {
           max: widget.max,
           divisions: widget.divisions,
           activeColor: tint,
-          label: (widget.sliderLabel ?? widget.label)(value),
+          label: widget.showSliderLabel
+              ? (widget.sliderLabel ?? widget.label)(value)
+              : null,
           onChanged: enabled
               ? (v) {
                   setState(() => _value = v);

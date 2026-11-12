@@ -212,6 +212,7 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
               Settings.compactRepeats,
               child: PrefsSliderTile(
                 label: _compactRepeatsLabel,
+                showSliderLabel: false,
                 min: 0,
                 max: 20,
                 divisions: 20,
