@@ -127,10 +127,12 @@ class _UsersTabState extends State<UsersTab> with ModTabState<UsersTab> {
             ),
         ];
         return ListView.builder(
-          padding: const EdgeInsets.fromLTRB(0, 4, 0, 24),
-          itemCount: rows.length + 1,
-          itemBuilder: (context, i) =>
-              i == rows.length ? const IslandSpacer() : rows[i](),
+          padding: islandListPadding(
+            context,
+            const EdgeInsets.fromLTRB(0, 4, 0, 24),
+          ),
+          itemCount: rows.length,
+          itemBuilder: (context, i) => rows[i](),
         );
       },
     );

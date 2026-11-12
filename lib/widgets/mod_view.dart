@@ -5,6 +5,7 @@ import '../chat/chat.dart';
 import '../l10n/l10n.dart';
 import '../services/mod_actions.dart';
 import '../services/twitch_auth.dart';
+import '../util/settings.dart';
 import 'mod_view/activity_tab.dart';
 import 'mod_view/channel_tab.dart';
 import 'mod_view/modes_tab.dart';
@@ -14,6 +15,7 @@ import 'mod_view/scope.dart';
 import 'mod_view/setup_tab.dart';
 import 'mod_view/terms_tab.dart';
 import 'mod_view/users_tab.dart';
+import 'tabbed_layout.dart';
 import 'tab_drag_focus.dart';
 
 export 'mod_view/dialogs.dart'
@@ -122,6 +124,7 @@ class ModViewPanel extends StatelessWidget {
           onNotification: dragFocus.onNotification,
           child: TabBarView(
             controller: tabController,
+            physics: panelPagePhysics(Settings.fastChannelSnap.value),
             // Kept alive so swiping back doesn't refetch every Helix list.
             children: [for (final tab in tabs) _KeepAlive(child: tab)],
           ),

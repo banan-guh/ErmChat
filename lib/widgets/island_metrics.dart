@@ -155,6 +155,19 @@ mixin _IslandReader on RenderObject {
   }
 }
 
+/// Bottom padding that clears the floating island for a sheet list. Read in
+/// build, so a sheet list keeps a stable viewport while it scrolls. Only the
+/// island is cleared; chat overlays like the reply header sit above it and
+/// are not part of a mod sheet's layout.
+EdgeInsets islandListPadding(
+  BuildContext context, [
+  EdgeInsets base = EdgeInsets.zero,
+]) {
+  final metrics = IslandScope.maybeOf(context)?.metrics;
+  if (metrics == null) return base;
+  return base.copyWith(bottom: base.bottom + metrics.clearance());
+}
+
 /// Empty space as tall as a list's clearance over the island, sized in
 /// layout. Lists put it at their bottom end so the last rows scroll clear of
 /// the island and on behind it. [page] is set on a channel's page (see

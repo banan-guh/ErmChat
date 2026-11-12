@@ -44,7 +44,10 @@ class _QueueTabState extends State<QueueTab> with ModTabState<QueueTab> {
             allow: allow,
           ),
         );
-        if (ok) mod.moderation?.resolveHeld(held.messageId);
+        if (ok) {
+          mod.moderation?.resolveHeld(held.messageId);
+          mod.chat.removeHeld(mod.channel, held.messageId);
+        }
       });
 
   Future<void> _timeout(HeldMessage held) async {
@@ -149,10 +152,12 @@ class _QueueTabState extends State<QueueTab> with ModTabState<QueueTab> {
                       ),
                     )
                   : ListView.builder(
-                      padding: const EdgeInsets.fromLTRB(8, 4, 8, 16),
-                      itemCount: queue.length + 1,
+                      padding: islandListPadding(
+                        context,
+                        const EdgeInsets.fromLTRB(8, 4, 8, 16),
+                      ),
+                      itemCount: queue.length,
                       itemBuilder: (_, i) {
-                        if (i == queue.length) return const IslandSpacer();
                         final held = queue[i];
                         return _HeldCard(
                           held: held,

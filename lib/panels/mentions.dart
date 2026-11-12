@@ -16,6 +16,8 @@ import '../services/twitch_auth.dart';
 import '../sheets/message_menu.dart';
 import '../sheets/user_sheet.dart';
 import '../util/constants.dart' show kWhispersChannel;
+import '../util/settings.dart';
+import '../widgets/tabbed_layout.dart';
 import '../widgets/chat_rows.dart';
 import '../widgets/chat_view.dart';
 import '../widgets/history_view.dart';
@@ -344,6 +346,7 @@ class MentionsPanels {
           controller: mentionsTab(),
           // Offsets the leading button so the tabs center on the screen.
           padding: const EdgeInsets.only(right: 40),
+          dividerHeight: 0,
           tabs: [
             Tab(text: context.l10n.sectionMentions),
             Tab(text: context.l10n.whispers),
@@ -354,6 +357,7 @@ class MentionsPanels {
         onNotification: tabDragFocus.onNotification,
         child: TabBarView(
           controller: mentionsTab(),
+          physics: panelPagePhysics(Settings.fastChannelSnap.value),
           children: [
             _archivedMentions(context) ??
                 ChatView(

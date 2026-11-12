@@ -9,6 +9,7 @@ import 'points_section.dart';
 import 'polls_predictions.dart';
 import 'scope.dart';
 import 'widgets.dart';
+import '../island_metrics.dart';
 
 /// Channel-wide tools: stream actions for mods; bans, rosters, polls,
 /// predictions, and points for the broadcaster.
@@ -37,7 +38,10 @@ class ChannelTab extends StatelessWidget {
       // clearance; a spacer here resized under the scroll and clamped back.
       primary: false,
       physics: const ClampingScrollPhysics(),
-      padding: const EdgeInsets.fromLTRB(8, 4, 8, 24),
+      padding: islandListPadding(
+        context,
+        const EdgeInsets.fromLTRB(8, 4, 8, 24),
+      ),
       children: [
         if (owner) ...[
           BannedSection(mod: mod),
@@ -68,7 +72,10 @@ class BannedSection extends ModTabWidget {
 }
 
 class _BannedSectionState extends State<BannedSection>
-    with ModTabState<BannedSection> {
+    with ModTabState<BannedSection>, AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
+
   late final ModLoader<List<BannedUser>> _banned;
 
   @override
@@ -98,6 +105,7 @@ class _BannedSectionState extends State<BannedSection>
 
   @override
   Widget build(BuildContext context) {
+    super.build(context);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -167,7 +175,10 @@ class RosterSection extends ModTabWidget {
 }
 
 class _RosterSectionState extends State<RosterSection>
-    with ModTabState<RosterSection> {
+    with ModTabState<RosterSection>, AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
+
   late final ModLoader<List<String>> _logins;
 
   bool get _mods => widget.moderators;
@@ -222,6 +233,7 @@ class _RosterSectionState extends State<RosterSection>
 
   @override
   Widget build(BuildContext context) {
+    super.build(context);
     return ListenableBuilder(
       listenable: _logins,
       builder: (context, _) {
@@ -282,7 +294,10 @@ class StreamActions extends ModTabWidget {
 }
 
 class _StreamActionsState extends State<StreamActions>
-    with ModTabState<StreamActions> {
+    with ModTabState<StreamActions>, AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
+
   Future<void> _raid() async {
     final login = await showTextDialog(
       context,
@@ -404,6 +419,7 @@ class _StreamActionsState extends State<StreamActions>
 
   @override
   Widget build(BuildContext context) {
+    super.build(context);
     // Raids and commercials are broadcaster-only Helix (the broadcaster id
     // must match the token): mods get a dimmed tile that explains.
     Widget tile(

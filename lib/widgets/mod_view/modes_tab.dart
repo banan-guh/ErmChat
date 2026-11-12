@@ -207,7 +207,10 @@ class _ModesTabState extends State<ModesTab> with ModTabState<ModesTab> {
         final shield = _shield.value;
         final shieldError = _shield.error;
         return ListView(
-          padding: const EdgeInsets.fromLTRB(12, 8, 12, 24),
+          padding: islandListPadding(
+            context,
+            const EdgeInsets.fromLTRB(12, 8, 12, 24),
+          ),
           children: [
             if (!widget.moderationActive)
               ListTile(
@@ -307,7 +310,6 @@ class _ModesTabState extends State<ModesTab> with ModTabState<ModesTab> {
                 ),
               ],
             ),
-            const IslandSpacer(),
           ],
         );
       },

@@ -368,7 +368,7 @@ class ComposerModeRow extends StatelessWidget {
         builder: (context, _) {
           final searchBorrowed =
               search.open && search.selectedChannel() != null;
-          if (searchBorrowed || mod.termsChromeHidden) {
+          if (searchBorrowed) {
             return const SizedBox.shrink();
           }
           return ListenableBuilder(
@@ -540,7 +540,7 @@ class ComposerStatusRow extends StatelessWidget {
   Widget build(BuildContext context) => ListenableBuilder(
     listenable: _enabledInputs(controller, mod, dragTick),
     builder: (context, _) {
-      if (composerStatusHidden(search, mod)) return const SizedBox.shrink();
+      if (composerStatusHidden(search)) return const SizedBox.shrink();
       return _StatusRow(
         controller: controller,
         selectedTabIndex: selectedTabIndex,
@@ -551,10 +551,10 @@ class ComposerStatusRow extends StatelessWidget {
   );
 }
 
-/// Whether the status row steps aside: search or block terms borrow the
-/// field.
-bool composerStatusHidden(SearchPanels search, ModPanels mod) =>
-    (search.open && search.selectedChannel() != null) || mod.termsChromeHidden;
+/// Whether the status row steps aside: search borrows the field. Block terms
+/// keeps it so the island height does not jump between chat and terms.
+bool composerStatusHidden(SearchPanels search) =>
+    search.open && search.selectedChannel() != null;
 
 /// The status line's text style. Explicit (not inherited), so its height can
 /// be measured away from the island.

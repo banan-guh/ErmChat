@@ -17,7 +17,10 @@ class PointsSection extends ModTabWidget {
 }
 
 class _PointsSectionState extends State<PointsSection>
-    with ModTabState<PointsSection> {
+    with ModTabState<PointsSection>, AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
+
   late final ModLoader<List<PointReward>> _rewards;
   late final ModLoader<List<PointRedemption>> _queue;
   String? _selected;
@@ -117,6 +120,7 @@ class _PointsSectionState extends State<PointsSection>
 
   @override
   Widget build(BuildContext context) {
+    super.build(context);
     return ModLoadView(
       loader: _rewards,
       inline: true,

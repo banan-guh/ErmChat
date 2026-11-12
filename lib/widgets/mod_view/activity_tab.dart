@@ -60,10 +60,12 @@ class ActivityTab extends StatelessWidget {
         if (feed.isEmpty) return empty;
         final scheme = Theme.of(context).colorScheme;
         return ListView.builder(
-          padding: const EdgeInsets.fromLTRB(8, 4, 8, 16),
-          itemCount: feed.length + 1,
+          padding: islandListPadding(
+            context,
+            const EdgeInsets.fromLTRB(8, 4, 8, 16),
+          ),
+          itemCount: feed.length,
           itemBuilder: (context, i) {
-            if (i == feed.length) return const IslandSpacer();
             final entry = feed[i];
             return ListTile(
               contentPadding: const EdgeInsets.symmetric(

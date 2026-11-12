@@ -169,12 +169,6 @@ class ModPanels {
       selectedChannel() != null &&
       tabDragFocus.effectiveIndex == termsTabIndex;
 
-  /// Composer chrome follows only on settle; the input swap is live.
-  bool get termsChromeHidden =>
-      panelManager.activePanel == OverlayPanel.modView &&
-      selectedChannel() != null &&
-      _termsChromeActive;
-
   /// Settle path for the tab-controller listener. Crossings report live
   /// through [_onModFocus]; this only catches what the drag did not.
   /// Never grabs focus; the keyboard only comes up on user tap.
@@ -376,6 +370,7 @@ class ModPanels {
             isScrollable: true,
             tabAlignment: TabAlignment.start,
             labelPadding: const EdgeInsets.symmetric(horizontal: 12),
+            // Keep the focused-tab underline, drop only the grey divider.
             indicator: BoxDecoration(
               border: Border(
                 bottom: BorderSide(
@@ -384,6 +379,7 @@ class ModPanels {
                 ),
               ),
             ),
+            dividerHeight: 0,
             indicatorSize: TabBarIndicatorSize.label,
             tabs: [
               _queueTab(chat.channelFor(channel)?.moderation),

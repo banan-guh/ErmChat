@@ -25,6 +25,11 @@ class _SnapPhysics extends PageScrollPhysics {
   SpringDescription get spring => _spring;
 }
 
+/// Page physics for a panel's `TabBarView`: the same fast settle the main
+/// channel pager uses when the setting is on.
+ScrollPhysics panelPagePhysics(bool fast) =>
+    fast ? const _SnapPhysics() : const PageScrollPhysics();
+
 class _AxisAwareFlingVelocityTracker extends VelocityTracker {
   _AxisAwareFlingVelocityTracker(super.kind)
     : _ios = IOSScrollViewFlingVelocityTracker(kind),

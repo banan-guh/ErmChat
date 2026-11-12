@@ -11,6 +11,8 @@ import '../services/archive_reader.dart';
 import '../services/archive_store.dart';
 import '../services/saved_threads_store.dart';
 import '../util/log.dart';
+import '../util/settings.dart';
+import '../widgets/tabbed_layout.dart';
 import '../widgets/seven_tv_paint_service.dart';
 import '../sheets/message_menu.dart';
 import '../sheets/user_sheet.dart';
@@ -758,6 +760,7 @@ class ThreadPanels {
           // narrow phones.
           isScrollable: true,
           tabAlignment: TabAlignment.center,
+          dividerHeight: 0,
           tabs: [
             Tab(text: context.l10n.tabThread),
             Tab(text: context.l10n.tabActive),
@@ -770,6 +773,7 @@ class ThreadPanels {
         child: TabBarView(
           key: ValueKey(_openCount),
           controller: threadsTab(),
+          physics: panelPagePhysics(Settings.fastChannelSnap.value),
           children: [
             ChatView(
               key: const ValueKey('thread_panel'),

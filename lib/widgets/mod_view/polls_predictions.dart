@@ -16,7 +16,10 @@ class PollsSection extends ModTabWidget {
 }
 
 class _PollsSectionState extends State<PollsSection>
-    with ModTabState<PollsSection> {
+    with ModTabState<PollsSection>, AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
+
   late final ModLoader<List<Poll>> _polls;
 
   @override
@@ -55,6 +58,7 @@ class _PollsSectionState extends State<PollsSection>
 
   @override
   Widget build(BuildContext context) {
+    super.build(context);
     return ModLoadView(
       loader: _polls,
       inline: true,
@@ -229,7 +233,10 @@ class PredictionsSection extends ModTabWidget {
 }
 
 class _PredictionsSectionState extends State<PredictionsSection>
-    with ModTabState<PredictionsSection> {
+    with ModTabState<PredictionsSection>, AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
+
   late final ModLoader<List<Prediction>> _predictions;
 
   @override
@@ -293,6 +300,7 @@ class _PredictionsSectionState extends State<PredictionsSection>
 
   @override
   Widget build(BuildContext context) {
+    super.build(context);
     return ModLoadView(
       loader: _predictions,
       inline: true,
