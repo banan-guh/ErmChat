@@ -349,8 +349,10 @@ class RecentMessagesService {
     }
   }
 
-  /// Message-line count at which a batch decodes in its own isolate.
-  static const isolateLineThreshold = 200;
+  /// Message-line count at which a batch decodes in its own isolate: below
+  /// it one spawn costs more than the decode, above it the decode would hold
+  /// up a frame. A default history page sits just above.
+  static const isolateLineThreshold = 50;
 
   /// Parses a 200 response body. Batches of [threshold] lines or more run in
   /// one isolate; the arguments are plain values so the closure captures no
@@ -363,22 +365,23 @@ class RecentMessagesService {
     String? ownLogin, {
     int threshold = isolateLineThreshold,
   }) {
-    if (_countLines(bytes) < threshold) {
+    if (!_reachesLines(bytes, threshold)) {
       return Future.value(decodeBody(bytes, channel, l, ownLogin));
     }
     return Isolate.run(() => decodeBody(bytes, channel, l, ownLogin));
   }
 
-  /// Counts array elements by their `","` separators, which occur unescaped
-  /// only between JSON strings.
-  static int _countLines(Uint8List bytes) {
-    var n = 1;
-    for (var i = 0; i + 2 < bytes.length; i++) {
+  /// Whether [bytes] holds at least [n] message lines, counting array elements
+  /// by their `","` separators, which occur unescaped only between JSON
+  /// strings. Stops at [n], so a long page scans only its head.
+  static bool _reachesLines(Uint8List bytes, int n) {
+    var lines = 1;
+    for (var i = 0; i + 2 < bytes.length && lines < n; i++) {
       if (bytes[i] == 0x22 && bytes[i + 1] == 0x2C && bytes[i + 2] == 0x22) {
-        n++;
+        lines++;
       }
     }
-    return n;
+    return lines >= n;
   }
 
   /// Decodes, parses, sweeps and sorts one history response.
