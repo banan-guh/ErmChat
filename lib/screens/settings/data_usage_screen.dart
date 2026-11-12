@@ -6,8 +6,8 @@ import '../../util/data_usage.dart';
 import 'settings_page.dart';
 import '../../widgets/design_tokens.dart';
 
-/// Bytes downloaded and sent since the app started, by source, largest
-/// first. Refreshes every second while open.
+/// Bytes downloaded and sent since install, by source, largest first.
+/// Refreshes every second while open.
 class DataUsageScreen extends StatefulWidget {
   const DataUsageScreen({super.key});
 
@@ -26,6 +26,7 @@ class _DataUsageScreenState extends State<DataUsageScreen> {
 
   // Kept across visits for the app session.
   static bool _mobileOnly = false;
+  static UsagePeriod _period = UsagePeriod.session;
 
   @override
   void initState() {
@@ -43,7 +44,8 @@ class _DataUsageScreenState extends State<DataUsageScreen> {
   Widget build(BuildContext context) {
     final l = context.l10n;
     final s = DataUsageStats.I;
-    int bytes(DataSource source) => s.bytesFor(source, mobileOnly: _mobileOnly);
+    int bytes(DataSource source) =>
+        s.bytesFor(source, mobileOnly: _mobileOnly, period: _period);
     final rows = [
       (Icons.chat_bubble_outline, l.dataUsageChat, bytes(DataSource.chat)),
       (Icons.send_outlined, l.dataUsageSent, bytes(DataSource.sent)),
@@ -57,7 +59,7 @@ class _DataUsageScreenState extends State<DataUsageScreen> {
         bytes(DataSource.emoteImages),
       ),
     ]..sort((a, b) => b.$3.compareTo(a.$3));
-    final total = s.totalFor(mobileOnly: _mobileOnly);
+    final total = s.totalFor(mobileOnly: _mobileOnly, period: _period);
     final scheme = Theme.of(context).colorScheme;
     final scope = _mobileOnly ? l.dataUsageMobileOnly : l.dataUsageAllNetworks;
     return SettingsPage(
@@ -86,6 +88,40 @@ class _DataUsageScreenState extends State<DataUsageScreen> {
       ],
       body: ListView(
         children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: SegmentedButton<UsagePeriod>(
+                showSelectedIcon: false,
+                segments: [
+                  ButtonSegment(
+                    value: UsagePeriod.session,
+                    label: Text(l.dataUsagePeriodSession),
+                  ),
+                  ButtonSegment(
+                    value: UsagePeriod.day,
+                    label: Text(l.dataUsagePeriodDay),
+                  ),
+                  ButtonSegment(
+                    value: UsagePeriod.week,
+                    label: Text(l.dataUsagePeriodWeek),
+                  ),
+                  ButtonSegment(
+                    value: UsagePeriod.month,
+                    label: Text(l.dataUsagePeriodMonth),
+                  ),
+                  ButtonSegment(
+                    value: UsagePeriod.all,
+                    label: Text(l.dataUsagePeriodAll),
+                  ),
+                ],
+                selected: {_period},
+                onSelectionChanged: (value) =>
+                    setState(() => _period = value.first),
+              ),
+            ),
+          ),
           ListTile(
             title: Text(l.dataUsageTotal),
             trailing: Text(

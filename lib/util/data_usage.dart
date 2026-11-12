@@ -1,3 +1,9 @@
+import 'dart:convert';
+
+import 'package:flutter/foundation.dart';
+
+import 'prefs.dart';
+
 /// Where counted bytes come from, one per usage row.
 enum DataSource {
   chat,
@@ -9,7 +15,10 @@ enum DataSource {
   emoteImages,
 }
 
-/// A count since the app started, and the part taken on mobile data.
+/// A time window for the usage rows.
+enum UsagePeriod { session, day, week, month, all }
+
+/// A count since install, and the part taken on mobile data.
 class SessionCount {
   int all = 0;
   int mobile = 0;
@@ -21,7 +30,8 @@ class SessionCount {
 ///
 /// Counts bytes by source (IRC sockets, emote image downloads, provider JSON),
 /// so we can see where bandwidth goes. The counters are plain ints mutated
-/// only on the UI isolate, so no locking is needed.
+/// only on the UI isolate, so no locking is needed. Totals persist across
+/// launches; [load] runs at boot and [flush] when the app pauses.
 class DataUsageStats {
   DataUsageStats._();
   static final DataUsageStats I = DataUsageStats._();
@@ -93,23 +103,49 @@ class DataUsageStats {
     _countMobile(DataSource.events, bytes);
   }
 
-  /// Bytes for [source], or only those sent or received on mobile data.
-  int bytesFor(DataSource source, {bool mobileOnly = false}) {
-    if (mobileOnly) return _mobileBytes[source.index];
-    return switch (source) {
-      DataSource.chat => ircReadBytes,
-      DataSource.sent => ircWriteBytes,
-      DataSource.history => historyBytes,
-      DataSource.twitchApi => helixBytes,
-      DataSource.events => eventBytes,
-      DataSource.emoteLists => jsonBytes,
-      DataSource.emoteImages => emoteDownloadBytes,
-    };
+  /// Bytes for [source], or only those sent or received on mobile data, over
+  /// [period]. Windows include the unflushed session.
+  int bytesFor(
+    DataSource source, {
+    bool mobileOnly = false,
+    UsagePeriod period = UsagePeriod.session,
+  }) {
+    if (period == UsagePeriod.session) {
+      if (mobileOnly) return _mobileBytes[source.index];
+      return switch (source) {
+        DataSource.chat => ircReadBytes,
+        DataSource.sent => ircWriteBytes,
+        DataSource.history => historyBytes,
+        DataSource.twitchApi => helixBytes,
+        DataSource.events => eventBytes,
+        DataSource.emoteLists => jsonBytes,
+        DataSource.emoteImages => emoteDownloadBytes,
+      };
+    }
+    final index = mobileOnly ? 7 + source.index : source.index;
+    final current = _currentValues();
+    if (period == UsagePeriod.all) return current[index];
+    final start = now().subtract(switch (period) {
+      UsagePeriod.day => const Duration(days: 1),
+      UsagePeriod.week => const Duration(days: 7),
+      UsagePeriod.month => const Duration(days: 30),
+      UsagePeriod.session || UsagePeriod.all => Duration.zero,
+    });
+    final before = _totalBefore(
+      period == UsagePeriod.day ? _hours : _days,
+      start,
+    );
+    final used = current[index] - before[index];
+    return used > 0 ? used : 0;
   }
 
-  int totalFor({bool mobileOnly = false}) => DataSource.values.fold(
+  int totalFor({
+    bool mobileOnly = false,
+    UsagePeriod period = UsagePeriod.session,
+  }) => DataSource.values.fold(
     0,
-    (sum, source) => sum + bytesFor(source, mobileOnly: mobileOnly),
+    (sum, source) =>
+        sum + bytesFor(source, mobileOnly: mobileOnly, period: period),
   );
 
   void _add(SessionCount c, [int n = 1]) {
@@ -158,4 +194,213 @@ class DataUsageStats {
   }
 
   void setMobile(bool isMobile) => mobile = isMobile;
+
+  // ── Persistence ─────────────────────────────────────────────────────
+
+  static const _key = 'data_usage_v1';
+  bool _loaded = false;
+
+  /// Test seam: the clock the window buckets read.
+  @visibleForTesting
+  DateTime Function() now = DateTime.now;
+
+  // Bytes per source since install at the last flush; [7..13] are mobile.
+  List<int> _base = List<int>.filled(14, 0);
+  // This session's counters at the last flush, so a flush adds only the delta.
+  final List<int> _flushed = List<int>.filled(14, 0);
+
+  // Cumulative [base] at the start of an hour and of a day, each entry
+  // `[timestampMs, ...14]`. Windows subtract the entry before their start.
+  List<List<int>> _hours = [];
+  List<List<int>> _days = [];
+
+  Map<String, SessionCount> get _counters => {
+    'imagesFromDisk': imagesFromDisk,
+    'imageBytesFromDisk': imageBytesFromDisk,
+    'imagesDownloaded': imagesDownloaded,
+    'listsFromDisk': listsFromDisk,
+    'listsFetched': listsFetched,
+    'gapFetches': gapFetches,
+    'gapsFilled': gapsFilled,
+  };
+
+  /// This session's counters, indexed by [DataSource] then mobile.
+  List<int> _sessionValues() {
+    final values = List<int>.filled(14, 0);
+    values[DataSource.chat.index] = ircReadBytes;
+    values[DataSource.sent.index] = ircWriteBytes;
+    values[DataSource.history.index] = historyBytes;
+    values[DataSource.twitchApi.index] = helixBytes;
+    values[DataSource.events.index] = eventBytes;
+    values[DataSource.emoteLists.index] = jsonBytes;
+    values[DataSource.emoteImages.index] = emoteDownloadBytes;
+    for (var i = 0; i < _mobileBytes.length; i++) {
+      values[7 + i] = _mobileBytes[i];
+    }
+    return values;
+  }
+
+  /// Bytes since install, including the session not flushed yet.
+  List<int> _currentValues() {
+    final session = _sessionValues();
+    return [
+      for (var i = 0; i < _base.length; i++)
+        _base[i] + session[i] - _flushed[i],
+    ];
+  }
+
+  /// [snapshots]' cumulative totals just before [at], or zeros when the app
+  /// has no snapshot that old (all recorded usage is inside the window).
+  static List<int> _totalBefore(List<List<int>> snapshots, DateTime at) {
+    final cut = at.millisecondsSinceEpoch;
+    List<int>? best;
+    for (final entry in snapshots) {
+      if (entry[0] <= cut && (best == null || entry[0] > best[0])) best = entry;
+    }
+    return best == null ? List<int>.filled(14, 0) : best.sublist(1);
+  }
+
+  /// Loads the totals saved by [flush]. Later calls are no-ops.
+  Future<void> load() async {
+    if (_loaded) return;
+    _loaded = true;
+    try {
+      final raw = (await Prefs.load()).rawGetString(_key);
+      if (raw == null) return;
+      final data = jsonDecode(raw) as Map<String, Object?>;
+      _base = _ints(data['total']);
+      _hours = _snapshots(data['hours']);
+      _days = _snapshots(data['days']);
+      final saved = data['saved'];
+      if (saved is Map) {
+        _counters.forEach((name, count) {
+          final pair = saved[name];
+          if (pair is List && pair.length >= 2) {
+            count.all = pair[0] is int ? pair[0] as int : 0;
+            count.mobile = pair[1] is int ? pair[1] as int : 0;
+          }
+        });
+      }
+    } catch (_) {
+      // A bad blob starts the totals over.
+    }
+  }
+
+  /// Folds this session into the saved totals and writes them back.
+  Future<void> flush() async {
+    final session = _sessionValues();
+    var added = false;
+    for (var i = 0; i < _base.length; i++) {
+      final delta = session[i] - _flushed[i];
+      if (delta == 0) continue;
+      _base[i] += delta;
+      _flushed[i] = session[i];
+      added = true;
+    }
+    if (added) _snapshot();
+    final prefs = await Prefs.load();
+    await prefs.setRawString(_key, jsonEncode(toJson()));
+  }
+
+  /// Records the running total at the start of this hour and day, keeping an
+  /// anchor just before each window so it can be subtracted.
+  void _snapshot() {
+    final at = now();
+    _append(
+      _hours,
+      DateTime(at.year, at.month, at.day, at.hour),
+      const Duration(hours: 26),
+      72,
+    );
+    _append(
+      _days,
+      DateTime(at.year, at.month, at.day),
+      const Duration(days: 31),
+      48,
+    );
+  }
+
+  void _append(
+    List<List<int>> snapshots,
+    DateTime bucket,
+    Duration keep,
+    int max,
+  ) {
+    final ts = bucket.millisecondsSinceEpoch;
+    if (snapshots.isEmpty || snapshots.last[0] != ts) {
+      snapshots.add([ts, ..._base]);
+    }
+    final cutoff = now().subtract(keep).millisecondsSinceEpoch;
+    // Keep the newest entry older than the cutoff: windows subtract it.
+    List<int>? anchor;
+    for (final entry in snapshots) {
+      if (entry[0] <= cutoff) anchor = entry;
+    }
+    snapshots.removeWhere(
+      (entry) => entry[0] < cutoff && !identical(entry, anchor),
+    );
+    if (snapshots.length > max) {
+      snapshots.removeRange(0, snapshots.length - max);
+    }
+  }
+
+  Map<String, Object?> toJson() => {
+    'total': _base,
+    'hours': _hours,
+    'days': _days,
+    'saved': {
+      for (final entry in _counters.entries)
+        entry.key: [entry.value.all, entry.value.mobile],
+    },
+  };
+
+  static List<int> _ints(Object? value) {
+    final out = List<int>.filled(14, 0);
+    if (value is List) {
+      for (var i = 0; i < 14 && i < value.length; i++) {
+        if (value[i] case final int v) out[i] = v;
+      }
+    }
+    return out;
+  }
+
+  /// Entries are `[timestampMs, ...14]`, padded so a partial blob is safe.
+  static List<List<int>> _snapshots(Object? value) {
+    if (value is! List) return [];
+    return [
+      for (final entry in value)
+        if (entry is List) _snapshotEntry(entry),
+    ];
+  }
+
+  static List<int> _snapshotEntry(List<Object?> entry) {
+    final out = List<int>.filled(15, 0);
+    for (var i = 0; i < 15 && i < entry.length; i++) {
+      if (entry[i] case final int v) out[i] = v;
+    }
+    return out;
+  }
+
+  /// Clears every total, as a fresh install would.
+  @visibleForTesting
+  void reset() {
+    ircReadBytes = 0;
+    ircWriteBytes = 0;
+    emoteDownloadBytes = 0;
+    jsonBytes = 0;
+    historyBytes = 0;
+    helixBytes = 0;
+    eventBytes = 0;
+    _mobileBytes.fillRange(0, _mobileBytes.length, 0);
+    _base = List<int>.filled(14, 0);
+    _flushed.fillRange(0, _flushed.length, 0);
+    _hours = [];
+    _days = [];
+    for (final count in _counters.values) {
+      count
+        ..all = 0
+        ..mobile = 0;
+    }
+    _loaded = false;
+  }
 }

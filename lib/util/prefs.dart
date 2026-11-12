@@ -59,6 +59,10 @@ class Prefs {
   /// Raw string read for dynamic keys; prefer a typed getter.
   String? rawGetString(String key) => _p.getString(key);
 
+  /// Raw string write for dynamic keys; prefer a typed setter.
+  Future<void> setRawString(String key, String value) =>
+      _p.setString(key, value);
+
   // ── App / theme ─────────────────────────────────────────────────────
   static const _kChannels = 'channels';
 

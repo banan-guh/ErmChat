@@ -29,6 +29,7 @@ import 'util/perf_probe.dart';
 import 'util/prefs.dart';
 import 'util/settings.dart';
 import 'util/crash_report.dart';
+import 'util/data_usage.dart';
 import 'widgets/app_snack.dart';
 import 'widgets/emote_frame_rate.dart';
 import 'widgets/emote_url_provider.dart';
@@ -80,6 +81,7 @@ Future<void> _boot() async {
   // EmoteCacheManager directly, so they are unaffected by this decoupling.
 
   LicenseRegistry.addLicense(_thirdPartyLicenses);
+  unawaited(DataUsageStats.I.load());
   unawaited(_warmHistory());
   PerfProbe.start();
   PerfProbe.gauge('live', () => EmoteUrlProvider.liveCount);

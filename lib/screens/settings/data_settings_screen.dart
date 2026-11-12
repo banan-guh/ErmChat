@@ -47,8 +47,12 @@ class DataSettingsScreen extends StatelessWidget {
                 icon: Icons.bar_chart,
                 title: SettingsRow.dataUsage.titleOf(l),
                 subtitle: l.dataUsageSummary(
-                  DataUsageScreen.format(usage.totalFor()),
-                  DataUsageScreen.format(usage.totalFor(mobileOnly: true)),
+                  DataUsageScreen.format(
+                    usage.totalFor(period: UsagePeriod.all),
+                  ),
+                  DataUsageScreen.format(
+                    usage.totalFor(mobileOnly: true, period: UsagePeriod.all),
+                  ),
                 ),
                 onTap: () => Navigator.push(
                   context,

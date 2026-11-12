@@ -126,7 +126,12 @@
   "dataSavedListsHint": "From disk",
   "dataSavedGapsHint": "Reached the gap",
   "dataSavedNone": "None yet",
-  "dataUsageFooter": "Since the app started. Streams, avatars, badges and link previews are not counted.",
+  "dataUsageFooter": "Since install. Windows include this session. Streams, avatars, badges and link previews are not counted.",
+  "dataUsagePeriodSession": "Session",
+  "dataUsagePeriodDay": "24 h",
+  "dataUsagePeriodWeek": "7 d",
+  "dataUsagePeriodMonth": "30 d",
+  "dataUsagePeriodAll": "All time",
   "settingSettingsBackup": "Import/export settings",
   "exportClipboard": "Copy to clipboard",
   "exportFile": "Save as file",
@@ -264,7 +269,7 @@
   "helpArchiveChannelCapWhy": "The most chat one channel keeps on this device. Past it, that channel's oldest chat is deleted first. Days you keep from the calendar stay regardless.",
   "helpArchiveChannelCapGain": "A busy channel can't crowd out storage, or push quiet channels' history out sooner.",
   "helpArchiveChannelCapLose": "Busy channels keep fewer days than the retention allows.",
-  "dataUsageSummary": "{total} this session, {mobile} on mobile data",
+  "dataUsageSummary": "{total} total, {mobile} on mobile data",
   "@dataUsageSummary": {
     "placeholders": {
       "total": {

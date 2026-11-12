@@ -1243,6 +1243,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
       // A paused app may be killed without warning; save stats, threads,
       // the unsealed chat history and the app log.
       unawaited(_analytics.flush());
+      unawaited(DataUsageStats.I.flush());
       unawaited(_threads.persistSaved());
       final archive = ref.read(archiveProvider);
       if (archive != null) unawaited(archive.writer.flush());
