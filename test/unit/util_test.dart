@@ -740,6 +740,12 @@ void main() {
       ]);
     });
 
+    test('long TLD links reach the preview path', () {
+      expect(collectImageEmbedUrls('see demo.beauty/cat.png'), [
+        'https://demo.beauty/cat.png',
+      ]);
+    });
+
     TwitchMessage imgMsg(String id, String text) =>
         TwitchMessage(login: 'u', text: text, channel: 'test', messageId: id);
 

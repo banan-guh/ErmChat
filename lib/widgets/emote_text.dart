@@ -544,10 +544,10 @@ List<LinkifyElement> _linkifyChat(
         fractures: LinkWhitelist.instance.enabled,
         joinAll: LinkWhitelist.instance.joinAll,
       ),
-      const UrlLinkifier(),
       // Stock linkify stops at four-letter TLDs, so `.beauty` and friends
-      // need this before the guard drops loose matches.
+      // must be claimed before the loose matcher eats their path segments.
       const LongTldLinkifier(),
+      const UrlLinkifier(),
       // Drops loose matches with empty labels.
       const LooseUrlGuardLinkifier(),
     ],
