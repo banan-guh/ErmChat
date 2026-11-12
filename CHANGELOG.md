@@ -1,6 +1,8 @@
-- Personal emotes stay personal and now override channel emotes
-- Open a user's channel from their profile card
-- Read thread replies and page user history from the archive
-- Compact repeated messages and copypasta
-- Hide the edge-to-edge input row while typing
-- Steadier reconnects after sleep and failed history loads
+- personal emotes fixed
+- general optimizations
+- compact spam
+- mod tools upgraded
+- split chat
+- better data usage tracking
+- upgraded threads
+- hardened reconnect logic
