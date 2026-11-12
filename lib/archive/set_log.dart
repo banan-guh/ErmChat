@@ -130,24 +130,35 @@ class SetLog {
   /// to store, or null when the set is unchanged (the caller moves the last
   /// one's [SetObservation.seenMs] instead). Nothing is applied until
   /// [add].
-  SetObservation? diff(Map<String, String> items, int atMs) {
+  SetObservation? diff(Map<String, String> items, int atMs) =>
+      diffKeys(items.keys, (key) => items[key]!, atMs);
+
+  /// [diff] for a set whose definitions cost more to encode than to keep, so
+  /// [encode] runs only for the keys the observation stores.
+  SetObservation? diffKeys(
+    Iterable<String> keys,
+    String Function(String key) encode,
+    int atMs,
+  ) {
+    final present = keys.toSet();
     final removed = [
       for (final k in _latest.keys)
-        if (!items.containsKey(k)) k,
+        if (!present.contains(k)) k,
     ];
-    final added = {
-      for (final e in items.entries)
-        if (!_latest.containsKey(e.key)) e.key: e.value,
-    };
+    final added = [
+      for (final k in present)
+        if (!_latest.containsKey(k)) k,
+    ];
     if (_rows.isNotEmpty && removed.isEmpty && added.isEmpty) return null;
     final full = _rows.isEmpty || _sinceFull + 1 >= fullEvery;
+    final stored = full ? present : added;
     return SetObservation(
       atMs: atMs,
       seenMs: atMs,
       full: full,
-      added: full ? {...items} : added,
+      added: {for (final k in stored) k: encode(k)},
       removed: full ? const [] : removed,
-      hash: hashKeys(items.keys),
+      hash: hashKeys(present),
     );
   }
 

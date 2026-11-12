@@ -140,7 +140,10 @@ class ArchiveAdapter {
     final state = users.states[r.user];
     final who = users.whos[state?.who] ?? _unknown;
     final look = users.looks[state?.look] ?? const Look();
-    final extra = {for (final (k, v) in r.extraTags) k: v};
+    // Most rows carry no extra tags, so only index them when they do.
+    final extra = r.extraTags.isEmpty
+        ? const <String, String>{}
+        : {for (final (k, v) in r.extraTags) k: v};
     final gifs = extra[_gifs];
     final accent = int.tryParse(extra[_accent] ?? '');
     final positions = r.emotes.isEmpty ? null : _positions(r);

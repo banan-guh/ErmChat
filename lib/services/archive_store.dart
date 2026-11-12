@@ -111,6 +111,17 @@ class ArchiveStore {
   final Database _db;
   final DateTime Function() _now;
   final Map<String, Future<_ChannelTables>> _tables = {};
+
+  /// Channels read recently, oldest first, with the time of the read, so a
+  /// prune does not drop the tables a read just loaded.
+  final Map<String, DateTime> _reads = {};
+
+  /// Channels [_reads] remembers; a session reads a handful at most.
+  static const int _readsKept = 16;
+
+  /// How long a read keeps its channel's tables cached.
+  static const Duration keepTablesAfterRead = Duration(minutes: 10);
+
   DateTime? _lastPrune;
   int? _indexedVersion;
 
@@ -535,6 +546,14 @@ class ArchiveStore {
       _tables.remove(channel);
       rethrow;
     }
+  }
+
+  /// Notes that [channel]'s tables were read, so upkeep keeps them cached
+  /// briefly instead of dropping what the read just loaded.
+  void noteRead(String channel) {
+    _reads.remove(channel);
+    _reads[channel] = _now();
+    if (_reads.length > _readsKept) _reads.remove(_reads.keys.first);
   }
 
   /// Reads the three tables as a few joined strings and parses them on a
@@ -1691,10 +1710,13 @@ class ArchiveStore {
         return dropped;
       });
 
-  /// Drops [channel]'s user tables from memory unless the writer holds them.
-  /// The next read loads them again.
+  /// Drops [channel]'s user tables from memory unless the writer holds them
+  /// or a read used them in the last [keepTablesAfterRead]. The next read
+  /// loads them again.
   void _release(String channel) {
     if (writing?.call(channel) ?? false) return;
+    final read = _reads[channel];
+    if (read != null && _now().difference(read) < keepTablesAfterRead) return;
     _tables.remove(channel);
   }
 

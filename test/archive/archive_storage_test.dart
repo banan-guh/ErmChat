@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -1352,6 +1353,35 @@ void main() {
     await store.close();
   });
 
+  test('a channel read keeps its user tables until it goes stale', () async {
+    var now = _keptNow();
+    final store = await _open(_newPath(), now: () => now);
+    final writer = _writer(store, sealCount: 2);
+    writer.add(_channel, _msg(0, login: 'alice'));
+    writer.add(_channel, _msg(1, login: 'bob'));
+    await writer.flush();
+    // Upkeep runs with the writer done with the channel.
+    store.writing = (_) => false;
+
+    await _reader(store).newestRows(_channel, 10);
+    final read = await store.tables(_channel);
+    await store.pruneUsers();
+    expect(
+      await store.tables(_channel),
+      same(read),
+      reason: 'a read within the window keeps the tables cached',
+    );
+
+    now = now.add(ArchiveStore.keepTablesAfterRead);
+    await store.pruneUsers();
+    expect(
+      await store.tables(_channel),
+      isNot(same(read)),
+      reason: 'a stale read leaves the tables to reload',
+    );
+    await store.close();
+  });
+
   test('reader returns rows in order across blocks and skips damage', () async {
     final store = await _open(_newPath());
     final writer = _writer(store, sealCount: 4);
@@ -1635,6 +1665,23 @@ void main() {
     );
     expect(rows, hasLength(3), reason: 'an unchanged fetch adds no row');
     expect(rows.last.seenMs, at(40).millisecondsSinceEpoch);
+    expect(rows.first.added, {
+      for (final e in [a, b]) SetHistory.emoteKey(e): jsonEncode(e.toJson()),
+    }, reason: 'a whole observation keeps every definition');
+    expect(rows.first.full, isTrue);
+
+    // An emote fetch stores only the definitions it adds.
+    final d = seven('4', 'DinoDance');
+    await fetch(45, [a, seven('2', 'PogChamp'), c, d]);
+    final grown = await store.observations(
+      SetHistory.emoteKind,
+      'chan',
+      'sevenTv',
+    );
+    expect(grown.last.full, isFalse);
+    expect(grown.last.added, {
+      SetHistory.emoteKey(d): jsonEncode(d.toJson()),
+    }, reason: 'a diff stores only what it adds');
 
     // A redrawn badge keeps its set and version but is a new key.
     BadgeSet sub(String url) =>

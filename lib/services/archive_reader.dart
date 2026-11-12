@@ -162,7 +162,11 @@ class ArchiveReader {
   final clears = ChatSignal<(String, HistoryClear)>();
 
   /// Stored emote definitions by channel, then key; one instance per key.
+  /// Kept for the channels read most recently, since a reload is harmless.
   final Map<String, Map<String, Emote>> _defs = {};
+
+  /// Channels whose definitions [_defs] keeps.
+  static const _defsKept = 8;
 
   /// A broadcast started, ended, or reopened, in some channel.
   final streamsChanged = ChatVoidSignal();
@@ -391,6 +395,7 @@ class ArchiveReader {
     }
     final store = (await _store)!;
     final tables = await store.tables(channel);
+    store.noteRead(channel);
     final adapter = ArchiveAdapter(tables);
     final data = [for (final b in blocks) b.data];
     final decoded = await decode(data, keep);
@@ -473,7 +478,9 @@ class ArchiveReader {
     String channel,
     List<List<ArchiveRow>?> decoded,
   ) async {
-    final cache = _defs.putIfAbsent(channel, () => {});
+    final cache = _defs.remove(channel) ?? <String, Emote>{};
+    _defs[channel] = cache;
+    if (_defs.length > _defsKept) _defs.remove(_defs.keys.first);
     final missing = <String>{
       for (final rows in decoded)
         for (final r in rows ?? const <ArchiveRow>[])
@@ -724,10 +731,12 @@ class ArchiveReader {
   /// Sort by time, keeping arrival order for equal timestamps (List.sort is
   /// not stable).
   static void _sortStable(List<TwitchMessage> rows) {
-    final order = {for (var i = 0; i < rows.length; i++) rows[i]: i};
-    rows.sort((a, b) {
-      final c = a.timestamp.compareTo(b.timestamp);
-      return c != 0 ? c : order[a]!.compareTo(order[b]!);
+    final order = [for (var i = 0; i < rows.length; i++) i];
+    order.sort((a, b) {
+      final c = rows[a].timestamp.compareTo(rows[b].timestamp);
+      return c != 0 ? c : a.compareTo(b);
     });
+    final sorted = [for (final i in order) rows[i]];
+    rows.setAll(0, sorted);
   }
 }

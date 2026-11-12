@@ -41,7 +41,34 @@ void main() {
       log.add(log.diff(set(['k$i']), i)!);
     }
     expect([for (final o in log.rows) o.full].where((f) => f), hasLength(2));
+    expect(log.rows.last.added, {
+      'k${SetLog.fullEvery}': 'k${SetLog.fullEvery}',
+    });
     expect(log.latest.keys, ['k${SetLog.fullEvery}']);
+  });
+
+  test('a lazy diff stores what an encoded set does', () {
+    final eager = SetLog();
+    final lazy = SetLog();
+    for (var i = 0; i < SetLog.fullEvery * 3; i++) {
+      final items = {
+        for (final k in ['k${i % 5}', 'k${i % 7}', 'k$i']) k: '$k@$i',
+      };
+      final a = eager.diff(items, i);
+      final b = lazy.diffKeys(items.keys, (key) => items[key]!, i);
+      expect(b?.full, a?.full, reason: 'both snapshot on the same fetch');
+      expect(b?.added, a?.added);
+      expect(b?.removed, a?.removed);
+      expect(b?.hash, a?.hash);
+      if (a == null) continue;
+      eager.add(a);
+      lazy.add(b!);
+    }
+    expect(
+      [for (final o in lazy.rows) o.full].where((f) => f),
+      hasLength(3),
+      reason: 'every 32nd observation is whole',
+    );
   });
 
   test('the hash covers keys only, in any order', () {

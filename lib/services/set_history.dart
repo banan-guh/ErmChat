@@ -24,8 +24,8 @@ class SetHistory {
   static const _badgeSource = 'twitch';
   static const _providers = [EmoteType.bttv, EmoteType.ffz, EmoteType.sevenTv];
 
-  /// Lookups and badge tables kept for reuse; rows of one stretch of chat
-  /// share them.
+  /// Logs, emote definitions, lookups and badge tables kept for reuse; rows
+  /// of one stretch of chat share them. The least recently used one drops.
   static const _cacheSize = 8;
 
   /// The live provider toggles, which reads apply over the history.
@@ -39,17 +39,37 @@ class SetHistory {
   static String emoteKey(Emote e) => '${e.type.name}:${e.id}:${e.code}';
 
   final Map<String, Future<SetLog>> _logs = {};
+
+  /// Keys of [_logs] whose load finished; a load in flight is never evicted.
+  final Set<String> _logsLoaded = {};
   Future<void> _observing = Future.value();
 
-  // Decoded definitions by scope and key, shared by every lookup.
-  final Map<String, Emote> _emotes = {};
+  // Decoded definitions by scope, then key, shared by every lookup. The
+  // least recently used scope drops out once there are more than _cacheSize.
+  final Map<String, Map<String, Emote>> _emotes = {};
   final Map<String, Map<String, Emote>> _lookups = {};
   final Map<String, Map<String, BadgeVersion>> _badges = {};
 
-  Future<SetLog> _log(ArchiveStore s, String kind, String scope, String src) =>
-      _logs['$kind|$scope|$src'] ??= s
-          .observations(kind, scope, src)
-          .then(SetLog.new);
+  /// The log of one set, loaded once and kept for the sets read most
+  /// recently.
+  Future<SetLog> _log(ArchiveStore s, String kind, String scope, String src) {
+    final key = '$kind|$scope|$src';
+    final known = _logs.remove(key);
+    if (known != null) return _logs[key] = known;
+    if (_logs.length >= _cacheSize) _evictLog();
+    final log = s.observations(kind, scope, src).then(SetLog.new);
+    _logs[key] = log;
+    log.then((_) => _logsLoaded.add(key), onError: (_) => _logsLoaded.add(key));
+    return log;
+  }
+
+  /// Drops the least recently used log whose load finished.
+  void _evictLog() {
+    final oldest = _logs.keys.where(_logsLoaded.contains).firstOrNull;
+    if (oldest == null) return;
+    _logs.remove(oldest);
+    _logsLoaded.remove(oldest);
+  }
 
   /// Notes that a fetch of one set returned [items], key to definition
   /// JSON, at [at] (now by default). An empty result is skipped: it cannot
@@ -60,13 +80,16 @@ class SetHistory {
     String source,
     Map<String, String> items, {
     DateTime? at,
-  }) => _observeWith(kind, scope, source, (_) => items, at);
+  }) => _observeWith(kind, scope, source, (s, log, atMs) async {
+    if (items.isEmpty) return;
+    await _record(s, kind, scope, source, atMs, log, log.diff(items, atMs));
+  }, at);
 
   Future<void> _observeWith(
     String kind,
     String scope,
     String source,
-    Map<String, String> Function(Map<String, String> latest) build,
+    Future<void> Function(ArchiveStore s, SetLog log, int atMs) record,
     DateTime? at,
   ) {
     final atMs = (at ?? DateTime.now()).millisecondsSinceEpoch;
@@ -77,20 +100,30 @@ class SetHistory {
         final log = await _log(s, kind, scope, source);
         final rows = log.rows;
         if (rows.isNotEmpty && atMs <= rows.last.atMs) return;
-        final items = build(log.latest);
-        if (items.isEmpty) return;
-        final o = log.diff(items, atMs);
-        if (o == null) {
-          await s.touchObservation(kind, scope, source, rows.last.atMs, atMs);
-          log.touch(atMs);
-          return;
-        }
-        await s.addObservation(kind, scope, source, o);
-        log.add(o);
+        await record(s, log, atMs);
       } catch (e) {
         logDebug('[SetHistory] write failed: $e');
       }
     });
+  }
+
+  /// Stores [o] for one set, or when null only moves the last seen time.
+  Future<void> _record(
+    ArchiveStore s,
+    String kind,
+    String scope,
+    String source,
+    int atMs,
+    SetLog log,
+    SetObservation? o,
+  ) async {
+    if (o == null) {
+      await s.touchObservation(kind, scope, source, log.rows.last.atMs, atMs);
+      log.touch(atMs);
+      return;
+    }
+    await s.addObservation(kind, scope, source, o);
+    log.add(o);
   }
 
   /// One set as observed at [at]: key to definition JSON.
@@ -115,9 +148,23 @@ class SetHistory {
     DateTime? at,
   }) {
     if (provider == EmoteType.twitch) return Future.value();
-    return observe(emoteKind, scope, provider.name, {
-      for (final e in emotes) emoteKey(e): jsonEncode(e.toJson()),
-    }, at: at);
+    final byKey = {for (final e in emotes) emoteKey(e): e};
+    return _observeWith(emoteKind, scope, provider.name, (s, log, atMs) async {
+      if (byKey.isEmpty) return;
+      await _record(
+        s,
+        emoteKind,
+        scope,
+        provider.name,
+        atMs,
+        log,
+        log.diffKeys(
+          byKey.keys,
+          (key) => jsonEncode(byKey[key]!.toJson()),
+          atMs,
+        ),
+      );
+    }, at);
   }
 
   /// A 7TV live change to [channel]'s set, applied over the last observed
@@ -129,8 +176,13 @@ class SetHistory {
     List<String> removedIds = const [],
     Map<String, String> renamed = const {},
     DateTime? at,
-  }) => _observeWith(emoteKind, channel, EmoteType.sevenTv.name, (latest) {
-    if (latest.isEmpty) return const {};
+  }) => _observeWith(emoteKind, channel, EmoteType.sevenTv.name, (
+    s,
+    log,
+    atMs,
+  ) async {
+    final latest = log.latest;
+    if (latest.isEmpty) return;
     final next = <String, String>{};
     for (final e in latest.entries) {
       final id = e.key.split(':')[1];
@@ -147,7 +199,16 @@ class SetHistory {
     for (final e in added) {
       next[emoteKey(e)] = jsonEncode(e.toJson());
     }
-    return next;
+    if (next.isEmpty) return;
+    await _record(
+      s,
+      emoteKind,
+      channel,
+      EmoteType.sevenTv.name,
+      atMs,
+      log,
+      log.diff(next, atMs),
+    );
   }, at);
 
   /// A fetch of [scope]'s Twitch badges ('' for global). A redrawn badge
@@ -196,11 +257,11 @@ class SetHistory {
   }
 
   Emote? _emote(String scope, String key, String json) {
-    final id = '$scope|$key';
-    final known = _emotes[id];
-    if (known != null) return known;
+    final known = _cached(_emotes, scope, () => <String, Emote>{});
+    final hit = known[key];
+    if (hit != null) return hit;
     try {
-      return _emotes[id] = Emote.fromJson(
+      return known[key] = Emote.fromJson(
         jsonDecode(json) as Map<String, dynamic>,
       );
     } on Object catch (e) {
@@ -220,6 +281,7 @@ class SetHistory {
   Future<void> clear() async {
     await _observing;
     _logs.clear();
+    _logsLoaded.clear();
     _emotes.clear();
     _lookups.clear();
     _badges.clear();
