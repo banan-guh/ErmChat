@@ -866,6 +866,20 @@ class ThreadPanels {
                 ? display.text
                 : summary.previewText;
             final saved = savedThreads.isSaved(channel, summary.rootId);
+            // A root no live row or saved log holds still save by its archive
+            // preview, so the row keeps its bookmark without opening it.
+            final saveTarget =
+                display ??
+                (summary.previewText.isEmpty
+                    ? null
+                    : TwitchMessage(
+                        login: summary.previewAuthor,
+                        displayName: summary.previewAuthor,
+                        text: summary.previewText,
+                        messageId: summary.rootId,
+                        channel: channel,
+                        timestamp: summary.lastActivity,
+                      ));
             return ListTile(
               leading: const Icon(Icons.forum),
               title: Text(
@@ -881,7 +895,7 @@ class ThreadPanels {
                 '${context.l10n.replyCount(summary.replyCount)}'
                 ' · ${formatTimestamp(summary.lastActivity, timestampFormat())}',
               ),
-              trailing: display == null
+              trailing: saveTarget == null
                   ? null
                   : IconButton(
                       icon: Icon(
@@ -890,7 +904,7 @@ class ThreadPanels {
                       tooltip: saved
                           ? context.l10n.unsaveThread
                           : context.l10n.saveThread,
-                      onPressed: () => toggleSaveThread(display),
+                      onPressed: () => toggleSaveThread(saveTarget),
                     ),
               onTap: () => openActiveThread(summary, channel),
             );
