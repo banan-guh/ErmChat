@@ -6,37 +6,63 @@ import 'dart:convert';
 /// the same set. [hash] covers the whole set's keys, so a broken diff chain
 /// shows, and a remote copy of the log can be compared by it.
 class SetObservation {
-  const SetObservation({
-    required this.atMs,
-    required this.seenMs,
-    required this.full,
-    required this.added,
-    required this.removed,
-    required this.hash,
-  });
+  factory SetObservation({
+    required int atMs,
+    required int seenMs,
+    required bool full,
+    required Map<String, String> added,
+    required List<String> removed,
+    required String hash,
+  }) => SetObservation._(atMs, seenMs, full, added, null, removed, hash);
+
+  SetObservation._(
+    this.atMs,
+    this.seenMs,
+    this.full,
+    this._added,
+    this._addedJson,
+    this.removed,
+    this.hash,
+  );
 
   final int atMs;
   final int seenMs;
   final bool full;
 
+  final Map<String, String>? _added;
+  final String? _addedJson;
+  Map<String, String>? _decoded;
+
   /// Keys new to the set (all of them when [full]) and their definitions.
-  final Map<String, String> added;
+  /// A stored snapshot decodes on first read, so one that is never replayed
+  /// costs no parse.
+  Map<String, String> get added =>
+      _added ??
+      (_decoded ??= (jsonDecode(_addedJson!) as Map<String, dynamic>)
+          .cast<String, String>());
+
   final List<String> removed;
   final String hash;
 
-  String get addedJson => jsonEncode(added);
+  String get addedJson => _addedJson ?? jsonEncode(_added!);
   String get removedJson => jsonEncode(removed);
 
   /// This observation with only [seenMs] replaced; every other field, and
   /// the maps and lists it shares, are carried over unchanged.
-  SetObservation _withSeen(int ms) => SetObservation(
-    atMs: atMs,
-    seenMs: ms,
-    full: full,
-    added: added,
-    removed: removed,
-    hash: hash,
-  );
+  SetObservation _withSeen(int ms) {
+    final json = _addedJson;
+    if (json != null) {
+      return SetObservation._(atMs, ms, full, null, json, removed, hash);
+    }
+    return SetObservation(
+      atMs: atMs,
+      seenMs: ms,
+      full: full,
+      added: _added!,
+      removed: removed,
+      hash: hash,
+    );
+  }
 
   static SetObservation fromJson({
     required int atMs,
@@ -45,13 +71,14 @@ class SetObservation {
     required String added,
     required String removed,
     required String hash,
-  }) => SetObservation(
-    atMs: atMs,
-    seenMs: seenMs,
-    full: full,
-    added: (jsonDecode(added) as Map<String, dynamic>).cast<String, String>(),
-    removed: (jsonDecode(removed) as List<dynamic>).cast<String>(),
-    hash: hash,
+  }) => SetObservation._(
+    atMs,
+    seenMs,
+    full,
+    null,
+    added,
+    (jsonDecode(removed) as List<dynamic>).cast<String>(),
+    hash,
   );
 }
 
@@ -61,7 +88,25 @@ class SetObservation {
 /// observations narrows it.
 class SetLog {
   SetLog([Iterable<SetObservation> rows = const []]) {
-    rows.forEach(_apply);
+    _rows.addAll(rows);
+    _primeLatest();
+  }
+
+  /// Builds the current state from the newest full snapshot and the deltas
+  /// after it. Older snapshots stay unparsed until [stateAt] needs one.
+  void _primeLatest() {
+    if (_rows.isEmpty) return;
+    var from = _rows.length - 1;
+    while (from > 0 && !_rows[from].full) {
+      from--;
+    }
+    var state = <String, String>{};
+    for (var i = from; i < _rows.length; i++) {
+      final o = _rows[i];
+      state = _replay(o.full ? {} : state, o);
+      _sinceFull = o.full ? 0 : _sinceFull + 1;
+    }
+    _latest = state;
   }
 
   /// A diff run this long ends in a whole snapshot, so replay stays short.

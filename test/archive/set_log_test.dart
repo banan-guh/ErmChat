@@ -75,4 +75,19 @@ void main() {
     expect(SetLog.hashKeys(['a', 'b']), SetLog.hashKeys(['b', 'a']));
     expect(SetLog.hashKeys(['a']), isNot(SetLog.hashKeys(['b'])));
   });
+
+  test('an old snapshot decodes only when replayed', () {
+    SetObservation full(int atMs, String added) => SetObservation.fromJson(
+      atMs: atMs,
+      seenMs: atMs,
+      full: true,
+      added: added,
+      removed: '[]',
+      hash: 'h',
+    );
+    // The older snapshot is not valid JSON. Loading the log must not touch
+    // it; only the newest full and the deltas after it prime the state.
+    final log = SetLog([full(1, 'not json'), full(2, '{"k":"v"}')]);
+    expect(log.latest, {'k': 'v'});
+  });
 }
