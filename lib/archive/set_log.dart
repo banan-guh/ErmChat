@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io' show ZLibCodec;
+import 'dart:isolate';
 import 'dart:typed_data';
 
 /// Observation definitions as zlib bytes. A text value is an older row.
@@ -208,16 +209,16 @@ class SetLog {
   /// to store, or null when the set is unchanged (the caller moves the last
   /// one's [SetObservation.seenMs] instead). Nothing is applied until
   /// [add].
-  SetObservation? diff(Map<String, String> items, int atMs) =>
+  Future<SetObservation?> diff(Map<String, String> items, int atMs) =>
       diffKeys(items.keys, (key) => items[key]!, atMs);
 
   /// [diff] for a set whose definitions cost more to encode than to keep, so
   /// [encode] runs only for the keys the observation stores.
-  SetObservation? diffKeys(
+  Future<SetObservation?> diffKeys(
     Iterable<String> keys,
     String Function(String key) encode,
     int atMs,
-  ) {
+  ) async {
     final present = keys.toSet();
     final removed = [
       for (final k in _latest.keys)
@@ -236,8 +237,21 @@ class SetLog {
       full: full,
       added: {for (final k in stored) k: encode(k)},
       removed: full ? const [] : removed,
-      hash: hashKeys(present),
+      hash: await hashKeysFor(present),
     );
+  }
+
+  /// Keys past this count hash on another isolate: below it the send and
+  /// the reply cost more than hashing a set every fetch keeps small.
+  static const hashIsolateAt = 512;
+
+  /// [hashKeys] off the UI isolate for a set big enough to hold up a frame.
+  /// A live emote set runs to thousands of keys and every stored observation
+  /// hashes them all.
+  static Future<String> hashKeysFor(Set<String> keys) {
+    if (keys.length < hashIsolateAt) return Future.value(hashKeys(keys));
+    final list = keys.toList();
+    return Isolate.run(() => hashKeys(list));
   }
 
   /// Appends [o], which must be newer than every row.

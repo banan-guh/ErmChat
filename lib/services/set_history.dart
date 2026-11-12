@@ -82,7 +82,15 @@ class SetHistory {
     DateTime? at,
   }) => _observeWith(kind, scope, source, (s, log, atMs) async {
     if (items.isEmpty) return;
-    await _record(s, kind, scope, source, atMs, log, log.diff(items, atMs));
+    await _record(
+      s,
+      kind,
+      scope,
+      source,
+      atMs,
+      log,
+      await log.diff(items, atMs),
+    );
   }, at);
 
   Future<void> _observeWith(
@@ -158,7 +166,7 @@ class SetHistory {
         provider.name,
         atMs,
         log,
-        log.diffKeys(
+        await log.diffKeys(
           byKey.keys,
           (key) => jsonEncode(byKey[key]!.toJson()),
           atMs,
@@ -207,7 +215,7 @@ class SetHistory {
       EmoteType.sevenTv.name,
       atMs,
       log,
-      log.diff(next, atMs),
+      await log.diff(next, atMs),
     );
   }, at);
 

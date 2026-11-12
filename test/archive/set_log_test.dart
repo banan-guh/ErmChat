@@ -4,10 +4,10 @@ import 'package:flutter_test/flutter_test.dart';
 void main() {
   Map<String, String> set(List<String> keys) => {for (final k in keys) k: k};
 
-  test('replays the set as observed at any time', () {
+  test('replays the set as observed at any time', () async {
     final log = SetLog();
-    void observe(int ms, List<String> keys) {
-      final o = log.diff(set(keys), ms);
+    Future<void> observe(int ms, List<String> keys) async {
+      final o = await log.diff(set(keys), ms);
       if (o == null) {
         log.touch(ms);
       } else {
@@ -15,10 +15,10 @@ void main() {
       }
     }
 
-    observe(10, ['a', 'b']);
-    observe(20, ['b', 'c']);
-    observe(25, ['b', 'c']);
-    observe(30, ['a', 'b', 'c']);
+    await observe(10, ['a', 'b']);
+    await observe(20, ['b', 'c']);
+    await observe(25, ['b', 'c']);
+    await observe(30, ['a', 'b', 'c']);
     expect(log.at(5), isEmpty, reason: 'nothing before the first fetch');
     expect(log.at(15).keys, unorderedEquals(['a', 'b']));
     expect(
@@ -35,10 +35,10 @@ void main() {
     expect(SetLog(log.rows).at(22), log.at(22));
   });
 
-  test('a long diff run ends in a whole snapshot', () {
+  test('a long diff run ends in a whole snapshot', () async {
     final log = SetLog();
     for (var i = 0; i < SetLog.fullEvery + 1; i++) {
-      log.add(log.diff(set(['k$i']), i)!);
+      log.add((await log.diff(set(['k$i']), i))!);
     }
     expect([for (final o in log.rows) o.full].where((f) => f), hasLength(2));
     expect(log.rows.last.added, {
@@ -47,15 +47,15 @@ void main() {
     expect(log.latest.keys, ['k${SetLog.fullEvery}']);
   });
 
-  test('a lazy diff stores what an encoded set does', () {
+  test('a lazy diff stores what an encoded set does', () async {
     final eager = SetLog();
     final lazy = SetLog();
     for (var i = 0; i < SetLog.fullEvery * 3; i++) {
       final items = {
         for (final k in ['k${i % 5}', 'k${i % 7}', 'k$i']) k: '$k@$i',
       };
-      final a = eager.diff(items, i);
-      final b = lazy.diffKeys(items.keys, (key) => items[key]!, i);
+      final a = await eager.diff(items, i);
+      final b = await lazy.diffKeys(items.keys, (key) => items[key]!, i);
       expect(b?.full, a?.full, reason: 'both snapshot on the same fetch');
       expect(b?.added, a?.added);
       expect(b?.removed, a?.removed);
@@ -74,6 +74,18 @@ void main() {
   test('the hash covers keys only, in any order', () {
     expect(SetLog.hashKeys(['a', 'b']), SetLog.hashKeys(['b', 'a']));
     expect(SetLog.hashKeys(['a']), isNot(SetLog.hashKeys(['b'])));
+  });
+
+  test('a big set hashes the same off the UI isolate', () async {
+    final keys = {
+      for (var i = 0; i < SetLog.hashIsolateAt + 17; i++) 'sevenTv:e$i:emote$i',
+    };
+    expect(await SetLog.hashKeysFor(keys), SetLog.hashKeys(keys));
+    final log = SetLog();
+    final o = await log.diff({for (final k in keys) k: k}, 1);
+    expect(o!.full, isTrue);
+    expect(o.added.keys, unorderedEquals(keys));
+    expect(o.hash, SetLog.hashKeys(keys));
   });
 
   test('an old snapshot decodes only when replayed', () {
