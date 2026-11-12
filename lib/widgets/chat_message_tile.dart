@@ -41,12 +41,18 @@ class ChatMessageTile extends StatefulWidget {
   final bool Function(TwitchMessage msg, List<InlineSpan> spans) bodyIsCached;
   final List<InlineSpan> Function(TwitchMessage msg, double textScale)?
   systemBodyBuilder;
-  final void Function(String login, String? userId)? onTapUser;
+
+  /// Given the tile's own context, which stays alive after a cached tile is
+  /// remounted under a new page.
+  final void Function(BuildContext context, String login, String? userId)?
+  onTapUser;
 
   /// Double tap on the name zone, given the tile's own context. Null keeps
   /// single taps instant.
   final void Function(BuildContext context)? onDoubleTapUser;
-  final VoidCallback? onLongPress;
+
+  /// Given the tile's own context, for the same reason as [onTapUser].
+  final void Function(BuildContext context)? onLongPress;
   final VoidCallback? onDoubleTap;
 
   /// Single tap anywhere on the row, with the row's ripple.
@@ -208,7 +214,7 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
     if (onTapUser != null && _hitsName(details.globalPosition)) {
       _nameTapped = true;
       final msg = widget.message;
-      void open() => onTapUser(msg.login, msg.userId);
+      void open() => onTapUser(context, msg.login, msg.userId);
       final onDoubleTapUser = widget.onDoubleTapUser;
       if (onDoubleTapUser == null) {
         open();
@@ -443,7 +449,9 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
           }
           widget.onTap?.call();
         },
-        onLongPress: widget.onLongPress,
+        onLongPress: widget.onLongPress == null
+            ? null
+            : () => widget.onLongPress!(context),
         // The menu it opens fires Haptics, which owns the buzz.
         enableFeedback: false,
         child: child,

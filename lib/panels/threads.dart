@@ -784,15 +784,15 @@ class ThreadPanels {
               lineSeparator: lineSeparator(),
               sharedChatMode: sharedChatMode(),
               paintService: namePaintService(),
-              onShowUserProfile: (login, userId, {displayName}) =>
+              onShowUserProfile: (ctx, login, userId, {displayName}) =>
                   userSheets.showUserProfile(
-                    context,
+                    ctx,
                     login,
                     userId,
                     displayName: displayName,
                   ),
-              onShowMessageMenu: (msg) =>
-                  menus.showPanelMessageMenu(context, msg),
+              onShowMessageMenu: (ctx, msg) =>
+                  menus.showPanelMessageMenu(ctx, msg),
               onCopyMessage: copyMessage,
               showReplyIndicators: false,
               emptyText: context.l10n.noMessagesFound,

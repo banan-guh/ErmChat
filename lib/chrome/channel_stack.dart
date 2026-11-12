@@ -419,9 +419,9 @@ class ChannelPanels {
           lineSeparator: lineSeparator(),
           sharedChatMode: sharedChatMode(),
           paintService: showNamePaints() ? paintService : null,
-          onShowUserProfile: (login, userId, {displayName}) => userSheets
+          onShowUserProfile: (ctx, login, userId, {displayName}) => userSheets
               .showUserProfile(ctx, login, userId, displayName: displayName),
-          onShowMessageMenu: (msg) => menus.showMessageMenu(ctx, msg),
+          onShowMessageMenu: (ctx, msg) => menus.showMessageMenu(ctx, msg),
           onCopyMessage: copyMessage,
           onScrollActivity: (c) {
             chat.clearUnread(c);
@@ -538,7 +538,7 @@ class ChannelPanels {
         calendarRequest: _calendarFor(channel),
         actions: _actionsFor(channel),
         underCornerMenu: _menuFloats(),
-        rows: _rows(ctx, channel),
+        rows: _rows(channel),
         textScale: chatFontSize() / 14.0,
         tileCache: tileCache,
         atBottomNotifier: atBottomNotifier(_paneKey(channel, slot)),
@@ -556,7 +556,6 @@ class ChannelPanels {
 
   /// [channel]'s rows as both history pages draw them.
   ChatRows _rows(
-    BuildContext context,
     String channel, {
     void Function(TwitchMessage msg)? goToMessage,
   }) => ChatRows(
@@ -570,12 +569,12 @@ class ChannelPanels {
     lineSeparator: lineSeparator(),
     sharedChatMode: sharedChatMode(),
     paintService: showNamePaints() ? paintService : null,
-    onShowUserProfile: (login, userId, {displayName}) => userSheets
-        .showUserProfile(context, login, userId, displayName: displayName),
+    onShowUserProfile: (ctx, login, userId, {displayName}) => userSheets
+        .showUserProfile(ctx, login, userId, displayName: displayName),
     onShowMessageMenu: goToMessage == null
-        ? (msg) => menus.showMessageMenu(context, msg)
-        : (msg) => menus.showPanelMessageMenu(
-            context,
+        ? (ctx, msg) => menus.showMessageMenu(ctx, msg)
+        : (ctx, msg) => menus.showPanelMessageMenu(
+            ctx,
             msg,
             goToMessage: () => goToMessage(msg),
           ),
@@ -639,7 +638,6 @@ class ChannelPanels {
           liveVersion: active ? messages?.version : null,
           emotesVersion: emotesVersion,
           rows: _rows(
-            context,
             channel,
             goToMessage: (msg) {
               search.closeSearch();
@@ -1128,8 +1126,8 @@ class ChannelPanels {
       lineSeparator: lineSeparator(),
       sharedChatMode: sharedChatMode(),
       paintService: showNamePaints() ? paintService : null,
-      onShowUserProfile: (login, userId, {displayName}) => userSheets
-          .showUserProfile(context, login, userId, displayName: displayName),
+      onShowUserProfile: (ctx, login, userId, {displayName}) => userSheets
+          .showUserProfile(ctx, login, userId, displayName: displayName),
       keyboardDismissBehavior: (!kIsWeb && Platform.isIOS)
           ? ScrollViewKeyboardDismissBehavior.onDrag
           : ScrollViewKeyboardDismissBehavior.manual,

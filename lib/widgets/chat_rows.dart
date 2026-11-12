@@ -59,12 +59,18 @@ class ChatRows {
   final String channel;
   final MessageBuilder messageBuilder;
 
-  /// Opens the user profile sheet.
-  final void Function(String login, String? userId, {String? displayName})
+  /// Opens the user profile sheet from the row's live context, so a cached
+  /// tile never taps through a disposed page.
+  final void Function(
+    BuildContext context,
+    String login,
+    String? userId, {
+    String? displayName,
+  })
   onShowUserProfile;
 
-  /// Null disables the long-press message menu.
-  final void Function(TwitchMessage)? onShowMessageMenu;
+  /// Null disables the long-press message menu. Context as above.
+  final void Function(BuildContext context, TwitchMessage)? onShowMessageMenu;
 
   /// A tap on a row's body; search results jump to the message.
   final void Function(TwitchMessage)? onTapMessage;
@@ -148,13 +154,19 @@ class ChatRows {
         onEmailTap: messageBuilder.onEmailTap,
       ),
       onTapUser: chatRow
-          ? (login, userId) =>
-                onShowUserProfile(login, userId, displayName: msg.displayName)
+          ? (tileContext, login, userId) => onShowUserProfile(
+              tileContext,
+              login,
+              userId,
+              displayName: msg.displayName,
+            )
           : null,
       onDoubleTapUser: showsNameCopy
           ? (tileContext) => _copyUsername(tileContext, msg)
           : null,
-      onLongPress: showsMenu ? () => onShowMessageMenu!(msg) : null,
+      onLongPress: showsMenu
+          ? (tileContext) => onShowMessageMenu!(tileContext, msg)
+          : null,
       onTap: takesTap ? () => onTapMessage!(msg) : null,
       onDoubleTap: takesDoubleTap ? () => onCopyMessage!(msg) : null,
       replyIndicator: showsReply ? _replyIndicator(context, msg, scale) : null,

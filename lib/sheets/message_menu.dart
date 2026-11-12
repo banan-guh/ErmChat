@@ -32,6 +32,7 @@ class MessageMenus {
   final void Function(BuildContext context, TwitchMessage msg) deleteMessage;
 
   void showMessageMenu(BuildContext context, TwitchMessage msg) {
+    if (!context.mounted) return;
     Haptics.press();
     final threadRoot = findThreadRoot(msg);
     final hasThread = threadRoot != null;
@@ -94,6 +95,7 @@ class MessageMenus {
     TwitchMessage msg, {
     VoidCallback? goToMessage,
   }) {
+    if (!context.mounted) return;
     Haptics.press();
     showModalBottomSheet(
       context: context,
@@ -137,6 +139,7 @@ class MessageMenus {
   }
 
   void showMoreMenu(BuildContext context, TwitchMessage msg) {
+    if (!context.mounted) return;
     showModalBottomSheet(
       context: context,
       builder: (ctx) => SafeArea(

@@ -34,10 +34,10 @@ void main() {
                   (_, _, _, {colored = false, textScale = 1.0, onImageTap}) =>
                       <InlineSpan>[const TextSpan(text: 'hi there friend')],
               bodyIsCached: (_, _) => false,
-              onTapUser: (login, _) => taps.add('user:$login'),
+              onTapUser: (_, login, _) => taps.add('user:$login'),
               onDoubleTapUser: doubleTapUser ? (_) => taps.add('copy') : null,
               onDoubleTap: () => taps.add('message'),
-              onLongPress: () {},
+              onLongPress: (_) {},
             ),
           ),
         ),

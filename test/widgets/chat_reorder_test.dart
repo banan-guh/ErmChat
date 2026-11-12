@@ -59,7 +59,7 @@ class _Harness {
             scrollController: controller,
             messageBuilder: builder,
             keepAlive: keepAlive,
-            onShowUserProfile: (_, _, {displayName}) {},
+            onShowUserProfile: (_, _, _, {displayName}) {},
           ),
         ),
       ),

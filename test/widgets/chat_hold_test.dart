@@ -58,7 +58,7 @@ class _Harness {
             messageBuilder: builder,
             keepAlive: keepAlive,
             keepPosition: keepPosition,
-            onShowUserProfile: (_, _, {displayName}) {},
+            onShowUserProfile: (_, _, _, {displayName}) {},
           ),
         ),
       ),

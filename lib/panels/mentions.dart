@@ -302,10 +302,10 @@ class MentionsPanels {
         lineSeparator: lineSeparator(),
         sharedChatMode: sharedChatMode(),
         paintService: namePaintService(),
-        onShowUserProfile: (login, userId, {displayName}) => userSheets
-            .showUserProfile(context, login, userId, displayName: displayName),
-        onShowMessageMenu: (msg) =>
-            menus.showPanelMessageMenu(context, msg, goToMessage: _goTo(msg)),
+        onShowUserProfile: (ctx, login, userId, {displayName}) => userSheets
+            .showUserProfile(ctx, login, userId, displayName: displayName),
+        onShowMessageMenu: (ctx, msg) =>
+            menus.showPanelMessageMenu(ctx, msg, goToMessage: _goTo(msg)),
         onCopyMessage: copyMessage,
         showReplyIndicators: false,
         fadeDeleted: false,
@@ -372,15 +372,15 @@ class MentionsPanels {
                   sharedChatMode: sharedChatMode(),
                   paintService: namePaintService(),
                   physics: const ClampingScrollPhysics(),
-                  onShowUserProfile: (login, userId, {displayName}) =>
+                  onShowUserProfile: (ctx, login, userId, {displayName}) =>
                       userSheets.showUserProfile(
-                        context,
+                        ctx,
                         login,
                         userId,
                         displayName: displayName,
                       ),
-                  onShowMessageMenu: (msg) => menus.showPanelMessageMenu(
-                    context,
+                  onShowMessageMenu: (ctx, msg) => menus.showPanelMessageMenu(
+                    ctx,
                     msg,
                     goToMessage: _goTo(msg),
                   ),
@@ -408,15 +408,15 @@ class MentionsPanels {
               sharedChatMode: sharedChatMode(),
               paintService: namePaintService(),
               physics: const ClampingScrollPhysics(),
-              onShowUserProfile: (login, userId, {displayName}) =>
+              onShowUserProfile: (ctx, login, userId, {displayName}) =>
                   userSheets.showUserProfile(
-                    context,
+                    ctx,
                     login,
                     userId,
                     displayName: displayName,
                   ),
-              onShowMessageMenu: (msg) =>
-                  menus.showPanelMessageMenu(context, msg),
+              onShowMessageMenu: (ctx, msg) =>
+                  menus.showPanelMessageMenu(ctx, msg),
               onCopyMessage: copyMessage,
               showReplyIndicators: false,
               emptyText: context.l10n.noWhispers,

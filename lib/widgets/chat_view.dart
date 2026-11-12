@@ -37,12 +37,17 @@ class ChatView extends StatefulWidget {
   final ScrollController scrollController;
   final MessageBuilder messageBuilder;
 
-  /// Opens the user profile sheet.
-  final void Function(String login, String? userId, {String? displayName})
+  /// Opens the user profile sheet from the row's live context.
+  final void Function(
+    BuildContext context,
+    String login,
+    String? userId, {
+    String? displayName,
+  })
   onShowUserProfile;
 
   /// Null disables the long-press message menu.
-  final void Function(TwitchMessage)? onShowMessageMenu;
+  final void Function(BuildContext context, TwitchMessage)? onShowMessageMenu;
 
   /// Null disables copy-on-double-tap for chat messages.
   final void Function(TwitchMessage)? onCopyMessage;

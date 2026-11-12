@@ -2,9 +2,11 @@ import 'package:ermchat/models/twitch_message.dart';
 import 'package:ermchat/services/emote_manager.dart';
 import 'package:ermchat/services/third_party_badge_service.dart';
 import 'package:ermchat/services/twitch_badge_service.dart';
+import 'package:ermchat/widgets/chat_rows.dart';
 import 'package:ermchat/widgets/chat_view.dart';
 import 'package:ermchat/widgets/message_builder.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 TwitchMessage _msg(int i) => TwitchMessage(
@@ -51,7 +53,7 @@ void main() {
             messageNotifier: messageNotifier,
             scrollController: controller,
             messageBuilder: builder,
-            onShowUserProfile: (_, _, {displayName}) {},
+            onShowUserProfile: (_, _, _, {displayName}) {},
           ),
         ),
       ),
@@ -114,7 +116,7 @@ void main() {
             messageNotifier: messageNotifier,
             scrollController: controller,
             messageBuilder: builder,
-            onShowUserProfile: (_, _, {displayName}) {},
+            onShowUserProfile: (_, _, _, {displayName}) {},
           ),
         ),
       ),
@@ -190,7 +192,7 @@ void main() {
                     scrollController: controller,
                     messageBuilder: builder,
                     keepAlive: false,
-                    onShowUserProfile: (_, _, {displayName}) {},
+                    onShowUserProfile: (_, _, _, {displayName}) {},
                   )
                 : const SizedBox.shrink(),
           ),
@@ -210,5 +212,82 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(controller.offset, before);
+  });
+
+  // A cached row outlives the page that built it. Its taps and menus must run
+  // against the row's own mounted context, or they throw and silently do
+  // nothing.
+  testWidgets('cached tiles keep a live tap context', (tester) async {
+    final em = EmoteManager();
+    addTearDown(em.dispose);
+    final builder = MessageBuilder(
+      emoteSource: em,
+      badgeService: TwitchBadgeService(),
+      thirdPartyBadgeService: ThirdPartyBadgeService(),
+      onShowEmoteSheet: (_) {},
+    );
+    final taps = <String>[];
+    void check(BuildContext ctx, String what) {
+      expect(ctx.mounted, isTrue, reason: '$what ran on a dead context');
+      // Throws if the context is deactivated, like the reported crash.
+      Navigator.of(ctx);
+      taps.add(what);
+    }
+
+    final rows = ChatRows(
+      channel: 'test',
+      messageBuilder: builder,
+      showTimestamp: false,
+      onShowUserProfile: (ctx, login, userId, {displayName}) =>
+          check(ctx, 'user:$login'),
+      onShowMessageMenu: (ctx, msg) => check(ctx, 'menu'),
+    );
+    final msg = _msg(1);
+    late Widget tile;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Align(
+            alignment: Alignment.topLeft,
+            child: Builder(
+              builder: (context) {
+                tile = rows.tile(
+                  context,
+                  msg,
+                  alternate: false,
+                  scale: 1.0,
+                  surface: Colors.white,
+                );
+                return tile;
+              },
+            ),
+          ),
+        ),
+      ),
+    );
+    // Dispose the page that built the row, like a paged-out channel.
+    await tester.pumpWidget(const SizedBox.shrink());
+    // Remount the same widget instance under a fresh page.
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Align(alignment: Alignment.topLeft, child: tile),
+        ),
+      ),
+    );
+
+    final paragraph = tester.renderObject<RenderParagraph>(
+      find.byType(RichText).first,
+    );
+    final name = paragraph.localToGlobal(Offset.zero);
+
+    await tester.tapAt(name + const Offset(20, 10));
+    await tester.pump(const Duration(milliseconds: 350));
+    expect(taps, ['user:user1']);
+
+    await tester.longPressAt(name + const Offset(20, 10));
+    await tester.pump();
+    expect(taps, ['user:user1', 'menu']);
   });
 }

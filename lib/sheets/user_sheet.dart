@@ -164,6 +164,7 @@ class UserSheets {
     String? userId, {
     String? displayName,
   }) async {
+    if (!context.mounted) return;
     final prefs = this.prefs;
     final channel = selectedChannel();
     // Buffer snapshot oldest-first like chat; short-lived, no subscription.
@@ -556,7 +557,7 @@ class UserSheets {
         buildMessageSpans: messageBuilder.buildMessageSpans,
         bodyIsCached: messageBuilder.bodyIsCached,
         onDoubleTap: () => copyMessage(msg),
-        onLongPress: () => menus.showPanelMessageMenu(context, msg),
+        onLongPress: (ctx) => menus.showPanelMessageMenu(ctx, msg),
         showTimestamp: Settings.showTimestamps.value,
         showImages: messageBuilder.showImages,
         imageHeight: messageBuilder.imageHeight,

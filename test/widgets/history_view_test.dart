@@ -221,7 +221,7 @@ Future<void> _pumpView(
     rows: ChatRows(
       channel: _ch,
       messageBuilder: builder,
-      onShowUserProfile: (_, _, {displayName}) {},
+      onShowUserProfile: (_, _, _, {displayName}) {},
     ),
     debugControls: true,
     tileCache: tileCache,
@@ -1125,7 +1125,7 @@ void main() {
                     rows: ChatRows(
                       channel: channels[i],
                       messageBuilder: builder,
-                      onShowUserProfile: (_, _, {displayName}) {},
+                      onShowUserProfile: (_, _, _, {displayName}) {},
                     ),
                     atBottomNotifier: atBottom[i],
                     live: () => buffers[i],
@@ -1266,7 +1266,7 @@ void main() {
               rows: ChatRows(
                 channel: _ch,
                 messageBuilder: builder,
-                onShowUserProfile: (_, _, {displayName}) {},
+                onShowUserProfile: (_, _, _, {displayName}) {},
               ),
               topPadding: _inset,
             ),
@@ -1423,7 +1423,7 @@ void main() {
       rows: ChatRows(
         channel: _ch,
         messageBuilder: builder,
-        onShowUserProfile: (_, _, {displayName}) {},
+        onShowUserProfile: (_, _, _, {displayName}) {},
       ),
       topPadding: _inset,
     );
@@ -1532,7 +1532,7 @@ void main() {
       rows: ChatRows(
         channel: _ch,
         messageBuilder: builder,
-        onShowUserProfile: (_, _, {displayName}) {},
+        onShowUserProfile: (_, _, _, {displayName}) {},
       ),
       topPadding: _inset,
     );
