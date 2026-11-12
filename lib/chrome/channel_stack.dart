@@ -848,6 +848,7 @@ class ChannelPanels {
               // A pane squeezed below the label plus one chat line keeps the
               // chat and drops the label, so it never overflows.
               final labelled = constraints.maxHeight >= 48;
+              final channels = chat.names;
               return Column(
                 children: [
                   if (labelled) ...[
@@ -859,13 +860,13 @@ class ChannelPanels {
                     ),
                   ],
                   Expanded(
-                    child: chat.names.isEmpty
+                    child: channels.isEmpty
                         ? const SizedBox.shrink()
                         : TabbedLayout(
-                            tabs: chat.names,
-                            selectedIndex: chat.names
+                            tabs: channels,
+                            selectedIndex: channels
                                 .indexOf(channel)
-                                .clamp(0, chat.names.length - 1),
+                                .clamp(0, channels.length - 1),
                             showTabBar: false,
                             fullscreen: true,
                             fastSnap: fastSnap(),
@@ -874,12 +875,17 @@ class ChannelPanels {
                             onFocusChanged: (i) => setSplitPaneChannel(slot, i),
                             onSelectedIndexChanged: (i) =>
                                 setSplitPaneChannel(slot, i),
-                            pageBuilder: (ctx, i) => _cachedPage(
-                              ctx,
-                              chat.names[i],
-                              clearsIsland: false,
-                              slot: slot,
-                            ),
+                            pageBuilder: (ctx, i) {
+                              if (i < 0 || i >= channels.length) {
+                                return const SizedBox.shrink();
+                              }
+                              return _cachedPage(
+                                ctx,
+                                channels[i],
+                                clearsIsland: false,
+                                slot: slot,
+                              );
+                            },
                           ),
                   ),
                 ],
@@ -921,12 +927,15 @@ class ChannelPanels {
     final split = splitPair();
     _splitMode = split != null;
     _dropStaleCaches();
+    // One snapshot for the frame: the tab bar and its builders must agree on
+    // the same list even if a removal lands mid-build.
+    final channels = chat.names;
     // The view menu, bell, overflow and settings live in the island's row.
     final showStrip = !isFullscreen() && !hideChrome;
     // A themed app bar holds the actions; the strip keeps its own.
     final appBarHeader =
         homeAppBar.themeSpec().header == HeaderStyle.appBar &&
-        chat.names.isNotEmpty;
+        channels.isNotEmpty;
     return Stack(
       children: [
         Listener(
@@ -934,7 +943,7 @@ class ChannelPanels {
           onPointerDown: (_) {
             composer.clearSuggestions();
           },
-          child: chat.names.isNotEmpty
+          child: channels.isNotEmpty
               ? NotificationListener<ScrollUpdateNotification>(
                   onNotification: (n) {
                     final metrics = n.metrics;
@@ -945,20 +954,23 @@ class ChannelPanels {
                   },
                   child: TabbedLayout(
                     pagesKey: pagesKey,
-                    tabs: chat.names,
-                    selectedIndex: chat.names.indexOf(selectedChannel() ?? ''),
+                    tabs: channels,
+                    selectedIndex: channels.indexOf(selectedChannel() ?? ''),
                     onSelectedIndexChanged: onChannelChanged,
                     onFocusChanged: onChannelFocusChanged,
                     onTabTapped: (index) {
-                      final channel = chat.names[index];
+                      if (index < 0 || index >= channels.length) return;
+                      final channel = channels[index];
                       // ChatView rests on the newest row at 0; a history
                       // page jumps itself when the notifier turns true.
                       final ctrl = scrollCtrl(channel);
                       if (ctrl.hasClients) ctrl.jumpTo(0);
                       atBottomNotifier(channel).value = true;
                     },
-                    onTabLongPress: (index) =>
-                        _showChannelMenu(context, chat.names[index]),
+                    onTabLongPress: (index) {
+                      if (index < 0 || index >= channels.length) return;
+                      _showChannelMenu(context, channels[index]);
+                    },
                     singlePage: split == null
                         ? null
                         : _splitBody(context, split),
@@ -1000,14 +1012,20 @@ class ChannelPanels {
                         : 0,
                     belowTabBar: belowTabBar,
                     pageBuilder: (_, i) {
-                      final channel = chat.names[i];
+                      if (i < 0 || i >= channels.length) {
+                        return const SizedBox.shrink();
+                      }
+                      final channel = channels[i];
                       return _cachedPage(context, channel);
                     },
                     focusOnHalfDrag: true,
                     fastSnap: fastSnap(),
                     preloadAdjacentPages: true,
                     tabBuilder: (_, i) {
-                      final channel = chat.names[i];
+                      if (i < 0 || i >= channels.length) {
+                        return const SizedBox.shrink();
+                      }
+                      final channel = channels[i];
                       final cached = _tabCache[channel];
                       if (cached != null) return cached;
                       final tab = _buildTab(context, channel);
