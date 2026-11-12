@@ -356,6 +356,7 @@ class SevenTvPersonalSets {
     required List<Emote> added,
     required List<String> removedIds,
     required Map<String, String> renamed,
+    Map<String, String?> renamedBaseNames = const {},
   }) {
     final contents = _foreignPersonalSetContents[setId];
     if (contents == null) return;
@@ -364,6 +365,7 @@ class SevenTvPersonalSets {
       added: added,
       removedIds: removedIds,
       renamed: renamed,
+      renamedBaseNames: renamedBaseNames,
     )) {
       return;
     }
@@ -385,6 +387,7 @@ class SevenTvPersonalSets {
     required List<Emote> added,
     required List<String> removedIds,
     required Map<String, String> renamed,
+    Map<String, String?> renamedBaseNames = const {},
   }) {
     final contents = _personalSevenTvSets[setId];
     if (contents == null) return;
@@ -393,6 +396,7 @@ class SevenTvPersonalSets {
       added: added,
       removedIds: removedIds,
       renamed: renamed,
+      renamedBaseNames: renamedBaseNames,
     )) {
       return;
     }
@@ -408,6 +412,7 @@ class SevenTvPersonalSets {
     required List<Emote> added,
     required List<String> removedIds,
     required Map<String, String> renamed,
+    Map<String, String?> renamedBaseNames = const {},
   }) {
     var changed = false;
     if (removedIds.isNotEmpty) {
@@ -419,7 +424,13 @@ class SevenTvPersonalSets {
     for (final entry in renamed.entries) {
       final idx = contents.indexWhere((e) => e.id == entry.key);
       if (idx < 0) continue;
-      contents[idx] = contents[idx].copyWith(code: entry.value);
+      var renamedEmote = contents[idx].copyWith(code: entry.value);
+      if (renamedBaseNames.containsKey(entry.key)) {
+        renamedEmote = renamedEmote.withSevenTvBaseName(
+          renamedBaseNames[entry.key],
+        );
+      }
+      contents[idx] = renamedEmote;
       changed = true;
     }
     for (final e in added) {

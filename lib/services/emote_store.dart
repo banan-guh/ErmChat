@@ -999,6 +999,7 @@ class EmoteStore {
     List<Emote> added = const [],
     List<String> removedIds = const [],
     Map<String, ({String newName, String oldName})> renamed = const {},
+    Map<String, String?> renamedBaseNames = const {},
   }) {
     final catalog = _channelCatalogs[channel];
     if (catalog == null && added.isEmpty) return const [];
@@ -1058,7 +1059,13 @@ class EmoteStore {
       final e = byCode[codes.first];
       if (e == null) continue;
       byCode.remove(e.code);
-      final renamedEmote = intern(e.copyWith(code: entry.value.newName));
+      var renamedEmote = e.copyWith(code: entry.value.newName);
+      if (renamedBaseNames.containsKey(entry.key)) {
+        renamedEmote = renamedEmote.withSevenTvBaseName(
+          renamedBaseNames[entry.key],
+        );
+      }
+      renamedEmote = intern(renamedEmote);
       byCode[renamedEmote.code] = renamedEmote;
       changedCodes
         ..add(e.code)

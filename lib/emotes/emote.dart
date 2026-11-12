@@ -88,6 +88,28 @@ class Emote {
     _ => null,
   };
 
+  /// This emote with a new 7TV base name. Other providers return themselves.
+  Emote withSevenTvBaseName(String? baseName) => switch (meta) {
+    SevenTvMeta m => Emote(
+      id: id,
+      code: code,
+      meta: SevenTvMeta(
+        creator: m.creator,
+        baseName: baseName,
+        unlisted: m.unlisted,
+        personalUse: m.personalUse,
+        relativeScale: m.relativeScale,
+        aspectRatio: m.aspectRatio,
+      ),
+      scales: scales,
+      scope: scope,
+      isAnimated: isAnimated,
+      isZeroWidth: isZeroWidth,
+      createdAtMs: createdAtMs,
+    ),
+    _ => this,
+  };
+
   /// 7TV vertical scale, 1.0 for every other provider.
   double get relativeScale => switch (meta) {
     SevenTvMeta m => m.relativeScale,

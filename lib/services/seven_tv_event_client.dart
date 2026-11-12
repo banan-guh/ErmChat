@@ -50,10 +50,14 @@ class SevenTvRenamedEmote {
   final String oldName;
   final String newName;
 
+  /// Original name when [newName] is an alias, null when they match.
+  final String? baseName;
+
   const SevenTvRenamedEmote({
     required this.id,
     required this.oldName,
     required this.newName,
+    this.baseName,
   });
 }
 
@@ -629,10 +633,14 @@ class SevenTvEventClient {
                   final value = e['value'] as Map<String, dynamic>? ?? {};
                   final oldValue =
                       e['old_value'] as Map<String, dynamic>? ?? {};
+                  final newName = value['name'] as String? ?? '';
+                  final data = value['data'] as Map<String, dynamic>?;
+                  final base = data?['name'] as String?;
                   return SevenTvRenamedEmote(
                     id: value['id'] as String? ?? '',
-                    newName: value['name'] as String? ?? '',
+                    newName: newName,
                     oldName: oldValue['name'] as String? ?? '',
+                    baseName: base != null && base != newName ? base : null,
                   );
                 })
                 .where((e) => e.id.isNotEmpty)

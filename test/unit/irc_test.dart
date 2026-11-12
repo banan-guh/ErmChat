@@ -1813,7 +1813,11 @@ void main() {
           ],
           updated: [
             {
-              'value': {'id': 'u1', 'name': 'RenamedNew'},
+              'value': {
+                'id': 'u1',
+                'name': 'RenamedNew',
+                'data': {'name': 'BaseName'},
+              },
               'old_value': {'id': 'u1', 'name': 'RenamedOld'},
             },
           ],
@@ -1836,6 +1840,7 @@ void main() {
       expect(event.removed.single.id, 'r1');
       expect(event.renamed.single.newName, 'RenamedNew');
       expect(event.renamed.single.oldName, 'RenamedOld');
+      expect(event.renamed.single.baseName, 'BaseName');
       expect(event.actor, 'mod');
       expect(emoteEvents[1].added, isEmpty);
       expect(emoteEvents[1].actor, isNull);

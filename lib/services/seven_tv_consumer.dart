@@ -59,6 +59,7 @@ class SevenTvConsumer {
 
   void _onEmoteSetUpdate(SevenTvEmoteUpdateEvent event) {
     if (_disposed) return;
+    final renamedBaseNames = {for (final r in event.renamed) r.id: r.baseName};
     if (emoteManager.isViewerPersonalSet(event.emoteSetId)) {
       emoteManager.applyViewerPersonalSetUpdate(
         setId: event.emoteSetId,
@@ -71,6 +72,7 @@ class SevenTvConsumer {
             .toList(),
         removedIds: event.removed.map((e) => e.id).toList(),
         renamed: {for (final r in event.renamed) r.id: r.newName},
+        renamedBaseNames: renamedBaseNames,
       );
       return;
     }
@@ -89,6 +91,7 @@ class SevenTvConsumer {
             .toList(),
         removedIds: event.removed.map((e) => e.id).toList(),
         renamed: {for (final r in event.renamed) r.id: r.newName},
+        renamedBaseNames: renamedBaseNames,
       );
       return;
     }
@@ -108,6 +111,7 @@ class SevenTvConsumer {
       added: added,
       removedIds: removedIds,
       renamed: renamed,
+      renamedBaseNames: renamedBaseNames,
     );
 
     final l = strings();

@@ -464,11 +464,13 @@ class EmoteManager implements EmoteLookupSource {
     required List<Emote> added,
     required List<String> removedIds,
     required Map<String, String> renamed,
+    Map<String, String?> renamedBaseNames = const {},
   }) => _personalSets.applyForeignSetUpdate(
     setId: setId,
     added: added,
     removedIds: removedIds,
     renamed: renamed,
+    renamedBaseNames: renamedBaseNames,
   );
 
   /// Whether [setId] is one of the viewer's own personal sets.
@@ -480,11 +482,13 @@ class EmoteManager implements EmoteLookupSource {
     required List<Emote> added,
     required List<String> removedIds,
     required Map<String, String> renamed,
+    Map<String, String?> renamedBaseNames = const {},
   }) => _personalSets.applyViewerSetUpdate(
     setId: setId,
     added: added,
     removedIds: removedIds,
     renamed: renamed,
+    renamedBaseNames: renamedBaseNames,
   );
 
   @visibleForTesting
@@ -1007,6 +1011,7 @@ class EmoteManager implements EmoteLookupSource {
     List<Emote> added = const [],
     List<String> removedIds = const [],
     Map<String, ({String newName, String oldName})> renamed = const {},
+    Map<String, String?> renamedBaseNames = const {},
   }) {
     if (tier == EmoteFetchTier.nothing) return;
     if (!_isProviderOn(EmoteType.sevenTv)) return;
@@ -1016,6 +1021,7 @@ class EmoteManager implements EmoteLookupSource {
       added: added,
       removedIds: removedIds,
       renamed: renamed,
+      renamedBaseNames: renamedBaseNames,
     );
     if (!identical(_store.channelCatalog(channel), before)) {
       _scheduleSevenTvSave(channel);

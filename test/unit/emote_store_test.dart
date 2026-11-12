@@ -497,6 +497,7 @@ void main() {
         store.updateSevenTvEmotes(
           'ch',
           renamed: {'a': (newName: 'Beta', oldName: 'Alpha')},
+          renamedBaseNames: {'a': 'Alpha'},
         );
 
         final after = store.byCode('ch')!.byCode['Beta']!;
@@ -504,6 +505,18 @@ void main() {
         expect(identical(after, before), isFalse);
         expect(identical(store.emoteById('a'), after), isTrue);
         expect(before.code, 'Alpha');
+        expect(after.baseName, 'Alpha', reason: 'the rename set the alias');
+
+        store.updateSevenTvEmotes(
+          'ch',
+          renamed: {'a': (newName: 'Alpha', oldName: 'Beta')},
+          renamedBaseNames: {'a': null},
+        );
+        expect(
+          store.byCode('ch')!.byCode['Alpha']!.baseName,
+          isNull,
+          reason: 'renaming back to the base drops the alias',
+        );
       },
     );
 
