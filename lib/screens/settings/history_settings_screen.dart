@@ -424,21 +424,26 @@ class _ArchiveLimitsTileState extends ConsumerState<ArchiveLimitsTile> {
                 ),
                 // Stacks the buttons when a label won't fit beside the other,
                 // instead of breaking it over two lines.
-                child: OverflowBar(
-                  spacing: 12,
-                  overflowSpacing: 8,
-                  children: [
-                    FilledButton(
-                      onPressed:
-                          archive &&
-                              (_index[0] != _saved[0] || _index[1] != _saved[1])
-                          ? _apply
-                          : null,
-                      child: Text(l.archiveApply),
+                child: SettingsActionRow(
+                  actions: [
+                    SettingsAction(
+                      l.archiveApply,
+                      FilledButton(
+                        onPressed:
+                            archive &&
+                                (_index[0] != _saved[0] ||
+                                    _index[1] != _saved[1])
+                            ? _apply
+                            : null,
+                        child: Text(l.archiveApply),
+                      ),
                     ),
-                    FilledButton(
-                      onPressed: archive ? _abandon : null,
-                      child: Text(l.archiveAbandon),
+                    SettingsAction(
+                      l.archiveAbandon,
+                      FilledButton(
+                        onPressed: archive ? _abandon : null,
+                        child: Text(l.archiveAbandon),
+                      ),
                     ),
                   ],
                 ),

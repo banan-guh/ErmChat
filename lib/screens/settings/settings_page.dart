@@ -145,3 +145,79 @@ class TextWithTrailing extends StatelessWidget {
     );
   }
 }
+
+/// One action in a [SettingsActionRow].
+class SettingsAction {
+  const SettingsAction(this.label, this.child);
+
+  final String label;
+  final Widget child;
+}
+
+/// Lays actions side by side, each taking width in proportion to its label,
+/// so the row fills. Stacks them full width when the labels cannot fit.
+class SettingsActionRow extends StatelessWidget {
+  const SettingsActionRow({super.key, required this.actions});
+
+  final List<SettingsAction> actions;
+
+  static const _gap = 12.0;
+
+  @override
+  Widget build(BuildContext context) {
+    final style = Theme.of(context).textTheme.labelLarge;
+    final scaler = MediaQuery.textScalerOf(context);
+    // Button padding is 24 each side; the label is the part that varies.
+    final widths = [
+      for (final action in actions)
+        _textWidth(action.label, style, scaler, Directionality.of(context)) +
+            48,
+    ];
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final needed =
+            widths.fold(0.0, (sum, width) => sum + width) +
+            _gap * (actions.length - 1);
+        if (needed > constraints.maxWidth) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              for (var i = 0; i < actions.length; i++) ...[
+                if (i > 0) const SizedBox(height: 8),
+                actions[i].child,
+              ],
+            ],
+          );
+        }
+        return Row(
+          children: [
+            for (var i = 0; i < actions.length; i++) ...[
+              if (i > 0) const SizedBox(width: _gap),
+              Expanded(
+                flex: widths[i].round().clamp(1, 1 << 20),
+                child: actions[i].child,
+              ),
+            ],
+          ],
+        );
+      },
+    );
+  }
+
+  static double _textWidth(
+    String text,
+    TextStyle? style,
+    TextScaler scaler,
+    TextDirection direction,
+  ) {
+    final painter = TextPainter(
+      text: TextSpan(text: text, style: style),
+      textDirection: direction,
+      textScaler: scaler,
+      maxLines: 1,
+    )..layout();
+    final width = painter.width;
+    painter.dispose();
+    return width;
+  }
+}
