@@ -1169,6 +1169,50 @@ void main() {
     await store.close();
   });
 
+  test('the prune clock survives a reopen', () async {
+    final path = _newPath();
+    var now = DateTime.utc(2026, 9, 1);
+    final first = await _open(path, now: () => now);
+    // A first launch with nothing to prune records the clock.
+    expect(await first.pruneIfDue(), 0);
+    final old = now.subtract(const Duration(days: 40));
+    await first.appendBlock(
+      channel: _channel,
+      startTs: old.millisecondsSinceEpoch,
+      endTs: old.millisecondsSinceEpoch + 1000,
+      count: 0,
+      data: ArchiveBlock.encode(const []),
+      minutes: const {},
+    );
+    await first.close();
+
+    // A relaunch ten minutes later must not prune again just because the
+    // in-memory clock is gone. Before the clock was stored, every launch ran
+    // the prune and its full upkeep.
+    now = now.add(const Duration(minutes: 10));
+    final second = await _open(path, now: () => now);
+    expect(
+      await second.newestBlocks(_channel, 10),
+      hasLength(1),
+      reason: 'a relaunch within the hour keeps the row',
+    );
+    expect(
+      await second.pruneIfDue(),
+      0,
+      reason: 'at most hourly across launches',
+    );
+    await second.close();
+
+    now = now.add(const Duration(hours: 2));
+    final third = await _open(path, now: () => now);
+    expect(
+      await third.newestBlocks(_channel, 10),
+      isEmpty,
+      reason: 'an hour later the prune runs again',
+    );
+    await third.close();
+  });
+
   test('an older database gains the end time index on open', () async {
     final path = _newPath();
     final store = await _open(path);
@@ -2047,6 +2091,7 @@ void main() {
         await db.rawUpdate('UPDATE blocks SET threads = 0');
         await db.rawDelete('DELETE FROM thread_refs');
         await db.rawDelete('DELETE FROM thread_roots');
+        await db.rawDelete("DELETE FROM meta WHERE key = 'indexed_version'");
         await db.close();
 
         // Opening runs the upkeep that indexes them.

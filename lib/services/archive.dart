@@ -59,17 +59,21 @@ class Archive {
       try {
         // The open prunes once, so the chosen limits apply before it.
         await Prefs.load();
+        final prefsMs = sw.elapsedMilliseconds;
         ArchiveStore.retention = Duration(
           days: Settings.archiveRetentionDays.value,
         );
         ArchiveStore.channelCapBytes = capBytes(
           Settings.archiveChannelCapMb.value,
         );
-        final store = await ArchiveStore.open(await defaultPath());
-        final ms = sw.elapsedMilliseconds;
+        final path = await defaultPath();
+        final pathMs = sw.elapsedMilliseconds;
+        final store = await ArchiveStore.open(path);
+        final total = sw.elapsedMilliseconds;
         logDebug(
-          '[Archive] opened in ${ms}ms',
-          persist: ms >= _slowOpen.inMilliseconds,
+          '[Archive] opened in ${total}ms '
+          '(prefs $prefsMs, path ${pathMs - prefsMs}, db ${total - pathMs})',
+          persist: total >= _slowOpen.inMilliseconds,
         );
         return store;
       } catch (e) {

@@ -112,6 +112,7 @@ class ArchiveStore {
   final DateTime Function() _now;
   final Map<String, Future<_ChannelTables>> _tables = {};
   DateTime? _lastPrune;
+  int? _indexedVersion;
 
   /// Opens (creating if needed) the archive at [path] and prunes once.
   static Future<ArchiveStore> open(
@@ -119,6 +120,7 @@ class ArchiveStore {
     DatabaseFactory? factory,
     DateTime Function()? now,
   }) async {
+    final sw = Stopwatch()..start();
     final db = await (factory ?? databaseFactory).openDatabase(
       path,
       options: OpenDatabaseOptions(
@@ -151,9 +153,79 @@ class ArchiveStore {
         },
       ),
     );
+    final openMs = sw.elapsedMilliseconds;
     final store = ArchiveStore._(db, now ?? DateTime.now);
+    await store._ensureMeta();
+    if (store._indexedVersion != schemaVersion) {
+      await store._backfillIndexes();
+      await store._saveIndexedVersion();
+    }
+    logDebug(
+      '[Archive] database $openMs, indexes ${sw.elapsedMilliseconds - openMs}ms',
+      persist: false,
+    );
     await store.pruneIfDue();
     return store;
+  }
+
+  /// Indexes blocks sealed before their index existed. Cheap no-ops on a
+  /// healthy store, and kept off the hourly upkeep so an upgrade is indexed
+  /// on the next open rather than up to an hour later.
+  Future<void> _backfillIndexes() async {
+    await backfillWords();
+    await backfillThreads();
+  }
+
+  /// Carries the prune clock and the indexed schema version across launches.
+  /// Kept in `meta`, which older databases still have from the dropped
+  /// saved-thread migration.
+  Future<void> _ensureMeta() async {
+    await _db.execute(
+      'CREATE TABLE IF NOT EXISTS meta('
+      'key TEXT PRIMARY KEY, value TEXT NOT NULL) WITHOUT ROWID',
+    );
+    try {
+      final r = await _db.rawQuery(
+        "SELECT key, value FROM meta "
+        "WHERE key IN ('last_prune', 'indexed_version')",
+      );
+      for (final row in r) {
+        final key = row['key'] as String;
+        final value = row['value'] as String;
+        if (key == 'last_prune') {
+          final ms = int.tryParse(value);
+          _lastPrune = ms == null
+              ? null
+              : DateTime.fromMillisecondsSinceEpoch(ms, isUtc: true);
+        } else if (key == 'indexed_version') {
+          _indexedVersion = int.tryParse(value);
+        }
+      }
+    } catch (e) {
+      logDebug('[Archive] meta read failed: $e');
+    }
+  }
+
+  Future<void> _saveIndexedVersion() async {
+    try {
+      await _db.rawInsert(
+        'INSERT OR REPLACE INTO meta(key, value) VALUES (?, ?)',
+        ['indexed_version', '$schemaVersion'],
+      );
+    } catch (e) {
+      logDebug('[Archive] index version write failed: $e');
+    }
+  }
+
+  Future<void> _savePruneClock(DateTime now) async {
+    try {
+      await _db.rawInsert(
+        'INSERT OR REPLACE INTO meta(key, value) VALUES (?, ?)',
+        ['last_prune', '${now.millisecondsSinceEpoch}'],
+      );
+    } catch (e) {
+      logDebug('[Archive] prune clock write failed: $e');
+    }
   }
 
   static Future<void> _create(Database db) async {
@@ -1533,7 +1605,10 @@ class ArchiveStore {
       return 0;
     }
     _lastPrune = now;
+    final sw = Stopwatch()..start();
     final deleted = await prune(now);
+    await _savePruneClock(now);
+    logDebug('[Archive] pruned $deleted blocks in ${sw.elapsedMilliseconds}ms');
     // A long gap leaves seconds of merging; nothing waits on it.
     _compacting ??= _upkeep(now)
         .then<void>(
