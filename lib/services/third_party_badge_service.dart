@@ -102,77 +102,83 @@ class ThirdPartyBadgeService {
     });
   }
 
-  Future<void> fetchFfzBadges() => _ffzLoad ??= _loadFfz().then((ok) {
-    if (!ok) _ffzLoad = null;
-  });
+  Future<void> fetchFfzBadges() => _ffzLoad ??= _loadFfzWithRetry();
 
-  Future<bool> _loadFfz() async {
+  Future<void> _loadFfzWithRetry() async {
     try {
-      final uri = Uri.parse('https://api.frankerfacez.com/v1/badges/ids');
-      final res = await _get(uri);
-      if (res.statusCode != 200) return false;
-      final data = jsonDecode(res.body) as Map<String, dynamic>;
-
-      final badgesList = data['badges'] as List<dynamic>? ?? [];
-      for (final entry in badgesList) {
-        final b = entry as Map<String, dynamic>;
-        final id = b['id']?.toString() ?? '';
-        if (id.isEmpty) continue;
-        final urls = b['urls'] as Map<String, dynamic>?;
-        final imageUrl =
-            (urls?['4'] ?? urls?['2'] ?? urls?['1'] ?? b['image']) as String?;
-        if (imageUrl == null) continue;
-        _ffzBadges[id] = _FfzBadge(
-          id: id,
-          name: b['title'] as String? ?? b['name'] as String? ?? '',
-          imageUrl: imageUrl,
-        );
-      }
-
-      final usersMap = data['users'] as Map<String, dynamic>? ?? {};
-      for (final entry in usersMap.entries) {
-        final badgeId = entry.key;
-        final userIds = entry.value as List<dynamic>? ?? [];
-        for (final uid in userIds) {
-          _ffzUsers[uid.toString()] = badgeId;
-        }
-      }
-      _version++;
-      return true;
+      if (!await retryTransient(_loadFfz)) _ffzLoad = null;
     } catch (e) {
       logDebug('FFZ badge fetch error: $e');
-      return false;
+      _ffzLoad = null;
     }
   }
 
-  Future<void> fetchBttvBadges() => _bttvLoad ??= _loadBttv().then((ok) {
-    if (!ok) _bttvLoad = null;
-  });
+  Future<bool> _loadFfz() async {
+    final uri = Uri.parse('https://api.frankerfacez.com/v1/badges/ids');
+    final res = await _get(uri);
+    throwOnTransientHttpError(res.statusCode, uri);
+    if (res.statusCode != 200) return false;
+    final data = jsonDecode(res.body) as Map<String, dynamic>;
 
-  Future<bool> _loadBttv() async {
-    try {
-      final uri = Uri.parse('https://api.betterttv.net/3/cached/badges/twitch');
-      final res = await _get(uri);
-      if (res.statusCode != 200) return false;
-      final list = jsonDecode(res.body) as List<dynamic>? ?? [];
-      for (final entry in list) {
-        final item = entry as Map<String, dynamic>;
-        final providerId = item['providerId'] as String? ?? '';
-        final badge = item['badge'] as Map<String, dynamic>?;
-        final svg = badge?['svg'] as String? ?? '';
-        if (providerId.isNotEmpty && svg.isNotEmpty) {
-          _bttvUsers[providerId] = (
-            url: svg,
-            name: badge?['description'] as String? ?? '',
-          );
-        }
+    final badgesList = data['badges'] as List<dynamic>? ?? [];
+    for (final entry in badgesList) {
+      final b = entry as Map<String, dynamic>;
+      final id = b['id']?.toString() ?? '';
+      if (id.isEmpty) continue;
+      final urls = b['urls'] as Map<String, dynamic>?;
+      final imageUrl =
+          (urls?['4'] ?? urls?['2'] ?? urls?['1'] ?? b['image']) as String?;
+      if (imageUrl == null) continue;
+      _ffzBadges[id] = _FfzBadge(
+        id: id,
+        name: b['title'] as String? ?? b['name'] as String? ?? '',
+        imageUrl: imageUrl,
+      );
+    }
+
+    final usersMap = data['users'] as Map<String, dynamic>? ?? {};
+    for (final entry in usersMap.entries) {
+      final badgeId = entry.key;
+      final userIds = entry.value as List<dynamic>? ?? [];
+      for (final uid in userIds) {
+        _ffzUsers[uid.toString()] = badgeId;
       }
-      _version++;
-      return true;
+    }
+    _version++;
+    return true;
+  }
+
+  Future<void> fetchBttvBadges() => _bttvLoad ??= _loadBttvWithRetry();
+
+  Future<void> _loadBttvWithRetry() async {
+    try {
+      if (!await retryTransient(_loadBttv)) _bttvLoad = null;
     } catch (e) {
       logDebug('BTTV badge fetch error: $e');
-      return false;
+      _bttvLoad = null;
     }
+  }
+
+  Future<bool> _loadBttv() async {
+    final uri = Uri.parse('https://api.betterttv.net/3/cached/badges/twitch');
+    final res = await _get(uri);
+    throwOnTransientHttpError(res.statusCode, uri);
+    if (res.statusCode != 200) return false;
+    final list = jsonDecode(res.body) as List<dynamic>? ?? [];
+    for (final entry in list) {
+      final item = entry as Map<String, dynamic>;
+      final providerId = item['providerId'] as String? ?? '';
+      final badge = item['badge'] as Map<String, dynamic>?;
+      final svg = badge?['svg'] as String? ?? '';
+      if (providerId.isNotEmpty && svg.isNotEmpty) {
+        _bttvUsers[providerId] = (
+          url: svg,
+          name: badge?['description'] as String? ?? '',
+        );
+      }
+    }
+    _version++;
+    return true;
   }
 
   /// Loads the Chatterino, DankChat, Chatsen and Chatterino Homies badge
@@ -185,7 +191,9 @@ class ThirdPartyBadgeService {
       return;
     }
     try {
-      final res = await _get(Uri.parse(provider.url));
+      final uri = Uri.parse(provider.url);
+      final res = await retryTransient(() => _get(uri));
+      throwOnTransientHttpError(res.statusCode, uri);
       if (res.statusCode != 200) return;
       // The Homies list runs to megabytes: parse off the UI isolate so the
       // startup spinner keeps turning.

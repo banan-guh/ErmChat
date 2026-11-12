@@ -1,7 +1,9 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:math';
 
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
 
 const httpTimeout = Duration(seconds: 10);
 
@@ -111,6 +113,32 @@ bool isImageEmbedCandidate(String url) {
 void throwOnTransientHttpError(int statusCode, Uri uri) {
   if (statusCode == 429 || statusCode >= 500) {
     throw HttpException('HTTP $statusCode', uri: uri);
+  }
+}
+
+/// Whether [error] is worth another attempt: a timeout, a socket or TLS
+/// failure, or a transient HTTP status.
+bool isTransientHttpError(Object error) =>
+    error is TimeoutException ||
+    error is SocketException ||
+    error is HandshakeException ||
+    error is HttpException ||
+    error is http.ClientException;
+
+/// Runs [action] up to [attempts] times, backing off between transient
+/// failures. Non-transient errors fail at once.
+Future<T> retryTransient<T>(
+  Future<T> Function() action, {
+  int attempts = 3,
+  Duration base = const Duration(milliseconds: 500),
+}) async {
+  for (var attempt = 1; ; attempt++) {
+    try {
+      return await action();
+    } catch (error) {
+      if (attempt >= attempts || !isTransientHttpError(error)) rethrow;
+      await Future<void>.delayed(applyReconnectJitter(base * attempt));
+    }
   }
 }
 

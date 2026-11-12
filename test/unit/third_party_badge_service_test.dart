@@ -30,6 +30,39 @@ final _catalog = jsonEncode({
 });
 
 void main() {
+  test('transient badge failures retry, permanent ones do not', () {
+    fakeAsync((async) {
+      var calls = 0;
+      final client = MockClient((req) async {
+        calls++;
+        if (calls < 3) throw http.ClientException('offline', req.url);
+        return http.Response(jsonEncode({'badges': [], 'users': {}}), 200);
+      });
+      final service = ThirdPartyBadgeService(client: client);
+      addTearDown(service.dispose);
+
+      var done = false;
+      service.fetchFfzBadges().then((_) => done = true);
+      async.elapse(const Duration(seconds: 5));
+      expect(calls, 3, reason: 'two transient failures then success');
+      expect(done, isTrue);
+
+      // A permanent status fails without another attempt.
+      var rejected = 0;
+      final rejectClient = MockClient((req) async {
+        rejected++;
+        return http.Response('', 403);
+      });
+      final rejectedService = ThirdPartyBadgeService(client: rejectClient);
+      addTearDown(rejectedService.dispose);
+      var rejectedDone = false;
+      rejectedService.fetchFfzBadges().then((_) => rejectedDone = true);
+      async.elapse(const Duration(seconds: 5));
+      expect(rejected, 1);
+      expect(rejectedDone, isTrue);
+    });
+  });
+
   test('Limerino badges batch lookups, cache answers, and back off', () {
     fakeAsync((async) {
       final lookups = <List<String>>[];
