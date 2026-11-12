@@ -685,9 +685,7 @@ class RecentMessagesService {
       login: login,
       displayName: displayName,
       text: text,
-      color: msg.tags['color'] != null && msg.tags['color']!.isNotEmpty
-          ? msg.tags['color']
-          : (login.isEmpty ? null : pickColor(login)),
+      color: msg.tags['color'],
       userId: msg.tags['user-id'],
       messageId: msg.tags['id'],
       badges: parseIrcBadges(msg.tags['badges']),
@@ -735,9 +733,7 @@ class RecentMessagesService {
       login: login,
       displayName: displayName,
       text: text,
-      color: msg.tags['color'] != null && msg.tags['color']!.isNotEmpty
-          ? msg.tags['color']
-          : (login.isEmpty ? null : pickColor(login)),
+      color: msg.tags['color'],
       userId: msg.tags['user-id'],
       messageId: msg.tags['id'],
       badges: parseIrcBadges(msg.tags['badges']),
