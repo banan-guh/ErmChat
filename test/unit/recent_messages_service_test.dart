@@ -1,3 +1,4 @@
+import 'package:ermchat/color_utils.dart';
 import 'package:ermchat/models/twitch_message.dart';
 import 'package:ermchat/services/recent_messages.dart';
 import 'package:fake_async/fake_async.dart';
@@ -69,6 +70,25 @@ void main() {
       async.flushMicrotasks();
       expect(calls, 2);
       expect(rows, isEmpty);
+    });
+  });
+
+  test('a history row without a color tag takes the palette color', () {
+    fakeAsync((async) {
+      const payload =
+          '{"messages":["@rm-received-ts=1700000000000;historical=1;id=m2;'
+          'login=user;display-name=User;emotes;badges;user-id=42 '
+          ':user!user@user.tmi.twitch.tv PRIVMSG #test :hi"]}';
+      final client = MockClient((_) async => http.Response(payload, 200));
+      List<TwitchMessage>? rows;
+      _service(client).fetchRecent('test').then((r) => rows = r);
+      async.flushMicrotasks();
+
+      expect(
+        rows?.single.color,
+        pickColor('user'),
+        reason: 'live rows without a tag already take the palette color',
+      );
     });
   });
 }
