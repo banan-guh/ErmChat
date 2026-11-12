@@ -341,7 +341,7 @@ class ArchiveStore {
   /// kind (`emote`, `badge`), scope (a channel, or '' for global sets) and
   /// source (the provider).
   static Future<void> _createObservations(Database db) =>
-      db.execute('''CREATE TABLE observations(
+      db.execute('''CREATE TABLE IF NOT EXISTS observations(
          kind TEXT NOT NULL, scope TEXT NOT NULL, source TEXT NOT NULL,
          at_ms INTEGER NOT NULL, seen_ms INTEGER NOT NULL,
          full INTEGER NOT NULL, added TEXT NOT NULL, removed TEXT NOT NULL,
@@ -436,12 +436,12 @@ class ArchiveStore {
   /// (`ts`) and how many times the block replies to it (`count`). Blocks
   /// sealed before this table existed have no rows and are not scanned.
   static Future<void> _createThreadIndex(Database db) async {
-    await db.execute('''CREATE TABLE thread_refs(
+    await db.execute('''CREATE TABLE IF NOT EXISTS thread_refs(
          channel TEXT NOT NULL, root_id TEXT NOT NULL, block_id INTEGER NOT NULL,
          ts INTEGER NOT NULL, count INTEGER NOT NULL,
          PRIMARY KEY(channel, root_id, block_id)) WITHOUT ROWID''');
     await db.execute(
-      'CREATE INDEX thread_refs_by_ts ON thread_refs(channel, ts)',
+      'CREATE INDEX IF NOT EXISTS thread_refs_by_ts ON thread_refs(channel, ts)',
     );
   }
 
@@ -449,7 +449,7 @@ class ArchiveStore {
   /// row per thread, so the Active list shows a preview without decoding a
   /// block.
   static Future<void> _createThreadRoots(Database db) async {
-    await db.execute('''CREATE TABLE thread_roots(
+    await db.execute('''CREATE TABLE IF NOT EXISTS thread_roots(
          channel TEXT NOT NULL, root_id TEXT NOT NULL,
          author TEXT NOT NULL, preview TEXT NOT NULL,
          PRIMARY KEY(channel, root_id)) WITHOUT ROWID''');

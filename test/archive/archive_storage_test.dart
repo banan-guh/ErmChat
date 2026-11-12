@@ -115,6 +115,26 @@ void main() {
 
   tearDownAll(() => _dir.deleteSync(recursive: true));
 
+  test('a half-applied upgrade finishes on the next open', () async {
+    final path = _newPath();
+    final store = await _open(path);
+    await store.close();
+    // An upgrade that wrote its tables but not the version leaves the store
+    // looking untouched. The next open must finish, not fail on the tables.
+    final raw = await databaseFactoryFfi.openDatabase(path);
+    await raw.execute('PRAGMA user_version = 11');
+    await raw.close();
+
+    final reopened = await _open(path);
+    await reopened.close();
+    final check = await databaseFactoryFfi.openDatabase(path);
+    final version = (await check.rawQuery(
+      'PRAGMA user_version',
+    )).first.values.first;
+    await check.close();
+    expect(version, ArchiveStore.schemaVersion);
+  });
+
   test('adapter round trips a realistic message set', () {
     final set = <TwitchMessage>[
       TwitchMessage(
