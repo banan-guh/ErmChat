@@ -15,20 +15,25 @@ void main() {
   late Chat chat;
   late DateTime clockNow;
   late Map<String, dynamic>? stream;
+  late List<Map<String, dynamic>> videos;
   late int status;
+  late int videosStatus;
   late ChatStatusComposer composer;
   final archived = <String>[];
 
   ChatStatusComposer build() {
     final api = TwitchApi(
-      client: MockClient(
-        (_) async => http.Response(
+      client: MockClient((req) async {
+        if (req.url.path.endsWith('/videos')) {
+          return http.Response(jsonEncode({'data': videos}), videosStatus);
+        }
+        return http.Response(
           jsonEncode({
             'data': [?stream],
           }),
           status,
-        ),
-      ),
+        );
+      }),
     );
     return ChatStatusComposer(
       twitchApi: api,
@@ -57,6 +62,8 @@ void main() {
   Future<void> poll([Duration after = const Duration(seconds: 30)]) async {
     clockNow = clockNow.add(after);
     await composer.fetchAllChatStatus();
+    // Settle the fire-and-forget archive end lookup.
+    await pumpEventQueue();
   }
 
   List<String> rows() => chat
@@ -82,6 +89,8 @@ void main() {
     clockNow = DateTime.utc(2026, 10, 13, 12);
     stream = null;
     status = 200;
+    videos = [];
+    videosStatus = 200;
     archived.clear();
     composer = build();
   });
@@ -188,5 +197,63 @@ void main() {
     );
     await poll();
     expect(rows(), hasLength(1));
+  });
+
+  Map<String, dynamic> video(String streamId, String duration) => {
+    'id': '7001',
+    'stream_id': streamId,
+    'created_at': '2026-10-13T09:00:00Z',
+    'duration': duration,
+  };
+
+  DateTime? endRowTime() => chat
+      .channelFor('test')!
+      .messages
+      .byId('sys_stream:s1:end')
+      ?.timestamp
+      .toUtc();
+
+  test('the archive end moves the end row to the real end', () async {
+    stream = live('s1', '2026-10-13T09:00:00Z');
+    await poll();
+    stream = null;
+    videos = [video('s1', '3h5m20s')];
+    await poll();
+    await poll();
+
+    expect(rows(), [
+      'sys_stream:s1:end|Stream ended - 3h5m',
+      'sys_stream:s1:start|Stream: Speedrun - Zelda',
+    ]);
+    expect(endRowTime(), DateTime.utc(2026, 10, 13, 12, 5, 20));
+    expect(
+      archived.last,
+      'ended s1 2026-10-13 12:05:20.000Z',
+      reason: 'the archive end overwrites the last-poll estimate',
+    );
+  });
+
+  test('a new id while live moves the old end too', () async {
+    stream = live('s1', '2026-10-13T09:00:00Z');
+    await poll();
+    videos = [video('s1', '1h')];
+    stream = live('s2', '2026-10-13T12:20:00Z');
+    await poll();
+
+    expect(endRowTime(), DateTime.utc(2026, 10, 13, 10));
+    expect(archived.last, 'ended s1 2026-10-13 10:00:00.000Z');
+  });
+
+  test('a failed archive lookup keeps the last live poll end', () async {
+    stream = live('s1', '2026-10-13T09:00:00Z');
+    await poll();
+    stream = null;
+    videosStatus = 500;
+    await poll();
+    await poll();
+
+    expect(endRowTime(), DateTime.utc(2026, 10, 13, 12, 0, 30));
+    expect(rows(), contains('sys_stream:s1:end|Stream ended - 3h0m'));
+    expect(archived.last, 'ended s1 2026-10-13 12:00:30.000Z');
   });
 }

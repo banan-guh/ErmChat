@@ -646,6 +646,60 @@ class TwitchApi {
     }
   }
 
+  /// Metadata of the newest archive video that records a stream: the VOD id,
+  /// that stream's id, and the stream's real start and end (start plus the
+  /// video duration). Null when no listed video carries a usable stream id,
+  /// start or duration, or on failure. No thumbnail is fetched.
+  Future<
+    ({String vodId, String streamId, DateTime startedAt, DateTime endedAt})?
+  >
+  getLatestArchiveVideo(TwitchAuth auth, String broadcasterId) async {
+    final uri = Uri.parse(
+      '$_base/videos?user_id=$broadcasterId&type=archive&first=5',
+    );
+    final res = await _get('getLatestArchiveVideo', auth, uri);
+    if (res == null) return null;
+    try {
+      final list = (jsonDecode(res.body) as Map)['data'] as List;
+      for (final v in list.cast<Map>()) {
+        final streamId = v['stream_id'] as String?;
+        final vodId = v['id'] as String?;
+        final startedAt = DateTime.tryParse(v['created_at'] as String? ?? '');
+        final duration = _parseVideoDuration(v['duration'] as String? ?? '');
+        if (streamId == null || streamId.isEmpty || vodId == null) continue;
+        if (startedAt == null || duration == null) continue;
+        return (
+          vodId: vodId,
+          streamId: streamId,
+          startedAt: startedAt,
+          endedAt: startedAt.add(duration),
+        );
+      }
+      return null;
+    } catch (e) {
+      logDebug('[TwitchApi] getLatestArchiveVideo failed: $e');
+      _setError('getLatestArchiveVideo: bad response');
+      return null;
+    }
+  }
+
+  static final _videoDuration = RegExp(r'^(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?$');
+
+  /// Twitch video lengths look like "1h2m3s", dropping empty units.
+  static Duration? _parseVideoDuration(String value) {
+    final m = _videoDuration.firstMatch(value);
+    if (m == null) return null;
+    final hours = int.tryParse(m.group(1) ?? '');
+    final minutes = int.tryParse(m.group(2) ?? '');
+    final seconds = int.tryParse(m.group(3) ?? '');
+    if (hours == null && minutes == null && seconds == null) return null;
+    return Duration(
+      hours: hours ?? 0,
+      minutes: minutes ?? 0,
+      seconds: seconds ?? 0,
+    );
+  }
+
   Future<Map<String, dynamic>?> getUserProfile(
     TwitchAuth auth,
     String login,

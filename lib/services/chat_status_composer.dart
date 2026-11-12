@@ -195,6 +195,7 @@ class ChatStatusComposer {
         if (polls < 2) continue;
         _offlinePolls.remove(userId);
         _writeEnded(target, saved);
+        unawaited(_refineEnd(channel, userId, saved.id));
         await prefs.setString(
           _markerKey(userId),
           jsonEncode({
@@ -209,6 +210,7 @@ class ChatStatusComposer {
       _offlinePolls.remove(userId);
       if (saved != null && saved.id != id && !saved.ended) {
         _writeEnded(target, saved);
+        unawaited(_refineEnd(channel, userId, saved.id));
       }
       if (saved != null && saved.id == id && saved.ended) {
         target.messages.removeSystem('sys_stream:$id:end');
@@ -280,21 +282,62 @@ class ChatStatusComposer {
     ({String id, DateTime? startedAt, DateTime seenAt, bool ended}) marker,
   ) {
     onStreamEnded?.call(marker.id, marker.seenAt);
-    final started = marker.startedAt;
-    String? duration;
-    if (started != null && marker.seenAt.isAfter(started)) {
-      final d = marker.seenAt.difference(started);
-      duration = d.inHours > 0
-          ? strings().streamDurationHm(d.inHours, d.inMinutes.remainder(60))
-          : strings().streamDurationM(d.inMinutes);
-    }
     target.addSystemMessageAt(
-      [strings().streamEnded, ?duration].join(' - '),
+      [
+        strings().streamEnded,
+        ?_durationText(marker.startedAt, marker.seenAt),
+      ].join(' - '),
       messageId: 'sys_stream:${marker.id}:end',
       at: marker.seenAt,
       accent: streamAccent,
       maxMessages: getMaxMessages(),
     );
+  }
+
+  /// Moves the end of [streamId] to the real end from its archive video,
+  /// which Twitch lists a little after the stream stops. One best-effort
+  /// attempt: a failure, a video not ready yet or a video for another
+  /// stream keeps the last-poll estimate and its row.
+  Future<void> _refineEnd(
+    String channel,
+    String userId,
+    String streamId,
+  ) async {
+    final auth = twitchAuth;
+    if (!auth.isConfigured) return;
+    ({String vodId, String streamId, DateTime startedAt, DateTime endedAt})?
+    video;
+    try {
+      video = await twitchApi.getLatestArchiveVideo(auth, userId);
+    } catch (e) {
+      logDebug('[ChatConn] archive end lookup failed for $channel: $e');
+      return;
+    }
+    if (video == null || video.streamId != streamId) return;
+    final target = chat.channelFor(channel);
+    if (target == null) return;
+    onStreamEnded?.call(streamId, video.endedAt);
+    target.messages.removeSystem('sys_stream:$streamId:end');
+    target.addSystemMessageAt(
+      [
+        strings().streamEnded,
+        ?_durationText(video.startedAt, video.endedAt),
+      ].join(' - '),
+      messageId: 'sys_stream:$streamId:end',
+      at: video.endedAt.toLocal(),
+      accent: streamAccent,
+      maxMessages: getMaxMessages(),
+    );
+  }
+
+  // The duration text for a start and end pair, absent when the start is
+  // unknown or does not precede the end.
+  String? _durationText(DateTime? started, DateTime ended) {
+    if (started == null || !ended.isAfter(started)) return null;
+    final d = ended.difference(started);
+    return d.inHours > 0
+        ? strings().streamDurationHm(d.inHours, d.inMinutes.remainder(60))
+        : strings().streamDurationM(d.inMinutes);
   }
 
   void _applyStreamStatus(String channel, Map<String, dynamic>? stream) {
