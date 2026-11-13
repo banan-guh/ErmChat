@@ -41,10 +41,10 @@ Skipped from the survey: emoji picker (the keyboard has one), follow/unfollow, p
 - [ ] **VOD view** - embed `video=` with chat replay from the archive.
 - [ ] **Drop ids after 24h** - keep only reply-referenced ids in `ref_ids`.
 - [ ] **Archive dedup window** - only the last ~4096 ids per channel are checked on write.
-- [ ] **Restore order** - one isolate for all channels, selected channel first.
+- [+] **Restore order** - one isolate for all channels, selected channel first.
 - [ ] **Message memory diet** - flags int, int timestamps, shared UserState.
 - [ ] **Per-account WebView profiles** - one profile per account, sign-out fallback on old WebViews.
-- [ ] **Archive open stall is silent** - a stuck open looks like an empty archive and blocks backfill; surface it and recover.
+- [+] **Archive open stall is silent** - a stuck open looks like an empty archive and blocks backfill; surface it and recover.
 
 ## Medium Priority
 
