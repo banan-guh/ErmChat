@@ -59,9 +59,9 @@ android {
     }
 
     buildTypes {
-        // With devAppId, the debug install sits beside the real app so a run
-        // never uninstalls it over a key or version clash. Profile and release
-        // use the normal id, so a profile run touches real data.
+        // With devAppId, the debug and release installs sit beside the real
+        // app so a run never uninstalls it over a key or version clash.
+        // Profile keeps the normal id, so a profile run touches real data.
         if (devAppId) {
             getByName("debug") {
                 applicationIdSuffix = ".debug"
@@ -84,7 +84,9 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            if (System.getenv("ERMCHAT_DEV_RELEASE") == "1") {
+            // Debug signing, so this updates in place over a debug install
+            // that already uses the .debug id.
+            if (devAppId || System.getenv("ERMCHAT_DEV_RELEASE") == "1") {
                 applicationIdSuffix = ".debug"
                 manifestPlaceholders["appLabel"] = "ErmChat Dev"
                 signingConfig = signingConfigs.getByName("debug")
