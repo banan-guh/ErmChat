@@ -13,6 +13,7 @@ import '../archive/archive_words.dart';
 import '../archive/intern_table.dart';
 import '../archive/set_log.dart';
 import '../util/log.dart';
+import '../util/slow_trace.dart';
 
 /// A reply root as the thread index keeps it: the time of the newest reply to
 /// it (`ts`), its reply count, and the root row's own author and preview,
@@ -112,6 +113,10 @@ class ArchiveStore {
   final DateTime Function() _now;
   final Map<String, Future<_ChannelTables>> _tables = {};
 
+  /// Resolved [tables] entries, so a read can use the cached object without
+  /// awaiting the future or reloading a partial table.
+  final Map<String, UserTables> _tablesNow = {};
+
   /// Channels read recently, oldest first, with the time of the read, so a
   /// prune does not drop the tables a read just loaded.
   final Map<String, DateTime> _reads = {};
@@ -137,6 +142,11 @@ class ArchiveStore {
       path,
       options: OpenDatabaseOptions(
         version: schemaVersion,
+        // Not the plugin's shared instance: after an activity recreates the
+        // Flutter engine in the same process, the old engine's connection is
+        // still in sqflite's static map. Reusing it can wait forever on a
+        // transaction whose isolate is gone. A fresh connection opens.
+        singleInstance: false,
         onConfigure: (db) async {
           await db.execute('PRAGMA auto_vacuum=INCREMENTAL');
           await db.rawQuery('PRAGMA journal_mode=WAL');
@@ -167,6 +177,9 @@ class ArchiveStore {
     );
     final openMs = sw.elapsedMilliseconds;
     final store = ArchiveStore._(db, now ?? DateTime.now);
+    // Covers the widest-block query a read runs first; without it SQLite
+    // reads every block row and holds the connection for over a second.
+    await _createSpanIndex(db);
     await store._ensureMeta();
     if (!store._observationsPacked) {
       final packed = await store._packObservations();
@@ -336,6 +349,14 @@ class ArchiveStore {
   /// cost of a seal flat. Already there after an upgrade that stopped short.
   static Future<void> _createBlockTimeIndex(Database db) =>
       db.execute('CREATE INDEX IF NOT EXISTS blocks_by_time ON blocks(end_ts)');
+
+  /// Per channel, both block bounds, so the widest-block query (`MAX(end_ts -
+  /// start_ts)`, the span a read searches) stays on the index instead of
+  /// reading every block row.
+  static Future<void> _createSpanIndex(Database db) => db.execute(
+    'CREATE INDEX IF NOT EXISTS blocks_by_span ON blocks(channel, start_ts, '
+    'end_ts)',
+  );
 
   /// Set history (see [SetLog]): what each fetch of a set returned, by
   /// kind (`emote`, `badge`), scope (a channel, or '' for global sets) and
@@ -556,6 +577,7 @@ class ArchiveStore {
       }
     });
     _tables.clear();
+    _tablesNow.clear();
     _vocab = null;
     await reclaimSpace(all: true);
   }
@@ -573,10 +595,97 @@ class ArchiveStore {
   Future<UserTables> tables(String channel) async {
     final future = _tables.putIfAbsent(channel, () => _loadTables(channel));
     try {
-      return (await future).tables;
+      final loaded = await future;
+      return _tablesNow[channel] = loaded.tables;
     } catch (_) {
       _tables.remove(channel);
+      _tablesNow.remove(channel);
       rethrow;
+    }
+  }
+
+  /// The channel's tables when already loaded, without starting a load.
+  UserTables? cachedTables(String channel) => _tablesNow[channel];
+
+  /// Only the user tables the [stateIds] of one read name. A first read of a
+  /// busy channel parses its whole user table otherwise, seconds before the
+  /// first rows show.
+  Future<UserTables> tablesFor(String channel, Iterable<int> stateIds) async {
+    final t = SlowTrace('tablesFor $channel', limitMs: 200);
+    final out = UserTables();
+    final states = stateIds.toSet();
+    if (states.isEmpty) {
+      return out;
+    }
+    final whos = <int>{};
+    final looks = <int>{};
+    for (final part in _idChunks(states)) {
+      final rows = await _db.rawQuery(
+        'SELECT id, who, look FROM user_states WHERE channel = ? AND id IN '
+        '(${part.join(', ')})',
+        [channel],
+      );
+      for (final r in rows) {
+        final who = r['who']! as int;
+        final look = r['look']! as int;
+        out.putState(r['id']! as int, who, look);
+        whos.add(who);
+        looks.add(look);
+      }
+    }
+    t.mark('states', 'states=${states.length} whos=${whos.length}');
+    for (final part in _idChunks(whos)) {
+      final rows = await _db.rawQuery(
+        'SELECT id, user_id, login, display_name, (display_name IS NULL) '
+        'AS no_name FROM users WHERE channel = ? AND id IN '
+        '(${part.join(', ')})',
+        [channel],
+      );
+      for (final r in rows) {
+        out.putWho(
+          r['id']! as int,
+          Who(
+            userId: r['user_id']! as String,
+            login: r['login']! as String,
+            displayName: r['no_name'] == 1
+                ? null
+                : r['display_name'] as String?,
+          ),
+        );
+      }
+    }
+    for (final part in _idChunks(looks)) {
+      final rows = await _db.rawQuery(
+        'SELECT id, color, (color IS NULL) AS no_color, badges, extra '
+        'FROM looks WHERE channel = ? AND id IN (${part.join(', ')})',
+        [channel],
+      );
+      for (final r in rows) {
+        final extra = r['extra'] as String?;
+        out.putLook(
+          r['id']! as int,
+          Look(
+            color: r['no_color'] == 1 ? null : r['color'] as String?,
+            badges: r['badges']! as String,
+            extra: extra == null || extra.isEmpty
+                ? const []
+                : [
+                    for (final pair in jsonDecode(extra) as List)
+                      ((pair as List)[0] as String, pair[1] as String),
+                  ],
+          ),
+        );
+      }
+    }
+    t.end('whos=${out.whos.length} looks=${out.looks.length}');
+    return out;
+  }
+
+  /// [ids] in groups that stay under SQLite's bound-parameter limit.
+  static Iterable<List<int>> _idChunks(Iterable<int> ids) sync* {
+    final list = ids.toList();
+    for (var i = 0; i < list.length; i += 500) {
+      yield list.sublist(i, i + 500 > list.length ? list.length : i + 500);
     }
   }
 
@@ -593,26 +702,32 @@ class ArchiveStore {
   /// row by row, decoding the query results alone stalls the UI isolate for
   /// seconds at startup.
   Future<_ChannelTables> _loadTables(String channel) async {
+    final t = SlowTrace('loadTables $channel');
     final users = await _joined(
       channel,
       'users',
       "id || char(31) || user_id || char(31) || login || char(31) || "
           "ifnull(display_name, '') || char(31) || (display_name IS NULL)",
     );
+    t.mark('users', 'parts=${users.length}');
     final looks = await _joined(
       channel,
       'looks',
       "id || char(31) || ifnull(color, '') || char(31) || (color IS NULL) || "
           "char(31) || badges || char(31) || ifnull(extra, '')",
     );
+    t.mark('looks', 'parts=${looks.length}');
     final states = await _joined(
       channel,
       'user_states',
       'id || char(31) || who || char(31) || look',
     );
-    return _ChannelTables(
-      await Isolate.run(() => parseJoinedTables(users, looks, states)),
+    t.mark('states', 'parts=${states.length}');
+    final parsed = await Isolate.run(
+      () => parseJoinedTables(users, looks, states),
     );
+    t.end('whos=${parsed.whos.length} looks=${parsed.looks.length}');
+    return _ChannelTables(parsed);
   }
 
   /// [expr] for every row of a per-channel [table], fields split by char 31
@@ -1752,6 +1867,7 @@ class ArchiveStore {
     final read = _reads[channel];
     if (read != null && _now().difference(read) < keepTablesAfterRead) return;
     _tables.remove(channel);
+    _tablesNow.remove(channel);
   }
 
   /// Closes the gaps pruning left in [channel]'s whos and looks. The stored

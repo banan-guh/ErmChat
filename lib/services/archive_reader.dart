@@ -14,6 +14,7 @@ import '../util/chat_search.dart';
 import '../util/history_timeline.dart';
 import '../util/log.dart';
 import '../util/signal.dart';
+import '../util/slow_trace.dart';
 import 'archive_adapter.dart';
 import 'archive_store.dart';
 import 'set_history.dart';
@@ -213,17 +214,25 @@ class ArchiveReader {
         if (limit <= 0) {
           return const [];
         }
+        final t = SlowTrace('newestRows $channel', limitMs: 300);
         final edits = await store.edits(channel);
+        t.mark('edits');
         final blocks = await store.newestBlocks(channel, limit);
+        t.mark('blocks', 'n=${blocks.length}');
         final decoded = await _decodeAll(
           channel,
           blocks,
           asHistory: true,
           edits: edits,
         );
+        t.mark('decodeAll');
         final rows = [for (final b in decoded) ...b.rows];
         _sortStable(rows);
-        return rows.length > limit ? rows.sublist(rows.length - limit) : rows;
+        final out = rows.length > limit
+            ? rows.sublist(rows.length - limit)
+            : rows;
+        t.end('limit=$limit rows=${out.length}');
+        return out;
       });
 
   /// Roots with a reply at or after [since] in [channel], most replies first.
@@ -303,13 +312,16 @@ class ArchiveReader {
     required int before,
     required int after,
   }) => _with(const <TwitchMessage>[], (store) async {
+    final t = SlowTrace('rowsNear $channel', limitMs: 300);
     final edits = await store.edits(channel);
+    t.mark('edits');
     final near = await store.blocksNear(
       channel,
       time.millisecondsSinceEpoch,
       before,
       after,
     );
+    t.mark('blocksNear', 'n=${near.blocks.length}');
     final at = time.millisecondsSinceEpoch;
     // With nothing asked for on a side, the read stops at [time] there.
     final floor = before > 0 ? near.floorTs : at - 1;
@@ -319,14 +331,17 @@ class ArchiveReader {
       return (floor == null || ts > floor) && (ceil == null || ts < ceil);
     }
 
+    final decoded = await _decodeAll(channel, near.blocks, edits: edits);
+    t.mark('decodeAll');
     final rows = [
-      for (final b in await _decodeAll(channel, near.blocks, edits: edits))
+      for (final b in decoded)
         for (final m in b.rows)
           if (inRange(m)) m,
       for (final m in unsealed(channel))
         if (inRange(m)) m,
     ];
     _sortStable(rows);
+    t.end('before=$before after=$after rows=${rows.length}');
     return rows;
   });
 
@@ -406,12 +421,28 @@ class ArchiveReader {
     if (blocks.isEmpty) {
       return const [];
     }
+    final t = SlowTrace('decodeAll $channel', limitMs: 250);
     final store = (await _store)!;
-    final tables = await store.tables(channel);
-    store.noteRead(channel);
-    final adapter = ArchiveAdapter(tables);
     final data = [for (final b in blocks) b.data];
     final decoded = await decode(data, keep);
+    t.mark(
+      'decode',
+      'rows=${decoded.fold<int>(0, (n, b) => n + (b?.length ?? 0))}',
+    );
+    // Only the users this read names; loading a busy channel's whole table
+    // here would hold the first rows for seconds.
+    final cached = store.cachedTables(channel);
+    final stateIds = [
+      for (final rows in decoded)
+        for (final r in rows ?? const <ArchiveRow>[]) r.user,
+    ];
+    final tables = cached ?? await store.tablesFor(channel, stateIds);
+    t.mark(
+      'tables',
+      '${cached != null ? 'cached' : 'partial'} states=${stateIds.length}',
+    );
+    store.noteRead(channel);
+    final adapter = ArchiveAdapter(tables);
     var lo = blocks.first.startTs;
     var hi = blocks.first.endTs;
     for (final b in blocks) {
@@ -428,10 +459,14 @@ class ArchiveReader {
         atTs: c.atTs,
       ));
     }
+    t.mark('moderation', 'logins=${cleared.length}');
     final all = cleared[null] ?? const [];
     final defs = await _defsFor(channel, decoded);
+    t.mark('defs', 'keys=${defs.length}');
     final drawn = await sets?.load(channel);
+    t.mark('sets', drawn == null ? 'none' : 'loaded');
     final pending = edits ?? await store.edits(channel);
+    t.mark('edits', 'n=${pending.length}');
     final out = <ArchiveWindowBlock>[];
     for (var i = 0; i < blocks.length; i++) {
       final rows = decoded[i];
@@ -483,6 +518,7 @@ class ArchiveReader {
         ),
       );
     }
+    t.end('blocks=${blocks.length} rows=${out.length}');
     return out;
   }
 

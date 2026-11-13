@@ -1291,12 +1291,22 @@ void main() {
       'EXPLAIN QUERY PLAN DELETE FROM blocks WHERE end_ts < ?',
       [0],
     );
+    final span = await check.rawQuery(
+      'EXPLAIN QUERY PLAN SELECT MAX(end_ts - start_ts) FROM blocks '
+      'WHERE channel = ?',
+      [_channel],
+    );
     await check.close();
     await again.close();
     expect(
       [for (final r in plan) r['detail']],
       contains(contains('blocks_by_time')),
       reason: 'retention reads every block page without it',
+    );
+    expect(
+      [for (final r in span) r['detail']],
+      contains(contains('blocks_by_span')),
+      reason: 'a read scans every block row without the covering index',
     );
   });
 

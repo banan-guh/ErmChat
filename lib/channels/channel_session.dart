@@ -45,6 +45,7 @@ class ChannelSession extends ChangeNotifier {
     required this.setSelectedChannel,
     required this.maxMessages,
     required this.recentMessagesLimit,
+    this.archiveGrace = const Duration(seconds: 4),
     this.strings = englishStrings,
   });
 
@@ -65,6 +66,10 @@ class ChannelSession extends ChangeNotifier {
   final int Function() maxMessages;
   final AppLocalizations Function() strings;
   final int Function() recentMessagesLimit;
+
+  /// How long a history fetch waits for the archive restore before showing
+  /// network rows without it. A stuck archive open otherwise holds them.
+  final Duration archiveGrace;
 
   bool _disposed = false;
   bool _channelsLoaded = false;
@@ -200,7 +205,7 @@ class ChannelSession extends ChangeNotifier {
 
   /// Archived rows first (when an archive is wired), then the network history, which
   /// dedups against them by id.
-  Future<List<TwitchMessage>> _fetchHistory(String name) {
+  Future<List<TwitchMessage>> _fetchHistory(String name) async {
     Future<List<TwitchMessage>> fetch() => recentMessages.fetchRecentPreferWarm(
       name,
       limit: recentMessagesLimit(),
@@ -208,11 +213,42 @@ class ChannelSession extends ChangeNotifier {
     if (history.archive == null) return fetch();
     // Both start now; the network rows wait for the archived ones only so the
     // merge sees them, and so the gap fill knows the last row held.
+    final sw = Stopwatch()..start();
     final network = fetch();
-    return Future.wait<Object?>([
-      history.restoreOnce(name),
-      network,
-    ]).then((_) async => history.fillGap(name, await network));
+    final both = Future.wait<Object?>([history.restoreOnce(name), network]);
+    // A stuck archive open (a lost platform reply on a hot restart) would
+    // otherwise hold the first rows for the 30 s open timeout. Give the
+    // restore a short grace, then show the network rows; it merges later.
+    final reached = Completer<bool>();
+    final timer = Timer(archiveGrace, () {
+      if (!reached.isCompleted) reached.complete(false);
+    });
+    try {
+      await Future.any<void>([
+        both.then((_) {
+          if (!reached.isCompleted) reached.complete(true);
+        }),
+        reached.future,
+      ]);
+    } finally {
+      timer.cancel();
+    }
+    final usedArchive = await reached.future;
+    if (!usedArchive) {
+      logDebug(
+        '[history] $name archive restore still running after '
+        '${archiveGrace.inMilliseconds}ms, showing network rows',
+      );
+    }
+    final rows = await history.fillGap(name, await network);
+    if (sw.elapsedMilliseconds >= 2000) {
+      logDebug(
+        '[history] $name ready ${sw.elapsedMilliseconds}ms '
+        'rows=${rows.length} archive=$usedArchive',
+        persist: true,
+      );
+    }
+    return rows;
   }
 
   /// Backfills [name]'s history: merges the rows once they resolve, or notes

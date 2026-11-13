@@ -112,6 +112,7 @@ ChannelSession _channelSession(
   ChatHistoryController? history,
   RecentMessagesService? recent,
   ChatConnectionManager? conn,
+  Duration archiveGrace = const Duration(seconds: 4),
 }) {
   final session = Session();
   final userStore = UserStore();
@@ -146,6 +147,7 @@ ChannelSession _channelSession(
     setSelectedChannel: (value) => selected = value,
     maxMessages: () => 500,
     recentMessagesLimit: () => 100,
+    archiveGrace: archiveGrace,
   );
 }
 
@@ -159,8 +161,9 @@ TwitchMessage _live(String id) => TwitchMessage(
 void main() {
   group('ChannelSession.loadChannels', () {
     ({ChannelSession session, _GatedHistory history, _FakeConn conn}) boot(
-      Map<String, Object> prefs,
-    ) {
+      Map<String, Object> prefs, {
+      Duration archiveGrace = const Duration(seconds: 4),
+    }) {
       SharedPreferences.setMockInitialValues(prefs);
       final chat = Chat();
       addTearDown(chat.dispose);
@@ -183,6 +186,7 @@ void main() {
         history: history,
         recent: _EmptyRecent(),
         conn: conn,
+        archiveGrace: archiveGrace,
       );
       return (session: session, history: history, conn: conn);
     }
@@ -216,6 +220,29 @@ void main() {
       ], reason: 'a skipped gap fill leaves a hole in the archive');
 
       drain(booted.history);
+      await pumpEventQueue();
+    });
+
+    test('a stalled archive restore does not hold the rows', () async {
+      final booted = boot({
+        'channels': ['one'],
+        'reopen_last_channel': true,
+        'last_channel': 'one',
+        'archive_enabled': true,
+      }, archiveGrace: const Duration(milliseconds: 20));
+      await booted.session.loadRecentMessagesConfig();
+      await booted.session.loadChannels();
+      expect(booted.history.started, ['one']);
+
+      // The restore gate stays open; the network answered empty.
+      await Future<void>.delayed(const Duration(milliseconds: 80));
+      expect(
+        booted.session.chat.channelFor('one')!.info.historyLoaded,
+        isTrue,
+        reason: 'a stuck archive open must not hold the backfill',
+      );
+
+      booted.history.gates['one']!.complete();
       await pumpEventQueue();
     });
 

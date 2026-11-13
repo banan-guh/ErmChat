@@ -110,11 +110,20 @@ class ChatHistoryController {
       maxMessages: maxMessages(),
       ownLogin: session.login,
     );
+    final mergeMs = sw.elapsedMilliseconds - prepMs;
     JankLog.note(
       'history $channel ${history.length} rows '
-      'prep=${prepMs}ms merge=${sw.elapsedMilliseconds - prepMs}ms '
+      'prep=${prepMs}ms merge=${mergeMs}ms '
       'new=${outcome.inserted.length}',
     );
+    if (mergeMs + prepMs >= 250) {
+      logDebug(
+        '[history] merge $channel rows=${history.length} '
+        'prep=${prepMs}ms merge=${mergeMs}ms '
+        'new=${outcome.inserted.length} '
+        'buffer=${chat.channelFor(channel)?.messages.items.length}',
+      );
+    }
     // Gap rows from robotty join the archive, trimmed ones too; restored
     // rows were deduped out.
     for (final msg in outcome.accepted) {
@@ -187,14 +196,22 @@ class ChatHistoryController {
             .then<DateTime?>((t) => t, onError: (_) => null),
       );
       if (!shouldFetchGap(newest.length, expected)) return newest;
+      final sw = Stopwatch()..start();
       final gap = await recentMessages.fetchRecent(
         channel,
         limit: robottyBuffer,
         after: lastSeen.subtract(_gapOverlap),
       );
-      DataUsageStats.I.recordGapFetch(
-        filled: gap.any((m) => !m.isSystem && !m.timestamp.isAfter(lastSeen!)),
+      final filled = gap.any(
+        (m) => !m.isSystem && !m.timestamp.isAfter(lastSeen!),
       );
+      if (sw.elapsedMilliseconds >= 1500) {
+        logDebug(
+          '[history] gap fetch $channel ${sw.elapsedMilliseconds}ms '
+          'rows=${gap.length} filled=$filled',
+        );
+      }
+      DataUsageStats.I.recordGapFetch(filled: filled);
       return gap;
     } catch (e) {
       logDebug('[ChatHistoryController] gap fill failed for $channel: $e');
@@ -228,13 +245,23 @@ class ChatHistoryController {
   /// Restores in flight, by channel (see [restoreOnce]).
   final _restores = <String, Future<void>>{};
 
+  /// The tail of the restore queue. One read at a time: the store has one
+  /// SQLite connection, so firing every saved channel at once queues them
+  /// behind the visible one and pushes a slow phone into seconds.
+  Future<void> _restoreTail = Future<void>.value();
+
   /// Restores [channel]'s newest archived rows once: a call while the read is
   /// in flight joins it, so the visible channel can be restored ahead of the
   /// rest without reading its rows twice.
-  Future<void> restoreOnce(String channel) =>
-      _restores[channel] ??= restoreFromArchive(channel).whenComplete(() {
-        _restores.remove(channel);
-      });
+  Future<void> restoreOnce(String channel) {
+    final existing = _restores[channel];
+    if (existing != null) return existing;
+    final run = _restoreTail.then((_) => restoreFromArchive(channel));
+    _restoreTail = run.catchError((_) {});
+    return _restores[channel] = run.whenComplete(() {
+      _restores.remove(channel);
+    });
+  }
 
   /// Fills the channel buffer with its newest archived rows before the
   /// network history lands, so a cold start shows chat from disk. Rows pass
@@ -243,16 +270,28 @@ class ChatHistoryController {
   Future<void> restoreFromArchive(String channel) async {
     final reader = archive?.reader;
     if (reader == null) return;
+    final sw = Stopwatch()..start();
     try {
       final rows = await reader.newestRows(channel, restoreRows);
+      final readMs = sw.elapsedMilliseconds;
       if (rows.isEmpty || !chat.contains(channel)) return;
+      final prepared = _prepare(channel, rows);
+      final prepMs = sw.elapsedMilliseconds - readMs;
       chat.receiveHistory(
         channel,
-        _prepare(channel, rows),
+        prepared,
         rawHistory: rows,
         maxMessages: maxMessages(),
         ownLogin: session.login,
       );
+      final total = sw.elapsedMilliseconds;
+      if (total >= 500) {
+        logDebug(
+          '[history] restore $channel ${total}ms rows=${rows.length} '
+          'read=$readMs prep=$prepMs merge=${total - readMs - prepMs} '
+          'buffer=${chat.channelFor(channel)?.messages.items.length}',
+        );
+      }
     } catch (e) {
       logDebug('[ChatHistoryController] archive restore failed: $e');
     }

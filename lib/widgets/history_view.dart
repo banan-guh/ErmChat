@@ -1155,7 +1155,7 @@ class _HistoryViewState extends State<HistoryView> {
     _count('hjump');
     _log(
       'jump ${time ?? 'newest'} rows=${_window.length} '
-      'load=${sw.elapsedMilliseconds}ms',
+      'liveFirst=$liveFirst load=${sw.elapsedMilliseconds}ms',
     );
     _settleAfterJump(time: time, replay: replay, pinOldest: pinOldest);
   }
@@ -1753,6 +1753,7 @@ class _HistoryViewState extends State<HistoryView> {
   }
 
   Future<void> _readOlder(int epoch) async {
+    final read = Stopwatch()..start();
     final edge = _window.isEmpty ? null : _window[_window.first].timestamp;
     var rows = await (edge == null
         ? widget.source.newest()
@@ -1768,6 +1769,12 @@ class _HistoryViewState extends State<HistoryView> {
       );
       if (!mounted || epoch != _epoch) return;
       _loadingOlder = false;
+    }
+    if (read.elapsedMilliseconds >= 300) {
+      logDebug(
+        '[hist] older ${widget.channel} ${read.elapsedMilliseconds}ms '
+        'edge=$edge rows=${rows.length}',
+      );
     }
     final first = _window.isEmpty ? null : _window[_window.first].timestamp;
     if (edge != null && first != edge) return;
@@ -1800,6 +1807,7 @@ class _HistoryViewState extends State<HistoryView> {
   }
 
   Future<void> _readNewer(int epoch) async {
+    final read = Stopwatch()..start();
     final edge = _window[_window.end - 1].timestamp;
     var rows = await widget.source.newer(edge);
     if (!mounted || epoch != _epoch) return;
@@ -1811,6 +1819,12 @@ class _HistoryViewState extends State<HistoryView> {
       );
       if (!mounted || epoch != _epoch) return;
       _loadingNewer = false;
+    }
+    if (read.elapsedMilliseconds >= 300) {
+      logDebug(
+        '[hist] newer ${widget.channel} ${read.elapsedMilliseconds}ms '
+        'edge=$edge rows=${rows.length}',
+      );
     }
     if (_window[_window.end - 1].timestamp != edge) return;
     // A replay shows nothing past the VOD's time.

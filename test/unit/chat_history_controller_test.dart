@@ -62,6 +62,35 @@ ChatHistoryController _controller(
   now: now,
 );
 
+/// Records how many archive restores run at once.
+class _SlowRestore extends ChatHistoryController {
+  _SlowRestore({
+    required super.chat,
+    required super.session,
+    required super.recentMessages,
+    required super.ignoreManager,
+    required super.pingManager,
+    required super.userStore,
+    required super.emoteManager,
+    required super.badgeService,
+    required super.maxMessages,
+    required super.recentMessagesLimit,
+  });
+
+  int active = 0;
+  int most = 0;
+  int runs = 0;
+
+  @override
+  Future<void> restoreFromArchive(String channel) async {
+    runs++;
+    active++;
+    if (active > most) most = active;
+    await Future<void>.delayed(const Duration(milliseconds: 10));
+    active--;
+  }
+}
+
 void main() {
   test('mergeHistory does not resurrect a removed channel', () {
     final chat = Chat();
@@ -80,6 +109,36 @@ void main() {
     expect(chat.contains('test'), isFalse);
     expect(chat.names, isEmpty);
     expect(chat.mentions.isEmpty, isTrue);
+  });
+
+  test('archive restores run one at a time', () async {
+    final chat = Chat();
+    addTearDown(chat.dispose);
+    final emotes = EmoteManager();
+    addTearDown(emotes.dispose);
+    final controller = _SlowRestore(
+      chat: chat,
+      session: Session(),
+      recentMessages: RecentMessagesService(),
+      ignoreManager: IgnoreManager(),
+      pingManager: PingManager(),
+      userStore: UserStore(),
+      emoteManager: emotes,
+      badgeService: TwitchBadgeService(),
+      maxMessages: () => 500,
+      recentMessagesLimit: () => 100,
+    );
+    addTearDown(controller.dispose);
+
+    await Future.wait([
+      controller.restoreOnce('a'),
+      controller.restoreOnce('b'),
+      controller.restoreOnce('c'),
+      controller.restoreOnce('a'),
+    ]);
+
+    expect(controller.most, 1, reason: 'one archive read at a time');
+    expect(controller.runs, 3, reason: 'the second call for a channel joins');
   });
 
   test('a live 7TV delta does not heal history', () {
