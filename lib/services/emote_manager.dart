@@ -39,9 +39,9 @@ abstract interface class EmoteLookupSource {
   EmoteLookup? lookup(String channel, String? senderTwitchId);
 
   /// Parses [msg] once against the current mixer. The caller stores the
-  /// result on the message; it is never recomputed, so live deltas do not
-  /// change rendered rows. Null for system rows, which render through the
-  /// live lookup instead.
+  /// result on the message; it is recomputed only for the codes a catalog
+  /// change replaced or removed, so old rows do not keep a dead url. Null for
+  /// system rows, which render through the live lookup instead.
   List<EmoteToken>? parseMessageEmotes(
     TwitchMessage msg, {
     required String lookupChannel,

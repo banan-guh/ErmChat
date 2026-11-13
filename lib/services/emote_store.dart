@@ -7,15 +7,25 @@ import 'emote_fetcher.dart';
 /// One typed catalog change emitted by [EmoteStore].
 ///
 /// [channel] null means a global change. A non-null [deltaCodes] marks a live
-/// 7TV delta (typing, picker, and menus read it live; rendered rows keep the
-/// tokens baked at ingest). A null [deltaCodes] on a channel change is a
-/// full refetch.
+/// 7TV delta (typing, picker, and menus read it live). A null [deltaCodes] on
+/// a channel change is a full refetch. [restampCodes] names the codes whose
+/// emote identity changed, which rows that baked them re-resolve.
 class EmoteChange {
-  const EmoteChange({required this.version, this.channel, this.deltaCodes});
+  const EmoteChange({
+    required this.version,
+    this.channel,
+    this.deltaCodes,
+    this.restampCodes,
+  });
 
   final int version;
   final String? channel;
   final Set<String>? deltaCodes;
+
+  /// Codes whose emote changed in a full commit, by id or by leaving the
+  /// list. Rows that baked one of them re-resolve against the new list, so a
+  /// deleted and re-added emote stops pointing at its dead url.
+  final Set<String>? restampCodes;
 
   bool get isGlobal => channel == null;
 }
@@ -77,6 +87,7 @@ class EmoteStore {
   void emitChange({
     String? channel,
     Set<String>? deltaCodes,
+    Set<String>? restampCodes,
     bool bumpVersion = true,
   }) {
     if (_disposed) return;
@@ -85,6 +96,7 @@ class EmoteStore {
       version: _version,
       channel: channel,
       deltaCodes: deltaCodes,
+      restampCodes: restampCodes,
     );
     _lastChange = change;
     _emoteIndexDirty = true;
@@ -776,12 +788,16 @@ class EmoteStore {
       // whether data is present so a no-op failure keeps the persisted cache.
       return _globalCatalog.isNotEmpty;
     }
+    final before = _globalCatalog.sevenTvGlobal;
     var catalog = _globalCatalog;
     for (final entry in fetch.byProvider.entries) {
       catalog = catalog.withList(EmoteScope.global, entry.key, entry.value);
     }
     _globalCatalog = catalog;
-    emitChange(channel: null);
+    emitChange(
+      channel: null,
+      restampCodes: _changedEmoteCodes(before, catalog.sevenTvGlobal),
+    );
     _emitFetched(null, fetch.byProvider);
     return true;
   }
@@ -833,6 +849,7 @@ class EmoteStore {
     if (fetch.sevenTvUserId != null) {
       _sevenTvUserIds[channel] = fetch.sevenTvUserId!;
     }
+    final before = _channelCatalogs[channel]?.sevenTvChannel;
     var catalog = _channelCatalogs[channel] ?? EmoteCatalog();
     for (final entry in fetch.byProvider.entries) {
       catalog = catalog.withList(EmoteScope.channel, entry.key, entry.value);
@@ -864,9 +881,32 @@ class EmoteStore {
     }
     _reapplyLiveSevenTv(channel);
     _channelFetchTimes[channel] = DateTime.now();
-    emitChange(channel: channel);
+    emitChange(
+      channel: channel,
+      restampCodes: _changedEmoteCodes(
+        before,
+        _channelCatalogs[channel]?.sevenTvChannel,
+      ),
+    );
     _emitFetched(channel, fetch.byProvider);
     return true;
+  }
+
+  /// Codes whose 7TV emote id differs between [before] and [after], including
+  /// codes that left the list. Null when every code kept its emote.
+  static Set<String>? _changedEmoteCodes(
+    List<Emote>? before,
+    List<Emote>? after,
+  ) {
+    final oldById = {for (final e in before ?? const <Emote>[]) e.code: e.id};
+    final newById = {for (final e in after ?? const <Emote>[]) e.code: e.id};
+    final changed = <String>{
+      for (final e in newById.entries)
+        if (oldById[e.key] != e.value) e.key,
+      for (final code in oldById.keys)
+        if (!newById.containsKey(code)) code,
+    };
+    return changed.isEmpty ? null : changed;
   }
 
   void _emitFetched(String? channel, Map<EmoteType, List<Emote>> lists) {
@@ -1029,9 +1069,11 @@ class EmoteStore {
       final sorted = _internAll(List.of(added))
         ..sort((a, b) => a.code.compareTo(b.code));
       _channelCatalogs[channel] = EmoteCatalog(sevenTvChannel: sorted);
+      final codes = {for (final e in added) e.code};
       emitChange(
         channel: channel,
-        deltaCodes: {for (final e in added) e.code},
+        deltaCodes: codes,
+        restampCodes: codes,
         bumpVersion: false,
       );
       return const [];
@@ -1102,8 +1144,14 @@ class EmoteStore {
       _sevenTvLive[channel] = live;
     }
 
-    // Live deltas don't bump span version (no retroactive re-render).
-    emitChange(channel: channel, deltaCodes: changedCodes, bumpVersion: false);
+    // Live deltas don't bump span version; rows that baked a changed code
+    // still re-resolve so a re-added emote stops using its deleted url.
+    emitChange(
+      channel: channel,
+      deltaCodes: changedCodes,
+      restampCodes: changedCodes,
+      bumpVersion: false,
+    );
 
     // Shared 7TV emotes gone from all channels are evicted from disk. Rebuild
     // the id index once so the membership check is O(1) per removed id instead

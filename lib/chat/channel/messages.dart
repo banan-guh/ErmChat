@@ -406,6 +406,60 @@ class Messages {
     return tokens;
   });
 
+  /// Re-resolves rows whose baked tokens use any of [codes], after a catalog
+  /// change replaced or removed those emotes. A token at a changed span takes
+  /// the new emote, so a deleted and re-added emote picks up its new id and
+  /// url instead of keeping a dead one.
+  int restampCodes(
+    Set<String> codes,
+    ({List<EmoteToken>? tokens, bool complete}) Function(TwitchMessage msg)
+    resolve,
+  ) {
+    if (codes.isEmpty) return 0;
+    bool usesCode(TwitchMessage m) =>
+        m.emoteTokens?.any((t) => codes.contains(t.emote?.code)) ?? false;
+    return _touch(_items.where(usesCode), (msg) {
+      final (:tokens, :complete) = resolve(msg);
+      if (tokens == null) return false;
+      final merged = _replaceCodes(
+        msg.emoteTokens ?? const <EmoteToken>[],
+        tokens,
+        codes,
+      );
+      if (merged == null) return false;
+      msg.emoteTokens = merged;
+      msg.emotesPartial = !complete;
+      return true;
+    });
+  }
+
+  /// [current] with the tokens of [codes] replaced by [next]'s token at the
+  /// same span, or dropped when the emote left the catalog. Other tokens stay
+  /// as baked. Null when no changed code moved.
+  static List<EmoteToken>? _replaceCodes(
+    List<EmoteToken> current,
+    List<EmoteToken> next,
+    Set<String> codes,
+  ) {
+    final bySpan = {
+      for (final t in next)
+        if (t.emote != null) (t.start, t.end): t,
+    };
+    final out = <EmoteToken>[];
+    var changed = false;
+    for (final t in current) {
+      final code = t.emote?.code;
+      if (code == null || !codes.contains(code)) {
+        out.add(t);
+        continue;
+      }
+      final replacement = bySpan[(t.start, t.end)];
+      changed = true;
+      if (replacement != null) out.add(replacement);
+    }
+    return changed ? out : null;
+  }
+
   /// Re-resolves the newest [window] rows sent by [userIds] after their
   /// personal emotes landed: the set often arrives just after the message
   /// that announced it (chatterino7 re-parses the sender's last message the

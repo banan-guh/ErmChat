@@ -92,6 +92,35 @@ void main() {
     expect(changes.last.deltaCodes, isNull);
   });
 
+  test('a 7TV delete and re-add marks the code for restamping', () {
+    final store = EmoteStore();
+    final changes = <EmoteChange>[];
+    store.addListener(changes.add);
+    final old = _emote('old', 'VO', type: EmoteType.sevenTv);
+
+    store.updateSevenTvEmotes('ch', added: [old]);
+    changes.clear();
+    store.updateSevenTvEmotes(
+      'ch',
+      removedIds: ['old'],
+      added: [_emote('new', 'VO', type: EmoteType.sevenTv)],
+    );
+    expect(changes.last.restampCodes, contains('VO'));
+
+    // A full refetch that replaces the id heals the same way.
+    changes.clear();
+    store.commitChannel(
+      'ch',
+      store.channelEpoch('ch'),
+      ChannelEmoteFetch(
+        byProvider: {
+          EmoteType.sevenTv: [_emote('newer', 'VO', type: EmoteType.sevenTv)],
+        },
+      ),
+    );
+    expect(changes.last.restampCodes, {'VO'});
+  });
+
   // An early provider marking the catalog complete would freeze rows baked
   // before the rest landed, and they would never heal.
   test('an early provider shows emotes without completing the catalog', () {

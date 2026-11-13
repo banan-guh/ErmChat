@@ -324,11 +324,31 @@ class ChatHistoryController {
     }
   }
 
+  /// Heals rows that baked an emote the catalog just replaced or removed, so
+  /// a deleted and re-added emote picks up its current id and url.
+  void restampChannelCodes(String channel, Set<String> codes) {
+    if (codes.isEmpty) return;
+    chat
+        .channelFor(channel)
+        ?.restampCodes(codes, (msg) => _parseForChannel(msg, channel));
+  }
+
   /// Heals history baked before its catalog arrived: a full channel commit
   /// restamps that channel, a full global commit restamps all. Version
   /// comparison skips live deltas and config-only updates, which never
   /// bump, so rendered rows keep their freeze outside real data changes.
   void _onCatalogChanged(EmoteChange change) {
+    final codes = change.restampCodes;
+    if (codes != null && codes.isNotEmpty) {
+      final channel = change.channel;
+      if (channel != null) {
+        restampChannelCodes(channel, codes);
+      } else {
+        for (final name in List.of(chat.names)) {
+          restampChannelCodes(name, codes);
+        }
+      }
+    }
     if (change.version == _restampedVersion) return;
     _restampedVersion = change.version;
     final channel = change.channel;

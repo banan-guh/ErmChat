@@ -99,6 +99,31 @@ void main() {
     expect(row.emoteTokens, isEmpty);
   });
 
+  test('a 7TV re-add heals a row that baked the deleted emote', () {
+    final chat = Chat();
+    addTearDown(chat.dispose);
+    chat.ensure('ch');
+    final emotes = EmoteManager();
+    addTearDown(emotes.dispose);
+    final controller = _controller(chat, emotes);
+    addTearDown(controller.dispose);
+
+    emotes.updateSevenTvEmotes('ch', added: [sevenTv('old', 'VO')]);
+    final row = historyRow('h1', 'VO');
+    controller.mergeHistory('ch', [row]);
+    row.emoteTokens = [
+      EmoteToken(emote: sevenTv('old', 'VO'), text: 'VO', start: 0, end: 2),
+    ];
+
+    emotes.updateSevenTvEmotes(
+      'ch',
+      removedIds: ['old'],
+      added: [sevenTv('new', 'VO')],
+    );
+
+    expect(row.emoteTokens!.single.emote!.id, 'new');
+  });
+
   test('a full commit heals partial rows and leaves complete rows frozen', () {
     final chat = Chat();
     addTearDown(chat.dispose);

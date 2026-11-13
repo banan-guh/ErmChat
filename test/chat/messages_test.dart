@@ -886,6 +886,37 @@ void main() {
       expect(idless.emoteTokens, hasLength(1));
       expect(allCount, 1);
     });
+
+    test('restampCodes swaps a deleted and re-added emote', () {
+      final messages = Messages(channel: 'test');
+      addTearDown(messages.dispose);
+      final old = token('old', 'VO', 0);
+      final updated = token('new', 'VO', 0);
+      final replaced = row('m1', 'VO', tokens: [old], partial: false);
+      final other = row('m2', 'Beta', tokens: [token('b', 'Beta', 0)]);
+      messages
+        ..add(replaced, maxMessages: 100)
+        ..add(other, maxMessages: 100);
+      final before = messages.version.value;
+
+      final count = messages.restampCodes({'VO'}, (_) => parsed([updated]));
+
+      expect(count, 1);
+      expect(replaced.emoteTokens, [updated]);
+      expect(replaced.emoteTokens!.single.emote!.id, 'new');
+      expect(other.emoteTokens, hasLength(1), reason: 'other codes stay baked');
+      expect(messages.version.value, before + 1);
+    });
+
+    test('restampCodes drops a code that left the catalog', () {
+      final messages = Messages(channel: 'test');
+      addTearDown(messages.dispose);
+      final m = row('m1', 'VO', tokens: [token('old', 'VO', 0)]);
+      messages.add(m, maxMessages: 100);
+
+      expect(messages.restampCodes({'VO'}, (_) => parsed([])), 1);
+      expect(m.emoteTokens, isEmpty, reason: 'a deleted emote renders as text');
+    });
   });
 
   group('Messages.mergeMentions', () {

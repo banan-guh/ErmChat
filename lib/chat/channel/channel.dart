@@ -154,6 +154,14 @@ class Channel {
     resolve,
   ) => messages.restampAllEmotes(resolve);
 
+  /// Heals rows that baked one of [codes] after the catalog replaced or
+  /// removed those emotes. See [Messages.restampCodes].
+  int restampCodes(
+    Set<String> codes,
+    ({List<EmoteToken>? tokens, bool complete}) Function(TwitchMessage msg)
+    resolve,
+  ) => messages.restampCodes(codes, resolve);
+
   /// Reruns the keyword rules over every row; see [Messages.rewriteRows].
   int rewriteRows(bool Function(TwitchMessage msg) rewrite) =>
       messages.rewriteRows(rewrite);

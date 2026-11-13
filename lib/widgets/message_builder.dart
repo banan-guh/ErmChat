@@ -84,10 +84,10 @@ class MessageBuilder {
   final _bodyCache = _SpanLru<_BodySpans>();
   final _badgeCache = _SpanLru<_BadgeSpans>();
 
-  /// Inputs the cached spans depend on. Emote tokens bake onto the message
-  /// at ingest, so catalog changes never invalidate spans here; only badge
+  /// Inputs the cached spans depend on. Emote tokens bake onto the message at
+  /// ingest, so a catalog change alone does not invalidate spans; only badge
   /// data, link prefs, and gif/image prefs join the key. A token
-  /// reassignment (history restamp after a late catalog) invalidates through
+  /// reassignment (a late catalog, or a replaced emote) invalidates through
   /// the stored token identity instead.
   _SpanKey _spanKey(double scale) => (
     badges: badgeService.version,
