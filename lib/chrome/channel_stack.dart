@@ -961,6 +961,15 @@ class ChannelPanels {
                     onTabTapped: (index) {
                       if (index < 0 || index >= channels.length) return;
                       final channel = channels[index];
+                      final current = selectedChannel();
+                      // A tap away retires the channel being left: it comes
+                      // back at the newest row, by tap or swipe. A swipe away
+                      // leaves it where it was.
+                      if (current != null && current != channel) {
+                        final left = scrollCtrl(current);
+                        if (left.hasClients) left.jumpTo(0);
+                        atBottomNotifier(current).value = true;
+                      }
                       // ChatView rests on the newest row at 0; a history
                       // page jumps itself when the notifier turns true.
                       final ctrl = scrollCtrl(channel);

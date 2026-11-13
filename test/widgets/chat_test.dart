@@ -2,6 +2,7 @@ import 'widget_test_harness.dart';
 import '../helpers.dart';
 import 'package:ermchat/widgets/chat_view.dart';
 import 'package:ermchat/widgets/history_view.dart';
+import 'package:ermchat/util/fake_history.dart';
 import 'package:ermchat/util/settings.dart';
 
 /// The channel chat list, whichever list implements it: the only reversed
@@ -1681,9 +1682,190 @@ void main() {
     expect(find.text('Remove #b?'), findsOneWidget);
     await tester.tap(find.text('Remove channel'));
     await tester.pumpAndSettle();
+    expect(
+      find.text('b'),
+      findsNothing,
+      reason: 'the removed tab lingered after the kernel dropped it',
+    );
 
     final prefs = await SharedPreferences.getInstance();
     expect(prefs.getStringList('channels'), ['a', 'c']);
+  });
+
+  testWidgets('tab back to a disposed page opens newest', (tester) async {
+    tester.view.physicalSize = const Size(400, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    SharedPreferences.setMockInitialValues({
+      'access_token': 'test_token',
+      'channels': [FakeHistory.testChannel, 'a', 'b', 'c', 'd'],
+    });
+    FlutterSecureStorage.setMockInitialValues({'access_token': 'test_token'});
+
+    await tester.pumpWidget(
+      TwitchChatApp(
+        key: UniqueKey(),
+        eventSubService: FakeEventSubService(),
+        ircService: FakeIrcService(),
+        recentMessagesService: ScriptedRecentMessagesService([]),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    ScrollPosition positionOf(String channel) => tester
+        .state<ScrollableState>(
+          find
+              .descendant(
+                of: find.byKey(ValueKey(channel)),
+                matching: find.byType(Scrollable),
+              )
+              .first,
+        )
+        .position;
+
+    await tester.drag(
+      find.descendant(
+        of: find.byKey(const ValueKey(FakeHistory.testChannel)),
+        matching: find.byType(CustomScrollView),
+      ),
+      const Offset(0, 1200),
+    );
+    await tester.pumpAndSettle();
+    final before = positionOf(FakeHistory.testChannel);
+    expect(before.pixels, greaterThan(before.minScrollExtent));
+
+    await tester.tap(find.text('d'));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey(FakeHistory.testChannel)), findsNothing);
+    await tester.tap(find.text(FakeHistory.testChannel));
+    await tester.pumpAndSettle();
+
+    final after = positionOf(FakeHistory.testChannel);
+    expect(
+      after.pixels,
+      moreOrLessEquals(after.minScrollExtent),
+      reason:
+          'the tab tap asked for newest but the remount restored old rows '
+          '(pixels=${after.pixels.round()} min=${after.minScrollExtent.round()})',
+    );
+  });
+
+  testWidgets('tapping away, then swiping back, opens at newest', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(400, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    SharedPreferences.setMockInitialValues({
+      'access_token': 'test_token',
+      'channels': [FakeHistory.testChannel, FakeHistory.denseChannel],
+    });
+    FlutterSecureStorage.setMockInitialValues({'access_token': 'test_token'});
+
+    await tester.pumpWidget(
+      TwitchChatApp(
+        key: UniqueKey(),
+        eventSubService: FakeEventSubService(),
+        ircService: FakeIrcService(),
+        recentMessagesService: ScriptedRecentMessagesService([]),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    ScrollPosition positionOf(String channel) => tester
+        .state<ScrollableState>(
+          find
+              .descendant(
+                of: find.byKey(ValueKey(channel)),
+                matching: find.byType(Scrollable),
+              )
+              .first,
+        )
+        .position;
+
+    await tester.drag(
+      find.descendant(
+        of: find.byKey(const ValueKey(FakeHistory.testChannel)),
+        matching: find.byType(CustomScrollView),
+      ),
+      const Offset(0, 1200),
+    );
+    await tester.pumpAndSettle();
+    final before = positionOf(FakeHistory.testChannel);
+    expect(before.pixels, greaterThan(before.minScrollExtent));
+
+    await tester.tap(find.text(FakeHistory.denseChannel));
+    await tester.pumpAndSettle();
+    await tester.fling(find.byType(PageView).first, const Offset(400, 0), 2000);
+    await tester.pumpAndSettle();
+
+    final after = positionOf(FakeHistory.testChannel);
+    expect(
+      after.pixels,
+      moreOrLessEquals(after.minScrollExtent),
+      reason: 'a tap away retired the channel, so a swipe back opens newest',
+    );
+  });
+
+  testWidgets('swiping away and back keeps a scrolled channel in place', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(400, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    SharedPreferences.setMockInitialValues({
+      'access_token': 'test_token',
+      'channels': [FakeHistory.testChannel, FakeHistory.denseChannel],
+    });
+    FlutterSecureStorage.setMockInitialValues({'access_token': 'test_token'});
+
+    await tester.pumpWidget(
+      TwitchChatApp(
+        key: UniqueKey(),
+        eventSubService: FakeEventSubService(),
+        ircService: FakeIrcService(),
+        recentMessagesService: ScriptedRecentMessagesService([]),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    ScrollPosition positionOf(String channel) => tester
+        .state<ScrollableState>(
+          find
+              .descendant(
+                of: find.byKey(ValueKey(channel)),
+                matching: find.byType(Scrollable),
+              )
+              .first,
+        )
+        .position;
+
+    await tester.drag(
+      find.descendant(
+        of: find.byKey(const ValueKey(FakeHistory.testChannel)),
+        matching: find.byType(CustomScrollView),
+      ),
+      const Offset(0, 1200),
+    );
+    await tester.pumpAndSettle();
+    final before = positionOf(FakeHistory.testChannel);
+    expect(before.pixels, greaterThan(before.minScrollExtent));
+
+    await tester.fling(
+      find.byType(PageView).first,
+      const Offset(-400, 0),
+      2000,
+    );
+    await tester.pumpAndSettle();
+    await tester.fling(find.byType(PageView).first, const Offset(400, 0), 2000);
+    await tester.pumpAndSettle();
+
+    final after = positionOf(FakeHistory.testChannel);
+    expect(
+      after.pixels,
+      greaterThan(after.minScrollExtent + 100),
+      reason: 'a swipe away is browsing, so the reading position stays',
+    );
   });
 
   testWidgets('split chat focuses the pane the composer sends to', (

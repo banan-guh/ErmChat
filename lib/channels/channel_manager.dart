@@ -142,6 +142,9 @@ class ChannelManager {
       if (!session.finalizeRemove(channel, generation)) return;
       disposeChannelNotifiers(channel);
       forgetAtBottomNotifier(channel);
+      // The kernel drops the channel a frame after the strip last rebuilt;
+      // without this the tab stays until some unrelated rebuild.
+      markDirty();
     });
   }
 

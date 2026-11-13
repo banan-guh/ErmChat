@@ -540,10 +540,13 @@ class _HistoryViewState extends State<HistoryView> {
   void _start() {
     final saved = _readSaved();
     final request = widget.active ? widget.jumpRequest?.value : null;
+    // A tab tap asks for the newest row before the page remounts, so the
+    // request arrives as the notifier's existing value, not as a change.
+    final newest = widget.atBottomNotifier?.value == true;
     if (request != null) {
       widget.jumpRequest!.value = null;
       _jumpTo(request, fraction: 0.5);
-    } else if (saved == null) {
+    } else if (saved == null || newest) {
       _jumpTo(null);
     } else {
       _jumpTo(saved.time, offset: saved.offset, followIfUnplaced: true);
