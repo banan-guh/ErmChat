@@ -1,8 +1,3 @@
-- personal emotes fixed
-- general optimizations
-- compact spam
-- mod tools upgraded
-- split chat
-- better data usage tracking
-- upgraded threads
-- hardened reconnect logic
+- automod highlight in highlights
+- uploaded images can actually be deleted
+- more custom gestures
