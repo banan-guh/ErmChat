@@ -2,7 +2,7 @@
 # Cuts a release: checks CHANGELOG.md, drafts the GitHub release notes for
 # editing, bumps pubspec on develop, fast-forwards main to it, tags,
 # publishes, closes the fixed-next issues and watches the store build.
-# Usage: tool/release.sh [x.y.z]   (default: the next patch)
+# Usage: tool/release.sh [x.y.z] [build]   (default: the next patch and build)
 set -euo pipefail
 cd "$(dirname "$0")/.."
 REPO=banan-guh/ErmChat
@@ -27,7 +27,10 @@ BUILD="${CUR##*+}"
 IFS=. read -r MAJOR MINOR PATCH <<< "$NAME"
 VERSION="${1:-$MAJOR.$MINOR.$((PATCH + 1))}"
 TAG="v$VERSION"
+NEXT_BUILD="${2:-$((BUILD + 1))}"
 [[ $VERSION =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "version must be x.y.z"
+[[ $NEXT_BUILD =~ ^[0-9]+$ ]] || die "build must be a number"
+((NEXT_BUILD > BUILD)) || die "build must be higher than $BUILD"
 remote_tags | grep -qx "$TAG" && die "$TAG already exists"
 
 # CHANGELOG.md is the Play and TestFlight notes. CI checks the same rules.
@@ -43,7 +46,7 @@ if ((ITEMS < 3)); then
     exit 1
 fi
 
-echo "$PREV -> $TAG (build $((BUILD + 1)))"
+echo "$PREV -> $TAG (build $NEXT_BUILD)"
 echo
 echo "$CHANGELOG"
 echo
@@ -101,7 +104,7 @@ if ! git merge -q --no-edit origin/main; then
   git merge --abort
   die "main does not merge cleanly into develop"
 fi
-sed -i -E "s/^version:.*/version: $VERSION+$((BUILD + 1))/" pubspec.yaml
+sed -i -E "s/^version:.*/version: $VERSION+$NEXT_BUILD/" pubspec.yaml
 git commit -q -am "Version $TAG"
 # Local main must fast-forward before anything is pushed, so a stale branch
 # cannot silently drop commits.
