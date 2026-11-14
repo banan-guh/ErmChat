@@ -70,14 +70,19 @@ void main() {
   // The outbox persists through real file I/O. Each I/O hop completes only
   // while real time passes, and its continuation only runs on a pump, so
   // alternate the two until the chain (write, rename, send) is through.
-  Future<void> settleIo(WidgetTester tester) async {
-    for (var i = 0; i < 10; i++) {
+  Future<void> settleIo(WidgetTester tester, {bool Function()? until}) async {
+    final hops = until == null ? 10 : 100;
+    for (var i = 0; i < hops; i++) {
+      if (until?.call() ?? false) break;
       await tester.runAsync(
         () => Future<void>.delayed(const Duration(milliseconds: 20)),
       );
       await tester.pump();
     }
     await tester.pumpAndSettle();
+    if (!(until?.call() ?? true)) {
+      fail('the outbox did not finish its I/O');
+    }
   }
 
   // FilledButton.icon builds a private subclass, so match by subtype.
@@ -108,7 +113,10 @@ void main() {
     expect(tester.widget<FilledButton>(sendButton).onPressed, isNotNull);
     await tester.tap(sendButton);
     await tester.pumpAndSettle();
-    await settleIo(tester);
+    await settleIo(
+      tester,
+      until: () => outbox.byId(draft.id)?.status == BugReportStatus.sent,
+    );
 
     expect(bodies, hasLength(1));
     expect(bodies.single['id'], draft.id);
