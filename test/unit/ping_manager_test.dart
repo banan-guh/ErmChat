@@ -350,12 +350,39 @@ void main() {
               '"enabled":true,"notify":false,"color":4293212469}]',
         });
         final ids = m.rules.map((r) => r.id).toList();
-        expect(ids, ['builtin_reply', 'builtin_thread']);
-        final thread = m.rules.last;
+        expect(ids, ['builtin_reply', 'builtin_thread', 'builtin_automod']);
+        final thread = m.rules.firstWhere((r) => r.id == 'builtin_thread');
         expect(thread.notify, isFalse);
         expect(thread.colorArgb, 4293212469);
       },
     );
+
+    test('rules saved before the automod event gain it enabled', () async {
+      final m = await makeManager({
+        'ping_rules_v1':
+            '[{"id":"builtin_reply","kind":"message","type":"reply",'
+            '"enabled":true,"notify":false}]',
+      });
+      final automod = m.rules.firstWhere((r) => r.id == 'builtin_automod');
+      expect(automod.enabled, isTrue);
+      expect(
+        m.evaluate(msg('approved', automodApproved: true))?.primary,
+        HighlightType.automod,
+      );
+    });
+
+    test('automod highlight follows its builtin rule', () async {
+      final m = await makeManager();
+      final rule = m.rules.firstWhere((r) => r.id == 'builtin_automod');
+      m.upsertRule(rule.copyWith(enabled: false));
+      expect(m.evaluate(msg('approved', automodApproved: true)), isNull);
+
+      m.upsertRule(rule.copyWith(colorArgb: 0xFF64B5F6));
+      expect(
+        m.evaluate(msg('approved', automodApproved: true))?.customColor,
+        const Color(0xFF64B5F6),
+      );
+    });
 
     test(
       'switching accounts drops the departed account learned state',

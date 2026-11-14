@@ -1135,6 +1135,7 @@
   "automodNeedsScope": "AutoMod queue needs the moderator:manage:automod scope. Your login predates it.",
   "automodUnavailable": "AutoMod queue is unavailable here.",
   "settingAutomodInChat": "Inline AutoMod queue",
+  "settingAutomodHighlight": "AutoMod",
   "automodHeldInChat": "Held by AutoMod",
   "automodRelogin": "Open Settings > Account > Log in again to grant moderator:manage:automod.",
   "howToRelogin": "How to re-login",

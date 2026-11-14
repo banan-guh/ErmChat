@@ -28,6 +28,7 @@ class PingManager extends ChangeNotifier {
     'redemption',
     'firstMsg',
     'elevated',
+    'automod',
   ];
 
   /// Badge presets (seeded disabled, DankChat-style defaults).
@@ -104,6 +105,7 @@ class PingManager extends ChangeNotifier {
     } else {
       _rules = decodeRules(raw);
       _splitThreadRule();
+      _ensureAutomodRule();
     }
     _regexCache.clear();
     _lowerPatternCache.clear();
@@ -154,6 +156,20 @@ class PingManager extends ChangeNotifier {
         enabled: reply?.enabled ?? true,
         notify: reply?.notify ?? true,
         colorArgb: reply?.colorArgb,
+      ),
+    );
+  }
+
+  /// Saved rules predate the automod event, which always tinted approved
+  /// messages; seed it enabled so the upgrade keeps that tint.
+  void _ensureAutomodRule() {
+    if (_rules.any((r) => r.id == 'builtin_automod')) return;
+    _rules.add(
+      PingRule(
+        id: 'builtin_automod',
+        kind: PingRuleKind.message,
+        type: 'automod',
+        pattern: '',
       ),
     );
   }
@@ -279,6 +295,10 @@ class PingManager extends ChangeNotifier {
               if (msg.pinnedPaidAmount != null) {
                 add(rule, HighlightType.elevated);
               }
+            case 'automod':
+              if (msg.isAutomodApproved) {
+                add(rule, HighlightType.automod);
+              }
           }
         case PingRuleKind.user:
           if (_matchesUser(rule, msg.login)) {
@@ -297,11 +317,6 @@ class PingManager extends ChangeNotifier {
         case PingRuleKind.blacklist:
           break;
       }
-    }
-
-    if (msg.isAutomodApproved) {
-      (types ??= <HighlightType>{}).add(HighlightType.automod);
-      (tinting ??= <HighlightType>{}).add(HighlightType.automod);
     }
 
     final matched = types;

@@ -181,6 +181,7 @@ final Map<String, _Title> _titles = {
   'first_messages': ('First messages', (l) => l.settingFirstMessages),
   'redemptions': ('Channel point redemptions', (l) => l.settingRedemptions),
   'hype_chat': ('Hype Chat', (l) => l.settingHypeChat),
+  'automod_highlight': ('AutoMod', (l) => l.settingAutomodHighlight),
   'badges': ('Badges', (l) => l.settingBadges),
   'dont_highlight': ("Don't highlight", (l) => l.settingDontHighlight),
   'ignores': ('Ignores', (l) => l.settingIgnores),
@@ -470,6 +471,12 @@ class SettingsRow {
     section: 'Events',
     keywords: 'paid',
   );
+  static const automodHighlight = SettingsRow(
+    'automod_highlight',
+    SettingsPageId.highlights,
+    section: 'Events',
+    keywords: 'auto mod approved tint color',
+  );
 
   /// Every row that stores nothing, in browsing order.
   static const all = <SettingsRow>[
@@ -496,6 +503,7 @@ class SettingsRow {
     firstMessages,
     redemptions,
     hypeChat,
+    automodHighlight,
     account,
     about,
     language,

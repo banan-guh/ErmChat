@@ -521,7 +521,12 @@ class _PingsScreenState extends ConsumerState<PingsScreen> {
         .toList();
     return [
       SettingsSectionHeader(context.l10n.sectionEvents),
-      for (final type in const ['firstMsg', 'redemption', 'elevated'])
+      for (final type in const [
+        'firstMsg',
+        'redemption',
+        'elevated',
+        'automod',
+      ])
         ..._tilesOf(rules, PingRuleKind.message, type: type),
       SettingAnchor.row(
         SettingsRow.badges,
@@ -927,6 +932,7 @@ const _builtinSettings = {
   'firstMsg': SettingsRow.firstMessages,
   'redemption': SettingsRow.redemptions,
   'elevated': SettingsRow.hypeChat,
+  'automod': SettingsRow.automodHighlight,
 };
 
 /// Editor notes for the builtins whose names undersell what they catch.
@@ -969,6 +975,7 @@ HighlightType _typeOf(PingRule rule) => switch (rule.kind) {
     'redemption' => HighlightType.redemption,
     'firstMsg' => HighlightType.firstMsg,
     'elevated' => HighlightType.elevated,
+    'automod' => HighlightType.automod,
     _ => HighlightType.custom,
   },
 };
