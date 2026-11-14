@@ -1,3 +1,3 @@
 - automod highlight in highlights
-- uploaded images can actually be deleted
+- uploaded images can be deleted from their delete link
 - more custom gestures

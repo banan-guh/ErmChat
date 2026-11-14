@@ -824,12 +824,16 @@
     }
   },
   "clearRecentUploadsTitle": "Clear recent uploads",
-  "clearRecentUploadsMessage": "This deletes every upload from the host and clears the local list. Links that were already shared will stop working.",
-  "clearRecentUploadsDone": "Uploads deleted.",
-  "clearRecentUploadsKept": "{count, plural, =1{1 upload could not be deleted and was kept.} other{{count} uploads could not be deleted and were kept.}}",
-  "deleteUploadTitle": "Delete image?",
-  "deleteUploadMessage": "This deletes the image from the host. Links that were already shared will stop working.",
-  "deleteUploadFailed": "Could not delete the image. It was kept so you can retry.",
+  "clearRecentUploadsMessage": "This clears the local list only. Uploaded files are not deleted.",
+  "clearRecentUploadsDone": "Upload history cleared.",
+  "recentUploadDeleteLink": "Delete link: {url}",
+  "@recentUploadDeleteLink": {
+    "placeholders": {
+      "url": {
+        "type": "String"
+      }
+    }
+  },
   "clear": "Clear",
   "clearMessage": "Clear message",
   "recentUploadsTitle": "Recent uploads",

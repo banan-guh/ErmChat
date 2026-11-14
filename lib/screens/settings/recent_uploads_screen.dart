@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:url_launcher/url_launcher.dart';
+
 import '../../l10n/l10n.dart';
 import '../../services/media_uploader.dart';
 import '../../util/timestamp_formatter.dart';
@@ -18,12 +20,8 @@ class RecentUploadsScreen extends StatefulWidget {
 class _RecentUploadsScreenState extends State<RecentUploadsScreen> {
   final _mediaUploader = MediaUploader();
   List<RecentUpload> _uploads = [];
-  final _deleting = <String>{};
   bool _clearing = false;
   bool _loading = true;
-
-  static String _key(RecentUpload upload) =>
-      '${upload.imageLink}|${upload.timestamp.toIso8601String()}';
 
   @override
   void initState() {
@@ -46,31 +44,15 @@ class _RecentUploadsScreenState extends State<RecentUploadsScreen> {
     AppSnack.show(context, context.l10n.copiedValue(upload.imageLink));
   }
 
-  Future<void> _delete(RecentUpload upload) async {
-    final confirmed = await confirmDialog(
-      context,
-      title: context.l10n.deleteUploadTitle,
-      message: context.l10n.deleteUploadMessage,
-      confirmLabel: context.l10n.delete,
-      destructive: true,
-    );
-    if (!confirmed || !mounted) return;
-    final key = _key(upload);
-    setState(() => _deleting.add(key));
-    final deleted = await _mediaUploader.deleteUpload(upload);
-    if (!mounted) return;
-    if (!deleted) {
-      setState(() => _deleting.remove(key));
-      AppSnack.show(context, context.l10n.deleteUploadFailed);
-      return;
+  Future<void> _openDeleteLink(RecentUpload upload) async {
+    final link = upload.deleteLink?.trim();
+    if (link == null || link.isEmpty) return;
+    final uri = Uri.tryParse(link);
+    if (uri == null) return;
+    final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    if (!ok && mounted) {
+      AppSnack.show(context, context.l10n.couldNotOpenUrl(link));
     }
-    // The host dropped the image, so the row and its key can go too.
-    await _mediaUploader.removeRecent(upload);
-    if (!mounted) return;
-    setState(() {
-      _deleting.remove(key);
-      _uploads.removeWhere((u) => _key(u) == key);
-    });
   }
 
   Future<void> _clearAll() async {
@@ -83,25 +65,13 @@ class _RecentUploadsScreenState extends State<RecentUploadsScreen> {
     );
     if (!confirmed || !mounted) return;
     setState(() => _clearing = true);
-    final deleted = <RecentUpload>[];
-    final kept = <RecentUpload>[];
-    for (final upload in List.of(_uploads)) {
-      final ok = await _mediaUploader.deleteUpload(upload);
-      if (!mounted) return;
-      (ok ? deleted : kept).add(upload);
-    }
-    if (deleted.isNotEmpty) await _mediaUploader.removeRecents(deleted);
+    await _mediaUploader.clearRecents();
     if (!mounted) return;
     setState(() {
-      _uploads = kept;
+      _uploads = [];
       _clearing = false;
     });
-    AppSnack.show(
-      context,
-      kept.isEmpty
-          ? context.l10n.clearRecentUploadsDone
-          : context.l10n.clearRecentUploadsKept(kept.length),
-    );
+    AppSnack.show(context, context.l10n.clearRecentUploadsDone);
   }
 
   @override
@@ -128,7 +98,7 @@ class _RecentUploadsScreenState extends State<RecentUploadsScreen> {
           IconButton(
             icon: const Icon(Icons.delete_sweep),
             tooltip: context.l10n.clearAll,
-            onPressed: _deleting.isEmpty ? _clearAll : null,
+            onPressed: _clearing ? null : _clearAll,
           ),
       ],
       body: _loading
@@ -139,8 +109,9 @@ class _RecentUploadsScreenState extends State<RecentUploadsScreen> {
               itemCount: _uploads.length,
               itemBuilder: (context, index) {
                 final upload = _uploads[index];
-                final key = _key(upload);
-                final deleting = _deleting.contains(key);
+                final deleteLink = upload.deleteLink?.trim();
+                final hasDeleteLink =
+                    deleteLink != null && deleteLink.isNotEmpty;
                 return ListTile(
                   dense: true,
                   leading: const Icon(Icons.link),
@@ -148,41 +119,43 @@ class _RecentUploadsScreenState extends State<RecentUploadsScreen> {
                     upload.imageLink,
                     overflow: TextOverflow.ellipsis,
                   ),
-                  subtitle: Text(
-                    formatTimestamp(upload.timestamp, kDefaultTimestampFormat),
-                  ),
-                  onTap: () => _copyLink(upload),
-                  trailing: Row(
+                  subtitle: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      if (upload.imageLink.isNotEmpty)
-                        IconButton(
-                          icon: const Icon(Icons.image_outlined),
-                          tooltip: context.l10n.expandImage,
-                          onPressed: _clearing || deleting
-                              ? null
-                              : () => showImageEmbedViewer(
-                                  context,
-                                  upload.imageLink,
-                                ),
+                      Text(
+                        formatTimestamp(
+                          upload.timestamp,
+                          kDefaultTimestampFormat,
                         ),
-                      IconButton(
-                        icon: deleting
-                            ? const SizedBox(
-                                width: 20,
-                                height: 20,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                ),
-                              )
-                            : const Icon(Icons.delete_outline),
-                        tooltip: context.l10n.delete,
-                        onPressed: _clearing || deleting
-                            ? null
-                            : () => _delete(upload),
                       ),
+                      if (hasDeleteLink)
+                        InkWell(
+                          onTap: () => _openDeleteLink(upload),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 4),
+                            child: Text(
+                              context.l10n.recentUploadDeleteLink(deleteLink),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                color: Theme.of(context).colorScheme.primary,
+                                decoration: TextDecoration.underline,
+                              ),
+                            ),
+                          ),
+                        ),
                     ],
                   ),
+                  onTap: () => _copyLink(upload),
+                  trailing: upload.imageLink.isEmpty
+                      ? null
+                      : IconButton(
+                          icon: const Icon(Icons.image_outlined),
+                          tooltip: context.l10n.expandImage,
+                          onPressed: () =>
+                              showImageEmbedViewer(context, upload.imageLink),
+                        ),
                 );
               },
             ),

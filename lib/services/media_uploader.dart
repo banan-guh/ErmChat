@@ -147,9 +147,6 @@ class MediaUploader {
   /// once sent. A slow connection keeps going; a dead one gives up.
   static const _stallTimeout = Duration(seconds: 30);
 
-  /// How long a remote delete may take before the entry is kept for retry.
-  static const _deleteTimeout = Duration(seconds: 15);
-
   /// Bytes handed to the connection per step, so progress moves smoothly.
   static const _chunkBytes = 64 * 1024;
 
@@ -322,45 +319,6 @@ class MediaUploader {
     // Keep every entry: the delete link is the only way to remove the image,
     // so trimming a row would orphan it on the host.
     await _writeRecents(uploads);
-  }
-
-  /// Asks the host to delete [upload]'s image. True when the file is gone or
-  /// the host accepted the delete; false means keep the row, including when
-  /// the upload has no delete link.
-  Future<bool> deleteUpload(RecentUpload upload) async {
-    final link = upload.deleteLink?.trim();
-    if (link == null || link.isEmpty) return false;
-    final uri = _deletionUri(link);
-    if (uri == null) return false;
-    try {
-      final res = await _client
-          .get(uri, headers: {'User-Agent': 'ermchat'})
-          .timeout(_deleteTimeout);
-      // Already gone counts as deleted, so a retry can clear the row.
-      if (res.statusCode == 404 || res.statusCode == 410) return true;
-      return res.statusCode >= 200 && res.statusCode < 300;
-    } catch (e) {
-      logDebug('MediaUploader: delete failed: $e');
-      return false;
-    }
-  }
-
-  /// kappa.lol hands out its HTML confirmation page as `{delete}`; deleting
-  /// needs the JSON endpoint behind it.
-  Uri? _deletionUri(String link) {
-    final uri = Uri.tryParse(link);
-    if (uri == null || (uri.scheme != 'http' && uri.scheme != 'https')) {
-      return null;
-    }
-    if (uri.host == 'kappa.lol' &&
-        uri.path == '/delete' &&
-        uri.query.isNotEmpty) {
-      return uri.replace(
-        path: '/api/delete',
-        query: 'key=${Uri.encodeQueryComponent(uri.query)}',
-      );
-    }
-    return uri;
   }
 
   Future<void> removeRecent(RecentUpload upload) => removeRecents([upload]);
