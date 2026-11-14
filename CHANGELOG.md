@@ -1,3 +1,4 @@
+- ios 26 keyboard corners fixed
 - automod highlight in highlights
 - uploaded images can be deleted from their delete link
 - more custom gestures
