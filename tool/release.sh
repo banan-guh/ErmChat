@@ -69,7 +69,7 @@ ISSUE_LINES="$(cut -f1,2 --output-delimiter=', ' <<< "$ISSUES" |
   sed -E '/^$/d; s/^/- issue #/')"
 [[ $VERSION == *.0 ]] && INTRO="feature drop." || INTRO="small patch:"
 
-NOTES="$(git rev-parse --git-dir)/RELEASE_NOTES.md"
+NOTES="$(git rev-parse --git-dir)/RELEASE_NOTES-$TAG.md"
 {
   echo "// Lines starting with // are dropped. Write the intro, trim the lists."
   echo "// CHANGELOG.md:"
@@ -83,7 +83,6 @@ NOTES="$(git rev-parse --git-dir)/RELEASE_NOTES.md"
   category "New Features" "$FEATS"
   category "Also Fixed" "$ALSO"
   section "issues (fixed):" "$ISSUE_LINES"
-  echo ")"
   echo
   echo "**Full Changelog**: https://github.com/$REPO/compare/$PREV...$TAG"
 } > "$NOTES"
@@ -104,11 +103,14 @@ if ! git merge -q --no-edit origin/main; then
 fi
 sed -i -E "s/^version:.*/version: $VERSION+$((BUILD + 1))/" pubspec.yaml
 git commit -q -am "Version $TAG"
+# Local main must fast-forward before anything is pushed, so a stale branch
+# cannot silently drop commits.
+git fetch -q . develop:main ||
+  die "local main cannot fast-forward to develop; nothing pushed"
 git tag "$TAG"
 git push -q origin develop develop:main "$TAG"
-git fetch -q . develop:main
 gh release create "$TAG" -R "$REPO" --title "$TAG beta" --notes-file "$NOTES" \
-  --verify-tag
+  --verify-tag || die "GitHub release was not created; notes are in $NOTES"
 
 while IFS=$'\t' read -r number _; do
   [[ -n $number ]] || continue
