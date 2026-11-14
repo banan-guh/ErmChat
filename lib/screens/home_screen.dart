@@ -2220,197 +2220,207 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
           _toggleFullscreen();
         }
       },
-      child: Scaffold(
-        // Stock resize path: the Scaffold shrinks the body with the
-        // keyboard, replaying the system ticks directly. No manual lift and
-        // no second animator: Dart curves of a different duration only cross
-        // the system motion (behind-ahead-behind). ChatBody reads the
-        // keyboard itself, so this screen never rebuilds per keyboard tick.
-        resizeToAvoidBottomInset: true,
-        bottomNavigationBar: _layoutEdit == null
-            ? null
-            : LayoutEditTray(
-                controller: _layoutEdit!,
-                onDone: () => unawaited(_saveLayoutEdit()),
-                onCancel: _endLayoutEdit,
-              ),
-        body: ListenableBuilder(
-          listenable: _streamPlayer,
-          builder: (_, _) => ChatBody(
-            emoteMaxFraction: _emoteMaxFraction,
-            // A dismissed keyboard leaves the field focused, which keeps
-            // the back guard and focus styling stuck; drop it once the
-            // close settles (ChatBody delays the call past the animation).
-            onKeyboardDismissed: _composer.unfocus,
-            // System PiP collapses the whole body to video-only; ChatBody
-            // drops composer/panels/notice so the window shows the stream.
-            isInPip: _streamPlayer.isInPip,
-            pagesKey: _channels.pagesKey,
-            // Keyboard room only decides whether a stacked player hides.
-            bodyReadsKeyboard: _streamPlayer.currentChannel != null,
-            composerInPane: _stream.chatInPane(context),
-            bodyBuilder:
-                (
-                  context, {
-                  required hideChromeForKeyboard,
-                  required maxWidth,
-                  required maxHeight,
-                  required keyboardH,
-                  required composerH,
-                }) {
-                  return _stream.bodyColumn(
-                    context,
-                    hideChromeForKeyboard: hideChromeForKeyboard,
-                    maxWidth: maxWidth,
-                    maxHeight: maxHeight,
-                    keyboardH: keyboardH,
-                    composerH: composerH,
-                  );
-                },
-            threadPanel: _threads.threadPanel(
-              context,
-              overlaySheet: _buildOverlaySheet,
-              closePanel: _closePanel,
-            ),
-            mentionsPanel: _mentions.mentionsPanel(
-              context,
-              overlaySheet: _buildOverlaySheet,
-              closePanel: _closePanel,
-            ),
-            modViewPanel: _mod.modViewPanel(
-              context,
-              overlaySheet: _buildOverlaySheet,
-              closePanel: _closePanel,
-              onShowUser: (login) =>
-                  _userSheets.showUserProfile(context, login, null),
-            ),
-            emotePickerBuilder:
-                (context, {required sheetBoxHeight, required inset}) =>
-                    _buildEmotePicker(
-                      sheetBoxHeight: sheetBoxHeight,
-                      inset: inset,
-                    ),
-            autocomplete: ValueListenableBuilder<List<Suggestion>>(
-              valueListenable: _composer.suggestions,
-              builder: (_, suggestions, _) => AutocompleteDropdown(
-                suggestions: suggestions,
-                images: _emoteLookupSource.images,
-                onSelect: _composer.selectSuggestion,
-                onEmoteViewed: _emoteManager.markEmoteViewed,
-              ),
-            ),
-            composer: _showInput
-                ? ComposerBar(
-                    controller: _composer,
-                    selectedTabIndex: _selectedTabIndex,
-                    search: _search,
-                    mod: _mod,
-                    dragTick: _panelDragTick,
-                    emoteInRow: emoteInRow,
-                    sendOutside: sendOutside,
-                    startItems: fieldStart,
-                    endItems: fieldEnd,
-                    actionBuilder: (a) => _chrome.action(
+      child: ColoredBox(
+        // iOS 26's glass keyboard shows the app behind its rounded corners.
+        // Painting the chat surface behind the Scaffold keeps those corners
+        // from falling back to the native black window.
+        color: Theme.of(context).scaffoldBackgroundColor,
+        child: Scaffold(
+          // Stock resize path: the Scaffold shrinks the body with the
+          // keyboard, replaying the system ticks directly. No manual lift and
+          // no second animator: Dart curves of a different duration only cross
+          // the system motion (behind-ahead-behind). ChatBody reads the
+          // keyboard itself, so this screen never rebuilds per keyboard tick.
+          backgroundColor: Colors.transparent,
+          resizeToAvoidBottomInset: true,
+          bottomNavigationBar: _layoutEdit == null
+              ? null
+              : LayoutEditTray(
+                  controller: _layoutEdit!,
+                  onDone: () => unawaited(_saveLayoutEdit()),
+                  onCancel: _endLayoutEdit,
+                ),
+          body: ListenableBuilder(
+            listenable: _streamPlayer,
+            builder: (_, _) => ChatBody(
+              emoteMaxFraction: _emoteMaxFraction,
+              // A dismissed keyboard leaves the field focused, which keeps
+              // the back guard and focus styling stuck; drop it once the
+              // close settles (ChatBody delays the call past the animation).
+              onKeyboardDismissed: _composer.unfocus,
+              // System PiP collapses the whole body to video-only; ChatBody
+              // drops composer/panels/notice so the window shows the stream.
+              isInPip: _streamPlayer.isInPip,
+              pagesKey: _channels.pagesKey,
+              // Keyboard room only decides whether a stacked player hides.
+              bodyReadsKeyboard: _streamPlayer.currentChannel != null,
+              composerInPane: _stream.chatInPane(context),
+              bodyBuilder:
+                  (
+                    context, {
+                    required hideChromeForKeyboard,
+                    required maxWidth,
+                    required maxHeight,
+                    required keyboardH,
+                    required composerH,
+                  }) {
+                    return _stream.bodyColumn(
                       context,
-                      a,
+                      hideChromeForKeyboard: hideChromeForKeyboard,
+                      maxWidth: maxWidth,
+                      maxHeight: maxHeight,
+                      keyboardH: keyboardH,
+                      composerH: composerH,
+                    );
+                  },
+              threadPanel: _threads.threadPanel(
+                context,
+                overlaySheet: _buildOverlaySheet,
+                closePanel: _closePanel,
+              ),
+              mentionsPanel: _mentions.mentionsPanel(
+                context,
+                overlaySheet: _buildOverlaySheet,
+                closePanel: _closePanel,
+              ),
+              modViewPanel: _mod.modViewPanel(
+                context,
+                overlaySheet: _buildOverlaySheet,
+                closePanel: _closePanel,
+                onShowUser: (login) =>
+                    _userSheets.showUserProfile(context, login, null),
+              ),
+              emotePickerBuilder:
+                  (context, {required sheetBoxHeight, required inset}) =>
+                      _buildEmotePicker(
+                        sheetBoxHeight: sheetBoxHeight,
+                        inset: inset,
+                      ),
+              autocomplete: ValueListenableBuilder<List<Suggestion>>(
+                valueListenable: _composer.suggestions,
+                builder: (_, suggestions, _) => AutocompleteDropdown(
+                  suggestions: suggestions,
+                  images: _emoteLookupSource.images,
+                  onSelect: _composer.selectSuggestion,
+                  onEmoteViewed: _emoteManager.markEmoteViewed,
+                ),
+              ),
+              composer: _showInput
+                  ? ComposerBar(
+                      controller: _composer,
+                      selectedTabIndex: _selectedTabIndex,
+                      search: _search,
+                      mod: _mod,
+                      dragTick: _panelDragTick,
+                      emoteInRow: emoteInRow,
+                      sendOutside: sendOutside,
+                      startItems: fieldStart,
+                      endItems: fieldEnd,
+                      actionBuilder: (a) => _chrome.action(
+                        context,
+                        a,
+                        onCalendar: _channels.openCalendar,
+                      ),
+                      startSlot: edit == null
+                          ? null
+                          : FieldSideView(
+                              controller: edit,
+                              side: LayoutSlot.fieldStart,
+                            ),
+                      endSlot: edit == null
+                          ? null
+                          : FieldSideView(
+                              controller: edit,
+                              side: LayoutSlot.fieldEnd,
+                            ),
+                      readOnly: edit != null,
+                      classic: spec.composer == ComposerStyle.classic,
+                      modeRow: modeRow,
+                      uploads: _uploadController,
+                      progress: _composerProgress,
+                    )
+                  : null,
+              bottomBar: hasBottomBar && !rowless
+                  ? _chrome.bottomBar(
+                      context,
+                      trailing: [
+                        if (edit != null)
+                          ?partSlot(ComposerPart.send, PartPlace.row)
+                        else if (spec.sendInRow && sendOutside)
+                          SizedBox.square(dimension: 48, child: sendButton),
+                      ],
+                      middle: _showInput
+                          ? ComposerModeRow(
+                              controller: _composer,
+                              selectedTabIndex: _selectedTabIndex,
+                              search: _search,
+                              mod: _mod,
+                              dragTick: _panelDragTick,
+                              swipePage: _channels.swipePage,
+                              alignStart: spec.rowStart.isEmpty,
+                              // Send down the island's side, with no buttons
+                              // between the gap and it.
+                              sendRoom:
+                                  sendOutside &&
+                                      !spec.sendInRow &&
+                                      spec.rowEnd.isEmpty
+                                  ? ChatBody.sideActionWidth
+                                  : 0,
+                            )
+                          : null,
+                      leading: edit != null
+                          ? partSlot(ComposerPart.emote, PartPlace.row)
+                          : emoteInRow
+                          ? ComposerRowButton.emote(
+                              controller: _composer,
+                              search: _search,
+                              mod: _mod,
+                              dragTick: _panelDragTick,
+                            )
+                          : null,
                       onCalendar: _channels.openCalendar,
-                    ),
-                    startSlot: edit == null
-                        ? null
-                        : FieldSideView(
-                            controller: edit,
-                            side: LayoutSlot.fieldStart,
-                          ),
-                    endSlot: edit == null
-                        ? null
-                        : FieldSideView(
-                            controller: edit,
-                            side: LayoutSlot.fieldEnd,
-                          ),
-                    readOnly: edit != null,
-                    classic: spec.composer == ComposerStyle.classic,
-                    modeRow: modeRow,
-                    uploads: _uploadController,
-                    progress: _composerProgress,
-                  )
-                : null,
-            bottomBar: hasBottomBar && !rowless
-                ? _chrome.bottomBar(
-                    context,
-                    trailing: [
-                      if (edit != null)
-                        ?partSlot(ComposerPart.send, PartPlace.row)
-                      else if (spec.sendInRow && sendOutside)
-                        SizedBox.square(dimension: 48, child: sendButton),
-                    ],
-                    middle: _showInput
-                        ? ComposerModeRow(
-                            controller: _composer,
-                            selectedTabIndex: _selectedTabIndex,
-                            search: _search,
-                            mod: _mod,
-                            dragTick: _panelDragTick,
-                            swipePage: _channels.swipePage,
-                            alignStart: spec.rowStart.isEmpty,
-                            // Send down the island's side, with no buttons
-                            // between the gap and it.
-                            sendRoom:
-                                sendOutside &&
-                                    !spec.sendInRow &&
-                                    spec.rowEnd.isEmpty
-                                ? ChatBody.sideActionWidth
-                                : 0,
-                          )
-                        : null,
-                    leading: edit != null
-                        ? partSlot(ComposerPart.emote, PartPlace.row)
-                        : emoteInRow
-                        ? ComposerRowButton.emote(
-                            controller: _composer,
-                            search: _search,
-                            mod: _mod,
-                            dragTick: _panelDragTick,
-                          )
-                        : null,
-                    onCalendar: _channels.openCalendar,
-                  )
-                : null,
-            // The channel status line at the island's foot.
-            islandFooterHeightFor: hasBottomBar ? _statusHeightFor : null,
-            islandFooter: hasBottomBar
-                ? ComposerStatusRow(
-                    controller: _composer,
-                    selectedTabIndex: _selectedTabIndex,
-                    search: _search,
-                    mod: _mod,
-                    dragTick: _panelDragTick,
-                    modeRow: modeRow,
-                    classic: spec.composer == ComposerStyle.classic,
-                  )
-                : null,
-            // Send runs down the island's side while the row stays up.
-            sideAction: edit != null
-                ? partSlot(ComposerPart.send, PartPlace.column)
-                : sendOutside && spec.send == SendPlace.column
-                ? sendButton
-                : null,
-            loneAction: menuFloats && _chat.names.isNotEmpty
-                ? _chrome.action(
-                    context,
-                    inputMenu,
-                    onCalendar: _channels.openCalendar,
-                  )
-                : null,
-            islandFlush: spec.islandFlush,
-            classic: spec.composer == ComposerStyle.classic,
-            busyListenable: spec.busyBar
-                ? Listenable.merge([_chrome.joinBusyListenable, _mod.busyCount])
-                : null,
-            isBusy: () => _chrome.joinBusy() || _mod.busyCount.value > 0,
-            progress: _composerProgress,
-            notice: ChatNoticeBar(controller: _chatNotice),
-            replyHeader: replyHeader,
-            keyboardHidesButtons: spec.compact,
+                    )
+                  : null,
+              // The channel status line at the island's foot.
+              islandFooterHeightFor: hasBottomBar ? _statusHeightFor : null,
+              islandFooter: hasBottomBar
+                  ? ComposerStatusRow(
+                      controller: _composer,
+                      selectedTabIndex: _selectedTabIndex,
+                      search: _search,
+                      mod: _mod,
+                      dragTick: _panelDragTick,
+                      modeRow: modeRow,
+                      classic: spec.composer == ComposerStyle.classic,
+                    )
+                  : null,
+              // Send runs down the island's side while the row stays up.
+              sideAction: edit != null
+                  ? partSlot(ComposerPart.send, PartPlace.column)
+                  : sendOutside && spec.send == SendPlace.column
+                  ? sendButton
+                  : null,
+              loneAction: menuFloats && _chat.names.isNotEmpty
+                  ? _chrome.action(
+                      context,
+                      inputMenu,
+                      onCalendar: _channels.openCalendar,
+                    )
+                  : null,
+              islandFlush: spec.islandFlush,
+              classic: spec.composer == ComposerStyle.classic,
+              busyListenable: spec.busyBar
+                  ? Listenable.merge([
+                      _chrome.joinBusyListenable,
+                      _mod.busyCount,
+                    ])
+                  : null,
+              isBusy: () => _chrome.joinBusy() || _mod.busyCount.value > 0,
+              progress: _composerProgress,
+              notice: ChatNoticeBar(controller: _chatNotice),
+              replyHeader: replyHeader,
+              keyboardHidesButtons: spec.compact,
+            ),
           ),
         ),
       ),
