@@ -304,6 +304,32 @@ void main() {
       expect(called.toString(), 'https://kappa.lol/api/delete?key=k');
     });
 
+    // Shipped bug: kappa.lol's `{delete}` value is its HTML confirmation page,
+    // which answers 200 without deleting the file. The JSON endpoint is what
+    // actually deletes it.
+    test(
+      'deleteUpload uses kappa.lol JSON endpoint for its HTML link',
+      () async {
+        Uri? called;
+        final uploader = MediaUploader(
+          client: MockClient((request) async {
+            called = request.url;
+            return http.Response('{"success":true}', 200);
+          }),
+        );
+        final ok = await uploader.deleteUpload(
+          RecentUpload(
+            imageLink: 'https://kappa.lol/x',
+            deleteLink: 'https://kappa.lol/delete?AbC123',
+            timestamp: DateTime(2026),
+          ),
+        );
+
+        expect(ok, isTrue);
+        expect(called.toString(), 'https://kappa.lol/api/delete?key=AbC123');
+      },
+    );
+
     test('deleteUpload keeps the entry when the host refuses', () async {
       final uploader = MediaUploader(
         client: MockClient((_) async => http.Response('', 500)),
@@ -319,7 +345,7 @@ void main() {
       expect(ok, isFalse);
     });
 
-    test('deleteUpload treats a missing link or gone image as done', () async {
+    test('deleteUpload keeps an upload with no delete link', () async {
       final uploader = MediaUploader(
         client: MockClient((_) async => http.Response('', 404)),
       );
@@ -329,7 +355,8 @@ void main() {
         await uploader.deleteUpload(
           RecentUpload(imageLink: 'https://kappa.lol/x', timestamp: at),
         ),
-        isTrue,
+        isFalse,
+        reason: 'no delete link means the file cannot be removed',
       );
       expect(
         await uploader.deleteUpload(
@@ -340,6 +367,7 @@ void main() {
           ),
         ),
         isTrue,
+        reason: 'the host says the file is already gone',
       );
     });
   });
