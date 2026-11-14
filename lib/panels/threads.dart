@@ -808,6 +808,10 @@ class ThreadPanels {
               onShowMessageMenu: (ctx, msg) =>
                   menus.showPanelMessageMenu(ctx, msg),
               onCopyMessage: copyMessage,
+              onInsertMention: (text) {
+                composer.insertTextAtCursor(text);
+                composer.focus();
+              },
               showReplyIndicators: false,
               emptyText: context.l10n.noMessagesFound,
             ),

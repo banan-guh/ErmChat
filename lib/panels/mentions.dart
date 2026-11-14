@@ -312,6 +312,10 @@ class MentionsPanels {
         onShowMessageMenu: (ctx, msg) =>
             menus.showPanelMessageMenu(ctx, msg, goToMessage: _goTo(msg)),
         onCopyMessage: copyMessage,
+        onInsertMention: (text) {
+          composer.insertTextAtCursor(text);
+          composer.focus();
+        },
         showReplyIndicators: false,
         fadeDeleted: false,
         showChannel: true,
@@ -392,6 +396,10 @@ class MentionsPanels {
                     goToMessage: _goTo(msg),
                   ),
                   onCopyMessage: copyMessage,
+                  onInsertMention: (text) {
+                    composer.insertTextAtCursor(text);
+                    composer.focus();
+                  },
                   showReplyIndicators: false,
                   fadeDeleted: false,
                   showChannel: true,
@@ -425,6 +433,10 @@ class MentionsPanels {
               onShowMessageMenu: (ctx, msg) =>
                   menus.showPanelMessageMenu(ctx, msg),
               onCopyMessage: copyMessage,
+              onInsertMention: (text) {
+                composer.insertTextAtCursor(text);
+                composer.focus();
+              },
               showReplyIndicators: false,
               emptyText: context.l10n.noWhispers,
             ),

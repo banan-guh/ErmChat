@@ -269,6 +269,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     Settings.ffzEffects,
     Settings.bttvModifiers,
     Settings.copyUsernameGesture,
+    Settings.nameGestureInserts,
+    Settings.messageTapBehavior,
     Settings.sharedChatMode,
   ]);
 

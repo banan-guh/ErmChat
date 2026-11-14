@@ -36,7 +36,7 @@ void main() {
               bodyIsCached: (_, _) => false,
               onTapUser: (_, login, _) => taps.add('user:$login'),
               onDoubleTapUser: doubleTapUser ? (_) => taps.add('copy') : null,
-              onDoubleTap: () => taps.add('message'),
+              onDoubleTap: (_) => taps.add('message'),
               onLongPress: (_) {},
             ),
           ),

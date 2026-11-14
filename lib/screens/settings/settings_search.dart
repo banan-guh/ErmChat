@@ -95,6 +95,10 @@ final Map<String, _Title> _titles = {
     (l) => l.settingCompactRepeats,
   ),
   'automod_in_chat': ('Inline AutoMod queue', (l) => l.settingAutomodInChat),
+  'message_tap_behavior': (
+    'Message tap behavior',
+    (l) => l.settingMessageTapBehavior,
+  ),
   'keep_screen_on': ('Keep screen on', (l) => l.settingKeepScreenOn),
   'fast_channel_swipe': (
     'Fast channel swipe',
@@ -152,7 +156,11 @@ final Map<String, _Title> _titles = {
   'spam_interval': ('Spam speed', (l) => l.spamSpeed),
   'spam_interval_mod': ('Spam speed', (l) => l.spamSpeedMod),
   'macros': ('Command macros', (l) => l.settingMacros),
-  'copy_username': ('Copy username', (l) => l.settingCopyUsername),
+  'copy_username': ('Username tap behavior', (l) => l.settingCopyUsername),
+  'username_insert': (
+    'Insert username into field',
+    (l) => l.settingUsernameInsert,
+  ),
   'stay_connected': (
     'Stay connected in background',
     (l) => l.settingStayConnected,

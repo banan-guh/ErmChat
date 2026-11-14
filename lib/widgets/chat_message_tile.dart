@@ -58,7 +58,9 @@ class ChatMessageTile extends StatefulWidget {
 
   /// Given the tile's own context, for the same reason as [onTapUser].
   final void Function(BuildContext context)? onLongPress;
-  final VoidCallback? onDoubleTap;
+
+  /// Double tap anywhere on the row, given the tile's own context.
+  final void Function(BuildContext context)? onDoubleTap;
 
   /// Single tap anywhere on the row, with the row's ripple.
   final VoidCallback? onTap;
@@ -282,7 +284,7 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
     final now = DateTime.now();
     if (_lastTap != null && now.difference(_lastTap!) < _doubleTapThreshold) {
       _lastTap = null;
-      widget.onDoubleTap!();
+      widget.onDoubleTap!(context);
     } else {
       _lastTap = now;
     }

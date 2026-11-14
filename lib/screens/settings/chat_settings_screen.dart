@@ -104,6 +104,7 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
   Future<void> _pickCopyGesture() async {
     final l = context.l10n;
     final current = Settings.copyUsernameGesture.value;
+    final inserts = Settings.nameGestureInserts.value;
     final selected = await showChoiceDialog<NameCopyGesture>(
       context,
       title: Settings.copyUsernameGesture.titleOf(l),
@@ -114,12 +115,41 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
         (
           NameCopyGesture.longPress,
           l.copyGestureLongPress,
-          l.copyGestureLongPressHint,
+          inserts ? l.insertGestureLongPressHint : l.copyGestureLongPressHint,
         ),
       ],
     );
     if (selected == null || !mounted || selected == current) return;
     await Settings.copyUsernameGesture.set(selected);
+  }
+
+  String get _messageTapLabel => switch (Settings.messageTapBehavior.value) {
+    MessageTapBehavior.doubleTap => context.l10n.messageGestureDoubleTap,
+    MessageTapBehavior.longPress => context.l10n.messageGestureLongPress,
+  };
+
+  Future<void> _pickMessageTapBehavior() async {
+    final l = context.l10n;
+    final current = Settings.messageTapBehavior.value;
+    final selected = await showChoiceDialog<MessageTapBehavior>(
+      context,
+      title: Settings.messageTapBehavior.titleOf(l),
+      value: current,
+      options: [
+        (
+          MessageTapBehavior.doubleTap,
+          l.messageGestureDoubleTap,
+          l.messageGestureDoubleTapHint,
+        ),
+        (
+          MessageTapBehavior.longPress,
+          l.messageGestureLongPress,
+          l.messageGestureLongPressHint,
+        ),
+      ],
+    );
+    if (selected == null || !mounted || selected == current) return;
+    await Settings.messageTapBehavior.set(selected);
   }
 
   String get _inlineEmbedsSubtitle {
@@ -192,6 +222,8 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
           Settings.sharedChatMode,
           Settings.emoteSortOrder,
           Settings.copyUsernameGesture,
+          Settings.nameGestureInserts,
+          Settings.messageTapBehavior,
           Settings.giphyInlineEnabled,
           Settings.imageEmbedEnabled,
           Settings.proxyEnabled,
@@ -225,6 +257,15 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
               Settings.automodInChat,
               secondary: const Icon(Icons.shield_outlined),
             ),
+            SettingAnchor(
+              Settings.messageTapBehavior,
+              child: SettingsNavTile(
+                icon: Icons.touch_app,
+                title: Settings.messageTapBehavior.titleOf(context.l10n),
+                subtitle: _messageTapLabel,
+                onTap: _pickMessageTapBehavior,
+              ),
+            ),
             _navRow(
               SettingsRow.inlineEmbeds,
               Icons.gif_box,
@@ -251,7 +292,6 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
               Settings.preferEmotesFirst,
               secondary: const Icon(Icons.sentiment_very_satisfied),
             ),
-            const _MentionFormatTile(),
             SettingSwitch(
               Settings.replyToThreadRoot,
               secondary: const Icon(Icons.reply),
@@ -273,6 +313,7 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
                 () => MacrosScreen(twitchAuth: widget.twitchAuth!),
               ),
             SettingsSectionHeader(context.l10n.sectionUsers),
+            const _MentionFormatTile(),
             SettingAnchor(
               Settings.copyUsernameGesture,
               child: SettingsNavTile(
@@ -281,6 +322,12 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
                 subtitle: _copyGestureLabel,
                 onTap: _pickCopyGesture,
               ),
+            ),
+            SettingSwitch(
+              Settings.nameGestureInserts,
+              secondary: const Icon(Icons.input),
+              enabled:
+                  Settings.copyUsernameGesture.value != NameCopyGesture.off,
             ),
             SettingsSectionHeader(context.l10n.sectionConnection),
             ValueListenableBuilder(

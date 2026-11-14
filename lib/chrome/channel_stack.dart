@@ -430,6 +430,7 @@ class ChannelPanels {
               .showUserProfile(ctx, login, userId, displayName: displayName),
           onShowMessageMenu: (ctx, msg) => menus.showMessageMenu(ctx, msg),
           onCopyMessage: copyMessage,
+          onInsertMention: _insertMention,
           onScrollActivity: (c) {
             chat.clearUnread(c);
           },
@@ -588,12 +589,18 @@ class ChannelPanels {
             goToMessage: () => goToMessage(msg),
           ),
     onCopyMessage: copyMessage,
+    onInsertMention: _insertMention,
     onHeldDecide: (msg, allow) => onHeldDecide(channel, msg, allow),
     onFindThreadRoot: threads.findThreadRoot,
     onShowThreadView: (msg) => threads.showThreadView(msg),
     hides: chat.filter.hides,
     flashRequest: _flashFor(channel),
   );
+
+  void _insertMention(String mention) {
+    composer.insertTextAtCursor(mention);
+    composer.focus();
+  }
 
   /// [channel]'s search as a history list of matches over the whole archive,
   /// newest at the bottom and live matches joining it. A tap closes search

@@ -556,8 +556,14 @@ class UserSheets {
         buildBadgeSpans: messageBuilder.buildBadgeSpans,
         buildMessageSpans: messageBuilder.buildMessageSpans,
         bodyIsCached: messageBuilder.bodyIsCached,
-        onDoubleTap: () => copyMessage(msg),
-        onLongPress: (ctx) => menus.showPanelMessageMenu(ctx, msg),
+        onDoubleTap:
+            Settings.messageTapBehavior.value == MessageTapBehavior.longPress
+            ? (ctx) => menus.showPanelMessageMenu(ctx, msg)
+            : (_) => copyMessage(msg),
+        onLongPress:
+            Settings.messageTapBehavior.value == MessageTapBehavior.longPress
+            ? (_) => copyMessage(msg)
+            : (ctx) => menus.showPanelMessageMenu(ctx, msg),
         showTimestamp: Settings.showTimestamps.value,
         showImages: messageBuilder.showImages,
         imageHeight: messageBuilder.imageHeight,

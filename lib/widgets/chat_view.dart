@@ -53,6 +53,9 @@ class ChatView extends StatefulWidget {
   /// Null disables copy-on-double-tap for chat messages.
   final void Function(TwitchMessage)? onCopyMessage;
 
+  /// Puts a name mention into the composer. Null falls back to copying.
+  final void Function(String mention)? onInsertMention;
+
   /// Notified on scroll-state flips (main chat unread/jump bookkeeping).
   final void Function(String)? onScrollActivity;
   final TwitchMessage? Function(TwitchMessage)? onFindThreadRoot;
@@ -122,6 +125,7 @@ class ChatView extends StatefulWidget {
     required this.onShowUserProfile,
     this.onShowMessageMenu,
     this.onCopyMessage,
+    this.onInsertMention,
     this.onScrollActivity,
     this.onFindThreadRoot,
     this.onShowThreadView,
@@ -781,6 +785,7 @@ class _ChatViewState extends State<ChatView>
       onShowUserProfile: widget.onShowUserProfile,
       onShowMessageMenu: widget.onShowMessageMenu,
       onCopyMessage: widget.onCopyMessage,
+      onInsertMention: widget.onInsertMention,
       onFindThreadRoot: widget.onFindThreadRoot,
       onShowThreadView: widget.onShowThreadView,
       showReplyIndicators: widget.showReplyIndicators,

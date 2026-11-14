@@ -40,6 +40,7 @@ class ChatRows {
     this.onShowMessageMenu,
     this.onTapMessage,
     this.onCopyMessage,
+    this.onInsertMention,
     this.onFindThreadRoot,
     this.onShowThreadView,
     this.showReplyIndicators = true,
@@ -79,6 +80,9 @@ class ChatRows {
 
   /// Null disables copy-on-double-tap for chat messages.
   final void Function(TwitchMessage)? onCopyMessage;
+
+  /// Puts a name mention into the composer. Null falls back to copying.
+  final void Function(String mention)? onInsertMention;
 
   /// Resolves an AutoMod-held row from its inline buttons. Null hides held
   /// rows on surfaces that do not moderate, like search and mentions.
@@ -152,7 +156,9 @@ class ChatRows {
         : NameCopyGesture.off;
     final showsMenu = chatRow && !summaryRow && onShowMessageMenu != null;
     final takesTap = chatRow && onTapMessage != null;
-    final takesDoubleTap = chatRow && !summaryRow && onCopyMessage != null;
+    final takesCopy = chatRow && !summaryRow && onCopyMessage != null;
+    final copyOnLongPress =
+        Settings.messageTapBehavior.value == MessageTapBehavior.longPress;
     final showsImages = chatRow && messageBuilder.showImages;
     final showsReply =
         chatRow &&
@@ -191,11 +197,17 @@ class ChatRows {
       onLongPressUser: nameCopy == NameCopyGesture.longPress
           ? (tileContext) => _copyUsername(tileContext, msg)
           : null,
-      onLongPress: showsMenu
-          ? (tileContext) => onShowMessageMenu!(tileContext, msg)
-          : null,
+      onLongPress: copyOnLongPress && takesCopy
+          ? (_) => onCopyMessage!(msg)
+          : (showsMenu
+                ? (tileContext) => onShowMessageMenu!(tileContext, msg)
+                : null),
       onTap: onTapRow ?? (takesTap ? () => onTapMessage!(msg) : null),
-      onDoubleTap: takesDoubleTap ? () => onCopyMessage!(msg) : null,
+      onDoubleTap: copyOnLongPress
+          ? (showsMenu
+                ? (tileContext) => onShowMessageMenu!(tileContext, msg)
+                : null)
+          : (takesCopy ? (_) => onCopyMessage!(msg) : null),
       replyIndicator: showsReply ? _replyIndicator(context, msg, scale) : null,
       checkeredMessages: checkeredMessages,
       highlightOpacity: highlightOpacity,
@@ -228,6 +240,11 @@ class ChatRows {
   Future<void> _copyUsername(BuildContext context, TwitchMessage msg) async {
     await Prefs.load();
     final text = formatMention(Settings.mentionFormat.value, mentionName(msg));
+    final insert = onInsertMention;
+    if (Settings.nameGestureInserts.value && insert != null) {
+      insert(text);
+      return;
+    }
     await Clipboard.setData(ClipboardData(text: text));
     if (!context.mounted) return;
     final notice = ProviderScope.containerOf(

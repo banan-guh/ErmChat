@@ -264,6 +264,15 @@ enum NameCopyGesture {
   longPress,
 }
 
+/// Which row gesture copies a chat message, the other opens the menu.
+enum MessageTapBehavior {
+  /// A double tap copies; a long press opens the message menu.
+  doubleTap,
+
+  /// A long press copies; a double tap opens the message menu.
+  longPress,
+}
+
 /// Every user setting, one line each. Keys and defaults live here and
 /// nowhere else; `Prefs` keeps device state, caches and per-account data.
 ///
@@ -525,6 +534,14 @@ abstract final class Settings {
     section: 'Users',
     keywords: 'copy name username gesture double tap long press',
   );
+  static final nameGestureInserts = Setting(
+    'name_gesture_inserts',
+    false,
+    id: 'username_insert',
+    page: 'chat',
+    section: 'Users',
+    keywords: 'insert mention input composer username name',
+  );
   static final showTimestamps = Setting(
     kShowTimestampsPrefKey,
     true,
@@ -570,7 +587,7 @@ abstract final class Settings {
     '@name',
     id: 'mention_format',
     page: 'chat',
-    section: 'Typing',
+    section: 'Users',
     keywords: '@ name',
   );
   static final analyticsEnabled = Setting(
@@ -706,6 +723,16 @@ abstract final class Settings {
     page: 'chat',
     section: 'Messages',
     keywords: 'automod held review inline mod moderation',
+  );
+
+  static final messageTapBehavior = EnumSetting(
+    'message_tap_behavior',
+    MessageTapBehavior.doubleTap,
+    MessageTapBehavior.values,
+    id: 'message_tap_behavior',
+    page: 'chat',
+    section: 'Messages',
+    keywords: 'message copy gesture double tap long press menu',
   );
   static final fastChannelSnap = Setting(
     'fast_channel_snap',
@@ -1113,6 +1140,7 @@ abstract final class Settings {
     spamIntervalMs,
     spamIntervalModMs,
     copyUsernameGesture,
+    nameGestureInserts,
     showTimestamps,
     timestampFormat,
     sharedChatMode,
@@ -1134,6 +1162,7 @@ abstract final class Settings {
     lineSeparator,
     compactRepeats,
     automodInChat,
+    messageTapBehavior,
     fastChannelSnap,
     reopenLastChannel,
     lastChannel,

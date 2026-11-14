@@ -460,16 +460,21 @@ class ComposerController {
 
   // Emote picker tap: insert the code at the cursor plus a space.
   void insertEmoteAtCursor(Emote emote) {
+    insertTextAtCursor('${emote.code} ');
+    emoteUsage.markEmoteUsed(emote);
+  }
+
+  /// Puts [insert] at the cursor, or at the start when no cursor is set.
+  void insertTextAtCursor(String insert) {
     final text = messageController.text;
     final pos = messageController.selection.baseOffset;
     final insertPos = pos.clamp(0, text.length);
     autocompleteRevert.clear();
     messageController.text =
-        '${text.substring(0, insertPos)}${emote.code} ${text.substring(insertPos)}';
+        '${text.substring(0, insertPos)}$insert${text.substring(insertPos)}';
     messageController.selection = TextSelection.collapsed(
-      offset: insertPos + emote.code.length + 1,
+      offset: insertPos + insert.length,
     );
-    emoteUsage.markEmoteUsed(emote);
   }
 
   // Input-box send gate ("Slow mode: 12s" / "Timed out: 5s"). Your own
