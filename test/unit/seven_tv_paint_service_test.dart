@@ -359,6 +359,8 @@ void main() {
       clock = DateTime(2026, 1, 1);
       final service = SevenTvPaintService(
         gqlQuery: (query) async {
+          // This test covers user batching; the catalog has its own test.
+          if (query.contains('{ paints')) return null;
           queryCount++;
           expect(query, contains('{ users {'));
           // Newest request first: the chatters on screen now.
@@ -447,6 +449,51 @@ void main() {
     await second.ensureCatalog();
     expect(second.lookup('111')?.name, 'Known');
     second.dispose();
+  });
+
+  test('a fresh catalog skips the download', () async {
+    await CacheDb.I.reset();
+    addTearDown(CacheDb.I.reset);
+    var clock = DateTime(2026, 1, 1);
+    var fetches = 0;
+    Future<Map<String, dynamic>?> query(String q) async {
+      if (!q.contains('{ paints')) return null;
+      fetches++;
+      return {
+        'paints': {
+          'paints': [_paintItem('p1', 'Known', _linearData)],
+        },
+      };
+    }
+
+    final first = SevenTvPaintService(
+      db: CacheDb.I,
+      gqlQuery: query,
+      now: () => clock,
+    )..enabled = true;
+    await first.ensureCatalog();
+    expect(fetches, 1, reason: 'the first run downloads');
+    first.dispose();
+
+    clock = clock.add(const Duration(hours: 1));
+    final second = SevenTvPaintService(
+      db: CacheDb.I,
+      gqlQuery: query,
+      now: () => clock,
+    )..enabled = true;
+    await second.ensureCatalog();
+    expect(fetches, 1, reason: 'the stored catalog is still fresh');
+    second.dispose();
+
+    clock = clock.add(const Duration(hours: 24));
+    final third = SevenTvPaintService(
+      db: CacheDb.I,
+      gqlQuery: query,
+      now: () => clock,
+    )..enabled = true;
+    await third.ensureCatalog();
+    expect(fetches, 2, reason: 'a day old catalog downloads again');
+    third.dispose();
   });
 
   group('SevenTvEventClient entitlement dispatches', () {

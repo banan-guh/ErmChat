@@ -133,10 +133,22 @@ class CacheDb {
     await db.execute(
       'CREATE TABLE paints (id TEXT PRIMARY KEY, data TEXT NOT NULL)',
     );
+    await db.execute(
+      'CREATE TABLE paint_meta (key TEXT PRIMARY KEY, value INTEGER NOT NULL)',
+    );
   }
 
+  static const _paintMetaTable =
+      'CREATE TABLE IF NOT EXISTS paint_meta '
+      '(key TEXT PRIMARY KEY, value INTEGER NOT NULL)';
+
   static Future<void> _recreate(Database db) async {
-    for (final table in ['emote_usage', 'paint_users', 'paints']) {
+    for (final table in [
+      'emote_usage',
+      'paint_users',
+      'paints',
+      'paint_meta',
+    ]) {
       await db.execute('DROP TABLE IF EXISTS $table');
     }
     await _create(db);
@@ -271,5 +283,29 @@ class CacheDb {
       }, conflictAlgorithm: ConflictAlgorithm.replace);
     }
     await batch.commit(noResult: true);
+  });
+
+  /// When the paint catalog was last fetched, 0 when never.
+  Future<int> paintCatalogAt() => _run(0, (db) async {
+    // Tables are created with the schema, but a cache from an older build is
+    // still at version 1 and gains this one on first use.
+    await db.execute(_paintMetaTable);
+    final rows = await db.query(
+      'paint_meta',
+      columns: ['value'],
+      where: 'key = ?',
+      whereArgs: ['catalog_at'],
+      limit: 1,
+    );
+    return rows.isEmpty ? 0 : (rows.first['value'] as int? ?? 0);
+  });
+
+  /// Stamps the last paint catalog fetch.
+  Future<void> setPaintCatalogAt(int ms) => _run(null, (db) async {
+    await db.execute(_paintMetaTable);
+    await db.insert('paint_meta', {
+      'key': 'catalog_at',
+      'value': ms,
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
   });
 }

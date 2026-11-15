@@ -44,21 +44,12 @@ class PaintedUsernameText extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Image textures decode late; the service bumps a revision when one
-    // lands. Animated ones then advance on the shared emote tick while the
-    // row is on screen (TickerMode), as repaints of the name alone.
-    if (paint.layers.firstOrNull is SevenTvImagePaintLayer) {
-      return ListenableBuilder(
-        listenable: service.imageRevision,
-        builder: (context, _) => _buildText(
-          context,
-          TickerMode.valuesOf(context).enabled
-              ? service.frameTicker(paint)
-              : null,
-        ),
-      );
-    }
-    return _buildText(context, null);
+    // The texture tick repaints the name alone while the row is on screen.
+    // Its first frame lands on that same tick, so no rebuild is needed.
+    return _buildText(
+      context,
+      TickerMode.valuesOf(context).enabled ? service.frameTicker(paint) : null,
+    );
   }
 
   Widget _buildText(BuildContext context, Listenable? ticker) {
@@ -172,7 +163,6 @@ class _NamePainter extends CustomPainter {
       old.style != style ||
       old.fallbackColor != fallbackColor ||
       old.baseColor != baseColor ||
-      old.shadows != shadows ||
       old.textDirection != textDirection ||
       old.textScaler != textScaler;
 }

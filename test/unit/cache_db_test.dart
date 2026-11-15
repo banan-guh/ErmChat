@@ -60,15 +60,18 @@ void main() {
   });
 
   test('stored data survives a reopen', () async {
+    expect(await CacheDb.I.paintCatalogAt(), 0, reason: 'never fetched');
     await CacheDb.I.writeUsage([row], const []);
     await CacheDb.I.writePaints([('p', '{"id":"p"}')]);
     await CacheDb.I.writePaintUsers([
       (userId: 'a', paintId: 'p', at: 5),
     ], const []);
+    await CacheDb.I.setPaintCatalogAt(123);
     await CacheDb.I.reset();
 
     expect((await CacheDb.I.usage()).single, row);
     expect(await CacheDb.I.paints(), ['{"id":"p"}']);
+    expect(await CacheDb.I.paintCatalogAt(), 123);
     expect(await CacheDb.I.paintUsers(beforeMs: 0, keep: 10), [
       (userId: 'a', paintId: 'p', at: 5),
     ]);
