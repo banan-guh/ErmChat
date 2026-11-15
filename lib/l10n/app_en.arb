@@ -466,6 +466,17 @@
   "sharedChatTitle": "Shared chat messages",
   "badgeSharedChat": "Shared chat",
   "badgeThirdParty": "Third-party badge",
+  "badgeSubMonths": "{title} ({months, plural, =1{1 month} other{{months} months}})",
+  "@badgeSubMonths": {
+    "placeholders": {
+      "title": {
+        "type": "String"
+      },
+      "months": {
+        "type": "int"
+      }
+    }
+  },
   "sharedChatSpotlightHint": "Labeled by channel",
   "sharedChatFadeHint": "Dimmed",
   "sharedChatHideHint": "Hidden",

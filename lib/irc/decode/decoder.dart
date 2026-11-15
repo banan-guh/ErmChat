@@ -246,7 +246,10 @@ class IrcChatDecoder {
         userId: msg.tags['user-id'],
         messageId: msg.tags['id'],
         color: msg.tags['color'],
-        badges: parseIrcBadges(msg.tags['badges']),
+        badges: parseIrcBadges(
+          msg.tags['badges'],
+          infoTag: msg.tags['badge-info'],
+        ),
         emotePositions: text != null
             ? parseIrcEmotePositions(
                 msg.tags['emotes'],

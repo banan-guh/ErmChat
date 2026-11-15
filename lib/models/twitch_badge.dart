@@ -27,12 +27,16 @@ class MessageBadge {
   final String setId;
   final String versionId;
 
+  /// Subscriber months from the `badge-info` tag; null for other badges.
+  final int? months;
+
   /// The image and title an archived row had; null draws today's.
   final BadgeVersion? drawn;
 
   const MessageBadge({
     required this.setId,
     required this.versionId,
+    this.months,
     this.drawn,
   });
 }
@@ -45,11 +49,20 @@ class CardBadge {
 
   /// Empty when the badge has no name; the card supplies a localized fallback.
   final String label;
+
+  /// Subscriber months from the `badge-info` tag; null for other badges.
+  final int? months;
+
+  /// Month milestone encoded in the badge version, so a matching count is
+  /// already in the badge name and needs no suffix.
+  final int? versionMonths;
   final bool circular;
 
   const CardBadge({
     required this.url,
     required this.label,
+    this.months,
+    this.versionMonths,
     this.circular = false,
   });
 

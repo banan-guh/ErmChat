@@ -417,6 +417,8 @@ class MessageBuilder {
           CardBadge(
             url: version.imageUrl,
             label: version.title ?? _humanizeSetId(badge.setId),
+            months: badge.months,
+            versionMonths: int.tryParse(badge.versionId),
           ),
         );
       }

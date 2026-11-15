@@ -252,6 +252,7 @@ class TwitchMessage {
           (b) => {
             'setId': b.setId,
             'versionId': b.versionId,
+            if (b.months != null) 'months': b.months,
             if (b.drawn != null) 'drawn': b.drawn!.toJson(),
           },
         )
@@ -306,6 +307,7 @@ class TwitchMessage {
           (e) => MessageBadge(
             setId: e['setId'] as String? ?? '',
             versionId: e['versionId'] as String? ?? '',
+            months: (e['months'] as num?)?.toInt(),
             drawn: e['drawn'] is Map
                 ? BadgeVersion.fromJson(
                     Map<String, dynamic>.from(e['drawn'] as Map),

@@ -691,7 +691,10 @@ class RecentMessagesService {
       color: msg.tags['color'],
       userId: msg.tags['user-id'],
       messageId: msg.tags['id'],
-      badges: parseIrcBadges(msg.tags['badges']),
+      badges: parseIrcBadges(
+        msg.tags['badges'],
+        infoTag: msg.tags['badge-info'],
+      ),
       emotePositions: parseIrcEmotePositions(
         msg.tags['emotes'],
         originalText: text,
@@ -739,7 +742,10 @@ class RecentMessagesService {
       color: msg.tags['color'],
       userId: msg.tags['user-id'],
       messageId: msg.tags['id'],
-      badges: parseIrcBadges(msg.tags['badges']),
+      badges: parseIrcBadges(
+        msg.tags['badges'],
+        infoTag: msg.tags['badge-info'],
+      ),
       emotePositions: parseIrcEmotePositions(
         msg.tags['emotes'],
         originalText: text,

@@ -139,9 +139,19 @@ List<int> _cpToUtf16Table(String text) {
   return table;
 }
 
-/// Parses the IRC `badges` tag into [MessageBadge]s.
-List<MessageBadge>? parseIrcBadges(String? badgesTag) {
+/// Parses the IRC `badges` tag into [MessageBadge]s. [infoTag] is the
+/// `badge-info` tag, whose subscriber entry carries the month count.
+List<MessageBadge>? parseIrcBadges(String? badgesTag, {String? infoTag}) {
   if (badgesTag == null || badgesTag.isEmpty) return null;
+  final info = <String, int>{};
+  if (infoTag != null) {
+    for (final entry in infoTag.split(',')) {
+      final slashIdx = entry.indexOf('/');
+      if (slashIdx == -1) continue;
+      final months = int.tryParse(entry.substring(slashIdx + 1));
+      if (months != null) info[entry.substring(0, slashIdx)] = months;
+    }
+  }
   final badges = <MessageBadge>[];
   for (final entry in badgesTag.split(',')) {
     final slashIdx = entry.indexOf('/');
@@ -149,7 +159,9 @@ List<MessageBadge>? parseIrcBadges(String? badgesTag) {
     final setId = entry.substring(0, slashIdx);
     final versionId = entry.substring(slashIdx + 1);
     if (setId.isNotEmpty && versionId.isNotEmpty) {
-      badges.add(MessageBadge(setId: setId, versionId: versionId));
+      badges.add(
+        MessageBadge(setId: setId, versionId: versionId, months: info[setId]),
+      );
     }
   }
   return badges.isEmpty ? null : badges;
@@ -286,7 +298,10 @@ TwitchMessage parseIrcChatMessage(
       prefixLen: prefixLen,
       cpToUtf16: cpToUtf16,
     ),
-    badges: parseIrcBadges(ircMsg.tags['badges']),
+    badges: parseIrcBadges(
+      ircMsg.tags['badges'],
+      infoTag: ircMsg.tags['badge-info'],
+    ),
     sourceBroadcasterId: sourceBroadcasterId,
     sharedChatChannelId: sharedChatChannelId,
     sourceMessageId:

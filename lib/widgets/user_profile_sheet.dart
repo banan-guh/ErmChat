@@ -789,7 +789,9 @@ class UserProfileSheetState extends State<UserProfileSheet> {
       children: [
         for (final badge in badges)
           BadgeChip(
-            label: badge.label.isNotEmpty
+            label: badge.months != null && badge.months != badge.versionMonths
+                ? context.l10n.badgeSubMonths(badge.label, badge.months!)
+                : badge.label.isNotEmpty
                 ? badge.label
                 : badge.circular
                 ? context.l10n.badgeSharedChat
