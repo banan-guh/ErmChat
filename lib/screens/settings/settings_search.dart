@@ -247,14 +247,17 @@ final Map<String, _Title> _titles = {
 /// Section headers by their English name.
 final Map<String, String Function(AppLocalizations)> _sections = {
   'Animation': (l) => l.sectionAnimation,
+  'App': (l) => l.sectionApp,
   'Appearance': (l) => l.sectionAppearance,
   'Archive': (l) => l.sectionArchive,
+  'Chat': (l) => l.pageChat,
   'Chat display': (l) => l.sectionChatDisplay,
   'Connection': (l) => l.sectionConnection,
   'Display': (l) => l.sectionDisplay,
   'Emotes': (l) => l.sectionEmotes,
   'Events': (l) => l.sectionEvents,
   'Giphy': (l) => l.sectionGiphy,
+  'Help': (l) => l.sectionHelp,
   'Images': (l) => l.sectionImages,
   'Layout': (l) => l.sectionLayout,
   'Livestreams': (l) => l.sectionLivestreams,
@@ -401,21 +404,25 @@ class SettingsRow {
   static const tts = SettingsRow(
     'tts',
     SettingsPageId.tools,
+    section: 'Chat',
     keywords: 'tts read aloud voice',
   );
   static const uploader = SettingsRow(
     'uploader',
     SettingsPageId.tools,
+    section: 'Chat',
     keywords: 'upload',
   );
   static const settingsBackup = SettingsRow(
     'settings_backup',
     SettingsPageId.tools,
+    section: 'App',
     keywords: 'backup restore copy paste clipboard file txt',
   );
   static const serviceStatus = SettingsRow(
     'service_status',
     SettingsPageId.tools,
+    section: 'Help',
     keywords: 'status websocket ping uptime servers connection',
   );
   static const ttsEngine = SettingsRow(

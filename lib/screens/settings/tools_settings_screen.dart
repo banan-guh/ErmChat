@@ -266,15 +266,17 @@ class ToolsSettingsScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l = context.l10n;
     return SettingsPage(
-      title: Text(context.l10n.pageTools),
+      title: Text(l.pageTools),
       body: ListView(
         children: [
+          SettingsSectionHeader(l.pageChat),
           SettingAnchor.row(
             SettingsRow.tts,
             child: SettingsNavTile(
               icon: Icons.record_voice_over,
-              title: SettingsRow.tts.titleOf(context.l10n),
+              title: SettingsRow.tts.titleOf(l),
               onTap: () => Navigator.push(
                 context,
                 MaterialPageRoute(
@@ -288,7 +290,7 @@ class ToolsSettingsScreen extends StatelessWidget {
             SettingsRow.uploader,
             child: SettingsNavTile(
               icon: Icons.upload,
-              title: SettingsRow.uploader.titleOf(context.l10n),
+              title: SettingsRow.uploader.titleOf(l),
               onTap: () => Navigator.push(
                 context,
                 MaterialPageRoute(
@@ -297,12 +299,13 @@ class ToolsSettingsScreen extends StatelessWidget {
               ),
             ),
           ),
+          SettingsSectionHeader(l.sectionApp),
           if (analyticsService != null && channels != null && images != null)
             SettingAnchor(
               Settings.analyticsEnabled,
               child: SettingsNavTile(
                 icon: Icons.insights,
-                title: Settings.analyticsEnabled.titleOf(context.l10n),
+                title: Settings.analyticsEnabled.titleOf(l),
                 onTap: () => Navigator.push(
                   context,
                   MaterialPageRoute(
@@ -315,22 +318,11 @@ class ToolsSettingsScreen extends StatelessWidget {
                 ),
               ),
             ),
-          // Reports carry the signed-in Twitch identity, so the entry only
-          // shows for a real account.
-          if (showFeedback)
-            SettingsNavTile(
-              icon: Icons.bug_report,
-              title: context.l10n.sendFeedback,
-              onTap: () => Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const ReportBugScreen()),
-              ),
-            ),
           SettingAnchor(
             Settings.updateCheckEnabled,
             child: SettingsNavTile(
               icon: Icons.system_update,
-              title: Settings.updateCheckEnabled.titleOf(context.l10n),
+              title: Settings.updateCheckEnabled.titleOf(l),
               onTap: () => _showUpdateOptions(context),
             ),
           ),
@@ -338,29 +330,39 @@ class ToolsSettingsScreen extends StatelessWidget {
             SettingsRow.settingsBackup,
             child: SettingsNavTile(
               icon: Icons.import_export,
-              title: SettingsRow.settingsBackup.titleOf(context.l10n),
+              title: SettingsRow.settingsBackup.titleOf(l),
               onTap: () => _showBackupOptions(context),
             ),
           ),
+          if (Platform.isAndroid)
+            SettingSwitch(
+              Settings.streamPipEnabled,
+              secondary: const Icon(Icons.picture_in_picture),
+              onChanged: onPipEnabledChanged,
+            ),
+          SettingsSectionHeader(l.sectionHelp),
           SettingAnchor.row(
             SettingsRow.serviceStatus,
             child: SettingsNavTile(
               icon: Icons.sensors,
-              title: SettingsRow.serviceStatus.titleOf(context.l10n),
+              title: SettingsRow.serviceStatus.titleOf(l),
               onTap: () => Navigator.push(
                 context,
                 MaterialPageRoute(builder: (_) => const ServiceStatusScreen()),
               ),
             ),
           ),
-          if (Platform.isAndroid) ...[
-            SettingsSectionHeader(context.l10n.sectionLivestreams),
-            SettingSwitch(
-              Settings.streamPipEnabled,
-              secondary: const Icon(Icons.picture_in_picture),
-              onChanged: onPipEnabledChanged,
+          // Reports carry the signed-in Twitch identity, so the entry only
+          // shows for a real account.
+          if (showFeedback)
+            SettingsNavTile(
+              icon: Icons.bug_report,
+              title: l.sendFeedback,
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const ReportBugScreen()),
+              ),
             ),
-          ],
         ],
       ),
     );

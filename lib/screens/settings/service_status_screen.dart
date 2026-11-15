@@ -6,11 +6,14 @@ import 'package:http/http.dart' as http;
 
 import '../../l10n/l10n.dart';
 import '../../providers/chat_pipeline.dart';
+import '../../providers/feature_providers.dart';
 import '../../services/chat_connection_manager.dart';
+import '../../twitch_config.dart';
 import 'settings_page.dart';
 
 /// Live socket state plus reachability checks for the services chat depends
-/// on. The checks are manual so the screen never adds background traffic.
+/// on. Server checks run when the screen opens and on demand, so no traffic
+/// follows while it is closed.
 class ServiceStatusScreen extends ConsumerStatefulWidget {
   const ServiceStatusScreen({super.key});
 
@@ -22,7 +25,7 @@ class ServiceStatusScreen extends ConsumerStatefulWidget {
 class _ServiceStatusScreenState extends ConsumerState<ServiceStatusScreen> {
   static const _probeTimeout = Duration(seconds: 5);
   static const _endpoints = <_Endpoint>[
-    _Endpoint('Twitch', 'https://api.twitch.tv/helix/'),
+    _Endpoint('Twitch', 'https://api.twitch.tv/helix/users', auth: true),
     _Endpoint('7TV', 'https://7tv.io/v3/emote-sets/global'),
     _Endpoint('BTTV', 'https://api.betterttv.net/3/cached/emotes/global'),
     _Endpoint('FFZ', 'https://api.frankerfacez.com/v1/set/global'),
@@ -44,6 +47,9 @@ class _ServiceStatusScreenState extends ConsumerState<ServiceStatusScreen> {
       const Duration(seconds: 1),
       (_) => setState(() {}),
     );
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _probeAll();
+    });
   }
 
   @override
@@ -53,12 +59,21 @@ class _ServiceStatusScreenState extends ConsumerState<ServiceStatusScreen> {
   }
 
   Future<void> _probe(_Endpoint endpoint) async {
+    Map<String, String>? headers;
+    if (endpoint.auth) {
+      final token = ref.read(twitchAuthProvider).accessToken;
+      if (token == null) return;
+      headers = {
+        'Client-ID': TwitchConfig.clientId,
+        'Authorization': 'Bearer $token',
+      };
+    }
     final client = http.Client();
     final watch = Stopwatch()..start();
     _ProbeResult result;
     try {
       final res = await client
-          .get(Uri.parse(endpoint.url))
+          .get(Uri.parse(endpoint.url), headers: headers)
           .timeout(_probeTimeout);
       result = _ProbeResult(
         status: res.statusCode,
@@ -75,13 +90,19 @@ class _ServiceStatusScreenState extends ConsumerState<ServiceStatusScreen> {
 
   Future<void> _probeAll() async {
     if (_probing) return;
+    final signedIn = ref.read(twitchAuthProvider).accessToken != null;
     setState(() => _probing = true);
-    await Future.wait([for (final e in _endpoints) _probe(e)]);
+    await Future.wait([
+      for (final e in _endpoints)
+        if (!e.auth || signedIn) _probe(e),
+    ]);
     if (mounted) setState(() => _probing = false);
   }
 
   @override
   Widget build(BuildContext context) {
+    ref.watch(twitchAuthTickProvider);
+    final signedIn = ref.read(twitchAuthProvider).accessToken != null;
     final manager = ref.watch(chatPipelineProvider);
     final services = manager.config.services;
     final l = context.l10n;
@@ -150,6 +171,7 @@ class _ServiceStatusScreenState extends ConsumerState<ServiceStatusScreen> {
               endpoint: endpoint,
               result: _results[endpoint.name],
               probing: _probing,
+              enabled: !endpoint.auth || signedIn,
               onProbe: () => _probe(endpoint),
             ),
         ],
@@ -159,9 +181,12 @@ class _ServiceStatusScreenState extends ConsumerState<ServiceStatusScreen> {
 }
 
 class _Endpoint {
-  const _Endpoint(this.name, this.url);
+  const _Endpoint(this.name, this.url, {this.auth = false});
   final String name;
   final String url;
+
+  /// Whether the probe needs the signed-in account's token.
+  final bool auth;
 }
 
 class _ProbeResult {
@@ -223,12 +248,14 @@ class _ProbeRow extends StatelessWidget {
     required this.endpoint,
     required this.result,
     required this.probing,
+    required this.enabled,
     required this.onProbe,
   });
 
   final _Endpoint endpoint;
   final _ProbeResult? result;
   final bool probing;
+  final bool enabled;
   final VoidCallback onProbe;
 
   @override
@@ -237,14 +264,18 @@ class _ProbeRow extends StatelessWidget {
     final theme = Theme.of(context);
     final status = result?.status;
     final failed = result != null && !result!.ok;
-    final color = status == null
+    final color = !enabled
+        ? theme.colorScheme.onSurfaceVariant
+        : status == null
         ? failed
               ? theme.colorScheme.error
               : theme.colorScheme.onSurfaceVariant
         : status < 400
         ? Colors.green
         : Colors.orange;
-    final detail = result == null
+    final detail = !enabled
+        ? l.serviceSignInRequired
+        : result == null
         ? null
         : failed
         ? '${l.servicePingFailed} · ${result!.ms}ms'
@@ -261,11 +292,12 @@ class _ProbeRow extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           if (detail != null) Text(detail, style: theme.textTheme.bodySmall),
-          IconButton(
-            icon: const Icon(Icons.network_ping),
-            tooltip: l.servicePingAll,
-            onPressed: probing ? null : onProbe,
-          ),
+          if (enabled)
+            IconButton(
+              icon: const Icon(Icons.network_ping),
+              tooltip: l.servicePing,
+              onPressed: probing ? null : onProbe,
+            ),
         ],
       ),
     );

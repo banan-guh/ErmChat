@@ -595,6 +595,7 @@ abstract final class Settings {
     false,
     id: 'analytics',
     page: 'tools',
+    section: 'App',
     keywords: 'stats',
   );
   static final whatsNewEnabled = Setting(
@@ -609,6 +610,7 @@ abstract final class Settings {
     true,
     id: 'updates',
     page: 'tools',
+    section: 'App',
     keywords: "what's new changelog version",
   );
 
@@ -969,7 +971,7 @@ abstract final class Settings {
     false,
     id: 'pip',
     page: 'tools',
-    section: 'Livestreams',
+    section: 'App',
     keywords: 'pip stream',
     gate: SettingGate.android,
   );
