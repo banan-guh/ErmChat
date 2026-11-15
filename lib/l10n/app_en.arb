@@ -99,6 +99,7 @@
   "settingAnimateEmotes": "Animate emotes",
   "settingAdaptiveFps": "Adaptive frame rate",
   "settingIdleFps": "Idle frame rate",
+  "settingFreezePaintsIdle": "Freeze paints while idle",
   "settingProviders": "Providers",
   "settingUnlistedEmotes": "Unlisted 7TV emotes",
   "settingPersonalEmotes": "Personal 7TV emotes",
@@ -418,6 +419,7 @@
   "no": "No",
   "nukeEmotes": "Nuke emotes",
   "adaptiveFpsHint": "Frame rate after 30s idle",
+  "freezePaintsIdleHint": "Stops paints after 30s idle",
   "idleFpsFreeze": "Freeze",
   "fpsValue": "{fps} fps",
   "@fpsValue": {

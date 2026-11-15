@@ -657,6 +657,17 @@ abstract final class Settings {
     mirrors: {'battery'},
   );
 
+  /// Holds 7TV paint animation on its current frame after the idle timeout.
+  static final freezePaintsIdle = Setting(
+    'freeze_paints_idle',
+    true,
+    id: 'freeze_paints_idle',
+    page: 'emotes',
+    section: 'Animation',
+    keywords: 'paint freeze idle animation',
+    mirrors: {'battery'},
+  );
+
   // ── Customization ───────────────────────────────────────────────────
   static final chatFontSize = DoubleSetting(
     'chat_font_size',
@@ -1155,6 +1166,7 @@ abstract final class Settings {
     bttvModifiers,
     adaptiveEmoteFps,
     idleEmoteFps,
+    freezePaintsIdle,
     chatFontSize,
     chatFontWeight,
     highlightOpacity,

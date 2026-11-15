@@ -90,22 +90,30 @@ void main() {
 
   group('EmoteFrameRatePolicy', () {
     late List<int> applied;
+    late List<bool> frozen;
     late bool saver;
     late EmoteFrameRatePolicy policy;
 
-    Future<void> pumpApp(WidgetTester tester, {bool adaptive = true}) async {
+    Future<void> pumpApp(
+      WidgetTester tester, {
+      bool adaptive = true,
+      bool freezePaints = false,
+    }) async {
       applied = [];
+      frozen = [];
       saver = false;
       policy = EmoteFrameRatePolicy(
         readSaver: () async => saver,
         apply: applied.add,
+        freezePaints: frozen.add,
       );
       await tester.pumpWidget(
         const MaterialApp(home: Scaffold(body: TextField())),
       );
       policy
         ..start()
-        ..adaptive = adaptive;
+        ..adaptive = adaptive
+        ..freezePaintsWhileIdle = freezePaints;
       await tester.pump();
     }
 
@@ -185,6 +193,41 @@ void main() {
 
       await tester.pump(const Duration(seconds: 30));
       expect(policy.fps, 0);
+      policy.dispose();
+    });
+
+    testWidgets('freezes paints while idle at a fixed emote rate', (
+      tester,
+    ) async {
+      await pumpApp(tester, adaptive: false, freezePaints: true);
+      expect(frozen, isEmpty);
+
+      await tester.pump(const Duration(seconds: 29));
+      expect(frozen, isEmpty);
+      await tester.pump(const Duration(seconds: 1));
+      expect(frozen, [true]);
+      expect(policy.paintsFrozen, isTrue);
+      // The emote rate stays fixed at 60.
+      expect(policy.fps, kActiveEmoteFps);
+
+      await tester.tapAt(const Offset(5, 300));
+      expect(frozen, [true, false]);
+      expect(policy.paintsFrozen, isFalse);
+      policy.dispose();
+    });
+
+    testWidgets('freeze off leaves paints animating', (tester) async {
+      await pumpApp(tester, freezePaints: false);
+      await tester.pump(const Duration(minutes: 2));
+      expect(frozen, isEmpty);
+      policy.dispose();
+    });
+
+    testWidgets('freezing paints does not freeze emotes', (tester) async {
+      await pumpApp(tester, freezePaints: true);
+      await tester.pump(const Duration(seconds: 30));
+      expect(policy.fps, kIdleEmoteFps);
+      expect(frozen, [true]);
       policy.dispose();
     });
 

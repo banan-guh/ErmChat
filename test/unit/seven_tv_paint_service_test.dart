@@ -790,4 +790,76 @@ void main() {
       reason: 'an unfollowed paint stops decoding',
     );
   });
+
+  // Freezing paints while idle must stop the decoder, not just hide frames.
+  testWidgets('a frozen paint holds its frame and stops decoding', (
+    tester,
+  ) async {
+    final webp = File('test/fixtures/7tv_kiss_2x.webp').readAsBytesSync();
+    EmoteUrlProvider.debugFetchOverride = (_) async => webp;
+    final service = SevenTvPaintService(
+      gqlQuery: (_) async => null,
+      images: EmoteImages(),
+    )..enabled = true;
+    addTearDown(() {
+      EmoteUrlProvider.debugFetchOverride = null;
+      EmoteUrlProvider.applyPaintFreeze(false);
+      service.dispose();
+      PaintingBinding.instance.imageCache
+        ..clearLiveImages()
+        ..clear();
+    });
+    const paint = SevenTvPaint(
+      id: 'f',
+      name: 'f',
+      layers: [
+        SevenTvImagePaintLayer(
+          images: [
+            SevenTvPaintImage(
+              url: 'https://paint.test/f/2x.webp',
+              width: 128,
+              height: 128,
+              scale: 2,
+            ),
+          ],
+          opacity: 1,
+        ),
+      ],
+      shadows: [],
+    );
+    final layer = paint.layers.single as SevenTvImagePaintLayer;
+
+    Future<void> run(int ticks) async {
+      for (var i = 0; i < ticks; i++) {
+        await tester.pump(const Duration(milliseconds: 70));
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 35)),
+        );
+      }
+    }
+
+    final ticker = service.frameTicker(paint)!;
+    void keepAlive() {}
+    ticker.addListener(keepAlive);
+    await run(10);
+    final shown = service.imageFor(layer);
+    expect(shown, isNotNull, reason: 'first frame lands');
+
+    EmoteUrlProvider.applyPaintFreeze(true);
+    await run(10);
+    expect(
+      identical(service.imageFor(layer), shown),
+      isTrue,
+      reason: 'a frozen paint holds its frame',
+    );
+
+    EmoteUrlProvider.applyPaintFreeze(false);
+    await run(10);
+    expect(
+      identical(service.imageFor(layer), shown),
+      isFalse,
+      reason: 'resuming advances the frame',
+    );
+    ticker.removeListener(keepAlive);
+  });
 }

@@ -205,6 +205,10 @@ final Map<String, _Title> _titles = {
   'animate_emotes': ('Animate emotes', (l) => l.settingAnimateEmotes),
   'adaptive_fps': ('Adaptive frame rate', (l) => l.settingAdaptiveFps),
   'idle_fps': ('Idle frame rate', (l) => l.settingIdleFps),
+  'freeze_paints_idle': (
+    'Freeze paints while idle',
+    (l) => l.settingFreezePaintsIdle,
+  ),
   'providers': ('Providers', (l) => l.settingProviders),
   'unlisted_emotes': ('Unlisted 7TV emotes', (l) => l.settingUnlistedEmotes),
   'personal_emotes': ('Personal 7TV emotes', (l) => l.settingPersonalEmotes),

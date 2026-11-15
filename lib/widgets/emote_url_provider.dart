@@ -83,7 +83,7 @@ class _BackedOff implements Exception {
 
 /// ImageProvider for emote URLs. Keyed by [url] for shared decode/playback. Animated WebP streams from the engine; the pure-Dart compositor is a crash-only fallback.
 class EmoteUrlProvider extends ImageProvider<EmoteUrlProvider> {
-  EmoteUrlProvider(this.url, {required this.images});
+  EmoteUrlProvider(this.url, {required this.images, this.exactTiming = false});
 
   /// Test hook; falls back to the production fetcher when null.
   @visibleForTesting
@@ -96,6 +96,10 @@ class EmoteUrlProvider extends ImageProvider<EmoteUrlProvider> {
 
   final String url;
   final EmoteImages images;
+
+  /// Keeps the authored frame times instead of snapping to the shared tick.
+  /// 7TV paint textures use this so their own rate is never quantized.
+  final bool exactTiming;
 
   /// Failed loads by URL; cleared when emotes reload.
   static final EmoteLoadBackoff loadBackoff = EmoteLoadBackoff();
@@ -115,6 +119,7 @@ class EmoteUrlProvider extends ImageProvider<EmoteUrlProvider> {
     if (live != null &&
         !live._disposed &&
         live._visible &&
+        live.exactTiming == key.exactTiming &&
         identical(live.images, key.images)) {
       return live;
     }
@@ -122,6 +127,7 @@ class EmoteUrlProvider extends ImageProvider<EmoteUrlProvider> {
       url: key.url,
       images: key.images,
       engineDecode: decode,
+      exactTiming: key.exactTiming,
     );
   }
 
@@ -159,6 +165,19 @@ class EmoteUrlProvider extends ImageProvider<EmoteUrlProvider> {
   /// Whether emotes advance frames: animations on and a nonzero rate.
   static bool get animating => gifsEnabled && frameRate > 0;
 
+  /// Whether paint textures hold their current frame. Driven by the paint
+  /// idle setting, separate from the emote rate.
+  static bool paintsFrozen = false;
+
+  /// Freezes or resumes paint textures; emotes keep their own clock.
+  static void applyPaintFreeze(bool frozen) {
+    if (paintsFrozen == frozen) return;
+    paintsFrozen = frozen;
+    for (final completer in List.of(_liveByUrl.values)) {
+      completer._refreshForAnimations();
+    }
+  }
+
   /// [animating] as a listenable, for stock-provider emotes (playing Twitch
   /// GIFs) that pause through [TickerMode] instead of the custom loop.
   static final SetValueNotifier<bool> playing = SetValueNotifier(true);
@@ -188,18 +207,18 @@ class EmoteUrlProvider extends ImageProvider<EmoteUrlProvider> {
   /// shares one [Timer], so wakeups scale with [frameRate], not emote count.
   static final Map<int, _TickBucket> _tickBuckets = {};
 
-  /// Runs [f] on the shared tick at or after [waitUs]. The handle cancels
-  /// only [f]; the bucket timer fires for whoever is left.
-  static Timer runOnTick(int waitUs, void Function() f) {
+  /// Runs [f] on the shared tick at or after [waitUs], or at exactly [waitUs]
+  /// when [align] is false (paints keep their authored frame times).
+  static Timer runOnTick(int waitUs, void Function() f, {bool align = true}) {
     final now = DateTime.now().microsecondsSinceEpoch;
-    final aligned = alignWaitUs(waitUs, nowUs: now);
-    final due = now + aligned;
+    final wait = align ? alignWaitUs(waitUs, nowUs: now) : waitUs;
+    final due = now + wait;
     var bucket = _tickBuckets[due];
     // A bucket from another zone (a finished test) may never fire.
     if (bucket == null || !identical(bucket.zone, Zone.current)) {
       final fresh = bucket = _TickBucket(Zone.current, due);
       _tickBuckets[due] = fresh;
-      fresh.timer = Timer(Duration(microseconds: aligned), fresh.fire);
+      fresh.timer = Timer(Duration(microseconds: wait), fresh.fire);
     }
     final handle = _TickHandle(f, bucket);
     bucket.handles.add(handle);
@@ -433,6 +452,7 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
     required this.url,
     required this.images,
     required this._engineDecode,
+    this.exactTiming = false,
   }) {
     EmoteUrlProvider.debugCompleterBuilds++;
     // Pick up seed queued before this completer existed.
@@ -444,6 +464,16 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
   final String url;
   final EmoteImages images;
   final ImageDecoderCallback _engineDecode;
+
+  /// Paint textures keep their authored frame times (see [EmoteUrlProvider]).
+  final bool exactTiming;
+
+  /// Whether this completer advances frames. Paints ignore the emote idle
+  /// rate and freeze only through their own setting; the animate toggle gates
+  /// both.
+  bool get _animating => exactTiming
+      ? EmoteUrlProvider.gifsEnabled && !EmoteUrlProvider.paintsFrozen
+      : EmoteUrlProvider.animating;
 
   /// Materialized frames: frozen GIF, and statics. Also the captured cycle
   /// once streaming has retained every frame.
@@ -838,6 +868,12 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
     _heldFrame?.dispose();
     _heldFrame = image;
     if (_heldEmit?.isActive ?? false) return;
+    // Paints keep their own frame times; holding them for a nearby emote tick
+    // would add up to a period of lag.
+    if (exactTiming) {
+      _releaseHeld();
+      return;
+    }
     _heldEmit = EmoteUrlProvider.joinPendingTick(_releaseHeld);
     if (_heldEmit == null) _releaseHeld();
   }
@@ -862,7 +898,7 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
     if (_frames == null && (_codec != null || _compositor != null)) {
       // Animations off: still emit the first frame, then hold it. The tick
       // scheduler below schedules nothing while off, so playback freezes.
-      if (!EmoteUrlProvider.animating && _hasStreamFrame) return;
+      if (!_animating && _hasStreamFrame) return;
       _scheduleStreamAppFrame();
       return;
     }
@@ -870,7 +906,7 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
     if (frames == null || frames.frames.isEmpty) return;
     if (frames.totalDuration <= Duration.zero) return;
     // Animations off: the current frame was already emitted; hold it.
-    if (!EmoteUrlProvider.animating) return;
+    if (!_animating) return;
     _scheduleAppFrame();
   }
 
@@ -883,7 +919,7 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
     if (!_isAnimatedGif && !_streamIsWebp && _compositor == null) return;
     if (_frames == null && _codec == null && _compositor == null) return;
     if (!hasListeners) return;
-    if (!EmoteUrlProvider.animating) {
+    if (!_animating) {
       if (_isPlaying) _stopPlayback();
     } else if (!_isPlaying) {
       _startPlayback();
@@ -938,7 +974,7 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
     _shownTimestamp = timeStamp;
 
     // Schedule next tick at frame window end; frozen holds this frame.
-    if (_frameTimer != null || !EmoteUrlProvider.animating) return;
+    if (_frameTimer != null || !_animating) return;
     var remainingUs = _frameEndUs(frames, _frameIndex) - posUs;
     if (remainingUs <= 0) {
       remainingUs = 16000; // Zero-duration guard: next vsync.
@@ -1004,7 +1040,7 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
         _streamDecoding = false;
         return;
       }
-      if (!EmoteUrlProvider.animating && _hasStreamFrame) {
+      if (!_animating && _hasStreamFrame) {
         // Toggled off mid-decode with a frame showing: drop and hold.
         frame.image.dispose();
         _streamEmitted++;
@@ -1116,7 +1152,7 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
   void _scheduleNextStreamTick(Duration window) {
     // Animations off: hold the already-emitted frame and schedule nothing.
     // Resume re-anchors from _stopPlayback's invalidation.
-    if (!EmoteUrlProvider.animating) return;
+    if (!_animating) return;
     final windowUs = _safeStreamDuration(window).inMicroseconds;
     final nowUs = DateTime.now().microsecondsSinceEpoch;
     var dueUs = _streamDueUs < 0
@@ -1130,7 +1166,11 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
     var waitUs = _streamDueUs - DateTime.now().microsecondsSinceEpoch;
     if (waitUs < 0) waitUs = 0;
     // Late frames past their window are skipped at decode, not slowed.
-    _frameTimer = EmoteUrlProvider.runOnTick(waitUs, _onStreamTick);
+    _frameTimer = EmoteUrlProvider.runOnTick(
+      waitUs,
+      _onStreamTick,
+      align: !exactTiming,
+    );
   }
 
   /// Fires when a streamed frame is due. Decodes immediately while the app is
@@ -1141,7 +1181,7 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
   void _onStreamTick() {
     _frameTimer = null;
     if (_disposed || !hasListeners) return;
-    if (!EmoteUrlProvider.animating || _streamDecoding) return;
+    if (!_animating || _streamDecoding) return;
     if (!SchedulerBinding.instance.framesEnabled) {
       _scheduleStreamAppFrame();
       return;
@@ -1318,7 +1358,7 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
         _streamDecoding = false;
         return;
       }
-      if (!EmoteUrlProvider.animating && _hasStreamFrame) {
+      if (!_animating && _hasStreamFrame) {
         // Toggled off mid-decode with a frame showing: consume the frame
         // without emitting it, mirroring the engine path's dropped decode.
         // [out] is the compositor's retained canvas, which it frees itself.

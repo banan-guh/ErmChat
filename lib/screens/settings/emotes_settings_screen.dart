@@ -875,6 +875,7 @@ class _EmoteAnimationSectionState extends State<EmoteAnimationSection> {
         Settings.animateGifs,
         Settings.adaptiveEmoteFps,
         Settings.idleEmoteFps,
+        Settings.freezePaintsIdle,
       ]),
       builder: (context, _) {
         final idleEnabled = _animateGifs && _adaptiveFps;
@@ -950,6 +951,18 @@ class _EmoteAnimationSectionState extends State<EmoteAnimationSection> {
                     },
                   ),
                 ],
+              ),
+            ),
+            SettingAnchor(
+              Settings.freezePaintsIdle,
+              child: SwitchListTile(
+                secondary: const Icon(Icons.motion_photos_pause_outlined),
+                title: Text(Settings.freezePaintsIdle.titleOf(context.l10n)),
+                subtitle: Text(context.l10n.freezePaintsIdleHint),
+                value: Settings.freezePaintsIdle.value,
+                onChanged: _animateGifs
+                    ? (value) => Settings.freezePaintsIdle.set(value)
+                    : null,
               ),
             ),
           ],

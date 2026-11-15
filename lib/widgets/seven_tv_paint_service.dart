@@ -905,7 +905,9 @@ class SevenTvPaintService extends ChangeNotifier {
       _images[url] = cached;
       return cached;
     }
-    final texture = _PaintTexture(EmoteUrlProvider(url, images: images));
+    final texture = _PaintTexture(
+      EmoteUrlProvider(url, images: images, exactTiming: true),
+    );
     _images[url] = texture;
     scheduleMicrotask(texture.start);
     // Oldest first, skipping textures on screen.

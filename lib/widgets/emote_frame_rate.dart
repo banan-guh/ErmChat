@@ -18,18 +18,23 @@ const int kSaverEmoteFps = 30;
 
 /// Drives [EmoteUrlProvider.frameRate]. Fixed at [kActiveEmoteFps], or when
 /// [adaptive], [idleFps] once nobody has touched the screen for [idleAfter],
-/// with battery saver capping both at [kSaverEmoteFps]. A focused text field
-/// counts as use, since soft keyboard taps never reach Flutter.
+/// with battery saver capping both at [kSaverEmoteFps]. Also freezes paints
+/// while idle when [freezePaintsWhileIdle] is on, independently of the emote
+/// rate. A focused text field counts as use, since soft keyboard taps never
+/// reach Flutter.
 class EmoteFrameRatePolicy with WidgetsBindingObserver {
   EmoteFrameRatePolicy({
     Future<bool> Function()? readSaver,
     void Function(int fps)? apply,
+    void Function(bool frozen)? freezePaints,
     this.idleAfter = const Duration(seconds: 30),
   }) : _readSaver = readSaver ?? (() => Battery().isInBatterySaveMode),
-       _apply = apply ?? EmoteUrlProvider.applyFrameRate;
+       _apply = apply ?? EmoteUrlProvider.applyFrameRate,
+       _freezePaints = freezePaints ?? EmoteUrlProvider.applyPaintFreeze;
 
   final Future<bool> Function() _readSaver;
   final void Function(int fps) _apply;
+  final void Function(bool frozen) _freezePaints;
   final Duration idleAfter;
 
   /// How often battery saver is re-read; the plugin has no change stream.
@@ -64,6 +69,18 @@ class EmoteFrameRatePolicy with WidgetsBindingObserver {
     if (_started) _sync();
   }
 
+  bool _freezePaintsWhileIdle = false;
+  bool get freezePaintsWhileIdle => _freezePaintsWhileIdle;
+  set freezePaintsWhileIdle(bool value) {
+    if (value == _freezePaintsWhileIdle) return;
+    _freezePaintsWhileIdle = value;
+    if (_started) _sync();
+  }
+
+  /// Whether paints are currently held frozen by the idle rule.
+  bool get paintsFrozen => _paintsFrozen;
+  bool _paintsFrozen = false;
+
   void start() {
     if (_started) return;
     _started = true;
@@ -83,13 +100,16 @@ class EmoteFrameRatePolicy with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state != AppLifecycleState.resumed || !_adaptive) return;
+    if (state != AppLifecycleState.resumed ||
+        (!_adaptive && !_freezePaintsWhileIdle)) {
+      return;
+    }
     _touch();
-    unawaited(_checkSaver());
+    if (_adaptive) unawaited(_checkSaver());
   }
 
   void _onPointer(PointerEvent event) {
-    if (!_adaptive) return;
+    if (!_adaptive && !_freezePaintsWhileIdle) return;
     if (event is PointerDownEvent ||
         event is PointerSignalEvent ||
         event is PointerPanZoomStartEvent) {
@@ -97,14 +117,14 @@ class EmoteFrameRatePolicy with WidgetsBindingObserver {
     }
   }
 
-  /// Starts or stops the idle and saver timers to match [adaptive].
+  /// Starts or stops the idle and saver timers to match the settings.
   void _sync() {
     _idleTimer?.cancel();
     _saverTimer?.cancel();
     _idleTimer = _saverTimer = null;
     _idle = _saver = false;
+    if (_adaptive || _freezePaintsWhileIdle) _touch();
     if (_adaptive) {
-      _touch();
       _saverTimer = Timer.periodic(_saverPoll, (_) => _checkSaver());
       unawaited(_checkSaver());
     }
@@ -153,8 +173,14 @@ class EmoteFrameRatePolicy with WidgetsBindingObserver {
     // animates, and the idle rate applies only when actually idle.
     final active = _adaptive && _saver ? kSaverEmoteFps : kActiveEmoteFps;
     final fps = _adaptive && _idle ? min(_idleFps, active) : active;
-    if (fps == _fps) return;
-    _fps = fps;
-    _apply(fps);
+    if (fps != _fps) {
+      _fps = fps;
+      _apply(fps);
+    }
+    final frozen = _freezePaintsWhileIdle && _idle;
+    if (frozen != _paintsFrozen) {
+      _paintsFrozen = frozen;
+      _freezePaints(frozen);
+    }
   }
 }

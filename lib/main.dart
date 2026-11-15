@@ -282,6 +282,7 @@ class _TwitchChatAppState extends State<TwitchChatApp> {
   final _emoteFpsSettings = Listenable.merge([
     Settings.adaptiveEmoteFps,
     Settings.idleEmoteFps,
+    Settings.freezePaintsIdle,
   ]);
   final _twitchAuth = TwitchAuth();
   bool _loaded = false;
@@ -357,7 +358,8 @@ class _TwitchChatAppState extends State<TwitchChatApp> {
 
   void _applyEmoteFps() => _emoteFrameRate
     ..adaptive = Settings.adaptiveEmoteFps.value
-    ..idleFps = Settings.idleEmoteFps.value;
+    ..idleFps = Settings.idleEmoteFps.value
+    ..freezePaintsWhileIdle = Settings.freezePaintsIdle.value;
 
   Widget _appRoot(BuildContext context, Widget? child) => compactLayoutRoot(
     context,
