@@ -47,6 +47,49 @@ void main() {
     },
   );
 
+  testWidgets('untimed pins ask Helix for a refresh until removed', (
+    tester,
+  ) async {
+    final refreshes = <String>[];
+    final widgets = BroadcastWidgets(
+      selectedChannel: () => 'c',
+      onPinRefresh: refreshes.add,
+    );
+    addTearDown(widgets.dispose);
+
+    widgets.onPinned(
+      PinnedMessageEvent(channel: 'c', id: 'a', messageId: 'ma', text: 'hi'),
+    );
+    await tester.pump(const Duration(minutes: 5));
+    expect(refreshes, ['c'], reason: 'an untimed pin outlives a missed unpin');
+
+    widgets.onPinned(PinnedMessageEvent(channel: 'c', id: 'a', removed: true));
+    await tester.pump(const Duration(minutes: 5));
+    expect(refreshes, ['c'], reason: 'a removed pin stops refreshing');
+  });
+
+  testWidgets('timed pins ask Helix for a refresh too', (tester) async {
+    final refreshes = <String>[];
+    final widgets = BroadcastWidgets(
+      selectedChannel: () => 'c',
+      onPinRefresh: refreshes.add,
+    );
+    addTearDown(widgets.dispose);
+
+    widgets.onPinned(
+      PinnedMessageEvent(
+        channel: 'c',
+        id: 'a',
+        messageId: 'ma',
+        text: 'hi',
+        endsAt: DateTime.now().add(const Duration(hours: 1)),
+      ),
+    );
+    await tester.pump(const Duration(minutes: 5));
+    expect(refreshes, ['c'], reason: 'a timed pin can be unpinned early');
+    widgets.onPinned(PinnedMessageEvent(channel: 'c', id: 'a', removed: true));
+  });
+
   testWidgets('cards fold for the keyboard until restored (#17)', (
     tester,
   ) async {

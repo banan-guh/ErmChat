@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:ui' show Color;
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -180,6 +181,8 @@ final chatPipelineProvider = Provider<ChatConnectionManager>((ref) {
       ),
     ),
   );
+  ref.read(broadcastWidgetsProvider).onPinRefresh = (channel) =>
+      unawaited(manager.syncPin(channel));
   ref.onDispose(manager.dispose);
   return manager;
 });

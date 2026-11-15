@@ -20,6 +20,7 @@ class BroadcastWidgets {
     this.emotes,
     this.paints,
     this.messageColor,
+    this.onPinRefresh,
   });
 
   /// Renders emotes in pinned messages; null shows plain text.
@@ -32,6 +33,11 @@ class BroadcastWidgets {
   /// pin itself carries none.
   final String? Function(String channel, String messageId)? messageColor;
 
+  /// Re-reads a channel's pin from Helix. PubSub can miss an unpin, so a
+  /// shown pin asks for a fresh read until it is removed. Wired by the
+  /// pipeline after it builds, since the read needs the connection manager.
+  void Function(String channel)? onPinRefresh;
+
   final String? Function() selectedChannel;
   final notifier = ValueNotifier<int>(0);
 
@@ -42,6 +48,9 @@ class BroadcastWidgets {
 
   // Lapses timed pins, which get no unpin event.
   final _pinExpiry = <String, Timer>{};
+
+  // Re-reads untimed pins, which can outlive a missed PubSub unpin.
+  final _pinRefresh = <String, Timer>{};
   final widgetsMinimized = <String, bool>{};
   // One card pager per channel: two channels' cards show mid-swipe.
   final _pageCtrls = <String, PageController>{};
@@ -66,6 +75,9 @@ class BroadcastWidgets {
     mounted = false;
     _testWidgetsTimer?.cancel();
     for (final t in _pinExpiry.values) {
+      t.cancel();
+    }
+    for (final t in _pinRefresh.values) {
       t.cancel();
     }
     for (final c in _pageCtrls.values) {
@@ -131,6 +143,7 @@ class BroadcastWidgets {
     } else {
       if (_dismissedPins.containsKey(event.messageId)) return;
       _pinExpiry.remove(channel)?.cancel();
+      _pinRefresh.remove(channel)?.cancel();
       pins[channel] = event.senderColor != null
           ? event
           : event.withSenderColor(messageColor?.call(channel, event.messageId));
@@ -139,6 +152,12 @@ class BroadcastWidgets {
         _pinExpiry[channel] = Timer(
           left.isNegative ? Duration.zero : left,
           () => _dropPin(channel),
+        );
+      }
+      if (onPinRefresh != null) {
+        _pinRefresh[channel] = Timer.periodic(
+          const Duration(minutes: 5),
+          (_) => onPinRefresh!(channel),
         );
       }
     }
@@ -160,6 +179,7 @@ class BroadcastWidgets {
 
   void _dropPin(String channel) {
     _pinExpiry.remove(channel)?.cancel();
+    _pinRefresh.remove(channel)?.cancel();
     if (!pins.containsKey(channel) || !mounted) return;
     final shown = _shownCard();
     pins.remove(channel);
@@ -448,6 +468,7 @@ class BroadcastWidgets {
     polls.remove(channel);
     predictions.remove(channel);
     _pinExpiry.remove(channel)?.cancel();
+    _pinRefresh.remove(channel)?.cancel();
     pins.remove(channel);
     _dismissedPins.removeWhere((_, c) => c == channel);
     widgetsMinimized.remove(channel);
