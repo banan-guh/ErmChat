@@ -116,6 +116,61 @@ void main() {
       service.dispose();
     });
 
+    test('clamps out-of-order stops like CSS', () async {
+      final service = SevenTvPaintService(
+        gqlQuery: (_) async =>
+            jsonDecode(
+                  _catalogQueryResponse([
+                    _paintItem('p3', 'Fixup', {
+                      'layers': [
+                        {
+                          'opacity': 1.0,
+                          'ty': {
+                            '__typename': 'PaintLayerTypeLinearGradient',
+                            'angle': 90,
+                            'repeating': false,
+                            'stops': [
+                              {
+                                'at': 0.0,
+                                'color': {'hex': '#FF0000FF'},
+                              },
+                              {
+                                'at': 0.6,
+                                'color': {'hex': '#00FF00FF'},
+                              },
+                              {
+                                'at': 0.2,
+                                'color': {'hex': '#0000FFFF'},
+                              },
+                              {
+                                'at': 1.0,
+                                'color': {'hex': '#FFFFFFFF'},
+                              },
+                            ],
+                          },
+                        },
+                      ],
+                      'shadows': [],
+                    }),
+                  ]),
+                )['data']
+                as Map<String, dynamic>,
+      );
+      await service.ensureCatalog();
+      service
+        ..enabled = true
+        ..assignForTesting('333', 'p3');
+
+      final layer = service.lookup('333')!.layers.single;
+      expect((layer as SevenTvLinearGradientLayer).stops.map((s) => s.at), [
+        0.0,
+        0.6,
+        0.6,
+        1.0,
+      ], reason: 'a stop before its predecessor holds that position');
+      service.dispose();
+    });
+
     test('solid paints expose a solid color shortcut', () async {
       final service = SevenTvPaintService(
         gqlQuery: (_) async =>
@@ -236,6 +291,35 @@ void main() {
       }
     }
     service.dispose();
+  });
+
+  test('paint shadows map CSS blur and stack like the filter chain', () {
+    const paint = SevenTvPaint(
+      id: 'p',
+      name: 'p',
+      layers: [],
+      shadows: [
+        SevenTvPaintShadow(
+          color: Color(0xFFFF0000),
+          offsetX: 1,
+          offsetY: 1,
+          blur: 0.1,
+        ),
+        SevenTvPaintShadow(
+          color: Color(0xFF0000FF),
+          offsetX: 2,
+          offsetY: 2,
+          blur: 4,
+        ),
+      ],
+    );
+    final shadows = paintTextShadows(paint);
+    // CSS paints the first shadow above the second, Flutter the last entry.
+    expect(shadows.first.color, const Color(0xFF0000FF));
+    expect(shadows.last.color, const Color(0xFFFF0000));
+    // CSS sigma is radius/2; below 1px the sharp copy matches best.
+    expect(shadows.first.blurRadius, closeTo((4 - 1) * 0.866, 0.001));
+    expect(shadows.last.blurRadius, 0);
   });
 
   group('SevenTvPaintService user resolution', () {
@@ -560,6 +644,35 @@ void main() {
       expect(find.byType(PaintedUsernameText), findsOneWidget);
       // The gradient rides the text foreground, not a ShaderMask layer.
       expect(find.byType(ShaderMask), findsNothing);
+      service.dispose();
+    });
+
+    testWidgets('shadow-only paints still paint the name', (tester) async {
+      final service = SevenTvPaintService(gqlQuery: (_) async => null)
+        ..enabled = true;
+      service
+        ..addPaintForTesting(
+          const SevenTvPaint(
+            id: 's1',
+            name: 'Shadow',
+            layers: [],
+            shadows: [
+              SevenTvPaintShadow(
+                color: Color(0xFF000000),
+                offsetX: 0,
+                offsetY: 0,
+                blur: 2,
+              ),
+            ],
+          ),
+        )
+        ..assignForTesting('999', 's1');
+
+      await tester.pumpWidget(
+        MaterialApp(home: Scaffold(body: tile(message('999'), service))),
+      );
+      await tester.pump();
+      expect(find.byType(PaintedUsernameText), findsOneWidget);
       service.dispose();
     });
   });

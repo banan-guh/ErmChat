@@ -828,14 +828,18 @@ class SevenTvPaintService extends ChangeNotifier {
 
   List<SevenTvPaintStop> _parseStops(List<dynamic>? raw) {
     final stops = <SevenTvPaintStop>[];
+    var previous = 0.0;
     for (final entry in raw ?? const []) {
       final m = entry as Map<String, dynamic>;
       final color = _parseHex(m['color']?['hex'] as String?);
       final at = (m['at'] as num?)?.toDouble();
       if (color == null || at == null) continue;
-      stops.add(SevenTvPaintStop(at: at.clamp(0.0, 1.0), color: color));
+      // CSS gradient fixup: an out-of-order stop holds the largest position
+      // before it, where the colors then switch abruptly.
+      final fixed = at.clamp(previous, 1.0);
+      previous = fixed;
+      stops.add(SevenTvPaintStop(at: fixed, color: color));
     }
-    stops.sort((a, b) => a.at.compareTo(b.at));
     return stops;
   }
 
@@ -999,12 +1003,18 @@ class SevenTvPaintService extends ChangeNotifier {
       case SevenTvImagePaintLayer image:
         final decoded = imageFor(image);
         if (decoded == null) return null;
-        final scale = decoded.height > 0 ? size.height / decoded.height : 1.0;
+        // 7TV stretches the texture to the name's box (background-size:
+        // 100% 100%), so both axes scale independently and never repeat.
         return ui.ImageShader(
           decoded,
-          ui.TileMode.repeated,
-          ui.TileMode.repeated,
-          Matrix4.diagonal3Values(scale, scale, 1).storage,
+          ui.TileMode.clamp,
+          ui.TileMode.clamp,
+          Matrix4.diagonal3Values(
+            size.width / decoded.width,
+            size.height / decoded.height,
+            1,
+          ).storage,
+          filterQuality: ui.FilterQuality.low,
         );
     }
   }

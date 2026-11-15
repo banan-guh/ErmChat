@@ -257,10 +257,9 @@ class PinnedMessageText extends StatelessWidget {
       background: Theme.of(context).colorScheme.surface,
     );
     final nameStyle = TextStyle(fontWeight: FontWeight.w600, color: color);
-    final layered = paint != null && paint.layers.isNotEmpty;
     return [
       if (event.senderName.isNotEmpty) ...[
-        if (layered && paint.solidColor == null)
+        if (paint != null)
           WidgetSpan(
             alignment: PlaceholderAlignment.middle,
             child: PaintedUsernameText(
@@ -270,15 +269,11 @@ class PinnedMessageText extends StatelessWidget {
               baseStyle: (style ?? const TextStyle()).merge(nameStyle),
               fallbackColor:
                   paint.fallbackColor ?? color ?? const Color(0xFF808080),
+              baseColor: color ?? Theme.of(context).colorScheme.onSurface,
             ),
           )
         else
-          TextSpan(
-            text: event.senderName,
-            style: nameStyle.copyWith(
-              color: layered ? paint.solidColor : color,
-            ),
-          ),
+          TextSpan(text: event.senderName, style: nameStyle),
         TextSpan(text: ': ', style: nameStyle),
       ],
       ..._body(),

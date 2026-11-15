@@ -1,6 +1,22 @@
 import 'package:flutter/material.dart';
 import 'seven_tv_paint_service.dart';
 
+/// Flutter text shadows for [paint], reversed so the API's first shadow sits
+/// on top as CSS draws it. Parallel draws skip the chain's outer halo growth.
+List<Shadow> paintTextShadows(SevenTvPaint paint) => [
+  for (final shadow in paint.shadows.reversed)
+    Shadow(
+      color: shadow.color,
+      offset: Offset(shadow.offsetX, shadow.offsetY),
+      blurRadius: _flutterBlur(shadow.blur),
+    ),
+];
+
+/// CSS drop-shadow blur radius -> Flutter [Shadow.blurRadius] with the same
+/// Gaussian sigma (CSS uses radius/2, Flutter radius*0.57735+0.5).
+double _flutterBlur(double radius) =>
+    radius <= 1 ? 0 : (radius - 1) * 0.8660254037844386;
+
 /// Username filled with a gradient or image 7TV paint. Paints one paragraph
 /// whose foreground carries the shader, so no ShaderMask layer and no
 /// shadow underlay. Solid paints never reach here: they ride a TextSpan.
@@ -12,7 +28,9 @@ class PaintedUsernameText extends StatelessWidget {
   /// Font size/weight only; color comes from the paint or [fallbackColor].
   final TextStyle baseStyle;
   final Color fallbackColor;
-  final List<Shadow>? shadows;
+
+  /// Name color under transparent fills, 7TV's background-color: currentColor.
+  final Color baseColor;
 
   const PaintedUsernameText({
     super.key,
@@ -21,7 +39,7 @@ class PaintedUsernameText extends StatelessWidget {
     required this.text,
     required this.baseStyle,
     required this.fallbackColor,
-    this.shadows,
+    required this.baseColor,
   });
 
   @override
@@ -59,7 +77,8 @@ class PaintedUsernameText extends StatelessWidget {
         text: text,
         style: style,
         fallbackColor: fallbackColor,
-        shadows: shadows,
+        baseColor: baseColor,
+        shadows: paintTextShadows(paint),
         textDirection: textDirection,
         textScaler: textScaler,
         repaint: ticker,
@@ -104,6 +123,7 @@ class _NamePainter extends CustomPainter {
     required this.text,
     required this.style,
     required this.fallbackColor,
+    required this.baseColor,
     required this.shadows,
     required this.textDirection,
     required this.textScaler,
@@ -115,7 +135,8 @@ class _NamePainter extends CustomPainter {
   final String text;
   final TextStyle style;
   final Color fallbackColor;
-  final List<Shadow>? shadows;
+  final Color baseColor;
+  final List<Shadow> shadows;
   final TextDirection textDirection;
   final TextScaler textScaler;
 
@@ -123,10 +144,17 @@ class _NamePainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     final shader = service.shaderFor(namePaint, size);
     final painted = shader == null
-        ? style.copyWith(color: fallbackColor, shadows: shadows)
+        ? style.copyWith(
+            color: fallbackColor,
+            shadows: shadows.isEmpty ? null : shadows,
+          )
         : style.copyWith(
-            foreground: Paint()..shader = shader,
-            shadows: shadows,
+            foreground: Paint()
+              ..shader = shader
+              // Texture and gradient alpha shows the name color, matching
+              // 7TV's background-color under the layer fill.
+              ..colorFilter = ColorFilter.mode(baseColor, BlendMode.dstOver),
+            shadows: shadows.isEmpty ? null : shadows,
           );
     final painter = TextPainter(
       text: TextSpan(text: text, style: painted),
@@ -143,6 +171,7 @@ class _NamePainter extends CustomPainter {
       old.text != text ||
       old.style != style ||
       old.fallbackColor != fallbackColor ||
+      old.baseColor != baseColor ||
       old.shadows != shadows ||
       old.textDirection != textDirection ||
       old.textScaler != textScaler;

@@ -321,14 +321,16 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
     setState(() {});
   }
 
-  /// The sender's resolved paint, or null when paints are off or it has no
-  /// layers. The lookup also queues a batched fetch for unknown users.
+  /// The sender's resolved paint, or null when paints are off or it has
+  /// nothing to draw. A paint with no layers still casts its shadows.
   SevenTvPaint? _currentPaint() {
     final notifier = _paintNotifier;
     if (notifier == null) return null;
     final paint =
         notifier.value ?? widget.paintService!.lookup(widget.message.userId);
-    if (paint == null || paint.layers.isEmpty) return null;
+    if (paint == null || (paint.layers.isEmpty && paint.shadows.isEmpty)) {
+      return null;
+    }
     return paint;
   }
 
@@ -647,10 +649,10 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
           )
         : null;
     InlineSpan? usernameSpan;
+    InlineSpan? separatorSpan;
     if (!summary) {
-      final usernameText = msg.isAction
-          ? '${msg.formattedUsername} '
-          : '${msg.formattedUsername}: ';
+      final name = msg.formattedUsername;
+      final suffix = msg.isAction ? ' ' : ': ';
       final nameStyle = TextStyle(
         fontSize: 14 * s,
         fontWeight: widget.fontWeight.value > 500
@@ -661,42 +663,41 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
       final usernameColor = parseColor(msg.color, background: widget.surface);
       final paint = _currentPaint();
       final solid = paint?.solidColor;
+      // 7TV paints only the name, so the colon stays plain, and shows the
+      // name color through unfilled fill pixels.
+      final baseColor = usernameColor ?? theme.colorScheme.onSurface;
       final shadows = paint == null
-          ? null
-          // Each shadow redraws the name through a blur every frame the row
-          // paints, and the kernel grows with the radius: two shadows at
-          // their CSS size keep the glow without the raster cost.
-          : [
-              for (final shadow in paint.shadows.take(2))
-                Shadow(
-                  color: shadow.color,
-                  offset: Offset(shadow.offsetX, shadow.offsetY),
-                  blurRadius: shadow.blur,
-                ),
-            ];
-      if (paint == null || solid != null) {
-        // Unpainted and solid names stay in the row's own paragraph.
-        usernameSpan = TextSpan(
-          text: usernameText,
-          style: nameStyle.copyWith(
-            color: solid ?? usernameColor,
-            shadows: shadows == null || shadows.isEmpty ? null : shadows,
-          ),
-        );
-      } else {
-        usernameSpan = WidgetSpan(
-          alignment: PlaceholderAlignment.middle,
-          child: PaintedUsernameText(
-            service: widget.paintService!,
-            paint: paint,
-            text: usernameText,
-            baseStyle: nameStyle,
-            fallbackColor:
-                paint.fallbackColor ?? usernameColor ?? const Color(0xFF808080),
-            shadows: shadows!.isEmpty ? null : shadows,
-          ),
-        );
-      }
+          ? const <Shadow>[]
+          : paintTextShadows(paint);
+      usernameSpan = paint == null || solid != null
+          // Unpainted and solid names stay in the row's own paragraph.
+          ? TextSpan(
+              text: name,
+              style: nameStyle.copyWith(
+                color: solid == null
+                    ? usernameColor
+                    : Color.alphaBlend(solid, baseColor),
+                shadows: shadows.isEmpty ? null : shadows,
+              ),
+            )
+          : WidgetSpan(
+              alignment: PlaceholderAlignment.middle,
+              child: PaintedUsernameText(
+                service: widget.paintService!,
+                paint: paint,
+                text: name,
+                baseStyle: nameStyle,
+                fallbackColor:
+                    paint.fallbackColor ??
+                    usernameColor ??
+                    const Color(0xFF808080),
+                baseColor: baseColor,
+              ),
+            );
+      separatorSpan = TextSpan(
+        text: suffix,
+        style: nameStyle.copyWith(color: usernameColor),
+      );
     }
 
     var embedUrls = const <String>[];
@@ -722,6 +723,7 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
       ?channelSpan,
       ...badges,
       ?usernameSpan,
+      ?separatorSpan,
       ...bodySpans,
     ];
     if (widget.repeatCount > 1) {
@@ -733,6 +735,7 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
             ?channelSpan,
             ...badges,
             ?usernameSpan,
+            ?separatorSpan,
           ].fold<int>(0, (n, span) => n + span.toPlainText().length);
     final channelLabel = !summary && widget.showChannel
         ? '#${widget.channel} '
