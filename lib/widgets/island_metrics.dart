@@ -7,6 +7,10 @@ import 'package:flutter/widgets.dart';
 const double kComposerIslandMargin = 8.0;
 const double kComposerIslandRadius = 16.0;
 
+// Air under the island's last row, so its icons sit as far from the bottom
+// rim as the field's icons do from the top rim.
+const double kComposerIslandBottomInset = 6.0;
+
 // Visible gap between the newest row and the composer surface, in every
 // layout (floating island, docked pane, history).
 const double kComposerGap = 8.0;

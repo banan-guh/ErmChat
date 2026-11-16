@@ -17,6 +17,7 @@ import '../util/settings.dart';
 import 'layout_editor.dart';
 import '../widgets/chrome_menu_button.dart';
 import '../widgets/clear_message_button.dart';
+import '../widgets/island_metrics.dart' show kComposerIslandBottomInset;
 import '../widgets/media_upload_controller.dart';
 import '../widgets/panel_manager.dart';
 
@@ -418,9 +419,15 @@ class HomeAppBar {
       ),
     );
     // Inset like the field, so the row's end buttons line up under the
-    // field's emote and send.
+    // field's emote and send. The bottom inset keeps the row's icons off the
+    // island's rim by the same air the field's top icons have.
     final inset = Padding(
-      padding: const EdgeInsets.symmetric(horizontal: _rowInset),
+      padding: EdgeInsets.fromLTRB(
+        _rowInset,
+        0,
+        _rowInset,
+        kComposerIslandBottomInset,
+      ),
       child: row,
     );
     return KeyedSubtree(key: const Key('bottom_chrome_bar'), child: inset);
