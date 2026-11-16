@@ -1013,8 +1013,24 @@ class _ChatBodyState extends State<ChatBody>
     return ComposerFocusGlow(
       shape: RoundedRectangleBorder(borderRadius: layout.radius),
       surface: Theme.of(context).colorScheme.surfaceContainer,
-      opaque: layout.flush,
-      child: child,
+      child: layout.flush
+          ? Stack(
+              children: [
+                child,
+                // The flat bar keeps a visible band above the field, so the
+                // gap reads as padding instead of the message touching it.
+                Positioned(
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  height: kFloatingComposerGap,
+                  child: ColoredBox(
+                    color: Theme.of(context).colorScheme.surfaceContainerHigh,
+                  ),
+                ),
+              ],
+            )
+          : child,
     );
   }
 

@@ -15,15 +15,11 @@ class ComposerFocusGlow extends StatelessWidget {
     super.key,
     required this.shape,
     this.surface,
-    this.opaque = false,
     required this.child,
   });
 
   final OutlinedBorder shape;
   final Color? surface;
-
-  /// Fully opaque when true. The floating island keeps a slight see-through.
-  final bool opaque;
   final Widget child;
 
   @override
@@ -46,7 +42,7 @@ class ComposerFocusGlow extends StatelessWidget {
                 shape: shape,
                 color: lit
                     ? Color.alphaBlend(primary.withValues(alpha: 0.06), fill)
-                    : fill.withValues(alpha: opaque ? 1.0 : 0.94),
+                    : fill.withValues(alpha: 0.94),
               ),
               child: child,
             );
