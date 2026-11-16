@@ -1,4 +1,3 @@
-- ios 26 keyboard corners fixed
-- automod highlight in highlights
-- uploaded images can be deleted from their delete link
-- more custom gestures
+- fix 7tv paints, badges, pinned msgs
+- organize settings/tools
+- fix chat scrolling on empty chat
