@@ -342,7 +342,7 @@ void main() {
       final top = tester.getRect(island).top;
       expect(
         clearance(),
-        moreOrLessEquals(800 - kb - top, epsilon: 0.5),
+        moreOrLessEquals(800 - kb - top - kFloatingComposerGap, epsilon: 0.5),
         reason: 'keyboard at $kb: rows lag the island',
       );
     }
@@ -385,8 +385,8 @@ void main() {
     );
     expect(
       tester.getSize(island).height,
-      closeTo(tester.getSize(field).height, 1.0),
-      reason: 'the row is clipped away, leaving the field',
+      closeTo(tester.getSize(field).height + kFloatingComposerGap, 1.0),
+      reason: 'the row is clipped away, leaving the field and its strip',
     );
     expect(
       tester.getSize(island).height,

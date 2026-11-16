@@ -576,7 +576,7 @@ class _ChatBodyState extends State<ChatBody>
         : _Report(slot: _footerH, child: widget.islandFooter!);
     // Edge to edge, one line carries the busy motion or an upload's progress.
     final busyLine = _busyLine(layout);
-    final island = _outer(
+    final islandBody = _outer(
       layout: layout,
       child: _islandShell(
         layout: layout,
@@ -638,6 +638,17 @@ class _ChatBodyState extends State<ChatBody>
         ),
       ),
     );
+    // Edge-to-edge composers keep a transparent strip above the surface: the
+    // list draws into it, so it reads as padding, not a band of chat.
+    final island = layout.flush
+        ? Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const SizedBox(height: kFloatingComposerGap),
+              islandBody,
+            ],
+          )
+        : islandBody;
     final islandPad = EdgeInsets.fromLTRB(
       kComposerIslandMargin,
       kComposerGap - kOpaqueComposerGap,
@@ -744,13 +755,18 @@ class _ChatBodyState extends State<ChatBody>
                             child: _IslandStack(
                               metrics: _metrics,
                               presence: layout.presence,
-                              // The classic field's label room is already
-                              // empty space above its outline, so it counts
-                              // toward the list's gap.
-                              trim: layout.classic ? MessageInput.labelRoom : 0,
+                              // The transparent strip above a flat composer,
+                              // plus the classic field's label room, is
+                              // empty room the list may overlap.
+                              trim: layout.flush
+                                  ? kFloatingComposerGap +
+                                        (layout.classic
+                                            ? MessageInput.labelRoom
+                                            : 0)
+                                  : 0,
                               // Edge-to-edge and classic composers have no
-                              // floating rim, so their rows run right to the
-                              // composer's edge with no gap to show through.
+                              // floating rim: rows run to the surface and the
+                              // transparent strip above shows them.
                               gap: layout.flush ? 0 : kFloatingComposerGap,
                               // Pages add their own channel's footer, so a
                               // switch moves only the island.
