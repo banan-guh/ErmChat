@@ -749,10 +749,9 @@ class _ChatBodyState extends State<ChatBody>
                               // toward the list's gap.
                               trim: layout.classic ? MessageInput.labelRoom : 0,
                               // Edge-to-edge and classic composers have no
-                              // floating rim, so their list gap is tighter.
-                              gap: layout.flush
-                                  ? kOpaqueComposerGap
-                                  : kFloatingComposerGap,
+                              // floating rim, so their rows run right to the
+                              // composer's edge with no gap to show through.
+                              gap: layout.flush ? 0 : kFloatingComposerGap,
                               // Pages add their own channel's footer, so a
                               // switch moves only the island.
                               footerFor: widget.islandFooterHeightFor,
