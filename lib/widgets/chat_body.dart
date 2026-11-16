@@ -748,6 +748,10 @@ class _ChatBodyState extends State<ChatBody>
                               // empty space above its outline, so it counts
                               // toward the list's gap.
                               trim: layout.classic ? MessageInput.labelRoom : 0,
+                              // Edge-to-edge and classic composers have no
+                              // floating rim, so their rows run right to the
+                              // composer's edge with no gap to show through.
+                              gap: layout.flush ? 0 : kFloatingComposerGap,
                               // Pages add their own channel's footer, so a
                               // switch moves only the island.
                               footerFor: widget.islandFooterHeightFor,
@@ -1370,6 +1374,7 @@ class _IslandStack extends Stack {
     required this.metrics,
     required this.presence,
     required this.trim,
+    required this.gap,
     required this.footerFor,
     required this.footer,
     super.children,
@@ -1381,6 +1386,10 @@ class _IslandStack extends Stack {
   /// island comes and goes.
   final double presence;
   final double trim;
+
+  /// Visual space the list keeps above the island. Tighter for the
+  /// edge-to-edge and classic composers.
+  final double gap;
   final double Function(String channel)? footerFor;
 
   /// The island footer's laid-out height, or null without a footer.
@@ -1390,6 +1399,7 @@ class _IslandStack extends Stack {
   RenderStack createRenderObject(BuildContext context) => _RenderIslandStack(
     presence,
     trim,
+    gap,
     footerFor,
     metrics: metrics,
     footer: footer,
@@ -1404,6 +1414,7 @@ class _IslandStack extends Stack {
       ..metrics = metrics
       ..presence = presence
       ..trim = trim
+      ..gap = gap
       ..footerFor = footerFor
       ..footer = footer;
   }
@@ -1413,6 +1424,7 @@ class _RenderIslandStack extends RenderStack {
   _RenderIslandStack(
     this._presence,
     this._trim,
+    this._gap,
     this._footerFor, {
     required this.metrics,
     required this.footer,
@@ -1437,6 +1449,13 @@ class _RenderIslandStack extends RenderStack {
   set trim(double value) {
     if (value == _trim) return;
     _trim = value;
+    markNeedsLayout();
+  }
+
+  double _gap;
+  set gap(double value) {
+    if (value == _gap) return;
+    _gap = value;
     markNeedsLayout();
   }
 
@@ -1484,6 +1503,7 @@ class _RenderIslandStack extends RenderStack {
         footer: islandH == null ? 0 : footer?.value ?? 0,
         extra: extra,
         trim: _trim,
+        gap: _gap,
         footerFor: _footerFor,
       ),
     );
