@@ -33,6 +33,7 @@ class IslandMetrics {
   double _footer = 0;
   double _extra = 0;
   double _trim = 0;
+  double _gap = kFloatingComposerGap;
   double Function(String channel)? _footerFor;
   final _readers = <RenderObject>{};
   bool _settlePending = false;
@@ -66,22 +67,23 @@ class IslandMetrics {
   }
 
   /// A chat list's bottom padding: the clearance plus a visual gap, or a
-  /// small fixed gap above a docked composer.
+  /// small fixed gap above a docked composer. The gap is tighter for the
+  /// edge-to-edge and classic composers, which have no floating rim to
+  /// separate from the list.
   double listGap({String? page}) =>
-      (floating
-          ? clearance(page: page) + kFloatingComposerGap
-          : kOpaqueComposerGap) +
-      _extra;
+      (floating ? clearance(page: page) + _gap : kOpaqueComposerGap) + _extra;
 
   /// Called by ChatBody's layout only. [footer] is the footer's laid-out
   /// height, which [footerFor] predicts per channel; [trim] is empty room
-  /// above the island the lists may overlap.
+  /// above the island the lists may overlap; [gap] is the visual space the
+  /// list keeps above the island.
   void publish({
     required double top,
     required double height,
     required double footer,
     required double extra,
     required double trim,
+    double gap = kFloatingComposerGap,
     required double Function(String channel)? footerFor,
   }) {
     if (top == _top &&
@@ -89,6 +91,7 @@ class IslandMetrics {
         footer == _footer &&
         extra == _extra &&
         trim == _trim &&
+        gap == _gap &&
         footerFor == _footerFor) {
       return;
     }
@@ -97,6 +100,7 @@ class IslandMetrics {
     _footer = footer;
     _extra = extra;
     _trim = trim;
+    _gap = gap;
     _footerFor = footerFor;
     for (final reader in _readers) {
       reader.markNeedsLayout();
