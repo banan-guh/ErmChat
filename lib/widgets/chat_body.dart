@@ -983,9 +983,17 @@ class _ChatBodyState extends State<ChatBody>
   /// field's own outline shows focus instead of a tinted shell.
   Widget _outer({required _Layout layout, required Widget child}) {
     if (layout.classic) {
-      return ColoredBox(
-        color: Theme.of(context).scaffoldBackgroundColor,
-        child: child,
+      // The floated label needs its room above the outline, but the room is
+      // not part of the composer's surface: the chat shows behind it, so the
+      // last rows reach the outline and the label sits over them.
+      return Stack(
+        children: [
+          Positioned.fill(
+            top: MessageInput.labelRoom,
+            child: ColoredBox(color: Theme.of(context).scaffoldBackgroundColor),
+          ),
+          child,
+        ],
       );
     }
     return ComposerFocusGlow(
