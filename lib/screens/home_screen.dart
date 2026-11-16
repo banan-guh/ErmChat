@@ -2336,6 +2336,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                       readOnly: edit != null,
                       classic: spec.composer == ComposerStyle.classic,
                       modeRow: modeRow,
+                      hideRowTyping: spec.compact,
                       uploads: _uploadController,
                       progress: _composerProgress,
                     )
@@ -2347,7 +2348,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                         if (edit != null)
                           ?partSlot(ComposerPart.send, PartPlace.row)
                         else if (spec.sendInRow && sendOutside)
-                          SizedBox.square(dimension: 40, child: sendButton),
+                          SizedBox.square(dimension: 44, child: sendButton),
                       ],
                       middle: _showInput
                           ? ComposerModeRow(

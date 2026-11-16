@@ -45,6 +45,7 @@ class ComposerBar extends StatelessWidget {
     this.readOnly = false,
     this.classic = false,
     this.modeRow = false,
+    this.hideRowTyping = false,
     this.uploads,
     this.progress,
   });
@@ -64,6 +65,10 @@ class ComposerBar extends StatelessWidget {
   /// The island's button row shows, so room modes may ride it
   /// ([ComposerModeRow]) instead of the status.
   final bool modeRow;
+
+  /// The row hides while typing, so the field is the whole composer. Its
+  /// hint then stays in the line instead of floating a label.
+  final bool hideRowTyping;
 
   /// Panel tab drag crossings. The morph tracks 50% through this alone,
   /// without a full HomeScreen rebuild per crossing (main chat's focus
@@ -141,7 +146,9 @@ class ComposerBar extends StatelessWidget {
                 onSubmitted: (_) => mod.submitTerms(),
                 enabled: true,
                 hintText: context.l10n.blockTermHint,
-                floatHint: true,
+                // The row hides while typing, so the terms field matches the
+                // chat field's plain hint instead of a floating label.
+                floatHint: hideRowTyping && !classic ? false : true,
                 searchMode: true,
                 borderless: !classic,
                 // Add moves out with send, and the field needs no icon
@@ -182,6 +189,10 @@ class ComposerBar extends StatelessWidget {
                         ),
                   ),
                   inputFormatters: [controller.autocompleteRevert],
+                  // The row hides while typing, so the hint stays in the line
+                  // and the text centers on the icons instead of a label
+                  // floating above it.
+                  floatHint: hideRowTyping && !classic ? false : null,
                   onContentInserted: uploads == null
                       ? null
                       : (content) => uploads!.uploadInserted(context, content),

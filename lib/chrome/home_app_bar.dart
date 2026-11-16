@@ -242,10 +242,10 @@ class HomeAppBar {
     addChannelDialog();
   }
 
-  /// The button row's side inset, aligning its 40pt glyphs with the field's
+  /// The button row's side inset, aligning its 44pt glyphs with the field's
   /// 48pt icon boxes, so the row's end buttons line up under the field's
   /// emote and send.
-  static const double _rowInset = 12;
+  static const double _rowInset = 10;
 
   Widget mentionsButton(BuildContext context) {
     final theme = Theme.of(context);
@@ -397,12 +397,13 @@ class HomeAppBar {
     Widget group(List<Widget> actions) => actions.isEmpty
         ? const SizedBox.shrink()
         : Row(mainAxisSize: MainAxisSize.min, children: actions);
-    // The row runs at 40pt so it and the field stay short: every button
-    // loses the stock vertical padding and its 48pt minimum.
+    // The row runs at 44pt so it and the field stay short: every button
+    // loses the stock vertical padding and its 48pt minimum, but keeps
+    // enough air for the icons not to crowd.
     final row = IconButtonTheme(
       data: IconButtonThemeData(
         style: IconButton.styleFrom(
-          minimumSize: const Size.square(40),
+          minimumSize: const Size.square(44),
           tapTargetSize: MaterialTapTargetSize.shrinkWrap,
         ),
       ),
