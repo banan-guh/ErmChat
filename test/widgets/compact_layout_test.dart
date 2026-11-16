@@ -16,6 +16,7 @@ void main() {
   Future<void> pumpJoined(
     WidgetTester tester, {
     required LayoutDensity density,
+    String? chromeTheme,
   }) async {
     tester.view.physicalSize = const Size(1080, 2340);
     tester.view.devicePixelRatio = 3.0;
@@ -23,10 +24,12 @@ void main() {
     tester.view.viewPadding = const FakeViewPadding(top: 72, bottom: 45);
     addTearDown(tester.view.reset);
 
-    SharedPreferences.setMockInitialValues({
+    final values = <String, Object>{
       'access_token': 'test_token',
       'layout_density': density.name,
-    });
+    };
+    if (chromeTheme != null) values['chrome_theme'] = chromeTheme;
+    SharedPreferences.setMockInitialValues(values);
     FlutterSecureStorage.setMockInitialValues({
       'accounts': '[{"login":"me","user_id":"42","access_token":"test_token"}]',
       'active_login': 'me',
@@ -212,5 +215,25 @@ void main() {
         reason: 'only the menu stays, menu in the $place',
       );
     }
+  });
+
+  testWidgets('the DankChat 4 overflow matches the chrome buttons', (
+    tester,
+  ) async {
+    await pumpJoined(
+      tester,
+      density: LayoutDensity.full,
+      chromeTheme: 'dankchat4',
+    );
+    Color colorOf(IconData icon) {
+      final element = tester.element(find.byIcon(icon).first);
+      return IconTheme.of(element).color!;
+    }
+
+    expect(
+      colorOf(Icons.more_vert),
+      colorOf(Icons.add),
+      reason: 'the overflow icon used a different foreground',
+    );
   });
 }

@@ -685,15 +685,20 @@ class TabbedLayoutState extends State<TabbedLayout>
     // never remounts the TabBar.
     final bubbles = widget.stripBubbles;
     Widget pill(Widget child, {Key? key}) => bubbles
-        ? DecoratedBox(
-            key: key,
-            decoration: ShapeDecoration(
-              color: theme.colorScheme.surfaceContainerHigh,
-              shape: const StadiumBorder(),
-            ),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 6),
-              child: child,
+        // The stadium ends curve in, so the tab indicator would run past them
+        // as a square otherwise.
+        ? ClipPath(
+            clipper: const ShapeBorderClipper(shape: StadiumBorder()),
+            child: DecoratedBox(
+              key: key,
+              decoration: ShapeDecoration(
+                color: theme.colorScheme.surfaceContainerHigh,
+                shape: const StadiumBorder(),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 6),
+                child: child,
+              ),
             ),
           )
         : child;

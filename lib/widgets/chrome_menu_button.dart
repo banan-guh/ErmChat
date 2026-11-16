@@ -164,6 +164,10 @@ class _ChromeMenuState extends State<ChromeMenu> {
 
   @override
   Widget build(BuildContext context) {
+    // Match the default IconButton foreground the chrome's other actions use.
+    final style = IconButton.styleFrom(
+      foregroundColor: Theme.of(context).colorScheme.onSurfaceVariant,
+    ).merge(widget.buttonStyle);
     return PopupMenuButton<int>(
       position: PopupMenuPosition.under,
       // Long labels ("Reload all emotes") used to set the width; cap it and
@@ -199,7 +203,7 @@ class _ChromeMenuState extends State<ChromeMenu> {
               const PopupMenuDivider(),
         ];
       },
-      style: widget.buttonStyle,
+      style: style,
       icon: widget.buttonStyle == null ? null : widget.trigger,
       child: widget.buttonStyle == null ? widget.trigger : null,
     );

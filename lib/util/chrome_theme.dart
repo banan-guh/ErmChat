@@ -744,7 +744,7 @@ enum ChromeTheme {
       ],
       rowEnd: [ChromeAction.viewMenu, ChromeAction.threads],
       fieldStart: [],
-      fieldEnd: [FieldItem.clear],
+      fieldEnd: [],
       sendAside: SendPlace.row,
       composer: ComposerStyle.flush,
       busyBar: true,
