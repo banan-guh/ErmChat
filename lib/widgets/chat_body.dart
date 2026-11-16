@@ -12,7 +12,6 @@ import 'island_metrics.dart';
 import 'island_rings.dart';
 import 'design_tokens.dart';
 import 'eased_progress.dart';
-import 'message_input.dart' show MessageInput;
 import 'chat_pages_scope.dart' show ChatPagesScope;
 
 /// Builds the chat content above the composer. [maxHeight] and [keyboardH]
@@ -576,79 +575,76 @@ class _ChatBodyState extends State<ChatBody>
         : _Report(slot: _footerH, child: widget.islandFooter!);
     // Edge to edge, one line carries the busy motion or an upload's progress.
     final busyLine = _busyLine(layout);
-    final islandBody = _outer(
+    final island = _outer(
       layout: layout,
-      child: _islandShell(
-        layout: layout,
-        child: _RowClip(
-          keyboard: layout.rowKeyboard,
-          flow: _flowH,
-          row: _rowH,
-          child: Align(
-            alignment: Alignment.topCenter,
-            heightFactor: 1,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                if (widget.sideAction == null) ...[
-                  flowComposer,
-                  ?busyLine,
-                  ?widget.bottomBar,
-                  ?footer,
-                ] else
-                  // The side action runs the island's full height, so its
-                  // ink reaches the rim. The column sets the height and the
-                  // action fills it, with no intrinsic pass (the field's
-                  // LayoutBuilder cannot answer one). The footer spans the
-                  // full width under it, so centered text centers on the
-                  // whole island.
-                  Stack(
-                    children: [
-                      Column(
-                        mainAxisSize: MainAxisSize.min,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Edge-to-edge composers keep the padding inside the surface, so
+          // the last row rests on the composer's color, not a black band.
+          if (layout.flush) const SizedBox(height: kFloatingComposerGap),
+          _islandShell(
+            layout: layout,
+            child: _RowClip(
+              keyboard: layout.rowKeyboard,
+              flow: _flowH,
+              row: _rowH,
+              child: Align(
+                alignment: Alignment.topCenter,
+                heightFactor: 1,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (widget.sideAction == null) ...[
+                      flowComposer,
+                      ?busyLine,
+                      ?widget.bottomBar,
+                      ?footer,
+                    ] else
+                      // The side action runs the island's full height, so its
+                      // ink reaches the rim. The column sets the height and the
+                      // action fills it, with no intrinsic pass (the field's
+                      // LayoutBuilder cannot answer one). The footer spans the
+                      // full width under it, so centered text centers on the
+                      // whole island.
+                      Stack(
                         children: [
-                          Padding(
-                            padding: const EdgeInsets.only(
-                              right: ChatBody.sideActionWidth,
-                            ),
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                flowComposer,
-                                ?busyLine,
-                                ?widget.bottomBar,
-                              ],
-                            ),
+                          Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Padding(
+                                padding: const EdgeInsets.only(
+                                  right: ChatBody.sideActionWidth,
+                                ),
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    flowComposer,
+                                    ?busyLine,
+                                    ?widget.bottomBar,
+                                  ],
+                                ),
+                              ),
+                              ?footer,
+                            ],
                           ),
-                          ?footer,
+                          Positioned(
+                            top: 0,
+                            bottom: 0,
+                            right: 0,
+                            width: ChatBody.sideActionWidth,
+                            child: widget.sideAction!,
+                          ),
                         ],
                       ),
-                      Positioned(
-                        top: 0,
-                        bottom: 0,
-                        right: 0,
-                        width: ChatBody.sideActionWidth,
-                        child: widget.sideAction!,
-                      ),
-                    ],
-                  ),
-              ],
+                  ],
+                ),
+              ),
             ),
           ),
-        ),
+        ],
       ),
     );
-    // Edge-to-edge composers keep a transparent strip above the surface: the
-    // list draws into it, so it reads as padding, not a band of chat.
-    final island = layout.flush
-        ? Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const SizedBox(height: kFloatingComposerGap),
-              islandBody,
-            ],
-          )
-        : islandBody;
     final islandPad = EdgeInsets.fromLTRB(
       kComposerIslandMargin,
       kComposerGap - kOpaqueComposerGap,
@@ -755,18 +751,11 @@ class _ChatBodyState extends State<ChatBody>
                             child: _IslandStack(
                               metrics: _metrics,
                               presence: layout.presence,
-                              // The transparent strip above a flat composer,
-                              // plus the classic field's label room, is
-                              // empty room the list may overlap.
-                              trim: layout.flush
-                                  ? kFloatingComposerGap +
-                                        (layout.classic
-                                            ? MessageInput.labelRoom
-                                            : 0)
-                                  : 0,
+                              // The composer's surface carries its own top
+                              // padding, so the list clears the surface edge.
+                              trim: 0,
                               // Edge-to-edge and classic composers have no
-                              // floating rim: rows run to the surface and the
-                              // transparent strip above shows them.
+                              // floating rim: the list rests on the surface.
                               gap: layout.flush ? 0 : kFloatingComposerGap,
                               // Pages add their own channel's footer, so a
                               // switch moves only the island.
@@ -999,17 +988,12 @@ class _ChatBodyState extends State<ChatBody>
   /// field's own outline shows focus instead of a tinted shell.
   Widget _outer({required _Layout layout, required Widget child}) {
     if (layout.classic) {
-      // The floated label needs its room above the outline, but the room is
-      // not part of the composer's surface: the chat shows behind it, so the
-      // last rows reach the outline and the label sits over them.
-      return Stack(
-        children: [
-          Positioned.fill(
-            top: MessageInput.labelRoom,
-            child: ColoredBox(color: Theme.of(context).scaffoldBackgroundColor),
-          ),
-          child,
-        ],
+      // The composer's own surface carries the label room and the padding;
+      // the chat does not show through, so the top of the island is not a
+      // black bar.
+      return ColoredBox(
+        color: Theme.of(context).colorScheme.surfaceContainer,
+        child: child,
       );
     }
     return ComposerFocusGlow(

@@ -342,7 +342,7 @@ void main() {
       final top = tester.getRect(island).top;
       expect(
         clearance(),
-        moreOrLessEquals(800 - kb - top - kFloatingComposerGap, epsilon: 0.5),
+        moreOrLessEquals(800 - kb - top, epsilon: 0.5),
         reason: 'keyboard at $kb: rows lag the island',
       );
     }
