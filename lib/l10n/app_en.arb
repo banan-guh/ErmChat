@@ -421,7 +421,6 @@
   "no": "No",
   "nukeEmotes": "Nuke emotes",
   "adaptiveFpsHint": "Frame rate after 30s idle",
-  "freezePaintsIdleHint": "Stops paints after 30s idle",
   "idleFpsFreeze": "Freeze",
   "fpsValue": "{fps} fps",
   "@fpsValue": {
