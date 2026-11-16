@@ -224,7 +224,7 @@ class MessageInput extends StatelessWidget {
           // field's only inset: enough room for the icon circles' ink.
           padding: borderless
               ? const EdgeInsets.fromLTRB(8, 4, 8, 4)
-              : EdgeInsets.fromLTRB(8, labelRoom, 8, gap * 2),
+              : EdgeInsets.fromLTRB(8, floatLabel ? labelRoom : 0, 8, gap * 2),
           child: Stack(
             children: [
               if (fillProgress case final progress?)

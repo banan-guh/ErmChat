@@ -988,12 +988,21 @@ class _ChatBodyState extends State<ChatBody>
   /// field's own outline shows focus instead of a tinted shell.
   Widget _outer({required _Layout layout, required Widget child}) {
     if (layout.classic) {
-      // The composer's own surface carries the label room and the padding;
-      // the chat does not show through, so the top of the island is not a
-      // black bar.
-      return ColoredBox(
-        color: Theme.of(context).colorScheme.surfaceContainer,
-        child: child,
+      // Only the gap above the field is composer-colored; the outlined field
+      // itself stays on the chat.
+      return Stack(
+        children: [
+          Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            height: kFloatingComposerGap,
+            child: ColoredBox(
+              color: Theme.of(context).colorScheme.surfaceContainer,
+            ),
+          ),
+          child,
+        ],
       );
     }
     return ComposerFocusGlow(
