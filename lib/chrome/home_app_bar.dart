@@ -242,9 +242,10 @@ class HomeAppBar {
     addChannelDialog();
   }
 
-  /// The button row's side inset, matching the field's, so the row's end
-  /// buttons line up under the field's emote and send.
-  static const double _rowInset = 8;
+  /// The button row's side inset, aligning its 40pt glyphs with the field's
+  /// 48pt icon boxes, so the row's end buttons line up under the field's
+  /// emote and send.
+  static const double _rowInset = 12;
 
   Widget mentionsButton(BuildContext context) {
     final theme = Theme.of(context);

@@ -220,10 +220,10 @@ class MessageInput extends StatelessWidget {
           // The outlined field leaves room above for its floated label, which
           // the island would clip. Borderless, it must breathe evenly or the
           // text reads high in the shell.
-          // The island's field hugs its row: the shell already pads it, so
-          // only enough room is left for the icon circles' ink.
+          // The island has no shell padding of its own, so this is the
+          // field's only inset: enough room for the icon circles' ink.
           padding: borderless
-              ? const EdgeInsets.fromLTRB(8, 2, 8, 2)
+              ? const EdgeInsets.fromLTRB(8, 4, 8, 4)
               : EdgeInsets.fromLTRB(8, labelRoom, 8, gap * 2),
           child: Stack(
             children: [
@@ -284,11 +284,12 @@ class MessageInput extends StatelessWidget {
                 maxLines: searchMode ? 1 : 6,
                 decoration: InputDecoration(
                   // Theme density would shift the text off the icon boxes'
-                  // centerline. The island's field is dense so it and its row
-                  // stay short; compact drops the field minimum the same way,
-                  // letting padding and the 40pt icons set the height.
+                  // centerline. The compact layout drops the field minimum
+                  // instead, so padding and the 40pt icons set the height.
+                  // Density stays off outside compact so the field's own
+                  // icons keep their 24pt size.
                   visualDensity: VisualDensity.standard,
-                  isDense: borderless || compact,
+                  isDense: compact,
                   prefixIconConstraints: iconConstraints,
                   suffixIconConstraints: iconConstraints,
                   // The chat field's label floats into the island's corner as
@@ -311,7 +312,7 @@ class MessageInput extends StatelessWidget {
                       ? EdgeInsets.symmetric(
                           horizontal: 16,
                           vertical: floatLabel
-                              ? (compact ? 0 : 4)
+                              ? (compact ? 2 : 4)
                               : (compact ? 8 : 12),
                         )
                       : null,
