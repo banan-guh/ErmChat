@@ -65,6 +65,95 @@ void main() {
     });
   });
 
+  test('a raw socket is not connected until hello', () {
+    fakeAsync((async) {
+      final client = _RecordingSevenTv();
+      client.connect();
+      async.flushMicrotasks();
+      expect(
+        client.isConnected,
+        isFalse,
+        reason: 'the websocket upgrade alone is not a 7TV session',
+      );
+      expect(client.isReconnecting, isTrue);
+
+      client.channels.single.push(_hello);
+      async.flushMicrotasks();
+      expect(client.isConnected, isTrue);
+      client.dispose();
+      async.flushTimers();
+    });
+  });
+
+  test('a rate limit keeps its subscriptions and backoff', () {
+    fakeAsync((async) {
+      final client = _RecordingSevenTv();
+      client.subscribeEmoteSet('set1');
+      client.connect();
+      async.flushMicrotasks();
+      final first = client.channels.single;
+      first.push(_hello);
+      async.flushMicrotasks();
+      expect(_subscriptionFrames(first), 1);
+
+      first.peerClose(code: 4005);
+      async.flushMicrotasks();
+      expect(client.isRateLimited, isTrue);
+
+      async.elapse(const Duration(seconds: 5));
+      expect(
+        client.openAttempts,
+        1,
+        reason: 'the fatal retry must not bypass the rate-limit backoff',
+      );
+
+      // Wait out the rate limit, but answer the next hello before its
+      // own timeout so only one redial is counted.
+      var waited = 5;
+      while (client.openAttempts == 1 && waited < 60) {
+        async.elapse(const Duration(seconds: 1));
+        waited++;
+      }
+      expect(client.openAttempts, 2);
+      final second = client.channels.last;
+      second.push(_hello);
+      async.flushMicrotasks();
+      expect(
+        _subscriptionFrames(second),
+        1,
+        reason: 'a rate limit must not drop a live subscription',
+      );
+      client.dispose();
+      async.flushTimers();
+    });
+  });
+
+  test('a fatal close keeps pending subscriptions', () {
+    fakeAsync((async) {
+      final client = _RecordingSevenTv();
+      client.subscribeEmoteSet('set1');
+      client.connect();
+      async.flushMicrotasks();
+      final first = client.channels.single;
+      first.push(_hello);
+      async.flushMicrotasks();
+      first.peerClose(code: 4010);
+      async.flushMicrotasks();
+
+      async.elapse(const Duration(seconds: 3));
+      final second = client.channels.last;
+      second.push(_hello);
+      async.flushMicrotasks();
+      expect(
+        _subscriptionFrames(second),
+        1,
+        reason: 'reconnecting must replay what the client asked for',
+      );
+      client.dispose();
+      async.flushTimers();
+    });
+  });
+
   test('a drop right after hello backs off exponentially', () {
     fakeAsync((async) {
       final channels = List.generate(20, (_) => FakeWebSocketChannel());

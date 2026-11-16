@@ -142,18 +142,24 @@ Map<String, dynamic> _userUpdate({
   'op': 0,
   'd': {
     'type': 'user.update',
-    'id': userId,
     'body': {
-      'connection_index': connectionIndex,
-      'change_map': {
-        'fields': [
-          {
-            'key': 'emote_set_id',
-            'value': newEmoteSetId,
-            'old_value': oldEmoteSetId,
-          },
-        ],
-      },
+      'id': userId,
+      'kind': 1,
+      'updated': [
+        {
+          'key': 'connections',
+          'index': connectionIndex,
+          'nested': true,
+          'value': [
+            {
+              'key': 'emote_set_id',
+              'type': 'string',
+              'value': newEmoteSetId,
+              'old_value': oldEmoteSetId,
+            },
+          ],
+        },
+      ],
       if (actor != null) 'actor': {'display_name': actor},
     },
   },
@@ -1859,22 +1865,25 @@ void main() {
       client.handleRawMessage(
         _userUpdate(userId: 'u2', newEmoteSetId: 'a', oldEmoteSetId: 'b'),
       );
-      for (final fields in [
+      for (final changes in [
         [
           {'key': 'other_field', 'value': 'foo', 'old_value': 'bar'},
         ],
         [
-          {'key': 'emote_set_id', 'value': '', 'old_value': 'old'},
+          {
+            'key': 'connections',
+            'nested': true,
+            'value': [
+              {'key': 'emote_set_id', 'value': '', 'old_value': 'old'},
+            ],
+          },
         ],
       ]) {
         client.handleRawMessage({
           'op': 0,
           'd': {
             'type': 'user.update',
-            'id': 'userx',
-            'body': {
-              'change_map': {'fields': fields},
-            },
+            'body': {'id': 'userx', 'updated': changes},
           },
         });
       }

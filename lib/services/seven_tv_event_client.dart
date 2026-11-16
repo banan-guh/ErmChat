@@ -198,7 +198,8 @@ class SevenTvEventClient {
     );
   }
 
-  bool get isConnected => _channel != null;
+  /// True once the socket survived 7TV's hello, not merely the upgrade.
+  bool get isConnected => _channel != null && _handshakeComplete;
 
   /// Down, but the loop is already dialing or waiting to retry.
   bool get isReconnecting => !isConnected && (_loop.running || _rateLimited);
@@ -337,10 +338,11 @@ class SevenTvEventClient {
     // A disconnect or restart already tore this socket down.
     if (!run.live) return SocketEnd.dropped;
     // A fatal end leaves the socket released and reported down, so
-    // [isConnected] is false and the liveness watchdog recovers it.
+    // [isConnected] is false and recovery can start from scratch.
     _dropSocket();
-    if (how == SocketEnd.fatal) {
-      _pruneFatalSubscription();
+    if (how == SocketEnd.fatal && !_rateLimited) {
+      // A rate limit already scheduled its own backoff; a quick retry here
+      // would keep the limit alive and replay the whole subscription batch.
       _scheduleFatalRetry();
     }
     return how;
@@ -666,28 +668,32 @@ class SevenTvEventClient {
         _personalSetCtrl.add(SevenTvPersonalSetEvent(setId: createdId));
 
       case 'user.update':
-        final changeMap = body['change_map'] as Map<String, dynamic>? ?? {};
-        final connectionIndex =
-            (body['connection_index'] as int?) ??
-            (changeMap['index'] as int?) ??
-            -1;
-        final fields = changeMap['fields'] as List<dynamic>? ?? [];
-        for (final field in fields) {
-          final f = field as Map<String, dynamic>;
-          if (f['key'] == 'emote_set_id') {
-            final newId = f['value'] as String? ?? '';
-            final oldId = f['old_value'] as String? ?? '';
-            if (newId.isNotEmpty) {
-              _userUpdateCtrl.add(
-                SevenTvUserUpdate(
-                  userId: d['id'] as String? ?? '',
-                  newEmoteSetId: newId,
-                  oldEmoteSetId: oldId,
-                  connectionIndex: connectionIndex,
-                  actor: actor,
-                ),
-              );
+        final userId = body['id'] as String? ?? d['id'] as String? ?? '';
+        // Each updated connection nests the new active set id.
+        final emitted = <String>{};
+        for (final change in body['updated'] as List<dynamic>? ?? const []) {
+          if (change is! Map<String, dynamic> ||
+              change['key'] != 'connections') {
+            continue;
+          }
+          final nested = change['value'];
+          if (nested is! List<dynamic>) continue;
+          for (final field in nested) {
+            if (field is! Map<String, dynamic> ||
+                field['key'] != 'emote_set_id') {
+              continue;
             }
+            final newId = field['value'] as String? ?? '';
+            if (newId.isEmpty || !emitted.add(newId)) continue;
+            _userUpdateCtrl.add(
+              SevenTvUserUpdate(
+                userId: userId,
+                newEmoteSetId: newId,
+                oldEmoteSetId: field['old_value'] as String? ?? '',
+                connectionIndex: (change['index'] as int?) ?? -1,
+                actor: actor,
+              ),
+            );
           }
         }
 
@@ -818,20 +824,6 @@ class SevenTvEventClient {
     _channel?.sink.close();
     _channel = null;
     _endSocket(SocketEnd.dropped);
-  }
-
-  void _pruneFatalSubscription() {
-    if (_pendingEmoteSets.isNotEmpty) {
-      _pendingEmoteSets.remove(_pendingEmoteSets.last);
-      return;
-    }
-    if (_pendingUsers.isNotEmpty) {
-      _pendingUsers.remove(_pendingUsers.last);
-      return;
-    }
-    if (_pendingChannels.isNotEmpty) {
-      _pendingChannels.remove(_pendingChannels.last);
-    }
   }
 
   void _scheduleFatalRetry() {
