@@ -1653,9 +1653,7 @@ void main() {
     expect(prefs.getStringList('channels'), ['a', 'z', 'c']);
   });
 
-  testWidgets('holding a channel tab removes it after a confirm', (
-    tester,
-  ) async {
+  testWidgets('holding a channel tab removes it', (tester) async {
     SharedPreferences.setMockInitialValues({
       'access_token': 'test_token',
       'channels': ['a', 'b', 'c'],
@@ -1677,9 +1675,6 @@ void main() {
     expect(find.text('Edit channel'), findsOneWidget);
     expect(find.text('Remove channel'), findsOneWidget);
 
-    await tester.tap(find.text('Remove channel'));
-    await tester.pumpAndSettle();
-    expect(find.text('Remove #b?'), findsOneWidget);
     await tester.tap(find.text('Remove channel'));
     await tester.pumpAndSettle();
     expect(

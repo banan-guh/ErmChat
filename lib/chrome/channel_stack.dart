@@ -32,7 +32,6 @@ import '../util/haptics.dart';
 import '../util/history_timeline.dart';
 import '../widgets/chat_rows.dart';
 import '../widgets/chat_view.dart';
-import '../widgets/dialogs.dart';
 import '../widgets/history_view.dart';
 import '../widgets/island_metrics.dart';
 import '../widgets/join_channel_dialog.dart';
@@ -726,16 +725,9 @@ class ChannelPanels {
             ListTile(
               leading: const Icon(Icons.remove_circle_outline),
               title: Text(ctx.l10n.removeChannel),
-              onTap: () async {
-                final l = ctx.l10n;
+              onTap: () {
                 Navigator.pop(ctx);
-                final ok = await confirmDialog(
-                  context,
-                  title: l.removeChannelConfirm(channel),
-                  confirmLabel: l.removeChannel,
-                  destructive: true,
-                );
-                if (ok) removeChannel(channel);
+                removeChannel(channel);
               },
             ),
           ],

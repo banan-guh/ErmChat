@@ -869,14 +869,6 @@
   "removeChannel": "Remove channel",
   "splitChannel": "Open in split",
   "closeSplit": "Close split",
-  "removeChannelConfirm": "Remove #{channel}?",
-  "@removeChannelConfirm": {
-    "placeholders": {
-      "channel": {
-        "type": "String"
-      }
-    }
-  },
   "inlineEmbedsTitle": "Inline embeds",
   "giphyAnimationNote": "Animation follows Emotes > Animate emotes.",
   "imagePreviewHint": "Tap a link's icon to preview",
