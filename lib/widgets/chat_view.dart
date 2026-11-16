@@ -73,6 +73,10 @@ class ChatView extends StatefulWidget {
   /// that does not sit over the island turns it off.
   final bool clearsIsland;
 
+  /// A flat composer keeps the gap in the scroll content, so rows draw
+  /// under it instead of stopping above it.
+  final bool contentOffset;
+
   /// Off in the mentions tab so deleted rows stay readable.
   final bool fadeDeleted;
 
@@ -134,6 +138,7 @@ class ChatView extends StatefulWidget {
     this.physics,
     this.topPadding = 0,
     this.clearsIsland = true,
+    this.contentOffset = false,
     this.fadeDeleted = true,
     this.showChannel = false,
     this.keepAlive = true,
@@ -339,10 +344,14 @@ class _ChatViewState extends State<ChatView>
   ) {
     _beginBuiltRange();
     final empty = msgs.isEmpty;
-    // A list clear of the island pays that gap as a viewport inset. A split
-    // pane that does not clears it keeps a small gap in the content.
+    // A flat composer keeps its gap in the content, so rows scroll on behind
+    // it. A split pane without the island keeps a small gap instead.
     final bottom = widget.clearsIsland
-        ? null
+        ? (widget.contentOffset
+              ? SliverToBoxAdapter(
+                  child: IslandSpacer(page: _islandPage, chat: true),
+                )
+              : null)
         : const SliverToBoxAdapter(child: SizedBox(height: kComposerGap));
     // Reversed: the last sliver is the top of the list, under the floating
     // bubbles. Only the oldest row needs to clear them.
@@ -446,6 +455,7 @@ class _ChatViewState extends State<ChatView>
       heroTag: widget.scrollFabHeroTag ?? 'scroll_down_${widget.channel}',
       islandPage: widget.clearsIsland ? _islandPage : null,
       clearsIsland: widget.clearsIsland,
+      contentOffset: widget.contentOffset,
       semanticChildCount: semanticChildCount,
       keyboardDismissBehavior: widget.keyboardDismissBehavior,
       slivers: slivers,

@@ -89,6 +89,7 @@ class HistoryView extends StatefulWidget {
     this.textScale = 1.0,
     this.topPadding = 0,
     this.clearsIsland = true,
+    this.contentOffset = false,
     this.debugControls = false,
     this.live,
     this.liveFirst = true,
@@ -135,6 +136,10 @@ class HistoryView extends StatefulWidget {
   /// Whether this list clears the floating composer island. A split pane
   /// that does not sit over the island turns it off.
   final bool clearsIsland;
+
+  /// A flat composer keeps the gap in the scroll content, so rows draw
+  /// under it instead of stopping above it.
+  final bool contentOffset;
 
   /// Jump buttons and window stats over the list, for the prototype channels.
   final bool debugControls;
@@ -2356,11 +2361,14 @@ class _HistoryViewState extends State<HistoryView> {
         heroTag: widget.scrollFabHeroTag ?? 'scroll_down_${widget.channel}',
         islandPage: widget.clearsIsland ? page : null,
         clearsIsland: widget.clearsIsland,
+        contentOffset: widget.contentOffset,
         keyboardDismissBehavior: widget.keyboardDismissBehavior,
         slivers: [
-          // A list clear of the island pays that gap as a viewport inset. A
-          // split pane that does not clears it keeps a small gap here.
-          if (!widget.clearsIsland)
+          // A flat composer keeps its gap in the content, so rows scroll on
+          // behind it. A split pane without the island keeps a small gap.
+          if (widget.clearsIsland && widget.contentOffset)
+            SliverToBoxAdapter(child: IslandSpacer(page: page, chat: true))
+          else if (!widget.clearsIsland)
             const SliverToBoxAdapter(child: SizedBox(height: kComposerGap)),
           if (empty) SliverToBoxAdapter(child: _empty(context)),
           MovingChatSliverList(

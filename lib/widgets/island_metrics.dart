@@ -237,7 +237,13 @@ class _RenderIslandSpacer extends RenderBox with _IslandReader {
 /// Pads [child] from below by the island clearance, in layout, so a button
 /// over a list rides above the island with its rows.
 class IslandInset extends SingleChildRenderObjectWidget {
-  const IslandInset({super.key, this.page, this.chat = false, super.child});
+  const IslandInset({
+    super.key,
+    this.page,
+    this.chat = false,
+    this.contentOffset = false,
+    super.child,
+  });
 
   /// See [IslandSpacer.page].
   final String? page;
@@ -246,20 +252,25 @@ class IslandInset extends SingleChildRenderObjectWidget {
   /// above the island rather than only the island.
   final bool chat;
 
+  /// A flat composer keeps the gap in the scroll content instead, so the
+  /// rows draw under it and this inset is zero.
+  final bool contentOffset;
+
   @override
   RenderObject createRenderObject(BuildContext context) =>
-      _RenderIslandInset(chat)
+      _RenderIslandInset(chat, contentOffset)
         .._bind(IslandScope.maybeOf(context)?.metrics, page);
 
   @override
   void updateRenderObject(BuildContext context, RenderObject renderObject) =>
       (renderObject as _RenderIslandInset)
         ..chat = chat
+        ..contentOffset = contentOffset
         .._bind(IslandScope.maybeOf(context)?.metrics, page);
 }
 
 class _RenderIslandInset extends RenderShiftedBox with _IslandReader {
-  _RenderIslandInset(this._chat) : super(null);
+  _RenderIslandInset(this._chat, this._contentOffset) : super(null);
 
   bool _chat;
   set chat(bool value) {
@@ -268,8 +279,16 @@ class _RenderIslandInset extends RenderShiftedBox with _IslandReader {
     markNeedsLayout();
   }
 
+  bool _contentOffset;
+  set contentOffset(bool value) {
+    if (value == _contentOffset) return;
+    _contentOffset = value;
+    markNeedsLayout();
+  }
+
   double get _bottom {
     final metrics = _metrics;
+    if (_contentOffset) return 0;
     if (metrics == null) return _chat ? kOpaqueComposerGap : 0;
     return _chat
         ? metrics.listGap(page: _page)

@@ -131,6 +131,7 @@ class ChatListShell extends StatelessWidget {
     this.heroTag,
     this.islandPage,
     this.clearsIsland = true,
+    this.contentOffset = false,
     this.cacheExtent,
     this.scrollViewKey,
     this.semanticChildCount,
@@ -153,6 +154,10 @@ class ChatListShell extends StatelessWidget {
   /// Whether this list clears the floating island. Split chat turns it off
   /// for the pane that does not sit over it.
   final bool clearsIsland;
+
+  /// A flat composer keeps the gap in the scroll content instead of a
+  /// viewport inset, so rows draw under it.
+  final bool contentOffset;
   final ScrollCacheExtent? cacheExtent;
   final Key? scrollViewKey;
   final int? semanticChildCount;
@@ -199,7 +204,12 @@ class ChatListShell extends StatelessWidget {
     // The island gap sits outside the scroll range, so the list has one rest
     // when its rows fit and a drag can only stretch or bounce.
     if (clearsIsland) {
-      list = IslandInset(page: islandPage, chat: true, child: list);
+      list = IslandInset(
+        page: islandPage,
+        chat: true,
+        contentOffset: contentOffset,
+        child: list,
+      );
     }
     Widget content = Stack(
       clipBehavior: Clip.hardEdge,
