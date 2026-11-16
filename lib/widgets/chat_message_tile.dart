@@ -649,7 +649,6 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
           )
         : null;
     InlineSpan? usernameSpan;
-    InlineSpan? separatorSpan;
     if (!summary) {
       final name = msg.formattedUsername;
       final suffix = msg.isAction ? ' ' : ': ';
@@ -663,20 +662,22 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
       final usernameColor = parseColor(msg.color, background: widget.surface);
       final paint = _currentPaint();
       final solid = paint?.solidColor;
-      // 7TV paints only the name, so the colon stays plain, and shows the
-      // name color through unfilled fill pixels.
+      final painted = paint != null && solid == null;
+      // The suffix rides the name span, so the colon takes the paint. The
+      // name color shows through unfilled fill pixels.
       final baseColor = usernameColor ?? theme.colorScheme.onSurface;
+      final nameColor = solid == null
+          ? usernameColor
+          : Color.alphaBlend(solid, baseColor);
       final shadows = paint == null
           ? const <Shadow>[]
           : paintTextShadows(paint);
-      usernameSpan = paint == null || solid != null
+      usernameSpan = !painted
           // Unpainted and solid names stay in the row's own paragraph.
           ? TextSpan(
-              text: name,
+              text: '$name$suffix',
               style: nameStyle.copyWith(
-                color: solid == null
-                    ? usernameColor
-                    : Color.alphaBlend(solid, baseColor),
+                color: nameColor,
                 shadows: shadows.isEmpty ? null : shadows,
               ),
             )
@@ -685,7 +686,7 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
               child: PaintedUsernameText(
                 service: widget.paintService!,
                 paint: paint,
-                text: name,
+                text: '$name$suffix',
                 baseStyle: nameStyle,
                 fallbackColor:
                     paint.fallbackColor ??
@@ -694,10 +695,6 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
                 baseColor: baseColor,
               ),
             );
-      separatorSpan = TextSpan(
-        text: suffix,
-        style: nameStyle.copyWith(color: usernameColor),
-      );
     }
 
     var embedUrls = const <String>[];
@@ -723,7 +720,6 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
       ?channelSpan,
       ...badges,
       ?usernameSpan,
-      ?separatorSpan,
       ...bodySpans,
     ];
     if (widget.repeatCount > 1) {
@@ -735,7 +731,6 @@ class _ChatMessageTileState extends State<ChatMessageTile> {
             ?channelSpan,
             ...badges,
             ?usernameSpan,
-            ?separatorSpan,
           ].fold<int>(0, (n, span) => n + span.toPlainText().length);
     final channelLabel = !summary && widget.showChannel
         ? '#${widget.channel} '

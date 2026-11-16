@@ -309,12 +309,18 @@ class SevenTvPaintService extends ChangeNotifier {
   bool _enabled = false;
   bool get enabled => _enabled;
 
+  /// A switch off and back on is a manual refresh: the next enable downloads
+  /// the catalog and re-resolves known users instead of trusting their TTLs.
+  bool _forceCatalog = false;
+
   set enabled(bool value) {
     if (_enabled == value) return;
     _enabled = value;
     if (value) {
+      final force = _forceCatalog;
+      _forceCatalog = false;
       unawaited(
-        ensureCatalog().then((_) {
+        ensureCatalog(force: force).then((_) {
           if (_pendingUsers.isNotEmpty) _scheduleFlush();
         }),
       );
@@ -323,6 +329,13 @@ class SevenTvPaintService extends ChangeNotifier {
         texture.release();
       }
       _images.clear();
+      _forceCatalog = true;
+      _catalogFuture = null;
+      final staleAt = _now().subtract(_userTtl + const Duration(seconds: 1));
+      _assignments.updateAll((_, a) => (paintId: a.paintId, at: staleAt));
+      _negative.clear();
+      _backoffUntil.clear();
+      _paintBackoff.clear();
     }
     notifyListeners();
     _refreshAllUserNotifiers();
@@ -451,7 +464,7 @@ class SevenTvPaintService extends ChangeNotifier {
   void bindSevenTvEvents(SevenTvEventClient client) {
     _entitlementSub?.cancel();
     _entitlementSub = client.onEntitlement.listen((event) {
-      if (event.cosmeticKind != 'PAINT') return;
+      if (!_enabled || event.cosmeticKind != 'PAINT') return;
       if (event.kind == 'entitlement.create') {
         for (final userId in event.twitchUserIds) {
           _pendingDeletes.remove(userId)?.cancel();
@@ -581,10 +594,12 @@ class SevenTvPaintService extends ChangeNotifier {
   }
 
   /// Loads the disk copy, then downloads the catalog only when that copy is
-  /// stale. Failures allow retry.
-  Future<void> ensureCatalog() {
-    return _catalogFuture ??= _restore().then((_) async {
-      if (!await _catalogStale()) return;
+  /// stale or [force] is set. Failures allow retry.
+  Future<void> ensureCatalog({bool force = false}) {
+    final existing = _catalogFuture;
+    if (existing != null) return existing;
+    return _catalogFuture = _restore().then((_) async {
+      if (!force && !await _catalogStale()) return;
       await _fetchCatalog();
     });
   }

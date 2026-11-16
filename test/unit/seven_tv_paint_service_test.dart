@@ -411,6 +411,39 @@ void main() {
       expect(queryCount, countAfterFirstPass);
       service.dispose();
     });
+
+    test('turning paints off and on refreshes known users', () async {
+      var userQueries = 0;
+      final service =
+          SevenTvPaintService(
+              gqlQuery: (query) async {
+                if (query.contains('{ users {')) userQueries++;
+                return null;
+              },
+            )
+            ..addPaintForTesting(
+              const SevenTvPaint(
+                id: 'p1',
+                name: 'Known',
+                layers: [],
+                shadows: [],
+              ),
+            )
+            ..assignForTesting('111', 'p1')
+            ..enabled = true;
+      expect(service.lookup('111')?.id, 'p1');
+
+      service.enabled = false;
+      service.enabled = true;
+      expect(
+        service.lookup('111')?.id,
+        'p1',
+        reason: 'the old paint blinked off before its refresh',
+      );
+      await service.flushForTesting();
+      expect(userQueries, 1, reason: 'off and on trusted the user TTL');
+      service.dispose();
+    });
   });
 
   // Names paint from the first row of a cold start only if both the catalog
@@ -496,6 +529,32 @@ void main() {
     third.dispose();
   });
 
+  test('turning paints off and on downloads the catalog again', () async {
+    await CacheDb.I.reset();
+    addTearDown(CacheDb.I.reset);
+    var fetches = 0;
+    Future<Map<String, dynamic>?> query(String q) async {
+      if (!q.contains('{ paints')) return null;
+      fetches++;
+      return {
+        'paints': {
+          'paints': [_paintItem('p1', 'Known', _linearData)],
+        },
+      };
+    }
+
+    final service = SevenTvPaintService(db: CacheDb.I, gqlQuery: query)
+      ..enabled = true;
+    await service.ensureCatalog();
+    expect(fetches, 1, reason: 'the first enable downloads');
+
+    service.enabled = false;
+    service.enabled = true;
+    await service.ensureCatalog();
+    expect(fetches, 2, reason: 'off and on trusted the stored catalog');
+    service.dispose();
+  });
+
   group('SevenTvEventClient entitlement dispatches', () {
     test('surfaces paint and emote set entitlements with twitch ids', () async {
       final client = SevenTvEventClient();
@@ -572,6 +631,44 @@ void main() {
       client.dispose();
     });
 
+    test('a disabled service ignores live paint entitlements', () {
+      fakeAsync((async) {
+        final client = SevenTvEventClient();
+        final service = SevenTvPaintService(gqlQuery: (_) async => null)
+          ..addPaintForTesting(
+            const SevenTvPaint(id: 'p9', name: 'Live', layers: [], shadows: []),
+          );
+        service.bindSevenTvEvents(client);
+        client.handleRawMessage({
+          'op': 0,
+          'd': {
+            'type': 'entitlement.create',
+            'body': {
+              'object': {
+                'kind': 'PAINT',
+                'ref_id': 'p9',
+                'user': {
+                  'connections': [
+                    {'platform': 'TWITCH', 'id': '555'},
+                  ],
+                },
+              },
+            },
+          },
+        });
+        async.flushMicrotasks();
+
+        service.enabled = true;
+        expect(
+          service.lookup('555'),
+          isNull,
+          reason: 'a disabled service applied an entitlement',
+        );
+        service.dispose();
+        client.dispose();
+      });
+    });
+
     test('service applies live paint entitlements to lookups', () {
       fakeAsync((async) {
         final client = SevenTvEventClient();
@@ -624,14 +721,16 @@ void main() {
   });
 
   group('ChatMessageTile painted username', () {
-    TwitchMessage message(String userId) => TwitchMessage(
-      login: 'paintuser',
-      displayName: 'PaintUser',
-      text: 'hello',
-      userId: userId,
-      color: '#FF0000',
-      messageId: 'm-$userId',
-    );
+    TwitchMessage message(String userId, {bool action = false}) =>
+        TwitchMessage(
+          login: 'paintuser',
+          displayName: 'PaintUser',
+          text: 'hello',
+          userId: userId,
+          color: '#FF0000',
+          messageId: 'm-$userId',
+          isAction: action,
+        );
 
     ChatMessageTile tile(TwitchMessage msg, SevenTvPaintService? paints) =>
         ChatMessageTile(
@@ -691,6 +790,28 @@ void main() {
       expect(find.byType(PaintedUsernameText), findsOneWidget);
       // The gradient rides the text foreground, not a ShaderMask layer.
       expect(find.byType(ShaderMask), findsNothing);
+      expect(
+        tester
+            .widget<PaintedUsernameText>(find.byType(PaintedUsernameText))
+            .text,
+        'PaintUser: ',
+        reason: 'the painted name left the colon plain',
+      );
+
+      // An action keeps the name's trailing space instead of a colon.
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(body: tile(message('888', action: true), service)),
+        ),
+      );
+      await tester.pump();
+      expect(
+        tester
+            .widget<PaintedUsernameText>(find.byType(PaintedUsernameText))
+            .text,
+        'PaintUser ',
+        reason: 'an action picked up a colon',
+      );
       service.dispose();
     });
 
