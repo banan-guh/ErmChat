@@ -1001,15 +1001,9 @@ class _ChatBodyState extends State<ChatBody>
     final showsBusy = busyListenable != null && isBusy != null;
     final lineUpload = layout.classic ? null : widget.progress;
     if (!showsBusy && lineUpload == null) return null;
-    return SizedBox(
-      height: 0,
-      child: OverflowBox(
-        maxHeight: 2,
-        child: ListenableBuilder(
-          listenable: Listenable.merge([busyListenable]),
-          builder: (_, _) => _busyLineBody(lineUpload, isBusy),
-        ),
-      ),
+    return ListenableBuilder(
+      listenable: Listenable.merge([busyListenable]),
+      builder: (_, _) => _busyLineBody(lineUpload, isBusy),
     );
   }
 
@@ -1020,15 +1014,23 @@ class _ChatBodyState extends State<ChatBody>
     bool Function()? isBusy,
   ) {
     final joining = isBusy?.call() ?? false;
-    Widget line(double? value, bool shown) => AnimatedOpacity(
-      opacity: shown ? 1 : 0,
+    Widget line(double? value, bool shown) => AnimatedSize(
       duration: Motion.normal,
-      child: TickerMode(
-        enabled: shown,
-        child: LinearProgressIndicator(
-          value: value,
-          minHeight: 2,
-          backgroundColor: Colors.transparent,
+      curve: Motion.move,
+      alignment: Alignment.bottomCenter,
+      child: SizedBox(
+        height: shown ? 2 : 0,
+        child: AnimatedOpacity(
+          opacity: shown ? 1 : 0,
+          duration: Motion.normal,
+          child: TickerMode(
+            enabled: shown,
+            child: LinearProgressIndicator(
+              value: value,
+              minHeight: 2,
+              backgroundColor: Colors.transparent,
+            ),
+          ),
         ),
       ),
     );

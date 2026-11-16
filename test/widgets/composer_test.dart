@@ -25,6 +25,8 @@ void main() {
     Widget? bottomBar,
     Widget? islandFooter,
     double Function(String channel)? islandFooterHeightFor,
+    Listenable? busyListenable,
+    bool Function()? isBusy,
     TextEditingController? text,
     int maxLines = 1,
     void Function(BuildContext body)? onBodyBuild,
@@ -48,6 +50,8 @@ void main() {
             bottomBar: bottomBar,
             islandFooter: islandFooter,
             islandFooterHeightFor: islandFooterHeightFor,
+            busyListenable: busyListenable,
+            isBusy: isBusy,
             bodyBuilder:
                 (
                   context, {
@@ -88,6 +92,42 @@ void main() {
     await tester.pump();
     return focus.hasFocus;
   }
+
+  testWidgets('the busy line takes space only while shown', (tester) async {
+    final focus = FocusNode();
+    final busy = ValueNotifier(false);
+    addTearDown(focus.dispose);
+    addTearDown(busy.dispose);
+    await pumpBody(
+      tester,
+      focus: focus,
+      islandFlush: true,
+      busyListenable: busy,
+      isBusy: () => busy.value,
+    );
+    await tester.pump();
+    await tester.pump();
+    final line = find.byType(LinearProgressIndicator);
+    expect(
+      tester.getSize(line).height,
+      0,
+      reason: 'the idle line reserved space',
+    );
+
+    busy.value = true;
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(
+      tester.getSize(line).height,
+      2,
+      reason: 'the shown line did not take space',
+    );
+
+    busy.value = false;
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(tester.getSize(line).height, 0, reason: 'the line did not collapse');
+  });
 
   testWidgets('composer is tappable', (tester) async {
     final focus = FocusNode();
