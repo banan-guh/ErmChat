@@ -1,5 +1,3 @@
-import 'dart:math' as math;
-
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
@@ -395,54 +393,33 @@ class HomeAppBar {
     }
     final start = [for (final a in spec.rowStart) build(a)];
     final end = [for (final a in spec.rowEnd) build(a)];
-    // The action groups sit a little closer than the stock 48pt; the leading
-    // and trailing slots keep it, lining up with the field's emote and send.
-    // A narrow island's compact density still wins.
     Widget group(List<Widget> actions) => actions.isEmpty
         ? const SizedBox.shrink()
-        : Builder(
-            builder: (context) {
-              final theme = Theme.of(context);
-              final density = theme.visualDensity;
-              return Theme(
-                data: theme.copyWith(
-                  visualDensity: VisualDensity(
-                    horizontal: math.min(density.horizontal, -1),
-                    vertical: density.vertical,
-                  ),
-                ),
-                child: Row(mainAxisSize: MainAxisSize.min, children: actions),
-              );
-            },
-          );
-    final row = Row(
-      children: [
-        ?leading,
-        group(start),
-        Expanded(child: middle ?? const SizedBox.shrink()),
-        group(end),
-        ...trailing,
-      ],
-    );
-    // Narrow islands tighten the 48pt buttons so the row still fits.
-    final count =
-        start.length + end.length + (leading == null ? 0 : 1) + trailing.length;
-    final fitted = LayoutBuilder(
-      builder: (context, constraints) =>
-          constraints.maxWidth >= count * 48 + 2 * _rowInset
-          ? row
-          : Theme(
-              data: Theme.of(
-                context,
-              ).copyWith(visualDensity: VisualDensity.compact),
-              child: row,
-            ),
+        : Row(mainAxisSize: MainAxisSize.min, children: actions);
+    // The row runs at 40pt so it and the field stay short: every button
+    // loses the stock vertical padding and its 48pt minimum.
+    final row = IconButtonTheme(
+      data: IconButtonThemeData(
+        style: IconButton.styleFrom(
+          minimumSize: const Size.square(40),
+          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        ),
+      ),
+      child: Row(
+        children: [
+          ?leading,
+          group(start),
+          Expanded(child: middle ?? const SizedBox.shrink()),
+          group(end),
+          ...trailing,
+        ],
+      ),
     );
     // Inset like the field, so the row's end buttons line up under the
     // field's emote and send.
     final inset = Padding(
       padding: const EdgeInsets.symmetric(horizontal: _rowInset),
-      child: fitted,
+      child: row,
     );
     return KeyedSubtree(key: const Key('bottom_chrome_bar'), child: inset);
   }

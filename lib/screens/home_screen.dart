@@ -2347,7 +2347,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                         if (edit != null)
                           ?partSlot(ComposerPart.send, PartPlace.row)
                         else if (spec.sendInRow && sendOutside)
-                          SizedBox.square(dimension: 48, child: sendButton),
+                          SizedBox.square(dimension: 40, child: sendButton),
                       ],
                       middle: _showInput
                           ? ComposerModeRow(
