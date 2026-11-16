@@ -989,7 +989,8 @@ class _ChatBodyState extends State<ChatBody>
   Widget _outer({required _Layout layout, required Widget child}) {
     if (layout.classic) {
       // Only the gap above the field is composer-colored; the outlined field
-      // itself stays on the chat.
+      // itself stays on the chat, over an opaque sheet so rows behind it do
+      // not show through.
       return Stack(
         children: [
           Positioned(
@@ -1001,6 +1002,10 @@ class _ChatBodyState extends State<ChatBody>
               color: Theme.of(context).colorScheme.surfaceContainer,
             ),
           ),
+          Positioned.fill(
+            top: kFloatingComposerGap,
+            child: ColoredBox(color: Theme.of(context).scaffoldBackgroundColor),
+          ),
           child,
         ],
       );
@@ -1008,6 +1013,7 @@ class _ChatBodyState extends State<ChatBody>
     return ComposerFocusGlow(
       shape: RoundedRectangleBorder(borderRadius: layout.radius),
       surface: Theme.of(context).colorScheme.surfaceContainer,
+      opaque: layout.flush,
       child: child,
     );
   }
