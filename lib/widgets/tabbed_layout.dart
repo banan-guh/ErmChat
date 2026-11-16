@@ -179,8 +179,6 @@ class TabbedLayout extends StatefulWidget {
   /// Holds a channel tab to open its actions.
   final ValueChanged<int>? onTabLongPress;
 
-  static const double minEdgeExclusion = 20.0;
-
   const TabbedLayout({
     super.key,
     required this.tabs,
@@ -673,13 +671,9 @@ class TabbedLayoutState extends State<TabbedLayout>
 
     final theme = Theme.of(context);
 
+    // The OS back-gesture strip is exactly as wide as the platform reports.
+    // Zero (iOS, three-button nav, desktop, web) leaves the edge to the pages.
     final edgeInset = MediaQuery.systemGestureInsetsOf(context);
-    final leftExclude = edgeInset.left > 0
-        ? edgeInset.left
-        : TabbedLayout.minEdgeExclusion;
-    final rightExclude = edgeInset.right > 0
-        ? edgeInset.right
-        : TabbedLayout.minEdgeExclusion;
 
     // The Row stays put with or without trailing actions, so a layout flip
     // never remounts the TabBar.
@@ -941,20 +935,22 @@ class TabbedLayoutState extends State<TabbedLayout>
                   ),
                 ),
         ),
-        Positioned(
-          left: 0,
-          top: 0,
-          bottom: 0,
-          width: leftExclude,
-          child: const EdgeExclusionZone(),
-        ),
-        Positioned(
-          right: 0,
-          top: 0,
-          bottom: 0,
-          width: rightExclude,
-          child: const EdgeExclusionZone(),
-        ),
+        if (edgeInset.left > 0)
+          Positioned(
+            left: 0,
+            top: 0,
+            bottom: 0,
+            width: edgeInset.left,
+            child: const EdgeExclusionZone(),
+          ),
+        if (edgeInset.right > 0)
+          Positioned(
+            right: 0,
+            top: 0,
+            bottom: 0,
+            width: edgeInset.right,
+            child: const EdgeExclusionZone(),
+          ),
         if (widget.fullscreen && widget.fullscreenMenu != null)
           Positioned(
             top: widget.stripTopInset + kChromeMenuMargin,
@@ -1045,7 +1041,9 @@ class TabbedLayoutState extends State<TabbedLayout>
   }
 }
 
-// Covers OS edge-gesture strip so swipes are captured (back gesture wins). Must be translucent to pass taps/vertical scroll through.
+// Claims horizontal drags in the OS back-gesture strip so the pager never
+// starts a channel swipe there. Translucent: taps and vertical scrolls fall
+// through, and the callbacks stay empty because winning the arena is enough.
 class EdgeExclusionZone extends StatelessWidget {
   const EdgeExclusionZone({super.key});
 

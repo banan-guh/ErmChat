@@ -200,6 +200,9 @@ void main() {
   });
 
   group('TabbedLayout edge exclusion zone', () {
+    // Simulated Android Q+ gesture nav strip, one side or both.
+    const edge = 24.0;
+
     // Pages are full-bleed tappables so a tap at the very edge would land on
     // the page's GestureDetector if (and only if) the edge overlay lets taps
     // fall through. The selection is held in a notifier so we can observe
@@ -209,23 +212,31 @@ void main() {
       ValueNotifier<int> tapCount, {
       required ValueChanged<int> onFocusChanged,
       required ValueChanged<int> onSelectedIndexChanged,
+      EdgeInsets systemGestureInsets = EdgeInsets.zero,
     }) {
       return MaterialApp(
-        home: Scaffold(
-          body: TabbedLayout(
-            key: const Key('tl'),
-            tabs: const ['a', 'b', 'c'],
-            selectedIndex: selected.value,
-            focusOnHalfDrag: true,
-            onFocusChanged: onFocusChanged,
-            onSelectedIndexChanged: onSelectedIndexChanged,
-            pageBuilder: (_, i) => GestureDetector(
-              key: Key('page-$i'),
-              behavior: HitTestBehavior.opaque,
-              onTap: () => tapCount.value++,
-              child: Container(
-                color: Colors.transparent,
-                child: Center(child: Text(['a', 'b', 'c'][i])),
+        home: Builder(
+          builder: (context) => MediaQuery(
+            data: MediaQuery.of(
+              context,
+            ).copyWith(systemGestureInsets: systemGestureInsets),
+            child: Scaffold(
+              body: TabbedLayout(
+                key: const Key('tl'),
+                tabs: const ['a', 'b', 'c'],
+                selectedIndex: selected.value,
+                focusOnHalfDrag: true,
+                onFocusChanged: onFocusChanged,
+                onSelectedIndexChanged: onSelectedIndexChanged,
+                pageBuilder: (_, i) => GestureDetector(
+                  key: Key('page-$i'),
+                  behavior: HitTestBehavior.opaque,
+                  onTap: () => tapCount.value++,
+                  child: Container(
+                    color: Colors.transparent,
+                    child: Center(child: Text(['a', 'b', 'c'][i])),
+                  ),
+                ),
               ),
             ),
           ),
@@ -243,13 +254,14 @@ void main() {
         edgeHarness(
           selected,
           tapCount,
+          systemGestureInsets: const EdgeInsets.symmetric(horizontal: edge),
           onFocusChanged: (i) => selected.value = i,
           onSelectedIndexChanged: (i) => selected.value = i,
         ),
       );
 
       final centerY = tester.getCenter(find.byType(PageView)).dy;
-      final edgeX = TabbedLayout.minEdgeExclusion / 2;
+      final edgeX = edge / 2;
       await tester.tapAt(Offset(edgeX, centerY));
       await tester.pump();
 
@@ -272,6 +284,40 @@ void main() {
       // The channel did not switch; the OS back gesture keeps the edge.
       expect(selected.value, 0);
       expect(_pageDx(tester, 0).abs(), lessThan(2.0));
+    });
+
+    testWidgets('a drag from the right edge switches channels without insets', (
+      WidgetTester tester,
+    ) async {
+      final selected = ValueNotifier<int>(0);
+      final tapCount = ValueNotifier<int>(0);
+
+      await tester.pumpWidget(
+        edgeHarness(
+          selected,
+          tapCount,
+          onFocusChanged: (i) => selected.value = i,
+          onSelectedIndexChanged: (i) => selected.value = i,
+        ),
+      );
+
+      final size = tester.getSize(find.byType(PageView));
+      final centerY = tester.getCenter(find.byType(PageView)).dy;
+      final start = Offset(size.width - 1, centerY);
+
+      // The page's tap recognizer holds the arena at touchdown, so the pager
+      // starts its drag on the first move past the touch slop and drops it.
+      final gesture = await tester.startGesture(start);
+      await gesture.moveBy(const Offset(-20, 0));
+      await tester.pump();
+      await gesture.moveBy(Offset(-size.width * 0.8, 0));
+      await tester.pump();
+      await gesture.up();
+      await tester.pumpAndSettle();
+
+      // Nothing reserves the edge, so the page gets the swipe.
+      expect(selected.value, 1);
+      expect(_pageDx(tester, 1).abs(), lessThan(2.0));
     });
   });
 

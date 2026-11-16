@@ -190,32 +190,35 @@ Widget _edgeExclusionWrapper(BuildContext context, Widget? child) {
         ? Brightness.light
         : Brightness.dark,
   );
+  // Transparency ancestor for the overlay child.
+  final content = Material(type: MaterialType.transparency, child: child!);
   return StatusBarScope(
     top: MediaQuery.viewPaddingOf(context).top,
     child: AnnotatedRegion<SystemUiOverlayStyle>(
       value: overlay,
-      child: Stack(
-        children: [
-          // Transparency ancestor for the overlay child.
-          Material(type: MaterialType.transparency, child: child!),
-          if (left > 0)
-            Positioned(
-              left: 0,
-              top: 0,
-              bottom: 0,
-              width: left,
-              child: const EdgeExclusionZone(),
-            ),
-          if (right > 0)
-            Positioned(
-              right: 0,
-              top: 0,
-              bottom: 0,
-              width: right,
-              child: const EdgeExclusionZone(),
-            ),
-        ],
-      ),
+      child: left > 0 || right > 0
+          ? Stack(
+              children: [
+                content,
+                if (left > 0)
+                  Positioned(
+                    left: 0,
+                    top: 0,
+                    bottom: 0,
+                    width: left,
+                    child: const EdgeExclusionZone(),
+                  ),
+                if (right > 0)
+                  Positioned(
+                    right: 0,
+                    top: 0,
+                    bottom: 0,
+                    width: right,
+                    child: const EdgeExclusionZone(),
+                  ),
+              ],
+            )
+          : content,
     ),
   );
 }
