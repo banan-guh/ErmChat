@@ -229,29 +229,48 @@ class _RenderIslandSpacer extends RenderBox with _IslandReader {
 /// Pads [child] from below by the island clearance, in layout, so a button
 /// over a list rides above the island with its rows.
 class IslandInset extends SingleChildRenderObjectWidget {
-  const IslandInset({super.key, this.page, super.child});
+  const IslandInset({super.key, this.page, this.chat = false, super.child});
 
   /// See [IslandSpacer.page].
   final String? page;
 
+  /// Whether [child] is a chat list, which keeps the list gap and overlays
+  /// above the island rather than only the island.
+  final bool chat;
+
   @override
   RenderObject createRenderObject(BuildContext context) =>
-      _RenderIslandInset().._bind(IslandScope.maybeOf(context)?.metrics, page);
+      _RenderIslandInset(chat)
+        .._bind(IslandScope.maybeOf(context)?.metrics, page);
 
   @override
   void updateRenderObject(BuildContext context, RenderObject renderObject) =>
-      (renderObject as _RenderIslandInset)._bind(
-        IslandScope.maybeOf(context)?.metrics,
-        page,
-      );
+      (renderObject as _RenderIslandInset)
+        ..chat = chat
+        .._bind(IslandScope.maybeOf(context)?.metrics, page);
 }
 
 class _RenderIslandInset extends RenderShiftedBox with _IslandReader {
-  _RenderIslandInset() : super(null);
+  _RenderIslandInset(this._chat) : super(null);
+
+  bool _chat;
+  set chat(bool value) {
+    if (value == _chat) return;
+    _chat = value;
+    markNeedsLayout();
+  }
+
+  double get _bottom {
+    final metrics = _metrics;
+    if (metrics == null) return _chat ? kOpaqueComposerGap : 0;
+    return _chat
+        ? metrics.listGap(page: _page)
+        : metrics.clearance(page: _page);
+  }
 
   @override
   void performLayout() {
-    final bottom = _metrics?.clearance(page: _page) ?? 0;
+    final bottom = _bottom;
     final child = this.child;
     if (child == null) {
       size = constraints.constrain(Size(0, bottom));

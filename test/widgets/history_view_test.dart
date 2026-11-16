@@ -472,9 +472,7 @@ void main() {
     arrive(30);
     await _pumpView(tester, live: () => buffer, liveVersion: version);
     await _settle(tester);
-    final bottom =
-        tester.getRect(find.byType(CustomScrollView)).bottom -
-        kOpaqueComposerGap;
+    final bottom = tester.getRect(find.byType(CustomScrollView)).bottom;
     expect(
       tester.getBottomLeft(_tile(buffer.first.messageId!)).dy,
       moreOrLessEquals(bottom, epsilon: 1),
@@ -734,8 +732,7 @@ void main() {
     expect(
       tester.getBottomLeft(_tile(buffer.first.messageId!)).dy,
       moreOrLessEquals(
-        tester.getRect(find.byType(CustomScrollView)).bottom -
-            kOpaqueComposerGap,
+        tester.getRect(find.byType(CustomScrollView)).bottom,
         epsilon: 1,
       ),
       reason: 'a trim into the live rows broke the live sync',
@@ -791,6 +788,7 @@ void main() {
     expect(_tile('spam-2'), findsNothing);
     await tester.tap(_tile('spam-1'));
     await tester.pump();
+    await tester.pump();
     expect(_tile('spam-2'), findsOneWidget);
     expect(tester.getSize(_tile('spam-2')).height, greaterThan(0));
     // Expanded, the summary shows who wrote the first copy.
@@ -834,9 +832,7 @@ void main() {
       compact: true,
     );
     await _settle(tester);
-    final bottom =
-        tester.getRect(find.byType(CustomScrollView)).bottom -
-        kOpaqueComposerGap;
+    final bottom = tester.getRect(find.byType(CustomScrollView)).bottom;
 
     await tester.tap(_tile('spam-1'));
     await tester.pump();
@@ -945,10 +941,7 @@ void main() {
     await tester.pump();
     expect(
       tester.getBottomLeft(_tile(buffer.first.messageId!)).dy,
-      moreOrLessEquals(
-        tester.getRect(list).bottom - kOpaqueComposerGap,
-        epsilon: 1,
-      ),
+      moreOrLessEquals(tester.getRect(list).bottom, epsilon: 1),
       reason: 'released at the bottom but stopped following',
     );
   });
@@ -996,10 +989,7 @@ void main() {
     await tester.pump();
     expect(
       tester.getBottomLeft(_tile('live-21')).dy,
-      moreOrLessEquals(
-        tester.getRect(list).bottom - kOpaqueComposerGap,
-        epsilon: 1,
-      ),
+      moreOrLessEquals(tester.getRect(list).bottom, epsilon: 1),
       reason: 'resting on the reattached tail follows new rows',
     );
   });
@@ -1077,7 +1067,7 @@ void main() {
     await _pumpView(tester, source: _ListSource.small(12), atBottom: atBottom);
     await _settle(tester);
     final list = find.byType(CustomScrollView);
-    final bottom = tester.getRect(list).bottom - kOpaqueComposerGap;
+    final bottom = tester.getRect(list).bottom;
     double newestBottom() => tester.getBottomLeft(_tile('small-11')).dy;
     expect(newestBottom(), moreOrLessEquals(bottom, epsilon: 1));
     // A drag past the end lands back in the same place.
@@ -1085,6 +1075,35 @@ void main() {
     await _settle(tester);
     expect(newestBottom(), moreOrLessEquals(bottom, epsilon: 1));
     expect(atBottom.value, isTrue, reason: 'a drag showed the button');
+  });
+
+  testWidgets('a fitted chat keeps the island gap outside its scroll range', (
+    tester,
+  ) async {
+    final metrics = IslandMetrics()
+      ..publish(
+        top: 120,
+        height: 56,
+        footer: 0,
+        extra: 0,
+        trim: 0,
+        footerFor: null,
+      );
+    await _pumpView(tester, source: _ListSource.small(3), metrics: metrics);
+    await _settle(tester);
+    final p = tester
+        .state<ScrollableState>(
+          find.descendant(
+            of: find.byType(CustomScrollView),
+            matching: find.byType(Scrollable),
+          ),
+        )
+        .position;
+    expect(
+      p.maxScrollExtent,
+      moreOrLessEquals(p.minScrollExtent, epsilon: 0.5),
+      reason: 'the island gap stayed inside the scroll range',
+    );
   });
 
   testWidgets('a late clear fades held rows in its range, by its chatter', (

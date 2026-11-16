@@ -478,6 +478,9 @@ class TabbedLayoutState extends State<TabbedLayout>
     }
     final delta = notification.scrollDelta ?? 0;
     if (delta == 0) return;
+    // An overscroll on a list with nothing past the viewport is not reading
+    // history. A fitted chat stretches or bounces, it does not scroll.
+    if (delta > 0 && notification.metrics.extentAfter <= 0) return;
     if ((_retractAccum > 0 && delta < 0) || (_retractAccum < 0 && delta > 0)) {
       _retractAccum = 0;
     }

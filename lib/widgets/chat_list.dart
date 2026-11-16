@@ -179,26 +179,32 @@ class ChatListShell extends StatelessWidget {
   Widget build(BuildContext context) {
     final atBottom = this.atBottom;
     final onJumpToBottom = this.onJumpToBottom;
+    Widget list = Listener(
+      onPointerSignal: onPointerSignal,
+      child: NotificationListener<ScrollNotification>(
+        onNotification: onScrollNotification,
+        child: CustomScrollView(
+          key: scrollViewKey,
+          controller: controller,
+          reverse: true,
+          physics: _physics(),
+          scrollCacheExtent: cacheExtent,
+          center: center,
+          semanticChildCount: semanticChildCount,
+          keyboardDismissBehavior: keyboardDismissBehavior,
+          slivers: slivers,
+        ),
+      ),
+    );
+    // The island gap sits outside the scroll range, so the list has one rest
+    // when its rows fit and a drag can only stretch or bounce.
+    if (clearsIsland) {
+      list = IslandInset(page: islandPage, chat: true, child: list);
+    }
     Widget content = Stack(
       clipBehavior: Clip.hardEdge,
       children: [
-        Listener(
-          onPointerSignal: onPointerSignal,
-          child: NotificationListener<ScrollNotification>(
-            onNotification: onScrollNotification,
-            child: CustomScrollView(
-              key: scrollViewKey,
-              controller: controller,
-              reverse: true,
-              physics: _physics(),
-              scrollCacheExtent: cacheExtent,
-              center: center,
-              semanticChildCount: semanticChildCount,
-              keyboardDismissBehavior: keyboardDismissBehavior,
-              slivers: slivers,
-            ),
-          ),
-        ),
+        list,
         if (atBottom != null && onJumpToBottom != null)
           ValueListenableBuilder<bool>(
             valueListenable: atBottom,

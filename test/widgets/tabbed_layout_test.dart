@@ -927,6 +927,41 @@ void main() {
       );
     });
 
+    testWidgets('an overscroll on a short page does not retract the bubbles', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: TabbedLayout(
+              tabs: const ['a', 'b'],
+              selectedIndex: 0,
+              stripBubbles: true,
+              onSelectedIndexChanged: (_) {},
+              pageBuilder: (_, i) => ListView(
+                key: ValueKey('short_page_$i'),
+                physics: const AlwaysScrollableScrollPhysics(
+                  parent: BouncingScrollPhysics(),
+                ),
+                children: const [SizedBox(height: 40, child: Text('only'))],
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final page = find.byKey(const ValueKey('short_page_0'));
+      expect(find.byType(TabBar), findsOneWidget);
+
+      await tester.drag(page, const Offset(0, -400));
+      await tester.pumpAndSettle();
+      expect(
+        tester.getTopLeft(find.byType(TabBar)).dy,
+        greaterThanOrEqualTo(0),
+        reason: 'an overscroll with nothing past the viewport retracted',
+      );
+    });
+
     testWidgets('bubbles retract after a long scroll up and return at rest', (
       tester,
     ) async {

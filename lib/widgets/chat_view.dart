@@ -339,12 +339,11 @@ class _ChatViewState extends State<ChatView>
   ) {
     _beginBuiltRange();
     final empty = msgs.isEmpty;
-    // The newest rows rest above the island; the spacer sizes in layout.
-    final bottom = SliverToBoxAdapter(
-      child: widget.clearsIsland
-          ? IslandSpacer(page: _islandPage, chat: !empty)
-          : const SizedBox(height: kComposerGap),
-    );
+    // A list clear of the island pays that gap as a viewport inset. A split
+    // pane that does not clears it keeps a small gap in the content.
+    final bottom = widget.clearsIsland
+        ? null
+        : const SliverToBoxAdapter(child: SizedBox(height: kComposerGap));
     // Reversed: the last sliver is the top of the list, under the floating
     // bubbles. Only the oldest row needs to clear them.
     final top = SliverToBoxAdapter(child: SizedBox(height: widget.topPadding));
@@ -363,7 +362,7 @@ class _ChatViewState extends State<ChatView>
             : PageStorageKey<String>('${widget.channel}:chat'),
         semanticChildCount: msgs.length,
         slivers: [
-          bottom,
+          ?bottom,
           SliverList(
             delegate: SliverChildBuilderDelegate(
               (ctx, i) {
@@ -407,7 +406,7 @@ class _ChatViewState extends State<ChatView>
     return _shell(
       key: ValueKey<String>('${widget.channel}:empty'),
       slivers: [
-        bottom,
+        ?bottom,
         SliverToBoxAdapter(
           child: Builder(
             builder: (ctx) => _buildTile(
