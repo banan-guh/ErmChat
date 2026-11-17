@@ -73,10 +73,6 @@ class ChatView extends StatefulWidget {
   /// that does not sit over the island turns it off.
   final bool clearsIsland;
 
-  /// A flat composer keeps the gap in the scroll content, so rows draw
-  /// under it instead of stopping above it.
-  final bool contentOffset;
-
   /// Off in the mentions tab so deleted rows stay readable.
   final bool fadeDeleted;
 
@@ -138,7 +134,6 @@ class ChatView extends StatefulWidget {
     this.physics,
     this.topPadding = 0,
     this.clearsIsland = true,
-    this.contentOffset = false,
     this.fadeDeleted = true,
     this.showChannel = false,
     this.keepAlive = true,
@@ -344,15 +339,12 @@ class _ChatViewState extends State<ChatView>
   ) {
     _beginBuiltRange();
     final empty = msgs.isEmpty;
-    // A flat composer keeps its gap in the content, so rows scroll on behind
-    // it. A split pane without the island keeps a small gap instead.
-    final bottom = widget.clearsIsland
-        ? (widget.contentOffset
-              ? SliverToBoxAdapter(
-                  child: IslandSpacer(page: _islandPage, chat: true),
-                )
-              : null)
-        : const SliverToBoxAdapter(child: SizedBox(height: kComposerGap));
+    // The newest rows rest above the island; the spacer sizes in layout.
+    final bottom = SliverToBoxAdapter(
+      child: widget.clearsIsland
+          ? IslandSpacer(page: _islandPage, chat: !empty)
+          : const SizedBox(height: kComposerGap),
+    );
     // Reversed: the last sliver is the top of the list, under the floating
     // bubbles. Only the oldest row needs to clear them.
     final top = SliverToBoxAdapter(child: SizedBox(height: widget.topPadding));
@@ -371,7 +363,7 @@ class _ChatViewState extends State<ChatView>
             : PageStorageKey<String>('${widget.channel}:chat'),
         semanticChildCount: msgs.length,
         slivers: [
-          ?bottom,
+          bottom,
           SliverList(
             delegate: SliverChildBuilderDelegate(
               (ctx, i) {
@@ -415,7 +407,7 @@ class _ChatViewState extends State<ChatView>
     return _shell(
       key: ValueKey<String>('${widget.channel}:empty'),
       slivers: [
-        ?bottom,
+        bottom,
         SliverToBoxAdapter(
           child: Builder(
             builder: (ctx) => _buildTile(
@@ -455,7 +447,6 @@ class _ChatViewState extends State<ChatView>
       heroTag: widget.scrollFabHeroTag ?? 'scroll_down_${widget.channel}',
       islandPage: widget.clearsIsland ? _islandPage : null,
       clearsIsland: widget.clearsIsland,
-      contentOffset: widget.contentOffset,
       semanticChildCount: semanticChildCount,
       keyboardDismissBehavior: widget.keyboardDismissBehavior,
       slivers: slivers,

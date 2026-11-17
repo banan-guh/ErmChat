@@ -12,6 +12,7 @@ import 'island_metrics.dart';
 import 'island_rings.dart';
 import 'design_tokens.dart';
 import 'eased_progress.dart';
+import 'message_input.dart' show MessageInput;
 import 'chat_pages_scope.dart' show ChatPagesScope;
 
 /// Builds the chat content above the composer. [maxHeight] and [keyboardH]
@@ -577,72 +578,64 @@ class _ChatBodyState extends State<ChatBody>
     final busyLine = _busyLine(layout);
     final island = _outer(
       layout: layout,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          // Edge-to-edge composers keep the padding inside the surface, so
-          // the last row rests on the composer's color, not a black band.
-          if (layout.flush) const SizedBox(height: kFloatingComposerGap),
-          _islandShell(
-            layout: layout,
-            child: _RowClip(
-              keyboard: layout.rowKeyboard,
-              flow: _flowH,
-              row: _rowH,
-              child: Align(
-                alignment: Alignment.topCenter,
-                heightFactor: 1,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    if (widget.sideAction == null) ...[
-                      flowComposer,
-                      ?busyLine,
-                      ?widget.bottomBar,
-                      ?footer,
-                    ] else
-                      // The side action runs the island's full height, so its
-                      // ink reaches the rim. The column sets the height and the
-                      // action fills it, with no intrinsic pass (the field's
-                      // LayoutBuilder cannot answer one). The footer spans the
-                      // full width under it, so centered text centers on the
-                      // whole island.
-                      Stack(
+      child: _islandShell(
+        layout: layout,
+        child: _RowClip(
+          keyboard: layout.rowKeyboard,
+          flow: _flowH,
+          row: _rowH,
+          child: Align(
+            alignment: Alignment.topCenter,
+            heightFactor: 1,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (widget.sideAction == null) ...[
+                  flowComposer,
+                  ?busyLine,
+                  ?widget.bottomBar,
+                  ?footer,
+                ] else
+                  // The side action runs the island's full height, so its
+                  // ink reaches the rim. The column sets the height and the
+                  // action fills it, with no intrinsic pass (the field's
+                  // LayoutBuilder cannot answer one). The footer spans the
+                  // full width under it, so centered text centers on the
+                  // whole island.
+                  Stack(
+                    children: [
+                      Column(
+                        mainAxisSize: MainAxisSize.min,
                         children: [
-                          Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Padding(
-                                padding: const EdgeInsets.only(
-                                  right: ChatBody.sideActionWidth,
-                                ),
-                                child: Column(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    flowComposer,
-                                    ?busyLine,
-                                    ?widget.bottomBar,
-                                  ],
-                                ),
-                              ),
-                              ?footer,
-                            ],
+                          Padding(
+                            padding: const EdgeInsets.only(
+                              right: ChatBody.sideActionWidth,
+                            ),
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                flowComposer,
+                                ?busyLine,
+                                ?widget.bottomBar,
+                              ],
+                            ),
                           ),
-                          Positioned(
-                            top: 0,
-                            bottom: 0,
-                            right: 0,
-                            width: ChatBody.sideActionWidth,
-                            child: widget.sideAction!,
-                          ),
+                          ?footer,
                         ],
                       ),
-                  ],
-                ),
-              ),
+                      Positioned(
+                        top: 0,
+                        bottom: 0,
+                        right: 0,
+                        width: ChatBody.sideActionWidth,
+                        child: widget.sideAction!,
+                      ),
+                    ],
+                  ),
+              ],
             ),
           ),
-        ],
+        ),
       ),
     );
     final islandPad = EdgeInsets.fromLTRB(
@@ -751,12 +744,10 @@ class _ChatBodyState extends State<ChatBody>
                             child: _IslandStack(
                               metrics: _metrics,
                               presence: layout.presence,
-                              // The composer's surface carries its own top
-                              // padding, so the list clears the surface edge.
-                              trim: 0,
-                              // Edge-to-edge and classic composers have no
-                              // floating rim: the list rests on the surface.
-                              gap: layout.flush ? 0 : kFloatingComposerGap,
+                              // The classic field's label room is already
+                              // empty space above its outline, so it counts
+                              // toward the list's gap.
+                              trim: layout.classic ? MessageInput.labelRoom : 0,
                               // Pages add their own channel's footer, so a
                               // switch moves only the island.
                               footerFor: widget.islandFooterHeightFor,
@@ -988,22 +979,13 @@ class _ChatBodyState extends State<ChatBody>
   /// field's own outline shows focus instead of a tinted shell.
   Widget _outer({required _Layout layout, required Widget child}) {
     if (layout.classic) {
-      // Only the gap above the field is composer-colored; the outlined field
-      // itself stays on the chat, over an opaque sheet so rows behind it do
-      // not show through.
+      // The floated label needs its room above the outline, but the room is
+      // not part of the composer's surface: the chat shows behind it, so the
+      // last rows reach the outline and the label sits over them.
       return Stack(
         children: [
-          Positioned(
-            top: 0,
-            left: 0,
-            right: 0,
-            height: kFloatingComposerGap,
-            child: ColoredBox(
-              color: Theme.of(context).colorScheme.surfaceContainer,
-            ),
-          ),
           Positioned.fill(
-            top: kFloatingComposerGap,
+            top: MessageInput.labelRoom,
             child: ColoredBox(color: Theme.of(context).scaffoldBackgroundColor),
           ),
           child,
@@ -1013,24 +995,7 @@ class _ChatBodyState extends State<ChatBody>
     return ComposerFocusGlow(
       shape: RoundedRectangleBorder(borderRadius: layout.radius),
       surface: Theme.of(context).colorScheme.surfaceContainer,
-      child: layout.flush
-          ? Stack(
-              children: [
-                child,
-                // The flat bar keeps a visible band above the field, so the
-                // gap reads as padding instead of the message touching it.
-                Positioned(
-                  top: 0,
-                  left: 0,
-                  right: 0,
-                  height: kFloatingComposerGap,
-                  child: ColoredBox(
-                    color: Theme.of(context).colorScheme.surfaceContainerHigh,
-                  ),
-                ),
-              ],
-            )
-          : child,
+      child: child,
     );
   }
 
@@ -1405,7 +1370,6 @@ class _IslandStack extends Stack {
     required this.metrics,
     required this.presence,
     required this.trim,
-    required this.gap,
     required this.footerFor,
     required this.footer,
     super.children,
@@ -1417,10 +1381,6 @@ class _IslandStack extends Stack {
   /// island comes and goes.
   final double presence;
   final double trim;
-
-  /// Visual space the list keeps above the island. Tighter for the
-  /// edge-to-edge and classic composers.
-  final double gap;
   final double Function(String channel)? footerFor;
 
   /// The island footer's laid-out height, or null without a footer.
@@ -1430,7 +1390,6 @@ class _IslandStack extends Stack {
   RenderStack createRenderObject(BuildContext context) => _RenderIslandStack(
     presence,
     trim,
-    gap,
     footerFor,
     metrics: metrics,
     footer: footer,
@@ -1445,7 +1404,6 @@ class _IslandStack extends Stack {
       ..metrics = metrics
       ..presence = presence
       ..trim = trim
-      ..gap = gap
       ..footerFor = footerFor
       ..footer = footer;
   }
@@ -1455,7 +1413,6 @@ class _RenderIslandStack extends RenderStack {
   _RenderIslandStack(
     this._presence,
     this._trim,
-    this._gap,
     this._footerFor, {
     required this.metrics,
     required this.footer,
@@ -1480,13 +1437,6 @@ class _RenderIslandStack extends RenderStack {
   set trim(double value) {
     if (value == _trim) return;
     _trim = value;
-    markNeedsLayout();
-  }
-
-  double _gap;
-  set gap(double value) {
-    if (value == _gap) return;
-    _gap = value;
     markNeedsLayout();
   }
 
@@ -1534,7 +1484,6 @@ class _RenderIslandStack extends RenderStack {
         footer: islandH == null ? 0 : footer?.value ?? 0,
         extra: extra,
         trim: _trim,
-        gap: _gap,
         footerFor: _footerFor,
       ),
     );

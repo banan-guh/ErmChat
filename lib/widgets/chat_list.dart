@@ -125,13 +125,13 @@ class ChatListShell extends StatelessWidget {
     this.onPointerSignal,
     this.center,
     this.resolve,
+    this.alwaysScrollable = false,
     this.physics,
     this.atBottom,
     this.onJumpToBottom,
     this.heroTag,
     this.islandPage,
     this.clearsIsland = true,
-    this.contentOffset = false,
     this.cacheExtent,
     this.scrollViewKey,
     this.semanticChildCount,
@@ -145,6 +145,10 @@ class ChatListShell extends StatelessWidget {
   final void Function(PointerSignalEvent event)? onPointerSignal;
   final Key? center;
   final double? Function(ScrollMetrics metrics, bool bouncing)? resolve;
+
+  /// Takes drags even when the content fits, so a list with one rest still
+  /// stretches like any short list instead of going dead.
+  final bool alwaysScrollable;
   final ScrollPhysics? physics;
   final ValueListenable<bool>? atBottom;
   final VoidCallback? onJumpToBottom;
@@ -154,10 +158,6 @@ class ChatListShell extends StatelessWidget {
   /// Whether this list clears the floating island. Split chat turns it off
   /// for the pane that does not sit over it.
   final bool clearsIsland;
-
-  /// A flat composer keeps the gap in the scroll content instead of a
-  /// viewport inset, so rows draw under it.
-  final bool contentOffset;
   final ScrollCacheExtent? cacheExtent;
   final Key? scrollViewKey;
   final int? semanticChildCount;
@@ -169,52 +169,41 @@ class ChatListShell extends StatelessWidget {
 
   ScrollPhysics _physics() {
     final resolve = this.resolve;
+    final parent = alwaysScrollable
+        ? AlwaysScrollableScrollPhysics(parent: physics)
+        : physics;
     if (resolve == null) {
-      return physics ?? const ClampingScrollPhysics();
+      return parent ?? const ClampingScrollPhysics();
     }
     return defaultTargetPlatform == TargetPlatform.iOS
-        ? _HoldBouncingPhysics(
-            parent: AlwaysScrollableScrollPhysics(parent: physics),
-            resolve: resolve,
-          )
-        : _HoldClampingPhysics(parent: physics, resolve: resolve);
+        ? _HoldBouncingPhysics(parent: parent, resolve: resolve)
+        : _HoldClampingPhysics(parent: parent, resolve: resolve);
   }
 
   @override
   Widget build(BuildContext context) {
     final atBottom = this.atBottom;
     final onJumpToBottom = this.onJumpToBottom;
-    Widget list = Listener(
-      onPointerSignal: onPointerSignal,
-      child: NotificationListener<ScrollNotification>(
-        onNotification: onScrollNotification,
-        child: CustomScrollView(
-          key: scrollViewKey,
-          controller: controller,
-          reverse: true,
-          physics: _physics(),
-          scrollCacheExtent: cacheExtent,
-          center: center,
-          semanticChildCount: semanticChildCount,
-          keyboardDismissBehavior: keyboardDismissBehavior,
-          slivers: slivers,
-        ),
-      ),
-    );
-    // The island gap sits outside the scroll range, so the list has one rest
-    // when its rows fit and a drag can only stretch or bounce.
-    if (clearsIsland) {
-      list = IslandInset(
-        page: islandPage,
-        chat: true,
-        contentOffset: contentOffset,
-        child: list,
-      );
-    }
     Widget content = Stack(
       clipBehavior: Clip.hardEdge,
       children: [
-        list,
+        Listener(
+          onPointerSignal: onPointerSignal,
+          child: NotificationListener<ScrollNotification>(
+            onNotification: onScrollNotification,
+            child: CustomScrollView(
+              key: scrollViewKey,
+              controller: controller,
+              reverse: true,
+              physics: _physics(),
+              scrollCacheExtent: cacheExtent,
+              center: center,
+              semanticChildCount: semanticChildCount,
+              keyboardDismissBehavior: keyboardDismissBehavior,
+              slivers: slivers,
+            ),
+          ),
+        ),
         if (atBottom != null && onJumpToBottom != null)
           ValueListenableBuilder<bool>(
             valueListenable: atBottom,

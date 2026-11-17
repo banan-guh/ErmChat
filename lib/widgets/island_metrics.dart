@@ -33,7 +33,6 @@ class IslandMetrics {
   double _footer = 0;
   double _extra = 0;
   double _trim = 0;
-  double _gap = kFloatingComposerGap;
   double Function(String channel)? _footerFor;
   final _readers = <RenderObject>{};
   bool _settlePending = false;
@@ -67,23 +66,22 @@ class IslandMetrics {
   }
 
   /// A chat list's bottom padding: the clearance plus a visual gap, or a
-  /// small fixed gap above a docked composer. The gap is tighter for the
-  /// edge-to-edge and classic composers, which have no floating rim to
-  /// separate from the list.
+  /// small fixed gap above a docked composer.
   double listGap({String? page}) =>
-      (floating ? clearance(page: page) + _gap : kOpaqueComposerGap) + _extra;
+      (floating
+          ? clearance(page: page) + kFloatingComposerGap
+          : kOpaqueComposerGap) +
+      _extra;
 
   /// Called by ChatBody's layout only. [footer] is the footer's laid-out
   /// height, which [footerFor] predicts per channel; [trim] is empty room
-  /// above the island the lists may overlap; [gap] is the visual space the
-  /// list keeps above the island.
+  /// above the island the lists may overlap.
   void publish({
     required double top,
     required double height,
     required double footer,
     required double extra,
     required double trim,
-    double gap = kFloatingComposerGap,
     required double Function(String channel)? footerFor,
   }) {
     if (top == _top &&
@@ -91,7 +89,6 @@ class IslandMetrics {
         footer == _footer &&
         extra == _extra &&
         trim == _trim &&
-        gap == _gap &&
         footerFor == _footerFor) {
       return;
     }
@@ -100,7 +97,6 @@ class IslandMetrics {
     _footer = footer;
     _extra = extra;
     _trim = trim;
-    _gap = gap;
     _footerFor = footerFor;
     for (final reader in _readers) {
       reader.markNeedsLayout();
@@ -237,67 +233,29 @@ class _RenderIslandSpacer extends RenderBox with _IslandReader {
 /// Pads [child] from below by the island clearance, in layout, so a button
 /// over a list rides above the island with its rows.
 class IslandInset extends SingleChildRenderObjectWidget {
-  const IslandInset({
-    super.key,
-    this.page,
-    this.chat = false,
-    this.contentOffset = false,
-    super.child,
-  });
+  const IslandInset({super.key, this.page, super.child});
 
   /// See [IslandSpacer.page].
   final String? page;
 
-  /// Whether [child] is a chat list, which keeps the list gap and overlays
-  /// above the island rather than only the island.
-  final bool chat;
-
-  /// A flat composer keeps the gap in the scroll content instead, so the
-  /// rows draw under it and this inset is zero.
-  final bool contentOffset;
-
   @override
   RenderObject createRenderObject(BuildContext context) =>
-      _RenderIslandInset(chat, contentOffset)
-        .._bind(IslandScope.maybeOf(context)?.metrics, page);
+      _RenderIslandInset().._bind(IslandScope.maybeOf(context)?.metrics, page);
 
   @override
   void updateRenderObject(BuildContext context, RenderObject renderObject) =>
-      (renderObject as _RenderIslandInset)
-        ..chat = chat
-        ..contentOffset = contentOffset
-        .._bind(IslandScope.maybeOf(context)?.metrics, page);
+      (renderObject as _RenderIslandInset)._bind(
+        IslandScope.maybeOf(context)?.metrics,
+        page,
+      );
 }
 
 class _RenderIslandInset extends RenderShiftedBox with _IslandReader {
-  _RenderIslandInset(this._chat, this._contentOffset) : super(null);
-
-  bool _chat;
-  set chat(bool value) {
-    if (value == _chat) return;
-    _chat = value;
-    markNeedsLayout();
-  }
-
-  bool _contentOffset;
-  set contentOffset(bool value) {
-    if (value == _contentOffset) return;
-    _contentOffset = value;
-    markNeedsLayout();
-  }
-
-  double get _bottom {
-    final metrics = _metrics;
-    if (_contentOffset) return 0;
-    if (metrics == null) return _chat ? kOpaqueComposerGap : 0;
-    return _chat
-        ? metrics.listGap(page: _page)
-        : metrics.clearance(page: _page);
-  }
+  _RenderIslandInset() : super(null);
 
   @override
   void performLayout() {
-    final bottom = _bottom;
+    final bottom = _metrics?.clearance(page: _page) ?? 0;
     final child = this.child;
     if (child == null) {
       size = constraints.constrain(Size(0, bottom));

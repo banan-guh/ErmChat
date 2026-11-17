@@ -385,8 +385,8 @@ void main() {
     );
     expect(
       tester.getSize(island).height,
-      closeTo(tester.getSize(field).height + kFloatingComposerGap, 1.0),
-      reason: 'the row is clipped away, leaving the field and its strip',
+      closeTo(tester.getSize(field).height, 1.0),
+      reason: 'the row is clipped away, leaving the field',
     );
     expect(
       tester.getSize(island).height,

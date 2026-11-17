@@ -89,7 +89,6 @@ class HistoryView extends StatefulWidget {
     this.textScale = 1.0,
     this.topPadding = 0,
     this.clearsIsland = true,
-    this.contentOffset = false,
     this.debugControls = false,
     this.live,
     this.liveFirst = true,
@@ -136,10 +135,6 @@ class HistoryView extends StatefulWidget {
   /// Whether this list clears the floating composer island. A split pane
   /// that does not sit over the island turns it off.
   final bool clearsIsland;
-
-  /// A flat composer keeps the gap in the scroll content, so rows draw
-  /// under it instead of stopping above it.
-  final bool contentOffset;
 
   /// Jump buttons and window stats over the list, for the prototype channels.
   final bool debugControls;
@@ -225,6 +220,65 @@ class _Item {
   final bool start;
 }
 
+/// Starts a new scroll position where [start] says, read when the list first
+/// lays out, so a list opening at its newest row needs no jump a frame later.
+class _StartController extends ScrollController {
+  _StartController(this.start, this.fits);
+
+  final double Function() start;
+
+  /// Whether the list fits at [min], so its gap is not a scroll range.
+  final bool Function(double min, double viewport) fits;
+
+  @override
+  double get initialScrollOffset => start();
+
+  @override
+  ScrollPosition createScrollPosition(
+    ScrollPhysics physics,
+    ScrollContext context,
+    ScrollPosition? oldPosition,
+  ) => _FittedPosition(
+    physics: physics,
+    context: context,
+    oldPosition: oldPosition,
+    initialPixels: initialScrollOffset,
+    fits: fits,
+  );
+}
+
+/// Collapses the scroll range of a list that fits, so the gap below its rows
+/// is not drag room. The viewport stays full, so rows still draw behind the
+/// composer, and a short list still stretches like any other.
+class _FittedPosition extends ScrollPositionWithSingleContext {
+  _FittedPosition({
+    required super.physics,
+    required super.context,
+    super.oldPosition,
+    super.initialPixels,
+    required this.fits,
+  });
+
+  final bool Function(double min, double viewport) fits;
+
+  /// Collapses the range now, before a drag can consume the gap.
+  void holdFitted() {
+    if (maxScrollExtent > minScrollExtent &&
+        fits(minScrollExtent, viewportDimension)) {
+      applyContentDimensions(minScrollExtent, minScrollExtent);
+    }
+  }
+
+  @override
+  bool applyContentDimensions(double minScrollExtent, double maxScrollExtent) {
+    final fitted = fits(minScrollExtent, viewportDimension);
+    return super.applyContentDimensions(
+      minScrollExtent,
+      fitted ? minScrollExtent : maxScrollExtent,
+    );
+  }
+}
+
 class _HistoryViewState extends State<HistoryView> {
   static const int _cap = 1200;
 
@@ -248,8 +302,19 @@ class _HistoryViewState extends State<HistoryView> {
   static final Map<String, int> _counters = {};
   static _HistoryViewState? _active;
 
-  late final ScrollController _controller = ScrollController();
+  late final ScrollController _controller = _StartController(
+    () => _follow ? -_bottomGap : 0,
+    (min, viewport) => _fitsAt(min, viewport),
+  );
 
+  /// The newer end's padding: the newest row rests this far above offset 0.
+  double get _bottomGap {
+    final island = _island;
+    if (island == null) return kOpaqueComposerGap;
+    return island.listGap(page: widget.channelPage ? widget.channel : null);
+  }
+
+  IslandMetrics? _island;
   final GlobalKey _olderKey = GlobalKey();
   final GlobalKey _newerKey = GlobalKey();
   final ChatMoves _olderMoves = ChatMoves();
@@ -949,14 +1014,19 @@ class _HistoryViewState extends State<HistoryView> {
     _jumpTo(null);
   }
 
-  /// Whether every row fits on screen at the newest end, so the list has one
-  /// rest.
-  bool _fits(ScrollPosition p) {
-    if (!_window.atOldest || !_window.atNewest) return false;
+  /// Whether every row fits on screen at the newest end. The gap below the
+  /// rows is drag room there, so the list is held on its one rest.
+  bool _fits(ScrollMetrics p) =>
+      _fitsAt(p.minScrollExtent, p.viewportDimension);
+
+  bool _fitsAt(double min, double viewport) {
+    // A reader in history is never held: the loaded rows may fit while more
+    // wait at the older end. At the newest end, a window that fits has one
+    // rest whatever the archive still holds.
+    if (!_window.atNewest) return false;
     final older = _sliver(_olderKey)?.geometry?.scrollExtent;
     return older != null &&
-        older + widget.topPadding <=
-            p.minScrollExtent + p.viewportDimension + _followEps;
+        older + widget.topPadding <= min + viewport + _followEps;
   }
 
   /// Where the oldest row rests: the top, or the one rest of a list that fits.
@@ -1657,6 +1727,12 @@ class _HistoryViewState extends State<HistoryView> {
 
   bool _onScrollNotification(ScrollNotification n) {
     if (n.depth != 0) return false;
+    // A drag on a list that fits must not consume its gap. Collapse the range
+    // before the first update, so both ends overscroll alike.
+    if (n is ScrollStartNotification) {
+      final p = _pos;
+      if (p is _FittedPosition) p.holdFitted();
+    }
     _scheduleGateSync();
     final m = n.metrics;
     final atEnd =
@@ -2220,14 +2296,11 @@ class _HistoryViewState extends State<HistoryView> {
       final p = _pos;
       if (p == null || !p.hasContentDimensions) return;
       if (!open) {
-        // A list that fits stays on its one rest, so an expansion opens at
-        // the newest row instead of shifting the reader up into history.
-        if ((wasFollowing &&
-                min != null &&
-                max != null &&
-                (p.minScrollExtent - min).abs() <= _followEps &&
-                (p.maxScrollExtent - max).abs() <= _followEps) ||
-            _fits(p)) {
+        if (wasFollowing &&
+            min != null &&
+            max != null &&
+            (p.minScrollExtent - min).abs() <= _followEps &&
+            (p.maxScrollExtent - max).abs() <= _followEps) {
           _follow = true;
         }
       } else if (_window.atNewest &&
@@ -2335,6 +2408,8 @@ class _HistoryViewState extends State<HistoryView> {
 
   @override
   Widget build(BuildContext context) {
+    final scope = IslandScope.maybeOf(context);
+    _island = scope?.metrics;
     final page = widget.channelPage ? widget.channel : null;
     if (widget.debugControls) {
       _status =
@@ -2352,6 +2427,7 @@ class _HistoryViewState extends State<HistoryView> {
       child: ChatListShell(
         controller: _controller,
         resolve: _resolve,
+        alwaysScrollable: true,
         onScrollNotification: _onScrollNotification,
         onPointerSignal: _onPointerSignal,
         center: _olderKey,
@@ -2361,15 +2437,15 @@ class _HistoryViewState extends State<HistoryView> {
         heroTag: widget.scrollFabHeroTag ?? 'scroll_down_${widget.channel}',
         islandPage: widget.clearsIsland ? page : null,
         clearsIsland: widget.clearsIsland,
-        contentOffset: widget.contentOffset,
         keyboardDismissBehavior: widget.keyboardDismissBehavior,
         slivers: [
-          // A flat composer keeps its gap in the content, so rows scroll on
-          // behind it. A split pane without the island keeps a small gap.
-          if (widget.clearsIsland && widget.contentOffset)
-            SliverToBoxAdapter(child: IslandSpacer(page: page, chat: true))
-          else if (!widget.clearsIsland)
-            const SliverToBoxAdapter(child: SizedBox(height: kComposerGap)),
+          // Sizes in layout, so the newest row clears the island in the
+          // frame it moves. A split pane without the island keeps a small gap.
+          SliverToBoxAdapter(
+            child: widget.clearsIsland
+                ? IslandSpacer(page: page, chat: true)
+                : const SizedBox(height: kComposerGap),
+          ),
           if (empty) SliverToBoxAdapter(child: _empty(context)),
           MovingChatSliverList(
             key: _newerKey,

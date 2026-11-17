@@ -148,7 +148,7 @@ class ComposerBar extends StatelessWidget {
                 hintText: context.l10n.blockTermHint,
                 // The row hides while typing, so the terms field matches the
                 // chat field's plain hint instead of a floating label.
-                floatHint: hideRowTyping || classic ? false : true,
+                floatHint: hideRowTyping && !classic ? false : true,
                 searchMode: true,
                 borderless: !classic,
                 // Add moves out with send, and the field needs no icon
@@ -192,7 +192,7 @@ class ComposerBar extends StatelessWidget {
                   // The row hides while typing, so the hint stays in the line
                   // and the text centers on the icons instead of a label
                   // floating above it.
-                  floatHint: classic || hideRowTyping ? false : null,
+                  floatHint: hideRowTyping && !classic ? false : null,
                   onContentInserted: uploads == null
                       ? null
                       : (content) => uploads!.uploadInserted(context, content),
