@@ -302,6 +302,8 @@ class SettingsScreen extends StatelessWidget {
         ),
       ],
       body: ListView(
+        // Clears the language button, so the update banner can scroll above it.
+        padding: const EdgeInsets.only(bottom: 80),
         children: [
           for (final MapEntry(key: page, value: entry) in _pages.entries)
             if (entry.listed) ...[
