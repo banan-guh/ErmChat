@@ -18,13 +18,9 @@ if (keystorePropertiesFile.exists()) {
     keystoreProperties.load(FileInputStream(keystorePropertiesFile))
 }
 
-// Opt-in per machine: `ermchat.devAppId=true` in android/local.properties.
-val localProperties = Properties()
-val localPropertiesFile = rootProject.file("local.properties")
-if (localPropertiesFile.exists()) {
-    localProperties.load(FileInputStream(localPropertiesFile))
-}
-val devAppId = localProperties.getProperty("ermchat.devAppId") == "true"
+// Opt-in per build: ERMCHAT_DEV=1 gives debug the dev id, so it can sit
+// beside a release install. A plain debug run installs the normal app.
+val devAppId = System.getenv("ERMCHAT_DEV") == "1"
 
 android {
     namespace = "io.github.bananguh.ErmChat"

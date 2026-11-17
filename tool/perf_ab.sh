@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 # Builds the probe APK, installs it, relaunches, settles, then samples.
 # Usage: [FAKE=msgs/sec] [PKG=app id] tool/perf_ab.sh <label> [seconds=30] [settle=20]
-# PKG defaults to the release id; set io.github.bananguh.ErmChat.debug with
-# ermchat.devAppId=true in android/local.properties.
+# PKG defaults to the release id.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 LABEL=$1; SECS=${2:-30}; SETTLE=${3:-20}
