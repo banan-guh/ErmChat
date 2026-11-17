@@ -1,3 +1,3 @@
-- fix 7tv paints, badges, pinned msgs
-- organize settings/tools
-- fix chat scrolling on empty chat
+- fixed composer
+- fix 7tv subscriptions
+- minor ux changes
