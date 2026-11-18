@@ -569,7 +569,9 @@ class TabbedLayoutState extends State<TabbedLayout>
       _tabController?.animateTo(index);
       return;
     }
-    final page = (pc != null && pc.hasClients) ? pc.page : null;
+    // A jump can arrive before the pager has a position to move.
+    if (pc == null || !pc.hasClients) return;
+    final page = pc.page;
     if (page != null && page.round() == index) {
       // Zero-distance jump: settle bookkeeping here.
       _programmaticTarget = null;
@@ -582,7 +584,7 @@ class TabbedLayoutState extends State<TabbedLayout>
     }
     _programmaticTarget = index;
     // forcePixels past maxScrollExtent to materialize the new page (lazy PageView extent is stale).
-    final vw = pc!.position.viewportDimension;
+    final vw = pc.position.viewportDimension;
     final target = index * vw;
     if (target > pc.position.maxScrollExtent) {
       // ignore: invalid_use_of_protected_member
