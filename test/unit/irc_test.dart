@@ -475,11 +475,20 @@ class _RecordingSevenTvClient extends SevenTvEventClient {
   int emoteSetSubscribes = 0;
   int userSubscribes = 0;
   int channelSubscribes = 0;
+  final emoteSetIds = <String>[];
+  final emoteSetUnsubscribes = <String>[];
 
   @override
   void subscribeEmoteSet(String emoteSetId) {
+    emoteSetIds.add(emoteSetId);
     emoteSetSubscribes++;
     super.subscribeEmoteSet(emoteSetId);
+  }
+
+  @override
+  void unsubscribeEmoteSet(String emoteSetId) {
+    emoteSetUnsubscribes.add(emoteSetId);
+    super.unsubscribeEmoteSet(emoteSetId);
   }
 
   @override
@@ -498,11 +507,20 @@ class _RecordingSevenTvClient extends SevenTvEventClient {
 /// EmoteManager with canned 7TV ids and no network, so channel setup
 /// reaches the subscribe step without fetching.
 class _CachedEmoteManager extends EmoteManager {
+  String setId = 'set1';
+  String? reconcileTo;
+
   @override
-  String? getSevenTvEmoteSetId(String channel) => 'set1';
+  String? getSevenTvEmoteSetId(String channel) => setId;
 
   @override
   String? getSevenTvUserId(String channel) => 'user1';
+
+  @override
+  Future<void> reconcileSevenTvChannel(String channel) async {
+    final next = reconcileTo;
+    if (next != null) setId = next;
+  }
 
   @override
   Future<void> loadUserEmotes(
@@ -2877,6 +2895,26 @@ void main() {
       expect(sevenTv.emoteSetSubscribes, 2);
       expect(sevenTv.userSubscribes, 2);
       expect(sevenTv.channelSubscribes, 2);
+    });
+
+    test('a reconnect resync follows a switched set', () async {
+      await setup.subscribeChannel('test');
+      await Future<void>.delayed(Duration.zero);
+      emoteManager.reconcileTo = 'set2';
+
+      await setup.resyncSevenTv();
+
+      expect(
+        sevenTv.emoteSetUnsubscribes,
+        contains('set1'),
+        reason: 'the old set must stop feeding the new session',
+      );
+      expect(
+        sevenTv.emoteSetIds.last,
+        'set2',
+        reason: 'the resync must subscribe the set the server reports now',
+      );
+      expect(emoteManager.setId, 'set2');
     });
 
     test('7TV settings narrow the socket, then close it', () async {

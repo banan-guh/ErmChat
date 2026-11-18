@@ -151,6 +151,9 @@ class EmoteStore {
   final _emotesResolvedChannels = <String>{};
   final _sevenTvEmoteSetIds = <String, String>{};
   final _sevenTvUserIds = <String, String>{};
+  // Index of the channel's Twitch connection in the 7TV user's list, so a set
+  // switch on another platform is not applied to this channel.
+  final _sevenTvConnectionIndexes = <String, int>{};
   // Live 7TV list; re-applied after fetch rebuilds to avoid clobbering.
   final _sevenTvLive = <String, List<Emote>>{};
   // Channels whose 7TV list came from a full fetch (or a disk seed), so a
@@ -849,6 +852,10 @@ class EmoteStore {
     if (fetch.sevenTvUserId != null) {
       _sevenTvUserIds[channel] = fetch.sevenTvUserId!;
     }
+    final connectionIndex = fetch.sevenTvConnectionIndex;
+    if (connectionIndex != null && connectionIndex >= 0) {
+      _sevenTvConnectionIndexes[channel] = connectionIndex;
+    }
     final before = _channelCatalogs[channel]?.sevenTvChannel;
     var catalog = _channelCatalogs[channel] ?? EmoteCatalog();
     for (final entry in fetch.byProvider.entries) {
@@ -1181,6 +1188,7 @@ class EmoteStore {
     _subsByChannelCache = null;
     _sevenTvEmoteSetIds.remove(channel);
     _sevenTvUserIds.remove(channel);
+    _sevenTvConnectionIndexes.remove(channel);
     _dropMergedCaches(channel);
     _foreignLookupCache.remove(channel);
     _sevenTvLive.remove(channel);
@@ -1292,6 +1300,15 @@ class EmoteStore {
   String? getSevenTvEmoteSetId(String channel) => _sevenTvEmoteSetIds[channel];
 
   String? getSevenTvUserId(String channel) => _sevenTvUserIds[channel];
+
+  void setSevenTvConnectionIndex(String channel, int index) {
+    _sevenTvConnectionIndexes[channel] = index;
+  }
+
+  /// The channel's Twitch connection index in the 7TV user payload, -1 or
+  /// null when it is not known.
+  int? getSevenTvConnectionIndex(String channel) =>
+      _sevenTvConnectionIndexes[channel];
 
   String? getChannelForSevenTvUser(String userId) {
     for (final entry in _sevenTvUserIds.entries) {

@@ -9,7 +9,16 @@ class SevenTvChannelResponse {
   final String? userId;
   final String? emoteSetId;
 
-  SevenTvChannelResponse({required this.emotes, this.userId, this.emoteSetId});
+  /// Index of the Twitch connection in the user's connection list. -1 when
+  /// the payload has none, so a socket update cannot be attributed safely.
+  final int connectionIndex;
+
+  SevenTvChannelResponse({
+    required this.emotes,
+    this.userId,
+    this.emoteSetId,
+    this.connectionIndex = -1,
+  });
 }
 
 class SevenTvEmoteProvider {
@@ -46,7 +55,8 @@ class SevenTvEmoteProvider {
     if (res.statusCode != 200) return SevenTvChannelResponse(emotes: []);
     return Isolate.run(() {
       final data = jsonDecode(res.body) as Map<String, dynamic>;
-      final userId = (data['user'] as Map<String, dynamic>?)?['id'] as String?;
+      final user = data['user'] as Map<String, dynamic>?;
+      final userId = user?['id'] as String?;
       final emoteSet = data['emote_set'] as Map<String, dynamic>?;
       final emoteSetId = emoteSet?['id'] as String?;
       final items = emoteSet?['emotes'] as List<dynamic>? ?? [];
@@ -54,8 +64,23 @@ class SevenTvEmoteProvider {
         emotes: _parseEmotes(items, channel: true),
         userId: userId,
         emoteSetId: emoteSetId,
+        connectionIndex: _twitchConnectionIndex(user),
       );
     });
+  }
+
+  /// Index of the Twitch connection, or -1 when the user has none. The index
+  /// is what `user.update` reports for a set switch.
+  static int _twitchConnectionIndex(Map<String, dynamic>? user) {
+    final connections = user?['connections'] as List<dynamic>? ?? const [];
+    for (var i = 0; i < connections.length; i++) {
+      final connection = connections[i];
+      if (connection is Map<String, dynamic> &&
+          connection['platform'] == 'TWITCH') {
+        return i;
+      }
+    }
+    return -1;
   }
 
   /// Personal set ids for a Twitch user id (`user.emote_sets`). Channel and

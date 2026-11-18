@@ -997,6 +997,12 @@ class EmoteManager implements EmoteLookupSource {
 
   String? getSevenTvUserId(String channel) => _store.getSevenTvUserId(channel);
 
+  void setSevenTvConnectionIndex(String channel, int index) =>
+      _store.setSevenTvConnectionIndex(channel, index);
+
+  int? getSevenTvConnectionIndex(String channel) =>
+      _store.getSevenTvConnectionIndex(channel);
+
   String? getChannelForSevenTvUser(String userId) =>
       _store.getChannelForSevenTvUser(userId);
 

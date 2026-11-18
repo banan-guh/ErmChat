@@ -125,12 +125,13 @@ class ChatChannelSetup {
   /// In-flight 7TV ID lookups by Twitch channel id. Concurrent joins for the
   /// same channel share one GET instead of each firing their own.
   final _sevenTvIdInflight =
-      <String, Future<({String userId, String emoteSetId})?>>{};
+      <
+        String,
+        Future<({String userId, String emoteSetId, int connectionIndex})?>
+      >{};
 
-  /// Sent 7TV triples by Twitch channel id. Cold start races a direct
-  /// per-channel subscribe against the socket-edge subscribeAll; both
-  /// resolve the same ids and must send once plus log once.
-  final _sevenTvSubscribed = <String, ({String userId, String emoteSetId})>{};
+  /// One resync at a time: a flapping socket must not stack full refetches.
+  bool _sevenTvResyncing = false;
 
   /// Whole resolve-plus-send by Twitch channel id. Concurrent joins for one
   /// channel share it instead of each sending their own.
@@ -204,7 +205,6 @@ class ChatChannelSetup {
     final twitchId = chat.channelFor(channel)?.info.broadcasterId;
     if (twitchId != null) {
       sevenTv.unsubscribeTwitchChannel(twitchId);
-      _sevenTvSubscribed.remove(twitchId);
       _sevenTvSubInflight.remove(twitchId);
     }
   }
@@ -341,6 +341,53 @@ class ChatChannelSetup {
     }
   }
 
+  /// Refetches every joined channel's 7TV set after a socket reconnect and
+  /// makes the socket follow it. A gap can drop dispatches or hide a set
+  /// switch, and the replay on hello only restores subscriptions.
+  Future<void> resyncSevenTv() async {
+    final client = sevenTvClient;
+    if (client == null || _sevenTvResyncing) return;
+    _sevenTvResyncing = true;
+    try {
+      final channels = List<String>.of(chat.names);
+      await Future.wait([
+        for (final channel in channels) _resyncSevenTvChannel(client, channel),
+      ]);
+    } finally {
+      _sevenTvResyncing = false;
+    }
+  }
+
+  Future<void> _resyncSevenTvChannel(
+    SevenTvEventClient client,
+    String channel,
+  ) async {
+    if (_disposed) return;
+    final twitchId = chat.channelFor(channel)?.info.broadcasterId;
+    if (twitchId == null) return;
+    if (!_sevenTvEmotes) {
+      if (_sevenTvCosmetics) client.subscribeTwitchChannel(twitchId);
+      return;
+    }
+    try {
+      final before = emoteManager.getSevenTvEmoteSetId(channel);
+      await emoteManager.reconcileSevenTvChannel(channel);
+      // The channel may have been left while the fetch was in flight.
+      if (_disposed || chat.channelFor(channel) == null) return;
+      final after = emoteManager.getSevenTvEmoteSetId(channel);
+      final userId = emoteManager.getSevenTvUserId(channel);
+      if (userId == null) return;
+      if (before != null && before != after) {
+        client.unsubscribeEmoteSet(before);
+      }
+      if (after != null) client.subscribeEmoteSet(after);
+      client.subscribeUser(userId);
+      client.subscribeTwitchChannel(twitchId);
+    } catch (e) {
+      logDebug('[ChatConn] 7TV resync failed for $channel: $e');
+    }
+  }
+
   Future<void> _trackedLoad(
     String channel,
     String key,
@@ -433,7 +480,8 @@ class ChatChannelSetup {
     } else {
       // Coalesce concurrent lookups for one channel into a single GET.
       final inflight = _sevenTvIdInflight[twitchChannelId];
-      final Future<({String userId, String emoteSetId})?> lookup;
+      final Future<({String userId, String emoteSetId, int connectionIndex})?>
+      lookup;
       if (inflight != null) {
         lookup = inflight;
       } else {
@@ -449,46 +497,66 @@ class ChatChannelSetup {
       if (ids == null || _isStale(channelName, epoch)) return;
       finalEmoteSetId = ids.emoteSetId;
       finalUserId = ids.userId;
+      if (ids.connectionIndex >= 0) {
+        emoteManager.setSevenTvConnectionIndex(
+          channelName,
+          ids.connectionIndex,
+        );
+      }
       // Persisted so forgetChannel can unsubscribe both ids.
       emoteManager.setSevenTvEmoteSetId(channelName, finalEmoteSetId);
       emoteManager.setSevenTvUserId(channelName, finalUserId);
     }
 
-    final known = _sevenTvSubscribed[twitchChannelId];
-    if (known != null &&
-        known.emoteSetId == finalEmoteSetId &&
-        known.userId == finalUserId) {
+    final client = sevenTvClient!;
+    if (client.hasEmoteSetSubscription(finalEmoteSetId) &&
+        client.hasUserSubscription(finalUserId) &&
+        client.hasTwitchChannelSubscription(twitchChannelId)) {
       return;
     }
-    sevenTvClient!.subscribeEmoteSet(finalEmoteSetId);
-    sevenTvClient!.subscribeUser(finalUserId);
-    sevenTvClient!.subscribeTwitchChannel(twitchChannelId);
-    _sevenTvSubscribed[twitchChannelId] = (
-      userId: finalUserId,
-      emoteSetId: finalEmoteSetId,
-    );
+    client.subscribeEmoteSet(finalEmoteSetId);
+    client.subscribeUser(finalUserId);
+    client.subscribeTwitchChannel(twitchChannelId);
   }
 
-  Future<({String userId, String emoteSetId})?> _fetchSevenTvIds(
-    String channelName,
-    String twitchChannelId,
-  ) async {
+  Future<({String userId, String emoteSetId, int connectionIndex})?>
+  _fetchSevenTvIds(String channelName, String twitchChannelId) async {
+    final uri = Uri.parse('https://7tv.io/v3/users/twitch/$twitchChannelId');
     try {
-      final uri = Uri.parse('https://7tv.io/v3/users/twitch/$twitchChannelId');
-      final res = await _httpClient.get(uri).timeout(httpTimeout);
-      if (res.statusCode != 200) return null;
-      // The body carries the whole emote set, megabytes for a big channel:
-      // decode off the UI isolate.
-      final bytes = res.bodyBytes;
-      final (userId, emoteSetId) = await Isolate.run(() {
-        final data = jsonDecode(utf8.decode(bytes)) as Map<String, dynamic>;
+      return await retryTransient(() async {
+        final res = await _httpClient.get(uri).timeout(httpTimeout);
+        throwOnTransientHttpError(res.statusCode, uri);
+        if (res.statusCode != 200) return null;
+        // The body carries the whole emote set, megabytes for a big channel:
+        // decode off the UI isolate.
+        final bytes = res.bodyBytes;
+        final (userId, emoteSetId, connectionIndex) = await Isolate.run(() {
+          final data = jsonDecode(utf8.decode(bytes)) as Map<String, dynamic>;
+          final user = data['user'] as Map<String, dynamic>?;
+          final connections =
+              user?['connections'] as List<dynamic>? ?? const [];
+          var twitchIndex = -1;
+          for (var i = 0; i < connections.length; i++) {
+            final connection = connections[i];
+            if (connection is Map<String, dynamic> &&
+                connection['platform'] == 'TWITCH') {
+              twitchIndex = i;
+              break;
+            }
+          }
+          return (
+            user?['id'] as String?,
+            (data['emote_set'] as Map<String, dynamic>?)?['id'] as String?,
+            twitchIndex,
+          );
+        });
+        if (userId == null || emoteSetId == null) return null;
         return (
-          (data['user'] as Map<String, dynamic>?)?['id'] as String?,
-          (data['emote_set'] as Map<String, dynamic>?)?['id'] as String?,
+          userId: userId,
+          emoteSetId: emoteSetId,
+          connectionIndex: connectionIndex,
         );
-      });
-      if (userId == null || emoteSetId == null) return null;
-      return (userId: userId, emoteSetId: emoteSetId);
+      }, attempts: 2);
     } catch (e) {
       logDebug('[ChatConn] 7TV ids failed for $channelName: $e');
       return null;

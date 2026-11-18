@@ -42,12 +42,16 @@ class ChannelEmoteFetch {
     this.failed = const {},
     this.sevenTvSetId,
     this.sevenTvUserId,
+    this.sevenTvConnectionIndex,
   });
 
   final Map<EmoteType, List<Emote>> byProvider;
   final Set<EmoteType> failed;
   final String? sevenTvSetId;
   final String? sevenTvUserId;
+
+  /// Index of the channel's Twitch connection, -1 when the payload had none.
+  final int? sevenTvConnectionIndex;
 }
 
 /// Owns every emote network fetch and the fetch policy for [EmoteManager].
@@ -225,6 +229,7 @@ class EmoteFetcher {
     final results = <EmoteType, List<Emote>>{};
     String? sevenTvSetId;
     String? sevenTvUserId;
+    int? sevenTvConnectionIndex;
     void landed(EmoteType type, List<Emote> emotes) {
       results[type] = emotes;
       onProvider?.call(
@@ -232,6 +237,9 @@ class EmoteFetcher {
           byProvider: {type: emotes},
           sevenTvSetId: type == EmoteType.sevenTv ? sevenTvSetId : null,
           sevenTvUserId: type == EmoteType.sevenTv ? sevenTvUserId : null,
+          sevenTvConnectionIndex: type == EmoteType.sevenTv
+              ? sevenTvConnectionIndex
+              : null,
         ),
       );
     }
@@ -260,6 +268,9 @@ class EmoteFetcher {
           final resp = await _sevenTvChannelFetcher(broadcasterId);
           sevenTvSetId = resp.emoteSetId;
           sevenTvUserId = resp.userId;
+          sevenTvConnectionIndex = resp.connectionIndex >= 0
+              ? resp.connectionIndex
+              : null;
           return resp.emotes;
         },
       ),
@@ -273,6 +284,7 @@ class EmoteFetcher {
       failed: failed,
       sevenTvSetId: sevenTvSetId,
       sevenTvUserId: sevenTvUserId,
+      sevenTvConnectionIndex: sevenTvConnectionIndex,
     );
   }
 
@@ -329,6 +341,9 @@ class EmoteFetcher {
         byProvider: _providerMap(EmoteType.sevenTv, resp.emotes),
         sevenTvSetId: resp.emoteSetId,
         sevenTvUserId: resp.userId,
+        sevenTvConnectionIndex: resp.connectionIndex >= 0
+            ? resp.connectionIndex
+            : null,
       );
     } catch (e) {
       logDebug('[EmoteFetcher] 7TV reconcile failed for $channel: $e');
@@ -398,6 +413,9 @@ class EmoteFetcher {
           byProvider: _providerMap(EmoteType.sevenTv, resp.emotes),
           sevenTvSetId: resp.emoteSetId,
           sevenTvUserId: resp.userId,
+          sevenTvConnectionIndex: resp.connectionIndex >= 0
+              ? resp.connectionIndex
+              : null,
         );
     }
   }

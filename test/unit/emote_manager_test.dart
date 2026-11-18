@@ -4220,6 +4220,62 @@ void main() {
     });
   });
 
+  group('7TV set switch routing', () {
+    Map<String, dynamic> switchFrame({
+      required int index,
+      required String setId,
+    }) => {
+      'op': 0,
+      'd': {
+        'type': 'user.update',
+        'body': {
+          'id': 'user-1',
+          'updated': [
+            {
+              'key': 'connections',
+              'index': index,
+              'value': [
+                {'key': 'emote_set_id', 'value': setId, 'old_value': 'old'},
+              ],
+            },
+          ],
+        },
+      },
+    };
+
+    test('a switch on another connection keeps this channel', () async {
+      SharedPreferences.setMockInitialValues({});
+      final manager = EmoteManager();
+      addTearDown(manager.dispose);
+      manager.setSevenTvUserId('ch', 'user-1');
+      manager.setSevenTvEmoteSetId('ch', 'set-1');
+      manager.setSevenTvConnectionIndex('ch', 0);
+
+      final client = SevenTvEventClient();
+      final consumer = SevenTvConsumer(
+        emoteManager: manager,
+        sevenTvClient: client,
+        onSystemMessage: (_, _) {},
+      );
+      consumer.attach();
+      addTearDown(() {
+        consumer.dispose();
+        client.dispose();
+      });
+
+      client.handleRawMessage(switchFrame(index: 1, setId: 'set-kick'));
+      expect(
+        manager.getSevenTvEmoteSetId('ch'),
+        'set-1',
+        reason: 'a set switch on another platform is not this channel',
+      );
+
+      client.handleRawMessage(switchFrame(index: 0, setId: 'set-2'));
+      await Future<void>.delayed(Duration.zero);
+      expect(manager.getSevenTvEmoteSetId('ch'), 'set-2');
+    });
+  });
+
   group('personal 7TV emotes', () {
     Emote personal(String id, String code) => makeTestEmote(
       id: id,

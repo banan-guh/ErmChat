@@ -2,6 +2,7 @@ import 'dart:async';
 
 import '../l10n/l10n.dart';
 import '../emotes/emote.dart';
+import '../util/log.dart';
 import 'emote_manager.dart';
 import 'emote_providers/seven_tv_emotes.dart';
 import 'seven_tv_event_client.dart';
@@ -137,6 +138,18 @@ class SevenTvConsumer {
         emoteManager.getChannelForSevenTvEmoteSet(event.oldEmoteSetId) ??
         emoteManager.getChannelForSevenTvUser(event.userId);
     if (channel == null) return;
+    // The active set is per connection. A switch on another platform belongs
+    // to the same 7TV user but not this Twitch channel.
+    final connection = emoteManager.getSevenTvConnectionIndex(channel);
+    if (connection != null &&
+        event.connectionIndex >= 0 &&
+        event.connectionIndex != connection) {
+      logDebug(
+        '7TV: ignored set switch on connection ${event.connectionIndex} '
+        'for $channel',
+      );
+      return;
+    }
     if (event.oldEmoteSetId.isNotEmpty) {
       sevenTvClient?.unsubscribeEmoteSet(event.oldEmoteSetId);
     }
