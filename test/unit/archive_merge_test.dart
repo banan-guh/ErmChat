@@ -105,6 +105,74 @@ void main() {
       ];
       expect(mergeActiveThreads(const [], archived, _now), hasLength(50));
     });
+
+    test('drops a live thread whose root left the reply window', () {
+      final live = [
+        _summary(
+          'dead',
+          const Duration(hours: 1),
+          4,
+          root: _msg('dead', -25 * 3600),
+        ),
+        _summary(
+          'open',
+          const Duration(hours: 1),
+          4,
+          root: _msg('open', -23 * 3600),
+        ),
+      ];
+      expect(
+        [for (final t in mergeActiveThreads(live, const [], _now)) t.rootId],
+        ['open'],
+        reason:
+            'Twitch closes replies 24 hours after the root, not the newest one',
+      );
+    });
+
+    test('drops an archived root the live index marks as closed', () {
+      final archived = [
+        (
+          rootId: 'dead',
+          lastActivity: _now.subtract(const Duration(hours: 1)),
+          replyCount: 6,
+          author: 'alice',
+          preview: 'six',
+        ),
+      ];
+      final live = [
+        _summary(
+          'dead',
+          const Duration(hours: 1),
+          6,
+          root: _msg('dead', -30 * 3600),
+        ),
+      ];
+      expect(
+        mergeActiveThreads(live, archived, _now),
+        isEmpty,
+        reason: 'the held live root supplies the age the archive row lacks',
+      );
+    });
+
+    test('keeps an archive-only row on the last-activity window', () {
+      final archived = [
+        (
+          rootId: 'sealed',
+          lastActivity: _now.subtract(const Duration(hours: 2)),
+          replyCount: 5,
+          author: '',
+          preview: '',
+        ),
+      ];
+      expect(
+        [
+          for (final t in mergeActiveThreads(const [], archived, _now))
+            t.rootId,
+        ],
+        ['sealed'],
+        reason: 'without a live root only the newest reply date is known',
+      );
+    });
   });
 
   group('mergeThreadMessages', () {

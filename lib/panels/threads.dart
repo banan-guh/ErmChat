@@ -973,8 +973,10 @@ class ThreadPanels {
   }
 }
 
-/// Active threads: archive roots plus live roots the archive has not sealed,
-/// with activity in the last 24 hours. Longest first, then newest activity.
+/// Active threads: archive roots plus live roots the archive has not sealed.
+/// A root past Twitch's reply window drops even with a newer reply. A row
+/// with no live root keeps the [window] from last activity, since the archive
+/// row carries no root date. Longest first, then newest activity.
 List<ThreadSummary> mergeActiveThreads(
   List<ThreadSummary> live,
   List<ArchivedThreadRow> archived,
@@ -985,13 +987,16 @@ List<ThreadSummary> mergeActiveThreads(
   final since = now.subtract(window);
   final liveById = {for (final l in live) l.rootId: l};
   final archivedIds = {for (final a in archived) a.rootId};
+  bool isOpen(TwitchMessage? root, DateTime lastActivity) => root == null
+      ? !lastActivity.isBefore(since)
+      : threadRepliesOpen(root, now);
   final out = <ThreadSummary>[];
   for (final a in archived) {
     final held = liveById[a.rootId];
     final last = held == null || held.lastActivity.isBefore(a.lastActivity)
         ? a.lastActivity
         : held.lastActivity;
-    if (last.isBefore(since)) continue;
+    if (!isOpen(held?.root, last)) continue;
     out.add(
       ThreadSummary(
         rootId: a.rootId,
@@ -1012,7 +1017,7 @@ List<ThreadSummary> mergeActiveThreads(
     );
   }
   for (final l in live) {
-    if (archivedIds.contains(l.rootId) || l.lastActivity.isBefore(since)) {
+    if (archivedIds.contains(l.rootId) || !isOpen(l.root, l.lastActivity)) {
       continue;
     }
     out.add(l);
