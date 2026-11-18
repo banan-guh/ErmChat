@@ -1085,6 +1085,65 @@ void main() {
         reason: 'a jump to the newest row left the bubbles retracted',
       );
     });
+
+    testWidgets('a split pane at newest does not pop the bubbles', (
+      tester,
+    ) async {
+      final growth = ValueNotifier<int>(0);
+      addTearDown(growth.dispose);
+      Widget pane(int index) => ValueListenableBuilder<int>(
+        valueListenable: growth,
+        builder: (_, extra, _) => ListView.builder(
+          key: ValueKey('split_pane_$index'),
+          reverse: true,
+          itemCount: 100,
+          itemBuilder: (_, n) => SizedBox(
+            // The other pane's newest row grows with live chat.
+            height: n == 0 && index == 1 ? 40 + extra * 20 : 40,
+            child: Text('$n'),
+          ),
+        ),
+      );
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: TabbedLayout(
+              tabs: const ['a', 'b'],
+              selectedIndex: 0,
+              stripBubbles: true,
+              singlePage: Column(
+                children: [
+                  Expanded(child: pane(0)),
+                  Expanded(child: pane(1)),
+                ],
+              ),
+              onSelectedIndexChanged: (_) {},
+              pageBuilder: (_, _) => const SizedBox.shrink(),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.drag(
+        find.byKey(const ValueKey('split_pane_0')),
+        const Offset(0, 400),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        tester.getTopLeft(find.byType(TabBar)).dy,
+        lessThan(0),
+        reason: 'reading history retracts the bubbles',
+      );
+
+      growth.value = 3;
+      await tester.pumpAndSettle();
+      expect(
+        tester.getTopLeft(find.byType(TabBar)).dy,
+        lessThan(0),
+        reason: 'the other split pane at newest popped the bubbles back',
+      );
+    });
   });
 
   group('TabbedLayout single page', () {

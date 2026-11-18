@@ -251,6 +251,9 @@ class TabbedLayoutState extends State<TabbedLayout>
   static const double _newestEps = 0.5;
   double _retractAccum = 0;
   final _stripRetracted = ValueNotifier<bool>(false);
+  // The list whose history scroll hid the strip. A neighbor page or the other
+  // split pane also sits at newest, and must not bring the chrome back.
+  BuildContext? _retractContext;
 
   // Width of the fade where tabs meet the pinned strip actions.
   static const double _stripFade = 12;
@@ -263,6 +266,8 @@ class TabbedLayoutState extends State<TabbedLayout>
     final len = widget.tabs.length;
     _tabLength = len;
     _hasAddTab = widget.addTab != null;
+    // Pages shift when channels change, so the old retracting list is gone.
+    _retractContext = null;
     _tabController?.dispose();
     _tabController = null;
     if (len == 0) {
@@ -469,15 +474,23 @@ class TabbedLayoutState extends State<TabbedLayout>
 
   // The newest row is live chat, so the chrome returns however the list got
   // there: a FAB jump, a fling, or a rebuilt window that emits no scroll.
-  void _syncStripToNewest(ScrollMetrics metrics) {
+  void _syncStripToNewest(ScrollMetrics metrics, BuildContext? context) {
+    if (_stripRetracted.value &&
+        _retractContext != null &&
+        context != null &&
+        context != _retractContext) {
+      return;
+    }
     if (metrics.pixels > metrics.minScrollExtent + _newestEps) return;
     _retractAccum = 0;
     _stripRetracted.value = false;
+    _retractContext = null;
   }
 
   bool _onPageMetrics(ScrollMetricsNotification notification) {
+    if (!widget.stripBubbles || !widget.showTabBar) return false;
     if (notification.metrics.axis == Axis.vertical) {
-      _syncStripToNewest(notification.metrics);
+      _syncStripToNewest(notification.metrics, notification.context);
     }
     return false;
   }
@@ -487,7 +500,7 @@ class TabbedLayoutState extends State<TabbedLayout>
   // layout-driven updates carry no drag details and never move the strip.
   void _updateStripRetraction(ScrollNotification notification) {
     if (!widget.stripBubbles || !widget.showTabBar) return;
-    _syncStripToNewest(notification.metrics);
+    _syncStripToNewest(notification.metrics, notification.context);
     if (notification is! ScrollUpdateNotification ||
         notification.dragDetails == null) {
       return;
@@ -502,10 +515,12 @@ class TabbedLayoutState extends State<TabbedLayout>
     }
     _retractAccum += delta;
     if (_retractAccum > _bubbleHideThreshold) {
+      _retractContext = notification.context;
       _stripRetracted.value = true;
       _retractAccum = 0;
     } else if (_retractAccum < -_bubbleShowThreshold) {
       _stripRetracted.value = false;
+      _retractContext = null;
       _retractAccum = 0;
     }
   }
@@ -651,6 +666,7 @@ class TabbedLayoutState extends State<TabbedLayout>
         oldWidget.showTabBar != widget.showTabBar) {
       _stripRetracted.value = false;
       _retractAccum = 0;
+      _retractContext = null;
     }
     final len = widget.tabs.length;
     if (len != _tabLength || (widget.addTab != null) != _hasAddTab) {
