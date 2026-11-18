@@ -682,6 +682,51 @@
       }
     }
   },
+  "serviceSubs": "subs {acked}/{sent}",
+  "@serviceSubs": {
+    "placeholders": {
+      "acked": {
+        "type": "int"
+      },
+      "sent": {
+        "type": "int"
+      }
+    }
+  },
+  "serviceSubsMissing": "subs {acked}/{sent}, {missing} not sent",
+  "@serviceSubsMissing": {
+    "placeholders": {
+      "acked": {
+        "type": "int"
+      },
+      "sent": {
+        "type": "int"
+      },
+      "missing": {
+        "type": "int"
+      }
+    }
+  },
+  "serviceSubsCapped": "subs {acked}/{sent}, set cap hit",
+  "@serviceSubsCapped": {
+    "placeholders": {
+      "acked": {
+        "type": "int"
+      },
+      "sent": {
+        "type": "int"
+      }
+    }
+  },
+  "serviceLastEvent": "last event {age}",
+  "@serviceLastEvent": {
+    "placeholders": {
+      "age": {
+        "type": "String"
+      }
+    }
+  },
+  "serviceNoEvents": "no events",
   "noEntriesYet": "No entries yet. Add one or tap an example.",
   "examplesTapToAdd": "Examples (tap to add):",
   "restoreDefaultsTitle": "Restore defaults?",

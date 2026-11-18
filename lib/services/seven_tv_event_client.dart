@@ -119,6 +119,8 @@ class SevenTvPersonalSetEvent {
 
 enum SevenTvEventStatus { connected, disconnected }
 
+enum _SubscriptionSend { sent, failed, skipped }
+
 class SevenTvEventClient {
   static const _wsUrl = 'wss://events.7tv.io/v3';
   static const _connectTimeout = Duration(seconds: 10);
@@ -128,6 +130,14 @@ class SevenTvEventClient {
   static const _rateLimitMinSeconds = 30;
   static const _rateLimitMaxSeconds = 600;
   static const _maxPendingEmoteSets = 50;
+  static const _channelFeedTypes = [
+    'cosmetic.create',
+    'entitlement.create',
+    'entitlement.delete',
+    // Personal-set creates/updates for grants in this channel (chatterino7
+    // parity): the mapping arrives via entitlement.create, contents here.
+    'emote_set.*',
+  ];
   static const _healthyWindow = Duration(seconds: 30);
   static const _fatalRetryDelay = Duration(seconds: 2);
 
@@ -156,6 +166,17 @@ class SevenTvEventClient {
   final _pendingUsers = <String>{};
   final _pendingChannels = <String>{};
 
+  // Subscription identities sent on the current connection, plus acks. Keys
+  // combine the type and condition, so a resend of the same object is one.
+  final _sentSubscriptions = <String>{};
+  final _ackedSubscriptions = <String>{};
+  // True once a channel set was dropped from the replay cap. The dropped set
+  // may still be live on this connection, but a reconnect cannot restore it.
+  bool _pendingSetsOverflowed = false;
+  int? _subscriptionLimit;
+  DateTime? _lastDispatch;
+  final DateTime Function() _now;
+
   final _emoteSetUpdateCtrl =
       StreamController<SevenTvEmoteUpdateEvent>.broadcast(sync: true);
   final _userUpdateCtrl = StreamController<SevenTvUserUpdate>.broadcast(
@@ -182,7 +203,10 @@ class SevenTvEventClient {
   Stream<SevenTvPersonalSetEvent> get onPersonalSet => _personalSetCtrl.stream;
   Stream<SevenTvEventStatus> get onStatus => _statusCtrl.stream;
 
-  SevenTvEventClient({ConnectivityService? connectivityService}) {
+  SevenTvEventClient({
+    ConnectivityService? connectivityService,
+    DateTime Function()? now,
+  }) : _now = now ?? DateTime.now {
     _loop = SocketLoop(
       name: '7TV',
       attempt: _attempt,
@@ -213,6 +237,52 @@ class SevenTvEventClient {
   /// assertions; frames drop when no socket is connected.
   @visibleForTesting
   int get subscriptionSends => _subscriptionSends;
+
+  /// Distinct subscriptions sent on the current connection.
+  int get subscriptionSentCount => _sentSubscriptions.length;
+
+  /// Distinct subscriptions acknowledged on the current connection.
+  int get subscriptionAckCount => _ackedSubscriptions.length;
+
+  /// Subscriptions sent but not yet acknowledged on the current connection.
+  int get pendingSubscriptionAcks =>
+      _sentSubscriptions.difference(_ackedSubscriptions).length;
+
+  /// Subscriptions the pending sets want on the current connection, including
+  /// ones the cap or a dead socket kept from being sent.
+  int get intendedSubscriptionCount =>
+      _pendingEmoteSets.length +
+      _pendingUsers.length +
+      _pendingChannels.length * _channelFeedTypes.length;
+
+  /// Intended subscriptions this connection never sent. Zero once every
+  /// pending identity is on the wire.
+  int get missingSubscriptionCount {
+    final missing = intendedSubscriptionCount - _sentSubscriptions.length;
+    return missing > 0 ? missing : 0;
+  }
+
+  /// True once the pending-set cap dropped a channel, which a reconnect
+  /// cannot restore.
+  bool get pendingSetsOverflowed => _pendingSetsOverflowed;
+
+  /// Whether the pending subscription set already holds this emote set.
+  bool hasEmoteSetSubscription(String emoteSetId) =>
+      _pendingEmoteSets.contains(emoteSetId);
+
+  /// Whether the pending subscription set already holds this 7TV user.
+  bool hasUserSubscription(String userId) => _pendingUsers.contains(userId);
+
+  /// Whether the pending subscription set already holds this channel feed.
+  bool hasTwitchChannelSubscription(String channelId) =>
+      _pendingChannels.contains(channelId);
+
+  /// Server cap on active subscriptions from the last hello, null when the
+  /// server sent none (or zero, meaning no cap).
+  int? get subscriptionLimit => _subscriptionLimit;
+
+  /// Time of the last dispatch (op 0), null before the first one.
+  DateTime? get lastDispatch => _lastDispatch;
 
   /// True when socket exists but no heartbeat arrived for >3x the interval
   /// (zombie, e.g. OS-frozen while backgrounded).
@@ -406,7 +476,10 @@ class SevenTvEventClient {
       subscribe: true,
     );
     while (_pendingEmoteSets.length > _maxPendingEmoteSets) {
-      _pendingEmoteSets.remove(_pendingEmoteSets.first);
+      final dropped = _pendingEmoteSets.first;
+      _pendingEmoteSets.remove(dropped);
+      _pendingSetsOverflowed = true;
+      logDebug('7TV: pending set cap dropped $dropped');
     }
   }
 
@@ -458,7 +531,7 @@ class SevenTvEventClient {
     }
   }
 
-  bool _sendSubscription(
+  _SubscriptionSend _sendSubscription(
     String type,
     String objectId, {
     required bool subscribe,
@@ -468,60 +541,83 @@ class SevenTvEventClient {
         '7TV: refusing to send $type '
         '${subscribe ? 'subscribe' : 'unsubscribe'} with empty objectId',
       );
-      return false;
+      return _SubscriptionSend.failed;
     }
-    return _send(
-      jsonEncode({
-        'op': subscribe ? 35 : 36,
-        'd': {
-          'type': type,
-          'condition': {'object_id': objectId},
-        },
-      }),
-    );
+    return _sendSubscriptionFrame(type, {
+      'object_id': objectId,
+    }, subscribe: subscribe);
   }
 
   void _sendChannelSubscription(String channelId, {required bool subscribe}) {
     if (channelId.isEmpty) return;
-    for (final type in [
-      'cosmetic.create',
-      'entitlement.create',
-      'entitlement.delete',
-      // Personal-set creates/updates for grants in this channel (chatterino7
-      // parity): the mapping arrives via entitlement.create, contents here.
-      'emote_set.*',
-    ]) {
-      _send(
-        jsonEncode({
-          'op': subscribe ? 35 : 36,
-          'd': {
-            'type': type,
-            'condition': {
-              'ctx': 'channel',
-              'platform': 'TWITCH',
-              'id': channelId,
-            },
-          },
-        }),
-      );
+    for (final type in _channelFeedTypes) {
+      _sendSubscriptionFrame(type, {
+        'ctx': 'channel',
+        'platform': 'TWITCH',
+        'id': channelId,
+      }, subscribe: subscribe);
     }
+  }
+
+  _SubscriptionSend _sendSubscriptionFrame(
+    String type,
+    Map<String, dynamic> condition, {
+    required bool subscribe,
+  }) {
+    final key = _subscriptionKey(type, condition);
+    if (subscribe) {
+      if (!_hasSubscriptionRoom(key)) return _SubscriptionSend.skipped;
+    } else if (!_sentSubscriptions.contains(key)) {
+      // 7TV closes 4010 on an unsubscribe it never saw, so a subscription the
+      // cap skipped gets no unsubscribe either.
+      return _SubscriptionSend.skipped;
+    }
+    final sent = _send(
+      jsonEncode({
+        'op': subscribe ? 35 : 36,
+        'd': {'type': type, 'condition': condition},
+      }),
+    );
+    if (!sent) return _SubscriptionSend.failed;
+    if (subscribe) {
+      _sentSubscriptions.add(key);
+    } else {
+      _sentSubscriptions.remove(key);
+      _ackedSubscriptions.remove(key);
+    }
+    return _SubscriptionSend.sent;
+  }
+
+  bool _hasSubscriptionRoom(String key) {
+    final limit = _subscriptionLimit;
+    if (limit == null ||
+        _sentSubscriptions.contains(key) ||
+        _sentSubscriptions.length < limit) {
+      return true;
+    }
+    logDebug('7TV: subscription limit $limit reached, skipping $key');
+    return false;
+  }
+
+  /// A stable identity for a subscription, independent of JSON key order.
+  String _subscriptionKey(String type, Map<String, dynamic> condition) {
+    final keys = condition.keys.toList()..sort();
+    return '$type ${jsonEncode({for (final key in keys) key: condition[key]})}';
   }
 
   void _flushPendingSubscriptions() {
     final failedSets = <String>[];
     for (final id in _pendingEmoteSets) {
-      if (!_sendSubscription('emote_set.update', id, subscribe: true)) {
-        failedSets.add(id);
-      }
+      final result = _sendSubscription('emote_set.update', id, subscribe: true);
+      if (result == _SubscriptionSend.failed) failedSets.add(id);
     }
     for (final id in failedSets) {
       _sendSubscription('emote_set.update', id, subscribe: true);
     }
     final failedUsers = <String>[];
     for (final id in _pendingUsers) {
-      if (!_sendSubscription('user.update', id, subscribe: true)) {
-        failedUsers.add(id);
-      }
+      final result = _sendSubscription('user.update', id, subscribe: true);
+      if (result == _SubscriptionSend.failed) failedUsers.add(id);
     }
     for (final id in failedUsers) {
       _sendSubscription('user.update', id, subscribe: true);
@@ -542,6 +638,7 @@ class SevenTvEventClient {
           _onHello(d ?? {});
         case 0:
           _healthy();
+          _lastDispatch = _now();
           _handleDispatch(d ?? {});
         case 2:
           _healthy();
@@ -550,7 +647,14 @@ class SevenTvEventClient {
           logDebug('7TV server requested reconnect');
           _endSocket(SocketEnd.reconnectNow);
         case 5:
-          break;
+          _onAck(d ?? {});
+        case 6:
+          final errorCode = d?['code'];
+          final errorMessage = d?['message'];
+          logDebug(
+            '7TV error: code=${errorCode ?? '?'} '
+            'message="${errorMessage ?? '?'}"',
+          );
         case 7:
           final code = d?['code'] as int?;
           final message = d?['message'] as String?;
@@ -570,8 +674,26 @@ class SevenTvEventClient {
     }
   }
 
+  void _onAck(Map<String, dynamic> d) {
+    final command = d['command'];
+    // Unsubscribe acks have nothing pending to mark.
+    if (command is! String || command.toLowerCase() != 'subscribe') return;
+    final data = d['data'];
+    if (data is! Map) return;
+    final type = data['type'];
+    final condition = data['condition'];
+    if (type is! String || condition is! Map) return;
+    final key = _subscriptionKey(type, Map<String, dynamic>.from(condition));
+    if (!_sentSubscriptions.contains(key)) return;
+    _ackedSubscriptions.add(key);
+  }
+
   void _onHello(Map<String, dynamic> d) {
     final interval = d['heartbeat_interval'] as int? ?? 30000;
+    _subscriptionLimit = _parseSubscriptionLimit(d['subscription_limit']);
+    // Subscription accounting is per connection; the flush below starts it.
+    _sentSubscriptions.clear();
+    _ackedSubscriptions.clear();
     _helloTimer?.cancel();
     _helloTimer = null;
     _heartbeatInterval = interval;
@@ -590,6 +712,11 @@ class SevenTvEventClient {
     _statusCtrl.add(SevenTvEventStatus.connected);
     _startHeartbeat();
     _flushPendingSubscriptions();
+  }
+
+  static int? _parseSubscriptionLimit(Object? raw) {
+    final value = raw is num ? raw.toInt() : int.tryParse('$raw');
+    return value == null || value <= 0 ? null : value;
   }
 
   void _handleDispatch(Map<String, dynamic> d) {

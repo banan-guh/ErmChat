@@ -8,6 +8,7 @@ import '../../l10n/l10n.dart';
 import '../../providers/chat_pipeline.dart';
 import '../../providers/feature_providers.dart';
 import '../../services/chat_connection_manager.dart';
+import '../../services/seven_tv_event_client.dart';
 import '../../twitch_config.dart';
 import 'settings_page.dart';
 
@@ -99,6 +100,36 @@ class _ServiceStatusScreenState extends ConsumerState<ServiceStatusScreen> {
     if (mounted) setState(() => _probing = false);
   }
 
+  /// Acked/sent subscription counts plus how long ago the last event arrived.
+  /// A gap between intended and sent shows a cap or a dead write.
+  String _sevenTvDetail(AppLocalizations l, SevenTvEventClient client) {
+    final acked = client.subscriptionAckCount;
+    final sent = client.subscriptionSentCount;
+    if (client.isConnected) {
+      if (client.pendingSetsOverflowed) {
+        return l.serviceSubsCapped(acked, sent);
+      }
+      final missing = client.missingSubscriptionCount;
+      if (missing > 0) {
+        return l.serviceSubsMissing(acked, sent, missing);
+      }
+    }
+    final subs = l.serviceSubs(acked, sent);
+    final last = client.lastDispatch;
+    final event = last == null
+        ? l.serviceNoEvents
+        : l.serviceLastEvent(_compactAge(DateTime.now().difference(last)));
+    return '$subs - $event';
+  }
+
+  String _compactAge(Duration age) {
+    if (age.isNegative) return '0s';
+    if (age.inSeconds < 60) return '${age.inSeconds}s';
+    if (age.inMinutes < 60) return '${age.inMinutes}m';
+    if (age.inHours < 24) return '${age.inHours}h';
+    return '${age.inDays}d';
+  }
+
   @override
   Widget build(BuildContext context) {
     ref.watch(twitchAuthTickProvider);
@@ -160,6 +191,9 @@ class _ServiceStatusScreenState extends ConsumerState<ServiceStatusScreen> {
           ),
           _ConnectionRow(
             name: '7TV events',
+            detail: sevenTv != null && sevenTv.enabled
+                ? _sevenTvDetail(l, sevenTv)
+                : null,
             connected: sevenTv?.isConnected ?? false,
             reconnecting: sevenTv?.isReconnecting ?? false,
             stale: sevenTv?.isStale ?? false,
@@ -237,7 +271,9 @@ class _ConnectionRow extends StatelessWidget {
     return ListTile(
       leading: Icon(Icons.circle, size: 12, color: color),
       title: Text(name),
-      subtitle: detail == null ? null : Text(detail!),
+      subtitle: detail == null
+          ? null
+          : Text(detail!, maxLines: 1, overflow: TextOverflow.ellipsis),
       trailing: Text(state, style: TextStyle(color: color)),
     );
   }
