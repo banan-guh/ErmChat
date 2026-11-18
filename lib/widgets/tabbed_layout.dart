@@ -808,8 +808,6 @@ class TabbedLayoutState extends State<TabbedLayout>
                                               // the tap keeps selection native.
                                               // The padding lives inside so the
                                               // whole tab, not just the label,
-                                              // The padding lives inside so the
-                                              // whole tab, not just the label,
                                               // takes the tap and hold.
                                               child: SizedBox(
                                                 height: double.infinity,
