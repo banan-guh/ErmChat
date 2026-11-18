@@ -247,6 +247,8 @@ class TabbedLayoutState extends State<TabbedLayout>
   // 36dp down, and reset the accumulator when the drag reverses.
   static const double _bubbleHideThreshold = 100;
   static const double _bubbleShowThreshold = 36;
+  // The newest row is live chat, where the bubbles always stay up.
+  static const double _newestEps = 0.5;
   double _retractAccum = 0;
   final _stripRetracted = ValueNotifier<bool>(false);
 
@@ -465,11 +467,27 @@ class TabbedLayoutState extends State<TabbedLayout>
 
   bool get _isProgrammaticJump => _programmaticTarget != null;
 
+  // The newest row is live chat, so the chrome returns however the list got
+  // there: a FAB jump, a fling, or a rebuilt window that emits no scroll.
+  void _syncStripToNewest(ScrollMetrics metrics) {
+    if (metrics.pixels > metrics.minScrollExtent + _newestEps) return;
+    _retractAccum = 0;
+    _stripRetracted.value = false;
+  }
+
+  bool _onPageMetrics(ScrollMetricsNotification notification) {
+    if (notification.metrics.axis == Axis.vertical) {
+      _syncStripToNewest(notification.metrics);
+    }
+    return false;
+  }
+
   // A reversed chat list grows [pixels] as the reader moves up into history,
   // so a positive drag delta means reading older rows. Ballistic and
   // layout-driven updates carry no drag details and never move the strip.
   void _updateStripRetraction(ScrollNotification notification) {
     if (!widget.stripBubbles || !widget.showTabBar) return;
+    _syncStripToNewest(notification.metrics);
     if (notification is! ScrollUpdateNotification ||
         notification.dragDetails == null) {
       return;
@@ -906,34 +924,37 @@ class TabbedLayoutState extends State<TabbedLayout>
     final pages = Stack(
       key: widget.pagesKey ?? _pagesKey,
       children: [
-        NotificationListener<ScrollNotification>(
-          onNotification: _onPageNotification,
-          child: widget.singlePage != null
-              ? TickerMode(enabled: true, child: widget.singlePage!)
-              : ScrollConfiguration(
-                  behavior: _SwipeScrollBehavior().copyWith(
-                    dragDevices: {
-                      PointerDeviceKind.touch,
-                      PointerDeviceKind.mouse,
-                      PointerDeviceKind.stylus,
-                      PointerDeviceKind.unknown,
-                    },
-                  ),
-                  child: PageView.builder(
-                    controller: _pageController,
-                    physics: widget.fastSnap
-                        ? const _SnapPhysics()
-                        : const PageScrollPhysics(),
-                    // Keep adjacent pages built so manual swipes stay smooth;
-                    // background pages pause through the disabled TickerMode.
-                    allowImplicitScrolling: widget.preloadAdjacentPages,
-                    itemCount: tabs.length,
-                    itemBuilder: (context, i) => TickerMode(
-                      enabled: i == _activeIndex,
-                      child: widget.pageBuilder(context, i),
+        NotificationListener<ScrollMetricsNotification>(
+          onNotification: _onPageMetrics,
+          child: NotificationListener<ScrollNotification>(
+            onNotification: _onPageNotification,
+            child: widget.singlePage != null
+                ? TickerMode(enabled: true, child: widget.singlePage!)
+                : ScrollConfiguration(
+                    behavior: _SwipeScrollBehavior().copyWith(
+                      dragDevices: {
+                        PointerDeviceKind.touch,
+                        PointerDeviceKind.mouse,
+                        PointerDeviceKind.stylus,
+                        PointerDeviceKind.unknown,
+                      },
+                    ),
+                    child: PageView.builder(
+                      controller: _pageController,
+                      physics: widget.fastSnap
+                          ? const _SnapPhysics()
+                          : const PageScrollPhysics(),
+                      // Keep adjacent pages built so manual swipes stay smooth;
+                      // background pages pause through the disabled TickerMode.
+                      allowImplicitScrolling: widget.preloadAdjacentPages,
+                      itemCount: tabs.length,
+                      itemBuilder: (context, i) => TickerMode(
+                        enabled: i == _activeIndex,
+                        child: widget.pageBuilder(context, i),
+                      ),
                     ),
                   ),
-                ),
+          ),
         ),
         if (edgeInset.left > 0)
           Positioned(

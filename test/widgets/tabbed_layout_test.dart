@@ -1039,6 +1039,52 @@ void main() {
         reason: 'returning to the newest rows brings the bubbles back',
       );
     });
+
+    testWidgets('a jump to the newest row brings the bubbles back', (
+      tester,
+    ) async {
+      final controller = ScrollController();
+      addTearDown(controller.dispose);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: TabbedLayout(
+              tabs: const ['a', 'b'],
+              selectedIndex: 0,
+              stripBubbles: true,
+              onSelectedIndexChanged: (_) {},
+              pageBuilder: (_, i) => ListView.builder(
+                key: ValueKey('jump_page_$i'),
+                controller: i == 0 ? controller : null,
+                reverse: true,
+                itemCount: 100,
+                itemBuilder: (_, n) => SizedBox(height: 40, child: Text('$n')),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final page = find.byKey(const ValueKey('jump_page_0'));
+
+      await tester.drag(page, const Offset(0, 400));
+      await tester.pumpAndSettle();
+      expect(
+        tester.getTopLeft(find.byType(TabBar)).dy,
+        lessThan(0),
+        reason: 'reading history retracts the bubbles',
+      );
+
+      // A FAB jump carries no drag details, so only the newest row can
+      // bring the bubbles back.
+      controller.jumpTo(0);
+      await tester.pumpAndSettle();
+      expect(
+        tester.getTopLeft(find.byType(TabBar)).dy,
+        greaterThanOrEqualTo(0),
+        reason: 'a jump to the newest row left the bubbles retracted',
+      );
+    });
   });
 
   group('TabbedLayout single page', () {
