@@ -529,32 +529,12 @@ class ChatChannelSetup {
         if (res.statusCode != 200) return null;
         // The body carries the whole emote set, megabytes for a big channel:
         // decode off the UI isolate.
-        final bytes = res.bodyBytes;
-        final (userId, emoteSetId, connectionIndex) = await Isolate.run(() {
-          final data = jsonDecode(utf8.decode(bytes)) as Map<String, dynamic>;
-          final user = data['user'] as Map<String, dynamic>?;
-          final connections =
-              user?['connections'] as List<dynamic>? ?? const [];
-          var twitchIndex = -1;
-          for (var i = 0; i < connections.length; i++) {
-            final connection = connections[i];
-            if (connection is Map<String, dynamic> &&
-                connection['platform'] == 'TWITCH') {
-              twitchIndex = i;
-              break;
-            }
-          }
-          return (
-            user?['id'] as String?,
-            (data['emote_set'] as Map<String, dynamic>?)?['id'] as String?,
-            twitchIndex,
-          );
-        });
-        if (userId == null || emoteSetId == null) return null;
+        final ids = await _decodeSevenTvIds(res.bodyBytes);
+        if (ids.userId == null || ids.emoteSetId == null) return null;
         return (
-          userId: userId,
-          emoteSetId: emoteSetId,
-          connectionIndex: connectionIndex,
+          userId: ids.userId!,
+          emoteSetId: ids.emoteSetId!,
+          connectionIndex: ids.connectionIndex,
         );
       }, attempts: 2);
     } catch (e) {
@@ -562,6 +542,31 @@ class ChatChannelSetup {
       return null;
     }
   }
+
+  /// Decodes the 7TV user payload off the UI isolate. Static so the isolate
+  /// message holds only the bytes: a closure built inside an instance
+  /// callback would carry this setup's whole object graph and fail to send.
+  static Future<({String? userId, String? emoteSetId, int connectionIndex})>
+  _decodeSevenTvIds(Uint8List bytes) => Isolate.run(() {
+    final data = jsonDecode(utf8.decode(bytes)) as Map<String, dynamic>;
+    final user = data['user'] as Map<String, dynamic>?;
+    final connections = user?['connections'] as List<dynamic>? ?? const [];
+    var twitchIndex = -1;
+    for (var i = 0; i < connections.length; i++) {
+      final connection = connections[i];
+      if (connection is Map<String, dynamic> &&
+          connection['platform'] == 'TWITCH') {
+        twitchIndex = i;
+        break;
+      }
+    }
+    return (
+      userId: user?['id'] as String?,
+      emoteSetId:
+          (data['emote_set'] as Map<String, dynamic>?)?['id'] as String?,
+      connectionIndex: twitchIndex,
+    );
+  });
 
   // The channel user ID from ROOMSTATE's room-id tag, sent right after
   // JOIN. Waits (bounded) for the ROOMSTATE if it hasn't arrived yet.
