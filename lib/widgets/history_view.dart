@@ -408,6 +408,12 @@ class _HistoryViewState extends State<HistoryView> {
   /// Slider position: 0 off, 20 always, 1..19 dynamic thresholds.
   double _compactRate = 0;
 
+  /// Folding state for the loaded window. The live-rate gate only re-reads
+  /// while following: flipping it unfolds every pile and moves the rows
+  /// under a reader who is up in history.
+  bool _compactOn = false;
+  bool _compactSeeded = false;
+
   /// Revealed pile members sit back so spam reads apart from real messages.
   static const double _pileMemberOpacity = 0.6;
 
@@ -553,6 +559,7 @@ class _HistoryViewState extends State<HistoryView> {
       }
       _compactRate = widget.compact ? Settings.compactRepeats.value : 0;
       _compact = _compactRate > 0;
+      _compactSeeded = false;
       _expanded.clear();
       _rebuildItems();
     }
@@ -1338,7 +1345,13 @@ class _HistoryViewState extends State<HistoryView> {
     };
     _expanded.removeWhere((key) => !live.contains(key));
     final threshold = _compactRate >= 20 ? 0 : _compactThreshold(_compactRate);
-    if (threshold > 0 && _recentRate() < threshold) {
+    if (threshold == 0) {
+      _compactOn = true;
+    } else if (_follow || !_compactSeeded) {
+      _compactOn = _recentRate() >= threshold;
+      _compactSeeded = true;
+    }
+    if (!_compactOn) {
       _repeatCounts = const {};
       _repeatHidden = const {};
       return;
@@ -1421,6 +1434,7 @@ class _HistoryViewState extends State<HistoryView> {
     setState(() {
       _compactRate = value;
       _compact = value > 0;
+      _compactSeeded = false;
       _expanded.clear();
       _rebuildItems();
     });
@@ -1845,11 +1859,15 @@ class _HistoryViewState extends State<HistoryView> {
             for (final r in rows)
               if (!r.timestamp.isAfter(first)) r,
           ];
+    if (!_follow) _captureHold();
     setState(() {
       if (_window.prepend(fresh) == 0) _window.markOldest();
       _trim();
       _rebuildItems();
     });
+    // Prepending can fold the boundary run into an older summary and drop
+    // the rows that were on screen; keep the edge row where the reader left it.
+    if (_hold != null) _pos?.correctBy(0);
     _count('hblk');
     _scheduleMaintain();
   }
