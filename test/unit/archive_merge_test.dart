@@ -2,6 +2,7 @@ import 'package:ermchat/chat/channel/threads.dart';
 import 'package:ermchat/models/twitch_message.dart';
 import 'package:ermchat/panels/threads.dart';
 import 'package:ermchat/sheets/user_sheet.dart';
+import 'package:ermchat/util/history_window.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 final _now = DateTime.utc(2026, 11, 6, 12);
@@ -237,6 +238,25 @@ void main() {
         reason: 'oldest first and one row per id',
       );
       expect(merged[1], same(live.last), reason: 'the live row won');
+    });
+
+    test('id-less rows collapse across the page overlap', () {
+      // Archive rows drop ids after a day, and each page re-reads the row at
+      // its edge with a 1 ms overlap.
+      TwitchMessage anon(int seconds) => TwitchMessage(
+        login: 'alice',
+        text: 'msg $seconds',
+        channel: 'test',
+        timestamp: _now.add(Duration(seconds: seconds)),
+      );
+      final first = [anon(2), anon(1)];
+      final seen = {for (final m in first) HistoryWindow.keyOf(m)};
+      final merged = mergeUserHistory(first, [anon(2), anon(0)], seen);
+      expect(
+        [for (final m in merged) m.text],
+        ['msg 0', 'msg 1', 'msg 2'],
+        reason: 'the overlapped edge row must appear once',
+      );
     });
   });
 }

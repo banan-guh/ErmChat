@@ -10,6 +10,7 @@ import '../models/twitch_badge.dart';
 import '../models/twitch_message.dart';
 import '../composer/composer_controller.dart';
 import '../util/log.dart';
+import '../util/history_window.dart';
 import '../util/prefs.dart';
 import '../services/archive_reader.dart';
 import '../services/chat_connection_manager.dart';
@@ -89,7 +90,8 @@ double userSheetTargetDetent(
 }
 
 /// [current] history plus [page] (newest first), oldest first and deduped by
-/// id. An id already in [seen] wins, so live rows beat archived copies.
+/// [HistoryWindow.keyOf]. An existing row wins, so live rows beat archived
+/// copies and id-less rows still collapse across page overlap.
 List<TwitchMessage> mergeUserHistory(
   List<TwitchMessage> current,
   List<TwitchMessage> page,
@@ -97,8 +99,7 @@ List<TwitchMessage> mergeUserHistory(
 ) {
   final fresh = <TwitchMessage>[];
   for (final m in page.reversed) {
-    final id = m.messageId;
-    if (id != null && !seen.add(id)) continue;
+    if (!seen.add(HistoryWindow.keyOf(m))) continue;
     fresh.add(m);
   }
   if (fresh.isEmpty) return current;
@@ -173,7 +174,9 @@ class UserSheets {
         ? const <TwitchMessage>[]
         : _recentMessagesFromUser(channel, username).reversed.toList();
     final history = ValueNotifier<List<TwitchMessage>>(buffered);
-    final historyIds = <String>{for (final m in buffered) ?m.messageId};
+    final historyKeys = <String>{
+      for (final m in buffered) HistoryWindow.keyOf(m),
+    };
     // Pages of older archived rows, each loaded when the list nears its
     // oldest end.
     final reader = archiveReader;
@@ -205,7 +208,7 @@ class UserSheets {
       if (page.length < userHistoryPage) archiveEnd = true;
       if (page.isEmpty) return;
       archiveOldest = page.last.timestamp;
-      history.value = mergeUserHistory(history.value, page, historyIds);
+      history.value = mergeUserHistory(history.value, page, historyKeys);
     }
 
     if (!archiveEnd) unawaited(loadOlder());
