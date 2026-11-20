@@ -42,7 +42,10 @@ class SetHistory {
 
   /// Keys of [_logs] whose load finished; a load in flight is never evicted.
   final Set<String> _logsLoaded = {};
-  Future<void> _observing = Future.value();
+
+  /// One write chain per set. A read waits only for the sets it draws with,
+  /// so a burst of other channels' observations cannot hold its history.
+  final Map<String, Future<void>> _observing = {};
 
   // Decoded definitions by scope, then key, shared by every lookup. The
   // least recently used scope drops out once there are more than _cacheSize.
@@ -101,18 +104,43 @@ class SetHistory {
     DateTime? at,
   ) {
     final atMs = (at ?? DateTime.now()).millisecondsSinceEpoch;
-    return _observing = _observing.then((_) async {
-      try {
-        final s = await store;
-        if (s == null) return;
-        final log = await _log(s, kind, scope, source);
-        final rows = log.rows;
-        if (rows.isNotEmpty && atMs <= rows.last.atMs) return;
-        await record(s, log, atMs);
-      } catch (e) {
-        logDebug('[SetHistory] write failed: $e');
-      }
-    });
+    final key = _logKey(kind, scope, source);
+    final previous = _observing[key] ?? Future<void>.value();
+    late final Future<void> next;
+    next = previous
+        .then((_) async {
+          try {
+            final s = await store;
+            if (s == null) return;
+            final log = await _log(s, kind, scope, source);
+            final rows = log.rows;
+            if (rows.isNotEmpty && atMs <= rows.last.atMs) return;
+            await record(s, log, atMs);
+          } catch (e) {
+            logDebug('[SetHistory] write failed: $e');
+          }
+        })
+        .whenComplete(() {
+          if (identical(_observing[key], next)) _observing.remove(key);
+        });
+    _observing[key] = next;
+    return next;
+  }
+
+  static String _logKey(String kind, String scope, String source) =>
+      '$kind|$scope|$source';
+
+  /// Waits for the write in flight for one set, so a read sees its newest
+  /// observation.
+  Future<void> _drain(String kind, String scope, String source) async {
+    final pending = _observing[_logKey(kind, scope, source)];
+    if (pending != null) await pending;
+  }
+
+  Future<void> _drainAll() async {
+    while (_observing.isNotEmpty) {
+      await Future.wait(_observing.values.toList());
+    }
   }
 
   /// Stores [o] for one set, or when null only moves the last seen time.
@@ -141,7 +169,7 @@ class SetHistory {
     String source,
     DateTime at,
   ) async {
-    await _observing;
+    await _drain(kind, scope, source);
     final s = await store;
     if (s == null) return const {};
     return (await _log(s, kind, scope, source)).at(at.millisecondsSinceEpoch);
@@ -240,7 +268,12 @@ class SetHistory {
   /// [channel]'s emote and badge history, loaded for reads; null when the
   /// store is closed.
   Future<ChannelSets?> load(String channel) async {
-    await _observing;
+    for (final scope in ['', channel]) {
+      for (final p in _providers) {
+        await _drain(emoteKind, scope, p.name);
+      }
+      await _drain(badgeKind, scope, _badgeSource);
+    }
     try {
       final s = await store;
       if (s == null) return null;
@@ -287,7 +320,7 @@ class SetHistory {
 
   /// Forgets every log, for a wiped store. Waits for writes in flight.
   Future<void> clear() async {
-    await _observing;
+    await _drainAll();
     _logs.clear();
     _logsLoaded.clear();
     _emotes.clear();
