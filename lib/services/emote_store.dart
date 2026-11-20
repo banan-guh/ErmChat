@@ -835,6 +835,7 @@ class EmoteStore {
     int epoch,
     ChannelEmoteFetch fetch, {
     bool partial = false,
+    bool stamp = true,
   }) {
     if (epoch != channelEpoch(channel)) return false;
     // No provider lists and no 7TV identity: keep the retained lists, skip the
@@ -887,7 +888,7 @@ class EmoteStore {
       _sevenTvFull.add(channel);
     }
     _reapplyLiveSevenTv(channel);
-    _channelFetchTimes[channel] = DateTime.now();
+    if (stamp) _channelFetchTimes[channel] = DateTime.now();
     emitChange(
       channel: channel,
       restampCodes: _changedEmoteCodes(

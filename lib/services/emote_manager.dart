@@ -647,6 +647,7 @@ class EmoteManager implements EmoteLookupSource {
             sevenTvSetId: sevenTvSetId,
             sevenTvUserId: sevenTvUserId,
           ),
+          stamp: false,
         );
       }
     });
@@ -712,7 +713,7 @@ class EmoteManager implements EmoteLookupSource {
           if (!_skipTwitchBackgroundRefresh) {
             unawaited(
               _fetcher
-                  .enqueue(_fetcher.refreshTwitchGlobal)
+                  .enqueueTwitch(_fetcher.refreshTwitchGlobal)
                   .then((fetch) {
                     if (fetch != null) _commitGlobal(epoch, fetch);
                   })
@@ -742,7 +743,7 @@ class EmoteManager implements EmoteLookupSource {
         onSettled: onFetchSettled,
       ),
     );
-    if (_commitGlobal(epoch, fetch)) {
+    if (_commitGlobal(epoch, fetch) && fetch.failed.isEmpty) {
       await _persistence.save('emotes5_global', _store.globalCatalog, ttl);
     }
     _store.notifyCatalogChanged();
@@ -800,7 +801,13 @@ class EmoteManager implements EmoteLookupSource {
             _store.channelEpoch(channel) == epoch) {
           _store.dropLiveSevenTv(channel);
         }
-        return _commitChannel(channel, epoch, fetch, partial: partial);
+        return _commitChannel(
+          channel,
+          epoch,
+          fetch,
+          partial: partial,
+          stamp: !partial && fetch.failed.isEmpty,
+        );
       }
 
       final fetch = await _fetcher.enqueue(
@@ -811,7 +818,7 @@ class EmoteManager implements EmoteLookupSource {
           onSettled: onFetchSettled,
         ),
       );
-      if (commit(fetch)) {
+      if (commit(fetch) && fetch.failed.isEmpty) {
         await _saveChannel(channel, ttl, _now());
       }
       return;
@@ -837,11 +844,13 @@ class EmoteManager implements EmoteLookupSource {
         if (!_skipTwitchBackgroundRefresh) {
           unawaited(
             _fetcher
-                .enqueue(
+                .enqueueTwitch(
                   () => _fetcher.refreshTwitchChannel(channel, broadcasterId),
                 )
                 .then((fetch) {
-                  if (fetch != null) _commitChannel(channel, epoch, fetch);
+                  if (fetch != null) {
+                    _commitChannel(channel, epoch, fetch, stamp: false);
+                  }
                 })
                 .catchError((Object _) {}),
           );
@@ -858,11 +867,17 @@ class EmoteManager implements EmoteLookupSource {
         broadcasterId,
         channelName: channel,
         onProvider: (landed) =>
-            _commitChannel(channel, epoch, landed, partial: true),
+            _commitChannel(channel, epoch, landed, partial: true, stamp: false),
         onSettled: onFetchSettled,
       ),
     );
-    if (_commitChannel(channel, epoch, fetch)) {
+    final ok = _commitChannel(
+      channel,
+      epoch,
+      fetch,
+      stamp: fetch.failed.isEmpty,
+    );
+    if (ok && fetch.failed.isEmpty) {
       await _saveChannel(channel, ttl, _now());
     }
   }
@@ -922,12 +937,19 @@ class EmoteManager implements EmoteLookupSource {
     int epoch,
     ChannelEmoteFetch fetch, {
     bool partial = false,
+    bool stamp = true,
   }) {
     if (epoch != _store.channelEpoch(channel)) return false;
     for (final _ in fetch.failed) {
       _fetchFailures.add(channel);
     }
-    return _store.commitChannel(channel, epoch, fetch, partial: partial);
+    return _store.commitChannel(
+      channel,
+      epoch,
+      fetch,
+      partial: partial,
+      stamp: stamp,
+    );
   }
 
   /// Every loaded global, channel and sub emote, keyed by where it shows,
@@ -950,7 +972,7 @@ class EmoteManager implements EmoteLookupSource {
     final broadcasterId = _channelBroadcasterIds[channel];
     if (broadcasterId == null) return;
     final epoch = _store.channelEpoch(channel);
-    final fetch = await _fetcher.enqueue(
+    final fetch = await _fetcher.enqueueSevenTv(
       () => _fetcher.reconcileSevenTv(channel, broadcasterId),
     );
     if (fetch == null || _store.channelEpoch(channel) != epoch) return;
@@ -959,7 +981,9 @@ class EmoteManager implements EmoteLookupSource {
     if (fetch.byProvider[EmoteType.sevenTv] != null) {
       _store.dropLiveSevenTv(channel);
     }
-    if (_commitChannel(channel, epoch, fetch)) _scheduleSevenTvSave(channel);
+    if (_commitChannel(channel, epoch, fetch, stamp: false)) {
+      _scheduleSevenTvSave(channel);
+    }
   }
 
   void evictChannel(String channel) {

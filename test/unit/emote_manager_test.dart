@@ -1444,6 +1444,46 @@ void main() {
         'Bravo',
       ]);
     });
+
+    test('a failed fetch keeps the cache but not the TTL', () async {
+      EmoteMetaStore.I.reset();
+      final old = DateTime.now().subtract(const Duration(days: 3));
+      SharedPreferences.setMockInitialValues({
+        'emotes5_ch': jsonEncode({
+          'ts': old.toIso8601String(),
+          'tier': EmoteFetchTier.medium.index,
+          'emotes': _catalogJson([
+            sevenTv('a', 'Alpha'),
+          ], scope: EmoteScope.channel),
+        }),
+      });
+      var calls = 0;
+      final manager = EmoteManager(
+        fetchStagger: Duration.zero,
+        tier: EmoteFetchTier.medium,
+        removeCachedFile: (url) async {},
+        sevenTvChannelFetcher: (id) async {
+          calls++;
+          throw Exception('HTTP 429');
+        },
+      );
+
+      await manager.resolveEmotes('ch', 'b1');
+      await pumpEventQueue();
+      expect(
+        manager.byCode('ch')!.suggestions.map((e) => e.code),
+        contains('Alpha'),
+        reason: 'the retained cache must survive the failed refresh',
+      );
+
+      await manager.resolveEmotes('ch', 'b1');
+      await pumpEventQueue();
+      expect(
+        calls,
+        2,
+        reason: 'a failed refresh must not make the retained cache fresh',
+      );
+    });
   });
 
   group('emote fetch commit epochs', () {

@@ -73,6 +73,13 @@ class EmoteFetcher {
   static const _maxConcurrentFetches = 4;
   final _fetchGate = Semaphore(_maxConcurrentFetches);
 
+  // Twitch-only refreshes are small and drive what the reader sees first, so
+  // they do not queue behind 7TV set downloads. Background 7TV work gets its
+  // own lane too: a reconnect resync enqueues one full set per channel, which
+  // would otherwise occupy every main slot.
+  final _twitchGate = Semaphore(1);
+  final _sevenTvGate = Semaphore(2);
+
   // Set on teardown so work queued behind the stagger or the gate is dropped
   // instead of retaining its closure until it runs.
   bool _disposed = false;
@@ -142,7 +149,19 @@ class EmoteFetcher {
   /// hold gate slots. Callers control the enqueue boundary when they batch
   /// several producer calls under one permit. Work still queued at teardown
   /// is dropped without running.
-  Future<T> enqueue<T>(Future<T> Function() action) {
+  Future<T> enqueue<T>(Future<T> Function() action) =>
+      _enqueueOn(_fetchGate, action);
+
+  /// A Twitch-only refresh: small, and independent of 7TV downloads.
+  Future<T> enqueueTwitch<T>(Future<T> Function() action) =>
+      _enqueueOn(_twitchGate, action);
+
+  /// Background 7TV work. Its own lane keeps a resync from occupying every
+  /// main slot while a channel is opening.
+  Future<T> enqueueSevenTv<T>(Future<T> Function() action) =>
+      _enqueueOn(_sevenTvGate, action);
+
+  Future<T> _enqueueOn<T>(Semaphore gate, Future<T> Function() action) {
     if (_disposed) {
       return Future<T>.error(StateError('EmoteFetcher disposed'));
     }
@@ -152,7 +171,7 @@ class EmoteFetcher {
       if (_disposed) {
         throw StateError('EmoteFetcher disposed');
       }
-      return _fetchGate.withPermit(() {
+      return gate.withPermit(() {
         if (_disposed) {
           throw StateError('EmoteFetcher disposed');
         }
@@ -440,10 +459,10 @@ class EmoteFetcher {
     }
   }
 
-  /// Fetches a 7TV emote set behind the shared gate. The manager's foreign
+  /// Fetches a 7TV emote set on the 7TV lane. The manager's foreign
   /// personal-set fill uses this narrow entry rather than the raw gate.
   Future<List<Emote>> fetchSevenTvEmoteSet(String setId) =>
-      _fetchGate.withPermit(() => _sevenTvEmoteSetFetcher(setId));
+      _sevenTvGate.withPermit(() => _sevenTvEmoteSetFetcher(setId));
 
   /// Lists the 7TV sets owned by [twitchId] (viewer personal bootstrap).
   Future<List<String>> fetchSevenTvOwnedSetIds(String twitchId) =>
