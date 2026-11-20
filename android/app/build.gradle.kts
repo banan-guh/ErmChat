@@ -22,6 +22,26 @@ if (keystorePropertiesFile.exists()) {
 // beside a release install. A plain debug run installs the normal app.
 val devAppId = System.getenv("ERMCHAT_DEV") == "1"
 
+// Short commit of the checked-out tree, so an installed dev build says
+// exactly which code it runs. A clean release keeps its version name.
+val buildCommit: String = run {
+    fun git(vararg args: String): String = try {
+        val p = ProcessBuilder("git", *args)
+            .directory(rootProject.projectDir.parentFile)
+            .redirectErrorStream(true)
+            .start()
+        p.inputStream.bufferedReader().use { it.readText().trim() }
+    } catch (_: Exception) {
+        ""
+    }
+    val sha = git("rev-parse", "--short", "HEAD")
+    when {
+        sha.isEmpty() -> "unknown"
+        git("status", "--porcelain").isNotEmpty() -> "$sha-dirty"
+        else -> sha
+    }
+}
+
 android {
     namespace = "io.github.bananguh.ErmChat"
     compileSdk = flutter.compileSdkVersion
@@ -70,6 +90,10 @@ android {
                 manifestPlaceholders["appLabel"] = "ErmChat"
             }
         }
+        // The commit rides the version name so `dumpsys package` and About
+        // identify the exact build, even when the version itself did not bump.
+        getByName("debug") { versionNameSuffix = "+$buildCommit" }
+        getByName("profile") { versionNameSuffix = "+$buildCommit" }
         release {
             signingConfig = signingConfigs.getByName("release")
             // R8 strips unused JVM-side code (embedding + plugins); smaller
@@ -83,6 +107,7 @@ android {
             // Debug signing, so this updates in place over a debug install
             // that already uses the .debug id.
             if (devAppId || System.getenv("ERMCHAT_DEV_RELEASE") == "1") {
+                versionNameSuffix = "+$buildCommit"
                 applicationIdSuffix = ".debug"
                 manifestPlaceholders["appLabel"] = "ErmChat Dev"
                 signingConfig = signingConfigs.getByName("debug")
