@@ -3,7 +3,13 @@
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/foundation.dart'
-    show LicenseEntry, LicenseEntryWithLineBreaks, LicenseRegistry;
+    show
+        LicenseEntry,
+        LicenseEntryWithLineBreaks,
+        LicenseRegistry,
+        kProfileMode,
+        kReleaseMode;
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -54,6 +60,7 @@ Stream<LicenseEntry> _thirdPartyLicenses() async* {
 
 Future<void> _boot() async {
   WidgetsFlutterBinding.ensureInitialized();
+  unawaited(_logAppVersion());
   // Decoded-image memory budget. The image cache accounts every displayed
   // frame at true size (width x height x 4) and evicts least-recently-used
   // entries past either cap; eviction disposes our emote completers, which
@@ -88,6 +95,22 @@ Future<void> _boot() async {
   PerfProbe.gauge('stream', () => EmoteUrlProvider.streamingCount);
   PerfProbe.gauge('array', () => EmoteUrlProvider.arrayCount);
   runApp(const TwitchChatApp());
+}
+
+/// Names the running build in the log. The dev version name carries the
+/// commit, so a report points at the exact code.
+Future<void> _logAppVersion() async {
+  try {
+    final info = await PackageInfo.fromPlatform();
+    final mode = kReleaseMode
+        ? 'release'
+        : kProfileMode
+        ? 'profile'
+        : 'debug';
+    logDebug('[app] ${info.version}+${info.buildNumber} ($mode)');
+  } catch (e) {
+    logDebug('[app] version unknown: $e');
+  }
 }
 
 /// Halves the decoded-image budgets on phones under 4GB of RAM, where 100MB
