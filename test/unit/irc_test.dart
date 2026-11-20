@@ -2897,26 +2897,6 @@ void main() {
       expect(sevenTv.channelSubscribes, 2);
     });
 
-    test('a reconnect resync follows a switched set', () async {
-      await setup.subscribeChannel('test');
-      await Future<void>.delayed(Duration.zero);
-      emoteManager.reconcileTo = 'set2';
-
-      await setup.resyncSevenTv();
-
-      expect(
-        sevenTv.emoteSetUnsubscribes,
-        contains('set1'),
-        reason: 'the old set must stop feeding the new session',
-      );
-      expect(
-        sevenTv.emoteSetIds.last,
-        'set2',
-        reason: 'the resync must subscribe the set the server reports now',
-      );
-      expect(emoteManager.setId, 'set2');
-    });
-
     test('7TV settings narrow the socket, then close it', () async {
       await setup.subscribeChannel('test');
       setup.applySevenTvSettings(emotes: false, cosmetics: true);

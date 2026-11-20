@@ -119,11 +119,6 @@ class ChatLifecycle {
   StreamSubscription<IrcConnectionStatus>? ircReadStatusSub;
   StreamSubscription<void>? ircAuthFailedSub;
   StreamSubscription<void>? ircReadAuthFailedSub;
-  StreamSubscription<SevenTvEventStatus>? sevenTvStatusSub;
-  // A 7TV reconnect replays subscriptions but not the dispatches missed while
-  // down. Skip the first connect, then resync once per reconnect.
-  bool _sevenTvConnectedOnce = false;
-  bool _sevenTvResyncPending = false;
   StreamSubscription<IrcJoinFailureEvent>? _ircJoinFailedSub;
   StreamSubscription<String>? _ircJoinTimedOutSub;
   StreamSubscription<IrcRoomStateEvent>? _readRoomStateSub;
@@ -145,7 +140,6 @@ class ChatLifecycle {
     ircReadStatusSub?.cancel();
     ircAuthFailedSub?.cancel();
     ircReadAuthFailedSub?.cancel();
-    sevenTvStatusSub?.cancel();
     _ircJoinFailedSub?.cancel();
     _ircJoinTimedOutSub?.cancel();
     _readRoomStateSub?.cancel();
@@ -283,22 +277,6 @@ class ChatLifecycle {
         eventSubTopics.clearSessionState();
       } else if (status == EventSubStatus.connected) {
         eventSubTopics.resubscribeEventSubChannels(chat.names);
-      }
-    });
-
-    // 7TV events: hello replays the subscriptions, but not the dispatches
-    // missed while the socket was down. Refetch each joined channel's set
-    // once the new session is up, so a gap or a set switch heals.
-    sevenTvStatusSub?.cancel();
-    sevenTvStatusSub = sevenTvClient?.onStatus.listen((status) {
-      if (_disposed) return;
-      if (status == SevenTvEventStatus.disconnected) {
-        _sevenTvResyncPending = _sevenTvConnectedOnce;
-      } else if (status == SevenTvEventStatus.connected) {
-        final resync = _sevenTvResyncPending;
-        _sevenTvResyncPending = false;
-        _sevenTvConnectedOnce = true;
-        if (resync) unawaited(channelSetup.resyncSevenTv());
       }
     });
 

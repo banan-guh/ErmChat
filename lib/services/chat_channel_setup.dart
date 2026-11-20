@@ -130,9 +130,6 @@ class ChatChannelSetup {
         Future<({String userId, String emoteSetId, int connectionIndex})?>
       >{};
 
-  /// One resync at a time: a flapping socket must not stack full refetches.
-  bool _sevenTvResyncing = false;
-
   /// Whole resolve-plus-send by Twitch channel id. Concurrent joins for one
   /// channel share it instead of each sending their own.
   final _sevenTvSubInflight = <String, Future<void>>{};
@@ -338,53 +335,6 @@ class ChatChannelSetup {
   void subscribeAll(List<String> channels) {
     for (final channel in channels) {
       unawaited(subscribeChannel(channel));
-    }
-  }
-
-  /// Refetches every joined channel's 7TV set after a socket reconnect and
-  /// makes the socket follow it. A gap can drop dispatches or hide a set
-  /// switch, and the replay on hello only restores subscriptions.
-  Future<void> resyncSevenTv() async {
-    final client = sevenTvClient;
-    if (client == null || _sevenTvResyncing) return;
-    _sevenTvResyncing = true;
-    try {
-      final channels = List<String>.of(chat.names);
-      await Future.wait([
-        for (final channel in channels) _resyncSevenTvChannel(client, channel),
-      ]);
-    } finally {
-      _sevenTvResyncing = false;
-    }
-  }
-
-  Future<void> _resyncSevenTvChannel(
-    SevenTvEventClient client,
-    String channel,
-  ) async {
-    if (_disposed) return;
-    final twitchId = chat.channelFor(channel)?.info.broadcasterId;
-    if (twitchId == null) return;
-    if (!_sevenTvEmotes) {
-      if (_sevenTvCosmetics) client.subscribeTwitchChannel(twitchId);
-      return;
-    }
-    try {
-      final before = emoteManager.getSevenTvEmoteSetId(channel);
-      await emoteManager.reconcileSevenTvChannel(channel);
-      // The channel may have been left while the fetch was in flight.
-      if (_disposed || chat.channelFor(channel) == null) return;
-      final after = emoteManager.getSevenTvEmoteSetId(channel);
-      final userId = emoteManager.getSevenTvUserId(channel);
-      if (userId == null) return;
-      if (before != null && before != after) {
-        client.unsubscribeEmoteSet(before);
-      }
-      if (after != null) client.subscribeEmoteSet(after);
-      client.subscribeUser(userId);
-      client.subscribeTwitchChannel(twitchId);
-    } catch (e) {
-      logDebug('[ChatConn] 7TV resync failed for $channel: $e');
     }
   }
 
