@@ -1,3 +1,3 @@
-- fixed composer
-- fix 7tv subscriptions
-- minor ux changes
+- fix 7tv network and bottlenecks
+- user card repeat rows fixed
+- chat jump, top bar, expired threads fixed
