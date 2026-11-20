@@ -52,7 +52,12 @@ class TwitchEmoteProvider {
       headers['Authorization'] = 'Bearer $accessToken';
     }
     final res = await getEmoteList(uri, headers: headers);
-    if (res.statusCode != 200) return [];
+    if (res.statusCode != 200) {
+      // Anonymous calls have no Helix token, so a refusal is the normal
+      // answer. A signed-in failure must surface and keep the retained list.
+      if (accessToken == null) return [];
+      throw HttpException('HTTP ${res.statusCode}', uri: uri);
+    }
     return Isolate.run(() {
       final data = jsonDecode(res.body) as Map<String, dynamic>;
       return _parseEmotes(

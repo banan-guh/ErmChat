@@ -10,29 +10,35 @@ import 'package:ermchat/services/emote_providers/seven_tv_emotes.dart';
 
 class _FakeHttpOverrides extends HttpOverrides {
   final Map<String, String> responses;
-  _FakeHttpOverrides(this.responses);
+  final Map<String, int> statuses;
+  _FakeHttpOverrides(this.responses, {this.statuses = const {}});
 
   @override
   HttpClient createHttpClient(SecurityContext? context) =>
-      _FakeHttpClient(responses);
+      _FakeHttpClient(responses, statuses);
 }
 
 class _FakeHttpClient implements HttpClient {
   final Map<String, String> responses;
-  _FakeHttpClient(this.responses);
+  final Map<String, int> statuses;
+  _FakeHttpClient(this.responses, this.statuses);
 
   @override
   Future<HttpClientRequest> openUrl(String method, Uri url) async =>
-      _FakeHttpClientRequest(responses[url.toString()] ?? '');
+      _FakeHttpClientRequest(
+        responses[url.toString()] ?? '',
+        statuses[url.toString()] ?? 200,
+      );
 
   @override
   dynamic noSuchMethod(Invocation invocation) => null;
 }
 
 class _FakeHttpClientRequest implements HttpClientRequest {
-  _FakeHttpClientRequest(this.body);
+  _FakeHttpClientRequest(this.body, [this.status = 200]);
 
   final String body;
+  final int status;
   final _FakeHttpHeaders _headers = _FakeHttpHeaders();
 
   @override
@@ -53,23 +59,25 @@ class _FakeHttpClientRequest implements HttpClientRequest {
   @override
   Future<HttpClientResponse> addStream(Stream<List<int>> stream) async {
     await stream.drain<void>();
-    return _FakeHttpClientResponse(body);
+    return _FakeHttpClientResponse(body, status);
   }
 
   @override
-  Future<HttpClientResponse> close() async => _FakeHttpClientResponse(body);
+  Future<HttpClientResponse> close() async =>
+      _FakeHttpClientResponse(body, status);
 
   @override
   dynamic noSuchMethod(Invocation invocation) => null;
 }
 
 class _FakeHttpClientResponse implements HttpClientResponse {
-  _FakeHttpClientResponse(this.body);
+  _FakeHttpClientResponse(this.body, [this._status = 200]);
 
   final String body;
+  final int _status;
 
   @override
-  int get statusCode => 200;
+  int get statusCode => _status;
 
   @override
   int get contentLength => body.length;
@@ -445,6 +453,38 @@ void main() {
       );
       expect(metaOf('BlankSub').kind, TwitchEmoteKind.sub);
       expect(metaOf('BlankBits').kind, TwitchEmoteKind.bits);
+    });
+
+    test(
+      'a signed-in refusal throws instead of reading as no emotes',
+      () async {
+        const url =
+            'https://api.twitch.tv/helix/chat/emotes?broadcaster_id=123';
+        HttpOverrides.global = _FakeHttpOverrides(
+          {url: '{"error":"Unauthorized"}'},
+          statuses: {url: 401},
+        );
+        await expectLater(
+          TwitchEmoteProvider.fetchChannel(
+            '123',
+            accessToken: 'token',
+            channelName: 'test',
+          ),
+          throwsA(isA<HttpException>()),
+        );
+      },
+    );
+
+    test('an anonymous refusal stays an empty list', () async {
+      const url = 'https://api.twitch.tv/helix/chat/emotes?broadcaster_id=123';
+      HttpOverrides.global = _FakeHttpOverrides(
+        {url: '{"error":"Unauthorized"}'},
+        statuses: {url: 401},
+      );
+      expect(
+        await TwitchEmoteProvider.fetchChannel('123', channelName: 'test'),
+        isEmpty,
+      );
     });
   });
 
