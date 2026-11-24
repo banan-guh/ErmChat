@@ -331,7 +331,11 @@ class EmoteUrlProvider extends ImageProvider<EmoteUrlProvider> {
       _capturedOrder.remove(victim);
       if (live != null && !live._disposed && !live._dropCapture()) {
         PaintingBinding.instance.imageCache.evict(
-          EmoteUrlProvider(victim, images: live.images),
+          EmoteUrlProvider(
+            victim,
+            images: live.images,
+            exactTiming: live.exactTiming,
+          ),
         );
       }
     }
@@ -437,10 +441,12 @@ class EmoteUrlProvider extends ImageProvider<EmoteUrlProvider> {
 
   @override
   bool operator ==(Object other) =>
-      other is EmoteUrlProvider && other.url == url;
+      other is EmoteUrlProvider &&
+      other.url == url &&
+      other.exactTiming == exactTiming;
 
   @override
-  int get hashCode => url.hashCode;
+  int get hashCode => Object.hash(url, exactTiming);
 
   @override
   String toString() => 'EmoteUrlProvider($url)';
@@ -597,7 +603,7 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
         EmoteUrlProvider._liveByUrl.remove(url);
       }
       PaintingBinding.instance.imageCache.evict(
-        EmoteUrlProvider(url, images: images),
+        EmoteUrlProvider(url, images: images, exactTiming: exactTiming),
       );
       // Drop the seed too: a target that never loads must not pin the map.
       EmoteUrlProvider._pendingSeeds.remove(url);
@@ -732,6 +738,7 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
       _cyclePosition = Duration(microseconds: posUs);
       _frameIndex = _frameForOffset(frames, posUs);
     }
+    _emitFrame(_frameIndex);
   }
 
   /// Whether a listener is attached. Visibility proxy for capture eviction.

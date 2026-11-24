@@ -154,13 +154,16 @@ class Channel {
     resolve,
   ) => messages.restampAllEmotes(resolve);
 
-  /// Heals rows that baked one of [codes] after the catalog replaced or
-  /// removed those emotes. See [Messages.restampCodes].
-  int restampCodes(
+  /// Heals rows that can gain a newly added 7TV emote. See
+  /// [Messages.restampAdded].
+  int restampAdded(
     Set<String> codes,
     ({List<EmoteToken>? tokens, bool complete}) Function(TwitchMessage msg)
     resolve,
-  ) => messages.restampCodes(codes, resolve);
+  ) => messages.restampAdded(codes, resolve);
+
+  /// Drops tokens for emotes 7TV confirmed gone. See [Messages.dropEmotes].
+  int dropEmotes(Set<String> ids) => messages.dropEmotes(ids);
 
   /// Reruns the keyword rules over every row; see [Messages.rewriteRows].
   int rewriteRows(bool Function(TwitchMessage msg) rewrite) =>

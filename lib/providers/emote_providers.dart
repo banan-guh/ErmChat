@@ -105,6 +105,7 @@ final emoteFetcherProvider = Provider<EmoteFetcher>((ref) {
         ref.read(emoteVisibilityProvider).isProviderEnabled(type),
     accessToken: () => ref.read(twitchAuthProvider).accessToken,
     isMobile: () => ref.read(connectivityServiceProvider).isMobile,
+    resolveOwnerLogins: ref.read(twitchApiProvider).getUserLoginsByIds,
   );
   ref.onDispose(fetcher.dispose);
   return fetcher;

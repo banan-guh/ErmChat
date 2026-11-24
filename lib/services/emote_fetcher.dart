@@ -80,6 +80,10 @@ class EmoteFetcher {
   final _twitchGate = Semaphore(1);
   final _sevenTvGate = Semaphore(2);
 
+  // Existence probes: tiny requests, bounded so a set-change storm cannot
+  // crowd out the fetches that fill the catalog.
+  final _probeGate = Semaphore(2);
+
   // Set on teardown so work queued behind the stagger or the gate is dropped
   // instead of retaining its closure until it runs.
   bool _disposed = false;
@@ -96,6 +100,7 @@ class EmoteFetcher {
   final Future<List<Emote>> Function() _sevenTvGlobalFetcher;
   final Future<List<String>> Function(String twitchId) _sevenTvOwnedSetIds;
   final Future<List<Emote>> Function(String setId) _sevenTvEmoteSetFetcher;
+  final Future<bool?> Function(String emoteId) _sevenTvEmoteExists;
   final Future<Map<String, String>> Function(TwitchAuth auth, List<String> ids)
   _resolveOwnerLogins;
   final Future<Map<String, List<Emote>>> Function(
@@ -115,6 +120,7 @@ class EmoteFetcher {
     Future<List<Emote>> Function()? sevenTvGlobalFetcher,
     Future<List<String>> Function(String twitchId)? sevenTvOwnedSetIds,
     Future<List<Emote>> Function(String setId)? sevenTvEmoteSetFetcher,
+    Future<bool?> Function(String emoteId)? sevenTvEmoteExists,
     Future<Map<String, String>> Function(TwitchAuth auth, List<String> ids)?
     resolveOwnerLogins,
     Future<Map<String, List<Emote>>> Function(
@@ -134,6 +140,7 @@ class EmoteFetcher {
        _sevenTvEmoteSetFetcher =
            sevenTvEmoteSetFetcher ??
            ((String setId) => SevenTvEmoteProvider.fetchEmoteSet(setId)),
+       _sevenTvEmoteExists = sevenTvEmoteExists ?? SevenTvEmoteProvider.exists,
        _resolveOwnerLogins =
            resolveOwnerLogins ?? TwitchApi().getUserLoginsByIds,
        _fetchUserEmotes =
@@ -463,6 +470,17 @@ class EmoteFetcher {
   /// personal-set fill uses this narrow entry rather than the raw gate.
   Future<List<Emote>> fetchSevenTvEmoteSet(String setId) =>
       _sevenTvGate.withPermit(() => _sevenTvEmoteSetFetcher(setId));
+
+  /// Whether 7TV still has [emoteId]: true, false when it 404s, null when the
+  /// answer is unknown. Bounded by its own gate, and never staggered: a
+  /// removal storm should settle quickly.
+  Future<bool?> probeSevenTvEmote(String emoteId) {
+    if (_disposed || emoteId.isEmpty) return Future.value(null);
+    return _probeGate.withPermit(() {
+      if (_disposed) return Future<bool?>.value(null);
+      return _sevenTvEmoteExists(emoteId);
+    });
+  }
 
   /// Lists the 7TV sets owned by [twitchId] (viewer personal bootstrap).
   Future<List<String>> fetchSevenTvOwnedSetIds(String twitchId) =>

@@ -25,6 +25,9 @@ class Mentions {
   int removeWhere(bool Function(TwitchMessage) test) =>
       messages.removeWhere(test);
 
+  /// Drops tokens for emotes 7TV confirmed gone. See [Messages.dropEmotes].
+  int dropEmotes(Set<String> ids) => messages.dropEmotes(ids);
+
   void clear() {
     if (messages.isEmpty) return;
     messages.removeWhere((_) => true);

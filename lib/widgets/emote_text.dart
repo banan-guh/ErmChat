@@ -362,7 +362,9 @@ class EmoteText {
     double scale = 1.0,
   }) {
     // The resolver picks the best cached scale live and falls back to the code
-    // as text when nothing is cached on the nothing tier.
+    // as text when nothing is cached on the nothing tier, or when the image no
+    // longer loads (a 7TV emote deleted after the row was baked).
+    final style = TextStyle(fontSize: 14 * scale);
     return EmoteScaleResolver(
       emote: emote,
       surface: EmoteSurface.chat,
@@ -372,7 +374,8 @@ class EmoteText {
       fit: BoxFit.contain,
       lean: true,
       animateGifs: animateGifs,
-      textStyle: TextStyle(fontSize: 14 * scale),
+      textStyle: style,
+      errorWidget: Text(emote.code, style: style),
     );
   }
 

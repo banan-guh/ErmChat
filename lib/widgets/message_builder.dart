@@ -202,19 +202,25 @@ class MessageBuilder {
   }
 
   /// Bakes [msg]'s emote tokens if they are not set, so a caller can read the
-  /// spans before the body builds. Partial while the catalogs are landing, as
-  /// in the body path.
+  /// spans before the body builds. Partial until the catalogs land and a
+  /// shared-chat source resolves, as in the body path.
   List<EmoteToken>? ensureEmoteTokens(TwitchMessage msg, String channel) {
     if (msg.emoteTokens != null || msg.isSystem) return msg.emoteTokens;
     // Shared-chat: resolve emotes against source channel's set.
-    final lookupChannel = msg.sourceBroadcasterId != null
-        ? badgeService.resolveChannelLogin(msg.sourceBroadcasterId!) ?? channel
-        : channel;
+    final source = msg.sourceBroadcasterId;
+    final sourceLogin = source == null
+        ? null
+        : badgeService.resolveChannelLogin(source);
+    final lookupChannel = sourceLogin ?? channel;
     msg.emoteTokens = emoteSource.parseMessageEmotes(
       msg,
       lookupChannel: lookupChannel,
     );
-    msg.emotesPartial = !emoteSource.catalogComplete(lookupChannel);
+    // An unresolved source parses against the local channel, which is not
+    // final: the row heals once the source login and its set land.
+    msg.emotesPartial =
+        (source != null && sourceLogin == null) ||
+        !emoteSource.catalogComplete(lookupChannel);
     return msg.emoteTokens;
   }
 

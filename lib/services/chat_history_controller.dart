@@ -325,21 +325,27 @@ class ChatHistoryController {
   }
 
   /// Shared lookup: shared-chat rows resolve against the source channel.
-  /// [complete] reports whether that channel's catalogs had all landed.
+  /// [complete] reports whether that channel's catalogs had all landed and
+  /// the source login was known.
   ({List<EmoteToken>? tokens, bool complete}) _parseForChannel(
     TwitchMessage msg,
     String channel,
   ) {
     final source = msg.sourceBroadcasterId;
-    final lookupChannel = source == null
-        ? channel
-        : badgeService.resolveChannelLogin(source) ?? channel;
+    final sourceLogin = source == null
+        ? null
+        : badgeService.resolveChannelLogin(source);
+    final lookupChannel = sourceLogin ?? channel;
     return (
       tokens: emoteManager.parseMessageEmotes(
         msg,
         lookupChannel: lookupChannel,
       ),
-      complete: emoteManager.catalogComplete(lookupChannel),
+      // An unresolved source parses against the local channel, which is not
+      // final: the row heals once the source login and its set land.
+      complete:
+          (source == null || sourceLogin != null) &&
+          emoteManager.catalogComplete(lookupChannel),
     );
   }
 
@@ -356,45 +362,55 @@ class ChatHistoryController {
         : channelState.restampPartialEmotes(resolve);
   }
 
-  /// Restamps every joined channel after a global catalog change.
+  /// Restamps every joined channel after a global catalog change. A change to
+  /// a channel that is not joined lands here too: its rows live mirrored in
+  /// the joined buffers.
   void restampAllChannels() {
     for (final name in List.of(chat.names)) {
       restampChannelEmotes(name);
     }
   }
 
-  /// Heals rows that baked an emote the catalog just replaced or removed, so
-  /// a deleted and re-added emote picks up its current id and url.
-  void restampChannelCodes(String channel, Set<String> codes) {
-    if (codes.isEmpty) return;
-    chat
-        .channelFor(channel)
-        ?.restampCodes(codes, (msg) => _parseForChannel(msg, channel));
-  }
-
   /// Heals history baked before its catalog arrived: a full channel commit
   /// restamps that channel, a full global commit restamps all. Version
   /// comparison skips live deltas and config-only updates, which never
   /// bump, so rendered rows keep their freeze outside real data changes.
+  ///
+  /// A live delta can also carry [EmoteChange.addedCodes], which rows adopt
+  /// additively, and [EmoteChange.deadIds], which rows drop.
   void _onCatalogChanged(EmoteChange change) {
-    final codes = change.restampCodes;
-    if (codes != null && codes.isNotEmpty) {
+    final dead = change.deadIds;
+    if (dead != null && dead.isNotEmpty) {
+      for (final name in List.of(chat.names)) {
+        chat.channelFor(name)?.dropEmotes(dead);
+      }
+      chat.mentions.dropEmotes(dead);
+    }
+    final added = change.addedCodes;
+    if (added != null && added.isNotEmpty) {
       final channel = change.channel;
       if (channel != null) {
-        restampChannelCodes(channel, codes);
+        chat
+            .channelFor(channel)
+            ?.restampAdded(added, (msg) => _parseForChannel(msg, channel));
       } else {
         for (final name in List.of(chat.names)) {
-          restampChannelCodes(name, codes);
+          chat
+              .channelFor(name)
+              ?.restampAdded(added, (msg) => _parseForChannel(msg, name));
         }
       }
     }
     if (change.version == _restampedVersion) return;
     _restampedVersion = change.version;
     final channel = change.channel;
-    if (channel != null) {
-      restampChannelEmotes(channel);
-    } else {
+    // A joined channel heals in place. A source channel that is not joined
+    // has its rows mirrored into joined buffers, so those partial rows heal
+    // even while the source page is offscreen.
+    if (channel == null || !chat.names.contains(channel)) {
       restampAllChannels();
+    } else {
+      restampChannelEmotes(channel);
     }
   }
 

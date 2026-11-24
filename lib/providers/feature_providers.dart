@@ -265,6 +265,7 @@ final archiveProvider = Provider<Archive?>((ref) {
   final badges = ref.read(badgeServiceProvider);
   final ignores = ref.read(ignoreManagerProvider);
   archive.reader.rewrite = (m) => rewriteMessageKeywords(m, ignores);
+  archive.reader.deadIds = () => emotes.deadIds;
   final sets = archive.sets
     ..visibility = () => (
       disabled: emotes.disabledProviders,

@@ -134,6 +134,7 @@ class EmoteManager implements EmoteLookupSource {
     Future<List<Emote>> Function()? sevenTvGlobalFetcher,
     Future<List<String>> Function(String twitchId)? sevenTvOwnedSetIdsFetcher,
     Future<List<Emote>> Function(String setId)? sevenTvEmoteSetFetcher,
+    Future<bool?> Function(String emoteId)? sevenTvEmoteExists,
     EmoteCacheManager? cacheManager,
     EmoteMetaStore? metaStore,
     Future<Map<String, String>> Function(TwitchAuth auth, List<String> ids)?
@@ -191,6 +192,7 @@ class EmoteManager implements EmoteLookupSource {
           sevenTvGlobalFetcher: sevenTvGlobalFetcher,
           sevenTvOwnedSetIds: sevenTvOwnedSetIdsFetcher,
           sevenTvEmoteSetFetcher: sevenTvEmoteSetFetcher,
+          sevenTvEmoteExists: sevenTvEmoteExists,
           resolveOwnerLogins: resolveOwnerLogins,
           fetchUserEmotes: fetchUserEmotes,
         );
@@ -1044,6 +1046,7 @@ class EmoteManager implements EmoteLookupSource {
     if (tier == EmoteFetchTier.nothing) return;
     if (!_isProviderOn(EmoteType.sevenTv)) return;
     final before = _store.channelCatalog(channel);
+    final removed = _removedSevenTv(before, removedIds);
     final unusedUrls = _store.updateSevenTvEmotes(
       channel,
       added: added,
@@ -1057,6 +1060,37 @@ class EmoteManager implements EmoteLookupSource {
     if (unusedUrls.isNotEmpty) {
       unawaited(_evictEmoteImages(unusedUrls));
     }
+    if (removed.isNotEmpty) unawaited(_probeRemoved(removed));
+  }
+
+  /// The channel catalog's 7TV entries for [ids], by id, before the delta
+  /// removes them.
+  static Map<String, Emote> _removedSevenTv(
+    EmoteCatalog? catalog,
+    List<String> ids,
+  ) {
+    if (catalog == null || ids.isEmpty) return const {};
+    final wanted = ids.toSet();
+    final out = <String, Emote>{};
+    for (final e in catalog.sevenTvChannel) {
+      if (wanted.contains(e.id)) out.putIfAbsent(e.id, () => e);
+    }
+    return out;
+  }
+
+  /// A set removal does not mean the emote is gone: it may live in other sets
+  /// or the owner's collection, and its file keeps serving. Ask 7TV for each
+  /// removed emote and, only on a 404, drop it from every list and cache.
+  Future<void> _probeRemoved(Map<String, Emote> removed) async {
+    await Future.wait([
+      for (final entry in removed.entries)
+        () async {
+          final exists = await _fetcher.probeSevenTvEmote(entry.key);
+          if (exists != false) return;
+          _store.markDead([entry.key]);
+          await _evictEmoteImages(entry.value.scales.values.toList());
+        }(),
+    ]);
   }
 
   Future<void> _evictEmoteImages(List<String> urls) async {

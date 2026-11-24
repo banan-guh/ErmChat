@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:isolate';
 import 'dart:math';
@@ -573,23 +574,53 @@ class ArchiveStore {
     await _db.close();
   }
 
+  /// Owners of rows in this store, cleared before a wipe so a queued write
+  /// cannot land in the emptied tables.
+  final List<Future<void> Function()> _wipeHooks = [];
+
+  /// Registers [hook] to run before [wipe]. Returns an unsubscribe callback.
+  void Function() addWipeHook(Future<void> Function() hook) {
+    _wipeHooks.add(hook);
+    return () => _wipeHooks.remove(hook);
+  }
+
   /// Deletes everything archived and hands the pages back.
   Future<void> wipe() async {
     await _compacting;
+    for (final hook in List.of(_wipeHooks)) {
+      try {
+        await hook();
+      } catch (e) {
+        logDebug('[ArchiveStore] wipe hook failed: $e');
+      }
+    }
     final tables = await _db.rawQuery(
       "SELECT name FROM sqlite_master WHERE type = 'table' "
       "AND name NOT LIKE 'sqlite_%'",
     );
-    await _db.transaction((txn) async {
-      for (final t in tables) {
-        await txn.delete(t['name']! as String);
-      }
-    });
-    _tables.clear();
-    _tablesNow.clear();
-    _vocab = null;
-    _vocabChecked = null;
-    await reclaimSpace(all: true);
+    final secureDelete = (await _db.rawQuery(
+      'PRAGMA secure_delete',
+    )).first.values.first;
+    await _db.execute('PRAGMA secure_delete=ON');
+    try {
+      await _db.transaction((txn) async {
+        for (final t in tables) {
+          await txn.delete(t['name']! as String);
+        }
+      });
+      _tables.clear();
+      _tablesNow.clear();
+      _vocab = null;
+      _vocabChecked = null;
+      _searchIndex.clear();
+      _reads.clear();
+      _maxSpan.clear();
+      await reclaimSpace(all: true);
+      // reclaimSpace checkpoints, but a wipe must leave no WAL frame behind.
+      await _db.rawQuery('PRAGMA wal_checkpoint(TRUNCATE)');
+    } finally {
+      await _db.execute('PRAGMA secure_delete=$secureDelete');
+    }
   }
 
   /// Journal mode, exposed so tests can assert WAL.
@@ -1813,22 +1844,39 @@ class ArchiveStore {
     }
     _lastPrune = now;
     final sw = Stopwatch()..start();
-    final deleted = await prune(now);
-    await _savePruneClock(now);
+    final deleted = await serializeMaintenance(() async {
+      final count = await prune(now);
+      await _savePruneClock(now);
+      return count;
+    });
     logDebug('[Archive] pruned $deleted blocks in ${sw.elapsedMilliseconds}ms');
     // A long gap leaves seconds of merging; nothing waits on it.
-    _compacting ??= _upkeep(now)
-        .then<void>(
+    if (_compacting == null) {
+      unawaited(
+        serializeMaintenance(() => _upkeep(now)).then<void>(
           (_) {},
           onError: (Object e) {
             logDebug('[ArchiveStore] upkeep failed: $e');
           },
-        )
-        .whenComplete(() => _compacting = null);
+        ),
+      );
+    }
     return deleted;
   }
 
   Future<void>? _compacting;
+
+  /// Runs [action] after active upkeep and makes later upkeep wait for it.
+  Future<T> serializeMaintenance<T>(Future<T> Function() action) {
+    final previous = _compacting ?? Future<void>.value();
+    late final Future<void> tail;
+    final result = previous.then((_) => action());
+    tail = result.then<void>((_) {}, onError: (Object _) {});
+    _compacting = tail;
+    return result.whenComplete(() {
+      if (identical(_compacting, tail)) _compacting = null;
+    });
+  }
 
   /// Background upkeep after a prune: merge small blocks, bake pending edits,
   /// strip ids, index, drop unused users, thread previews and words, then
@@ -2399,10 +2447,6 @@ class ArchiveStore {
     return removed;
   }
 
-  /// A broadcast still open with no chat stored for this long was left
-  /// while live (the channel parted, so no poll saw it end).
-  static const Duration staleLive = Duration(days: 1);
-
   /// SQL true when a kept day overlaps the `blocks` row.
   static const _pinnedBlock =
       'SELECT 1 FROM pins p WHERE p.channel = blocks.channel '
@@ -2420,13 +2464,10 @@ class ArchiveStore {
   /// Deletes blocks, minute counts, moderation, reply roots and ended
   /// broadcasts older than [retention] relative to [now], then each
   /// channel's oldest blocks past [channelCapBytes]. Pinned ranges stay
-  /// and do not count toward the cap.
-  /// Broadcasts left open past [staleLive] end at their channel's last
-  /// stored row; a poll that sees one live opens it again. Returns blocks
-  /// deleted.
+  /// and do not count toward the cap. Open broadcasts stay open until a
+  /// poll records their end. Returns blocks deleted.
   Future<int> prune(DateTime now) async {
     final cutoff = now.toUtc().subtract(retention).millisecondsSinceEpoch;
-    final stale = now.toUtc().subtract(staleLive).millisecondsSinceEpoch;
     final cap = channelCapBytes;
     return _db.transaction((txn) async {
       var deleted = await txn.rawDelete(
@@ -2464,14 +2505,6 @@ class ArchiveStore {
         'SELECT 1 FROM pins p WHERE p.channel = ref_ids.channel '
         'AND p.start_ts <= ref_ids.ts AND p.end_ts >= ref_ids.ts)',
         [cutoff],
-      );
-      await txn.rawUpdate(
-        'UPDATE streams SET ended_at = max(started_at, ifnull(('
-        'SELECT max(end_ts) FROM blocks b WHERE b.channel = streams.channel'
-        '), started_at)) WHERE ended_at IS NULL AND started_at < ? '
-        'AND NOT EXISTS (SELECT 1 FROM blocks b '
-        'WHERE b.channel = streams.channel AND b.end_ts >= ?)',
-        [stale, stale],
       );
       if (cap == null) return deleted;
       // Kept days are the user's own and never count toward the cap.

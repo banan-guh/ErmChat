@@ -18,13 +18,24 @@ class TwitchEmoteProvider {
   /// Global unlockable catalogue (Prime, Turbo, 2FA, Hype Train,
   /// limited-time). The /global endpoint returns defaults only, so without
   /// this these emotes never reach the picker or autocomplete.
-  static Future<List<Emote>> fetchGlobalUnlockable({String? accessToken}) {
-    return _get(
+  ///
+  /// Twitch also returns follower emotes of followed channels here. They only
+  /// work in their home channel, so they are dropped before this list becomes
+  /// the global catalogue.
+  static Future<List<Emote>> fetchGlobalUnlockable({
+    String? accessToken,
+  }) async {
+    final emotes = await _get(
       Uri.parse('https://api.twitch.tv/helix/chat/emotes?broadcaster_id=0'),
       channel: false,
       accessToken: accessToken,
     );
+    return emotes.where((e) => !_isFollower(e)).toList();
   }
+
+  static bool _isFollower(Emote e) =>
+      e.meta is TwitchMeta &&
+      (e.meta as TwitchMeta).kind == TwitchEmoteKind.follower;
 
   static Future<List<Emote>> fetchChannel(
     String broadcasterId, {

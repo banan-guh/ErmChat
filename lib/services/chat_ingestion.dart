@@ -234,6 +234,9 @@ class ChatIngestion {
         msg,
         lookupChannel: kWhispersChannel,
       );
+      // Not final until the global catalog lands, so a view listener can
+      // clear the tokens and heal the row once it does.
+      msg.emotesPartial = !emoteManager.catalogComplete(kWhispersChannel);
     }
     onWhisper?.call(msg);
   }

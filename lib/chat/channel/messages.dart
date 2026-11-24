@@ -380,19 +380,18 @@ class Messages {
   }
 
   /// Re-resolves rows baked before their catalog was complete, live or
-  /// history. Healing only adds: a row adopts the reparse when it keeps every
-  /// emote the row already shows and finds more, so an emote removed since
-  /// stays on old rows. A row stops being a candidate once its catalog is
-  /// complete. Bumps [version] and emits one mutation per touched id (a
+  /// history. An incomplete row adopts the corrected reparse, including a
+  /// source-channel emote that replaces a local guess. Complete rows are not
+  /// candidates. Bumps [version] and emits one mutation per touched id (a
   /// whole-channel evict when an id-less row changed). Returns rows healed.
   int restampPartialEmotes(
     ({List<EmoteToken>? tokens, bool complete}) Function(TwitchMessage msg)
     resolve,
   ) => _restamp(_items.where((m) => m.emotesPartial), (msg) {
     final (:tokens, :complete) = resolve(msg);
-    if (complete) msg.emotesPartial = false;
+    if (complete && tokens != null) msg.emotesPartial = false;
     return tokens;
-  });
+  }, replacePartial: true);
 
   /// Re-resolves every row, partial or not, for a manual emote reload: a row
   /// baked "complete" can still lack emotes when a provider failed. Adds
@@ -406,58 +405,44 @@ class Messages {
     return tokens;
   });
 
-  /// Re-resolves rows whose baked tokens use any of [codes], after a catalog
-  /// change replaced or removed those emotes. A token at a changed span takes
-  /// the new emote, so a deleted and re-added emote picks up its new id and
-  /// url instead of keeping a dead one.
-  int restampCodes(
+  /// Re-resolves rows that would gain emotes from [codes], after a live 7TV
+  /// delta introduced them. Healing only adds: a row adopts the reparse when
+  /// it keeps every emote it already shows and finds more. Archive rows are
+  /// history and stay as baked.
+  int restampAdded(
     Set<String> codes,
     ({List<EmoteToken>? tokens, bool complete}) Function(TwitchMessage msg)
     resolve,
   ) {
     if (codes.isEmpty) return 0;
-    bool usesCode(TwitchMessage m) =>
-        m.emoteTokens?.any((t) => codes.contains(t.emote?.code)) ?? false;
-    return _touch(_items.where(usesCode), (msg) {
-      final (:tokens, :complete) = resolve(msg);
-      if (tokens == null) return false;
-      final merged = _replaceCodes(
-        msg.emoteTokens ?? const <EmoteToken>[],
-        tokens,
-        codes,
-      );
-      if (merged == null) return false;
-      msg.emoteTokens = merged;
-      msg.emotesPartial = !complete;
-      return true;
-    });
+    return _restamp(
+      _items.where((m) => !m.emotesFromArchive && codes.any(m.text.contains)),
+      (msg) {
+        final (:tokens, :complete) = resolve(msg);
+        if (complete) msg.emotesPartial = false;
+        return tokens;
+      },
+    );
   }
 
-  /// [current] with the tokens of [codes] replaced by [next]'s token at the
-  /// same span, or dropped when the emote left the catalog. Other tokens stay
-  /// as baked. Null when no changed code moved.
-  static List<EmoteToken>? _replaceCodes(
-    List<EmoteToken> current,
-    List<EmoteToken> next,
-    Set<String> codes,
-  ) {
-    final bySpan = {
-      for (final t in next)
-        if (t.emote != null) (t.start, t.end): t,
-    };
-    final out = <EmoteToken>[];
-    var changed = false;
-    for (final t in current) {
-      final code = t.emote?.code;
-      if (code == null || !codes.contains(code)) {
-        out.add(t);
-        continue;
+  /// Drops tokens whose emote is one of [ids], after 7TV confirmed it is gone.
+  /// The surviving text renders as plain chat. Returns rows changed.
+  int dropEmotes(Set<String> ids) {
+    if (ids.isEmpty) return 0;
+    return _touch(_items, (msg) {
+      final tokens = msg.emoteTokens;
+      if (tokens == null) return false;
+      final kept = <EmoteToken>[];
+      for (final t in tokens) {
+        final id = t.emote?.id;
+        if (id != null && ids.contains(id)) continue;
+        kept.add(t);
       }
-      final replacement = bySpan[(t.start, t.end)];
-      changed = true;
-      if (replacement != null) out.add(replacement);
-    }
-    return changed ? out : null;
+      if (kept.length == tokens.length) return false;
+      msg.emoteTokens = kept;
+      msg.emotesPartial = false;
+      return true;
+    });
   }
 
   /// Re-resolves the newest [window] rows sent by [userIds] after their
@@ -483,11 +468,17 @@ class Messages {
 
   int _restamp(
     Iterable<TwitchMessage> rows,
-    List<EmoteToken>? Function(TwitchMessage msg) resolve,
-  ) => _touch(rows, (msg) {
+    List<EmoteToken>? Function(TwitchMessage msg) resolve, {
+    bool replacePartial = false,
+  }) => _touch(rows, (msg) {
     if (msg.isSystem) return false;
+    final partial = msg.emotesPartial;
     final tokens = resolve(msg);
-    if (tokens == null || !_addsEmotes(msg.emoteTokens, tokens)) return false;
+    if (tokens == null) return false;
+    final changed = partial && replacePartial
+        ? !_sameEmotes(msg.emoteTokens, tokens)
+        : _addsEmotes(msg.emoteTokens, tokens);
+    if (!changed) return false;
     msg.emoteTokens = tokens;
     return true;
   });
@@ -519,6 +510,19 @@ class Messages {
       }
     }
     return healed;
+  }
+
+  static bool _sameEmotes(List<EmoteToken>? current, List<EmoteToken> next) {
+    final had = current ?? const <EmoteToken>[];
+    if (had.length != next.length) return false;
+    for (var i = 0; i < had.length; i++) {
+      final a = had[i];
+      final b = next[i];
+      if (a.start != b.start || a.end != b.end || a.emote?.id != b.emote?.id) {
+        return false;
+      }
+    }
+    return true;
   }
 
   /// Whether [next] shows every emote [current] does, at the same span, plus

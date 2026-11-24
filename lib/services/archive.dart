@@ -169,9 +169,11 @@ class Archive {
   /// Prunes to the current limits and hands the freed space back to the
   /// file system, so the size shown drops at once.
   Future<void> _shrink() => _quiet((s) async {
-    await s.prune(DateTime.now());
-    await s.pruneUsers();
-    await s.reclaimSpace(all: true);
+    await s.serializeMaintenance(() async {
+      await s.prune(DateTime.now());
+      await s.pruneUsers();
+      await s.reclaimSpace(all: true);
+    });
   });
 
   /// Records a broadcast seen live. Never throws.

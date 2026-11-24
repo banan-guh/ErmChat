@@ -45,11 +45,18 @@ List<int> decodeWordList(Uint8List data) {
     throw const ArchiveFormatException('empty word list');
   }
   final body = Uint8List.sublistView(data, 1);
-  final raw = switch (data[0]) {
-    _listRaw => body,
-    _listDeflated => Uint8List.fromList(ZLibCodec(raw: true).decode(body)),
-    _ => throw const ArchiveFormatException('unknown word list kind'),
-  };
+  final Uint8List raw;
+  try {
+    raw = switch (data[0]) {
+      _listRaw => body,
+      _listDeflated => Uint8List.fromList(ZLibCodec(raw: true).decode(body)),
+      _ => throw const ArchiveFormatException('unknown word list kind'),
+    };
+  } on ArchiveFormatException {
+    rethrow;
+  } on Object catch (e) {
+    throw ArchiveFormatException('corrupt word list: $e');
+  }
   final r = ByteReader(raw);
   final n = r.varint();
   if (n > raw.length) {
@@ -68,5 +75,10 @@ Uint8List encodeVocabChunk(List<String> words) => Uint8List.fromList(
   ZLibCodec(level: 6, raw: true).encode(utf8.encode(words.join('\n'))),
 );
 
-List<String> decodeVocabChunk(Uint8List data) =>
-    utf8.decode(ZLibCodec(raw: true).decode(data)).split('\n');
+List<String> decodeVocabChunk(Uint8List data) {
+  try {
+    return utf8.decode(ZLibCodec(raw: true).decode(data)).split('\n');
+  } on Object catch (e) {
+    throw ArchiveFormatException('corrupt vocabulary: $e');
+  }
+}

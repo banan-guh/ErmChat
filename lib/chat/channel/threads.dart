@@ -142,6 +142,9 @@ class Threads {
         }
         if (root.text != msg.text && msg.text.isNotEmpty) {
           root.text = msg.text;
+          // Tokens baked for the old text no longer match its spans.
+          root.emoteTokens = null;
+          root.emotesPartial = false;
           changed = true;
         }
         return changed;

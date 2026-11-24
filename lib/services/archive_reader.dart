@@ -186,6 +186,9 @@ class ArchiveReader {
   /// rows draw with today's.
   final SetHistory? sets;
 
+  /// Emote ids 7TV confirmed gone this session; rows skip their tokens.
+  Set<String> Function()? deadIds;
+
   /// Today's keyword rules, applied to each row's text as sent.
   void Function(TwitchMessage msg)? rewrite;
 
@@ -487,6 +490,7 @@ class ArchiveReader {
           sets: drawn,
           rewrite: rewrite,
         );
+        _dropDeadTokens(m);
         // The reconnect grey marks a catch-up in the session it happened.
         m.isBackfill = false;
         if (edit == ArchiveEdit.deleted) m.deleted = true;
@@ -520,6 +524,20 @@ class ArchiveReader {
     }
     t.end('blocks=${blocks.length} rows=${out.length}');
     return out;
+  }
+
+  /// Drops tokens whose emote 7TV confirmed gone. The row keeps its text.
+  void _dropDeadTokens(TwitchMessage m) {
+    final dead = deadIds?.call();
+    final tokens = m.emoteTokens;
+    if (dead == null || dead.isEmpty || tokens == null || tokens.isEmpty) {
+      return;
+    }
+    final kept = [
+      for (final t in tokens)
+        if (!dead.contains(t.emote?.id)) t,
+    ];
+    if (kept.length != tokens.length) m.emoteTokens = kept;
   }
 
   /// The emote definitions [decoded] rows reference, read once per key.

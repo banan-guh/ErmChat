@@ -143,6 +143,11 @@ class TwitchMessage {
   /// catalogs both landed, so later full commits may add the emotes it
   /// missed. Not persisted.
   bool emotesPartial = false;
+
+  /// True when [emoteTokens] came from the archive's set history, so a live
+  /// catalog change never restamps them: history keeps the emote of its time.
+  /// Not persisted.
+  bool emotesFromArchive = false;
   final List<GifAttachment>? gifAttachments;
 
   /// The text, Twitch emote positions and gifs as sent, when keyword rules

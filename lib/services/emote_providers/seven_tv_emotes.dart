@@ -107,6 +107,23 @@ class SevenTvEmoteProvider {
     ];
   }
 
+  /// Whether 7TV still has [emoteId]: true on 200, false on 404, null when
+  /// the answer is unknown (network, rate limit, server error). A removed
+  /// set entry does not mean the emote is gone, so this asks the emote
+  /// itself.
+  static Future<bool?> exists(String emoteId) async {
+    try {
+      final res = await getEmoteList(
+        Uri.parse('https://7tv.io/v3/emotes/$emoteId'),
+      );
+      if (res.statusCode == 200) return true;
+      if (res.statusCode == 404) return false;
+      return null;
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// Emotes of one personal set by id. Non-personal sets return empty so a
   /// mistargeted id never leaks channel emotes into the global merge.
   /// Non-200 responses throw so callers keep what they already have.

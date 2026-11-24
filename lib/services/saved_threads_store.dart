@@ -70,7 +70,9 @@ class SavedThreadsStore {
   SavedThreadsStore({
     Future<ArchiveStore?>? store,
     this._createTimer = Timer.new,
-  }) : _store = store ?? Future.value(null);
+  }) : _store = store ?? Future.value(null) {
+    unawaited(_listenForWipe());
+  }
 
   static const _flushDelay = Duration(seconds: 1);
   // Message bytes above which load decodes in an isolate.
@@ -97,6 +99,15 @@ class SavedThreadsStore {
   final Set<String> _removedWhileLoading = {};
   // Db work runs one task at a time so writes never interleave.
   Future<void> _ioQueue = Future.value();
+  // Bumped by clear so queued work and a load in flight cannot repopulate
+  // the store after a wipe.
+  int _generation = 0;
+
+  Future<void> _listenForWipe() async {
+    final db = await _store;
+    if (db == null) return;
+    db.addWipeHook(clear);
+  }
 
   List<SavedThread> get threads => List.unmodifiable(_threads);
 
@@ -261,13 +272,30 @@ class SavedThreadsStore {
     return _ioQueue;
   }
 
+  /// Drops every saved thread and stops writes queued for the archive. A wipe
+  /// awaits this, so no queued row lands in the emptied tables.
+  Future<void> clear() {
+    _generation++;
+    _flushTimer?.cancel();
+    _flushTimer = null;
+    _pending.clear();
+    _threads.clear();
+    _messages.clear();
+    _messageIds.clear();
+    _removedWhileLoading.clear();
+    _refreshChannels();
+    return _ioQueue;
+  }
+
   /// Test seam: resolves once queued db writes finish.
   @visibleForTesting
   Future<void> flushIo() => _ioQueue;
 
   void _enqueue(Future<void> Function(ArchiveStore db) task) {
+    final generation = _generation;
     _ioQueue = _ioQueue.then((_) async {
       await _loading?.future;
+      if (generation != _generation) return;
       try {
         final db = await _store;
         if (db != null) await task(db);
@@ -295,6 +323,7 @@ class SavedThreadsStore {
   }
 
   Future<void> _load() async {
+    final generation = _generation;
     final db = await _store;
     final List<SavedThread> loaded;
     final Map<String, List<TwitchMessage>> disk;
@@ -305,6 +334,7 @@ class SavedThreadsStore {
     } else {
       (loaded, disk) = await _readDb(db);
     }
+    if (generation != _generation) return;
 
     // Everything in memory now was saved during load and wins over disk.
     final early = {for (final t in _threads) t.key};

@@ -8,24 +8,28 @@ import 'emote_fetcher.dart';
 ///
 /// [channel] null means a global change. A non-null [deltaCodes] marks a live
 /// 7TV delta (typing, picker, and menus read it live). A null [deltaCodes] on
-/// a channel change is a full refetch. [restampCodes] names the codes whose
-/// emote identity changed, which rows that baked them re-resolve.
+/// a channel change is a full refetch. [deadIds] are emotes a probe confirmed
+/// gone from 7TV, and [addedCodes] are codes a live delta introduced.
 class EmoteChange {
   const EmoteChange({
     required this.version,
     this.channel,
     this.deltaCodes,
-    this.restampCodes,
+    this.deadIds,
+    this.addedCodes,
   });
 
   final int version;
   final String? channel;
   final Set<String>? deltaCodes;
 
-  /// Codes whose emote changed in a full commit, by id or by leaving the
-  /// list. Rows that baked one of them re-resolve against the new list, so a
-  /// deleted and re-added emote stops pointing at its dead url.
-  final Set<String>? restampCodes;
+  /// Emote ids 7TV reports as gone. Rows drop them and archive reads skip
+  /// them, because their files no longer serve.
+  final Set<String>? deadIds;
+
+  /// Codes a live 7TV delta added. Rows baked before the emote existed can
+  /// pick them up additively.
+  final Set<String>? addedCodes;
 
   bool get isGlobal => channel == null;
 }
@@ -87,7 +91,8 @@ class EmoteStore {
   void emitChange({
     String? channel,
     Set<String>? deltaCodes,
-    Set<String>? restampCodes,
+    Set<String>? deadIds,
+    Set<String>? addedCodes,
     bool bumpVersion = true,
   }) {
     if (_disposed) return;
@@ -96,7 +101,8 @@ class EmoteStore {
       version: _version,
       channel: channel,
       deltaCodes: deltaCodes,
-      restampCodes: restampCodes,
+      deadIds: deadIds,
+      addedCodes: addedCodes,
     );
     _lastChange = change;
     _emoteIndexDirty = true;
@@ -125,6 +131,57 @@ class EmoteStore {
   void notifyVisibilityChanged() {
     _subsByChannelCache = null;
     emitChange(channel: null);
+  }
+
+  final _deadIds = <String>{};
+
+  /// Emote ids a probe confirmed gone from 7TV. Reads and rendered rows treat
+  /// them as absent for the rest of the session.
+  Set<String> get deadIds => _deadIds;
+
+  List<Emote> _liveSevenTv(Iterable<Emote> emotes) => [
+    for (final e in emotes)
+      if (!_deadIds.contains(e.id)) e,
+  ];
+
+  EmoteCatalog _withoutDead(EmoteCatalog catalog) {
+    if (_deadIds.isEmpty) return catalog;
+    return catalog.copyWith(
+      sevenTvGlobal: _liveSevenTv(catalog.sevenTvGlobal),
+      sevenTvChannel: _liveSevenTv(catalog.sevenTvChannel),
+    );
+  }
+
+  /// Drops [ids] from every 7TV list and the pool, then emits a global change
+  /// carrying them so buffered rows and archive reads skip the dead emotes.
+  void markDead(Iterable<String> ids) {
+    if (_disposed) return;
+    final dead = {
+      for (final id in ids)
+        if (id.isNotEmpty && _deadIds.add(id)) id,
+    };
+    if (dead.isEmpty) return;
+    _pool.removeWhere((id, _) => dead.contains(id));
+    List<Emote> live(List<Emote> list) => [
+      for (final e in list)
+        if (!dead.contains(e.id)) e,
+    ];
+    _globalCatalog = _globalCatalog.withList(
+      EmoteScope.global,
+      EmoteType.sevenTv,
+      live(_globalCatalog.sevenTvGlobal),
+    );
+    for (final channel in _channelCatalogs.keys.toList()) {
+      final catalog = _channelCatalogs[channel]!;
+      _channelCatalogs[channel] = catalog.withList(
+        EmoteScope.channel,
+        EmoteType.sevenTv,
+        live(catalog.sevenTvChannel),
+      );
+      final stash = _sevenTvLive[channel];
+      if (stash != null) _sevenTvLive[channel] = live(stash);
+    }
+    emitChange(channel: null, deadIds: dead);
   }
 
   // ── Catalog state ───────────────────────────────────────────────────
@@ -697,6 +754,7 @@ class EmoteStore {
     void addAll(Iterable<Emote> emotes) {
       for (final e in emotes) {
         if (e.id.isEmpty) continue;
+        if (_deadIds.contains(e.id)) continue;
         // putIfAbsent keeps scan-order precedence on id collisions; the
         // intern converges the pool to the same winner.
         index.putIfAbsent(e.id, () => intern(e));
@@ -762,7 +820,7 @@ class EmoteStore {
   /// epoch is dropped. Emits a global change.
   bool seedGlobalFromCache(int epoch, EmoteCatalog cached) {
     if (epoch != _globalEpoch) return false;
-    _globalCatalog = cached;
+    _globalCatalog = _withoutDead(cached);
     _globalAttempted = true;
     emitChange(channel: null);
     return true;
@@ -772,7 +830,7 @@ class EmoteStore {
   /// caller emits once the fetch settles.
   bool fillMissingGlobal(int epoch, EmoteCatalog seed) {
     if (epoch != _globalEpoch) return false;
-    _globalCatalog = _globalCatalog.fillMissing(seed);
+    _globalCatalog = _globalCatalog.fillMissing(_withoutDead(seed));
     _emoteIndexDirty = true;
     _globalAttempted = true;
     return true;
@@ -796,10 +854,10 @@ class EmoteStore {
     for (final entry in fetch.byProvider.entries) {
       catalog = catalog.withList(EmoteScope.global, entry.key, entry.value);
     }
-    _globalCatalog = catalog;
+    _globalCatalog = _withoutDead(catalog);
     emitChange(
       channel: null,
-      restampCodes: _changedEmoteCodes(before, catalog.sevenTvGlobal),
+      addedCodes: _addedCodes(before, catalog.sevenTvGlobal),
     );
     _emitFetched(null, fetch.byProvider);
     return true;
@@ -812,7 +870,9 @@ class EmoteStore {
     EmoteCatalog cached,
     List<Emote> existingSubs,
   ) {
-    _channelCatalogs[channel] = cached.copyWith(twitchSubs: existingSubs);
+    _channelCatalogs[channel] = _withoutDead(
+      cached,
+    ).copyWith(twitchSubs: existingSubs);
     _channelLoaded.add(channel);
     _sevenTvFull.add(channel);
     _reapplyLiveSevenTv(channel);
@@ -822,7 +882,7 @@ class EmoteStore {
   /// Fills empty channel lists from a disk seed. No emit.
   void fillMissingChannel(String channel, EmoteCatalog seed) {
     _channelCatalogs[channel] = (_channelCatalogs[channel] ?? EmoteCatalog())
-        .fillMissing(seed);
+        .fillMissing(_withoutDead(seed));
     _emoteIndexDirty = true;
   }
 
@@ -879,7 +939,7 @@ class EmoteStore {
       _clearMergedCaches();
       _foreignLookupCache.clear();
     }
-    _channelCatalogs[channel] = catalog;
+    _channelCatalogs[channel] = _withoutDead(catalog);
     // Like commitGlobal: an early provider doesn't make the channel loaded.
     if (fetch.byProvider.isNotEmpty && !partial) _channelLoaded.add(channel);
     // A fetched 7TV list is a full snapshot; deltas can now be stashed and
@@ -891,7 +951,7 @@ class EmoteStore {
     if (stamp) _channelFetchTimes[channel] = DateTime.now();
     emitChange(
       channel: channel,
-      restampCodes: _changedEmoteCodes(
+      addedCodes: _addedCodes(
         before,
         _channelCatalogs[channel]?.sevenTvChannel,
       ),
@@ -900,21 +960,14 @@ class EmoteStore {
     return true;
   }
 
-  /// Codes whose 7TV emote id differs between [before] and [after], including
-  /// codes that left the list. Null when every code kept its emote.
-  static Set<String>? _changedEmoteCodes(
-    List<Emote>? before,
-    List<Emote>? after,
-  ) {
-    final oldById = {for (final e in before ?? const <Emote>[]) e.code: e.id};
-    final newById = {for (final e in after ?? const <Emote>[]) e.code: e.id};
-    final changed = <String>{
-      for (final e in newById.entries)
-        if (oldById[e.key] != e.value) e.key,
-      for (final code in oldById.keys)
-        if (!newById.containsKey(code)) code,
+  /// Codes present now that were not there before; null when none.
+  static Set<String>? _addedCodes(List<Emote>? before, List<Emote>? after) {
+    final old = {for (final e in before ?? const <Emote>[]) e.code};
+    final added = {
+      for (final e in after ?? const <Emote>[])
+        if (!old.contains(e.code)) e.code,
     };
-    return changed.isEmpty ? null : changed;
+    return added.isEmpty ? null : added;
   }
 
   void _emitFetched(String? channel, Map<EmoteType, List<Emote>> lists) {
@@ -1053,6 +1106,10 @@ class EmoteStore {
     Map<String, ({String newName, String oldName})> renamed = const {},
     Map<String, String?> renamedBaseNames = const {},
   }) {
+    added = [
+      for (final e in added)
+        if (!_deadIds.contains(e.id)) e,
+    ];
     final catalog = _channelCatalogs[channel];
     if (catalog == null && added.isEmpty) return const [];
     if (added.isEmpty && removedIds.isEmpty && renamed.isEmpty) {
@@ -1066,6 +1123,9 @@ class EmoteStore {
     ));
 
     final changedCodes = <String>{};
+    // Codes the delta introduced, so buffered rows can pick up an emote that
+    // did not exist when they were sent.
+    final addedCodes = <String>{};
     final removedIdsWithUrls = <(String, List<String>)>[];
 
     if (catalog == null) {
@@ -1081,7 +1141,7 @@ class EmoteStore {
       emitChange(
         channel: channel,
         deltaCodes: codes,
-        restampCodes: codes,
+        addedCodes: codes,
         bumpVersion: false,
       );
       return const [];
@@ -1136,6 +1196,7 @@ class EmoteStore {
       }
       byCode[emote.code] = intern(emote);
       changedCodes.add(emote.code);
+      addedCodes.add(emote.code);
     }
 
     // Unknown removals/renames and duplicate adds can arrive as deltas.
@@ -1152,12 +1213,12 @@ class EmoteStore {
       _sevenTvLive[channel] = live;
     }
 
-    // Live deltas don't bump span version; rows that baked a changed code
-    // still re-resolve so a re-added emote stops using its deleted url.
+    // Live deltas don't bump the span version; rows stay as baked, while
+    // added codes let the buffer adopt an emote that just landed.
     emitChange(
       channel: channel,
       deltaCodes: changedCodes,
-      restampCodes: changedCodes,
+      addedCodes: addedCodes.isEmpty ? null : addedCodes,
       bumpVersion: false,
     );
 

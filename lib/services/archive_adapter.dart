@@ -193,7 +193,10 @@ class ArchiveAdapter {
       sourceMessageId: r.sourceMessageId,
     );
     rewrite?.call(m);
-    return m..emoteTokens = _tokens(r, m, defs, sets);
+    final tokens = _tokens(r, m, defs, sets);
+    m.emoteTokens = tokens;
+    m.emotesFromArchive = tokens != null;
+    return m;
   }
 
   /// The row's emotes: the stored ones over the sets at the row's time,
