@@ -1,11 +1,29 @@
 import 'package:ermchat/eventsub/decode/events.dart';
 import 'package:ermchat/l10n/app_localizations.dart';
 import 'package:ermchat/widgets/broadcast_widgets.dart';
+import 'package:ermchat/widgets/chat_widget_cards.dart';
 import 'package:ermchat/widgets/chat_widget_cutout.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  Widget overlayApp(BroadcastWidgets widgets, ValueNotifier<double> room) =>
+      MaterialApp(
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        home: Scaffold(
+          body: ListenableBuilder(
+            listenable: Listenable.merge([room, widgets.notifier]),
+            builder: (_, _) =>
+                widgets.buildOverlay(
+                  'c',
+                  room: room.value,
+                  onMinimizeChanged: widgets.setMinimized,
+                ) ??
+                const SizedBox(),
+          ),
+        ),
+      );
+
   testWidgets(
     'timed pins lapse, unpins remove their own pin, dismissals stick',
     (tester) async {
@@ -130,4 +148,105 @@ void main() {
       );
     },
   );
+
+  testWidgets('one surface ink target survives fold and restore', (
+    tester,
+  ) async {
+    final widgets = BroadcastWidgets(selectedChannel: () => 'c');
+    addTearDown(widgets.dispose);
+    widgets.onPinned(
+      PinnedMessageEvent(channel: 'c', id: 'a', text: 'pin body'),
+    );
+    final room = ValueNotifier(600.0);
+    addTearDown(room.dispose);
+    await tester.pumpWidget(overlayApp(widgets, room));
+    await tester.pumpAndSettle();
+
+    final surface = find.byType(ChatWidgetSurface);
+    expect(surface, findsOneWidget);
+    Finder inkTarget() => find.byWidgetPredicate(
+      (w) =>
+          w is InkWell &&
+          (w.child is ChatWidgetCutout || w.child is ChatWidgetMinimizedBar),
+    );
+    expect(inkTarget(), findsOneWidget);
+    final element = inkTarget().evaluate().single;
+    expect(find.byType(ChatWidgetCutout), findsOneWidget);
+
+    // The pin text is part of the card, not a control.
+    await tester.tap(find.byType(PinnedMessageText));
+    await tester.pumpAndSettle();
+    expect(find.byType(ChatWidgetMinimizedBar), findsOneWidget);
+    expect(
+      inkTarget().evaluate().single,
+      same(element),
+      reason: 'the press target is not rebuilt by the swap',
+    );
+
+    await tester.tap(find.byType(PinnedMessageText));
+    await tester.pumpAndSettle();
+    expect(find.byType(ChatWidgetCutout), findsOneWidget);
+    expect(inkTarget().evaluate().single, same(element));
+  });
+
+  testWidgets('restore returns to the focused card and page', (tester) async {
+    final widgets = BroadcastWidgets(selectedChannel: () => 'c');
+    addTearDown(widgets.dispose);
+    widgets.onPinned(
+      PinnedMessageEvent(channel: 'c', id: 'a', text: 'pin body'),
+    );
+    widgets.onPoll(
+      PollEvent(
+        channel: 'c',
+        kind: PollKind.progress,
+        rawKind: 'progress',
+        title: 'A poll title',
+        choices: [PollChoice(title: 'yes', votes: 1)],
+        status: 'ACTIVE',
+      ),
+    );
+    final room = ValueNotifier(600.0);
+    addTearDown(room.dispose);
+    await tester.pumpWidget(overlayApp(widgets, room));
+    await tester.pumpAndSettle();
+
+    widgets.pageCtrlFor('c').jumpToPage(1);
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byType(IconButton));
+    await tester.pumpAndSettle();
+    expect(find.byType(ChatWidgetMinimizedBar), findsOneWidget);
+    expect(find.text('A poll title'), findsOneWidget);
+
+    await tester.tap(find.byType(IconButton));
+    await tester.pumpAndSettle();
+    expect(find.byType(ChatWidgetCutout), findsOneWidget);
+    expect(
+      widgets.pageCtrlFor('c').initialPage,
+      1,
+      reason: 'restore opens on the focused page',
+    );
+  });
+
+  testWidgets('pin menu tap leaves the card open', (tester) async {
+    final widgets = BroadcastWidgets(selectedChannel: () => 'c');
+    addTearDown(widgets.dispose);
+    widgets.onPinned(
+      PinnedMessageEvent(channel: 'c', id: 'a', text: 'pin body'),
+    );
+    final room = ValueNotifier(600.0);
+    addTearDown(room.dispose);
+    await tester.pumpWidget(overlayApp(widgets, room));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byType(PopupMenuButton<void>));
+    await tester.pumpAndSettle();
+    expect(
+      find.byType(ChatWidgetCutout),
+      findsOneWidget,
+      reason: 'the menu button is not the card press target',
+    );
+    Navigator.of(tester.element(find.byType(ChatWidgetSurface))).pop();
+    await tester.pumpAndSettle();
+  });
 }

@@ -1077,8 +1077,8 @@ class ChannelPanels {
   /// The selected channel's broadcast cards; mid-swipe, both channels' cards,
   /// each offset with its page.
   Widget _broadcastOverlay() {
-    // Minimizing, restoring and cards coming or going expand and retract
-    // from the top edge, with no fade.
+    // Cards coming or going expand and retract from the top edge. Folding
+    // and restoring keep the same key, so the surface and its ink stay put.
     Widget cards(String channel, double room) {
       final overlay = broadcastWidgets.buildOverlay(
         channel,
@@ -1106,7 +1106,7 @@ class ChannelPanels {
               children: [...previous, ?current],
             ),
             child: KeyedSubtree(
-              key: ValueKey(overlay?.runtimeType),
+              key: ValueKey(overlay == null ? '$channel:none' : channel),
               child: overlay ?? const SizedBox(width: double.infinity),
             ),
           ),

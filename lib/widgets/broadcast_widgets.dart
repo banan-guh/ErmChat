@@ -342,10 +342,6 @@ class BroadcastWidgets {
   /// them for room; cleared once the room is back.
   final _keptOpen = <String>{};
 
-  /// Channels whose cards a tap just folded or restored; the next build
-  /// hands the press's ink to the card that replaces the tapped one.
-  final _inkCarried = <String>{};
-
   /// [room] is the height left below the cards' top. Cards that would take
   /// more than half of it (the keyboard is up) fold to the bar until the
   /// user restores them; open, they never run past it.
@@ -365,49 +361,58 @@ class BroadcastWidgets {
         .map((c) => min(heights[c] ?? 0.0, ChatWidgetCutout.maxHeight))
         .fold(0.0, max);
     final cramped = tallest > room / 2;
-    final carryInk = _inkCarried.remove(channel);
     if (!cramped) _keptOpen.remove(channel);
+    void minimize() {
+      final now = _cardsFor(channel);
+      final page = ctrl.positions.length == 1 ? ctrl.page ?? 0 : 0.0;
+      if (now.isNotEmpty) {
+        _focused[channel] = now[page.round().clamp(0, now.length - 1)];
+      }
+      onMinimizeChanged(channel, true);
+    }
+
     if ((widgetsMinimized[channel] ?? false) ||
         (cramped && !_keptOpen.contains(channel))) {
       final focus = cards.contains(_focused[channel])
           ? _focused[channel]!
           : cards.first;
-      return ChatWidgetMinimizedBar(
-        label: _labelFor(channel, focus),
-        icon: _iconFor(focus),
-        onRestore: () {
-          // A fresh pager opens on the focused card instead of jumping there.
-          final old = _pageCtrls[channel];
-          _pageCtrls[channel] = PageController(
-            initialPage: cards.indexOf(focus),
-          );
-          if (cramped) _keptOpen.add(channel);
-          _inkCarried.add(channel);
-          onMinimizeChanged(channel, false);
-          WidgetsBinding.instance.addPostFrameCallback((_) => old?.dispose());
-        },
-        pin: focus == _Card.pin ? pins[channel] : null,
-        emotes: emotes,
-        paints: paints,
-        carryInk: carryInk,
+      void restore() {
+        // A fresh pager opens on the focused card instead of jumping there.
+        final old = _pageCtrls[channel];
+        _pageCtrls[channel] = PageController(initialPage: cards.indexOf(focus));
+        if (cramped) _keptOpen.add(channel);
+        onMinimizeChanged(channel, false);
+        WidgetsBinding.instance.addPostFrameCallback((_) => old?.dispose());
+      }
+
+      return ChatWidgetSurface(
+        key: ValueKey(channel),
+        minimized: true,
+        bar: ChatWidgetMinimizedBar(
+          label: _labelFor(channel, focus),
+          icon: _iconFor(focus),
+          onRestore: restore,
+          pin: focus == _Card.pin ? pins[channel] : null,
+          emotes: emotes,
+          paints: paints,
+        ),
+        cards: const SizedBox.shrink(),
+        onTap: restore,
       );
     }
-    return ChatWidgetCutout(
-      pages: pages,
-      ids: cards,
-      heights: heights,
-      room: room,
-      controller: ctrl,
-      onMinimize: () {
-        final now = _cardsFor(channel);
-        final page = ctrl.positions.length == 1 ? ctrl.page ?? 0 : 0.0;
-        if (now.isNotEmpty) {
-          _focused[channel] = now[page.round().clamp(0, now.length - 1)];
-        }
-        _inkCarried.add(channel);
-        onMinimizeChanged(channel, true);
-      },
-      carryInk: carryInk,
+    return ChatWidgetSurface(
+      key: ValueKey(channel),
+      minimized: false,
+      bar: const SizedBox.shrink(),
+      cards: ChatWidgetCutout(
+        pages: pages,
+        ids: cards,
+        heights: heights,
+        room: room,
+        controller: ctrl,
+        onMinimize: minimize,
+      ),
+      onTap: minimize,
     );
   }
 
@@ -474,7 +479,6 @@ class BroadcastWidgets {
     widgetsMinimized.remove(channel);
     _focused.remove(channel);
     _keptOpen.remove(channel);
-    _inkCarried.remove(channel);
     _cardHeights.remove(channel);
     _pageCtrls.remove(channel)?.dispose();
   }

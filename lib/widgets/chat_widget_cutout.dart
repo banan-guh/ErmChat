@@ -23,7 +23,6 @@ class ChatWidgetCutout extends StatefulWidget {
     required this.controller,
     required this.onMinimize,
     this.room = double.infinity,
-    this.carryInk = false,
   });
 
   static const double maxHeight = 220;
@@ -41,9 +40,6 @@ class ChatWidgetCutout extends StatefulWidget {
   final Map<Object, double> heights;
   final PageController controller;
   final VoidCallback onMinimize;
-
-  /// A tap on the bar opened these cards; they carry its ink.
-  final bool carryInk;
 
   @override
   State<ChatWidgetCutout> createState() => _ChatWidgetCutoutState();
@@ -92,12 +88,6 @@ class _ChatWidgetCutoutState extends State<ChatWidgetCutout> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final pages = widget.pages;
-    // A tap anywhere collapses the cards to the minimized bar.
-    Widget surface(Widget child) => _cardSurface(
-      context,
-      carryInk: widget.carryInk,
-      child: InkWell(onTap: widget.onMinimize, child: child),
-    );
     final minimize = Positioned(
       top: chatWidgetInset,
       right: chatWidgetControlRight,
@@ -109,93 +99,81 @@ class _ChatWidgetCutoutState extends State<ChatWidgetCutout> {
       ),
     );
     if (pages.length == 1) {
-      return Padding(
-        padding: const EdgeInsets.only(bottom: _bottomGap),
-        child: surface(
-          Stack(
-            children: [
-              ConstrainedBox(
-                constraints: BoxConstraints(maxHeight: _cap),
-                child: _fadeIfClipped(
-                  (_heightAt(0) ?? 0) > _cap,
-                  SingleChildScrollView(
-                    child: _MeasureSize(
-                      onSize: (size) => _report(0, size.height),
-                      child: pages.single,
-                    ),
-                  ),
+      return Stack(
+        children: [
+          ConstrainedBox(
+            constraints: BoxConstraints(maxHeight: _cap),
+            child: _fadeIfClipped(
+              (_heightAt(0) ?? 0) > _cap,
+              SingleChildScrollView(
+                child: _MeasureSize(
+                  onSize: (size) => _report(0, size.height),
+                  child: pages.single,
                 ),
               ),
-              minimize,
-            ],
+            ),
           ),
-        ),
+          minimize,
+        ],
       );
     }
-    return Padding(
-      padding: const EdgeInsets.only(bottom: _bottomGap),
-      child: AnimatedBuilder(
-        animation: widget.controller,
-        builder: (context, child) {
-          final height = _pagerHeight();
-          // Unmeasured, the cards lay out hidden for one frame rather than
-          // opening at a guess and snapping to size.
-          return height == null
-              ? Opacity(
-                  opacity: 0,
-                  child: SizedBox(height: _cap, child: child),
-                )
-              : SizedBox(height: height, child: child);
-        },
-        child: surface(
-          Stack(
-            children: [
-              PageView.builder(
-                controller: widget.controller,
-                itemCount: pages.length,
-                itemBuilder: (context, index) => _fadeIfClipped(
-                  (_heightAt(index) ?? 0) > _cap,
-                  SingleChildScrollView(
-                    child: _MeasureSize(
-                      onSize: (size) => _report(index, size.height),
-                      child: pages[index],
-                    ),
-                  ),
+    return AnimatedBuilder(
+      animation: widget.controller,
+      builder: (context, child) {
+        final height = _pagerHeight();
+        // Keep the same box and opacity widgets while measuring, so the
+        // pager keeps its position when the height arrives.
+        return SizedBox(
+          height: height ?? _cap,
+          child: Opacity(opacity: height == null ? 0 : 1, child: child),
+        );
+      },
+      child: Stack(
+        children: [
+          PageView.builder(
+            controller: widget.controller,
+            itemCount: pages.length,
+            itemBuilder: (context, index) => _fadeIfClipped(
+              (_heightAt(index) ?? 0) > _cap,
+              SingleChildScrollView(
+                child: _MeasureSize(
+                  onSize: (size) => _report(index, size.height),
+                  child: pages[index],
                 ),
               ),
-              minimize,
-              Positioned(
-                left: 0,
-                right: 0,
-                bottom: 4,
-                child: AnimatedBuilder(
-                  animation: widget.controller,
-                  builder: (context, _) {
-                    final current = _page.round();
-                    return Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        for (var i = 0; i < pages.length; i++)
-                          AnimatedContainer(
-                            duration: Motion.fast,
-                            width: i == current ? 14 : 6,
-                            height: 6,
-                            margin: const EdgeInsets.symmetric(horizontal: 2),
-                            decoration: BoxDecoration(
-                              color: i == current
-                                  ? theme.colorScheme.primary
-                                  : theme.colorScheme.outlineVariant,
-                              borderRadius: BorderRadius.circular(Radii.small),
-                            ),
-                          ),
-                      ],
-                    );
-                  },
-                ),
-              ),
-            ],
+            ),
           ),
-        ),
+          minimize,
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 4,
+            child: AnimatedBuilder(
+              animation: widget.controller,
+              builder: (context, _) {
+                final current = _page.round();
+                return Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    for (var i = 0; i < pages.length; i++)
+                      AnimatedContainer(
+                        duration: Motion.fast,
+                        width: i == current ? 14 : 6,
+                        height: 6,
+                        margin: const EdgeInsets.symmetric(horizontal: 2),
+                        decoration: BoxDecoration(
+                          color: i == current
+                              ? theme.colorScheme.primary
+                              : theme.colorScheme.outlineVariant,
+                          borderRadius: BorderRadius.circular(Radii.small),
+                        ),
+                      ),
+                  ],
+                );
+              },
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -245,21 +223,13 @@ class _RenderMeasureSize extends RenderProxyBox {
 }
 
 /// The cards' opaque rounded backing in the chrome's tone, without an
-/// outline like the island.
+/// outline like the island. One InkWell owns the press for the whole area.
 Widget _cardSurface(
   BuildContext context, {
-  required bool carryInk,
+  required VoidCallback onTap,
   required Widget child,
 }) {
   final theme = Theme.of(context);
-  child = Stack(
-    children: [
-      child,
-      Positioned.fill(
-        child: IgnorePointer(child: _CarriedInk(active: carryInk)),
-      ),
-    ],
-  );
   return Material(
     // The top bar's color, so the cards read as part of the chrome.
     color: theme.colorScheme.surfaceContainer,
@@ -267,46 +237,31 @@ Widget _cardSurface(
       borderRadius: BorderRadius.circular(Radii.medium),
     ),
     clipBehavior: Clip.antiAlias,
-    child: child,
+    child: InkWell(onTap: onTap, child: child),
   );
 }
 
-/// The tap that swapped this card in: the tapped card's ripple dies with
-/// it, so the new card picks the press up as a fading splash.
-class _CarriedInk extends StatefulWidget {
-  const _CarriedInk({required this.active});
+/// The one press target for the expanded cards and the minimized bar. It
+/// stays mounted across the swap, so a tap's ripple carries through instead
+/// of dying with a replaced card.
+class ChatWidgetSurface extends StatelessWidget {
+  const ChatWidgetSurface({
+    super.key,
+    required this.minimized,
+    required this.onTap,
+    required this.bar,
+    required this.cards,
+  });
 
-  /// Read once, on mount.
-  final bool active;
-
-  @override
-  State<_CarriedInk> createState() => _CarriedInkState();
-}
-
-class _CarriedInkState extends State<_CarriedInk>
-    with SingleTickerProviderStateMixin {
-  late final _fade = AnimationController(
-    vsync: this,
-    duration: Motion.slow,
-    value: widget.active ? 1 : 0,
-  );
+  final bool minimized;
+  final VoidCallback onTap;
+  final Widget bar;
+  final Widget cards;
 
   @override
-  void initState() {
-    super.initState();
-    if (widget.active) _fade.animateTo(0, curve: Motion.enter);
-  }
-
-  @override
-  void dispose() {
-    _fade.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) => FadeTransition(
-    opacity: _fade,
-    child: ColoredBox(color: Theme.of(context).splashColor),
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(bottom: _bottomGap),
+    child: _cardSurface(context, onTap: onTap, child: minimized ? bar : cards),
   );
 }
 
@@ -322,11 +277,7 @@ class ChatWidgetMinimizedBar extends StatelessWidget {
     this.pin,
     this.emotes,
     this.paints,
-    this.carryInk = false,
   });
-
-  /// A tap on the cards folded them into this bar; it carries their ink.
-  final bool carryInk;
 
   /// Paints the pin sender's name; null leaves it plain.
   final SevenTvPaintService? paints;
@@ -344,57 +295,44 @@ class ChatWidgetMinimizedBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Padding(
-      padding: const EdgeInsets.only(bottom: _bottomGap),
-      child: SizedBox(
-        height: height,
-        child: _cardSurface(
-          context,
-          carryInk: carryInk,
-          child: InkWell(
-            onTap: onRestore,
-            child: SizedBox(
-              height: height,
-              child: Row(
-                children: [
-                  const SizedBox(width: 12),
-                  Icon(
-                    pin == null ? icon : Icons.push_pin_outlined,
-                    size: 16,
-                    color: pin == null
-                        ? theme.colorScheme.primary
-                        : theme.colorScheme.onSurfaceVariant,
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: switch (pin) {
-                      final pin? => PinnedMessageText(
-                        event: pin,
-                        emotes: emotes,
-                        paints: paints,
-                        style: theme.textTheme.bodyMedium,
-                        maxLines: 1,
-                      ),
-                      null => Text(
-                        label(context.l10n),
-                        style: theme.textTheme.labelMedium,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    },
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.keyboard_arrow_up, size: 20),
-                    tooltip: context.l10n.restore,
-                    style: chatWidgetControlStyle,
-                    onPressed: onRestore,
-                  ),
-                  const SizedBox(width: chatWidgetControlRight),
-                ],
-              ),
-            ),
+    return SizedBox(
+      height: height,
+      child: Row(
+        children: [
+          const SizedBox(width: 12),
+          Icon(
+            pin == null ? icon : Icons.push_pin_outlined,
+            size: 16,
+            color: pin == null
+                ? theme.colorScheme.primary
+                : theme.colorScheme.onSurfaceVariant,
           ),
-        ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: switch (pin) {
+              final pin? => PinnedMessageText(
+                event: pin,
+                emotes: emotes,
+                paints: paints,
+                style: theme.textTheme.bodyMedium,
+                maxLines: 1,
+              ),
+              null => Text(
+                label(context.l10n),
+                style: theme.textTheme.labelMedium,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            },
+          ),
+          IconButton(
+            icon: const Icon(Icons.keyboard_arrow_up, size: 20),
+            tooltip: context.l10n.restore,
+            style: chatWidgetControlStyle,
+            onPressed: onRestore,
+          ),
+          const SizedBox(width: chatWidgetControlRight),
+        ],
       ),
     );
   }
