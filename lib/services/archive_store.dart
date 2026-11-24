@@ -177,28 +177,37 @@ class ArchiveStore {
     );
     final openMs = sw.elapsedMilliseconds;
     final store = ArchiveStore._(db, now ?? DateTime.now);
-    // Covers the widest-block query a read runs first; without it SQLite
-    // reads every block row and holds the connection for over a second.
-    await _createSpanIndex(db);
-    await store._ensureMeta();
-    if (!store._observationsPacked) {
-      final packed = await store._packObservations();
-      await store._saveMeta('observations_packed', '1');
-      store._observationsPacked = true;
-      // Give the file the pages the compression freed. This runs once, and
-      // the open is lazy, so the cost is paid off the first frame.
-      if (packed > 0) await store.reclaimSpace();
+    try {
+      // Covers the widest-block query a read runs first; without it SQLite
+      // reads every block row and holds the connection for over a second.
+      await _createSpanIndex(db);
+      await store._ensureMeta();
+      if (!store._observationsPacked) {
+        final packed = await store._packObservations();
+        await store._saveMeta('observations_packed', '1');
+        store._observationsPacked = true;
+        // Give the file the pages the compression freed. This runs once, and
+        // the open is lazy, so the cost is paid off the first frame.
+        if (packed > 0) await store.reclaimSpace();
+      }
+      if (store._indexedVersion != schemaVersion) {
+        await store._backfillIndexes();
+        await store._saveIndexedVersion();
+      }
+      logDebug(
+        '[Archive] database $openMs, indexes ${sw.elapsedMilliseconds - openMs}ms',
+        persist: false,
+      );
+      await store.pruneIfDue();
+      return store;
+    } catch (e, stack) {
+      try {
+        await db.close();
+      } catch (_) {
+        // Preserve the setup failure if closing also fails.
+      }
+      Error.throwWithStackTrace(e, stack);
     }
-    if (store._indexedVersion != schemaVersion) {
-      await store._backfillIndexes();
-      await store._saveIndexedVersion();
-    }
-    logDebug(
-      '[Archive] database $openMs, indexes ${sw.elapsedMilliseconds - openMs}ms',
-      persist: false,
-    );
-    await store.pruneIfDue();
-    return store;
   }
 
   /// Indexes blocks sealed before their index existed. Cheap no-ops on a
@@ -579,6 +588,7 @@ class ArchiveStore {
     _tables.clear();
     _tablesNow.clear();
     _vocab = null;
+    _vocabChecked = null;
     await reclaimSpace(all: true);
   }
 
@@ -905,11 +915,17 @@ class ArchiveStore {
   /// Runs [body] with the vocabulary, one at a time, so word ids are handed
   /// out once and a failed write takes back its new words.
   Future<T> _withVocab<T>(Future<T> Function(_Vocab v) body) {
-    final run = _vocabLock.then(
-      (_) async => body(await (_vocab ??= _loadVocab())),
-    );
+    final run = _vocabLock.then((_) async => body(await _loadVocabCached()));
     _vocabLock = run.then<void>((_) {}, onError: (_) {});
     return run;
+  }
+
+  Future<_Vocab> _loadVocabCached() {
+    final load = _vocab ??= _loadVocab();
+    return load.catchError((Object e, StackTrace stack) {
+      if (identical(_vocab, load)) _vocab = null;
+      Error.throwWithStackTrace(e, stack);
+    });
   }
 
   Future<_Vocab> _loadVocab() async {
@@ -1021,6 +1037,16 @@ class ArchiveStore {
     List<Uint8List> blocks,
   ) => Isolate.run(() => [for (final b in blocks) blockThreadRefs(b)]);
 
+  /// Drops thread previews no index row names any more, left by retention or
+  /// a merge, so the table stays bounded like the rest.
+  Future<void> pruneThreadRoots() async {
+    await _db.rawDelete(
+      'DELETE FROM thread_roots WHERE NOT EXISTS ('
+      'SELECT 1 FROM thread_refs t WHERE t.channel = thread_roots.channel '
+      'AND t.root_id = thread_roots.root_id)',
+    );
+  }
+
   /// Each block's senders: rows name user states, and the index keeps who
   /// wrote.
   Future<List<Uint8List>> _sendersOf(
@@ -1046,7 +1072,7 @@ class ArchiveStore {
 
   /// Vocabulary ids of every word containing each of [tokens].
   Future<List<Set<int>>> wordIds(List<String> tokens) async {
-    final (joined, starts) = (await (_vocab ??= _loadVocab())).joined();
+    final (joined, starts) = (await _loadVocabCached()).joined();
     return _containingOffIsolate(joined, starts, tokens);
   }
 
@@ -1074,42 +1100,48 @@ class ArchiveStore {
         words == null && senders.isEmpty && system == null) {
       return const [];
     }
-    final where = [
-      'channel IN (${List.filled(channels.length, '?').join(', ')})',
-      if (beforeTs != null) 'start_ts <= $beforeTs',
-      if (afterTs != null) 'end_ts >= $afterTs',
-    ].join(' AND ');
-    final r = await _db.rawQuery(
-      'SELECT channel, id, start_ts, end_ts, words, senders FROM blocks '
-      'WHERE $where',
-      channels,
-    );
-    final index = await _indexOf(
-      channels,
-      r,
-      whole: beforeTs == null && afterTs == null,
-    );
-    final want = [for (final row in r) senders[row['channel']]];
-    final hit = await Isolate.run(
-      () => matchBlocks(
-        index.words,
-        index.senders,
-        words,
-        want,
-        both: both,
-        wantSystem: system,
-      ),
-    );
-    return [
-      for (var i = 0; i < r.length; i++)
-        if (hit[i])
-          (
-            channel: r[i]['channel']! as String,
-            id: r[i]['id']! as int,
-            start: r[i]['start_ts']! as int,
-            end: r[i]['end_ts']! as int,
-          ),
-    ];
+    final hits = <({String channel, int id, int start, int end})>[];
+    // SQLite caps bound parameters; stay well under it.
+    for (var i = 0; i < channels.length; i += 500) {
+      final part = channels.sublist(i, min(i + 500, channels.length));
+      final where = [
+        'channel IN (${List.filled(part.length, '?').join(', ')})',
+        if (beforeTs != null) 'start_ts <= $beforeTs',
+        if (afterTs != null) 'end_ts >= $afterTs',
+      ].join(' AND ');
+      final r = await _db.rawQuery(
+        'SELECT channel, id, start_ts, end_ts, words, senders FROM blocks '
+        'WHERE $where',
+        part,
+      );
+      final index = await _indexOf(
+        part,
+        r,
+        whole: beforeTs == null && afterTs == null,
+      );
+      final want = [for (final row in r) senders[row['channel']]];
+      final hit = await Isolate.run(
+        () => matchBlocks(
+          index.words,
+          index.senders,
+          words,
+          want,
+          both: both,
+          wantSystem: system,
+        ),
+      );
+      hits.addAll([
+        for (var j = 0; j < r.length; j++)
+          if (hit[j])
+            (
+              channel: r[j]['channel']! as String,
+              id: r[j]['id']! as int,
+              start: r[j]['start_ts']! as int,
+              end: r[j]['end_ts']! as int,
+            ),
+      ]);
+    }
+    return hits;
   }
 
   /// Decoded word and sender lists of searched blocks, by block id, with the
@@ -1179,12 +1211,19 @@ class ArchiveStore {
   /// Blocks by key, in the order given; missing keys are skipped.
   Future<List<StoredBlock>> blocksByKey(List<int> keys) async {
     if (keys.isEmpty) return const [];
-    final r = await _db.rawQuery(
-      'SELECT $_cols FROM blocks WHERE id IN '
-      '(${List.filled(keys.length, '?').join(', ')})',
-      keys,
-    );
-    final byKey = {for (final row in r) row['id']! as int: _block(row)};
+    final byKey = <int, StoredBlock>{};
+    // SQLite caps bound parameters; stay well under it.
+    for (var i = 0; i < keys.length; i += 500) {
+      final part = keys.sublist(i, min(i + 500, keys.length));
+      final r = await _db.rawQuery(
+        'SELECT $_cols FROM blocks WHERE id IN '
+        '(${List.filled(part.length, '?').join(', ')})',
+        part,
+      );
+      for (final row in r) {
+        byKey[row['id']! as int] = _block(row);
+      }
+    }
     return [for (final k in keys) ?byKey[k]];
   }
 
@@ -1792,14 +1831,15 @@ class ArchiveStore {
   Future<void>? _compacting;
 
   /// Background upkeep after a prune: merge small blocks, bake pending edits,
-  /// strip ids, index, drop users and words nothing names, then hand free
-  /// pages back.
+  /// strip ids, index, drop unused users, thread previews and words, then
+  /// hand free pages back.
   Future<void> _upkeep(DateTime now) async {
     await compact(now);
     await bakeEdits();
     await strip(now);
     await backfillWords();
     await backfillThreads();
+    await pruneThreadRoots();
     await pruneUsers();
     await pruneVocab();
     await reclaimSpace();
@@ -2393,7 +2433,13 @@ class ArchiveStore {
         'DELETE FROM blocks WHERE end_ts < ? AND NOT EXISTS ($_pinnedBlock)',
         [cutoff],
       );
-      await txn.rawDelete('DELETE FROM thread_refs WHERE ts < ?', [cutoff]);
+      // Kept days keep their threads too, as ref_ids and the rows below do.
+      await txn.rawDelete(
+        'DELETE FROM thread_refs WHERE ts < ? AND NOT EXISTS ('
+        'SELECT 1 FROM pins p WHERE p.channel = thread_refs.channel '
+        'AND p.start_ts <= thread_refs.ts AND p.end_ts >= thread_refs.ts)',
+        [cutoff],
+      );
       await txn.rawDelete(
         'DELETE FROM minute_counts WHERE minute < ? AND NOT EXISTS ('
         'SELECT 1 FROM pins p WHERE p.channel = minute_counts.channel '
