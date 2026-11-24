@@ -89,6 +89,15 @@ class EmoteUrlProvider extends ImageProvider<EmoteUrlProvider> {
   @visibleForTesting
   static Future<Uint8List> Function(String url)? debugFetchOverride;
 
+  /// Test hook for stalled or failed engine codec opens.
+  @visibleForTesting
+  static Future<ui.Codec> Function(Uint8List bytes)? debugCodecOpenOverride;
+
+  static Future<ui.Codec> _openCodec(Uint8List bytes) {
+    final override = debugCodecOpenOverride;
+    return override?.call(bytes) ?? ui.instantiateImageCodec(bytes);
+  }
+
   /// Test hook: when non-negative, the animated WebP engine stream fails after
   /// this many emitted frames, exercising the lazy compositor fallback.
   @visibleForTesting
@@ -241,6 +250,18 @@ class EmoteUrlProvider extends ImageProvider<EmoteUrlProvider> {
     final handle = _TickHandle(f, next);
     next.handles.add(handle);
     return handle;
+  }
+
+  /// One deadline timer per zone, shared by every pending engine decode.
+  static final Map<Zone, _DecodeDeadlineQueue> _decodeDeadlineQueues = {};
+
+  static Timer _runOnDecodeDeadline(Duration delay, void Function() f) {
+    final zone = Zone.current;
+    final queue = _decodeDeadlineQueues.putIfAbsent(
+      zone,
+      () => _DecodeDeadlineQueue(zone),
+    );
+    return queue.add(delay, f);
   }
 
   /// Live custom-loop completers by URL (animated WebP, playing GIFs,
@@ -521,8 +542,8 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
   bool _disposed = false;
 
   /// Guards one engine frame decode; cancelled on dispose so a stalled
-  /// engine never holds a live timer past the completer.
-  Timer? _streamTimeoutTimer;
+  /// engine never holds a live deadline past the completer.
+  Timer? _streamTimeoutHandle;
 
   /// Ideal wall time (microseconds, wall clock) the next streamed frame is
   /// due. Each window extends the previous due instead of the emit time, so
@@ -647,7 +668,7 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
   }) async {
     final ui.Codec codec;
     try {
-      codec = await _withDecodeTimeout(ui.instantiateImageCodec(bytes));
+      codec = await _withDecodeTimeout(EmoteUrlProvider._openCodec(bytes));
     } on Object catch (error) {
       if (_disposed) return;
       if (isWebp) {
@@ -1245,25 +1266,28 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
     }
   }
 
-  /// Awaits an engine decode, failing after [_streamFrameTimeout]. Tracks the
-  /// timeout timer so dispose can cancel it; a raw `.timeout`
-  /// leaves an uncancellable timer behind that outlives the completer.
+  /// Awaits an engine decode, failing after [_streamFrameTimeout]. Tracks a
+  /// shared deadline handle so dispose can cancel it without leaving a timer
+  /// behind that outlives the completer.
   Future<T> _withDecodeTimeout<T>(Future<T> future) {
     final completer = Completer<T>();
     var timedOut = false;
-    final timer = Timer(_streamFrameTimeout, () {
-      timedOut = true;
-      if (!completer.isCompleted) {
-        completer.completeError(
-          TimeoutException('emote decode stalled', _streamFrameTimeout),
-        );
-      }
-    });
-    _streamTimeoutTimer = timer;
+    final timer = EmoteUrlProvider._runOnDecodeDeadline(
+      _streamFrameTimeout,
+      () {
+        timedOut = true;
+        if (!completer.isCompleted) {
+          completer.completeError(
+            TimeoutException('emote decode stalled', _streamFrameTimeout),
+          );
+        }
+      },
+    );
+    _streamTimeoutHandle = timer;
     future.then(
       (value) {
         timer.cancel();
-        if (identical(_streamTimeoutTimer, timer)) _streamTimeoutTimer = null;
+        if (identical(_streamTimeoutHandle, timer)) _streamTimeoutHandle = null;
         if (timedOut) {
           // The watchdog already failed this decode; the caller moved on, so
           // free whatever the abandoned decode produced instead of leaking it.
@@ -1274,7 +1298,7 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
       },
       onError: (Object error, StackTrace stack) {
         timer.cancel();
-        if (identical(_streamTimeoutTimer, timer)) _streamTimeoutTimer = null;
+        if (identical(_streamTimeoutHandle, timer)) _streamTimeoutHandle = null;
         if (!completer.isCompleted) completer.completeError(error, stack);
       },
     );
@@ -1298,8 +1322,8 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
 
   /// Cancels the engine decode watchdog so it never outlives the completer.
   void _cancelStreamDecode() {
-    _streamTimeoutTimer?.cancel();
-    _streamTimeoutTimer = null;
+    _streamTimeoutHandle?.cancel();
+    _streamTimeoutHandle = null;
   }
 
   /// Replaces the failing engine WebP codec with the lazy pure-Dart compositor.
@@ -1359,7 +1383,7 @@ class _EmoteImageCompleter extends ImageStreamCompleter {
       // previous frame. At a crash seed, i resumes where the engine stopped.
       if (i == 0) compositor.resetStream();
       final ui.Codec newCodec = await _withDecodeTimeout(
-        ui.instantiateImageCodec(buildStandaloneFrameWebp(frameMeta)),
+        EmoteUrlProvider._openCodec(buildStandaloneFrameWebp(frameMeta)),
       );
       codec = newCodec;
       final hi = await _withDecodeTimeout(newCodec.getNextFrame());
@@ -1556,5 +1580,105 @@ class _TickHandle implements Timer {
     if (_callback == null) return;
     _callback = null;
     _bucket.remove(this);
+  }
+}
+
+/// Decode deadlines sharing one timer, ordered by their exact due time.
+class _DecodeDeadlineQueue {
+  _DecodeDeadlineQueue(this.zone);
+
+  final Zone zone;
+  final SplayTreeMap<int, Set<_DecodeDeadlineHandle>> _deadlines =
+      SplayTreeMap<int, Set<_DecodeDeadlineHandle>>();
+  Timer? _timer;
+  int _dueUs = 0;
+  bool _firing = false;
+
+  _DecodeDeadlineHandle add(Duration delay, void Function() callback) {
+    final dueUs = clock.now().add(delay).microsecondsSinceEpoch;
+    final handle = _DecodeDeadlineHandle(callback, this, dueUs);
+    (_deadlines[dueUs] ??= <_DecodeDeadlineHandle>{}).add(handle);
+    if (!_firing && (_timer == null || dueUs < _dueUs)) _arm(dueUs);
+    return handle;
+  }
+
+  void remove(_DecodeDeadlineHandle handle) {
+    final handles = _deadlines[handle._dueUs];
+    if (handles == null || !handles.remove(handle) || handles.isNotEmpty) {
+      return;
+    }
+    _deadlines.remove(handle._dueUs);
+    if (_firing || _dueUs != handle._dueUs) return;
+    _armNext();
+  }
+
+  void _armNext() {
+    _timer?.cancel();
+    _timer = null;
+    if (_deadlines.isEmpty) {
+      EmoteUrlProvider._decodeDeadlineQueues.remove(zone);
+      return;
+    }
+    _arm(_deadlines.firstKey()!);
+  }
+
+  void _arm(int dueUs) {
+    _timer?.cancel();
+    _dueUs = dueUs;
+    zone.run(() {
+      final nowUs = clock.now().microsecondsSinceEpoch;
+      final waitUs = dueUs > nowUs ? dueUs - nowUs : 0;
+      _timer = Timer(Duration(microseconds: waitUs), _fire);
+    });
+  }
+
+  void _fire() {
+    _timer = null;
+    _firing = true;
+    try {
+      while (_deadlines.isNotEmpty &&
+          _deadlines.firstKey()! <= clock.now().microsecondsSinceEpoch) {
+        final dueUs = _deadlines.firstKey()!;
+        final handles = _deadlines.remove(dueUs)!.toList();
+        for (final handle in handles) {
+          try {
+            handle._fire();
+          } catch (error, stack) {
+            zone.handleUncaughtError(error, stack);
+          }
+        }
+      }
+    } finally {
+      _firing = false;
+      _armNext();
+    }
+  }
+}
+
+/// One decode's slot in the shared deadline queue.
+class _DecodeDeadlineHandle implements Timer {
+  _DecodeDeadlineHandle(this._callback, this._queue, this._dueUs);
+
+  void Function()? _callback;
+  final _DecodeDeadlineQueue _queue;
+  final int _dueUs;
+
+  void _fire() {
+    final f = _callback;
+    _callback = null;
+    f?.call();
+  }
+
+  @override
+  bool get isActive => _callback != null;
+
+  @override
+  int get tick => 0;
+
+  @override
+  void cancel() {
+    if (_callback == null) return;
+    _callback = null;
+    _queue.remove(this);
   }
 }
