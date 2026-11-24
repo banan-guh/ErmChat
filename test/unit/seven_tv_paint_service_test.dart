@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:ui' show PictureRecorder;
@@ -5,12 +6,32 @@ import 'dart:ui' show PictureRecorder;
 import 'package:fake_async/fake_async.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart' show MockClient;
 import 'package:ermchat/services/cache_db.dart';
 import 'package:ermchat/services/emote_images.dart';
 import 'package:ermchat/services/seven_tv_event_client.dart';
 import 'package:ermchat/widgets/seven_tv_paint_service.dart';
 import 'package:ermchat/widgets/emote_url_provider.dart';
 import 'package:ermchat/widgets/painted_username_text.dart';
+
+/// Records closure while forwarding requests.
+class _TrackingClient extends http.BaseClient {
+  _TrackingClient(this._inner);
+
+  final http.Client _inner;
+  bool closed = false;
+
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) =>
+      _inner.send(request);
+
+  @override
+  void close() {
+    closed = true;
+    _inner.close();
+  }
+}
 
 Map<String, dynamic> _paintItem(
   String id,
@@ -387,6 +408,215 @@ void main() {
       expect(userQueries, 1, reason: 'off and on trusted the user TTL');
       service.dispose();
     });
+
+    test('an in-flight batch does not poll for pending users', () {
+      fakeAsync((async) {
+        final requests = <List<String>>[];
+        final replies = <Completer<String>>[];
+        final service = SevenTvPaintService(
+          gqlQuery: (query) async {
+            // Catalog loading is independent of user batches.
+            if (query.contains('{ paints')) return null;
+            requests.add([
+              for (final match in RegExp(
+                'platformId: "([^"]+)"',
+              ).allMatches(query))
+                match.group(1)!,
+            ]);
+            final reply = Completer<String>();
+            replies.add(reply);
+            return jsonDecode(await reply.future)['data']
+                as Map<String, dynamic>;
+          },
+        );
+        service.enabled = true;
+        async.flushMicrotasks();
+
+        service.requestUser('1');
+        expect(async.nonPeriodicTimerCount, 1);
+        async.elapse(Duration.zero);
+        async.flushMicrotasks();
+        expect(requests, [
+          ['1'],
+        ]);
+        expect(async.periodicTimerCount, 0, reason: 'the batch is in flight');
+
+        service.lookup('2');
+        service.lookup('3');
+        async.elapse(const Duration(seconds: 2));
+        async.flushMicrotasks();
+        expect(requests, hasLength(1), reason: 'an in-flight batch polled');
+        expect(async.periodicTimerCount, 0);
+
+        replies[0].complete(
+          jsonEncode({
+            'data': {
+              'users': {
+                'u0': {
+                  'style': {
+                    'activePaint': {'id': 'p1'},
+                  },
+                },
+              },
+            },
+          }),
+        );
+        async.flushMicrotasks();
+        async.elapse(const Duration(milliseconds: 250));
+        async.flushMicrotasks();
+        expect(requests, hasLength(2), reason: 'the next batch did not flush');
+        expect(requests[1], ['3', '2'], reason: 'newest users come first');
+        expect(async.nonPeriodicTimerCount, 0);
+
+        replies[1].complete(
+          jsonEncode({
+            'data': {
+              'users': {'u0': null, 'u1': null},
+            },
+          }),
+        );
+        async.flushMicrotasks();
+        expect(async.nonPeriodicTimerCount, 0, reason: 'an idle service waits');
+        service.dispose();
+      });
+    });
+
+    test('a live paint clears an earlier user lookup failure', () {
+      fakeAsync((async) {
+        late DateTime clock;
+        clock = DateTime(2026, 1, 1);
+        var userQueries = 0;
+        final service =
+            SevenTvPaintService(
+                gqlQuery: (query) async {
+                  if (query.contains('{ paints')) return null;
+                  userQueries++;
+                  return null;
+                },
+                now: () => clock,
+              )
+              ..addPaintForTesting(
+                const SevenTvPaint(
+                  id: 'p1',
+                  name: 'Known',
+                  layers: [],
+                  shadows: [],
+                ),
+              )
+              ..enabled = true;
+        async.flushMicrotasks();
+
+        service.lookup('111');
+        unawaited(service.flushForTesting());
+        expect(service.lookup('111'), isNull);
+        expect(userQueries, 1);
+
+        clock = clock.add(const Duration(minutes: 1));
+        final client = SevenTvEventClient();
+        service.bindSevenTvEvents(client);
+        client.handleRawMessage({
+          'op': 0,
+          'd': {
+            'type': 'entitlement.create',
+            'body': {
+              'object': {
+                'kind': 'PAINT',
+                'ref_id': 'p1',
+                'user': {
+                  'connections': [
+                    {'platform': 'TWITCH', 'id': '111'},
+                  ],
+                },
+              },
+            },
+          },
+        });
+        async.flushMicrotasks();
+        expect(service.lookup('111')!.name, 'Known');
+
+        clock = clock.add(const Duration(hours: 7));
+        expect(service.lookup('111')!.name, 'Known');
+        unawaited(service.flushForTesting());
+        expect(userQueries, 2, reason: 'the old failure was not cleared');
+        expect(service.lookup('111')!.name, 'Known');
+        service.dispose();
+        client.dispose();
+      });
+    });
+
+    test('a failure response also suppresses repeat lookups', () {
+      fakeAsync((async) {
+        late DateTime clock;
+        clock = DateTime(2026, 1, 1);
+        var userQueries = 0;
+        final service = SevenTvPaintService(
+          gqlQuery: (query) async {
+            if (query.contains('{ paints')) return null;
+            userQueries++;
+            return null;
+          },
+          now: () => clock,
+        )..enabled = true;
+        async.flushMicrotasks();
+
+        service.lookup('111');
+        unawaited(service.flushForTesting());
+        async.flushMicrotasks();
+        expect(userQueries, 1, reason: 'the first failure was not recorded');
+        service.lookup('111');
+        unawaited(service.flushForTesting());
+        async.flushMicrotasks();
+        expect(userQueries, 1, reason: 'a failed lookup retried immediately');
+
+        clock = clock.add(const Duration(minutes: 5));
+        service.lookup('111');
+        expect(
+          service.lookup('111'),
+          isNull,
+          reason: 'the backoff did not expire',
+        );
+        unawaited(service.flushForTesting());
+        async.flushMicrotasks();
+        expect(userQueries, 2);
+        service.dispose();
+      });
+    });
+  });
+
+  test('the default query reuses an injected HTTP client', () async {
+    final clock = DateTime(2026, 1, 1);
+    final queries = <String>[];
+    final tracked = _TrackingClient(
+      MockClient((request) async {
+        expect(request.method, 'POST');
+        expect(request.url, Uri.parse('https://7tv.io/v4/gql'));
+        expect(request.headers['Content-Type'], 'application/json');
+        final body = jsonDecode(request.body) as Map<String, dynamic>;
+        final query = body['query'] as String;
+        queries.add(query);
+        if (query.contains('paints')) {
+          return http.Response('{"data":{"paints":{"paints":[]}}}', 200);
+        }
+        expect(query, contains('{ users {'));
+        return http.Response('{"data":{"users":{"u0":null}}}', 200);
+      }),
+    );
+    final service = SevenTvPaintService(client: tracked, now: () => clock)
+      ..enabled = true
+      ..assignForTesting('111', 'p1');
+
+    await service.ensureCatalog();
+    expect(service.lookup('111'), isNull);
+    await service.flushForTesting();
+    await Future<void>.delayed(Duration.zero);
+    expect(
+      queries.length,
+      2,
+      reason: 'catalog and paint queries shared a client: $queries',
+    );
+    service.dispose();
+    expect(tracked.closed, isFalse, reason: 'a caller client was closed');
+    tracked.close();
   });
 
   // Names paint from the first row of a cold start only if both the catalog

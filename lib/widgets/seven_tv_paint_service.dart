@@ -300,7 +300,9 @@ class SevenTvPaintService extends ChangeNotifier {
       '... on PaintLayerTypeImage { images { url scale width height } } '
       '} } shadows { blur offsetX offsetY color { hex } } }';
 
-  final Future<Map<String, dynamic>?> Function(String query) _gqlQuery;
+  final http.Client _client;
+  final bool _ownsClient;
+  late final Future<Map<String, dynamic>?> Function(String query) _gqlQuery;
 
   /// Byte owner for paint images. Null leaves image paints unloaded (tests).
   final EmoteImages? _emoteImages;
@@ -435,16 +437,23 @@ class SevenTvPaintService extends ChangeNotifier {
 
   SevenTvPaintService({
     Future<Map<String, dynamic>?> Function(String query)? gqlQuery,
+    http.Client? client,
     EmoteImages? images,
     DateTime Function()? now,
     this._db,
-  }) : _gqlQuery = gqlQuery ?? _defaultGqlQuery,
+  }) : _client = client ?? http.Client(),
+       _ownsClient = client == null,
        _emoteImages = images,
-       _now = now ?? DateTime.now;
+       _now = now ?? DateTime.now {
+    _gqlQuery = gqlQuery ?? ((q) => _defaultGqlQuery(_client, q));
+  }
 
-  static Future<Map<String, dynamic>?> _defaultGqlQuery(String query) async {
+  static Future<Map<String, dynamic>?> _defaultGqlQuery(
+    http.Client client,
+    String query,
+  ) async {
     try {
-      final res = await http
+      final res = await client
           .post(
             Uri.parse(_gqlUrl),
             headers: {'Content-Type': 'application/json'},
@@ -469,6 +478,7 @@ class SevenTvPaintService extends ChangeNotifier {
         for (final userId in event.twitchUserIds) {
           _pendingDeletes.remove(userId)?.cancel();
           _assignments[userId] = (paintId: event.cosmeticId, at: _now());
+          _backoffUntil.remove(userId);
           _refreshUserNotifier(userId);
           _saveUser(userId);
         }
@@ -680,7 +690,7 @@ class SevenTvPaintService extends ChangeNotifier {
   }
 
   void _scheduleFlush([Duration delay = _batchDelay]) {
-    if (_disposed) return;
+    if (_disposed || _resolvingBatch) return;
     _flushTimer ??= Timer(delay, () {
       _flushTimer = null;
       unawaited(_flush());
@@ -688,11 +698,7 @@ class SevenTvPaintService extends ChangeNotifier {
   }
 
   Future<void> _flush() async {
-    if (_resolvingBatch) {
-      _scheduleFlush();
-      return;
-    }
-    if (!_enabled || _pendingUsers.isEmpty) return;
+    if (_resolvingBatch || !_enabled || _pendingUsers.isEmpty) return;
     // Newest requests first: the chatters on screen now, not the backlog a
     // join's history queued.
     final ids = _pendingUsers.toList().reversed.take(_maxBatchSize).toList();
@@ -731,11 +737,14 @@ class SevenTvPaintService extends ChangeNotifier {
             (style?['activePaint'] as Map<String, dynamic>?)?['id'] as String?;
         if (paintId == null || paintId.isEmpty) {
           _negative[entry.value] = now;
+          _backoffUntil.remove(entry.value);
           if (_assignments.remove(entry.value) != null) {
             changed = true;
             _saveUser(entry.value);
           }
         } else {
+          _negative.remove(entry.value);
+          _backoffUntil.remove(entry.value);
           _assignments[entry.value] = (paintId: paintId, at: now);
           unawaited(_ensurePaint(paintId));
           changed = true;
@@ -1164,6 +1173,7 @@ class SevenTvPaintService extends ChangeNotifier {
     }
     _images.clear();
     _variants.clear();
+    if (_ownsClient) _client.close();
     super.dispose();
   }
 }
