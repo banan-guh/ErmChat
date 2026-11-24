@@ -1,5 +1,4 @@
 import 'package:ermchat/composer/composer_bar.dart';
-import 'package:ermchat/l10n/l10n.dart';
 import 'package:ermchat/util/chrome_theme.dart';
 import 'package:ermchat/util/layout_density.dart';
 import 'package:ermchat/util/prefs.dart';
@@ -108,7 +107,7 @@ void main() {
     }
   });
 
-  testWidgets('compact splash stays in a fixed-height footer', (tester) async {
+  testWidgets('compact splash keeps the chat still', (tester) async {
     await pumpJoined(tester, density: LayoutDensity.compact);
     final prefs = await Prefs.load();
     final spec = ChromeTheme.ermchat.spec.copyWith(compact: true);
@@ -121,67 +120,59 @@ void main() {
     final info = chat.channelFor('testchannel')!.info;
     final input = find.byKey(inputBarKey);
     final field = find.byKey(const Key('message_input'));
-    final island = find.byKey(const ValueKey('composer_island'));
-    info.setStatus('');
-    await tester.pumpAndSettle();
-    final inputH = tester.getSize(input).height;
-    final closed = tester.getRect(island);
-    void expectClosedUnchanged() {
-      expect(tester.getSize(input).height, inputH);
-      expect(tester.getRect(island).top, closeTo(closed.top, 0.5));
-      expect(tester.getRect(island).bottom, closeTo(closed.bottom, 0.5));
-    }
+    double clearance() => IslandScope.maybeOf(
+      tester.element(find.byType(CustomScrollView).first),
+    )!.metrics.clearance(page: 'testchannel');
 
-    // The splash is its own footer line, not the field's placeholder.
+    final inputH = tester.getSize(input).height;
+
+    // The splash lives in its own footer line, not the field's placeholder.
     const short = 'Live with 1 viewer';
     info.setStatus(short, live: true);
     await tester.pumpAndSettle();
-    expectClosedUnchanged();
     expect(find.text(short), findsOneWidget);
     expect(
       tester.widget<TextField>(field).decoration!.hintText,
       isNot(short),
       reason: 'compact status is not folded into the input hint',
     );
+    expect(tester.getSize(input).height, inputH);
 
+    // Once the splash is up, its ticks must not move the chat.
+    final live = clearance();
     const long =
         'Live with 123456 viewers for 123h 59m · Slow (30s) · Followers only';
     info.setStatus(long, live: true);
     await tester.pumpAndSettle();
-    expectClosedUnchanged();
     expect(find.text(long), findsOneWidget);
+    expect(
+      clearance(),
+      closeTo(live, 0.5),
+      reason: 'the chat does not drift when the splash text changes',
+    );
+    info.setStatus('Live with 7 viewers', live: true);
+    await tester.pumpAndSettle();
+    expect(clearance(), closeTo(live, 0.5));
 
-    // Typing keeps the splash visible.
+    // Typing keeps the splash visible and the chat still.
     await tester.tap(field);
     await tester.enterText(field, 'hello');
     await tester.pumpAndSettle();
-    expect(find.text(long), findsOneWidget);
-    expectClosedUnchanged();
-
-    // A retry line may add its own row, but splash ticks do not move it.
-    chat.recordLoadFailure('testchannel', 'emotes');
-    await tester.pumpAndSettle();
-    expect(find.text(home.l10n.retryFailedEmotes), findsOneWidget);
-    final failed = tester.getRect(island);
-    info.setStatus('$long · Unique chat', live: true);
-    await tester.pumpAndSettle();
-    expect(tester.getRect(island).top, closeTo(failed.top, 0.5));
-    expect(tester.getRect(island).bottom, closeTo(failed.bottom, 0.5));
+    expect(find.text('Live with 7 viewers'), findsOneWidget);
+    expect(clearance(), closeTo(live, 0.5));
 
     // The same holds with the keyboard open.
-    await tester.tap(field);
     await tester.pump();
     for (final kb in <double>[100, 200, 300]) {
       tester.view.viewInsets = FakeViewPadding(bottom: kb);
       await tester.pump(const Duration(milliseconds: 16));
     }
     await tester.pump(const Duration(milliseconds: 400));
-    final open = tester.getRect(island);
+    final open = clearance();
     info.setStatus('Live with 7 viewers for 2h 3m', live: true);
     await tester.pump(const Duration(milliseconds: 300));
     expect(tester.getSize(input).height, inputH);
-    expect(tester.getRect(island).top, closeTo(open.top, 0.5));
-    expect(tester.getRect(island).bottom, closeTo(open.bottom, 0.5));
+    expect(clearance(), closeTo(open, 0.5));
   });
 
   // A softlock: with the view menu in the row or the field, hiding the input

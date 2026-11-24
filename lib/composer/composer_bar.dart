@@ -549,8 +549,8 @@ class ComposerStatusRow extends StatelessWidget {
   /// and eases in over a longer beat.
   final bool classic;
 
-  /// Compact layouts reserve one status line so a changing splash never
-  /// resizes the island. The splash still shows here, not in the field hint.
+  /// Compact layouts snap the footer height instead of animating it, so the
+  /// measured footer and each page's predicted footer agree in one frame.
   final bool compact;
 
   @override
@@ -593,16 +593,11 @@ double composerStatusHeight(
   ComposerController controller,
   String channel, {
   bool modeRow = false,
-  bool compact = false,
   bool hidden = false,
 }) {
   if (hidden) return 0;
   final lines = _statusLines(context, controller, channel, modeRow: modeRow);
-  return _statusRowHeight(
-    lines,
-    _statusLineHeight(context),
-    reserved: _reservedStatusSlot(context, compact: compact),
-  );
+  return _statusRowHeight(lines, _statusLineHeight(context));
 }
 
 /// What the status row shows for [channel]: its status line (portrait only;
@@ -623,14 +618,6 @@ double composerStatusHeight(
   );
 }
 
-/// Compact portrait keeps one line for the status even when it is empty, so a
-/// splash arriving, leaving or ticking never changes the island's height.
-double _reservedStatusSlot(BuildContext context, {required bool compact}) {
-  if (!compact) return 0;
-  if (MediaQuery.orientationOf(context) == Orientation.landscape) return 0;
-  return _statusLineHeight(context);
-}
-
 /// One status line's height: its text and the gap under it.
 double _statusLineHeight(BuildContext context) {
   final line = TextPainter(
@@ -644,14 +631,11 @@ double _statusLineHeight(BuildContext context) {
   return h;
 }
 
-double _statusRowHeight(
-  ({String status, bool failed}) lines,
-  double lineH, {
-  double reserved = 0,
-}) {
-  final statusH = lines.status.isEmpty ? reserved : lineH;
-  if (statusH == 0 && !lines.failed) return 0;
-  return statusH + (lines.failed ? lineH : 0) + _statusFoot;
+double _statusRowHeight(({String status, bool failed}) lines, double lineH) {
+  if (lines.status.isEmpty && !lines.failed) return 0;
+  return (lines.status.isEmpty ? 0 : lineH) +
+      (lines.failed ? lineH : 0) +
+      _statusFoot;
 }
 
 /// The status line's text: the stream part alone when the room modes ride
@@ -696,13 +680,18 @@ class _StatusRow extends StatelessWidget {
     selectedTabIndex: selectedTabIndex,
     builder: (context) {
       final channel = controller.selectedChannel;
+      final child = channel == null
+          ? const SizedBox.shrink()
+          : _lines(context, channel);
+      // Compact snaps instead of animating. The measured footer and a page's
+      // predicted footer then change in the same frame, so the chat stays put
+      // while a splash grows, shrinks or ticks.
+      if (compact) return child;
       return AnimatedSize(
         duration: Motion.fast,
         curve: Motion.move,
         alignment: Alignment.topCenter,
-        child: channel == null
-            ? const SizedBox.shrink()
-            : _lines(context, channel),
+        child: child,
       );
     },
   );
@@ -710,21 +699,19 @@ class _StatusRow extends StatelessWidget {
   Widget _lines(BuildContext context, String channel) {
     final lines = _statusLines(context, controller, channel, modeRow: modeRow);
     final lineH = _statusLineHeight(context);
-    final reserved = _reservedStatusSlot(context, compact: compact);
-    final statusH = lines.status.isEmpty ? reserved : lineH;
     // Sized by the same numbers [composerStatusHeight] predicts, so a page
     // placed for this island matches it exactly.
     return SizedBox(
-      height: _statusRowHeight(lines, lineH, reserved: reserved),
+      height: _statusRowHeight(lines, lineH),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: classic
             ? CrossAxisAlignment.start
             : CrossAxisAlignment.center,
         children: [
-          if (statusH > 0)
+          if (lines.status.isNotEmpty)
             SizedBox(
-              height: statusH,
+              height: lineH,
               child: Padding(
                 padding: EdgeInsets.only(
                   left: classic ? 20 : 12,

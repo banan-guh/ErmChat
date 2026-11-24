@@ -1945,7 +1945,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     _composer,
     channel,
     modeRow: _modeRow,
-    compact: (_layoutEdit?.draft ?? _chromeTheme).compact,
     hidden: composerStatusHidden(_search),
   );
 
