@@ -51,6 +51,7 @@ Skipped from the survey: emoji picker (the keyboard has one), follow/unfollow (T
 - [ ] **Documentation** - architecture, data flow, key design decisions, non-obvious logic.
 - [+] **Service status screen** - live socket state plus manual pings for Twitch, 7TV, BTTV, FFZ and recent messages.
 - [ ] **7TV delta rebuild cost** - each live event rebuilds the channel's merged set.
+- [ ] **TTS native startup cost** - flutter_tts binds Android's engine during plugin attachment even while TTS is off.
 - [*] **Update AGENTS.md periodically** - not a checklist, just a chore, reminder.
 
 ## Bugs
