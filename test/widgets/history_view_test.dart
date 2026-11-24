@@ -1446,7 +1446,7 @@ void main() {
     expect(flashes, [0, 0], reason: 'the button flashed during a switch');
   });
 
-  testWidgets('an inactive page defers archive reads until focused', (
+  testWidgets('a quiet inactive page has rows before first focus', (
     tester,
   ) async {
     final source = _ListSource.small(6);
@@ -1459,13 +1459,42 @@ void main() {
       activeListenable: active,
     );
 
+    expect(
+      _tile('small-5'),
+      findsOneWidget,
+      reason: 'the first focused frame must not paint an empty page',
+    );
+    expect(source.newestReads, 1);
+    expect(source.streamReads, 0, reason: 'an offstage page read streams');
+
+    active.value = true;
+    await _settle(tester);
+
+    expect(_tile('small-5'), findsOneWidget);
+    expect(source.streamReads, 1);
+  });
+
+  testWidgets('an inactive live page skips archive reads until focused', (
+    tester,
+  ) async {
+    final source = _ListSource.small(6);
+    final liveRows = source.rows.reversed.take(2).toList();
+    final active = ValueNotifier(false);
+    addTearDown(active.dispose);
+    await _pumpView(
+      tester,
+      source: source,
+      live: () => liveRows,
+      activeListenable: active,
+    );
+
+    expect(_tile('small-5'), findsOneWidget, reason: 'live rows paint at once');
     expect(source.newestReads, 0, reason: 'an offstage page read the archive');
     expect(source.streamReads, 0, reason: 'an offstage page read streams');
 
     active.value = true;
     await _settle(tester);
 
-    expect(source.newestReads, greaterThan(0));
     expect(source.streamReads, 1);
   });
 

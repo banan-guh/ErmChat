@@ -552,7 +552,9 @@ class _HistoryViewState extends State<HistoryView> {
         });
       }
     }
-    if (!_readingStarted && widget.active) {
+    // Quiet pages preload offstage so first focus never paints empty. Live
+    // pages attach their buffer without touching the archive.
+    if (!_readingStarted) {
       _readingStarted = true;
       _start();
     }
@@ -563,12 +565,9 @@ class _HistoryViewState extends State<HistoryView> {
     super.didUpdateWidget(old);
     // A jump that arrived while this page was offstage lands now.
     if (!old.active && widget.active) {
-      if (_readingStarted) {
-        _onJumpRequest();
-      } else {
-        _readingStarted = true;
-        _start();
-      }
+      _onJumpRequest();
+      _loadStreams();
+      _scheduleMaintain();
     }
     if (old.compact != widget.compact) {
       if (old.compact) {
@@ -1216,10 +1215,14 @@ class _HistoryViewState extends State<HistoryView> {
     _hold = null;
     final sw = Stopwatch()..start();
     final source = widget.source;
-    // With a live buffer the newest rows are on hand; history prepends as it
-    // reads, so the archive never holds up live chat.
+    // With live rows in the buffer the newest rows are on hand; history
+    // prepends as it reads, so the archive never holds up live chat.
+    final liveRows = widget.live?.call();
     final liveFirst =
-        widget.liveFirst && time == null && rows == null && widget.live != null;
+        widget.liveFirst &&
+        time == null &&
+        rows == null &&
+        (liveRows?.isNotEmpty ?? false);
     final ready = time == null && rows == null && !_loaded
         ? widget.newestRows
         : null;
